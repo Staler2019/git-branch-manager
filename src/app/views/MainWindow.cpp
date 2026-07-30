@@ -210,6 +210,17 @@ void MainWindow::buildUi() {
 
     stack_->addWidget(repoPage);
 
+    // --- page 2: working copy -------------------------------------------------
+    workingCopyView_ = new WorkingCopyView(this);
+    connect(workingCopyView_, &WorkingCopyView::statusMessage, this, [this](const QString& text) {
+        statusLabel_->setText(text);
+    });
+    connect(workingCopyView_,
+            &WorkingCopyView::errorOccurred,
+            this,
+            [this](const QString& summary, const GitError& error) { showError(summary, error); });
+    stack_->addWidget(workingCopyView_);
+
     // --- status bar ----------------------------------------------------------
     statusLabel_ = new QLabel(QStringLiteral("Ready"), this);
     busyBar_ = new QProgressBar(this);
@@ -253,11 +264,20 @@ void MainWindow::buildMenus() {
         QStringLiteral("Switch to selected branch"), this, &MainWindow::onCheckoutRequested);
     checkoutAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+O")));
 
+    auto* historyAction =
+        viewMenu->addAction(QStringLiteral("History"), this, &MainWindow::onShowHistory);
+    historyAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+1")));
+    auto* workingCopyAction =
+        viewMenu->addAction(QStringLiteral("Working Copy"), this, &MainWindow::onShowWorkingCopy);
+    workingCopyAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+2")));
+
     auto* toolBar = addToolBar(QStringLiteral("Main"));
     toolBar->setMovable(false);
     toolBar->addAction(refreshAction);
     toolBar->addAction(
         QStringLiteral("Repositories"), this, [this] { stack_->setCurrentIndex(0); });
+    toolBar->addAction(historyAction);
+    toolBar->addAction(workingCopyAction);
 }
 
 void MainWindow::loadInitialState() {
@@ -361,6 +381,23 @@ void MainWindow::onCancelScan() {
     statusLabel_->setText(QStringLiteral("Cancelling scan…"));
 }
 
+void MainWindow::onShowHistory() {
+    if (session_) {
+        stack_->setCurrentIndex(1);
+    }
+}
+
+void MainWindow::onShowWorkingCopy() {
+    if (!session_) {
+        return;
+    }
+    stack_->setCurrentIndex(2);
+    // The working-copy panel can go stale while the user is elsewhere -- a
+    // checkout, for instance, does not refresh it -- so ask for a fresh read
+    // on every visit rather than trying to track every place that could.
+    session_->refreshWorkingCopyStatus();
+}
+
 void MainWindow::onRepoActivated(const QModelIndex& index) {
     if (const RepoRecord* record = repoModel_->repoAt(index.row())) {
         openRepository(*record);
@@ -397,6 +434,7 @@ void MainWindow::openRepository(const RepoRecord& record) {
 
     commitModel_->setSession(session_.get());
     diffView_->clearDiff();
+    workingCopyView_->setSession(session_.get());
 
     setWindowTitle(QStringLiteral("%1 — git-branch-manager").arg(session_->displayName()));
     stack_->setCurrentIndex(1);
@@ -416,6 +454,7 @@ void MainWindow::closeRepository() {
     commitModel_->setSession(nullptr);
     refModel_->setRefs(nullptr);
     diffView_->clearDiff();
+    workingCopyView_->setSession(nullptr);
     session_.reset();
     setWindowTitle(QStringLiteral("git-branch-manager"));
     stack_->setCurrentIndex(0);

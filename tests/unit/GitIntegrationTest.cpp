@@ -13,8 +13,11 @@
 #include "core/git/OperationRunner.h"
 #include "core/git/RefStore.h"
 #include "core/git/RepoState.h"
+#include "core/git/WorkingCopyStatus.h"
 #include "core/git/ops/BranchOps.h"
 #include "core/git/ops/CheckoutOp.h"
+#include "core/git/ops/CommitOps.h"
+#include "core/git/ops/StageOps.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -593,6 +596,374 @@ TEST_F(RealRepoTest, ReadsUnicodeAndSpacedPathsCorrectly) {
     ASSERT_TRUE(files);
     ASSERT_EQ((*files)->size(), 1u);
     EXPECT_EQ((*files)->at(0).path, "caf\xc3\xa9 menu.txt");
+}
+
+// --- M1: working-copy status, staging and commit ---------------------------
+
+TEST_F(RealRepoTest, WorkingCopyStatusReportsStagedUnstagedAndUntracked) {
+    commitFile("a.txt", "one\n", "c1");
+
+    // A staged modification with a further unstaged edit on top of it.
+    {
+        std::ofstream out(repo_ / "a.txt");
+        out << "one\nstaged\n";
+    }
+    ASSERT_TRUE(run({"add", "a.txt"}));
+    {
+        std::ofstream out(repo_ / "a.txt", std::ios::app);
+        out << "unstaged\n";
+    }
+
+    // An untracked file, never added.
+    {
+        std::ofstream out(repo_ / "new.txt");
+        out << "new\n";
+    }
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status) << status.error().message;
+
+    ASSERT_EQ((*status)->entries.size(), 2u);
+
+    const auto staged = (*status)->staged();
+    ASSERT_EQ(staged.size(), 1u);
+    EXPECT_EQ(staged[0]->path, "a.txt");
+    EXPECT_TRUE(staged[0]->staged);
+    EXPECT_TRUE(staged[0]->hasUnstagedChange);
+    EXPECT_EQ(staged[0]->indexStatus, FileChangeKind::Modified);
+    EXPECT_EQ(staged[0]->worktreeStatus, FileChangeKind::Modified);
+
+    const auto untracked = (*status)->untracked();
+    ASSERT_EQ(untracked.size(), 1u);
+    EXPECT_EQ(untracked[0]->path, "new.txt");
+    EXPECT_TRUE(untracked[0]->untracked);
+}
+
+TEST_F(RealRepoTest, WorkingCopyStatusDetectsARenameStagedForCommit) {
+    commitFile("original.txt", "line1\nline2\nline3\nline4\nline5\n", "c1");
+    ASSERT_TRUE(run({"mv", "original.txt", "renamed.txt"}));
+    ASSERT_TRUE(run({"add", "-A"}));
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status) << status.error().message;
+
+    ASSERT_EQ((*status)->entries.size(), 1u);
+    const WorkingCopyEntry& entry = (*status)->entries[0];
+    EXPECT_TRUE(entry.staged);
+    EXPECT_EQ(entry.indexStatus, FileChangeKind::Renamed);
+    EXPECT_EQ(entry.oldPath, "original.txt");
+    EXPECT_EQ(entry.path, "renamed.txt");
+    EXPECT_GT(entry.similarity, 0);
+}
+
+TEST_F(RealRepoTest, WorkingCopyStatusReportsWhichSideOfAConflictEachFileIsOn) {
+    commitFile("shared.txt", "base\n", "base");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "left"}));
+    commitFile("shared.txt", "left change\n", "left");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("shared.txt", "right change\n", "right");
+
+    auto merge = run({"merge", "--no-commit", "left"});
+    EXPECT_FALSE(merge) << "the merge was expected to conflict";
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status) << status.error().message;
+
+    const auto conflicted = (*status)->conflicted();
+    ASSERT_EQ(conflicted.size(), 1u);
+    EXPECT_EQ(conflicted[0]->path, "shared.txt");
+    EXPECT_EQ(conflicted[0]->conflict, ConflictKind::BothModified);
+    EXPECT_TRUE((*status)->staged().empty())
+        << "a conflicted entry must not also be reported as an ordinary staged change";
+
+    ASSERT_TRUE(run({"merge", "--abort"}));
+}
+
+TEST_F(RealRepoTest, StagesAndUnstagesAWholeFile) {
+    commitFile("a.txt", "one\n", "c1");
+    {
+        std::ofstream out(repo_ / "a.txt");
+        out << "one\ntwo\n";
+    }
+
+    OperationRunner operations(*runner_, paths_);
+    auto submitAndWait = [&operations](std::unique_ptr<Operation> operation) {
+        OperationOutcome outcome;
+        operations.submit(std::move(operation),
+                          [&outcome](OperationOutcome result) { outcome = std::move(result); });
+        operations.drain();
+        return outcome;
+    };
+
+    StageFilesRequest stageRequest;
+    stageRequest.paths = {"a.txt"};
+    auto staged = submitAndWait(makeStageFilesOperation(stageRequest));
+    ASSERT_TRUE(staged.succeeded) << (staged.error ? staged.error->detail : "");
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto afterStage = reader.read(CancellationToken{});
+    ASSERT_TRUE(afterStage);
+    ASSERT_EQ((*afterStage)->entries.size(), 1u);
+    EXPECT_TRUE((*afterStage)->entries[0].staged);
+    EXPECT_FALSE((*afterStage)->entries[0].hasUnstagedChange);
+
+    UnstageFilesRequest unstageRequest;
+    unstageRequest.paths = {"a.txt"};
+    auto unstaged = submitAndWait(makeUnstageFilesOperation(unstageRequest));
+    ASSERT_TRUE(unstaged.succeeded) << (unstaged.error ? unstaged.error->detail : "");
+
+    auto afterUnstage = reader.read(CancellationToken{});
+    ASSERT_TRUE(afterUnstage);
+    ASSERT_EQ((*afterUnstage)->entries.size(), 1u);
+    EXPECT_FALSE((*afterUnstage)->entries[0].staged);
+    EXPECT_TRUE((*afterUnstage)->entries[0].hasUnstagedChange);
+}
+
+TEST_F(RealRepoTest, StagesAndUnstagesOneHunkWithoutTouchingItsNeighbour) {
+    std::string original;
+    for (int i = 1; i <= 20; ++i) {
+        original += "l" + std::to_string(i) + "\n";
+    }
+    commitFile("a.txt", original, "c1");
+
+    // Two edits far enough apart that they land in separate hunks under the
+    // default 3-line context.
+    std::string modified;
+    for (int i = 1; i <= 20; ++i) {
+        if (i == 2) {
+            modified += "L2\n";
+        } else if (i == 18) {
+            modified += "L18\n";
+        } else {
+            modified += "l" + std::to_string(i) + "\n";
+        }
+    }
+    {
+        std::ofstream out(repo_ / "a.txt");
+        out << modified;
+    }
+
+    DiffService diffs(*runner_, paths_);
+    auto unstagedDiff = diffs.workingTreeDiff(false, {}, DiffOptions{}, CancellationToken{});
+    ASSERT_TRUE(unstagedDiff) << unstagedDiff.error().message;
+    ASSERT_EQ((*unstagedDiff)->files.size(), 1u);
+    ASSERT_EQ((*unstagedDiff)->files[0].hunks.size(), 2u)
+        << "the two edits must land in separate hunks for this test to be meaningful";
+
+    const std::string stagePatch =
+        UnifiedDiffParser::buildHunkPatch((*unstagedDiff)->files[0], (*unstagedDiff)->files[0].hunks[0]);
+
+    OperationRunner operations(*runner_, paths_);
+    auto submitAndWait = [&operations](std::unique_ptr<Operation> operation) {
+        OperationOutcome outcome;
+        operations.submit(std::move(operation),
+                          [&outcome](OperationOutcome result) { outcome = std::move(result); });
+        operations.drain();
+        return outcome;
+    };
+
+    ApplyPatchRequest stageRequest;
+    stageRequest.patch = stagePatch;
+    auto staged = submitAndWait(makeApplyPatchOperation(stageRequest));
+    ASSERT_TRUE(staged.succeeded) << (staged.error ? staged.error->detail : "");
+
+    auto indexContent = run({"show", ":a.txt"});
+    ASSERT_TRUE(indexContent);
+    EXPECT_NE(indexContent->out.find("L2"), std::string::npos);
+    EXPECT_EQ(indexContent->out.find("L18"), std::string::npos)
+        << "only the staged hunk's change should have reached the index";
+
+    auto remainingUnstaged = diffs.workingTreeDiff(false, {}, DiffOptions{}, CancellationToken{});
+    ASSERT_TRUE(remainingUnstaged);
+    ASSERT_EQ((*remainingUnstaged)->files.size(), 1u);
+    ASSERT_EQ((*remainingUnstaged)->files[0].hunks.size(), 1u)
+        << "the unstaged hunk must still be sitting in the work tree";
+
+    // Unstage it again, this time building the patch from the *staged* diff.
+    auto stagedDiff = diffs.workingTreeDiff(true, {}, DiffOptions{}, CancellationToken{});
+    ASSERT_TRUE(stagedDiff);
+    ASSERT_EQ((*stagedDiff)->files[0].hunks.size(), 1u);
+    const std::string unstagePatch =
+        UnifiedDiffParser::buildHunkPatch((*stagedDiff)->files[0], (*stagedDiff)->files[0].hunks[0]);
+
+    ApplyPatchRequest unstageRequest;
+    unstageRequest.patch = unstagePatch;
+    unstageRequest.reverse = true;
+    auto unstaged = submitAndWait(makeApplyPatchOperation(unstageRequest));
+    ASSERT_TRUE(unstaged.succeeded) << (unstaged.error ? unstaged.error->detail : "");
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto finalStatus = reader.read(CancellationToken{});
+    ASSERT_TRUE(finalStatus);
+    EXPECT_TRUE((*finalStatus)->staged().empty());
+    EXPECT_FALSE((*finalStatus)->unstaged().empty());
+}
+
+TEST_F(RealRepoTest, StagesOnlySelectedLinesWithinAHunk) {
+    commitFile("b.txt", "keep\n", "c1");
+    {
+        std::ofstream out(repo_ / "b.txt");
+        out << "keep\nalpha\nbeta\n";
+    }
+
+    DiffService diffs(*runner_, paths_);
+    auto diff = diffs.workingTreeDiff(false, {}, DiffOptions{}, CancellationToken{});
+    ASSERT_TRUE(diff) << diff.error().message;
+    ASSERT_EQ((*diff)->files.size(), 1u);
+    ASSERT_EQ((*diff)->files[0].hunks.size(), 1u);
+
+    const DiffHunk& hunk = (*diff)->files[0].hunks[0];
+    std::vector<bool> selected(hunk.lines.size(), false);
+    for (std::size_t i = 0; i < hunk.lines.size(); ++i) {
+        if (hunk.lines[i].kind == DiffLineKind::Added && hunk.lines[i].text == "alpha") {
+            selected[i] = true;
+        }
+    }
+
+    const std::string patch =
+        UnifiedDiffParser::buildLineSelectionPatch((*diff)->files[0], hunk, selected);
+
+    OperationRunner operations(*runner_, paths_);
+    ApplyPatchRequest request;
+    request.patch = patch;
+    OperationOutcome outcome;
+    operations.submit(makeApplyPatchOperation(request),
+                      [&outcome](OperationOutcome result) { outcome = std::move(result); });
+    operations.drain();
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    auto indexContent = run({"show", ":b.txt"});
+    ASSERT_TRUE(indexContent);
+    EXPECT_NE(indexContent->out.find("alpha"), std::string::npos);
+    EXPECT_EQ(indexContent->out.find("beta"), std::string::npos)
+        << "the unselected line must not have been staged";
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status);
+    EXPECT_FALSE((*status)->staged().empty());
+    EXPECT_FALSE((*status)->unstaged().empty())
+        << "the unselected line must still be sitting unstaged";
+}
+
+TEST_F(RealRepoTest, CommitsStagedChanges) {
+    commitFile("a.txt", "one\n", "c1");
+    {
+        std::ofstream out(repo_ / "a.txt");
+        out << "one\ntwo\n";
+    }
+    ASSERT_TRUE(run({"add", "a.txt"}));
+
+    OperationRunner operations(*runner_, paths_);
+    CommitRequest request;
+    request.message = "Add second line";
+    OperationOutcome outcome;
+    operations.submit(makeCommitOperation(request),
+                      [&outcome](OperationOutcome result) { outcome = std::move(result); });
+    operations.drain();
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    auto subject = run({"log", "-1", "--format=%s"});
+    ASSERT_TRUE(subject);
+    EXPECT_EQ(subject->out, "Add second line");
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status);
+    EXPECT_TRUE((*status)->isClean());
+}
+
+TEST_F(RealRepoTest, AmendsTheLastCommitKeepingItsMessageByDefault) {
+    commitFile("a.txt", "one\n", "original message");
+    {
+        std::ofstream out(repo_ / "a.txt");
+        out << "one\ntwo\n";
+    }
+    ASSERT_TRUE(run({"add", "a.txt"}));
+
+    OperationRunner operations(*runner_, paths_);
+    CommitRequest request;
+    request.amend = true;  // No message: keep the existing one (--no-edit).
+    OperationOutcome outcome;
+    operations.submit(makeCommitOperation(request),
+                      [&outcome](OperationOutcome result) { outcome = std::move(result); });
+    operations.drain();
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    auto count = run({"rev-list", "--count", "HEAD"});
+    ASSERT_TRUE(count);
+    EXPECT_EQ(count->out, "1") << "amend must not create a second commit";
+
+    auto subject = run({"log", "-1", "--format=%s"});
+    ASSERT_TRUE(subject);
+    EXPECT_EQ(subject->out, "original message");
+}
+
+TEST_F(RealRepoTest, AmendsTheLastCommitWithANewMessage) {
+    commitFile("a.txt", "one\n", "original message");
+
+    OperationRunner operations(*runner_, paths_);
+    CommitRequest request;
+    request.amend = true;
+    request.message = "corrected message";
+    OperationOutcome outcome;
+    operations.submit(makeCommitOperation(request),
+                      [&outcome](OperationOutcome result) { outcome = std::move(result); });
+    operations.drain();
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    auto count = run({"rev-list", "--count", "HEAD"});
+    ASSERT_TRUE(count);
+    EXPECT_EQ(count->out, "1");
+
+    auto subject = run({"log", "-1", "--format=%s"});
+    ASSERT_TRUE(subject);
+    EXPECT_EQ(subject->out, "corrected message");
+}
+
+TEST_F(RealRepoTest, RejectsAnEmptyCommitMessageBeforeRunningGit) {
+    commitFile("a.txt", "one\n", "c1");
+    {
+        std::ofstream out(repo_ / "a.txt");
+        out << "one\ntwo\n";
+    }
+    ASSERT_TRUE(run({"add", "a.txt"}));
+
+    OperationRunner operations(*runner_, paths_);
+    CommitRequest request;
+    request.message = "   ";
+    OperationOutcome outcome;
+    operations.submit(makeCommitOperation(request),
+                      [&outcome](OperationOutcome result) { outcome = std::move(result); });
+    operations.drain();
+
+    EXPECT_FALSE(outcome.succeeded);
+    ASSERT_TRUE(outcome.error.has_value());
+    EXPECT_EQ(outcome.error->code, GitError::Code::InvalidArgument);
+
+    // Nothing must have been committed.
+    auto count = run({"rev-list", "--count", "HEAD"});
+    ASSERT_TRUE(count);
+    EXPECT_EQ(count->out, "1");
+}
+
+TEST_F(RealRepoTest, RefusesToCommitWhenNothingIsStaged) {
+    commitFile("a.txt", "one\n", "c1");
+
+    OperationRunner operations(*runner_, paths_);
+    CommitRequest request;
+    request.message = "should not be created";
+    OperationOutcome outcome;
+    operations.submit(makeCommitOperation(request),
+                      [&outcome](OperationOutcome result) { outcome = std::move(result); });
+    operations.drain();
+
+    EXPECT_FALSE(outcome.succeeded);
+    ASSERT_TRUE(outcome.error.has_value());
+    EXPECT_EQ(outcome.error->code, GitError::Code::InvalidArgument);
 }
 
 }  // namespace

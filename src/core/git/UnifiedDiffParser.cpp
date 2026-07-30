@@ -401,4 +401,71 @@ std::string UnifiedDiffParser::buildHunkPatch(const DiffFile& file,
     return patch;
 }
 
+std::string UnifiedDiffParser::buildLineSelectionPatch(const DiffFile& file,
+                                                        const DiffHunk& hunk,
+                                                        const std::vector<bool>& selected) {
+    const std::string& oldPath = file.oldPath.empty() ? file.newPath : file.oldPath;
+    const std::string& newPath = file.newPath.empty() ? file.oldPath : file.newPath;
+
+    struct EmittedLine {
+        char marker;
+        const std::string* text;
+    };
+    std::vector<EmittedLine> body;
+    body.reserve(hunk.lines.size());
+
+    std::uint32_t oldCount = 0;
+    std::uint32_t newCount = 0;
+    for (std::size_t i = 0; i < hunk.lines.size(); ++i) {
+        const DiffLine& line = hunk.lines[i];
+        const bool isSelected = i < selected.size() && selected[i];
+        switch (line.kind) {
+            case DiffLineKind::Context:
+                body.push_back({' ', &line.text});
+                ++oldCount;
+                ++newCount;
+                break;
+            case DiffLineKind::Added:
+                if (isSelected) {
+                    body.push_back({'+', &line.text});
+                    ++newCount;
+                }
+                // Not selected: the line was never staged, so it is simply
+                // omitted rather than turned into context.
+                break;
+            case DiffLineKind::Removed:
+                if (isSelected) {
+                    body.push_back({'-', &line.text});
+                    ++oldCount;
+                } else {
+                    // Not selected: the line is not being removed, so from the
+                    // patch's point of view it survives unchanged.
+                    body.push_back({' ', &line.text});
+                    ++oldCount;
+                    ++newCount;
+                }
+                break;
+            case DiffLineKind::NoNewlineMarker:
+                body.push_back({'\\', &line.text});
+                break;
+        }
+    }
+
+    std::string patch;
+    patch += "diff --git a/" + oldPath + " b/" + newPath + "\n";
+    patch += "--- a/" + oldPath + "\n";
+    patch += "+++ b/" + newPath + "\n";
+    patch += "@@ -" + std::to_string(hunk.oldStart) + "," + std::to_string(oldCount) + " +" +
+             std::to_string(hunk.newStart) + "," + std::to_string(newCount) + " @@\n";
+
+    for (const EmittedLine& emitted : body) {
+        if (emitted.marker == '\\') {
+            patch += "\\ No newline at end of file\n";
+        } else {
+            patch += emitted.marker + *emitted.text + "\n";
+        }
+    }
+    return patch;
+}
+
 }  // namespace gbm

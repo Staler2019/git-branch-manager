@@ -17,8 +17,11 @@ add_library(gbm_core STATIC
     git/RefStore.cpp
     git/RepoState.cpp
     git/UnifiedDiffParser.cpp
+    git/WorkingCopyStatus.cpp
     git/ops/BranchOps.cpp
     git/ops/CheckoutOp.cpp
+    git/ops/CommitOps.cpp
+    git/ops/StageOps.cpp
 
     graph/GraphAsciiRenderer.cpp
     graph/GraphBuilder.cpp

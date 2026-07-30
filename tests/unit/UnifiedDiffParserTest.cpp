@@ -343,5 +343,86 @@ TEST(UnifiedDiffParser, BuildHunkPatchSwapsSidesWhenReversed) {
     EXPECT_NE(reversed.find("-added"), std::string::npos) << reversed;
 }
 
+TEST(UnifiedDiffParser, LineSelectionPatchDropsUnselectedAdditions) {
+    const std::string diff =
+        "diff --git a/f.txt b/f.txt\n"
+        "--- a/f.txt\n"
+        "+++ b/f.txt\n"
+        "@@ -1,2 +1,4 @@\n"
+        " keep\n"
+        "+wanted\n"
+        "+unwanted\n"
+        " keep2\n";
+
+    const ParsedDiff parsed = UnifiedDiffParser{}.parse(diff);
+    const DiffHunk& hunk = parsed.files[0].hunks[0];
+    ASSERT_EQ(hunk.lines.size(), 4u);
+
+    // Only line index 1 ("+wanted") is selected.
+    std::vector<bool> selected(hunk.lines.size(), false);
+    selected[1] = true;
+
+    const std::string patch =
+        UnifiedDiffParser::buildLineSelectionPatch(parsed.files[0], hunk, selected);
+
+    EXPECT_NE(patch.find("+wanted"), std::string::npos) << patch;
+    EXPECT_EQ(patch.find("+unwanted"), std::string::npos) << patch;
+    // Two context lines plus the one selected addition.
+    EXPECT_NE(patch.find("@@ -1,2 +1,3 @@"), std::string::npos) << patch;
+}
+
+TEST(UnifiedDiffParser, LineSelectionPatchTurnsUnselectedRemovalsIntoContext) {
+    const std::string diff =
+        "diff --git a/f.txt b/f.txt\n"
+        "--- a/f.txt\n"
+        "+++ b/f.txt\n"
+        "@@ -1,4 +1,2 @@\n"
+        " keep\n"
+        "-wanted gone\n"
+        "-unwanted gone\n"
+        " keep2\n";
+
+    const ParsedDiff parsed = UnifiedDiffParser{}.parse(diff);
+    const DiffHunk& hunk = parsed.files[0].hunks[0];
+    ASSERT_EQ(hunk.lines.size(), 4u);
+
+    // Only line index 1 ("-wanted gone") is selected for removal.
+    std::vector<bool> selected(hunk.lines.size(), false);
+    selected[1] = true;
+
+    const std::string patch =
+        UnifiedDiffParser::buildLineSelectionPatch(parsed.files[0], hunk, selected);
+
+    EXPECT_NE(patch.find("-wanted gone"), std::string::npos) << patch;
+    // The unselected removal must survive as context, not vanish or stay removed.
+    EXPECT_NE(patch.find(" unwanted gone"), std::string::npos) << patch;
+    EXPECT_EQ(patch.find("-unwanted gone"), std::string::npos) << patch;
+    // Three old-side lines (one removed + two context), two new-side lines.
+    EXPECT_NE(patch.find("@@ -1,4 +1,3 @@"), std::string::npos) << patch;
+}
+
+TEST(UnifiedDiffParser, LineSelectionPatchWithNothingSelectedIsAllContext) {
+    const std::string diff =
+        "diff --git a/f.txt b/f.txt\n"
+        "--- a/f.txt\n"
+        "+++ b/f.txt\n"
+        "@@ -1,2 +1,3 @@\n"
+        " keep\n"
+        "+added\n"
+        " keep2\n";
+
+    const ParsedDiff parsed = UnifiedDiffParser{}.parse(diff);
+    const DiffHunk& hunk = parsed.files[0].hunks[0];
+    const std::vector<bool> selected(hunk.lines.size(), false);
+
+    const std::string patch =
+        UnifiedDiffParser::buildLineSelectionPatch(parsed.files[0], hunk, selected);
+
+    // An unselected addition is dropped from the patch entirely, so "added"
+    // must not appear at all -- neither staged nor as manufactured context.
+    EXPECT_EQ(patch.find("added"), std::string::npos) << patch;
+    EXPECT_NE(patch.find("@@ -1,2 +1,2 @@"), std::string::npos) << patch;
+}
+
 }  // namespace
 }  // namespace gbm

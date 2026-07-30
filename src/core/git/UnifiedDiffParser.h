@@ -102,6 +102,21 @@ public:
                                       const DiffHunk& hunk,
                                       bool reverse = false);
 
+    /// Reconstructs a patch that applies only a subset of a hunk's added and
+    /// removed lines, for line-level staging.
+    ///
+    /// `selected[i]` says whether `hunk.lines[i]` should take effect; it is
+    /// ignored for context and no-newline-marker lines, which always pass
+    /// through. An unselected added line is dropped entirely (it was never
+    /// staged); an unselected removed line is kept as context (it is not being
+    /// removed). To unstage rather than stage, build this against the *staged*
+    /// diff (index vs HEAD) and apply with `git apply --cached --reverse`
+    /// instead of building an already-reversed patch — reversing a partial
+    /// selection is not simply swapping +/-.
+    static std::string buildLineSelectionPatch(const DiffFile& file,
+                                               const DiffHunk& hunk,
+                                               const std::vector<bool>& selected);
+
 private:
     Options options_{};
 };

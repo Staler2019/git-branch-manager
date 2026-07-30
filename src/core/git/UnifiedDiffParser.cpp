@@ -402,8 +402,8 @@ std::string UnifiedDiffParser::buildHunkPatch(const DiffFile& file,
 }
 
 std::string UnifiedDiffParser::buildLineSelectionPatch(const DiffFile& file,
-                                                        const DiffHunk& hunk,
-                                                        const std::vector<bool>& selected) {
+                                                       const DiffHunk& hunk,
+                                                       const std::vector<bool>& selected) {
     const std::string& oldPath = file.oldPath.empty() ? file.newPath : file.oldPath;
     const std::string& newPath = file.newPath.empty() ? file.oldPath : file.newPath;
 
@@ -411,6 +411,7 @@ std::string UnifiedDiffParser::buildLineSelectionPatch(const DiffFile& file,
         char marker;
         const std::string* text;
     };
+
     std::vector<EmittedLine> body;
     body.reserve(hunk.lines.size());
 

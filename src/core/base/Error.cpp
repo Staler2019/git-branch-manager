@@ -71,9 +71,8 @@ constexpr std::array kPatterns{
     Pattern{"pre-commit hook", GitError::Code::HookRejected, "A pre-commit hook rejected this"},
     Pattern{"commit-msg hook", GitError::Code::HookRejected, "A commit-msg hook rejected this"},
     Pattern{"hook declined", GitError::Code::HookRejected, "A Git hook rejected this"},
-    Pattern{"nothing to commit",
-            GitError::Code::InvalidArgument,
-            "There is nothing staged to commit"},
+    Pattern{
+        "nothing to commit", GitError::Code::InvalidArgument, "There is nothing staged to commit"},
     Pattern{"nothing added to commit",
             GitError::Code::InvalidArgument,
             "There is nothing staged to commit"},

@@ -47,7 +47,8 @@ struct WorkingCopyEntry {
     /// True when the work tree differs from the index for this path (something
     /// to stage).
     bool hasUnstagedChange = false;
-    FileChangeKind worktreeStatus = FileChangeKind::Modified;  ///< Valid only when hasUnstagedChange.
+    FileChangeKind worktreeStatus =
+        FileChangeKind::Modified;  ///< Valid only when hasUnstagedChange.
 
     ConflictKind conflict = ConflictKind::None;
 

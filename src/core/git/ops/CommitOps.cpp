@@ -29,7 +29,8 @@ public:
 
         const bool keepExistingMessage = request_.amend && request_.message.empty();
         if (!keepExistingMessage && isBlank(request_.message)) {
-            outcome.error = GitError(GitError::Code::InvalidArgument, "The commit message is empty");
+            outcome.error =
+                GitError(GitError::Code::InvalidArgument, "The commit message is empty");
             return outcome;
         }
 

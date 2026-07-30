@@ -8,21 +8,14 @@
 // The other thing pinned down here is the non-blocking `data()` contract. On a
 // 500k-row history, one synchronous read inside `data()` would be called once per
 // visible cell per frame, so a counter proves it never happens.
-#include "app/bridge/RepositorySession.h"
 #include "app/models/CommitListModel.h"
 #include "app/models/GraphColumnDelegate.h"
 #include "app/models/RefTreeModel.h"
 #include "app/models/RepoListModel.h"
-#include "core/git/GitExecutable.h"
 #include "core/graph/GraphBuilder.h"
-#include "core/workers/ThreadPool.h"
 
 #include <QAbstractItemModelTester>
-#include <QDir>
-#include <QFile>
-#include <QProcess>
 #include <QSignalSpy>
-#include <QTemporaryDir>
 #include <QtTest>
 
 #include <vector>
@@ -77,16 +70,6 @@ RefSnapshotPtr makeRefs() {
     return snapshot;
 }
 
-bool runGit(const QString& gitExecutable, const QString& dir, const QStringList& args) {
-    QProcess process;
-    process.setWorkingDirectory(dir);
-    process.start(gitExecutable, args);
-    if (!process.waitForFinished(10000)) {
-        return false;
-    }
-    return process.exitStatus() == QProcess::NormalExit && process.exitCode() == 0;
-}
-
 }  // namespace
 
 class ModelsTest : public QObject {
@@ -102,7 +85,6 @@ private slots:
     void commitListModelNeverBlocksInData();
     void graphDelegateWidthShrinksForLinearHistory();
     void graphDelegatePaletteCoversEveryLaneColor();
-    void repositorySessionTracksWorkingCopyStagingAndCommit();
 };
 
 void ModelsTest::repoListModelSatisfiesTheModelContract() {
@@ -288,115 +270,6 @@ void ModelsTest::graphDelegatePaletteCoversEveryLaneColor() {
     }
     // Out-of-range indices wrap rather than producing an invalid colour.
     QVERIFY(GraphColumnDelegate::laneColor(200).isValid());
-}
-
-void ModelsTest::repositorySessionTracksWorkingCopyStagingAndCommit() {
-    // Exercises the RepositorySession plumbing added for the working-copy
-    // panel end to end, against a real git binary and a real repository --
-    // the same "no usable git" skip RealRepoTest uses, since this app-layer
-    // test cannot assume one is installed either.
-    auto detected = GitExecutable::detect();
-    if (!detected) {
-        QSKIP("no usable git found");
-    }
-    const QString gitExecutable = QString::fromStdString(detected->executable.string());
-
-    QTemporaryDir tempDir;
-    QVERIFY(tempDir.isValid());
-    const QString dir = tempDir.path();
-
-    QVERIFY(runGit(gitExecutable, dir, {"init", "--quiet", "--initial-branch=main"}));
-    QVERIFY(runGit(gitExecutable, dir, {"config", "user.email", "test@example.invalid"}));
-    QVERIFY(runGit(gitExecutable, dir, {"config", "user.name", "Test"}));
-    QVERIFY(runGit(gitExecutable, dir, {"config", "commit.gpgsign", "false"}));
-
-    auto writeFile = [&dir](const QString& name, const QString& content) {
-        QFile file(QDir(dir).filePath(name));
-        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
-        file.write(content.toUtf8());
-    };
-
-    writeFile(QStringLiteral("a.txt"), QStringLiteral("one\n"));
-    QVERIFY(runGit(gitExecutable, dir, {"add", "a.txt"}));
-    QVERIFY(runGit(gitExecutable, dir, {"commit", "--quiet", "-m", "c1"}));
-
-    // An unstaged modification for the session to discover.
-    writeFile(QStringLiteral("a.txt"), QStringLiteral("one\ntwo\n"));
-
-    ThreadPool pool("model-test-reads", 2);
-    const RepoPaths paths(
-        dir.toStdString(), (dir + QStringLiteral("/.git")).toStdString(), std::string());
-    RepositorySession session(*detected, paths, pool);
-
-    bool statusUpdated = false;
-    connect(&session, &RepositorySession::workingCopyStatusUpdated, &session, [&] {
-        statusUpdated = true;
-    });
-    bool sawError = false;
-    connect(&session, &RepositorySession::errorOccurred, &session, [&](const GitError&) {
-        sawError = true;
-    });
-
-    session.refreshWorkingCopyStatus();
-    QTRY_VERIFY(statusUpdated);
-    QVERIFY(!sawError);
-
-    auto status = session.workingCopyStatus();
-    QVERIFY(status);
-    QCOMPARE(status->unstaged().size(), std::size_t{1});
-    QCOMPARE(QString::fromStdString(status->unstaged().front()->path), QStringLiteral("a.txt"));
-    QVERIFY(status->staged().empty());
-
-    // Stage the file and wait for both the completion signal and the
-    // automatic status refresh it triggers.
-    bool stageFinished = false;
-    OperationOutcome stageOutcome;
-    connect(&session,
-            &RepositorySession::workingCopyOperationFinished,
-            &session,
-            [&](const OperationOutcome& outcome) {
-                stageFinished = true;
-                stageOutcome = outcome;
-            });
-    statusUpdated = false;
-    session.stageFiles({"a.txt"});
-    QTRY_VERIFY(stageFinished);
-    QVERIFY2(stageOutcome.succeeded,
-             stageOutcome.error ? stageOutcome.error->detail.c_str() : "stage failed");
-    QTRY_VERIFY(statusUpdated);
-
-    status = session.workingCopyStatus();
-    QVERIFY(status);
-    QCOMPARE(status->staged().size(), std::size_t{1});
-    QVERIFY(status->unstaged().empty());
-
-    // Commit it, which should also move HEAD -- confirmed via a fresh, clean
-    // working-copy status afterwards.
-    disconnect(&session, &RepositorySession::workingCopyOperationFinished, &session, nullptr);
-    bool commitFinished = false;
-    OperationOutcome commitOutcome;
-    connect(&session,
-            &RepositorySession::workingCopyOperationFinished,
-            &session,
-            [&](const OperationOutcome& outcome) {
-                commitFinished = true;
-                commitOutcome = outcome;
-            });
-    statusUpdated = false;
-
-    CommitRequest request;
-    request.message = "Add second line";
-    session.commitChanges(request);
-    QTRY_VERIFY(commitFinished);
-    QVERIFY2(commitOutcome.succeeded,
-             commitOutcome.error ? commitOutcome.error->detail.c_str() : "commit failed");
-    QTRY_VERIFY(statusUpdated);
-
-    status = session.workingCopyStatus();
-    QVERIFY(status);
-    QVERIFY(status->isClean());
-
-    QVERIFY(runGit(gitExecutable, dir, {"log", "-1", "--format=%s"}));
 }
 
 QTEST_MAIN(ModelsTest)

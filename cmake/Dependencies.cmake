@@ -12,9 +12,11 @@ if(SQLite3_FOUND)
     target_link_libraries(gbm_sqlite3 INTERFACE SQLite::SQLite3)
 else()
     message(STATUS "System SQLite3 not found; fetching amalgamation")
+    # SHA3-256 because that is what sqlite.org publishes next to the download,
+    # so the pin can be re-checked against upstream by eye.
     FetchContent_Declare(sqlite_amalgamation
         URL https://www.sqlite.org/2024/sqlite-amalgamation-3450100.zip
-        URL_HASH SHA3_256=d670d2b9e5e2a56e6e9b3b0b6e00c2d20f66e51e88b56c9e0f0d9f0dbb0b5aab
+        URL_HASH SHA3_256=e311198775d5d5b2889d5fabe1d9a490567a14e605591d6a9e4c833804a8b4cb
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
     FetchContent_MakeAvailable(sqlite_amalgamation)
     add_library(gbm_sqlite3_impl STATIC "${sqlite_amalgamation_SOURCE_DIR}/sqlite3.c")

@@ -114,11 +114,6 @@ private:
     RepoIndexDb& db_;
     SkipRules rules_;
 
-    /// Serialises all database access from the scan's worker threads. They share
-    /// one connection, and two concurrent `BEGIN IMMEDIATE` on the same connection
-    /// is an error, not merely contention.
-    std::mutex dbMutex_;
-
     /// Serialises the progress and batch callbacks, so callers get the guarantee
     /// documented on ProgressCallback instead of concurrent invocations.
     std::mutex callbackMutex_;

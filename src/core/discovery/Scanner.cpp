@@ -44,19 +44,18 @@ GitResult<void> Scanner::flushPending(SharedState& state, const BatchCallback& o
 
     // One transaction per batch rather than per row: 20 inserts in one commit is
     // roughly as fast as one, and 100k individual commits would take minutes.
-    GitResult<void> committed;
-    {
-        std::lock_guard<std::mutex> dbLock(dbMutex_);
-        committed = db_.database().transaction([this, &batch]() -> GitResult<void> {
-            for (const RepoRecord& record : batch) {
-                auto id = db_.upsertRepo(record);
-                if (!id) {
-                    return fail(std::move(id).error());
-                }
+    // `RepoIndexDb::transaction()` holds its own connection lock for the whole
+    // call, which is what serialises this against the probe pool and the UI
+    // thread reading the same connection concurrently.
+    GitResult<void> committed = db_.transaction([this, &batch]() -> GitResult<void> {
+        for (const RepoRecord& record : batch) {
+            auto id = db_.upsertRepo(record);
+            if (!id) {
+                return fail(std::move(id).error());
             }
-            return {};
-        });
-    }
+        }
+        return {};
+    });
     if (!committed) {
         return committed;
     }
@@ -124,12 +123,11 @@ void Scanner::workerLoop(SharedState& state,
         const auto mtime = fsutil::modifiedTimeNs(item.path);
 
         // --- incremental pruning ------------------------------------------
+        // No explicit lock here: `RepoIndexDb::dirSignature` and
+        // `touchReposUnder` each hold the connection lock for their own call, so
+        // concurrent workers calling them are already serialised at that level.
         if (mode == ScanMode::Incremental && mtime) {
-            GitResult<std::optional<DirSignature>> stored = std::optional<DirSignature>{};
-            {
-                std::lock_guard<std::mutex> dbLock(dbMutex_);
-                stored = db_.dirSignature(baseFolder.id, key);
-            }
+            auto stored = db_.dirSignature(baseFolder.id, key);
             if (stored && *stored && (*stored)->mtimeNs == *mtime && !(*stored)->hadRepo) {
                 // Unchanged since the last scan. Skipping the whole subtree here is
                 // what makes Refresh fast on a big tree.
@@ -138,19 +136,16 @@ void Scanner::workerLoop(SharedState& state,
                 // last_seen_gen has to be advanced explicitly — otherwise the
                 // mark-missing sweep at the end would decide they had all vanished
                 // and empty the user's list.
-                {
-                    // The raw native path, not the canonical key: repo rows store
-                    // native separators, so a forward-slashed key would never match
-                    // the prefix on Windows.
-                    std::lock_guard<std::mutex> dbLock(dbMutex_);
-                    auto touched =
-                        db_.touchReposUnder(baseFolder.id, item.path.string(), generation);
-                    if (!touched) {
-                        std::lock_guard<std::mutex> lock(state.mutex);
-                        state.failed = true;
-                        state.error = std::move(touched).error();
-                        return;
-                    }
+                //
+                // The raw native path, not the canonical key: repo rows store
+                // native separators, so a forward-slashed key would never match
+                // the prefix on Windows.
+                auto touched = db_.touchReposUnder(baseFolder.id, item.path.string(), generation);
+                if (!touched) {
+                    std::lock_guard<std::mutex> lock(state.mutex);
+                    state.failed = true;
+                    state.error = std::move(touched).error();
+                    return;
                 }
                 std::lock_guard<std::mutex> lock(state.mutex);
                 ++state.skipped;
@@ -339,20 +334,32 @@ GitResult<ScanResult> Scanner::scan(const BaseFolderRecord& baseFolder,
         return fail(std::move(flushed).error());
     }
 
-    // Signatures are written last, in one transaction: writing them as we went
-    // would mean a cancelled scan leaves signatures claiming subtrees were fully
-    // examined when they were not, and the next incremental scan would skip them.
+    // Signatures are written last, and only for a scan that was not cancelled:
+    // writing them as we went would mean a cancelled scan leaves signatures
+    // claiming subtrees were fully examined when they were not, and the next
+    // incremental scan would skip them.
+    //
+    // Written in chunks rather than one transaction for the whole batch: a large
+    // tree can produce tens of thousands of signatures, and the connection lock
+    // held by `RepoIndexDb::transaction()` for a single multi-second transaction
+    // would stall the UI thread's `loadFromCache()`, which runs as soon as
+    // `scanFinished` fires.
     if (!token.isCancelled() && !state.signatures.empty()) {
-        auto saved = db_.database().transaction([this, &state]() -> GitResult<void> {
-            for (const DirSignature& signature : state.signatures) {
-                if (auto ok = db_.saveDirSignature(signature); !ok) {
-                    return ok;
+        constexpr std::size_t kSignatureChunkSize = 500;
+        for (std::size_t offset = 0; offset < state.signatures.size();
+             offset += kSignatureChunkSize) {
+            const std::size_t end = std::min(offset + kSignatureChunkSize, state.signatures.size());
+            auto saved = db_.transaction([this, &state, offset, end]() -> GitResult<void> {
+                for (std::size_t i = offset; i < end; ++i) {
+                    if (auto ok = db_.saveDirSignature(state.signatures[i]); !ok) {
+                        return ok;
+                    }
                 }
+                return {};
+            });
+            if (!saved) {
+                return fail(std::move(saved).error());
             }
-            return {};
-        });
-        if (!saved) {
-            return fail(std::move(saved).error());
         }
     }
 

@@ -7,6 +7,8 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
@@ -17,7 +19,7 @@ struct BaseFolderRecord {
     std::int64_t id = 0;
     std::string path;
     bool enabled = true;
-    int maxDepth = 6;
+    int maxDepth = 1;
     bool followLinks = false;
     std::int64_t generation = 0;
     std::int64_t lastScanStarted = 0;
@@ -87,7 +89,11 @@ struct DirSignature {
 class RepoIndexDb {
 public:
     /// Bumped whenever the schema changes; `migrate()` upgrades in place.
-    static constexpr int kSchemaVersion = 1;
+    ///
+    /// Schema 2 lowered the default `max_depth` from 6 to 1 (see `addBaseFolder`)
+    /// and, on upgrade, clears every existing base folder rather than silently
+    /// reinterpreting a folder the user already configured under the old default.
+    static constexpr int kSchemaVersion = 2;
 
     GitResult<void> open(const std::filesystem::path& path);
     GitResult<void> openInMemory();
@@ -97,11 +103,17 @@ public:
 
     // --- base folders ------------------------------------------------------
     GitResult<std::int64_t> addBaseFolder(const std::string& path,
-                                          int maxDepth = 6,
+                                          int maxDepth = 1,
                                           bool followLinks = false);
     GitResult<void> removeBaseFolder(std::int64_t id);
     GitResult<std::vector<BaseFolderRecord>> baseFolders() const;
     GitResult<void> setBaseFolderEnabled(std::int64_t id, bool enabled);
+
+    /// Changes how many levels below the base folder are scanned. Also clears its
+    /// stored directory signatures: a signature recorded "no repository below
+    /// here" under the old depth would otherwise wrongly prune a subtree the new,
+    /// deeper scan should actually visit.
+    GitResult<void> setBaseFolderMaxDepth(std::int64_t id, int maxDepth);
 
     /// Bumps and returns the generation for a scan. Rows not seen with this
     /// generation are candidates for soft deletion at the end of a *completed*
@@ -152,13 +164,39 @@ public:
     GitResult<std::vector<RepoRecord>> search(const std::string& query,
                                               std::size_t limit = 200) const;
 
-    Database& database() { return db_; }
+    /// Runs `body` as one transaction with the connection lock held for its whole
+    /// duration. Exists so callers with their own multi-statement writes — the
+    /// scanner's batched inserts and directory-signature flush — serialise
+    /// against every other use of this connection instead of only against
+    /// themselves.
+    ///
+    /// This is why the raw `Database` is not exposed: an unguarded `BEGIN
+    /// IMMEDIATE` from a second thread would land its writes inside this
+    /// transaction and lose them to this transaction's `ROLLBACK`, which is
+    /// exactly the bug that used to crash a scan of a large tree (concurrent,
+    /// unsynchronised access to one `sqlite3*` from the scan pool, the probe
+    /// pool, and the UI thread).
+    GitResult<void> transaction(const std::function<GitResult<void>()>& body);
+
+    /// Sets the schema version directly, bypassing `migrate()`. Only exists to let
+    /// tests exercise the upgrade path; nothing in the running app should ever set
+    /// an arbitrary version.
+    GitResult<void> forceSchemaVersionForTest(int version);
 
 private:
     GitResult<void> createSchema();
     GitResult<int> readSchemaVersion() const;
 
     mutable Database db_;
+
+    /// Serialises every access to `db_`. `Database::prepare()` returns a
+    /// `Statement` that the caller then binds and steps outside any lock inside
+    /// `Database` itself, so the lock has to live here, one level up, where the
+    /// whole statement lifetime — and whole transactions — are visible.
+    /// Recursive because most of the methods above call each other (`migrate()`
+    /// calls `createSchema()`, `transaction()`'s body calls back into this class)
+    /// from the same thread.
+    mutable std::recursive_mutex mutex_;
 };
 
 }  // namespace gbm

@@ -4,9 +4,11 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QDialog>
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QInputDialog>
 #include <QLineEdit>
 #include <QMenuBar>
 #include <QMessageBox>
@@ -18,6 +20,7 @@
 #include <QStandardPaths>
 #include <QStatusBar>
 #include <QStringListModel>
+#include <QTableWidget>
 #include <QTimer>
 #include <QToolBar>
 #include <QVBoxLayout>
@@ -118,9 +121,17 @@ void MainWindow::buildUi() {
                                                         QHeaderView::ResizeToContents);
     repoView_->horizontalHeader()->setStretchLastSection(true);
     connect(repoView_, &QTableView::activated, this, &MainWindow::onRepoActivated);
-    // Probing is driven by what is actually visible, not by the list's size.
+
+    // Probing is driven by what is actually visible, not by the list's size. A
+    // flick of the scrollbar fires many valueChanged signals in a row; without
+    // debouncing that would post one round of probes per event instead of one
+    // for the whole gesture.
+    probeDebounce_ = new QTimer(this);
+    probeDebounce_->setSingleShot(true);
+    probeDebounce_->setInterval(150);
+    connect(probeDebounce_, &QTimer::timeout, this, &MainWindow::probeVisibleRepos);
     connect(repoView_->verticalScrollBar(), &QScrollBar::valueChanged, this, [this] {
-        probeVisibleRepos();
+        probeDebounce_->start();
     });
 
     browserLayout->addWidget(repoSearch_);
@@ -237,6 +248,8 @@ void MainWindow::buildUi() {
 void MainWindow::buildMenus() {
     auto* fileMenu = menuBar()->addMenu(QStringLiteral("&File"));
     fileMenu->addAction(QStringLiteral("Add base folder…"), this, &MainWindow::onAddBaseFolder);
+    fileMenu->addAction(
+        QStringLiteral("Manage base folders…"), this, &MainWindow::onManageBaseFolders);
     fileMenu->addSeparator();
     auto* closeAction =
         fileMenu->addAction(QStringLiteral("Close repository"), this, &MainWindow::closeRepository);
@@ -359,13 +372,133 @@ void MainWindow::onAddBaseFolder() {
     if (path.isEmpty()) {
         return;
     }
-    if (auto added = discovery_->addBaseFolder(path); !added) {
+
+    bool depthAccepted = false;
+    const int depth = QInputDialog::getInt(
+        this,
+        QStringLiteral("Scan depth"),
+        QStringLiteral("How many levels below this folder should be scanned?\n"
+                       "1 scans only this folder and its direct children; "
+                       "raise it to also find repositories nested further down."),
+        1,
+        0,
+        10,
+        1,
+        &depthAccepted);
+    if (!depthAccepted) {
+        return;
+    }
+
+    if (auto added = discovery_->addBaseFolder(path, depth); !added) {
         showError(QStringLiteral("Could not add that folder"), added.error());
         return;
     }
     // A newly added folder has no signatures yet, so this first pass is effectively
     // a full scan of just that folder.
     discovery_->startScan(ScanMode::Incremental);
+}
+
+void MainWindow::onManageBaseFolders() {
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("Manage base folders"));
+    auto* layout = new QVBoxLayout(&dialog);
+
+    auto* table = new QTableWidget(&dialog);
+    table->setColumnCount(3);
+    table->setHorizontalHeaderLabels(
+        {QStringLiteral("Path"), QStringLiteral("Depth"), QStringLiteral("Enabled")});
+    table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->setSelectionMode(QAbstractItemView::SingleSelection);
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->verticalHeader()->setVisible(false);
+
+    // A local copy: edits below go through DiscoveryController and update this
+    // copy and the table in lockstep, so row indices stay valid without a
+    // round-trip to the database after every click.
+    std::vector<BaseFolderRecord> folders = discovery_->baseFolders();
+    table->setRowCount(static_cast<int>(folders.size()));
+    for (int row = 0; row < static_cast<int>(folders.size()); ++row) {
+        const BaseFolderRecord& folder = folders[static_cast<std::size_t>(row)];
+        table->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(folder.path)));
+        table->setItem(row, 1, new QTableWidgetItem(QString::number(folder.maxDepth)));
+        table->setItem(
+            row,
+            2,
+            new QTableWidgetItem(folder.enabled ? QStringLiteral("yes") : QStringLiteral("no")));
+    }
+    layout->addWidget(table);
+
+    auto* buttonRow = new QHBoxLayout();
+    auto* editDepthButton = new QPushButton(QStringLiteral("Change depth…"), &dialog);
+    auto* removeButton = new QPushButton(QStringLiteral("Remove"), &dialog);
+    auto* closeButton = new QPushButton(QStringLiteral("Close"), &dialog);
+    buttonRow->addWidget(editDepthButton);
+    buttonRow->addWidget(removeButton);
+    buttonRow->addStretch(1);
+    buttonRow->addWidget(closeButton);
+    layout->addLayout(buttonRow);
+
+    // Whether anything changed while the dialog was open, so it is only worth
+    // rescanning once, on close, rather than after every click.
+    bool changed = false;
+
+    connect(editDepthButton, &QPushButton::clicked, &dialog, [&] {
+        const int row = table->currentRow();
+        if (row < 0) {
+            return;
+        }
+        const BaseFolderRecord& folder = folders[static_cast<std::size_t>(row)];
+        bool accepted = false;
+        const int depth =
+            QInputDialog::getInt(&dialog,
+                                 QStringLiteral("Scan depth"),
+                                 QStringLiteral("How many levels below \"%1\" should be scanned?")
+                                     .arg(QString::fromStdString(folder.path)),
+                                 folder.maxDepth,
+                                 0,
+                                 10,
+                                 1,
+                                 &accepted);
+        if (!accepted) {
+            return;
+        }
+        if (auto result = discovery_->setBaseFolderDepth(folder.id, depth); !result) {
+            showError(QStringLiteral("Could not change the scan depth"), result.error());
+            return;
+        }
+        table->item(row, 1)->setText(QString::number(depth));
+        changed = true;
+    });
+
+    connect(removeButton, &QPushButton::clicked, &dialog, [&] {
+        const int row = table->currentRow();
+        if (row < 0) {
+            return;
+        }
+        const BaseFolderRecord& folder = folders[static_cast<std::size_t>(row)];
+        if (auto result = discovery_->removeBaseFolder(folder.id); !result) {
+            showError(QStringLiteral("Could not remove that folder"), result.error());
+            return;
+        }
+        table->removeRow(row);
+        folders.erase(folders.begin() + row);
+        changed = true;
+    });
+
+    connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
+
+    dialog.resize(560, 320);
+    dialog.exec();
+
+    if (changed) {
+        // A depth change cleared that folder's signatures, and a removal cascades
+        // to its repositories outright; either way the list the window is
+        // currently showing is stale until the next scan reloads it. If every
+        // base folder was removed, startScan's own empty-folders check still
+        // fires scanFinished and the connected handler clears allRepos_.
+        discovery_->startScan(ScanMode::Incremental);
+    }
 }
 
 void MainWindow::onRefresh() {

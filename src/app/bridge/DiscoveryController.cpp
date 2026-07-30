@@ -38,10 +38,10 @@ std::vector<BaseFolderRecord> DiscoveryController::baseFolders() {
     return folders ? *folders : std::vector<BaseFolderRecord>{};
 }
 
-GitResult<void> DiscoveryController::addBaseFolder(const QString& path) {
+GitResult<void> DiscoveryController::addBaseFolder(const QString& path, int maxDepth) {
     const std::string canonical =
         std::filesystem::path(path.toStdString()).lexically_normal().string();
-    auto added = db_.addBaseFolder(canonical);
+    auto added = db_.addBaseFolder(canonical, maxDepth);
     if (!added) {
         return fail(std::move(added).error());
     }
@@ -50,6 +50,10 @@ GitResult<void> DiscoveryController::addBaseFolder(const QString& path) {
 
 GitResult<void> DiscoveryController::removeBaseFolder(std::int64_t id) {
     return db_.removeBaseFolder(id);
+}
+
+GitResult<void> DiscoveryController::setBaseFolderDepth(std::int64_t id, int maxDepth) {
+    return db_.setBaseFolderMaxDepth(id, maxDepth);
 }
 
 void DiscoveryController::cancelScan() {
@@ -69,6 +73,16 @@ void DiscoveryController::startScan(ScanMode mode) {
     scanning_ = true;
     scanCancel_ = CancellationSource();
     const CancellationToken token = scanCancel_.token();
+
+    // A safety reset, not the normal way ids leave this set (that happens when
+    // each probe task finishes): if a probe task from before this scan somehow
+    // never got to clean up after itself, it must not permanently block every
+    // future probe of that repository.
+    {
+        std::lock_guard<std::mutex> lock(probeMutex_);
+        probesInFlight_.clear();
+    }
+
     emit scanStarted();
 
     scanPool_.post([this, folders = *folders, mode, token] {
@@ -130,6 +144,17 @@ void DiscoveryController::startScan(ScanMode mode) {
 }
 
 void DiscoveryController::probeRepo(const RepoRecord& repo) {
+    {
+        std::lock_guard<std::mutex> lock(probeMutex_);
+        if (!probesInFlight_.insert(repo.id).second) {
+            // Already queued or running. The mtime witnesses below will catch any
+            // change once that probe completes, so a second one adds nothing but
+            // load — this is what keeps a fast scroll or a completed scan from
+            // flooding the probe pool with repeats of the same rows.
+            return;
+        }
+    }
+
     probePool_.post([this, repo] {
         const RepoPaths paths = repo.toPaths();
 
@@ -142,6 +167,10 @@ void DiscoveryController::probeRepo(const RepoRecord& repo) {
         if (cached && *cached && (*cached)->gitDirMtimeNs == headMtime &&
             (*cached)->indexMtimeNs == indexMtime && (*cached)->probedAt > 0) {
             const RepoProbe probe = **cached;
+            {
+                std::lock_guard<std::mutex> lock(probeMutex_);
+                probesInFlight_.erase(repo.id);
+            }
             QMetaObject::invokeMethod(
                 this,
                 [this, id = repo.id, probe] { emit probeReady(id, probe); },
@@ -187,6 +216,10 @@ void DiscoveryController::probeRepo(const RepoRecord& repo) {
         // repository is actually opened.
 
         (void)db_.saveProbe(probe);
+        {
+            std::lock_guard<std::mutex> lock(probeMutex_);
+            probesInFlight_.erase(repo.id);
+        }
         QMetaObject::invokeMethod(
             this,
             [this, id = repo.id, probe] { emit probeReady(id, probe); },

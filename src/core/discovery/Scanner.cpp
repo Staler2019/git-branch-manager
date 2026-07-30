@@ -62,6 +62,10 @@ GitResult<void> Scanner::flushPending(SharedState& state, const BatchCallback& o
     }
 
     if (onBatch) {
+        // Serialised: several workers reach this point at once, and a callback
+        // that merely appends to a container or bumps a counter -- the obvious
+        // thing to write -- would otherwise be a data race in every caller.
+        std::lock_guard<std::mutex> callbackLock(callbackMutex_);
         onBatch(batch);
     }
     return {};
@@ -270,6 +274,7 @@ void Scanner::workerLoop(SharedState& state,
                 progress.reposFound = state.found;
             }
             progress.currentPath = item.path.string();
+            std::lock_guard<std::mutex> callbackLock(callbackMutex_);
             onProgress(progress);
         }
     }

@@ -60,7 +60,13 @@ jobs:
           # would mean building every dependency for both architectures and merging
           # them, which is real engineering risk for a cosmetic gain.
           - { name: macOS arm64,   os: macos-latest,   preset: ci-macos,   arch: arm64 }
-          - { name: macOS x86_64,  os: macos-13,       preset: ci-macos,   arch: x86_64 }
+          # macos-15-intel, not macos-13: the macOS 13 image was retired in
+          # December 2025, and a job asking for a retired label does not fail -
+          # it queues until someone cancels the run, which is what happened on
+          # the first release (3h36m, then cancelled, so nothing was published).
+          # This is the last Intel image; GitHub drops x86_64 when it retires in
+          # autumn 2027, and the x86_64 DMG has to go with it.
+          - { name: macOS x86_64,  os: macos-15-intel, preset: ci-macos,   arch: x86_64 }
           - { name: Windows x64,   os: windows-latest, preset: ci-windows, arch: x64 }
     steps:
       - uses: actions/checkout@v4

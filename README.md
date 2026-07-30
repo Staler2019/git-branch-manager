@@ -114,6 +114,9 @@ CI fails the build if a Qt header appears under `src/core`.
 
 Requires CMake 3.24+, a C++20 compiler, and Qt 6.4+ for the GUI.
 
+Released binaries are built with Qt 6.10, which needs macOS 13 or newer; the
+macOS download is Apple Silicon only.
+
 ```bash
 # GUI + tests
 cmake --workflow --preset dev

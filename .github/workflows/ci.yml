@@ -74,7 +74,11 @@ jobs:
           # ubuntu-22.04 rather than latest: it fixes the glibc floor for the
           # release artifact at 2.35, so binaries run on older distributions.
           - { name: Linux (gcc),     os: ubuntu-22.04,  preset: ci-linux }
-          - { name: macOS (arm64),   os: macos-latest,  preset: ci-macos }
+          # macos-26, not macos-latest: the target platform is macOS 26 on Apple
+          # Silicon, and pinning means GitHub rolling the label forward cannot
+          # change the SDK underneath us. That is exactly how the AGL breakage
+          # arrived - macos-latest moved to the macOS 26 SDK in June 2026.
+          - { name: macOS (arm64),   os: macos-26,      preset: ci-macos }
           - { name: Windows (MSVC),  os: windows-latest, preset: ci-windows }
     steps:
       - uses: actions/checkout@v4
@@ -103,14 +107,17 @@ jobs:
       # Qt from the official binaries, never built from source: a source build of
       # qtbase is hours per platform per cache miss. With caching this is ~40 s.
       #
-      # 6.9 rather than 6.8: Qt up to 6.8.3 links -framework AGL, which the macOS
-      # 26 SDK no longer ships, so every macOS link fails with "framework 'AGL'
-      # not found" (QTBUG-137687). The fix landed in 6.9.2, and 6.8.4 is
-      # commercial-only, so the open-source floor is 6.9.2.
+      # 6.10 rather than 6.8, for two macOS 26 reasons. Qt up to 6.8.3 links
+      # -framework AGL, which the macOS 26 SDK no longer ships, so every macOS
+      # link failed with "framework 'AGL' not found" (QTBUG-137687); that was
+      # fixed in 6.9.2. And building against the macOS 26 SDK opts the app into
+      # Liquid Glass, whose fallout for Qt's native styles was fixed in 6.10.0.
+      # 6.10 requires macOS 13 or higher, which release.yml's deployment target
+      # has to match.
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.9.*'
+          version: '6.10.*'
           modules: ''            # Core/Gui/Widgets only - smaller and faster
           cache: true
 

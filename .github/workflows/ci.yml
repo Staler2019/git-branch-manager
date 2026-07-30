@@ -102,10 +102,15 @@ jobs:
 
       # Qt from the official binaries, never built from source: a source build of
       # qtbase is hours per platform per cache miss. With caching this is ~40 s.
+      #
+      # 6.9 rather than 6.8: Qt up to 6.8.3 links -framework AGL, which the macOS
+      # 26 SDK no longer ships, so every macOS link fails with "framework 'AGL'
+      # not found" (QTBUG-137687). The fix landed in 6.9.2, and 6.8.4 is
+      # commercial-only, so the open-source floor is 6.9.2.
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.8.*'
+          version: '6.9.*'
           modules: ''            # Core/Gui/Widgets only - smaller and faster
           cache: true
 

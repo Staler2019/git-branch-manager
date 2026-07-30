@@ -82,10 +82,12 @@ jobs:
             libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
             libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 fuse libfuse2
 
+      # 6.9.2 is the open-source floor: earlier builds link -framework AGL, which
+      # the macOS 26 SDK dropped (QTBUG-137687). Kept in step with ci.yml.
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.8.*'
+          version: '6.9.*'
           modules: ''
           cache: true
 

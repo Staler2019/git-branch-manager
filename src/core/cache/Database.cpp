@@ -3,7 +3,9 @@
 #include "core/base/Logging.h"
 #include "core/base/ThreadCheck.h"
 
+#include <mutex>
 #include <sqlite3.h>
+#include <string>
 #include <utility>
 
 namespace gbm {
@@ -17,6 +19,18 @@ GitError sqliteError(sqlite3* db, std::string message) {
         error.exitCode = sqlite3_extended_errcode(db);
     }
     return error;
+}
+
+/// Logged once so the linked library's threading mode is visible in support
+/// logs. This is diagnostic only: `RepoIndexDb::mutex_` is what actually makes
+/// concurrent access safe, not this mode — see the comment on
+/// SQLITE_OPEN_FULLMUTEX below.
+void logThreadingModeOnce() {
+    static std::once_flag logged;
+    std::call_once(logged, [] {
+        logMessage(LogLevel::Info,
+                   "SQLite threading mode: " + std::to_string(sqlite3_threadsafe()));
+    });
 }
 
 }  // namespace
@@ -124,8 +138,15 @@ GitResult<void> Database::open(const std::filesystem::path& path, bool readOnly)
         std::filesystem::create_directories(path.parent_path(), ec);
     }
 
+    // FULLMUTEX is a backstop, not the fix for concurrent access: it serialises
+    // individual sqlite3_* calls but knows nothing about transaction scope, so
+    // thread A's BEGIN IMMEDIATE followed by thread B's statement would still
+    // land B's write inside A's transaction. `RepoIndexDb::mutex_` is what
+    // actually keeps whole statements and transactions from interleaving; this
+    // flag only protects a caller that reaches `Database` directly and forgets.
     const int flags =
-        readOnly ? SQLITE_OPEN_READONLY : (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE);
+        (readOnly ? SQLITE_OPEN_READONLY : (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE)) |
+        SQLITE_OPEN_FULLMUTEX;
     // The path is converted through u8string so non-ASCII directories work on
     // Windows, where the narrow API would otherwise mangle them.
     const std::string utf8Path =
@@ -138,6 +159,7 @@ GitResult<void> Database::open(const std::filesystem::path& path, bool readOnly)
         close();
         return fail(std::move(error));
     }
+    logThreadingModeOnce();
     return applyPragmas(readOnly);
 }
 

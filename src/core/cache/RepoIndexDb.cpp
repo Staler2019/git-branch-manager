@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS base_folder(
   id                 INTEGER PRIMARY KEY,
   path               TEXT NOT NULL UNIQUE,
   enabled            INTEGER NOT NULL DEFAULT 1,
-  max_depth          INTEGER NOT NULL DEFAULT 6,
+  max_depth          INTEGER NOT NULL DEFAULT 1,
   follow_links       INTEGER NOT NULL DEFAULT 0,
   generation         INTEGER NOT NULL DEFAULT 0,
   last_scan_started  INTEGER NOT NULL DEFAULT 0,
@@ -120,6 +120,7 @@ constexpr std::string_view kRepoColumns =
 }  // namespace
 
 GitResult<void> RepoIndexDb::open(const std::filesystem::path& path) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     if (auto opened = db_.open(path, false); !opened) {
         return opened;
     }
@@ -127,6 +128,7 @@ GitResult<void> RepoIndexDb::open(const std::filesystem::path& path) {
 }
 
 GitResult<void> RepoIndexDb::openInMemory() {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     if (auto opened = db_.openInMemory(); !opened) {
         return opened;
     }
@@ -134,6 +136,7 @@ GitResult<void> RepoIndexDb::openInMemory() {
 }
 
 void RepoIndexDb::close() {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     db_.close();
 }
 
@@ -166,6 +169,8 @@ GitResult<void> RepoIndexDb::createSchema() {
 }
 
 GitResult<void> RepoIndexDb::migrate() {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+
     auto version = readSchemaVersion();
     if (!version) {
         return fail(std::move(version).error());
@@ -187,21 +192,47 @@ GitResult<void> RepoIndexDb::migrate() {
     }
 
     // Future upgrades land here, one step per version.
+    const int oldVersion = *version;
     logMessage(LogLevel::Info,
-               "Upgrading repository cache from schema " + std::to_string(*version) + " to " +
+               "Upgrading repository cache from schema " + std::to_string(oldVersion) + " to " +
                    std::to_string(kSchemaVersion));
-    return db_.transaction([this] {
+    return db_.transaction([this, oldVersion] {
         if (auto created = db_.execute(kSchema); !created) {
             return created;
+        }
+        if (oldVersion < 2) {
+            // Schema 2 lowered the default max_depth from 6 to 1. Silently
+            // reinterpreting a folder the user already configured under the old
+            // default would be a surprise, so every base folder is cleared
+            // instead; cascading deletes take its repos, probes, and directory
+            // signatures with it. The cache is rebuildable — the user just
+            // re-adds their folders at the new default (or picks a deeper one).
+            if (auto cleared = db_.execute("DELETE FROM base_folder;"); !cleared) {
+                return cleared;
+            }
+            logMessage(LogLevel::Info,
+                       "Base folders were reset by the schema 2 upgrade (default scan depth "
+                       "changed from 6 to 1); please re-add them.");
         }
         return db_.execute("UPDATE schema_info SET version = " + std::to_string(kSchemaVersion) +
                            ";");
     });
 }
 
+GitResult<void> RepoIndexDb::transaction(const std::function<GitResult<void>()>& body) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    return db_.transaction(body);
+}
+
+GitResult<void> RepoIndexDb::forceSchemaVersionForTest(int version) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    return db_.execute("UPDATE schema_info SET version = " + std::to_string(version) + ";");
+}
+
 GitResult<std::int64_t> RepoIndexDb::addBaseFolder(const std::string& path,
                                                    int maxDepth,
                                                    bool followLinks) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     auto statement = db_.prepare(
         "INSERT INTO base_folder(path, enabled, max_depth, follow_links) "
         "VALUES(?1, 1, ?2, ?3) "
@@ -233,6 +264,7 @@ GitResult<std::int64_t> RepoIndexDb::addBaseFolder(const std::string& path,
 }
 
 GitResult<void> RepoIndexDb::removeBaseFolder(std::int64_t id) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     auto statement = db_.prepare("DELETE FROM base_folder WHERE id = ?1;");
     if (!statement) {
         return fail(std::move(statement).error());
@@ -245,7 +277,35 @@ GitResult<void> RepoIndexDb::removeBaseFolder(std::int64_t id) {
     return {};
 }
 
+GitResult<void> RepoIndexDb::setBaseFolderMaxDepth(std::int64_t id, int maxDepth) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    return db_.transaction([this, id, maxDepth]() -> GitResult<void> {
+        auto statement = db_.prepare("UPDATE base_folder SET max_depth = ?2 WHERE id = ?1;");
+        if (!statement) {
+            return fail(std::move(statement).error());
+        }
+        statement->bind(1, id);
+        statement->bind(2, static_cast<std::int64_t>(maxDepth));
+        auto stepped = statement->step();
+        if (!stepped) {
+            return fail(std::move(stepped).error());
+        }
+
+        auto clearStatement = db_.prepare("DELETE FROM dir_sig WHERE base_folder_id = ?1;");
+        if (!clearStatement) {
+            return fail(std::move(clearStatement).error());
+        }
+        clearStatement->bind(1, id);
+        auto clearStepped = clearStatement->step();
+        if (!clearStepped) {
+            return fail(std::move(clearStepped).error());
+        }
+        return {};
+    });
+}
+
 GitResult<void> RepoIndexDb::setBaseFolderEnabled(std::int64_t id, bool enabled) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     auto statement = db_.prepare("UPDATE base_folder SET enabled = ?2 WHERE id = ?1;");
     if (!statement) {
         return fail(std::move(statement).error());
@@ -260,6 +320,7 @@ GitResult<void> RepoIndexDb::setBaseFolderEnabled(std::int64_t id, bool enabled)
 }
 
 GitResult<std::vector<BaseFolderRecord>> RepoIndexDb::baseFolders() const {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     auto statement = db_.prepare(
         "SELECT id, path, enabled, max_depth, follow_links, generation, last_scan_started, "
         "last_scan_finished, last_scan_dirs, last_scan_ms FROM base_folder ORDER BY path;");
@@ -293,6 +354,7 @@ GitResult<std::vector<BaseFolderRecord>> RepoIndexDb::baseFolders() const {
 }
 
 GitResult<std::int64_t> RepoIndexDb::beginScan(std::int64_t baseFolderId) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     auto statement = db_.prepare(
         "UPDATE base_folder SET generation = generation + 1, last_scan_started = ?2 "
         "WHERE id = ?1;");
@@ -324,6 +386,7 @@ GitResult<std::int64_t> RepoIndexDb::beginScan(std::int64_t baseFolderId) {
 GitResult<void> RepoIndexDb::finishScan(std::int64_t baseFolderId,
                                         std::int64_t dirsScanned,
                                         std::int64_t elapsedMs) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     auto statement = db_.prepare(
         "UPDATE base_folder SET last_scan_finished = ?2, last_scan_dirs = ?3, last_scan_ms = ?4 "
         "WHERE id = ?1;");
@@ -342,6 +405,7 @@ GitResult<void> RepoIndexDb::finishScan(std::int64_t baseFolderId,
 }
 
 GitResult<std::int64_t> RepoIndexDb::upsertRepo(const RepoRecord& record) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     // A repository that reappears after being marked missing must come back
     // rather than being duplicated, so missing_since is cleared here.
     auto statement = db_.prepare(
@@ -389,6 +453,7 @@ GitResult<std::int64_t> RepoIndexDb::upsertRepo(const RepoRecord& record) {
 }
 
 GitResult<std::vector<RepoRecord>> RepoIndexDb::repos(bool includeMissing) const {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     const std::string sql = "SELECT " + std::string(kRepoColumns) + " FROM repo" +
                             (includeMissing ? "" : " WHERE missing_since IS NULL") +
                             " ORDER BY name COLLATE NOCASE;";
@@ -412,6 +477,7 @@ GitResult<std::vector<RepoRecord>> RepoIndexDb::repos(bool includeMissing) const
 }
 
 GitResult<std::vector<RepoRecord>> RepoIndexDb::reposInBaseFolder(std::int64_t baseFolderId) const {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     const std::string sql = "SELECT " + std::string(kRepoColumns) +
                             " FROM repo WHERE base_folder_id = ?1 AND missing_since IS NULL "
                             "ORDER BY name COLLATE NOCASE;";
@@ -437,6 +503,7 @@ GitResult<std::vector<RepoRecord>> RepoIndexDb::reposInBaseFolder(std::int64_t b
 
 GitResult<std::optional<RepoRecord>> RepoIndexDb::findRepoByGitDir(
     const std::string& gitDir) const {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     const std::string sql =
         "SELECT " + std::string(kRepoColumns) + " FROM repo WHERE git_dir = ?1 LIMIT 1;";
     auto statement = db_.prepare(sql);
@@ -455,6 +522,7 @@ GitResult<std::optional<RepoRecord>> RepoIndexDb::findRepoByGitDir(
 }
 
 GitResult<int> RepoIndexDb::markMissing(std::int64_t baseFolderId, std::int64_t generation) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     // Soft delete only: user metadata (pins, colours, aliases) survives a
     // temporarily unmounted drive, and the row comes back on the next scan.
     auto statement = db_.prepare(
@@ -476,6 +544,7 @@ GitResult<int> RepoIndexDb::markMissing(std::int64_t baseFolderId, std::int64_t 
 GitResult<int> RepoIndexDb::touchReposUnder(std::int64_t baseFolderId,
                                             const std::string& pathPrefix,
                                             std::int64_t generation) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     auto statement = db_.prepare(
         "UPDATE repo SET last_seen_gen = ?3 "
         "WHERE base_folder_id = ?1 AND (work_dir LIKE ?2 ESCAPE '\\' OR "
@@ -506,6 +575,7 @@ GitResult<int> RepoIndexDb::touchReposUnder(std::int64_t baseFolderId,
 }
 
 GitResult<void> RepoIndexDb::deleteRepo(std::int64_t id) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     auto statement = db_.prepare("DELETE FROM repo WHERE id = ?1;");
     if (!statement) {
         return fail(std::move(statement).error());
@@ -519,6 +589,7 @@ GitResult<void> RepoIndexDb::deleteRepo(std::int64_t id) {
 }
 
 GitResult<void> RepoIndexDb::saveProbe(const RepoProbe& probe) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     auto statement = db_.prepare(
         "INSERT INTO repo_probe(repo_id, head_kind, head_ref, head_oid, upstream_ref, ahead, "
         "                       behind, dirty_files, stash_count, in_progress, probed_at, "
@@ -557,6 +628,7 @@ GitResult<void> RepoIndexDb::saveProbe(const RepoProbe& probe) {
 }
 
 GitResult<std::optional<RepoProbe>> RepoIndexDb::probe(std::int64_t repoId) const {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     auto statement = db_.prepare(
         "SELECT repo_id, head_kind, head_ref, head_oid, upstream_ref, ahead, behind, "
         "       dirty_files, stash_count, in_progress, probed_at, git_dir_mtime_ns, "
@@ -601,6 +673,7 @@ GitResult<std::optional<RepoProbe>> RepoIndexDb::probe(std::int64_t repoId) cons
 
 GitResult<std::optional<DirSignature>> RepoIndexDb::dirSignature(std::int64_t baseFolderId,
                                                                  const std::string& dirPath) const {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     auto statement = db_.prepare(
         "SELECT base_folder_id, dir_path, mtime_ns, child_dirs, had_repo "
         "FROM dir_sig WHERE base_folder_id = ?1 AND dir_path = ?2;");
@@ -627,6 +700,7 @@ GitResult<std::optional<DirSignature>> RepoIndexDb::dirSignature(std::int64_t ba
 }
 
 GitResult<void> RepoIndexDb::saveDirSignature(const DirSignature& signature) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     auto statement = db_.prepare(
         "INSERT INTO dir_sig(base_folder_id, dir_path, mtime_ns, child_dirs, had_repo) "
         "VALUES(?1,?2,?3,?4,?5) "
@@ -648,6 +722,7 @@ GitResult<void> RepoIndexDb::saveDirSignature(const DirSignature& signature) {
 }
 
 GitResult<void> RepoIndexDb::clearDirSignatures(std::int64_t baseFolderId) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     auto statement = db_.prepare("DELETE FROM dir_sig WHERE base_folder_id = ?1;");
     if (!statement) {
         return fail(std::move(statement).error());
@@ -662,6 +737,7 @@ GitResult<void> RepoIndexDb::clearDirSignatures(std::int64_t baseFolderId) {
 
 GitResult<std::vector<RepoRecord>> RepoIndexDb::search(const std::string& query,
                                                        std::size_t limit) const {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     const std::string sql = "SELECT " + std::string(kRepoColumns) +
                             " FROM repo WHERE missing_since IS NULL AND ("
                             "name LIKE ?1 ESCAPE '\\' COLLATE NOCASE OR "

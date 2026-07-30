@@ -10,6 +10,8 @@
 #include <QString>
 
 #include <memory>
+#include <mutex>
+#include <unordered_set>
 #include <vector>
 
 namespace gbm {
@@ -36,8 +38,15 @@ public:
 
     std::vector<BaseFolderRecord> baseFolders();
 
-    GitResult<void> addBaseFolder(const QString& path);
+    /// `maxDepth` is how many levels below `path` are scanned; 1 means only
+    /// `path` itself and its direct children.
+    GitResult<void> addBaseFolder(const QString& path, int maxDepth = 1);
     GitResult<void> removeBaseFolder(std::int64_t id);
+
+    /// Also clears the folder's stored directory signatures, so a subsequent
+    /// scan actually re-walks to the new depth instead of trusting stale "no
+    /// repository below here" signatures recorded under the old one.
+    GitResult<void> setBaseFolderDepth(std::int64_t id, int maxDepth);
 
     /// Starts a scan of every enabled base folder. Incremental uses stored
     /// directory signatures to skip unchanged subtrees; Full re-stats everything.
@@ -69,6 +78,15 @@ private:
     std::unique_ptr<Scanner> scanner_;
     CancellationSource scanCancel_;
     bool scanning_ = false;
+
+    /// Repository ids with a probe task currently queued or running. Scrolling,
+    /// searching, and a completed scan can all ask to probe the same visible
+    /// rows in quick succession; without this, each ask posts its own task and
+    /// the pool backs up doing redundant work. `probeRepo` already checks the
+    /// HEAD/index mtime witnesses before doing anything expensive, so an id is
+    /// only ever held here for the duration of one in-flight task, never longer.
+    std::mutex probeMutex_;
+    std::unordered_set<std::int64_t> probesInFlight_;
 };
 
 }  // namespace gbm

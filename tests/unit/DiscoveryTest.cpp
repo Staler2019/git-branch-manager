@@ -10,10 +10,13 @@
 #include "core/discovery/Scanner.h"
 #include "core/discovery/SkipRules.h"
 
+#include <atomic>
 #include <filesystem>
 #include <fstream>
 #include <gtest/gtest.h>
 #include <string>
+#include <thread>
+#include <vector>
 
 namespace gbm {
 namespace {
@@ -343,11 +346,153 @@ TEST(RepoIndexDb, RefusesACacheFromANewerSchema) {
     // misreading a future layout.
     RepoIndexDb db;
     ASSERT_TRUE(db.openInMemory());
-    ASSERT_TRUE(db.database().execute("UPDATE schema_info SET version = 9999;"));
+    ASSERT_TRUE(db.forceSchemaVersionForTest(9999));
 
     auto migrated = db.migrate();
     ASSERT_FALSE(migrated);
     EXPECT_EQ(migrated.error().code, GitError::Code::Unsupported);
+}
+
+TEST(RepoIndexDb, AddingABaseFolderDefaultsToDepthOne) {
+    // Regression test for the bug that left an already-configured base folder on
+    // depth 6: DiscoveryController::addBaseFolder used to drop the depth
+    // argument entirely, so whatever RepoIndexDb::addBaseFolder's own default
+    // was is what actually reached the database.
+    RepoIndexDb db;
+    ASSERT_TRUE(db.openInMemory());
+    ASSERT_TRUE(db.addBaseFolder("/work"));
+
+    auto folders = db.baseFolders();
+    ASSERT_TRUE(folders);
+    ASSERT_EQ(folders->size(), 1u);
+    EXPECT_EQ((*folders)[0].maxDepth, 1);
+}
+
+TEST(RepoIndexDb, ChangingBaseFolderDepthClearsItsSignatures) {
+    // A stale "no repository below here" signature recorded under a shallower
+    // depth would otherwise wrongly prune a subtree the new, deeper scan should
+    // actually visit.
+    RepoIndexDb db;
+    ASSERT_TRUE(db.openInMemory());
+    auto folderId = db.addBaseFolder("/work", 1, false);
+    ASSERT_TRUE(folderId);
+
+    DirSignature signature;
+    signature.baseFolderId = *folderId;
+    signature.dirPath = "/work/nested";
+    signature.mtimeNs = 123;
+    signature.childDirs = 0;
+    signature.hadRepo = false;
+    ASSERT_TRUE(db.saveDirSignature(signature));
+
+    ASSERT_TRUE(db.setBaseFolderMaxDepth(*folderId, 5));
+
+    auto folders = db.baseFolders();
+    ASSERT_TRUE(folders);
+    EXPECT_EQ((*folders)[0].maxDepth, 5);
+
+    auto stored = db.dirSignature(*folderId, "/work/nested");
+    ASSERT_TRUE(stored);
+    EXPECT_FALSE(*stored) << "the old signature must not survive a depth change";
+}
+
+TEST(RepoIndexDb, UpgradingFromSchemaOneClearsBaseFolders) {
+    // Schema 2 lowered the default max_depth from 6 to 1. A base folder written
+    // by a pre-upgrade build was configured under the old default, so the
+    // upgrade clears it rather than silently reinterpreting it.
+    //
+    // The table layout itself did not change between schema 1 and 2, so this
+    // simulates "an old cache" by writing through today's schema and then
+    // rolling the version number back — migrate() only cares about the version
+    // it reads, not how the tables got there.
+    RepoIndexDb db;
+    ASSERT_TRUE(db.openInMemory());
+    ASSERT_TRUE(db.addBaseFolder("/work", 6, false));
+    ASSERT_EQ(db.baseFolders()->size(), 1u);
+
+    ASSERT_TRUE(db.forceSchemaVersionForTest(1));
+    ASSERT_TRUE(db.migrate());
+
+    EXPECT_TRUE(db.baseFolders()->empty());
+}
+
+TEST(RepoIndexDb, ConcurrentProbeAndScanWritesAreSerialised) {
+    // Regression test for a real crash: DiscoveryController used to hand one
+    // RepoIndexDb to a 2-thread scan pool and a 2-thread probe pool with no
+    // shared lock between them. Scanning a large tree reliably crashed inside
+    // SQLite's own allocator once both pools hit the connection at the same
+    // time (four macOS crash reports, all faulting in Database::prepare, called
+    // from RepoIndexDb::probe or ::saveProbe on a probe-pool thread while a
+    // scan was still committing). This hammers the same two access patterns —
+    // batched-transaction writes and single-row probe reads/writes — from many
+    // threads at once, without needing an actual filesystem scan to trigger it.
+    RepoIndexDb db;
+    ASSERT_TRUE(db.openInMemory());
+    auto folderId = db.addBaseFolder("/work", 6, false);
+    ASSERT_TRUE(folderId);
+
+    constexpr int kReposPerScanThread = 50;
+    constexpr int kScanThreads = 4;
+    constexpr int kProbeThreads = 4;
+    constexpr int kProbeIterations = 200;
+
+    std::vector<std::thread> threads;
+
+    // "Scan" threads: batched inserts inside RepoIndexDb::transaction(), the
+    // same shape as Scanner::flushPending.
+    for (int t = 0; t < kScanThreads; ++t) {
+        threads.emplace_back([&db, baseFolderId = *folderId, t] {
+            for (int i = 0; i < kReposPerScanThread; ++i) {
+                RepoRecord record;
+                record.baseFolderId = baseFolderId;
+                record.workDir = "/work/t" + std::to_string(t) + "/r" + std::to_string(i);
+                record.gitDir = record.workDir + "/.git";
+                record.commonDir = record.gitDir;
+                record.name = "r" + std::to_string(i);
+                record.lastSeenGeneration = 1;
+                auto committed = db.transaction([&db, &record]() -> GitResult<void> {
+                    auto id = db.upsertRepo(record);
+                    if (!id) {
+                        return fail(std::move(id).error());
+                    }
+                    return {};
+                });
+                ASSERT_TRUE(committed);
+            }
+        });
+    }
+
+    // "Probe" threads: single-row reads and writes against whatever repo ids
+    // exist so far, the same shape as DiscoveryController::probeRepo.
+    for (int t = 0; t < kProbeThreads; ++t) {
+        threads.emplace_back([&db, t] {
+            for (int i = 0; i < kProbeIterations; ++i) {
+                auto repos = db.repos();
+                ASSERT_TRUE(repos);
+                if (repos->empty()) {
+                    continue;
+                }
+                const RepoRecord& target = (*repos)[static_cast<std::size_t>(i) % repos->size()];
+                auto probe = db.probe(target.id);
+                ASSERT_TRUE(probe);
+
+                RepoProbe next;
+                next.repoId = target.id;
+                next.headRef = "refs/heads/main";
+                next.ahead = t;
+                next.probedAt = i;
+                ASSERT_TRUE(db.saveProbe(next));
+            }
+        });
+    }
+
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    auto repos = db.repos();
+    ASSERT_TRUE(repos);
+    EXPECT_EQ(repos->size(), static_cast<std::size_t>(kScanThreads * kReposPerScanThread));
 }
 
 // --- scanner ---------------------------------------------------------------
@@ -419,6 +564,49 @@ TEST_F(ScannerTest, RespectsTheDepthLimit) {
     CancellationSource source;
     ASSERT_TRUE(scanner.scan((*folders)[0], ScanMode::Full, source.token()));
     EXPECT_EQ(db.repos()->size(), 0u) << "the repository lies past maxDepth";
+}
+
+TEST_F(ScannerTest, DepthOneFindsOnlyTheBaseFolderAndItsDirectChildren) {
+    // The default a new base folder is added with. The base folder itself is
+    // depth 0, so depth 1 is "this folder and its direct children" — the shape
+    // the UI's depth prompt promises.
+    makeNormalRepo("repo");
+    makeNormalRepo("nested/deeper-repo");
+
+    RepoIndexDb db;
+    ASSERT_TRUE(db.openInMemory());
+    ASSERT_TRUE(db.addBaseFolder(root_.string(), 1, false));
+    auto folders = db.baseFolders();
+    ASSERT_TRUE(folders);
+
+    Scanner scanner(db);
+    CancellationSource source;
+    ASSERT_TRUE(scanner.scan((*folders)[0], ScanMode::Full, source.token()));
+
+    auto repos = db.repos();
+    ASSERT_TRUE(repos);
+    ASSERT_EQ(repos->size(), 1u);
+    EXPECT_EQ((*repos)[0].name, "repo");
+}
+
+TEST_F(ScannerTest, DepthZeroFindsOnlyABaseFolderThatIsItselfARepository) {
+    // The base folder itself is a repo (a bare mirror often is). Written
+    // directly at root_ rather than through makeNormalRepo(), which joins its
+    // argument as a subdirectory.
+    writeFile(root_ / ".git" / "HEAD", "ref: refs/heads/main\n");
+    std::filesystem::create_directories(root_ / ".git" / "refs");
+    std::filesystem::create_directories(root_ / ".git" / "objects");
+
+    RepoIndexDb db;
+    ASSERT_TRUE(db.openInMemory());
+    ASSERT_TRUE(db.addBaseFolder(root_.string(), 0, false));
+    auto folders = db.baseFolders();
+    ASSERT_TRUE(folders);
+
+    Scanner scanner(db);
+    CancellationSource source;
+    ASSERT_TRUE(scanner.scan((*folders)[0], ScanMode::Full, source.token()));
+    EXPECT_EQ(db.repos()->size(), 1u);
 }
 
 TEST_F(ScannerTest, CancellationNeverMarksRepositoriesAsMissing) {

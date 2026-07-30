@@ -23,6 +23,7 @@ class QLineEdit;
 class QSplitter;
 class QStackedWidget;
 class QProgressBar;
+class QTimer;
 
 namespace gbm {
 
@@ -39,6 +40,7 @@ public:
 
 private slots:
     void onAddBaseFolder();
+    void onManageBaseFolders();
     void onRefresh();
     void onForceRefresh();
     void onCancelScan();
@@ -92,6 +94,10 @@ private:
     QLabel* statusLabel_ = nullptr;
     QLabel* bannerLabel_ = nullptr;
     QProgressBar* busyBar_ = nullptr;
+
+    /// Coalesces a burst of scroll events into a single `probeVisibleRepos()`
+    /// call instead of one per event.
+    QTimer* probeDebounce_ = nullptr;
 
     std::vector<RepoRecord> allRepos_;
     std::shared_ptr<const std::vector<ChangedFile>> currentFiles_;

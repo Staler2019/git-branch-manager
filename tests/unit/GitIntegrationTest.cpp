@@ -67,10 +67,19 @@ protected:
         return runner_->run(command, CancellationToken{});
     }
 
+    /// `name` is UTF-8, matching how the rest of the codebase treats a path in a
+    /// std::string -- ProcessRunner widens argv with CP_UTF8, so this is the same
+    /// name git will be given.
     void commitFile(const std::string& name,
                     const std::string& contents,
                     const std::string& message) {
-        std::ofstream out(repo_ / name, std::ios::binary | std::ios::trunc);
+        // Via char8_t, not the narrow string: constructing a path from a
+        // std::string decodes it in the platform's narrow encoding, which on
+        // Windows is the ANSI code page, so "café menu.txt" would land on disk as
+        // "cafÃ© menu.txt" and the git add below would find nothing. A path built
+        // from char8_t is UTF-8 by definition on every platform.
+        const std::u8string utf8(reinterpret_cast<const char8_t*>(name.data()), name.size());
+        std::ofstream out(repo_ / std::filesystem::path(utf8), std::ios::binary | std::ios::trunc);
         out << contents;
         out.close();
         ASSERT_TRUE(run({"add", name}));

@@ -56,6 +56,9 @@ struct ScanResult {
 ///    That turns a repeat scan of a large tree from tens of seconds into a couple.
 class Scanner {
 public:
+    /// Both callbacks are invoked on scan worker threads, never on the caller's,
+    /// but never concurrently with each other or with themselves: the scanner
+    /// serialises them, so a callback may touch its own state without locking.
     using ProgressCallback = std::function<void(const ScanProgress&)>;
     /// Called with each batch of newly found repositories, so the UI can insert
     /// rows as they appear rather than waiting for the whole scan.
@@ -115,6 +118,10 @@ private:
     /// one connection, and two concurrent `BEGIN IMMEDIATE` on the same connection
     /// is an error, not merely contention.
     std::mutex dbMutex_;
+
+    /// Serialises the progress and batch callbacks, so callers get the guarantee
+    /// documented on ProgressCallback instead of concurrent invocations.
+    std::mutex callbackMutex_;
 };
 
 }  // namespace gbm

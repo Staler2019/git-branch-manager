@@ -74,7 +74,11 @@ jobs:
           # ubuntu-22.04 rather than latest: it fixes the glibc floor for the
           # release artifact at 2.35, so binaries run on older distributions.
           - { name: Linux (gcc),     os: ubuntu-22.04,  preset: ci-linux }
-          - { name: macOS (arm64),   os: macos-latest,  preset: ci-macos }
+          # macos-26, not macos-latest: the target platform is macOS 26 on Apple
+          # Silicon, and pinning means GitHub rolling the label forward cannot
+          # change the SDK underneath us. That is exactly how the AGL breakage
+          # arrived - macos-latest moved to the macOS 26 SDK in June 2026.
+          - { name: macOS (arm64),   os: macos-26,      preset: ci-macos }
           - { name: Windows (MSVC),  os: windows-latest, preset: ci-windows }
     steps:
       - uses: actions/checkout@v4
@@ -92,6 +96,17 @@ jobs:
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
 
+      # The workflow preset packages as well as tests, and Windows packaging is
+      # ZIP plus an NSIS installer. NSIS is not on the runner image, and CPack
+      # treats a missing makensis as a hard error after the ZIP already
+      # succeeded. The PATH entry is belt and braces: CPack normally locates
+      # makensis through the registry key NSIS's installer writes.
+      - name: Install NSIS
+        if: runner.os == 'Windows'
+        run: |
+          choco install nsis --no-progress -y
+          "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
+
       - name: Install Linux GUI dependencies
         if: runner.os == 'Linux'
         run: |
@@ -102,10 +117,18 @@ jobs:
 
       # Qt from the official binaries, never built from source: a source build of
       # qtbase is hours per platform per cache miss. With caching this is ~40 s.
+      #
+      # 6.10 rather than 6.8, for two macOS 26 reasons. Qt up to 6.8.3 links
+      # -framework AGL, which the macOS 26 SDK no longer ships, so every macOS
+      # link failed with "framework 'AGL' not found" (QTBUG-137687); that was
+      # fixed in 6.9.2. And building against the macOS 26 SDK opts the app into
+      # Liquid Glass, whose fallout for Qt's native styles was fixed in 6.10.0.
+      # 6.10 requires macOS 13 or higher, which release.yml's deployment target
+      # has to match.
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.8.*'
+          version: '6.10.*'
           modules: ''            # Core/Gui/Widgets only - smaller and faster
           cache: true
 

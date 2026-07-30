@@ -56,11 +56,17 @@ jobs:
       matrix:
         include:
           - { name: Linux x86_64,  os: ubuntu-22.04,   preset: ci-linux,   arch: x86_64 }
-          # Two separate DMGs rather than one universal binary: a universal build
-          # would mean building every dependency for both architectures and merging
-          # them, which is real engineering risk for a cosmetic gain.
-          - { name: macOS arm64,   os: macos-latest,   preset: ci-macos,   arch: arm64 }
-          - { name: macOS x86_64,  os: macos-13,       preset: ci-macos,   arch: x86_64 }
+          # Apple Silicon only, and one DMG rather than a universal binary: the
+          # target platform is macOS 26 on Apple Silicon, so an Intel slice would
+          # be built and shipped for nobody. There was an x86_64 leg on macos-13
+          # until GitHub retired that image in December 2025 - a job asking for a
+          # retired label does not fail, it queues, which is why the first release
+          # sat for 3h36m and then published nothing.
+          #
+          # The runner is pinned for the same reason ubuntu-22.04 is: a label
+          # rolling forward silently changes the SDK, which is how the AGL link
+          # failure arrived in the first place.
+          - { name: macOS arm64,   os: macos-26,       preset: ci-macos,   arch: arm64 }
           - { name: Windows x64,   os: windows-latest, preset: ci-windows, arch: x64 }
     steps:
       - uses: actions/checkout@v4
@@ -74,6 +80,15 @@ jobs:
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
 
+      # Without this the Windows leg publishes a ZIP and no installer: NSIS is
+      # absent from the runner image, and the .exe the collect step looks for is
+      # the NSIS output. Kept in step with ci.yml.
+      - name: Install NSIS
+        if: runner.os == 'Windows'
+        run: |
+          choco install nsis --no-progress -y
+          "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
+
       - name: Install Linux GUI dependencies
         if: runner.os == 'Linux'
         run: |
@@ -82,10 +97,13 @@ jobs:
             libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
             libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 fuse libfuse2
 
+      # Kept in step with ci.yml: 6.9.2 dropped the -framework AGL reference the
+      # macOS 26 SDK cannot satisfy, and 6.10.0 fixed the Liquid Glass fallout in
+      # Qt's native styles.
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.8.*'
+          version: '6.10.*'
           modules: ''
           cache: true
 
@@ -94,7 +112,10 @@ jobs:
           # cmake/Version.cmake prefers this when it looks like vX.Y.Z, so the binary
           # reports exactly the version CPack stamps on the artifact.
           GITHUB_REF_NAME: ${{ needs.tag.outputs.new_tag }}
-          MACOSX_DEPLOYMENT_TARGET: '12.0'
+          # 13.0 because that is Qt 6.10's own minimum. Qt is explicit that a
+          # deployment target below the one it was built for likely crashes at
+          # runtime, so this moves whenever the Qt series does: 6.9 was 12.0.
+          MACOSX_DEPLOYMENT_TARGET: '13.0'
         run: |
           cmake --preset ${{ matrix.preset }}
           cmake --build build/${{ matrix.preset }}

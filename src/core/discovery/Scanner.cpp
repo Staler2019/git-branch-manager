@@ -62,6 +62,10 @@ GitResult<void> Scanner::flushPending(SharedState& state, const BatchCallback& o
     }
 
     if (onBatch) {
+        // Serialised: several workers reach this point at once, and a callback
+        // that merely appends to a container or bumps a counter -- the obvious
+        // thing to write -- would otherwise be a data race in every caller.
+        std::lock_guard<std::mutex> callbackLock(callbackMutex_);
         onBatch(batch);
     }
     return {};
@@ -240,7 +244,17 @@ void Scanner::workerLoop(SharedState& state,
                         }
                     }
                 }
-                children.push_back({entry.path(), item.depth + 1});
+                // The parent's path joined with the name, deliberately not
+                // entry.path(): the iterator was handed a longPathSafe() path, so
+                // on Windows every entry it yields carries the \\?\ prefix, and
+                // that prefix would then be stored in the repo rows. A prefixed
+                // work_dir never prefix-matches the plain path that
+                // touchReposUnder() derives from the base folder, so an
+                // incremental scan would prune a subtree and then have the
+                // mark-missing sweep delete every repository inside it. Each
+                // filesystem call re-applies longPathSafe() anyway, so deep trees
+                // still work.
+                children.push_back({item.path / entry.path().filename(), item.depth + 1});
             }
         }
 
@@ -270,6 +284,7 @@ void Scanner::workerLoop(SharedState& state,
                 progress.reposFound = state.found;
             }
             progress.currentPath = item.path.string();
+            std::lock_guard<std::mutex> callbackLock(callbackMutex_);
             onProgress(progress);
         }
     }

@@ -17,6 +17,11 @@
 #include <string>
 #include <vector>
 
+#if defined(_WIN32)
+#include <fcntl.h>
+#include <io.h>
+#endif
+
 namespace {
 
 /// A fixed 64-bit PRNG rather than std::mt19937: the generated stream must be
@@ -125,6 +130,15 @@ int main(int argc, char** argv) {
         printUsage();
         return 2;
     }
+
+#if defined(_WIN32)
+    // A fast-import stream is bytes, not text. Left in text mode, stdout turns
+    // every \n into \r\n, fast-import reads the \r as part of the ref name, and
+    // the import dies on "refs/heads/feature/6\r" with "branch name doesn't
+    // conform to Git standards". This is also what keeps the stream
+    // byte-identical across platforms, which the golden graph tests rely on.
+    _setmode(_fileno(stdout), _O_BINARY);
+#endif
 
     SplitMix64 rng(options.seed);
 

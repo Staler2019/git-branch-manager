@@ -80,6 +80,15 @@ jobs:
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
 
+      # Without this the Windows leg publishes a ZIP and no installer: NSIS is
+      # absent from the runner image, and the .exe the collect step looks for is
+      # the NSIS output. Kept in step with ci.yml.
+      - name: Install NSIS
+        if: runner.os == 'Windows'
+        run: |
+          choco install nsis --no-progress -y
+          "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
+
       - name: Install Linux GUI dependencies
         if: runner.os == 'Linux'
         run: |

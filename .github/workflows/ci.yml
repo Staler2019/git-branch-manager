@@ -96,6 +96,17 @@ jobs:
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
 
+      # The workflow preset packages as well as tests, and Windows packaging is
+      # ZIP plus an NSIS installer. NSIS is not on the runner image, and CPack
+      # treats a missing makensis as a hard error after the ZIP already
+      # succeeded. The PATH entry is belt and braces: CPack normally locates
+      # makensis through the registry key NSIS's installer writes.
+      - name: Install NSIS
+        if: runner.os == 'Windows'
+        run: |
+          choco install nsis --no-progress -y
+          "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
+
       - name: Install Linux GUI dependencies
         if: runner.os == 'Linux'
         run: |

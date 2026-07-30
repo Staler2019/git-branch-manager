@@ -9,7 +9,10 @@
 #include "core/git/OperationRunner.h"
 #include "core/git/RefStore.h"
 #include "core/git/RepoState.h"
+#include "core/git/WorkingCopyStatus.h"
 #include "core/git/ops/CheckoutOp.h"
+#include "core/git/ops/CommitOps.h"
+#include "core/git/ops/StageOps.h"
 #include "core/graph/GraphSnapshot.h"
 #include "core/workers/ThreadPool.h"
 
@@ -68,6 +71,29 @@ public:
 
     void cancelPendingReads();
 
+    /// The most recent working-copy status. May be stale until the next
+    /// `workingCopyStatusUpdated`; never blocks.
+    WorkingCopyStatusPtr workingCopyStatus() const { return workingCopyStatus_.current(); }
+
+    /// Re-reads `git status`. Deliberately uncached at the RepositorySession
+    /// level too, matching WorkingCopyStatusReader: the work tree changes on
+    /// every keystroke, so a snapshot is only ever "as of the last refresh".
+    void refreshWorkingCopyStatus();
+
+    /// Diff of one path against the index (staged=false) or HEAD
+    /// (staged=true), for the working-copy panel.
+    void requestWorkingCopyDiff(const std::string& path, bool staged);
+
+    void stageFiles(std::vector<std::string> paths);
+    void unstageFiles(std::vector<std::string> paths);
+
+    /// Applies a hunk- or line-level patch to the index; see
+    /// UnifiedDiffParser::buildHunkPatch / buildLineSelectionPatch for how the
+    /// patch and `reverse` are meant to be paired.
+    void applyPatch(std::string patch, bool reverse);
+
+    void commitChanges(const CommitRequest& request);
+
 signals:
     /// A newer graph snapshot is available (possibly partial).
     void graphUpdated(bool complete);
@@ -80,8 +106,19 @@ signals:
     void errorOccurred(const GitError& error);
     void busyChanged(bool busy);
 
+    void workingCopyStatusUpdated();
+    void workingCopyDiffReady(QString path, bool staged, std::shared_ptr<const ParsedDiff> diff);
+    /// Separate from `operationFinished`: MainWindow's checkout-recovery UI
+    /// (stash/discard choices) does not apply to staging and commit, so the
+    /// working-copy panel gets its own completion signal to react to.
+    void workingCopyOperationFinished(OperationOutcome outcome);
+
 private:
     void setBusy(bool busy);
+    /// Runs a staging/commit Operation and, on success, refreshes whatever it
+    /// could have changed. Shared by stageFiles/unstageFiles/applyPatch/commitChanges
+    /// so each stays a one-line call.
+    void submitWorkingCopyOperation(std::unique_ptr<Operation> operation, bool alsoRefreshHistory);
 
     GitInstallation installation_;
     RepoPaths paths_;
@@ -93,9 +130,11 @@ private:
     std::unique_ptr<HistoryProvider> history_;
     std::unique_ptr<DiffService> diffs_;
     std::unique_ptr<OperationRunner> operations_;
+    std::unique_ptr<WorkingCopyStatusReader> workingCopyStatusReader_;
 
     SnapshotHolder<GraphSnapshot> graph_;
     SnapshotHolder<RefSnapshot> refs_;
+    SnapshotHolder<WorkingCopyStatus> workingCopyStatus_;
 
     /// Cancels the in-flight history walk when a new one starts.
     CancellationSource historyCancel_;

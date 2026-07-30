@@ -6,6 +6,9 @@
 #include <QWidget>
 
 #include <memory>
+#include <vector>
+
+class QContextMenuEvent;
 
 namespace gbm {
 
@@ -30,10 +33,46 @@ public:
 
     void clearDiff();
 
+    /// Offers "Stage Hunk" / "Stage Selected Lines" (or their Unstage
+    /// counterparts) on the context menu. Off by default: the history diff
+    /// view shows a read-only past commit, which cannot be staged.
+    void setStagingEnabled(bool enabled);
+
+    /// Which side of the index the currently shown diff represents: false for
+    /// work tree vs index (the "Stage" case), true for index vs HEAD (the
+    /// "Unstage" case). Determines both the menu wording and the `reverse`
+    /// flag on applyPatchRequested.
+    void setShowingStagedDiff(bool staged);
+
+signals:
+    /// A patch the user asked to apply to the index, built from the hunk or
+    /// line selection under the cursor. See
+    /// UnifiedDiffParser::buildHunkPatch / buildLineSelectionPatch for what
+    /// `patch` contains and how `reverse` pairs with it.
+    void applyPatchRequested(QString patch, bool reverse);
+
+protected:
+    void contextMenuEvent(QContextMenuEvent* event) override;
+
 private:
     void render(const ParsedDiff& diff, const QString& onlyPath);
 
+    /// Maps a contiguous run of QTextBlocks back to the hunk they render, so a
+    /// right-click can find which hunk (and which DiffLine, for a selection)
+    /// it landed on without re-parsing the document.
+    struct HunkSpan {
+        int firstLine = 0;  ///< Block number of the hunk's first content line.
+        int lastLine = 0;   ///< Block number of the hunk's last content line.
+        const DiffFile* file = nullptr;
+        const DiffHunk* hunk = nullptr;
+    };
+
+    const HunkSpan* hunkSpanForBlock(int blockNumber) const;
+
     std::shared_ptr<const ParsedDiff> diff_;
+    std::vector<HunkSpan> hunkSpans_;
+    bool stagingEnabled_ = false;
+    bool showingStaged_ = false;
 };
 
 }  // namespace gbm

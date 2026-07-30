@@ -1,10 +1,15 @@
 #include "app/views/DiffView.h"
 
+#include <QAction>
+#include <QContextMenuEvent>
 #include <QFont>
 #include <QFontDatabase>
+#include <QMenu>
 #include <QTextBlockFormat>
 #include <QTextCharFormat>
 #include <QTextCursor>
+
+#include <memory>
 
 namespace gbm {
 
@@ -35,13 +40,23 @@ DiffView::DiffView(QWidget* parent) : QPlainTextEdit(parent) {
     setUndoRedoEnabled(false);
 }
 
+void DiffView::setStagingEnabled(bool enabled) {
+    stagingEnabled_ = enabled;
+}
+
+void DiffView::setShowingStagedDiff(bool staged) {
+    showingStaged_ = staged;
+}
+
 void DiffView::clearDiff() {
     diff_.reset();
+    hunkSpans_.clear();
     clear();
 }
 
 void DiffView::showMessage(const QString& message) {
     diff_.reset();
+    hunkSpans_.clear();
     clear();
     appendPlainText(message);
 }
@@ -62,7 +77,71 @@ void DiffView::showFile(std::shared_ptr<const ParsedDiff> diff, const QString& p
     }
 }
 
+const DiffView::HunkSpan* DiffView::hunkSpanForBlock(int blockNumber) const {
+    for (const HunkSpan& span : hunkSpans_) {
+        if (blockNumber >= span.firstLine && blockNumber <= span.lastLine) {
+            return &span;
+        }
+    }
+    return nullptr;
+}
+
+void DiffView::contextMenuEvent(QContextMenuEvent* event) {
+    if (!stagingEnabled_ || !diff_) {
+        QPlainTextEdit::contextMenuEvent(event);
+        return;
+    }
+
+    const HunkSpan* span = hunkSpanForBlock(cursorForPosition(event->pos()).blockNumber());
+    if (span == nullptr) {
+        QPlainTextEdit::contextMenuEvent(event);
+        return;
+    }
+
+    std::unique_ptr<QMenu> menu(createStandardContextMenu());
+    menu->addSeparator();
+
+    QAction* hunkAction = menu->addAction(showingStaged_ ? tr("Unstage Hunk") : tr("Stage Hunk"));
+    const bool reverse = showingStaged_;
+    connect(hunkAction, &QAction::triggered, this, [this, span, reverse] {
+        const std::string patch = UnifiedDiffParser::buildHunkPatch(*span->file, *span->hunk);
+        emit applyPatchRequested(QString::fromStdString(patch), reverse);
+    });
+
+    // Line-level staging only when the selection sits entirely inside this
+    // hunk's body: a selection spanning hunks or files has no single patch.
+    const QTextCursor selection = textCursor();
+    if (selection.hasSelection()) {
+        QTextCursor start(document());
+        start.setPosition(selection.selectionStart());
+        QTextCursor end(document());
+        end.setPosition(selection.selectionEnd());
+        const int selStart = start.blockNumber();
+        const int selEnd = end.blockNumber();
+
+        if (selStart >= span->firstLine && selEnd <= span->lastLine) {
+            QAction* lineAction = menu->addAction(showingStaged_ ? tr("Unstage Selected Lines")
+                                                                 : tr("Stage Selected Lines"));
+            connect(lineAction, &QAction::triggered, this, [this, span, selStart, selEnd, reverse] {
+                std::vector<bool> selected(span->hunk->lines.size(), false);
+                for (int line = selStart; line <= selEnd; ++line) {
+                    const auto index = static_cast<std::size_t>(line - span->firstLine);
+                    if (index < selected.size()) {
+                        selected[index] = true;
+                    }
+                }
+                const std::string patch =
+                    UnifiedDiffParser::buildLineSelectionPatch(*span->file, *span->hunk, selected);
+                emit applyPatchRequested(QString::fromStdString(patch), reverse);
+            });
+        }
+    }
+
+    menu->exec(event->globalPos());
+}
+
 void DiffView::render(const ParsedDiff& diff, const QString& onlyPath) {
+    hunkSpans_.clear();
     QTextCursor cursor(document());
     cursor.beginEditBlock();
 
@@ -133,6 +212,7 @@ void DiffView::render(const ParsedDiff& diff, const QString& onlyPath) {
                 hunkLine += QStringLiteral(" ") + QString::fromStdString(hunk.heading);
             }
             cursor.insertText(hunkLine + QStringLiteral("\n"), hunkHeader);
+            const int firstLine = cursor.blockNumber();
 
             for (const DiffLine& line : hunk.lines) {
                 switch (line.kind) {
@@ -156,6 +236,10 @@ void DiffView::render(const ParsedDiff& diff, const QString& onlyPath) {
                                           dim);
                         break;
                 }
+            }
+
+            if (stagingEnabled_ && !hunk.lines.empty()) {
+                hunkSpans_.push_back({firstLine, cursor.blockNumber() - 1, &file, &hunk});
             }
         }
         cursor.insertText(QStringLiteral("\n"), plain);

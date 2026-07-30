@@ -23,6 +23,7 @@ RepositorySession::RepositorySession(GitInstallation installation,
     history_ = std::make_unique<HistoryProvider>(*runner_, paths_);
     diffs_ = std::make_unique<DiffService>(*runner_, paths_);
     operations_ = std::make_unique<OperationRunner>(*runner_, paths_);
+    workingCopyStatusReader_ = std::make_unique<WorkingCopyStatusReader>(*runner_, paths_);
 }
 
 RepositorySession::~RepositorySession() {
@@ -202,6 +203,104 @@ void RepositorySession::checkout(const CheckoutRequest& request) {
 void RepositorySession::cancelPendingReads() {
     readCancel_.cancel();
     readCancel_ = CancellationSource();
+}
+
+void RepositorySession::refreshWorkingCopyStatus() {
+    const CancellationToken token = readCancel_.token();
+    setBusy(true);
+
+    readPool_.post([this, token] {
+        auto status = workingCopyStatusReader_->read(token);
+        if (status) {
+            workingCopyStatus_.publish(*status);
+            QMetaObject::invokeMethod(
+                this, [this] { emit workingCopyStatusUpdated(); }, Qt::QueuedConnection);
+        } else if (status.error().code != GitError::Code::Cancelled) {
+            GitError error = std::move(status).error();
+            QMetaObject::invokeMethod(
+                this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
+        }
+        QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+    });
+}
+
+void RepositorySession::requestWorkingCopyDiff(const std::string& path, bool staged) {
+    const CancellationToken token = readCancel_.token();
+    setBusy(true);
+
+    // postFront: mirrors requestCommitDetails -- the newest selection is what
+    // the user is looking at, so it must not wait behind a stale request.
+    readPool_.postFront([this, path, staged, token] {
+        if (token.isCancelled()) {
+            QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+            return;
+        }
+
+        auto diff = diffs_->workingTreeDiff(staged, {path}, DiffOptions{}, token);
+        if (diff) {
+            auto diffPtr = *diff;
+            const QString qpath = QString::fromStdString(path);
+            QMetaObject::invokeMethod(
+                this,
+                [this, qpath, staged, diffPtr] {
+                    emit workingCopyDiffReady(qpath, staged, diffPtr);
+                },
+                Qt::QueuedConnection);
+        } else if (diff.error().code != GitError::Code::Cancelled) {
+            GitError error = std::move(diff).error();
+            QMetaObject::invokeMethod(
+                this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
+        }
+        QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+    });
+}
+
+void RepositorySession::submitWorkingCopyOperation(std::unique_ptr<Operation> operation,
+                                                   bool alsoRefreshHistory) {
+    setBusy(true);
+    operations_->submit(std::move(operation), [this, alsoRefreshHistory](OperationOutcome outcome) {
+        // Runs on the operation runner's serial thread; hop to the UI thread
+        // before touching anything Qt.
+        QMetaObject::invokeMethod(
+            this,
+            [this, outcome = std::move(outcome), alsoRefreshHistory] {
+                setBusy(false);
+                emit workingCopyOperationFinished(outcome);
+                if (outcome.succeeded) {
+                    refreshWorkingCopyStatus();
+                    if (alsoRefreshHistory) {
+                        // A commit moved HEAD, so both the ref list and the
+                        // graph need to reflect it.
+                        refreshRefs();
+                        refreshHistory();
+                    }
+                }
+            },
+            Qt::QueuedConnection);
+    });
+}
+
+void RepositorySession::stageFiles(std::vector<std::string> paths) {
+    StageFilesRequest request;
+    request.paths = std::move(paths);
+    submitWorkingCopyOperation(makeStageFilesOperation(std::move(request)), false);
+}
+
+void RepositorySession::unstageFiles(std::vector<std::string> paths) {
+    UnstageFilesRequest request;
+    request.paths = std::move(paths);
+    submitWorkingCopyOperation(makeUnstageFilesOperation(std::move(request)), false);
+}
+
+void RepositorySession::applyPatch(std::string patch, bool reverse) {
+    ApplyPatchRequest request;
+    request.patch = std::move(patch);
+    request.reverse = reverse;
+    submitWorkingCopyOperation(makeApplyPatchOperation(std::move(request)), false);
+}
+
+void RepositorySession::commitChanges(const CommitRequest& request) {
+    submitWorkingCopyOperation(makeCommitOperation(request), true);
 }
 
 }  // namespace gbm

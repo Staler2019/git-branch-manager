@@ -1,0 +1,223 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+  # Building on the tag as well means a tag pushed by hand also produces artifacts.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # --- stage 1: derive the version and create the tag -----------------------
+  tag:
+    name: Derive version and tag
+    runs-on: ubuntu-latest
+    outputs:
+      new_tag: ${{ steps.bump.outputs.new_tag }}
+      new_version: ${{ steps.bump.outputs.new_version }}
+      changelog: ${{ steps.bump.outputs.changelog }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # THE TOKEN GOTCHA, and the reason this is worth spelling out: a tag pushed
+      # with the default GITHUB_TOKEN does NOT trigger any workflow, because GitHub
+      # suppresses recursive workflow triggers. This job therefore does not rely on
+      # a tag trigger at all - it calls the build job directly via `needs`, which
+      # sidesteps the problem entirely and needs no PAT or GitHub App.
+      #
+      # If you ever move to a separate `on: push: tags:` workflow, you must push the
+      # tag with a GitHub App token (actions/create-github-app-token) or a PAT, and
+      # add that identity to the branch-protection bypass list for main.
+      - name: Compute the next version from Conventional Commits
+        id: bump
+        uses: mathieudutour/github-tag-action@v6.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          default_bump: patch
+          release_branches: main
+          tag_prefix: v
+
+  # --- stage 2: build and package for each platform -------------------------
+  build:
+    name: Package ${{ matrix.name }}
+    needs: tag
+    if: needs.tag.outputs.new_tag != ''
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Linux x86_64,  os: ubuntu-22.04,   preset: ci-linux,   arch: x86_64 }
+          # Two separate DMGs rather than one universal binary: a universal build
+          # would mean building every dependency for both architectures and merging
+          # them, which is real engineering risk for a cosmetic gain.
+          - { name: macOS arm64,   os: macos-latest,   preset: ci-macos,   arch: arm64 }
+          - { name: macOS x86_64,  os: macos-13,       preset: ci-macos,   arch: x86_64 }
+          - { name: Windows x64,   os: windows-latest, preset: ci-windows, arch: x64 }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.tag.outputs.new_tag }}
+
+      - uses: lukka/get-cmake@latest
+
+      - name: Set up MSVC environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install Linux GUI dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev libxkbcommon-x11-0 libxcb-cursor0 \
+            libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+            libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 fuse libfuse2
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.*'
+          modules: ''
+          cache: true
+
+      - name: Configure and build
+        env:
+          # cmake/Version.cmake prefers this when it looks like vX.Y.Z, so the binary
+          # reports exactly the version CPack stamps on the artifact.
+          GITHUB_REF_NAME: ${{ needs.tag.outputs.new_tag }}
+          MACOSX_DEPLOYMENT_TARGET: '12.0'
+        run: |
+          cmake --preset ${{ matrix.preset }}
+          cmake --build build/${{ matrix.preset }}
+
+      - name: Test
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ctest --preset ${{ matrix.preset }}
+
+      - name: Package
+        env:
+          GITHUB_REF_NAME: ${{ needs.tag.outputs.new_tag }}
+        run: cpack --preset ${{ matrix.preset }}
+
+      # AppImage in addition to the tarball: it is the convenient format, but it
+      # needs FUSE 2 at runtime on some distributions, so the plain tarball must
+      # also be published as a fallback.
+      - name: Build AppImage
+        if: runner.os == 'Linux'
+        run: |
+          cmake --install build/ci-linux --prefix "$PWD/AppDir/usr"
+          curl -fsSL -o linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          curl -fsSL -o linuxdeploy-plugin-qt https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+          chmod +x linuxdeploy linuxdeploy-plugin-qt
+          cat > AppDir/usr/share/applications/git-branch-manager.desktop <<'DESKTOP'
+          [Desktop Entry]
+          Type=Application
+          Name=git-branch-manager
+          Exec=git-branch-manager
+          Icon=git-branch-manager
+          Categories=Development;
+          Terminal=false
+          DESKTOP
+          # linuxdeploy requires an icon and fails the build without one. A minimal
+          # valid PNG, written directly rather than converted, so this does not
+          # depend on ImageMagick being present on the runner.
+          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
+          base64 -d > AppDir/usr/share/icons/hicolor/256x256/apps/git-branch-manager.png <<'PNG'
+          iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==
+          PNG
+          export QMAKE="$(which qmake6 || which qmake)"
+          ./linuxdeploy --appdir AppDir --plugin qt --output appimage || \
+            echo "AppImage build failed; the tarball is still published"
+        continue-on-error: true
+        working-directory: ${{ github.workspace }}
+        shell: bash
+
+      # macOS signing and notarization are skipped when the secrets are absent, so a
+      # fork's CI still goes green instead of failing on something it cannot do.
+      # The emptiness check lives in the script, not in `if`: neither the `secrets`
+      # nor the `env` context is available to a step's own `if` condition, so a
+      # condition written there would silently never match.
+      - name: Sign and notarize (macOS)
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERT_P12: ${{ secrets.APPLE_CERT_P12 }}
+          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          # Signing secrets are absent in forks, so skip rather than fail: a fork's
+          # CI should still go green on work it cannot possibly do.
+          if [ -z "$APPLE_CERT_P12" ]; then
+            echo "No signing certificate configured; shipping an unsigned build."
+            exit 0
+          fi
+          echo "$APPLE_CERT_P12" | base64 --decode > cert.p12
+          security create-keychain -p actions build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p actions build.keychain
+          security import cert.p12 -k build.keychain -P "$APPLE_CERT_PASSWORD" \
+            -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k actions \
+            build.keychain
+          for dmg in build/ci-macos/*.dmg; do
+            xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" \
+              --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --wait
+            xcrun stapler staple "$dmg"
+          done
+        continue-on-error: true
+
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          mkdir -p dist
+          # Names must carry OS and arch: upload-artifact@v4 no longer merges
+          # same-named uploads across matrix legs, so a collision loses a file.
+          find build -maxdepth 2 -type f \
+            \( -name '*.tar.gz' -o -name '*.zip' -o -name '*.dmg' -o -name '*.exe' \) \
+            -exec cp {} dist/ \;
+          find . -maxdepth 2 -name '*.AppImage' -not -name 'linuxdeploy*' \
+            -exec cp {} dist/ \; 2>/dev/null || true
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: warn
+
+  # --- stage 3: publish the release ----------------------------------------
+  publish:
+    name: Publish release
+    needs: [tag, build]
+    if: needs.tag.outputs.new_tag != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Checksums
+        run: |
+          cd artifacts
+          sha256sum * > sha256sums.txt
+          cat sha256sums.txt
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.tag.outputs.new_tag }}
+          name: ${{ needs.tag.outputs.new_tag }}
+          body: ${{ needs.tag.outputs.changelog }}
+          generate_release_notes: true
+          files: artifacts/*

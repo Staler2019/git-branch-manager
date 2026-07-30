@@ -1,0 +1,165 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Without this the matrix queues for hours on a busy repository, and stale runs
+# keep burning minutes after a force-push.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Format and layering
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: clang-format
+        uses: jidicula/clang-format-action@v4.13.0
+        with:
+          clang-format-version: '18'
+          check-path: 'src'
+
+      # The core/app split is the load-bearing structural decision: core must stay
+      # Qt-free so the whole data layer is testable without a QApplication. A grep
+      # is crude but it cannot be argued with, and it fails fast.
+      - name: core must not depend on Qt
+        run: |
+          if grep -rEn '#include\s*[<"]Q' src/core; then
+            echo "::error::src/core must not include Qt headers - it is the headless, testable layer"
+            exit 1
+          fi
+          echo "core is Qt-free"
+
+  conventional-commits:
+    name: Commit messages
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # The release version is derived from commit messages, so a malformed one is
+      # not cosmetic: it silently produces the wrong version bump.
+      - name: Check Conventional Commits
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          pattern='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9._/-]+\))?!?: .+'
+          failed=0
+          while read -r sha; do
+            subject=$(git log -1 --format=%s "$sha")
+            case "$subject" in
+              "Merge "*) continue ;;
+            esac
+            if ! printf '%s' "$subject" | grep -qE "$pattern"; then
+              echo "::error::Not a Conventional Commit: $subject"
+              failed=1
+            fi
+          done < <(git rev-list "$base..$head")
+          exit $failed
+
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ubuntu-22.04 rather than latest: it fixes the glibc floor for the
+          # release artifact at 2.35, so binaries run on older distributions.
+          - { name: Linux (gcc),     os: ubuntu-22.04,  preset: ci-linux }
+          - { name: macOS (arm64),   os: macos-latest,  preset: ci-macos }
+          - { name: Windows (MSVC),  os: windows-latest, preset: ci-windows }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Version derivation uses `git describe`, and the integration tests build
+          # real repositories, so a shallow clone is not enough.
+          fetch-depth: 0
+
+      - name: Install Ninja and a pinned CMake
+        uses: lukka/get-cmake@latest
+
+      # Required for the Ninja generator to find cl.exe. With the Visual Studio
+      # generator this is unnecessary, but builds are markedly slower.
+      - name: Set up MSVC environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install Linux GUI dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev libxkbcommon-x11-0 libxcb-cursor0 \
+            libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+            libxcb-render-util0 libxcb-shape0 libxcb-xinerama0
+
+      # Qt from the official binaries, never built from source: a source build of
+      # qtbase is hours per platform per cache miss. With caching this is ~40 s.
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.*'
+          modules: ''            # Core/Gui/Widgets only - smaller and faster
+          cache: true
+
+      - name: Configure, build and test
+        run: cmake --workflow --preset ${{ matrix.preset }}
+
+      # The offscreen platform means the Qt model tests need no display.
+      - name: Run tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ctest --preset ${{ matrix.preset }}
+
+      - name: Upload test logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-${{ matrix.os }}
+          path: |
+            build/${{ matrix.preset }}/Testing/**/*.log
+            build/${{ matrix.preset }}/**/*.log
+          if-no-files-found: ignore
+
+  sanitizers:
+    name: Sanitizers (asan+ubsan)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: lukka/get-cmake@latest
+
+      # Core only: no Qt needed, so this job stays fast. The interesting races and
+      # lifetime bugs all live in the data layer anyway.
+      - name: Build and test with sanitizers
+        run: cmake --workflow --preset asan-ubsan
+        env:
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+          ASAN_OPTIONS: detect_leaks=1
+
+  thread-sanitizer:
+    name: Thread sanitizer
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: lukka/get-cmake@latest
+
+      # Snapshot publishing between the worker pool and the UI thread is exactly
+      # where a data race would hide, and it would be near-impossible to reproduce
+      # from a bug report.
+      - name: Build and test with TSan
+        run: cmake --workflow --preset tsan
+        env:
+          TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1

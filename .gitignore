@@ -1,0 +1,19 @@
+build/
+build-*/
+cmake-build-*/
+out/
+dist/
+install/
+
+# Editors / tooling
+.vscode/
+.idea/
+.cache/
+compile_commands.json
+*.user
+*.swp
+.DS_Store
+
+# Test/scratch output
+tests/golden/*.actual
+*.log

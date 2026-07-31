@@ -120,10 +120,12 @@ void MainWindow::buildUi() {
     repoSearch_ = new QLineEdit(browserPage);
     repoSearch_->setPlaceholderText(QStringLiteral("Filter repositories by name or path…"));
     repoSearch_->setClearButtonEnabled(true);
+    repoSearch_->setAccessibleName(QStringLiteral("Filter repositories"));
     connect(repoSearch_, &QLineEdit::textChanged, this, &MainWindow::onRepoSearchChanged);
 
     repoModel_ = new RepoListModel(this);
     repoView_ = new QTableView(browserPage);
+    repoView_->setAccessibleName(QStringLiteral("Repositories"));
     repoView_->setModel(repoModel_);
     repoView_->setSelectionBehavior(QAbstractItemView::SelectRows);
     repoView_->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -165,6 +167,7 @@ void MainWindow::buildUi() {
     bannerLabel_ = new QLabel(bannerRow);
     bannerLabel_->setVisible(false);
     bannerLabel_->setWordWrap(true);
+    bannerLabel_->setAccessibleName(QStringLiteral("Repository state banner"));
     // Unmissable by design: a repository stuck mid-rebase must never look normal.
     bannerLabel_->setStyleSheet(QStringLiteral("QLabel { color: white; }"));
     bannerLayout->addWidget(bannerLabel_, 1);
@@ -193,6 +196,7 @@ void MainWindow::buildUi() {
 
     refModel_ = new RefTreeModel(this);
     refView_ = new QTreeView(outerSplitter);
+    refView_->setAccessibleName(QStringLiteral("Branches and tags"));
     refView_->setModel(refModel_);
     refView_->setHeaderHidden(true);
     refView_->setUniformRowHeights(true);
@@ -208,6 +212,7 @@ void MainWindow::buildUi() {
 
     commitModel_ = new CommitListModel(this);
     commitView_ = new QTableView(rightSplitter);
+    commitView_->setAccessibleName(QStringLiteral("Commit history"));
     commitView_->setModel(commitModel_);
     commitView_->setSelectionBehavior(QAbstractItemView::SelectRows);
     commitView_->verticalHeader()->setVisible(false);
@@ -238,6 +243,7 @@ void MainWindow::buildUi() {
 
     auto* detailSplitter = new QSplitter(Qt::Horizontal, rightSplitter);
     fileView_ = new QTableView(detailSplitter);
+    fileView_->setAccessibleName(QStringLiteral("Changed files"));
     fileView_->setSelectionBehavior(QAbstractItemView::SelectRows);
     fileView_->verticalHeader()->setVisible(false);
     fileView_->setShowGrid(false);
@@ -282,10 +288,12 @@ void MainWindow::buildUi() {
 
     // --- status bar ----------------------------------------------------------
     statusLabel_ = new QLabel(QStringLiteral("Ready"), this);
+    statusLabel_->setAccessibleName(QStringLiteral("Status"));
     busyBar_ = new QProgressBar(this);
     busyBar_->setRange(0, 0);  // Indeterminate.
     busyBar_->setMaximumWidth(120);
     busyBar_->setVisible(false);
+    busyBar_->setAccessibleName(QStringLiteral("Busy"));
     statusBar()->addWidget(statusLabel_, 1);
     statusBar()->addPermanentWidget(busyBar_);
     statusBar()->addPermanentWidget(new QLabel(

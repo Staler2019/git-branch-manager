@@ -35,6 +35,7 @@ DiffView::DiffView(QWidget* parent) : QPlainTextEdit(parent) {
     setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
     setPlaceholderText(QStringLiteral("Select a commit to see its changes"));
+    setAccessibleName(QStringLiteral("Diff"));
     // Bounded undo/redo history is pointless in a read-only view and only costs
     // memory on large diffs.
     setUndoRedoEnabled(false);

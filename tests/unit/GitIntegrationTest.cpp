@@ -2441,14 +2441,32 @@ TEST_F(RealRepoTest, BisectFindsTheFirstBadCommitByGoodBadStepping) {
         EXPECT_EQ(initial->goodOids[0], goodBase->out);
     }
 
+    // Neither the stdout message nor the log marker for "found it" turned out
+    // to be a fixed string: older git prints "is the first bad commit" and
+    // logs "# first bad commit: [", but git 2.55 quotes the (customizable)
+    // term -- "is the first 'bad' commit" / "# first 'bad' commit: [" --
+    // confirmed by capturing the raw log from a CI failure on git 2.55, which
+    // otherwise looked like it never converged. `# first ` followed somewhere
+    // on the same line by ` commit: [` holds across both.
+    auto bisectConcluded = [](std::string_view log) {
+        std::size_t lineStart = 0;
+        while (lineStart <= log.size()) {
+            const std::size_t at = log.find('\n', lineStart);
+            const std::string_view line(
+                log.data() + lineStart,
+                (at == std::string_view::npos ? log.size() : at) - lineStart);
+            if (line.starts_with("# first ") && line.find(" commit: [") != std::string_view::npos) {
+                return true;
+            }
+            if (at == std::string_view::npos) {
+                break;
+            }
+            lineStart = at + 1;
+        }
+        return false;
+    };
+
     bool concluded = false;
-    // Diagnostic trail for the assertion below: this test has failed on the
-    // Windows and macOS CI runners (both on git 2.55.x) in a way that has not
-    // reproduced locally (git 2.43.0) across 30 repeated runs, so if it fails
-    // again the exact per-step data is what is needed to root-cause it rather
-    // than guess again -- what commit was actually tested, what `git bisect`
-    // actually printed, and the full log, at every step.
-    std::string trail;
     for (int i = 0; i < 10 && !concluded; ++i) {
         auto current = store.status(CancellationToken{});
         ASSERT_TRUE(current) << current.error().message;
@@ -2464,25 +2482,9 @@ TEST_F(RealRepoTest, BisectFindsTheFirstBadCommitByGoodBadStepping) {
 
         auto afterMark = store.status(CancellationToken{});
         ASSERT_TRUE(afterMark) << afterMark.error().message;
-        trail += "step " + std::to_string(i) + ": tested c" + std::to_string(commitNumber) + " (" +
-                 current->currentOid.substr(0, 10) + "), marked " + (mark.good ? "good" : "bad") +
-                 "; markOutcome.summary=[" + markOutcome.summary +
-                 "]; afterMark.active=" + (afterMark->active ? "true" : "false") +
-                 "; afterMark.currentOid=" + afterMark->currentOid.substr(0, 10) +
-                 "; afterMark.badOid=" + afterMark->badOid.substr(0, 10) + "\n";
-
-        // Not `markOutcome.summary.find("is the first bad commit")`: that is
-        // `git bisect`'s human-readable stdout message, and it turned out not
-        // to be a stable string to match on across git versions/locales --
-        // this failed the exact same way on both the Windows and macOS CI
-        // runners while passing on Linux. `# first bad commit: [` is the
-        // machine-readable marker `git bisect log`/`replay` themselves rely
-        // on, so it is the actual stable contract to depend on here.
-        concluded = afterMark->logText.find("# first bad commit: [") != std::string::npos;
+        concluded = bisectConcluded(afterMark->logText);
     }
-    ASSERT_TRUE(concluded) << "bisect did not conclude within 10 steps\n"
-                           << trail << "\nfull log:\n"
-                           << store.status(CancellationToken{})->logText;
+    ASSERT_TRUE(concluded) << "bisect did not conclude within 10 steps";
 
     auto finalStatus = store.status(CancellationToken{});
     ASSERT_TRUE(finalStatus) << finalStatus.error().message;

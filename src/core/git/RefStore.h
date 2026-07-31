@@ -89,6 +89,13 @@ public:
     /// create it so the user gets a clear message instead of raw git output.
     static bool isValidBranchName(std::string_view name);
 
+    /// Resolves a revision range (e.g. "A..B", or a single commit for the
+    /// one-commit case) into the ordered list of commits it contains, oldest
+    /// first -- the order a cherry-pick must apply them in, and the order a
+    /// preview should list them in.
+    GitResult<std::vector<ObjectId>> resolveRange(const std::string& range,
+                                                  CancellationToken token);
+
 private:
     IProcessRunner& runner_;
     RepoPaths paths_;

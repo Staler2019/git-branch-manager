@@ -56,6 +56,16 @@ std::vector<std::string_view> splitFieldsMax(std::string_view line, std::size_t 
     return fields;
 }
 
+/// A stage hash of all zeros means that stage does not exist for this path
+/// (e.g. no common ancestor for a both-added conflict). Reported as empty
+/// rather than as the all-zero hash, which is not a real object.
+std::string blobOrEmpty(std::string_view hash) {
+    if (hash.find_first_not_of('0') == std::string_view::npos) {
+        return {};
+    }
+    return std::string(hash);
+}
+
 /// Reads the trailing digits of a rename/copy score field, e.g. "R100" -> 100.
 int parseScore(std::string_view scoreField) {
     std::size_t digitsStart = 0;
@@ -186,7 +196,7 @@ GitResult<WorkingCopyStatusPtr> WorkingCopyStatusReader::read(CancellationToken 
             continue;
         }
 
-        // Unmerged (conflicted) entry.
+        // Unmerged (conflicted) entry: u XY sub m1 m2 m3 mW h1 h2 h3 path
         if (type == 'u') {
             const auto fields = splitFieldsMax(record, 11);
             if (fields.size() < 11) {
@@ -200,6 +210,9 @@ GitResult<WorkingCopyStatusPtr> WorkingCopyStatusReader::read(CancellationToken 
             entry.path = std::string(fields.back());
             entry.isSubmodule = !sub.empty() && sub.front() == 'S';
             entry.conflict = conflictForXY(!xy.empty() ? xy[0] : '?', xy.size() > 1 ? xy[1] : '?');
+            entry.ancestorBlob = blobOrEmpty(fields[7]);
+            entry.oursBlob = blobOrEmpty(fields[8]);
+            entry.theirsBlob = blobOrEmpty(fields[9]);
             status->entries.push_back(std::move(entry));
             ++i;
             continue;

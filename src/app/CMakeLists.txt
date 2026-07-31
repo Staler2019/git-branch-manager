@@ -25,6 +25,7 @@ qt_add_executable(git-branch-manager
     views/DiffView.cpp
     views/MainWindow.cpp
     views/OperationLogView.cpp
+    views/SideBySideDiffView.cpp
     views/WorkingCopyView.cpp
 )
 

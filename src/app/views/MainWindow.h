@@ -17,6 +17,7 @@
 #include <QTableView>
 #include <QTreeView>
 
+#include <functional>
 #include <memory>
 
 class QLineEdit;
@@ -48,6 +49,8 @@ private slots:
     void onCommitSelectionChanged();
     void onRefActivated(const QModelIndex& index);
     void onCheckoutRequested();
+    void onMergeRequested();
+    void onCherryPickRequested();
     void onGraphUpdated(bool complete);
     void onCommitDetailsReady(const ObjectId& commit,
                               std::shared_ptr<const std::vector<ChangedFile>> files,
@@ -67,6 +70,15 @@ private:
     void probeVisibleRepos();
     void updateStateBanner();
     void showError(const QString& summary, const GitError& error);
+
+    /// Submits a merge/cherry-pick style request and waits for exactly one
+    /// `workingCopyOperationFinished`. On success or a plain error, reports it
+    /// and is done. On a recoverable choice (currently always
+    /// stash-and-retry-or-abort), shows it and, if the user picks retry,
+    /// re-arms itself and calls `submit(true)` again -- so `submit` never runs
+    /// more than once per user decision, and this needs no member state to
+    /// carry the retry across the asynchronous round trip.
+    void armWorkingCopyChoiceHandler(std::function<void(bool stashFirst)> submit, bool stashFirst);
 
     GitInstallation installation_;
 

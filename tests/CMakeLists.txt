@@ -62,6 +62,7 @@ if(GBM_BUILD_APP)
         "${CMAKE_SOURCE_DIR}/src/app/models/GraphColumnDelegate.cpp"
         "${CMAKE_SOURCE_DIR}/src/app/models/RefTreeModel.cpp"
         "${CMAKE_SOURCE_DIR}/src/app/models/RepoListModel.cpp"
+        "${CMAKE_SOURCE_DIR}/src/app/bridge/AskpassWatcher.cpp"
         "${CMAKE_SOURCE_DIR}/src/app/bridge/RepositorySession.cpp")
 
     # qt_standard_project_setup() is directory-scoped and lives in src/app, so this

@@ -6,6 +6,7 @@
 // immediately — the kind that random DAG tests cannot see because they never
 // touch git itself.
 #include "core/base/CancellationToken.h"
+#include "core/base/FsUtil.h"
 #include "core/git/CatFileBatch.h"
 #include "core/git/DiffService.h"
 #include "core/git/GitExecutable.h"
@@ -20,8 +21,13 @@
 #include "core/git/ops/CommitOps.h"
 #include "core/git/ops/ConflictOps.h"
 #include "core/git/ops/MergeOps.h"
+#include "core/git/ops/RemoteOps.h"
 #include "core/git/ops/StageOps.h"
+#include "core/git/ops/StashOps.h"
+#include "core/git/ops/TagOps.h"
+#include "core/git/ops/WorktreeOps.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -1350,6 +1356,418 @@ TEST_F(RealRepoTest, TakingOursOnAConflictWhereWeDeletedRemovesThePath) {
     EXPECT_FALSE(afterResolve->get()->staged().empty());
 
     ASSERT_TRUE(run({"commit", "--quiet", "-m", "merge left"}));
+}
+
+// --- M3: worktrees, stash, tags, fetch/pull/push ----------------------------
+
+TEST_F(RealRepoTest, StashSavesListsAppliesAndDrops) {
+    commitFile("a.txt", "one\n", "c1");
+    {
+        std::ofstream out(repo_ / "a.txt");
+        out << "one\nlocal edit\n";
+    }
+
+    StashStore store(*runner_, paths_);
+    OperationRunner operations(*runner_, paths_);
+
+    StashSaveRequest save;
+    save.message = "wip";
+    auto saved = submitAndWait(operations, makeStashSaveOperation(save));
+    ASSERT_TRUE(saved.succeeded) << (saved.error ? saved.error->detail : "");
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto clean = reader.read(CancellationToken{});
+    ASSERT_TRUE(clean);
+    EXPECT_TRUE((*clean)->isClean()) << "the edit must have moved into the stash";
+
+    auto listed = store.list(CancellationToken{});
+    ASSERT_TRUE(listed) << listed.error().message;
+    ASSERT_EQ(listed->size(), 1u);
+    EXPECT_NE((*listed)[0].message.find("wip"), std::string::npos);
+    EXPECT_FALSE((*listed)[0].oid.empty());
+
+    StashApplyRequest apply;
+    apply.index = 0;
+    apply.pop = false;
+    auto applied = submitAndWait(operations, makeStashApplyOperation(apply));
+    ASSERT_TRUE(applied.succeeded) << (applied.error ? applied.error->detail : "");
+
+    auto afterApply = reader.read(CancellationToken{});
+    ASSERT_TRUE(afterApply);
+    EXPECT_FALSE((*afterApply)->isClean());
+
+    // Apply does not drop the entry -- it is still there afterwards.
+    auto stillListed = store.list(CancellationToken{});
+    ASSERT_TRUE(stillListed);
+    EXPECT_EQ(stillListed->size(), 1u);
+
+    StashDropRequest drop;
+    drop.index = 0;
+    auto dropped = submitAndWait(operations, makeStashDropOperation(drop));
+    ASSERT_TRUE(dropped.succeeded) << (dropped.error ? dropped.error->detail : "");
+
+    auto afterDrop = store.list(CancellationToken{});
+    ASSERT_TRUE(afterDrop);
+    EXPECT_TRUE(afterDrop->empty());
+}
+
+TEST_F(RealRepoTest, StashPopAppliesAndRemovesTheEntry) {
+    commitFile("a.txt", "one\n", "c1");
+    {
+        std::ofstream out(repo_ / "a.txt");
+        out << "one\nlocal edit\n";
+    }
+
+    OperationRunner operations(*runner_, paths_);
+    StashSaveRequest save;
+    auto saved = submitAndWait(operations, makeStashSaveOperation(save));
+    ASSERT_TRUE(saved.succeeded);
+
+    StashApplyRequest pop;
+    pop.index = 0;
+    pop.pop = true;
+    auto popped = submitAndWait(operations, makeStashApplyOperation(pop));
+    ASSERT_TRUE(popped.succeeded) << (popped.error ? popped.error->detail : "");
+
+    StashStore store(*runner_, paths_);
+    auto listed = store.list(CancellationToken{});
+    ASSERT_TRUE(listed);
+    EXPECT_TRUE(listed->empty()) << "pop must drop the entry on success";
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status);
+    EXPECT_FALSE((*status)->isClean());
+}
+
+TEST_F(RealRepoTest, StashSaveRefusesWhenThereIsNothingToStash) {
+    commitFile("a.txt", "one\n", "c1");
+
+    OperationRunner operations(*runner_, paths_);
+    StashSaveRequest save;
+    auto outcome = submitAndWait(operations, makeStashSaveOperation(save));
+
+    EXPECT_FALSE(outcome.succeeded);
+    ASSERT_TRUE(outcome.error.has_value());
+    EXPECT_EQ(outcome.error->code, GitError::Code::InvalidArgument);
+}
+
+TEST_F(RealRepoTest, StashBranchCreatesABranchFromAStashedChange) {
+    commitFile("a.txt", "one\n", "c1");
+    {
+        std::ofstream out(repo_ / "a.txt");
+        out << "one\nfrom stash\n";
+    }
+
+    OperationRunner operations(*runner_, paths_);
+    StashSaveRequest save;
+    auto saved = submitAndWait(operations, makeStashSaveOperation(save));
+    ASSERT_TRUE(saved.succeeded);
+
+    StashBranchRequest branch;
+    branch.index = 0;
+    branch.branchName = "from-stash";
+    auto outcome = submitAndWait(operations, makeStashBranchOperation(branch));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    RefStore refs(*runner_, paths_);
+    auto head = refs.readHead(CancellationToken{});
+    ASSERT_TRUE(head);
+    EXPECT_EQ(head->branchName, "from-stash");
+
+    // The edit was never staged before it was stashed, so `stash branch`
+    // restores it the same way: present in the working tree, not the index.
+    auto content = fsutil::readSmallFile(repo_ / "a.txt");
+    ASSERT_TRUE(content.has_value());
+    EXPECT_NE(content->find("from stash"), std::string::npos);
+}
+
+TEST_F(RealRepoTest, CreatesAnnotatedAndLightweightTagsAndDeletesThem) {
+    commitFile("a.txt", "1\n", "c1");
+
+    OperationRunner operations(*runner_, paths_);
+
+    CreateTagRequest lightweight;
+    lightweight.name = "v1.0-lw";
+    auto created1 = submitAndWait(operations, makeCreateTagOperation(lightweight));
+    ASSERT_TRUE(created1.succeeded) << (created1.error ? created1.error->detail : "");
+
+    CreateTagRequest annotated;
+    annotated.name = "v1.0";
+    annotated.message = "First release";
+    auto created2 = submitAndWait(operations, makeCreateTagOperation(annotated));
+    ASSERT_TRUE(created2.succeeded) << (created2.error ? created2.error->detail : "");
+
+    RefStore refs(*runner_, paths_);
+    auto snapshot = refs.load(CancellationToken{});
+    ASSERT_TRUE(snapshot);
+    EXPECT_EQ((*snapshot)->ofKind(RefKind::Tag).size(), 2u);
+
+    auto typeCheck = run({"cat-file", "-t", "v1.0"});
+    ASSERT_TRUE(typeCheck);
+    EXPECT_EQ(typeCheck->out, "tag") << "the annotated tag must be a real tag object";
+
+    DeleteTagRequest deleteRequest;
+    deleteRequest.name = "v1.0-lw";
+    auto deleted = submitAndWait(operations, makeDeleteTagOperation(deleteRequest));
+    ASSERT_TRUE(deleted.succeeded) << (deleted.error ? deleted.error->detail : "");
+
+    auto afterDelete = refs.load(CancellationToken{});
+    ASSERT_TRUE(afterDelete);
+    EXPECT_EQ((*afterDelete)->ofKind(RefKind::Tag).size(), 1u);
+}
+
+TEST_F(RealRepoTest, RejectsAnInvalidTagNameBeforeRunningGit) {
+    commitFile("a.txt", "1\n", "c1");
+
+    OperationRunner operations(*runner_, paths_);
+    CreateTagRequest request;
+    request.name = "bad tag name";
+    auto outcome = submitAndWait(operations, makeCreateTagOperation(request));
+
+    EXPECT_FALSE(outcome.succeeded);
+    ASSERT_TRUE(outcome.error.has_value());
+    EXPECT_EQ(outcome.error->code, GitError::Code::InvalidArgument);
+}
+
+TEST_F(RealRepoTest, ListsAddsLocksAndRemovesWorktrees) {
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"branch", "feature"}));
+
+    WorktreeStore store(*runner_, paths_);
+    auto initial = store.list(CancellationToken{});
+    ASSERT_TRUE(initial) << initial.error().message;
+    ASSERT_EQ(initial->size(), 1u);
+    EXPECT_TRUE((*initial)[0].isMain);
+
+    const std::filesystem::path linkedPath =
+        repo_.parent_path() / (repo_.filename().string() + "-wt");
+    std::filesystem::remove_all(linkedPath);
+
+    OperationRunner operations(*runner_, paths_);
+    AddWorktreeRequest add;
+    add.path = linkedPath;
+    add.branch = "feature";
+    auto added = submitAndWait(operations, makeAddWorktreeOperation(add));
+    ASSERT_TRUE(added.succeeded) << (added.error ? added.error->detail : "");
+    EXPECT_TRUE(std::filesystem::exists(linkedPath / "a.txt"));
+
+    auto afterAdd = store.list(CancellationToken{});
+    ASSERT_TRUE(afterAdd);
+    ASSERT_EQ(afterAdd->size(), 2u);
+
+    LockWorktreeRequest lock;
+    lock.path = linkedPath;
+    lock.reason = "in use";
+    auto locked = submitAndWait(operations, makeLockWorktreeOperation(lock));
+    ASSERT_TRUE(locked.succeeded) << (locked.error ? locked.error->detail : "");
+
+    auto afterLock = store.list(CancellationToken{});
+    ASSERT_TRUE(afterLock);
+    // std::filesystem::equivalent, not ==: git reports each worktree's
+    // realpath, which on macOS differs textually from linkedPath (built
+    // through /var, a symlink to /private/var) even though it names the same
+    // directory.
+    auto lockedEntry =
+        std::find_if(afterLock->begin(), afterLock->end(), [&](const WorktreeInfo& wt) {
+            return std::filesystem::equivalent(wt.path, linkedPath);
+        });
+    ASSERT_NE(lockedEntry, afterLock->end());
+    EXPECT_TRUE(lockedEntry->isLocked);
+    EXPECT_EQ(lockedEntry->lockReason, "in use");
+
+    // Removing a locked worktree without force must fail.
+    RemoveWorktreeRequest remove;
+    remove.path = linkedPath;
+    auto blocked = submitAndWait(operations, makeRemoveWorktreeOperation(remove));
+    EXPECT_FALSE(blocked.succeeded);
+
+    UnlockWorktreeRequest unlock;
+    unlock.path = linkedPath;
+    auto unlocked = submitAndWait(operations, makeUnlockWorktreeOperation(unlock));
+    ASSERT_TRUE(unlocked.succeeded) << (unlocked.error ? unlocked.error->detail : "");
+
+    auto removed = submitAndWait(operations, makeRemoveWorktreeOperation(remove));
+    ASSERT_TRUE(removed.succeeded) << (removed.error ? removed.error->detail : "");
+    EXPECT_FALSE(std::filesystem::exists(linkedPath));
+
+    auto finalList = store.list(CancellationToken{});
+    ASSERT_TRUE(finalList);
+    EXPECT_EQ(finalList->size(), 1u);
+}
+
+TEST_F(RealRepoTest, PrunesAWorktreeWhoseDirectoryWasDeletedManually) {
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"branch", "feature"}));
+
+    const std::filesystem::path linkedPath =
+        repo_.parent_path() / (repo_.filename().string() + "-prune-wt");
+    std::filesystem::remove_all(linkedPath);
+    ASSERT_TRUE(run({"worktree", "add", linkedPath.string(), "feature"}));
+
+    // Simulate the user deleting the worktree directory from a file manager
+    // instead of using `git worktree remove`.
+    std::filesystem::remove_all(linkedPath);
+
+    OperationRunner operations(*runner_, paths_);
+    auto pruned = submitAndWait(operations, makePruneWorktreesOperation(PruneWorktreesRequest{}));
+    ASSERT_TRUE(pruned.succeeded) << (pruned.error ? pruned.error->detail : "");
+
+    WorktreeStore store(*runner_, paths_);
+    auto afterPrune = store.list(CancellationToken{});
+    ASSERT_TRUE(afterPrune);
+    EXPECT_EQ(afterPrune->size(), 1u) << "the stale worktree entry must be gone";
+}
+
+/// Fixture for the fetch/pull/push tests: a bare "remote" repository plus a
+/// local clone-equivalent (an ordinary repo with `origin` pointed at the bare
+/// one), all on local disk so the tests need no network.
+class RemoteRepoTest : public RealRepoTest {
+protected:
+    void SetUp() override {
+        RealRepoTest::SetUp();
+        if (installation_.executable.empty()) {
+            return;
+        }
+        remote_ = repo_.parent_path() / (repo_.filename().string() + "-remote.git");
+        std::filesystem::remove_all(remote_);
+        GitCommand initBare(
+            remote_.parent_path(),
+            {"init", "--quiet", "--bare", "--initial-branch=main", remote_.string()});
+        initBare.timeout = std::chrono::seconds(30);
+        ASSERT_TRUE(runner_->run(initBare, CancellationToken{}));
+
+        ASSERT_TRUE(run({"remote", "add", "origin", remote_.string()}));
+    }
+
+    void TearDown() override {
+        std::error_code ec;
+        std::filesystem::remove_all(remote_, ec);
+        RealRepoTest::TearDown();
+    }
+
+    std::filesystem::path remote_;
+};
+
+TEST_F(RemoteRepoTest, PushesFetchesAndPulls) {
+    commitFile("a.txt", "1\n", "c1");
+
+    OperationRunner operations(*runner_, paths_);
+    PushRequest push;
+    push.remoteName = "origin";
+    push.branch = "main";
+    push.setUpstream = true;
+    auto pushed = submitAndWait(operations, makePushOperation(push));
+    ASSERT_TRUE(pushed.succeeded) << (pushed.error ? pushed.error->detail : "");
+
+    auto remoteHead = run({"ls-remote", remote_.string(), "refs/heads/main"});
+    ASSERT_TRUE(remoteHead);
+    EXPECT_FALSE(remoteHead->out.empty());
+
+    RemoteStore remotes(*runner_, paths_);
+    auto listed = remotes.list(CancellationToken{});
+    ASSERT_TRUE(listed) << listed.error().message;
+    ASSERT_EQ(listed->size(), 1u);
+    EXPECT_EQ((*listed)[0].name, "origin");
+    EXPECT_EQ((*listed)[0].fetchUrl, remote_.string());
+
+    // A second local commit lands directly in the bare remote by pushing from a
+    // throwaway path, standing in for a teammate's push.
+    const std::filesystem::path other =
+        repo_.parent_path() / (repo_.filename().string() + "-other");
+    std::filesystem::remove_all(other);
+    GitCommand clone(other.parent_path(), {"clone", "--quiet", remote_.string(), other.string()});
+    clone.timeout = std::chrono::seconds(60);
+    ASSERT_TRUE(runner_->run(clone, CancellationToken{}));
+    GitCommand configEmail(other, {"config", "user.email", "teammate@example.invalid"});
+    ASSERT_TRUE(runner_->run(configEmail, CancellationToken{}));
+    GitCommand configName(other, {"config", "user.name", "Teammate"});
+    ASSERT_TRUE(runner_->run(configName, CancellationToken{}));
+    {
+        std::ofstream out(other / "teammate.txt");
+        out << "teammate work\n";
+    }
+    GitCommand add(other, {"add", "teammate.txt"});
+    ASSERT_TRUE(runner_->run(add, CancellationToken{}));
+    GitCommand commit(other, {"commit", "--quiet", "-m", "teammate commit"});
+    ASSERT_TRUE(runner_->run(commit, CancellationToken{}));
+    GitCommand push2(other, {"push", "--quiet", "origin", "main"});
+    push2.timeout = std::chrono::seconds(60);
+    ASSERT_TRUE(runner_->run(push2, CancellationToken{}));
+    std::filesystem::remove_all(other);
+
+    FetchRequest fetch;
+    fetch.remoteName = "origin";
+    auto fetched = submitAndWait(operations, makeFetchOperation(fetch));
+    ASSERT_TRUE(fetched.succeeded) << (fetched.error ? fetched.error->detail : "");
+    EXPECT_FALSE(std::filesystem::exists(repo_ / "teammate.txt"))
+        << "fetch must not touch the working tree";
+
+    PullRequest pull;
+    pull.remoteName = "origin";
+    pull.branch = "main";
+    auto pulled = submitAndWait(operations, makePullOperation(pull));
+    ASSERT_TRUE(pulled.succeeded) << (pulled.error ? pulled.error->detail : "");
+    EXPECT_TRUE(std::filesystem::exists(repo_ / "teammate.txt"));
+}
+
+TEST_F(RemoteRepoTest, ForceWithLeaseRefusesAStalePushAndSucceedsAfterRefetching) {
+    commitFile("a.txt", "1\n", "c1");
+
+    OperationRunner operations(*runner_, paths_);
+    PushRequest push;
+    push.remoteName = "origin";
+    push.branch = "main";
+    push.setUpstream = true;
+    auto pushed = submitAndWait(operations, makePushOperation(push));
+    ASSERT_TRUE(pushed.succeeded);
+
+    // A teammate pushes a commit we have not fetched.
+    const std::filesystem::path other =
+        repo_.parent_path() / (repo_.filename().string() + "-lease-other");
+    std::filesystem::remove_all(other);
+    GitCommand clone(other.parent_path(), {"clone", "--quiet", remote_.string(), other.string()});
+    clone.timeout = std::chrono::seconds(60);
+    ASSERT_TRUE(runner_->run(clone, CancellationToken{}));
+    GitCommand configEmail(other, {"config", "user.email", "teammate@example.invalid"});
+    ASSERT_TRUE(runner_->run(configEmail, CancellationToken{}));
+    GitCommand configName(other, {"config", "user.name", "Teammate"});
+    ASSERT_TRUE(runner_->run(configName, CancellationToken{}));
+    {
+        std::ofstream out(other / "teammate.txt");
+        out << "teammate work\n";
+    }
+    GitCommand add(other, {"add", "teammate.txt"});
+    ASSERT_TRUE(runner_->run(add, CancellationToken{}));
+    GitCommand commit(other, {"commit", "--quiet", "-m", "teammate commit"});
+    ASSERT_TRUE(runner_->run(commit, CancellationToken{}));
+    GitCommand push2(other, {"push", "--quiet", "origin", "main"});
+    push2.timeout = std::chrono::seconds(60);
+    ASSERT_TRUE(runner_->run(push2, CancellationToken{}));
+    std::filesystem::remove_all(other);
+
+    // We amend our own commit (rewriting history) without having fetched the
+    // teammate's push, then try to force-push over it.
+    commitFile("a.txt", "2\n", "c2");
+
+    PushRequest forcePush;
+    forcePush.remoteName = "origin";
+    forcePush.branch = "main";
+    forcePush.force = PushForceMode::ForceWithLease;
+    auto rejected = submitAndWait(operations, makePushOperation(forcePush));
+    EXPECT_FALSE(rejected.succeeded)
+        << "force-with-lease must refuse when the remote moved since our last fetch";
+    ASSERT_TRUE(rejected.error.has_value());
+    EXPECT_EQ(rejected.error->code, GitError::Code::NonFastForward);
+
+    // After fetching, the lease is up to date and the same push must succeed.
+    FetchRequest fetch;
+    fetch.remoteName = "origin";
+    auto fetched = submitAndWait(operations, makeFetchOperation(fetch));
+    ASSERT_TRUE(fetched.succeeded);
+
+    auto retried = submitAndWait(operations, makePushOperation(forcePush));
+    ASSERT_TRUE(retried.succeeded) << (retried.error ? retried.error->detail : "");
 }
 
 }  // namespace

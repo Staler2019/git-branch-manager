@@ -125,10 +125,60 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: ctest --preset ${{ matrix.preset }}
 
+      # Signed before packaging, not after: CPack's ZIP generator just archives
+      # whatever is on disk, so the binary has to already be signed for the ZIP
+      # to carry a signed copy too. The NSIS installer's own wrapper .exe is a
+      # separate file CPack produces afterwards -- see "Sign installer (Windows)".
+      #
+      # Skipped when the secrets are absent, so a fork's CI still goes green
+      # instead of failing on something it cannot do -- same reasoning as the
+      # macOS signing step below. The emptiness check lives in the script, not
+      # `if`, since neither `secrets` nor `env` is available to a step's `if`.
+      - name: Sign the application (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          WINDOWS_CERT_PFX: ${{ secrets.WINDOWS_CERT_PFX }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          if [ -z "$WINDOWS_CERT_PFX" ]; then
+            echo "No signing certificate configured; shipping an unsigned build."
+            exit 0
+          fi
+          echo "$WINDOWS_CERT_PFX" | base64 --decode > cert.pfx
+          signtool sign /f cert.pfx /p "$WINDOWS_CERT_PASSWORD" /fd SHA256 \
+            /tr http://timestamp.digicert.com /td SHA256 \
+            "build/${{ matrix.preset }}/src/app/git-branch-manager.exe"
+          rm -f cert.pfx
+        continue-on-error: true
+
       - name: Package
         env:
           GITHUB_REF_NAME: ${{ needs.tag.outputs.new_tag }}
         run: cpack --preset ${{ matrix.preset }}
+
+      # The NSIS installer is a second, separate .exe CPack produces from the
+      # (already-signed, see above) application binary; it needs its own
+      # signature so Windows trusts the installer itself, not just what it
+      # unpacks. Same skip-when-unconfigured reasoning as the step above.
+      - name: Sign installer (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          WINDOWS_CERT_PFX: ${{ secrets.WINDOWS_CERT_PFX }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          if [ -z "$WINDOWS_CERT_PFX" ]; then
+            exit 0
+          fi
+          echo "$WINDOWS_CERT_PFX" | base64 --decode > cert.pfx
+          for installer in build/${{ matrix.preset }}/*.exe; do
+            [ -f "$installer" ] || continue
+            signtool sign /f cert.pfx /p "$WINDOWS_CERT_PASSWORD" /fd SHA256 \
+              /tr http://timestamp.digicert.com /td SHA256 "$installer"
+          done
+          rm -f cert.pfx
+        continue-on-error: true
 
       # AppImage in addition to the tarball: it is the convenient format, but it
       # needs FUSE 2 at runtime on some distributions, so the plain tarball must

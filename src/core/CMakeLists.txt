@@ -7,6 +7,7 @@ add_library(gbm_core STATIC
     base/Logging.cpp
     base/ThreadCheck.cpp
 
+    git/AskpassHelper.cpp
     git/CatFileBatch.cpp
     git/CommitMeta.cpp
     git/DiffService.cpp
@@ -25,7 +26,11 @@ add_library(gbm_core STATIC
     git/ops/CommitOps.cpp
     git/ops/ConflictOps.cpp
     git/ops/MergeOps.cpp
+    git/ops/RemoteOps.cpp
     git/ops/StageOps.cpp
+    git/ops/StashOps.cpp
+    git/ops/TagOps.cpp
+    git/ops/WorktreeOps.cpp
 
     graph/GraphAsciiRenderer.cpp
     graph/GraphBuilder.cpp

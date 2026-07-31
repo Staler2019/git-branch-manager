@@ -14,6 +14,7 @@
 
 #include <QLabel>
 #include <QMainWindow>
+#include <QPoint>
 #include <QTableView>
 #include <QTreeView>
 
@@ -62,6 +63,20 @@ private slots:
     void onShowWorkingCopy();
     void onShowHistory();
 
+    // --- M3 -------------------------------------------------------------
+    void onFetch();
+    void onFetchPrune();
+    void onPull();
+    void onPush();
+    void onPushSetUpstream();
+    void onPushForceWithLease();
+    void onStashChanges();
+    void onManageStashes();
+    void onManageWorktrees();
+    void onNewTag();
+    void onRefContextMenuRequested(const QPoint& pos);
+    void onCredentialRequested(QString prompt);
+
 private:
     void buildUi();
     void buildMenus();
@@ -79,6 +94,16 @@ private:
     /// more than once per user decision, and this needs no member state to
     /// carry the retry across the asynchronous round trip.
     void armWorkingCopyChoiceHandler(std::function<void(bool stashFirst)> submit, bool stashFirst);
+
+    /// The M3 equivalent for operations that are not a checkout/merge/
+    /// cherry-pick: shows the outcome exactly the same way (status text,
+    /// error dialog, or a confirm-then-retry prompt per recoverable choice),
+    /// but leaves what "retry" means to `onChoice` instead of assuming
+    /// stash-and-retry. Most M3 operations never produce a choice and pass
+    /// nullptr, which still upgrades them from silent to reporting their
+    /// result -- the same round trip checkout/merge/cherry-pick already get.
+    void runWithFeedback(std::function<void()> submit,
+                         std::function<void(OperationChoice::Kind)> onChoice = nullptr);
 
     GitInstallation installation_;
 

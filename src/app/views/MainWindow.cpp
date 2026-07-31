@@ -1,17 +1,21 @@
 #include "app/views/MainWindow.h"
 
+#include "app/views/CredentialDialog.h"
 #include "core/git/ops/CheckoutOp.h"
 
 #include <QAction>
 #include <QApplication>
+#include <QCheckBox>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QDir>
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QInputDialog>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QProgressBar>
@@ -29,6 +33,7 @@
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <optional>
 
 namespace gbm {
 
@@ -162,6 +167,11 @@ void MainWindow::buildUi() {
     refView_->setHeaderHidden(true);
     refView_->setUniformRowHeights(true);
     connect(refView_, &QTreeView::activated, this, &MainWindow::onRefActivated);
+    refView_->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(refView_,
+            &QTreeView::customContextMenuRequested,
+            this,
+            &MainWindow::onRefContextMenuRequested);
     outerSplitter->addWidget(refView_);
 
     auto* rightSplitter = new QSplitter(Qt::Vertical, outerSplitter);
@@ -294,6 +304,29 @@ void MainWindow::buildMenus() {
     auto* workingCopyAction =
         viewMenu->addAction(QStringLiteral("Working Copy"), this, &MainWindow::onShowWorkingCopy);
     workingCopyAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+2")));
+
+    auto* remoteMenu = menuBar()->addMenu(QStringLiteral("Re&mote"));
+    auto* fetchAction = remoteMenu->addAction(QStringLiteral("Fetch"), this, &MainWindow::onFetch);
+    fetchAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+F")));
+    remoteMenu->addAction(
+        QStringLiteral("Fetch (and prune stale remote branches)"), this, &MainWindow::onFetchPrune);
+    auto* pullAction = remoteMenu->addAction(QStringLiteral("Pull"), this, &MainWindow::onPull);
+    pullAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+L")));
+    remoteMenu->addSeparator();
+    auto* pushAction = remoteMenu->addAction(QStringLiteral("Push"), this, &MainWindow::onPush);
+    pushAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+P")));
+    remoteMenu->addAction(
+        QStringLiteral("Push (set upstream)…"), this, &MainWindow::onPushSetUpstream);
+    remoteMenu->addAction(
+        QStringLiteral("Push (force-with-lease)…"), this, &MainWindow::onPushForceWithLease);
+
+    auto* stashMenu = menuBar()->addMenu(QStringLiteral("&Stash"));
+    stashMenu->addAction(QStringLiteral("Stash changes…"), this, &MainWindow::onStashChanges);
+    stashMenu->addAction(QStringLiteral("Manage stashes…"), this, &MainWindow::onManageStashes);
+
+    auto* worktreeMenu = menuBar()->addMenu(QStringLiteral("&Worktree"));
+    worktreeMenu->addAction(
+        QStringLiteral("Manage worktrees…"), this, &MainWindow::onManageWorktrees);
 
     auto* toolBar = addToolBar(QStringLiteral("Main"));
     toolBar->setMovable(false);
@@ -583,6 +616,10 @@ void MainWindow::openRepository(const RepoRecord& record) {
             &RepositorySession::workingCopyOperationFinished,
             this,
             [this](const OperationOutcome&) { updateStateBanner(); });
+    connect(session_.get(),
+            &RepositorySession::credentialRequested,
+            this,
+            &MainWindow::onCredentialRequested);
 
     commitModel_->setSession(session_.get());
     diffView_->clearDiff();
@@ -596,6 +633,9 @@ void MainWindow::openRepository(const RepoRecord& record) {
     // seeding order is what puts the trunk in lane 0.
     session_->refreshRefs();
     session_->refreshHistory();
+    // So the remote picker in the Push/Push tag dialogs has something to show
+    // the first time they are opened, without waiting on a Fetch.
+    session_->refreshRemotes();
 }
 
 void MainWindow::closeRepository() {
@@ -1026,6 +1066,634 @@ void MainWindow::showError(const QString& summary, const GitError& error) {
         box.setDetailedText(QString::fromStdString(error.detail));
     }
     box.exec();
+}
+
+void MainWindow::runWithFeedback(std::function<void()> submit,
+                                 std::function<void(OperationChoice::Kind)> onChoice) {
+    auto connection = std::make_shared<QMetaObject::Connection>();
+    *connection =
+        connect(session_.get(),
+                &RepositorySession::workingCopyOperationFinished,
+                this,
+                [this, onChoice, connection](const OperationOutcome& outcome) {
+                    QObject::disconnect(*connection);
+
+                    if (outcome.succeeded) {
+                        statusLabel_->setText(QString::fromStdString(outcome.summary));
+                        return;
+                    }
+                    if (outcome.choices.empty()) {
+                        if (outcome.error) {
+                            showError(QString::fromStdString(outcome.summary), *outcome.error);
+                        }
+                        return;
+                    }
+
+                    QMessageBox box(this);
+                    box.setIcon(QMessageBox::Warning);
+                    box.setText(QString::fromStdString(outcome.summary));
+                    if (outcome.error) {
+                        box.setDetailedText(QString::fromStdString(outcome.error->detail));
+                    }
+                    std::vector<QPushButton*> buttons;
+                    buttons.reserve(outcome.choices.size());
+                    for (const OperationChoice& choice : outcome.choices) {
+                        auto* button = box.addButton(QString::fromStdString(choice.label),
+                                                     choice.kind == OperationChoice::Kind::Abort
+                                                         ? QMessageBox::RejectRole
+                                                         : QMessageBox::ActionRole);
+                        button->setToolTip(QString::fromStdString(choice.explanation));
+                        buttons.push_back(button);
+                    }
+                    box.exec();
+                    for (std::size_t i = 0; i < buttons.size(); ++i) {
+                        if (box.clickedButton() != buttons[i]) {
+                            continue;
+                        }
+                        const OperationChoice& choice = outcome.choices[i];
+                        if (choice.kind == OperationChoice::Kind::Abort || !onChoice) {
+                            break;
+                        }
+                        if (choice.destructive) {
+                            const auto confirmed =
+                                QMessageBox::warning(this,
+                                                     QStringLiteral("Are you sure?"),
+                                                     QString::fromStdString(choice.explanation),
+                                                     QMessageBox::Yes | QMessageBox::Cancel,
+                                                     QMessageBox::Cancel);
+                            if (confirmed != QMessageBox::Yes) {
+                                break;
+                            }
+                        }
+                        onChoice(choice.kind);
+                        break;
+                    }
+                });
+    submit();
+}
+
+// --- M3: remotes -------------------------------------------------------
+
+void MainWindow::onFetch() {
+    if (!session_) {
+        return;
+    }
+    statusLabel_->setText(QStringLiteral("Fetching…"));
+    runWithFeedback([this] { session_->fetchRemote(FetchRequest{}); });
+}
+
+void MainWindow::onFetchPrune() {
+    if (!session_) {
+        return;
+    }
+    statusLabel_->setText(QStringLiteral("Fetching…"));
+    FetchRequest request;
+    request.prune = true;
+    runWithFeedback([this, request] { session_->fetchRemote(request); });
+}
+
+void MainWindow::onPull() {
+    if (!session_) {
+        return;
+    }
+    statusLabel_->setText(QStringLiteral("Pulling…"));
+    armWorkingCopyChoiceHandler(
+        [this](bool stashFirst) {
+            PullRequest request;
+            request.stashFirst = stashFirst;
+            session_->pullChanges(request);
+        },
+        false);
+}
+
+void MainWindow::onPush() {
+    if (!session_) {
+        return;
+    }
+    statusLabel_->setText(QStringLiteral("Pushing…"));
+    runWithFeedback([this] { session_->pushChanges(PushRequest{}); });
+}
+
+void MainWindow::onPushSetUpstream() {
+    if (!session_) {
+        return;
+    }
+    QStringList names;
+    if (auto remotes = session_->remotes()) {
+        for (const RemoteInfo& remote : *remotes) {
+            names << QString::fromStdString(remote.name);
+        }
+    }
+    if (names.isEmpty()) {
+        names << QStringLiteral("origin");
+    }
+    bool ok = false;
+    const QString remote = QInputDialog::getItem(
+        this, QStringLiteral("Push"), QStringLiteral("Remote:"), names, 0, false, &ok);
+    if (!ok || remote.isEmpty()) {
+        return;
+    }
+
+    const RefSnapshotPtr refs = session_->refs();
+    PushRequest request;
+    request.remoteName = remote.toStdString();
+    request.branch = refs ? refs->head.branchName : std::string();
+    request.setUpstream = true;
+
+    statusLabel_->setText(QStringLiteral("Pushing to %1…").arg(remote));
+    runWithFeedback([this, request] { session_->pushChanges(request); });
+}
+
+void MainWindow::onPushForceWithLease() {
+    if (!session_) {
+        return;
+    }
+    const auto confirmed = QMessageBox::warning(
+        this,
+        QStringLiteral("Force-with-lease push?"),
+        QStringLiteral(
+            "This overwrites the remote branch with your history, unless someone else has "
+            "pushed to it since your last fetch — in which case Git refuses rather than "
+            "silently discarding their work."),
+        QMessageBox::Yes | QMessageBox::Cancel,
+        QMessageBox::Cancel);
+    if (confirmed != QMessageBox::Yes) {
+        return;
+    }
+
+    PushRequest request;
+    request.force = PushForceMode::ForceWithLease;
+    statusLabel_->setText(QStringLiteral("Pushing (force-with-lease)…"));
+    runWithFeedback([this, request] { session_->pushChanges(request); });
+}
+
+// --- M3: stashes ---------------------------------------------------------
+
+void MainWindow::onStashChanges() {
+    if (!session_) {
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("Stash changes"));
+    auto* layout = new QVBoxLayout(&dialog);
+
+    auto* messageEdit = new QLineEdit(&dialog);
+    messageEdit->setPlaceholderText(QStringLiteral("Stash message (optional)"));
+    layout->addWidget(messageEdit);
+    auto* includeUntracked = new QCheckBox(QStringLiteral("Include untracked files"), &dialog);
+    layout->addWidget(includeUntracked);
+
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    layout->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    StashSaveRequest request;
+    request.message = messageEdit->text().toStdString();
+    request.includeUntracked = includeUntracked->isChecked();
+
+    statusLabel_->setText(QStringLiteral("Stashing changes…"));
+    runWithFeedback([this, request] { session_->saveStash(request); });
+}
+
+void MainWindow::onManageStashes() {
+    if (!session_) {
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("Manage stashes"));
+    auto* layout = new QVBoxLayout(&dialog);
+
+    auto* list = new QListWidget(&dialog);
+    layout->addWidget(list, 1);
+
+    auto reload = [this, list] {
+        list->clear();
+        if (auto stashes = session_->stashes()) {
+            for (const StashEntry& entry : *stashes) {
+                auto* item = new QListWidgetItem(QStringLiteral("stash@{%1}  %2")
+                                                     .arg(entry.index)
+                                                     .arg(QString::fromStdString(entry.message)),
+                                                 list);
+                item->setData(Qt::UserRole, entry.index);
+            }
+        }
+    };
+    // Scoped to the dialog: a stash operation finishing after it closes must
+    // not touch a destroyed list widget.
+    connect(session_.get(), &RepositorySession::stashesUpdated, &dialog, reload);
+    session_->refreshStashes();
+    reload();
+
+    auto selectedIndex = [list]() -> std::optional<int> {
+        const auto items = list->selectedItems();
+        if (items.isEmpty()) {
+            return std::nullopt;
+        }
+        return items.first()->data(Qt::UserRole).toInt();
+    };
+
+    auto* buttonRow = new QHBoxLayout();
+    auto* applyButton = new QPushButton(QStringLiteral("Apply"), &dialog);
+    auto* popButton = new QPushButton(QStringLiteral("Pop"), &dialog);
+    auto* dropButton = new QPushButton(QStringLiteral("Drop"), &dialog);
+    auto* branchButton = new QPushButton(QStringLiteral("Create branch…"), &dialog);
+    auto* closeButton = new QPushButton(QStringLiteral("Close"), &dialog);
+    buttonRow->addWidget(applyButton);
+    buttonRow->addWidget(popButton);
+    buttonRow->addWidget(dropButton);
+    buttonRow->addWidget(branchButton);
+    buttonRow->addStretch(1);
+    buttonRow->addWidget(closeButton);
+    layout->addLayout(buttonRow);
+
+    connect(applyButton, &QPushButton::clicked, &dialog, [this, selectedIndex] {
+        if (auto index = selectedIndex()) {
+            StashApplyRequest request;
+            request.index = *index;
+            runWithFeedback([this, request] { session_->applyStash(request); });
+        }
+    });
+    connect(popButton, &QPushButton::clicked, &dialog, [this, selectedIndex] {
+        if (auto index = selectedIndex()) {
+            StashApplyRequest request;
+            request.index = *index;
+            request.pop = true;
+            runWithFeedback([this, request] { session_->applyStash(request); });
+        }
+    });
+    connect(dropButton, &QPushButton::clicked, &dialog, [this, selectedIndex, &dialog] {
+        auto index = selectedIndex();
+        if (!index) {
+            return;
+        }
+        const auto confirmed = QMessageBox::warning(&dialog,
+                                                    QStringLiteral("Drop stash?"),
+                                                    QStringLiteral("This permanently deletes "
+                                                                   "stash@{%1}.")
+                                                        .arg(*index),
+                                                    QMessageBox::Discard | QMessageBox::Cancel,
+                                                    QMessageBox::Cancel);
+        if (confirmed != QMessageBox::Discard) {
+            return;
+        }
+        StashDropRequest request;
+        request.index = *index;
+        runWithFeedback([this, request] { session_->dropStash(request); });
+    });
+    connect(branchButton, &QPushButton::clicked, &dialog, [this, selectedIndex, &dialog] {
+        auto index = selectedIndex();
+        if (!index) {
+            return;
+        }
+        bool ok = false;
+        const QString name = QInputDialog::getText(&dialog,
+                                                   QStringLiteral("Create branch from stash"),
+                                                   QStringLiteral("Branch name:"),
+                                                   QLineEdit::Normal,
+                                                   QString(),
+                                                   &ok);
+        if (!ok || name.isEmpty()) {
+            return;
+        }
+        StashBranchRequest request;
+        request.index = *index;
+        request.branchName = name.toStdString();
+        runWithFeedback([this, request] { session_->branchFromStash(request); });
+    });
+    connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
+
+    dialog.resize(480, 360);
+    dialog.exec();
+}
+
+// --- M3: worktrees ---------------------------------------------------------
+
+void MainWindow::onManageWorktrees() {
+    if (!session_) {
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("Manage worktrees"));
+    auto* layout = new QVBoxLayout(&dialog);
+
+    auto* table = new QTableWidget(&dialog);
+    table->setColumnCount(3);
+    table->setHorizontalHeaderLabels(
+        {QStringLiteral("Path"), QStringLiteral("Branch"), QStringLiteral("Status")});
+    table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->setSelectionMode(QAbstractItemView::SingleSelection);
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->verticalHeader()->setVisible(false);
+    layout->addWidget(table, 1);
+
+    auto reload = [this, table] {
+        auto worktrees = session_->worktrees();
+        table->setRowCount(0);
+        if (!worktrees) {
+            return;
+        }
+        table->setRowCount(static_cast<int>(worktrees->size()));
+        for (int row = 0; row < static_cast<int>(worktrees->size()); ++row) {
+            const WorktreeInfo& info = (*worktrees)[static_cast<std::size_t>(row)];
+            table->setItem(
+                row, 0, new QTableWidgetItem(QString::fromStdString(info.path.string())));
+            const QString branch = info.isBare       ? QStringLiteral("(bare)")
+                                   : info.isDetached ? QStringLiteral("(detached)")
+                                                     : QString::fromStdString(info.branch);
+            table->setItem(row, 1, new QTableWidgetItem(branch));
+            QStringList status;
+            if (info.isMain) {
+                status << QStringLiteral("main");
+            }
+            if (info.isLocked) {
+                status << QStringLiteral("locked");
+            }
+            if (info.isPrunable) {
+                status << QStringLiteral("prunable");
+            }
+            table->setItem(row, 2, new QTableWidgetItem(status.join(QStringLiteral(", "))));
+        }
+    };
+    connect(session_.get(), &RepositorySession::worktreesUpdated, &dialog, reload);
+    session_->refreshWorktrees();
+    reload();
+
+    auto selectedInfo = [this, table]() -> std::optional<WorktreeInfo> {
+        const int row = table->currentRow();
+        auto worktrees = session_->worktrees();
+        if (row < 0 || !worktrees || row >= static_cast<int>(worktrees->size())) {
+            return std::nullopt;
+        }
+        return (*worktrees)[static_cast<std::size_t>(row)];
+    };
+
+    auto* buttonRow = new QHBoxLayout();
+    auto* addButton = new QPushButton(QStringLiteral("Add…"), &dialog);
+    auto* removeButton = new QPushButton(QStringLiteral("Remove"), &dialog);
+    auto* lockButton = new QPushButton(QStringLiteral("Lock…"), &dialog);
+    auto* unlockButton = new QPushButton(QStringLiteral("Unlock"), &dialog);
+    auto* pruneButton = new QPushButton(QStringLiteral("Prune stale"), &dialog);
+    auto* closeButton = new QPushButton(QStringLiteral("Close"), &dialog);
+    buttonRow->addWidget(addButton);
+    buttonRow->addWidget(removeButton);
+    buttonRow->addWidget(lockButton);
+    buttonRow->addWidget(unlockButton);
+    buttonRow->addWidget(pruneButton);
+    buttonRow->addStretch(1);
+    buttonRow->addWidget(closeButton);
+    layout->addLayout(buttonRow);
+
+    connect(addButton, &QPushButton::clicked, &dialog, [this, &dialog] {
+        const QString parentDir = QFileDialog::getExistingDirectory(
+            &dialog, QStringLiteral("Choose a parent folder for the new worktree"));
+        if (parentDir.isEmpty()) {
+            return;
+        }
+        bool ok = false;
+        const QString folderName = QInputDialog::getText(&dialog,
+                                                         QStringLiteral("New worktree"),
+                                                         QStringLiteral("Folder name:"),
+                                                         QLineEdit::Normal,
+                                                         QString(),
+                                                         &ok);
+        if (!ok || folderName.isEmpty()) {
+            return;
+        }
+
+        QStringList branchNames;
+        if (const RefSnapshotPtr refs = session_->refs()) {
+            for (const RefInfo* ref : refs->ofKind(RefKind::LocalBranch)) {
+                branchNames << QString::fromStdString(ref->shortName);
+            }
+        }
+        QString branch;
+        if (!branchNames.isEmpty()) {
+            bool branchOk = false;
+            branch = QInputDialog::getItem(&dialog,
+                                           QStringLiteral("New worktree"),
+                                           QStringLiteral("Branch:"),
+                                           branchNames,
+                                           0,
+                                           false,
+                                           &branchOk);
+            if (!branchOk) {
+                return;
+            }
+        }
+
+        AddWorktreeRequest request;
+        request.path = std::filesystem::path(QDir(parentDir).filePath(folderName).toStdString());
+        request.branch = branch.toStdString();
+        runWithFeedback([this, request] { session_->addWorktree(request); });
+    });
+
+    connect(removeButton, &QPushButton::clicked, &dialog, [this, selectedInfo, &dialog] {
+        auto info = selectedInfo();
+        if (!info) {
+            return;
+        }
+        if (info->isMain) {
+            QMessageBox::information(&dialog,
+                                     QStringLiteral("Cannot remove"),
+                                     QStringLiteral("The main worktree cannot be removed."));
+            return;
+        }
+        const auto confirmed =
+            QMessageBox::warning(&dialog,
+                                 QStringLiteral("Remove worktree?"),
+                                 QStringLiteral("Remove the worktree at \"%1\"?")
+                                     .arg(QString::fromStdString(info->path.string())),
+                                 QMessageBox::Yes | QMessageBox::Cancel,
+                                 QMessageBox::Cancel);
+        if (confirmed != QMessageBox::Yes) {
+            return;
+        }
+        const std::filesystem::path path = info->path;
+        runWithFeedback(
+            [this, path] {
+                RemoveWorktreeRequest request;
+                request.path = path;
+                session_->removeWorktree(request);
+            },
+            [this, path](OperationChoice::Kind kind) {
+                if (kind == OperationChoice::Kind::ForceDiscard) {
+                    RemoveWorktreeRequest request;
+                    request.path = path;
+                    request.force = true;
+                    session_->removeWorktree(request);
+                }
+            });
+    });
+
+    connect(lockButton, &QPushButton::clicked, &dialog, [this, selectedInfo, &dialog] {
+        auto info = selectedInfo();
+        if (!info) {
+            return;
+        }
+        bool ok = false;
+        const QString reason = QInputDialog::getText(&dialog,
+                                                     QStringLiteral("Lock worktree"),
+                                                     QStringLiteral("Reason (optional):"),
+                                                     QLineEdit::Normal,
+                                                     QString(),
+                                                     &ok);
+        if (!ok) {
+            return;
+        }
+        LockWorktreeRequest request;
+        request.path = info->path;
+        request.reason = reason.toStdString();
+        runWithFeedback([this, request] { session_->lockWorktree(request); });
+    });
+
+    connect(unlockButton, &QPushButton::clicked, &dialog, [this, selectedInfo] {
+        auto info = selectedInfo();
+        if (!info) {
+            return;
+        }
+        UnlockWorktreeRequest request;
+        request.path = info->path;
+        runWithFeedback([this, request] { session_->unlockWorktree(request); });
+    });
+
+    connect(pruneButton, &QPushButton::clicked, &dialog, [this] {
+        runWithFeedback([this] { session_->pruneWorktrees(); });
+    });
+
+    connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
+
+    dialog.resize(640, 360);
+    dialog.exec();
+}
+
+// --- M3: tags --------------------------------------------------------------
+
+void MainWindow::onNewTag() {
+    if (!session_) {
+        return;
+    }
+
+    bool ok = false;
+    const QString name = QInputDialog::getText(this,
+                                               QStringLiteral("New tag"),
+                                               QStringLiteral("Tag name:"),
+                                               QLineEdit::Normal,
+                                               QString(),
+                                               &ok);
+    if (!ok || name.isEmpty()) {
+        return;
+    }
+    const QString message = QInputDialog::getMultiLineText(
+        this,
+        QStringLiteral("New tag"),
+        QStringLiteral("Message (leave empty for a lightweight tag):"));
+
+    CreateTagRequest request;
+    request.name = name.toStdString();
+    request.message = message.toStdString();
+
+    // Tags whatever commit is selected in the history list, or HEAD if none is.
+    if (commitView_->selectionModel() != nullptr) {
+        const QModelIndexList selected = commitView_->selectionModel()->selectedRows();
+        if (!selected.isEmpty()) {
+            const ObjectId oid = commitModel_->oidAt(selected.first().row());
+            if (!oid.isNull()) {
+                request.target = oid.hex();
+            }
+        }
+    }
+
+    statusLabel_->setText(QStringLiteral("Creating tag %1…").arg(name));
+    runWithFeedback([this, request] { session_->createTag(request); });
+}
+
+void MainWindow::onRefContextMenuRequested(const QPoint& pos) {
+    if (!session_) {
+        return;
+    }
+    const QModelIndex index = refView_->indexAt(pos);
+    const bool onTag =
+        index.isValid() && refModel_->data(index, RefTreeModel::IsRefRole).toBool() &&
+        refModel_->data(index, RefTreeModel::RefKindRole).toInt() == static_cast<int>(RefKind::Tag);
+    const QString tagName = onTag ? refModel_->refNameAt(index) : QString();
+
+    QMenu menu(this);
+    QAction* newTagAction = menu.addAction(QStringLiteral("New tag…"));
+    QAction* deleteTagAction = nullptr;
+    QAction* pushTagAction = nullptr;
+    if (onTag) {
+        menu.addSeparator();
+        deleteTagAction = menu.addAction(QStringLiteral("Delete tag \"%1\"").arg(tagName));
+        pushTagAction = menu.addAction(QStringLiteral("Push tag \"%1\"…").arg(tagName));
+    }
+
+    QAction* chosen = menu.exec(refView_->viewport()->mapToGlobal(pos));
+    if (chosen == nullptr) {
+        return;
+    }
+
+    if (chosen == newTagAction) {
+        onNewTag();
+        return;
+    }
+    if (chosen == deleteTagAction) {
+        const auto confirmed =
+            QMessageBox::warning(this,
+                                 QStringLiteral("Delete tag?"),
+                                 QStringLiteral("Delete tag \"%1\"?").arg(tagName),
+                                 QMessageBox::Yes | QMessageBox::Cancel,
+                                 QMessageBox::Cancel);
+        if (confirmed != QMessageBox::Yes) {
+            return;
+        }
+        DeleteTagRequest request;
+        request.name = tagName.toStdString();
+        runWithFeedback([this, request] { session_->deleteTag(request); });
+        return;
+    }
+    if (chosen == pushTagAction) {
+        QStringList names;
+        if (auto remotes = session_->remotes()) {
+            for (const RemoteInfo& remote : *remotes) {
+                names << QString::fromStdString(remote.name);
+            }
+        }
+        if (names.isEmpty()) {
+            names << QStringLiteral("origin");
+        }
+        bool ok = false;
+        const QString remote = QInputDialog::getItem(
+            this, QStringLiteral("Push tag"), QStringLiteral("Remote:"), names, 0, false, &ok);
+        if (!ok || remote.isEmpty()) {
+            return;
+        }
+        PushTagRequest request;
+        request.remoteName = remote.toStdString();
+        request.name = tagName.toStdString();
+        statusLabel_->setText(QStringLiteral("Pushing tag %1…").arg(tagName));
+        runWithFeedback([this, request] { session_->pushTag(request); });
+    }
+}
+
+void MainWindow::onCredentialRequested(QString prompt) {
+    if (!session_) {
+        return;
+    }
+    CredentialDialog dialog(prompt, this);
+    if (dialog.exec() == QDialog::Accepted) {
+        session_->provideCredential(dialog.value());
+    } else {
+        session_->cancelCredential();
+    }
 }
 
 }  // namespace gbm

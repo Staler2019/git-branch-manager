@@ -32,6 +32,10 @@ struct FileIdHash {
 
 std::optional<FileId> fileIdOf(const std::filesystem::path& path);
 
+/// Absolute path to the running executable. Used to point GIT_ASKPASS /
+/// SSH_ASKPASS back at this application -- see AskpassHelper.
+std::optional<std::filesystem::path> currentExecutablePath();
+
 /// True when the platform's filesystem comparison is case-insensitive. Windows
 /// and macOS are, Linux is not. Callers must use this rather than assuming, or
 /// path de-duplication silently misbehaves on one of the three targets.

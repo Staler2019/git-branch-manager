@@ -26,7 +26,7 @@ ReflogStore::ReflogStore(IProcessRunner& runner, RepoPaths paths)
     : runner_(runner), paths_(std::move(paths)) {}
 
 GitResult<std::vector<ReflogEntry>> ReflogStore::list(const std::string& ref,
-                                                       CancellationToken token) {
+                                                      CancellationToken token) {
     std::vector<std::string> args{
         "reflog", "show", "--format=%H%x09%gd%x09%an%x09%ae%x09%at%x09%gs"};
     args.push_back(ref.empty() ? "HEAD" : ref);
@@ -50,8 +50,8 @@ GitResult<std::vector<ReflogEntry>> ReflogStore::list(const std::string& ref,
             std::size_t pos = 0;
             for (int col = 0; col < 6; ++col) {
                 const std::size_t tab = line.find('\t', pos);
-                const std::string_view value =
-                    line.substr(pos, tab == std::string_view::npos ? std::string_view::npos : tab - pos);
+                const std::string_view value = line.substr(
+                    pos, tab == std::string_view::npos ? std::string_view::npos : tab - pos);
                 switch (col) {
                     case 0:
                         entry.oid = ObjectId::fromHex(value);

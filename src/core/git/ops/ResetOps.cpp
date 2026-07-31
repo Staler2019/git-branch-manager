@@ -11,9 +11,9 @@ public:
     explicit ResetOperation(ResetRequest request) : request_(std::move(request)) {}
 
     std::string describe() const override {
-        const char* label = request_.mode == ResetMode::Soft    ? "Soft reset to "
-                            : request_.mode == ResetMode::Hard  ? "Hard reset to "
-                                                                 : "Reset to ";
+        const char* label = request_.mode == ResetMode::Soft   ? "Soft reset to "
+                            : request_.mode == ResetMode::Hard ? "Hard reset to "
+                                                               : "Reset to ";
         return label + (request_.target.empty() ? "HEAD" : request_.target);
     }
 
@@ -46,7 +46,7 @@ public:
         // A hard reset over a very large tree can legitimately take a while;
         // Cancel is the right control, not a timeout.
         command.timeout = request_.mode == ResetMode::Hard ? std::chrono::milliseconds(0)
-                                                            : std::chrono::seconds(60);
+                                                           : std::chrono::seconds(60);
 
         auto result = runner.run(command, token);
         if (!result) {
@@ -81,7 +81,8 @@ public:
         OperationOutcome outcome;
 
         if (request_.paths.empty()) {
-            outcome.error = GitError(GitError::Code::InvalidArgument, "No paths selected to restore");
+            outcome.error =
+                GitError(GitError::Code::InvalidArgument, "No paths selected to restore");
             return outcome;
         }
 

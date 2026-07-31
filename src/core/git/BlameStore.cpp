@@ -13,9 +13,8 @@ bool looksLikeObjectHex(std::string_view token) {
     if (token.size() != 40 && token.size() != 64) {
         return false;
     }
-    return std::all_of(token.begin(), token.end(), [](unsigned char c) {
-        return std::isxdigit(c) != 0;
-    });
+    return std::all_of(
+        token.begin(), token.end(), [](unsigned char c) { return std::isxdigit(c) != 0; });
 }
 
 }  // namespace
@@ -58,9 +57,8 @@ GitResult<BlameResultPtr> BlameStore::blame(const std::string& path,
     std::size_t pos = 0;
     while (pos < text.size()) {
         const std::size_t lineEnd = text.find('\n', pos);
-        const std::string_view line =
-            text.substr(pos, lineEnd == std::string_view::npos ? std::string_view::npos
-                                                                : lineEnd - pos);
+        const std::string_view line = text.substr(
+            pos, lineEnd == std::string_view::npos ? std::string_view::npos : lineEnd - pos);
         pos = lineEnd == std::string_view::npos ? text.size() : lineEnd + 1;
 
         if (line.empty()) {
@@ -87,7 +85,8 @@ GitResult<BlameResultPtr> BlameStore::blame(const std::string& path,
             if (sp2 != std::string_view::npos) {
                 const std::size_t sp3 = line.find(' ', sp2 + 1);
                 const std::string_view finalStr = line.substr(
-                    sp2 + 1, sp3 == std::string_view::npos ? std::string_view::npos : sp3 - sp2 - 1);
+                    sp2 + 1,
+                    sp3 == std::string_view::npos ? std::string_view::npos : sp3 - sp2 - 1);
                 entry.finalLine = std::atoi(std::string(finalStr).c_str());
             }
             blameResult->lines.push_back(std::move(entry));

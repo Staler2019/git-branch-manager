@@ -100,8 +100,7 @@ void addDirtyWorkTreeChoices(OperationOutcome& outcome, const std::string& verb)
                                "Your changes are saved to a stash first, and can be restored "
                                "afterwards.",
                                false});
-    outcome.choices.push_back(
-        {OperationChoice::Kind::Abort, "Cancel", "Do not rebase.", false});
+    outcome.choices.push_back({OperationChoice::Kind::Abort, "Cancel", "Do not rebase.", false});
 }
 
 class RebaseInteractiveOperation final : public Operation {
@@ -150,12 +149,13 @@ public:
 
         const auto todoFile = writeTempFile(serializeTodo(request_.todo));
         if (todoFile.empty()) {
-            outcome.error =
-                GitError(GitError::Code::Io, "Could not write a temporary rebase plan");
+            outcome.error = GitError(GitError::Code::Io, "Could not write a temporary rebase plan");
             return outcome;
         }
+
         struct TempFileGuard {
             std::filesystem::path path;
+
             ~TempFileGuard() {
                 std::error_code ec;
                 std::filesystem::remove(path, ec);
@@ -296,8 +296,9 @@ public:
                          CancellationToken token) override {
         OperationOutcome outcome;
 
-        const char* flag =
-            verb_ == Verb::Continue ? "--continue" : verb_ == Verb::Skip ? "--skip" : "--abort";
+        const char* flag = verb_ == Verb::Continue ? "--continue"
+                           : verb_ == Verb::Skip   ? "--skip"
+                                                   : "--abort";
         GitCommand command(paths.commandDir(), {"rebase", flag});
         if (verb_ == Verb::Continue) {
             // A squash/fixup step resumed by --continue can still need to write
@@ -356,9 +357,9 @@ GitResult<std::vector<RebaseTodoEntry>> RebasePlanner::plan(const std::string& u
                                     (at == std::string::npos ? result->out.size() : at) - start);
         if (!line.empty()) {
             const std::size_t firstTab = line.find('\t');
-            const std::size_t secondTab =
-                firstTab == std::string_view::npos ? std::string_view::npos
-                                                   : line.find('\t', firstTab + 1);
+            const std::size_t secondTab = firstTab == std::string_view::npos
+                                              ? std::string_view::npos
+                                              : line.find('\t', firstTab + 1);
             if (firstTab != std::string_view::npos && secondTab != std::string_view::npos) {
                 RebaseTodoEntry entry;
                 entry.oid = ObjectId::fromHex(line.substr(0, firstTab));
@@ -385,17 +386,17 @@ std::unique_ptr<Operation> makeRebaseOperation(RebaseRequest request) {
 
 std::unique_ptr<Operation> makeRebaseContinueOperation() {
     return std::make_unique<RebaseControlOperation>(RebaseControlOperation::Verb::Continue,
-                                                     "Continue rebase");
+                                                    "Continue rebase");
 }
 
 std::unique_ptr<Operation> makeRebaseSkipOperation() {
     return std::make_unique<RebaseControlOperation>(RebaseControlOperation::Verb::Skip,
-                                                     "Skip commit");
+                                                    "Skip commit");
 }
 
 std::unique_ptr<Operation> makeRebaseAbortOperation() {
     return std::make_unique<RebaseControlOperation>(RebaseControlOperation::Verb::Abort,
-                                                     "Abort rebase");
+                                                    "Abort rebase");
 }
 
 }  // namespace gbm

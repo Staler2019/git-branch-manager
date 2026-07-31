@@ -17,8 +17,8 @@ namespace gbm {
 /// the app, and a terminal may have advanced it in the meantime.
 struct BisectStatus {
     bool active = false;
-    std::string currentOid;         ///< HEAD; the commit currently being tested.
-    std::string badOid;             ///< Empty until a bad commit has been marked.
+    std::string currentOid;  ///< HEAD; the commit currently being tested.
+    std::string badOid;      ///< Empty until a bad commit has been marked.
     std::vector<std::string> goodOids;
     std::vector<std::string> skippedOids;
     /// The raw `git bisect log` output, for a "show the log" view; also the

@@ -17,7 +17,7 @@ struct SubmoduleInfo {
     std::string name;  ///< The `.gitmodules` section name; usually equal to `path`.
     std::string path;
     std::string url;
-    std::string branch;  ///< `submodule.<name>.branch`, if configured; empty otherwise.
+    std::string branch;   ///< `submodule.<name>.branch`, if configured; empty otherwise.
     std::string headOid;  ///< The commit currently recorded, from `git submodule status`.
 
     enum class State {

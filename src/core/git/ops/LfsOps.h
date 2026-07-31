@@ -32,7 +32,7 @@ GitResult<LfsInstallation> detectLfs(IProcessRunner& runner,
 
 struct LfsFileInfo {
     std::string path;
-    std::string oid;         ///< Full sha256 pointer oid.
+    std::string oid;                 ///< Full sha256 pointer oid.
     bool downloadedLocally = false;  ///< `*` vs `-` in `git lfs ls-files`.
 };
 

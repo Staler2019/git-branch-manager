@@ -157,6 +157,7 @@ public:
     std::string describe() const override { return "Continue applying patches"; }
 
     bool killableMidFlight() const override { return false; }
+
     bool allowedDuringSequencerOperation() const override { return true; }
 
     OperationOutcome run(IProcessRunner& runner,
@@ -183,6 +184,7 @@ public:
     std::string describe() const override { return "Skip patch"; }
 
     bool killableMidFlight() const override { return false; }
+
     bool allowedDuringSequencerOperation() const override { return true; }
 
     OperationOutcome run(IProcessRunner& runner,
@@ -209,6 +211,7 @@ public:
     std::string describe() const override { return "Abort patch import"; }
 
     bool killableMidFlight() const override { return false; }
+
     bool allowedDuringSequencerOperation() const override { return true; }
 
     OperationOutcome run(IProcessRunner& runner,

@@ -15,9 +15,8 @@ constexpr auto kSettingsKey = "appearance/theme";
 /// change elsewhere) without needing to rebuild the style name from scratch,
 /// and so `System` has something concrete to restore.
 QString defaultStyleName() {
-    static const QString name = QApplication::style() != nullptr
-                                    ? QApplication::style()->objectName()
-                                    : QString();
+    static const QString name =
+        QApplication::style() != nullptr ? QApplication::style()->objectName() : QString();
     return name;
 }
 
@@ -39,7 +38,9 @@ Theme ThemeManager::loadSetting() {
 void ThemeManager::saveSetting(Theme theme) {
     QSettings settings;
     settings.setValue(QLatin1String(kSettingsKey),
-                      theme == Theme::Light ? 1 : theme == Theme::Dark ? 2 : 0);
+                      theme == Theme::Light  ? 1
+                      : theme == Theme::Dark ? 2
+                                             : 0);
 }
 
 QPalette ThemeManager::lightPalette() {

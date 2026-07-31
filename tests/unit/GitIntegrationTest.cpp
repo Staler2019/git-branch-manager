@@ -2454,7 +2454,17 @@ TEST_F(RealRepoTest, BisectFindsTheFirstBadCommitByGoodBadStepping) {
         mark.good = commitNumber < 3;
         auto markOutcome = submitAndWait(operations, makeBisectMarkOperation(mark));
         ASSERT_TRUE(markOutcome.succeeded) << (markOutcome.error ? markOutcome.error->detail : "");
-        concluded = markOutcome.summary.find("is the first bad commit") != std::string::npos;
+
+        // Not `markOutcome.summary.find("is the first bad commit")`: that is
+        // `git bisect`'s human-readable stdout message, and it turned out not
+        // to be a stable string to match on across git versions/locales --
+        // this failed the exact same way on both the Windows and macOS CI
+        // runners while passing on Linux. `# first bad commit: [` is the
+        // machine-readable marker `git bisect log`/`replay` themselves rely
+        // on, so it is the actual stable contract to depend on here.
+        auto afterMark = store.status(CancellationToken{});
+        ASSERT_TRUE(afterMark) << afterMark.error().message;
+        concluded = afterMark->logText.find("# first bad commit: [") != std::string::npos;
     }
     ASSERT_TRUE(concluded) << "bisect did not conclude within 10 steps";
 

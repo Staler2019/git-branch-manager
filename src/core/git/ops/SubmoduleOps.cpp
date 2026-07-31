@@ -30,7 +30,8 @@ public:
                          CancellationToken token) override {
         OperationOutcome outcome;
         if (request_.url.empty()) {
-            outcome.error = GitError(GitError::Code::InvalidArgument, "A submodule URL is required");
+            outcome.error =
+                GitError(GitError::Code::InvalidArgument, "A submodule URL is required");
             return outcome;
         }
 
@@ -65,7 +66,8 @@ private:
 
 class InitSubmodulesOperation final : public Operation {
 public:
-    explicit InitSubmodulesOperation(SubmodulePathsRequest request) : request_(std::move(request)) {}
+    explicit InitSubmodulesOperation(SubmodulePathsRequest request)
+        : request_(std::move(request)) {}
 
     std::string describe() const override { return "Initialise submodules"; }
 
@@ -138,7 +140,8 @@ private:
 
 class SyncSubmodulesOperation final : public Operation {
 public:
-    explicit SyncSubmodulesOperation(SubmodulePathsRequest request) : request_(std::move(request)) {}
+    explicit SyncSubmodulesOperation(SubmodulePathsRequest request)
+        : request_(std::move(request)) {}
 
     std::string describe() const override { return "Sync submodule URLs"; }
 
@@ -224,6 +227,7 @@ GitResult<std::vector<SubmoduleInfo>> SubmoduleStore::list(CancellationToken tok
         std::string url;
         std::string branch;
     };
+
     // Keyed by path: `.gitmodules` sections are keyed by name, but that name is
     // usually (not always) equal to the path, so parsing keys off the `.path`
     // entry each section declares rather than assuming name == path.
@@ -231,11 +235,12 @@ GitResult<std::vector<SubmoduleInfo>> SubmoduleStore::list(CancellationToken tok
 
     {
         std::error_code ec;
-        const bool hasGitmodules =
-            !paths_.workDir().empty() && std::filesystem::exists(paths_.workDir() / ".gitmodules", ec);
+        const bool hasGitmodules = !paths_.workDir().empty() &&
+                                   std::filesystem::exists(paths_.workDir() / ".gitmodules", ec);
         if (hasGitmodules) {
-            GitCommand configCmd(paths_.commandDir(),
-                                 {"config", "--file", ".gitmodules", "--get-regexp", "^submodule\\."});
+            GitCommand configCmd(
+                paths_.commandDir(),
+                {"config", "--file", ".gitmodules", "--get-regexp", "^submodule\\."});
             configCmd.timeout = std::chrono::seconds(30);
             auto configResult = runner_.run(configCmd, token);
             if (configResult) {
@@ -317,9 +322,9 @@ GitResult<std::vector<SubmoduleInfo>> SubmoduleStore::list(CancellationToken tok
                 info.headOid = std::string(rest.substr(0, sp));
                 std::string_view pathAndDescribe = rest.substr(sp + 1);
                 const std::size_t paren = pathAndDescribe.rfind(" (");
-                info.path = std::string(paren == std::string_view::npos
-                                            ? pathAndDescribe
-                                            : pathAndDescribe.substr(0, paren));
+                info.path =
+                    std::string(paren == std::string_view::npos ? pathAndDescribe
+                                                                : pathAndDescribe.substr(0, paren));
                 switch (statusChar) {
                     case '-':
                         info.state = SubmoduleInfo::State::NotInitialized;

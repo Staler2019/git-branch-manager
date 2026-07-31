@@ -277,6 +277,7 @@ public:
     std::optional<LfsInstallation> lfsInstallation() const { return lfsInstallation_; }
 
     LfsPatternListPtr lfsTrackedPatterns() const { return lfsPatterns_.current(); }
+
     LfsFileListPtr lfsFiles() const { return lfsFiles_.current(); }
 
     void refreshLfs();

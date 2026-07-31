@@ -998,7 +998,12 @@ void RepositorySession::refreshLfs() {
 
         if (!available) {
             QMetaObject::invokeMethod(
-                this, [this] { emit lfsUpdated(); setBusy(false); }, Qt::QueuedConnection);
+                this,
+                [this] {
+                    emit lfsUpdated();
+                    setBusy(false);
+                },
+                Qt::QueuedConnection);
             return;
         }
 
@@ -1011,7 +1016,12 @@ void RepositorySession::refreshLfs() {
             lfsFiles_.publish(std::make_shared<std::vector<LfsFileInfo>>(std::move(*files)));
         }
         QMetaObject::invokeMethod(
-            this, [this] { emit lfsUpdated(); setBusy(false); }, Qt::QueuedConnection);
+            this,
+            [this] {
+                emit lfsUpdated();
+                setBusy(false);
+            },
+            Qt::QueuedConnection);
     });
 }
 

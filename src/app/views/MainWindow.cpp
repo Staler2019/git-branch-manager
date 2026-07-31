@@ -418,9 +418,8 @@ void MainWindow::buildMenus() {
     lfsMenu->addAction(QStringLiteral("Manage LFS…"), this, &MainWindow::onManageLfs);
 
     auto* patchMenu = menuBar()->addMenu(QStringLiteral("&Patch"));
-    patchMenu->addAction(QStringLiteral("Export selected commits as patches…"),
-                         this,
-                         &MainWindow::onExportPatches);
+    patchMenu->addAction(
+        QStringLiteral("Export selected commits as patches…"), this, &MainWindow::onExportPatches);
     patchMenu->addSeparator();
     patchMenu->addAction(QStringLiteral("Apply patch file…"), this, &MainWindow::onApplyPatchFile);
     patchMenu->addAction(
@@ -2563,7 +2562,7 @@ void MainWindow::onManageSubmodules() {
     auto* deinitButton = new QPushButton(QStringLiteral("Deinit…"), &dialog);
     auto* closeButton = new QPushButton(QStringLiteral("Close"), &dialog);
     for (QPushButton* button :
-        {addButton, initButton, updateButton, syncButton, deinitButton, closeButton}) {
+         {addButton, initButton, updateButton, syncButton, deinitButton, closeButton}) {
         button->setAccessibleDescription(QStringLiteral("Submodule action"));
     }
     buttonRow->addWidget(addButton);
@@ -2577,19 +2576,22 @@ void MainWindow::onManageSubmodules() {
 
     connect(addButton, &QPushButton::clicked, &dialog, [this, &dialog] {
         bool ok = false;
-        const QString url = QInputDialog::getText(
-            &dialog, QStringLiteral("Add submodule"), QStringLiteral("URL:"),
-            QLineEdit::Normal, QString(), &ok);
+        const QString url = QInputDialog::getText(&dialog,
+                                                  QStringLiteral("Add submodule"),
+                                                  QStringLiteral("URL:"),
+                                                  QLineEdit::Normal,
+                                                  QString(),
+                                                  &ok);
         if (!ok || url.isEmpty()) {
             return;
         }
-        const QString path = QInputDialog::getText(
-            &dialog,
-            QStringLiteral("Add submodule"),
-            QStringLiteral("Path (leave blank to derive from the URL):"),
-            QLineEdit::Normal,
-            QString(),
-            &ok);
+        const QString path =
+            QInputDialog::getText(&dialog,
+                                  QStringLiteral("Add submodule"),
+                                  QStringLiteral("Path (leave blank to derive from the URL):"),
+                                  QLineEdit::Normal,
+                                  QString(),
+                                  &ok);
         if (!ok) {
             return;
         }
@@ -2639,9 +2641,9 @@ void MainWindow::onManageSubmodules() {
             QMessageBox::warning(&dialog,
                                  QStringLiteral("Deinitialize submodule?"),
                                  QStringLiteral("This removes the checked-out files for \"%1\" "
-                                               "(any local changes inside it are discarded). "
-                                               "\"%1\" stays listed in .gitmodules and can be "
-                                               "initialised again later.")
+                                                "(any local changes inside it are discarded). "
+                                                "\"%1\" stays listed in .gitmodules and can be "
+                                                "initialised again later.")
                                      .arg(QString::fromStdString(info->path)),
                                  QMessageBox::Yes | QMessageBox::Cancel,
                                  QMessageBox::Cancel);
@@ -2740,8 +2742,7 @@ void MainWindow::onBisect() {
             summary += QStringLiteral("\nGood: %1 commit(s) marked").arg(status->goodOids.size());
         }
         if (!status->skippedOids.empty()) {
-            summary +=
-                QStringLiteral("\nSkipped: %1 commit(s)").arg(status->skippedOids.size());
+            summary += QStringLiteral("\nSkipped: %1 commit(s)").arg(status->skippedOids.size());
         }
         currentLabel->setText(summary);
         logText->setPlainText(QString::fromStdString(status->logText));
@@ -2794,7 +2795,8 @@ void MainWindow::onManageLfs() {
     statusLabel->setWordWrap(true);
     layout->addWidget(statusLabel);
 
-    auto* installButton = new QPushButton(QStringLiteral("Set up LFS for this repository"), &dialog);
+    auto* installButton =
+        new QPushButton(QStringLiteral("Set up LFS for this repository"), &dialog);
     layout->addWidget(installButton);
 
     auto* patternsGroup = new QWidget(&dialog);
@@ -2837,8 +2839,15 @@ void MainWindow::onManageLfs() {
     layout->addLayout(transferRow);
     connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
 
-    auto reload = [this, statusLabel, installButton, patternsGroup, filesTable, pullButton,
-                   fetchButton, pruneButton, patternsList] {
+    auto reload = [this,
+                   statusLabel,
+                   installButton,
+                   patternsGroup,
+                   filesTable,
+                   pullButton,
+                   fetchButton,
+                   pruneButton,
+                   patternsList] {
         auto installation = session_->lfsInstallation();
         const bool available = installation && installation->available;
         installButton->setVisible(available);
@@ -2855,7 +2864,7 @@ void MainWindow::onManageLfs() {
         if (!available) {
             statusLabel->setText(
                 QStringLiteral("Git LFS is not installed. Install the git-lfs extension to "
-                              "track large files in this repository."));
+                               "track large files in this repository."));
             return;
         }
         statusLabel->setText(
@@ -2874,14 +2883,15 @@ void MainWindow::onManageLfs() {
             filesTable->setRowCount(static_cast<int>(files->size()));
             for (int row = 0; row < static_cast<int>(files->size()); ++row) {
                 const LfsFileInfo& info = (*files)[static_cast<std::size_t>(row)];
-                filesTable->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(info.path)));
+                filesTable->setItem(
+                    row, 0, new QTableWidgetItem(QString::fromStdString(info.path)));
                 filesTable->setItem(
                     row, 1, new QTableWidgetItem(QString::fromStdString(info.oid).left(10)));
-                filesTable->setItem(row,
-                                    2,
-                                    new QTableWidgetItem(info.downloadedLocally
-                                                             ? QStringLiteral("yes")
-                                                             : QStringLiteral("no")));
+                filesTable->setItem(
+                    row,
+                    2,
+                    new QTableWidgetItem(info.downloadedLocally ? QStringLiteral("yes")
+                                                                : QStringLiteral("no")));
             }
         }
     };
@@ -2960,8 +2970,8 @@ void MainWindow::onExportPatches() {
         commits.push_back(commitModel_->oidAt(row));
     }
 
-    const QString dir = QFileDialog::getExistingDirectory(
-        this, QStringLiteral("Choose a folder for the patches"));
+    const QString dir =
+        QFileDialog::getExistingDirectory(this, QStringLiteral("Choose a folder for the patches"));
     if (dir.isEmpty()) {
         return;
     }
@@ -2976,11 +2986,11 @@ void MainWindow::onApplyPatchFile() {
     if (!session_) {
         return;
     }
-    const QStringList files = QFileDialog::getOpenFileNames(
-        this,
-        QStringLiteral("Apply patch"),
-        QString(),
-        QStringLiteral("Patches (*.patch *.diff);;All files (*)"));
+    const QStringList files =
+        QFileDialog::getOpenFileNames(this,
+                                      QStringLiteral("Apply patch"),
+                                      QString(),
+                                      QStringLiteral("Patches (*.patch *.diff);;All files (*)"));
     if (files.isEmpty()) {
         return;
     }
@@ -3035,9 +3045,10 @@ void MainWindow::onImportPatches() {
 
         QMessageBox box(this);
         box.setIcon(QMessageBox::Warning);
-        box.setText(QStringLiteral("A patch did not apply cleanly. Resolve the conflict in the "
-                                   "working copy (stage the result), then Continue -- or Skip "
-                                   "this patch, or Abort the import."));
+        box.setText(
+            QStringLiteral("A patch did not apply cleanly. Resolve the conflict in the "
+                           "working copy (stage the result), then Continue -- or Skip "
+                           "this patch, or Abort the import."));
         if (outcome.error) {
             box.setDetailedText(QString::fromStdString(outcome.error->detail));
         }

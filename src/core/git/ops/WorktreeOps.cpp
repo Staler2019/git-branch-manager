@@ -33,7 +33,8 @@ std::vector<std::vector<std::string_view>> splitEntries(std::string_view text) {
     return entries;
 }
 
-WorktreeInfo parseEntry(const std::vector<std::string_view>& lines, const std::filesystem::path& mainWorkDir) {
+WorktreeInfo parseEntry(const std::vector<std::string_view>& lines,
+                        const std::filesystem::path& mainWorkDir) {
     WorktreeInfo info;
     for (std::string_view line : lines) {
         if (line.rfind("worktree ", 0) == 0) {
@@ -127,7 +128,8 @@ private:
 
 class RemoveWorktreeOperation final : public Operation {
 public:
-    explicit RemoveWorktreeOperation(RemoveWorktreeRequest request) : request_(std::move(request)) {}
+    explicit RemoveWorktreeOperation(RemoveWorktreeRequest request)
+        : request_(std::move(request)) {}
 
     std::string describe() const override { return "Remove worktree " + request_.path.string(); }
 
@@ -175,7 +177,8 @@ private:
 
 class PruneWorktreesOperation final : public Operation {
 public:
-    explicit PruneWorktreesOperation(PruneWorktreesRequest request) : request_(std::move(request)) {}
+    explicit PruneWorktreesOperation(PruneWorktreesRequest request)
+        : request_(std::move(request)) {}
 
     std::string describe() const override { return "Prune worktrees"; }
 
@@ -241,7 +244,8 @@ private:
 
 class UnlockWorktreeOperation final : public Operation {
 public:
-    explicit UnlockWorktreeOperation(UnlockWorktreeRequest request) : request_(std::move(request)) {}
+    explicit UnlockWorktreeOperation(UnlockWorktreeRequest request)
+        : request_(std::move(request)) {}
 
     std::string describe() const override { return "Unlock worktree " + request_.path.string(); }
 
@@ -270,17 +274,14 @@ class MoveWorktreeOperation final : public Operation {
 public:
     explicit MoveWorktreeOperation(MoveWorktreeRequest request) : request_(std::move(request)) {}
 
-    std::string describe() const override {
-        return "Move worktree to " + request_.to.string();
-    }
+    std::string describe() const override { return "Move worktree to " + request_.to.string(); }
 
     OperationOutcome run(IProcessRunner& runner,
                          const RepoPaths& paths,
                          CancellationToken token) override {
         OperationOutcome outcome;
-        GitCommand command(
-            paths.commandDir(),
-            {"worktree", "move", request_.from.string(), request_.to.string()});
+        GitCommand command(paths.commandDir(),
+                           {"worktree", "move", request_.from.string(), request_.to.string()});
         command.timeout = std::chrono::seconds(120);
         auto result = runner.run(command, token);
         if (!result) {

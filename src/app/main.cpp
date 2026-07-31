@@ -3,6 +3,7 @@
 #include "app/views/MainWindow.h"
 #include "core/base/Logging.h"
 #include "core/base/ThreadCheck.h"
+#include "core/git/AskpassHelper.h"
 #include "core/git/GitExecutable.h"
 
 #include <QApplication>
@@ -10,7 +11,21 @@
 #include <QStandardPaths>
 #include <QTimer>
 
+#include <cstdlib>
+#include <string_view>
+
 int main(int argc, char** argv) {
+    // The askpass handshake re-invokes this same executable (see
+    // AskpassHelper::wire): GIT_ASKPASS points back at us, and git calls it as
+    // a plain synchronous child expecting a line of output on stdout. That
+    // child must never touch Qt or open a window -- it runs headless, often
+    // while the real GUI process is itself blocked waiting for the git command
+    // that spawned it, so this has to be handled before QApplication exists.
+    if (const char* askpassMode = std::getenv("GBM_ASKPASS_MODE");
+        askpassMode != nullptr && std::string_view(askpassMode) == "1") {
+        return gbm::askpass::runClient(argc, argv);
+    }
+
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("git-branch-manager"));
     QApplication::setOrganizationName(QStringLiteral("git-branch-manager"));

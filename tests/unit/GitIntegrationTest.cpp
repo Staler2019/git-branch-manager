@@ -1540,7 +1540,8 @@ TEST_F(RealRepoTest, ListsAddsLocksAndRemovesWorktrees) {
     ASSERT_EQ(initial->size(), 1u);
     EXPECT_TRUE((*initial)[0].isMain);
 
-    const std::filesystem::path linkedPath = repo_.parent_path() / (repo_.filename().string() + "-wt");
+    const std::filesystem::path linkedPath =
+        repo_.parent_path() / (repo_.filename().string() + "-wt");
     std::filesystem::remove_all(linkedPath);
 
     OperationRunner operations(*runner_, paths_);
@@ -1563,9 +1564,9 @@ TEST_F(RealRepoTest, ListsAddsLocksAndRemovesWorktrees) {
 
     auto afterLock = store.list(CancellationToken{});
     ASSERT_TRUE(afterLock);
-    auto lockedEntry = std::find_if(afterLock->begin(), afterLock->end(), [&](const WorktreeInfo& wt) {
-        return wt.path == linkedPath;
-    });
+    auto lockedEntry = std::find_if(afterLock->begin(),
+                                    afterLock->end(),
+                                    [&](const WorktreeInfo& wt) { return wt.path == linkedPath; });
     ASSERT_NE(lockedEntry, afterLock->end());
     EXPECT_TRUE(lockedEntry->isLocked);
     EXPECT_EQ(lockedEntry->lockReason, "in use");
@@ -1667,7 +1668,8 @@ TEST_F(RemoteRepoTest, PushesFetchesAndPulls) {
 
     // A second local commit lands directly in the bare remote by pushing from a
     // throwaway path, standing in for a teammate's push.
-    const std::filesystem::path other = repo_.parent_path() / (repo_.filename().string() + "-other");
+    const std::filesystem::path other =
+        repo_.parent_path() / (repo_.filename().string() + "-other");
     std::filesystem::remove_all(other);
     GitCommand clone(other.parent_path(), {"clone", "--quiet", remote_.string(), other.string()});
     clone.timeout = std::chrono::seconds(60);
@@ -1716,7 +1718,8 @@ TEST_F(RemoteRepoTest, ForceWithLeaseRefusesAStalePushAndSucceedsAfterRefetching
     ASSERT_TRUE(pushed.succeeded);
 
     // A teammate pushes a commit we have not fetched.
-    const std::filesystem::path other = repo_.parent_path() / (repo_.filename().string() + "-lease-other");
+    const std::filesystem::path other =
+        repo_.parent_path() / (repo_.filename().string() + "-lease-other");
     std::filesystem::remove_all(other);
     GitCommand clone(other.parent_path(), {"clone", "--quiet", remote_.string(), other.string()});
     clone.timeout = std::chrono::seconds(60);

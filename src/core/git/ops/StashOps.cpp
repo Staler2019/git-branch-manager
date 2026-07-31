@@ -56,8 +56,8 @@ public:
         // when there is nothing to stash, so a zero exit code alone is not
         // success from this app's point of view.
         if (result->out.find("No local changes to save") != std::string::npos) {
-            outcome.error = GitError(GitError::Code::InvalidArgument,
-                                     "There are no local changes to stash");
+            outcome.error =
+                GitError(GitError::Code::InvalidArgument, "There are no local changes to stash");
             outcome.summary = outcome.error->message;
             return outcome;
         }
@@ -83,10 +83,9 @@ public:
                          const RepoPaths& paths,
                          CancellationToken token) override {
         OperationOutcome outcome;
-        std::vector<std::string> args{
-            "stash",
-            request_.pop ? "pop" : "apply",
-            "stash@{" + std::to_string(request_.index) + "}"};
+        std::vector<std::string> args{"stash",
+                                      request_.pop ? "pop" : "apply",
+                                      "stash@{" + std::to_string(request_.index) + "}"};
 
         GitCommand command(paths.commandDir(), std::move(args));
         command.timeout = std::chrono::seconds(120);
@@ -139,7 +138,9 @@ class StashBranchOperation final : public Operation {
 public:
     explicit StashBranchOperation(StashBranchRequest request) : request_(std::move(request)) {}
 
-    std::string describe() const override { return "Create branch " + request_.branchName + " from stash"; }
+    std::string describe() const override {
+        return "Create branch " + request_.branchName + " from stash";
+    }
 
     bool killableMidFlight() const override { return false; }
 
@@ -147,9 +148,11 @@ public:
                          const RepoPaths& paths,
                          CancellationToken token) override {
         OperationOutcome outcome;
-        GitCommand command(
-            paths.commandDir(),
-            {"stash", "branch", request_.branchName, "stash@{" + std::to_string(request_.index) + "}"});
+        GitCommand command(paths.commandDir(),
+                           {"stash",
+                            "branch",
+                            request_.branchName,
+                            "stash@{" + std::to_string(request_.index) + "}"});
         command.timeout = std::chrono::seconds(120);
         auto result = runner.run(command, token);
         if (!result) {

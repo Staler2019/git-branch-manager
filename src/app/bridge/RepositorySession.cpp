@@ -1,6 +1,7 @@
 #include "app/bridge/RepositorySession.h"
 
 #include "core/base/Logging.h"
+#include "core/git/AskpassHelper.h"
 
 #include <QMetaObject>
 #include <QMetaType>
@@ -24,6 +25,13 @@ RepositorySession::RepositorySession(GitInstallation installation,
     diffs_ = std::make_unique<DiffService>(*runner_, paths_);
     operations_ = std::make_unique<OperationRunner>(*runner_, paths_);
     workingCopyStatusReader_ = std::make_unique<WorkingCopyStatusReader>(*runner_, paths_);
+    stashStore_ = std::make_unique<StashStore>(*runner_, paths_);
+    worktreeStore_ = std::make_unique<WorktreeStore>(*runner_, paths_);
+    remoteStore_ = std::make_unique<RemoteStore>(*runner_, paths_);
+
+    askpass_ = new AskpassWatcher(this);
+    connect(
+        askpass_, &AskpassWatcher::promptReceived, this, &RepositorySession::credentialRequested);
 }
 
 RepositorySession::~RepositorySession() {
@@ -383,6 +391,252 @@ void RepositorySession::requestConflictSides(const std::string& path,
             },
             Qt::QueuedConnection);
     });
+}
+
+void RepositorySession::submitAndRefresh(std::unique_ptr<Operation> operation,
+                                         std::function<void(bool)> afterFinished) {
+    setBusy(true);
+    operations_->submit(std::move(operation),
+                        [this, afterFinished = std::move(afterFinished)](OperationOutcome outcome) {
+                            // Runs on the operation runner's serial thread; hop to the UI
+                            // thread before touching anything Qt, same as
+                            // submitWorkingCopyOperation.
+                            QMetaObject::invokeMethod(
+                                this,
+                                [this, outcome = std::move(outcome), afterFinished] {
+                                    setBusy(false);
+                                    emit workingCopyOperationFinished(outcome);
+                                    if (afterFinished) {
+                                        afterFinished(outcome.succeeded);
+                                    }
+                                },
+                                Qt::QueuedConnection);
+                        });
+}
+
+// --- M3: stashes -------------------------------------------------------
+
+void RepositorySession::refreshStashes() {
+    const CancellationToken token = readCancel_.token();
+    setBusy(true);
+
+    readPool_.post([this, token] {
+        auto list = stashStore_->list(token);
+        if (list) {
+            stashes_.publish(std::make_shared<std::vector<StashEntry>>(std::move(*list)));
+            QMetaObject::invokeMethod(
+                this, [this] { emit stashesUpdated(); }, Qt::QueuedConnection);
+        } else if (list.error().code != GitError::Code::Cancelled) {
+            GitError error = std::move(list).error();
+            QMetaObject::invokeMethod(
+                this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
+        }
+        QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+    });
+}
+
+void RepositorySession::saveStash(const StashSaveRequest& request) {
+    submitAndRefresh(makeStashSaveOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshWorkingCopyStatus();
+            refreshStashes();
+        }
+    });
+}
+
+void RepositorySession::applyStash(const StashApplyRequest& request) {
+    submitAndRefresh(makeStashApplyOperation(request), [this](bool succeeded) {
+        // Even a conflicting apply/pop leaves the working tree changed.
+        refreshWorkingCopyStatus();
+        if (succeeded) {
+            refreshStashes();
+        }
+    });
+}
+
+void RepositorySession::dropStash(const StashDropRequest& request) {
+    submitAndRefresh(makeStashDropOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshStashes();
+        }
+    });
+}
+
+void RepositorySession::branchFromStash(const StashBranchRequest& request) {
+    submitAndRefresh(makeStashBranchOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshWorkingCopyStatus();
+            refreshStashes();
+            refreshRefs();
+            refreshHistory();
+        }
+    });
+}
+
+// --- M3: tags ------------------------------------------------------------
+
+void RepositorySession::createTag(const CreateTagRequest& request) {
+    submitAndRefresh(makeCreateTagOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshRefs();
+        }
+    });
+}
+
+void RepositorySession::deleteTag(const DeleteTagRequest& request) {
+    DeleteTagRequest wired = request;
+    if (wired.alsoRemote) {
+        wired.askpassDir = askpass::makeRequestDir();
+        if (!wired.askpassDir.empty()) {
+            askpass_->start(wired.askpassDir);
+        }
+    }
+    submitAndRefresh(makeDeleteTagOperation(wired), [this](bool succeeded) {
+        askpass_->stop();
+        if (succeeded) {
+            refreshRefs();
+        }
+    });
+}
+
+void RepositorySession::pushTag(const PushTagRequest& request) {
+    PushTagRequest wired = request;
+    wired.askpassDir = askpass::makeRequestDir();
+    if (!wired.askpassDir.empty()) {
+        askpass_->start(wired.askpassDir);
+    }
+    submitAndRefresh(makePushTagOperation(wired), [this](bool) { askpass_->stop(); });
+}
+
+// --- M3: worktrees ---------------------------------------------------------
+
+void RepositorySession::refreshWorktrees() {
+    const CancellationToken token = readCancel_.token();
+    setBusy(true);
+
+    readPool_.post([this, token] {
+        auto list = worktreeStore_->list(token);
+        if (list) {
+            worktrees_.publish(std::make_shared<std::vector<WorktreeInfo>>(std::move(*list)));
+            QMetaObject::invokeMethod(
+                this, [this] { emit worktreesUpdated(); }, Qt::QueuedConnection);
+        } else if (list.error().code != GitError::Code::Cancelled) {
+            GitError error = std::move(list).error();
+            QMetaObject::invokeMethod(
+                this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
+        }
+        QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+    });
+}
+
+void RepositorySession::addWorktree(const AddWorktreeRequest& request) {
+    submitAndRefresh(makeAddWorktreeOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshWorktrees();
+        }
+    });
+}
+
+void RepositorySession::removeWorktree(const RemoveWorktreeRequest& request) {
+    submitAndRefresh(makeRemoveWorktreeOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshWorktrees();
+        }
+    });
+}
+
+void RepositorySession::pruneWorktrees() {
+    submitAndRefresh(makePruneWorktreesOperation(PruneWorktreesRequest{}), [this](bool succeeded) {
+        if (succeeded) {
+            refreshWorktrees();
+        }
+    });
+}
+
+void RepositorySession::lockWorktree(const LockWorktreeRequest& request) {
+    submitAndRefresh(makeLockWorktreeOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshWorktrees();
+        }
+    });
+}
+
+void RepositorySession::unlockWorktree(const UnlockWorktreeRequest& request) {
+    submitAndRefresh(makeUnlockWorktreeOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshWorktrees();
+        }
+    });
+}
+
+// --- M3: remotes -----------------------------------------------------------
+
+void RepositorySession::refreshRemotes() {
+    const CancellationToken token = readCancel_.token();
+    setBusy(true);
+
+    readPool_.post([this, token] {
+        auto list = remoteStore_->list(token);
+        if (list) {
+            remotes_.publish(std::make_shared<std::vector<RemoteInfo>>(std::move(*list)));
+            QMetaObject::invokeMethod(
+                this, [this] { emit remotesUpdated(); }, Qt::QueuedConnection);
+        } else if (list.error().code != GitError::Code::Cancelled) {
+            GitError error = std::move(list).error();
+            QMetaObject::invokeMethod(
+                this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
+        }
+        QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+    });
+}
+
+void RepositorySession::fetchRemote(FetchRequest request) {
+    request.askpassDir = askpass::makeRequestDir();
+    if (!request.askpassDir.empty()) {
+        askpass_->start(request.askpassDir);
+    }
+    submitAndRefresh(makeFetchOperation(std::move(request)), [this](bool succeeded) {
+        askpass_->stop();
+        if (succeeded) {
+            refreshRefs();
+        }
+    });
+}
+
+void RepositorySession::pullChanges(PullRequest request) {
+    request.askpassDir = askpass::makeRequestDir();
+    if (!request.askpassDir.empty()) {
+        askpass_->start(request.askpassDir);
+    }
+    submitAndRefresh(makePullOperation(std::move(request)), [this](bool succeeded) {
+        askpass_->stop();
+        refreshWorkingCopyStatus();
+        if (succeeded) {
+            refreshRefs();
+            refreshHistory();
+        }
+    });
+}
+
+void RepositorySession::pushChanges(PushRequest request) {
+    request.askpassDir = askpass::makeRequestDir();
+    if (!request.askpassDir.empty()) {
+        askpass_->start(request.askpassDir);
+    }
+    submitAndRefresh(makePushOperation(std::move(request)), [this](bool succeeded) {
+        askpass_->stop();
+        if (succeeded) {
+            refreshRefs();
+        }
+    });
+}
+
+void RepositorySession::provideCredential(const QString& secret) {
+    askpass_->answer(secret);
+}
+
+void RepositorySession::cancelCredential() {
+    askpass_->cancel();
 }
 
 }  // namespace gbm

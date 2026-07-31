@@ -113,8 +113,10 @@ public:
                  "Stash changes and pull",
                  "Your changes are saved to a stash first, and can be restored afterwards.",
                  false});
-            outcome.choices.push_back(
-                {OperationChoice::Kind::Abort, "Cancel", "Leave the working tree as it is.", false});
+            outcome.choices.push_back({OperationChoice::Kind::Abort,
+                                       "Cancel",
+                                       "Leave the working tree as it is.",
+                                       false});
         }
 
         outcome.error = std::move(error);
@@ -130,7 +132,8 @@ public:
     explicit PushOperation(PushRequest request) : request_(std::move(request)) {}
 
     std::string describe() const override {
-        return "Push" + (request_.remoteName.empty() ? std::string() : " to " + request_.remoteName);
+        return "Push" +
+               (request_.remoteName.empty() ? std::string() : " to " + request_.remoteName);
     }
 
     OperationOutcome run(IProcessRunner& runner,
@@ -202,9 +205,9 @@ GitResult<std::vector<RemoteInfo>> RemoteStore::list(CancellationToken token) {
                 const std::string url(line.substr(tab + 1, space - tab - 1));
                 const bool isPush = line.substr(space).find("push") != std::string_view::npos;
 
-                auto it = std::find_if(remotes.begin(), remotes.end(), [&name](const RemoteInfo& r) {
-                    return r.name == name;
-                });
+                auto it = std::find_if(remotes.begin(),
+                                       remotes.end(),
+                                       [&name](const RemoteInfo& r) { return r.name == name; });
                 if (it == remotes.end()) {
                     remotes.push_back({name, {}, {}});
                     it = remotes.end() - 1;

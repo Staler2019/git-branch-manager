@@ -42,8 +42,8 @@ std::filesystem::path makeRequestDir() {
     }
     static std::atomic<std::uint64_t> counter{0};
     const auto now = std::chrono::steady_clock::now().time_since_epoch().count();
-    const auto dir = base /
-        ("gbm-askpass-" + std::to_string(now) + "-" + std::to_string(counter.fetch_add(1)));
+    const auto dir =
+        base / ("gbm-askpass-" + std::to_string(now) + "-" + std::to_string(counter.fetch_add(1)));
     std::filesystem::create_directories(dir, ec);
     if (ec) {
         return {};

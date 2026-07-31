@@ -1,5 +1,6 @@
 #pragma once
 
+#include "app/bridge/AskpassWatcher.h"
 #include "app/bridge/SnapshotHolder.h"
 #include "core/base/CancellationToken.h"
 #include "core/git/CatFileBatch.h"
@@ -15,17 +16,26 @@
 #include "core/git/ops/CommitOps.h"
 #include "core/git/ops/ConflictOps.h"
 #include "core/git/ops/MergeOps.h"
+#include "core/git/ops/RemoteOps.h"
 #include "core/git/ops/StageOps.h"
+#include "core/git/ops/StashOps.h"
+#include "core/git/ops/TagOps.h"
+#include "core/git/ops/WorktreeOps.h"
 #include "core/graph/GraphSnapshot.h"
 #include "core/workers/ThreadPool.h"
 
 #include <QObject>
 #include <QString>
 
+#include <functional>
 #include <memory>
 #include <vector>
 
 namespace gbm {
+
+using StashListPtr = std::shared_ptr<const std::vector<StashEntry>>;
+using WorktreeListPtr = std::shared_ptr<const std::vector<WorktreeInfo>>;
+using RemoteListPtr = std::shared_ptr<const std::vector<RemoteInfo>>;
 
 /// One open repository, and the single place where core callbacks become Qt
 /// signals.
@@ -124,6 +134,57 @@ public:
                               const std::string& oursBlob,
                               const std::string& theirsBlob);
 
+    // --- M3: stashes -----------------------------------------------------
+
+    StashListPtr stashes() const { return stashes_.current(); }
+
+    void refreshStashes();
+
+    void saveStash(const StashSaveRequest& request);
+    void applyStash(const StashApplyRequest& request);
+    void dropStash(const StashDropRequest& request);
+    void branchFromStash(const StashBranchRequest& request);
+
+    // --- M3: tags ----------------------------------------------------------
+    // Tags themselves are read through refs() / RefKind::Tag; only the
+    // mutating side is new here.
+
+    void createTag(const CreateTagRequest& request);
+    void deleteTag(const DeleteTagRequest& request);
+    void pushTag(const PushTagRequest& request);
+
+    // --- M3: worktrees -------------------------------------------------------
+
+    WorktreeListPtr worktrees() const { return worktrees_.current(); }
+
+    void refreshWorktrees();
+
+    void addWorktree(const AddWorktreeRequest& request);
+    void removeWorktree(const RemoveWorktreeRequest& request);
+    void pruneWorktrees();
+    void lockWorktree(const LockWorktreeRequest& request);
+    void unlockWorktree(const UnlockWorktreeRequest& request);
+
+    // --- M3: remotes -----------------------------------------------------
+
+    RemoteListPtr remotes() const { return remotes_.current(); }
+
+    void refreshRemotes();
+
+    /// Fetch/pull/push all route credential prompts through the same
+    /// AskpassWatcher -- see credentialRequested/provideCredential/
+    /// cancelCredential -- rather than failing outright the moment auth is
+    /// needed, which is what would happen without it (GIT_TERMINAL_PROMPT is
+    /// always 0; see ProcessRunner).
+    void fetchRemote(FetchRequest request);
+    void pullChanges(PullRequest request);
+    void pushChanges(PushRequest request);
+
+    /// Answers or dismisses the credential prompt currently outstanding, if
+    /// any. A no-op if none is.
+    void provideCredential(const QString& secret);
+    void cancelCredential();
+
 signals:
     /// A newer graph snapshot is available (possibly partial).
     void graphUpdated(bool complete);
@@ -148,12 +209,29 @@ signals:
     /// working-copy panel gets its own completion signal to react to.
     void workingCopyOperationFinished(OperationOutcome outcome);
 
+    void stashesUpdated();
+    void worktreesUpdated();
+    void remotesUpdated();
+
+    /// A `git` subprocess spawned by one of the M3 remote/tag operations is
+    /// blocked waiting for `prompt`. The view layer is expected to show it and
+    /// call provideCredential()/cancelCredential() in response.
+    void credentialRequested(QString prompt);
+
 private:
     void setBusy(bool busy);
     /// Runs a staging/commit Operation and, on success, refreshes whatever it
     /// could have changed. Shared by stageFiles/unstageFiles/applyPatch/commitChanges
     /// so each stays a one-line call.
     void submitWorkingCopyOperation(std::unique_ptr<Operation> operation, bool alsoRefreshHistory);
+
+    /// The general form submitWorkingCopyOperation is built on: runs any
+    /// Operation, always emits workingCopyOperationFinished (so the RepoState
+    /// banner reacts uniformly regardless of which kind of operation this is),
+    /// and hands the outcome to `afterFinished` for the caller to decide what
+    /// to refresh.
+    void submitAndRefresh(std::unique_ptr<Operation> operation,
+                          std::function<void(bool succeeded)> afterFinished);
 
     GitInstallation installation_;
     RepoPaths paths_;
@@ -166,10 +244,17 @@ private:
     std::unique_ptr<DiffService> diffs_;
     std::unique_ptr<OperationRunner> operations_;
     std::unique_ptr<WorkingCopyStatusReader> workingCopyStatusReader_;
+    std::unique_ptr<StashStore> stashStore_;
+    std::unique_ptr<WorktreeStore> worktreeStore_;
+    std::unique_ptr<RemoteStore> remoteStore_;
+    AskpassWatcher* askpass_ = nullptr;
 
     SnapshotHolder<GraphSnapshot> graph_;
     SnapshotHolder<RefSnapshot> refs_;
     SnapshotHolder<WorkingCopyStatus> workingCopyStatus_;
+    SnapshotHolder<std::vector<StashEntry>> stashes_;
+    SnapshotHolder<std::vector<WorktreeInfo>> worktrees_;
+    SnapshotHolder<std::vector<RemoteInfo>> remotes_;
 
     /// Cancels the in-flight history walk when a new one starts.
     CancellationSource historyCancel_;

@@ -18,6 +18,10 @@
 #endif
 #endif
 
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
+
 namespace gbm::fsutil {
 
 namespace {
@@ -67,6 +71,44 @@ std::optional<FileId> fileIdOf(const std::filesystem::path& path) {
     id.high = 0;
     id.low = static_cast<std::uint64_t>(st.st_ino);
     return id;
+#endif
+}
+
+std::optional<std::filesystem::path> currentExecutablePath() {
+#if defined(_WIN32)
+    std::wstring buffer(MAX_PATH, L'\0');
+    for (;;) {
+        const DWORD written =
+            ::GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+        if (written == 0) {
+            return std::nullopt;
+        }
+        if (written < buffer.size()) {
+            buffer.resize(written);
+            return std::filesystem::path(buffer);
+        }
+        buffer.resize(buffer.size() * 2);
+    }
+#elif defined(__APPLE__)
+    std::uint32_t size = 0;
+    _NSGetExecutablePath(nullptr, &size);
+    std::string buffer(size, '\0');
+    if (_NSGetExecutablePath(buffer.data(), &size) != 0) {
+        return std::nullopt;
+    }
+    if (!buffer.empty() && buffer.back() == '\0') {
+        buffer.pop_back();
+    }
+    std::error_code ec;
+    auto resolved = std::filesystem::canonical(buffer, ec);
+    return ec ? std::filesystem::path(buffer) : resolved;
+#else
+    std::error_code ec;
+    auto resolved = std::filesystem::canonical("/proc/self/exe", ec);
+    if (ec) {
+        return std::nullopt;
+    }
+    return resolved;
 #endif
 }
 

@@ -1,6 +1,7 @@
 #include "core/base/CancellationToken.h"
 #include "core/base/Error.h"
 #include "core/base/ObjectId.h"
+#include "core/git/AskpassHelper.h"
 #include "core/git/CommitMeta.h"
 #include "core/git/GitExecutable.h"
 #include "core/git/HistoryProvider.h"
@@ -10,6 +11,7 @@
 #include "core/workers/ThreadPool.h"
 
 #include <atomic>
+#include <fstream>
 #include <gtest/gtest.h>
 #include <string>
 #include <thread>
@@ -431,6 +433,77 @@ TEST(RepoPaths, DistinguishesLinkedWorktreesFromNormalCheckouts) {
 TEST(RepoPaths, DerivesADisplayNameFromTheParentOfDotGit) {
     const RepoPaths paths("", "/some/project/.git", "/some/project/.git");
     EXPECT_EQ(paths.displayName(), "project");
+}
+
+// --- M3: askpass handshake --------------------------------------------------
+
+TEST(Askpass, WireAddsTheAskpassEnvironmentOverrides) {
+    GitCommand command;
+    askpass::wire(command, "/tmp/gbm-askpass-test-dir");
+
+    auto find = [&command](const std::string& key) -> std::optional<std::string> {
+        for (const auto& [k, v] : command.envOverrides) {
+            if (k == key) {
+                return v;
+            }
+        }
+        return std::nullopt;
+    };
+
+    EXPECT_TRUE(find("GIT_ASKPASS").has_value());
+    EXPECT_TRUE(find("SSH_ASKPASS").has_value());
+    EXPECT_EQ(find("GBM_ASKPASS_MODE"), "1");
+    EXPECT_EQ(find("GBM_ASKPASS_DIR"), "/tmp/gbm-askpass-test-dir");
+}
+
+TEST(Askpass, WireIsANoOpWithAnEmptyDirectory) {
+    GitCommand command;
+    askpass::wire(command, {});
+    EXPECT_TRUE(command.envOverrides.empty())
+        << "a command with no askpass directory must behave exactly as it did before M3";
+}
+
+TEST(Askpass, ClientWritesTheRequestAndFailsPromptlyOnCancel) {
+    const auto dir = askpass::makeRequestDir();
+    ASSERT_FALSE(dir.empty());
+
+    std::thread responder([&dir] {
+        // Give the client time to write its request before reacting to it.
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        std::ofstream cancel(dir / "cancel");
+        cancel << "x";
+    });
+
+    const int exitCode = askpass::runClientForDir(dir, "Password for 'https://example.invalid': ");
+    responder.join();
+
+    EXPECT_EQ(exitCode, 1);
+
+    std::ifstream request(dir / "request");
+    std::string contents((std::istreambuf_iterator<char>(request)), std::istreambuf_iterator<char>());
+    EXPECT_EQ(contents, "Password for 'https://example.invalid': ");
+
+    std::filesystem::remove_all(dir);
+}
+
+TEST(Askpass, ClientPrintsTheAnswerOnceAResponseArrives) {
+    const auto dir = askpass::makeRequestDir();
+    ASSERT_FALSE(dir.empty());
+
+    std::thread responder([&dir] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        std::ofstream response(dir / "response", std::ios::binary);
+        response << "s3cret";
+    });
+
+    const int exitCode = askpass::runClientForDir(dir, "Password: ");
+    responder.join();
+
+    EXPECT_EQ(exitCode, 0);
+    // The response file is consumed, matching a real one-shot credential prompt.
+    EXPECT_FALSE(std::filesystem::exists(dir / "response"));
+
+    std::filesystem::remove_all(dir);
 }
 
 }  // namespace

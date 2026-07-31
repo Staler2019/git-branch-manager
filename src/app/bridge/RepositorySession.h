@@ -21,6 +21,7 @@
 #include "core/git/ops/ConflictOps.h"
 #include "core/git/ops/LfsOps.h"
 #include "core/git/ops/MergeOps.h"
+#include "core/git/ops/PatchOps.h"
 #include "core/git/ops/RebaseOps.h"
 #include "core/git/ops/RemoteOps.h"
 #include "core/git/ops/ResetOps.h"
@@ -286,6 +287,15 @@ public:
     void pullLfs(const LfsTransferRequest& request);
     void fetchLfs(const LfsTransferRequest& request);
     void pruneLfs(const LfsPruneRequest& request);
+
+    // --- M5: patch import/export --------------------------------------------
+
+    void exportPatches(const ExportPatchesRequest& request);
+    void applyPatchFiles(const ApplyPatchFilesRequest& request);
+    void importPatches(const ImportPatchesRequest& request);
+    void continueImport();
+    void skipImport();
+    void abortImport();
 
 signals:
     /// A newer graph snapshot is available (possibly partial).

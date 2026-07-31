@@ -3,6 +3,7 @@
 #include "app/views/CredentialDialog.h"
 #include "core/git/ops/CheckoutOp.h"
 
+#include <QAbstractButton>
 #include <QAction>
 #include <QApplication>
 #include <QCheckBox>
@@ -390,6 +391,15 @@ void MainWindow::buildMenus() {
 
     auto* lfsMenu = menuBar()->addMenu(QStringLiteral("&LFS"));
     lfsMenu->addAction(QStringLiteral("Manage LFS…"), this, &MainWindow::onManageLfs);
+
+    auto* patchMenu = menuBar()->addMenu(QStringLiteral("&Patch"));
+    patchMenu->addAction(QStringLiteral("Export selected commits as patches…"),
+                         this,
+                         &MainWindow::onExportPatches);
+    patchMenu->addSeparator();
+    patchMenu->addAction(QStringLiteral("Apply patch file…"), this, &MainWindow::onApplyPatchFile);
+    patchMenu->addAction(
+        QStringLiteral("Import patches (git am)…"), this, &MainWindow::onImportPatches);
 
     auto* toolBar = addToolBar(QStringLiteral("Main"));
     toolBar->setMovable(false);
@@ -2896,6 +2906,154 @@ void MainWindow::onManageLfs() {
 
     dialog.resize(640, 480);
     dialog.exec();
+}
+
+// --- M5: patch import/export -------------------------------------------------
+
+void MainWindow::onExportPatches() {
+    if (!session_) {
+        return;
+    }
+    const QModelIndexList selected = commitView_->selectionModel()->selectedRows();
+    if (selected.isEmpty()) {
+        return;
+    }
+
+    // Newest-first selection, oldest-first output -- same convention as
+    // onCherryPickRequested, and the same reason: `format-patch --start-number`
+    // must see the commits in the order they were made.
+    std::vector<int> rows;
+    rows.reserve(static_cast<std::size_t>(selected.size()));
+    for (const QModelIndex& index : selected) {
+        rows.push_back(index.row());
+    }
+    std::sort(rows.begin(), rows.end(), std::greater<>());
+
+    std::vector<ObjectId> commits;
+    commits.reserve(rows.size());
+    for (int row : rows) {
+        commits.push_back(commitModel_->oidAt(row));
+    }
+
+    const QString dir = QFileDialog::getExistingDirectory(
+        this, QStringLiteral("Choose a folder for the patches"));
+    if (dir.isEmpty()) {
+        return;
+    }
+
+    ExportPatchesRequest request;
+    request.commits = commits;
+    request.outputDir = std::filesystem::path(dir.toStdString());
+    runWithFeedback([this, request] { session_->exportPatches(request); });
+}
+
+void MainWindow::onApplyPatchFile() {
+    if (!session_) {
+        return;
+    }
+    const QStringList files = QFileDialog::getOpenFileNames(
+        this,
+        QStringLiteral("Apply patch"),
+        QString(),
+        QStringLiteral("Patches (*.patch *.diff);;All files (*)"));
+    if (files.isEmpty()) {
+        return;
+    }
+
+    ApplyPatchFilesRequest request;
+    for (const QString& file : files) {
+        request.patchFiles.push_back(std::filesystem::path(file.toStdString()));
+    }
+    // Staged, not just written to the work tree: applying a patch from the
+    // menu is a deliberate "bring this change in" action, so it is left ready
+    // to review and commit rather than as an extra unstaged-diff step.
+    request.updateIndex = true;
+    runWithFeedback([this, request] { session_->applyPatchFiles(request); });
+}
+
+void MainWindow::onImportPatches() {
+    if (!session_) {
+        return;
+    }
+    const QStringList files = QFileDialog::getOpenFileNames(
+        this,
+        QStringLiteral("Import patches (git am)"),
+        QString(),
+        QStringLiteral("Patches (*.patch *.eml *.mbox);;All files (*)"));
+    if (files.isEmpty()) {
+        return;
+    }
+
+    ImportPatchesRequest request;
+    for (const QString& file : files) {
+        request.patchFiles.push_back(std::filesystem::path(file.toStdString()));
+    }
+    request.threeWay = true;
+
+    // A conflicted patch leaves `git am` mid-sequence (see PatchOps.h on why
+    // this needs its own Continue/Skip/Abort rather than the shared banner,
+    // which would call `git rebase --continue` and be refused outright). This
+    // recurses on itself via a shared_ptr so each subsequent patch in the
+    // series -- which can conflict again -- gets the same recovery prompt.
+    auto handleOutcome = std::make_shared<std::function<void(const OperationOutcome&)>>();
+    *handleOutcome = [this, handleOutcome](const OperationOutcome& outcome) {
+        if (outcome.succeeded) {
+            statusLabel_->setText(QString::fromStdString(outcome.summary));
+            return;
+        }
+        if (!session_ || !RepoState::read(session_->paths()).isSequencerOperation()) {
+            if (outcome.error) {
+                showError(QString::fromStdString(outcome.summary), *outcome.error);
+            }
+            return;
+        }
+
+        QMessageBox box(this);
+        box.setIcon(QMessageBox::Warning);
+        box.setText(QStringLiteral("A patch did not apply cleanly. Resolve the conflict in the "
+                                   "working copy (stage the result), then Continue -- or Skip "
+                                   "this patch, or Abort the import."));
+        if (outcome.error) {
+            box.setDetailedText(QString::fromStdString(outcome.error->detail));
+        }
+        QPushButton* continueButton =
+            box.addButton(QStringLiteral("Continue"), QMessageBox::AcceptRole);
+        QPushButton* skipButton = box.addButton(QStringLiteral("Skip"), QMessageBox::ActionRole);
+        QPushButton* abortButton = box.addButton(QStringLiteral("Abort"), QMessageBox::RejectRole);
+        box.addButton(QStringLiteral("Later"), QMessageBox::DestructiveRole);
+        box.exec();
+
+        QAbstractButton* clicked = box.clickedButton();
+        if (clicked != continueButton && clicked != skipButton && clicked != abortButton) {
+            return;
+        }
+
+        auto connection = std::make_shared<QMetaObject::Connection>();
+        *connection = connect(session_.get(),
+                              &RepositorySession::workingCopyOperationFinished,
+                              this,
+                              [connection, handleOutcome](const OperationOutcome& next) {
+                                  QObject::disconnect(*connection);
+                                  (*handleOutcome)(next);
+                              });
+        if (clicked == continueButton) {
+            session_->continueImport();
+        } else if (clicked == skipButton) {
+            session_->skipImport();
+        } else {
+            session_->abortImport();
+        }
+    };
+
+    auto connection = std::make_shared<QMetaObject::Connection>();
+    *connection = connect(session_.get(),
+                          &RepositorySession::workingCopyOperationFinished,
+                          this,
+                          [connection, handleOutcome](const OperationOutcome& outcome) {
+                              QObject::disconnect(*connection);
+                              (*handleOutcome)(outcome);
+                          });
+    session_->importPatches(request);
 }
 
 }  // namespace gbm

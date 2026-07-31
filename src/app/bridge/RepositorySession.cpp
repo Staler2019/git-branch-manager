@@ -1075,4 +1075,30 @@ void RepositorySession::pruneLfs(const LfsPruneRequest& request) {
     });
 }
 
+// --- M5: patch import/export ------------------------------------------------
+
+void RepositorySession::exportPatches(const ExportPatchesRequest& request) {
+    submitAndRefresh(makeExportPatchesOperation(request), nullptr);
+}
+
+void RepositorySession::applyPatchFiles(const ApplyPatchFilesRequest& request) {
+    submitWorkingCopyOperation(makeApplyPatchFilesOperation(request), false);
+}
+
+void RepositorySession::importPatches(const ImportPatchesRequest& request) {
+    submitWorkingCopyOperation(makeImportPatchesOperation(request), true);
+}
+
+void RepositorySession::continueImport() {
+    submitWorkingCopyOperation(makeAmContinueOperation(), true);
+}
+
+void RepositorySession::skipImport() {
+    submitWorkingCopyOperation(makeAmSkipOperation(), true);
+}
+
+void RepositorySession::abortImport() {
+    submitWorkingCopyOperation(makeAmAbortOperation(), true);
+}
+
 }  // namespace gbm

@@ -95,6 +95,9 @@ private slots:
     void onManageSubmodules();
     void onBisect();
     void onManageLfs();
+    void onExportPatches();
+    void onApplyPatchFile();
+    void onImportPatches();
 
 private:
     void buildUi();

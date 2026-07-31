@@ -26,6 +26,7 @@
 #include "core/git/ops/ConflictOps.h"
 #include "core/git/ops/LfsOps.h"
 #include "core/git/ops/MergeOps.h"
+#include "core/git/ops/PatchOps.h"
 #include "core/git/ops/RebaseOps.h"
 #include "core/git/ops/RemoteOps.h"
 #include "core/git/ops/ResetOps.h"
@@ -2595,6 +2596,170 @@ TEST_F(RealRepoTest, AddingATrackedFileStoresAPointerAndListsItDownloaded) {
     EXPECT_EQ((*files)[0].path, "asset.bin");
     EXPECT_TRUE((*files)[0].downloadedLocally);
     EXPECT_FALSE((*files)[0].oid.empty());
+}
+
+// --- M5: patch import/export -------------------------------------------------
+
+TEST_F(RealRepoTest, ExportsPatchesForSelectedCommitsInOrder) {
+    commitFile("a.txt", "1\n", "c1");
+    commitFile("a.txt", "2\n", "c2");
+    commitFile("a.txt", "3\n", "c3");
+    auto c2 = run({"rev-parse", "HEAD~1"});
+    ASSERT_TRUE(c2);
+    auto c3 = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(c3);
+
+    const std::filesystem::path outputDir = repo_ / "patches";
+    OperationRunner operations(*runner_, paths_);
+    ExportPatchesRequest request;
+    request.commits = {ObjectId::fromHex(c2->out), ObjectId::fromHex(c3->out)};
+    request.outputDir = outputDir;
+    auto outcome = submitAndWait(operations, makeExportPatchesOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    std::vector<std::string> names;
+    for (const auto& entry : std::filesystem::directory_iterator(outputDir)) {
+        names.push_back(entry.path().filename().string());
+    }
+    std::sort(names.begin(), names.end());
+    ASSERT_EQ(names.size(), 2u);
+    EXPECT_TRUE(names[0].starts_with("0001-"));
+    EXPECT_NE(names[0].find("c2"), std::string::npos);
+    EXPECT_TRUE(names[1].starts_with("0002-"));
+    EXPECT_NE(names[1].find("c3"), std::string::npos);
+}
+
+TEST_F(RealRepoTest, AppliesAPlainDiffWithoutCommittingOrStaging) {
+    commitFile("a.txt", "1\n", "c1");
+    commitFile("a.txt", "2\n", "c2");
+    auto diff = run({"diff", "HEAD~1", "HEAD"});
+    ASSERT_TRUE(diff);
+    const std::filesystem::path patchFile = repo_.string() + "-plain.patch";
+    {
+        std::ofstream out(patchFile, std::ios::binary | std::ios::trunc);
+        out << diff->out << "\n";
+    }
+    ASSERT_TRUE(run({"reset", "--quiet", "--hard", "HEAD~1"}));
+
+    OperationRunner operations(*runner_, paths_);
+    ApplyPatchFilesRequest request;
+    request.patchFiles = {patchFile};
+    auto outcome = submitAndWait(operations, makeApplyPatchFilesOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    std::ifstream in(repo_ / "a.txt");
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    EXPECT_EQ(content, "2\n");
+    auto staged = run({"diff", "--cached", "--name-only"});
+    ASSERT_TRUE(staged);
+    EXPECT_TRUE(staged->out.empty()) << "a plain apply must not touch the index";
+
+    std::filesystem::remove(patchFile);
+}
+
+TEST_F(RealRepoTest, ImportsAPatchAsACommitPreservingItsMessage) {
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("b.txt", "x\n", "feature commit");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+
+    const std::filesystem::path patchDir = repo_ / "am-patches";
+    ASSERT_TRUE(run({"format-patch", "-1", "feature", "-o", patchDir.string()}));
+    std::filesystem::path patchFile;
+    for (const auto& entry : std::filesystem::directory_iterator(patchDir)) {
+        patchFile = entry.path();
+    }
+    ASSERT_FALSE(patchFile.empty());
+
+    OperationRunner operations(*runner_, paths_);
+    ImportPatchesRequest request;
+    request.patchFiles = {patchFile};
+    auto outcome = submitAndWait(operations, makeImportPatchesOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    EXPECT_TRUE(std::filesystem::exists(repo_ / "b.txt"));
+    auto subject = run({"log", "-1", "--format=%s"});
+    ASSERT_TRUE(subject);
+    EXPECT_EQ(subject->out, "feature commit");
+    auto count = run({"rev-list", "--count", "HEAD"});
+    ASSERT_TRUE(count);
+    EXPECT_EQ(count->out, "2");
+}
+
+TEST_F(RealRepoTest, ImportConflictContinuesAfterResolution) {
+    commitFile("shared.txt", "base\n", "base");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("shared.txt", "feature change\n", "feature commit");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("shared.txt", "main change\n", "main commit");
+
+    const std::filesystem::path patchDir = repo_ / "am-conflict-patches";
+    ASSERT_TRUE(run({"format-patch", "-1", "feature", "-o", patchDir.string()}));
+    std::filesystem::path patchFile;
+    for (const auto& entry : std::filesystem::directory_iterator(patchDir)) {
+        patchFile = entry.path();
+    }
+    ASSERT_FALSE(patchFile.empty());
+
+    OperationRunner operations(*runner_, paths_);
+    ImportPatchesRequest request;
+    request.patchFiles = {patchFile};
+    request.threeWay = true;
+    auto outcome = submitAndWait(operations, makeImportPatchesOperation(request));
+    EXPECT_FALSE(outcome.succeeded);
+    ASSERT_TRUE(outcome.error.has_value());
+    EXPECT_EQ(outcome.error->code, GitError::Code::Conflict);
+    EXPECT_TRUE(RepoState::read(paths_).inProgress());
+
+    // Resolve by taking the incoming (feature) side, matching how the working
+    // copy's conflict resolution already handles "theirs".
+    ASSERT_TRUE(run({"checkout", "--theirs", "shared.txt"}));
+    ASSERT_TRUE(run({"add", "shared.txt"}));
+
+    auto continued = submitAndWait(operations, makeAmContinueOperation());
+    ASSERT_TRUE(continued.succeeded) << (continued.error ? continued.error->detail : "");
+    EXPECT_FALSE(RepoState::read(paths_).inProgress());
+
+    auto subject = run({"log", "-1", "--format=%s"});
+    ASSERT_TRUE(subject);
+    EXPECT_EQ(subject->out, "feature commit");
+    std::ifstream in(repo_ / "shared.txt");
+    std::string fileContent((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    EXPECT_EQ(fileContent, "feature change\n");
+}
+
+TEST_F(RealRepoTest, ImportAbortUnwindsCleanly) {
+    commitFile("shared.txt", "base\n", "base");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("shared.txt", "feature change\n", "feature commit");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("shared.txt", "main change\n", "main commit");
+    auto beforeImport = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(beforeImport);
+
+    const std::filesystem::path patchDir = repo_ / "am-abort-patches";
+    ASSERT_TRUE(run({"format-patch", "-1", "feature", "-o", patchDir.string()}));
+    std::filesystem::path patchFile;
+    for (const auto& entry : std::filesystem::directory_iterator(patchDir)) {
+        patchFile = entry.path();
+    }
+    ASSERT_FALSE(patchFile.empty());
+
+    OperationRunner operations(*runner_, paths_);
+    ImportPatchesRequest request;
+    request.patchFiles = {patchFile};
+    request.threeWay = true;
+    auto outcome = submitAndWait(operations, makeImportPatchesOperation(request));
+    EXPECT_FALSE(outcome.succeeded);
+    ASSERT_TRUE(RepoState::read(paths_).inProgress());
+
+    auto aborted = submitAndWait(operations, makeAmAbortOperation());
+    ASSERT_TRUE(aborted.succeeded) << (aborted.error ? aborted.error->detail : "");
+    EXPECT_FALSE(RepoState::read(paths_).inProgress());
+
+    auto head = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(head);
+    EXPECT_EQ(head->out, beforeImport->out);
 }
 
 }  // namespace

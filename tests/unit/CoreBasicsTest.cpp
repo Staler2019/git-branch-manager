@@ -479,10 +479,15 @@ TEST(Askpass, ClientWritesTheRequestAndFailsPromptlyOnCancel) {
 
     EXPECT_EQ(exitCode, 1);
 
-    std::ifstream request(dir / "request");
-    std::string contents((std::istreambuf_iterator<char>(request)),
-                         std::istreambuf_iterator<char>());
-    EXPECT_EQ(contents, "Password for 'https://example.invalid': ");
+    // Scoped so the handle is closed before remove_all runs below: Windows
+    // refuses to delete a file (or its parent directory) while anything still
+    // has it open.
+    {
+        std::ifstream request(dir / "request");
+        std::string contents((std::istreambuf_iterator<char>(request)),
+                             std::istreambuf_iterator<char>());
+        EXPECT_EQ(contents, "Password for 'https://example.invalid': ");
+    }
 
     std::filesystem::remove_all(dir);
 }

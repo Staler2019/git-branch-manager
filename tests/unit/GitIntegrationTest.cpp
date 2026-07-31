@@ -1564,9 +1564,14 @@ TEST_F(RealRepoTest, ListsAddsLocksAndRemovesWorktrees) {
 
     auto afterLock = store.list(CancellationToken{});
     ASSERT_TRUE(afterLock);
-    auto lockedEntry = std::find_if(afterLock->begin(),
-                                    afterLock->end(),
-                                    [&](const WorktreeInfo& wt) { return wt.path == linkedPath; });
+    // std::filesystem::equivalent, not ==: git reports each worktree's
+    // realpath, which on macOS differs textually from linkedPath (built
+    // through /var, a symlink to /private/var) even though it names the same
+    // directory.
+    auto lockedEntry =
+        std::find_if(afterLock->begin(), afterLock->end(), [&](const WorktreeInfo& wt) {
+            return std::filesystem::equivalent(wt.path, linkedPath);
+        });
     ASSERT_NE(lockedEntry, afterLock->end());
     EXPECT_TRUE(lockedEntry->isLocked);
     EXPECT_EQ(lockedEntry->lockReason, "in use");

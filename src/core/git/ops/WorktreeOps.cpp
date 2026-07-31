@@ -65,8 +65,13 @@ WorktreeInfo parseEntry(const std::vector<std::string_view>& lines,
         }
     }
     if (!mainWorkDir.empty() && !info.path.empty()) {
-        info.isMain = fsutil::pathsEquivalent(info.path.lexically_normal().generic_string(),
-                                              mainWorkDir.lexically_normal().generic_string());
+        // File identity rather than a string compare: git reports each
+        // worktree's realpath, which on macOS differs textually from a path
+        // built through /var (a symlink to /private/var) even though it names
+        // the same directory. fileIdOf sidesteps that entirely.
+        const auto entryId = fsutil::fileIdOf(info.path);
+        const auto mainId = fsutil::fileIdOf(mainWorkDir);
+        info.isMain = entryId.has_value() && mainId.has_value() && *entryId == *mainId;
     }
     return info;
 }

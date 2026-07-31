@@ -1,15 +1,20 @@
 #include "app/views/WorkingCopyView.h"
 
 #include "app/bridge/RepositorySession.h"
+#include "app/views/SideBySideDiffView.h"
 #include "core/git/ops/CommitOps.h"
+#include "core/git/ops/ConflictOps.h"
 
 #include <QCheckBox>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QListWidget>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSplitter>
+#include <QStackedWidget>
 #include <QVBoxLayout>
 
 namespace gbm {
@@ -92,11 +97,26 @@ void WorkingCopyView::buildUi() {
 
     splitter->addWidget(leftWidget);
 
+    auto* diffPane = new QWidget(splitter);
+    auto* diffPaneLayout = new QVBoxLayout(diffPane);
+    diffPaneLayout->setContentsMargins(0, 0, 0, 0);
+
+    sideBySideToggle_ = new QCheckBox(tr("Side by side"), diffPane);
+    diffPaneLayout->addWidget(sideBySideToggle_, 0, Qt::AlignRight);
+
+    diffStack_ = new QStackedWidget(diffPane);
     // Hunk- and line-level staging live on this instance's context menu; see
-    // DiffView::setStagingEnabled.
-    diffView_ = new DiffView(splitter);
+    // DiffView::setStagingEnabled. The side-by-side pane is read-only -- it
+    // has no equivalent context menu, so staging always happens from the
+    // unified view.
+    diffView_ = new DiffView(diffStack_);
     diffView_->setStagingEnabled(true);
-    splitter->addWidget(diffView_);
+    sideBySideView_ = new SideBySideDiffView(diffStack_);
+    diffStack_->addWidget(diffView_);
+    diffStack_->addWidget(sideBySideView_);
+    diffPaneLayout->addWidget(diffStack_, 1);
+
+    splitter->addWidget(diffPane);
     splitter->setStretchFactor(0, 2);
     splitter->setStretchFactor(1, 3);
 
@@ -116,6 +136,14 @@ void WorkingCopyView::buildUi() {
             &QListWidget::itemActivated,
             this,
             &WorkingCopyView::onUnstagedItemActivated);
+    connect(conflictedList_,
+            &QListWidget::itemActivated,
+            this,
+            &WorkingCopyView::onConflictedItemActivated);
+    connect(sideBySideToggle_, &QCheckBox::toggled, this, [this](bool sideBySide) {
+        diffStack_->setCurrentWidget(sideBySide ? static_cast<QWidget*>(sideBySideView_)
+                                                : static_cast<QWidget*>(diffView_));
+    });
     connect(stageAllButton_, &QPushButton::clicked, this, &WorkingCopyView::onStageAllClicked);
     connect(unstageAllButton_, &QPushButton::clicked, this, &WorkingCopyView::onUnstageAllClicked);
     connect(commitButton_, &QPushButton::clicked, this, &WorkingCopyView::onCommitClicked);
@@ -148,6 +176,7 @@ void WorkingCopyView::setSession(RepositorySession* session) {
         session_->refreshWorkingCopyStatus();
     } else {
         diffView_->clearDiff();
+        sideBySideView_->clearDiff();
         messageEdit_->clear();
         rebuildLists();
     }
@@ -214,6 +243,7 @@ void WorkingCopyView::rebuildLists() {
     }
     if (previous && !reselected) {
         diffView_->clearDiff();
+        sideBySideView_->clearDiff();
     }
 
     const bool hasConflicts = conflictedList_->count() > 0;
@@ -240,9 +270,11 @@ void WorkingCopyView::refreshSelectedDiff() {
     const auto selection = currentSelection();
     if (!selection) {
         diffView_->clearDiff();
+        sideBySideView_->clearDiff();
         return;
     }
     diffView_->showMessage(tr("Loading changes…"));
+    sideBySideView_->showMessage(tr("Loading changes…"));
     session_->requestWorkingCopyDiff(selection->path, selection->staged);
 }
 
@@ -260,7 +292,8 @@ void WorkingCopyView::onWorkingCopyDiffReady(QString path,
         return;
     }
     diffView_->setShowingStagedDiff(staged);
-    diffView_->showDiff(std::move(diff));
+    diffView_->showDiff(diff);
+    sideBySideView_->showDiff(std::move(diff));
 }
 
 void WorkingCopyView::onWorkingCopyOperationFinished(const OperationOutcome& outcome) {
@@ -311,6 +344,150 @@ void WorkingCopyView::onUnstagedItemActivated(QListWidgetItem* item) {
         return;
     }
     session_->stageFiles({item->data(Qt::UserRole).toString().toStdString()});
+}
+
+void WorkingCopyView::onConflictedItemActivated(QListWidgetItem* item) {
+    if (session_ == nullptr || item == nullptr) {
+        return;
+    }
+    const std::string path = item->data(Qt::UserRole).toString().toStdString();
+    const WorkingCopyStatusPtr status = session_->workingCopyStatus();
+    if (!status) {
+        return;
+    }
+    for (const WorkingCopyEntry* entry : status->conflicted()) {
+        if (entry->path == path) {
+            openConflictResolutionDialog(*entry);
+            return;
+        }
+    }
+}
+
+void WorkingCopyView::openConflictResolutionDialog(const WorkingCopyEntry& entry) {
+    if (session_ == nullptr) {
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Resolve conflict — %1").arg(QString::fromStdString(entry.path)));
+    auto* layout = new QVBoxLayout(&dialog);
+
+    QString kindText;
+    switch (entry.conflict) {
+        case ConflictKind::BothAdded:
+            kindText = tr("Both sides added this file.");
+            break;
+        case ConflictKind::BothModified:
+            kindText = tr("Both sides modified this file.");
+            break;
+        case ConflictKind::BothDeleted:
+            kindText = tr("Both sides deleted this file.");
+            break;
+        case ConflictKind::AddedByUs:
+            kindText = tr("You added this file; the other side did not touch it.");
+            break;
+        case ConflictKind::DeletedByUs:
+            kindText = tr("You deleted this file; the other side modified it.");
+            break;
+        case ConflictKind::AddedByThem:
+            kindText = tr("The other side added this file; you did not touch it.");
+            break;
+        case ConflictKind::DeletedByThem:
+            kindText = tr("The other side deleted this file; you modified it.");
+            break;
+        case ConflictKind::None:
+            break;
+    }
+    if (!kindText.isEmpty()) {
+        layout->addWidget(new QLabel(kindText, &dialog));
+    }
+
+    auto* panesLayout = new QHBoxLayout();
+    auto makePane = [&](const QString& title) {
+        auto* container = new QWidget(&dialog);
+        auto* paneLayout = new QVBoxLayout(container);
+        paneLayout->setContentsMargins(0, 0, 0, 0);
+        paneLayout->addWidget(new QLabel(title, container));
+        auto* edit = new QPlainTextEdit(container);
+        edit->setReadOnly(true);
+        edit->setLineWrapMode(QPlainTextEdit::NoWrap);
+        edit->setPlainText(tr("Loading…"));
+        paneLayout->addWidget(edit, 1);
+        panesLayout->addWidget(container);
+        return edit;
+    };
+    QPlainTextEdit* ancestorEdit = makePane(tr("Common ancestor"));
+    QPlainTextEdit* oursEdit = makePane(tr("Mine (ours)"));
+    QPlainTextEdit* theirsEdit = makePane(tr("Theirs"));
+    if (entry.ancestorBlob.empty()) {
+        ancestorEdit->setPlainText(tr("(no common ancestor)"));
+    }
+    if (entry.oursBlob.empty()) {
+        oursEdit->setPlainText(tr("(deleted on this side)"));
+    }
+    if (entry.theirsBlob.empty()) {
+        theirsEdit->setPlainText(tr("(deleted on the other side)"));
+    }
+    layout->addLayout(panesLayout, 1);
+
+    // Scoped to the dialog's lifetime via the context object: if the request's
+    // reply arrives after the dialog has already closed, Qt drops the
+    // connection rather than calling back into destroyed widgets.
+    const QString path = QString::fromStdString(entry.path);
+    connect(session_,
+            &RepositorySession::conflictSidesReady,
+            &dialog,
+            [path, ancestorEdit, oursEdit, theirsEdit](
+                QString readyPath, QString ancestor, QString ours, QString theirs) {
+                if (readyPath != path) {
+                    return;
+                }
+                ancestorEdit->setPlainText(ancestor);
+                oursEdit->setPlainText(ours);
+                theirsEdit->setPlainText(theirs);
+            });
+    session_->requestConflictSides(
+        entry.path, entry.ancestorBlob, entry.oursBlob, entry.theirsBlob);
+
+    auto* buttonRow = new QHBoxLayout();
+    auto* takeOursButton = new QPushButton(tr("Take Mine"), &dialog);
+    auto* takeTheirsButton = new QPushButton(tr("Take Theirs"), &dialog);
+    auto* markResolvedButton = new QPushButton(tr("Mark Resolved"), &dialog);
+    auto* cancelButton = new QPushButton(tr("Cancel"), &dialog);
+    buttonRow->addWidget(takeOursButton);
+    buttonRow->addWidget(takeTheirsButton);
+    buttonRow->addWidget(markResolvedButton);
+    buttonRow->addStretch(1);
+    buttonRow->addWidget(cancelButton);
+    layout->addLayout(buttonRow);
+
+    connect(takeOursButton, &QPushButton::clicked, &dialog, [&dialog] { dialog.done(1); });
+    connect(takeTheirsButton, &QPushButton::clicked, &dialog, [&dialog] { dialog.done(2); });
+    connect(markResolvedButton, &QPushButton::clicked, &dialog, [&dialog] { dialog.done(3); });
+    connect(cancelButton, &QPushButton::clicked, &dialog, [&dialog] { dialog.done(0); });
+
+    dialog.resize(720, 420);
+    const int result = dialog.exec();
+    if (result == 0 || session_ == nullptr) {
+        return;
+    }
+
+    ResolveConflictRequest request;
+    request.path = entry.path;
+    request.oursBlobMissing = entry.oursBlob.empty();
+    request.theirsBlobMissing = entry.theirsBlob.empty();
+    switch (result) {
+        case 1:
+            request.resolution = ConflictResolution::TakeOurs;
+            break;
+        case 2:
+            request.resolution = ConflictResolution::TakeTheirs;
+            break;
+        default:
+            request.resolution = ConflictResolution::MarkResolved;
+            break;
+    }
+    session_->resolveConflict(request);
 }
 
 void WorkingCopyView::onStageAllClicked() {

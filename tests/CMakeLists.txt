@@ -12,6 +12,7 @@ add_executable(gbm_core_tests
     unit/GitIntegrationTest.cpp
     unit/GraphBuilderTest.cpp
     unit/ProcessRunnerTest.cpp
+    unit/SideBySideDiffTest.cpp
     unit/UnifiedDiffParserTest.cpp
 )
 target_link_libraries(gbm_core_tests

@@ -11,7 +11,10 @@
 #include "core/git/RepoState.h"
 #include "core/git/WorkingCopyStatus.h"
 #include "core/git/ops/CheckoutOp.h"
+#include "core/git/ops/CherryPickOps.h"
 #include "core/git/ops/CommitOps.h"
+#include "core/git/ops/ConflictOps.h"
+#include "core/git/ops/MergeOps.h"
 #include "core/git/ops/StageOps.h"
 #include "core/graph/GraphSnapshot.h"
 #include "core/workers/ThreadPool.h"
@@ -94,6 +97,33 @@ public:
 
     void commitChanges(const CommitRequest& request);
 
+    /// `git merge`, in whichever mode the request asks for. A conflict is
+    /// reported through `workingCopyOperationFinished` exactly like any other
+    /// failure -- see MergeOps.h -- and the conflicted paths then show up in
+    /// the next `workingCopyStatusUpdated`.
+    void mergeBranch(const MergeRequest& request);
+    void abortMerge();
+
+    /// `git cherry-pick`, for a single commit, several, or a caller-expanded
+    /// range (see RefStore::resolveRange). Applies in the order the request's
+    /// commits are listed.
+    void cherryPick(const CherryPickRequest& request);
+    void continueCherryPick();
+    void skipCherryPick();
+    void abortCherryPick();
+
+    /// Resolves one conflicted path from a stopped merge/cherry-pick/revert.
+    void resolveConflict(const ResolveConflictRequest& request);
+
+    /// Reads the three stages' blob content for a conflicted path, so a
+    /// resolution view can show ancestor/ours/theirs without running `git
+    /// checkout --ours/--theirs` just to look. Empty strings for a stage that
+    /// does not exist -- see WorkingCopyEntry::ancestorBlob et al.
+    void requestConflictSides(const std::string& path,
+                              const std::string& ancestorBlob,
+                              const std::string& oursBlob,
+                              const std::string& theirsBlob);
+
 signals:
     /// A newer graph snapshot is available (possibly partial).
     void graphUpdated(bool complete);
@@ -108,6 +138,11 @@ signals:
 
     void workingCopyStatusUpdated();
     void workingCopyDiffReady(QString path, bool staged, std::shared_ptr<const ParsedDiff> diff);
+    /// Reply to requestConflictSides, matched back up by path. A stage's
+    /// content is empty both when that stage does not exist and when reading
+    /// it failed -- the request is best-effort display, not itself an
+    /// operation worth failing loudly over.
+    void conflictSidesReady(QString path, QString ancestor, QString ours, QString theirs);
     /// Separate from `operationFinished`: MainWindow's checkout-recovery UI
     /// (stash/discard choices) does not apply to staging and commit, so the
     /// working-copy panel gets its own completion signal to react to.

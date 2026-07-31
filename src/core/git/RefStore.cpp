@@ -302,4 +302,35 @@ std::vector<std::string> RefStore::historySeedRefs(const RefSnapshot& refs) {
     return seeds;
 }
 
+GitResult<std::vector<ObjectId>> RefStore::resolveRange(const std::string& range,
+                                                        CancellationToken token) {
+    GBM_ASSERT_NOT_UI_THREAD();
+
+    GitCommand command(paths_.commandDir(), {"rev-list", "--reverse", range});
+    command.timeout = std::chrono::seconds(60);
+    auto result = runner_.run(command, token);
+    if (!result) {
+        return fail(std::move(result).error());
+    }
+
+    std::vector<ObjectId> oids;
+    std::size_t start = 0;
+    while (start <= result->out.size()) {
+        const std::size_t at = result->out.find('\n', start);
+        const std::size_t end = at == std::string::npos ? result->out.size() : at;
+        const std::string_view line(result->out.data() + start, end - start);
+        if (!line.empty()) {
+            ObjectId oid;
+            if (oid.parseHex(line)) {
+                oids.push_back(oid);
+            }
+        }
+        if (at == std::string::npos) {
+            break;
+        }
+        start = at + 1;
+    }
+    return oids;
+}
+
 }  // namespace gbm

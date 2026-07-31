@@ -52,6 +52,16 @@ struct WorkingCopyEntry {
 
     ConflictKind conflict = ConflictKind::None;
 
+    /// Blob object ids for each side of a conflict, valid only when
+    /// `isConflicted()`. Empty when that stage does not exist for this path --
+    /// e.g. `theirsBlob` is empty for AddedByUs, `ancestorBlob` is empty for
+    /// BothAdded. Populated from `git status`'s stage hashes directly, so
+    /// viewing a conflicted file's three sides never needs a second `git`
+    /// invocation to look them up.
+    std::string ancestorBlob;  ///< Stage 1: the merge base.
+    std::string oursBlob;      ///< Stage 2: HEAD's side.
+    std::string theirsBlob;    ///< Stage 3: the incoming side.
+
     int similarity = 0;  ///< Rename/copy score, 0-100.
     bool isSubmodule = false;
 

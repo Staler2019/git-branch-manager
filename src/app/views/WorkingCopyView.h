@@ -16,10 +16,13 @@ class QListWidget;
 class QListWidgetItem;
 class QPlainTextEdit;
 class QPushButton;
+class QStackedWidget;
 
 namespace gbm {
 
 class RepositorySession;
+class SideBySideDiffView;
+struct WorkingCopyEntry;
 
 /// The working-copy panel: status, stage/unstage by file, hunk and line, and
 /// commit/amend -- M1's working-copy slice wired into one view. Hunk- and
@@ -47,6 +50,7 @@ private slots:
     void onUnstagedSelectionChanged();
     void onStagedItemActivated(QListWidgetItem* item);
     void onUnstagedItemActivated(QListWidgetItem* item);
+    void onConflictedItemActivated(QListWidgetItem* item);
     void onStageAllClicked();
     void onUnstageAllClicked();
     void onCommitClicked();
@@ -56,6 +60,10 @@ private:
     void buildUi();
     void rebuildLists();
     void refreshSelectedDiff();
+    /// Shows the three stages plus Take Mine/Take Theirs/Mark Resolved, and
+    /// submits whichever the user picks. Blocks (modally) until closed, same
+    /// as onManageBaseFolders in MainWindow.
+    void openConflictResolutionDialog(const WorkingCopyEntry& entry);
 
     struct Selection {
         std::string path;
@@ -75,7 +83,10 @@ private:
     QListWidget* unstagedList_ = nullptr;
     QPushButton* stageAllButton_ = nullptr;
     QPushButton* unstageAllButton_ = nullptr;
+    QStackedWidget* diffStack_ = nullptr;
     DiffView* diffView_ = nullptr;
+    SideBySideDiffView* sideBySideView_ = nullptr;
+    QCheckBox* sideBySideToggle_ = nullptr;
     QPlainTextEdit* messageEdit_ = nullptr;
     QCheckBox* amendCheck_ = nullptr;
     QPushButton* commitButton_ = nullptr;

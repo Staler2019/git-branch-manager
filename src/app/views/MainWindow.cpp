@@ -5,15 +5,18 @@
 #include <QAction>
 #include <QApplication>
 #include <QDialog>
+#include <QDialogButtonBox>
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QInputDialog>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QRadioButton>
 #include <QScrollBar>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -276,6 +279,14 @@ void MainWindow::buildMenus() {
     auto* checkoutAction = branchMenu->addAction(
         QStringLiteral("Switch to selected branch"), this, &MainWindow::onCheckoutRequested);
     checkoutAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+O")));
+    auto* mergeAction = branchMenu->addAction(
+        QStringLiteral("Merge selected branch into current…"), this, &MainWindow::onMergeRequested);
+    mergeAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+M")));
+    auto* cherryPickAction =
+        branchMenu->addAction(QStringLiteral("Cherry-pick selected commit(s)…"),
+                              this,
+                              &MainWindow::onCherryPickRequested);
+    cherryPickAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+C")));
 
     auto* historyAction =
         viewMenu->addAction(QStringLiteral("History"), this, &MainWindow::onShowHistory);
@@ -564,6 +575,14 @@ void MainWindow::openRepository(const RepoRecord& record) {
     connect(session_.get(), &RepositorySession::busyChanged, this, [this](bool busy) {
         busyBar_->setVisible(busy);
     });
+    // Merge, cherry-pick and conflict resolution all move through
+    // workingCopyOperationFinished (WorkingCopyView already reacts to it for the
+    // staging/commit case); the banner reflects RepoState, which all of them can
+    // change, so it needs to refresh here too regardless of what else reacts.
+    connect(session_.get(),
+            &RepositorySession::workingCopyOperationFinished,
+            this,
+            [this](const OperationOutcome&) { updateStateBanner(); });
 
     commitModel_->setSession(session_.get());
     diffView_->clearDiff();
@@ -809,6 +828,186 @@ void MainWindow::onOperationFinished(const OperationOutcome& outcome) {
     if (outcome.error) {
         showError(QString::fromStdString(outcome.summary), *outcome.error);
     }
+}
+
+void MainWindow::onMergeRequested() {
+    if (!session_) {
+        return;
+    }
+    const QModelIndexList selected = refView_->selectionModel()->selectedRows();
+    if (selected.isEmpty()) {
+        return;
+    }
+    const QString name = refModel_->refNameAt(selected.first());
+    if (name.isEmpty()) {
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("Merge"));
+    auto* layout = new QVBoxLayout(&dialog);
+    layout->addWidget(
+        new QLabel(QStringLiteral("Merge \"%1\" into the current branch:").arg(name), &dialog));
+
+    auto* ffOnly = new QRadioButton(QStringLiteral("Fast-forward only"), &dialog);
+    auto* noFf =
+        new QRadioButton(QStringLiteral("Create a merge commit (no fast-forward)"), &dialog);
+    auto* squash =
+        new QRadioButton(QStringLiteral("Squash (stage the changes, no commit)"), &dialog);
+    noFf->setChecked(true);
+    layout->addWidget(ffOnly);
+    layout->addWidget(noFf);
+    layout->addWidget(squash);
+
+    auto* messageEdit = new QLineEdit(&dialog);
+    messageEdit->setPlaceholderText(
+        QStringLiteral("Merge commit message (used only when creating a merge commit)"));
+    layout->addWidget(messageEdit);
+
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    layout->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    MergeRequest request;
+    request.target = name.toStdString();
+    request.mode = squash->isChecked()   ? MergeMode::Squash
+                   : ffOnly->isChecked() ? MergeMode::FastForwardOnly
+                                         : MergeMode::NoFastForward;
+    request.message = messageEdit->text().toStdString();
+
+    statusLabel_->setText(QStringLiteral("Merging %1…").arg(name));
+    armWorkingCopyChoiceHandler(
+        [this, request](bool stashFirst) mutable {
+            request.stashFirst = stashFirst;
+            session_->mergeBranch(request);
+        },
+        false);
+}
+
+void MainWindow::onCherryPickRequested() {
+    if (!session_) {
+        return;
+    }
+    const QModelIndexList selected = commitView_->selectionModel()->selectedRows();
+    if (selected.isEmpty()) {
+        return;
+    }
+
+    // The list is newest-first; a cherry-pick must apply oldest first, so sort
+    // descending by row (a higher row number is further back in history).
+    std::vector<int> rows;
+    rows.reserve(static_cast<std::size_t>(selected.size()));
+    for (const QModelIndex& index : selected) {
+        rows.push_back(index.row());
+    }
+    std::sort(rows.begin(), rows.end(), std::greater<>());
+
+    std::vector<ObjectId> commits;
+    commits.reserve(rows.size());
+    QStringList subjects;
+    for (int row : rows) {
+        commits.push_back(commitModel_->oidAt(row));
+        const QModelIndex subjectIndex = commitModel_->index(row, CommitListModel::ColumnSubject);
+        subjects << commitModel_->data(subjectIndex, Qt::DisplayRole).toString();
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("Cherry-pick"));
+    auto* layout = new QVBoxLayout(&dialog);
+    layout->addWidget(new QLabel(
+        commits.size() == 1
+            ? QStringLiteral("Cherry-pick this commit onto the current branch:")
+            : QStringLiteral("Cherry-pick these %1 commits onto the current branch, oldest first:")
+                  .arg(commits.size()),
+        &dialog));
+
+    auto* list = new QListWidget(&dialog);
+    list->setSelectionMode(QAbstractItemView::NoSelection);
+    for (int i = 0; i < subjects.size(); ++i) {
+        new QListWidgetItem(
+            QString::fromStdString(commits[static_cast<std::size_t>(i)].shortHex()) +
+                QStringLiteral("  ") + subjects[i],
+            list);
+    }
+    layout->addWidget(list);
+
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    layout->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    dialog.resize(480, 320);
+
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    CherryPickRequest request;
+    request.commits = std::move(commits);
+
+    statusLabel_->setText(QStringLiteral("Cherry-picking…"));
+    armWorkingCopyChoiceHandler(
+        [this, request](bool stashFirst) mutable {
+            request.stashFirst = stashFirst;
+            session_->cherryPick(request);
+        },
+        false);
+}
+
+void MainWindow::armWorkingCopyChoiceHandler(std::function<void(bool)> submit, bool stashFirst) {
+    // A one-shot connection: the handler disconnects itself the moment it runs,
+    // so it never reacts to an unrelated working-copy operation finishing later.
+    auto connection = std::make_shared<QMetaObject::Connection>();
+    *connection =
+        connect(session_.get(),
+                &RepositorySession::workingCopyOperationFinished,
+                this,
+                [this, submit, connection](const OperationOutcome& outcome) {
+                    QObject::disconnect(*connection);
+
+                    if (outcome.succeeded) {
+                        statusLabel_->setText(QString::fromStdString(outcome.summary));
+                        return;
+                    }
+                    if (outcome.choices.empty()) {
+                        if (outcome.error) {
+                            showError(QString::fromStdString(outcome.summary), *outcome.error);
+                        }
+                        return;
+                    }
+
+                    QMessageBox box(this);
+                    box.setIcon(QMessageBox::Warning);
+                    box.setText(QString::fromStdString(outcome.summary));
+                    if (outcome.error) {
+                        box.setDetailedText(QString::fromStdString(outcome.error->detail));
+                    }
+                    std::vector<QPushButton*> buttons;
+                    buttons.reserve(outcome.choices.size());
+                    for (const OperationChoice& choice : outcome.choices) {
+                        auto* button = box.addButton(QString::fromStdString(choice.label),
+                                                     choice.kind == OperationChoice::Kind::Abort
+                                                         ? QMessageBox::RejectRole
+                                                         : QMessageBox::ActionRole);
+                        button->setToolTip(QString::fromStdString(choice.explanation));
+                        buttons.push_back(button);
+                    }
+                    box.exec();
+                    for (std::size_t i = 0; i < buttons.size(); ++i) {
+                        if (box.clickedButton() != buttons[i]) {
+                            continue;
+                        }
+                        if (outcome.choices[i].kind == OperationChoice::Kind::StashAndRetry) {
+                            armWorkingCopyChoiceHandler(submit, true);
+                        }
+                        break;
+                    }
+                });
+    submit(stashFirst);
 }
 
 void MainWindow::onCoreError(const GitError& error) {

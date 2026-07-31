@@ -303,4 +303,86 @@ void RepositorySession::commitChanges(const CommitRequest& request) {
     submitWorkingCopyOperation(makeCommitOperation(request), true);
 }
 
+void RepositorySession::mergeBranch(const MergeRequest& request) {
+    submitWorkingCopyOperation(makeMergeOperation(request), true);
+}
+
+void RepositorySession::abortMerge() {
+    submitWorkingCopyOperation(makeMergeAbortOperation(), true);
+}
+
+void RepositorySession::cherryPick(const CherryPickRequest& request) {
+    submitWorkingCopyOperation(makeCherryPickOperation(request), true);
+}
+
+void RepositorySession::continueCherryPick() {
+    submitWorkingCopyOperation(makeCherryPickContinueOperation(), true);
+}
+
+void RepositorySession::skipCherryPick() {
+    submitWorkingCopyOperation(makeCherryPickSkipOperation(), true);
+}
+
+void RepositorySession::abortCherryPick() {
+    submitWorkingCopyOperation(makeCherryPickAbortOperation(), true);
+}
+
+void RepositorySession::resolveConflict(const ResolveConflictRequest& request) {
+    // Never moves HEAD, so no refreshRefs/refreshHistory -- just the
+    // working-copy status, to update the conflicted list.
+    submitWorkingCopyOperation(makeResolveConflictOperation(request), false);
+}
+
+void RepositorySession::requestConflictSides(const std::string& path,
+                                             const std::string& ancestorBlob,
+                                             const std::string& oursBlob,
+                                             const std::string& theirsBlob) {
+    const CancellationToken token = readCancel_.token();
+    setBusy(true);
+
+    readPool_.postFront([this, path, ancestorBlob, oursBlob, theirsBlob, token] {
+        if (token.isCancelled()) {
+            QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+            return;
+        }
+        if (auto started = catFile_->start(); !started) {
+            GitError error = std::move(started).error();
+            QMetaObject::invokeMethod(
+                this,
+                [this, error] {
+                    setBusy(false);
+                    emit errorOccurred(error);
+                },
+                Qt::QueuedConnection);
+            return;
+        }
+
+        // Best-effort: a stage that fails to read (or does not exist) shows as
+        // empty rather than failing the whole request, so the two sides that
+        // did read are still shown.
+        auto readOrEmpty = [this](const std::string& blob) {
+            if (blob.empty()) {
+                return std::string();
+            }
+            auto object = catFile_->read(blob);
+            return object ? object->content : std::string();
+        };
+        const std::string ancestor = readOrEmpty(ancestorBlob);
+        const std::string ours = readOrEmpty(oursBlob);
+        const std::string theirs = readOrEmpty(theirsBlob);
+
+        const QString qpath = QString::fromStdString(path);
+        QMetaObject::invokeMethod(
+            this,
+            [this, qpath, ancestor, ours, theirs] {
+                setBusy(false);
+                emit conflictSidesReady(qpath,
+                                        QString::fromStdString(ancestor),
+                                        QString::fromStdString(ours),
+                                        QString::fromStdString(theirs));
+            },
+            Qt::QueuedConnection);
+    });
+}
+
 }  // namespace gbm

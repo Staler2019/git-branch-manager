@@ -16,7 +16,10 @@
 #include "core/git/WorkingCopyStatus.h"
 #include "core/git/ops/BranchOps.h"
 #include "core/git/ops/CheckoutOp.h"
+#include "core/git/ops/CherryPickOps.h"
 #include "core/git/ops/CommitOps.h"
+#include "core/git/ops/ConflictOps.h"
+#include "core/git/ops/MergeOps.h"
 #include "core/git/ops/StageOps.h"
 
 #include <cstdio>
@@ -68,6 +71,16 @@ protected:
         GitCommand command(repo_, std::move(args));
         command.timeout = std::chrono::seconds(120);
         return runner_->run(command, CancellationToken{});
+    }
+
+    /// Shared by the M2 tests below, which submit several operations per test.
+    static OperationOutcome submitAndWait(OperationRunner& operations,
+                                          std::unique_ptr<Operation> operation) {
+        OperationOutcome outcome;
+        operations.submit(std::move(operation),
+                          [&outcome](OperationOutcome result) { outcome = std::move(result); });
+        operations.drain();
+        return outcome;
     }
 
     /// `name` is UTF-8, matching how the rest of the codebase treats a path in a
@@ -753,8 +766,8 @@ TEST_F(RealRepoTest, StagesAndUnstagesOneHunkWithoutTouchingItsNeighbour) {
     ASSERT_EQ((*unstagedDiff)->files[0].hunks.size(), 2u)
         << "the two edits must land in separate hunks for this test to be meaningful";
 
-    const std::string stagePatch =
-        UnifiedDiffParser::buildHunkPatch((*unstagedDiff)->files[0], (*unstagedDiff)->files[0].hunks[0]);
+    const std::string stagePatch = UnifiedDiffParser::buildHunkPatch(
+        (*unstagedDiff)->files[0], (*unstagedDiff)->files[0].hunks[0]);
 
     OperationRunner operations(*runner_, paths_);
     auto submitAndWait = [&operations](std::unique_ptr<Operation> operation) {
@@ -786,8 +799,8 @@ TEST_F(RealRepoTest, StagesAndUnstagesOneHunkWithoutTouchingItsNeighbour) {
     auto stagedDiff = diffs.workingTreeDiff(true, {}, DiffOptions{}, CancellationToken{});
     ASSERT_TRUE(stagedDiff);
     ASSERT_EQ((*stagedDiff)->files[0].hunks.size(), 1u);
-    const std::string unstagePatch =
-        UnifiedDiffParser::buildHunkPatch((*stagedDiff)->files[0], (*stagedDiff)->files[0].hunks[0]);
+    const std::string unstagePatch = UnifiedDiffParser::buildHunkPatch(
+        (*stagedDiff)->files[0], (*stagedDiff)->files[0].hunks[0]);
 
     ApplyPatchRequest unstageRequest;
     unstageRequest.patch = unstagePatch;
@@ -964,6 +977,379 @@ TEST_F(RealRepoTest, RefusesToCommitWhenNothingIsStaged) {
     EXPECT_FALSE(outcome.succeeded);
     ASSERT_TRUE(outcome.error.has_value());
     EXPECT_EQ(outcome.error->code, GitError::Code::InvalidArgument);
+}
+
+// --- M2: merge, cherry-pick, conflict resolution ----------------------------
+
+TEST_F(RealRepoTest, FastForwardMergeMovesHeadWithoutACommit) {
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("a.txt", "2\n", "c2 on feature");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+
+    OperationRunner operations(*runner_, paths_);
+    MergeRequest request;
+    request.target = "feature";
+    request.mode = MergeMode::FastForwardOnly;
+    auto outcome = submitAndWait(operations, makeMergeOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    auto count = run({"rev-list", "--count", "HEAD"});
+    ASSERT_TRUE(count);
+    EXPECT_EQ(count->out, "2") << "a fast-forward must not add a merge commit";
+
+    auto subject = run({"log", "-1", "--format=%s"});
+    ASSERT_TRUE(subject);
+    EXPECT_EQ(subject->out, "c2 on feature");
+}
+
+TEST_F(RealRepoTest, FastForwardOnlyRefusesWhenHistoryHasDiverged) {
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("a.txt", "2\n", "c2 on feature");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("b.txt", "diverge\n", "c3 on main");
+
+    OperationRunner operations(*runner_, paths_);
+    MergeRequest request;
+    request.target = "feature";
+    request.mode = MergeMode::FastForwardOnly;
+    auto outcome = submitAndWait(operations, makeMergeOperation(request));
+
+    EXPECT_FALSE(outcome.succeeded);
+    ASSERT_TRUE(outcome.error.has_value());
+    EXPECT_EQ(outcome.error->code, GitError::Code::NonFastForward);
+}
+
+TEST_F(RealRepoTest, NoFastForwardMergeAlwaysCreatesAMergeCommit) {
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("a.txt", "2\n", "c2 on feature");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+
+    OperationRunner operations(*runner_, paths_);
+    MergeRequest request;
+    request.target = "feature";
+    request.mode = MergeMode::NoFastForward;
+    request.message = "Merge feature into main";
+    auto outcome = submitAndWait(operations, makeMergeOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    auto parents = run({"log", "-1", "--format=%P"});
+    ASSERT_TRUE(parents);
+    EXPECT_NE(parents->out.find(' '), std::string::npos) << "must be a two-parent merge commit";
+
+    auto subject = run({"log", "-1", "--format=%s"});
+    ASSERT_TRUE(subject);
+    EXPECT_EQ(subject->out, "Merge feature into main");
+}
+
+TEST_F(RealRepoTest, SquashMergeStagesChangesWithoutCommittingOrRecordingAParent) {
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("a.txt", "2\n", "c2 on feature");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+
+    OperationRunner operations(*runner_, paths_);
+    MergeRequest request;
+    request.target = "feature";
+    request.mode = MergeMode::Squash;
+    auto outcome = submitAndWait(operations, makeMergeOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    auto count = run({"rev-list", "--count", "HEAD"});
+    ASSERT_TRUE(count);
+    EXPECT_EQ(count->out, "1") << "squash must not create a commit on its own";
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status);
+    EXPECT_FALSE(status->get()->staged().empty()) << "the squashed diff must be staged";
+}
+
+TEST_F(RealRepoTest, AConflictingMergeStopsAndCanBeAborted) {
+    commitFile("shared.txt", "base\n", "base");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "left"}));
+    commitFile("shared.txt", "left change\n", "left");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("shared.txt", "right change\n", "right");
+
+    OperationRunner operations(*runner_, paths_);
+    MergeRequest request;
+    request.target = "left";
+    request.mode = MergeMode::NoFastForward;
+    auto outcome = submitAndWait(operations, makeMergeOperation(request));
+
+    EXPECT_FALSE(outcome.succeeded);
+    ASSERT_TRUE(outcome.error.has_value());
+    EXPECT_EQ(outcome.error->code, GitError::Code::Conflict);
+    EXPECT_TRUE(RepoState::read(paths_).inProgress());
+
+    auto abort = submitAndWait(operations, makeMergeAbortOperation());
+    ASSERT_TRUE(abort.succeeded) << (abort.error ? abort.error->detail : "");
+    EXPECT_TRUE(RepoState::read(paths_).isClean());
+}
+
+TEST_F(RealRepoTest, AConflictingMergeCanBeResolvedByTakingEitherSide) {
+    commitFile("shared.txt", "base\n", "base");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "left"}));
+    commitFile("shared.txt", "left change\n", "left");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("shared.txt", "right change\n", "right");
+
+    OperationRunner operations(*runner_, paths_);
+    MergeRequest request;
+    request.target = "left";
+    request.mode = MergeMode::NoFastForward;
+    auto merged = submitAndWait(operations, makeMergeOperation(request));
+    ASSERT_FALSE(merged.succeeded);
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status);
+    const auto conflicted = status->get()->conflicted();
+    ASSERT_EQ(conflicted.size(), 1u);
+    EXPECT_FALSE(conflicted[0]->oursBlob.empty());
+    EXPECT_FALSE(conflicted[0]->theirsBlob.empty());
+    EXPECT_FALSE(conflicted[0]->ancestorBlob.empty())
+        << "shared.txt has a real common ancestor (the base commit), so stage 1 must be present";
+
+    ResolveConflictRequest resolve;
+    resolve.path = "shared.txt";
+    resolve.resolution = ConflictResolution::TakeTheirs;
+    auto resolved = submitAndWait(operations, makeResolveConflictOperation(resolve));
+    ASSERT_TRUE(resolved.succeeded) << (resolved.error ? resolved.error->detail : "");
+
+    auto afterResolve = reader.read(CancellationToken{});
+    ASSERT_TRUE(afterResolve);
+    EXPECT_TRUE(afterResolve->get()->conflicted().empty());
+
+    auto content = run({"show", ":shared.txt"});
+    ASSERT_TRUE(content);
+    EXPECT_EQ(content->out, "left change") << "theirs, from the merge's point of view, is `left`";
+
+    CommitRequest commit;
+    commit.message = "Merge left into main";
+    auto committed = submitAndWait(operations, makeCommitOperation(commit));
+    ASSERT_TRUE(committed.succeeded) << (committed.error ? committed.error->detail : "");
+    EXPECT_TRUE(RepoState::read(paths_).isClean());
+}
+
+TEST_F(RealRepoTest, MergeOffersStashAndRetryWhenTheWorkTreeIsDirty) {
+    commitFile("a.txt", "base\n", "c1");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("a.txt", "feature change\n", "c2 on feature");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    {
+        std::ofstream out(repo_ / "a.txt");
+        out << "uncommitted local edit\n";
+    }
+
+    OperationRunner operations(*runner_, paths_);
+    MergeRequest request;
+    request.target = "feature";
+    request.mode = MergeMode::NoFastForward;
+    auto outcome = submitAndWait(operations, makeMergeOperation(request));
+
+    ASSERT_FALSE(outcome.succeeded);
+    ASSERT_TRUE(outcome.error.has_value());
+    EXPECT_EQ(outcome.error->code, GitError::Code::DirtyWorkTree);
+    bool hasStash = false;
+    for (const OperationChoice& choice : outcome.choices) {
+        hasStash = hasStash || choice.kind == OperationChoice::Kind::StashAndRetry;
+    }
+    EXPECT_TRUE(hasStash);
+
+    request.stashFirst = true;
+    auto retried = submitAndWait(operations, makeMergeOperation(request));
+    ASSERT_TRUE(retried.succeeded) << (retried.error ? retried.error->detail : "");
+
+    auto stashList = run({"stash", "list"});
+    ASSERT_TRUE(stashList);
+    EXPECT_FALSE(stashList->out.empty()) << "the user's work must be recoverable";
+}
+
+TEST_F(RealRepoTest, CherryPicksASingleCommitOntoAnotherBranch) {
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("b.txt", "feature content\n", "feature commit");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+
+    auto pick = run({"rev-parse", "feature"});
+    ASSERT_TRUE(pick);
+    const ObjectId oid = ObjectId::fromHex(pick->out);
+
+    OperationRunner operations(*runner_, paths_);
+    CherryPickRequest request;
+    request.commits = {oid};
+    auto outcome = submitAndWait(operations, makeCherryPickOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    EXPECT_TRUE(std::filesystem::exists(repo_ / "b.txt"));
+    auto subject = run({"log", "-1", "--format=%s"});
+    ASSERT_TRUE(subject);
+    EXPECT_EQ(subject->out, "feature commit");
+}
+
+TEST_F(RealRepoTest, CherryPicksARangeInOldestFirstOrder) {
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("f1.txt", "1\n", "feature c1");
+    commitFile("f2.txt", "2\n", "feature c2");
+    commitFile("f3.txt", "3\n", "feature c3");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+
+    RefStore refs(*runner_, paths_);
+    auto range = refs.resolveRange("main..feature", CancellationToken{});
+    ASSERT_TRUE(range) << range.error().message;
+    ASSERT_EQ(range->size(), 3u);
+
+    OperationRunner operations(*runner_, paths_);
+    CherryPickRequest request;
+    request.commits = *range;
+    auto outcome = submitAndWait(operations, makeCherryPickOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    auto count = run({"rev-list", "--count", "HEAD"});
+    ASSERT_TRUE(count);
+    EXPECT_EQ(count->out, "4");
+
+    // Applied oldest first, so the resulting history reads the same way round.
+    auto subjects = run({"log", "--format=%s", "-3", "--reverse"});
+    ASSERT_TRUE(subjects);
+    EXPECT_EQ(subjects->out, "feature c1\nfeature c2\nfeature c3");
+}
+
+TEST_F(RealRepoTest, CherryPickConflictContinuesToTheNextQueuedPickAfterResolution) {
+    commitFile("shared.txt", "base\n", "base");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("shared.txt", "feature change\n", "feature commit");
+    commitFile("other.txt", "unrelated\n", "unrelated commit");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("shared.txt", "main change\n", "main commit");
+
+    RefStore refs(*runner_, paths_);
+    auto range = refs.resolveRange("main..feature", CancellationToken{});
+    ASSERT_TRUE(range);
+    ASSERT_EQ(range->size(), 2u);
+
+    OperationRunner operations(*runner_, paths_);
+    CherryPickRequest request;
+    request.commits = *range;
+    auto outcome = submitAndWait(operations, makeCherryPickOperation(request));
+
+    EXPECT_FALSE(outcome.succeeded);
+    ASSERT_TRUE(outcome.error.has_value());
+    EXPECT_EQ(outcome.error->code, GitError::Code::Conflict);
+    EXPECT_TRUE(RepoState::read(paths_).inProgress());
+
+    ResolveConflictRequest resolve;
+    resolve.path = "shared.txt";
+    resolve.resolution = ConflictResolution::TakeTheirs;
+    auto resolved = submitAndWait(operations, makeResolveConflictOperation(resolve));
+    ASSERT_TRUE(resolved.succeeded) << (resolved.error ? resolved.error->detail : "");
+
+    auto continued = submitAndWait(operations, makeCherryPickContinueOperation());
+    ASSERT_TRUE(continued.succeeded) << (continued.error ? continued.error->detail : "");
+
+    EXPECT_TRUE(std::filesystem::exists(repo_ / "other.txt"))
+        << "the second queued pick must have been applied by --continue";
+    EXPECT_TRUE(RepoState::read(paths_).isClean());
+}
+
+TEST_F(RealRepoTest, CherryPickSkipDropsTheConflictingCommitAndMovesOn) {
+    commitFile("shared.txt", "base\n", "base");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("shared.txt", "feature change\n", "feature commit");
+    commitFile("other.txt", "unrelated\n", "unrelated commit");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("shared.txt", "main change\n", "main commit");
+
+    RefStore refs(*runner_, paths_);
+    auto range = refs.resolveRange("main..feature", CancellationToken{});
+    ASSERT_TRUE(range);
+    ASSERT_EQ(range->size(), 2u);
+
+    OperationRunner operations(*runner_, paths_);
+    CherryPickRequest request;
+    request.commits = *range;
+    auto outcome = submitAndWait(operations, makeCherryPickOperation(request));
+    ASSERT_FALSE(outcome.succeeded);
+    EXPECT_TRUE(RepoState::read(paths_).inProgress());
+
+    auto skipped = submitAndWait(operations, makeCherryPickSkipOperation());
+    ASSERT_TRUE(skipped.succeeded) << (skipped.error ? skipped.error->detail : "");
+
+    EXPECT_TRUE(std::filesystem::exists(repo_ / "other.txt"))
+        << "the second queued pick must still have been applied after skipping the first";
+    EXPECT_TRUE(RepoState::read(paths_).isClean());
+
+    auto content = run({"cat-file", "-p", "HEAD:shared.txt"});
+    ASSERT_TRUE(content);
+    EXPECT_EQ(content->out, "main change")
+        << "the skipped commit's change to shared.txt is dropped";
+}
+
+TEST_F(RealRepoTest, CherryPickAbortUnwindsCleanly) {
+    commitFile("shared.txt", "base\n", "base");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("shared.txt", "feature change\n", "feature commit");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("shared.txt", "main change\n", "main commit");
+
+    auto pick = run({"rev-parse", "feature"});
+    ASSERT_TRUE(pick);
+
+    OperationRunner operations(*runner_, paths_);
+    CherryPickRequest request;
+    request.commits = {ObjectId::fromHex(pick->out)};
+    auto outcome = submitAndWait(operations, makeCherryPickOperation(request));
+    ASSERT_FALSE(outcome.succeeded);
+    EXPECT_TRUE(RepoState::read(paths_).inProgress());
+
+    auto aborted = submitAndWait(operations, makeCherryPickAbortOperation());
+    ASSERT_TRUE(aborted.succeeded) << (aborted.error ? aborted.error->detail : "");
+    EXPECT_TRUE(RepoState::read(paths_).isClean());
+
+    auto content = run({"cat-file", "-p", "HEAD:shared.txt"});
+    ASSERT_TRUE(content);
+    EXPECT_EQ(content->out, "main change")
+        << "abort must leave the tree exactly as before the pick";
+}
+
+TEST_F(RealRepoTest, TakingOursOnAConflictWhereWeDeletedRemovesThePath) {
+    commitFile("shared.txt", "base\n", "base");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "left"}));
+    ASSERT_TRUE(run({"rm", "--quiet", "shared.txt"}));
+    ASSERT_TRUE(run({"commit", "--quiet", "-m", "delete on left"}));
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("shared.txt", "changed on main\n", "change on main");
+
+    auto merge = run({"merge", "--no-commit", "left"});
+    EXPECT_FALSE(merge) << "delete-vs-modify was expected to conflict";
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status);
+    const auto conflicted = status->get()->conflicted();
+    ASSERT_EQ(conflicted.size(), 1u);
+    EXPECT_TRUE(conflicted[0]->theirsBlob.empty()) << "left deleted it, so stage 3 does not exist";
+
+    OperationRunner operations(*runner_, paths_);
+    ResolveConflictRequest resolve;
+    resolve.path = "shared.txt";
+    resolve.resolution = ConflictResolution::TakeTheirs;
+    resolve.theirsBlobMissing = true;
+    auto resolved = submitAndWait(operations, makeResolveConflictOperation(resolve));
+    ASSERT_TRUE(resolved.succeeded) << (resolved.error ? resolved.error->detail : "");
+
+    EXPECT_FALSE(std::filesystem::exists(repo_ / "shared.txt"));
+    auto afterResolve = reader.read(CancellationToken{});
+    ASSERT_TRUE(afterResolve);
+    EXPECT_TRUE(afterResolve->get()->conflicted().empty());
+    EXPECT_FALSE(afterResolve->get()->staged().empty());
+
+    ASSERT_TRUE(run({"commit", "--quiet", "-m", "merge left"}));
 }
 
 }  // namespace

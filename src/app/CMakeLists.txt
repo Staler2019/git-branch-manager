@@ -17,6 +17,7 @@ qt_add_executable(git-branch-manager
     bridge/AskpassWatcher.cpp
     bridge/DiscoveryController.cpp
     bridge/RepositorySession.cpp
+    bridge/ThemeManager.cpp
 
     models/CommitListModel.cpp
     models/GraphColumnDelegate.cpp

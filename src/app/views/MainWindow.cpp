@@ -1,10 +1,12 @@
 #include "app/views/MainWindow.h"
 
+#include "app/bridge/ThemeManager.h"
 #include "app/views/CredentialDialog.h"
 #include "core/git/ops/CheckoutOp.h"
 
 #include <QAbstractButton>
 #include <QAction>
+#include <QActionGroup>
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
@@ -317,6 +319,21 @@ void MainWindow::buildMenus() {
     connect(logAction, &QAction::toggled, this, [this](bool visible) {
         logView_->setVisible(visible);
     });
+    viewMenu->addSeparator();
+    auto* themeMenu = viewMenu->addMenu(QStringLiteral("Theme"));
+    auto* themeGroup = new QActionGroup(this);
+    themeGroup->setExclusive(true);
+    const Theme currentTheme = ThemeManager::loadSetting();
+    for (Theme theme : {Theme::System, Theme::Light, Theme::Dark}) {
+        QAction* action = themeMenu->addAction(ThemeManager::label(theme));
+        action->setCheckable(true);
+        action->setChecked(theme == currentTheme);
+        themeGroup->addAction(action);
+        connect(action, &QAction::triggered, this, [theme] {
+            ThemeManager::apply(theme);
+            ThemeManager::saveSetting(theme);
+        });
+    }
 
     auto* branchMenu = menuBar()->addMenu(QStringLiteral("&Branch"));
     auto* checkoutAction = branchMenu->addAction(

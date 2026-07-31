@@ -138,6 +138,7 @@ std::vector<std::filesystem::path> RepoState::watchTargets(const RepoPaths& path
         paths.mergeHeadFile(),
         paths.cherryPickHeadFile(),
         paths.revertHeadFile(),
+        paths.bisectLogFile(),
         paths.rebaseMergeDir(),
         paths.rebaseApplyDir(),
         paths.sequencerDir(),

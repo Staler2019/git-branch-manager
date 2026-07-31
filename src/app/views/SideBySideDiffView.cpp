@@ -52,6 +52,8 @@ SideBySideDiffView::SideBySideDiffView(QWidget* parent) : QWidget(parent) {
     left_ = makePane(this);
     right_ = makePane(this);
     left_->setPlaceholderText(QStringLiteral("Select a commit to see its changes"));
+    left_->setAccessibleName(QStringLiteral("Diff, before"));
+    right_->setAccessibleName(QStringLiteral("Diff, after"));
     layout->addWidget(left_);
     layout->addWidget(right_);
 

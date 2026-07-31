@@ -1,5 +1,6 @@
 #include "gbm/Version.h"
 
+#include "app/bridge/ThemeManager.h"
 #include "app/views/MainWindow.h"
 #include "core/base/Logging.h"
 #include "core/base/ThreadCheck.h"
@@ -30,6 +31,10 @@ int main(int argc, char** argv) {
     QApplication::setApplicationName(QStringLiteral("git-branch-manager"));
     QApplication::setOrganizationName(QStringLiteral("git-branch-manager"));
     QApplication::setApplicationVersion(QStringLiteral(GBM_VERSION_STRING));
+
+    // Before the window is built, so the very first paint already reflects
+    // the saved choice instead of flashing the default theme first.
+    gbm::ThemeManager::apply(gbm::ThemeManager::loadSetting());
 
     gbm::Log::instance().setLevel(gbm::LogLevel::Info);
 

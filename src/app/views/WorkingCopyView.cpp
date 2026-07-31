@@ -74,6 +74,7 @@ void WorkingCopyView::buildUi() {
         new QLabel(tr("Conflicts — resolve before committing"), conflictedGroup_));
     conflictedList_ = new QListWidget(conflictedGroup_);
     conflictedList_->setMaximumHeight(120);
+    conflictedList_->setAccessibleName(tr("Conflicted files"));
     conflictedLayout->addWidget(conflictedList_);
     conflictedGroup_->setVisible(false);
     leftLayout->addWidget(conflictedGroup_);
@@ -81,6 +82,7 @@ void WorkingCopyView::buildUi() {
     leftLayout->addWidget(new QLabel(tr("Staged Changes"), leftWidget));
     stagedList_ = new QListWidget(leftWidget);
     stagedList_->setSelectionMode(QAbstractItemView::SingleSelection);
+    stagedList_->setAccessibleName(tr("Staged changes"));
     leftLayout->addWidget(stagedList_, 1);
     unstageAllButton_ = new QPushButton(tr("Unstage All"), leftWidget);
     leftLayout->addWidget(unstageAllButton_);
@@ -89,6 +91,7 @@ void WorkingCopyView::buildUi() {
     unstagedList_ = new QListWidget(leftWidget);
     unstagedList_->setSelectionMode(QAbstractItemView::SingleSelection);
     unstagedList_->setContextMenuPolicy(Qt::CustomContextMenu);
+    unstagedList_->setAccessibleName(tr("Unstaged changes"));
     leftLayout->addWidget(unstagedList_, 1);
     stageAllButton_ = new QPushButton(tr("Stage All"), leftWidget);
     leftLayout->addWidget(stageAllButton_);
@@ -96,6 +99,7 @@ void WorkingCopyView::buildUi() {
     messageEdit_ = new QPlainTextEdit(leftWidget);
     messageEdit_->setPlaceholderText(tr("Commit message"));
     messageEdit_->setMaximumHeight(100);
+    messageEdit_->setAccessibleName(tr("Commit message"));
     leftLayout->addWidget(messageEdit_);
 
     auto* commitRow = new QHBoxLayout();

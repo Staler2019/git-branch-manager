@@ -1,9 +1,12 @@
 #include "app/views/MainWindow.h"
 
+#include "app/bridge/ThemeManager.h"
 #include "app/views/CredentialDialog.h"
 #include "core/git/ops/CheckoutOp.h"
 
+#include <QAbstractButton>
 #include <QAction>
+#include <QActionGroup>
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
@@ -117,10 +120,12 @@ void MainWindow::buildUi() {
     repoSearch_ = new QLineEdit(browserPage);
     repoSearch_->setPlaceholderText(QStringLiteral("Filter repositories by name or path…"));
     repoSearch_->setClearButtonEnabled(true);
+    repoSearch_->setAccessibleName(QStringLiteral("Filter repositories"));
     connect(repoSearch_, &QLineEdit::textChanged, this, &MainWindow::onRepoSearchChanged);
 
     repoModel_ = new RepoListModel(this);
     repoView_ = new QTableView(browserPage);
+    repoView_->setAccessibleName(QStringLiteral("Repositories"));
     repoView_->setModel(repoModel_);
     repoView_->setSelectionBehavior(QAbstractItemView::SelectRows);
     repoView_->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -162,6 +167,7 @@ void MainWindow::buildUi() {
     bannerLabel_ = new QLabel(bannerRow);
     bannerLabel_->setVisible(false);
     bannerLabel_->setWordWrap(true);
+    bannerLabel_->setAccessibleName(QStringLiteral("Repository state banner"));
     // Unmissable by design: a repository stuck mid-rebase must never look normal.
     bannerLabel_->setStyleSheet(QStringLiteral("QLabel { color: white; }"));
     bannerLayout->addWidget(bannerLabel_, 1);
@@ -190,6 +196,7 @@ void MainWindow::buildUi() {
 
     refModel_ = new RefTreeModel(this);
     refView_ = new QTreeView(outerSplitter);
+    refView_->setAccessibleName(QStringLiteral("Branches and tags"));
     refView_->setModel(refModel_);
     refView_->setHeaderHidden(true);
     refView_->setUniformRowHeights(true);
@@ -205,6 +212,7 @@ void MainWindow::buildUi() {
 
     commitModel_ = new CommitListModel(this);
     commitView_ = new QTableView(rightSplitter);
+    commitView_->setAccessibleName(QStringLiteral("Commit history"));
     commitView_->setModel(commitModel_);
     commitView_->setSelectionBehavior(QAbstractItemView::SelectRows);
     commitView_->verticalHeader()->setVisible(false);
@@ -235,6 +243,7 @@ void MainWindow::buildUi() {
 
     auto* detailSplitter = new QSplitter(Qt::Horizontal, rightSplitter);
     fileView_ = new QTableView(detailSplitter);
+    fileView_->setAccessibleName(QStringLiteral("Changed files"));
     fileView_->setSelectionBehavior(QAbstractItemView::SelectRows);
     fileView_->verticalHeader()->setVisible(false);
     fileView_->setShowGrid(false);
@@ -279,10 +288,12 @@ void MainWindow::buildUi() {
 
     // --- status bar ----------------------------------------------------------
     statusLabel_ = new QLabel(QStringLiteral("Ready"), this);
+    statusLabel_->setAccessibleName(QStringLiteral("Status"));
     busyBar_ = new QProgressBar(this);
     busyBar_->setRange(0, 0);  // Indeterminate.
     busyBar_->setMaximumWidth(120);
     busyBar_->setVisible(false);
+    busyBar_->setAccessibleName(QStringLiteral("Busy"));
     statusBar()->addWidget(statusLabel_, 1);
     statusBar()->addPermanentWidget(busyBar_);
     statusBar()->addPermanentWidget(new QLabel(
@@ -316,6 +327,21 @@ void MainWindow::buildMenus() {
     connect(logAction, &QAction::toggled, this, [this](bool visible) {
         logView_->setVisible(visible);
     });
+    viewMenu->addSeparator();
+    auto* themeMenu = viewMenu->addMenu(QStringLiteral("Theme"));
+    auto* themeGroup = new QActionGroup(this);
+    themeGroup->setExclusive(true);
+    const Theme currentTheme = ThemeManager::loadSetting();
+    for (Theme theme : {Theme::System, Theme::Light, Theme::Dark}) {
+        QAction* action = themeMenu->addAction(ThemeManager::label(theme));
+        action->setCheckable(true);
+        action->setChecked(theme == currentTheme);
+        themeGroup->addAction(action);
+        connect(action, &QAction::triggered, this, [theme] {
+            ThemeManager::apply(theme);
+            ThemeManager::saveSetting(theme);
+        });
+    }
 
     auto* branchMenu = menuBar()->addMenu(QStringLiteral("&Branch"));
     auto* checkoutAction = branchMenu->addAction(
@@ -380,6 +406,24 @@ void MainWindow::buildMenus() {
     auto* worktreeMenu = menuBar()->addMenu(QStringLiteral("&Worktree"));
     worktreeMenu->addAction(
         QStringLiteral("Manage worktrees…"), this, &MainWindow::onManageWorktrees);
+
+    auto* submoduleMenu = menuBar()->addMenu(QStringLiteral("Sub&module"));
+    submoduleMenu->addAction(
+        QStringLiteral("Manage submodules…"), this, &MainWindow::onManageSubmodules);
+
+    auto* bisectMenu = menuBar()->addMenu(QStringLiteral("&Bisect"));
+    bisectMenu->addAction(QStringLiteral("Bisect…"), this, &MainWindow::onBisect);
+
+    auto* lfsMenu = menuBar()->addMenu(QStringLiteral("&LFS"));
+    lfsMenu->addAction(QStringLiteral("Manage LFS…"), this, &MainWindow::onManageLfs);
+
+    auto* patchMenu = menuBar()->addMenu(QStringLiteral("&Patch"));
+    patchMenu->addAction(
+        QStringLiteral("Export selected commits as patches…"), this, &MainWindow::onExportPatches);
+    patchMenu->addSeparator();
+    patchMenu->addAction(QStringLiteral("Apply patch file…"), this, &MainWindow::onApplyPatchFile);
+    patchMenu->addAction(
+        QStringLiteral("Import patches (git am)…"), this, &MainWindow::onImportPatches);
 
     auto* toolBar = addToolBar(QStringLiteral("Main"));
     toolBar->setMovable(false);
@@ -2440,6 +2484,612 @@ void MainWindow::onFileContextMenuRequested(const QPoint& pos) {
                     });
         session_->requestLineHistory(stdPath, startLine, endLine, revision);
     }
+}
+
+// --- M5: submodules ----------------------------------------------------------
+
+void MainWindow::onManageSubmodules() {
+    if (!session_) {
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("Manage submodules"));
+    auto* layout = new QVBoxLayout(&dialog);
+
+    auto* table = new QTableWidget(&dialog);
+    table->setColumnCount(4);
+    table->setHorizontalHeaderLabels({QStringLiteral("Path"),
+                                      QStringLiteral("URL"),
+                                      QStringLiteral("Commit"),
+                                      QStringLiteral("Status")});
+    table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->setSelectionMode(QAbstractItemView::SingleSelection);
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->verticalHeader()->setVisible(false);
+    table->setAccessibleName(QStringLiteral("Submodule list"));
+    layout->addWidget(table, 1);
+
+    auto stateLabel = [](SubmoduleInfo::State state) {
+        switch (state) {
+            case SubmoduleInfo::State::NotInitialized:
+                return QStringLiteral("not initialized");
+            case SubmoduleInfo::State::Modified:
+                return QStringLiteral("modified");
+            case SubmoduleInfo::State::Conflicted:
+                return QStringLiteral("conflicted");
+            case SubmoduleInfo::State::UpToDate:
+                return QStringLiteral("up to date");
+        }
+        return QStringLiteral("up to date");
+    };
+
+    auto reload = [this, table, stateLabel] {
+        auto submodules = session_->submodules();
+        table->setRowCount(0);
+        if (!submodules) {
+            return;
+        }
+        table->setRowCount(static_cast<int>(submodules->size()));
+        for (int row = 0; row < static_cast<int>(submodules->size()); ++row) {
+            const SubmoduleInfo& info = (*submodules)[static_cast<std::size_t>(row)];
+            table->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(info.path)));
+            table->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(info.url)));
+            table->setItem(
+                row, 2, new QTableWidgetItem(QString::fromStdString(info.headOid).left(10)));
+            table->setItem(row, 3, new QTableWidgetItem(stateLabel(info.state)));
+        }
+    };
+    connect(session_.get(), &RepositorySession::submodulesUpdated, &dialog, reload);
+    session_->refreshSubmodules();
+    reload();
+
+    auto selectedInfo = [this, table]() -> std::optional<SubmoduleInfo> {
+        const int row = table->currentRow();
+        auto submodules = session_->submodules();
+        if (row < 0 || !submodules || row >= static_cast<int>(submodules->size())) {
+            return std::nullopt;
+        }
+        return (*submodules)[static_cast<std::size_t>(row)];
+    };
+
+    auto* buttonRow = new QHBoxLayout();
+    auto* addButton = new QPushButton(QStringLiteral("Add…"), &dialog);
+    auto* initButton = new QPushButton(QStringLiteral("Init"), &dialog);
+    auto* updateButton = new QPushButton(QStringLiteral("Update"), &dialog);
+    auto* syncButton = new QPushButton(QStringLiteral("Sync"), &dialog);
+    auto* deinitButton = new QPushButton(QStringLiteral("Deinit…"), &dialog);
+    auto* closeButton = new QPushButton(QStringLiteral("Close"), &dialog);
+    for (QPushButton* button :
+         {addButton, initButton, updateButton, syncButton, deinitButton, closeButton}) {
+        button->setAccessibleDescription(QStringLiteral("Submodule action"));
+    }
+    buttonRow->addWidget(addButton);
+    buttonRow->addWidget(initButton);
+    buttonRow->addWidget(updateButton);
+    buttonRow->addWidget(syncButton);
+    buttonRow->addWidget(deinitButton);
+    buttonRow->addStretch(1);
+    buttonRow->addWidget(closeButton);
+    layout->addLayout(buttonRow);
+
+    connect(addButton, &QPushButton::clicked, &dialog, [this, &dialog] {
+        bool ok = false;
+        const QString url = QInputDialog::getText(&dialog,
+                                                  QStringLiteral("Add submodule"),
+                                                  QStringLiteral("URL:"),
+                                                  QLineEdit::Normal,
+                                                  QString(),
+                                                  &ok);
+        if (!ok || url.isEmpty()) {
+            return;
+        }
+        const QString path =
+            QInputDialog::getText(&dialog,
+                                  QStringLiteral("Add submodule"),
+                                  QStringLiteral("Path (leave blank to derive from the URL):"),
+                                  QLineEdit::Normal,
+                                  QString(),
+                                  &ok);
+        if (!ok) {
+            return;
+        }
+        AddSubmoduleRequest request;
+        request.url = url.toStdString();
+        request.path = path.toStdString();
+        runWithFeedback([this, request] { session_->addSubmodule(request); });
+    });
+
+    connect(initButton, &QPushButton::clicked, &dialog, [this, selectedInfo] {
+        auto info = selectedInfo();
+        if (!info) {
+            return;
+        }
+        SubmodulePathsRequest request;
+        request.paths = {info->path};
+        runWithFeedback([this, request] { session_->initSubmodules(request); });
+    });
+
+    connect(updateButton, &QPushButton::clicked, &dialog, [this, selectedInfo] {
+        auto info = selectedInfo();
+        if (!info) {
+            return;
+        }
+        UpdateSubmodulesRequest request;
+        request.paths = {info->path};
+        request.init = true;
+        runWithFeedback([this, request] { session_->updateSubmodules(request); });
+    });
+
+    connect(syncButton, &QPushButton::clicked, &dialog, [this, selectedInfo] {
+        auto info = selectedInfo();
+        if (!info) {
+            return;
+        }
+        SubmodulePathsRequest request;
+        request.paths = {info->path};
+        runWithFeedback([this, request] { session_->syncSubmodules(request); });
+    });
+
+    connect(deinitButton, &QPushButton::clicked, &dialog, [this, selectedInfo, &dialog] {
+        auto info = selectedInfo();
+        if (!info) {
+            return;
+        }
+        const auto confirmed =
+            QMessageBox::warning(&dialog,
+                                 QStringLiteral("Deinitialize submodule?"),
+                                 QStringLiteral("This removes the checked-out files for \"%1\" "
+                                                "(any local changes inside it are discarded). "
+                                                "\"%1\" stays listed in .gitmodules and can be "
+                                                "initialised again later.")
+                                     .arg(QString::fromStdString(info->path)),
+                                 QMessageBox::Yes | QMessageBox::Cancel,
+                                 QMessageBox::Cancel);
+        if (confirmed != QMessageBox::Yes) {
+            return;
+        }
+        DeinitSubmodulesRequest request;
+        request.paths = {info->path};
+        request.force = true;
+        runWithFeedback([this, request] { session_->deinitSubmodules(request); });
+    });
+
+    connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
+
+    dialog.resize(720, 360);
+    dialog.exec();
+}
+
+// --- M5: bisect ----------------------------------------------------------
+
+void MainWindow::onBisect() {
+    if (!session_) {
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("Bisect"));
+    auto* layout = new QVBoxLayout(&dialog);
+
+    // --- "not bisecting yet" form ---
+    auto* startForm = new QWidget(&dialog);
+    auto* startLayout = new QVBoxLayout(startForm);
+    startLayout->setContentsMargins(0, 0, 0, 0);
+    auto* badRow = new QHBoxLayout();
+    auto* badLabel = new QLabel(QStringLiteral("Bad commit:"), startForm);
+    auto* badEdit = new QLineEdit(QStringLiteral("HEAD"), startForm);
+    badEdit->setAccessibleName(QStringLiteral("Bad commit"));
+    badRow->addWidget(badLabel);
+    badRow->addWidget(badEdit, 1);
+    startLayout->addLayout(badRow);
+    auto* goodRow = new QHBoxLayout();
+    auto* goodLabel = new QLabel(QStringLiteral("Good commit:"), startForm);
+    auto* goodEdit = new QLineEdit(startForm);
+    goodEdit->setPlaceholderText(QStringLiteral("e.g. a tag, branch or commit known to work"));
+    goodEdit->setAccessibleName(QStringLiteral("Good commit"));
+    goodRow->addWidget(goodLabel);
+    goodRow->addWidget(goodEdit, 1);
+    startLayout->addLayout(goodRow);
+    auto* startButton = new QPushButton(QStringLiteral("Start bisect"), startForm);
+    startLayout->addWidget(startButton, 0, Qt::AlignRight);
+    layout->addWidget(startForm);
+
+    // --- "bisecting" status view ---
+    auto* statusWidget = new QWidget(&dialog);
+    auto* statusLayout = new QVBoxLayout(statusWidget);
+    statusLayout->setContentsMargins(0, 0, 0, 0);
+    auto* currentLabel = new QLabel(statusWidget);
+    currentLabel->setWordWrap(true);
+    statusLayout->addWidget(currentLabel);
+    auto* logText = new QPlainTextEdit(statusWidget);
+    logText->setReadOnly(true);
+    logText->setAccessibleName(QStringLiteral("Bisect log"));
+    statusLayout->addWidget(logText, 1);
+    auto* actionRow = new QHBoxLayout();
+    auto* goodButton = new QPushButton(QStringLiteral("Mark Good"), statusWidget);
+    auto* badButton = new QPushButton(QStringLiteral("Mark Bad"), statusWidget);
+    auto* skipButton = new QPushButton(QStringLiteral("Skip"), statusWidget);
+    auto* resetButton = new QPushButton(QStringLiteral("Reset (end bisect)"), statusWidget);
+    actionRow->addWidget(goodButton);
+    actionRow->addWidget(badButton);
+    actionRow->addWidget(skipButton);
+    actionRow->addStretch(1);
+    actionRow->addWidget(resetButton);
+    statusLayout->addLayout(actionRow);
+    layout->addWidget(statusWidget);
+
+    auto* closeButton = new QPushButton(QStringLiteral("Close"), &dialog);
+    layout->addWidget(closeButton, 0, Qt::AlignRight);
+    connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
+
+    auto reload = [this, startForm, statusWidget, currentLabel, logText] {
+        auto status = session_->bisectStatus();
+        const bool active = status && status->active;
+        startForm->setVisible(!active);
+        statusWidget->setVisible(active);
+        if (!active) {
+            return;
+        }
+        QString summary = QStringLiteral("Currently testing: %1")
+                              .arg(QString::fromStdString(status->currentOid).left(12));
+        if (!status->badOid.empty()) {
+            summary +=
+                QStringLiteral("\nBad: %1").arg(QString::fromStdString(status->badOid).left(12));
+        }
+        if (!status->goodOids.empty()) {
+            summary += QStringLiteral("\nGood: %1 commit(s) marked").arg(status->goodOids.size());
+        }
+        if (!status->skippedOids.empty()) {
+            summary += QStringLiteral("\nSkipped: %1 commit(s)").arg(status->skippedOids.size());
+        }
+        currentLabel->setText(summary);
+        logText->setPlainText(QString::fromStdString(status->logText));
+    };
+    connect(session_.get(), &RepositorySession::bisectStatusUpdated, &dialog, reload);
+    session_->refreshBisectStatus();
+    reload();
+
+    connect(startButton, &QPushButton::clicked, &dialog, [this, badEdit, goodEdit] {
+        BisectStartRequest request;
+        request.badRef = badEdit->text().toStdString();
+        if (!goodEdit->text().isEmpty()) {
+            request.goodRefs = {goodEdit->text().toStdString()};
+        }
+        runWithFeedback([this, request] { session_->startBisect(request); });
+    });
+    connect(goodButton, &QPushButton::clicked, &dialog, [this] {
+        BisectMarkRequest request;
+        request.good = true;
+        runWithFeedback([this, request] { session_->markBisect(request); });
+    });
+    connect(badButton, &QPushButton::clicked, &dialog, [this] {
+        BisectMarkRequest request;
+        request.good = false;
+        runWithFeedback([this, request] { session_->markBisect(request); });
+    });
+    connect(skipButton, &QPushButton::clicked, &dialog, [this] {
+        runWithFeedback([this] { session_->skipBisect(BisectSkipRequest{}); });
+    });
+    connect(resetButton, &QPushButton::clicked, &dialog, [this] {
+        runWithFeedback([this] { session_->resetBisect(BisectResetRequest{}); });
+    });
+
+    dialog.resize(560, 420);
+    dialog.exec();
+}
+
+// --- M5: LFS ---------------------------------------------------------------
+
+void MainWindow::onManageLfs() {
+    if (!session_) {
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("Manage LFS"));
+    auto* layout = new QVBoxLayout(&dialog);
+
+    auto* statusLabel = new QLabel(&dialog);
+    statusLabel->setWordWrap(true);
+    layout->addWidget(statusLabel);
+
+    auto* installButton =
+        new QPushButton(QStringLiteral("Set up LFS for this repository"), &dialog);
+    layout->addWidget(installButton);
+
+    auto* patternsGroup = new QWidget(&dialog);
+    auto* patternsLayout = new QVBoxLayout(patternsGroup);
+    patternsLayout->setContentsMargins(0, 0, 0, 0);
+    patternsLayout->addWidget(new QLabel(QStringLiteral("Tracked patterns:"), patternsGroup));
+    auto* patternsList = new QListWidget(patternsGroup);
+    patternsList->setAccessibleName(QStringLiteral("LFS tracked patterns"));
+    patternsList->setMaximumHeight(100);
+    patternsLayout->addWidget(patternsList);
+    auto* patternButtons = new QHBoxLayout();
+    auto* addPatternButton = new QPushButton(QStringLiteral("Track pattern…"), patternsGroup);
+    auto* removePatternButton = new QPushButton(QStringLiteral("Untrack"), patternsGroup);
+    patternButtons->addWidget(addPatternButton);
+    patternButtons->addWidget(removePatternButton);
+    patternButtons->addStretch(1);
+    patternsLayout->addLayout(patternButtons);
+    layout->addWidget(patternsGroup);
+
+    auto* filesTable = new QTableWidget(&dialog);
+    filesTable->setColumnCount(3);
+    filesTable->setHorizontalHeaderLabels(
+        {QStringLiteral("Path"), QStringLiteral("Object"), QStringLiteral("Local")});
+    filesTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+    filesTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    filesTable->verticalHeader()->setVisible(false);
+    filesTable->setAccessibleName(QStringLiteral("LFS files"));
+    layout->addWidget(filesTable, 1);
+
+    auto* transferRow = new QHBoxLayout();
+    auto* pullButton = new QPushButton(QStringLiteral("Pull"), &dialog);
+    auto* fetchButton = new QPushButton(QStringLiteral("Fetch"), &dialog);
+    auto* pruneButton = new QPushButton(QStringLiteral("Prune"), &dialog);
+    auto* closeButton = new QPushButton(QStringLiteral("Close"), &dialog);
+    transferRow->addWidget(pullButton);
+    transferRow->addWidget(fetchButton);
+    transferRow->addWidget(pruneButton);
+    transferRow->addStretch(1);
+    transferRow->addWidget(closeButton);
+    layout->addLayout(transferRow);
+    connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
+
+    auto reload = [this,
+                   statusLabel,
+                   installButton,
+                   patternsGroup,
+                   filesTable,
+                   pullButton,
+                   fetchButton,
+                   pruneButton,
+                   patternsList] {
+        auto installation = session_->lfsInstallation();
+        const bool available = installation && installation->available;
+        installButton->setVisible(available);
+        patternsGroup->setVisible(available);
+        filesTable->setVisible(available);
+        pullButton->setEnabled(available);
+        fetchButton->setEnabled(available);
+        pruneButton->setEnabled(available);
+
+        if (!installation) {
+            statusLabel->setText(QStringLiteral("Checking for Git LFS…"));
+            return;
+        }
+        if (!available) {
+            statusLabel->setText(
+                QStringLiteral("Git LFS is not installed. Install the git-lfs extension to "
+                               "track large files in this repository."));
+            return;
+        }
+        statusLabel->setText(
+            QStringLiteral("Git LFS is available (%1).")
+                .arg(QString::fromStdString(installation->version).split(QChar(' ')).value(0)));
+
+        patternsList->clear();
+        if (auto patterns = session_->lfsTrackedPatterns()) {
+            for (const std::string& pattern : *patterns) {
+                patternsList->addItem(QString::fromStdString(pattern));
+            }
+        }
+
+        filesTable->setRowCount(0);
+        if (auto files = session_->lfsFiles()) {
+            filesTable->setRowCount(static_cast<int>(files->size()));
+            for (int row = 0; row < static_cast<int>(files->size()); ++row) {
+                const LfsFileInfo& info = (*files)[static_cast<std::size_t>(row)];
+                filesTable->setItem(
+                    row, 0, new QTableWidgetItem(QString::fromStdString(info.path)));
+                filesTable->setItem(
+                    row, 1, new QTableWidgetItem(QString::fromStdString(info.oid).left(10)));
+                filesTable->setItem(
+                    row,
+                    2,
+                    new QTableWidgetItem(info.downloadedLocally ? QStringLiteral("yes")
+                                                                : QStringLiteral("no")));
+            }
+        }
+    };
+    connect(session_.get(), &RepositorySession::lfsUpdated, &dialog, reload);
+    session_->refreshLfs();
+    reload();
+
+    connect(installButton, &QPushButton::clicked, &dialog, [this] {
+        runWithFeedback([this] { session_->installLfs(); });
+    });
+
+    connect(addPatternButton, &QPushButton::clicked, &dialog, [this, &dialog] {
+        bool ok = false;
+        const QString pattern = QInputDialog::getText(&dialog,
+                                                      QStringLiteral("Track pattern"),
+                                                      QStringLiteral("Pattern (e.g. *.psd):"),
+                                                      QLineEdit::Normal,
+                                                      QString(),
+                                                      &ok);
+        if (!ok || pattern.isEmpty()) {
+            return;
+        }
+        LfsTrackRequest request;
+        request.pattern = pattern.toStdString();
+        runWithFeedback([this, request] { session_->trackLfsPattern(request); });
+    });
+
+    connect(removePatternButton, &QPushButton::clicked, &dialog, [this, patternsList] {
+        const auto items = patternsList->selectedItems();
+        if (items.isEmpty()) {
+            return;
+        }
+        LfsUntrackRequest request;
+        request.pattern = items.first()->text().toStdString();
+        runWithFeedback([this, request] { session_->untrackLfsPattern(request); });
+    });
+
+    connect(pullButton, &QPushButton::clicked, &dialog, [this] {
+        runWithFeedback([this] { session_->pullLfs(LfsTransferRequest{}); });
+    });
+    connect(fetchButton, &QPushButton::clicked, &dialog, [this] {
+        runWithFeedback([this] { session_->fetchLfs(LfsTransferRequest{}); });
+    });
+    connect(pruneButton, &QPushButton::clicked, &dialog, [this] {
+        runWithFeedback([this] { session_->pruneLfs(LfsPruneRequest{}); });
+    });
+
+    dialog.resize(640, 480);
+    dialog.exec();
+}
+
+// --- M5: patch import/export -------------------------------------------------
+
+void MainWindow::onExportPatches() {
+    if (!session_) {
+        return;
+    }
+    const QModelIndexList selected = commitView_->selectionModel()->selectedRows();
+    if (selected.isEmpty()) {
+        return;
+    }
+
+    // Newest-first selection, oldest-first output -- same convention as
+    // onCherryPickRequested, and the same reason: `format-patch --start-number`
+    // must see the commits in the order they were made.
+    std::vector<int> rows;
+    rows.reserve(static_cast<std::size_t>(selected.size()));
+    for (const QModelIndex& index : selected) {
+        rows.push_back(index.row());
+    }
+    std::sort(rows.begin(), rows.end(), std::greater<>());
+
+    std::vector<ObjectId> commits;
+    commits.reserve(rows.size());
+    for (int row : rows) {
+        commits.push_back(commitModel_->oidAt(row));
+    }
+
+    const QString dir =
+        QFileDialog::getExistingDirectory(this, QStringLiteral("Choose a folder for the patches"));
+    if (dir.isEmpty()) {
+        return;
+    }
+
+    ExportPatchesRequest request;
+    request.commits = commits;
+    request.outputDir = std::filesystem::path(dir.toStdString());
+    runWithFeedback([this, request] { session_->exportPatches(request); });
+}
+
+void MainWindow::onApplyPatchFile() {
+    if (!session_) {
+        return;
+    }
+    const QStringList files =
+        QFileDialog::getOpenFileNames(this,
+                                      QStringLiteral("Apply patch"),
+                                      QString(),
+                                      QStringLiteral("Patches (*.patch *.diff);;All files (*)"));
+    if (files.isEmpty()) {
+        return;
+    }
+
+    ApplyPatchFilesRequest request;
+    for (const QString& file : files) {
+        request.patchFiles.push_back(std::filesystem::path(file.toStdString()));
+    }
+    // Staged, not just written to the work tree: applying a patch from the
+    // menu is a deliberate "bring this change in" action, so it is left ready
+    // to review and commit rather than as an extra unstaged-diff step.
+    request.updateIndex = true;
+    runWithFeedback([this, request] { session_->applyPatchFiles(request); });
+}
+
+void MainWindow::onImportPatches() {
+    if (!session_) {
+        return;
+    }
+    const QStringList files = QFileDialog::getOpenFileNames(
+        this,
+        QStringLiteral("Import patches (git am)"),
+        QString(),
+        QStringLiteral("Patches (*.patch *.eml *.mbox);;All files (*)"));
+    if (files.isEmpty()) {
+        return;
+    }
+
+    ImportPatchesRequest request;
+    for (const QString& file : files) {
+        request.patchFiles.push_back(std::filesystem::path(file.toStdString()));
+    }
+    request.threeWay = true;
+
+    // A conflicted patch leaves `git am` mid-sequence (see PatchOps.h on why
+    // this needs its own Continue/Skip/Abort rather than the shared banner,
+    // which would call `git rebase --continue` and be refused outright). This
+    // recurses on itself via a shared_ptr so each subsequent patch in the
+    // series -- which can conflict again -- gets the same recovery prompt.
+    auto handleOutcome = std::make_shared<std::function<void(const OperationOutcome&)>>();
+    *handleOutcome = [this, handleOutcome](const OperationOutcome& outcome) {
+        if (outcome.succeeded) {
+            statusLabel_->setText(QString::fromStdString(outcome.summary));
+            return;
+        }
+        if (!session_ || !RepoState::read(session_->paths()).isSequencerOperation()) {
+            if (outcome.error) {
+                showError(QString::fromStdString(outcome.summary), *outcome.error);
+            }
+            return;
+        }
+
+        QMessageBox box(this);
+        box.setIcon(QMessageBox::Warning);
+        box.setText(
+            QStringLiteral("A patch did not apply cleanly. Resolve the conflict in the "
+                           "working copy (stage the result), then Continue -- or Skip "
+                           "this patch, or Abort the import."));
+        if (outcome.error) {
+            box.setDetailedText(QString::fromStdString(outcome.error->detail));
+        }
+        QPushButton* continueButton =
+            box.addButton(QStringLiteral("Continue"), QMessageBox::AcceptRole);
+        QPushButton* skipButton = box.addButton(QStringLiteral("Skip"), QMessageBox::ActionRole);
+        QPushButton* abortButton = box.addButton(QStringLiteral("Abort"), QMessageBox::RejectRole);
+        box.addButton(QStringLiteral("Later"), QMessageBox::DestructiveRole);
+        box.exec();
+
+        QAbstractButton* clicked = box.clickedButton();
+        if (clicked != continueButton && clicked != skipButton && clicked != abortButton) {
+            return;
+        }
+
+        auto connection = std::make_shared<QMetaObject::Connection>();
+        *connection = connect(session_.get(),
+                              &RepositorySession::workingCopyOperationFinished,
+                              this,
+                              [connection, handleOutcome](const OperationOutcome& next) {
+                                  QObject::disconnect(*connection);
+                                  (*handleOutcome)(next);
+                              });
+        if (clicked == continueButton) {
+            session_->continueImport();
+        } else if (clicked == skipButton) {
+            session_->skipImport();
+        } else {
+            session_->abortImport();
+        }
+    };
+
+    auto connection = std::make_shared<QMetaObject::Connection>();
+    *connection = connect(session_.get(),
+                          &RepositorySession::workingCopyOperationFinished,
+                          this,
+                          [connection, handleOutcome](const OperationOutcome& outcome) {
+                              QObject::disconnect(*connection);
+                              (*handleOutcome)(outcome);
+                          });
+    session_->importPatches(request);
 }
 
 }  // namespace gbm

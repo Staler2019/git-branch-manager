@@ -31,6 +31,9 @@ RepositorySession::RepositorySession(GitInstallation installation,
     blameStore_ = std::make_unique<BlameStore>(*runner_, paths_);
     fileHistoryStore_ = std::make_unique<FileHistoryStore>(*runner_, paths_);
     reflogStore_ = std::make_unique<ReflogStore>(*runner_, paths_);
+    submoduleStore_ = std::make_unique<SubmoduleStore>(*runner_, paths_);
+    bisectStore_ = std::make_unique<BisectStore>(*runner_, paths_);
+    lfsStore_ = std::make_unique<LfsStore>(*runner_, paths_);
 
     askpass_ = new AskpassWatcher(this);
     connect(
@@ -840,6 +843,272 @@ void RepositorySession::undoLastOperation() {
     request.headBefore = last.headBefore;
     request.branchBefore = last.branchBefore;
     submitWorkingCopyOperation(makeUndoOperation(request), true);
+}
+
+// --- M5: submodules ----------------------------------------------------------
+
+void RepositorySession::refreshSubmodules() {
+    const CancellationToken token = readCancel_.token();
+    setBusy(true);
+
+    readPool_.post([this, token] {
+        auto list = submoduleStore_->list(token);
+        if (list) {
+            submodules_.publish(std::make_shared<std::vector<SubmoduleInfo>>(std::move(*list)));
+            QMetaObject::invokeMethod(
+                this, [this] { emit submodulesUpdated(); }, Qt::QueuedConnection);
+        } else if (list.error().code != GitError::Code::Cancelled) {
+            GitError error = std::move(list).error();
+            QMetaObject::invokeMethod(
+                this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
+        }
+        QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+    });
+}
+
+void RepositorySession::addSubmodule(const AddSubmoduleRequest& request) {
+    AddSubmoduleRequest wired = request;
+    wired.askpassDir = askpass::makeRequestDir();
+    if (!wired.askpassDir.empty()) {
+        askpass_->start(wired.askpassDir);
+    }
+    submitAndRefresh(makeAddSubmoduleOperation(wired), [this](bool succeeded) {
+        askpass_->stop();
+        if (succeeded) {
+            refreshSubmodules();
+        }
+    });
+}
+
+void RepositorySession::initSubmodules(const SubmodulePathsRequest& request) {
+    submitAndRefresh(makeInitSubmodulesOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshSubmodules();
+        }
+    });
+}
+
+void RepositorySession::updateSubmodules(const UpdateSubmodulesRequest& request) {
+    UpdateSubmodulesRequest wired = request;
+    wired.askpassDir = askpass::makeRequestDir();
+    if (!wired.askpassDir.empty()) {
+        askpass_->start(wired.askpassDir);
+    }
+    submitAndRefresh(makeUpdateSubmodulesOperation(wired), [this](bool succeeded) {
+        askpass_->stop();
+        if (succeeded) {
+            refreshSubmodules();
+        }
+    });
+}
+
+void RepositorySession::syncSubmodules(const SubmodulePathsRequest& request) {
+    submitAndRefresh(makeSyncSubmodulesOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshSubmodules();
+        }
+    });
+}
+
+void RepositorySession::deinitSubmodules(const DeinitSubmodulesRequest& request) {
+    submitAndRefresh(makeDeinitSubmodulesOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshSubmodules();
+        }
+    });
+}
+
+// --- M5: bisect ----------------------------------------------------------
+
+void RepositorySession::refreshBisectStatus() {
+    const CancellationToken token = readCancel_.token();
+    setBusy(true);
+
+    readPool_.post([this, token] {
+        auto status = bisectStore_->status(token);
+        if (status) {
+            bisectStatus_.publish(std::make_shared<BisectStatus>(std::move(*status)));
+            QMetaObject::invokeMethod(
+                this, [this] { emit bisectStatusUpdated(); }, Qt::QueuedConnection);
+        } else if (status.error().code != GitError::Code::Cancelled) {
+            GitError error = std::move(status).error();
+            QMetaObject::invokeMethod(
+                this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
+        }
+        QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+    });
+}
+
+void RepositorySession::startBisect(const BisectStartRequest& request) {
+    submitAndRefresh(makeBisectStartOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshBisectStatus();
+        }
+    });
+}
+
+void RepositorySession::markBisect(const BisectMarkRequest& request) {
+    submitAndRefresh(makeBisectMarkOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshBisectStatus();
+        }
+    });
+}
+
+void RepositorySession::skipBisect(const BisectSkipRequest& request) {
+    submitAndRefresh(makeBisectSkipOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshBisectStatus();
+        }
+    });
+}
+
+void RepositorySession::resetBisect(const BisectResetRequest& request) {
+    submitAndRefresh(makeBisectResetOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshBisectStatus();
+        }
+    });
+}
+
+// --- M5: LFS ---------------------------------------------------------------
+
+void RepositorySession::refreshLfs() {
+    const CancellationToken token = readCancel_.token();
+    setBusy(true);
+
+    readPool_.post([this, token] {
+        auto installation = detectLfs(*runner_, paths_, token);
+        if (!installation) {
+            if (installation.error().code != GitError::Code::Cancelled) {
+                GitError error = std::move(installation).error();
+                QMetaObject::invokeMethod(
+                    this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
+            }
+            QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+            return;
+        }
+
+        const bool available = installation->available;
+        LfsInstallation installationValue = *installation;
+        QMetaObject::invokeMethod(
+            this,
+            [this, installationValue] { lfsInstallation_ = installationValue; },
+            Qt::QueuedConnection);
+
+        if (!available) {
+            QMetaObject::invokeMethod(
+                this,
+                [this] {
+                    emit lfsUpdated();
+                    setBusy(false);
+                },
+                Qt::QueuedConnection);
+            return;
+        }
+
+        auto patterns = lfsStore_->trackedPatterns(token);
+        if (patterns) {
+            lfsPatterns_.publish(std::make_shared<std::vector<std::string>>(std::move(*patterns)));
+        }
+        auto files = lfsStore_->listFiles(token);
+        if (files) {
+            lfsFiles_.publish(std::make_shared<std::vector<LfsFileInfo>>(std::move(*files)));
+        }
+        QMetaObject::invokeMethod(
+            this,
+            [this] {
+                emit lfsUpdated();
+                setBusy(false);
+            },
+            Qt::QueuedConnection);
+    });
+}
+
+void RepositorySession::installLfs() {
+    submitAndRefresh(makeLfsInstallOperation(), [this](bool succeeded) {
+        if (succeeded) {
+            refreshLfs();
+        }
+    });
+}
+
+void RepositorySession::trackLfsPattern(const LfsTrackRequest& request) {
+    submitAndRefresh(makeLfsTrackOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshLfs();
+        }
+    });
+}
+
+void RepositorySession::untrackLfsPattern(const LfsUntrackRequest& request) {
+    submitAndRefresh(makeLfsUntrackOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshLfs();
+        }
+    });
+}
+
+void RepositorySession::pullLfs(const LfsTransferRequest& request) {
+    LfsTransferRequest wired = request;
+    wired.askpassDir = askpass::makeRequestDir();
+    if (!wired.askpassDir.empty()) {
+        askpass_->start(wired.askpassDir);
+    }
+    submitAndRefresh(makeLfsPullOperation(wired), [this](bool succeeded) {
+        askpass_->stop();
+        if (succeeded) {
+            refreshLfs();
+        }
+    });
+}
+
+void RepositorySession::fetchLfs(const LfsTransferRequest& request) {
+    LfsTransferRequest wired = request;
+    wired.askpassDir = askpass::makeRequestDir();
+    if (!wired.askpassDir.empty()) {
+        askpass_->start(wired.askpassDir);
+    }
+    submitAndRefresh(makeLfsFetchOperation(wired), [this](bool succeeded) {
+        askpass_->stop();
+        if (succeeded) {
+            refreshLfs();
+        }
+    });
+}
+
+void RepositorySession::pruneLfs(const LfsPruneRequest& request) {
+    submitAndRefresh(makeLfsPruneOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshLfs();
+        }
+    });
+}
+
+// --- M5: patch import/export ------------------------------------------------
+
+void RepositorySession::exportPatches(const ExportPatchesRequest& request) {
+    submitAndRefresh(makeExportPatchesOperation(request), nullptr);
+}
+
+void RepositorySession::applyPatchFiles(const ApplyPatchFilesRequest& request) {
+    submitWorkingCopyOperation(makeApplyPatchFilesOperation(request), false);
+}
+
+void RepositorySession::importPatches(const ImportPatchesRequest& request) {
+    submitWorkingCopyOperation(makeImportPatchesOperation(request), true);
+}
+
+void RepositorySession::continueImport() {
+    submitWorkingCopyOperation(makeAmContinueOperation(), true);
+}
+
+void RepositorySession::skipImport() {
+    submitWorkingCopyOperation(makeAmSkipOperation(), true);
+}
+
+void RepositorySession::abortImport() {
+    submitWorkingCopyOperation(makeAmAbortOperation(), true);
 }
 
 }  // namespace gbm

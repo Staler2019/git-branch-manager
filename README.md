@@ -7,13 +7,13 @@ decade of history** — hundreds of thousands of commits, tens of thousands of f
 and often thousands of stale refs. It manages many such repositories at once,
 discovered under folders you nominate.
 
-> **Status: M0–M4 implemented.** History browsing, the Fork-style graph,
+> **Status: M0–M5 implemented.** History browsing, the Fork-style graph,
 > repository discovery with caching, diff viewing, branch switching, the working
 > copy, merge/cherry-pick/conflict resolution, worktrees/stash/tags/fetch/
 > pull/push, interactive rebase, reset/restore/clean, blame, file and line
-> history, and the reflog/undo journal all work end to end on all three
-> platforms. Submodules, bisect and the rest are designed for but not yet
-> implemented — see [Roadmap](#roadmap).
+> history, the reflog/undo journal, submodules, bisect, LFS, patch import/
+> export, light/dark/system themes and accessible names on the core views all
+> work end to end on all three platforms — see [Roadmap](#roadmap).
 
 ## What works today
 
@@ -51,6 +51,24 @@ discovered under folders you nominate.
 - **Reflog browser and undo**: every `HEAD` movement, and a one-click "Undo
   last operation" backed by the operation runner's own undo journal rather
   than a reflog guess.
+- **Submodules**: status (not-initialized / up-to-date / modified /
+  conflicted) read from `.gitmodules` plus `git submodule status`; add, init,
+  update, sync and deinit.
+- **Bisect**: start with a bad/good range (or neither, marking as you go),
+  good/bad/skip stepping with the next candidate and concluding message
+  surfaced directly, and reset.
+- **Git LFS**: detected rather than assumed; track/untrack patterns, see
+  which files are pointers vs. downloaded, and pull/fetch/prune.
+- **Patch import/export**: `format-patch` an arbitrary commit selection to a
+  folder, `apply` a plain diff to the work tree, and `am` a patch series into
+  commits with its own Continue/Skip/Abort recovery — deliberately not the
+  shared rebase banner, since `git rebase --continue` refuses outright during
+  an `am` session even though the two share an on-disk state directory.
+- **Light/dark/system themes**, persisted and switchable from View > Theme.
+- **Accessible names** on the repository list, commit history, ref tree,
+  changed-files list, diff panes, working-copy lists and the credential
+  prompt, so a screen reader has more than a generic control type to
+  announce.
 
 ## Measured behaviour
 
@@ -228,7 +246,7 @@ git config core.untrackedCache true
 | **M2 — done** | Merge (ff / no-ff / squash), cherry-pick single, multi and range with preview, conflict resolution across all three index stages, side-by-side diff |
 | **M3 — done** | Worktree manager, stash, tags, fetch/pull/push with askpass helpers and `--force-with-lease` by default, signed installers |
 | **M4 — done** | Interactive rebase, reset/restore/clean, blame, file and line history, reflog browser and undo |
-| M5 | Submodules, bisect, LFS, patch import/export, themes, accessibility |
+| **M5 — done** | Submodules, bisect, LFS, patch import/export, themes, accessibility |
 
 ## Licence
 

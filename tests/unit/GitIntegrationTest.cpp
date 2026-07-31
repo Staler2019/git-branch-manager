@@ -18,17 +18,21 @@
 #include "core/git/ReflogStore.h"
 #include "core/git/RepoState.h"
 #include "core/git/WorkingCopyStatus.h"
+#include "core/git/ops/BisectOps.h"
 #include "core/git/ops/BranchOps.h"
 #include "core/git/ops/CheckoutOp.h"
 #include "core/git/ops/CherryPickOps.h"
 #include "core/git/ops/CommitOps.h"
 #include "core/git/ops/ConflictOps.h"
+#include "core/git/ops/LfsOps.h"
 #include "core/git/ops/MergeOps.h"
+#include "core/git/ops/PatchOps.h"
 #include "core/git/ops/RebaseOps.h"
 #include "core/git/ops/RemoteOps.h"
 #include "core/git/ops/ResetOps.h"
 #include "core/git/ops/StageOps.h"
 #include "core/git/ops/StashOps.h"
+#include "core/git/ops/SubmoduleOps.h"
 #include "core/git/ops/TagOps.h"
 #include "core/git/ops/UndoOps.h"
 #include "core/git/ops/WorktreeOps.h"
@@ -72,11 +76,27 @@ protected:
         ASSERT_TRUE(run({"config", "user.email", "test@example.invalid"}));
         ASSERT_TRUE(run({"config", "user.name", "Test"}));
         ASSERT_TRUE(run({"config", "commit.gpgsign", "false"}));
+        // Git refuses a submodule's recursive clone over the plain `file`
+        // transport by default since CVE-2022-39253, and deliberately will not
+        // honour a repo-local config override for it -- otherwise a malicious
+        // repository could just grant itself the permission. The M5 submodule
+        // tests below use a sibling directory as the submodule URL, so this is
+        // relaxed process-wide for the test binary, the same way git's own test
+        // suite does it (GIT_ALLOW_PROTOCOL) rather than by touching global git
+        // config. The app itself never sets this.
+#ifdef _WIN32
+        _putenv_s("GIT_ALLOW_PROTOCOL", "file:git:http:https:ssh");
+#else
+        setenv("GIT_ALLOW_PROTOCOL", "file:git:http:https:ssh", 1);
+#endif
     }
 
     void TearDown() override {
         std::error_code ec;
         std::filesystem::remove_all(repo_, ec);
+        for (const auto& extra : extraDirs_) {
+            std::filesystem::remove_all(extra, ec);
+        }
     }
 
     GitResult<ProcessResult> run(std::vector<std::string> args) {
@@ -137,10 +157,38 @@ protected:
         return oids;
     }
 
+    /// A second, independent repository with one commit, for tests that add it
+    /// as a submodule of `repo_`. A plain filesystem path is a valid submodule
+    /// URL, so no server or `file://` scheme is needed.
+    std::filesystem::path makeSourceRepo(const std::string& suffix) {
+        const std::filesystem::path source = repo_.string() + suffix;
+        std::filesystem::remove_all(source);
+        std::filesystem::create_directories(source);
+
+        GitCommand init(source, {"init", "--quiet", "--initial-branch=main"});
+        init.timeout = std::chrono::seconds(30);
+        EXPECT_TRUE(runner_->run(init, CancellationToken{}));
+        GitCommand email(source, {"config", "user.email", "test@example.invalid"});
+        EXPECT_TRUE(runner_->run(email, CancellationToken{}));
+        GitCommand name(source, {"config", "user.name", "Test"});
+        EXPECT_TRUE(runner_->run(name, CancellationToken{}));
+
+        std::ofstream out(source / "readme.txt");
+        out << "source\n";
+        out.close();
+        GitCommand add(source, {"add", "readme.txt"});
+        EXPECT_TRUE(runner_->run(add, CancellationToken{}));
+        GitCommand commit(source, {"commit", "--quiet", "-m", "initial"});
+        EXPECT_TRUE(runner_->run(commit, CancellationToken{}));
+        extraDirs_.push_back(source);
+        return source;
+    }
+
     static GitInstallation installation_;
     std::filesystem::path repo_;
     std::unique_ptr<IProcessRunner> runner_;
     RepoPaths paths_;
+    std::vector<std::filesystem::path> extraDirs_;
 };
 
 GitInstallation RealRepoTest::installation_;
@@ -2252,6 +2300,494 @@ TEST_F(RealRepoTest, UndoRefusesAfterSwitchingToADifferentBranch) {
     EXPECT_FALSE(outcome.succeeded);
     ASSERT_TRUE(outcome.error.has_value());
     EXPECT_EQ(outcome.error->code, GitError::Code::InvalidArgument);
+}
+
+// --- M5: submodules ------------------------------------------------------
+
+TEST_F(RealRepoTest, AddingASubmoduleClonesItAndListsItUpToDate) {
+    commitFile("a.txt", "1\n", "c1");
+    const std::filesystem::path source = makeSourceRepo("-sub-add");
+
+    OperationRunner operations(*runner_, paths_);
+    AddSubmoduleRequest request;
+    request.url = source.string();
+    request.path = "vendor/sub";
+    auto outcome = submitAndWait(operations, makeAddSubmoduleOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    EXPECT_TRUE(std::filesystem::exists(repo_ / "vendor" / "sub" / "readme.txt"));
+    EXPECT_TRUE(std::filesystem::exists(repo_ / ".gitmodules"));
+
+    SubmoduleStore store(*runner_, paths_);
+    auto list = store.list(CancellationToken{});
+    ASSERT_TRUE(list) << list.error().message;
+    ASSERT_EQ(list->size(), 1u);
+    EXPECT_EQ((*list)[0].path, "vendor/sub");
+    EXPECT_EQ((*list)[0].url, source.string());
+    EXPECT_EQ((*list)[0].state, SubmoduleInfo::State::UpToDate);
+    EXPECT_FALSE((*list)[0].headOid.empty());
+}
+
+TEST_F(RealRepoTest, DeinitLeavesTheSubmoduleNotInitialized) {
+    commitFile("a.txt", "1\n", "c1");
+    const std::filesystem::path source = makeSourceRepo("-sub-deinit");
+
+    OperationRunner operations(*runner_, paths_);
+    AddSubmoduleRequest add;
+    add.url = source.string();
+    add.path = "sub";
+    ASSERT_TRUE(submitAndWait(operations, makeAddSubmoduleOperation(add)).succeeded);
+
+    DeinitSubmodulesRequest deinit;
+    deinit.paths = {"sub"};
+    deinit.force = true;
+    auto outcome = submitAndWait(operations, makeDeinitSubmodulesOperation(deinit));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    EXPECT_FALSE(std::filesystem::exists(repo_ / "sub" / "readme.txt"))
+        << "deinit must empty the submodule's work tree";
+
+    SubmoduleStore store(*runner_, paths_);
+    auto list = store.list(CancellationToken{});
+    ASSERT_TRUE(list) << list.error().message;
+    ASSERT_EQ(list->size(), 1u);
+    EXPECT_EQ((*list)[0].state, SubmoduleInfo::State::NotInitialized);
+}
+
+TEST_F(RealRepoTest, InitAndUpdateBringABackADeinitializedSubmodule) {
+    commitFile("a.txt", "1\n", "c1");
+    const std::filesystem::path source = makeSourceRepo("-sub-reinit");
+
+    OperationRunner operations(*runner_, paths_);
+    AddSubmoduleRequest add;
+    add.url = source.string();
+    add.path = "sub";
+    ASSERT_TRUE(submitAndWait(operations, makeAddSubmoduleOperation(add)).succeeded);
+
+    DeinitSubmodulesRequest deinit;
+    deinit.paths = {"sub"};
+    deinit.force = true;
+    ASSERT_TRUE(submitAndWait(operations, makeDeinitSubmodulesOperation(deinit)).succeeded);
+
+    SubmodulePathsRequest init;
+    init.paths = {"sub"};
+    ASSERT_TRUE(submitAndWait(operations, makeInitSubmodulesOperation(init)).succeeded);
+
+    UpdateSubmodulesRequest update;
+    update.paths = {"sub"};
+    auto outcome = submitAndWait(operations, makeUpdateSubmodulesOperation(update));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    EXPECT_TRUE(std::filesystem::exists(repo_ / "sub" / "readme.txt"));
+
+    SubmoduleStore store(*runner_, paths_);
+    auto list = store.list(CancellationToken{});
+    ASSERT_TRUE(list) << list.error().message;
+    ASSERT_EQ(list->size(), 1u);
+    EXPECT_EQ((*list)[0].state, SubmoduleInfo::State::UpToDate);
+}
+
+TEST_F(RealRepoTest, SyncSubmodulesRewritesTheLocalUrlFromGitmodules) {
+    commitFile("a.txt", "1\n", "c1");
+    const std::filesystem::path source = makeSourceRepo("-sub-sync");
+
+    OperationRunner operations(*runner_, paths_);
+    AddSubmoduleRequest add;
+    add.url = source.string();
+    add.path = "sub";
+    ASSERT_TRUE(submitAndWait(operations, makeAddSubmoduleOperation(add)).succeeded);
+
+    const std::string newUrl = source.string() + "-renamed";
+    ASSERT_TRUE(run({"config", "--file", ".gitmodules", "submodule.sub.url", newUrl}));
+
+    SubmodulePathsRequest sync;
+    sync.paths = {"sub"};
+    auto outcome = submitAndWait(operations, makeSyncSubmodulesOperation(sync));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    auto configured = run({"config", "submodule.sub.url"});
+    ASSERT_TRUE(configured);
+    EXPECT_EQ(configured->out, newUrl);
+}
+
+// --- M5: bisect ------------------------------------------------------------
+
+TEST_F(RealRepoTest, BisectFindsTheFirstBadCommitByGoodBadStepping) {
+    commitFile("a.txt", "1\n", "c1");  // good
+    commitFile("a.txt", "2\n", "c2");  // good
+    commitFile("a.txt", "3\n", "c3");  // first bad
+    commitFile("a.txt", "4\n", "c4");  // also bad
+    auto badHead = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(badHead);
+    auto goodBase = run({"rev-parse", "HEAD~3"});
+    ASSERT_TRUE(goodBase);
+    auto expectedFirstBad = run({"rev-parse", "HEAD~1"});
+    ASSERT_TRUE(expectedFirstBad);
+
+    OperationRunner operations(*runner_, paths_);
+    BisectStartRequest start;
+    start.badRef = badHead->out;
+    start.goodRefs = {goodBase->out};
+    auto startOutcome = submitAndWait(operations, makeBisectStartOperation(start));
+    ASSERT_TRUE(startOutcome.succeeded) << (startOutcome.error ? startOutcome.error->detail : "");
+
+    BisectStore store(*runner_, paths_);
+    {
+        auto initial = store.status(CancellationToken{});
+        ASSERT_TRUE(initial) << initial.error().message;
+        EXPECT_TRUE(initial->active);
+        EXPECT_EQ(initial->badOid, badHead->out);
+        ASSERT_EQ(initial->goodOids.size(), 1u);
+        EXPECT_EQ(initial->goodOids[0], goodBase->out);
+    }
+
+    // Neither the stdout message nor the log marker for "found it" turned out
+    // to be a fixed string: older git prints "is the first bad commit" and
+    // logs "# first bad commit: [", but git 2.55 quotes the (customizable)
+    // term -- "is the first 'bad' commit" / "# first 'bad' commit: [" --
+    // confirmed by capturing the raw log from a CI failure on git 2.55, which
+    // otherwise looked like it never converged. `# first ` followed somewhere
+    // on the same line by ` commit: [` holds across both.
+    auto bisectConcluded = [](std::string_view log) {
+        std::size_t lineStart = 0;
+        while (lineStart <= log.size()) {
+            const std::size_t at = log.find('\n', lineStart);
+            const std::string_view line(
+                log.data() + lineStart,
+                (at == std::string_view::npos ? log.size() : at) - lineStart);
+            if (line.starts_with("# first ") && line.find(" commit: [") != std::string_view::npos) {
+                return true;
+            }
+            if (at == std::string_view::npos) {
+                break;
+            }
+            lineStart = at + 1;
+        }
+        return false;
+    };
+
+    bool concluded = false;
+    for (int i = 0; i < 10 && !concluded; ++i) {
+        auto current = store.status(CancellationToken{});
+        ASSERT_TRUE(current) << current.error().message;
+        ASSERT_TRUE(current->active);
+        auto subject = run({"log", "-1", "--format=%s", current->currentOid});
+        ASSERT_TRUE(subject);
+        const int commitNumber = std::stoi(subject->out.substr(1));
+
+        BisectMarkRequest mark;
+        mark.good = commitNumber < 3;
+        auto markOutcome = submitAndWait(operations, makeBisectMarkOperation(mark));
+        ASSERT_TRUE(markOutcome.succeeded) << (markOutcome.error ? markOutcome.error->detail : "");
+
+        auto afterMark = store.status(CancellationToken{});
+        ASSERT_TRUE(afterMark) << afterMark.error().message;
+        concluded = bisectConcluded(afterMark->logText);
+    }
+    ASSERT_TRUE(concluded) << "bisect did not conclude within 10 steps";
+
+    auto finalStatus = store.status(CancellationToken{});
+    ASSERT_TRUE(finalStatus) << finalStatus.error().message;
+    EXPECT_EQ(finalStatus->badOid, expectedFirstBad->out);
+
+    BisectResetRequest reset;
+    auto resetOutcome = submitAndWait(operations, makeBisectResetOperation(reset));
+    ASSERT_TRUE(resetOutcome.succeeded) << (resetOutcome.error ? resetOutcome.error->detail : "");
+
+    auto afterReset = store.status(CancellationToken{});
+    ASSERT_TRUE(afterReset) << afterReset.error().message;
+    EXPECT_FALSE(afterReset->active);
+
+    auto head = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(head);
+    EXPECT_EQ(head->out, badHead->out) << "reset must return to the branch bisect started from";
+}
+
+TEST_F(RealRepoTest, BisectSkipMovesPastAnUntestableCommit) {
+    // Four commits leave two real candidates (c2, c3) between good and bad, so
+    // skipping the first still leaves a next one to test rather than
+    // exhausting the search outright (which exits non-zero -- a different,
+    // legitimate outcome covered by BisectFindsTheFirstBadCommitByGoodBadStepping's
+    // "only skip'ped commits left" case is deliberately not this test).
+    commitFile("a.txt", "1\n", "c1");
+    commitFile("a.txt", "2\n", "c2");
+    commitFile("a.txt", "3\n", "c3");
+    commitFile("a.txt", "4\n", "c4");
+    auto badHead = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(badHead);
+    auto goodBase = run({"rev-parse", "HEAD~3"});
+    ASSERT_TRUE(goodBase);
+    auto middle = run({"rev-parse", "HEAD~1"});
+    ASSERT_TRUE(middle);
+
+    OperationRunner operations(*runner_, paths_);
+    BisectStartRequest start;
+    start.badRef = badHead->out;
+    start.goodRefs = {goodBase->out};
+    ASSERT_TRUE(submitAndWait(operations, makeBisectStartOperation(start)).succeeded);
+
+    BisectStore store(*runner_, paths_);
+    auto beforeSkip = store.status(CancellationToken{});
+    ASSERT_TRUE(beforeSkip) << beforeSkip.error().message;
+    EXPECT_EQ(beforeSkip->currentOid, middle->out);
+
+    BisectSkipRequest skip;
+    auto skipOutcome = submitAndWait(operations, makeBisectSkipOperation(skip));
+    ASSERT_TRUE(skipOutcome.succeeded) << (skipOutcome.error ? skipOutcome.error->detail : "");
+
+    auto afterSkip = store.status(CancellationToken{});
+    ASSERT_TRUE(afterSkip) << afterSkip.error().message;
+    ASSERT_EQ(afterSkip->skippedOids.size(), 1u);
+    EXPECT_EQ(afterSkip->skippedOids[0], middle->out);
+
+    BisectResetRequest reset;
+    ASSERT_TRUE(submitAndWait(operations, makeBisectResetOperation(reset)).succeeded);
+}
+
+// --- M5: LFS -----------------------------------------------------------------
+
+TEST_F(RealRepoTest, DetectsWhetherGitLfsIsInstalled) {
+    auto detected = detectLfs(*runner_, paths_, CancellationToken{});
+    ASSERT_TRUE(detected) << detected.error().message;
+    // Whichever way it goes, detection itself must not fail -- see LfsOps.h.
+    SUCCEED();
+}
+
+TEST_F(RealRepoTest, TrackingAPatternRecordsItInGitattributesAndIsListed) {
+    auto detected = detectLfs(*runner_, paths_, CancellationToken{});
+    ASSERT_TRUE(detected) << detected.error().message;
+    if (!detected->available) {
+        GTEST_SKIP() << "git-lfs is not installed";
+    }
+    commitFile("a.txt", "1\n", "c1");
+
+    OperationRunner operations(*runner_, paths_);
+    ASSERT_TRUE(submitAndWait(operations, makeLfsInstallOperation()).succeeded);
+
+    LfsTrackRequest track;
+    track.pattern = "*.bin";
+    ASSERT_TRUE(submitAndWait(operations, makeLfsTrackOperation(track)).succeeded);
+
+    std::ifstream attrs(repo_ / ".gitattributes");
+    std::string content((std::istreambuf_iterator<char>(attrs)), std::istreambuf_iterator<char>());
+    EXPECT_NE(content.find("*.bin"), std::string::npos);
+    EXPECT_NE(content.find("filter=lfs"), std::string::npos);
+
+    LfsStore store(*runner_, paths_);
+    auto patterns = store.trackedPatterns(CancellationToken{});
+    ASSERT_TRUE(patterns) << patterns.error().message;
+    EXPECT_NE(std::find(patterns->begin(), patterns->end(), "*.bin"), patterns->end());
+
+    LfsUntrackRequest untrack;
+    untrack.pattern = "*.bin";
+    ASSERT_TRUE(submitAndWait(operations, makeLfsUntrackOperation(untrack)).succeeded);
+
+    auto afterUntrack = store.trackedPatterns(CancellationToken{});
+    ASSERT_TRUE(afterUntrack) << afterUntrack.error().message;
+    EXPECT_EQ(std::find(afterUntrack->begin(), afterUntrack->end(), "*.bin"), afterUntrack->end());
+}
+
+TEST_F(RealRepoTest, AddingATrackedFileStoresAPointerAndListsItDownloaded) {
+    auto detected = detectLfs(*runner_, paths_, CancellationToken{});
+    ASSERT_TRUE(detected) << detected.error().message;
+    if (!detected->available) {
+        GTEST_SKIP() << "git-lfs is not installed";
+    }
+    commitFile("a.txt", "1\n", "c1");
+
+    OperationRunner operations(*runner_, paths_);
+    ASSERT_TRUE(submitAndWait(operations, makeLfsInstallOperation()).succeeded);
+    LfsTrackRequest track;
+    track.pattern = "*.bin";
+    ASSERT_TRUE(submitAndWait(operations, makeLfsTrackOperation(track)).succeeded);
+    ASSERT_TRUE(run({"add", ".gitattributes"}));
+    ASSERT_TRUE(run({"commit", "--quiet", "-m", "track *.bin"}));
+
+    {
+        std::ofstream out(repo_ / "asset.bin", std::ios::binary | std::ios::trunc);
+        out << "not really binary, just needs to go through the clean filter";
+    }
+    ASSERT_TRUE(run({"add", "asset.bin"}));
+    ASSERT_TRUE(run({"commit", "--quiet", "-m", "add asset.bin"}));
+
+    // The clean filter must have replaced the working-tree content with an LFS
+    // pointer in the object git actually stored, proving LFS -- not a plain
+    // blob -- captured the file.
+    auto stored = run({"show", "HEAD:asset.bin"});
+    ASSERT_TRUE(stored);
+    EXPECT_NE(stored->out.find("https://git-lfs.github.com/spec/v1"), std::string::npos);
+
+    LfsStore store(*runner_, paths_);
+    auto files = store.listFiles(CancellationToken{});
+    ASSERT_TRUE(files) << files.error().message;
+    ASSERT_EQ(files->size(), 1u);
+    EXPECT_EQ((*files)[0].path, "asset.bin");
+    EXPECT_TRUE((*files)[0].downloadedLocally);
+    EXPECT_FALSE((*files)[0].oid.empty());
+}
+
+// --- M5: patch import/export -------------------------------------------------
+
+TEST_F(RealRepoTest, ExportsPatchesForSelectedCommitsInOrder) {
+    commitFile("a.txt", "1\n", "c1");
+    commitFile("a.txt", "2\n", "c2");
+    commitFile("a.txt", "3\n", "c3");
+    auto c2 = run({"rev-parse", "HEAD~1"});
+    ASSERT_TRUE(c2);
+    auto c3 = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(c3);
+
+    const std::filesystem::path outputDir = repo_ / "patches";
+    OperationRunner operations(*runner_, paths_);
+    ExportPatchesRequest request;
+    request.commits = {ObjectId::fromHex(c2->out), ObjectId::fromHex(c3->out)};
+    request.outputDir = outputDir;
+    auto outcome = submitAndWait(operations, makeExportPatchesOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    std::vector<std::string> names;
+    for (const auto& entry : std::filesystem::directory_iterator(outputDir)) {
+        names.push_back(entry.path().filename().string());
+    }
+    std::sort(names.begin(), names.end());
+    ASSERT_EQ(names.size(), 2u);
+    EXPECT_TRUE(names[0].starts_with("0001-"));
+    EXPECT_NE(names[0].find("c2"), std::string::npos);
+    EXPECT_TRUE(names[1].starts_with("0002-"));
+    EXPECT_NE(names[1].find("c3"), std::string::npos);
+}
+
+TEST_F(RealRepoTest, AppliesAPlainDiffWithoutCommittingOrStaging) {
+    commitFile("a.txt", "1\n", "c1");
+    commitFile("a.txt", "2\n", "c2");
+    auto diff = run({"diff", "HEAD~1", "HEAD"});
+    ASSERT_TRUE(diff);
+    const std::filesystem::path patchFile = repo_.string() + "-plain.patch";
+    {
+        std::ofstream out(patchFile, std::ios::binary | std::ios::trunc);
+        out << diff->out << "\n";
+    }
+    ASSERT_TRUE(run({"reset", "--quiet", "--hard", "HEAD~1"}));
+
+    OperationRunner operations(*runner_, paths_);
+    ApplyPatchFilesRequest request;
+    request.patchFiles = {patchFile};
+    auto outcome = submitAndWait(operations, makeApplyPatchFilesOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    std::ifstream in(repo_ / "a.txt");
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    EXPECT_EQ(content, "2\n");
+    auto staged = run({"diff", "--cached", "--name-only"});
+    ASSERT_TRUE(staged);
+    EXPECT_TRUE(staged->out.empty()) << "a plain apply must not touch the index";
+
+    std::filesystem::remove(patchFile);
+}
+
+TEST_F(RealRepoTest, ImportsAPatchAsACommitPreservingItsMessage) {
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("b.txt", "x\n", "feature commit");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+
+    const std::filesystem::path patchDir = repo_ / "am-patches";
+    ASSERT_TRUE(run({"format-patch", "-1", "feature", "-o", patchDir.string()}));
+    std::filesystem::path patchFile;
+    for (const auto& entry : std::filesystem::directory_iterator(patchDir)) {
+        patchFile = entry.path();
+    }
+    ASSERT_FALSE(patchFile.empty());
+
+    OperationRunner operations(*runner_, paths_);
+    ImportPatchesRequest request;
+    request.patchFiles = {patchFile};
+    auto outcome = submitAndWait(operations, makeImportPatchesOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    EXPECT_TRUE(std::filesystem::exists(repo_ / "b.txt"));
+    auto subject = run({"log", "-1", "--format=%s"});
+    ASSERT_TRUE(subject);
+    EXPECT_EQ(subject->out, "feature commit");
+    auto count = run({"rev-list", "--count", "HEAD"});
+    ASSERT_TRUE(count);
+    EXPECT_EQ(count->out, "2");
+}
+
+TEST_F(RealRepoTest, ImportConflictContinuesAfterResolution) {
+    commitFile("shared.txt", "base\n", "base");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("shared.txt", "feature change\n", "feature commit");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("shared.txt", "main change\n", "main commit");
+
+    const std::filesystem::path patchDir = repo_ / "am-conflict-patches";
+    ASSERT_TRUE(run({"format-patch", "-1", "feature", "-o", patchDir.string()}));
+    std::filesystem::path patchFile;
+    for (const auto& entry : std::filesystem::directory_iterator(patchDir)) {
+        patchFile = entry.path();
+    }
+    ASSERT_FALSE(patchFile.empty());
+
+    OperationRunner operations(*runner_, paths_);
+    ImportPatchesRequest request;
+    request.patchFiles = {patchFile};
+    request.threeWay = true;
+    auto outcome = submitAndWait(operations, makeImportPatchesOperation(request));
+    EXPECT_FALSE(outcome.succeeded);
+    ASSERT_TRUE(outcome.error.has_value());
+    EXPECT_EQ(outcome.error->code, GitError::Code::Conflict);
+    EXPECT_TRUE(RepoState::read(paths_).inProgress());
+
+    // Resolve by taking the incoming (feature) side, matching how the working
+    // copy's conflict resolution already handles "theirs".
+    ASSERT_TRUE(run({"checkout", "--theirs", "shared.txt"}));
+    ASSERT_TRUE(run({"add", "shared.txt"}));
+
+    auto continued = submitAndWait(operations, makeAmContinueOperation());
+    ASSERT_TRUE(continued.succeeded) << (continued.error ? continued.error->detail : "");
+    EXPECT_FALSE(RepoState::read(paths_).inProgress());
+
+    auto subject = run({"log", "-1", "--format=%s"});
+    ASSERT_TRUE(subject);
+    EXPECT_EQ(subject->out, "feature commit");
+    std::ifstream in(repo_ / "shared.txt");
+    std::string fileContent((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    EXPECT_EQ(fileContent, "feature change\n");
+}
+
+TEST_F(RealRepoTest, ImportAbortUnwindsCleanly) {
+    commitFile("shared.txt", "base\n", "base");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("shared.txt", "feature change\n", "feature commit");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("shared.txt", "main change\n", "main commit");
+    auto beforeImport = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(beforeImport);
+
+    const std::filesystem::path patchDir = repo_ / "am-abort-patches";
+    ASSERT_TRUE(run({"format-patch", "-1", "feature", "-o", patchDir.string()}));
+    std::filesystem::path patchFile;
+    for (const auto& entry : std::filesystem::directory_iterator(patchDir)) {
+        patchFile = entry.path();
+    }
+    ASSERT_FALSE(patchFile.empty());
+
+    OperationRunner operations(*runner_, paths_);
+    ImportPatchesRequest request;
+    request.patchFiles = {patchFile};
+    request.threeWay = true;
+    auto outcome = submitAndWait(operations, makeImportPatchesOperation(request));
+    EXPECT_FALSE(outcome.succeeded);
+    ASSERT_TRUE(RepoState::read(paths_).inProgress());
+
+    auto aborted = submitAndWait(operations, makeAmAbortOperation());
+    ASSERT_TRUE(aborted.succeeded) << (aborted.error ? aborted.error->detail : "");
+    EXPECT_FALSE(RepoState::read(paths_).inProgress());
+
+    auto head = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(head);
+    EXPECT_EQ(head->out, beforeImport->out);
 }
 
 }  // namespace

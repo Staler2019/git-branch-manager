@@ -23,17 +23,21 @@ add_library(gbm_core STATIC
     git/SideBySideDiff.cpp
     git/UnifiedDiffParser.cpp
     git/WorkingCopyStatus.cpp
+    git/ops/BisectOps.cpp
     git/ops/BranchOps.cpp
     git/ops/CheckoutOp.cpp
     git/ops/CherryPickOps.cpp
     git/ops/CommitOps.cpp
     git/ops/ConflictOps.cpp
+    git/ops/LfsOps.cpp
     git/ops/MergeOps.cpp
+    git/ops/PatchOps.cpp
     git/ops/RebaseOps.cpp
     git/ops/RemoteOps.cpp
     git/ops/ResetOps.cpp
     git/ops/StageOps.cpp
     git/ops/StashOps.cpp
+    git/ops/SubmoduleOps.cpp
     git/ops/TagOps.cpp
     git/ops/UndoOps.cpp
     git/ops/WorktreeOps.cpp

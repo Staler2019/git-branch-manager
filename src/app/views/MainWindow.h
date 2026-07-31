@@ -91,6 +91,14 @@ private slots:
     void onUndoLastOperation();
     void onFileContextMenuRequested(const QPoint& pos);
 
+    // --- M5 -----------------------------------------------------------------
+    void onManageSubmodules();
+    void onBisect();
+    void onManageLfs();
+    void onExportPatches();
+    void onApplyPatchFile();
+    void onImportPatches();
+
 private:
     void buildUi();
     void buildMenus();

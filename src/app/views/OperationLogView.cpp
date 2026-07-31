@@ -21,10 +21,13 @@ OperationLogView::OperationLogView(QWidget* parent) : QWidget(parent) {
     text_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     text_->setLineWrapMode(QPlainTextEdit::NoWrap);
     text_->setPlaceholderText(QStringLiteral("Git commands run by this session appear here"));
+    text_->setAccessibleName(QStringLiteral("Operation log"));
 
     auto* buttons = new QHBoxLayout;
     auto* copyButton = new QPushButton(QStringLiteral("Copy all"), this);
     auto* clearButton = new QPushButton(QStringLiteral("Clear"), this);
+    copyButton->setAccessibleName(QStringLiteral("Copy operation log"));
+    clearButton->setAccessibleName(QStringLiteral("Clear operation log"));
     buttons->addWidget(copyButton);
     buttons->addWidget(clearButton);
     buttons->addStretch(1);

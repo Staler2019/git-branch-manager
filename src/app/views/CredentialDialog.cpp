@@ -20,6 +20,7 @@ CredentialDialog::CredentialDialog(const QString& prompt, QWidget* parent) : QDi
         prompt.contains(QStringLiteral("assphrase"), Qt::CaseInsensitive)) {
         edit_->setEchoMode(QLineEdit::Password);
     }
+    edit_->setAccessibleName(prompt);
     layout->addWidget(edit_);
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);

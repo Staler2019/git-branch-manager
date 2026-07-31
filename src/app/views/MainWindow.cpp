@@ -388,6 +388,9 @@ void MainWindow::buildMenus() {
     auto* bisectMenu = menuBar()->addMenu(QStringLiteral("&Bisect"));
     bisectMenu->addAction(QStringLiteral("Bisect…"), this, &MainWindow::onBisect);
 
+    auto* lfsMenu = menuBar()->addMenu(QStringLiteral("&LFS"));
+    lfsMenu->addAction(QStringLiteral("Manage LFS…"), this, &MainWindow::onManageLfs);
+
     auto* toolBar = addToolBar(QStringLiteral("Main"));
     toolBar->setMovable(false);
     toolBar->addAction(refreshAction);
@@ -2738,6 +2741,160 @@ void MainWindow::onBisect() {
     });
 
     dialog.resize(560, 420);
+    dialog.exec();
+}
+
+// --- M5: LFS ---------------------------------------------------------------
+
+void MainWindow::onManageLfs() {
+    if (!session_) {
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("Manage LFS"));
+    auto* layout = new QVBoxLayout(&dialog);
+
+    auto* statusLabel = new QLabel(&dialog);
+    statusLabel->setWordWrap(true);
+    layout->addWidget(statusLabel);
+
+    auto* installButton = new QPushButton(QStringLiteral("Set up LFS for this repository"), &dialog);
+    layout->addWidget(installButton);
+
+    auto* patternsGroup = new QWidget(&dialog);
+    auto* patternsLayout = new QVBoxLayout(patternsGroup);
+    patternsLayout->setContentsMargins(0, 0, 0, 0);
+    patternsLayout->addWidget(new QLabel(QStringLiteral("Tracked patterns:"), patternsGroup));
+    auto* patternsList = new QListWidget(patternsGroup);
+    patternsList->setAccessibleName(QStringLiteral("LFS tracked patterns"));
+    patternsList->setMaximumHeight(100);
+    patternsLayout->addWidget(patternsList);
+    auto* patternButtons = new QHBoxLayout();
+    auto* addPatternButton = new QPushButton(QStringLiteral("Track pattern…"), patternsGroup);
+    auto* removePatternButton = new QPushButton(QStringLiteral("Untrack"), patternsGroup);
+    patternButtons->addWidget(addPatternButton);
+    patternButtons->addWidget(removePatternButton);
+    patternButtons->addStretch(1);
+    patternsLayout->addLayout(patternButtons);
+    layout->addWidget(patternsGroup);
+
+    auto* filesTable = new QTableWidget(&dialog);
+    filesTable->setColumnCount(3);
+    filesTable->setHorizontalHeaderLabels(
+        {QStringLiteral("Path"), QStringLiteral("Object"), QStringLiteral("Local")});
+    filesTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+    filesTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    filesTable->verticalHeader()->setVisible(false);
+    filesTable->setAccessibleName(QStringLiteral("LFS files"));
+    layout->addWidget(filesTable, 1);
+
+    auto* transferRow = new QHBoxLayout();
+    auto* pullButton = new QPushButton(QStringLiteral("Pull"), &dialog);
+    auto* fetchButton = new QPushButton(QStringLiteral("Fetch"), &dialog);
+    auto* pruneButton = new QPushButton(QStringLiteral("Prune"), &dialog);
+    auto* closeButton = new QPushButton(QStringLiteral("Close"), &dialog);
+    transferRow->addWidget(pullButton);
+    transferRow->addWidget(fetchButton);
+    transferRow->addWidget(pruneButton);
+    transferRow->addStretch(1);
+    transferRow->addWidget(closeButton);
+    layout->addLayout(transferRow);
+    connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
+
+    auto reload = [this, statusLabel, installButton, patternsGroup, filesTable, pullButton,
+                   fetchButton, pruneButton, patternsList] {
+        auto installation = session_->lfsInstallation();
+        const bool available = installation && installation->available;
+        installButton->setVisible(available);
+        patternsGroup->setVisible(available);
+        filesTable->setVisible(available);
+        pullButton->setEnabled(available);
+        fetchButton->setEnabled(available);
+        pruneButton->setEnabled(available);
+
+        if (!installation) {
+            statusLabel->setText(QStringLiteral("Checking for Git LFS…"));
+            return;
+        }
+        if (!available) {
+            statusLabel->setText(
+                QStringLiteral("Git LFS is not installed. Install the git-lfs extension to "
+                              "track large files in this repository."));
+            return;
+        }
+        statusLabel->setText(
+            QStringLiteral("Git LFS is available (%1).")
+                .arg(QString::fromStdString(installation->version).split(QChar(' ')).value(0)));
+
+        patternsList->clear();
+        if (auto patterns = session_->lfsTrackedPatterns()) {
+            for (const std::string& pattern : *patterns) {
+                patternsList->addItem(QString::fromStdString(pattern));
+            }
+        }
+
+        filesTable->setRowCount(0);
+        if (auto files = session_->lfsFiles()) {
+            filesTable->setRowCount(static_cast<int>(files->size()));
+            for (int row = 0; row < static_cast<int>(files->size()); ++row) {
+                const LfsFileInfo& info = (*files)[static_cast<std::size_t>(row)];
+                filesTable->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(info.path)));
+                filesTable->setItem(
+                    row, 1, new QTableWidgetItem(QString::fromStdString(info.oid).left(10)));
+                filesTable->setItem(row,
+                                    2,
+                                    new QTableWidgetItem(info.downloadedLocally
+                                                             ? QStringLiteral("yes")
+                                                             : QStringLiteral("no")));
+            }
+        }
+    };
+    connect(session_.get(), &RepositorySession::lfsUpdated, &dialog, reload);
+    session_->refreshLfs();
+    reload();
+
+    connect(installButton, &QPushButton::clicked, &dialog, [this] {
+        runWithFeedback([this] { session_->installLfs(); });
+    });
+
+    connect(addPatternButton, &QPushButton::clicked, &dialog, [this, &dialog] {
+        bool ok = false;
+        const QString pattern = QInputDialog::getText(&dialog,
+                                                      QStringLiteral("Track pattern"),
+                                                      QStringLiteral("Pattern (e.g. *.psd):"),
+                                                      QLineEdit::Normal,
+                                                      QString(),
+                                                      &ok);
+        if (!ok || pattern.isEmpty()) {
+            return;
+        }
+        LfsTrackRequest request;
+        request.pattern = pattern.toStdString();
+        runWithFeedback([this, request] { session_->trackLfsPattern(request); });
+    });
+
+    connect(removePatternButton, &QPushButton::clicked, &dialog, [this, patternsList] {
+        const auto items = patternsList->selectedItems();
+        if (items.isEmpty()) {
+            return;
+        }
+        LfsUntrackRequest request;
+        request.pattern = items.first()->text().toStdString();
+        runWithFeedback([this, request] { session_->untrackLfsPattern(request); });
+    });
+
+    connect(pullButton, &QPushButton::clicked, &dialog, [this] {
+        runWithFeedback([this] { session_->pullLfs(LfsTransferRequest{}); });
+    });
+    connect(fetchButton, &QPushButton::clicked, &dialog, [this] {
+        runWithFeedback([this] { session_->fetchLfs(LfsTransferRequest{}); });
+    });
+    connect(pruneButton, &QPushButton::clicked, &dialog, [this] {
+        runWithFeedback([this] { session_->pruneLfs(LfsPruneRequest{}); });
+    });
+
+    dialog.resize(640, 480);
     dialog.exec();
 }
 

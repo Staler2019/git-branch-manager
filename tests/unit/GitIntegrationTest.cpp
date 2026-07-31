@@ -24,6 +24,7 @@
 #include "core/git/ops/CherryPickOps.h"
 #include "core/git/ops/CommitOps.h"
 #include "core/git/ops/ConflictOps.h"
+#include "core/git/ops/LfsOps.h"
 #include "core/git/ops/MergeOps.h"
 #include "core/git/ops/RebaseOps.h"
 #include "core/git/ops/RemoteOps.h"
@@ -2512,6 +2513,88 @@ TEST_F(RealRepoTest, BisectSkipMovesPastAnUntestableCommit) {
 
     BisectResetRequest reset;
     ASSERT_TRUE(submitAndWait(operations, makeBisectResetOperation(reset)).succeeded);
+}
+
+// --- M5: LFS -----------------------------------------------------------------
+
+TEST_F(RealRepoTest, DetectsWhetherGitLfsIsInstalled) {
+    auto detected = detectLfs(*runner_, paths_, CancellationToken{});
+    ASSERT_TRUE(detected) << detected.error().message;
+    // Whichever way it goes, detection itself must not fail -- see LfsOps.h.
+    SUCCEED();
+}
+
+TEST_F(RealRepoTest, TrackingAPatternRecordsItInGitattributesAndIsListed) {
+    auto detected = detectLfs(*runner_, paths_, CancellationToken{});
+    ASSERT_TRUE(detected) << detected.error().message;
+    if (!detected->available) {
+        GTEST_SKIP() << "git-lfs is not installed";
+    }
+    commitFile("a.txt", "1\n", "c1");
+
+    OperationRunner operations(*runner_, paths_);
+    ASSERT_TRUE(submitAndWait(operations, makeLfsInstallOperation()).succeeded);
+
+    LfsTrackRequest track;
+    track.pattern = "*.bin";
+    ASSERT_TRUE(submitAndWait(operations, makeLfsTrackOperation(track)).succeeded);
+
+    std::ifstream attrs(repo_ / ".gitattributes");
+    std::string content((std::istreambuf_iterator<char>(attrs)), std::istreambuf_iterator<char>());
+    EXPECT_NE(content.find("*.bin"), std::string::npos);
+    EXPECT_NE(content.find("filter=lfs"), std::string::npos);
+
+    LfsStore store(*runner_, paths_);
+    auto patterns = store.trackedPatterns(CancellationToken{});
+    ASSERT_TRUE(patterns) << patterns.error().message;
+    EXPECT_NE(std::find(patterns->begin(), patterns->end(), "*.bin"), patterns->end());
+
+    LfsUntrackRequest untrack;
+    untrack.pattern = "*.bin";
+    ASSERT_TRUE(submitAndWait(operations, makeLfsUntrackOperation(untrack)).succeeded);
+
+    auto afterUntrack = store.trackedPatterns(CancellationToken{});
+    ASSERT_TRUE(afterUntrack) << afterUntrack.error().message;
+    EXPECT_EQ(std::find(afterUntrack->begin(), afterUntrack->end(), "*.bin"), afterUntrack->end());
+}
+
+TEST_F(RealRepoTest, AddingATrackedFileStoresAPointerAndListsItDownloaded) {
+    auto detected = detectLfs(*runner_, paths_, CancellationToken{});
+    ASSERT_TRUE(detected) << detected.error().message;
+    if (!detected->available) {
+        GTEST_SKIP() << "git-lfs is not installed";
+    }
+    commitFile("a.txt", "1\n", "c1");
+
+    OperationRunner operations(*runner_, paths_);
+    ASSERT_TRUE(submitAndWait(operations, makeLfsInstallOperation()).succeeded);
+    LfsTrackRequest track;
+    track.pattern = "*.bin";
+    ASSERT_TRUE(submitAndWait(operations, makeLfsTrackOperation(track)).succeeded);
+    ASSERT_TRUE(run({"add", ".gitattributes"}));
+    ASSERT_TRUE(run({"commit", "--quiet", "-m", "track *.bin"}));
+
+    {
+        std::ofstream out(repo_ / "asset.bin", std::ios::binary | std::ios::trunc);
+        out << "not really binary, just needs to go through the clean filter";
+    }
+    ASSERT_TRUE(run({"add", "asset.bin"}));
+    ASSERT_TRUE(run({"commit", "--quiet", "-m", "add asset.bin"}));
+
+    // The clean filter must have replaced the working-tree content with an LFS
+    // pointer in the object git actually stored, proving LFS -- not a plain
+    // blob -- captured the file.
+    auto stored = run({"show", "HEAD:asset.bin"});
+    ASSERT_TRUE(stored);
+    EXPECT_NE(stored->out.find("https://git-lfs.github.com/spec/v1"), std::string::npos);
+
+    LfsStore store(*runner_, paths_);
+    auto files = store.listFiles(CancellationToken{});
+    ASSERT_TRUE(files) << files.error().message;
+    ASSERT_EQ(files->size(), 1u);
+    EXPECT_EQ((*files)[0].path, "asset.bin");
+    EXPECT_TRUE((*files)[0].downloadedLocally);
+    EXPECT_FALSE((*files)[0].oid.empty());
 }
 
 }  // namespace

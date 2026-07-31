@@ -19,6 +19,7 @@
 #include "core/git/ops/CherryPickOps.h"
 #include "core/git/ops/CommitOps.h"
 #include "core/git/ops/ConflictOps.h"
+#include "core/git/ops/LfsOps.h"
 #include "core/git/ops/MergeOps.h"
 #include "core/git/ops/RebaseOps.h"
 #include "core/git/ops/RemoteOps.h"
@@ -37,6 +38,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace gbm {
@@ -46,6 +48,8 @@ using WorktreeListPtr = std::shared_ptr<const std::vector<WorktreeInfo>>;
 using RemoteListPtr = std::shared_ptr<const std::vector<RemoteInfo>>;
 using SubmoduleListPtr = std::shared_ptr<const std::vector<SubmoduleInfo>>;
 using BisectStatusPtr = std::shared_ptr<const BisectStatus>;
+using LfsFileListPtr = std::shared_ptr<const std::vector<LfsFileInfo>>;
+using LfsPatternListPtr = std::shared_ptr<const std::vector<std::string>>;
 
 /// One open repository, and the single place where core callbacks become Qt
 /// signals.
@@ -265,6 +269,24 @@ public:
     void skipBisect(const BisectSkipRequest& request);
     void resetBisect(const BisectResetRequest& request);
 
+    // --- M5: LFS -----------------------------------------------------------
+
+    /// Whether `git-lfs` is on `PATH`, detected once per session on the first
+    /// `refreshLfs()` call. `std::nullopt` before that first refresh completes.
+    std::optional<LfsInstallation> lfsInstallation() const { return lfsInstallation_; }
+
+    LfsPatternListPtr lfsTrackedPatterns() const { return lfsPatterns_.current(); }
+    LfsFileListPtr lfsFiles() const { return lfsFiles_.current(); }
+
+    void refreshLfs();
+
+    void installLfs();
+    void trackLfsPattern(const LfsTrackRequest& request);
+    void untrackLfsPattern(const LfsUntrackRequest& request);
+    void pullLfs(const LfsTransferRequest& request);
+    void fetchLfs(const LfsTransferRequest& request);
+    void pruneLfs(const LfsPruneRequest& request);
+
 signals:
     /// A newer graph snapshot is available (possibly partial).
     void graphUpdated(bool complete);
@@ -294,6 +316,7 @@ signals:
     void remotesUpdated();
     void submodulesUpdated();
     void bisectStatusUpdated();
+    void lfsUpdated();
 
     /// A `git` subprocess spawned by one of the M3 remote/tag operations is
     /// blocked waiting for `prompt`. The view layer is expected to show it and
@@ -343,6 +366,7 @@ private:
     std::unique_ptr<ReflogStore> reflogStore_;
     std::unique_ptr<SubmoduleStore> submoduleStore_;
     std::unique_ptr<BisectStore> bisectStore_;
+    std::unique_ptr<LfsStore> lfsStore_;
     AskpassWatcher* askpass_ = nullptr;
 
     SnapshotHolder<GraphSnapshot> graph_;
@@ -353,6 +377,9 @@ private:
     SnapshotHolder<std::vector<RemoteInfo>> remotes_;
     SnapshotHolder<std::vector<SubmoduleInfo>> submodules_;
     SnapshotHolder<BisectStatus> bisectStatus_;
+    SnapshotHolder<std::vector<std::string>> lfsPatterns_;
+    SnapshotHolder<std::vector<LfsFileInfo>> lfsFiles_;
+    std::optional<LfsInstallation> lfsInstallation_;
 
     /// Cancels the in-flight history walk when a new one starts.
     CancellationSource historyCancel_;

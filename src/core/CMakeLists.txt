@@ -29,6 +29,7 @@ add_library(gbm_core STATIC
     git/ops/CherryPickOps.cpp
     git/ops/CommitOps.cpp
     git/ops/ConflictOps.cpp
+    git/ops/LfsOps.cpp
     git/ops/MergeOps.cpp
     git/ops/RebaseOps.cpp
     git/ops/RemoteOps.cpp

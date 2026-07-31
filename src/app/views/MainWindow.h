@@ -94,6 +94,7 @@ private slots:
     // --- M5 -----------------------------------------------------------------
     void onManageSubmodules();
     void onBisect();
+    void onManageLfs();
 
 private:
     void buildUi();

@@ -33,6 +33,7 @@ RepositorySession::RepositorySession(GitInstallation installation,
     reflogStore_ = std::make_unique<ReflogStore>(*runner_, paths_);
     submoduleStore_ = std::make_unique<SubmoduleStore>(*runner_, paths_);
     bisectStore_ = std::make_unique<BisectStore>(*runner_, paths_);
+    lfsStore_ = std::make_unique<LfsStore>(*runner_, paths_);
 
     askpass_ = new AskpassWatcher(this);
     connect(
@@ -966,6 +967,110 @@ void RepositorySession::resetBisect(const BisectResetRequest& request) {
     submitAndRefresh(makeBisectResetOperation(request), [this](bool succeeded) {
         if (succeeded) {
             refreshBisectStatus();
+        }
+    });
+}
+
+// --- M5: LFS ---------------------------------------------------------------
+
+void RepositorySession::refreshLfs() {
+    const CancellationToken token = readCancel_.token();
+    setBusy(true);
+
+    readPool_.post([this, token] {
+        auto installation = detectLfs(*runner_, paths_, token);
+        if (!installation) {
+            if (installation.error().code != GitError::Code::Cancelled) {
+                GitError error = std::move(installation).error();
+                QMetaObject::invokeMethod(
+                    this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
+            }
+            QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+            return;
+        }
+
+        const bool available = installation->available;
+        LfsInstallation installationValue = *installation;
+        QMetaObject::invokeMethod(
+            this,
+            [this, installationValue] { lfsInstallation_ = installationValue; },
+            Qt::QueuedConnection);
+
+        if (!available) {
+            QMetaObject::invokeMethod(
+                this, [this] { emit lfsUpdated(); setBusy(false); }, Qt::QueuedConnection);
+            return;
+        }
+
+        auto patterns = lfsStore_->trackedPatterns(token);
+        if (patterns) {
+            lfsPatterns_.publish(std::make_shared<std::vector<std::string>>(std::move(*patterns)));
+        }
+        auto files = lfsStore_->listFiles(token);
+        if (files) {
+            lfsFiles_.publish(std::make_shared<std::vector<LfsFileInfo>>(std::move(*files)));
+        }
+        QMetaObject::invokeMethod(
+            this, [this] { emit lfsUpdated(); setBusy(false); }, Qt::QueuedConnection);
+    });
+}
+
+void RepositorySession::installLfs() {
+    submitAndRefresh(makeLfsInstallOperation(), [this](bool succeeded) {
+        if (succeeded) {
+            refreshLfs();
+        }
+    });
+}
+
+void RepositorySession::trackLfsPattern(const LfsTrackRequest& request) {
+    submitAndRefresh(makeLfsTrackOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshLfs();
+        }
+    });
+}
+
+void RepositorySession::untrackLfsPattern(const LfsUntrackRequest& request) {
+    submitAndRefresh(makeLfsUntrackOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshLfs();
+        }
+    });
+}
+
+void RepositorySession::pullLfs(const LfsTransferRequest& request) {
+    LfsTransferRequest wired = request;
+    wired.askpassDir = askpass::makeRequestDir();
+    if (!wired.askpassDir.empty()) {
+        askpass_->start(wired.askpassDir);
+    }
+    submitAndRefresh(makeLfsPullOperation(wired), [this](bool succeeded) {
+        askpass_->stop();
+        if (succeeded) {
+            refreshLfs();
+        }
+    });
+}
+
+void RepositorySession::fetchLfs(const LfsTransferRequest& request) {
+    LfsTransferRequest wired = request;
+    wired.askpassDir = askpass::makeRequestDir();
+    if (!wired.askpassDir.empty()) {
+        askpass_->start(wired.askpassDir);
+    }
+    submitAndRefresh(makeLfsFetchOperation(wired), [this](bool succeeded) {
+        askpass_->stop();
+        if (succeeded) {
+            refreshLfs();
+        }
+    });
+}
+
+void RepositorySession::pruneLfs(const LfsPruneRequest& request) {
+    submitAndRefresh(makeLfsPruneOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshLfs();
         }
     });
 }

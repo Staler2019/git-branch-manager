@@ -18,6 +18,7 @@
 #include "core/git/ReflogStore.h"
 #include "core/git/RepoState.h"
 #include "core/git/WorkingCopyStatus.h"
+#include "core/git/ops/BisectOps.h"
 #include "core/git/ops/BranchOps.h"
 #include "core/git/ops/CheckoutOp.h"
 #include "core/git/ops/CherryPickOps.h"
@@ -2405,6 +2406,112 @@ TEST_F(RealRepoTest, SyncSubmodulesRewritesTheLocalUrlFromGitmodules) {
     auto configured = run({"config", "submodule.sub.url"});
     ASSERT_TRUE(configured);
     EXPECT_EQ(configured->out, newUrl);
+}
+
+// --- M5: bisect ------------------------------------------------------------
+
+TEST_F(RealRepoTest, BisectFindsTheFirstBadCommitByGoodBadStepping) {
+    commitFile("a.txt", "1\n", "c1");  // good
+    commitFile("a.txt", "2\n", "c2");  // good
+    commitFile("a.txt", "3\n", "c3");  // first bad
+    commitFile("a.txt", "4\n", "c4");  // also bad
+    auto badHead = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(badHead);
+    auto goodBase = run({"rev-parse", "HEAD~3"});
+    ASSERT_TRUE(goodBase);
+    auto expectedFirstBad = run({"rev-parse", "HEAD~1"});
+    ASSERT_TRUE(expectedFirstBad);
+
+    OperationRunner operations(*runner_, paths_);
+    BisectStartRequest start;
+    start.badRef = badHead->out;
+    start.goodRefs = {goodBase->out};
+    auto startOutcome = submitAndWait(operations, makeBisectStartOperation(start));
+    ASSERT_TRUE(startOutcome.succeeded) << (startOutcome.error ? startOutcome.error->detail : "");
+
+    BisectStore store(*runner_, paths_);
+    {
+        auto initial = store.status(CancellationToken{});
+        ASSERT_TRUE(initial) << initial.error().message;
+        EXPECT_TRUE(initial->active);
+        EXPECT_EQ(initial->badOid, badHead->out);
+        ASSERT_EQ(initial->goodOids.size(), 1u);
+        EXPECT_EQ(initial->goodOids[0], goodBase->out);
+    }
+
+    bool concluded = false;
+    for (int i = 0; i < 10 && !concluded; ++i) {
+        auto current = store.status(CancellationToken{});
+        ASSERT_TRUE(current) << current.error().message;
+        ASSERT_TRUE(current->active);
+        auto subject = run({"log", "-1", "--format=%s", current->currentOid});
+        ASSERT_TRUE(subject);
+        const int commitNumber = std::stoi(subject->out.substr(1));
+
+        BisectMarkRequest mark;
+        mark.good = commitNumber < 3;
+        auto markOutcome = submitAndWait(operations, makeBisectMarkOperation(mark));
+        ASSERT_TRUE(markOutcome.succeeded) << (markOutcome.error ? markOutcome.error->detail : "");
+        concluded = markOutcome.summary.find("is the first bad commit") != std::string::npos;
+    }
+    ASSERT_TRUE(concluded) << "bisect did not conclude within 10 steps";
+
+    auto finalStatus = store.status(CancellationToken{});
+    ASSERT_TRUE(finalStatus) << finalStatus.error().message;
+    EXPECT_EQ(finalStatus->badOid, expectedFirstBad->out);
+
+    BisectResetRequest reset;
+    auto resetOutcome = submitAndWait(operations, makeBisectResetOperation(reset));
+    ASSERT_TRUE(resetOutcome.succeeded) << (resetOutcome.error ? resetOutcome.error->detail : "");
+
+    auto afterReset = store.status(CancellationToken{});
+    ASSERT_TRUE(afterReset) << afterReset.error().message;
+    EXPECT_FALSE(afterReset->active);
+
+    auto head = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(head);
+    EXPECT_EQ(head->out, badHead->out) << "reset must return to the branch bisect started from";
+}
+
+TEST_F(RealRepoTest, BisectSkipMovesPastAnUntestableCommit) {
+    // Four commits leave two real candidates (c2, c3) between good and bad, so
+    // skipping the first still leaves a next one to test rather than
+    // exhausting the search outright (which exits non-zero -- a different,
+    // legitimate outcome covered by BisectFindsTheFirstBadCommitByGoodBadStepping's
+    // "only skip'ped commits left" case is deliberately not this test).
+    commitFile("a.txt", "1\n", "c1");
+    commitFile("a.txt", "2\n", "c2");
+    commitFile("a.txt", "3\n", "c3");
+    commitFile("a.txt", "4\n", "c4");
+    auto badHead = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(badHead);
+    auto goodBase = run({"rev-parse", "HEAD~3"});
+    ASSERT_TRUE(goodBase);
+    auto middle = run({"rev-parse", "HEAD~1"});
+    ASSERT_TRUE(middle);
+
+    OperationRunner operations(*runner_, paths_);
+    BisectStartRequest start;
+    start.badRef = badHead->out;
+    start.goodRefs = {goodBase->out};
+    ASSERT_TRUE(submitAndWait(operations, makeBisectStartOperation(start)).succeeded);
+
+    BisectStore store(*runner_, paths_);
+    auto beforeSkip = store.status(CancellationToken{});
+    ASSERT_TRUE(beforeSkip) << beforeSkip.error().message;
+    EXPECT_EQ(beforeSkip->currentOid, middle->out);
+
+    BisectSkipRequest skip;
+    auto skipOutcome = submitAndWait(operations, makeBisectSkipOperation(skip));
+    ASSERT_TRUE(skipOutcome.succeeded) << (skipOutcome.error ? skipOutcome.error->detail : "");
+
+    auto afterSkip = store.status(CancellationToken{});
+    ASSERT_TRUE(afterSkip) << afterSkip.error().message;
+    ASSERT_EQ(afterSkip->skippedOids.size(), 1u);
+    EXPECT_EQ(afterSkip->skippedOids[0], middle->out);
+
+    BisectResetRequest reset;
+    ASSERT_TRUE(submitAndWait(operations, makeBisectResetOperation(reset)).succeeded);
 }
 
 }  // namespace

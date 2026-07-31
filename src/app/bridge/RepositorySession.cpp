@@ -32,6 +32,7 @@ RepositorySession::RepositorySession(GitInstallation installation,
     fileHistoryStore_ = std::make_unique<FileHistoryStore>(*runner_, paths_);
     reflogStore_ = std::make_unique<ReflogStore>(*runner_, paths_);
     submoduleStore_ = std::make_unique<SubmoduleStore>(*runner_, paths_);
+    bisectStore_ = std::make_unique<BisectStore>(*runner_, paths_);
 
     askpass_ = new AskpassWatcher(this);
     connect(
@@ -912,6 +913,59 @@ void RepositorySession::deinitSubmodules(const DeinitSubmodulesRequest& request)
     submitAndRefresh(makeDeinitSubmodulesOperation(request), [this](bool succeeded) {
         if (succeeded) {
             refreshSubmodules();
+        }
+    });
+}
+
+// --- M5: bisect ----------------------------------------------------------
+
+void RepositorySession::refreshBisectStatus() {
+    const CancellationToken token = readCancel_.token();
+    setBusy(true);
+
+    readPool_.post([this, token] {
+        auto status = bisectStore_->status(token);
+        if (status) {
+            bisectStatus_.publish(std::make_shared<BisectStatus>(std::move(*status)));
+            QMetaObject::invokeMethod(
+                this, [this] { emit bisectStatusUpdated(); }, Qt::QueuedConnection);
+        } else if (status.error().code != GitError::Code::Cancelled) {
+            GitError error = std::move(status).error();
+            QMetaObject::invokeMethod(
+                this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
+        }
+        QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+    });
+}
+
+void RepositorySession::startBisect(const BisectStartRequest& request) {
+    submitAndRefresh(makeBisectStartOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshBisectStatus();
+        }
+    });
+}
+
+void RepositorySession::markBisect(const BisectMarkRequest& request) {
+    submitAndRefresh(makeBisectMarkOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshBisectStatus();
+        }
+    });
+}
+
+void RepositorySession::skipBisect(const BisectSkipRequest& request) {
+    submitAndRefresh(makeBisectSkipOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshBisectStatus();
+        }
+    });
+}
+
+void RepositorySession::resetBisect(const BisectResetRequest& request) {
+    submitAndRefresh(makeBisectResetOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshBisectStatus();
         }
     });
 }

@@ -93,6 +93,7 @@ private slots:
 
     // --- M5 -----------------------------------------------------------------
     void onManageSubmodules();
+    void onBisect();
 
 private:
     void buildUi();

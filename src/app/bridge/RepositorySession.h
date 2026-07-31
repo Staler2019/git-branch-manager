@@ -14,6 +14,7 @@
 #include "core/git/ReflogStore.h"
 #include "core/git/RepoState.h"
 #include "core/git/WorkingCopyStatus.h"
+#include "core/git/ops/BisectOps.h"
 #include "core/git/ops/CheckoutOp.h"
 #include "core/git/ops/CherryPickOps.h"
 #include "core/git/ops/CommitOps.h"
@@ -44,6 +45,7 @@ using StashListPtr = std::shared_ptr<const std::vector<StashEntry>>;
 using WorktreeListPtr = std::shared_ptr<const std::vector<WorktreeInfo>>;
 using RemoteListPtr = std::shared_ptr<const std::vector<RemoteInfo>>;
 using SubmoduleListPtr = std::shared_ptr<const std::vector<SubmoduleInfo>>;
+using BisectStatusPtr = std::shared_ptr<const BisectStatus>;
 
 /// One open repository, and the single place where core callbacks become Qt
 /// signals.
@@ -252,6 +254,17 @@ public:
     void syncSubmodules(const SubmodulePathsRequest& request);
     void deinitSubmodules(const DeinitSubmodulesRequest& request);
 
+    // --- M5: bisect ------------------------------------------------------
+
+    BisectStatusPtr bisectStatus() const { return bisectStatus_.current(); }
+
+    void refreshBisectStatus();
+
+    void startBisect(const BisectStartRequest& request);
+    void markBisect(const BisectMarkRequest& request);
+    void skipBisect(const BisectSkipRequest& request);
+    void resetBisect(const BisectResetRequest& request);
+
 signals:
     /// A newer graph snapshot is available (possibly partial).
     void graphUpdated(bool complete);
@@ -280,6 +293,7 @@ signals:
     void worktreesUpdated();
     void remotesUpdated();
     void submodulesUpdated();
+    void bisectStatusUpdated();
 
     /// A `git` subprocess spawned by one of the M3 remote/tag operations is
     /// blocked waiting for `prompt`. The view layer is expected to show it and
@@ -328,6 +342,7 @@ private:
     std::unique_ptr<FileHistoryStore> fileHistoryStore_;
     std::unique_ptr<ReflogStore> reflogStore_;
     std::unique_ptr<SubmoduleStore> submoduleStore_;
+    std::unique_ptr<BisectStore> bisectStore_;
     AskpassWatcher* askpass_ = nullptr;
 
     SnapshotHolder<GraphSnapshot> graph_;
@@ -337,6 +352,7 @@ private:
     SnapshotHolder<std::vector<WorktreeInfo>> worktrees_;
     SnapshotHolder<std::vector<RemoteInfo>> remotes_;
     SnapshotHolder<std::vector<SubmoduleInfo>> submodules_;
+    SnapshotHolder<BisectStatus> bisectStatus_;
 
     /// Cancels the in-flight history walk when a new one starts.
     CancellationSource historyCancel_;

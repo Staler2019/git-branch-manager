@@ -23,6 +23,7 @@ add_library(gbm_core STATIC
     git/SideBySideDiff.cpp
     git/UnifiedDiffParser.cpp
     git/WorkingCopyStatus.cpp
+    git/ops/BisectOps.cpp
     git/ops/BranchOps.cpp
     git/ops/CheckoutOp.cpp
     git/ops/CherryPickOps.cpp

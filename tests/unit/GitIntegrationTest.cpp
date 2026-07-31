@@ -7,12 +7,15 @@
 // touch git itself.
 #include "core/base/CancellationToken.h"
 #include "core/base/FsUtil.h"
+#include "core/git/BlameStore.h"
 #include "core/git/CatFileBatch.h"
 #include "core/git/DiffService.h"
+#include "core/git/FileHistoryStore.h"
 #include "core/git/GitExecutable.h"
 #include "core/git/HistoryProvider.h"
 #include "core/git/OperationRunner.h"
 #include "core/git/RefStore.h"
+#include "core/git/ReflogStore.h"
 #include "core/git/RepoState.h"
 #include "core/git/WorkingCopyStatus.h"
 #include "core/git/ops/BranchOps.h"
@@ -21,10 +24,13 @@
 #include "core/git/ops/CommitOps.h"
 #include "core/git/ops/ConflictOps.h"
 #include "core/git/ops/MergeOps.h"
+#include "core/git/ops/RebaseOps.h"
 #include "core/git/ops/RemoteOps.h"
+#include "core/git/ops/ResetOps.h"
 #include "core/git/ops/StageOps.h"
 #include "core/git/ops/StashOps.h"
 #include "core/git/ops/TagOps.h"
+#include "core/git/ops/UndoOps.h"
 #include "core/git/ops/WorktreeOps.h"
 
 #include <algorithm>
@@ -1768,6 +1774,484 @@ TEST_F(RemoteRepoTest, ForceWithLeaseRefusesAStalePushAndSucceedsAfterRefetching
 
     auto retried = submitAndWait(operations, makePushOperation(forcePush));
     ASSERT_TRUE(retried.succeeded) << (retried.error ? retried.error->detail : "");
+}
+
+// --- M4: reset / restore / clean --------------------------------------------
+
+TEST_F(RealRepoTest, SoftResetMovesHeadButKeepsTheIndexAndWorkTree) {
+    commitFile("a.txt", "1\n", "c1");
+    commitFile("a.txt", "2\n", "c2");
+    auto first = run({"rev-parse", "HEAD~1"});
+    ASSERT_TRUE(first);
+
+    OperationRunner operations(*runner_, paths_);
+    ResetRequest request;
+    request.target = first->out;
+    request.mode = ResetMode::Soft;
+    auto outcome = submitAndWait(operations, makeResetOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    auto head = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(head);
+    EXPECT_EQ(head->out, first->out);
+    // The change from c2 must still be staged.
+    auto staged = run({"diff", "--cached", "--name-only"});
+    ASSERT_TRUE(staged);
+    EXPECT_EQ(staged->out, "a.txt");
+}
+
+TEST_F(RealRepoTest, MixedResetMovesHeadAndUnstagesButKeepsTheWorkTree) {
+    commitFile("a.txt", "1\n", "c1");
+    commitFile("a.txt", "2\n", "c2");
+    auto first = run({"rev-parse", "HEAD~1"});
+    ASSERT_TRUE(first);
+
+    OperationRunner operations(*runner_, paths_);
+    ResetRequest request;
+    request.target = first->out;
+    request.mode = ResetMode::Mixed;
+    auto outcome = submitAndWait(operations, makeResetOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    auto staged = run({"diff", "--cached", "--name-only"});
+    ASSERT_TRUE(staged);
+    EXPECT_TRUE(staged->out.empty());
+    std::ifstream in(repo_ / "a.txt");
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    EXPECT_EQ(content, "2\n") << "the work tree must be untouched by a mixed reset";
+}
+
+TEST_F(RealRepoTest, HardResetDiscardsTheIndexAndWorkTree) {
+    commitFile("a.txt", "1\n", "c1");
+    commitFile("a.txt", "2\n", "c2");
+    auto first = run({"rev-parse", "HEAD~1"});
+    ASSERT_TRUE(first);
+
+    OperationRunner operations(*runner_, paths_);
+    ResetRequest request;
+    request.target = first->out;
+    request.mode = ResetMode::Hard;
+    auto outcome = submitAndWait(operations, makeResetOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    std::ifstream in(repo_ / "a.txt");
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    EXPECT_EQ(content, "1\n");
+}
+
+TEST_F(RealRepoTest, RestoreStagedUnstagesWithoutTouchingTheWorkTree) {
+    commitFile("a.txt", "1\n", "c1");
+    {
+        std::ofstream out(repo_ / "a.txt", std::ios::trunc);
+        out << "2\n";
+    }
+    ASSERT_TRUE(run({"add", "a.txt"}));
+
+    OperationRunner operations(*runner_, paths_);
+    RestoreRequest request;
+    request.paths = {"a.txt"};
+    request.staged = true;
+    auto outcome = submitAndWait(operations, makeRestoreOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    auto staged = run({"diff", "--cached", "--name-only"});
+    ASSERT_TRUE(staged);
+    EXPECT_TRUE(staged->out.empty());
+    std::ifstream in(repo_ / "a.txt");
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    EXPECT_EQ(content, "2\n") << "unstaging must not touch the work tree";
+}
+
+TEST_F(RealRepoTest, RestoreWorkTreeDiscardsUnstagedChanges) {
+    commitFile("a.txt", "1\n", "c1");
+    {
+        std::ofstream out(repo_ / "a.txt", std::ios::trunc);
+        out << "scratch\n";
+    }
+
+    OperationRunner operations(*runner_, paths_);
+    RestoreRequest request;
+    request.paths = {"a.txt"};
+    request.staged = false;
+    auto outcome = submitAndWait(operations, makeRestoreOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    std::ifstream in(repo_ / "a.txt");
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    EXPECT_EQ(content, "1\n");
+}
+
+TEST_F(RealRepoTest, CleanPreviewListsUntrackedFilesWithoutRemovingThem) {
+    commitFile("a.txt", "1\n", "c1");
+    {
+        std::ofstream out(repo_ / "scratch.txt");
+        out << "junk\n";
+    }
+
+    CleanPreviewer previewer(*runner_, paths_);
+    auto preview = previewer.preview(false, CancellationToken{});
+    ASSERT_TRUE(preview) << preview.error().message;
+    ASSERT_EQ(preview->size(), 1u);
+    EXPECT_EQ((*preview)[0].path, "scratch.txt");
+    EXPECT_TRUE(std::filesystem::exists(repo_ / "scratch.txt"))
+        << "a preview must never touch the filesystem";
+}
+
+TEST_F(RealRepoTest, CleanRemovesUntrackedFiles) {
+    commitFile("a.txt", "1\n", "c1");
+    {
+        std::ofstream out(repo_ / "scratch.txt");
+        out << "junk\n";
+    }
+
+    OperationRunner operations(*runner_, paths_);
+    CleanRequest request;
+    auto outcome = submitAndWait(operations, makeCleanOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+    EXPECT_FALSE(std::filesystem::exists(repo_ / "scratch.txt"));
+    EXPECT_TRUE(std::filesystem::exists(repo_ / "a.txt")) << "tracked files must be untouched";
+}
+
+// --- M4: interactive and plain rebase ---------------------------------------
+
+TEST_F(RealRepoTest, RebasePlanListsCommitsOldestFirst) {
+    commitFile("base.txt", "base\n", "base");
+    auto base = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(base);
+    commitFile("a.txt", "1\n", "c1");
+    commitFile("b.txt", "2\n", "c2");
+
+    RebasePlanner planner(*runner_, paths_);
+    auto plan = planner.plan(base->out, CancellationToken{});
+    ASSERT_TRUE(plan) << plan.error().message;
+    ASSERT_EQ(plan->size(), 2u);
+    EXPECT_EQ((*plan)[0].subject, "c1");
+    EXPECT_EQ((*plan)[1].subject, "c2");
+    EXPECT_EQ((*plan)[0].action, RebaseTodoEntry::Action::Pick);
+}
+
+TEST_F(RealRepoTest, InteractiveRebaseAppliesReorderingAndDrops) {
+    commitFile("base.txt", "base\n", "base");
+    auto base = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(base);
+    commitFile("a.txt", "1\n", "c1");
+    commitFile("b.txt", "2\n", "c2");
+    commitFile("c.txt", "3\n", "c3");
+
+    RebasePlanner planner(*runner_, paths_);
+    auto plan = planner.plan(base->out, CancellationToken{});
+    ASSERT_TRUE(plan);
+    ASSERT_EQ(plan->size(), 3u);
+
+    // Reorder c2 before c1, and drop c3 entirely.
+    RebaseInteractiveRequest request;
+    request.upstream = base->out;
+    request.todo = {(*plan)[1], (*plan)[0]};
+    request.todo[1].action = RebaseTodoEntry::Action::Pick;
+
+    OperationRunner operations(*runner_, paths_);
+    auto outcome = submitAndWait(operations, makeRebaseInteractiveOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+    EXPECT_TRUE(RepoState::read(paths_).isClean());
+
+    auto subjects = run({"log", "--format=%s", "--reverse"});
+    ASSERT_TRUE(subjects);
+    EXPECT_EQ(subjects->out, "base\nc2\nc1") << "c2 must now come before c1, and c3 must be gone";
+    EXPECT_FALSE(std::filesystem::exists(repo_ / "c.txt"));
+}
+
+TEST_F(RealRepoTest, InteractiveRebaseSquashesCommitsTogether) {
+    commitFile("base.txt", "base\n", "base");
+    auto base = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(base);
+    commitFile("a.txt", "1\n", "c1");
+    commitFile("a.txt", "2\n", "c2 to squash");
+
+    RebasePlanner planner(*runner_, paths_);
+    auto plan = planner.plan(base->out, CancellationToken{});
+    ASSERT_TRUE(plan);
+    ASSERT_EQ(plan->size(), 2u);
+
+    RebaseInteractiveRequest request;
+    request.upstream = base->out;
+    request.todo = *plan;
+    request.todo[1].action = RebaseTodoEntry::Action::Squash;
+
+    OperationRunner operations(*runner_, paths_);
+    auto outcome = submitAndWait(operations, makeRebaseInteractiveOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    auto count = run({"rev-list", "--count", "HEAD"});
+    ASSERT_TRUE(count);
+    EXPECT_EQ(count->out, "2") << "base + one squashed commit";
+    std::ifstream in(repo_ / "a.txt");
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    EXPECT_EQ(content, "2\n");
+}
+
+TEST_F(RealRepoTest, RebaseConflictContinuesAfterResolution) {
+    commitFile("shared.txt", "base\n", "base");
+    auto base = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(base);
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("shared.txt", "feature change\n", "feature commit");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("shared.txt", "main change\n", "main commit");
+    ASSERT_TRUE(run({"switch", "--quiet", "feature"}));
+
+    RebasePlanner planner(*runner_, paths_);
+    auto plan = planner.plan("main", CancellationToken{});
+    ASSERT_TRUE(plan);
+    ASSERT_EQ(plan->size(), 1u);
+
+    RebaseInteractiveRequest request;
+    request.upstream = "main";
+    request.todo = *plan;
+
+    OperationRunner operations(*runner_, paths_);
+    auto outcome = submitAndWait(operations, makeRebaseInteractiveOperation(request));
+    EXPECT_FALSE(outcome.succeeded);
+    ASSERT_TRUE(outcome.error.has_value());
+    EXPECT_EQ(outcome.error->code, GitError::Code::Conflict);
+    EXPECT_TRUE(RepoState::read(paths_).inProgress());
+
+    ResolveConflictRequest resolve;
+    resolve.path = "shared.txt";
+    resolve.resolution = ConflictResolution::TakeTheirs;
+    auto resolved = submitAndWait(operations, makeResolveConflictOperation(resolve));
+    ASSERT_TRUE(resolved.succeeded) << (resolved.error ? resolved.error->detail : "");
+
+    auto continued = submitAndWait(operations, makeRebaseContinueOperation());
+    ASSERT_TRUE(continued.succeeded) << (continued.error ? continued.error->detail : "");
+    EXPECT_TRUE(RepoState::read(paths_).isClean());
+
+    auto content = run({"cat-file", "-p", "HEAD:shared.txt"});
+    ASSERT_TRUE(content);
+    EXPECT_EQ(content->out, "feature change");
+}
+
+TEST_F(RealRepoTest, RebaseSkipDropsTheConflictingCommitAndMovesOn) {
+    commitFile("shared.txt", "base\n", "base");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("shared.txt", "feature change\n", "feature commit");
+    commitFile("other.txt", "unrelated\n", "unrelated commit");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("shared.txt", "main change\n", "main commit");
+    ASSERT_TRUE(run({"switch", "--quiet", "feature"}));
+
+    OperationRunner operations(*runner_, paths_);
+    RebaseRequest request;
+    request.upstream = "main";
+    auto outcome = submitAndWait(operations, makeRebaseOperation(request));
+    ASSERT_FALSE(outcome.succeeded);
+    EXPECT_TRUE(RepoState::read(paths_).inProgress());
+
+    auto skipped = submitAndWait(operations, makeRebaseSkipOperation());
+    ASSERT_TRUE(skipped.succeeded) << (skipped.error ? skipped.error->detail : "");
+    EXPECT_TRUE(RepoState::read(paths_).isClean());
+    EXPECT_TRUE(std::filesystem::exists(repo_ / "other.txt"))
+        << "the commit queued after the skipped one must still land";
+}
+
+TEST_F(RealRepoTest, RebaseAbortUnwindsCleanly) {
+    commitFile("shared.txt", "base\n", "base");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("shared.txt", "feature change\n", "feature commit");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("shared.txt", "main change\n", "main commit");
+    ASSERT_TRUE(run({"switch", "--quiet", "feature"}));
+    auto beforeRebase = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(beforeRebase);
+
+    OperationRunner operations(*runner_, paths_);
+    RebaseRequest request;
+    request.upstream = "main";
+    auto outcome = submitAndWait(operations, makeRebaseOperation(request));
+    ASSERT_FALSE(outcome.succeeded);
+    EXPECT_TRUE(RepoState::read(paths_).inProgress());
+
+    auto aborted = submitAndWait(operations, makeRebaseAbortOperation());
+    ASSERT_TRUE(aborted.succeeded) << (aborted.error ? aborted.error->detail : "");
+    EXPECT_TRUE(RepoState::read(paths_).isClean());
+
+    auto head = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(head);
+    EXPECT_EQ(head->out, beforeRebase->out);
+}
+
+TEST_F(RealRepoTest, PlainRebaseReplaysCommitsOntoANewBaseUnchanged) {
+    commitFile("base.txt", "base\n", "base");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("a.txt", "1\n", "feature c1");
+    commitFile("b.txt", "2\n", "feature c2");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("other.txt", "unrelated\n", "main commit");
+
+    OperationRunner operations(*runner_, paths_);
+    ASSERT_TRUE(run({"switch", "--quiet", "feature"}));
+    RebaseRequest request;
+    request.upstream = "main";
+    auto outcome = submitAndWait(operations, makeRebaseOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    auto subjects = run({"log", "--format=%s", "-2"});
+    ASSERT_TRUE(subjects);
+    EXPECT_EQ(subjects->out, "feature c2\nfeature c1")
+        << "messages must be preserved exactly by a non-interactive rebase";
+    EXPECT_TRUE(std::filesystem::exists(repo_ / "other.txt"));
+}
+
+// --- M4: blame ---------------------------------------------------------------
+
+TEST_F(RealRepoTest, BlameAttributesEachLineToTheCommitThatIntroducedIt) {
+    {
+        std::ofstream out(repo_ / "a.txt");
+        out << "line one\nline two\n";
+    }
+    ASSERT_TRUE(run({"add", "a.txt"}));
+    ASSERT_TRUE(run({"commit", "--quiet", "-m", "first two lines"}));
+    auto first = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(first);
+
+    {
+        std::ofstream out(repo_ / "a.txt", std::ios::app);
+        out << "line three\n";
+    }
+    ASSERT_TRUE(run({"add", "a.txt"}));
+    ASSERT_TRUE(run({"commit", "--quiet", "-m", "add a third line"}));
+    auto second = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(second);
+
+    BlameStore blame(*runner_, paths_);
+    auto result = blame.blame("a.txt", "", 0, 0, CancellationToken{});
+    ASSERT_TRUE(result) << result.error().message;
+    ASSERT_EQ((*result)->lines.size(), 3u);
+    EXPECT_EQ((*result)->lines[0].commitOid.hex(), first->out);
+    EXPECT_EQ((*result)->lines[1].commitOid.hex(), first->out);
+    EXPECT_EQ((*result)->lines[2].commitOid.hex(), second->out);
+    EXPECT_EQ((*result)->lines[2].content, "line three");
+    EXPECT_EQ((*result)->lines[2].summary, "add a third line");
+}
+
+TEST_F(RealRepoTest, BlameRespectsAnExplicitLineRange) {
+    {
+        std::ofstream out(repo_ / "a.txt");
+        out << "one\ntwo\nthree\nfour\n";
+    }
+    ASSERT_TRUE(run({"add", "a.txt"}));
+    ASSERT_TRUE(run({"commit", "--quiet", "-m", "four lines"}));
+
+    BlameStore blame(*runner_, paths_);
+    auto result = blame.blame("a.txt", "", 2, 3, CancellationToken{});
+    ASSERT_TRUE(result) << result.error().message;
+    ASSERT_EQ((*result)->lines.size(), 2u);
+    EXPECT_EQ((*result)->lines[0].content, "two");
+    EXPECT_EQ((*result)->lines[1].content, "three");
+}
+
+// --- M4: file and line history ------------------------------------------------
+
+TEST_F(RealRepoTest, FileHistoryFollowsARenameAcrossHistory) {
+    commitFile("old.txt", "content\n", "add old.txt");
+    ASSERT_TRUE(run({"mv", "old.txt", "new.txt"}));
+    ASSERT_TRUE(run({"commit", "--quiet", "-m", "rename to new.txt"}));
+    commitFile("new.txt", "content\nmore\n", "edit new.txt");
+
+    FileHistoryStore history(*runner_, paths_);
+    auto entries = history.fileHistory("new.txt", "", CancellationToken{});
+    ASSERT_TRUE(entries) << entries.error().message;
+    ASSERT_EQ(entries->size(), 3u);
+    EXPECT_EQ((*entries)[0].subject, "edit new.txt");
+    EXPECT_EQ((*entries)[1].subject, "rename to new.txt");
+    EXPECT_EQ((*entries)[1].renamedFrom, "old.txt");
+    EXPECT_EQ((*entries)[2].subject, "add old.txt");
+}
+
+TEST_F(RealRepoTest, LineHistoryReturnsAChunkPerCommitTouchingTheRange) {
+    {
+        std::ofstream out(repo_ / "a.txt");
+        out << "one\ntwo\nthree\n";
+    }
+    ASSERT_TRUE(run({"add", "a.txt"}));
+    ASSERT_TRUE(run({"commit", "--quiet", "-m", "initial"}));
+    {
+        std::ofstream out(repo_ / "a.txt", std::ios::trunc);
+        out << "one\nTWO CHANGED\nthree\n";
+    }
+    ASSERT_TRUE(run({"add", "a.txt"}));
+    ASSERT_TRUE(run({"commit", "--quiet", "-m", "change line two"}));
+
+    FileHistoryStore history(*runner_, paths_);
+    auto chunks = history.lineHistory("a.txt", 2, 2, "", CancellationToken{});
+    ASSERT_TRUE(chunks) << chunks.error().message;
+    ASSERT_GE(chunks->size(), 1u);
+    EXPECT_EQ((*chunks)[0].subject, "change line two");
+    EXPECT_NE((*chunks)[0].diffText.find("TWO CHANGED"), std::string::npos);
+}
+
+// --- M4: reflog and undo -----------------------------------------------------
+
+TEST_F(RealRepoTest, ReflogListsRecentHeadMovementsNewestFirst) {
+    commitFile("a.txt", "1\n", "c1");
+    commitFile("a.txt", "2\n", "c2");
+
+    ReflogStore reflog(*runner_, paths_);
+    auto entries = reflog.list("", CancellationToken{});
+    ASSERT_TRUE(entries) << entries.error().message;
+    ASSERT_GE(entries->size(), 2u);
+    EXPECT_EQ((*entries)[0].index, 0);
+    EXPECT_NE((*entries)[0].message.find("c2"), std::string::npos);
+    auto head = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(head);
+    EXPECT_EQ((*entries)[0].oid.hex(), head->out);
+}
+
+TEST_F(RealRepoTest, UndoResetsBackToWhereHeadStoodBeforeTheOperation) {
+    commitFile("a.txt", "1\n", "c1");
+    auto beforeSecondCommit = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(beforeSecondCommit);
+
+    OperationRunner operations(*runner_, paths_);
+    CommitRequest commitRequest;
+    commitRequest.message = "c2";
+    {
+        std::ofstream out(repo_ / "a.txt", std::ios::trunc);
+        out << "2\n";
+    }
+    ASSERT_TRUE(run({"add", "a.txt"}));
+    auto committed = submitAndWait(operations, makeCommitOperation(commitRequest));
+    ASSERT_TRUE(committed.succeeded) << (committed.error ? committed.error->detail : "");
+
+    ASSERT_EQ(operations.undoJournal().size(), 1u);
+    const auto& entry = operations.undoJournal().back();
+    EXPECT_EQ(entry.headBefore.hex(), beforeSecondCommit->out);
+
+    UndoRequest undo;
+    undo.headBefore = entry.headBefore;
+    undo.branchBefore = entry.branchBefore;
+    auto undone = submitAndWait(operations, makeUndoOperation(undo));
+    ASSERT_TRUE(undone.succeeded) << (undone.error ? undone.error->detail : "");
+
+    auto head = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(head);
+    EXPECT_EQ(head->out, beforeSecondCommit->out);
+}
+
+TEST_F(RealRepoTest, UndoRefusesAfterSwitchingToADifferentBranch) {
+    commitFile("a.txt", "1\n", "c1");
+
+    OperationRunner operations(*runner_, paths_);
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "other"}));
+    auto head = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(head);
+
+    UndoRequest undo;
+    undo.headBefore = ObjectId::fromHex(head->out);
+    undo.branchBefore = "main";
+    auto outcome = submitAndWait(operations, makeUndoOperation(undo));
+    EXPECT_FALSE(outcome.succeeded);
+    ASSERT_TRUE(outcome.error.has_value());
+    EXPECT_EQ(outcome.error->code, GitError::Code::InvalidArgument);
 }
 
 }  // namespace

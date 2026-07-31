@@ -7,11 +7,13 @@ decade of history** — hundreds of thousands of commits, tens of thousands of f
 and often thousands of stale refs. It manages many such repositories at once,
 discovered under folders you nominate.
 
-> **Status: M0–M3 implemented.** History browsing, the Fork-style graph,
+> **Status: M0–M4 implemented.** History browsing, the Fork-style graph,
 > repository discovery with caching, diff viewing, branch switching, the working
-> copy, merge/cherry-pick/conflict resolution, and worktrees/stash/tags/fetch/
-> pull/push all work end to end on all three platforms. Interactive rebase and
-> the rest are designed for but not yet implemented — see [Roadmap](#roadmap).
+> copy, merge/cherry-pick/conflict resolution, worktrees/stash/tags/fetch/
+> pull/push, interactive rebase, reset/restore/clean, blame, file and line
+> history, and the reflog/undo journal all work end to end on all three
+> platforms. Submodules, bisect and the rest are designed for but not yet
+> implemented — see [Roadmap](#roadmap).
 
 ## What works today
 
@@ -35,6 +37,20 @@ discovered under folders you nominate.
   `--force-with-lease`, never a bare `--force`.
 - **An operation log** recording every Git command, its exit code, duration and
   full stderr, with a copy button.
+- **Interactive rebase**: reorder, drop, squash and fixup commits from an
+  editable plan (no external editor process — see
+  [Design decisions](#design-decisions-worth-knowing)), plus `edit` stops that
+  hand off to the existing amend flow; conflicts, `--skip` and `--abort` are
+  Continue/Skip/Abort banner controls shared with cherry-pick.
+- **Reset, restore and clean**: soft/mixed/hard reset to any commit, unstage
+  or discard changes per path, and a preview-before-you-delete untracked-file
+  clean.
+- **Blame, and file/line history**: per-line attribution (`git blame
+  --line-porcelain`), a file's commit history across renames (`--follow`), and
+  a specific line range's history (`log -L`).
+- **Reflog browser and undo**: every `HEAD` movement, and a one-click "Undo
+  last operation" backed by the operation runner's own undo journal rather
+  than a reflog guess.
 
 ## Measured behaviour
 
@@ -86,6 +102,16 @@ Other decisions that are easy to get wrong:
   deterministic enough to golden-test.
 - **Every cap is visible.** The 48-lane limit, the 2 MB diff limit and the row limit
   each surface a message. Silent truncation would be worse than being slow.
+- **No interactive editor process, anywhere.** There is no terminal to run one in,
+  so `git commit --amend`, a no-ff merge and squash/fixup all always pass a
+  message explicitly (`--no-edit` or otherwise) rather than opening `$EDITOR`.
+  Interactive rebase carries the idea furthest: the todo list is built and
+  edited in the UI, then `GIT_SEQUENCE_EDITOR` is pointed at `cp` with the
+  built plan as its first argument, so git's own "run the editor" step becomes
+  a copy instead of a blocked child process. `cp` needs nothing bundled — Git
+  for Windows carries its own coreutils and prepends them to `PATH` for
+  exactly this kind of child process — so it works unmodified on all three
+  platforms.
 - **A cancelled scan never deletes anything.** It commits what it found and skips
   the mark-missing sweep, because most of the tree was never visited.
 
@@ -201,7 +227,7 @@ git config core.untrackedCache true
 | **M1 — done** | Working copy: status with fsmonitor, stage/unstage by file, hunk and line, commit and amend, branch create/rename/delete |
 | **M2 — done** | Merge (ff / no-ff / squash), cherry-pick single, multi and range with preview, conflict resolution across all three index stages, side-by-side diff |
 | **M3 — done** | Worktree manager, stash, tags, fetch/pull/push with askpass helpers and `--force-with-lease` by default, signed installers |
-| M4 | Interactive rebase, reset/restore/clean, blame, file and line history, reflog browser and undo |
+| **M4 — done** | Interactive rebase, reset/restore/clean, blame, file and line history, reflog browser and undo |
 | M5 | Submodules, bisect, LFS, patch import/export, themes, accessibility |
 
 ## Licence

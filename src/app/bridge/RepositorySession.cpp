@@ -28,6 +28,9 @@ RepositorySession::RepositorySession(GitInstallation installation,
     stashStore_ = std::make_unique<StashStore>(*runner_, paths_);
     worktreeStore_ = std::make_unique<WorktreeStore>(*runner_, paths_);
     remoteStore_ = std::make_unique<RemoteStore>(*runner_, paths_);
+    blameStore_ = std::make_unique<BlameStore>(*runner_, paths_);
+    fileHistoryStore_ = std::make_unique<FileHistoryStore>(*runner_, paths_);
+    reflogStore_ = std::make_unique<ReflogStore>(*runner_, paths_);
 
     askpass_ = new AskpassWatcher(this);
     connect(
@@ -637,6 +640,206 @@ void RepositorySession::provideCredential(const QString& secret) {
 
 void RepositorySession::cancelCredential() {
     askpass_->cancel();
+}
+
+// --- M4: reset / restore / clean --------------------------------------------
+
+void RepositorySession::resetTo(const ResetRequest& request) {
+    submitWorkingCopyOperation(makeResetOperation(request), true);
+}
+
+void RepositorySession::restorePaths(const RestoreRequest& request) {
+    submitWorkingCopyOperation(makeRestoreOperation(request), false);
+}
+
+void RepositorySession::requestCleanPreview(bool includeIgnored) {
+    const CancellationToken token = readCancel_.token();
+    setBusy(true);
+
+    readPool_.post([this, includeIgnored, token] {
+        CleanPreviewer previewer(*runner_, paths_);
+        auto preview = previewer.preview(includeIgnored, token);
+        if (preview) {
+            auto entries = *preview;
+            QMetaObject::invokeMethod(
+                this,
+                [this, entries = std::move(entries)] { emit cleanPreviewReady(entries); },
+                Qt::QueuedConnection);
+        } else if (preview.error().code != GitError::Code::Cancelled) {
+            GitError error = std::move(preview).error();
+            QMetaObject::invokeMethod(
+                this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
+        }
+        QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+    });
+}
+
+void RepositorySession::cleanUntracked(const CleanRequest& request) {
+    submitWorkingCopyOperation(makeCleanOperation(request), false);
+}
+
+// --- M4: rebase --------------------------------------------------------------
+
+void RepositorySession::requestRebasePlan(const std::string& upstream) {
+    const CancellationToken token = readCancel_.token();
+    setBusy(true);
+
+    readPool_.post([this, upstream, token] {
+        RebasePlanner planner(*runner_, paths_);
+        auto plan = planner.plan(upstream, token);
+        if (plan) {
+            auto entries = *plan;
+            QMetaObject::invokeMethod(
+                this,
+                [this, entries = std::move(entries)] { emit rebasePlanReady(entries); },
+                Qt::QueuedConnection);
+        } else if (plan.error().code != GitError::Code::Cancelled) {
+            GitError error = std::move(plan).error();
+            QMetaObject::invokeMethod(
+                this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
+        }
+        QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+    });
+}
+
+void RepositorySession::startInteractiveRebase(const RebaseInteractiveRequest& request) {
+    submitWorkingCopyOperation(makeRebaseInteractiveOperation(request), true);
+}
+
+void RepositorySession::startRebase(const RebaseRequest& request) {
+    submitWorkingCopyOperation(makeRebaseOperation(request), true);
+}
+
+void RepositorySession::continueRebase() {
+    submitWorkingCopyOperation(makeRebaseContinueOperation(), true);
+}
+
+void RepositorySession::skipRebase() {
+    submitWorkingCopyOperation(makeRebaseSkipOperation(), true);
+}
+
+void RepositorySession::abortRebase() {
+    submitWorkingCopyOperation(makeRebaseAbortOperation(), true);
+}
+
+// --- M4: blame -----------------------------------------------------------------
+
+void RepositorySession::requestBlame(const std::string& path,
+                                     const std::string& revision,
+                                     int startLine,
+                                     int endLine) {
+    const CancellationToken token = readCancel_.token();
+    setBusy(true);
+
+    readPool_.postFront([this, path, revision, startLine, endLine, token] {
+        if (token.isCancelled()) {
+            QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+            return;
+        }
+        auto result = blameStore_->blame(path, revision, startLine, endLine, token);
+        if (result) {
+            auto resultPtr = *result;
+            QMetaObject::invokeMethod(
+                this, [this, resultPtr] { emit blameReady(resultPtr); }, Qt::QueuedConnection);
+        } else if (result.error().code != GitError::Code::Cancelled) {
+            GitError error = std::move(result).error();
+            QMetaObject::invokeMethod(
+                this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
+        }
+        QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+    });
+}
+
+// --- M4: file and line history ------------------------------------------------
+
+void RepositorySession::requestFileHistory(const std::string& path,
+                                           const std::string& startRevision) {
+    const CancellationToken token = readCancel_.token();
+    setBusy(true);
+
+    readPool_.postFront([this, path, startRevision, token] {
+        if (token.isCancelled()) {
+            QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+            return;
+        }
+        auto entries = fileHistoryStore_->fileHistory(path, startRevision, token);
+        if (entries) {
+            auto result = *entries;
+            QMetaObject::invokeMethod(
+                this,
+                [this, result = std::move(result)] { emit fileHistoryReady(result); },
+                Qt::QueuedConnection);
+        } else if (entries.error().code != GitError::Code::Cancelled) {
+            GitError error = std::move(entries).error();
+            QMetaObject::invokeMethod(
+                this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
+        }
+        QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+    });
+}
+
+void RepositorySession::requestLineHistory(const std::string& path,
+                                           int startLine,
+                                           int endLine,
+                                           const std::string& startRevision) {
+    const CancellationToken token = readCancel_.token();
+    setBusy(true);
+
+    readPool_.postFront([this, path, startLine, endLine, startRevision, token] {
+        if (token.isCancelled()) {
+            QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+            return;
+        }
+        auto chunks =
+            fileHistoryStore_->lineHistory(path, startLine, endLine, startRevision, token);
+        if (chunks) {
+            auto result = *chunks;
+            QMetaObject::invokeMethod(
+                this,
+                [this, result = std::move(result)] { emit lineHistoryReady(result); },
+                Qt::QueuedConnection);
+        } else if (chunks.error().code != GitError::Code::Cancelled) {
+            GitError error = std::move(chunks).error();
+            QMetaObject::invokeMethod(
+                this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
+        }
+        QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+    });
+}
+
+// --- M4: reflog and undo --------------------------------------------------------
+
+void RepositorySession::requestReflog(const std::string& ref) {
+    const CancellationToken token = readCancel_.token();
+    setBusy(true);
+
+    readPool_.post([this, ref, token] {
+        auto entries = reflogStore_->list(ref, token);
+        if (entries) {
+            auto result = *entries;
+            QMetaObject::invokeMethod(
+                this,
+                [this, result = std::move(result)] { emit reflogReady(result); },
+                Qt::QueuedConnection);
+        } else if (entries.error().code != GitError::Code::Cancelled) {
+            GitError error = std::move(entries).error();
+            QMetaObject::invokeMethod(
+                this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
+        }
+        QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+    });
+}
+
+void RepositorySession::undoLastOperation() {
+    const auto& journal = operations_->undoJournal();
+    if (journal.empty()) {
+        return;
+    }
+    const auto& last = journal.back();
+    UndoRequest request;
+    request.headBefore = last.headBefore;
+    request.branchBefore = last.branchBefore;
+    submitWorkingCopyOperation(makeUndoOperation(request), true);
 }
 
 }  // namespace gbm

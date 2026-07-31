@@ -8,14 +8,17 @@ add_library(gbm_core STATIC
     base/ThreadCheck.cpp
 
     git/AskpassHelper.cpp
+    git/BlameStore.cpp
     git/CatFileBatch.cpp
     git/CommitMeta.cpp
     git/DiffService.cpp
+    git/FileHistoryStore.cpp
     git/GitExecutable.cpp
     git/HistoryProvider.cpp
     git/OperationRunner.cpp
     git/ProcessRunner.cpp
     git/RefStore.cpp
+    git/ReflogStore.cpp
     git/RepoState.cpp
     git/SideBySideDiff.cpp
     git/UnifiedDiffParser.cpp
@@ -26,10 +29,13 @@ add_library(gbm_core STATIC
     git/ops/CommitOps.cpp
     git/ops/ConflictOps.cpp
     git/ops/MergeOps.cpp
+    git/ops/RebaseOps.cpp
     git/ops/RemoteOps.cpp
+    git/ops/ResetOps.cpp
     git/ops/StageOps.cpp
     git/ops/StashOps.cpp
     git/ops/TagOps.cpp
+    git/ops/UndoOps.cpp
     git/ops/WorktreeOps.cpp
 
     graph/GraphAsciiRenderer.cpp

@@ -21,7 +21,9 @@
 #include <functional>
 #include <memory>
 
+class QAction;
 class QLineEdit;
+class QPushButton;
 class QSplitter;
 class QStackedWidget;
 class QProgressBar;
@@ -77,6 +79,18 @@ private slots:
     void onRefContextMenuRequested(const QPoint& pos);
     void onCredentialRequested(QString prompt);
 
+    // --- M4 ---------------------------------------------------------------
+    void onResetBranchRequested();
+    void onRebaseRequested();
+    void onInteractiveRebaseRequested();
+    void onBannerContinue();
+    void onBannerSkip();
+    void onBannerAbort();
+    void onCleanUntracked();
+    void onShowReflog();
+    void onUndoLastOperation();
+    void onFileContextMenuRequested(const QPoint& pos);
+
 private:
     void buildUi();
     void buildMenus();
@@ -105,6 +119,10 @@ private:
     void runWithFeedback(std::function<void()> submit,
                          std::function<void(OperationChoice::Kind)> onChoice = nullptr);
 
+    /// Shows or hides the Continue/Skip/Abort banner buttons appropriately for
+    /// whichever sequencer operation RepoState reports, if any.
+    void updateSequencerControls(const RepoState& state);
+
     GitInstallation installation_;
 
     /// Read pool for history, diffs and metadata. Sized to leave a core for the UI.
@@ -130,6 +148,10 @@ private:
 
     QLabel* statusLabel_ = nullptr;
     QLabel* bannerLabel_ = nullptr;
+    QPushButton* bannerContinueButton_ = nullptr;
+    QPushButton* bannerSkipButton_ = nullptr;
+    QPushButton* bannerAbortButton_ = nullptr;
+    QAction* undoAction_ = nullptr;
     QProgressBar* busyBar_ = nullptr;
 
     /// Coalesces a burst of scroll events into a single `probeVisibleRepos()`

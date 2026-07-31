@@ -29,6 +29,7 @@
 #include "core/git/ops/ResetOps.h"
 #include "core/git/ops/StageOps.h"
 #include "core/git/ops/StashOps.h"
+#include "core/git/ops/SubmoduleOps.h"
 #include "core/git/ops/TagOps.h"
 #include "core/git/ops/UndoOps.h"
 #include "core/git/ops/WorktreeOps.h"
@@ -72,11 +73,27 @@ protected:
         ASSERT_TRUE(run({"config", "user.email", "test@example.invalid"}));
         ASSERT_TRUE(run({"config", "user.name", "Test"}));
         ASSERT_TRUE(run({"config", "commit.gpgsign", "false"}));
+        // Git refuses a submodule's recursive clone over the plain `file`
+        // transport by default since CVE-2022-39253, and deliberately will not
+        // honour a repo-local config override for it -- otherwise a malicious
+        // repository could just grant itself the permission. The M5 submodule
+        // tests below use a sibling directory as the submodule URL, so this is
+        // relaxed process-wide for the test binary, the same way git's own test
+        // suite does it (GIT_ALLOW_PROTOCOL) rather than by touching global git
+        // config. The app itself never sets this.
+#ifdef _WIN32
+        _putenv_s("GIT_ALLOW_PROTOCOL", "file:git:http:https:ssh");
+#else
+        setenv("GIT_ALLOW_PROTOCOL", "file:git:http:https:ssh", 1);
+#endif
     }
 
     void TearDown() override {
         std::error_code ec;
         std::filesystem::remove_all(repo_, ec);
+        for (const auto& extra : extraDirs_) {
+            std::filesystem::remove_all(extra, ec);
+        }
     }
 
     GitResult<ProcessResult> run(std::vector<std::string> args) {
@@ -137,10 +154,38 @@ protected:
         return oids;
     }
 
+    /// A second, independent repository with one commit, for tests that add it
+    /// as a submodule of `repo_`. A plain filesystem path is a valid submodule
+    /// URL, so no server or `file://` scheme is needed.
+    std::filesystem::path makeSourceRepo(const std::string& suffix) {
+        const std::filesystem::path source = repo_.string() + suffix;
+        std::filesystem::remove_all(source);
+        std::filesystem::create_directories(source);
+
+        GitCommand init(source, {"init", "--quiet", "--initial-branch=main"});
+        init.timeout = std::chrono::seconds(30);
+        EXPECT_TRUE(runner_->run(init, CancellationToken{}));
+        GitCommand email(source, {"config", "user.email", "test@example.invalid"});
+        EXPECT_TRUE(runner_->run(email, CancellationToken{}));
+        GitCommand name(source, {"config", "user.name", "Test"});
+        EXPECT_TRUE(runner_->run(name, CancellationToken{}));
+
+        std::ofstream out(source / "readme.txt");
+        out << "source\n";
+        out.close();
+        GitCommand add(source, {"add", "readme.txt"});
+        EXPECT_TRUE(runner_->run(add, CancellationToken{}));
+        GitCommand commit(source, {"commit", "--quiet", "-m", "initial"});
+        EXPECT_TRUE(runner_->run(commit, CancellationToken{}));
+        extraDirs_.push_back(source);
+        return source;
+    }
+
     static GitInstallation installation_;
     std::filesystem::path repo_;
     std::unique_ptr<IProcessRunner> runner_;
     RepoPaths paths_;
+    std::vector<std::filesystem::path> extraDirs_;
 };
 
 GitInstallation RealRepoTest::installation_;
@@ -2252,6 +2297,114 @@ TEST_F(RealRepoTest, UndoRefusesAfterSwitchingToADifferentBranch) {
     EXPECT_FALSE(outcome.succeeded);
     ASSERT_TRUE(outcome.error.has_value());
     EXPECT_EQ(outcome.error->code, GitError::Code::InvalidArgument);
+}
+
+// --- M5: submodules ------------------------------------------------------
+
+TEST_F(RealRepoTest, AddingASubmoduleClonesItAndListsItUpToDate) {
+    commitFile("a.txt", "1\n", "c1");
+    const std::filesystem::path source = makeSourceRepo("-sub-add");
+
+    OperationRunner operations(*runner_, paths_);
+    AddSubmoduleRequest request;
+    request.url = source.string();
+    request.path = "vendor/sub";
+    auto outcome = submitAndWait(operations, makeAddSubmoduleOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    EXPECT_TRUE(std::filesystem::exists(repo_ / "vendor" / "sub" / "readme.txt"));
+    EXPECT_TRUE(std::filesystem::exists(repo_ / ".gitmodules"));
+
+    SubmoduleStore store(*runner_, paths_);
+    auto list = store.list(CancellationToken{});
+    ASSERT_TRUE(list) << list.error().message;
+    ASSERT_EQ(list->size(), 1u);
+    EXPECT_EQ((*list)[0].path, "vendor/sub");
+    EXPECT_EQ((*list)[0].url, source.string());
+    EXPECT_EQ((*list)[0].state, SubmoduleInfo::State::UpToDate);
+    EXPECT_FALSE((*list)[0].headOid.empty());
+}
+
+TEST_F(RealRepoTest, DeinitLeavesTheSubmoduleNotInitialized) {
+    commitFile("a.txt", "1\n", "c1");
+    const std::filesystem::path source = makeSourceRepo("-sub-deinit");
+
+    OperationRunner operations(*runner_, paths_);
+    AddSubmoduleRequest add;
+    add.url = source.string();
+    add.path = "sub";
+    ASSERT_TRUE(submitAndWait(operations, makeAddSubmoduleOperation(add)).succeeded);
+
+    DeinitSubmodulesRequest deinit;
+    deinit.paths = {"sub"};
+    deinit.force = true;
+    auto outcome = submitAndWait(operations, makeDeinitSubmodulesOperation(deinit));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    EXPECT_FALSE(std::filesystem::exists(repo_ / "sub" / "readme.txt"))
+        << "deinit must empty the submodule's work tree";
+
+    SubmoduleStore store(*runner_, paths_);
+    auto list = store.list(CancellationToken{});
+    ASSERT_TRUE(list) << list.error().message;
+    ASSERT_EQ(list->size(), 1u);
+    EXPECT_EQ((*list)[0].state, SubmoduleInfo::State::NotInitialized);
+}
+
+TEST_F(RealRepoTest, InitAndUpdateBringABackADeinitializedSubmodule) {
+    commitFile("a.txt", "1\n", "c1");
+    const std::filesystem::path source = makeSourceRepo("-sub-reinit");
+
+    OperationRunner operations(*runner_, paths_);
+    AddSubmoduleRequest add;
+    add.url = source.string();
+    add.path = "sub";
+    ASSERT_TRUE(submitAndWait(operations, makeAddSubmoduleOperation(add)).succeeded);
+
+    DeinitSubmodulesRequest deinit;
+    deinit.paths = {"sub"};
+    deinit.force = true;
+    ASSERT_TRUE(submitAndWait(operations, makeDeinitSubmodulesOperation(deinit)).succeeded);
+
+    SubmodulePathsRequest init;
+    init.paths = {"sub"};
+    ASSERT_TRUE(submitAndWait(operations, makeInitSubmodulesOperation(init)).succeeded);
+
+    UpdateSubmodulesRequest update;
+    update.paths = {"sub"};
+    auto outcome = submitAndWait(operations, makeUpdateSubmodulesOperation(update));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    EXPECT_TRUE(std::filesystem::exists(repo_ / "sub" / "readme.txt"));
+
+    SubmoduleStore store(*runner_, paths_);
+    auto list = store.list(CancellationToken{});
+    ASSERT_TRUE(list) << list.error().message;
+    ASSERT_EQ(list->size(), 1u);
+    EXPECT_EQ((*list)[0].state, SubmoduleInfo::State::UpToDate);
+}
+
+TEST_F(RealRepoTest, SyncSubmodulesRewritesTheLocalUrlFromGitmodules) {
+    commitFile("a.txt", "1\n", "c1");
+    const std::filesystem::path source = makeSourceRepo("-sub-sync");
+
+    OperationRunner operations(*runner_, paths_);
+    AddSubmoduleRequest add;
+    add.url = source.string();
+    add.path = "sub";
+    ASSERT_TRUE(submitAndWait(operations, makeAddSubmoduleOperation(add)).succeeded);
+
+    const std::string newUrl = source.string() + "-renamed";
+    ASSERT_TRUE(run({"config", "--file", ".gitmodules", "submodule.sub.url", newUrl}));
+
+    SubmodulePathsRequest sync;
+    sync.paths = {"sub"};
+    auto outcome = submitAndWait(operations, makeSyncSubmodulesOperation(sync));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    auto configured = run({"config", "submodule.sub.url"});
+    ASSERT_TRUE(configured);
+    EXPECT_EQ(configured->out, newUrl);
 }
 
 }  // namespace

@@ -31,6 +31,7 @@ RepositorySession::RepositorySession(GitInstallation installation,
     blameStore_ = std::make_unique<BlameStore>(*runner_, paths_);
     fileHistoryStore_ = std::make_unique<FileHistoryStore>(*runner_, paths_);
     reflogStore_ = std::make_unique<ReflogStore>(*runner_, paths_);
+    submoduleStore_ = std::make_unique<SubmoduleStore>(*runner_, paths_);
 
     askpass_ = new AskpassWatcher(this);
     connect(
@@ -840,6 +841,79 @@ void RepositorySession::undoLastOperation() {
     request.headBefore = last.headBefore;
     request.branchBefore = last.branchBefore;
     submitWorkingCopyOperation(makeUndoOperation(request), true);
+}
+
+// --- M5: submodules ----------------------------------------------------------
+
+void RepositorySession::refreshSubmodules() {
+    const CancellationToken token = readCancel_.token();
+    setBusy(true);
+
+    readPool_.post([this, token] {
+        auto list = submoduleStore_->list(token);
+        if (list) {
+            submodules_.publish(std::make_shared<std::vector<SubmoduleInfo>>(std::move(*list)));
+            QMetaObject::invokeMethod(
+                this, [this] { emit submodulesUpdated(); }, Qt::QueuedConnection);
+        } else if (list.error().code != GitError::Code::Cancelled) {
+            GitError error = std::move(list).error();
+            QMetaObject::invokeMethod(
+                this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
+        }
+        QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+    });
+}
+
+void RepositorySession::addSubmodule(const AddSubmoduleRequest& request) {
+    AddSubmoduleRequest wired = request;
+    wired.askpassDir = askpass::makeRequestDir();
+    if (!wired.askpassDir.empty()) {
+        askpass_->start(wired.askpassDir);
+    }
+    submitAndRefresh(makeAddSubmoduleOperation(wired), [this](bool succeeded) {
+        askpass_->stop();
+        if (succeeded) {
+            refreshSubmodules();
+        }
+    });
+}
+
+void RepositorySession::initSubmodules(const SubmodulePathsRequest& request) {
+    submitAndRefresh(makeInitSubmodulesOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshSubmodules();
+        }
+    });
+}
+
+void RepositorySession::updateSubmodules(const UpdateSubmodulesRequest& request) {
+    UpdateSubmodulesRequest wired = request;
+    wired.askpassDir = askpass::makeRequestDir();
+    if (!wired.askpassDir.empty()) {
+        askpass_->start(wired.askpassDir);
+    }
+    submitAndRefresh(makeUpdateSubmodulesOperation(wired), [this](bool succeeded) {
+        askpass_->stop();
+        if (succeeded) {
+            refreshSubmodules();
+        }
+    });
+}
+
+void RepositorySession::syncSubmodules(const SubmodulePathsRequest& request) {
+    submitAndRefresh(makeSyncSubmodulesOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshSubmodules();
+        }
+    });
+}
+
+void RepositorySession::deinitSubmodules(const DeinitSubmodulesRequest& request) {
+    submitAndRefresh(makeDeinitSubmodulesOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshSubmodules();
+        }
+    });
 }
 
 }  // namespace gbm

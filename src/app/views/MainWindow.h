@@ -91,6 +91,9 @@ private slots:
     void onUndoLastOperation();
     void onFileContextMenuRequested(const QPoint& pos);
 
+    // --- M5 -----------------------------------------------------------------
+    void onManageSubmodules();
+
 private:
     void buildUi();
     void buildMenus();

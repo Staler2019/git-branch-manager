@@ -24,6 +24,7 @@
 #include "core/git/ops/ResetOps.h"
 #include "core/git/ops/StageOps.h"
 #include "core/git/ops/StashOps.h"
+#include "core/git/ops/SubmoduleOps.h"
 #include "core/git/ops/TagOps.h"
 #include "core/git/ops/UndoOps.h"
 #include "core/git/ops/WorktreeOps.h"
@@ -42,6 +43,7 @@ namespace gbm {
 using StashListPtr = std::shared_ptr<const std::vector<StashEntry>>;
 using WorktreeListPtr = std::shared_ptr<const std::vector<WorktreeInfo>>;
 using RemoteListPtr = std::shared_ptr<const std::vector<RemoteInfo>>;
+using SubmoduleListPtr = std::shared_ptr<const std::vector<SubmoduleInfo>>;
 
 /// One open repository, and the single place where core callbacks become Qt
 /// signals.
@@ -238,6 +240,18 @@ public:
     /// Reverses the most recent journal entry -- see UndoOps.h.
     void undoLastOperation();
 
+    // --- M5: submodules ------------------------------------------------------
+
+    SubmoduleListPtr submodules() const { return submodules_.current(); }
+
+    void refreshSubmodules();
+
+    void addSubmodule(const AddSubmoduleRequest& request);
+    void initSubmodules(const SubmodulePathsRequest& request);
+    void updateSubmodules(const UpdateSubmodulesRequest& request);
+    void syncSubmodules(const SubmodulePathsRequest& request);
+    void deinitSubmodules(const DeinitSubmodulesRequest& request);
+
 signals:
     /// A newer graph snapshot is available (possibly partial).
     void graphUpdated(bool complete);
@@ -265,6 +279,7 @@ signals:
     void stashesUpdated();
     void worktreesUpdated();
     void remotesUpdated();
+    void submodulesUpdated();
 
     /// A `git` subprocess spawned by one of the M3 remote/tag operations is
     /// blocked waiting for `prompt`. The view layer is expected to show it and
@@ -312,6 +327,7 @@ private:
     std::unique_ptr<BlameStore> blameStore_;
     std::unique_ptr<FileHistoryStore> fileHistoryStore_;
     std::unique_ptr<ReflogStore> reflogStore_;
+    std::unique_ptr<SubmoduleStore> submoduleStore_;
     AskpassWatcher* askpass_ = nullptr;
 
     SnapshotHolder<GraphSnapshot> graph_;
@@ -320,6 +336,7 @@ private:
     SnapshotHolder<std::vector<StashEntry>> stashes_;
     SnapshotHolder<std::vector<WorktreeInfo>> worktrees_;
     SnapshotHolder<std::vector<RemoteInfo>> remotes_;
+    SnapshotHolder<std::vector<SubmoduleInfo>> submodules_;
 
     /// Cancels the in-flight history walk when a new one starts.
     CancellationSource historyCancel_;

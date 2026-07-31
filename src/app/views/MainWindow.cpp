@@ -381,6 +381,10 @@ void MainWindow::buildMenus() {
     worktreeMenu->addAction(
         QStringLiteral("Manage worktrees…"), this, &MainWindow::onManageWorktrees);
 
+    auto* submoduleMenu = menuBar()->addMenu(QStringLiteral("Sub&module"));
+    submoduleMenu->addAction(
+        QStringLiteral("Manage submodules…"), this, &MainWindow::onManageSubmodules);
+
     auto* toolBar = addToolBar(QStringLiteral("Main"));
     toolBar->setMovable(false);
     toolBar->addAction(refreshAction);
@@ -2440,6 +2444,179 @@ void MainWindow::onFileContextMenuRequested(const QPoint& pos) {
                     });
         session_->requestLineHistory(stdPath, startLine, endLine, revision);
     }
+}
+
+// --- M5: submodules ----------------------------------------------------------
+
+void MainWindow::onManageSubmodules() {
+    if (!session_) {
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("Manage submodules"));
+    auto* layout = new QVBoxLayout(&dialog);
+
+    auto* table = new QTableWidget(&dialog);
+    table->setColumnCount(4);
+    table->setHorizontalHeaderLabels({QStringLiteral("Path"),
+                                      QStringLiteral("URL"),
+                                      QStringLiteral("Commit"),
+                                      QStringLiteral("Status")});
+    table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->setSelectionMode(QAbstractItemView::SingleSelection);
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->verticalHeader()->setVisible(false);
+    table->setAccessibleName(QStringLiteral("Submodule list"));
+    layout->addWidget(table, 1);
+
+    auto stateLabel = [](SubmoduleInfo::State state) {
+        switch (state) {
+            case SubmoduleInfo::State::NotInitialized:
+                return QStringLiteral("not initialized");
+            case SubmoduleInfo::State::Modified:
+                return QStringLiteral("modified");
+            case SubmoduleInfo::State::Conflicted:
+                return QStringLiteral("conflicted");
+            case SubmoduleInfo::State::UpToDate:
+                return QStringLiteral("up to date");
+        }
+        return QStringLiteral("up to date");
+    };
+
+    auto reload = [this, table, stateLabel] {
+        auto submodules = session_->submodules();
+        table->setRowCount(0);
+        if (!submodules) {
+            return;
+        }
+        table->setRowCount(static_cast<int>(submodules->size()));
+        for (int row = 0; row < static_cast<int>(submodules->size()); ++row) {
+            const SubmoduleInfo& info = (*submodules)[static_cast<std::size_t>(row)];
+            table->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(info.path)));
+            table->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(info.url)));
+            table->setItem(
+                row, 2, new QTableWidgetItem(QString::fromStdString(info.headOid).left(10)));
+            table->setItem(row, 3, new QTableWidgetItem(stateLabel(info.state)));
+        }
+    };
+    connect(session_.get(), &RepositorySession::submodulesUpdated, &dialog, reload);
+    session_->refreshSubmodules();
+    reload();
+
+    auto selectedInfo = [this, table]() -> std::optional<SubmoduleInfo> {
+        const int row = table->currentRow();
+        auto submodules = session_->submodules();
+        if (row < 0 || !submodules || row >= static_cast<int>(submodules->size())) {
+            return std::nullopt;
+        }
+        return (*submodules)[static_cast<std::size_t>(row)];
+    };
+
+    auto* buttonRow = new QHBoxLayout();
+    auto* addButton = new QPushButton(QStringLiteral("Add…"), &dialog);
+    auto* initButton = new QPushButton(QStringLiteral("Init"), &dialog);
+    auto* updateButton = new QPushButton(QStringLiteral("Update"), &dialog);
+    auto* syncButton = new QPushButton(QStringLiteral("Sync"), &dialog);
+    auto* deinitButton = new QPushButton(QStringLiteral("Deinit…"), &dialog);
+    auto* closeButton = new QPushButton(QStringLiteral("Close"), &dialog);
+    for (QPushButton* button :
+        {addButton, initButton, updateButton, syncButton, deinitButton, closeButton}) {
+        button->setAccessibleDescription(QStringLiteral("Submodule action"));
+    }
+    buttonRow->addWidget(addButton);
+    buttonRow->addWidget(initButton);
+    buttonRow->addWidget(updateButton);
+    buttonRow->addWidget(syncButton);
+    buttonRow->addWidget(deinitButton);
+    buttonRow->addStretch(1);
+    buttonRow->addWidget(closeButton);
+    layout->addLayout(buttonRow);
+
+    connect(addButton, &QPushButton::clicked, &dialog, [this, &dialog] {
+        bool ok = false;
+        const QString url = QInputDialog::getText(
+            &dialog, QStringLiteral("Add submodule"), QStringLiteral("URL:"),
+            QLineEdit::Normal, QString(), &ok);
+        if (!ok || url.isEmpty()) {
+            return;
+        }
+        const QString path = QInputDialog::getText(
+            &dialog,
+            QStringLiteral("Add submodule"),
+            QStringLiteral("Path (leave blank to derive from the URL):"),
+            QLineEdit::Normal,
+            QString(),
+            &ok);
+        if (!ok) {
+            return;
+        }
+        AddSubmoduleRequest request;
+        request.url = url.toStdString();
+        request.path = path.toStdString();
+        runWithFeedback([this, request] { session_->addSubmodule(request); });
+    });
+
+    connect(initButton, &QPushButton::clicked, &dialog, [this, selectedInfo] {
+        auto info = selectedInfo();
+        if (!info) {
+            return;
+        }
+        SubmodulePathsRequest request;
+        request.paths = {info->path};
+        runWithFeedback([this, request] { session_->initSubmodules(request); });
+    });
+
+    connect(updateButton, &QPushButton::clicked, &dialog, [this, selectedInfo] {
+        auto info = selectedInfo();
+        if (!info) {
+            return;
+        }
+        UpdateSubmodulesRequest request;
+        request.paths = {info->path};
+        request.init = true;
+        runWithFeedback([this, request] { session_->updateSubmodules(request); });
+    });
+
+    connect(syncButton, &QPushButton::clicked, &dialog, [this, selectedInfo] {
+        auto info = selectedInfo();
+        if (!info) {
+            return;
+        }
+        SubmodulePathsRequest request;
+        request.paths = {info->path};
+        runWithFeedback([this, request] { session_->syncSubmodules(request); });
+    });
+
+    connect(deinitButton, &QPushButton::clicked, &dialog, [this, selectedInfo, &dialog] {
+        auto info = selectedInfo();
+        if (!info) {
+            return;
+        }
+        const auto confirmed =
+            QMessageBox::warning(&dialog,
+                                 QStringLiteral("Deinitialize submodule?"),
+                                 QStringLiteral("This removes the checked-out files for \"%1\" "
+                                               "(any local changes inside it are discarded). "
+                                               "\"%1\" stays listed in .gitmodules and can be "
+                                               "initialised again later.")
+                                     .arg(QString::fromStdString(info->path)),
+                                 QMessageBox::Yes | QMessageBox::Cancel,
+                                 QMessageBox::Cancel);
+        if (confirmed != QMessageBox::Yes) {
+            return;
+        }
+        DeinitSubmodulesRequest request;
+        request.paths = {info->path};
+        request.force = true;
+        runWithFeedback([this, request] { session_->deinitSubmodules(request); });
+    });
+
+    connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
+
+    dialog.resize(720, 360);
+    dialog.exec();
 }
 
 }  // namespace gbm

@@ -34,6 +34,7 @@ add_library(gbm_core STATIC
     git/ops/ResetOps.cpp
     git/ops/StageOps.cpp
     git/ops/StashOps.cpp
+    git/ops/SubmoduleOps.cpp
     git/ops/TagOps.cpp
     git/ops/UndoOps.cpp
     git/ops/WorktreeOps.cpp

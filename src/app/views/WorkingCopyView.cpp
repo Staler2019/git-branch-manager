@@ -4,6 +4,7 @@
 #include "app/views/SideBySideDiffView.h"
 #include "core/git/ops/CommitOps.h"
 #include "core/git/ops/ConflictOps.h"
+#include "core/git/ops/ResetOps.h"
 
 #include <QCheckBox>
 #include <QDialog>
@@ -11,6 +12,8 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QListWidget>
+#include <QMenu>
+#include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSplitter>
@@ -30,9 +33,17 @@ QString pathLabel(const WorkingCopyEntry& entry) {
     return QString::fromStdString(entry.path);
 }
 
-QListWidgetItem* addEntry(QListWidget* list, const WorkingCopyEntry& entry, const QString& suffix) {
+/// Qt::UserRole+1 on an unstaged-list item: whether it is untracked, i.e. has
+/// no HEAD/index content for `git restore` to discard back to.
+constexpr int kUntrackedRole = Qt::UserRole + 1;
+
+QListWidgetItem* addEntry(QListWidget* list,
+                          const WorkingCopyEntry& entry,
+                          const QString& suffix,
+                          bool untracked = false) {
     auto* item = new QListWidgetItem(pathLabel(entry) + suffix, list);
     item->setData(Qt::UserRole, QString::fromStdString(entry.path));
+    item->setData(kUntrackedRole, untracked);
     return item;
 }
 
@@ -77,6 +88,7 @@ void WorkingCopyView::buildUi() {
     leftLayout->addWidget(new QLabel(tr("Changes"), leftWidget));
     unstagedList_ = new QListWidget(leftWidget);
     unstagedList_->setSelectionMode(QAbstractItemView::SingleSelection);
+    unstagedList_->setContextMenuPolicy(Qt::CustomContextMenu);
     leftLayout->addWidget(unstagedList_, 1);
     stageAllButton_ = new QPushButton(tr("Stage All"), leftWidget);
     leftLayout->addWidget(stageAllButton_);
@@ -140,6 +152,42 @@ void WorkingCopyView::buildUi() {
             &QListWidget::itemActivated,
             this,
             &WorkingCopyView::onConflictedItemActivated);
+    connect(
+        unstagedList_, &QListWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+            auto* item = unstagedList_->itemAt(pos);
+            if (item == nullptr || session_ == nullptr) {
+                return;
+            }
+            // `git restore` has nothing to discard an untracked file back
+            // to -- there is no HEAD/index content for it -- so it is left
+            // out of the menu rather than offering an action that would
+            // just fail.
+            if (item->data(kUntrackedRole).toBool()) {
+                return;
+            }
+            const std::string path = item->data(Qt::UserRole).toString().toStdString();
+
+            QMenu menu(unstagedList_);
+            QAction* discardAction = menu.addAction(tr("Discard Changes…"));
+            if (menu.exec(unstagedList_->viewport()->mapToGlobal(pos)) != discardAction) {
+                return;
+            }
+            const auto confirmed =
+                QMessageBox::warning(this,
+                                     tr("Discard changes?"),
+                                     tr("This permanently discards your uncommitted changes "
+                                        "to \"%1\".")
+                                         .arg(QString::fromStdString(path)),
+                                     QMessageBox::Discard | QMessageBox::Cancel,
+                                     QMessageBox::Cancel);
+            if (confirmed != QMessageBox::Discard) {
+                return;
+            }
+            RestoreRequest request;
+            request.paths = {path};
+            request.staged = false;
+            session_->restorePaths(request);
+        });
     connect(sideBySideToggle_, &QCheckBox::toggled, this, [this](bool sideBySide) {
         diffStack_->setCurrentWidget(sideBySide ? static_cast<QWidget*>(sideBySideView_)
                                                 : static_cast<QWidget*>(diffView_));
@@ -217,7 +265,7 @@ void WorkingCopyView::rebuildLists() {
             addEntry(unstagedList_, *entry, QString());
         }
         for (const WorkingCopyEntry* entry : status->untracked()) {
-            addEntry(unstagedList_, *entry, tr("  (untracked)"));
+            addEntry(unstagedList_, *entry, tr("  (untracked)"), true);
         }
     }
 

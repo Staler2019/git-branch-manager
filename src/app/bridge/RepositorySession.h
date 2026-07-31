@@ -3,12 +3,15 @@
 #include "app/bridge/AskpassWatcher.h"
 #include "app/bridge/SnapshotHolder.h"
 #include "core/base/CancellationToken.h"
+#include "core/git/BlameStore.h"
 #include "core/git/CatFileBatch.h"
 #include "core/git/DiffService.h"
+#include "core/git/FileHistoryStore.h"
 #include "core/git/GitExecutable.h"
 #include "core/git/HistoryProvider.h"
 #include "core/git/OperationRunner.h"
 #include "core/git/RefStore.h"
+#include "core/git/ReflogStore.h"
 #include "core/git/RepoState.h"
 #include "core/git/WorkingCopyStatus.h"
 #include "core/git/ops/CheckoutOp.h"
@@ -16,10 +19,13 @@
 #include "core/git/ops/CommitOps.h"
 #include "core/git/ops/ConflictOps.h"
 #include "core/git/ops/MergeOps.h"
+#include "core/git/ops/RebaseOps.h"
 #include "core/git/ops/RemoteOps.h"
+#include "core/git/ops/ResetOps.h"
 #include "core/git/ops/StageOps.h"
 #include "core/git/ops/StashOps.h"
 #include "core/git/ops/TagOps.h"
+#include "core/git/ops/UndoOps.h"
 #include "core/git/ops/WorktreeOps.h"
 #include "core/graph/GraphSnapshot.h"
 #include "core/workers/ThreadPool.h"
@@ -185,6 +191,53 @@ public:
     void provideCredential(const QString& secret);
     void cancelCredential();
 
+    // --- M4: reset / restore / clean --------------------------------------
+
+    /// `git reset`. Hard also refreshes the working-copy status, since it
+    /// rewrites the work tree.
+    void resetTo(const ResetRequest& request);
+    void restorePaths(const RestoreRequest& request);
+    void requestCleanPreview(bool includeIgnored);
+    void cleanUntracked(const CleanRequest& request);
+
+    // --- M4: rebase ------------------------------------------------------
+
+    void requestRebasePlan(const std::string& upstream);
+    void startInteractiveRebase(const RebaseInteractiveRequest& request);
+    void startRebase(const RebaseRequest& request);
+    void continueRebase();
+    void skipRebase();
+    void abortRebase();
+
+    // --- M4: blame ---------------------------------------------------------
+
+    void requestBlame(const std::string& path,
+                      const std::string& revision,
+                      int startLine,
+                      int endLine);
+
+    // --- M4: file and line history -------------------------------------------
+
+    void requestFileHistory(const std::string& path, const std::string& startRevision);
+    void requestLineHistory(const std::string& path,
+                            int startLine,
+                            int endLine,
+                            const std::string& startRevision);
+
+    // --- M4: reflog and undo -----------------------------------------------
+
+    void requestReflog(const std::string& ref);
+
+    /// What OperationRunner recorded HEAD as being before each mutating
+    /// operation. Cheap; safe to call often (e.g. to decide whether an "Undo"
+    /// menu item is enabled).
+    const std::vector<OperationRunner::UndoEntry>& undoJournal() const {
+        return operations_->undoJournal();
+    }
+
+    /// Reverses the most recent journal entry -- see UndoOps.h.
+    void undoLastOperation();
+
 signals:
     /// A newer graph snapshot is available (possibly partial).
     void graphUpdated(bool complete);
@@ -218,6 +271,15 @@ signals:
     /// call provideCredential()/cancelCredential() in response.
     void credentialRequested(QString prompt);
 
+    // --- M4 ----------------------------------------------------------------
+
+    void cleanPreviewReady(std::vector<CleanEntry> entries);
+    void rebasePlanReady(std::vector<RebaseTodoEntry> entries);
+    void blameReady(BlameResultPtr result);
+    void fileHistoryReady(std::vector<FileHistoryEntry> entries);
+    void lineHistoryReady(std::vector<LineHistoryChunk> chunks);
+    void reflogReady(std::vector<ReflogEntry> entries);
+
 private:
     void setBusy(bool busy);
     /// Runs a staging/commit Operation and, on success, refreshes whatever it
@@ -247,6 +309,9 @@ private:
     std::unique_ptr<StashStore> stashStore_;
     std::unique_ptr<WorktreeStore> worktreeStore_;
     std::unique_ptr<RemoteStore> remoteStore_;
+    std::unique_ptr<BlameStore> blameStore_;
+    std::unique_ptr<FileHistoryStore> fileHistoryStore_;
+    std::unique_ptr<ReflogStore> reflogStore_;
     AskpassWatcher* askpass_ = nullptr;
 
     SnapshotHolder<GraphSnapshot> graph_;

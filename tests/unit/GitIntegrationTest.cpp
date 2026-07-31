@@ -2442,6 +2442,13 @@ TEST_F(RealRepoTest, BisectFindsTheFirstBadCommitByGoodBadStepping) {
     }
 
     bool concluded = false;
+    // Diagnostic trail for the assertion below: this test has failed on the
+    // Windows and macOS CI runners (both on git 2.55.x) in a way that has not
+    // reproduced locally (git 2.43.0) across 30 repeated runs, so if it fails
+    // again the exact per-step data is what is needed to root-cause it rather
+    // than guess again -- what commit was actually tested, what `git bisect`
+    // actually printed, and the full log, at every step.
+    std::string trail;
     for (int i = 0; i < 10 && !concluded; ++i) {
         auto current = store.status(CancellationToken{});
         ASSERT_TRUE(current) << current.error().message;
@@ -2455,6 +2462,15 @@ TEST_F(RealRepoTest, BisectFindsTheFirstBadCommitByGoodBadStepping) {
         auto markOutcome = submitAndWait(operations, makeBisectMarkOperation(mark));
         ASSERT_TRUE(markOutcome.succeeded) << (markOutcome.error ? markOutcome.error->detail : "");
 
+        auto afterMark = store.status(CancellationToken{});
+        ASSERT_TRUE(afterMark) << afterMark.error().message;
+        trail += "step " + std::to_string(i) + ": tested c" + std::to_string(commitNumber) + " (" +
+                 current->currentOid.substr(0, 10) + "), marked " + (mark.good ? "good" : "bad") +
+                 "; markOutcome.summary=[" + markOutcome.summary +
+                 "]; afterMark.active=" + (afterMark->active ? "true" : "false") +
+                 "; afterMark.currentOid=" + afterMark->currentOid.substr(0, 10) +
+                 "; afterMark.badOid=" + afterMark->badOid.substr(0, 10) + "\n";
+
         // Not `markOutcome.summary.find("is the first bad commit")`: that is
         // `git bisect`'s human-readable stdout message, and it turned out not
         // to be a stable string to match on across git versions/locales --
@@ -2462,11 +2478,11 @@ TEST_F(RealRepoTest, BisectFindsTheFirstBadCommitByGoodBadStepping) {
         // runners while passing on Linux. `# first bad commit: [` is the
         // machine-readable marker `git bisect log`/`replay` themselves rely
         // on, so it is the actual stable contract to depend on here.
-        auto afterMark = store.status(CancellationToken{});
-        ASSERT_TRUE(afterMark) << afterMark.error().message;
         concluded = afterMark->logText.find("# first bad commit: [") != std::string::npos;
     }
-    ASSERT_TRUE(concluded) << "bisect did not conclude within 10 steps";
+    ASSERT_TRUE(concluded) << "bisect did not conclude within 10 steps\n"
+                           << trail << "\nfull log:\n"
+                           << store.status(CancellationToken{})->logText;
 
     auto finalStatus = store.status(CancellationToken{});
     ASSERT_TRUE(finalStatus) << finalStatus.error().message;

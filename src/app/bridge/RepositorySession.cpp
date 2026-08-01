@@ -301,6 +301,34 @@ void RepositorySession::requestWorkingCopyDiff(const std::string& path, bool sta
     });
 }
 
+void RepositorySession::requestCompareWithWorkingCopy(const ObjectId& commit) {
+    const CancellationToken token = readCancel_.token();
+    setBusy(true);
+
+    // postFront: mirrors requestWorkingCopyDiff -- the newest request is what
+    // the user is looking at.
+    readPool_.postFront([this, commit, token] {
+        if (token.isCancelled()) {
+            QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+            return;
+        }
+
+        auto diff = diffs_->commitVsWorkingTree(commit, DiffOptions{}, token);
+        if (diff) {
+            auto diffPtr = *diff;
+            QMetaObject::invokeMethod(
+                this,
+                [this, commit, diffPtr] { emit compareWithWorkingCopyReady(commit, diffPtr); },
+                Qt::QueuedConnection);
+        } else if (diff.error().code != GitError::Code::Cancelled) {
+            GitError error = std::move(diff).error();
+            QMetaObject::invokeMethod(
+                this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
+        }
+        QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+    });
+}
+
 void RepositorySession::submitWorkingCopyOperation(std::unique_ptr<Operation> operation,
                                                    bool alsoRefreshHistory) {
     setBusy(true);
@@ -371,6 +399,10 @@ void RepositorySession::skipCherryPick() {
 
 void RepositorySession::abortCherryPick() {
     submitWorkingCopyOperation(makeCherryPickAbortOperation(), true);
+}
+
+void RepositorySession::revertCommit(const RevertRequest& request) {
+    submitWorkingCopyOperation(makeRevertOperation(request), true);
 }
 
 void RepositorySession::resolveConflict(const ResolveConflictRequest& request) {

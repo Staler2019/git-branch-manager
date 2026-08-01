@@ -26,6 +26,7 @@
 #include "core/git/ops/RebaseOps.h"
 #include "core/git/ops/RemoteOps.h"
 #include "core/git/ops/ResetOps.h"
+#include "core/git/ops/RevertOps.h"
 #include "core/git/ops/StageOps.h"
 #include "core/git/ops/StashOps.h"
 #include "core/git/ops/SubmoduleOps.h"
@@ -125,6 +126,10 @@ public:
     /// (staged=true), for the working-copy panel.
     void requestWorkingCopyDiff(const std::string& path, bool staged);
 
+    /// Diff of an arbitrary past commit against the current work tree --
+    /// "Compare with working copy" on the commit context menu.
+    void requestCompareWithWorkingCopy(const ObjectId& commit);
+
     void stageFiles(std::vector<std::string> paths);
     void unstageFiles(std::vector<std::string> paths);
 
@@ -149,6 +154,11 @@ public:
     void continueCherryPick();
     void skipCherryPick();
     void abortCherryPick();
+
+    /// `git revert`, for a single commit or several. One-shot only: unlike
+    /// cherry-pick, there is no continue/skip/abort entry point yet -- see
+    /// RevertOps.h.
+    void revertCommit(const RevertRequest& request);
 
     /// Resolves one conflicted path from a stopped merge/cherry-pick/revert.
     void resolveConflict(const ResolveConflictRequest& request);
@@ -325,6 +335,9 @@ signals:
 
     void workingCopyStatusUpdated();
     void workingCopyDiffReady(QString path, bool staged, std::shared_ptr<const ParsedDiff> diff);
+    /// Reply to requestCompareWithWorkingCopy.
+    void compareWithWorkingCopyReady(const ObjectId& commit,
+                                     std::shared_ptr<const ParsedDiff> diff);
     /// Reply to requestConflictSides, matched back up by path. A stage's
     /// content is empty both when that stage does not exist and when reading
     /// it failed -- the request is best-effort display, not itself an

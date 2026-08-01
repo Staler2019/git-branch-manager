@@ -53,6 +53,7 @@ qt_add_executable(git-branch-manager
     views/SideBySideDiffView.cpp
     views/SidebarPanel.cpp
 
+    views/pages/DiffPage.cpp
     views/pages/RepositoryPage.cpp
     views/pages/WorkingCopyView.cpp
 

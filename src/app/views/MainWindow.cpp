@@ -38,11 +38,13 @@
 #include <QProgressBar>
 #include <QPushButton>
 #include <QScrollBar>
+#include <QSizePolicy>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStandardPaths>
 #include <QStatusBar>
 #include <QStringListModel>
+#include <QStyle>
 #include <QTimer>
 #include <QToolBar>
 #include <QVBoxLayout>
@@ -382,6 +384,11 @@ void MainWindow::buildMenus() {
     auto* refreshAction =
         viewMenu->addAction(QStringLiteral("Refresh"), this, &MainWindow::onRefresh);
     refreshAction->setShortcut(QKeySequence(Qt::Key_F5));
+    // Real Lucide SVGs (refresh-cw, download-cloud, arrow-down-to-line,
+    // arrow-up-from-line) are what the design names, but this sandbox has no
+    // network access to fetch them -- Qt's bundled standard icons stand in
+    // rather than shipping fabricated placeholder SVGs.
+    refreshAction->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
     auto* forceAction = viewMenu->addAction(
         QStringLiteral("Refresh (rescan everything)"), this, &MainWindow::onForceRefresh);
     forceAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+F5")));
@@ -409,10 +416,13 @@ void MainWindow::buildMenus() {
     auto* repoMenu = menuBar()->addMenu(QStringLiteral("Reposi&tory"));
     auto* fetchAction = repoMenu->addAction(QStringLiteral("Fetch"), this, &MainWindow::onFetch);
     fetchAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+F")));
+    fetchAction->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
     auto* pullAction = repoMenu->addAction(QStringLiteral("Pull"), this, &MainWindow::onPull);
     pullAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+L")));
+    pullAction->setIcon(style()->standardIcon(QStyle::SP_ArrowDown));
     auto* pushAction = repoMenu->addAction(QStringLiteral("Push"), this, &MainWindow::onPush);
     pushAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+P")));
+    pushAction->setIcon(style()->standardIcon(QStyle::SP_ArrowUp));
     repoMenu->addAction(
         QStringLiteral("Repository settings…"), this, &MainWindow::onShowRepositorySettings);
     repoMenu->addSeparator();
@@ -509,13 +519,41 @@ void MainWindow::buildMenus() {
         dialog.exec();
     });
 
+    // --- toolbar -------------------------------------------------------------
+    // Repo name + "/ branch", a spacer, Fetch/Pull/Push (the same QAction
+    // objects as the menus above -- not new ones, so there is only ever one
+    // shortcut owner each), a Refresh icon button, a separator, and the three
+    // theme switches the View > Theme submenu already offers.
     auto* toolBar = addToolBar(QStringLiteral("Main"));
     toolBar->setMovable(false);
-    toolBar->addAction(refreshAction);
+
+    toolBarRepoNameLabel_ = new QLabel(toolBar);
+    toolBarBranchLabel_ = new QLabel(toolBar);
+    toolBarBranchLabel_->setEnabled(false);  // Secondary-text look via the disabled palette.
+    toolBar->addWidget(toolBarRepoNameLabel_);
+    toolBar->addWidget(toolBarBranchLabel_);
+    // The only way back to the repository browser while one is open besides
+    // closing it outright -- preserved from the previous toolbar rather than
+    // dropped, since the design's toolbar row has no equivalent affordance.
     toolBar->addAction(
         QStringLiteral("Repositories"), this, [this] { stack_->setCurrentIndex(0); });
-    toolBar->addAction(historyAction);
-    toolBar->addAction(workingCopyAction);
+
+    auto* spacer = new QWidget(toolBar);
+    spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    toolBar->addWidget(spacer);
+
+    toolBar->addAction(fetchAction);
+    toolBar->addAction(pullAction);
+    toolBar->addAction(pushAction);
+    toolBar->addAction(refreshAction);
+
+    toolBar->addSeparator();
+
+    for (ThemeId theme :
+         {ThemeId::DarkTechnical, ThemeId::LightIde, ThemeId::NeutralProfessional}) {
+        toolBar->addAction(
+            ThemeManager::label(theme), this, [this, theme] { applyThemeAndRefresh(theme); });
+    }
 }
 
 void MainWindow::loadInitialState() {
@@ -689,6 +727,10 @@ void MainWindow::openRepository(const RepoRecord& record) {
         refModel_->setRefs(session_->refs());
         commitModel_->onRefsUpdated();
         refView_->expandToDepth(0);
+        if (const RefSnapshotPtr refs = session_->refs()) {
+            toolBarBranchLabel_->setText(
+                QStringLiteral("/ %1").arg(QString::fromStdString(refs->head.branchName)));
+        }
     });
     connect(session_.get(),
             &RepositorySession::commitMetadataReady,
@@ -724,6 +766,8 @@ void MainWindow::openRepository(const RepoRecord& record) {
     workingCopyView_->setSession(session_.get());
 
     setWindowTitle(QStringLiteral("%1 — git-branch-manager").arg(session_->displayName()));
+    toolBarRepoNameLabel_->setText(session_->displayName());
+    toolBarBranchLabel_->setText(QString());
     stack_->setCurrentIndex(1);
     updateStateBanner();
 
@@ -747,6 +791,8 @@ void MainWindow::closeRepository() {
     workingCopyView_->setSession(nullptr);
     session_.reset();
     setWindowTitle(QStringLiteral("git-branch-manager"));
+    toolBarRepoNameLabel_->setText(QString());
+    toolBarBranchLabel_->setText(QString());
     stack_->setCurrentIndex(0);
     bannerLabel_->parentWidget()->setVisible(false);
 }

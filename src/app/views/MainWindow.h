@@ -177,6 +177,8 @@ private:
     RepositoryPage* repositoryPage_ = nullptr;
 
     QLabel* statusLabel_ = nullptr;
+    QLabel* toolBarRepoNameLabel_ = nullptr;
+    QLabel* toolBarBranchLabel_ = nullptr;
     QWidget* bannerRow_ = nullptr;
     QLabel* bannerLabel_ = nullptr;
     QPushButton* bannerContinueButton_ = nullptr;

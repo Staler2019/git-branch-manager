@@ -40,3 +40,25 @@ program, no GPL obligation extends to this application.
 
 If Git is missing or older than 2.30, the application says so and points the user
 at the official installer rather than shipping its own copy.
+
+## Inter — SIL Open Font License 1.1
+
+The UI font is **Inter** by The Inter Project Authors, used under the **SIL
+Open Font License, Version 1.1**. Four static weights (Regular, Medium,
+SemiBold, Bold) are bundled as Qt resources at `resources/fonts/` and
+registered at startup via `QFontDatabase::addApplicationFont`; the full
+licence text ships alongside them at `resources/fonts/Inter-OFL.txt`.
+
+Source: <https://github.com/rsms/inter> (v4.1 release,
+<https://github.com/rsms/inter/releases/tag/v4.1>)
+
+## JetBrains Mono — SIL Open Font License 1.1
+
+The monospace font (SHAs, branch tags, diff lines) is **JetBrains Mono** by
+The JetBrains Mono Project Authors, used under the **SIL Open Font License,
+Version 1.1**. Two static weights (Regular, Medium) are bundled as Qt
+resources at `resources/fonts/`; the full licence text ships alongside them at
+`resources/fonts/JetBrainsMono-OFL.txt`.
+
+Source: <https://github.com/JetBrains/JetBrainsMono> (v2.304 release,
+<https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304>)

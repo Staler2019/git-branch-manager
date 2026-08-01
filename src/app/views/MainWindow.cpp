@@ -159,8 +159,8 @@ void MainWindow::buildUi() {
     auto* repoLayout = new QVBoxLayout(repoPage);
     repoLayout->setContentsMargins(0, 0, 0, 0);
 
-    auto* bannerRow = new QWidget(repoPage);
-    bannerRow->setStyleSheet(QStringLiteral("QWidget { background: #7a4d00; }"));
+    bannerRow_ = new QWidget(repoPage);
+    auto* bannerRow = bannerRow_;
     auto* bannerLayout = new QHBoxLayout(bannerRow);
     bannerLayout->setContentsMargins(6, 4, 6, 4);
 
@@ -168,9 +168,13 @@ void MainWindow::buildUi() {
     bannerLabel_->setVisible(false);
     bannerLabel_->setWordWrap(true);
     bannerLabel_->setAccessibleName(QStringLiteral("Repository state banner"));
-    // Unmissable by design: a repository stuck mid-rebase must never look normal.
-    bannerLabel_->setStyleSheet(QStringLiteral("QLabel { color: white; }"));
     bannerLayout->addWidget(bannerLabel_, 1);
+
+    // Theme-token-driven rather than a fixed literal, so the banner adapts
+    // across all three themes instead of always being the same brown -- and
+    // re-applied by applyThemeAndRefresh() on every theme switch, since a
+    // widget's own setStyleSheet() survives qApp->setStyleSheet() untouched.
+    restyleBanner();
 
     // Continue/Skip/Abort for whichever sequencer operation (merge, cherry-pick,
     // revert or rebase) RepoState reports in progress -- see
@@ -331,16 +335,14 @@ void MainWindow::buildMenus() {
     auto* themeMenu = viewMenu->addMenu(QStringLiteral("Theme"));
     auto* themeGroup = new QActionGroup(this);
     themeGroup->setExclusive(true);
-    const Theme currentTheme = ThemeManager::loadSetting();
-    for (Theme theme : {Theme::System, Theme::Light, Theme::Dark}) {
+    const ThemeId currentTheme = ThemeManager::loadSetting();
+    for (ThemeId theme :
+         {ThemeId::DarkTechnical, ThemeId::LightIde, ThemeId::NeutralProfessional}) {
         QAction* action = themeMenu->addAction(ThemeManager::label(theme));
         action->setCheckable(true);
         action->setChecked(theme == currentTheme);
         themeGroup->addAction(action);
-        connect(action, &QAction::triggered, this, [theme] {
-            ThemeManager::apply(theme);
-            ThemeManager::saveSetting(theme);
-        });
+        connect(action, &QAction::triggered, this, [this, theme] { applyThemeAndRefresh(theme); });
     }
 
     auto* branchMenu = menuBar()->addMenu(QStringLiteral("&Branch"));
@@ -748,6 +750,28 @@ void MainWindow::closeRepository() {
     setWindowTitle(QStringLiteral("git-branch-manager"));
     stack_->setCurrentIndex(0);
     bannerLabel_->parentWidget()->setVisible(false);
+}
+
+void MainWindow::restyleBanner() {
+    bannerRow_->setStyleSheet(QStringLiteral("QWidget { background: %1; }")
+                                  .arg(ThemeManager::color(Token::DiffDelBg).name()));
+    // Unmissable by design: a repository stuck mid-rebase must never look normal.
+    bannerLabel_->setStyleSheet(QStringLiteral("QLabel { color: %1; }")
+                                    .arg(ThemeManager::color(Token::DiffDelText).name()));
+}
+
+void MainWindow::applyThemeAndRefresh(ThemeId theme) {
+    ThemeManager::apply(theme);
+
+    // `qApp->setStyleSheet()` re-polishes every widget styled purely through
+    // app.qss, and the graph delegate reads ThemeManager::color() at paint
+    // time so a repaint is all it needs. What is left is the colour baked
+    // into a widget's own stylesheet or into already-rendered diff text,
+    // neither of which the app-wide restyle touches.
+    restyleBanner();
+    diffView_->refreshTheme();
+    workingCopyView_->refreshTheme();
+    commitView_->viewport()->update();
 }
 
 void MainWindow::updateStateBanner() {

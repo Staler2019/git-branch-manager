@@ -1,5 +1,6 @@
 #include "app/views/SideBySideDiffView.h"
 
+#include "app/bridge/ThemeManager.h"
 #include "core/git/SideBySideDiff.h"
 
 #include <QFontDatabase>
@@ -12,18 +13,6 @@
 namespace gbm {
 
 namespace {
-
-// Same palette-derived scheme as DiffView, so switching between unified and
-// side-by-side never looks like a different tool.
-QColor addedBackground(const QPalette& palette) {
-    const bool dark = palette.base().color().lightness() < 128;
-    return dark ? QColor(46, 92, 54, 90) : QColor(214, 245, 214);
-}
-
-QColor removedBackground(const QPalette& palette) {
-    const bool dark = palette.base().color().lightness() < 128;
-    return dark ? QColor(120, 45, 45, 90) : QColor(255, 220, 220);
-}
 
 // Filler for the side with nothing to show, distinct from (and quieter than)
 // both the added/removed tints and the ordinary background.
@@ -90,6 +79,7 @@ void SideBySideDiffView::showMessage(const QString& message) {
 
 void SideBySideDiffView::showDiff(std::shared_ptr<const ParsedDiff> diff) {
     diff_ = std::move(diff);
+    lastOnlyPath_.clear();
     left_->clear();
     right_->clear();
     if (diff_) {
@@ -99,11 +89,21 @@ void SideBySideDiffView::showDiff(std::shared_ptr<const ParsedDiff> diff) {
 
 void SideBySideDiffView::showFile(std::shared_ptr<const ParsedDiff> diff, const QString& path) {
     diff_ = std::move(diff);
+    lastOnlyPath_ = path;
     left_->clear();
     right_->clear();
     if (diff_) {
         render(*diff_, path);
     }
+}
+
+void SideBySideDiffView::refreshTheme() {
+    if (!diff_) {
+        return;
+    }
+    left_->clear();
+    right_->clear();
+    render(*diff_, lastOnlyPath_);
 }
 
 void SideBySideDiffView::render(const ParsedDiff& diff, const QString& onlyPath) {
@@ -118,11 +118,13 @@ void SideBySideDiffView::render(const ParsedDiff& diff, const QString& onlyPath)
     QTextCharFormat hunkHeader;
     hunkHeader.setForeground(palette().color(QPalette::Link));
     QTextCharFormat added;
-    added.setBackground(addedBackground(palette()));
+    added.setBackground(ThemeManager::color(Token::DiffAddBg));
+    added.setForeground(ThemeManager::color(Token::DiffAddText));
     QTextCharFormat removed;
-    removed.setBackground(removedBackground(palette()));
+    removed.setBackground(ThemeManager::color(Token::DiffDelBg));
+    removed.setForeground(ThemeManager::color(Token::DiffDelText));
     QTextCharFormat dim;
-    dim.setForeground(palette().color(QPalette::Disabled, QPalette::Text));
+    dim.setForeground(ThemeManager::color(Token::TextTertiary));
     QTextCharFormat padding;
     padding.setBackground(paddingBackground(palette()));
 

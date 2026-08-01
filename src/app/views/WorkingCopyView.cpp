@@ -207,6 +207,11 @@ void WorkingCopyView::buildUi() {
         diffView_, &DiffView::applyPatchRequested, this, &WorkingCopyView::onApplyPatchRequested);
 }
 
+void WorkingCopyView::refreshTheme() {
+    diffView_->refreshTheme();
+    sideBySideView_->refreshTheme();
+}
+
 void WorkingCopyView::setSession(RepositorySession* session) {
     if (session_ != nullptr) {
         disconnect(session_, nullptr, this, nullptr);

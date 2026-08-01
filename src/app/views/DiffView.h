@@ -44,6 +44,13 @@ public:
     /// flag on applyPatchRequested.
     void setShowingStagedDiff(bool staged);
 
+    /// Re-renders the currently shown diff (if any) so its add/remove colours
+    /// pick up the theme most recently passed to `ThemeManager::apply()`.
+    /// Colours are baked into the document's `QTextCharFormat`s at render
+    /// time rather than read from the palette, so a theme switch alone does
+    /// not repaint them -- this must be called explicitly after `apply()`.
+    void refreshTheme();
+
 signals:
     /// A patch the user asked to apply to the index, built from the hunk or
     /// line selection under the cursor. See
@@ -73,6 +80,11 @@ private:
     std::vector<HunkSpan> hunkSpans_;
     bool stagingEnabled_ = false;
     bool showingStaged_ = false;
+
+    /// The `onlyPath` most recently passed to `showFile`/`showDiff` (empty
+    /// for a whole-diff view), remembered so `refreshTheme` can re-render
+    /// with the same filter.
+    QString lastOnlyPath_;
 };
 
 }  // namespace gbm

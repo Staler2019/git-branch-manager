@@ -1,5 +1,7 @@
 #include "app/views/DiffView.h"
 
+#include "app/bridge/ThemeManager.h"
+
 #include <QAction>
 #include <QContextMenuEvent>
 #include <QFont>
@@ -12,22 +14,6 @@
 #include <memory>
 
 namespace gbm {
-
-namespace {
-
-QColor addedBackground(const QPalette& palette) {
-    // Derived from the palette rather than hard-coded, so the diff stays readable
-    // under a dark theme without a second set of constants.
-    const bool dark = palette.base().color().lightness() < 128;
-    return dark ? QColor(46, 92, 54, 90) : QColor(214, 245, 214);
-}
-
-QColor removedBackground(const QPalette& palette) {
-    const bool dark = palette.base().color().lightness() < 128;
-    return dark ? QColor(120, 45, 45, 90) : QColor(255, 220, 220);
-}
-
-}  // namespace
 
 DiffView::DiffView(QWidget* parent) : QPlainTextEdit(parent) {
     setReadOnly(true);
@@ -64,6 +50,7 @@ void DiffView::showMessage(const QString& message) {
 
 void DiffView::showDiff(std::shared_ptr<const ParsedDiff> diff) {
     diff_ = std::move(diff);
+    lastOnlyPath_.clear();
     clear();
     if (diff_) {
         render(*diff_, QString());
@@ -72,10 +59,19 @@ void DiffView::showDiff(std::shared_ptr<const ParsedDiff> diff) {
 
 void DiffView::showFile(std::shared_ptr<const ParsedDiff> diff, const QString& path) {
     diff_ = std::move(diff);
+    lastOnlyPath_ = path;
     clear();
     if (diff_) {
         render(*diff_, path);
     }
+}
+
+void DiffView::refreshTheme() {
+    if (!diff_) {
+        return;
+    }
+    clear();
+    render(*diff_, lastOnlyPath_);
 }
 
 const DiffView::HunkSpan* DiffView::hunkSpanForBlock(int blockNumber) const {
@@ -152,11 +148,13 @@ void DiffView::render(const ParsedDiff& diff, const QString& onlyPath) {
     QTextCharFormat hunkHeader;
     hunkHeader.setForeground(palette().color(QPalette::Link));
     QTextCharFormat added;
-    added.setBackground(addedBackground(palette()));
+    added.setBackground(ThemeManager::color(Token::DiffAddBg));
+    added.setForeground(ThemeManager::color(Token::DiffAddText));
     QTextCharFormat removed;
-    removed.setBackground(removedBackground(palette()));
+    removed.setBackground(ThemeManager::color(Token::DiffDelBg));
+    removed.setForeground(ThemeManager::color(Token::DiffDelText));
     QTextCharFormat dim;
-    dim.setForeground(palette().color(QPalette::Disabled, QPalette::Text));
+    dim.setForeground(ThemeManager::color(Token::TextTertiary));
 
     bool renderedAnything = false;
 

@@ -6,6 +6,7 @@
 #include "app/models/GraphColumnDelegate.h"
 #include "app/models/RefTreeModel.h"
 #include "app/models/RepoListModel.h"
+#include "app/theme/Tokens.h"
 #include "app/views/DiffView.h"
 #include "app/views/OperationLogView.h"
 #include "app/views/WorkingCopyView.h"
@@ -108,6 +109,18 @@ private:
     void updateStateBanner();
     void showError(const QString& summary, const GitError& error);
 
+    /// Applies `theme`, then repaints everything Phase 0's single-token-table
+    /// design cannot fix for free: `qApp->setStyleSheet()` re-polishes any
+    /// widget styled purely through `app.qss`, but the banner's own
+    /// stylesheet and the diff views' baked-in `QTextCharFormat` colours are
+    /// set once at construction/render time and need an explicit refresh.
+    void applyThemeAndRefresh(ThemeId theme);
+
+    /// Re-applies the banner's background/text colours from the current
+    /// theme. Called once at construction and again by
+    /// `applyThemeAndRefresh` after every theme switch.
+    void restyleBanner();
+
     /// Submits a merge/cherry-pick style request and waits for exactly one
     /// `workingCopyOperationFinished`. On success or a plain error, reports it
     /// and is done. On a recoverable choice (currently always
@@ -155,6 +168,7 @@ private:
     WorkingCopyView* workingCopyView_ = nullptr;
 
     QLabel* statusLabel_ = nullptr;
+    QWidget* bannerRow_ = nullptr;
     QLabel* bannerLabel_ = nullptr;
     QPushButton* bannerContinueButton_ = nullptr;
     QPushButton* bannerSkipButton_ = nullptr;

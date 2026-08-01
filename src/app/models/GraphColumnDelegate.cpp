@@ -1,5 +1,6 @@
 #include "app/models/GraphColumnDelegate.h"
 
+#include "app/bridge/ThemeManager.h"
 #include "app/models/CommitListModel.h"
 
 #include <QPainter>
@@ -11,34 +12,16 @@
 
 namespace gbm {
 
-namespace {
-
-/// Perceptually spaced hues, so adjacent lanes stay distinguishable. Index 0 is
-/// reserved for the trunk and is deliberately the most neutral of the set.
-constexpr std::array<const char*, kPaletteSize> kPalette{
-    "#8a8f98",  // 0: trunk
-    "#4c8dff",
-    "#e5534b",
-    "#3fb950",
-    "#d29922",
-    "#a371f7",
-    "#39c5cf",
-    "#f778ba",
-    "#db6d28",
-    "#7ee787",
-    "#79c0ff",
-    "#ffa657",
-};
-
-}  // namespace
-
 GraphColumnDelegate::GraphColumnDelegate(CommitListModel* model, QObject* parent)
     : QStyledItemDelegate(parent), model_(model) {
     scratchEdges_.reserve(256);
 }
 
 QColor GraphColumnDelegate::laneColor(std::uint8_t index) {
-    return QColor(kPalette[index % kPaletteSize]);
+    // Cycles through the theme's six `graph-lane-*` tokens rather than a
+    // fixed 12-colour palette, so the graph re-colours with the rest of the
+    // app when the theme changes.
+    return ThemeManager::graphLane(index);
 }
 
 int GraphColumnDelegate::widthForRows(int firstRow, int lastRow) const {
@@ -55,7 +38,7 @@ int GraphColumnDelegate::widthForRows(int firstRow, int lastRow) const {
 QSize GraphColumnDelegate::sizeHint(const QStyleOptionViewItem& option,
                                     const QModelIndex& index) const {
     QSize size = QStyledItemDelegate::sizeHint(option, index);
-    size.setHeight(std::max(size.height(), 22));
+    size.setHeight(std::max(size.height(), ThemeManager::rowHeight()));
     return size;
 }
 

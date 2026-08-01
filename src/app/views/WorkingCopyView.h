@@ -38,6 +38,11 @@ public:
     /// `session` is null.
     void setSession(RepositorySession* session);
 
+    /// Re-renders the embedded unified and side-by-side diff views so an
+    /// already-displayed diff picks up the theme most recently passed to
+    /// `ThemeManager::apply()`.
+    void refreshTheme();
+
 signals:
     void statusMessage(QString message);
     void errorOccurred(QString summary, GitError error);

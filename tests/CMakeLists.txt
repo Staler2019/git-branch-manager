@@ -63,11 +63,16 @@ if(GBM_BUILD_APP)
         "${CMAKE_SOURCE_DIR}/src/app/models/RefTreeModel.cpp"
         "${CMAKE_SOURCE_DIR}/src/app/models/RepoListModel.cpp"
         "${CMAKE_SOURCE_DIR}/src/app/bridge/AskpassWatcher.cpp"
-        "${CMAKE_SOURCE_DIR}/src/app/bridge/RepositorySession.cpp")
+        "${CMAKE_SOURCE_DIR}/src/app/bridge/RepositorySession.cpp"
+        "${CMAKE_SOURCE_DIR}/src/app/bridge/ThemeManager.cpp"
+        "${CMAKE_SOURCE_DIR}/src/app/theme/ThemeTokens.cpp"
+        "${CMAKE_SOURCE_DIR}/resources/app.qrc")
 
     # qt_standard_project_setup() is directory-scoped and lives in src/app, so this
     # target needs AUTOMOC turned on explicitly -- the models are all QObjects.
-    set_target_properties(gbm_model_tests PROPERTIES AUTOMOC ON)
+    # AUTORCC is needed now that GraphColumnDelegate pulls in ThemeManager,
+    # which reads the theme QSS/fonts from resources/app.qrc.
+    set_target_properties(gbm_model_tests PROPERTIES AUTOMOC ON AUTORCC ON)
 
     target_include_directories(gbm_model_tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
     target_link_libraries(gbm_model_tests
@@ -75,6 +80,27 @@ if(GBM_BUILD_APP)
 
     add_test(NAME qt_models COMMAND gbm_model_tests)
     set_tests_properties(qt_models PROPERTIES
+        LABELS "unit"
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # Separate binary rather than an extra source in gbm_model_tests: QtTest's
+    # QTEST_MAIN macro defines main() once per binary, and ModelsTest.cpp
+    # already claims it. The theme foundation (ThemeManager + the token
+    # table) needs the app.qrc resource for the "no unresolved @ placeholder"
+    # check, so it gets its own qt_add_executable mirroring gbm_model_tests.
+    qt_add_executable(gbm_theme_tests ui/ThemeTest.cpp
+        "${CMAKE_SOURCE_DIR}/src/app/bridge/ThemeManager.cpp"
+        "${CMAKE_SOURCE_DIR}/src/app/theme/ThemeTokens.cpp"
+        "${CMAKE_SOURCE_DIR}/resources/app.qrc")
+
+    set_target_properties(gbm_theme_tests PROPERTIES AUTOMOC ON AUTORCC ON)
+
+    target_include_directories(gbm_theme_tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
+    target_link_libraries(gbm_theme_tests
+        PRIVATE gbm_core Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test gbm_warnings)
+
+    add_test(NAME qt_theme COMMAND gbm_theme_tests)
+    set_tests_properties(qt_theme PROPERTIES
         LABELS "unit"
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()

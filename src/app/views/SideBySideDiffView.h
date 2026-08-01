@@ -34,12 +34,20 @@ public:
 
     void clearDiff();
 
+    /// Re-renders the currently shown diff (if any) so its add/remove colours
+    /// pick up the theme most recently passed to `ThemeManager::apply()`. See
+    /// `DiffView::refreshTheme` for why this must be called explicitly.
+    void refreshTheme();
+
 private:
     void render(const ParsedDiff& diff, const QString& onlyPath);
 
     QPlainTextEdit* left_ = nullptr;
     QPlainTextEdit* right_ = nullptr;
     std::shared_ptr<const ParsedDiff> diff_;
+    /// The `onlyPath` most recently passed to `showFile`/`showDiff`, so
+    /// `refreshTheme` can re-render with the same filter.
+    QString lastOnlyPath_;
     /// Guards against the ping-pong that connecting both scrollbars to each
     /// other directly would otherwise cause.
     bool syncingScroll_ = false;

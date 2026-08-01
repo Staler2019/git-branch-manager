@@ -24,12 +24,16 @@ qt_add_executable(git-branch-manager
     models/RefTreeModel.cpp
     models/RepoListModel.cpp
 
+    theme/ThemeTokens.cpp
+
     views/CredentialDialog.cpp
     views/DiffView.cpp
     views/MainWindow.cpp
     views/OperationLogView.cpp
     views/SideBySideDiffView.cpp
     views/WorkingCopyView.cpp
+
+    "${CMAKE_SOURCE_DIR}/resources/app.qrc"
 )
 
 target_include_directories(git-branch-manager PRIVATE

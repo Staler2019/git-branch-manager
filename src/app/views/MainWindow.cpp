@@ -163,7 +163,7 @@ void MainWindow::buildUi() {
     repoView_->setSelectionBehavior(QAbstractItemView::SelectRows);
     repoView_->setSelectionMode(QAbstractItemView::SingleSelection);
     repoView_->verticalHeader()->setVisible(false);
-    repoView_->verticalHeader()->setDefaultSectionSize(24);
+    repoView_->verticalHeader()->setDefaultSectionSize(ThemeManager::rowHeight());
     repoView_->setShowGrid(false);
     repoView_->setAlternatingRowColors(true);
     repoView_->horizontalHeader()->setSectionResizeMode(RepoListModel::ColumnName,
@@ -282,8 +282,10 @@ void MainWindow::buildUi() {
     commitView_->setSelectionBehavior(QAbstractItemView::SelectRows);
     commitView_->verticalHeader()->setVisible(false);
     // Uniform row heights plus per-pixel scrolling: both required for a virtualized
-    // view to stay smooth across hundreds of thousands of rows.
-    commitView_->verticalHeader()->setDefaultSectionSize(22);
+    // view to stay smooth across hundreds of thousands of rows. The initial size
+    // is density-aware; onDensityToggled re-applies it if the setting changes at
+    // runtime (see the class comment on that method for the Phase 0 gap this closes).
+    commitView_->verticalHeader()->setDefaultSectionSize(ThemeManager::rowHeight());
     commitView_->verticalHeader()->setSectionResizeMode(QHeaderView::Fixed);
     commitView_->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     commitView_->setShowGrid(false);
@@ -963,6 +965,27 @@ void MainWindow::applyThemeAndRefresh(ThemeId theme) {
     workingCopyView_->refreshTheme();
     sidebar_->refreshTheme();
     commitView_->viewport()->update();
+}
+
+void MainWindow::onDensityToggled(bool compact) {
+    ThemeManager::saveDensitySetting(compact ? Density::Compact : Density::Comfortable);
+
+    // The row expanded via setRowHeight() was sized for the old density; the
+    // simplest safe option is to collapse it rather than leave a stale height
+    // around until the user happens to collapse it themselves.
+    collapseExpandedCommitRow();
+
+    const int rowHeight = ThemeManager::rowHeight();
+    commitView_->verticalHeader()->setDefaultSectionSize(rowHeight);
+    repoView_->verticalHeader()->setDefaultSectionSize(rowHeight);
+
+    // setDefaultSectionSize alone does not resize rows already laid out;
+    // resizeSections forces every row (not just future ones) to pick up the
+    // new height immediately, and viewport()->update() repaints it.
+    commitView_->verticalHeader()->resizeSections(QHeaderView::Fixed);
+    repoView_->verticalHeader()->resizeSections(QHeaderView::Fixed);
+    commitView_->viewport()->update();
+    repoView_->viewport()->update();
 }
 
 void MainWindow::updateStateBanner() {

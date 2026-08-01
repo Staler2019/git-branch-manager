@@ -137,6 +137,16 @@ private:
     /// set once at construction/render time and need an explicit refresh.
     void applyThemeAndRefresh(ThemeId theme);
 
+    /// Saves the density setting, then closes Phase 0's gap: `rowHeight()`
+    /// changing at runtime previously did nothing for `commitView_` because
+    /// `QHeaderView::Fixed`'s `defaultSectionSize` is only read at
+    /// construction. Re-applies the new row height to every `Fixed`-mode view
+    /// (`commitView_`, `repoView_`) and repaints so the change is visible
+    /// without restarting. Collapses any open inline commit expansion first --
+    /// its row height was set explicitly via `setRowHeight` at the old
+    /// density, and would otherwise go stale until the next collapse.
+    void onDensityToggled(bool compact);
+
     /// Re-applies the banner's background/text colours from the current
     /// theme. Called once at construction and again by
     /// `applyThemeAndRefresh` after every theme switch.

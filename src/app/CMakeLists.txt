@@ -21,6 +21,7 @@ qt_add_executable(git-branch-manager
 
     models/CommitListModel.cpp
     models/GraphColumnDelegate.cpp
+    models/RefRowDelegate.cpp
     models/RefTreeModel.cpp
     models/RepoListModel.cpp
 
@@ -50,6 +51,7 @@ qt_add_executable(git-branch-manager
     views/MainWindow.cpp
     views/OperationLogView.cpp
     views/SideBySideDiffView.cpp
+    views/SidebarPanel.cpp
 
     views/pages/RepositoryPage.cpp
     views/pages/WorkingCopyView.cpp

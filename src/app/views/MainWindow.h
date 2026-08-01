@@ -10,6 +10,7 @@
 #include "app/theme/Tokens.h"
 #include "app/views/DiffView.h"
 #include "app/views/OperationLogView.h"
+#include "app/views/SidebarPanel.h"
 #include "app/views/pages/RepositoryPage.h"
 #include "app/views/pages/WorkingCopyView.h"
 #include "core/git/GitExecutable.h"
@@ -80,7 +81,6 @@ private slots:
     void onManageStashes();
     void onManageWorktrees();
     void onNewTag();
-    void onRefContextMenuRequested(const QPoint& pos);
     void onCredentialRequested(QString prompt);
 
     // --- M4 ---------------------------------------------------------------
@@ -170,6 +170,7 @@ private:
     QLineEdit* repoSearch_ = nullptr;
     QTableView* commitView_ = nullptr;
     QTreeView* refView_ = nullptr;
+    SidebarPanel* sidebar_ = nullptr;
     QTableView* fileView_ = nullptr;
     DiffView* diffView_ = nullptr;
     OperationLogView* logView_ = nullptr;

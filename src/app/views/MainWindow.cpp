@@ -32,6 +32,7 @@
 #include <QHeaderView>
 #include <QInputDialog>
 #include <QLineEdit>
+#include <QListView>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
@@ -220,12 +221,30 @@ void MainWindow::buildUi() {
     refView_->setHeaderHidden(true);
     refView_->setUniformRowHeights(true);
     connect(refView_, &QTreeView::activated, this, &MainWindow::onRefActivated);
-    refView_->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(refView_,
-            &QTreeView::customContextMenuRequested,
+    // Context-menu policy and the Repositories/Stash sections are owned by
+    // SidebarPanel below, which takes this already-constructed view over --
+    // MainWindow keeps refModel_/refView_ as members because several existing
+    // slots (onCheckoutRequested, onMergeRequested, the checkout retry inside
+    // onOperationFinished) read them directly.
+    sidebar_ = new SidebarPanel(repoModel_, refModel_, refView_, feedbackFn(), outerSplitter);
+    connect(sidebar_, &SidebarPanel::checkoutRequested, this, &MainWindow::onCheckoutRequested);
+    connect(
+        sidebar_, &SidebarPanel::mergeIntoCurrentRequested, this, &MainWindow::onMergeRequested);
+    connect(sidebar_,
+            &SidebarPanel::repositorySettingsRequested,
             this,
-            &MainWindow::onRefContextMenuRequested);
-    outerSplitter->addWidget(refView_);
+            &MainWindow::onShowRepositorySettings);
+    // No standalone Diff page exists yet (Phase 5's job); History is the
+    // nearest thing to one today, since the diff pane lives embedded there.
+    connect(sidebar_, &SidebarPanel::diffRequested, this, &MainWindow::onShowHistory);
+    connect(sidebar_, &SidebarPanel::statusMessage, this, [this](const QString& text) {
+        statusLabel_->setText(text);
+    });
+    connect(sidebar_->repoListView(),
+            &QAbstractItemView::activated,
+            this,
+            &MainWindow::onRepoActivated);
+    outerSplitter->addWidget(sidebar_);
 
     auto* rightSplitter = new QSplitter(Qt::Vertical, outerSplitter);
 
@@ -374,7 +393,7 @@ void MainWindow::buildMenus() {
     toggleSidebarAction->setCheckable(true);
     toggleSidebarAction->setChecked(true);
     connect(toggleSidebarAction, &QAction::toggled, this, [this](bool visible) {
-        refView_->setVisible(visible);
+        sidebar_->setVisible(visible);
     });
     auto* logAction = viewMenu->addAction(QStringLiteral("Operation log"));
     logAction->setCheckable(true);
@@ -435,6 +454,15 @@ void MainWindow::buildMenus() {
     auto* stashMenu = repoMenu->addMenu(QStringLiteral("Stash"));
     stashMenu->addAction(QStringLiteral("Stash changes…"), this, &MainWindow::onStashChanges);
     stashMenu->addAction(QStringLiteral("Manage stashes…"), this, &MainWindow::onManageStashes);
+
+    // "New tag…" used to be the one entry every ref-tree right-click offered,
+    // regardless of what (if anything) was under the cursor. The sidebar's
+    // tag context menu absorbed the tag-specific items (checkout/push/delete);
+    // creating one is not "on" an existing ref the way those are, so it moves
+    // here rather than getting a home in a context menu that needs a tag
+    // selected to open.
+    auto* tagMenu = repoMenu->addMenu(QStringLiteral("Tags"));
+    tagMenu->addAction(QStringLiteral("New tag…"), this, &MainWindow::onNewTag);
 
     auto* worktreeMenu = repoMenu->addMenu(QStringLiteral("Worktrees"));
     worktreeMenu->addAction(
@@ -731,7 +759,10 @@ void MainWindow::openRepository(const RepoRecord& record) {
     connect(session_.get(), &RepositorySession::refsUpdated, this, [this] {
         refModel_->setRefs(session_->refs());
         commitModel_->onRefsUpdated();
-        refView_->expandToDepth(0);
+        // Depth 1 rather than 0: with pills now doing the work of showing what
+        // a ref is, the section roots (Branches/Remotes/Tags) read better
+        // expanded by default instead of collapsed.
+        refView_->expandToDepth(1);
         if (const RefSnapshotPtr refs = session_->refs()) {
             toolBarBranchLabel_->setText(
                 QStringLiteral("/ %1").arg(QString::fromStdString(refs->head.branchName)));
@@ -769,6 +800,7 @@ void MainWindow::openRepository(const RepoRecord& record) {
     commitModel_->setSession(session_.get());
     diffView_->clearDiff();
     workingCopyView_->setSession(session_.get());
+    sidebar_->setSession(session_.get());
 
     setWindowTitle(QStringLiteral("%1 — git-branch-manager").arg(session_->displayName()));
     toolBarRepoNameLabel_->setText(session_->displayName());
@@ -794,6 +826,7 @@ void MainWindow::closeRepository() {
     refModel_->setRefs(nullptr);
     diffView_->clearDiff();
     workingCopyView_->setSession(nullptr);
+    sidebar_->setSession(nullptr);
     session_.reset();
     setWindowTitle(QStringLiteral("git-branch-manager"));
     toolBarRepoNameLabel_->setText(QString());
@@ -1448,74 +1481,6 @@ void MainWindow::onNewTag() {
 
     statusLabel_->setText(QStringLiteral("Creating tag %1…").arg(name));
     runWithFeedback([this, request] { session_->createTag(request); });
-}
-
-void MainWindow::onRefContextMenuRequested(const QPoint& pos) {
-    if (!session_) {
-        return;
-    }
-    const QModelIndex index = refView_->indexAt(pos);
-    const bool onTag =
-        index.isValid() && refModel_->data(index, RefTreeModel::IsRefRole).toBool() &&
-        refModel_->data(index, RefTreeModel::RefKindRole).toInt() == static_cast<int>(RefKind::Tag);
-    const QString tagName = onTag ? refModel_->refNameAt(index) : QString();
-
-    QMenu menu(this);
-    QAction* newTagAction = menu.addAction(QStringLiteral("New tag…"));
-    QAction* deleteTagAction = nullptr;
-    QAction* pushTagAction = nullptr;
-    if (onTag) {
-        menu.addSeparator();
-        deleteTagAction = menu.addAction(QStringLiteral("Delete tag \"%1\"").arg(tagName));
-        pushTagAction = menu.addAction(QStringLiteral("Push tag \"%1\"…").arg(tagName));
-    }
-
-    QAction* chosen = menu.exec(refView_->viewport()->mapToGlobal(pos));
-    if (chosen == nullptr) {
-        return;
-    }
-
-    if (chosen == newTagAction) {
-        onNewTag();
-        return;
-    }
-    if (chosen == deleteTagAction) {
-        const auto confirmed =
-            QMessageBox::warning(this,
-                                 QStringLiteral("Delete tag?"),
-                                 QStringLiteral("Delete tag \"%1\"?").arg(tagName),
-                                 QMessageBox::Yes | QMessageBox::Cancel,
-                                 QMessageBox::Cancel);
-        if (confirmed != QMessageBox::Yes) {
-            return;
-        }
-        DeleteTagRequest request;
-        request.name = tagName.toStdString();
-        runWithFeedback([this, request] { session_->deleteTag(request); });
-        return;
-    }
-    if (chosen == pushTagAction) {
-        QStringList names;
-        if (auto remotes = session_->remotes()) {
-            for (const RemoteInfo& remote : *remotes) {
-                names << QString::fromStdString(remote.name);
-            }
-        }
-        if (names.isEmpty()) {
-            names << QStringLiteral("origin");
-        }
-        bool ok = false;
-        const QString remote = QInputDialog::getItem(
-            this, QStringLiteral("Push tag"), QStringLiteral("Remote:"), names, 0, false, &ok);
-        if (!ok || remote.isEmpty()) {
-            return;
-        }
-        PushTagRequest request;
-        request.remoteName = remote.toStdString();
-        request.name = tagName.toStdString();
-        statusLabel_->setText(QStringLiteral("Pushing tag %1…").arg(tagName));
-        runWithFeedback([this, request] { session_->pushTag(request); });
-    }
 }
 
 void MainWindow::onCredentialRequested(QString prompt) {

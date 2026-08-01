@@ -174,6 +174,11 @@ void MainWindow::buildUi() {
     auto* bannerLayout = new QHBoxLayout(bannerRow);
     bannerLayout->setContentsMargins(6, 4, 6, 4);
 
+    auto* bannerIcon = new QLabel(bannerRow);
+    bannerIcon->setPixmap(style()->standardIcon(QStyle::SP_MessageBoxWarning).pixmap(16, 16));
+    bannerIcon->setAccessibleName(QStringLiteral("Warning"));
+    bannerLayout->addWidget(bannerIcon);
+
     bannerLabel_ = new QLabel(bannerRow);
     bannerLabel_->setVisible(false);
     bannerLabel_->setWordWrap(true);

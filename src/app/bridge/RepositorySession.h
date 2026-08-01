@@ -15,6 +15,7 @@
 #include "core/git/RepoState.h"
 #include "core/git/WorkingCopyStatus.h"
 #include "core/git/ops/BisectOps.h"
+#include "core/git/ops/BranchOps.h"
 #include "core/git/ops/CheckoutOp.h"
 #include "core/git/ops/CherryPickOps.h"
 #include "core/git/ops/CommitOps.h"
@@ -96,6 +97,18 @@ public:
 
     /// Switches branches. `onFinished` runs on the UI thread.
     void checkout(const CheckoutRequest& request);
+
+    // --- Sidebar (Phase 2): branch mutation ---------------------------------
+    // BranchOps.h has had these factories since M2; nothing in the app wired
+    // them to a UI until the sidebar's branch context menu needed them.
+
+    void createBranch(const CreateBranchRequest& request);
+    void renameBranch(const RenameBranchRequest& request);
+
+    /// `git branch -d/-D`, or `git push <remote> --delete <name>` when
+    /// `request.isRemote` -- the latter is a network operation and routes
+    /// through the same askpass dance as `deleteTag`'s `alsoRemote` path.
+    void deleteBranch(const DeleteBranchRequest& request);
 
     void cancelPendingReads();
 

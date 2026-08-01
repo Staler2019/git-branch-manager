@@ -214,6 +214,38 @@ void RepositorySession::checkout(const CheckoutRequest& request) {
     });
 }
 
+// --- Sidebar (Phase 2): branch mutation -------------------------------------
+
+void RepositorySession::createBranch(const CreateBranchRequest& request) {
+    submitAndRefresh(makeCreateBranchOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshRefs();
+        }
+    });
+}
+
+void RepositorySession::renameBranch(const RenameBranchRequest& request) {
+    submitAndRefresh(makeRenameBranchOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshRefs();
+        }
+    });
+}
+
+void RepositorySession::deleteBranch(const DeleteBranchRequest& request) {
+    // Unlike FetchRequest/PushRequest/DeleteTagRequest, DeleteBranchRequest has
+    // no askpassDir field -- DeleteBranchOperation's `git push --delete` path
+    // (core/git/ops/BranchOps.cpp) never calls askpass::wire(). Adding that
+    // field is a src/core change and out of scope here, so a remote delete
+    // that needs credentials fails the same way an unauthenticated push
+    // would (GIT_TERMINAL_PROMPT=0), rather than prompting.
+    submitAndRefresh(makeDeleteBranchOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshRefs();
+        }
+    });
+}
+
 void RepositorySession::cancelPendingReads() {
     readCancel_.cancel();
     readCancel_ = CancellationSource();

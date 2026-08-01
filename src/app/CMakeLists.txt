@@ -42,6 +42,7 @@ qt_add_executable(git-branch-manager
     dialogs/ManageSubmodulesDialog.cpp
     dialogs/ManageWorktreesDialog.cpp
     dialogs/MergeDialog.cpp
+    dialogs/PreferencesDialog.cpp
     dialogs/ReflogDialog.cpp
     dialogs/ResetBranchDialog.cpp
     dialogs/StashChangesDialog.cpp

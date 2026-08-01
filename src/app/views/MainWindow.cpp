@@ -16,6 +16,7 @@
 #include "app/dialogs/ManageSubmodulesDialog.h"
 #include "app/dialogs/ManageWorktreesDialog.h"
 #include "app/dialogs/MergeDialog.h"
+#include "app/dialogs/PreferencesDialog.h"
 #include "app/dialogs/ReflogDialog.h"
 #include "app/dialogs/ResetBranchDialog.h"
 #include "app/dialogs/StashChangesDialog.h"
@@ -368,8 +369,12 @@ void MainWindow::buildUi() {
     });
     tabWidget_->addTab(diffPage_, QStringLiteral("Diff"));
 
-    // --- Repository tab (placeholder; real content is Phase 6) --------------
+    // --- Repository tab -------------------------------------------------------
     repositoryPage_ = new RepositoryPage(this);
+    connect(repositoryPage_,
+            &RepositoryPage::openPreferencesRequested,
+            this,
+            &MainWindow::onShowPreferences);
     tabWidget_->addTab(repositoryPage_, QStringLiteral("Repository"));
 
     outerSplitter->addWidget(tabWidget_);
@@ -404,8 +409,7 @@ void MainWindow::buildMenus() {
     // --- File --------------------------------------------------------------
     // New/Open/Clone repository omitted: this app discovers repositories by
     // scanning base folders, not by opening a single one directly -- there is
-    // no such capability to surface. Preferences omitted: PreferencesDialog is
-    // Phase 6's job.
+    // no such capability to surface.
     auto* fileMenu = menuBar()->addMenu(QStringLiteral("&File"));
     fileMenu->addAction(QStringLiteral("Add base folder…"), this, &MainWindow::onAddBaseFolder);
     fileMenu->addAction(
@@ -414,6 +418,8 @@ void MainWindow::buildMenus() {
     auto* closeAction =
         fileMenu->addAction(QStringLiteral("Close repository"), this, &MainWindow::closeRepository);
     closeAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+W")));
+    fileMenu->addSeparator();
+    fileMenu->addAction(QStringLiteral("Preferences…"), this, &MainWindow::onShowPreferences);
     fileMenu->addSeparator();
     fileMenu->addAction(QStringLiteral("Exit"), QApplication::instance(), &QApplication::quit);
 
@@ -476,7 +482,7 @@ void MainWindow::buildMenus() {
         QStringLiteral("Refresh (rescan everything)"), this, &MainWindow::onForceRefresh);
     forceAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+F5")));
     viewMenu->addAction(QStringLiteral("Cancel scan"), this, &MainWindow::onCancelScan);
-    // Preferences… omitted: Phase 6.
+    viewMenu->addAction(QStringLiteral("Preferences…"), this, &MainWindow::onShowPreferences);
     viewMenu->addSeparator();
     auto* themeMenu = viewMenu->addMenu(QStringLiteral("Theme"));
     auto* themeGroup = new QActionGroup(this);
@@ -899,6 +905,7 @@ void MainWindow::openRepository(const RepoRecord& record) {
     diffTabShownIsStageable_ = false;
     workingCopyView_->setSession(session_.get());
     sidebar_->setSession(session_.get());
+    repositoryPage_->setSession(session_.get());
 
     setWindowTitle(QStringLiteral("%1 — git-branch-manager").arg(session_->displayName()));
     toolBarRepoNameLabel_->setText(session_->displayName());
@@ -935,6 +942,7 @@ void MainWindow::closeRepository() {
     diffTabShownIsStageable_ = false;
     workingCopyView_->setSession(nullptr);
     sidebar_->setSession(nullptr);
+    repositoryPage_->setSession(nullptr);
     session_.reset();
     pendingCheckoutTarget_.clear();
     setWindowTitle(QStringLiteral("git-branch-manager"));
@@ -2449,6 +2457,13 @@ void MainWindow::onImportPatches() {
                               (*handleOutcome)(outcome);
                           });
     session_->importPatches(request);
+}
+
+void MainWindow::onShowPreferences() {
+    PreferencesDialog dialog(this);
+    connect(&dialog, &PreferencesDialog::themeSelected, this, &MainWindow::applyThemeAndRefresh);
+    connect(&dialog, &PreferencesDialog::densityToggled, this, &MainWindow::onDensityToggled);
+    dialog.exec();
 }
 
 }  // namespace gbm

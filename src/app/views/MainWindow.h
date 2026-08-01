@@ -121,6 +121,12 @@ private slots:
     void onApplyPatchFile();
     void onImportPatches();
 
+    // --- Phase 6 --------------------------------------------------------------
+    /// Opens PreferencesDialog, wiring its theme/density signals to the exact
+    /// same slots the View > Theme menu and toolbar theme buttons already use
+    /// -- there is only ever one theme-switching path.
+    void onShowPreferences();
+
 private:
     void buildUi();
     void buildMenus();

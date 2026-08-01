@@ -216,20 +216,30 @@ QLabel#sidebarSectionHeader {
 
 /* A generic bordered/rounded container -- same border+radius recipe as
  * `QTabWidget::pane` above, reused rather than invented a second time. First
- * consumer: the Working Copy tab's Unstaged/Staged panels. */
-QFrame#workingCopyFilePanel {
+ * consumer: the Working Copy tab's Unstaged/Staged panels (`#workingCopyFilePanel`).
+ * `#gbmPanel` is the same rule under a repo-content-neutral name for later
+ * consumers that are not file panels -- Repository Settings' three cards and
+ * Preferences' three sections (Phase 6). */
+QFrame#workingCopyFilePanel,
+QFrame#gbmPanel {
     background: @surface-panel;
     border: 1px solid @border-subtle;
     border-radius: 10px;
 }
 
-QLabel#workingCopyPanelHeader {
+QLabel#workingCopyPanelHeader,
+QLabel#gbmPanelHeader {
     font-weight: 600;
     padding: 6px 2px;
 }
 
 QLabel#workingCopyPlaceholder {
     color: @text-tertiary;
+}
+
+QLabel#gbmPanelCaption {
+    color: @text-tertiary;
+    font-size: 11px;
 }
 
 /* --- tree / table views -----------------------------------------------------*/

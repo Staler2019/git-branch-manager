@@ -1,12 +1,14 @@
 #include "app/views/MainWindow.h"
 
 #include "app/bridge/ThemeManager.h"
+#include "app/dialogs/AboutDialog.h"
 #include "app/dialogs/BisectDialog.h"
 #include "app/dialogs/BlameDialog.h"
 #include "app/dialogs/CherryPickDialog.h"
 #include "app/dialogs/CleanUntrackedDialog.h"
 #include "app/dialogs/FileHistoryDialog.h"
 #include "app/dialogs/InteractiveRebaseDialog.h"
+#include "app/dialogs/KeyboardShortcutsDialog.h"
 #include "app/dialogs/LineHistoryDialog.h"
 #include "app/dialogs/ManageBaseFoldersDialog.h"
 #include "app/dialogs/ManageLfsDialog.h"
@@ -296,6 +298,10 @@ void MainWindow::buildUi() {
             [this](const QString& summary, const GitError& error) { showError(summary, error); });
     stack_->addWidget(workingCopyView_);
 
+    // --- page 3: repository settings (placeholder; real content is Phase 6) --
+    repositoryPage_ = new RepositoryPage(this);
+    stack_->addWidget(repositoryPage_);
+
     // --- status bar ----------------------------------------------------------
     statusLabel_ = new QLabel(QStringLiteral("Ready"), this);
     statusLabel_->setAccessibleName(QStringLiteral("Status"));
@@ -312,6 +318,11 @@ void MainWindow::buildUi() {
 }
 
 void MainWindow::buildMenus() {
+    // --- File --------------------------------------------------------------
+    // New/Open/Clone repository omitted: this app discovers repositories by
+    // scanning base folders, not by opening a single one directly -- there is
+    // no such capability to surface. Preferences omitted: PreferencesDialog is
+    // Phase 6's job.
     auto* fileMenu = menuBar()->addMenu(QStringLiteral("&File"));
     fileMenu->addAction(QStringLiteral("Add base folder…"), this, &MainWindow::onAddBaseFolder);
     fileMenu->addAction(
@@ -320,9 +331,54 @@ void MainWindow::buildMenus() {
     auto* closeAction =
         fileMenu->addAction(QStringLiteral("Close repository"), this, &MainWindow::closeRepository);
     closeAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+W")));
-    fileMenu->addAction(QStringLiteral("Quit"), QApplication::instance(), &QApplication::quit);
+    fileMenu->addSeparator();
+    fileMenu->addAction(QStringLiteral("Exit"), QApplication::instance(), &QApplication::quit);
 
+    // --- Edit ----------------------------------------------------------------
+    // Cut/Copy/Paste and Find in files omitted: no generic focused-widget
+    // text editing is wired up, and there is no find-in-files feature --
+    // adding non-functional entries would be worse than leaving them out.
+    auto* editMenu = menuBar()->addMenu(QStringLiteral("&Edit"));
+    undoAction_ = editMenu->addAction(
+        QStringLiteral("Undo last operation"), this, &MainWindow::onUndoLastOperation);
+    undoAction_->setShortcut(QKeySequence(QStringLiteral("Ctrl+Z")));
+    undoAction_->setEnabled(false);
+    // No redo capability exists in the backend (core/git/ops/UndoOps.h has no
+    // redo operation) -- shown disabled with an explanatory tooltip rather
+    // than fabricated.
+    auto* redoAction = editMenu->addAction(QStringLiteral("Redo"));
+    redoAction->setEnabled(false);
+    redoAction->setToolTip(QStringLiteral("There is no redo for undone operations"));
+
+    // --- View ----------------------------------------------------------------
     auto* viewMenu = menuBar()->addMenu(QStringLiteral("&View"));
+    auto* historyAction =
+        viewMenu->addAction(QStringLiteral("History"), this, &MainWindow::onShowHistory);
+    historyAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+1")));
+    auto* workingCopyAction =
+        viewMenu->addAction(QStringLiteral("Working Copy"), this, &MainWindow::onShowWorkingCopy);
+    workingCopyAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+2")));
+    // Diff omitted as a standalone entry: there is no independent Diff tab
+    // yet, only the pane embedded inside History/Working Copy (Phase 5's job).
+    viewMenu->addAction(
+        QStringLiteral("Repository Settings"), this, &MainWindow::onShowRepositorySettings);
+    viewMenu->addSeparator();
+    auto* toggleSidebarAction = viewMenu->addAction(QStringLiteral("Toggle sidebar"));
+    toggleSidebarAction->setCheckable(true);
+    toggleSidebarAction->setChecked(true);
+    connect(toggleSidebarAction, &QAction::toggled, this, [this](bool visible) {
+        refView_->setVisible(visible);
+    });
+    auto* logAction = viewMenu->addAction(QStringLiteral("Operation log"));
+    logAction->setCheckable(true);
+    logAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+L")));
+    connect(logAction, &QAction::toggled, this, [this](bool visible) {
+        logView_->setVisible(visible);
+    });
+    viewMenu->addAction(QStringLiteral("Reflog…"), this, &MainWindow::onShowReflog);
+    viewMenu->addSeparator();
+    // Refresh/rescan/cancel-scan have no home in the design's 7-menu table --
+    // View is the most sensible fit, so they stay here.
     auto* refreshAction =
         viewMenu->addAction(QStringLiteral("Refresh"), this, &MainWindow::onRefresh);
     refreshAction->setShortcut(QKeySequence(Qt::Key_F5));
@@ -330,13 +386,7 @@ void MainWindow::buildMenus() {
         QStringLiteral("Refresh (rescan everything)"), this, &MainWindow::onForceRefresh);
     forceAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+F5")));
     viewMenu->addAction(QStringLiteral("Cancel scan"), this, &MainWindow::onCancelScan);
-    viewMenu->addSeparator();
-    auto* logAction = viewMenu->addAction(QStringLiteral("Operation log"));
-    logAction->setCheckable(true);
-    logAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+L")));
-    connect(logAction, &QAction::toggled, this, [this](bool visible) {
-        logView_->setVisible(visible);
-    });
+    // Preferences… omitted: Phase 6.
     viewMenu->addSeparator();
     auto* themeMenu = viewMenu->addMenu(QStringLiteral("Theme"));
     auto* themeGroup = new QActionGroup(this);
@@ -351,6 +401,61 @@ void MainWindow::buildMenus() {
         connect(action, &QAction::triggered, this, [this, theme] { applyThemeAndRefresh(theme); });
     }
 
+    // --- Repository ------------------------------------------------------------
+    // "Open in terminal" and "Remove repository" omitted: neither capability
+    // exists. There is no per-repository removal -- only whole-base-folder
+    // removal via Manage base folders… (File) -- and adding either would be
+    // new bridge/core functionality, out of scope for a decomposition phase.
+    auto* repoMenu = menuBar()->addMenu(QStringLiteral("Reposi&tory"));
+    auto* fetchAction = repoMenu->addAction(QStringLiteral("Fetch"), this, &MainWindow::onFetch);
+    fetchAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+F")));
+    auto* pullAction = repoMenu->addAction(QStringLiteral("Pull"), this, &MainWindow::onPull);
+    pullAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+L")));
+    auto* pushAction = repoMenu->addAction(QStringLiteral("Push"), this, &MainWindow::onPush);
+    pushAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+P")));
+    repoMenu->addAction(
+        QStringLiteral("Repository settings…"), this, &MainWindow::onShowRepositorySettings);
+    repoMenu->addSeparator();
+
+    auto* stashMenu = repoMenu->addMenu(QStringLiteral("Stash"));
+    stashMenu->addAction(QStringLiteral("Stash changes…"), this, &MainWindow::onStashChanges);
+    stashMenu->addAction(QStringLiteral("Manage stashes…"), this, &MainWindow::onManageStashes);
+
+    auto* worktreeMenu = repoMenu->addMenu(QStringLiteral("Worktrees"));
+    worktreeMenu->addAction(
+        QStringLiteral("Manage worktrees…"), this, &MainWindow::onManageWorktrees);
+
+    auto* submoduleMenu = repoMenu->addMenu(QStringLiteral("Submodules"));
+    submoduleMenu->addAction(
+        QStringLiteral("Manage submodules…"), this, &MainWindow::onManageSubmodules);
+
+    auto* bisectMenu = repoMenu->addMenu(QStringLiteral("Bisect"));
+    bisectMenu->addAction(QStringLiteral("Bisect…"), this, &MainWindow::onBisect);
+
+    auto* lfsMenu = repoMenu->addMenu(QStringLiteral("LFS"));
+    lfsMenu->addAction(QStringLiteral("Manage LFS…"), this, &MainWindow::onManageLfs);
+
+    auto* patchMenu = repoMenu->addMenu(QStringLiteral("Patches"));
+    patchMenu->addAction(
+        QStringLiteral("Export selected commits as patches…"), this, &MainWindow::onExportPatches);
+    patchMenu->addSeparator();
+    patchMenu->addAction(QStringLiteral("Apply patch file…"), this, &MainWindow::onApplyPatchFile);
+    patchMenu->addAction(
+        QStringLiteral("Import patches (git am)…"), this, &MainWindow::onImportPatches);
+
+    repoMenu->addSeparator();
+    // Same QAction as Edit → Undo, not a second one: two actions bound to the
+    // same QKeySequence trigger Qt's "ambiguous shortcut" at press time.
+    repoMenu->addAction(undoAction_);
+    repoMenu->addAction(
+        QStringLiteral("Clean untracked files…"), this, &MainWindow::onCleanUntracked);
+
+    // --- Branch ----------------------------------------------------------------
+    // New branch…, Rename current branch and Delete branch… omitted:
+    // BranchOps.h has the operation factories, but RepositorySession never
+    // exposes them and no existing UI wires them (checked: no call site
+    // anywhere) -- surfacing them here would mean adding new bridge/UI code,
+    // out of scope for a decomposition phase.
     auto* branchMenu = menuBar()->addMenu(QStringLiteral("&Branch"));
     auto* checkoutAction = branchMenu->addAction(
         QStringLiteral("Switch to selected branch"), this, &MainWindow::onCheckoutRequested);
@@ -375,63 +480,34 @@ void MainWindow::buildMenus() {
                           this,
                           &MainWindow::onResetBranchRequested);
 
-    auto* repoMenu = menuBar()->addMenu(QStringLiteral("Reposi&tory"));
-    undoAction_ = repoMenu->addAction(
-        QStringLiteral("Undo last operation"), this, &MainWindow::onUndoLastOperation);
-    undoAction_->setEnabled(false);
-    repoMenu->addSeparator();
-    repoMenu->addAction(QStringLiteral("Reflog…"), this, &MainWindow::onShowReflog);
-    repoMenu->addSeparator();
-    repoMenu->addAction(
-        QStringLiteral("Clean untracked files…"), this, &MainWindow::onCleanUntracked);
-
-    auto* historyAction =
-        viewMenu->addAction(QStringLiteral("History"), this, &MainWindow::onShowHistory);
-    historyAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+1")));
-    auto* workingCopyAction =
-        viewMenu->addAction(QStringLiteral("Working Copy"), this, &MainWindow::onShowWorkingCopy);
-    workingCopyAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+2")));
-
+    // --- Remote --------------------------------------------------------------
+    // Add remote… and Manage remotes… omitted: no add/manage-remotes UI
+    // exists yet.
     auto* remoteMenu = menuBar()->addMenu(QStringLiteral("Re&mote"));
-    auto* fetchAction = remoteMenu->addAction(QStringLiteral("Fetch"), this, &MainWindow::onFetch);
-    fetchAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+F")));
+    remoteMenu->addAction(fetchAction);
     remoteMenu->addAction(
         QStringLiteral("Fetch (and prune stale remote branches)"), this, &MainWindow::onFetchPrune);
-    auto* pullAction = remoteMenu->addAction(QStringLiteral("Pull"), this, &MainWindow::onPull);
-    pullAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+L")));
+    remoteMenu->addAction(pullAction);
     remoteMenu->addSeparator();
-    auto* pushAction = remoteMenu->addAction(QStringLiteral("Push"), this, &MainWindow::onPush);
-    pushAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+P")));
+    remoteMenu->addAction(pushAction);
     remoteMenu->addAction(
         QStringLiteral("Push (set upstream)…"), this, &MainWindow::onPushSetUpstream);
     remoteMenu->addAction(
         QStringLiteral("Push (force-with-lease)…"), this, &MainWindow::onPushForceWithLease);
 
-    auto* stashMenu = menuBar()->addMenu(QStringLiteral("&Stash"));
-    stashMenu->addAction(QStringLiteral("Stash changes…"), this, &MainWindow::onStashChanges);
-    stashMenu->addAction(QStringLiteral("Manage stashes…"), this, &MainWindow::onManageStashes);
-
-    auto* worktreeMenu = menuBar()->addMenu(QStringLiteral("&Worktree"));
-    worktreeMenu->addAction(
-        QStringLiteral("Manage worktrees…"), this, &MainWindow::onManageWorktrees);
-
-    auto* submoduleMenu = menuBar()->addMenu(QStringLiteral("Sub&module"));
-    submoduleMenu->addAction(
-        QStringLiteral("Manage submodules…"), this, &MainWindow::onManageSubmodules);
-
-    auto* bisectMenu = menuBar()->addMenu(QStringLiteral("&Bisect"));
-    bisectMenu->addAction(QStringLiteral("Bisect…"), this, &MainWindow::onBisect);
-
-    auto* lfsMenu = menuBar()->addMenu(QStringLiteral("&LFS"));
-    lfsMenu->addAction(QStringLiteral("Manage LFS…"), this, &MainWindow::onManageLfs);
-
-    auto* patchMenu = menuBar()->addMenu(QStringLiteral("&Patch"));
-    patchMenu->addAction(
-        QStringLiteral("Export selected commits as patches…"), this, &MainWindow::onExportPatches);
-    patchMenu->addSeparator();
-    patchMenu->addAction(QStringLiteral("Apply patch file…"), this, &MainWindow::onApplyPatchFile);
-    patchMenu->addAction(
-        QStringLiteral("Import patches (git am)…"), this, &MainWindow::onImportPatches);
+    // --- Help ------------------------------------------------------------------
+    // Documentation omitted: no in-app link target -- the README ships in the
+    // repo, not next to the installed binary.
+    auto* helpMenu = menuBar()->addMenu(QStringLiteral("&Help"));
+    auto* shortcutsAction = helpMenu->addAction(QStringLiteral("Keyboard shortcuts"), this, [this] {
+        KeyboardShortcutsDialog dialog(this);
+        dialog.exec();
+    });
+    shortcutsAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+/")));
+    helpMenu->addAction(QStringLiteral("About git-branch-manager"), this, [this] {
+        AboutDialog dialog(this);
+        dialog.exec();
+    });
 
     auto* toolBar = addToolBar(QStringLiteral("Main"));
     toolBar->setMovable(false);
@@ -577,6 +653,12 @@ void MainWindow::onCancelScan() {
 void MainWindow::onShowHistory() {
     if (session_) {
         stack_->setCurrentIndex(1);
+    }
+}
+
+void MainWindow::onShowRepositorySettings() {
+    if (session_) {
+        stack_->setCurrentIndex(3);
     }
 }
 

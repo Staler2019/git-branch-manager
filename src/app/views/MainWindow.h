@@ -10,6 +10,7 @@
 #include "app/theme/Tokens.h"
 #include "app/views/DiffView.h"
 #include "app/views/OperationLogView.h"
+#include "app/views/pages/RepositoryPage.h"
 #include "app/views/pages/WorkingCopyView.h"
 #include "core/git/GitExecutable.h"
 #include "core/workers/ThreadPool.h"
@@ -66,6 +67,7 @@ private slots:
     void onCommitScrolled();
     void onShowWorkingCopy();
     void onShowHistory();
+    void onShowRepositorySettings();
 
     // --- M3 -------------------------------------------------------------
     void onFetch();
@@ -172,6 +174,7 @@ private:
     DiffView* diffView_ = nullptr;
     OperationLogView* logView_ = nullptr;
     WorkingCopyView* workingCopyView_ = nullptr;
+    RepositoryPage* repositoryPage_ = nullptr;
 
     QLabel* statusLabel_ = nullptr;
     QWidget* bannerRow_ = nullptr;

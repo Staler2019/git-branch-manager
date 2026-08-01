@@ -32,6 +32,13 @@ public:
     /// by `RepositorySession::compareWithWorkingCopyReady`.
     void showCompareWithWorkingCopy(const ObjectId& commit, std::shared_ptr<const ParsedDiff> diff);
 
+    /// Shows one file's working-copy diff ("View diff" on the Working Copy
+    /// tab's unstaged/staged context menus), as produced by
+    /// `RepositorySession::workingCopyDiffReady`.
+    void showWorkingCopyDiff(const QString& path,
+                             bool staged,
+                             std::shared_ptr<const ParsedDiff> diff);
+
     /// Shows a transient status message ("Comparing…") in place of a diff.
     void showMessage(const QString& message);
 

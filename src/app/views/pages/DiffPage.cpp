@@ -30,6 +30,14 @@ void DiffPage::showCompareWithWorkingCopy(const ObjectId& commit,
     diffView_->showDiff(std::move(diff));
 }
 
+void DiffPage::showWorkingCopyDiff(const QString& path,
+                                   bool staged,
+                                   std::shared_ptr<const ParsedDiff> diff) {
+    headerLabel_->setText(staged ? QStringLiteral("Staged changes — %1").arg(path)
+                                 : QStringLiteral("Unstaged changes — %1").arg(path));
+    diffView_->showDiff(std::move(diff));
+}
+
 void DiffPage::showMessage(const QString& message) {
     headerLabel_->setText(message);
     diffView_->showMessage(message);

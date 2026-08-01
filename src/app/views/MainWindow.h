@@ -77,6 +77,17 @@ private slots:
     void onCompareWithWorkingCopyReady(const ObjectId& commit,
                                        std::shared_ptr<const ParsedDiff> diff);
 
+    /// "View diff" from either of WorkingCopyView's context menus: switches
+    /// to the Diff tab and requests this path's working-copy diff.
+    void onViewFileDiffRequested(QString path, bool staged);
+    /// RepositorySession::workingCopyDiffReady, filtered down to whatever
+    /// onViewFileDiffRequested most recently asked for -- WorkingCopyView's
+    /// own embedded pane reacts to the same broadcast independently, filtered
+    /// by its own current selection instead.
+    void onWorkingCopyDiffReadyForDiffTab(QString path,
+                                          bool staged,
+                                          std::shared_ptr<const ParsedDiff> diff);
+
     // --- M3 -------------------------------------------------------------
     void onFetch();
     void onFetchPrune();
@@ -263,6 +274,14 @@ private:
     std::vector<RepoRecord> allRepos_;
     std::shared_ptr<const std::vector<ChangedFile>> currentFiles_;
     std::shared_ptr<const ParsedDiff> currentDiff_;
+
+    /// What onViewFileDiffRequested last asked for, so
+    /// onWorkingCopyDiffReadyForDiffTab can tell its own reply apart from one
+    /// meant for WorkingCopyView's embedded pane. Empty/false until the first
+    /// "View diff" context-menu action.
+    QString diffTabRequestedPath_;
+    bool diffTabRequestedStaged_ = false;
+    bool diffTabRequestPending_ = false;
 };
 
 }  // namespace gbm

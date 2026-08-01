@@ -351,6 +351,10 @@ void MainWindow::buildUi() {
             &WorkingCopyView::errorOccurred,
             this,
             [this](const QString& summary, const GitError& error) { showError(summary, error); });
+    connect(workingCopyView_,
+            &WorkingCopyView::viewFileDiffRequested,
+            this,
+            &MainWindow::onViewFileDiffRequested);
     tabWidget_->addTab(workingCopyView_, QStringLiteral("Working Copy"));
 
     // --- Diff tab ------------------------------------------------------------
@@ -861,6 +865,10 @@ void MainWindow::openRepository(const RepoRecord& record) {
             &RepositorySession::compareWithWorkingCopyReady,
             this,
             &MainWindow::onCompareWithWorkingCopyReady);
+    connect(session_.get(),
+            &RepositorySession::workingCopyDiffReady,
+            this,
+            &MainWindow::onWorkingCopyDiffReadyForDiffTab);
 
     commitModel_->setSession(session_.get());
     diffView_->clearDiff();
@@ -1374,6 +1382,31 @@ void MainWindow::showCommitContextMenu(int row, const QPoint& globalPos) {
 void MainWindow::onCompareWithWorkingCopyReady(const ObjectId& commit,
                                                std::shared_ptr<const ParsedDiff> diff) {
     diffPage_->showCompareWithWorkingCopy(commit, std::move(diff));
+}
+
+void MainWindow::onViewFileDiffRequested(QString path, bool staged) {
+    if (!session_) {
+        return;
+    }
+    diffTabRequestedPath_ = path;
+    diffTabRequestedStaged_ = staged;
+    diffTabRequestPending_ = true;
+    diffPage_->showMessage(QStringLiteral("Loading changes for %1…").arg(path));
+    tabWidget_->setCurrentIndex(kDiffTab);
+    session_->requestWorkingCopyDiff(path.toStdString(), staged);
+}
+
+void MainWindow::onWorkingCopyDiffReadyForDiffTab(QString path,
+                                                  bool staged,
+                                                  std::shared_ptr<const ParsedDiff> diff) {
+    if (!diffTabRequestPending_ || path != diffTabRequestedPath_ ||
+        staged != diffTabRequestedStaged_) {
+        // Either no "View diff" request is outstanding, or this reply belongs
+        // to WorkingCopyView's own embedded-pane request instead.
+        return;
+    }
+    diffTabRequestPending_ = false;
+    diffPage_->showWorkingCopyDiff(path, staged, std::move(diff));
 }
 
 void MainWindow::onRefActivated(const QModelIndex& index) {

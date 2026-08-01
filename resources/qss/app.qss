@@ -212,6 +212,26 @@ QLabel#sidebarSectionHeader {
     padding: 8px 12px 4px 12px;
 }
 
+/* --- bordered panels --------------------------------------------------------*/
+
+/* A generic bordered/rounded container -- same border+radius recipe as
+ * `QTabWidget::pane` above, reused rather than invented a second time. First
+ * consumer: the Working Copy tab's Unstaged/Staged panels. */
+QFrame#workingCopyFilePanel {
+    background: @surface-panel;
+    border: 1px solid @border-subtle;
+    border-radius: 10px;
+}
+
+QLabel#workingCopyPanelHeader {
+    font-weight: 600;
+    padding: 6px 2px;
+}
+
+QLabel#workingCopyPlaceholder {
+    color: @text-tertiary;
+}
+
 /* --- tree / table views -----------------------------------------------------*/
 
 QTreeView,

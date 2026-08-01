@@ -1,6 +1,6 @@
 #include "app/views/pages/DiffPage.h"
 
-#include "app/views/DiffView.h"
+#include "app/views/SideBySideDiffView.h"
 
 #include <QLabel>
 #include <QVBoxLayout>
@@ -16,17 +16,20 @@ DiffPage::DiffPage(QWidget* parent) : QWidget(parent) {
     headerLabel_->setWordWrap(true);
     layout->addWidget(headerLabel_);
 
-    diffView_ = new DiffView(this);
-    // Read-only: this pane shows a past commit against the work tree, which
-    // cannot be staged the way WorkingCopyView's embedded DiffView can.
-    diffView_->setStagingEnabled(false);
+    diffView_ = new SideBySideDiffView(this);
     layout->addWidget(diffView_, 1);
+
+    connect(
+        diffView_, &SideBySideDiffView::applyPatchRequested, this, &DiffPage::applyPatchRequested);
 }
 
 void DiffPage::showCompareWithWorkingCopy(const ObjectId& commit,
                                           std::shared_ptr<const ParsedDiff> diff) {
     headerLabel_->setText(QStringLiteral("Comparing %1 with the working copy")
                               .arg(QString::fromStdString(commit.shortHex(7))));
+    // Not staged: an arbitrary historical commit against the work tree isn't
+    // the index, so there is nothing for "Stage Line"/"Stage Hunk" to mean.
+    diffView_->setStagingEnabled(false);
     diffView_->showDiff(std::move(diff));
 }
 
@@ -35,6 +38,9 @@ void DiffPage::showWorkingCopyDiff(const QString& path,
                                    std::shared_ptr<const ParsedDiff> diff) {
     headerLabel_->setText(staged ? QStringLiteral("Staged changes — %1").arg(path)
                                  : QStringLiteral("Unstaged changes — %1").arg(path));
+    // A real index/work-tree (or HEAD/index) diff: stageable both ways.
+    diffView_->setStagingEnabled(true);
+    diffView_->setShowingStagedDiff(staged);
     diffView_->showDiff(std::move(diff));
 }
 

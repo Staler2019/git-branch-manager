@@ -358,10 +358,12 @@ void MainWindow::buildUi() {
     tabWidget_->addTab(workingCopyView_, QStringLiteral("Working Copy"));
 
     // --- Diff tab ------------------------------------------------------------
-    // Not a rebuild of SideBySideDiffView into the design's staged editor
-    // (Phase 5's job) -- just a container reachable from the commit context
-    // menu's "Compare with working copy", per this phase's scope.
     diffPage_ = new DiffPage(this);
+    connect(diffPage_, &DiffPage::applyPatchRequested, this, [this](QString patch, bool reverse) {
+        if (session_) {
+            session_->applyPatch(patch.toStdString(), reverse);
+        }
+    });
     tabWidget_->addTab(diffPage_, QStringLiteral("Diff"));
 
     // --- Repository tab (placeholder; real content is Phase 6) --------------

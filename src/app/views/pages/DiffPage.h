@@ -11,17 +11,17 @@ class QLabel;
 
 namespace gbm {
 
-class DiffView;
+class SideBySideDiffView;
 
 /// The design's Diff tab.
 ///
-/// Phase 3 gives this its own tab slot without rebuilding it into the staged
-/// side-by-side editor the design eventually wants (that promotion of
-/// `SideBySideDiffView` to a first-class page is Phase 5's job -- see the
-/// plan). For now this hosts a plain `DiffView` fed by
-/// `RepositorySession::requestCompareWithWorkingCopy`, which is the one flow
-/// in this phase that needs an ad hoc diff destination: the commit context
-/// menu's "Compare with working copy" action.
+/// Hosts the staging-capable `SideBySideDiffView` (Phase 5's promotion of that
+/// view into a first-class page -- see the plan). Fed either by
+/// `RepositorySession::requestCompareWithWorkingCopy` (the commit context
+/// menu's "Compare with working copy", not stageable -- an arbitrary historical
+/// commit isn't the index) or `RepositorySession::requestWorkingCopyDiff` (the
+/// Working Copy tab's "View diff", which is stageable since it's a real
+/// index/work-tree diff). Staging is gated per call accordingly.
 class DiffPage : public QWidget {
     Q_OBJECT
 
@@ -29,12 +29,12 @@ public:
     explicit DiffPage(QWidget* parent = nullptr);
 
     /// Shows the diff between `commit` and the current work tree, as produced
-    /// by `RepositorySession::compareWithWorkingCopyReady`.
+    /// by `RepositorySession::compareWithWorkingCopyReady`. Never stageable.
     void showCompareWithWorkingCopy(const ObjectId& commit, std::shared_ptr<const ParsedDiff> diff);
 
     /// Shows one file's working-copy diff ("View diff" on the Working Copy
     /// tab's unstaged/staged context menus), as produced by
-    /// `RepositorySession::workingCopyDiffReady`.
+    /// `RepositorySession::workingCopyDiffReady`. Stageable.
     void showWorkingCopyDiff(const QString& path,
                              bool staged,
                              std::shared_ptr<const ParsedDiff> diff);
@@ -50,9 +50,15 @@ public:
     /// `DiffView::refreshTheme()` exists.
     void refreshTheme();
 
+signals:
+    /// Forwarded verbatim from the hosted SideBySideDiffView, so MainWindow
+    /// can wire it straight to RepositorySession::applyPatch the same way
+    /// WorkingCopyView wires DiffView's signal of the same name.
+    void applyPatchRequested(QString patch, bool reverse);
+
 private:
     QLabel* headerLabel_ = nullptr;
-    DiffView* diffView_ = nullptr;
+    SideBySideDiffView* diffView_ = nullptr;
 };
 
 }  // namespace gbm

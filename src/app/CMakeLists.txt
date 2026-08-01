@@ -21,15 +21,44 @@ qt_add_executable(git-branch-manager
 
     models/CommitListModel.cpp
     models/GraphColumnDelegate.cpp
+    models/RefRowDelegate.cpp
     models/RefTreeModel.cpp
     models/RepoListModel.cpp
+
+    theme/ThemeTokens.cpp
+
+    dialogs/AboutDialog.cpp
+    dialogs/BisectDialog.cpp
+    dialogs/BlameDialog.cpp
+    dialogs/CherryPickDialog.cpp
+    dialogs/CleanUntrackedDialog.cpp
+    dialogs/FileHistoryDialog.cpp
+    dialogs/InteractiveRebaseDialog.cpp
+    dialogs/KeyboardShortcutsDialog.cpp
+    dialogs/LineHistoryDialog.cpp
+    dialogs/ManageBaseFoldersDialog.cpp
+    dialogs/ManageLfsDialog.cpp
+    dialogs/ManageStashesDialog.cpp
+    dialogs/ManageSubmodulesDialog.cpp
+    dialogs/ManageWorktreesDialog.cpp
+    dialogs/MergeDialog.cpp
+    dialogs/PreferencesDialog.cpp
+    dialogs/ReflogDialog.cpp
+    dialogs/ResetBranchDialog.cpp
+    dialogs/StashChangesDialog.cpp
 
     views/CredentialDialog.cpp
     views/DiffView.cpp
     views/MainWindow.cpp
     views/OperationLogView.cpp
     views/SideBySideDiffView.cpp
-    views/WorkingCopyView.cpp
+    views/SidebarPanel.cpp
+
+    views/pages/DiffPage.cpp
+    views/pages/RepositoryPage.cpp
+    views/pages/WorkingCopyView.cpp
+
+    "${CMAKE_SOURCE_DIR}/resources/app.qrc"
 )
 
 target_include_directories(git-branch-manager PRIVATE

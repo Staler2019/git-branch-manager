@@ -26,6 +26,12 @@ public:
         IsRefRole,  ///< False for grouping nodes such as "feature/".
         IsHeadRole,
         RefKindRole,
+        /// True for a top-level section root ("Branches" / "Remotes" / "Tags"),
+        /// as opposed to an intermediate slash-separated grouping node such as
+        /// "feature/" -- the sidebar delegate needs to tell the two apart to
+        /// paint one as an uppercase section header and the other as an
+        /// ordinary tree label.
+        IsSectionRole,
     };
 
     explicit RefTreeModel(QObject* parent = nullptr);

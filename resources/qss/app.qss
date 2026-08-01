@@ -1,0 +1,376 @@
+/*
+ * Theme stylesheet template.
+ *
+ * Placeholder convention: every colour is written with a leading "at" sign
+ * followed by the design's CSS custom-property name from
+ * docs/design/tokens-reference.md (colors.css), with its leading double
+ * hyphen dropped -- for example the property that reads "surface-panel" in
+ * colors.css appears below as that same name with an "at" sign in front.
+ * `ThemeManager::applyTokensToQss()` substitutes every one of those
+ * placeholders with the current theme's hex colour before this is pushed via
+ * `qApp->setStyleSheet()`. No literal hex colour belongs in this file --
+ * anything that needs a colour gets a placeholder, and one missing from the
+ * table in ThemeManager.cpp's placeholderTable() would survive substitution
+ * unresolved (caught by ThemeTest).
+ *
+ * Numeric spacing/radius values are written directly as pixels, mirroring
+ * src/app/theme/Metrics.h, since QSS cannot reference C++ constants:
+ *   radius-sm 4  radius-md 6  radius-lg 10  radius-full 999
+ *   space-1 4  space-2 8  space-3 12  space-4 16
+ */
+
+QMainWindow {
+    background: @surface-app;
+}
+
+QWidget {
+    color: @text-primary;
+    selection-background-color: @accent;
+    selection-color: @text-on-accent;
+}
+
+/* --- menu bar / menus ---------------------------------------------------- */
+
+QMenuBar {
+    background: @surface-panel;
+    color: @text-primary;
+    border-bottom: 1px solid @border-subtle;
+    padding: 2px 4px;
+}
+
+QMenuBar::item {
+    background: transparent;
+    padding: 4px 10px;
+    border-radius: 4px;
+}
+
+QMenuBar::item:selected {
+    background: @surface-hover;
+}
+
+QMenuBar::item:pressed {
+    background: @accent-subtle;
+    color: @accent;
+}
+
+QMenu {
+    background: @surface-overlay;
+    color: @text-primary;
+    border: 1px solid @border-default;
+    border-radius: 6px;
+    padding: 4px;
+}
+
+QMenu::item {
+    padding: 6px 10px;
+    border-radius: 4px;
+    color: @text-primary;
+}
+
+QMenu::item:selected {
+    background: @accent;
+    color: @text-on-accent;
+}
+
+QMenu::item:disabled {
+    color: @text-tertiary;
+}
+
+QMenu::separator {
+    height: 1px;
+    background: @border-subtle;
+    margin: 4px 6px;
+}
+
+/* --- toolbar --------------------------------------------------------------*/
+
+QToolBar {
+    background: @surface-panel;
+    border-bottom: 1px solid @border-subtle;
+    padding: 4px 8px;
+    spacing: 8px;
+}
+
+QToolBar QToolButton {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 4px 8px;
+    color: @text-secondary;
+}
+
+QToolBar QToolButton:hover {
+    background: @surface-hover;
+    color: @text-primary;
+}
+
+QToolBar QToolButton:pressed,
+QToolBar QToolButton:checked {
+    background: @accent-subtle;
+    color: @accent;
+}
+
+/* --- buttons --------------------------------------------------------------*/
+
+QPushButton {
+    background: @surface-panel-raised;
+    color: @text-primary;
+    border: 1px solid @border-default;
+    border-radius: 6px;
+    padding: 4px 12px;
+    min-height: 22px;
+}
+
+QPushButton:hover {
+    background: @surface-hover;
+}
+
+QPushButton:pressed {
+    background: @surface-selected;
+}
+
+QPushButton:disabled {
+    color: @text-tertiary;
+    border-color: @border-subtle;
+}
+
+/* Primary / secondary / danger variants, selected by objectName -- the
+ * later phases that add real buttons should set
+ * `button->setObjectName("primaryButton")` (etc.) rather than styling ad hoc,
+ * so every button in the app draws from these three states. */
+QPushButton#primaryButton {
+    background: @accent;
+    color: @text-on-accent;
+    border-color: @accent;
+}
+
+QPushButton#primaryButton:hover {
+    background: @accent-hover;
+}
+
+QPushButton#primaryButton:pressed {
+    background: @accent-active;
+}
+
+QPushButton#secondaryButton {
+    background: @surface-panel-raised;
+    color: @text-primary;
+    border-color: @border-default;
+}
+
+QPushButton#secondaryButton:hover {
+    background: @surface-hover;
+}
+
+QPushButton#dangerButton {
+    background: transparent;
+    color: @danger;
+    border-color: @border-default;
+}
+
+QPushButton#dangerButton:hover {
+    background: @diff-del-bg;
+    border-color: @danger;
+}
+
+/* --- inputs ---------------------------------------------------------------*/
+
+QLineEdit,
+QPlainTextEdit,
+QTextEdit {
+    background: @surface-panel;
+    color: @text-primary;
+    border: 1px solid @border-default;
+    border-radius: 6px;
+    padding: 4px 8px;
+    selection-background-color: @accent;
+    selection-color: @text-on-accent;
+}
+
+QLineEdit:focus,
+QPlainTextEdit:focus,
+QTextEdit:focus {
+    border-color: @border-focus;
+}
+
+QLineEdit:disabled {
+    color: @text-tertiary;
+    background: @surface-sunken;
+}
+
+/* --- sidebar --------------------------------------------------------------*/
+
+/* Section header labels ("REPOSITORIES" / "BRANCHES" / ...) above each of the
+ * sidebar's five sections. text-2xs in tokens-reference.md is 10.5px; QSS
+ * font-size does not reliably accept a fractional pixel value across styles,
+ * so this rounds to 11px, matching the same rounding SidebarPanel/
+ * RefRowDelegate use for the same token in hand-painted code. */
+QLabel#sidebarSectionHeader {
+    color: @text-tertiary;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 8px 12px 4px 12px;
+}
+
+/* --- bordered panels --------------------------------------------------------*/
+
+/* A generic bordered/rounded container -- same border+radius recipe as
+ * `QTabWidget::pane` above, reused rather than invented a second time. First
+ * consumer: the Working Copy tab's Unstaged/Staged panels (`#workingCopyFilePanel`).
+ * `#gbmPanel` is the same rule under a repo-content-neutral name for later
+ * consumers that are not file panels -- Repository Settings' three cards and
+ * Preferences' three sections (Phase 6). */
+QFrame#workingCopyFilePanel,
+QFrame#gbmPanel {
+    background: @surface-panel;
+    border: 1px solid @border-subtle;
+    border-radius: 10px;
+}
+
+QLabel#workingCopyPanelHeader,
+QLabel#gbmPanelHeader {
+    font-weight: 600;
+    padding: 6px 2px;
+}
+
+QLabel#workingCopyPlaceholder {
+    color: @text-tertiary;
+}
+
+QLabel#gbmPanelCaption {
+    color: @text-tertiary;
+    font-size: 11px;
+}
+
+/* --- tree / table views -----------------------------------------------------*/
+
+QTreeView,
+QTableView {
+    background: @surface-panel;
+    alternate-background-color: @surface-sunken;
+    color: @text-primary;
+    border: 1px solid @border-subtle;
+    gridline-color: @border-subtle;
+    selection-background-color: @surface-selected;
+    selection-color: @text-primary;
+    outline: none;
+}
+
+QTreeView::item,
+QTableView::item {
+    padding: 2px 4px;
+}
+
+QTreeView::item:hover,
+QTableView::item:hover {
+    background: @surface-hover;
+}
+
+QTreeView::item:selected,
+QTableView::item:selected {
+    background: @surface-selected;
+    color: @text-primary;
+}
+
+QHeaderView::section {
+    background: @surface-panel-raised;
+    color: @text-secondary;
+    border: none;
+    border-bottom: 1px solid @border-default;
+    border-right: 1px solid @border-subtle;
+    padding: 4px 8px;
+}
+
+/* --- tabs -------------------------------------------------------------------*/
+
+QTabWidget::pane {
+    background: @surface-panel;
+    border: 1px solid @border-subtle;
+    border-radius: 10px;
+}
+
+QTabBar {
+    background: transparent;
+}
+
+QTabBar::tab {
+    background: transparent;
+    color: @text-secondary;
+    padding: 8px 12px;
+    border-bottom: 2px solid transparent;
+}
+
+QTabBar::tab:hover {
+    color: @text-primary;
+}
+
+QTabBar::tab:selected {
+    color: @text-primary;
+    border-bottom-color: @accent;
+}
+
+/* --- splitters ----------------------------------------------------------- */
+
+QSplitter::handle {
+    background: @border-subtle;
+}
+
+QSplitter::handle:hover {
+    background: @border-strong;
+}
+
+/* --- scrollbars ------------------------------------------------------------*/
+
+QScrollBar:vertical {
+    background: transparent;
+    width: 12px;
+    margin: 0;
+}
+
+QScrollBar::handle:vertical {
+    background: @scrollbar-thumb;
+    border-radius: 5px;
+    min-height: 24px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background: @border-strong;
+}
+
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    height: 0;
+}
+
+QScrollBar:horizontal {
+    background: transparent;
+    height: 12px;
+    margin: 0;
+}
+
+QScrollBar::handle:horizontal {
+    background: @scrollbar-thumb;
+    border-radius: 5px;
+    min-width: 24px;
+}
+
+QScrollBar::handle:horizontal:hover {
+    background: @border-strong;
+}
+
+QScrollBar::add-line:horizontal,
+QScrollBar::sub-line:horizontal {
+    width: 0;
+}
+
+/* --- status bar ------------------------------------------------------------*/
+
+QStatusBar {
+    background: @surface-panel;
+    color: @text-secondary;
+    border-top: 1px solid @border-subtle;
+}
+
+QStatusBar::item {
+    border: none;
+}

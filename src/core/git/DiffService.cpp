@@ -307,6 +307,32 @@ GitResult<DiffService::ParsedDiffPtr> DiffService::workingTreeDiff(
     return ParsedDiffPtr(std::make_shared<ParsedDiff>(parser.parse(result->out)));
 }
 
+GitResult<DiffService::ParsedDiffPtr> DiffService::commitVsWorkingTree(const ObjectId& commit,
+                                                                       const DiffOptions& options,
+                                                                       CancellationToken token) {
+    GBM_ASSERT_NOT_UI_THREAD();
+
+    // Deliberately uncached, like workingTreeDiff above: the work tree changes
+    // under us, and any cache entry keyed just on the commit would go wrong
+    // the moment the user edits a file.
+    std::vector<std::string> args{"diff"};
+    for (auto& flag : diffFlags(options)) {
+        args.push_back(std::move(flag));
+    }
+    args.push_back(commit.hex());
+
+    GitCommand command(paths_.commandDir(), std::move(args));
+    command.timeout = std::chrono::seconds(180);
+
+    auto result = runner_.run(command, token);
+    if (!result) {
+        return fail(std::move(result).error());
+    }
+
+    UnifiedDiffParser parser;
+    return ParsedDiffPtr(std::make_shared<ParsedDiff>(parser.parse(result->out)));
+}
+
 void DiffService::clearCaches() {
     diffCache_.clear();
     fileListCache_.clear();

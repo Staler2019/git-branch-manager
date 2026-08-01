@@ -1,24 +1,37 @@
-#include "app/views/WorkingCopyView.h"
+#include "app/views/pages/WorkingCopyView.h"
 
 #include "app/bridge/RepositorySession.h"
+#include "app/bridge/ThemeManager.h"
+#include "app/theme/Tokens.h"
 #include "app/views/SideBySideDiffView.h"
 #include "core/git/ops/CommitOps.h"
 #include "core/git/ops/ConflictOps.h"
 #include "core/git/ops/ResetOps.h"
 
 #include <QCheckBox>
+#include <QClipboard>
+#include <QDesktopServices>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QDragEnterEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
+#include <QFrame>
+#include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QListWidget>
 #include <QMenu>
 #include <QMessageBox>
+#include <QMimeData>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSplitter>
 #include <QStackedWidget>
+#include <QUrl>
 #include <QVBoxLayout>
+
+#include <functional>
 
 namespace gbm {
 
@@ -36,6 +49,73 @@ QString pathLabel(const WorkingCopyEntry& entry) {
 /// Qt::UserRole+1 on an unstaged-list item: whether it is untracked, i.e. has
 /// no HEAD/index content for `git restore` to discard back to.
 constexpr int kUntrackedRole = Qt::UserRole + 1;
+/// Qt::UserRole+2: whether the row is a conflicted entry, rendered inline at
+/// the top of the unstaged panel rather than as a plain stageable row.
+constexpr int kConflictedRole = Qt::UserRole + 2;
+
+/// Custom MIME type carrying the dragged row's repo-relative path, so a drop
+/// on the opposite panel can call the same stage/unstage path a checkbox or
+/// context-menu action would.
+constexpr char kFilePathMimeType[] = "application/x-gbm-workingcopy-path";
+
+/// A QListWidget whose drag/drop is repurposed for stage/unstage instead of
+/// Qt's default same-widget item reordering: dragging out advertises the
+/// row's path under a private MIME type, and dropping calls `onFileDropped`
+/// rather than letting the base class insert/move any item. Self-drops (drag
+/// started and dropped on the same list) are ignored -- see the note on
+/// `onFileDropped` in WorkingCopyView::buildFilePanel.
+class FileListWidget : public QListWidget {
+public:
+    explicit FileListWidget(QWidget* parent = nullptr) : QListWidget(parent) {
+        setDragEnabled(true);
+        setAcceptDrops(true);
+        setDragDropMode(QAbstractItemView::DragDrop);
+        setDefaultDropAction(Qt::MoveAction);
+    }
+
+    /// Called with the dropped item's repo-relative path. Left unset (no-op)
+    /// until WorkingCopyView wires it up.
+    std::function<void(const std::string&)> onFileDropped;
+
+protected:
+    void dragEnterEvent(QDragEnterEvent* event) override {
+        if (event->source() != this && event->mimeData()->hasFormat(kFilePathMimeType)) {
+            event->acceptProposedAction();
+        }
+    }
+
+    void dragMoveEvent(QDragMoveEvent* event) override {
+        if (event->source() != this && event->mimeData()->hasFormat(kFilePathMimeType)) {
+            event->acceptProposedAction();
+        }
+    }
+
+    void dropEvent(QDropEvent* event) override {
+        // A file dragged onto the list it is already in would otherwise
+        // re-stage/re-unstage it -- harmless for a file with only one kind of
+        // pending change, but `git add` on a path that is both partially
+        // staged and further modified stages that unstaged remainder too, a
+        // change the user never asked for. Simplest correct answer: ignore it.
+        if (event->source() == this || !event->mimeData()->hasFormat(kFilePathMimeType)) {
+            event->ignore();
+            return;
+        }
+        const std::string path =
+            QString::fromUtf8(event->mimeData()->data(kFilePathMimeType)).toStdString();
+        event->acceptProposedAction();
+        if (onFileDropped) {
+            onFileDropped(path);
+        }
+    }
+
+    QMimeData* mimeData(const QList<QListWidgetItem*>& items) const override {
+        auto* data = new QMimeData();
+        if (!items.isEmpty()) {
+            data->setData(kFilePathMimeType, items.first()->data(Qt::UserRole).toByteArray());
+        }
+        return data;
+    }
+};
 
 QListWidgetItem* addEntry(QListWidget* list,
                           const WorkingCopyEntry& entry,
@@ -54,6 +134,42 @@ WorkingCopyView::WorkingCopyView(QWidget* parent) : QWidget(parent) {
     rebuildLists();
 }
 
+WorkingCopyView::FilePanel WorkingCopyView::buildFilePanel(const QString& title) {
+    FilePanel panel;
+
+    panel.frame = new QFrame(this);
+    panel.frame->setObjectName(QStringLiteral("workingCopyFilePanel"));
+    auto* frameLayout = new QVBoxLayout(panel.frame);
+    frameLayout->setContentsMargins(8, 8, 8, 8);
+
+    auto* headerRow = new QHBoxLayout();
+    auto* titleLabel = new QLabel(title, panel.frame);
+    titleLabel->setObjectName(QStringLiteral("workingCopyPanelHeader"));
+    panel.countLabel = new QLabel(QStringLiteral("0"), panel.frame);
+    panel.countLabel->setStyleSheet(
+        QStringLiteral("color: %1;").arg(ThemeManager::color(Token::TextTertiary).name()));
+    headerRow->addWidget(titleLabel);
+    headerRow->addStretch(1);
+    headerRow->addWidget(panel.countLabel);
+    frameLayout->addLayout(headerRow);
+
+    panel.stack = new QStackedWidget(panel.frame);
+    panel.list = new FileListWidget(panel.frame);
+    panel.list->setSelectionMode(QAbstractItemView::SingleSelection);
+    panel.list->setContextMenuPolicy(Qt::CustomContextMenu);
+    panel.stack->addWidget(panel.list);
+
+    auto* placeholder = new QLabel(QStringLiteral("Drop files here"), panel.frame);
+    placeholder->setObjectName(QStringLiteral("workingCopyPlaceholder"));
+    placeholder->setAlignment(Qt::AlignCenter);
+    panel.stack->addWidget(placeholder);
+    panel.stack->setCurrentWidget(placeholder);
+
+    frameLayout->addWidget(panel.stack, 1);
+
+    return panel;
+}
+
 void WorkingCopyView::buildUi() {
     auto* outerLayout = new QVBoxLayout(this);
     outerLayout->setContentsMargins(6, 6, 6, 6);
@@ -67,44 +183,44 @@ void WorkingCopyView::buildUi() {
     auto* leftLayout = new QVBoxLayout(leftWidget);
     leftLayout->setContentsMargins(0, 0, 0, 0);
 
-    conflictedGroup_ = new QWidget(leftWidget);
-    auto* conflictedLayout = new QVBoxLayout(conflictedGroup_);
-    conflictedLayout->setContentsMargins(0, 0, 0, 0);
-    conflictedLayout->addWidget(
-        new QLabel(tr("Conflicts — resolve before committing"), conflictedGroup_));
-    conflictedList_ = new QListWidget(conflictedGroup_);
-    conflictedList_->setMaximumHeight(120);
-    conflictedList_->setAccessibleName(tr("Conflicted files"));
-    conflictedLayout->addWidget(conflictedList_);
-    conflictedGroup_->setVisible(false);
-    leftLayout->addWidget(conflictedGroup_);
-
-    leftLayout->addWidget(new QLabel(tr("Staged Changes"), leftWidget));
-    stagedList_ = new QListWidget(leftWidget);
-    stagedList_->setSelectionMode(QAbstractItemView::SingleSelection);
-    stagedList_->setAccessibleName(tr("Staged changes"));
-    leftLayout->addWidget(stagedList_, 1);
-    unstageAllButton_ = new QPushButton(tr("Unstage All"), leftWidget);
-    leftLayout->addWidget(unstageAllButton_);
-
-    leftLayout->addWidget(new QLabel(tr("Changes"), leftWidget));
-    unstagedList_ = new QListWidget(leftWidget);
-    unstagedList_->setSelectionMode(QAbstractItemView::SingleSelection);
-    unstagedList_->setContextMenuPolicy(Qt::CustomContextMenu);
+    // Two equal panels, board-style: conflicted + unstaged/untracked entries
+    // on the left, staged entries on the right.
+    auto* boardRow = new QHBoxLayout();
+    const FilePanel unstagedPanel = buildFilePanel(tr("Unstaged"));
+    const FilePanel stagedPanel = buildFilePanel(tr("Staged"));
+    unstagedList_ = unstagedPanel.list;
+    unstagedStack_ = unstagedPanel.stack;
+    unstagedCountLabel_ = unstagedPanel.countLabel;
     unstagedList_->setAccessibleName(tr("Unstaged changes"));
-    leftLayout->addWidget(unstagedList_, 1);
+    stagedList_ = stagedPanel.list;
+    stagedStack_ = stagedPanel.stack;
+    stagedCountLabel_ = stagedPanel.countLabel;
+    stagedList_->setAccessibleName(tr("Staged changes"));
+
+    auto* unstagedColumn = new QVBoxLayout();
+    unstagedColumn->addWidget(unstagedPanel.frame, 1);
     stageAllButton_ = new QPushButton(tr("Stage All"), leftWidget);
-    leftLayout->addWidget(stageAllButton_);
+    unstagedColumn->addWidget(stageAllButton_);
+    boardRow->addLayout(unstagedColumn, 1);
+
+    auto* stagedColumn = new QVBoxLayout();
+    stagedColumn->addWidget(stagedPanel.frame, 1);
+    unstageAllButton_ = new QPushButton(tr("Unstage All"), leftWidget);
+    stagedColumn->addWidget(unstageAllButton_);
+    boardRow->addLayout(stagedColumn, 1);
+
+    leftLayout->addLayout(boardRow, 1);
 
     messageEdit_ = new QPlainTextEdit(leftWidget);
-    messageEdit_->setPlaceholderText(tr("Commit message"));
-    messageEdit_->setMaximumHeight(100);
+    messageEdit_->setPlaceholderText(tr("Commit message…"));
+    messageEdit_->setFixedHeight(56);
     messageEdit_->setAccessibleName(tr("Commit message"));
     leftLayout->addWidget(messageEdit_);
 
     auto* commitRow = new QHBoxLayout();
     amendCheck_ = new QCheckBox(tr("Amend"), leftWidget);
     commitButton_ = new QPushButton(tr("Commit"), leftWidget);
+    commitButton_->setObjectName(QStringLiteral("primaryButton"));
     commitButton_->setEnabled(false);
     commitRow->addWidget(amendCheck_);
     commitRow->addStretch(1);
@@ -152,46 +268,70 @@ void WorkingCopyView::buildUi() {
             &QListWidget::itemActivated,
             this,
             &WorkingCopyView::onUnstagedItemActivated);
-    connect(conflictedList_,
-            &QListWidget::itemActivated,
-            this,
-            &WorkingCopyView::onConflictedItemActivated);
+    connect(stagedList_, &QListWidget::itemChanged, this, &WorkingCopyView::onStagedItemChanged);
+    connect(
+        unstagedList_, &QListWidget::itemChanged, this, &WorkingCopyView::onUnstagedItemChanged);
+
+    // Drag-and-drop between panels shares the exact same submission path as
+    // the checkboxes and the context menus' Stage/Unstage actions -- click
+    // and drag are two triggers for one action, not two implementations.
+    static_cast<FileListWidget*>(stagedList_)->onFileDropped = [this](const std::string& path) {
+        if (session_ != nullptr) {
+            session_->stageFiles({path});
+        }
+    };
+    static_cast<FileListWidget*>(unstagedList_)->onFileDropped = [this](const std::string& path) {
+        if (session_ != nullptr) {
+            session_->unstageFiles({path});
+        }
+    };
+
     connect(
         unstagedList_, &QListWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
             auto* item = unstagedList_->itemAt(pos);
             if (item == nullptr || session_ == nullptr) {
                 return;
             }
-            // `git restore` has nothing to discard an untracked file back
-            // to -- there is no HEAD/index content for it -- so it is left
-            // out of the menu rather than offering an action that would
-            // just fail.
-            if (item->data(kUntrackedRole).toBool()) {
+            if (item->data(kConflictedRole).toBool()) {
+                // Conflicted rows are resolved via double-click (see
+                // onConflictedItemActivated), not this menu.
                 return;
             }
             const std::string path = item->data(Qt::UserRole).toString().toStdString();
-
-            QMenu menu(unstagedList_);
-            QAction* discardAction = menu.addAction(tr("Discard Changes…"));
-            if (menu.exec(unstagedList_->viewport()->mapToGlobal(pos)) != discardAction) {
+            const WorkingCopyStatusPtr status = session_->workingCopyStatus();
+            if (!status) {
                 return;
             }
-            const auto confirmed =
-                QMessageBox::warning(this,
-                                     tr("Discard changes?"),
-                                     tr("This permanently discards your uncommitted changes "
-                                        "to \"%1\".")
-                                         .arg(QString::fromStdString(path)),
-                                     QMessageBox::Discard | QMessageBox::Cancel,
-                                     QMessageBox::Cancel);
-            if (confirmed != QMessageBox::Discard) {
-                return;
+            for (const WorkingCopyEntry* entry : status->unstaged()) {
+                if (entry->path == path) {
+                    showUnstagedContextMenu(*entry, unstagedList_->viewport()->mapToGlobal(pos));
+                    return;
+                }
             }
-            RestoreRequest request;
-            request.paths = {path};
-            request.staged = false;
-            session_->restorePaths(request);
+            for (const WorkingCopyEntry* entry : status->untracked()) {
+                if (entry->path == path) {
+                    showUnstagedContextMenu(*entry, unstagedList_->viewport()->mapToGlobal(pos));
+                    return;
+                }
+            }
         });
+    connect(stagedList_, &QListWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+        auto* item = stagedList_->itemAt(pos);
+        if (item == nullptr || session_ == nullptr) {
+            return;
+        }
+        const std::string path = item->data(Qt::UserRole).toString().toStdString();
+        const WorkingCopyStatusPtr status = session_->workingCopyStatus();
+        if (!status) {
+            return;
+        }
+        for (const WorkingCopyEntry* entry : status->staged()) {
+            if (entry->path == path) {
+                showStagedContextMenu(*entry, stagedList_->viewport()->mapToGlobal(pos));
+                return;
+            }
+        }
+    });
     connect(sideBySideToggle_, &QCheckBox::toggled, this, [this](bool sideBySide) {
         diffStack_->setCurrentWidget(sideBySide ? static_cast<QWidget*>(sideBySideView_)
                                                 : static_cast<QWidget*>(diffView_));
@@ -201,10 +341,15 @@ void WorkingCopyView::buildUi() {
     connect(commitButton_, &QPushButton::clicked, this, &WorkingCopyView::onCommitClicked);
     connect(amendCheck_, &QCheckBox::toggled, this, [this](bool amend) {
         messageEdit_->setPlaceholderText(amend ? tr("Leave empty to keep the previous message")
-                                               : tr("Commit message"));
+                                               : tr("Commit message…"));
     });
     connect(
         diffView_, &DiffView::applyPatchRequested, this, &WorkingCopyView::onApplyPatchRequested);
+}
+
+void WorkingCopyView::refreshTheme() {
+    diffView_->refreshTheme();
+    sideBySideView_->refreshTheme();
 }
 
 void WorkingCopyView::setSession(RepositorySession* session) {
@@ -250,32 +395,56 @@ void WorkingCopyView::rebuildLists() {
     // diff pane out from under them.
     const auto previous = currentSelection();
 
+    rebuilding_ = true;
     stagedList_->blockSignals(true);
     unstagedList_->blockSignals(true);
-    conflictedList_->blockSignals(true);
     stagedList_->clear();
     unstagedList_->clear();
-    conflictedList_->clear();
 
     const WorkingCopyStatusPtr status = session_ ? session_->workingCopyStatus() : nullptr;
     if (status) {
         for (const WorkingCopyEntry* entry : status->conflicted()) {
-            addEntry(conflictedList_, *entry, QString());
+            // Text left empty: the row's content is drawn entirely by the
+            // widget installed below via setItemWidget, same as the commit
+            // list's inline expansion panel (MainWindow::buildCommitExpansionPanel).
+            auto* item = new QListWidgetItem(QString(), unstagedList_);
+            item->setData(Qt::UserRole, QString::fromStdString(entry->path));
+            item->setData(kConflictedRole, true);
+            // Not stageable and not draggable until resolved: a checkbox or
+            // a drop would otherwise try to stage a still-conflicted path.
+            item->setFlags(item->flags() & ~(Qt::ItemIsUserCheckable | Qt::ItemIsDragEnabled));
+
+            auto* row = new QWidget(unstagedList_);
+            auto* rowLayout = new QVBoxLayout(row);
+            rowLayout->setContentsMargins(4, 2, 4, 2);
+            rowLayout->setSpacing(0);
+            rowLayout->addWidget(new QLabel(pathLabel(*entry), row));
+            auto* conflictLabel = new QLabel(tr("Conflicted — resolve before staging"), row);
+            conflictLabel->setStyleSheet(
+                QStringLiteral("color: %1;").arg(ThemeManager::color(Token::Danger).name()));
+            rowLayout->addWidget(conflictLabel);
+            unstagedList_->setItemWidget(item, row);
         }
         for (const WorkingCopyEntry* entry : status->staged()) {
-            addEntry(stagedList_, *entry, QString());
+            auto* item = addEntry(stagedList_, *entry, QString());
+            item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+            item->setCheckState(Qt::Checked);
         }
         for (const WorkingCopyEntry* entry : status->unstaged()) {
-            addEntry(unstagedList_, *entry, QString());
+            auto* item = addEntry(unstagedList_, *entry, QString());
+            item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+            item->setCheckState(Qt::Unchecked);
         }
         for (const WorkingCopyEntry* entry : status->untracked()) {
-            addEntry(unstagedList_, *entry, tr("  (untracked)"), true);
+            auto* item = addEntry(unstagedList_, *entry, tr("  (untracked)"), true);
+            item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+            item->setCheckState(Qt::Unchecked);
         }
     }
 
     stagedList_->blockSignals(false);
     unstagedList_->blockSignals(false);
-    conflictedList_->blockSignals(false);
+    rebuilding_ = false;
 
     bool reselected = false;
     if (previous) {
@@ -298,8 +467,12 @@ void WorkingCopyView::rebuildLists() {
         sideBySideView_->clearDiff();
     }
 
-    const bool hasConflicts = conflictedList_->count() > 0;
-    conflictedGroup_->setVisible(hasConflicts);
+    unstagedStack_->setCurrentIndex(unstagedList_->count() > 0 ? 0 : 1);
+    stagedStack_->setCurrentIndex(stagedList_->count() > 0 ? 0 : 1);
+    unstagedCountLabel_->setText(QString::number(unstagedList_->count()));
+    stagedCountLabel_->setText(QString::number(stagedList_->count()));
+
+    const bool hasConflicts = status && !status->conflicted().empty();
 
     if (!status) {
         summaryLabel_->setText(tr("No repository open"));
@@ -310,8 +483,9 @@ void WorkingCopyView::rebuildLists() {
             tr("%1 staged, %2 to review").arg(stagedList_->count()).arg(unstagedList_->count()));
     }
 
+    const int conflictedCount = status ? static_cast<int>(status->conflicted().size()) : 0;
     commitButton_->setEnabled(stagedList_->count() > 0 && !hasConflicts);
-    stageAllButton_->setEnabled(unstagedList_->count() > 0);
+    stageAllButton_->setEnabled(unstagedList_->count() > conflictedCount);
     unstageAllButton_->setEnabled(stagedList_->count() > 0);
 }
 
@@ -395,7 +569,34 @@ void WorkingCopyView::onUnstagedItemActivated(QListWidgetItem* item) {
     if (session_ == nullptr || item == nullptr) {
         return;
     }
+    if (item->data(kConflictedRole).toBool()) {
+        onConflictedItemActivated(item);
+        return;
+    }
     session_->stageFiles({item->data(Qt::UserRole).toString().toStdString()});
+}
+
+void WorkingCopyView::onUnstagedItemChanged(QListWidgetItem* item) {
+    if (rebuilding_ || session_ == nullptr || item == nullptr) {
+        return;
+    }
+    // Checking the box stages the file, the same path as a drop onto the
+    // staged panel or "Stage file" on the context menu. Unchecking is a
+    // no-op: the row leaves this panel (and the checkbox with it) once the
+    // next status refresh reflects the stage, rather than trying to "unstage
+    // an unstaged file" here.
+    if (item->checkState() == Qt::Checked) {
+        session_->stageFiles({item->data(Qt::UserRole).toString().toStdString()});
+    }
+}
+
+void WorkingCopyView::onStagedItemChanged(QListWidgetItem* item) {
+    if (rebuilding_ || session_ == nullptr || item == nullptr) {
+        return;
+    }
+    if (item->checkState() == Qt::Unchecked) {
+        session_->unstageFiles({item->data(Qt::UserRole).toString().toStdString()});
+    }
 }
 
 void WorkingCopyView::onConflictedItemActivated(QListWidgetItem* item) {
@@ -412,6 +613,97 @@ void WorkingCopyView::onConflictedItemActivated(QListWidgetItem* item) {
             openConflictResolutionDialog(*entry);
             return;
         }
+    }
+}
+
+void WorkingCopyView::showUnstagedContextMenu(const WorkingCopyEntry& entry,
+                                              const QPoint& globalPos) {
+    if (session_ == nullptr) {
+        return;
+    }
+    const QString qpath = QString::fromStdString(entry.path);
+
+    QMenu menu(this);
+    QAction* stageAction = menu.addAction(tr("Stage file"));
+    QAction* viewDiffAction = menu.addAction(tr("View diff"));
+    QAction* openFileAction = menu.addAction(tr("Open file"));
+    menu.addSeparator();
+    QAction* copyPathAction = menu.addAction(tr("Copy path"));
+    menu.addSeparator();
+    QAction* discardAction = menu.addAction(tr("Discard changes…"));
+    // `git restore` has nothing to discard an untracked file back to -- there
+    // is no HEAD/index content for it -- so the action stays visible (the
+    // menu's shape matches the design regardless of file kind) but disabled,
+    // same convention SidebarPanel uses for an action that would just fail.
+    if (entry.untracked) {
+        discardAction->setEnabled(false);
+        discardAction->setToolTip(
+            tr("Not supported: an untracked file has no committed content to restore"));
+    }
+
+    QAction* chosen = menu.exec(globalPos);
+    if (chosen == nullptr) {
+        return;
+    }
+
+    if (chosen == stageAction) {
+        session_->stageFiles({entry.path});
+    } else if (chosen == viewDiffAction) {
+        emit viewFileDiffRequested(qpath, false);
+    } else if (chosen == openFileAction) {
+        const QString fullPath =
+            QString::fromStdString((session_->paths().workDir() / entry.path).string());
+        QDesktopServices::openUrl(QUrl::fromLocalFile(fullPath));
+    } else if (chosen == copyPathAction) {
+        QGuiApplication::clipboard()->setText(qpath);
+    } else if (chosen == discardAction) {
+        const auto confirmed =
+            QMessageBox::warning(this,
+                                 tr("Discard changes?"),
+                                 tr("This permanently discards your uncommitted changes "
+                                    "to \"%1\".")
+                                     .arg(qpath),
+                                 QMessageBox::Discard | QMessageBox::Cancel,
+                                 QMessageBox::Cancel);
+        if (confirmed != QMessageBox::Discard) {
+            return;
+        }
+        RestoreRequest request;
+        request.paths = {entry.path};
+        request.staged = false;
+        session_->restorePaths(request);
+    }
+}
+
+void WorkingCopyView::showStagedContextMenu(const WorkingCopyEntry& entry,
+                                            const QPoint& globalPos) {
+    if (session_ == nullptr) {
+        return;
+    }
+    const QString qpath = QString::fromStdString(entry.path);
+
+    QMenu menu(this);
+    QAction* unstageAction = menu.addAction(tr("Unstage file"));
+    QAction* viewDiffAction = menu.addAction(tr("View diff"));
+    QAction* openFileAction = menu.addAction(tr("Open file"));
+    menu.addSeparator();
+    QAction* copyPathAction = menu.addAction(tr("Copy path"));
+
+    QAction* chosen = menu.exec(globalPos);
+    if (chosen == nullptr) {
+        return;
+    }
+
+    if (chosen == unstageAction) {
+        session_->unstageFiles({entry.path});
+    } else if (chosen == viewDiffAction) {
+        emit viewFileDiffRequested(qpath, true);
+    } else if (chosen == openFileAction) {
+        const QString fullPath =
+            QString::fromStdString((session_->paths().workDir() / entry.path).string());
+        QDesktopServices::openUrl(QUrl::fromLocalFile(fullPath));
+    } else if (chosen == copyPathAction) {
+        QGuiApplication::clipboard()->setText(qpath);
     }
 }
 
@@ -549,7 +841,11 @@ void WorkingCopyView::onStageAllClicked() {
     std::vector<std::string> paths;
     paths.reserve(static_cast<std::size_t>(unstagedList_->count()));
     for (int row = 0; row < unstagedList_->count(); ++row) {
-        paths.push_back(unstagedList_->item(row)->data(Qt::UserRole).toString().toStdString());
+        QListWidgetItem* item = unstagedList_->item(row);
+        if (item->data(kConflictedRole).toBool()) {
+            continue;
+        }
+        paths.push_back(item->data(Qt::UserRole).toString().toStdString());
     }
     if (!paths.empty()) {
         session_->stageFiles(std::move(paths));

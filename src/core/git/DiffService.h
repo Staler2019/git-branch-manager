@@ -155,6 +155,14 @@ public:
                                              const DiffOptions& options,
                                              CancellationToken token);
 
+    /// Work tree vs an arbitrary past commit -- "Compare with working copy".
+    /// Deliberately uncached, like workingTreeDiff: the work tree changes
+    /// under us, and the only honest cache key would have to include every
+    /// file's mtime and size.
+    GitResult<ParsedDiffPtr> commitVsWorkingTree(const ObjectId& commit,
+                                                 const DiffOptions& options,
+                                                 CancellationToken token);
+
     void clearCaches();
 
     std::size_t diffCacheBytes() const { return diffCache_.usedBytes(); }

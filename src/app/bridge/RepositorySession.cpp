@@ -34,6 +34,7 @@ RepositorySession::RepositorySession(GitInstallation installation,
     submoduleStore_ = std::make_unique<SubmoduleStore>(*runner_, paths_);
     bisectStore_ = std::make_unique<BisectStore>(*runner_, paths_);
     lfsStore_ = std::make_unique<LfsStore>(*runner_, paths_);
+    localIdentityStore_ = std::make_unique<LocalIdentityStore>(*runner_, paths_);
 
     askpass_ = new AskpassWatcher(this);
     connect(
@@ -214,6 +215,38 @@ void RepositorySession::checkout(const CheckoutRequest& request) {
     });
 }
 
+// --- Sidebar (Phase 2): branch mutation -------------------------------------
+
+void RepositorySession::createBranch(const CreateBranchRequest& request) {
+    submitAndRefresh(makeCreateBranchOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshRefs();
+        }
+    });
+}
+
+void RepositorySession::renameBranch(const RenameBranchRequest& request) {
+    submitAndRefresh(makeRenameBranchOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshRefs();
+        }
+    });
+}
+
+void RepositorySession::deleteBranch(const DeleteBranchRequest& request) {
+    // Unlike FetchRequest/PushRequest/DeleteTagRequest, DeleteBranchRequest has
+    // no askpassDir field -- DeleteBranchOperation's `git push --delete` path
+    // (core/git/ops/BranchOps.cpp) never calls askpass::wire(). Adding that
+    // field is a src/core change and out of scope here, so a remote delete
+    // that needs credentials fails the same way an unauthenticated push
+    // would (GIT_TERMINAL_PROMPT=0), rather than prompting.
+    submitAndRefresh(makeDeleteBranchOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshRefs();
+        }
+    });
+}
+
 void RepositorySession::cancelPendingReads() {
     readCancel_.cancel();
     readCancel_ = CancellationSource();
@@ -259,6 +292,34 @@ void RepositorySession::requestWorkingCopyDiff(const std::string& path, bool sta
                 [this, qpath, staged, diffPtr] {
                     emit workingCopyDiffReady(qpath, staged, diffPtr);
                 },
+                Qt::QueuedConnection);
+        } else if (diff.error().code != GitError::Code::Cancelled) {
+            GitError error = std::move(diff).error();
+            QMetaObject::invokeMethod(
+                this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
+        }
+        QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+    });
+}
+
+void RepositorySession::requestCompareWithWorkingCopy(const ObjectId& commit) {
+    const CancellationToken token = readCancel_.token();
+    setBusy(true);
+
+    // postFront: mirrors requestWorkingCopyDiff -- the newest request is what
+    // the user is looking at.
+    readPool_.postFront([this, commit, token] {
+        if (token.isCancelled()) {
+            QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+            return;
+        }
+
+        auto diff = diffs_->commitVsWorkingTree(commit, DiffOptions{}, token);
+        if (diff) {
+            auto diffPtr = *diff;
+            QMetaObject::invokeMethod(
+                this,
+                [this, commit, diffPtr] { emit compareWithWorkingCopyReady(commit, diffPtr); },
                 Qt::QueuedConnection);
         } else if (diff.error().code != GitError::Code::Cancelled) {
             GitError error = std::move(diff).error();
@@ -339,6 +400,10 @@ void RepositorySession::skipCherryPick() {
 
 void RepositorySession::abortCherryPick() {
     submitWorkingCopyOperation(makeCherryPickAbortOperation(), true);
+}
+
+void RepositorySession::revertCommit(const RevertRequest& request) {
+    submitWorkingCopyOperation(makeRevertOperation(request), true);
 }
 
 void RepositorySession::resolveConflict(const ResolveConflictRequest& request) {
@@ -1109,6 +1174,43 @@ void RepositorySession::skipImport() {
 
 void RepositorySession::abortImport() {
     submitWorkingCopyOperation(makeAmAbortOperation(), true);
+}
+
+// --- Phase 6: per-repository Git identity override --------------------------
+
+void RepositorySession::refreshLocalIdentity() {
+    const CancellationToken token = readCancel_.token();
+    setBusy(true);
+
+    readPool_.post([this, token] {
+        auto identity = localIdentityStore_->read(token);
+        if (identity) {
+            localIdentity_.publish(std::make_shared<LocalIdentity>(std::move(*identity)));
+            QMetaObject::invokeMethod(
+                this, [this] { emit localIdentityUpdated(); }, Qt::QueuedConnection);
+        } else if (identity.error().code != GitError::Code::Cancelled) {
+            GitError error = std::move(identity).error();
+            QMetaObject::invokeMethod(
+                this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
+        }
+        QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+    });
+}
+
+void RepositorySession::setLocalIdentityOverride(const SetLocalIdentityRequest& request) {
+    submitAndRefresh(makeSetLocalIdentityOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshLocalIdentity();
+        }
+    });
+}
+
+void RepositorySession::clearLocalIdentityOverride() {
+    submitAndRefresh(makeClearLocalIdentityOperation(), [this](bool succeeded) {
+        if (succeeded) {
+            refreshLocalIdentity();
+        }
+    });
 }
 
 }  // namespace gbm

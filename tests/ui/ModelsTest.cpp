@@ -81,6 +81,7 @@ private slots:
     void repoListModelDistinguishesUnknownFromClean();
     void refTreeModelSatisfiesTheModelContract();
     void refTreeModelNestsSlashSeparatedBranchNames();
+    void refTreeModelFlagsSectionRootsButNotGroupingNodes();
     void commitListModelSatisfiesTheModelContract();
     void commitListModelNeverBlocksInData();
     void graphDelegateWidthShrinksForLinearHistory();
@@ -187,6 +188,39 @@ void ModelsTest::refTreeModelNestsSlashSeparatedBranchNames() {
 
     // A grouping node is not a checkout target.
     QVERIFY(model.refNameAt(feature).isEmpty());
+}
+
+void ModelsTest::refTreeModelFlagsSectionRootsButNotGroupingNodes() {
+    RefTreeModel model;
+    model.setRefs(makeRefs());
+
+    // Every top-level row is a section root ("Branches"/"Remotes"/"Tags"), and
+    // the sidebar delegate paints those as uppercase headers rather than pills.
+    for (int row = 0; row < model.rowCount(); ++row) {
+        const QModelIndex section = model.index(row, 0);
+        QVERIFY(model.data(section, RefTreeModel::IsSectionRole).toBool());
+    }
+
+    QModelIndex branches;
+    for (int row = 0; row < model.rowCount(); ++row) {
+        if (model.data(model.index(row, 0), Qt::DisplayRole).toString() ==
+            QStringLiteral("Branches")) {
+            branches = model.index(row, 0);
+        }
+    }
+    QVERIFY(branches.isValid());
+
+    // "feature" is an intermediate slash-separated grouping node one level
+    // below the section root -- not itself a section, and not a ref.
+    const QModelIndex feature = model.index(0, 0, branches);
+    QVERIFY(!model.data(feature, RefTreeModel::IsSectionRole).toBool());
+    QVERIFY(!model.data(feature, RefTreeModel::IsRefRole).toBool());
+
+    // "main", a leaf ref, is neither a section nor unset.
+    const QModelIndex main = model.index(1, 0, branches);
+    QCOMPARE(model.data(main, Qt::DisplayRole).toString(), QStringLiteral("main"));
+    QVERIFY(!model.data(main, RefTreeModel::IsSectionRole).toBool());
+    QVERIFY(model.data(main, RefTreeModel::IsRefRole).toBool());
 }
 
 void ModelsTest::commitListModelSatisfiesTheModelContract() {

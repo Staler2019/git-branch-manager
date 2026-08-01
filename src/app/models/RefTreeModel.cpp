@@ -191,6 +191,8 @@ QVariant RefTreeModel::data(const QModelIndex& index, int role) const {
             return node->isHead;
         case RefKindRole:
             return static_cast<int>(node->kind);
+        case IsSectionRole:
+            return !node->isRef && node->parent == root_.get();
         default:
             return {};
     }

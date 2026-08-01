@@ -15,9 +15,11 @@
 #include "core/git/RepoState.h"
 #include "core/git/WorkingCopyStatus.h"
 #include "core/git/ops/BisectOps.h"
+#include "core/git/ops/BranchOps.h"
 #include "core/git/ops/CheckoutOp.h"
 #include "core/git/ops/CherryPickOps.h"
 #include "core/git/ops/CommitOps.h"
+#include "core/git/ops/ConfigOps.h"
 #include "core/git/ops/ConflictOps.h"
 #include "core/git/ops/LfsOps.h"
 #include "core/git/ops/MergeOps.h"
@@ -25,6 +27,7 @@
 #include "core/git/ops/RebaseOps.h"
 #include "core/git/ops/RemoteOps.h"
 #include "core/git/ops/ResetOps.h"
+#include "core/git/ops/RevertOps.h"
 #include "core/git/ops/StageOps.h"
 #include "core/git/ops/StashOps.h"
 #include "core/git/ops/SubmoduleOps.h"
@@ -51,6 +54,7 @@ using SubmoduleListPtr = std::shared_ptr<const std::vector<SubmoduleInfo>>;
 using BisectStatusPtr = std::shared_ptr<const BisectStatus>;
 using LfsFileListPtr = std::shared_ptr<const std::vector<LfsFileInfo>>;
 using LfsPatternListPtr = std::shared_ptr<const std::vector<std::string>>;
+using LocalIdentityPtr = std::shared_ptr<const LocalIdentity>;
 
 /// One open repository, and the single place where core callbacks become Qt
 /// signals.
@@ -97,6 +101,18 @@ public:
     /// Switches branches. `onFinished` runs on the UI thread.
     void checkout(const CheckoutRequest& request);
 
+    // --- Sidebar (Phase 2): branch mutation ---------------------------------
+    // BranchOps.h has had these factories since M2; nothing in the app wired
+    // them to a UI until the sidebar's branch context menu needed them.
+
+    void createBranch(const CreateBranchRequest& request);
+    void renameBranch(const RenameBranchRequest& request);
+
+    /// `git branch -d/-D`, or `git push <remote> --delete <name>` when
+    /// `request.isRemote` -- the latter is a network operation and routes
+    /// through the same askpass dance as `deleteTag`'s `alsoRemote` path.
+    void deleteBranch(const DeleteBranchRequest& request);
+
     void cancelPendingReads();
 
     /// The most recent working-copy status. May be stale until the next
@@ -111,6 +127,10 @@ public:
     /// Diff of one path against the index (staged=false) or HEAD
     /// (staged=true), for the working-copy panel.
     void requestWorkingCopyDiff(const std::string& path, bool staged);
+
+    /// Diff of an arbitrary past commit against the current work tree --
+    /// "Compare with working copy" on the commit context menu.
+    void requestCompareWithWorkingCopy(const ObjectId& commit);
 
     void stageFiles(std::vector<std::string> paths);
     void unstageFiles(std::vector<std::string> paths);
@@ -136,6 +156,11 @@ public:
     void continueCherryPick();
     void skipCherryPick();
     void abortCherryPick();
+
+    /// `git revert`, for a single commit or several. One-shot only: unlike
+    /// cherry-pick, there is no continue/skip/abort entry point yet -- see
+    /// RevertOps.h.
+    void revertCommit(const RevertRequest& request);
 
     /// Resolves one conflicted path from a stopped merge/cherry-pick/revert.
     void resolveConflict(const ResolveConflictRequest& request);
@@ -298,6 +323,19 @@ public:
     void skipImport();
     void abortImport();
 
+    // --- Phase 6: per-repository Git identity override ---------------------
+
+    LocalIdentityPtr localIdentity() const { return localIdentity_.current(); }
+
+    void refreshLocalIdentity();
+
+    /// Sets `user.name`/`user.email` scoped `--local` to this repository only.
+    void setLocalIdentityOverride(const SetLocalIdentityRequest& request);
+
+    /// Unsets both keys locally, so the repository falls back to whatever
+    /// global identity `git` finds (`~/.gitconfig` or the environment).
+    void clearLocalIdentityOverride();
+
 signals:
     /// A newer graph snapshot is available (possibly partial).
     void graphUpdated(bool complete);
@@ -312,6 +350,9 @@ signals:
 
     void workingCopyStatusUpdated();
     void workingCopyDiffReady(QString path, bool staged, std::shared_ptr<const ParsedDiff> diff);
+    /// Reply to requestCompareWithWorkingCopy.
+    void compareWithWorkingCopyReady(const ObjectId& commit,
+                                     std::shared_ptr<const ParsedDiff> diff);
     /// Reply to requestConflictSides, matched back up by path. A stage's
     /// content is empty both when that stage does not exist and when reading
     /// it failed -- the request is best-effort display, not itself an
@@ -328,6 +369,7 @@ signals:
     void submodulesUpdated();
     void bisectStatusUpdated();
     void lfsUpdated();
+    void localIdentityUpdated();
 
     /// A `git` subprocess spawned by one of the M3 remote/tag operations is
     /// blocked waiting for `prompt`. The view layer is expected to show it and
@@ -378,6 +420,7 @@ private:
     std::unique_ptr<SubmoduleStore> submoduleStore_;
     std::unique_ptr<BisectStore> bisectStore_;
     std::unique_ptr<LfsStore> lfsStore_;
+    std::unique_ptr<LocalIdentityStore> localIdentityStore_;
     AskpassWatcher* askpass_ = nullptr;
 
     SnapshotHolder<GraphSnapshot> graph_;
@@ -391,6 +434,7 @@ private:
     SnapshotHolder<std::vector<std::string>> lfsPatterns_;
     SnapshotHolder<std::vector<LfsFileInfo>> lfsFiles_;
     std::optional<LfsInstallation> lfsInstallation_;
+    SnapshotHolder<LocalIdentity> localIdentity_;
 
     /// Cancels the in-flight history walk when a new one starts.
     CancellationSource historyCancel_;

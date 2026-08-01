@@ -1,6 +1,25 @@
 #include "app/views/MainWindow.h"
 
 #include "app/bridge/ThemeManager.h"
+#include "app/dialogs/AboutDialog.h"
+#include "app/dialogs/BisectDialog.h"
+#include "app/dialogs/BlameDialog.h"
+#include "app/dialogs/CherryPickDialog.h"
+#include "app/dialogs/CleanUntrackedDialog.h"
+#include "app/dialogs/FileHistoryDialog.h"
+#include "app/dialogs/InteractiveRebaseDialog.h"
+#include "app/dialogs/KeyboardShortcutsDialog.h"
+#include "app/dialogs/LineHistoryDialog.h"
+#include "app/dialogs/ManageBaseFoldersDialog.h"
+#include "app/dialogs/ManageLfsDialog.h"
+#include "app/dialogs/ManageStashesDialog.h"
+#include "app/dialogs/ManageSubmodulesDialog.h"
+#include "app/dialogs/ManageWorktreesDialog.h"
+#include "app/dialogs/MergeDialog.h"
+#include "app/dialogs/PreferencesDialog.h"
+#include "app/dialogs/ReflogDialog.h"
+#include "app/dialogs/ResetBranchDialog.h"
+#include "app/dialogs/StashChangesDialog.h"
 #include "app/views/CredentialDialog.h"
 #include "core/git/ops/CheckoutOp.h"
 
@@ -8,38 +27,37 @@
 #include <QAction>
 #include <QActionGroup>
 #include <QApplication>
-#include <QCheckBox>
-#include <QComboBox>
-#include <QDateTime>
+#include <QClipboard>
 #include <QDialog>
-#include <QDialogButtonBox>
-#include <QDir>
 #include <QFileDialog>
+#include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QIcon>
 #include <QInputDialog>
 #include <QLineEdit>
-#include <QListWidget>
+#include <QListView>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
-#include <QPlainTextEdit>
+#include <QPainter>
+#include <QPixmap>
 #include <QProgressBar>
 #include <QPushButton>
-#include <QRadioButton>
 #include <QScrollBar>
+#include <QSizePolicy>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStandardPaths>
 #include <QStatusBar>
 #include <QStringListModel>
-#include <QTableWidget>
+#include <QStyle>
+#include <QTabWidget>
 #include <QTimer>
 #include <QToolBar>
 #include <QVBoxLayout>
 
 #include <algorithm>
-#include <optional>
 
 namespace gbm {
 
@@ -48,6 +66,22 @@ namespace {
 /// Rows in the repository list are cheap to render but each probe costs a few
 /// stats, so only what is on screen gets probed.
 constexpr int kProbeMargin = 20;
+
+/// The minimum acceptable danger treatment for a destructive menu action,
+/// mirroring `SidebarPanel.cpp`'s `markDanger`: QSS cannot select one
+/// `QMenu::item` out of many, so this tints the action's icon instead.
+void markDanger(QAction* action) {
+    const int size = 10;
+    QPixmap pixmap(size, size);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setBrush(ThemeManager::color(Token::Danger));
+    painter.setPen(Qt::NoPen);
+    painter.drawEllipse(QRectF(1.0, 1.0, size - 2.0, size - 2.0));
+    painter.end();
+    action->setIcon(QIcon(pixmap));
+}
 
 }  // namespace
 
@@ -130,7 +164,7 @@ void MainWindow::buildUi() {
     repoView_->setSelectionBehavior(QAbstractItemView::SelectRows);
     repoView_->setSelectionMode(QAbstractItemView::SingleSelection);
     repoView_->verticalHeader()->setVisible(false);
-    repoView_->verticalHeader()->setDefaultSectionSize(24);
+    repoView_->verticalHeader()->setDefaultSectionSize(ThemeManager::rowHeight());
     repoView_->setShowGrid(false);
     repoView_->setAlternatingRowColors(true);
     repoView_->horizontalHeader()->setSectionResizeMode(RepoListModel::ColumnName,
@@ -159,18 +193,27 @@ void MainWindow::buildUi() {
     auto* repoLayout = new QVBoxLayout(repoPage);
     repoLayout->setContentsMargins(0, 0, 0, 0);
 
-    auto* bannerRow = new QWidget(repoPage);
-    bannerRow->setStyleSheet(QStringLiteral("QWidget { background: #7a4d00; }"));
+    bannerRow_ = new QWidget(repoPage);
+    auto* bannerRow = bannerRow_;
     auto* bannerLayout = new QHBoxLayout(bannerRow);
     bannerLayout->setContentsMargins(6, 4, 6, 4);
+
+    auto* bannerIcon = new QLabel(bannerRow);
+    bannerIcon->setPixmap(style()->standardIcon(QStyle::SP_MessageBoxWarning).pixmap(16, 16));
+    bannerIcon->setAccessibleName(QStringLiteral("Warning"));
+    bannerLayout->addWidget(bannerIcon);
 
     bannerLabel_ = new QLabel(bannerRow);
     bannerLabel_->setVisible(false);
     bannerLabel_->setWordWrap(true);
     bannerLabel_->setAccessibleName(QStringLiteral("Repository state banner"));
-    // Unmissable by design: a repository stuck mid-rebase must never look normal.
-    bannerLabel_->setStyleSheet(QStringLiteral("QLabel { color: white; }"));
     bannerLayout->addWidget(bannerLabel_, 1);
+
+    // Theme-token-driven rather than a fixed literal, so the banner adapts
+    // across all three themes instead of always being the same brown -- and
+    // re-applied by applyThemeAndRefresh() on every theme switch, since a
+    // widget's own setStyleSheet() survives qApp->setStyleSheet() untouched.
+    restyleBanner();
 
     // Continue/Skip/Abort for whichever sequencer operation (merge, cherry-pick,
     // revert or rebase) RepoState reports in progress -- see
@@ -201,14 +244,37 @@ void MainWindow::buildUi() {
     refView_->setHeaderHidden(true);
     refView_->setUniformRowHeights(true);
     connect(refView_, &QTreeView::activated, this, &MainWindow::onRefActivated);
-    refView_->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(refView_,
-            &QTreeView::customContextMenuRequested,
+    // Context-menu policy and the Repositories/Stash sections are owned by
+    // SidebarPanel below, which takes this already-constructed view over --
+    // MainWindow keeps refModel_/refView_ as members because several existing
+    // slots (onCheckoutRequested, onMergeRequested, the checkout retry inside
+    // onOperationFinished) read them directly.
+    sidebar_ = new SidebarPanel(repoModel_, refModel_, refView_, feedbackFn(), outerSplitter);
+    connect(sidebar_, &SidebarPanel::checkoutRequested, this, &MainWindow::onCheckoutRequested);
+    connect(
+        sidebar_, &SidebarPanel::mergeIntoCurrentRequested, this, &MainWindow::onMergeRequested);
+    connect(sidebar_,
+            &SidebarPanel::repositorySettingsRequested,
             this,
-            &MainWindow::onRefContextMenuRequested);
-    outerSplitter->addWidget(refView_);
+            &MainWindow::onShowRepositorySettings);
+    connect(sidebar_, &SidebarPanel::diffRequested, this, &MainWindow::onShowDiffTab);
+    connect(sidebar_, &SidebarPanel::statusMessage, this, [this](const QString& text) {
+        statusLabel_->setText(text);
+    });
+    connect(sidebar_->repoListView(),
+            &QAbstractItemView::activated,
+            this,
+            &MainWindow::onRepoActivated);
+    outerSplitter->addWidget(sidebar_);
 
-    auto* rightSplitter = new QSplitter(Qt::Vertical, outerSplitter);
+    // The right side is a Tabs-styled QTabWidget rather than a fifth
+    // top-level stack_ page per tab: keeping sidebar_ outside it means the
+    // sidebar stays visible across History/Working Copy/Diff/Repository
+    // instead of disappearing whenever the user switches away from History.
+    tabWidget_ = new QTabWidget(outerSplitter);
+    tabWidget_->setDocumentMode(true);
+
+    auto* rightSplitter = new QSplitter(Qt::Vertical, tabWidget_);
 
     commitModel_ = new CommitListModel(this);
     commitView_ = new QTableView(rightSplitter);
@@ -217,8 +283,10 @@ void MainWindow::buildUi() {
     commitView_->setSelectionBehavior(QAbstractItemView::SelectRows);
     commitView_->verticalHeader()->setVisible(false);
     // Uniform row heights plus per-pixel scrolling: both required for a virtualized
-    // view to stay smooth across hundreds of thousands of rows.
-    commitView_->verticalHeader()->setDefaultSectionSize(22);
+    // view to stay smooth across hundreds of thousands of rows. The initial size
+    // is density-aware; onDensityToggled re-applies it if the setting changes at
+    // runtime (see the class comment on that method for the Phase 0 gap this closes).
+    commitView_->verticalHeader()->setDefaultSectionSize(ThemeManager::rowHeight());
     commitView_->verticalHeader()->setSectionResizeMode(QHeaderView::Fixed);
     commitView_->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     commitView_->setShowGrid(false);
@@ -238,6 +306,19 @@ void MainWindow::buildUi() {
             &QScrollBar::valueChanged,
             this,
             &MainWindow::onCommitScrolled);
+    connect(commitView_, &QTableView::clicked, this, &MainWindow::onCommitRowClicked);
+    commitView_->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(commitView_,
+            &QTableView::customContextMenuRequested,
+            this,
+            &MainWindow::onCommitContextMenuRequested);
+    // Collapse any inline expansion before the model reshuffles rows out from
+    // under it -- modelAboutToBeReset (not modelReset) so expandedCommitRow_
+    // still points at a valid row while collapseExpandedCommitRow() clears
+    // its index widget.
+    connect(commitModel_, &QAbstractItemModel::modelAboutToBeReset, this, [this] {
+        collapseExpandedCommitRow();
+    });
 
     rightSplitter->addWidget(commitView_);
 
@@ -262,7 +343,41 @@ void MainWindow::buildUi() {
 
     rightSplitter->setStretchFactor(0, 3);
     rightSplitter->setStretchFactor(1, 2);
-    outerSplitter->addWidget(rightSplitter);
+    tabWidget_->addTab(rightSplitter, QStringLiteral("History"));
+
+    // --- Working Copy tab ---------------------------------------------------
+    workingCopyView_ = new WorkingCopyView(this);
+    connect(workingCopyView_, &WorkingCopyView::statusMessage, this, [this](const QString& text) {
+        statusLabel_->setText(text);
+    });
+    connect(workingCopyView_,
+            &WorkingCopyView::errorOccurred,
+            this,
+            [this](const QString& summary, const GitError& error) { showError(summary, error); });
+    connect(workingCopyView_,
+            &WorkingCopyView::viewFileDiffRequested,
+            this,
+            &MainWindow::onViewFileDiffRequested);
+    tabWidget_->addTab(workingCopyView_, QStringLiteral("Working Copy"));
+
+    // --- Diff tab ------------------------------------------------------------
+    diffPage_ = new DiffPage(this);
+    connect(diffPage_, &DiffPage::applyPatchRequested, this, [this](QString patch, bool reverse) {
+        if (session_) {
+            session_->applyPatch(patch.toStdString(), reverse);
+        }
+    });
+    tabWidget_->addTab(diffPage_, QStringLiteral("Diff"));
+
+    // --- Repository tab -------------------------------------------------------
+    repositoryPage_ = new RepositoryPage(this);
+    connect(repositoryPage_,
+            &RepositoryPage::openPreferencesRequested,
+            this,
+            &MainWindow::onShowPreferences);
+    tabWidget_->addTab(repositoryPage_, QStringLiteral("Repository"));
+
+    outerSplitter->addWidget(tabWidget_);
     outerSplitter->setStretchFactor(0, 1);
     outerSplitter->setStretchFactor(1, 5);
 
@@ -274,17 +389,6 @@ void MainWindow::buildUi() {
     repoLayout->addWidget(logView_);
 
     stack_->addWidget(repoPage);
-
-    // --- page 2: working copy -------------------------------------------------
-    workingCopyView_ = new WorkingCopyView(this);
-    connect(workingCopyView_, &WorkingCopyView::statusMessage, this, [this](const QString& text) {
-        statusLabel_->setText(text);
-    });
-    connect(workingCopyView_,
-            &WorkingCopyView::errorOccurred,
-            this,
-            [this](const QString& summary, const GitError& error) { showError(summary, error); });
-    stack_->addWidget(workingCopyView_);
 
     // --- status bar ----------------------------------------------------------
     statusLabel_ = new QLabel(QStringLiteral("Ready"), this);
@@ -302,6 +406,10 @@ void MainWindow::buildUi() {
 }
 
 void MainWindow::buildMenus() {
+    // --- File --------------------------------------------------------------
+    // New/Open/Clone repository omitted: this app discovers repositories by
+    // scanning base folders, not by opening a single one directly -- there is
+    // no such capability to surface.
     auto* fileMenu = menuBar()->addMenu(QStringLiteral("&File"));
     fileMenu->addAction(QStringLiteral("Add base folder…"), this, &MainWindow::onAddBaseFolder);
     fileMenu->addAction(
@@ -310,39 +418,152 @@ void MainWindow::buildMenus() {
     auto* closeAction =
         fileMenu->addAction(QStringLiteral("Close repository"), this, &MainWindow::closeRepository);
     closeAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+W")));
-    fileMenu->addAction(QStringLiteral("Quit"), QApplication::instance(), &QApplication::quit);
+    fileMenu->addSeparator();
+    fileMenu->addAction(QStringLiteral("Preferences…"), this, &MainWindow::onShowPreferences);
+    fileMenu->addSeparator();
+    fileMenu->addAction(QStringLiteral("Exit"), QApplication::instance(), &QApplication::quit);
 
+    // --- Edit ----------------------------------------------------------------
+    // Cut/Copy/Paste and Find in files omitted: no generic focused-widget
+    // text editing is wired up, and there is no find-in-files feature --
+    // adding non-functional entries would be worse than leaving them out.
+    auto* editMenu = menuBar()->addMenu(QStringLiteral("&Edit"));
+    undoAction_ = editMenu->addAction(
+        QStringLiteral("Undo last operation"), this, &MainWindow::onUndoLastOperation);
+    undoAction_->setShortcut(QKeySequence(QStringLiteral("Ctrl+Z")));
+    undoAction_->setEnabled(false);
+    // No redo capability exists in the backend (core/git/ops/UndoOps.h has no
+    // redo operation) -- shown disabled with an explanatory tooltip rather
+    // than fabricated.
+    auto* redoAction = editMenu->addAction(QStringLiteral("Redo"));
+    redoAction->setEnabled(false);
+    redoAction->setToolTip(QStringLiteral("There is no redo for undone operations"));
+
+    // --- View ----------------------------------------------------------------
     auto* viewMenu = menuBar()->addMenu(QStringLiteral("&View"));
-    auto* refreshAction =
-        viewMenu->addAction(QStringLiteral("Refresh"), this, &MainWindow::onRefresh);
-    refreshAction->setShortcut(QKeySequence(Qt::Key_F5));
-    auto* forceAction = viewMenu->addAction(
-        QStringLiteral("Refresh (rescan everything)"), this, &MainWindow::onForceRefresh);
-    forceAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+F5")));
-    viewMenu->addAction(QStringLiteral("Cancel scan"), this, &MainWindow::onCancelScan);
+    auto* historyAction =
+        viewMenu->addAction(QStringLiteral("History"), this, &MainWindow::onShowHistory);
+    historyAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+1")));
+    auto* workingCopyAction =
+        viewMenu->addAction(QStringLiteral("Working Copy"), this, &MainWindow::onShowWorkingCopy);
+    workingCopyAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+2")));
+    auto* diffAction =
+        viewMenu->addAction(QStringLiteral("Diff"), this, &MainWindow::onShowDiffTab);
+    diffAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+3")));
+    auto* repositoryTabAction = viewMenu->addAction(
+        QStringLiteral("Repository Settings"), this, &MainWindow::onShowRepositorySettings);
+    repositoryTabAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+4")));
     viewMenu->addSeparator();
+    auto* toggleSidebarAction = viewMenu->addAction(QStringLiteral("Toggle sidebar"));
+    toggleSidebarAction->setCheckable(true);
+    toggleSidebarAction->setChecked(true);
+    connect(toggleSidebarAction, &QAction::toggled, this, [this](bool visible) {
+        sidebar_->setVisible(visible);
+    });
     auto* logAction = viewMenu->addAction(QStringLiteral("Operation log"));
     logAction->setCheckable(true);
     logAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+L")));
     connect(logAction, &QAction::toggled, this, [this](bool visible) {
         logView_->setVisible(visible);
     });
+    viewMenu->addAction(QStringLiteral("Reflog…"), this, &MainWindow::onShowReflog);
+    viewMenu->addSeparator();
+    // Refresh/rescan/cancel-scan have no home in the design's 7-menu table --
+    // View is the most sensible fit, so they stay here.
+    auto* refreshAction =
+        viewMenu->addAction(QStringLiteral("Refresh"), this, &MainWindow::onRefresh);
+    refreshAction->setShortcut(QKeySequence(Qt::Key_F5));
+    // Real Lucide SVGs (refresh-cw, download-cloud, arrow-down-to-line,
+    // arrow-up-from-line) are what the design names, but this sandbox has no
+    // network access to fetch them -- Qt's bundled standard icons stand in
+    // rather than shipping fabricated placeholder SVGs.
+    refreshAction->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
+    auto* forceAction = viewMenu->addAction(
+        QStringLiteral("Refresh (rescan everything)"), this, &MainWindow::onForceRefresh);
+    forceAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+F5")));
+    viewMenu->addAction(QStringLiteral("Cancel scan"), this, &MainWindow::onCancelScan);
+    viewMenu->addAction(QStringLiteral("Preferences…"), this, &MainWindow::onShowPreferences);
     viewMenu->addSeparator();
     auto* themeMenu = viewMenu->addMenu(QStringLiteral("Theme"));
     auto* themeGroup = new QActionGroup(this);
     themeGroup->setExclusive(true);
-    const Theme currentTheme = ThemeManager::loadSetting();
-    for (Theme theme : {Theme::System, Theme::Light, Theme::Dark}) {
+    const ThemeId currentTheme = ThemeManager::loadSetting();
+    for (ThemeId theme :
+         {ThemeId::DarkTechnical, ThemeId::LightIde, ThemeId::NeutralProfessional}) {
         QAction* action = themeMenu->addAction(ThemeManager::label(theme));
         action->setCheckable(true);
         action->setChecked(theme == currentTheme);
         themeGroup->addAction(action);
-        connect(action, &QAction::triggered, this, [theme] {
-            ThemeManager::apply(theme);
-            ThemeManager::saveSetting(theme);
-        });
+        connect(action, &QAction::triggered, this, [this, theme] { applyThemeAndRefresh(theme); });
     }
 
+    // --- Repository ------------------------------------------------------------
+    // "Open in terminal" and "Remove repository" omitted: neither capability
+    // exists. There is no per-repository removal -- only whole-base-folder
+    // removal via Manage base folders… (File) -- and adding either would be
+    // new bridge/core functionality, out of scope for a decomposition phase.
+    auto* repoMenu = menuBar()->addMenu(QStringLiteral("Reposi&tory"));
+    auto* fetchAction = repoMenu->addAction(QStringLiteral("Fetch"), this, &MainWindow::onFetch);
+    fetchAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+F")));
+    fetchAction->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
+    auto* pullAction = repoMenu->addAction(QStringLiteral("Pull"), this, &MainWindow::onPull);
+    pullAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+L")));
+    pullAction->setIcon(style()->standardIcon(QStyle::SP_ArrowDown));
+    auto* pushAction = repoMenu->addAction(QStringLiteral("Push"), this, &MainWindow::onPush);
+    pushAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+P")));
+    pushAction->setIcon(style()->standardIcon(QStyle::SP_ArrowUp));
+    repoMenu->addAction(
+        QStringLiteral("Repository settings…"), this, &MainWindow::onShowRepositorySettings);
+    repoMenu->addSeparator();
+
+    auto* stashMenu = repoMenu->addMenu(QStringLiteral("Stash"));
+    stashMenu->addAction(QStringLiteral("Stash changes…"), this, &MainWindow::onStashChanges);
+    stashMenu->addAction(QStringLiteral("Manage stashes…"), this, &MainWindow::onManageStashes);
+
+    // "New tag…" used to be the one entry every ref-tree right-click offered,
+    // regardless of what (if anything) was under the cursor. The sidebar's
+    // tag context menu absorbed the tag-specific items (checkout/push/delete);
+    // creating one is not "on" an existing ref the way those are, so it moves
+    // here rather than getting a home in a context menu that needs a tag
+    // selected to open.
+    auto* tagMenu = repoMenu->addMenu(QStringLiteral("Tags"));
+    tagMenu->addAction(QStringLiteral("New tag…"), this, &MainWindow::onNewTag);
+
+    auto* worktreeMenu = repoMenu->addMenu(QStringLiteral("Worktrees"));
+    worktreeMenu->addAction(
+        QStringLiteral("Manage worktrees…"), this, &MainWindow::onManageWorktrees);
+
+    auto* submoduleMenu = repoMenu->addMenu(QStringLiteral("Submodules"));
+    submoduleMenu->addAction(
+        QStringLiteral("Manage submodules…"), this, &MainWindow::onManageSubmodules);
+
+    auto* bisectMenu = repoMenu->addMenu(QStringLiteral("Bisect"));
+    bisectMenu->addAction(QStringLiteral("Bisect…"), this, &MainWindow::onBisect);
+
+    auto* lfsMenu = repoMenu->addMenu(QStringLiteral("LFS"));
+    lfsMenu->addAction(QStringLiteral("Manage LFS…"), this, &MainWindow::onManageLfs);
+
+    auto* patchMenu = repoMenu->addMenu(QStringLiteral("Patches"));
+    patchMenu->addAction(
+        QStringLiteral("Export selected commits as patches…"), this, &MainWindow::onExportPatches);
+    patchMenu->addSeparator();
+    patchMenu->addAction(QStringLiteral("Apply patch file…"), this, &MainWindow::onApplyPatchFile);
+    patchMenu->addAction(
+        QStringLiteral("Import patches (git am)…"), this, &MainWindow::onImportPatches);
+
+    repoMenu->addSeparator();
+    // Same QAction as Edit → Undo, not a second one: two actions bound to the
+    // same QKeySequence trigger Qt's "ambiguous shortcut" at press time.
+    repoMenu->addAction(undoAction_);
+    repoMenu->addAction(
+        QStringLiteral("Clean untracked files…"), this, &MainWindow::onCleanUntracked);
+
+    // --- Branch ----------------------------------------------------------------
+    // New branch…, Rename current branch and Delete branch… omitted:
+    // BranchOps.h has the operation factories, but RepositorySession never
+    // exposes them and no existing UI wires them (checked: no call site
+    // anywhere) -- surfacing them here would mean adding new bridge/UI code,
+    // out of scope for a decomposition phase.
     auto* branchMenu = menuBar()->addMenu(QStringLiteral("&Branch"));
     auto* checkoutAction = branchMenu->addAction(
         QStringLiteral("Switch to selected branch"), this, &MainWindow::onCheckoutRequested);
@@ -367,71 +588,70 @@ void MainWindow::buildMenus() {
                           this,
                           &MainWindow::onResetBranchRequested);
 
-    auto* repoMenu = menuBar()->addMenu(QStringLiteral("Reposi&tory"));
-    undoAction_ = repoMenu->addAction(
-        QStringLiteral("Undo last operation"), this, &MainWindow::onUndoLastOperation);
-    undoAction_->setEnabled(false);
-    repoMenu->addSeparator();
-    repoMenu->addAction(QStringLiteral("Reflog…"), this, &MainWindow::onShowReflog);
-    repoMenu->addSeparator();
-    repoMenu->addAction(
-        QStringLiteral("Clean untracked files…"), this, &MainWindow::onCleanUntracked);
-
-    auto* historyAction =
-        viewMenu->addAction(QStringLiteral("History"), this, &MainWindow::onShowHistory);
-    historyAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+1")));
-    auto* workingCopyAction =
-        viewMenu->addAction(QStringLiteral("Working Copy"), this, &MainWindow::onShowWorkingCopy);
-    workingCopyAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+2")));
-
+    // --- Remote --------------------------------------------------------------
+    // Add remote… and Manage remotes… omitted: no add/manage-remotes UI
+    // exists yet.
     auto* remoteMenu = menuBar()->addMenu(QStringLiteral("Re&mote"));
-    auto* fetchAction = remoteMenu->addAction(QStringLiteral("Fetch"), this, &MainWindow::onFetch);
-    fetchAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+F")));
+    remoteMenu->addAction(fetchAction);
     remoteMenu->addAction(
         QStringLiteral("Fetch (and prune stale remote branches)"), this, &MainWindow::onFetchPrune);
-    auto* pullAction = remoteMenu->addAction(QStringLiteral("Pull"), this, &MainWindow::onPull);
-    pullAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+L")));
+    remoteMenu->addAction(pullAction);
     remoteMenu->addSeparator();
-    auto* pushAction = remoteMenu->addAction(QStringLiteral("Push"), this, &MainWindow::onPush);
-    pushAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+P")));
+    remoteMenu->addAction(pushAction);
     remoteMenu->addAction(
         QStringLiteral("Push (set upstream)…"), this, &MainWindow::onPushSetUpstream);
     remoteMenu->addAction(
         QStringLiteral("Push (force-with-lease)…"), this, &MainWindow::onPushForceWithLease);
 
-    auto* stashMenu = menuBar()->addMenu(QStringLiteral("&Stash"));
-    stashMenu->addAction(QStringLiteral("Stash changes…"), this, &MainWindow::onStashChanges);
-    stashMenu->addAction(QStringLiteral("Manage stashes…"), this, &MainWindow::onManageStashes);
+    // --- Help ------------------------------------------------------------------
+    // Documentation omitted: no in-app link target -- the README ships in the
+    // repo, not next to the installed binary.
+    auto* helpMenu = menuBar()->addMenu(QStringLiteral("&Help"));
+    auto* shortcutsAction = helpMenu->addAction(QStringLiteral("Keyboard shortcuts"), this, [this] {
+        KeyboardShortcutsDialog dialog(this);
+        dialog.exec();
+    });
+    shortcutsAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+/")));
+    helpMenu->addAction(QStringLiteral("About git-branch-manager"), this, [this] {
+        AboutDialog dialog(this);
+        dialog.exec();
+    });
 
-    auto* worktreeMenu = menuBar()->addMenu(QStringLiteral("&Worktree"));
-    worktreeMenu->addAction(
-        QStringLiteral("Manage worktrees…"), this, &MainWindow::onManageWorktrees);
-
-    auto* submoduleMenu = menuBar()->addMenu(QStringLiteral("Sub&module"));
-    submoduleMenu->addAction(
-        QStringLiteral("Manage submodules…"), this, &MainWindow::onManageSubmodules);
-
-    auto* bisectMenu = menuBar()->addMenu(QStringLiteral("&Bisect"));
-    bisectMenu->addAction(QStringLiteral("Bisect…"), this, &MainWindow::onBisect);
-
-    auto* lfsMenu = menuBar()->addMenu(QStringLiteral("&LFS"));
-    lfsMenu->addAction(QStringLiteral("Manage LFS…"), this, &MainWindow::onManageLfs);
-
-    auto* patchMenu = menuBar()->addMenu(QStringLiteral("&Patch"));
-    patchMenu->addAction(
-        QStringLiteral("Export selected commits as patches…"), this, &MainWindow::onExportPatches);
-    patchMenu->addSeparator();
-    patchMenu->addAction(QStringLiteral("Apply patch file…"), this, &MainWindow::onApplyPatchFile);
-    patchMenu->addAction(
-        QStringLiteral("Import patches (git am)…"), this, &MainWindow::onImportPatches);
-
+    // --- toolbar -------------------------------------------------------------
+    // Repo name + "/ branch", a spacer, Fetch/Pull/Push (the same QAction
+    // objects as the menus above -- not new ones, so there is only ever one
+    // shortcut owner each), a Refresh icon button, a separator, and the three
+    // theme switches the View > Theme submenu already offers.
     auto* toolBar = addToolBar(QStringLiteral("Main"));
     toolBar->setMovable(false);
-    toolBar->addAction(refreshAction);
+
+    toolBarRepoNameLabel_ = new QLabel(toolBar);
+    toolBarBranchLabel_ = new QLabel(toolBar);
+    toolBarBranchLabel_->setEnabled(false);  // Secondary-text look via the disabled palette.
+    toolBar->addWidget(toolBarRepoNameLabel_);
+    toolBar->addWidget(toolBarBranchLabel_);
+    // The only way back to the repository browser while one is open besides
+    // closing it outright -- preserved from the previous toolbar rather than
+    // dropped, since the design's toolbar row has no equivalent affordance.
     toolBar->addAction(
         QStringLiteral("Repositories"), this, [this] { stack_->setCurrentIndex(0); });
-    toolBar->addAction(historyAction);
-    toolBar->addAction(workingCopyAction);
+
+    auto* spacer = new QWidget(toolBar);
+    spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    toolBar->addWidget(spacer);
+
+    toolBar->addAction(fetchAction);
+    toolBar->addAction(pullAction);
+    toolBar->addAction(pushAction);
+    toolBar->addAction(refreshAction);
+
+    toolBar->addSeparator();
+
+    for (ThemeId theme :
+         {ThemeId::DarkTechnical, ThemeId::LightIde, ThemeId::NeutralProfessional}) {
+        toolBar->addAction(
+            ThemeManager::label(theme), this, [this, theme] { applyThemeAndRefresh(theme); });
+    }
 }
 
 void MainWindow::loadInitialState() {
@@ -540,99 +760,10 @@ void MainWindow::onAddBaseFolder() {
 }
 
 void MainWindow::onManageBaseFolders() {
-    QDialog dialog(this);
-    dialog.setWindowTitle(QStringLiteral("Manage base folders"));
-    auto* layout = new QVBoxLayout(&dialog);
-
-    auto* table = new QTableWidget(&dialog);
-    table->setColumnCount(3);
-    table->setHorizontalHeaderLabels(
-        {QStringLiteral("Path"), QStringLiteral("Depth"), QStringLiteral("Enabled")});
-    table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
-    table->setSelectionBehavior(QAbstractItemView::SelectRows);
-    table->setSelectionMode(QAbstractItemView::SingleSelection);
-    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    table->verticalHeader()->setVisible(false);
-
-    // A local copy: edits below go through DiscoveryController and update this
-    // copy and the table in lockstep, so row indices stay valid without a
-    // round-trip to the database after every click.
-    std::vector<BaseFolderRecord> folders = discovery_->baseFolders();
-    table->setRowCount(static_cast<int>(folders.size()));
-    for (int row = 0; row < static_cast<int>(folders.size()); ++row) {
-        const BaseFolderRecord& folder = folders[static_cast<std::size_t>(row)];
-        table->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(folder.path)));
-        table->setItem(row, 1, new QTableWidgetItem(QString::number(folder.maxDepth)));
-        table->setItem(
-            row,
-            2,
-            new QTableWidgetItem(folder.enabled ? QStringLiteral("yes") : QStringLiteral("no")));
-    }
-    layout->addWidget(table);
-
-    auto* buttonRow = new QHBoxLayout();
-    auto* editDepthButton = new QPushButton(QStringLiteral("Change depth…"), &dialog);
-    auto* removeButton = new QPushButton(QStringLiteral("Remove"), &dialog);
-    auto* closeButton = new QPushButton(QStringLiteral("Close"), &dialog);
-    buttonRow->addWidget(editDepthButton);
-    buttonRow->addWidget(removeButton);
-    buttonRow->addStretch(1);
-    buttonRow->addWidget(closeButton);
-    layout->addLayout(buttonRow);
-
-    // Whether anything changed while the dialog was open, so it is only worth
-    // rescanning once, on close, rather than after every click.
-    bool changed = false;
-
-    connect(editDepthButton, &QPushButton::clicked, &dialog, [&] {
-        const int row = table->currentRow();
-        if (row < 0) {
-            return;
-        }
-        const BaseFolderRecord& folder = folders[static_cast<std::size_t>(row)];
-        bool accepted = false;
-        const int depth =
-            QInputDialog::getInt(&dialog,
-                                 QStringLiteral("Scan depth"),
-                                 QStringLiteral("How many levels below \"%1\" should be scanned?")
-                                     .arg(QString::fromStdString(folder.path)),
-                                 folder.maxDepth,
-                                 0,
-                                 10,
-                                 1,
-                                 &accepted);
-        if (!accepted) {
-            return;
-        }
-        if (auto result = discovery_->setBaseFolderDepth(folder.id, depth); !result) {
-            showError(QStringLiteral("Could not change the scan depth"), result.error());
-            return;
-        }
-        table->item(row, 1)->setText(QString::number(depth));
-        changed = true;
-    });
-
-    connect(removeButton, &QPushButton::clicked, &dialog, [&] {
-        const int row = table->currentRow();
-        if (row < 0) {
-            return;
-        }
-        const BaseFolderRecord& folder = folders[static_cast<std::size_t>(row)];
-        if (auto result = discovery_->removeBaseFolder(folder.id); !result) {
-            showError(QStringLiteral("Could not remove that folder"), result.error());
-            return;
-        }
-        table->removeRow(row);
-        folders.erase(folders.begin() + row);
-        changed = true;
-    });
-
-    connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
-
-    dialog.resize(560, 320);
+    ManageBaseFoldersDialog dialog(discovery_.get(), this);
     dialog.exec();
 
-    if (changed) {
+    if (dialog.changed()) {
         // A depth change cleared that folder's signatures, and a removal cascades
         // to its repositories outright; either way the list the window is
         // currently showing is stale until the next scan reloads it. If every
@@ -658,6 +789,14 @@ void MainWindow::onCancelScan() {
 void MainWindow::onShowHistory() {
     if (session_) {
         stack_->setCurrentIndex(1);
+        tabWidget_->setCurrentIndex(kHistoryTab);
+    }
+}
+
+void MainWindow::onShowRepositorySettings() {
+    if (session_) {
+        stack_->setCurrentIndex(1);
+        tabWidget_->setCurrentIndex(kRepositoryTab);
     }
 }
 
@@ -665,11 +804,19 @@ void MainWindow::onShowWorkingCopy() {
     if (!session_) {
         return;
     }
-    stack_->setCurrentIndex(2);
+    stack_->setCurrentIndex(1);
+    tabWidget_->setCurrentIndex(kWorkingCopyTab);
     // The working-copy panel can go stale while the user is elsewhere -- a
     // checkout, for instance, does not refresh it -- so ask for a fresh read
     // on every visit rather than trying to track every place that could.
     session_->refreshWorkingCopyStatus();
+}
+
+void MainWindow::onShowDiffTab() {
+    if (session_) {
+        stack_->setCurrentIndex(1);
+        tabWidget_->setCurrentIndex(kDiffTab);
+    }
 }
 
 void MainWindow::onRepoActivated(const QModelIndex& index) {
@@ -687,7 +834,14 @@ void MainWindow::openRepository(const RepoRecord& record) {
     connect(session_.get(), &RepositorySession::refsUpdated, this, [this] {
         refModel_->setRefs(session_->refs());
         commitModel_->onRefsUpdated();
-        refView_->expandToDepth(0);
+        // Depth 1 rather than 0: with pills now doing the work of showing what
+        // a ref is, the section roots (Branches/Remotes/Tags) read better
+        // expanded by default instead of collapsed.
+        refView_->expandToDepth(1);
+        if (const RefSnapshotPtr refs = session_->refs()) {
+            toolBarBranchLabel_->setText(
+                QStringLiteral("/ %1").arg(QString::fromStdString(refs->head.branchName)));
+        }
     });
     connect(session_.get(),
             &RepositorySession::commitMetadataReady,
@@ -717,13 +871,47 @@ void MainWindow::openRepository(const RepoRecord& record) {
             &RepositorySession::credentialRequested,
             this,
             &MainWindow::onCredentialRequested);
+    connect(session_.get(),
+            &RepositorySession::compareWithWorkingCopyReady,
+            this,
+            &MainWindow::onCompareWithWorkingCopyReady);
+    connect(session_.get(),
+            &RepositorySession::workingCopyDiffReady,
+            this,
+            &MainWindow::onWorkingCopyDiffReadyForDiffTab);
+    // A stage/unstage line/hunk action from the Diff tab (see the
+    // diffPage_->applyPatchRequested connection below) applies through
+    // session_->applyPatch like any other working-copy operation, but nothing
+    // else re-requests that file's diff afterwards -- without this, the tab
+    // would keep showing hunks that no longer match the index.
+    connect(session_.get(),
+            &RepositorySession::workingCopyOperationFinished,
+            this,
+            [this](const OperationOutcome&) {
+                if (diffTabShownIsStageable_ && session_) {
+                    diffTabRequestedPath_ = diffTabShownPath_;
+                    diffTabRequestedStaged_ = diffTabShownStaged_;
+                    diffTabRequestPending_ = true;
+                    session_->requestWorkingCopyDiff(diffTabShownPath_.toStdString(),
+                                                     diffTabShownStaged_);
+                }
+            });
 
     commitModel_->setSession(session_.get());
     diffView_->clearDiff();
+    diffPage_->clearDiff();
+    diffTabShownPath_.clear();
+    diffTabShownStaged_ = false;
+    diffTabShownIsStageable_ = false;
     workingCopyView_->setSession(session_.get());
+    sidebar_->setSession(session_.get());
+    repositoryPage_->setSession(session_.get());
 
     setWindowTitle(QStringLiteral("%1 — git-branch-manager").arg(session_->displayName()));
+    toolBarRepoNameLabel_->setText(session_->displayName());
+    toolBarBranchLabel_->setText(QString());
     stack_->setCurrentIndex(1);
+    tabWidget_->setCurrentIndex(kHistoryTab);
     updateStateBanner();
 
     // Refs first, so the history walk can be seeded with HEAD and the trunk; that
@@ -740,14 +928,72 @@ void MainWindow::closeRepository() {
         return;
     }
     session_->cancelPendingReads();
+    // commitModel_->setSession(nullptr) resets the model, which fires
+    // modelAboutToBeReset and collapses any inline expansion -- see the
+    // connection in buildUi() -- but the closing-repository case is worth
+    // being explicit about rather than relying on that alone.
+    collapseExpandedCommitRow();
     commitModel_->setSession(nullptr);
     refModel_->setRefs(nullptr);
     diffView_->clearDiff();
+    diffPage_->clearDiff();
+    diffTabShownPath_.clear();
+    diffTabShownStaged_ = false;
+    diffTabShownIsStageable_ = false;
     workingCopyView_->setSession(nullptr);
+    sidebar_->setSession(nullptr);
+    repositoryPage_->setSession(nullptr);
     session_.reset();
+    pendingCheckoutTarget_.clear();
     setWindowTitle(QStringLiteral("git-branch-manager"));
+    toolBarRepoNameLabel_->setText(QString());
+    toolBarBranchLabel_->setText(QString());
     stack_->setCurrentIndex(0);
     bannerLabel_->parentWidget()->setVisible(false);
+}
+
+void MainWindow::restyleBanner() {
+    bannerRow_->setStyleSheet(QStringLiteral("QWidget { background: %1; }")
+                                  .arg(ThemeManager::color(Token::DiffDelBg).name()));
+    // Unmissable by design: a repository stuck mid-rebase must never look normal.
+    bannerLabel_->setStyleSheet(QStringLiteral("QLabel { color: %1; }")
+                                    .arg(ThemeManager::color(Token::DiffDelText).name()));
+}
+
+void MainWindow::applyThemeAndRefresh(ThemeId theme) {
+    ThemeManager::apply(theme);
+
+    // `qApp->setStyleSheet()` re-polishes every widget styled purely through
+    // app.qss, and the graph delegate reads ThemeManager::color() at paint
+    // time so a repaint is all it needs. What is left is the colour baked
+    // into a widget's own stylesheet or into already-rendered diff text,
+    // neither of which the app-wide restyle touches.
+    restyleBanner();
+    diffView_->refreshTheme();
+    workingCopyView_->refreshTheme();
+    sidebar_->refreshTheme();
+    commitView_->viewport()->update();
+}
+
+void MainWindow::onDensityToggled(bool compact) {
+    ThemeManager::saveDensitySetting(compact ? Density::Compact : Density::Comfortable);
+
+    // The row expanded via setRowHeight() was sized for the old density; the
+    // simplest safe option is to collapse it rather than leave a stale height
+    // around until the user happens to collapse it themselves.
+    collapseExpandedCommitRow();
+
+    const int rowHeight = ThemeManager::rowHeight();
+    commitView_->verticalHeader()->setDefaultSectionSize(rowHeight);
+    repoView_->verticalHeader()->setDefaultSectionSize(rowHeight);
+
+    // setDefaultSectionSize alone does not resize rows already laid out;
+    // resizeSections forces every row (not just future ones) to pick up the
+    // new height immediately, and viewport()->update() repaints it.
+    commitView_->verticalHeader()->resizeSections(QHeaderView::Fixed);
+    repoView_->verticalHeader()->resizeSections(QHeaderView::Fixed);
+    commitView_->viewport()->update();
+    repoView_->viewport()->update();
 }
 
 void MainWindow::updateStateBanner() {
@@ -837,6 +1083,15 @@ void MainWindow::onCommitSelectionChanged() {
         return;
     }
     const QModelIndexList selected = commitView_->selectionModel()->selectedRows();
+
+    // The expanded row is always the selected one -- expansion only ever
+    // toggles on a row that is already selected -- so any selection change
+    // away from it means the expansion no longer applies.
+    if (expandedCommitRow_ >= 0 &&
+        (selected.isEmpty() || selected.first().row() != expandedCommitRow_)) {
+        collapseExpandedCommitRow();
+    }
+
     if (selected.isEmpty()) {
         diffView_->clearDiff();
         return;
@@ -888,6 +1143,334 @@ void MainWindow::onCommitDetailsReady(const ObjectId& commit,
             });
 
     diffView_->showDiff(currentDiff_);
+
+    // The commit these details belong to may be the one currently expanded --
+    // expansion can be toggled on before the async detail read finishes, in
+    // which case the panel was built showing "Loading changes…" and now has
+    // real content to show.
+    refreshExpandedCommitPanel();
+}
+
+void MainWindow::onCommitRowClicked(const QModelIndex& index) {
+    if (!session_ || !index.isValid()) {
+        return;
+    }
+    const int row = index.row();
+    if (row == expandedCommitRow_) {
+        // Third click (and beyond) on the same row: collapse it. clicked()
+        // fires on every click regardless of whether the selection changed,
+        // so a plain equality check here is enough to toggle it back off.
+        collapseExpandedCommitRow();
+    } else if (row == lastClickedCommitRow_) {
+        // Second click on a row that was already selected (the first click
+        // selected it -- see onCommitSelectionChanged -- without changing
+        // lastClickedCommitRow_ until this line runs).
+        expandCommitRow(row);
+    }
+    lastClickedCommitRow_ = row;
+}
+
+void MainWindow::expandCommitRow(int row) {
+    if (row == expandedCommitRow_) {
+        return;
+    }
+    // At most one index widget at a time: destroy whatever was expanded
+    // before installing the new one.
+    collapseExpandedCommitRow();
+
+    expandedCommitRow_ = row;
+    expandedCommitPanel_ = buildCommitExpansionPanel(row);
+
+    const int fileRows = currentFiles_ ? static_cast<int>(currentFiles_->size()) : 0;
+    constexpr int kLineHeight = 18;
+    constexpr int kMaxVisibleFileRows = 6;
+    constexpr int kChromeHeight = 28;  // summary line + panel margins
+    constexpr int kMinExpandedHeight = 48;
+    constexpr int kMaxExpandedHeight = 168;
+    const int visibleFileRows = std::min(fileRows, kMaxVisibleFileRows) + (fileRows > 0 ? 1 : 0);
+    const int height = std::clamp(
+        kChromeHeight + visibleFileRows * kLineHeight, kMinExpandedHeight, kMaxExpandedHeight);
+    commitView_->setRowHeight(row, height);
+    commitView_->setIndexWidget(commitModel_->index(row, CommitListModel::ColumnSubject),
+                                expandedCommitPanel_);
+}
+
+void MainWindow::collapseExpandedCommitRow() {
+    if (expandedCommitRow_ < 0) {
+        return;
+    }
+    // Passing nullptr deletes the previously installed widget and clears the
+    // association -- no separate `delete expandedCommitPanel_` needed, and
+    // none should be done: the view already owns it.
+    commitView_->setIndexWidget(
+        commitModel_->index(expandedCommitRow_, CommitListModel::ColumnSubject), nullptr);
+    commitView_->setRowHeight(expandedCommitRow_,
+                              commitView_->verticalHeader()->defaultSectionSize());
+    expandedCommitRow_ = -1;
+    expandedCommitPanel_ = nullptr;
+}
+
+void MainWindow::refreshExpandedCommitPanel() {
+    if (expandedCommitRow_ < 0) {
+        return;
+    }
+    const int row = expandedCommitRow_;
+    // Simplest correct way to rebuild in place: collapse (destroys the old
+    // widget and resets the row height) then re-expand with fresh content.
+    collapseExpandedCommitRow();
+    expandCommitRow(row);
+}
+
+QWidget* MainWindow::buildCommitExpansionPanel(int row) const {
+    auto* panel = new QWidget(commitView_->viewport());
+    auto* layout = new QVBoxLayout(panel);
+    layout->setContentsMargins(8, 2, 8, 2);
+    layout->setSpacing(1);
+
+    const ObjectId oid = commitModel_->oidAt(row);
+    const bool detailsMatchThisRow =
+        currentFiles_ != nullptr && !commitView_->selectionModel()->selectedRows().isEmpty() &&
+        commitModel_->oidAt(commitView_->selectionModel()->selectedRows().first().row()) == oid;
+
+    if (!detailsMatchThisRow) {
+        auto* loading = new QLabel(QStringLiteral("Loading changes…"), panel);
+        loading->setStyleSheet(
+            QStringLiteral("color: %1;").arg(ThemeManager::color(Token::TextTertiary).name()));
+        layout->addWidget(loading);
+        return panel;
+    }
+
+    const int fileCount = static_cast<int>(currentFiles_->size());
+    auto* summary =
+        new QLabel(QStringLiteral("%1 file%2 changed — right-click the commit row for actions")
+                       .arg(fileCount)
+                       .arg(fileCount == 1 ? QString() : QStringLiteral("s")),
+                   panel);
+    summary->setStyleSheet(
+        QStringLiteral("color: %1;").arg(ThemeManager::color(Token::TextSecondary).name()));
+    layout->addWidget(summary);
+
+    constexpr int kMaxVisibleFileRows = 6;
+    const int shown = std::min(fileCount, kMaxVisibleFileRows);
+    for (int i = 0; i < shown; ++i) {
+        const ChangedFile& file = (*currentFiles_)[static_cast<std::size_t>(i)];
+        const QString path = QString::fromStdString(file.path);
+
+        // Line-count badges come from the parallel ParsedDiff, keyed by path
+        // -- ChangedFile itself carries no added/removed counts.
+        std::uint32_t added = 0;
+        std::uint32_t removed = 0;
+        if (currentDiff_) {
+            for (const DiffFile& diffFile : currentDiff_->files) {
+                if (diffFile.displayPath() == file.path) {
+                    added = diffFile.addedLines;
+                    removed = diffFile.removedLines;
+                    break;
+                }
+            }
+        }
+
+        auto* fileRow = new QLabel(QStringLiteral("%1  <span style=\"color:%2\">+%3</span> "
+                                                  "<span style=\"color:%4\">−%5</span>")
+                                       .arg(path.toHtmlEscaped())
+                                       .arg(ThemeManager::color(Token::DiffAddText).name())
+                                       .arg(added)
+                                       .arg(ThemeManager::color(Token::DiffDelText).name())
+                                       .arg(removed),
+                                   panel);
+        fileRow->setFont(ThemeManager::monoFont(12));
+        layout->addWidget(fileRow);
+    }
+    if (fileCount > shown) {
+        auto* more = new QLabel(QStringLiteral("+%1 more file%2")
+                                    .arg(fileCount - shown)
+                                    .arg(fileCount - shown == 1 ? QString() : QStringLiteral("s")),
+                                panel);
+        more->setStyleSheet(
+            QStringLiteral("color: %1;").arg(ThemeManager::color(Token::TextTertiary).name()));
+        layout->addWidget(more);
+    }
+
+    return panel;
+}
+
+void MainWindow::onCommitContextMenuRequested(const QPoint& pos) {
+    if (!session_) {
+        return;
+    }
+    const QModelIndex index = commitView_->indexAt(pos);
+    if (!index.isValid()) {
+        return;
+    }
+    // Right-clicking a row that is not already selected selects it (replacing
+    // any existing selection), so the reused selection-based slots below
+    // (cherry-pick, rebase, reset, export) act on the row under the cursor. A
+    // row that is already selected -- including one currently expanded -- is
+    // left alone, so right-clicking an expanded row's own panel to reach
+    // "More actions" does not collapse it first.
+    if (!commitView_->selectionModel()->isRowSelected(index.row(), QModelIndex())) {
+        commitView_->selectionModel()->select(
+            index, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+    }
+    showCommitContextMenu(index.row(), commitView_->viewport()->mapToGlobal(pos));
+}
+
+void MainWindow::showCommitContextMenu(int row, const QPoint& globalPos) {
+    const ObjectId oid = commitModel_->oidAt(row);
+    if (oid.isNull()) {
+        return;
+    }
+    const QString sha7 = QString::fromStdString(oid.shortHex(7));
+
+    // A branch tip only if a *local* branch (not a remote-tracking branch or
+    // tag) points here -- matches SidebarPanel's own branch/tag menu split.
+    QString tipBranchName;
+    bool tipBranchIsHead = false;
+    if (const RefSnapshotPtr refs = session_->refs()) {
+        if (const auto* atCommit = refs->refsAt(oid)) {
+            for (const RefInfo* ref : *atCommit) {
+                if (ref->kind == RefKind::LocalBranch) {
+                    tipBranchName = QString::fromStdString(ref->shortName);
+                    tipBranchIsHead = ref->isHead;
+                    break;
+                }
+            }
+        }
+    }
+
+    QMenu menu(this);
+    QAction* checkoutAction = menu.addAction(QStringLiteral("Checkout %1").arg(sha7));
+    QAction* mergeAction = menu.addAction(QStringLiteral("Merge into current branch"));
+    QAction* cherryPickAction = menu.addAction(QStringLiteral("Cherry-pick"));
+    menu.addSeparator();
+    QAction* copyShaAction = menu.addAction(QStringLiteral("Copy SHA"));
+    QMenu* moreMenu = menu.addMenu(QStringLiteral("More actions"));
+    QAction* rebaseAction = moreMenu->addAction(QStringLiteral("Rebase current onto here"));
+    QAction* resetAction = moreMenu->addAction(QStringLiteral("Reset branch to here"));
+    QAction* revertAction = moreMenu->addAction(QStringLiteral("Revert commit"));
+    QAction* exportAction = moreMenu->addAction(QStringLiteral("Export as patch"));
+    QAction* compareAction = moreMenu->addAction(QStringLiteral("Compare with working copy"));
+
+    QAction* deleteBranchAction = nullptr;
+    if (!tipBranchName.isEmpty()) {
+        menu.addSeparator();
+        deleteBranchAction = menu.addAction(QStringLiteral("Delete branch %1").arg(tipBranchName));
+        deleteBranchAction->setEnabled(!tipBranchIsHead);
+        markDanger(deleteBranchAction);
+    }
+
+    QAction* chosen = menu.exec(globalPos);
+    if (chosen == nullptr) {
+        return;
+    }
+
+    if (chosen == checkoutAction) {
+        CheckoutRequest request;
+        request.target = oid.hex();
+        pendingCheckoutTarget_ = request.target;
+        session_->checkout(request);
+        statusLabel_->setText(QStringLiteral("Switching to %1…").arg(sha7));
+    } else if (chosen == mergeAction) {
+        MergeDialog dialog(sha7, this);
+        if (dialog.exec() != QDialog::Accepted) {
+            return;
+        }
+        MergeRequest request = dialog.request();
+        statusLabel_->setText(QStringLiteral("Merging %1…").arg(sha7));
+        armWorkingCopyChoiceHandler(
+            [this, request](bool stashFirst) mutable {
+                request.stashFirst = stashFirst;
+                session_->mergeBranch(request);
+            },
+            false);
+    } else if (chosen == cherryPickAction) {
+        onCherryPickRequested();
+    } else if (chosen == copyShaAction) {
+        QGuiApplication::clipboard()->setText(QString::fromStdString(oid.hex()));
+    } else if (chosen == rebaseAction) {
+        onRebaseRequested();
+    } else if (chosen == resetAction) {
+        onResetBranchRequested();
+    } else if (chosen == revertAction) {
+        RevertRequest request;
+        request.commits = {oid};
+        statusLabel_->setText(QStringLiteral("Reverting %1…").arg(sha7));
+        armWorkingCopyChoiceHandler(
+            [this, request](bool stashFirst) mutable {
+                request.stashFirst = stashFirst;
+                session_->revertCommit(request);
+            },
+            false);
+    } else if (chosen == exportAction) {
+        onExportPatches();
+    } else if (chosen == compareAction) {
+        diffPage_->showMessage(QStringLiteral("Comparing %1 with the working copy…").arg(sha7));
+        tabWidget_->setCurrentIndex(kDiffTab);
+        session_->requestCompareWithWorkingCopy(oid);
+    } else if (chosen == deleteBranchAction) {
+        const auto confirmed =
+            QMessageBox::warning(this,
+                                 QStringLiteral("Delete branch?"),
+                                 QStringLiteral("Delete branch \"%1\"?").arg(tipBranchName),
+                                 QMessageBox::Yes | QMessageBox::Cancel,
+                                 QMessageBox::Cancel);
+        if (confirmed != QMessageBox::Yes) {
+            return;
+        }
+        DeleteBranchRequest request;
+        request.name = tipBranchName.toStdString();
+        statusLabel_->setText(QStringLiteral("Deleting %1…").arg(tipBranchName));
+        runWithFeedback([this, request] { session_->deleteBranch(request); },
+                        [this, request](OperationChoice::Kind kind) mutable {
+                            // The only choice DeleteBranchOperation ever offers: the
+                            // branch has unmerged commits, and the user just confirmed
+                            // deleting it anyway (the warning box above already did that).
+                            if (kind == OperationChoice::Kind::ForceDiscard) {
+                                DeleteBranchRequest forced = request;
+                                forced.force = true;
+                                runWithFeedback([this, forced] { session_->deleteBranch(forced); },
+                                                nullptr);
+                            }
+                        });
+    }
+}
+
+void MainWindow::onCompareWithWorkingCopyReady(const ObjectId& commit,
+                                               std::shared_ptr<const ParsedDiff> diff) {
+    // Not a stageable working-copy diff: stop re-requesting whatever file the
+    // Diff tab previously showed via "View diff".
+    diffTabShownPath_.clear();
+    diffTabShownStaged_ = false;
+    diffTabShownIsStageable_ = false;
+    diffPage_->showCompareWithWorkingCopy(commit, std::move(diff));
+}
+
+void MainWindow::onViewFileDiffRequested(QString path, bool staged) {
+    if (!session_) {
+        return;
+    }
+    diffTabRequestedPath_ = path;
+    diffTabRequestedStaged_ = staged;
+    diffTabRequestPending_ = true;
+    diffPage_->showMessage(QStringLiteral("Loading changes for %1…").arg(path));
+    tabWidget_->setCurrentIndex(kDiffTab);
+    session_->requestWorkingCopyDiff(path.toStdString(), staged);
+}
+
+void MainWindow::onWorkingCopyDiffReadyForDiffTab(QString path,
+                                                  bool staged,
+                                                  std::shared_ptr<const ParsedDiff> diff) {
+    if (!diffTabRequestPending_ || path != diffTabRequestedPath_ ||
+        staged != diffTabRequestedStaged_) {
+        // Either no "View diff" request is outstanding, or this reply belongs
+        // to WorkingCopyView's own embedded-pane request instead.
+        return;
+    }
+    diffTabRequestPending_ = false;
+    diffTabShownPath_ = path;
+    diffTabShownStaged_ = staged;
+    diffTabShownIsStageable_ = true;
+    diffPage_->showWorkingCopyDiff(path, staged, std::move(diff));
 }
 
 void MainWindow::onRefActivated(const QModelIndex& index) {
@@ -912,6 +1495,7 @@ void MainWindow::onCheckoutRequested() {
 
     CheckoutRequest request;
     request.target = name.toStdString();
+    pendingCheckoutTarget_ = request.target;
     session_->checkout(request);
     statusLabel_->setText(QStringLiteral("Switching to %1…").arg(name));
 }
@@ -951,12 +1535,15 @@ void MainWindow::onOperationFinished(const OperationOutcome& outcome) {
                 continue;
             }
             const OperationChoice& choice = outcome.choices[i];
-            const QModelIndexList selected = refView_->selectionModel()->selectedRows();
-            if (selected.isEmpty()) {
+            if (pendingCheckoutTarget_.empty()) {
                 break;
             }
             CheckoutRequest retry;
-            retry.target = refModel_->refNameAt(selected.first()).toStdString();
+            // Re-issues whatever checkout was actually in flight -- a ref
+            // name from refView_'s selection, or a raw commit hex from the
+            // commit context menu's "Checkout <sha7>" -- rather than
+            // re-reading refView_'s selection, which is wrong for the latter.
+            retry.target = pendingCheckoutTarget_;
 
             switch (choice.kind) {
                 case OperationChoice::Kind::StashAndRetry:
@@ -1003,42 +1590,11 @@ void MainWindow::onMergeRequested() {
         return;
     }
 
-    QDialog dialog(this);
-    dialog.setWindowTitle(QStringLiteral("Merge"));
-    auto* layout = new QVBoxLayout(&dialog);
-    layout->addWidget(
-        new QLabel(QStringLiteral("Merge \"%1\" into the current branch:").arg(name), &dialog));
-
-    auto* ffOnly = new QRadioButton(QStringLiteral("Fast-forward only"), &dialog);
-    auto* noFf =
-        new QRadioButton(QStringLiteral("Create a merge commit (no fast-forward)"), &dialog);
-    auto* squash =
-        new QRadioButton(QStringLiteral("Squash (stage the changes, no commit)"), &dialog);
-    noFf->setChecked(true);
-    layout->addWidget(ffOnly);
-    layout->addWidget(noFf);
-    layout->addWidget(squash);
-
-    auto* messageEdit = new QLineEdit(&dialog);
-    messageEdit->setPlaceholderText(
-        QStringLiteral("Merge commit message (used only when creating a merge commit)"));
-    layout->addWidget(messageEdit);
-
-    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
-    layout->addWidget(buttons);
-    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-
+    MergeDialog dialog(name, this);
     if (dialog.exec() != QDialog::Accepted) {
         return;
     }
-
-    MergeRequest request;
-    request.target = name.toStdString();
-    request.mode = squash->isChecked()   ? MergeMode::Squash
-                   : ffOnly->isChecked() ? MergeMode::FastForwardOnly
-                                         : MergeMode::NoFastForward;
-    request.message = messageEdit->text().toStdString();
+    MergeRequest request = dialog.request();
 
     statusLabel_->setText(QStringLiteral("Merging %1…").arg(name));
     armWorkingCopyChoiceHandler(
@@ -1076,32 +1632,7 @@ void MainWindow::onCherryPickRequested() {
         subjects << commitModel_->data(subjectIndex, Qt::DisplayRole).toString();
     }
 
-    QDialog dialog(this);
-    dialog.setWindowTitle(QStringLiteral("Cherry-pick"));
-    auto* layout = new QVBoxLayout(&dialog);
-    layout->addWidget(new QLabel(
-        commits.size() == 1
-            ? QStringLiteral("Cherry-pick this commit onto the current branch:")
-            : QStringLiteral("Cherry-pick these %1 commits onto the current branch, oldest first:")
-                  .arg(commits.size()),
-        &dialog));
-
-    auto* list = new QListWidget(&dialog);
-    list->setSelectionMode(QAbstractItemView::NoSelection);
-    for (int i = 0; i < subjects.size(); ++i) {
-        new QListWidgetItem(
-            QString::fromStdString(commits[static_cast<std::size_t>(i)].shortHex()) +
-                QStringLiteral("  ") + subjects[i],
-            list);
-    }
-    layout->addWidget(list);
-
-    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
-    layout->addWidget(buttons);
-    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-    dialog.resize(480, 320);
-
+    CherryPickDialog dialog(commits, subjects, this);
     if (dialog.exec() != QDialog::Accepted) {
         return;
     }
@@ -1252,6 +1783,13 @@ void MainWindow::runWithFeedback(std::function<void()> submit,
     submit();
 }
 
+RunWithFeedbackFn MainWindow::feedbackFn() {
+    return
+        [this](std::function<void()> submit, std::function<void(OperationChoice::Kind)> onChoice) {
+            runWithFeedback(std::move(submit), std::move(onChoice));
+        };
+}
+
 // --- M3: remotes -------------------------------------------------------
 
 void MainWindow::onFetch() {
@@ -1354,28 +1892,11 @@ void MainWindow::onStashChanges() {
         return;
     }
 
-    QDialog dialog(this);
-    dialog.setWindowTitle(QStringLiteral("Stash changes"));
-    auto* layout = new QVBoxLayout(&dialog);
-
-    auto* messageEdit = new QLineEdit(&dialog);
-    messageEdit->setPlaceholderText(QStringLiteral("Stash message (optional)"));
-    layout->addWidget(messageEdit);
-    auto* includeUntracked = new QCheckBox(QStringLiteral("Include untracked files"), &dialog);
-    layout->addWidget(includeUntracked);
-
-    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
-    layout->addWidget(buttons);
-    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-
+    StashChangesDialog dialog(this);
     if (dialog.exec() != QDialog::Accepted) {
         return;
     }
-
-    StashSaveRequest request;
-    request.message = messageEdit->text().toStdString();
-    request.includeUntracked = includeUntracked->isChecked();
+    const StashSaveRequest request = dialog.request();
 
     statusLabel_->setText(QStringLiteral("Stashing changes…"));
     runWithFeedback([this, request] { session_->saveStash(request); });
@@ -1386,110 +1907,7 @@ void MainWindow::onManageStashes() {
         return;
     }
 
-    QDialog dialog(this);
-    dialog.setWindowTitle(QStringLiteral("Manage stashes"));
-    auto* layout = new QVBoxLayout(&dialog);
-
-    auto* list = new QListWidget(&dialog);
-    layout->addWidget(list, 1);
-
-    auto reload = [this, list] {
-        list->clear();
-        if (auto stashes = session_->stashes()) {
-            for (const StashEntry& entry : *stashes) {
-                auto* item = new QListWidgetItem(QStringLiteral("stash@{%1}  %2")
-                                                     .arg(entry.index)
-                                                     .arg(QString::fromStdString(entry.message)),
-                                                 list);
-                item->setData(Qt::UserRole, entry.index);
-            }
-        }
-    };
-    // Scoped to the dialog: a stash operation finishing after it closes must
-    // not touch a destroyed list widget.
-    connect(session_.get(), &RepositorySession::stashesUpdated, &dialog, reload);
-    session_->refreshStashes();
-    reload();
-
-    auto selectedIndex = [list]() -> std::optional<int> {
-        const auto items = list->selectedItems();
-        if (items.isEmpty()) {
-            return std::nullopt;
-        }
-        return items.first()->data(Qt::UserRole).toInt();
-    };
-
-    auto* buttonRow = new QHBoxLayout();
-    auto* applyButton = new QPushButton(QStringLiteral("Apply"), &dialog);
-    auto* popButton = new QPushButton(QStringLiteral("Pop"), &dialog);
-    auto* dropButton = new QPushButton(QStringLiteral("Drop"), &dialog);
-    auto* branchButton = new QPushButton(QStringLiteral("Create branch…"), &dialog);
-    auto* closeButton = new QPushButton(QStringLiteral("Close"), &dialog);
-    buttonRow->addWidget(applyButton);
-    buttonRow->addWidget(popButton);
-    buttonRow->addWidget(dropButton);
-    buttonRow->addWidget(branchButton);
-    buttonRow->addStretch(1);
-    buttonRow->addWidget(closeButton);
-    layout->addLayout(buttonRow);
-
-    connect(applyButton, &QPushButton::clicked, &dialog, [this, selectedIndex] {
-        if (auto index = selectedIndex()) {
-            StashApplyRequest request;
-            request.index = *index;
-            runWithFeedback([this, request] { session_->applyStash(request); });
-        }
-    });
-    connect(popButton, &QPushButton::clicked, &dialog, [this, selectedIndex] {
-        if (auto index = selectedIndex()) {
-            StashApplyRequest request;
-            request.index = *index;
-            request.pop = true;
-            runWithFeedback([this, request] { session_->applyStash(request); });
-        }
-    });
-    connect(dropButton, &QPushButton::clicked, &dialog, [this, selectedIndex, &dialog] {
-        auto index = selectedIndex();
-        if (!index) {
-            return;
-        }
-        const auto confirmed = QMessageBox::warning(&dialog,
-                                                    QStringLiteral("Drop stash?"),
-                                                    QStringLiteral("This permanently deletes "
-                                                                   "stash@{%1}.")
-                                                        .arg(*index),
-                                                    QMessageBox::Discard | QMessageBox::Cancel,
-                                                    QMessageBox::Cancel);
-        if (confirmed != QMessageBox::Discard) {
-            return;
-        }
-        StashDropRequest request;
-        request.index = *index;
-        runWithFeedback([this, request] { session_->dropStash(request); });
-    });
-    connect(branchButton, &QPushButton::clicked, &dialog, [this, selectedIndex, &dialog] {
-        auto index = selectedIndex();
-        if (!index) {
-            return;
-        }
-        bool ok = false;
-        const QString name = QInputDialog::getText(&dialog,
-                                                   QStringLiteral("Create branch from stash"),
-                                                   QStringLiteral("Branch name:"),
-                                                   QLineEdit::Normal,
-                                                   QString(),
-                                                   &ok);
-        if (!ok || name.isEmpty()) {
-            return;
-        }
-        StashBranchRequest request;
-        request.index = *index;
-        request.branchName = name.toStdString();
-        runWithFeedback([this, request] { session_->branchFromStash(request); });
-    });
-    connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
-
-    dialog.resize(480, 360);
+    ManageStashesDialog dialog(session_.get(), feedbackFn(), this);
     dialog.exec();
 }
 
@@ -1500,198 +1918,7 @@ void MainWindow::onManageWorktrees() {
         return;
     }
 
-    QDialog dialog(this);
-    dialog.setWindowTitle(QStringLiteral("Manage worktrees"));
-    auto* layout = new QVBoxLayout(&dialog);
-
-    auto* table = new QTableWidget(&dialog);
-    table->setColumnCount(3);
-    table->setHorizontalHeaderLabels(
-        {QStringLiteral("Path"), QStringLiteral("Branch"), QStringLiteral("Status")});
-    table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
-    table->setSelectionBehavior(QAbstractItemView::SelectRows);
-    table->setSelectionMode(QAbstractItemView::SingleSelection);
-    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    table->verticalHeader()->setVisible(false);
-    layout->addWidget(table, 1);
-
-    auto reload = [this, table] {
-        auto worktrees = session_->worktrees();
-        table->setRowCount(0);
-        if (!worktrees) {
-            return;
-        }
-        table->setRowCount(static_cast<int>(worktrees->size()));
-        for (int row = 0; row < static_cast<int>(worktrees->size()); ++row) {
-            const WorktreeInfo& info = (*worktrees)[static_cast<std::size_t>(row)];
-            table->setItem(
-                row, 0, new QTableWidgetItem(QString::fromStdString(info.path.string())));
-            const QString branch = info.isBare       ? QStringLiteral("(bare)")
-                                   : info.isDetached ? QStringLiteral("(detached)")
-                                                     : QString::fromStdString(info.branch);
-            table->setItem(row, 1, new QTableWidgetItem(branch));
-            QStringList status;
-            if (info.isMain) {
-                status << QStringLiteral("main");
-            }
-            if (info.isLocked) {
-                status << QStringLiteral("locked");
-            }
-            if (info.isPrunable) {
-                status << QStringLiteral("prunable");
-            }
-            table->setItem(row, 2, new QTableWidgetItem(status.join(QStringLiteral(", "))));
-        }
-    };
-    connect(session_.get(), &RepositorySession::worktreesUpdated, &dialog, reload);
-    session_->refreshWorktrees();
-    reload();
-
-    auto selectedInfo = [this, table]() -> std::optional<WorktreeInfo> {
-        const int row = table->currentRow();
-        auto worktrees = session_->worktrees();
-        if (row < 0 || !worktrees || row >= static_cast<int>(worktrees->size())) {
-            return std::nullopt;
-        }
-        return (*worktrees)[static_cast<std::size_t>(row)];
-    };
-
-    auto* buttonRow = new QHBoxLayout();
-    auto* addButton = new QPushButton(QStringLiteral("Add…"), &dialog);
-    auto* removeButton = new QPushButton(QStringLiteral("Remove"), &dialog);
-    auto* lockButton = new QPushButton(QStringLiteral("Lock…"), &dialog);
-    auto* unlockButton = new QPushButton(QStringLiteral("Unlock"), &dialog);
-    auto* pruneButton = new QPushButton(QStringLiteral("Prune stale"), &dialog);
-    auto* closeButton = new QPushButton(QStringLiteral("Close"), &dialog);
-    buttonRow->addWidget(addButton);
-    buttonRow->addWidget(removeButton);
-    buttonRow->addWidget(lockButton);
-    buttonRow->addWidget(unlockButton);
-    buttonRow->addWidget(pruneButton);
-    buttonRow->addStretch(1);
-    buttonRow->addWidget(closeButton);
-    layout->addLayout(buttonRow);
-
-    connect(addButton, &QPushButton::clicked, &dialog, [this, &dialog] {
-        const QString parentDir = QFileDialog::getExistingDirectory(
-            &dialog, QStringLiteral("Choose a parent folder for the new worktree"));
-        if (parentDir.isEmpty()) {
-            return;
-        }
-        bool ok = false;
-        const QString folderName = QInputDialog::getText(&dialog,
-                                                         QStringLiteral("New worktree"),
-                                                         QStringLiteral("Folder name:"),
-                                                         QLineEdit::Normal,
-                                                         QString(),
-                                                         &ok);
-        if (!ok || folderName.isEmpty()) {
-            return;
-        }
-
-        QStringList branchNames;
-        if (const RefSnapshotPtr refs = session_->refs()) {
-            for (const RefInfo* ref : refs->ofKind(RefKind::LocalBranch)) {
-                branchNames << QString::fromStdString(ref->shortName);
-            }
-        }
-        QString branch;
-        if (!branchNames.isEmpty()) {
-            bool branchOk = false;
-            branch = QInputDialog::getItem(&dialog,
-                                           QStringLiteral("New worktree"),
-                                           QStringLiteral("Branch:"),
-                                           branchNames,
-                                           0,
-                                           false,
-                                           &branchOk);
-            if (!branchOk) {
-                return;
-            }
-        }
-
-        AddWorktreeRequest request;
-        request.path = std::filesystem::path(QDir(parentDir).filePath(folderName).toStdString());
-        request.branch = branch.toStdString();
-        runWithFeedback([this, request] { session_->addWorktree(request); });
-    });
-
-    connect(removeButton, &QPushButton::clicked, &dialog, [this, selectedInfo, &dialog] {
-        auto info = selectedInfo();
-        if (!info) {
-            return;
-        }
-        if (info->isMain) {
-            QMessageBox::information(&dialog,
-                                     QStringLiteral("Cannot remove"),
-                                     QStringLiteral("The main worktree cannot be removed."));
-            return;
-        }
-        const auto confirmed =
-            QMessageBox::warning(&dialog,
-                                 QStringLiteral("Remove worktree?"),
-                                 QStringLiteral("Remove the worktree at \"%1\"?")
-                                     .arg(QString::fromStdString(info->path.string())),
-                                 QMessageBox::Yes | QMessageBox::Cancel,
-                                 QMessageBox::Cancel);
-        if (confirmed != QMessageBox::Yes) {
-            return;
-        }
-        const std::filesystem::path path = info->path;
-        runWithFeedback(
-            [this, path] {
-                RemoveWorktreeRequest request;
-                request.path = path;
-                session_->removeWorktree(request);
-            },
-            [this, path](OperationChoice::Kind kind) {
-                if (kind == OperationChoice::Kind::ForceDiscard) {
-                    RemoveWorktreeRequest request;
-                    request.path = path;
-                    request.force = true;
-                    session_->removeWorktree(request);
-                }
-            });
-    });
-
-    connect(lockButton, &QPushButton::clicked, &dialog, [this, selectedInfo, &dialog] {
-        auto info = selectedInfo();
-        if (!info) {
-            return;
-        }
-        bool ok = false;
-        const QString reason = QInputDialog::getText(&dialog,
-                                                     QStringLiteral("Lock worktree"),
-                                                     QStringLiteral("Reason (optional):"),
-                                                     QLineEdit::Normal,
-                                                     QString(),
-                                                     &ok);
-        if (!ok) {
-            return;
-        }
-        LockWorktreeRequest request;
-        request.path = info->path;
-        request.reason = reason.toStdString();
-        runWithFeedback([this, request] { session_->lockWorktree(request); });
-    });
-
-    connect(unlockButton, &QPushButton::clicked, &dialog, [this, selectedInfo] {
-        auto info = selectedInfo();
-        if (!info) {
-            return;
-        }
-        UnlockWorktreeRequest request;
-        request.path = info->path;
-        runWithFeedback([this, request] { session_->unlockWorktree(request); });
-    });
-
-    connect(pruneButton, &QPushButton::clicked, &dialog, [this] {
-        runWithFeedback([this] { session_->pruneWorktrees(); });
-    });
-
-    connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
-
-    dialog.resize(640, 360);
+    ManageWorktreesDialog dialog(session_.get(), feedbackFn(), this);
     dialog.exec();
 }
 
@@ -1734,74 +1961,6 @@ void MainWindow::onNewTag() {
 
     statusLabel_->setText(QStringLiteral("Creating tag %1…").arg(name));
     runWithFeedback([this, request] { session_->createTag(request); });
-}
-
-void MainWindow::onRefContextMenuRequested(const QPoint& pos) {
-    if (!session_) {
-        return;
-    }
-    const QModelIndex index = refView_->indexAt(pos);
-    const bool onTag =
-        index.isValid() && refModel_->data(index, RefTreeModel::IsRefRole).toBool() &&
-        refModel_->data(index, RefTreeModel::RefKindRole).toInt() == static_cast<int>(RefKind::Tag);
-    const QString tagName = onTag ? refModel_->refNameAt(index) : QString();
-
-    QMenu menu(this);
-    QAction* newTagAction = menu.addAction(QStringLiteral("New tag…"));
-    QAction* deleteTagAction = nullptr;
-    QAction* pushTagAction = nullptr;
-    if (onTag) {
-        menu.addSeparator();
-        deleteTagAction = menu.addAction(QStringLiteral("Delete tag \"%1\"").arg(tagName));
-        pushTagAction = menu.addAction(QStringLiteral("Push tag \"%1\"…").arg(tagName));
-    }
-
-    QAction* chosen = menu.exec(refView_->viewport()->mapToGlobal(pos));
-    if (chosen == nullptr) {
-        return;
-    }
-
-    if (chosen == newTagAction) {
-        onNewTag();
-        return;
-    }
-    if (chosen == deleteTagAction) {
-        const auto confirmed =
-            QMessageBox::warning(this,
-                                 QStringLiteral("Delete tag?"),
-                                 QStringLiteral("Delete tag \"%1\"?").arg(tagName),
-                                 QMessageBox::Yes | QMessageBox::Cancel,
-                                 QMessageBox::Cancel);
-        if (confirmed != QMessageBox::Yes) {
-            return;
-        }
-        DeleteTagRequest request;
-        request.name = tagName.toStdString();
-        runWithFeedback([this, request] { session_->deleteTag(request); });
-        return;
-    }
-    if (chosen == pushTagAction) {
-        QStringList names;
-        if (auto remotes = session_->remotes()) {
-            for (const RemoteInfo& remote : *remotes) {
-                names << QString::fromStdString(remote.name);
-            }
-        }
-        if (names.isEmpty()) {
-            names << QStringLiteral("origin");
-        }
-        bool ok = false;
-        const QString remote = QInputDialog::getItem(
-            this, QStringLiteral("Push tag"), QStringLiteral("Remote:"), names, 0, false, &ok);
-        if (!ok || remote.isEmpty()) {
-            return;
-        }
-        PushTagRequest request;
-        request.remoteName = remote.toStdString();
-        request.name = tagName.toStdString();
-        statusLabel_->setText(QStringLiteral("Pushing tag %1…").arg(tagName));
-        runWithFeedback([this, request] { session_->pushTag(request); });
-    }
 }
 
 void MainWindow::onCredentialRequested(QString prompt) {
@@ -1885,35 +2044,12 @@ void MainWindow::onResetBranchRequested() {
         return;
     }
 
-    QDialog dialog(this);
-    dialog.setWindowTitle(QStringLiteral("Reset branch"));
-    auto* layout = new QVBoxLayout(&dialog);
-    layout->addWidget(new QLabel(QStringLiteral("Reset the current branch to %1:")
-                                     .arg(QString::fromStdString(target.shortHex())),
-                                 &dialog));
-
-    auto* soft = new QRadioButton(QStringLiteral("Soft (keep the index and work tree)"), &dialog);
-    auto* mixed =
-        new QRadioButton(QStringLiteral("Mixed (keep the work tree, unstage everything)"), &dialog);
-    auto* hard = new QRadioButton(
-        QStringLiteral("Hard (discard the index and work tree — destructive)"), &dialog);
-    mixed->setChecked(true);
-    layout->addWidget(soft);
-    layout->addWidget(mixed);
-    layout->addWidget(hard);
-
-    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
-    layout->addWidget(buttons);
-    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-
+    ResetBranchDialog dialog(QString::fromStdString(target.shortHex()), this);
     if (dialog.exec() != QDialog::Accepted) {
         return;
     }
 
-    const ResetMode mode = soft->isChecked()   ? ResetMode::Soft
-                           : hard->isChecked() ? ResetMode::Hard
-                                               : ResetMode::Mixed;
+    const ResetMode mode = dialog.mode();
     if (mode == ResetMode::Hard) {
         const auto confirmed = QMessageBox::warning(
             this,
@@ -1983,136 +2119,12 @@ void MainWindow::onInteractiveRebaseRequested() {
         return;
     }
 
-    QDialog dialog(this);
-    dialog.setWindowTitle(QStringLiteral("Interactive rebase"));
-    auto* layout = new QVBoxLayout(&dialog);
-    layout->addWidget(new QLabel(QStringLiteral("Commits to replay onto %1, oldest first:")
-                                     .arg(QString::fromStdString(upstream.shortHex())),
-                                 &dialog));
-
-    auto* table = new QTableWidget(&dialog);
-    table->setColumnCount(3);
-    table->setHorizontalHeaderLabels(
-        {QStringLiteral("Action"), QStringLiteral("Commit"), QStringLiteral("Subject")});
-    table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
-    table->setSelectionBehavior(QAbstractItemView::SelectRows);
-    table->setSelectionMode(QAbstractItemView::SingleSelection);
-    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    table->verticalHeader()->setVisible(false);
-    layout->addWidget(table, 1);
-
-    // Shared with every lambda below rather than read back from the table
-    // widget: the combo boxes are the only place the action lives once edited,
-    // but reordering rebuilds the whole table, so the todo list itself is the
-    // one source of truth.
-    auto todo = std::make_shared<std::vector<RebaseTodoEntry>>();
-
-    auto actionLabel = [](RebaseTodoEntry::Action action) {
-        switch (action) {
-            case RebaseTodoEntry::Action::Pick:
-                return QStringLiteral("pick");
-            case RebaseTodoEntry::Action::Edit:
-                return QStringLiteral("edit");
-            case RebaseTodoEntry::Action::Squash:
-                return QStringLiteral("squash");
-            case RebaseTodoEntry::Action::Fixup:
-                return QStringLiteral("fixup");
-            case RebaseTodoEntry::Action::Drop:
-                return QStringLiteral("drop");
-        }
-        return QStringLiteral("pick");
-    };
-    auto actionFromLabel = [](const QString& text) {
-        if (text == QStringLiteral("edit")) {
-            return RebaseTodoEntry::Action::Edit;
-        }
-        if (text == QStringLiteral("squash")) {
-            return RebaseTodoEntry::Action::Squash;
-        }
-        if (text == QStringLiteral("fixup")) {
-            return RebaseTodoEntry::Action::Fixup;
-        }
-        if (text == QStringLiteral("drop")) {
-            return RebaseTodoEntry::Action::Drop;
-        }
-        return RebaseTodoEntry::Action::Pick;
-    };
-
-    std::function<void()> refreshTable = [table, todo, actionLabel, actionFromLabel] {
-        table->setRowCount(static_cast<int>(todo->size()));
-        for (int row = 0; row < static_cast<int>(todo->size()); ++row) {
-            const RebaseTodoEntry& entry = (*todo)[static_cast<std::size_t>(row)];
-            auto* combo = new QComboBox(table);
-            combo->addItems({QStringLiteral("pick"),
-                             QStringLiteral("edit"),
-                             QStringLiteral("squash"),
-                             QStringLiteral("fixup"),
-                             QStringLiteral("drop")});
-            combo->setCurrentText(actionLabel(entry.action));
-            QObject::connect(combo,
-                             &QComboBox::currentTextChanged,
-                             table,
-                             [todo, row, actionFromLabel](const QString& text) {
-                                 (*todo)[static_cast<std::size_t>(row)].action =
-                                     actionFromLabel(text);
-                             });
-            table->setCellWidget(row, 0, combo);
-            table->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(entry.shortOid)));
-            table->setItem(row, 2, new QTableWidgetItem(QString::fromStdString(entry.subject)));
-        }
-    };
-
-    connect(session_.get(),
-            &RepositorySession::rebasePlanReady,
-            &dialog,
-            [todo, refreshTable](std::vector<RebaseTodoEntry> entries) {
-                *todo = std::move(entries);
-                refreshTable();
-            });
-    session_->requestRebasePlan(upstream.hex());
-
-    auto* upButton = new QPushButton(QStringLiteral("Move Up"), &dialog);
-    auto* downButton = new QPushButton(QStringLiteral("Move Down"), &dialog);
-    connect(upButton, &QPushButton::clicked, &dialog, [table, todo, refreshTable] {
-        const int row = table->currentRow();
-        if (row <= 0) {
-            return;
-        }
-        std::swap((*todo)[static_cast<std::size_t>(row)],
-                  (*todo)[static_cast<std::size_t>(row - 1)]);
-        refreshTable();
-        table->selectRow(row - 1);
-    });
-    connect(downButton, &QPushButton::clicked, &dialog, [table, todo, refreshTable] {
-        const int row = table->currentRow();
-        if (row < 0 || row + 1 >= static_cast<int>(todo->size())) {
-            return;
-        }
-        std::swap((*todo)[static_cast<std::size_t>(row)],
-                  (*todo)[static_cast<std::size_t>(row + 1)]);
-        refreshTable();
-        table->selectRow(row + 1);
-    });
-    auto* moveRow = new QHBoxLayout();
-    moveRow->addWidget(upButton);
-    moveRow->addWidget(downButton);
-    moveRow->addStretch(1);
-    layout->addLayout(moveRow);
-
-    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
-    buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("Start Rebase"));
-    layout->addWidget(buttons);
-    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-
-    dialog.resize(560, 420);
-    if (dialog.exec() != QDialog::Accepted || todo->empty()) {
+    InteractiveRebaseDialog dialog(session_.get(), upstream, this);
+    if (dialog.exec() != QDialog::Accepted || !dialog.hasTodoEntries()) {
         return;
     }
 
-    RebaseInteractiveRequest request;
-    request.upstream = upstream.hex();
-    request.todo = *todo;
+    RebaseInteractiveRequest request = dialog.request();
     statusLabel_->setText(QStringLiteral("Rebasing…"));
     armWorkingCopyChoiceHandler(
         [this, request](bool stashFirst) mutable {
@@ -2129,76 +2141,7 @@ void MainWindow::onCleanUntracked() {
         return;
     }
 
-    QDialog dialog(this);
-    dialog.setWindowTitle(QStringLiteral("Clean untracked files"));
-    auto* layout = new QVBoxLayout(&dialog);
-
-    auto* includeIgnored = new QCheckBox(QStringLiteral("Also remove ignored files"), &dialog);
-    layout->addWidget(includeIgnored);
-
-    auto* list = new QListWidget(&dialog);
-    layout->addWidget(list, 1);
-
-    connect(session_.get(),
-            &RepositorySession::cleanPreviewReady,
-            &dialog,
-            [list](std::vector<CleanEntry> entries) {
-                list->clear();
-                for (const CleanEntry& entry : entries) {
-                    auto* item = new QListWidgetItem(
-                        QString::fromStdString(entry.path) +
-                            (entry.isDirectory ? QStringLiteral("/") : QString()),
-                        list);
-                    item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
-                    item->setCheckState(Qt::Checked);
-                    item->setData(Qt::UserRole, QString::fromStdString(entry.path));
-                }
-            });
-    auto reload = [this, includeIgnored] {
-        session_->requestCleanPreview(includeIgnored->isChecked());
-    };
-    connect(includeIgnored, &QCheckBox::toggled, &dialog, [reload](bool) { reload(); });
-    reload();
-
-    auto* buttonRow = new QHBoxLayout();
-    auto* removeButton = new QPushButton(QStringLiteral("Remove"), &dialog);
-    auto* closeButton = new QPushButton(QStringLiteral("Close"), &dialog);
-    buttonRow->addStretch(1);
-    buttonRow->addWidget(removeButton);
-    buttonRow->addWidget(closeButton);
-    layout->addLayout(buttonRow);
-
-    connect(removeButton, &QPushButton::clicked, &dialog, [this, list, includeIgnored, &dialog] {
-        std::vector<std::string> paths;
-        for (int i = 0; i < list->count(); ++i) {
-            auto* item = list->item(i);
-            if (item->checkState() == Qt::Checked) {
-                paths.push_back(item->data(Qt::UserRole).toString().toStdString());
-            }
-        }
-        if (paths.empty()) {
-            return;
-        }
-        const auto confirmed =
-            QMessageBox::warning(&dialog,
-                                 QStringLiteral("Remove untracked files?"),
-                                 QStringLiteral("This permanently deletes %1 item(s). This "
-                                                "cannot be undone.")
-                                     .arg(paths.size()),
-                                 QMessageBox::Discard | QMessageBox::Cancel,
-                                 QMessageBox::Cancel);
-        if (confirmed != QMessageBox::Discard) {
-            return;
-        }
-        CleanRequest request;
-        request.paths = paths;
-        request.includeIgnored = includeIgnored->isChecked();
-        runWithFeedback([this, request] { session_->cleanUntracked(request); });
-        dialog.accept();
-    });
-    connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
-
-    dialog.resize(480, 400);
+    CleanUntrackedDialog dialog(session_.get(), feedbackFn(), this);
     dialog.exec();
 }
 
@@ -2209,77 +2152,7 @@ void MainWindow::onShowReflog() {
         return;
     }
 
-    QDialog dialog(this);
-    dialog.setWindowTitle(QStringLiteral("Reflog"));
-    auto* layout = new QVBoxLayout(&dialog);
-
-    auto* table = new QTableWidget(&dialog);
-    table->setColumnCount(3);
-    table->setHorizontalHeaderLabels(
-        {QStringLiteral("Commit"), QStringLiteral("When"), QStringLiteral("Action")});
-    table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
-    table->setSelectionBehavior(QAbstractItemView::SelectRows);
-    table->setSelectionMode(QAbstractItemView::SingleSelection);
-    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    table->verticalHeader()->setVisible(false);
-    layout->addWidget(table, 1);
-
-    connect(
-        session_.get(),
-        &RepositorySession::reflogReady,
-        &dialog,
-        [table](std::vector<ReflogEntry> entries) {
-            table->setRowCount(static_cast<int>(entries.size()));
-            for (int row = 0; row < static_cast<int>(entries.size()); ++row) {
-                const ReflogEntry& entry = entries[static_cast<std::size_t>(row)];
-                auto* oidItem = new QTableWidgetItem(QString::fromStdString(entry.oid.shortHex()));
-                oidItem->setData(Qt::UserRole, QString::fromStdString(entry.oid.hex()));
-                table->setItem(row, 0, oidItem);
-                table->setItem(
-                    row,
-                    1,
-                    new QTableWidgetItem(
-                        QDateTime::fromSecsSinceEpoch(entry.who.when).toString(Qt::ISODate)));
-                table->setItem(row, 2, new QTableWidgetItem(QString::fromStdString(entry.message)));
-            }
-        });
-    session_->requestReflog("");
-
-    auto* buttonRow = new QHBoxLayout();
-    auto* resetButton = new QPushButton(QStringLiteral("Reset to here (hard)…"), &dialog);
-    auto* closeButton = new QPushButton(QStringLiteral("Close"), &dialog);
-    buttonRow->addStretch(1);
-    buttonRow->addWidget(resetButton);
-    buttonRow->addWidget(closeButton);
-    layout->addLayout(buttonRow);
-
-    connect(resetButton, &QPushButton::clicked, &dialog, [this, table, &dialog] {
-        const auto selectedRows = table->selectionModel()->selectedRows();
-        if (selectedRows.isEmpty()) {
-            return;
-        }
-        const QString oid =
-            table->item(selectedRows.first().row(), 0)->data(Qt::UserRole).toString();
-        const auto confirmed =
-            QMessageBox::warning(&dialog,
-                                 QStringLiteral("Hard reset?"),
-                                 QStringLiteral("This permanently discards uncommitted changes "
-                                                "and moves the current branch to %1.")
-                                     .arg(oid.left(10)),
-                                 QMessageBox::Discard | QMessageBox::Cancel,
-                                 QMessageBox::Cancel);
-        if (confirmed != QMessageBox::Discard) {
-            return;
-        }
-        ResetRequest request;
-        request.target = oid.toStdString();
-        request.mode = ResetMode::Hard;
-        runWithFeedback([this, request] { session_->resetTo(request); });
-        dialog.accept();
-    });
-    connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
-
-    dialog.resize(560, 420);
+    ReflogDialog dialog(session_.get(), feedbackFn(), this);
     dialog.exec();
 }
 
@@ -2337,94 +2210,31 @@ void MainWindow::onFileContextMenuRequested(const QPoint& pos) {
 
     if (chosen == blameAction) {
         auto connection = std::make_shared<QMetaObject::Connection>();
-        *connection = connect(
-            session_.get(),
-            &RepositorySession::blameReady,
-            this,
-            [this, connection, path](BlameResultPtr result) {
-                QObject::disconnect(*connection);
-                if (!result) {
-                    return;
-                }
-                QDialog dialog(this);
-                dialog.setWindowTitle(QStringLiteral("Blame: %1").arg(path));
-                auto* layout = new QVBoxLayout(&dialog);
-                auto* table = new QTableWidget(&dialog);
-                table->setColumnCount(4);
-                table->setHorizontalHeaderLabels({QStringLiteral("Commit"),
-                                                  QStringLiteral("Author"),
-                                                  QStringLiteral("Line"),
-                                                  QStringLiteral("Content")});
-                table->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Stretch);
-                table->setEditTriggers(QAbstractItemView::NoEditTriggers);
-                table->verticalHeader()->setVisible(false);
-                table->setRowCount(static_cast<int>(result->lines.size()));
-                for (int row = 0; row < static_cast<int>(result->lines.size()); ++row) {
-                    const BlameLine& line = result->lines[static_cast<std::size_t>(row)];
-                    table->setItem(
-                        row,
-                        0,
-                        new QTableWidgetItem(QString::fromStdString(line.commitOid.shortHex())));
-                    table->setItem(
-                        row, 1, new QTableWidgetItem(QString::fromStdString(line.authorName)));
-                    table->setItem(row, 2, new QTableWidgetItem(QString::number(line.finalLine)));
-                    table->setItem(
-                        row, 3, new QTableWidgetItem(QString::fromStdString(line.content)));
-                }
-                layout->addWidget(table);
-                auto* closeButton = new QPushButton(QStringLiteral("Close"), &dialog);
-                connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
-                layout->addWidget(closeButton);
-                dialog.resize(720, 480);
-                dialog.exec();
-            });
+        *connection = connect(session_.get(),
+                              &RepositorySession::blameReady,
+                              this,
+                              [this, connection, path](BlameResultPtr result) {
+                                  QObject::disconnect(*connection);
+                                  if (!result) {
+                                      return;
+                                  }
+                                  BlameDialog dialog(path, *result, this);
+                                  dialog.exec();
+                              });
         session_->requestBlame(stdPath, revision, 0, 0);
         return;
     }
 
     if (chosen == historyAction) {
         auto connection = std::make_shared<QMetaObject::Connection>();
-        *connection = connect(
-            session_.get(),
-            &RepositorySession::fileHistoryReady,
-            this,
-            [this, connection, path](std::vector<FileHistoryEntry> entries) {
-                QObject::disconnect(*connection);
-                QDialog dialog(this);
-                dialog.setWindowTitle(QStringLiteral("History: %1").arg(path));
-                auto* layout = new QVBoxLayout(&dialog);
-                auto* table = new QTableWidget(&dialog);
-                table->setColumnCount(4);
-                table->setHorizontalHeaderLabels({QStringLiteral("Commit"),
-                                                  QStringLiteral("Author"),
-                                                  QStringLiteral("Status"),
-                                                  QStringLiteral("Subject")});
-                table->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Stretch);
-                table->setEditTriggers(QAbstractItemView::NoEditTriggers);
-                table->verticalHeader()->setVisible(false);
-                table->setRowCount(static_cast<int>(entries.size()));
-                for (int row = 0; row < static_cast<int>(entries.size()); ++row) {
-                    const FileHistoryEntry& entry = entries[static_cast<std::size_t>(row)];
-                    table->setItem(
-                        row, 0, new QTableWidgetItem(QString::fromStdString(entry.oid.shortHex())));
-                    table->setItem(
-                        row, 1, new QTableWidgetItem(QString::fromStdString(entry.author.name)));
-                    QString status = QString::fromStdString(entry.status);
-                    if (!entry.renamedFrom.empty()) {
-                        status += QStringLiteral(" (from %1)")
-                                      .arg(QString::fromStdString(entry.renamedFrom));
-                    }
-                    table->setItem(row, 2, new QTableWidgetItem(status));
-                    table->setItem(
-                        row, 3, new QTableWidgetItem(QString::fromStdString(entry.subject)));
-                }
-                layout->addWidget(table);
-                auto* closeButton = new QPushButton(QStringLiteral("Close"), &dialog);
-                connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
-                layout->addWidget(closeButton);
-                dialog.resize(720, 480);
-                dialog.exec();
-            });
+        *connection = connect(session_.get(),
+                              &RepositorySession::fileHistoryReady,
+                              this,
+                              [this, connection, path](std::vector<FileHistoryEntry> entries) {
+                                  QObject::disconnect(*connection);
+                                  FileHistoryDialog dialog(path, entries, this);
+                                  dialog.exec();
+                              });
         session_->requestFileHistory(stdPath, revision);
         return;
     }
@@ -2455,33 +2265,14 @@ void MainWindow::onFileContextMenuRequested(const QPoint& pos) {
         }
 
         auto connection = std::make_shared<QMetaObject::Connection>();
-        *connection =
-            connect(session_.get(),
-                    &RepositorySession::lineHistoryReady,
-                    this,
-                    [this, connection, path](std::vector<LineHistoryChunk> chunks) {
-                        QObject::disconnect(*connection);
-                        QDialog dialog(this);
-                        dialog.setWindowTitle(QStringLiteral("Line history: %1").arg(path));
-                        auto* layout = new QVBoxLayout(&dialog);
-                        auto* text = new QPlainTextEdit(&dialog);
-                        text->setReadOnly(true);
-                        text->setLineWrapMode(QPlainTextEdit::NoWrap);
-                        QString content;
-                        for (const LineHistoryChunk& chunk : chunks) {
-                            content += QStringLiteral("commit %1 — %2\n%3\n\n")
-                                           .arg(QString::fromStdString(chunk.oid.shortHex()))
-                                           .arg(QString::fromStdString(chunk.subject))
-                                           .arg(QString::fromStdString(chunk.diffText));
-                        }
-                        text->setPlainText(content);
-                        layout->addWidget(text);
-                        auto* closeButton = new QPushButton(QStringLiteral("Close"), &dialog);
-                        connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
-                        layout->addWidget(closeButton);
-                        dialog.resize(720, 480);
-                        dialog.exec();
-                    });
+        *connection = connect(session_.get(),
+                              &RepositorySession::lineHistoryReady,
+                              this,
+                              [this, connection, path](std::vector<LineHistoryChunk> chunks) {
+                                  QObject::disconnect(*connection);
+                                  LineHistoryDialog dialog(path, chunks, this);
+                                  dialog.exec();
+                              });
         session_->requestLineHistory(stdPath, startLine, endLine, revision);
     }
 }
@@ -2493,172 +2284,7 @@ void MainWindow::onManageSubmodules() {
         return;
     }
 
-    QDialog dialog(this);
-    dialog.setWindowTitle(QStringLiteral("Manage submodules"));
-    auto* layout = new QVBoxLayout(&dialog);
-
-    auto* table = new QTableWidget(&dialog);
-    table->setColumnCount(4);
-    table->setHorizontalHeaderLabels({QStringLiteral("Path"),
-                                      QStringLiteral("URL"),
-                                      QStringLiteral("Commit"),
-                                      QStringLiteral("Status")});
-    table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
-    table->setSelectionBehavior(QAbstractItemView::SelectRows);
-    table->setSelectionMode(QAbstractItemView::SingleSelection);
-    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    table->verticalHeader()->setVisible(false);
-    table->setAccessibleName(QStringLiteral("Submodule list"));
-    layout->addWidget(table, 1);
-
-    auto stateLabel = [](SubmoduleInfo::State state) {
-        switch (state) {
-            case SubmoduleInfo::State::NotInitialized:
-                return QStringLiteral("not initialized");
-            case SubmoduleInfo::State::Modified:
-                return QStringLiteral("modified");
-            case SubmoduleInfo::State::Conflicted:
-                return QStringLiteral("conflicted");
-            case SubmoduleInfo::State::UpToDate:
-                return QStringLiteral("up to date");
-        }
-        return QStringLiteral("up to date");
-    };
-
-    auto reload = [this, table, stateLabel] {
-        auto submodules = session_->submodules();
-        table->setRowCount(0);
-        if (!submodules) {
-            return;
-        }
-        table->setRowCount(static_cast<int>(submodules->size()));
-        for (int row = 0; row < static_cast<int>(submodules->size()); ++row) {
-            const SubmoduleInfo& info = (*submodules)[static_cast<std::size_t>(row)];
-            table->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(info.path)));
-            table->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(info.url)));
-            table->setItem(
-                row, 2, new QTableWidgetItem(QString::fromStdString(info.headOid).left(10)));
-            table->setItem(row, 3, new QTableWidgetItem(stateLabel(info.state)));
-        }
-    };
-    connect(session_.get(), &RepositorySession::submodulesUpdated, &dialog, reload);
-    session_->refreshSubmodules();
-    reload();
-
-    auto selectedInfo = [this, table]() -> std::optional<SubmoduleInfo> {
-        const int row = table->currentRow();
-        auto submodules = session_->submodules();
-        if (row < 0 || !submodules || row >= static_cast<int>(submodules->size())) {
-            return std::nullopt;
-        }
-        return (*submodules)[static_cast<std::size_t>(row)];
-    };
-
-    auto* buttonRow = new QHBoxLayout();
-    auto* addButton = new QPushButton(QStringLiteral("Add…"), &dialog);
-    auto* initButton = new QPushButton(QStringLiteral("Init"), &dialog);
-    auto* updateButton = new QPushButton(QStringLiteral("Update"), &dialog);
-    auto* syncButton = new QPushButton(QStringLiteral("Sync"), &dialog);
-    auto* deinitButton = new QPushButton(QStringLiteral("Deinit…"), &dialog);
-    auto* closeButton = new QPushButton(QStringLiteral("Close"), &dialog);
-    for (QPushButton* button :
-         {addButton, initButton, updateButton, syncButton, deinitButton, closeButton}) {
-        button->setAccessibleDescription(QStringLiteral("Submodule action"));
-    }
-    buttonRow->addWidget(addButton);
-    buttonRow->addWidget(initButton);
-    buttonRow->addWidget(updateButton);
-    buttonRow->addWidget(syncButton);
-    buttonRow->addWidget(deinitButton);
-    buttonRow->addStretch(1);
-    buttonRow->addWidget(closeButton);
-    layout->addLayout(buttonRow);
-
-    connect(addButton, &QPushButton::clicked, &dialog, [this, &dialog] {
-        bool ok = false;
-        const QString url = QInputDialog::getText(&dialog,
-                                                  QStringLiteral("Add submodule"),
-                                                  QStringLiteral("URL:"),
-                                                  QLineEdit::Normal,
-                                                  QString(),
-                                                  &ok);
-        if (!ok || url.isEmpty()) {
-            return;
-        }
-        const QString path =
-            QInputDialog::getText(&dialog,
-                                  QStringLiteral("Add submodule"),
-                                  QStringLiteral("Path (leave blank to derive from the URL):"),
-                                  QLineEdit::Normal,
-                                  QString(),
-                                  &ok);
-        if (!ok) {
-            return;
-        }
-        AddSubmoduleRequest request;
-        request.url = url.toStdString();
-        request.path = path.toStdString();
-        runWithFeedback([this, request] { session_->addSubmodule(request); });
-    });
-
-    connect(initButton, &QPushButton::clicked, &dialog, [this, selectedInfo] {
-        auto info = selectedInfo();
-        if (!info) {
-            return;
-        }
-        SubmodulePathsRequest request;
-        request.paths = {info->path};
-        runWithFeedback([this, request] { session_->initSubmodules(request); });
-    });
-
-    connect(updateButton, &QPushButton::clicked, &dialog, [this, selectedInfo] {
-        auto info = selectedInfo();
-        if (!info) {
-            return;
-        }
-        UpdateSubmodulesRequest request;
-        request.paths = {info->path};
-        request.init = true;
-        runWithFeedback([this, request] { session_->updateSubmodules(request); });
-    });
-
-    connect(syncButton, &QPushButton::clicked, &dialog, [this, selectedInfo] {
-        auto info = selectedInfo();
-        if (!info) {
-            return;
-        }
-        SubmodulePathsRequest request;
-        request.paths = {info->path};
-        runWithFeedback([this, request] { session_->syncSubmodules(request); });
-    });
-
-    connect(deinitButton, &QPushButton::clicked, &dialog, [this, selectedInfo, &dialog] {
-        auto info = selectedInfo();
-        if (!info) {
-            return;
-        }
-        const auto confirmed =
-            QMessageBox::warning(&dialog,
-                                 QStringLiteral("Deinitialize submodule?"),
-                                 QStringLiteral("This removes the checked-out files for \"%1\" "
-                                                "(any local changes inside it are discarded). "
-                                                "\"%1\" stays listed in .gitmodules and can be "
-                                                "initialised again later.")
-                                     .arg(QString::fromStdString(info->path)),
-                                 QMessageBox::Yes | QMessageBox::Cancel,
-                                 QMessageBox::Cancel);
-        if (confirmed != QMessageBox::Yes) {
-            return;
-        }
-        DeinitSubmodulesRequest request;
-        request.paths = {info->path};
-        request.force = true;
-        runWithFeedback([this, request] { session_->deinitSubmodules(request); });
-    });
-
-    connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
-
-    dialog.resize(720, 360);
+    ManageSubmodulesDialog dialog(session_.get(), feedbackFn(), this);
     dialog.exec();
 }
 
@@ -2669,114 +2295,7 @@ void MainWindow::onBisect() {
         return;
     }
 
-    QDialog dialog(this);
-    dialog.setWindowTitle(QStringLiteral("Bisect"));
-    auto* layout = new QVBoxLayout(&dialog);
-
-    // --- "not bisecting yet" form ---
-    auto* startForm = new QWidget(&dialog);
-    auto* startLayout = new QVBoxLayout(startForm);
-    startLayout->setContentsMargins(0, 0, 0, 0);
-    auto* badRow = new QHBoxLayout();
-    auto* badLabel = new QLabel(QStringLiteral("Bad commit:"), startForm);
-    auto* badEdit = new QLineEdit(QStringLiteral("HEAD"), startForm);
-    badEdit->setAccessibleName(QStringLiteral("Bad commit"));
-    badRow->addWidget(badLabel);
-    badRow->addWidget(badEdit, 1);
-    startLayout->addLayout(badRow);
-    auto* goodRow = new QHBoxLayout();
-    auto* goodLabel = new QLabel(QStringLiteral("Good commit:"), startForm);
-    auto* goodEdit = new QLineEdit(startForm);
-    goodEdit->setPlaceholderText(QStringLiteral("e.g. a tag, branch or commit known to work"));
-    goodEdit->setAccessibleName(QStringLiteral("Good commit"));
-    goodRow->addWidget(goodLabel);
-    goodRow->addWidget(goodEdit, 1);
-    startLayout->addLayout(goodRow);
-    auto* startButton = new QPushButton(QStringLiteral("Start bisect"), startForm);
-    startLayout->addWidget(startButton, 0, Qt::AlignRight);
-    layout->addWidget(startForm);
-
-    // --- "bisecting" status view ---
-    auto* statusWidget = new QWidget(&dialog);
-    auto* statusLayout = new QVBoxLayout(statusWidget);
-    statusLayout->setContentsMargins(0, 0, 0, 0);
-    auto* currentLabel = new QLabel(statusWidget);
-    currentLabel->setWordWrap(true);
-    statusLayout->addWidget(currentLabel);
-    auto* logText = new QPlainTextEdit(statusWidget);
-    logText->setReadOnly(true);
-    logText->setAccessibleName(QStringLiteral("Bisect log"));
-    statusLayout->addWidget(logText, 1);
-    auto* actionRow = new QHBoxLayout();
-    auto* goodButton = new QPushButton(QStringLiteral("Mark Good"), statusWidget);
-    auto* badButton = new QPushButton(QStringLiteral("Mark Bad"), statusWidget);
-    auto* skipButton = new QPushButton(QStringLiteral("Skip"), statusWidget);
-    auto* resetButton = new QPushButton(QStringLiteral("Reset (end bisect)"), statusWidget);
-    actionRow->addWidget(goodButton);
-    actionRow->addWidget(badButton);
-    actionRow->addWidget(skipButton);
-    actionRow->addStretch(1);
-    actionRow->addWidget(resetButton);
-    statusLayout->addLayout(actionRow);
-    layout->addWidget(statusWidget);
-
-    auto* closeButton = new QPushButton(QStringLiteral("Close"), &dialog);
-    layout->addWidget(closeButton, 0, Qt::AlignRight);
-    connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
-
-    auto reload = [this, startForm, statusWidget, currentLabel, logText] {
-        auto status = session_->bisectStatus();
-        const bool active = status && status->active;
-        startForm->setVisible(!active);
-        statusWidget->setVisible(active);
-        if (!active) {
-            return;
-        }
-        QString summary = QStringLiteral("Currently testing: %1")
-                              .arg(QString::fromStdString(status->currentOid).left(12));
-        if (!status->badOid.empty()) {
-            summary +=
-                QStringLiteral("\nBad: %1").arg(QString::fromStdString(status->badOid).left(12));
-        }
-        if (!status->goodOids.empty()) {
-            summary += QStringLiteral("\nGood: %1 commit(s) marked").arg(status->goodOids.size());
-        }
-        if (!status->skippedOids.empty()) {
-            summary += QStringLiteral("\nSkipped: %1 commit(s)").arg(status->skippedOids.size());
-        }
-        currentLabel->setText(summary);
-        logText->setPlainText(QString::fromStdString(status->logText));
-    };
-    connect(session_.get(), &RepositorySession::bisectStatusUpdated, &dialog, reload);
-    session_->refreshBisectStatus();
-    reload();
-
-    connect(startButton, &QPushButton::clicked, &dialog, [this, badEdit, goodEdit] {
-        BisectStartRequest request;
-        request.badRef = badEdit->text().toStdString();
-        if (!goodEdit->text().isEmpty()) {
-            request.goodRefs = {goodEdit->text().toStdString()};
-        }
-        runWithFeedback([this, request] { session_->startBisect(request); });
-    });
-    connect(goodButton, &QPushButton::clicked, &dialog, [this] {
-        BisectMarkRequest request;
-        request.good = true;
-        runWithFeedback([this, request] { session_->markBisect(request); });
-    });
-    connect(badButton, &QPushButton::clicked, &dialog, [this] {
-        BisectMarkRequest request;
-        request.good = false;
-        runWithFeedback([this, request] { session_->markBisect(request); });
-    });
-    connect(skipButton, &QPushButton::clicked, &dialog, [this] {
-        runWithFeedback([this] { session_->skipBisect(BisectSkipRequest{}); });
-    });
-    connect(resetButton, &QPushButton::clicked, &dialog, [this] {
-        runWithFeedback([this] { session_->resetBisect(BisectResetRequest{}); });
-    });
-
-    dialog.resize(560, 420);
+    BisectDialog dialog(session_.get(), feedbackFn(), this);
     dialog.exec();
 }
 
@@ -2787,159 +2306,7 @@ void MainWindow::onManageLfs() {
         return;
     }
 
-    QDialog dialog(this);
-    dialog.setWindowTitle(QStringLiteral("Manage LFS"));
-    auto* layout = new QVBoxLayout(&dialog);
-
-    auto* statusLabel = new QLabel(&dialog);
-    statusLabel->setWordWrap(true);
-    layout->addWidget(statusLabel);
-
-    auto* installButton =
-        new QPushButton(QStringLiteral("Set up LFS for this repository"), &dialog);
-    layout->addWidget(installButton);
-
-    auto* patternsGroup = new QWidget(&dialog);
-    auto* patternsLayout = new QVBoxLayout(patternsGroup);
-    patternsLayout->setContentsMargins(0, 0, 0, 0);
-    patternsLayout->addWidget(new QLabel(QStringLiteral("Tracked patterns:"), patternsGroup));
-    auto* patternsList = new QListWidget(patternsGroup);
-    patternsList->setAccessibleName(QStringLiteral("LFS tracked patterns"));
-    patternsList->setMaximumHeight(100);
-    patternsLayout->addWidget(patternsList);
-    auto* patternButtons = new QHBoxLayout();
-    auto* addPatternButton = new QPushButton(QStringLiteral("Track pattern…"), patternsGroup);
-    auto* removePatternButton = new QPushButton(QStringLiteral("Untrack"), patternsGroup);
-    patternButtons->addWidget(addPatternButton);
-    patternButtons->addWidget(removePatternButton);
-    patternButtons->addStretch(1);
-    patternsLayout->addLayout(patternButtons);
-    layout->addWidget(patternsGroup);
-
-    auto* filesTable = new QTableWidget(&dialog);
-    filesTable->setColumnCount(3);
-    filesTable->setHorizontalHeaderLabels(
-        {QStringLiteral("Path"), QStringLiteral("Object"), QStringLiteral("Local")});
-    filesTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
-    filesTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    filesTable->verticalHeader()->setVisible(false);
-    filesTable->setAccessibleName(QStringLiteral("LFS files"));
-    layout->addWidget(filesTable, 1);
-
-    auto* transferRow = new QHBoxLayout();
-    auto* pullButton = new QPushButton(QStringLiteral("Pull"), &dialog);
-    auto* fetchButton = new QPushButton(QStringLiteral("Fetch"), &dialog);
-    auto* pruneButton = new QPushButton(QStringLiteral("Prune"), &dialog);
-    auto* closeButton = new QPushButton(QStringLiteral("Close"), &dialog);
-    transferRow->addWidget(pullButton);
-    transferRow->addWidget(fetchButton);
-    transferRow->addWidget(pruneButton);
-    transferRow->addStretch(1);
-    transferRow->addWidget(closeButton);
-    layout->addLayout(transferRow);
-    connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
-
-    auto reload = [this,
-                   statusLabel,
-                   installButton,
-                   patternsGroup,
-                   filesTable,
-                   pullButton,
-                   fetchButton,
-                   pruneButton,
-                   patternsList] {
-        auto installation = session_->lfsInstallation();
-        const bool available = installation && installation->available;
-        installButton->setVisible(available);
-        patternsGroup->setVisible(available);
-        filesTable->setVisible(available);
-        pullButton->setEnabled(available);
-        fetchButton->setEnabled(available);
-        pruneButton->setEnabled(available);
-
-        if (!installation) {
-            statusLabel->setText(QStringLiteral("Checking for Git LFS…"));
-            return;
-        }
-        if (!available) {
-            statusLabel->setText(
-                QStringLiteral("Git LFS is not installed. Install the git-lfs extension to "
-                               "track large files in this repository."));
-            return;
-        }
-        statusLabel->setText(
-            QStringLiteral("Git LFS is available (%1).")
-                .arg(QString::fromStdString(installation->version).split(QChar(' ')).value(0)));
-
-        patternsList->clear();
-        if (auto patterns = session_->lfsTrackedPatterns()) {
-            for (const std::string& pattern : *patterns) {
-                patternsList->addItem(QString::fromStdString(pattern));
-            }
-        }
-
-        filesTable->setRowCount(0);
-        if (auto files = session_->lfsFiles()) {
-            filesTable->setRowCount(static_cast<int>(files->size()));
-            for (int row = 0; row < static_cast<int>(files->size()); ++row) {
-                const LfsFileInfo& info = (*files)[static_cast<std::size_t>(row)];
-                filesTable->setItem(
-                    row, 0, new QTableWidgetItem(QString::fromStdString(info.path)));
-                filesTable->setItem(
-                    row, 1, new QTableWidgetItem(QString::fromStdString(info.oid).left(10)));
-                filesTable->setItem(
-                    row,
-                    2,
-                    new QTableWidgetItem(info.downloadedLocally ? QStringLiteral("yes")
-                                                                : QStringLiteral("no")));
-            }
-        }
-    };
-    connect(session_.get(), &RepositorySession::lfsUpdated, &dialog, reload);
-    session_->refreshLfs();
-    reload();
-
-    connect(installButton, &QPushButton::clicked, &dialog, [this] {
-        runWithFeedback([this] { session_->installLfs(); });
-    });
-
-    connect(addPatternButton, &QPushButton::clicked, &dialog, [this, &dialog] {
-        bool ok = false;
-        const QString pattern = QInputDialog::getText(&dialog,
-                                                      QStringLiteral("Track pattern"),
-                                                      QStringLiteral("Pattern (e.g. *.psd):"),
-                                                      QLineEdit::Normal,
-                                                      QString(),
-                                                      &ok);
-        if (!ok || pattern.isEmpty()) {
-            return;
-        }
-        LfsTrackRequest request;
-        request.pattern = pattern.toStdString();
-        runWithFeedback([this, request] { session_->trackLfsPattern(request); });
-    });
-
-    connect(removePatternButton, &QPushButton::clicked, &dialog, [this, patternsList] {
-        const auto items = patternsList->selectedItems();
-        if (items.isEmpty()) {
-            return;
-        }
-        LfsUntrackRequest request;
-        request.pattern = items.first()->text().toStdString();
-        runWithFeedback([this, request] { session_->untrackLfsPattern(request); });
-    });
-
-    connect(pullButton, &QPushButton::clicked, &dialog, [this] {
-        runWithFeedback([this] { session_->pullLfs(LfsTransferRequest{}); });
-    });
-    connect(fetchButton, &QPushButton::clicked, &dialog, [this] {
-        runWithFeedback([this] { session_->fetchLfs(LfsTransferRequest{}); });
-    });
-    connect(pruneButton, &QPushButton::clicked, &dialog, [this] {
-        runWithFeedback([this] { session_->pruneLfs(LfsPruneRequest{}); });
-    });
-
-    dialog.resize(640, 480);
+    ManageLfsDialog dialog(session_.get(), feedbackFn(), this);
     dialog.exec();
 }
 
@@ -3090,6 +2457,13 @@ void MainWindow::onImportPatches() {
                               (*handleOutcome)(outcome);
                           });
     session_->importPatches(request);
+}
+
+void MainWindow::onShowPreferences() {
+    PreferencesDialog dialog(this);
+    connect(&dialog, &PreferencesDialog::themeSelected, this, &MainWindow::applyThemeAndRefresh);
+    connect(&dialog, &PreferencesDialog::densityToggled, this, &MainWindow::onDensityToggled);
+    dialog.exec();
 }
 
 }  // namespace gbm

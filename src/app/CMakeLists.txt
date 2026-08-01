@@ -48,7 +48,9 @@ qt_add_executable(git-branch-manager
     views/MainWindow.cpp
     views/OperationLogView.cpp
     views/SideBySideDiffView.cpp
-    views/WorkingCopyView.cpp
+
+    views/pages/RepositoryPage.cpp
+    views/pages/WorkingCopyView.cpp
 
     "${CMAKE_SOURCE_DIR}/resources/app.qrc"
 )

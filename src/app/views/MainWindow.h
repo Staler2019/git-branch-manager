@@ -10,7 +10,7 @@
 #include "app/theme/Tokens.h"
 #include "app/views/DiffView.h"
 #include "app/views/OperationLogView.h"
-#include "app/views/WorkingCopyView.h"
+#include "app/views/pages/WorkingCopyView.h"
 #include "core/git/GitExecutable.h"
 #include "core/workers/ThreadPool.h"
 

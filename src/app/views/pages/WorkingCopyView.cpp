@@ -1,4 +1,4 @@
-#include "app/views/WorkingCopyView.h"
+#include "app/views/pages/WorkingCopyView.h"
 
 #include "app/bridge/RepositorySession.h"
 #include "app/views/SideBySideDiffView.h"

@@ -282,6 +282,17 @@ private:
     QString diffTabRequestedPath_;
     bool diffTabRequestedStaged_ = false;
     bool diffTabRequestPending_ = false;
+
+    /// The path/staged pair the Diff tab is currently displaying via
+    /// showWorkingCopyDiff, so a stage/unstage line/hunk action from that same
+    /// view (see DiffPage::applyPatchRequested) can re-request its diff once
+    /// the operation lands, instead of leaving stale hunks with checkboxes
+    /// that no longer match the index. Empty/false when the Diff tab isn't
+    /// showing a stageable working-copy diff (e.g. after "Compare with working
+    /// copy", or before any "View diff").
+    QString diffTabShownPath_;
+    bool diffTabShownStaged_ = false;
+    bool diffTabShownIsStageable_ = false;
 };
 
 }  // namespace gbm

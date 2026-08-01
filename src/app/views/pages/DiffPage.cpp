@@ -41,7 +41,9 @@ void DiffPage::showWorkingCopyDiff(const QString& path,
     // A real index/work-tree (or HEAD/index) diff: stageable both ways.
     diffView_->setStagingEnabled(true);
     diffView_->setShowingStagedDiff(staged);
-    diffView_->showDiff(std::move(diff));
+    // showFile (not showDiff) so lastOnlyPath_ is set: the result preview
+    // filters by it to show just this file, not every file in the diff.
+    diffView_->showFile(std::move(diff), path);
 }
 
 void DiffPage::showMessage(const QString& message) {

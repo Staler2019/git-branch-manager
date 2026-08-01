@@ -871,10 +871,30 @@ void MainWindow::openRepository(const RepoRecord& record) {
             &RepositorySession::workingCopyDiffReady,
             this,
             &MainWindow::onWorkingCopyDiffReadyForDiffTab);
+    // A stage/unstage line/hunk action from the Diff tab (see the
+    // diffPage_->applyPatchRequested connection below) applies through
+    // session_->applyPatch like any other working-copy operation, but nothing
+    // else re-requests that file's diff afterwards -- without this, the tab
+    // would keep showing hunks that no longer match the index.
+    connect(session_.get(),
+            &RepositorySession::workingCopyOperationFinished,
+            this,
+            [this](const OperationOutcome&) {
+                if (diffTabShownIsStageable_ && session_) {
+                    diffTabRequestedPath_ = diffTabShownPath_;
+                    diffTabRequestedStaged_ = diffTabShownStaged_;
+                    diffTabRequestPending_ = true;
+                    session_->requestWorkingCopyDiff(diffTabShownPath_.toStdString(),
+                                                     diffTabShownStaged_);
+                }
+            });
 
     commitModel_->setSession(session_.get());
     diffView_->clearDiff();
     diffPage_->clearDiff();
+    diffTabShownPath_.clear();
+    diffTabShownStaged_ = false;
+    diffTabShownIsStageable_ = false;
     workingCopyView_->setSession(session_.get());
     sidebar_->setSession(session_.get());
 
@@ -908,6 +928,9 @@ void MainWindow::closeRepository() {
     refModel_->setRefs(nullptr);
     diffView_->clearDiff();
     diffPage_->clearDiff();
+    diffTabShownPath_.clear();
+    diffTabShownStaged_ = false;
+    diffTabShownIsStageable_ = false;
     workingCopyView_->setSession(nullptr);
     sidebar_->setSession(nullptr);
     session_.reset();
@@ -1383,6 +1406,11 @@ void MainWindow::showCommitContextMenu(int row, const QPoint& globalPos) {
 
 void MainWindow::onCompareWithWorkingCopyReady(const ObjectId& commit,
                                                std::shared_ptr<const ParsedDiff> diff) {
+    // Not a stageable working-copy diff: stop re-requesting whatever file the
+    // Diff tab previously showed via "View diff".
+    diffTabShownPath_.clear();
+    diffTabShownStaged_ = false;
+    diffTabShownIsStageable_ = false;
     diffPage_->showCompareWithWorkingCopy(commit, std::move(diff));
 }
 
@@ -1408,6 +1436,9 @@ void MainWindow::onWorkingCopyDiffReadyForDiffTab(QString path,
         return;
     }
     diffTabRequestPending_ = false;
+    diffTabShownPath_ = path;
+    diffTabShownStaged_ = staged;
+    diffTabShownIsStageable_ = true;
     diffPage_->showWorkingCopyDiff(path, staged, std::move(diff));
 }
 

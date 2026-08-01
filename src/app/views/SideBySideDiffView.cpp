@@ -155,6 +155,8 @@ SideBySideDiffView::SideBySideDiffView(QWidget* parent) : QWidget(parent) {
     resultPreview_->setLineWrapMode(QPlainTextEdit::NoWrap);
     resultPreview_->setUndoRedoEnabled(false);
     resultPreview_->setVisible(false);
+    resultPreview_->setFont(ThemeManager::monoFont(12));
+    resultPreview_->setMaximumHeight(160);
     resultPreview_->setAccessibleName(QStringLiteral("Result preview"));
     outer->addWidget(resultPreview_);
 
@@ -202,14 +204,10 @@ void SideBySideDiffView::setupStagingChrome() {
         rightPane->setViewportMargins(kGutterWidth, 0, 0, 0);
         left_->installEventFilter(this);
         right_->installEventFilter(this);
+        // updateRequest already covers scroll- and edit-driven repaints (Qt
+        // fires it for both), so no separate scrollbar connection is needed.
         connect(left_, &QPlainTextEdit::updateRequest, this, [this] { leftGutter_->update(); });
         connect(right_, &QPlainTextEdit::updateRequest, this, [this] { rightGutter_->update(); });
-        connect(left_->verticalScrollBar(), &QScrollBar::valueChanged, this, [this] {
-            leftGutter_->update();
-        });
-        connect(right_->verticalScrollBar(), &QScrollBar::valueChanged, this, [this] {
-            rightGutter_->update();
-        });
         leftGutter_->setGeometry(0, 0, kGutterWidth, left_->height());
         rightGutter_->setGeometry(0, 0, kGutterWidth, right_->height());
         leftGutter_->show();
@@ -426,7 +424,6 @@ void SideBySideDiffView::updateResultPreview() {
         }
         result += QStringLiteral("\n");
     }
-    resultPreview_->setFont(ThemeManager::monoFont(12));
     resultPreview_->setPlainText(result);
 }
 
@@ -558,6 +555,12 @@ void SideBySideDiffView::render(const ParsedDiff& diff, const QString& onlyPath)
     right_->moveCursor(QTextCursor::Start);
 
     if (leftGutter_ != nullptr) {
+        // Re-assert geometry (not just repaint): if this is the first render
+        // after setStagingEnabled(true) and the pane hadn't been laid out yet
+        // (height() still a placeholder default), no QEvent::Resize may have
+        // reached the event filter yet to size the gutter correctly.
+        leftGutter_->setGeometry(0, 0, kGutterWidth, left_->height());
+        rightGutter_->setGeometry(0, 0, kGutterWidth, right_->height());
         leftGutter_->update();
         rightGutter_->update();
     }

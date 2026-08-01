@@ -19,6 +19,7 @@
 #include "core/git/ops/CheckoutOp.h"
 #include "core/git/ops/CherryPickOps.h"
 #include "core/git/ops/CommitOps.h"
+#include "core/git/ops/ConfigOps.h"
 #include "core/git/ops/ConflictOps.h"
 #include "core/git/ops/LfsOps.h"
 #include "core/git/ops/MergeOps.h"
@@ -53,6 +54,7 @@ using SubmoduleListPtr = std::shared_ptr<const std::vector<SubmoduleInfo>>;
 using BisectStatusPtr = std::shared_ptr<const BisectStatus>;
 using LfsFileListPtr = std::shared_ptr<const std::vector<LfsFileInfo>>;
 using LfsPatternListPtr = std::shared_ptr<const std::vector<std::string>>;
+using LocalIdentityPtr = std::shared_ptr<const LocalIdentity>;
 
 /// One open repository, and the single place where core callbacks become Qt
 /// signals.
@@ -321,6 +323,19 @@ public:
     void skipImport();
     void abortImport();
 
+    // --- Phase 6: per-repository Git identity override ---------------------
+
+    LocalIdentityPtr localIdentity() const { return localIdentity_.current(); }
+
+    void refreshLocalIdentity();
+
+    /// Sets `user.name`/`user.email` scoped `--local` to this repository only.
+    void setLocalIdentityOverride(const SetLocalIdentityRequest& request);
+
+    /// Unsets both keys locally, so the repository falls back to whatever
+    /// global identity `git` finds (`~/.gitconfig` or the environment).
+    void clearLocalIdentityOverride();
+
 signals:
     /// A newer graph snapshot is available (possibly partial).
     void graphUpdated(bool complete);
@@ -354,6 +369,7 @@ signals:
     void submodulesUpdated();
     void bisectStatusUpdated();
     void lfsUpdated();
+    void localIdentityUpdated();
 
     /// A `git` subprocess spawned by one of the M3 remote/tag operations is
     /// blocked waiting for `prompt`. The view layer is expected to show it and
@@ -404,6 +420,7 @@ private:
     std::unique_ptr<SubmoduleStore> submoduleStore_;
     std::unique_ptr<BisectStore> bisectStore_;
     std::unique_ptr<LfsStore> lfsStore_;
+    std::unique_ptr<LocalIdentityStore> localIdentityStore_;
     AskpassWatcher* askpass_ = nullptr;
 
     SnapshotHolder<GraphSnapshot> graph_;
@@ -417,6 +434,7 @@ private:
     SnapshotHolder<std::vector<std::string>> lfsPatterns_;
     SnapshotHolder<std::vector<LfsFileInfo>> lfsFiles_;
     std::optional<LfsInstallation> lfsInstallation_;
+    SnapshotHolder<LocalIdentity> localIdentity_;
 
     /// Cancels the in-flight history walk when a new one starts.
     CancellationSource historyCancel_;

@@ -34,6 +34,7 @@ RepositorySession::RepositorySession(GitInstallation installation,
     submoduleStore_ = std::make_unique<SubmoduleStore>(*runner_, paths_);
     bisectStore_ = std::make_unique<BisectStore>(*runner_, paths_);
     lfsStore_ = std::make_unique<LfsStore>(*runner_, paths_);
+    localIdentityStore_ = std::make_unique<LocalIdentityStore>(*runner_, paths_);
 
     askpass_ = new AskpassWatcher(this);
     connect(
@@ -1173,6 +1174,43 @@ void RepositorySession::skipImport() {
 
 void RepositorySession::abortImport() {
     submitWorkingCopyOperation(makeAmAbortOperation(), true);
+}
+
+// --- Phase 6: per-repository Git identity override --------------------------
+
+void RepositorySession::refreshLocalIdentity() {
+    const CancellationToken token = readCancel_.token();
+    setBusy(true);
+
+    readPool_.post([this, token] {
+        auto identity = localIdentityStore_->read(token);
+        if (identity) {
+            localIdentity_.publish(std::make_shared<LocalIdentity>(std::move(*identity)));
+            QMetaObject::invokeMethod(
+                this, [this] { emit localIdentityUpdated(); }, Qt::QueuedConnection);
+        } else if (identity.error().code != GitError::Code::Cancelled) {
+            GitError error = std::move(identity).error();
+            QMetaObject::invokeMethod(
+                this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
+        }
+        QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+    });
+}
+
+void RepositorySession::setLocalIdentityOverride(const SetLocalIdentityRequest& request) {
+    submitAndRefresh(makeSetLocalIdentityOperation(request), [this](bool succeeded) {
+        if (succeeded) {
+            refreshLocalIdentity();
+        }
+    });
+}
+
+void RepositorySession::clearLocalIdentityOverride() {
+    submitAndRefresh(makeClearLocalIdentityOperation(), [this](bool succeeded) {
+        if (succeeded) {
+            refreshLocalIdentity();
+        }
+    });
 }
 
 }  // namespace gbm

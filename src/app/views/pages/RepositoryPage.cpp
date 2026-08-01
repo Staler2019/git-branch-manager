@@ -237,9 +237,19 @@ void RepositoryPage::onIdentityFieldEdited() {
     if (applyingIdentity_ || !session_ || !identityOverrideCheck_->isChecked()) {
         return;
     }
+    const QString name = identityNameEdit_->text();
+    const QString email = identityEmailEdit_->text();
+    // `git config --local user.email ""` sets the key to an empty string,
+    // which git treats as materially different from unset -- it refuses to
+    // commit with a confusing error instead of falling back to the global
+    // identity. Wait for both fields to be non-empty before writing anything,
+    // rather than writing a half-finished override.
+    if (name.isEmpty() || email.isEmpty()) {
+        return;
+    }
     SetLocalIdentityRequest request;
-    request.name = identityNameEdit_->text().toStdString();
-    request.email = identityEmailEdit_->text().toStdString();
+    request.name = name.toStdString();
+    request.email = email.toStdString();
     session_->setLocalIdentityOverride(request);
 }
 

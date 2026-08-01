@@ -26,6 +26,23 @@ qt_add_executable(git-branch-manager
 
     theme/ThemeTokens.cpp
 
+    dialogs/BisectDialog.cpp
+    dialogs/BlameDialog.cpp
+    dialogs/CherryPickDialog.cpp
+    dialogs/CleanUntrackedDialog.cpp
+    dialogs/FileHistoryDialog.cpp
+    dialogs/InteractiveRebaseDialog.cpp
+    dialogs/LineHistoryDialog.cpp
+    dialogs/ManageBaseFoldersDialog.cpp
+    dialogs/ManageLfsDialog.cpp
+    dialogs/ManageStashesDialog.cpp
+    dialogs/ManageSubmodulesDialog.cpp
+    dialogs/ManageWorktreesDialog.cpp
+    dialogs/MergeDialog.cpp
+    dialogs/ReflogDialog.cpp
+    dialogs/ResetBranchDialog.cpp
+    dialogs/StashChangesDialog.cpp
+
     views/CredentialDialog.cpp
     views/DiffView.cpp
     views/MainWindow.cpp

@@ -2,6 +2,7 @@
 
 #include "app/bridge/DiscoveryController.h"
 #include "app/bridge/RepositorySession.h"
+#include "app/dialogs/DialogTypes.h"
 #include "app/models/CommitListModel.h"
 #include "app/models/GraphColumnDelegate.h"
 #include "app/models/RefTreeModel.h"
@@ -139,6 +140,11 @@ private:
     /// result -- the same round trip checkout/merge/cherry-pick already get.
     void runWithFeedback(std::function<void()> submit,
                          std::function<void(OperationChoice::Kind)> onChoice = nullptr);
+
+    /// `runWithFeedback` bound to `this`, in the shape extracted dialogs
+    /// (`app/dialogs/`) take so they can report an operation's outcome the
+    /// same way MainWindow itself does, without depending on MainWindow.
+    RunWithFeedbackFn feedbackFn();
 
     /// Shows or hides the Continue/Skip/Abort banner buttons appropriately for
     /// whichever sequencer operation RepoState reports, if any.

@@ -854,6 +854,7 @@ void MainWindow::applyThemeAndRefresh(ThemeId theme) {
     restyleBanner();
     diffView_->refreshTheme();
     workingCopyView_->refreshTheme();
+    sidebar_->refreshTheme();
     commitView_->viewport()->update();
 }
 

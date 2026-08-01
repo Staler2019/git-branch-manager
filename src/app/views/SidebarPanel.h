@@ -4,6 +4,7 @@
 
 #include <QWidget>
 
+class QAction;
 class QLineEdit;
 class QListView;
 class QListWidget;
@@ -45,6 +46,14 @@ public:
     /// repository. Drives the stash section and every context-menu action
     /// that mutates state.
     void setSession(RepositorySession* session);
+
+    /// Re-tints the filter box's hand-drawn search icon for the theme most
+    /// recently passed to `ThemeManager::apply()`. Unlike the pill delegate
+    /// and the context menus' danger dots (which read `ThemeManager::color`
+    /// at paint/popup time), the search icon is baked into a `QIcon` once at
+    /// construction, so it needs an explicit refresh on theme switch -- same
+    /// reason `WorkingCopyView::refreshTheme()` exists.
+    void refreshTheme();
 
     /// So MainWindow can connect this list's `activated` signal to the same
     /// `onRepoActivated(const QModelIndex&)` slot the repo browser page uses
@@ -95,6 +104,7 @@ private:
     RunWithFeedbackFn runWithFeedback_;
 
     QLineEdit* filterEdit_ = nullptr;
+    QAction* searchIconAction_ = nullptr;
     QListView* repoListView_ = nullptr;
     QListWidget* stashList_ = nullptr;
 };

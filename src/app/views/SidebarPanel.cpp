@@ -134,8 +134,8 @@ void SidebarPanel::buildUi() {
     filterEdit_->setPlaceholderText(QStringLiteral("Filter…"));
     filterEdit_->setClearButtonEnabled(true);
     filterEdit_->setAccessibleName(QStringLiteral("Filter sidebar"));
-    filterEdit_->addAction(makeSearchIcon(ThemeManager::color(Token::TextTertiary)),
-                           QLineEdit::LeadingPosition);
+    searchIconAction_ = filterEdit_->addAction(
+        makeSearchIcon(ThemeManager::color(Token::TextTertiary)), QLineEdit::LeadingPosition);
     connect(filterEdit_, &QLineEdit::textChanged, this, &SidebarPanel::onFilterChanged);
     layout->addWidget(filterEdit_);
 
@@ -185,6 +185,10 @@ void SidebarPanel::buildUi() {
     layout->addWidget(stashList_);
 }
 
+void SidebarPanel::refreshTheme() {
+    searchIconAction_->setIcon(makeSearchIcon(ThemeManager::color(Token::TextTertiary)));
+}
+
 void SidebarPanel::setSession(RepositorySession* session) {
     if (session_ != nullptr) {
         disconnect(session_, nullptr, this, nullptr);
@@ -215,7 +219,21 @@ void SidebarPanel::reloadStashes() {
 }
 
 void SidebarPanel::onFilterChanged(const QString& text) {
-    applyRefFilter(QModelIndex(), text.trimmed());
+    const QString filter = text.trimmed();
+    applyRefFilter(QModelIndex(), filter);
+
+    for (int row = 0; row < repoModel_->rowCount(); ++row) {
+        const QModelIndex index = repoModel_->index(row, RepoListModel::ColumnName);
+        const bool visible = filter.isEmpty() || repoModel_->data(index, Qt::DisplayRole)
+                                                     .toString()
+                                                     .contains(filter, Qt::CaseInsensitive);
+        repoListView_->setRowHidden(row, !visible);
+    }
+
+    for (int row = 0; row < stashList_->count(); ++row) {
+        QListWidgetItem* item = stashList_->item(row);
+        item->setHidden(!filter.isEmpty() && !item->text().contains(filter, Qt::CaseInsensitive));
+    }
 }
 
 bool SidebarPanel::applyRefFilter(const QModelIndex& parent, const QString& filter) {
@@ -426,7 +444,14 @@ void SidebarPanel::showRemoteBranchContextMenu(const QModelIndex& index, const Q
         request.createBranch = true;
         request.newBranchName = localName.toStdString();
         emit statusMessage(QStringLiteral("Checking out %1…").arg(localName));
-        runWithFeedback_([this, request] { session_->checkout(request); }, nullptr);
+        // checkout() emits operationFinished, not workingCopyOperationFinished
+        // -- MainWindow::onOperationFinished is already connected to that
+        // globally (openRepository) and reports the outcome the same way
+        // runWithFeedback_ would. Routing this through runWithFeedback_
+        // instead would leave its one-shot handler listening on the wrong
+        // signal forever, misattributing whatever the next stash/tag/remote
+        // operation's outcome is to this checkout.
+        session_->checkout(request);
     } else if (chosen == fetchAction) {
         FetchRequest request;
         request.remoteName = remoteName;
@@ -478,7 +503,12 @@ void SidebarPanel::showTagContextMenu(const QModelIndex& index, const QPoint& gl
         request.target = name.toStdString();
         request.detach = true;
         emit statusMessage(QStringLiteral("Checking out %1 (detached)…").arg(name));
-        runWithFeedback_([this, request] { session_->checkout(request); }, nullptr);
+        // See the comment on the equivalent call in
+        // showRemoteBranchContextMenu: checkout() emits operationFinished, not
+        // workingCopyOperationFinished, so this bypasses runWithFeedback_
+        // rather than mis-wiring its one-shot handler to a signal that never
+        // fires for this call.
+        session_->checkout(request);
     } else if (chosen == pushAction) {
         QStringList names;
         if (auto remotes = session_->remotes()) {

@@ -26,16 +26,21 @@
 #include <QAction>
 #include <QActionGroup>
 #include <QApplication>
+#include <QClipboard>
 #include <QDialog>
 #include <QFileDialog>
+#include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QIcon>
 #include <QInputDialog>
 #include <QLineEdit>
 #include <QListView>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QPainter>
+#include <QPixmap>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QScrollBar>
@@ -46,6 +51,7 @@
 #include <QStatusBar>
 #include <QStringListModel>
 #include <QStyle>
+#include <QTabWidget>
 #include <QTimer>
 #include <QToolBar>
 #include <QVBoxLayout>
@@ -59,6 +65,22 @@ namespace {
 /// Rows in the repository list are cheap to render but each probe costs a few
 /// stats, so only what is on screen gets probed.
 constexpr int kProbeMargin = 20;
+
+/// The minimum acceptable danger treatment for a destructive menu action,
+/// mirroring `SidebarPanel.cpp`'s `markDanger`: QSS cannot select one
+/// `QMenu::item` out of many, so this tints the action's icon instead.
+void markDanger(QAction* action) {
+    const int size = 10;
+    QPixmap pixmap(size, size);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setBrush(ThemeManager::color(Token::Danger));
+    painter.setPen(Qt::NoPen);
+    painter.drawEllipse(QRectF(1.0, 1.0, size - 2.0, size - 2.0));
+    painter.end();
+    action->setIcon(QIcon(pixmap));
+}
 
 }  // namespace
 
@@ -234,9 +256,7 @@ void MainWindow::buildUi() {
             &SidebarPanel::repositorySettingsRequested,
             this,
             &MainWindow::onShowRepositorySettings);
-    // No standalone Diff page exists yet (Phase 5's job); History is the
-    // nearest thing to one today, since the diff pane lives embedded there.
-    connect(sidebar_, &SidebarPanel::diffRequested, this, &MainWindow::onShowHistory);
+    connect(sidebar_, &SidebarPanel::diffRequested, this, &MainWindow::onShowDiffTab);
     connect(sidebar_, &SidebarPanel::statusMessage, this, [this](const QString& text) {
         statusLabel_->setText(text);
     });
@@ -246,7 +266,14 @@ void MainWindow::buildUi() {
             &MainWindow::onRepoActivated);
     outerSplitter->addWidget(sidebar_);
 
-    auto* rightSplitter = new QSplitter(Qt::Vertical, outerSplitter);
+    // The right side is a Tabs-styled QTabWidget rather than a fifth
+    // top-level stack_ page per tab: keeping sidebar_ outside it means the
+    // sidebar stays visible across History/Working Copy/Diff/Repository
+    // instead of disappearing whenever the user switches away from History.
+    tabWidget_ = new QTabWidget(outerSplitter);
+    tabWidget_->setDocumentMode(true);
+
+    auto* rightSplitter = new QSplitter(Qt::Vertical, tabWidget_);
 
     commitModel_ = new CommitListModel(this);
     commitView_ = new QTableView(rightSplitter);
@@ -276,6 +303,19 @@ void MainWindow::buildUi() {
             &QScrollBar::valueChanged,
             this,
             &MainWindow::onCommitScrolled);
+    connect(commitView_, &QTableView::clicked, this, &MainWindow::onCommitRowClicked);
+    commitView_->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(commitView_,
+            &QTableView::customContextMenuRequested,
+            this,
+            &MainWindow::onCommitContextMenuRequested);
+    // Collapse any inline expansion before the model reshuffles rows out from
+    // under it -- modelAboutToBeReset (not modelReset) so expandedCommitRow_
+    // still points at a valid row while collapseExpandedCommitRow() clears
+    // its index widget.
+    connect(commitModel_, &QAbstractItemModel::modelAboutToBeReset, this, [this] {
+        collapseExpandedCommitRow();
+    });
 
     rightSplitter->addWidget(commitView_);
 
@@ -300,7 +340,31 @@ void MainWindow::buildUi() {
 
     rightSplitter->setStretchFactor(0, 3);
     rightSplitter->setStretchFactor(1, 2);
-    outerSplitter->addWidget(rightSplitter);
+    tabWidget_->addTab(rightSplitter, QStringLiteral("History"));
+
+    // --- Working Copy tab ---------------------------------------------------
+    workingCopyView_ = new WorkingCopyView(this);
+    connect(workingCopyView_, &WorkingCopyView::statusMessage, this, [this](const QString& text) {
+        statusLabel_->setText(text);
+    });
+    connect(workingCopyView_,
+            &WorkingCopyView::errorOccurred,
+            this,
+            [this](const QString& summary, const GitError& error) { showError(summary, error); });
+    tabWidget_->addTab(workingCopyView_, QStringLiteral("Working Copy"));
+
+    // --- Diff tab ------------------------------------------------------------
+    // Not a rebuild of SideBySideDiffView into the design's staged editor
+    // (Phase 5's job) -- just a container reachable from the commit context
+    // menu's "Compare with working copy", per this phase's scope.
+    diffPage_ = new DiffPage(this);
+    tabWidget_->addTab(diffPage_, QStringLiteral("Diff"));
+
+    // --- Repository tab (placeholder; real content is Phase 6) --------------
+    repositoryPage_ = new RepositoryPage(this);
+    tabWidget_->addTab(repositoryPage_, QStringLiteral("Repository"));
+
+    outerSplitter->addWidget(tabWidget_);
     outerSplitter->setStretchFactor(0, 1);
     outerSplitter->setStretchFactor(1, 5);
 
@@ -312,21 +376,6 @@ void MainWindow::buildUi() {
     repoLayout->addWidget(logView_);
 
     stack_->addWidget(repoPage);
-
-    // --- page 2: working copy -------------------------------------------------
-    workingCopyView_ = new WorkingCopyView(this);
-    connect(workingCopyView_, &WorkingCopyView::statusMessage, this, [this](const QString& text) {
-        statusLabel_->setText(text);
-    });
-    connect(workingCopyView_,
-            &WorkingCopyView::errorOccurred,
-            this,
-            [this](const QString& summary, const GitError& error) { showError(summary, error); });
-    stack_->addWidget(workingCopyView_);
-
-    // --- page 3: repository settings (placeholder; real content is Phase 6) --
-    repositoryPage_ = new RepositoryPage(this);
-    stack_->addWidget(repositoryPage_);
 
     // --- status bar ----------------------------------------------------------
     statusLabel_ = new QLabel(QStringLiteral("Ready"), this);
@@ -384,10 +433,12 @@ void MainWindow::buildMenus() {
     auto* workingCopyAction =
         viewMenu->addAction(QStringLiteral("Working Copy"), this, &MainWindow::onShowWorkingCopy);
     workingCopyAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+2")));
-    // Diff omitted as a standalone entry: there is no independent Diff tab
-    // yet, only the pane embedded inside History/Working Copy (Phase 5's job).
-    viewMenu->addAction(
+    auto* diffAction =
+        viewMenu->addAction(QStringLiteral("Diff"), this, &MainWindow::onShowDiffTab);
+    diffAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+3")));
+    auto* repositoryTabAction = viewMenu->addAction(
         QStringLiteral("Repository Settings"), this, &MainWindow::onShowRepositorySettings);
+    repositoryTabAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+4")));
     viewMenu->addSeparator();
     auto* toggleSidebarAction = viewMenu->addAction(QStringLiteral("Toggle sidebar"));
     toggleSidebarAction->setCheckable(true);
@@ -724,12 +775,14 @@ void MainWindow::onCancelScan() {
 void MainWindow::onShowHistory() {
     if (session_) {
         stack_->setCurrentIndex(1);
+        tabWidget_->setCurrentIndex(kHistoryTab);
     }
 }
 
 void MainWindow::onShowRepositorySettings() {
     if (session_) {
-        stack_->setCurrentIndex(3);
+        stack_->setCurrentIndex(1);
+        tabWidget_->setCurrentIndex(kRepositoryTab);
     }
 }
 
@@ -737,11 +790,19 @@ void MainWindow::onShowWorkingCopy() {
     if (!session_) {
         return;
     }
-    stack_->setCurrentIndex(2);
+    stack_->setCurrentIndex(1);
+    tabWidget_->setCurrentIndex(kWorkingCopyTab);
     // The working-copy panel can go stale while the user is elsewhere -- a
     // checkout, for instance, does not refresh it -- so ask for a fresh read
     // on every visit rather than trying to track every place that could.
     session_->refreshWorkingCopyStatus();
+}
+
+void MainWindow::onShowDiffTab() {
+    if (session_) {
+        stack_->setCurrentIndex(1);
+        tabWidget_->setCurrentIndex(kDiffTab);
+    }
 }
 
 void MainWindow::onRepoActivated(const QModelIndex& index) {
@@ -796,9 +857,14 @@ void MainWindow::openRepository(const RepoRecord& record) {
             &RepositorySession::credentialRequested,
             this,
             &MainWindow::onCredentialRequested);
+    connect(session_.get(),
+            &RepositorySession::compareWithWorkingCopyReady,
+            this,
+            &MainWindow::onCompareWithWorkingCopyReady);
 
     commitModel_->setSession(session_.get());
     diffView_->clearDiff();
+    diffPage_->clearDiff();
     workingCopyView_->setSession(session_.get());
     sidebar_->setSession(session_.get());
 
@@ -806,6 +872,7 @@ void MainWindow::openRepository(const RepoRecord& record) {
     toolBarRepoNameLabel_->setText(session_->displayName());
     toolBarBranchLabel_->setText(QString());
     stack_->setCurrentIndex(1);
+    tabWidget_->setCurrentIndex(kHistoryTab);
     updateStateBanner();
 
     // Refs first, so the history walk can be seeded with HEAD and the trunk; that
@@ -822,12 +889,19 @@ void MainWindow::closeRepository() {
         return;
     }
     session_->cancelPendingReads();
+    // commitModel_->setSession(nullptr) resets the model, which fires
+    // modelAboutToBeReset and collapses any inline expansion -- see the
+    // connection in buildUi() -- but the closing-repository case is worth
+    // being explicit about rather than relying on that alone.
+    collapseExpandedCommitRow();
     commitModel_->setSession(nullptr);
     refModel_->setRefs(nullptr);
     diffView_->clearDiff();
+    diffPage_->clearDiff();
     workingCopyView_->setSession(nullptr);
     sidebar_->setSession(nullptr);
     session_.reset();
+    pendingCheckoutTarget_.clear();
     setWindowTitle(QStringLiteral("git-branch-manager"));
     toolBarRepoNameLabel_->setText(QString());
     toolBarBranchLabel_->setText(QString());
@@ -945,6 +1019,15 @@ void MainWindow::onCommitSelectionChanged() {
         return;
     }
     const QModelIndexList selected = commitView_->selectionModel()->selectedRows();
+
+    // The expanded row is always the selected one -- expansion only ever
+    // toggles on a row that is already selected -- so any selection change
+    // away from it means the expansion no longer applies.
+    if (expandedCommitRow_ >= 0 &&
+        (selected.isEmpty() || selected.first().row() != expandedCommitRow_)) {
+        collapseExpandedCommitRow();
+    }
+
     if (selected.isEmpty()) {
         diffView_->clearDiff();
         return;
@@ -996,6 +1079,301 @@ void MainWindow::onCommitDetailsReady(const ObjectId& commit,
             });
 
     diffView_->showDiff(currentDiff_);
+
+    // The commit these details belong to may be the one currently expanded --
+    // expansion can be toggled on before the async detail read finishes, in
+    // which case the panel was built showing "Loading changes…" and now has
+    // real content to show.
+    refreshExpandedCommitPanel();
+}
+
+void MainWindow::onCommitRowClicked(const QModelIndex& index) {
+    if (!session_ || !index.isValid()) {
+        return;
+    }
+    const int row = index.row();
+    if (row == expandedCommitRow_) {
+        // Third click (and beyond) on the same row: collapse it. clicked()
+        // fires on every click regardless of whether the selection changed,
+        // so a plain equality check here is enough to toggle it back off.
+        collapseExpandedCommitRow();
+    } else if (row == lastClickedCommitRow_) {
+        // Second click on a row that was already selected (the first click
+        // selected it -- see onCommitSelectionChanged -- without changing
+        // lastClickedCommitRow_ until this line runs).
+        expandCommitRow(row);
+    }
+    lastClickedCommitRow_ = row;
+}
+
+void MainWindow::expandCommitRow(int row) {
+    if (row == expandedCommitRow_) {
+        return;
+    }
+    // At most one index widget at a time: destroy whatever was expanded
+    // before installing the new one.
+    collapseExpandedCommitRow();
+
+    expandedCommitRow_ = row;
+    expandedCommitPanel_ = buildCommitExpansionPanel(row);
+
+    const int fileRows = currentFiles_ ? static_cast<int>(currentFiles_->size()) : 0;
+    constexpr int kLineHeight = 18;
+    constexpr int kMaxVisibleFileRows = 6;
+    constexpr int kChromeHeight = 28;  // summary line + panel margins
+    constexpr int kMinExpandedHeight = 48;
+    constexpr int kMaxExpandedHeight = 168;
+    const int visibleFileRows = std::min(fileRows, kMaxVisibleFileRows) + (fileRows > 0 ? 1 : 0);
+    const int height = std::clamp(
+        kChromeHeight + visibleFileRows * kLineHeight, kMinExpandedHeight, kMaxExpandedHeight);
+    commitView_->setRowHeight(row, height);
+    commitView_->setIndexWidget(commitModel_->index(row, CommitListModel::ColumnSubject),
+                                expandedCommitPanel_);
+}
+
+void MainWindow::collapseExpandedCommitRow() {
+    if (expandedCommitRow_ < 0) {
+        return;
+    }
+    // Passing nullptr deletes the previously installed widget and clears the
+    // association -- no separate `delete expandedCommitPanel_` needed, and
+    // none should be done: the view already owns it.
+    commitView_->setIndexWidget(
+        commitModel_->index(expandedCommitRow_, CommitListModel::ColumnSubject), nullptr);
+    commitView_->setRowHeight(expandedCommitRow_,
+                              commitView_->verticalHeader()->defaultSectionSize());
+    expandedCommitRow_ = -1;
+    expandedCommitPanel_ = nullptr;
+}
+
+void MainWindow::refreshExpandedCommitPanel() {
+    if (expandedCommitRow_ < 0) {
+        return;
+    }
+    const int row = expandedCommitRow_;
+    // Simplest correct way to rebuild in place: collapse (destroys the old
+    // widget and resets the row height) then re-expand with fresh content.
+    collapseExpandedCommitRow();
+    expandCommitRow(row);
+}
+
+QWidget* MainWindow::buildCommitExpansionPanel(int row) const {
+    auto* panel = new QWidget(commitView_->viewport());
+    auto* layout = new QVBoxLayout(panel);
+    layout->setContentsMargins(8, 2, 8, 2);
+    layout->setSpacing(1);
+
+    const ObjectId oid = commitModel_->oidAt(row);
+    const bool detailsMatchThisRow =
+        currentFiles_ != nullptr && !commitView_->selectionModel()->selectedRows().isEmpty() &&
+        commitModel_->oidAt(commitView_->selectionModel()->selectedRows().first().row()) == oid;
+
+    if (!detailsMatchThisRow) {
+        auto* loading = new QLabel(QStringLiteral("Loading changes…"), panel);
+        loading->setStyleSheet(
+            QStringLiteral("color: %1;").arg(ThemeManager::color(Token::TextTertiary).name()));
+        layout->addWidget(loading);
+        return panel;
+    }
+
+    const int fileCount = static_cast<int>(currentFiles_->size());
+    auto* summary =
+        new QLabel(QStringLiteral("%1 file%2 changed — right-click the commit row for actions")
+                       .arg(fileCount)
+                       .arg(fileCount == 1 ? QString() : QStringLiteral("s")),
+                   panel);
+    summary->setStyleSheet(
+        QStringLiteral("color: %1;").arg(ThemeManager::color(Token::TextSecondary).name()));
+    layout->addWidget(summary);
+
+    constexpr int kMaxVisibleFileRows = 6;
+    const int shown = std::min(fileCount, kMaxVisibleFileRows);
+    for (int i = 0; i < shown; ++i) {
+        const ChangedFile& file = (*currentFiles_)[static_cast<std::size_t>(i)];
+        const QString path = QString::fromStdString(file.path);
+
+        // Line-count badges come from the parallel ParsedDiff, keyed by path
+        // -- ChangedFile itself carries no added/removed counts.
+        std::uint32_t added = 0;
+        std::uint32_t removed = 0;
+        if (currentDiff_) {
+            for (const DiffFile& diffFile : currentDiff_->files) {
+                if (diffFile.displayPath() == file.path) {
+                    added = diffFile.addedLines;
+                    removed = diffFile.removedLines;
+                    break;
+                }
+            }
+        }
+
+        auto* fileRow = new QLabel(QStringLiteral("%1  <span style=\"color:%2\">+%3</span> "
+                                                  "<span style=\"color:%4\">−%5</span>")
+                                       .arg(path.toHtmlEscaped())
+                                       .arg(ThemeManager::color(Token::DiffAddText).name())
+                                       .arg(added)
+                                       .arg(ThemeManager::color(Token::DiffDelText).name())
+                                       .arg(removed),
+                                   panel);
+        fileRow->setFont(ThemeManager::monoFont(12));
+        layout->addWidget(fileRow);
+    }
+    if (fileCount > shown) {
+        auto* more = new QLabel(QStringLiteral("+%1 more file%2")
+                                    .arg(fileCount - shown)
+                                    .arg(fileCount - shown == 1 ? QString() : QStringLiteral("s")),
+                                panel);
+        more->setStyleSheet(
+            QStringLiteral("color: %1;").arg(ThemeManager::color(Token::TextTertiary).name()));
+        layout->addWidget(more);
+    }
+
+    return panel;
+}
+
+void MainWindow::onCommitContextMenuRequested(const QPoint& pos) {
+    if (!session_) {
+        return;
+    }
+    const QModelIndex index = commitView_->indexAt(pos);
+    if (!index.isValid()) {
+        return;
+    }
+    // Right-clicking a row that is not already selected selects it (replacing
+    // any existing selection), so the reused selection-based slots below
+    // (cherry-pick, rebase, reset, export) act on the row under the cursor. A
+    // row that is already selected -- including one currently expanded -- is
+    // left alone, so right-clicking an expanded row's own panel to reach
+    // "More actions" does not collapse it first.
+    if (!commitView_->selectionModel()->isRowSelected(index.row(), QModelIndex())) {
+        commitView_->selectionModel()->select(
+            index, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+    }
+    showCommitContextMenu(index.row(), commitView_->viewport()->mapToGlobal(pos));
+}
+
+void MainWindow::showCommitContextMenu(int row, const QPoint& globalPos) {
+    const ObjectId oid = commitModel_->oidAt(row);
+    if (oid.isNull()) {
+        return;
+    }
+    const QString sha7 = QString::fromStdString(oid.shortHex(7));
+
+    // A branch tip only if a *local* branch (not a remote-tracking branch or
+    // tag) points here -- matches SidebarPanel's own branch/tag menu split.
+    QString tipBranchName;
+    bool tipBranchIsHead = false;
+    if (const RefSnapshotPtr refs = session_->refs()) {
+        if (const auto* atCommit = refs->refsAt(oid)) {
+            for (const RefInfo* ref : *atCommit) {
+                if (ref->kind == RefKind::LocalBranch) {
+                    tipBranchName = QString::fromStdString(ref->shortName);
+                    tipBranchIsHead = ref->isHead;
+                    break;
+                }
+            }
+        }
+    }
+
+    QMenu menu(this);
+    QAction* checkoutAction = menu.addAction(QStringLiteral("Checkout %1").arg(sha7));
+    QAction* mergeAction = menu.addAction(QStringLiteral("Merge into current branch"));
+    QAction* cherryPickAction = menu.addAction(QStringLiteral("Cherry-pick"));
+    menu.addSeparator();
+    QAction* copyShaAction = menu.addAction(QStringLiteral("Copy SHA"));
+    QMenu* moreMenu = menu.addMenu(QStringLiteral("More actions"));
+    QAction* rebaseAction = moreMenu->addAction(QStringLiteral("Rebase current onto here"));
+    QAction* resetAction = moreMenu->addAction(QStringLiteral("Reset branch to here"));
+    QAction* revertAction = moreMenu->addAction(QStringLiteral("Revert commit"));
+    QAction* exportAction = moreMenu->addAction(QStringLiteral("Export as patch"));
+    QAction* compareAction = moreMenu->addAction(QStringLiteral("Compare with working copy"));
+
+    QAction* deleteBranchAction = nullptr;
+    if (!tipBranchName.isEmpty()) {
+        menu.addSeparator();
+        deleteBranchAction = menu.addAction(QStringLiteral("Delete branch %1").arg(tipBranchName));
+        deleteBranchAction->setEnabled(!tipBranchIsHead);
+        markDanger(deleteBranchAction);
+    }
+
+    QAction* chosen = menu.exec(globalPos);
+    if (chosen == nullptr) {
+        return;
+    }
+
+    if (chosen == checkoutAction) {
+        CheckoutRequest request;
+        request.target = oid.hex();
+        pendingCheckoutTarget_ = request.target;
+        session_->checkout(request);
+        statusLabel_->setText(QStringLiteral("Switching to %1…").arg(sha7));
+    } else if (chosen == mergeAction) {
+        MergeDialog dialog(sha7, this);
+        if (dialog.exec() != QDialog::Accepted) {
+            return;
+        }
+        MergeRequest request = dialog.request();
+        statusLabel_->setText(QStringLiteral("Merging %1…").arg(sha7));
+        armWorkingCopyChoiceHandler(
+            [this, request](bool stashFirst) mutable {
+                request.stashFirst = stashFirst;
+                session_->mergeBranch(request);
+            },
+            false);
+    } else if (chosen == cherryPickAction) {
+        onCherryPickRequested();
+    } else if (chosen == copyShaAction) {
+        QGuiApplication::clipboard()->setText(QString::fromStdString(oid.hex()));
+    } else if (chosen == rebaseAction) {
+        onRebaseRequested();
+    } else if (chosen == resetAction) {
+        onResetBranchRequested();
+    } else if (chosen == revertAction) {
+        RevertRequest request;
+        request.commits = {oid};
+        statusLabel_->setText(QStringLiteral("Reverting %1…").arg(sha7));
+        armWorkingCopyChoiceHandler(
+            [this, request](bool stashFirst) mutable {
+                request.stashFirst = stashFirst;
+                session_->revertCommit(request);
+            },
+            false);
+    } else if (chosen == exportAction) {
+        onExportPatches();
+    } else if (chosen == compareAction) {
+        diffPage_->showMessage(QStringLiteral("Comparing %1 with the working copy…").arg(sha7));
+        tabWidget_->setCurrentIndex(kDiffTab);
+        session_->requestCompareWithWorkingCopy(oid);
+    } else if (chosen == deleteBranchAction) {
+        const auto confirmed =
+            QMessageBox::warning(this,
+                                 QStringLiteral("Delete branch?"),
+                                 QStringLiteral("Delete branch \"%1\"?").arg(tipBranchName),
+                                 QMessageBox::Yes | QMessageBox::Cancel,
+                                 QMessageBox::Cancel);
+        if (confirmed != QMessageBox::Yes) {
+            return;
+        }
+        DeleteBranchRequest request;
+        request.name = tipBranchName.toStdString();
+        statusLabel_->setText(QStringLiteral("Deleting %1…").arg(tipBranchName));
+        runWithFeedback([this, request] { session_->deleteBranch(request); },
+                        [this, request](OperationChoice::Kind kind) mutable {
+                            // The only choice DeleteBranchOperation ever offers: the
+                            // branch has unmerged commits, and the user just confirmed
+                            // deleting it anyway (the warning box above already did that).
+                            if (kind == OperationChoice::Kind::ForceDiscard) {
+                                DeleteBranchRequest forced = request;
+                                forced.force = true;
+                                runWithFeedback([this, forced] { session_->deleteBranch(forced); },
+                                                nullptr);
+                            }
+                        });
+    }
+}
+
+void MainWindow::onCompareWithWorkingCopyReady(const ObjectId& commit,
+                                               std::shared_ptr<const ParsedDiff> diff) {
+    diffPage_->showCompareWithWorkingCopy(commit, std::move(diff));
 }
 
 void MainWindow::onRefActivated(const QModelIndex& index) {
@@ -1020,6 +1398,7 @@ void MainWindow::onCheckoutRequested() {
 
     CheckoutRequest request;
     request.target = name.toStdString();
+    pendingCheckoutTarget_ = request.target;
     session_->checkout(request);
     statusLabel_->setText(QStringLiteral("Switching to %1…").arg(name));
 }
@@ -1059,12 +1438,15 @@ void MainWindow::onOperationFinished(const OperationOutcome& outcome) {
                 continue;
             }
             const OperationChoice& choice = outcome.choices[i];
-            const QModelIndexList selected = refView_->selectionModel()->selectedRows();
-            if (selected.isEmpty()) {
+            if (pendingCheckoutTarget_.empty()) {
                 break;
             }
             CheckoutRequest retry;
-            retry.target = refModel_->refNameAt(selected.first()).toStdString();
+            // Re-issues whatever checkout was actually in flight -- a ref
+            // name from refView_'s selection, or a raw commit hex from the
+            // commit context menu's "Checkout <sha7>" -- rather than
+            // re-reading refView_'s selection, which is wrong for the latter.
+            retry.target = pendingCheckoutTarget_;
 
             switch (choice.kind) {
                 case OperationChoice::Kind::StashAndRetry:

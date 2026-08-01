@@ -11,6 +11,7 @@
 #include "app/views/DiffView.h"
 #include "app/views/OperationLogView.h"
 #include "app/views/SidebarPanel.h"
+#include "app/views/pages/DiffPage.h"
 #include "app/views/pages/RepositoryPage.h"
 #include "app/views/pages/WorkingCopyView.h"
 #include "core/git/GitExecutable.h"
@@ -30,6 +31,7 @@ class QLineEdit;
 class QPushButton;
 class QSplitter;
 class QStackedWidget;
+class QTabWidget;
 class QProgressBar;
 class QTimer;
 
@@ -68,7 +70,12 @@ private slots:
     void onCommitScrolled();
     void onShowWorkingCopy();
     void onShowHistory();
+    void onShowDiffTab();
     void onShowRepositorySettings();
+    void onCommitContextMenuRequested(const QPoint& pos);
+    void onCommitRowClicked(const QModelIndex& index);
+    void onCompareWithWorkingCopyReady(const ObjectId& commit,
+                                       std::shared_ptr<const ParsedDiff> diff);
 
     // --- M3 -------------------------------------------------------------
     void onFetch();
@@ -152,6 +159,34 @@ private:
     /// whichever sequencer operation RepoState reports, if any.
     void updateSequencerControls(const RepoState& state);
 
+    // --- Phase 3: inline commit expansion -----------------------------------
+    // At most one expanded row at a time, no model change: see the class
+    // comment on expandedCommitRow_ for why.
+
+    /// Expands `row` in place: taller row height plus an index widget summarising
+    /// the commit's changed files. Collapses whatever was expanded before, if
+    /// anything -- exactly one index widget exists at a time.
+    void expandCommitRow(int row);
+
+    /// Destroys the current expansion (if any) and restores its row to the
+    /// default height. Safe to call when nothing is expanded.
+    void collapseExpandedCommitRow();
+
+    /// Builds the panel shown by expandCommitRow(): a summary line plus each
+    /// changed file with its +added/-removed counts, built from whatever
+    /// currentFiles_/currentDiff_ currently hold for the (necessarily
+    /// selected) expanded row.
+    QWidget* buildCommitExpansionPanel(int row) const;
+
+    /// Re-populates the currently expanded panel's content once
+    /// onCommitDetailsReady delivers data for the row that is expanded --
+    /// expansion can be toggled before the async detail read finishes.
+    void refreshExpandedCommitPanel();
+
+    /// Builds and shows the two-level commit context menu (Checkout/Merge/
+    /// Cherry-pick/Copy SHA/More actions/Delete branch) for the commit at `row`.
+    void showCommitContextMenu(int row, const QPoint& globalPos);
+
     GitInstallation installation_;
 
     /// Read pool for history, diffs and metadata. Sized to leave a core for the UI.
@@ -175,7 +210,34 @@ private:
     DiffView* diffView_ = nullptr;
     OperationLogView* logView_ = nullptr;
     WorkingCopyView* workingCopyView_ = nullptr;
+    DiffPage* diffPage_ = nullptr;
     RepositoryPage* repositoryPage_ = nullptr;
+
+    /// The right-hand content area: History / Working Copy / Diff / Repository,
+    /// each a tab rather than a separate top-level `stack_` page, so the
+    /// sidebar stays visible across all of them. `stack_` itself now only
+    /// switches between the repository browser (index 0) and this repository
+    /// shell (index 1).
+    QTabWidget* tabWidget_ = nullptr;
+    static constexpr int kHistoryTab = 0;
+    static constexpr int kWorkingCopyTab = 1;
+    static constexpr int kDiffTab = 2;
+    static constexpr int kRepositoryTab = 3;
+
+    /// The row currently showing its inline expansion panel, or -1 if none.
+    /// Invariant: at most one row is ever expanded, it is always the selected
+    /// row (expansion only toggles on a row that is already selected), and
+    /// commitView_->setIndexWidget was called at most once for it since the
+    /// last collapse -- see expandCommitRow/collapseExpandedCommitRow.
+    int expandedCommitRow_ = -1;
+    /// The widget last passed to setIndexWidget for expandedCommitRow_. Owned
+    /// by commitView_ once installed; cleared (and implicitly deleted by Qt)
+    /// on collapse.
+    QWidget* expandedCommitPanel_ = nullptr;
+    /// The row clicked immediately before the current click, so a second
+    /// click on the same (already selected) row can be told apart from a
+    /// first click that merely changed the selection.
+    int lastClickedCommitRow_ = -1;
 
     QLabel* statusLabel_ = nullptr;
     QLabel* toolBarRepoNameLabel_ = nullptr;
@@ -191,6 +253,12 @@ private:
     /// Coalesces a burst of scroll events into a single `probeVisibleRepos()`
     /// call instead of one per event.
     QTimer* probeDebounce_ = nullptr;
+
+    /// The target of the checkout currently in flight (a ref name or a raw
+    /// commit hex), so onOperationFinished's dirty-work-tree retry re-issues
+    /// the same checkout instead of assuming it always came from refView_'s
+    /// selection -- the commit context menu's "Checkout <sha7>" does not.
+    std::string pendingCheckoutTarget_;
 
     std::vector<RepoRecord> allRepos_;
     std::shared_ptr<const std::vector<ChangedFile>> currentFiles_;

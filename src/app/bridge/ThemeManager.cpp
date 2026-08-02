@@ -204,6 +204,16 @@ void ThemeManager::apply(ThemeId theme) {
         QTextStream stream(&qssFile);
         const QString qssTemplate = stream.readAll();
         qApp->setStyleSheet(applyTokensToQss(qssTemplate, theme));
+    } else {
+        // Not silent: this exact failure (":/qss/app.qss" missing from the
+        // resource system) previously went unnoticed for the whole app's
+        // life because the QPalette and every hand-painted delegate still
+        // produced a plausible-looking window with no stylesheet at all --
+        // see the AUTORCC comment in src/app/CMakeLists.txt for the root
+        // cause and how it was found.
+        qWarning("ThemeManager: could not open :/qss/app.qss (%s) -- the "
+                 "resource is missing from this build, so no stylesheet was applied",
+                 qUtf8Printable(qssFile.errorString()));
     }
 
     saveSetting(theme);

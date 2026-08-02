@@ -62,3 +62,17 @@ resources at `resources/fonts/`; the full licence text ships alongside them at
 
 Source: <https://github.com/JetBrains/JetBrainsMono> (v2.304 release,
 <https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304>)
+
+## Lucide — ISC License
+
+Toolbar, sidebar, and file-status icons are drawn from **Lucide**, used under
+the **ISC License**. Fourteen SVGs are bundled as Qt resources at
+`resources/icons/` and loaded at paint time by `IconLoader`, which recolors
+each one per the active theme rather than shipping pre-colored variants; the
+full licence text ships alongside them at `resources/icons/LUCIDE-ISC.txt`.
+Each SVG's `currentColor` paint value is replaced with a literal opaque colour
+at the source file (Qt's SVG renderer does not resolve the CSS keyword), which
+`IconLoader` then discards by recompositing with `QPainter::CompositionMode_SourceIn` —
+so the literal colour baked into the file on disk is never actually seen.
+
+Source: <https://github.com/lucide-icons/lucide>

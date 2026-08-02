@@ -148,6 +148,7 @@ void SidebarPanel::buildUi() {
     // --- Repositories ---------------------------------------------------------
     addSectionHeader(QStringLiteral("Repositories"));
     repoListView_ = new QListView(this);
+    repoListView_->setObjectName(QStringLiteral("gbmRepoList"));
     repoListView_->setAccessibleName(QStringLiteral("Repositories"));
     repoListView_->setModel(repoModel_);
     repoListView_->setModelColumn(RepoListModel::ColumnName);

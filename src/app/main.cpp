@@ -8,12 +8,89 @@
 #include "core/git/GitExecutable.h"
 
 #include <QApplication>
+#include <QByteArray>
 #include <QMessageBox>
 #include <QStandardPaths>
 #include <QTimer>
 
 #include <cstdlib>
 #include <string_view>
+
+namespace {
+
+/// Deterministic visual-verification seam (see the plan's Verification
+/// section): with `GBM_SCREENSHOT` set, grabs the window and quits once it
+/// has settled. `GBM_SCREENSHOT_REPO`, if also set, opens that path first --
+/// `stack_` otherwise starts on the repository browser page, not the
+/// repository shell the design describes. Neither variable does anything in
+/// a normal run.
+void armScreenshotHook(gbm::MainWindow& window) {
+    const char* screenshotPath = std::getenv("GBM_SCREENSHOT");
+    if (screenshotPath == nullptr) {
+        return;
+    }
+    const QString path = QString::fromUtf8(screenshotPath);
+
+    // The design (Design.pdf) is the dark-technical variant; force it here
+    // regardless of whatever theme this machine's QSettings happens to have
+    // persisted, so comparison screenshots are never accidentally taken
+    // against light-ide/neutral-professional. The prior setting is restored
+    // after capture (apply() persists whatever it is given) so a screenshot
+    // run never leaves a developer's or CI machine's saved preference changed.
+    const gbm::ThemeId previousTheme = gbm::ThemeManager::loadSetting();
+    gbm::ThemeManager::apply(gbm::ThemeId::DarkTechnical);
+
+    auto capture = [&window, path, previousTheme] {
+        // One more event-loop turn so QSS polish and the first real paint
+        // (not just the first show event) have both landed.
+        QTimer::singleShot(200, &window, [&window, path, previousTheme] {
+            const QPixmap grab = window.grab();
+            grab.save(path);
+            gbm::ThemeManager::saveSetting(previousTheme);
+            QApplication::quit();
+        });
+    };
+
+    if (const char* repoPath = std::getenv("GBM_SCREENSHOT_REPO"); repoPath != nullptr) {
+        // Deferred past loadInitialState (itself queued via singleShot(0) in
+        // main()), so the cache is open and the window has done its first
+        // real layout before a repository is force-opened into it.
+        QTimer::singleShot(50, &window, [&window, repoPath, capture] {
+            window.openRepositoryAtPathForScreenshot(QString::fromUtf8(repoPath));
+
+            const char* expandEnv = std::getenv("GBM_SCREENSHOT_EXPAND_ROW");
+            const char* selectEnv = std::getenv("GBM_SCREENSHOT_SELECT_ROW");
+            if (expandEnv != nullptr || selectEnv != nullptr) {
+                bool ok = false;
+                const int row = QByteArray(expandEnv != nullptr ? expandEnv : selectEnv).toInt(&ok);
+                const bool expand = expandEnv != nullptr;
+                // A longer delay than the plain-open case: both need the
+                // repository's history walk (refreshHistory, itself posted
+                // async from openRepository) to have produced rows first, and
+                // expanding additionally needs commit-details' own async
+                // git-process read to land before the panel has real content
+                // to show instead of "Loading changes…".
+                QTimer::singleShot(600, &window, [&window, row, ok, expand] {
+                    if (!ok) {
+                        return;
+                    }
+                    if (expand) {
+                        window.expandCommitRowForScreenshot(row);
+                    } else {
+                        window.selectCommitRowForScreenshot(row);
+                    }
+                });
+                QTimer::singleShot(1200, &window, capture);
+                return;
+            }
+            capture();
+        });
+    } else {
+        capture();
+    }
+}
+
+}  // namespace
 
 int main(int argc, char** argv) {
     // The askpass handshake re-invokes this same executable (see
@@ -78,6 +155,8 @@ int main(int argc, char** argv) {
     // begins, and the cached list is then loaded from SQLite with no filesystem
     // access. Doing this before show() is exactly the slow startup we avoid.
     QTimer::singleShot(0, &window, [&window] { window.loadInitialState(); });
+
+    armScreenshotHook(window);
 
     return QApplication::exec();
 }

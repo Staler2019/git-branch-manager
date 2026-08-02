@@ -60,9 +60,15 @@ void GraphColumnDelegate::paint(QPainter* painter,
         return;
     }
 
-    // Selection background first, so the graph draws over it.
-    if ((option.state & QStyle::State_Selected) != 0) {
-        painter->fillRect(option.rect, option.palette.highlight());
+    const bool isSelected = (option.state & QStyle::State_Selected) != 0;
+
+    // Selection background first, so the graph draws over it. Uses the same
+    // @surface-selected token as every other column's selected background
+    // (CommitRowDelegate, the plain QSS-styled Author/Date/ShortSha cells)
+    // rather than option.palette.highlight() (@accent) -- a bright blue
+    // graph cell next to a navy rest-of-row previously did not match.
+    if (isSelected) {
+        painter->fillRect(option.rect, ThemeManager::color(Token::SurfaceSelected));
     }
 
     painter->save();
@@ -162,6 +168,18 @@ void GraphColumnDelegate::paint(QPainter* painter,
         painter->setPen(QPen(color, 2.0));
         painter->setBrush(option.palette.base());
         painter->drawEllipse(QPoint(nodeX, centerY), kNodeRadius, kNodeRadius);
+    } else if (isSelected) {
+        // A light outer ring with an accent-filled center, so the selected
+        // row's node reads distinctly from an ordinary commit rather than
+        // just sitting on a differently coloured background.
+        painter->setPen(QPen(ThemeManager::color(Token::Accent), 1.0));
+        painter->setBrush(ThemeManager::color(Token::Accent));
+        painter->drawEllipse(QPoint(nodeX, centerY), kNodeRadius - 1, kNodeRadius - 1);
+        QPen ringPen(ThemeManager::color(Token::TextPrimary));
+        ringPen.setWidthF(1.4);
+        painter->setPen(ringPen);
+        painter->setBrush(Qt::NoBrush);
+        painter->drawEllipse(QPoint(nodeX, centerY), kNodeRadius + 1, kNodeRadius + 1);
     } else {
         painter->setPen(QPen(color, 1.0));
         painter->setBrush(color);

@@ -1,9 +1,13 @@
 #include "app/models/CommitListModel.h"
 
 #include "app/bridge/RepositorySession.h"
+#include "app/bridge/ThemeManager.h"
+#include "app/theme/Metrics.h"
 
+#include <QBrush>
 #include <QDateTime>
 #include <QLocale>
+#include <QVariant>
 
 #include <algorithm>
 
@@ -69,15 +73,16 @@ QVariant CommitListModel::data(const QModelIndex& index, int role) const {
         case HasMetadataRole:
             return metadataFor(row) != nullptr;
         case RefsRole: {
-            QStringList names;
+            QVariantList chips;
             if (refs_) {
                 if (const auto* atRow = refs_->refsAt(oidAt(row))) {
                     for (const RefInfo* ref : *atRow) {
-                        names << QString::fromStdString(ref->shortName);
+                        chips << QVariant::fromValue(RefChip{
+                            QString::fromStdString(ref->shortName), ref->kind, ref->isHead});
                     }
                 }
             }
-            return names;
+            return chips;
         }
         default:
             break;
@@ -123,6 +128,28 @@ QVariant CommitListModel::data(const QModelIndex& index, int role) const {
 
     if (role == Qt::TextAlignmentRole && index.column() == ColumnDate) {
         return static_cast<int>(Qt::AlignRight | Qt::AlignVCenter);
+    }
+
+    // Author/Date/ShortSha read as metadata rather than content, per
+    // docs/design/tokens-reference.md's `.gbm-mono` + secondary-text
+    // treatment for exactly this kind of column. Re-derived from
+    // ThemeManager on every paint rather than cached, so a theme switch's
+    // plain viewport repaint (MainWindow::applyThemeAndRefresh) picks it up
+    // with no dataChanged needed -- the same pattern GraphColumnDelegate and
+    // RefRowDelegate already rely on.
+    switch (index.column()) {
+        case ColumnAuthor:
+        case ColumnDate:
+        case ColumnShortSha:
+            if (role == Qt::FontRole) {
+                return ThemeManager::monoFont(kTextXs);
+            }
+            if (role == Qt::ForegroundRole) {
+                return QBrush(ThemeManager::color(Token::TextTertiary));
+            }
+            break;
+        default:
+            break;
     }
 
     return {};

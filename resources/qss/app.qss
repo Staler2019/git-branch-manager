@@ -117,8 +117,8 @@ QPushButton {
     color: @text-primary;
     border: 1px solid @border-default;
     border-radius: 6px;
-    padding: 4px 12px;
-    min-height: 22px;
+    padding: 0 12px;
+    min-height: 30px;
 }
 
 QPushButton:hover {
@@ -182,15 +182,19 @@ QTextEdit {
     color: @text-primary;
     border: 1px solid @border-default;
     border-radius: 6px;
-    padding: 4px 8px;
+    padding: 0 12px;
+    min-height: 30px;
     selection-background-color: @accent;
     selection-color: @text-on-accent;
 }
 
+/* `.gbm-input:focus` also specifies `box-shadow: var(--shadow-focus)` -- a
+ * 3px accent-subtle glow QSS cannot express. Approximated with a 2px solid
+ * border-focus outline instead of the 1px default. */
 QLineEdit:focus,
 QPlainTextEdit:focus,
 QTextEdit:focus {
-    border-color: @border-focus;
+    border: 2px solid @border-focus;
 }
 
 QLineEdit:disabled {
@@ -273,6 +277,45 @@ QLabel#gbmPanelCaption {
     font-size: 11px;
 }
 
+/* --- commit expansion panel -------------------------------------------------*/
+
+/* The card CommitExpansionPanel shows beneath the (hand-painted, not QSS)
+ * summary strip when a commit row is expanded in place. Sunken rather than
+ * `#gbmPanel`'s @surface-panel, so it reads as inset into the selected row
+ * above it instead of as a separate raised surface. */
+QWidget#gbmExpansionCard {
+    background: @surface-sunken;
+    border-radius: 10px;
+}
+
+QLabel#gbmExpansionSummary {
+    color: @text-secondary;
+}
+
+/* `.gbm-badge` in components.css: min-width 18, height 18, padding 0 5,
+ * radius-full, 10.5px semibold mono -- rounded to 11px, matching every other
+ * `text-2xs` consumer in this file (see the sidebar section header comment). */
+QLabel#gbmBadgeAdded,
+QLabel#gbmBadgeRemoved {
+    min-width: 18px;
+    min-height: 18px;
+    max-height: 18px;
+    padding: 0 5px;
+    border-radius: 9px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+QLabel#gbmBadgeAdded {
+    background: @diff-add-bg;
+    color: @diff-add-text;
+}
+
+QLabel#gbmBadgeRemoved {
+    background: @diff-del-bg;
+    color: @diff-del-text;
+}
+
 /* --- tree / table views -----------------------------------------------------*/
 
 QTreeView,
@@ -289,7 +332,8 @@ QTableView {
 
 QTreeView::item,
 QTableView::item {
-    padding: 2px 4px;
+    padding: 0 12px;
+    border-radius: 4px;
 }
 
 QTreeView::item:hover,
@@ -297,10 +341,29 @@ QTableView::item:hover {
     background: @surface-hover;
 }
 
+/* Commit history and the ref tree/repo list paint their own selected-state
+ * background at the delegate level (CommitRowDelegate/GraphColumnDelegate
+ * full-bleed @surface-selected; RefRowDelegate/the sidebar repo delegate
+ * paint an inset rounded highlight instead of full-bleed) -- scoped selectors
+ * so this generic rule only covers plain views with no custom delegate
+ * (the changed-files list, working-copy panels, dialog tables) instead of
+ * fighting the hand-painted ones. */
 QTreeView::item:selected,
 QTableView::item:selected {
     background: @surface-selected;
     color: @text-primary;
+}
+
+QTableView#gbmCommitView::item:selected {
+    background: transparent;
+}
+
+/* gbmRefView's delegate already paints a full-bleed selected fill, so the
+ * generic rule above would double-draw (harmless, but redundant) without
+ * this override. gbmRepoList has NO delegate yet (Phase 4) -- it must keep
+ * the generic rule's background or a selected row shows no feedback at all. */
+QTreeView#gbmRefView::item:selected {
+    background: transparent;
 }
 
 QHeaderView::section {

@@ -20,7 +20,11 @@
 #include "app/dialogs/ReflogDialog.h"
 #include "app/dialogs/ResetBranchDialog.h"
 #include "app/dialogs/StashChangesDialog.h"
+#include "app/models/CommitRowDelegate.h"
+#include "app/theme/IconLoader.h"
+#include "app/views/CommitExpansionPanel.h"
 #include "app/views/CredentialDialog.h"
+#include "core/discovery/RepoClassifier.h"
 #include "core/git/ops/CheckoutOp.h"
 
 #include <QAbstractButton>
@@ -58,6 +62,7 @@
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <filesystem>
 
 namespace gbm {
 
@@ -239,6 +244,7 @@ void MainWindow::buildUi() {
 
     refModel_ = new RefTreeModel(this);
     refView_ = new QTreeView(outerSplitter);
+    refView_->setObjectName(QStringLiteral("gbmRefView"));
     refView_->setAccessibleName(QStringLiteral("Branches and tags"));
     refView_->setModel(refModel_);
     refView_->setHeaderHidden(true);
@@ -278,6 +284,7 @@ void MainWindow::buildUi() {
 
     commitModel_ = new CommitListModel(this);
     commitView_ = new QTableView(rightSplitter);
+    commitView_->setObjectName(QStringLiteral("gbmCommitView"));
     commitView_->setAccessibleName(QStringLiteral("Commit history"));
     commitView_->setModel(commitModel_);
     commitView_->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -295,6 +302,8 @@ void MainWindow::buildUi() {
     graphDelegate_ = new GraphColumnDelegate(commitModel_, this);
     commitView_->setItemDelegateForColumn(CommitListModel::ColumnGraph, graphDelegate_);
     commitView_->setColumnWidth(CommitListModel::ColumnGraph, 160);
+    commitView_->setItemDelegateForColumn(CommitListModel::ColumnSubject,
+                                         new CommitRowDelegate(this));
     commitView_->horizontalHeader()->setSectionResizeMode(CommitListModel::ColumnSubject,
                                                           QHeaderView::Stretch);
 
@@ -317,6 +326,15 @@ void MainWindow::buildUi() {
     // still points at a valid row while collapseExpandedCommitRow() clears
     // its index widget.
     connect(commitModel_, &QAbstractItemModel::modelAboutToBeReset, this, [this] {
+        collapseExpandedCommitRow();
+    });
+    // expandCommitRow's setSpan is index-based: CommitListModel::onGraphUpdated
+    // only ever grows by appending past the end (beginInsertRows(parent,
+    // oldRows, newRows-1)), which never renumbers an earlier row, so a
+    // prefetch append never invalidates an existing span on its own. Rows are
+    // never removed today either -- this is a defensive guard against that
+    // ever changing, not a currently-reachable path.
+    connect(commitModel_, &QAbstractItemModel::rowsAboutToBeRemoved, this, [this] {
         collapseExpandedCommitRow();
     });
 
@@ -923,6 +941,37 @@ void MainWindow::openRepository(const RepoRecord& record) {
     session_->refreshRemotes();
 }
 
+void MainWindow::openRepositoryAtPathForScreenshot(const QString& path) {
+    const auto classified = RepoClassifier::classify(std::filesystem::path(path.toStdString()));
+    if (!classified.isRepo()) {
+        statusLabel_->setText(
+            QStringLiteral("GBM_SCREENSHOT_REPO does not look like a git repository: %1").arg(path));
+        return;
+    }
+    RepoRecord record;
+    record.workDir = classified.paths.workDir().string();
+    record.gitDir = classified.paths.gitDir().string();
+    record.commonDir = classified.paths.commonDir().string();
+    record.kind = classified.kind;
+    record.name = classified.paths.displayName();
+    openRepository(record);
+}
+
+void MainWindow::expandCommitRowForScreenshot(int row) {
+    if (commitModel_ == nullptr || row < 0 || row >= commitModel_->rowCount()) {
+        return;
+    }
+    commitView_->selectRow(row);
+    expandCommitRow(row);
+}
+
+void MainWindow::selectCommitRowForScreenshot(int row) {
+    if (commitModel_ == nullptr || row < 0 || row >= commitModel_->rowCount()) {
+        return;
+    }
+    commitView_->selectRow(row);
+}
+
 void MainWindow::closeRepository() {
     if (!session_) {
         return;
@@ -966,8 +1015,10 @@ void MainWindow::applyThemeAndRefresh(ThemeId theme) {
     // `qApp->setStyleSheet()` re-polishes every widget styled purely through
     // app.qss, and the graph delegate reads ThemeManager::color() at paint
     // time so a repaint is all it needs. What is left is the colour baked
-    // into a widget's own stylesheet or into already-rendered diff text,
-    // neither of which the app-wide restyle touches.
+    // into a widget's own stylesheet, into an IconLoader-tinted pixmap, or
+    // into already-rendered diff text -- none of which the app-wide restyle
+    // touches.
+    IconLoader::clearCache();
     restyleBanner();
     diffView_->refreshTheme();
     workingCopyView_->refreshTheme();
@@ -1179,20 +1230,30 @@ void MainWindow::expandCommitRow(int row) {
     collapseExpandedCommitRow();
 
     expandedCommitRow_ = row;
-    expandedCommitPanel_ = buildCommitExpansionPanel(row);
 
-    const int fileRows = currentFiles_ ? static_cast<int>(currentFiles_->size()) : 0;
-    constexpr int kLineHeight = 18;
-    constexpr int kMaxVisibleFileRows = 6;
-    constexpr int kChromeHeight = 28;  // summary line + panel margins
-    constexpr int kMinExpandedHeight = 48;
-    constexpr int kMaxExpandedHeight = 168;
-    const int visibleFileRows = std::min(fileRows, kMaxVisibleFileRows) + (fileRows > 0 ? 1 : 0);
-    const int height = std::clamp(
-        kChromeHeight + visibleFileRows * kLineHeight, kMinExpandedHeight, kMaxExpandedHeight);
-    commitView_->setRowHeight(row, height);
-    commitView_->setIndexWidget(commitModel_->index(row, CommitListModel::ColumnSubject),
-                                expandedCommitPanel_);
+    // Span the whole row into a single cell, so the panel owns the entire
+    // visual unit instead of covering only the Subject column while
+    // Graph/Author/Date/ShortSha keep painting into a row that grew out from
+    // under them -- that mismatch (not this panel's content) was the actual
+    // "conflict[s] on ui when expand" bug: the index widget only ever
+    // covered one cell, but setRowHeight grows every column's cell.
+    commitView_->setSpan(row, 0, 1, CommitListModel::ColumnCount);
+
+    const QPersistentModelIndex subjectIndex(
+        commitModel_->index(row, CommitListModel::ColumnSubject));
+    auto* panel = new CommitExpansionPanel(subjectIndex, commitView_->viewport());
+    expandedCommitPanel_ = panel;
+
+    const ObjectId oid = commitModel_->oidAt(row);
+    const bool detailsMatchThisRow =
+        currentFiles_ != nullptr && !commitView_->selectionModel()->selectedRows().isEmpty() &&
+        commitModel_->oidAt(commitView_->selectionModel()->selectedRows().first().row()) == oid;
+    if (detailsMatchThisRow) {
+        panel->setDetails(currentFiles_, currentDiff_);
+    }
+
+    commitView_->setIndexWidget(commitModel_->index(row, 0), panel);
+    commitView_->setRowHeight(row, panel->sizeHint().height());
 }
 
 void MainWindow::collapseExpandedCommitRow() {
@@ -1202,8 +1263,11 @@ void MainWindow::collapseExpandedCommitRow() {
     // Passing nullptr deletes the previously installed widget and clears the
     // association -- no separate `delete expandedCommitPanel_` needed, and
     // none should be done: the view already owns it.
-    commitView_->setIndexWidget(
-        commitModel_->index(expandedCommitRow_, CommitListModel::ColumnSubject), nullptr);
+    commitView_->setIndexWidget(commitModel_->index(expandedCommitRow_, 0), nullptr);
+    // Undo the span from expandCommitRow before restoring the default row
+    // height -- a leftover span on a now-collapsed row would corrupt
+    // whichever row ends up there next.
+    commitView_->setSpan(expandedCommitRow_, 0, 1, 1);
     commitView_->setRowHeight(expandedCommitRow_,
                               commitView_->verticalHeader()->defaultSectionSize());
     expandedCommitRow_ = -1;
@@ -1215,83 +1279,15 @@ void MainWindow::refreshExpandedCommitPanel() {
         return;
     }
     const int row = expandedCommitRow_;
-    // Simplest correct way to rebuild in place: collapse (destroys the old
-    // widget and resets the row height) then re-expand with fresh content.
-    collapseExpandedCommitRow();
-    expandCommitRow(row);
-}
-
-QWidget* MainWindow::buildCommitExpansionPanel(int row) const {
-    auto* panel = new QWidget(commitView_->viewport());
-    auto* layout = new QVBoxLayout(panel);
-    layout->setContentsMargins(8, 2, 8, 2);
-    layout->setSpacing(1);
-
     const ObjectId oid = commitModel_->oidAt(row);
     const bool detailsMatchThisRow =
         currentFiles_ != nullptr && !commitView_->selectionModel()->selectedRows().isEmpty() &&
         commitModel_->oidAt(commitView_->selectionModel()->selectedRows().first().row()) == oid;
-
     if (!detailsMatchThisRow) {
-        auto* loading = new QLabel(QStringLiteral("Loading changes…"), panel);
-        loading->setStyleSheet(
-            QStringLiteral("color: %1;").arg(ThemeManager::color(Token::TextTertiary).name()));
-        layout->addWidget(loading);
-        return panel;
+        return;
     }
-
-    const int fileCount = static_cast<int>(currentFiles_->size());
-    auto* summary =
-        new QLabel(QStringLiteral("%1 file%2 changed — right-click the commit row for actions")
-                       .arg(fileCount)
-                       .arg(fileCount == 1 ? QString() : QStringLiteral("s")),
-                   panel);
-    summary->setStyleSheet(
-        QStringLiteral("color: %1;").arg(ThemeManager::color(Token::TextSecondary).name()));
-    layout->addWidget(summary);
-
-    constexpr int kMaxVisibleFileRows = 6;
-    const int shown = std::min(fileCount, kMaxVisibleFileRows);
-    for (int i = 0; i < shown; ++i) {
-        const ChangedFile& file = (*currentFiles_)[static_cast<std::size_t>(i)];
-        const QString path = QString::fromStdString(file.path);
-
-        // Line-count badges come from the parallel ParsedDiff, keyed by path
-        // -- ChangedFile itself carries no added/removed counts.
-        std::uint32_t added = 0;
-        std::uint32_t removed = 0;
-        if (currentDiff_) {
-            for (const DiffFile& diffFile : currentDiff_->files) {
-                if (diffFile.displayPath() == file.path) {
-                    added = diffFile.addedLines;
-                    removed = diffFile.removedLines;
-                    break;
-                }
-            }
-        }
-
-        auto* fileRow = new QLabel(QStringLiteral("%1  <span style=\"color:%2\">+%3</span> "
-                                                  "<span style=\"color:%4\">−%5</span>")
-                                       .arg(path.toHtmlEscaped())
-                                       .arg(ThemeManager::color(Token::DiffAddText).name())
-                                       .arg(added)
-                                       .arg(ThemeManager::color(Token::DiffDelText).name())
-                                       .arg(removed),
-                                   panel);
-        fileRow->setFont(ThemeManager::monoFont(12));
-        layout->addWidget(fileRow);
-    }
-    if (fileCount > shown) {
-        auto* more = new QLabel(QStringLiteral("+%1 more file%2")
-                                    .arg(fileCount - shown)
-                                    .arg(fileCount - shown == 1 ? QString() : QStringLiteral("s")),
-                                panel);
-        more->setStyleSheet(
-            QStringLiteral("color: %1;").arg(ThemeManager::color(Token::TextTertiary).name()));
-        layout->addWidget(more);
-    }
-
-    return panel;
+    static_cast<CommitExpansionPanel*>(expandedCommitPanel_)->setDetails(currentFiles_, currentDiff_);
+    commitView_->setRowHeight(row, expandedCommitPanel_->sizeHint().height());
 }
 
 void MainWindow::onCommitContextMenuRequested(const QPoint& pos) {

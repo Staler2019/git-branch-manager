@@ -1,7 +1,7 @@
 # 6.4 is the genuine floor for the APIs used here (qt_standard_project_setup, the
 # Qt6 CMake API, QFontDatabase::systemFont). Release builds pin a newer Qt in CI,
 # but there is no reason to refuse an older distro package that works.
-find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Widgets)
+find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Widgets Svg)
 
 qt_standard_project_setup()
 
@@ -20,11 +20,15 @@ qt_add_executable(git-branch-manager
     bridge/ThemeManager.cpp
 
     models/CommitListModel.cpp
+    models/CommitRowDelegate.cpp
     models/GraphColumnDelegate.cpp
+    models/PillPainter.cpp
     models/RefRowDelegate.cpp
     models/RefTreeModel.cpp
     models/RepoListModel.cpp
+    # models/SidebarRowDelegate.cpp  # added in Phase 4
 
+    theme/IconLoader.cpp
     theme/ThemeTokens.cpp
 
     dialogs/AboutDialog.cpp
@@ -47,12 +51,14 @@ qt_add_executable(git-branch-manager
     dialogs/ResetBranchDialog.cpp
     dialogs/StashChangesDialog.cpp
 
+    views/CommitExpansionPanel.cpp
     views/CredentialDialog.cpp
     views/DiffView.cpp
     views/MainWindow.cpp
     views/OperationLogView.cpp
     views/SideBySideDiffView.cpp
     views/SidebarPanel.cpp
+    # views/TopBar.cpp  # added in Phase 3
 
     views/pages/DiffPage.cpp
     views/pages/RepositoryPage.cpp
@@ -61,12 +67,30 @@ qt_add_executable(git-branch-manager
     "${CMAKE_SOURCE_DIR}/resources/app.qrc"
 )
 
+# qt_add_executable() enables AUTOMOC automatically but NOT AUTORCC (see the
+# identical comment in tests/CMakeLists.txt, which discovered this the same
+# way) -- without this, resources/app.qrc sits in the source list as a inert,
+# unprocessed file. The practical effect was silent: ThemeManager::apply()'s
+# QFile::open(":/qss/app.qss") simply failed every time (verified: it returns
+# false, error 5 "file not found"), so qApp->setStyleSheet() was never called
+# in any build of the actual application -- only the two test binaries ever
+# actually loaded the stylesheet, because they set this explicitly. Every
+# color came from the QPalette (set directly from token values, no qrc
+# needed) and every hand-painted delegate (GraphColumnDelegate, RefRowDelegate,
+# CommitRowDelegate) reads ThemeManager::color() directly -- so the app was
+# never blank, just running with zero of its own QSS: default Fusion metrics,
+# no custom fonts (the bundled Inter/JetBrains Mono .ttf never registered
+# either, since QFontDatabase::addApplicationFont(":/fonts/...") hit the same
+# missing-resource failure), and every "QSS" fix in the UI redesign plan had
+# had no effect until this line existed.
+set_target_properties(git-branch-manager PROPERTIES AUTORCC ON)
+
 target_include_directories(git-branch-manager PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/.."
     "${CMAKE_CURRENT_BINARY_DIR}/generated")
 
 target_link_libraries(git-branch-manager
-    PRIVATE gbm_core Qt6::Core Qt6::Gui Qt6::Widgets gbm_warnings gbm_sanitizers)
+    PRIVATE gbm_core Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg gbm_warnings gbm_sanitizers)
 
 set_target_properties(git-branch-manager PROPERTIES
     WIN32_EXECUTABLE ON

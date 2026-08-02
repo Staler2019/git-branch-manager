@@ -48,6 +48,25 @@ public:
     /// first paint never waits on anything.
     void loadInitialState();
 
+    /// Test/debug seam for `GBM_SCREENSHOT_REPO`: classifies `path` directly
+    /// (bypassing the discovery scan/cache) and opens it exactly as
+    /// `onRepoActivated` would, so a screenshot can be taken of the repository
+    /// shell instead of the browser page `stack_` otherwise starts on.
+    void openRepositoryAtPathForScreenshot(const QString& path);
+
+    /// Test/debug seam for `GBM_SCREENSHOT_EXPAND_ROW`: selects and expands
+    /// `row` directly, so a screenshot can verify the inline commit
+    /// expansion panel without simulating the click sequence
+    /// onCommitRowClicked otherwise requires.
+    void expandCommitRowForScreenshot(int row);
+
+    /// Test/debug seam for `GBM_SCREENSHOT_SELECT_ROW`: selects `row` without
+    /// expanding it, so a screenshot can verify the selected (but not
+    /// expanded) row's background is uniform across all five columns --
+    /// expandCommitRowForScreenshot's panel would otherwise cover exactly the
+    /// area in question.
+    void selectCommitRowForScreenshot(int row);
+
 private slots:
     void onAddBaseFolder();
     void onManageBaseFolders();
@@ -198,12 +217,6 @@ private:
     /// Destroys the current expansion (if any) and restores its row to the
     /// default height. Safe to call when nothing is expanded.
     void collapseExpandedCommitRow();
-
-    /// Builds the panel shown by expandCommitRow(): a summary line plus each
-    /// changed file with its +added/-removed counts, built from whatever
-    /// currentFiles_/currentDiff_ currently hold for the (necessarily
-    /// selected) expanded row.
-    QWidget* buildCommitExpansionPanel(int row) const;
 
     /// Re-populates the currently expanded panel's content once
     /// onCommitDetailsReady delivers data for the row that is expanded --

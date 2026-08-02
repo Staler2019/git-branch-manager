@@ -198,6 +198,37 @@ QLineEdit:disabled {
     background: @surface-sunken;
 }
 
+/* --- checkboxes -------------------------------------------------------------*/
+
+/* `.gbm-checkbox` in components.css: 15x15, radius 3, 1.5px border-strong,
+ * filled @accent when checked/indeterminate. */
+QCheckBox::indicator {
+    width: 15px;
+    height: 15px;
+    border-radius: 3px;
+    border: 1.5px solid @border-strong;
+    background: @surface-panel;
+}
+
+QCheckBox::indicator:hover {
+    border-color: @accent;
+}
+
+QCheckBox::indicator:checked,
+QCheckBox::indicator:indeterminate {
+    background: @accent;
+    border-color: @accent;
+}
+
+QCheckBox::indicator:disabled {
+    border-color: @border-subtle;
+    background: @surface-sunken;
+}
+
+QCheckBox {
+    spacing: 8px;
+}
+
 /* --- sidebar --------------------------------------------------------------*/
 
 /* Section header labels ("REPOSITORIES" / "BRANCHES" / ...) above each of the

@@ -280,4 +280,13 @@ QFont ThemeManager::monoFont(int pixelSize) {
     return font;
 }
 
+QFont ThemeManager::sectionHeaderFont() {
+    constexpr int kSectionFontSize = 11;  // ~10.5px, rounded to an integer pixel size.
+    QFont font = uiFont(kSectionFontSize);
+    font.setBold(true);
+    font.setCapitalization(QFont::AllUppercase);
+    font.setLetterSpacing(QFont::AbsoluteSpacing, 0.5);
+    return font;
+}
+
 }  // namespace gbm

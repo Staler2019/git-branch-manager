@@ -14,7 +14,6 @@ namespace gbm {
 
 namespace {
 
-constexpr int kSectionFontSize = 11;  // ~10.5px, rounded to an integer pixel size.
 constexpr int kPillFontSize = 11;
 
 }  // namespace
@@ -52,11 +51,7 @@ void RefRowDelegate::paint(QPainter* painter,
     }
 
     if (isSection) {
-        QFont font = ThemeManager::uiFont(kSectionFontSize);
-        font.setBold(true);
-        font.setCapitalization(QFont::AllUppercase);
-        font.setLetterSpacing(QFont::AbsoluteSpacing, 0.5);
-        painter->setFont(font);
+        painter->setFont(ThemeManager::sectionHeaderFont());
         painter->setPen(ThemeManager::color(Token::TextTertiary));
         painter->drawText(option.rect, Qt::AlignVCenter | Qt::AlignLeft, opt.text);
         painter->restore();

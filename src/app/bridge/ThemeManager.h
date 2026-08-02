@@ -59,6 +59,14 @@ public:
 
     static QFont monoFont(int pixelSize);
 
+    /// Uppercase, semibold, letter-spaced label font for sidebar section
+    /// headers ("REPOSITORIES", "STASH", ...). QSS cannot express
+    /// letter-spacing, so both the painted headers (`RefRowDelegate`) and the
+    /// plain `QLabel` ones (`SidebarPanel`'s Repositories/Stash sections)
+    /// call this instead of each hand-rolling their own QFont, which is what
+    /// let them drift apart in the first place.
+    static QFont sectionHeaderFont();
+
     /// Substitutes every `@token-name` placeholder in `qssTemplate` (see
     /// `resources/qss/app.qss` for the naming convention) with the hex colour
     /// for `theme`. Exposed as a pure, testable function -- separate from

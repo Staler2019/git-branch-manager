@@ -26,7 +26,7 @@ qt_add_executable(git-branch-manager
     models/RefRowDelegate.cpp
     models/RefTreeModel.cpp
     models/RepoListModel.cpp
-    # models/SidebarRowDelegate.cpp  # added in Phase 4
+    models/SidebarRowDelegate.cpp
 
     theme/IconLoader.cpp
     theme/ThemeTokens.cpp

@@ -402,6 +402,13 @@ void MainWindow::buildUi() {
     outerSplitter->addWidget(tabWidget_);
     outerSplitter->setStretchFactor(0, 1);
     outerSplitter->setStretchFactor(1, 5);
+    // sidebar_ only carries setMinimumWidth(220), not a fixed width, so
+    // without an explicit initial split QSplitter would default to giving
+    // both sides equal space. setSizes() called before the splitter has a
+    // real geometry gets recomputed from the stretch factors on the first
+    // resize event instead of being honored as-is, so this is deferred to
+    // the next event-loop turn (after the initial show/resize has happened).
+    QTimer::singleShot(0, outerSplitter, [outerSplitter] { outerSplitter->setSizes({250, 1150}); });
 
     repoLayout->addWidget(outerSplitter, 1);
 

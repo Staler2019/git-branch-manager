@@ -430,11 +430,12 @@ QTableView#gbmCommitView::item:selected {
     background: transparent;
 }
 
-/* gbmRefView's delegate already paints a full-bleed selected fill, so the
- * generic rule above would double-draw (harmless, but redundant) without
- * this override. gbmRepoList has NO delegate yet (Phase 4) -- it must keep
- * the generic rule's background or a selected row shows no feedback at all. */
-QTreeView#gbmRefView::item:selected {
+/* gbmRefView, gbmRepoList and gbmStashList's delegates all paint their own
+ * inset selection/hover fill, so the generic rule above would double-draw
+ * (harmless, but redundant) without these overrides. */
+QTreeView#gbmRefView::item:selected,
+QListView#gbmRepoList::item:selected,
+QListWidget#gbmStashList::item:selected {
     background: transparent;
 }
 

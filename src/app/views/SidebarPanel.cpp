@@ -5,6 +5,7 @@
 #include "app/models/RefRowDelegate.h"
 #include "app/models/RefTreeModel.h"
 #include "app/models/RepoListModel.h"
+#include "app/models/SidebarRowDelegate.h"
 #include "core/git/RefStore.h"
 #include "core/git/ops/CheckoutOp.h"
 #include "core/git/ops/RebaseOps.h"
@@ -123,7 +124,7 @@ SidebarPanel::SidebarPanel(RepoListModel* repoModel,
 }
 
 void SidebarPanel::buildUi() {
-    setFixedWidth(250);
+    setMinimumWidth(220);
 
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -142,6 +143,7 @@ void SidebarPanel::buildUi() {
     auto addSectionHeader = [this, layout](const QString& text) {
         auto* label = new QLabel(text.toUpper(), this);
         label->setObjectName(QStringLiteral("sidebarSectionHeader"));
+        label->setFont(ThemeManager::sectionHeaderFont());
         layout->addWidget(label);
     };
 
@@ -152,6 +154,8 @@ void SidebarPanel::buildUi() {
     repoListView_->setAccessibleName(QStringLiteral("Repositories"));
     repoListView_->setModel(repoModel_);
     repoListView_->setModelColumn(RepoListModel::ColumnName);
+    repoListView_->setItemDelegate(
+        new SidebarRowDelegate(SidebarRowDelegate::Kind::Repository, repoListView_));
     repoListView_->setUniformItemSizes(true);
     repoListView_->setMaximumHeight(120);
     repoListView_->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -176,7 +180,10 @@ void SidebarPanel::buildUi() {
     // --- Stash ----------------------------------------------------------------
     addSectionHeader(QStringLiteral("Stash"));
     stashList_ = new QListWidget(this);
+    stashList_->setObjectName(QStringLiteral("gbmStashList"));
     stashList_->setAccessibleName(QStringLiteral("Stashes"));
+    stashList_->setItemDelegate(
+        new SidebarRowDelegate(SidebarRowDelegate::Kind::Stash, stashList_));
     stashList_->setMaximumHeight(120);
     stashList_->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(stashList_,

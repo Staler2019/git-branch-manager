@@ -82,6 +82,24 @@ QMenu::separator {
     margin: 4px 6px;
 }
 
+/* --- title bar --------------------------------------------------------------*/
+
+/* The in-window row containing the app icon, app name, and the (now
+ * non-native, see MainWindow::buildMenus) QMenuBar itself -- matches
+ * Design.pdf's single dark title row rather than leaving File/Edit/… to
+ * float on QMenuBar's own @surface-panel background with no container. */
+QWidget#gbmTitleBar {
+    background: @surface-sunken;
+    border-bottom: 1px solid @border-subtle;
+}
+
+/* Inside #gbmTitleBar, so the menu bar reads as part of the row rather than
+ * a second banded surface sitting on top of it. */
+QWidget#gbmTitleBar QMenuBar {
+    background: transparent;
+    border-bottom: none;
+}
+
 /* --- toolbar --------------------------------------------------------------*/
 
 QToolBar {
@@ -108,6 +126,60 @@ QToolBar QToolButton:pressed,
 QToolBar QToolButton:checked {
     background: @accent-subtle;
     color: @accent;
+}
+
+QLabel#gbmRepoNameLabel {
+    font-size: 18px;
+    font-weight: 600;
+}
+
+QLabel#gbmRepoBranchLabel {
+    color: @text-secondary;
+}
+
+/* The read-only Clean/Conflict state indicator (MainWindow::buildMenus).
+ * Disabled QToolButtons so QSS's :checked state still applies -- Fusion
+ * dims disabled widgets via QPalette::Disabled, which these two explicitly
+ * override back to full colour, since "read-only" is not "unavailable". */
+QWidget#gbmSegmented {
+    background: @surface-sunken;
+    border-radius: 8px;
+    padding: 2px;
+}
+
+QWidget#gbmSegmented QToolButton {
+    border-radius: 6px;
+    padding: 4px 12px;
+    color: @text-secondary;
+    background: transparent;
+}
+
+QWidget#gbmSegmented QToolButton:disabled {
+    color: @text-secondary;
+}
+
+QWidget#gbmSegmented QToolButton:checked {
+    background: @accent;
+    color: @text-on-accent;
+}
+
+QWidget#gbmSegmented QToolButton:checked:disabled {
+    color: @text-on-accent;
+}
+
+/* --- conflict banner --------------------------------------------------------*/
+
+/* `.gbm-banner-warning` in components.css. Previously a hand-rolled
+ * setStyleSheet() call in MainWindow::restyleBanner(), re-applied manually
+ * on every theme switch; objectName + qApp->setStyleSheet() now does that
+ * automatically like everything else. */
+QWidget#gbmBanner {
+    background: @diff-del-bg;
+    border-bottom: 1px solid @border-subtle;
+}
+
+QLabel#gbmBannerLabel {
+    color: @diff-del-text;
 }
 
 /* --- buttons --------------------------------------------------------------*/

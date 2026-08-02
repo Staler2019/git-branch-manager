@@ -34,6 +34,7 @@ class QStackedWidget;
 class QTabWidget;
 class QProgressBar;
 class QTimer;
+class QToolButton;
 
 namespace gbm {
 
@@ -172,11 +173,6 @@ private:
     /// density, and would otherwise go stale until the next collapse.
     void onDensityToggled(bool compact);
 
-    /// Re-applies the banner's background/text colours from the current
-    /// theme. Called once at construction and again by
-    /// `applyThemeAndRefresh` after every theme switch.
-    void restyleBanner();
-
     /// Submits a merge/cherry-pick style request and waits for exactly one
     /// `workingCopyOperationFinished`. On success or a plain error, reports it
     /// and is done. On a recoverable choice (currently always
@@ -282,6 +278,12 @@ private:
     QLabel* statusLabel_ = nullptr;
     QLabel* toolBarRepoNameLabel_ = nullptr;
     QLabel* toolBarBranchLabel_ = nullptr;
+    /// The "Clean | Conflict" read-only state indicator in the toolbar --
+    /// confirmed against your conflict screenshot: it reflects
+    /// `RepositorySession::state().isClean()`, updated alongside the banner
+    /// in updateStateBanner(); it is not a filter and does not accept clicks.
+    QToolButton* stateCleanButton_ = nullptr;
+    QToolButton* stateConflictButton_ = nullptr;
     QWidget* bannerRow_ = nullptr;
     QLabel* bannerLabel_ = nullptr;
     QPushButton* bannerContinueButton_ = nullptr;

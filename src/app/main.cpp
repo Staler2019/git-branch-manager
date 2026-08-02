@@ -31,14 +31,26 @@ void armScreenshotHook(gbm::MainWindow& window) {
     }
     const QString path = QString::fromUtf8(screenshotPath);
 
-    // The design (Design.pdf) is the dark-technical variant; force it here
-    // regardless of whatever theme this machine's QSettings happens to have
-    // persisted, so comparison screenshots are never accidentally taken
-    // against light-ide/neutral-professional. The prior setting is restored
-    // after capture (apply() persists whatever it is given) so a screenshot
-    // run never leaves a developer's or CI machine's saved preference changed.
+    // The design (Design.pdf) is the dark-technical variant, so that's the
+    // default here regardless of whatever theme this machine's QSettings
+    // happens to have persisted -- comparison screenshots are never
+    // accidentally taken against light-ide/neutral-professional unless asked
+    // for via GBM_SCREENSHOT_THEME (used to spot-check that the other two
+    // themes stay coherent after a token/QSS change). The prior setting is
+    // restored after capture (apply() persists whatever it is given) so a
+    // screenshot run never leaves a developer's or CI machine's saved
+    // preference changed.
+    gbm::ThemeId shotTheme = gbm::ThemeId::DarkTechnical;
+    if (const char* themeEnv = std::getenv("GBM_SCREENSHOT_THEME"); themeEnv != nullptr) {
+        const std::string_view themeName(themeEnv);
+        if (themeName == "light") {
+            shotTheme = gbm::ThemeId::LightIde;
+        } else if (themeName == "neutral") {
+            shotTheme = gbm::ThemeId::NeutralProfessional;
+        }
+    }
     const gbm::ThemeId previousTheme = gbm::ThemeManager::loadSetting();
-    gbm::ThemeManager::apply(gbm::ThemeId::DarkTechnical);
+    gbm::ThemeManager::apply(shotTheme);
 
     auto capture = [&window, path, previousTheme] {
         // One more event-loop turn so QSS polish and the first real paint

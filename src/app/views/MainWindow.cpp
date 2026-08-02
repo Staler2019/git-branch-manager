@@ -22,6 +22,7 @@
 #include "app/dialogs/StashChangesDialog.h"
 #include "app/models/CommitRowDelegate.h"
 #include "app/theme/IconLoader.h"
+#include "app/theme/Metrics.h"
 #include "app/views/CommitExpansionPanel.h"
 #include "app/views/CredentialDialog.h"
 #include "core/discovery/RepoClassifier.h"
@@ -59,6 +60,7 @@
 #include <QTabWidget>
 #include <QTimer>
 #include <QToolBar>
+#include <QToolButton>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -199,43 +201,45 @@ void MainWindow::buildUi() {
     repoLayout->setContentsMargins(0, 0, 0, 0);
 
     bannerRow_ = new QWidget(repoPage);
+    bannerRow_->setObjectName(QStringLiteral("gbmBanner"));
     auto* bannerRow = bannerRow_;
     auto* bannerLayout = new QHBoxLayout(bannerRow);
-    bannerLayout->setContentsMargins(6, 4, 6, 4);
+    bannerLayout->setContentsMargins(kSpace4, kSpace2, kSpace4, kSpace2);
+    bannerLayout->setSpacing(kSpace3);
 
     auto* bannerIcon = new QLabel(bannerRow);
-    bannerIcon->setPixmap(style()->standardIcon(QStyle::SP_MessageBoxWarning).pixmap(16, 16));
+    bannerIcon->setPixmap(
+        IconLoader::icon(QStringLiteral("alert-triangle"), Token::DiffDelText).pixmap(16, 16));
     bannerIcon->setAccessibleName(QStringLiteral("Warning"));
     bannerLayout->addWidget(bannerIcon);
 
     bannerLabel_ = new QLabel(bannerRow);
+    bannerLabel_->setObjectName(QStringLiteral("gbmBannerLabel"));
     bannerLabel_->setVisible(false);
     bannerLabel_->setWordWrap(true);
     bannerLabel_->setAccessibleName(QStringLiteral("Repository state banner"));
     bannerLayout->addWidget(bannerLabel_, 1);
 
-    // Theme-token-driven rather than a fixed literal, so the banner adapts
-    // across all three themes instead of always being the same brown -- and
-    // re-applied by applyThemeAndRefresh() on every theme switch, since a
-    // widget's own setStyleSheet() survives qApp->setStyleSheet() untouched.
-    restyleBanner();
-
     // Continue/Skip/Abort for whichever sequencer operation (merge, cherry-pick,
     // revert or rebase) RepoState reports in progress -- see
     // updateSequencerControls. Not every operation offers all three: a plain
     // merge has no --skip, for instance.
-    bannerContinueButton_ = new QPushButton(QStringLiteral("Continue"), bannerRow);
     bannerSkipButton_ = new QPushButton(QStringLiteral("Skip"), bannerRow);
+    bannerSkipButton_->setObjectName(QStringLiteral("secondaryButton"));
     bannerAbortButton_ = new QPushButton(QStringLiteral("Abort"), bannerRow);
+    bannerAbortButton_->setObjectName(QStringLiteral("dangerButton"));
+    bannerContinueButton_ = new QPushButton(QStringLiteral("Continue"), bannerRow);
+    bannerContinueButton_->setObjectName(QStringLiteral("primaryButton"));
     bannerContinueButton_->setVisible(false);
     bannerSkipButton_->setVisible(false);
     bannerAbortButton_->setVisible(false);
     connect(bannerContinueButton_, &QPushButton::clicked, this, &MainWindow::onBannerContinue);
     connect(bannerSkipButton_, &QPushButton::clicked, this, &MainWindow::onBannerSkip);
     connect(bannerAbortButton_, &QPushButton::clicked, this, &MainWindow::onBannerAbort);
-    bannerLayout->addWidget(bannerContinueButton_);
+    // Skip/Abort/Continue, left to right, matching your conflict screenshot.
     bannerLayout->addWidget(bannerSkipButton_);
     bannerLayout->addWidget(bannerAbortButton_);
+    bannerLayout->addWidget(bannerContinueButton_);
 
     bannerRow->setVisible(false);
     repoLayout->addWidget(bannerRow);
@@ -424,11 +428,49 @@ void MainWindow::buildUi() {
 }
 
 void MainWindow::buildMenus() {
+    // In-window menu bar, matching Design.pdf's title row (app icon + name +
+    // File/Edit/…, all in one dark strip) on every platform including
+    // macOS, where Qt otherwise promotes the menu bar to the system menu
+    // bar. Deliberate and cross-platform-consistent, decided explicitly
+    // rather than left to Qt's default.
+    // Captured once and reused for every addMenu() call below. QMainWindow::
+    // menuBar() recreates a brand-new (native-by-default) QMenuBar any time
+    // the main window's current menu widget isn't itself a QMenuBar -- so
+    // calling menuBar() again after setMenuWidget(titleBar) would silently
+    // evict titleBar and replace it with an empty native bar (invisible
+    // in-window on macOS), discarding the app icon/name row entirely. Using
+    // this pointer directly instead of the menuBar() accessor is what keeps
+    // titleBar as the main window's actual menu widget.
+    auto* bar = menuBar();
+    bar->setNativeMenuBar(false);
+
+    auto* titleBar = new QWidget(this);
+    titleBar->setObjectName(QStringLiteral("gbmTitleBar"));
+    auto* titleLayout = new QHBoxLayout(titleBar);
+    titleLayout->setContentsMargins(kSpace3, kSpace1, kSpace3, kSpace1);
+    titleLayout->setSpacing(kSpace2);
+
+    auto* appIcon = new QLabel(titleBar);
+    appIcon->setPixmap(
+        IconLoader::icon(QStringLiteral("git-branch"), Token::TextPrimary, 16).pixmap(16, 16));
+    titleLayout->addWidget(appIcon);
+
+    auto* appName = new QLabel(QStringLiteral("git-branch-manager"), titleBar);
+    QFont appNameFont = ThemeManager::uiFont(kTextBase);
+    appNameFont.setWeight(QFont::DemiBold);
+    appName->setFont(appNameFont);
+    titleLayout->addWidget(appName);
+
+    titleLayout->addWidget(bar);
+    titleLayout->addStretch(1);
+
+    setMenuWidget(titleBar);
+
     // --- File --------------------------------------------------------------
     // New/Open/Clone repository omitted: this app discovers repositories by
     // scanning base folders, not by opening a single one directly -- there is
     // no such capability to surface.
-    auto* fileMenu = menuBar()->addMenu(QStringLiteral("&File"));
+    auto* fileMenu = bar->addMenu(QStringLiteral("&File"));
     fileMenu->addAction(QStringLiteral("Add base folder…"), this, &MainWindow::onAddBaseFolder);
     fileMenu->addAction(
         QStringLiteral("Manage base folders…"), this, &MainWindow::onManageBaseFolders);
@@ -445,7 +487,7 @@ void MainWindow::buildMenus() {
     // Cut/Copy/Paste and Find in files omitted: no generic focused-widget
     // text editing is wired up, and there is no find-in-files feature --
     // adding non-functional entries would be worse than leaving them out.
-    auto* editMenu = menuBar()->addMenu(QStringLiteral("&Edit"));
+    auto* editMenu = bar->addMenu(QStringLiteral("&Edit"));
     undoAction_ = editMenu->addAction(
         QStringLiteral("Undo last operation"), this, &MainWindow::onUndoLastOperation);
     undoAction_->setShortcut(QKeySequence(QStringLiteral("Ctrl+Z")));
@@ -458,7 +500,7 @@ void MainWindow::buildMenus() {
     redoAction->setToolTip(QStringLiteral("There is no redo for undone operations"));
 
     // --- View ----------------------------------------------------------------
-    auto* viewMenu = menuBar()->addMenu(QStringLiteral("&View"));
+    auto* viewMenu = bar->addMenu(QStringLiteral("&View"));
     auto* historyAction =
         viewMenu->addAction(QStringLiteral("History"), this, &MainWindow::onShowHistory);
     historyAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+1")));
@@ -520,7 +562,7 @@ void MainWindow::buildMenus() {
     // exists. There is no per-repository removal -- only whole-base-folder
     // removal via Manage base folders… (File) -- and adding either would be
     // new bridge/core functionality, out of scope for a decomposition phase.
-    auto* repoMenu = menuBar()->addMenu(QStringLiteral("Reposi&tory"));
+    auto* repoMenu = bar->addMenu(QStringLiteral("Reposi&tory"));
     auto* fetchAction = repoMenu->addAction(QStringLiteral("Fetch"), this, &MainWindow::onFetch);
     fetchAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+F")));
     fetchAction->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
@@ -582,7 +624,7 @@ void MainWindow::buildMenus() {
     // exposes them and no existing UI wires them (checked: no call site
     // anywhere) -- surfacing them here would mean adding new bridge/UI code,
     // out of scope for a decomposition phase.
-    auto* branchMenu = menuBar()->addMenu(QStringLiteral("&Branch"));
+    auto* branchMenu = bar->addMenu(QStringLiteral("&Branch"));
     auto* checkoutAction = branchMenu->addAction(
         QStringLiteral("Switch to selected branch"), this, &MainWindow::onCheckoutRequested);
     checkoutAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+O")));
@@ -609,7 +651,7 @@ void MainWindow::buildMenus() {
     // --- Remote --------------------------------------------------------------
     // Add remote… and Manage remotes… omitted: no add/manage-remotes UI
     // exists yet.
-    auto* remoteMenu = menuBar()->addMenu(QStringLiteral("Re&mote"));
+    auto* remoteMenu = bar->addMenu(QStringLiteral("Re&mote"));
     remoteMenu->addAction(fetchAction);
     remoteMenu->addAction(
         QStringLiteral("Fetch (and prune stale remote branches)"), this, &MainWindow::onFetchPrune);
@@ -624,7 +666,7 @@ void MainWindow::buildMenus() {
     // --- Help ------------------------------------------------------------------
     // Documentation omitted: no in-app link target -- the README ships in the
     // repo, not next to the installed binary.
-    auto* helpMenu = menuBar()->addMenu(QStringLiteral("&Help"));
+    auto* helpMenu = bar->addMenu(QStringLiteral("&Help"));
     auto* shortcutsAction = helpMenu->addAction(QStringLiteral("Keyboard shortcuts"), this, [this] {
         KeyboardShortcutsDialog dialog(this);
         dialog.exec();
@@ -636,16 +678,21 @@ void MainWindow::buildMenus() {
     });
 
     // --- toolbar -------------------------------------------------------------
-    // Repo name + "/ branch", a spacer, Fetch/Pull/Push (the same QAction
-    // objects as the menus above -- not new ones, so there is only ever one
+    // Repo name + "/ branch", a spacer, a centered read-only Clean/Conflict
+    // state indicator, a spacer, Fetch/Pull/Push as real styled buttons (the
+    // same QAction objects the menus above use, so there is only ever one
     // shortcut owner each), a Refresh icon button, a separator, and the three
-    // theme switches the View > Theme submenu already offers.
+    // theme switches -- checkable now, reflecting the current theme, unlike
+    // the plain non-checkable QActions this replaces.
     auto* toolBar = addToolBar(QStringLiteral("Main"));
+    toolBar->setObjectName(QStringLiteral("gbmToolBar"));
     toolBar->setMovable(false);
+    toolBar->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
 
     toolBarRepoNameLabel_ = new QLabel(toolBar);
+    toolBarRepoNameLabel_->setObjectName(QStringLiteral("gbmRepoNameLabel"));
     toolBarBranchLabel_ = new QLabel(toolBar);
-    toolBarBranchLabel_->setEnabled(false);  // Secondary-text look via the disabled palette.
+    toolBarBranchLabel_->setObjectName(QStringLiteral("gbmRepoBranchLabel"));
     toolBar->addWidget(toolBarRepoNameLabel_);
     toolBar->addWidget(toolBarBranchLabel_);
     // The only way back to the repository browser while one is open besides
@@ -654,21 +701,75 @@ void MainWindow::buildMenus() {
     toolBar->addAction(
         QStringLiteral("Repositories"), this, [this] { stack_->setCurrentIndex(0); });
 
-    auto* spacer = new QWidget(toolBar);
-    spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    toolBar->addWidget(spacer);
+    auto* leftSpacer = new QWidget(toolBar);
+    leftSpacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    toolBar->addWidget(leftSpacer);
 
-    toolBar->addAction(fetchAction);
-    toolBar->addAction(pullAction);
-    toolBar->addAction(pushAction);
+    // Read-only state indicator -- confirmed via your conflict screenshot:
+    // "Conflict" lights up while a sequencer operation is in progress, and
+    // the existing bannerRow_ below still carries Skip/Abort/Continue. Not a
+    // filter; nothing here changes what the right pane shows.
+    auto* segmented = new QWidget(toolBar);
+    segmented->setObjectName(QStringLiteral("gbmSegmented"));
+    auto* segmentedLayout = new QHBoxLayout(segmented);
+    segmentedLayout->setContentsMargins(2, 2, 2, 2);
+    segmentedLayout->setSpacing(2);
+    stateCleanButton_ = new QToolButton(segmented);
+    stateCleanButton_->setText(QStringLiteral("Clean"));
+    stateCleanButton_->setCheckable(true);
+    stateCleanButton_->setChecked(true);
+    stateCleanButton_->setEnabled(false);  // Read-only: reflects state, not clickable.
+    stateConflictButton_ = new QToolButton(segmented);
+    stateConflictButton_->setText(QStringLiteral("Conflict"));
+    stateConflictButton_->setCheckable(true);
+    stateConflictButton_->setEnabled(false);
+    segmentedLayout->addWidget(stateCleanButton_);
+    segmentedLayout->addWidget(stateConflictButton_);
+    toolBar->addWidget(segmented);
+
+    auto* rightSpacer = new QWidget(toolBar);
+    rightSpacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    toolBar->addWidget(rightSpacer);
+
+    fetchAction->setIcon(IconLoader::icon(QStringLiteral("cloud-download"), Token::TextSecondary));
+    pullAction->setIcon(IconLoader::icon(QStringLiteral("arrow-down"), Token::TextSecondary));
+    pushAction->setIcon(IconLoader::icon(QStringLiteral("arrow-up"), Token::TextOnAccent));
+
+    auto* fetchButton = new QPushButton(fetchAction->icon(), fetchAction->text(), toolBar);
+    fetchButton->setObjectName(QStringLiteral("secondaryButton"));
+    connect(fetchButton, &QPushButton::clicked, fetchAction, &QAction::trigger);
+    toolBar->addWidget(fetchButton);
+
+    auto* pullButton = new QPushButton(pullAction->icon(), pullAction->text(), toolBar);
+    pullButton->setObjectName(QStringLiteral("secondaryButton"));
+    connect(pullButton, &QPushButton::clicked, pullAction, &QAction::trigger);
+    toolBar->addWidget(pullButton);
+
+    auto* pushButton = new QPushButton(pushAction->icon(), pushAction->text(), toolBar);
+    pushButton->setObjectName(QStringLiteral("primaryButton"));
+    connect(pushButton, &QPushButton::clicked, pushAction, &QAction::trigger);
+    toolBar->addWidget(pushButton);
+
+    refreshAction->setIcon(IconLoader::icon(QStringLiteral("refresh-cw"), Token::TextSecondary));
     toolBar->addAction(refreshAction);
 
     toolBar->addSeparator();
 
+    // Checkable and exclusive, unlike the plain QActions this replaces (which
+    // showed no current-theme state at all) -- matches the already-checkable
+    // View > Theme submenu built above, and shares its highlighted-when-
+    // checked look with app.qss's QToolButton:checked rule.
+    auto* toolbarThemeGroup = new QActionGroup(this);
+    toolbarThemeGroup->setExclusive(true);
     for (ThemeId theme :
          {ThemeId::DarkTechnical, ThemeId::LightIde, ThemeId::NeutralProfessional}) {
-        toolBar->addAction(
-            ThemeManager::label(theme), this, [this, theme] { applyThemeAndRefresh(theme); });
+        QAction* action = toolBar->addAction(
+            IconLoader::icon(QStringLiteral("palette"), Token::TextSecondary),
+            ThemeManager::label(theme));
+        action->setCheckable(true);
+        action->setChecked(theme == currentTheme);
+        toolbarThemeGroup->addAction(action);
+        connect(action, &QAction::triggered, this, [this, theme] { applyThemeAndRefresh(theme); });
     }
 }
 
@@ -1001,25 +1102,17 @@ void MainWindow::closeRepository() {
     bannerLabel_->parentWidget()->setVisible(false);
 }
 
-void MainWindow::restyleBanner() {
-    bannerRow_->setStyleSheet(QStringLiteral("QWidget { background: %1; }")
-                                  .arg(ThemeManager::color(Token::DiffDelBg).name()));
-    // Unmissable by design: a repository stuck mid-rebase must never look normal.
-    bannerLabel_->setStyleSheet(QStringLiteral("QLabel { color: %1; }")
-                                    .arg(ThemeManager::color(Token::DiffDelText).name()));
-}
-
 void MainWindow::applyThemeAndRefresh(ThemeId theme) {
     ThemeManager::apply(theme);
 
     // `qApp->setStyleSheet()` re-polishes every widget styled purely through
-    // app.qss, and the graph delegate reads ThemeManager::color() at paint
-    // time so a repaint is all it needs. What is left is the colour baked
-    // into a widget's own stylesheet, into an IconLoader-tinted pixmap, or
-    // into already-rendered diff text -- none of which the app-wide restyle
-    // touches.
+    // app.qss -- the banner is styled entirely that way now (objectName
+    // gbmBanner/gbmBannerLabel, see buildUi), no manual restyleBanner() call
+    // needed anymore -- and the graph delegate reads ThemeManager::color()
+    // at paint time so a repaint is all it needs. What is left is the
+    // colour baked into an IconLoader-tinted pixmap or into already-rendered
+    // diff text, neither of which the app-wide restyle touches.
     IconLoader::clearCache();
-    restyleBanner();
     diffView_->refreshTheme();
     workingCopyView_->refreshTheme();
     sidebar_->refreshTheme();
@@ -1053,6 +1146,8 @@ void MainWindow::updateStateBanner() {
         if (undoAction_) {
             undoAction_->setEnabled(false);
         }
+        stateCleanButton_->setChecked(true);
+        stateConflictButton_->setChecked(false);
         return;
     }
     if (undoAction_) {
@@ -1062,6 +1157,8 @@ void MainWindow::updateStateBanner() {
     const RepoState state = session_->state();
     const std::string description = state.describe();
     updateSequencerControls(state);
+    stateCleanButton_->setChecked(state.isClean());
+    stateConflictButton_->setChecked(!state.isClean());
     if (description.empty()) {
         bannerLabel_->parentWidget()->setVisible(false);
         return;

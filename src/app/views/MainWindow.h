@@ -18,6 +18,7 @@
 #include "core/workers/ThreadPool.h"
 
 #include <QLabel>
+#include <QList>
 #include <QMainWindow>
 #include <QPoint>
 #include <QTableView>
@@ -67,6 +68,14 @@ public:
     /// expandCommitRowForScreenshot's panel would otherwise cover exactly the
     /// area in question.
     void selectCommitRowForScreenshot(int row);
+
+    /// Test/debug seam for `GBM_SCREENSHOT_SWITCH_THEME_AFTER`: calls the
+    /// private `applyThemeAndRefresh(theme)` a screenshot can otherwise only
+    /// reach by simulating a toolbar click -- exists specifically to verify
+    /// that a *runtime* theme switch re-bakes every IconLoader-tinted icon
+    /// (title bar, Fetch/Pull/Push, Refresh, the palette icons), not just
+    /// that starting the process already on that theme looks right.
+    void switchThemeForScreenshot(ThemeId theme);
 
 private slots:
     void onAddBaseFolder();
@@ -291,6 +300,25 @@ private:
     QPushButton* bannerAbortButton_ = nullptr;
     QAction* undoAction_ = nullptr;
     QProgressBar* busyBar_ = nullptr;
+
+    /// Icons baked once via IconLoader::icon() at buildMenus() time, unlike
+    /// the delegate-painted ones (sidebar rows, ref pills) that call it fresh
+    /// on every paint. IconLoader::clearCache() alone does not repaint an
+    /// already-set QIcon/QPixmap, so applyThemeAndRefresh() re-bakes each of
+    /// these explicitly after clearing the cache -- otherwise they keep the
+    /// previous theme's tint indefinitely after a theme switch.
+    QLabel* titleBarIconLabel_ = nullptr;
+    QAction* fetchAction_ = nullptr;
+    QAction* pullAction_ = nullptr;
+    QAction* pushAction_ = nullptr;
+    QAction* refreshAction_ = nullptr;
+    QList<QAction*> toolbarThemeActions_;  // Same order as {DarkTechnical, LightIde, NeutralProfessional}.
+    /// The toolbar's styled Fetch/Pull/Push buttons construct their icon from
+    /// fetchAction_->icon() etc. as a one-time snapshot, not a live binding
+    /// to the action -- setting the action's icon later does not move these.
+    QPushButton* fetchButton_ = nullptr;
+    QPushButton* pullButton_ = nullptr;
+    QPushButton* pushButton_ = nullptr;
 
     /// Coalesces a burst of scroll events into a single `probeVisibleRepos()`
     /// call instead of one per event.

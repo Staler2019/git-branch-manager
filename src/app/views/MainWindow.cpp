@@ -65,6 +65,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <utility>
 
 namespace gbm {
 
@@ -457,10 +458,10 @@ void MainWindow::buildMenus() {
     titleLayout->setContentsMargins(kSpace3, kSpace1, kSpace3, kSpace1);
     titleLayout->setSpacing(kSpace2);
 
-    auto* appIcon = new QLabel(titleBar);
-    appIcon->setPixmap(
+    titleBarIconLabel_ = new QLabel(titleBar);
+    titleBarIconLabel_->setPixmap(
         IconLoader::icon(QStringLiteral("git-branch"), Token::TextPrimary, 16).pixmap(16, 16));
-    titleLayout->addWidget(appIcon);
+    titleLayout->addWidget(titleBarIconLabel_);
 
     auto* appName = new QLabel(QStringLiteral("git-branch-manager"), titleBar);
     QFont appNameFont = ThemeManager::uiFont(kTextBase);
@@ -545,6 +546,7 @@ void MainWindow::buildMenus() {
     // network access to fetch them -- Qt's bundled standard icons stand in
     // rather than shipping fabricated placeholder SVGs.
     refreshAction->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
+    refreshAction_ = refreshAction;
     auto* forceAction = viewMenu->addAction(
         QStringLiteral("Refresh (rescan everything)"), this, &MainWindow::onForceRefresh);
     forceAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+F5")));
@@ -573,12 +575,15 @@ void MainWindow::buildMenus() {
     auto* fetchAction = repoMenu->addAction(QStringLiteral("Fetch"), this, &MainWindow::onFetch);
     fetchAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+F")));
     fetchAction->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
+    fetchAction_ = fetchAction;
     auto* pullAction = repoMenu->addAction(QStringLiteral("Pull"), this, &MainWindow::onPull);
     pullAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+L")));
     pullAction->setIcon(style()->standardIcon(QStyle::SP_ArrowDown));
+    pullAction_ = pullAction;
     auto* pushAction = repoMenu->addAction(QStringLiteral("Push"), this, &MainWindow::onPush);
     pushAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+P")));
     pushAction->setIcon(style()->standardIcon(QStyle::SP_ArrowUp));
+    pushAction_ = pushAction;
     repoMenu->addAction(
         QStringLiteral("Repository settings…"), this, &MainWindow::onShowRepositorySettings);
     repoMenu->addSeparator();
@@ -742,20 +747,20 @@ void MainWindow::buildMenus() {
     pullAction->setIcon(IconLoader::icon(QStringLiteral("arrow-down"), Token::TextSecondary));
     pushAction->setIcon(IconLoader::icon(QStringLiteral("arrow-up"), Token::TextOnAccent));
 
-    auto* fetchButton = new QPushButton(fetchAction->icon(), fetchAction->text(), toolBar);
-    fetchButton->setObjectName(QStringLiteral("secondaryButton"));
-    connect(fetchButton, &QPushButton::clicked, fetchAction, &QAction::trigger);
-    toolBar->addWidget(fetchButton);
+    fetchButton_ = new QPushButton(fetchAction->icon(), fetchAction->text(), toolBar);
+    fetchButton_->setObjectName(QStringLiteral("secondaryButton"));
+    connect(fetchButton_, &QPushButton::clicked, fetchAction, &QAction::trigger);
+    toolBar->addWidget(fetchButton_);
 
-    auto* pullButton = new QPushButton(pullAction->icon(), pullAction->text(), toolBar);
-    pullButton->setObjectName(QStringLiteral("secondaryButton"));
-    connect(pullButton, &QPushButton::clicked, pullAction, &QAction::trigger);
-    toolBar->addWidget(pullButton);
+    pullButton_ = new QPushButton(pullAction->icon(), pullAction->text(), toolBar);
+    pullButton_->setObjectName(QStringLiteral("secondaryButton"));
+    connect(pullButton_, &QPushButton::clicked, pullAction, &QAction::trigger);
+    toolBar->addWidget(pullButton_);
 
-    auto* pushButton = new QPushButton(pushAction->icon(), pushAction->text(), toolBar);
-    pushButton->setObjectName(QStringLiteral("primaryButton"));
-    connect(pushButton, &QPushButton::clicked, pushAction, &QAction::trigger);
-    toolBar->addWidget(pushButton);
+    pushButton_ = new QPushButton(pushAction->icon(), pushAction->text(), toolBar);
+    pushButton_->setObjectName(QStringLiteral("primaryButton"));
+    connect(pushButton_, &QPushButton::clicked, pushAction, &QAction::trigger);
+    toolBar->addWidget(pushButton_);
 
     refreshAction->setIcon(IconLoader::icon(QStringLiteral("refresh-cw"), Token::TextSecondary));
     toolBar->addAction(refreshAction);
@@ -777,6 +782,7 @@ void MainWindow::buildMenus() {
         action->setChecked(theme == currentTheme);
         toolbarThemeGroup->addAction(action);
         connect(action, &QAction::triggered, this, [this, theme] { applyThemeAndRefresh(theme); });
+        toolbarThemeActions_.append(action);
     }
 }
 
@@ -1080,6 +1086,10 @@ void MainWindow::selectCommitRowForScreenshot(int row) {
     commitView_->selectRow(row);
 }
 
+void MainWindow::switchThemeForScreenshot(ThemeId theme) {
+    applyThemeAndRefresh(theme);
+}
+
 void MainWindow::closeRepository() {
     if (!session_) {
         return;
@@ -1124,6 +1134,27 @@ void MainWindow::applyThemeAndRefresh(ThemeId theme) {
     workingCopyView_->refreshTheme();
     sidebar_->refreshTheme();
     commitView_->viewport()->update();
+
+    // clearCache() only stops future IconLoader::icon() calls from returning
+    // a stale-tinted QIcon -- it does not repaint one already baked into a
+    // QAction/QLabel at buildMenus() time (unlike the sidebar/ref-pill icons,
+    // which call IconLoader::icon() fresh on every paint and so pick up the
+    // new tint for free). Every icon set up front there needs re-baking here.
+    titleBarIconLabel_->setPixmap(
+        IconLoader::icon(QStringLiteral("git-branch"), Token::TextPrimary, 16).pixmap(16, 16));
+    fetchAction_->setIcon(IconLoader::icon(QStringLiteral("cloud-download"), Token::TextSecondary));
+    pullAction_->setIcon(IconLoader::icon(QStringLiteral("arrow-down"), Token::TextSecondary));
+    pushAction_->setIcon(IconLoader::icon(QStringLiteral("arrow-up"), Token::TextOnAccent));
+    refreshAction_->setIcon(IconLoader::icon(QStringLiteral("refresh-cw"), Token::TextSecondary));
+    for (QAction* action : std::as_const(toolbarThemeActions_)) {
+        action->setIcon(IconLoader::icon(QStringLiteral("palette"), Token::TextSecondary));
+    }
+    // The toolbar buttons snapshot their action's icon at construction (see
+    // the comment on fetchButton_ in MainWindow.h) rather than tracking it
+    // live, so they need the same re-bake the actions above just got.
+    fetchButton_->setIcon(fetchAction_->icon());
+    pullButton_->setIcon(pullAction_->icon());
+    pushButton_->setIcon(pushAction_->icon());
 }
 
 void MainWindow::onDensityToggled(bool compact) {

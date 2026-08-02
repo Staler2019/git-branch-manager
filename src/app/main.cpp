@@ -53,6 +53,24 @@ void armScreenshotHook(gbm::MainWindow& window) {
     gbm::ThemeManager::apply(shotTheme);
 
     auto capture = [&window, path, previousTheme] {
+        // GBM_SCREENSHOT_SWITCH_THEME_AFTER exercises the *runtime* theme
+        // switch path (MainWindow::applyThemeAndRefresh, wired to the
+        // toolbar/menu theme actions) rather than just starting the process
+        // already on a given theme (which is all shotTheme above does) --
+        // the two are different code paths, and only the former re-bakes
+        // icons that were set once at buildMenus() time (title bar, Fetch/
+        // Pull/Push, Refresh, the palette icons).
+        if (const char* switchEnv = std::getenv("GBM_SCREENSHOT_SWITCH_THEME_AFTER");
+            switchEnv != nullptr) {
+            const std::string_view name(switchEnv);
+            if (name == "light") {
+                window.switchThemeForScreenshot(gbm::ThemeId::LightIde);
+            } else if (name == "neutral") {
+                window.switchThemeForScreenshot(gbm::ThemeId::NeutralProfessional);
+            } else if (name == "dark") {
+                window.switchThemeForScreenshot(gbm::ThemeId::DarkTechnical);
+            }
+        }
         // One more event-loop turn so QSS polish and the first real paint
         // (not just the first show event) have both landed.
         QTimer::singleShot(200, &window, [&window, path, previousTheme] {

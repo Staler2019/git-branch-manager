@@ -2,6 +2,7 @@ name: ci
 
 on:
   pull_request:
+    branches: [main]
 
 # Without this the matrix queues for hours on a busy repository, and stale runs
 # keep burning minutes after a force-push.

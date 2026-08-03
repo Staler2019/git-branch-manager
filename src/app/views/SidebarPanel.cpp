@@ -2,6 +2,7 @@
 
 #include "app/bridge/RepositorySession.h"
 #include "app/bridge/ThemeManager.h"
+#include "app/dialogs/MessageDialogs.h"
 #include "app/models/RefRowDelegate.h"
 #include "app/models/RefTreeModel.h"
 #include "app/models/RepoListModel.h"
@@ -516,32 +517,24 @@ void SidebarPanel::showBranchContextMenu(const QModelIndex& index, const QPoint&
     if (chosen == checkoutAction) {
         emit checkoutRequested();
     } else if (chosen == newBranchAction) {
-        bool ok = false;
-        const QString newName = QInputDialog::getText(this,
-                                                      QStringLiteral("New branch"),
-                                                      QStringLiteral("Branch name:"),
-                                                      QLineEdit::Normal,
-                                                      QString(),
-                                                      &ok);
-        if (!ok || newName.isEmpty()) {
+        const auto newNameResult =
+            dialogs::promptText(this, QStringLiteral("New branch"), QStringLiteral("Branch name:"));
+        if (!newNameResult || newNameResult->isEmpty()) {
             return;
         }
+        const QString newName = *newNameResult;
         CreateBranchRequest request;
         request.name = newName.toStdString();
         request.startPoint = name.toStdString();
         emit statusMessage(QStringLiteral("Creating branch %1…").arg(newName));
         runWithFeedback_([this, request] { session_->createBranch(request); }, nullptr);
     } else if (chosen == renameAction) {
-        bool ok = false;
-        const QString newName = QInputDialog::getText(this,
-                                                      QStringLiteral("Rename branch"),
-                                                      QStringLiteral("New name:"),
-                                                      QLineEdit::Normal,
-                                                      name,
-                                                      &ok);
-        if (!ok || newName.isEmpty() || newName == name) {
+        const auto newNameResult = dialogs::promptText(
+            this, QStringLiteral("Rename branch"), QStringLiteral("New name:"), name);
+        if (!newNameResult || newNameResult->isEmpty() || *newNameResult == name) {
             return;
         }
+        const QString newName = *newNameResult;
         RenameBranchRequest request;
         request.from = name.toStdString();
         request.to = newName.toStdString();
@@ -550,13 +543,12 @@ void SidebarPanel::showBranchContextMenu(const QModelIndex& index, const QPoint&
     } else if (chosen == mergeAction) {
         emit mergeIntoCurrentRequested();
     } else if (chosen == rebaseAction) {
-        const auto confirmed =
-            QMessageBox::question(this,
-                                  QStringLiteral("Rebase"),
-                                  QStringLiteral("Rebase the current branch onto %1?").arg(name),
-                                  QMessageBox::Yes | QMessageBox::Cancel,
-                                  QMessageBox::Cancel);
-        if (confirmed != QMessageBox::Yes) {
+        const bool confirmed =
+            dialogs::confirm(this,
+                             QStringLiteral("Rebase"),
+                             QStringLiteral("Rebase the current branch onto %1?").arg(name),
+                             QStringLiteral("Yes"));
+        if (!confirmed) {
             return;
         }
         RebaseRequest request;
@@ -573,12 +565,12 @@ void SidebarPanel::showBranchContextMenu(const QModelIndex& index, const QPoint&
         if (names.isEmpty()) {
             names << QStringLiteral("origin");
         }
-        bool ok = false;
-        const QString remote = QInputDialog::getItem(
-            this, QStringLiteral("Push"), QStringLiteral("Remote:"), names, 0, false, &ok);
-        if (!ok || remote.isEmpty()) {
+        const auto remoteResult = dialogs::promptChoice(
+            this, QStringLiteral("Push"), QStringLiteral("Remote:"), names, 0);
+        if (!remoteResult || remoteResult->isEmpty()) {
             return;
         }
+        const QString remote = *remoteResult;
         PushRequest request;
         request.remoteName = remote.toStdString();
         request.branch = name.toStdString();
@@ -596,12 +588,12 @@ void SidebarPanel::showBranchContextMenu(const QModelIndex& index, const QPoint&
                       .arg(deletableNames.size())
                       .arg(deletableNames.join(QStringLiteral("\n")))
                 : QStringLiteral("Delete branch \"%1\"?").arg(deletableNames.first());
-        const auto confirmed = QMessageBox::warning(this,
-                                                    QStringLiteral("Delete branch?"),
-                                                    confirmText,
-                                                    QMessageBox::Yes | QMessageBox::Cancel,
-                                                    QMessageBox::Cancel);
-        if (confirmed != QMessageBox::Yes) {
+        const bool confirmed = dialogs::confirm(this,
+                                                QStringLiteral("Delete branch?"),
+                                                confirmText,
+                                                QStringLiteral("Yes"),
+                                                /*destructive=*/true);
+        if (!confirmed) {
             return;
         }
         DeleteBranchRequest request;
@@ -644,16 +636,14 @@ void SidebarPanel::showRemoteBranchContextMenu(const QModelIndex& index, const Q
     }
 
     if (chosen == checkoutAction) {
-        bool ok = false;
-        const QString localName = QInputDialog::getText(this,
-                                                        QStringLiteral("Checkout as new branch"),
-                                                        QStringLiteral("Local branch name:"),
-                                                        QLineEdit::Normal,
-                                                        QString::fromStdString(branchName),
-                                                        &ok);
-        if (!ok || localName.isEmpty()) {
+        const auto localNameResult = dialogs::promptText(this,
+                                                         QStringLiteral("Checkout as new branch"),
+                                                         QStringLiteral("Local branch name:"),
+                                                         QString::fromStdString(branchName));
+        if (!localNameResult || localNameResult->isEmpty()) {
             return;
         }
+        const QString localName = *localNameResult;
         CheckoutRequest request;
         request.target = fullShortName.toStdString();
         request.createBranch = true;
@@ -675,15 +665,15 @@ void SidebarPanel::showRemoteBranchContextMenu(const QModelIndex& index, const Q
     } else if (chosen == copyAction) {
         QGuiApplication::clipboard()->setText(fullShortName);
     } else if (chosen == deleteAction) {
-        const auto confirmed =
-            QMessageBox::warning(this,
-                                 QStringLiteral("Delete remote branch?"),
-                                 QStringLiteral("Delete \"%1\" on %2? This affects everyone who "
-                                                "fetches from that remote.")
-                                     .arg(fullShortName, QString::fromStdString(remoteName)),
-                                 QMessageBox::Yes | QMessageBox::Cancel,
-                                 QMessageBox::Cancel);
-        if (confirmed != QMessageBox::Yes) {
+        const bool confirmed =
+            dialogs::confirm(this,
+                             QStringLiteral("Delete remote branch?"),
+                             QStringLiteral("Delete \"%1\" on %2? This affects everyone who "
+                                            "fetches from that remote.")
+                                 .arg(fullShortName, QString::fromStdString(remoteName)),
+                             QStringLiteral("Yes"),
+                             /*destructive=*/true);
+        if (!confirmed) {
             return;
         }
         DeleteBranchRequest request;
@@ -734,12 +724,12 @@ void SidebarPanel::showTagContextMenu(const QModelIndex& index, const QPoint& gl
         if (names.isEmpty()) {
             names << QStringLiteral("origin");
         }
-        bool ok = false;
-        const QString remote = QInputDialog::getItem(
-            this, QStringLiteral("Push tag"), QStringLiteral("Remote:"), names, 0, false, &ok);
-        if (!ok || remote.isEmpty()) {
+        const auto remoteResult = dialogs::promptChoice(
+            this, QStringLiteral("Push tag"), QStringLiteral("Remote:"), names, 0);
+        if (!remoteResult || remoteResult->isEmpty()) {
             return;
         }
+        const QString remote = *remoteResult;
         PushTagRequest request;
         request.remoteName = remote.toStdString();
         request.name = name.toStdString();
@@ -748,12 +738,12 @@ void SidebarPanel::showTagContextMenu(const QModelIndex& index, const QPoint& gl
     } else if (chosen == copyAction) {
         QGuiApplication::clipboard()->setText(name);
     } else if (chosen == deleteAction) {
-        const auto confirmed = QMessageBox::warning(this,
-                                                    QStringLiteral("Delete tag?"),
-                                                    QStringLiteral("Delete tag \"%1\"?").arg(name),
-                                                    QMessageBox::Yes | QMessageBox::Cancel,
-                                                    QMessageBox::Cancel);
-        if (confirmed != QMessageBox::Yes) {
+        const bool confirmed = dialogs::confirm(this,
+                                                QStringLiteral("Delete tag?"),
+                                                QStringLiteral("Delete tag \"%1\"?").arg(name),
+                                                QStringLiteral("Yes"),
+                                                /*destructive=*/true);
+        if (!confirmed) {
             return;
         }
         DeleteTagRequest request;
@@ -817,7 +807,7 @@ void SidebarPanel::onRepoContextMenuRequested(const QPoint& pos) {
     } else if (chosen == openInTerminalAction) {
         QString error;
         if (!openTerminalAt(path, &error)) {
-            QMessageBox::warning(this, QStringLiteral("Open in terminal"), error);
+            dialogs::warn(this, QStringLiteral("Open in terminal"), error);
         }
     } else if (chosen == fetchAction) {
         emit statusMessage(QStringLiteral("Fetching…"));
@@ -866,16 +856,12 @@ void SidebarPanel::onStashContextMenuRequested(const QPoint& pos) {
         emit statusMessage(QStringLiteral("Popping stash@{%1}…").arg(stashIndex));
         runWithFeedback_([this, request] { session_->applyStash(request); }, nullptr);
     } else if (chosen == branchAction) {
-        bool ok = false;
-        const QString name = QInputDialog::getText(this,
-                                                   QStringLiteral("Create branch from stash"),
-                                                   QStringLiteral("Branch name:"),
-                                                   QLineEdit::Normal,
-                                                   QString(),
-                                                   &ok);
-        if (!ok || name.isEmpty()) {
+        const auto nameResult = dialogs::promptText(
+            this, QStringLiteral("Create branch from stash"), QStringLiteral("Branch name:"));
+        if (!nameResult || nameResult->isEmpty()) {
             return;
         }
+        const QString name = *nameResult;
         StashBranchRequest request;
         request.index = stashIndex;
         request.branchName = name.toStdString();
@@ -888,13 +874,13 @@ void SidebarPanel::onStashContextMenuRequested(const QPoint& pos) {
         // it, same as the branch/repo menus' "Repository settings" entry.
         emit diffRequested();
     } else if (chosen == dropAction) {
-        const auto confirmed = QMessageBox::warning(
-            this,
-            QStringLiteral("Drop stash?"),
-            QStringLiteral("This permanently deletes stash@{%1}.").arg(stashIndex),
-            QMessageBox::Discard | QMessageBox::Cancel,
-            QMessageBox::Cancel);
-        if (confirmed != QMessageBox::Discard) {
+        const bool confirmed =
+            dialogs::confirm(this,
+                             QStringLiteral("Drop stash?"),
+                             QStringLiteral("This permanently deletes stash@{%1}.").arg(stashIndex),
+                             QStringLiteral("Discard"),
+                             /*destructive=*/true);
+        if (!confirmed) {
             return;
         }
         StashDropRequest request;

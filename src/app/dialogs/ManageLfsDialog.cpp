@@ -1,6 +1,7 @@
 #include "app/dialogs/ManageLfsDialog.h"
 
 #include "app/bridge/RepositorySession.h"
+#include "app/dialogs/MessageDialogs.h"
 
 #include <QAbstractItemView>
 #include <QHBoxLayout>
@@ -134,16 +135,12 @@ ManageLfsDialog::ManageLfsDialog(RepositorySession* session,
     });
 
     connect(addPatternButton, &QPushButton::clicked, this, [this, session, runWithFeedback] {
-        bool ok = false;
-        const QString pattern = QInputDialog::getText(this,
-                                                      QStringLiteral("Track pattern"),
-                                                      QStringLiteral("Pattern (e.g. *.psd):"),
-                                                      QLineEdit::Normal,
-                                                      QString(),
-                                                      &ok);
-        if (!ok || pattern.isEmpty()) {
+        const auto patternResult = dialogs::promptText(
+            this, QStringLiteral("Track pattern"), QStringLiteral("Pattern (e.g. *.psd):"));
+        if (!patternResult || patternResult->isEmpty()) {
             return;
         }
+        const QString pattern = *patternResult;
         LfsTrackRequest request;
         request.pattern = pattern.toStdString();
         runWithFeedback([session, request] { session->trackLfsPattern(request); }, nullptr);

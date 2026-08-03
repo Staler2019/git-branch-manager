@@ -1,6 +1,7 @@
 #include "app/dialogs/ManageBaseFoldersDialog.h"
 
 #include "app/bridge/DiscoveryController.h"
+#include "app/dialogs/MessageDialogs.h"
 
 #include <QAbstractItemView>
 #include <QHBoxLayout>
@@ -75,20 +76,18 @@ ManageBaseFoldersDialog::ManageBaseFoldersDialog(DiscoveryController* discovery,
             return;
         }
         const BaseFolderRecord& folder = folders_[static_cast<std::size_t>(row)];
-        bool accepted = false;
-        const int depth =
-            QInputDialog::getInt(this,
-                                 QStringLiteral("Scan depth"),
-                                 QStringLiteral("How many levels below \"%1\" should be scanned?")
-                                     .arg(QString::fromStdString(folder.path)),
-                                 folder.maxDepth,
-                                 0,
-                                 10,
-                                 1,
-                                 &accepted);
-        if (!accepted) {
+        const auto depthResult =
+            dialogs::promptInt(this,
+                               QStringLiteral("Scan depth"),
+                               QStringLiteral("How many levels below \"%1\" should be scanned?")
+                                   .arg(QString::fromStdString(folder.path)),
+                               folder.maxDepth,
+                               0,
+                               10);
+        if (!depthResult) {
             return;
         }
+        const int depth = *depthResult;
         if (auto result = discovery->setBaseFolderDepth(folder.id, depth); !result) {
             showDiscoveryError(
                 this, QStringLiteral("Could not change the scan depth"), result.error());

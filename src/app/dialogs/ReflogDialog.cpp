@@ -1,6 +1,7 @@
 #include "app/dialogs/ReflogDialog.h"
 
 #include "app/bridge/RepositorySession.h"
+#include "app/dialogs/MessageDialogs.h"
 
 #include <QAbstractItemView>
 #include <QDateTime>
@@ -64,15 +65,15 @@ ReflogDialog::ReflogDialog(RepositorySession* session,
         }
         const QString oid =
             table->item(selectedRows.first().row(), 0)->data(Qt::UserRole).toString();
-        const auto confirmed =
-            QMessageBox::warning(this,
-                                 QStringLiteral("Hard reset?"),
-                                 QStringLiteral("This permanently discards uncommitted changes "
-                                                "and moves the current branch to %1.")
-                                     .arg(oid.left(10)),
-                                 QMessageBox::Discard | QMessageBox::Cancel,
-                                 QMessageBox::Cancel);
-        if (confirmed != QMessageBox::Discard) {
+        const bool confirmed =
+            dialogs::confirm(this,
+                             QStringLiteral("Hard reset?"),
+                             QStringLiteral("This permanently discards uncommitted changes "
+                                            "and moves the current branch to %1.")
+                                 .arg(oid.left(10)),
+                             QStringLiteral("Discard"),
+                             /*destructive=*/true);
+        if (!confirmed) {
             return;
         }
         ResetRequest request;

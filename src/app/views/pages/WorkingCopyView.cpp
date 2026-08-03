@@ -2,6 +2,7 @@
 
 #include "app/bridge/RepositorySession.h"
 #include "app/bridge/ThemeManager.h"
+#include "app/dialogs/MessageDialogs.h"
 #include "app/theme/Tokens.h"
 #include "app/views/FileContentView.h"
 #include "app/views/SideBySideDiffView.h"
@@ -804,15 +805,15 @@ void WorkingCopyView::showUnstagedContextMenu(const WorkingCopyEntry& entry,
     } else if (chosen == copyPathAction) {
         QGuiApplication::clipboard()->setText(qpath);
     } else if (chosen == discardAction) {
-        const auto confirmed =
-            QMessageBox::warning(this,
-                                 tr("Discard changes?"),
-                                 tr("This permanently discards your uncommitted changes "
-                                    "to \"%1\".")
-                                     .arg(qpath),
-                                 QMessageBox::Discard | QMessageBox::Cancel,
-                                 QMessageBox::Cancel);
-        if (confirmed != QMessageBox::Discard) {
+        const bool confirmed =
+            dialogs::confirm(this,
+                             tr("Discard changes?"),
+                             tr("This permanently discards your uncommitted changes "
+                                "to \"%1\".")
+                                 .arg(qpath),
+                             tr("Discard"),
+                             /*destructive=*/true);
+        if (!confirmed) {
             return;
         }
         RestoreRequest request;

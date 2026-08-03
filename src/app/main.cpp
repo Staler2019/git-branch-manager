@@ -9,7 +9,9 @@
 
 #include <QApplication>
 #include <QByteArray>
+#include <QIcon>
 #include <QMessageBox>
+#include <QSize>
 #include <QStandardPaths>
 #include <QTimer>
 
@@ -138,6 +140,18 @@ int main(int argc, char** argv) {
     QApplication::setApplicationName(QStringLiteral("git-branch-manager"));
     QApplication::setOrganizationName(QStringLiteral("git-branch-manager"));
     QApplication::setApplicationVersion(QStringLiteral(GBM_VERSION_STRING));
+
+    // Dock/taskbar/Alt-Tab icon. Built from several embedded sizes rather
+    // than a single PNG so Qt can pick the sharpest one for whatever the
+    // platform actually renders at (a lone 256px source reads soft on a
+    // hidpi dock). macOS additionally reads MACOSX_BUNDLE_ICON_FILE
+    // (src/app/CMakeLists.txt) for the Finder/dock icon before Qt ever runs;
+    // this covers the window/taskbar icon on every platform including macOS.
+    QIcon appIcon;
+    appIcon.addFile(QStringLiteral(":/branding/app-icon-256.png"), QSize(256, 256));
+    appIcon.addFile(QStringLiteral(":/branding/app-icon-512.png"), QSize(512, 512));
+    appIcon.addFile(QStringLiteral(":/branding/app-icon-1024.png"), QSize(1024, 1024));
+    QApplication::setWindowIcon(appIcon);
 
     // Before the window is built, so the very first paint already reflects
     // the saved choice instead of flashing the default theme first.

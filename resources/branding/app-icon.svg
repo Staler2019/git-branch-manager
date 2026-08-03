@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  App icon source of truth. The glyph is resources/icons/git-branch.svg
+  (Lucide, ISC-licensed; see resources/icons/LUCIDE-ISC.txt) in the
+  text-on-accent token (#ffffff, the same value in all three themes; see
+  docs/design/tokens-reference.md) on an accent-500 (#2f81f7) field.
+
+  Deliberately full-bleed square, not pre-rounded to the radius-lg token:
+  macOS (Big Sur+) applies its own continuous-corner mask to app icons at
+  display time, so a pre-rounded source produces a visibly smaller rounded
+  square floating inside that mask instead of filling it. Windows/Linux use
+  the square art as-is, which is normal for those platforms. The glyph
+  itself is centered with generous padding so it reads correctly whichever
+  mask (or none) ends up applied on top.
+
+  Regenerate all raster sizes with scripts/gen-app-icon.sh after editing.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" fill="#2f81f7" />
+  <g transform="translate(212,212) scale(25)" fill="none" stroke="#ffffff" stroke-width="2"
+     stroke-linecap="round" stroke-linejoin="round">
+    <path d="M15 6a9 9 0 0 0-9 9V3" />
+    <circle cx="18" cy="6" r="3" />
+    <circle cx="6" cy="18" r="3" />
+  </g>
+</svg>

@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=git-branch-manager
+Exec=git-branch-manager
+Icon=git-branch-manager
+Categories=Development;
+Terminal=false

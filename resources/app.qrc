@@ -21,5 +21,11 @@
         <file alias="icons/file.svg">icons/file.svg</file>
         <file alias="icons/alert-triangle.svg">icons/alert-triangle.svg</file>
         <file alias="icons/chevron-right.svg">icons/chevron-right.svg</file>
+        <file alias="icons/LUCIDE-ISC.txt">icons/LUCIDE-ISC.txt</file>
+        <file alias="fonts/Inter-OFL.txt">fonts/Inter-OFL.txt</file>
+        <file alias="fonts/JetBrainsMono-OFL.txt">fonts/JetBrainsMono-OFL.txt</file>
+        <file alias="branding/app-icon-256.png">branding/app-icon-256.png</file>
+        <file alias="branding/app-icon-512.png">branding/app-icon-512.png</file>
+        <file alias="branding/app-icon-1024.png">branding/app-icon-1024.png</file>
     </qresource>
 </RCC>

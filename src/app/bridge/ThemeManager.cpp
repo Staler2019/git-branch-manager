@@ -6,7 +6,11 @@
 #include <QApplication>
 #include <QFile>
 #include <QFontDatabase>
+#include <QPainter>
+#include <QPainterPath>
+#include <QPixmap>
 #include <QSettings>
+#include <QStringList>
 #include <QStyleFactory>
 #include <QTextStream>
 
@@ -204,6 +208,17 @@ void ThemeManager::apply(ThemeId theme) {
         QTextStream stream(&qssFile);
         const QString qssTemplate = stream.readAll();
         qApp->setStyleSheet(applyTokensToQss(qssTemplate, theme));
+    } else {
+        // Not silent: this exact failure (":/qss/app.qss" missing from the
+        // resource system) previously went unnoticed for the whole app's
+        // life because the QPalette and every hand-painted delegate still
+        // produced a plausible-looking window with no stylesheet at all --
+        // see the AUTORCC comment in src/app/CMakeLists.txt for the root
+        // cause and how it was found.
+        qWarning(
+            "ThemeManager: could not open :/qss/app.qss (%s) -- the "
+            "resource is missing from this build, so no stylesheet was applied",
+            qUtf8Printable(qssFile.errorString()));
     }
 
     saveSetting(theme);
@@ -223,6 +238,42 @@ QString ThemeManager::label(ThemeId theme) {
 
 QColor ThemeManager::color(ThemeId theme, Token token) {
     return tokenColor(theme, token);
+}
+
+QIcon ThemeManager::swatch(ThemeId theme, int sizePx) {
+    // Reads theme's token table directly via tokenColor(), independent of
+    // whatever theme is currently applied -- so all three swatches can be
+    // painted at once regardless of which one is live.
+    const QColor surface = tokenColor(theme, Token::SurfacePanel);
+    const QColor border = tokenColor(theme, Token::BorderDefault);
+    const QColor accent = tokenColor(theme, Token::Accent);
+
+    QPixmap pixmap(sizePx, sizePx);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+
+    const QRectF bounds(0.5, 0.5, sizePx - 1.0, sizePx - 1.0);
+    painter.setPen(QPen(border, 1.0));
+    painter.setBrush(surface);
+    painter.drawRoundedRect(bounds, kRadiusSm, kRadiusSm);
+
+    // An accent-coloured strip along the bottom edge, clipped to the same
+    // rounded rect, so the swatch reads as "this theme's palette" (surface +
+    // accent) rather than a single flat colour.
+    painter.setClipPath([&] {
+        QPainterPath path;
+        path.addRoundedRect(bounds, kRadiusSm, kRadiusSm);
+        return path;
+    }());
+    const qreal stripHeight = sizePx * 0.3;
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(accent);
+    painter.drawRect(
+        QRectF(bounds.left(), bounds.bottom() - stripHeight, bounds.width(), stripHeight));
+
+    painter.end();
+    return QIcon(pixmap);
 }
 
 QColor ThemeManager::color(Token token) {
@@ -250,23 +301,53 @@ QFont ThemeManager::uiFont(int pixelSize) {
     // `--font-ui:"Inter",-apple-system,"Segoe UI",sans-serif`. Qt has no
     // native `-apple-system` name, so the fallback chain drops straight to
     // platform-appropriate system fonts if Inter failed to register.
-    font.setFamilies({QStringLiteral("Inter"),
-                      QStringLiteral("Segoe UI"),
-                      QStringLiteral("Helvetica Neue"),
-                      QStringLiteral("sans-serif")});
+    //
+    // Each platform-specific name is listed only under its own platform:
+    // naming "Segoe UI" (a Windows-only font) unconditionally used to make Qt
+    // log "Populating font family aliases" / missing-family warnings on every
+    // launch on macOS and Linux, since it went looking for a family that does
+    // not exist there. Listing it only where it can resolve avoids that
+    // lookup entirely instead of just tolerating the warning.
+    QStringList families{QStringLiteral("Inter")};
+#if defined(Q_OS_WIN)
+    families << QStringLiteral("Segoe UI");
+#elif defined(Q_OS_MACOS)
+    families << QStringLiteral("Helvetica Neue");
+#elif defined(Q_OS_LINUX)
+    families << QStringLiteral("Noto Sans") << QStringLiteral("DejaVu Sans");
+#endif
+    families << QStringLiteral("sans-serif");
+    font.setFamilies(families);
     font.setPixelSize(pixelSize);
     return font;
 }
 
 QFont ThemeManager::monoFont(int pixelSize) {
     QFont font;
-    // `--font-mono:"JetBrains Mono","SF Mono",Consolas,monospace`.
-    font.setFamilies({QStringLiteral("JetBrains Mono"),
-                      QStringLiteral("SF Mono"),
-                      QStringLiteral("Consolas"),
-                      QStringLiteral("monospace")});
+    // `--font-mono:"JetBrains Mono","SF Mono",Consolas,monospace`. Same
+    // platform-conditional reasoning as uiFont() above: "SF Mono" and
+    // "Consolas" are each only meaningful on their own platform.
+    QStringList families{QStringLiteral("JetBrains Mono")};
+#if defined(Q_OS_MACOS)
+    families << QStringLiteral("SF Mono");
+#elif defined(Q_OS_WIN)
+    families << QStringLiteral("Consolas");
+#elif defined(Q_OS_LINUX)
+    families << QStringLiteral("DejaVu Sans Mono");
+#endif
+    families << QStringLiteral("monospace");
+    font.setFamilies(families);
     font.setPixelSize(pixelSize);
     font.setStyleHint(QFont::Monospace);
+    return font;
+}
+
+QFont ThemeManager::sectionHeaderFont() {
+    constexpr int kSectionFontSize = 11;  // ~10.5px, rounded to an integer pixel size.
+    QFont font = uiFont(kSectionFontSize);
+    font.setBold(true);
+    font.setCapitalization(QFont::AllUppercase);
+    font.setLetterSpacing(QFont::AbsoluteSpacing, 0.5);
     return font;
 }
 

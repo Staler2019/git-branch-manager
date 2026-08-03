@@ -6,7 +6,9 @@
 
 #include <QAbstractTableModel>
 #include <QHash>
+#include <QMetaType>
 #include <QSet>
+#include <QString>
 
 #include <memory>
 #include <vector>
@@ -14,6 +16,15 @@
 namespace gbm {
 
 class RepositorySession;
+
+/// One ref decorating a commit row -- the payload `RefsRole` returns, richer
+/// than a bare name so `CommitRowDelegate` can colour it exactly like the
+/// sidebar's pills (`PillPainter::colorsForRef` needs `kind` and `isHead`).
+struct RefChip {
+    QString name;
+    RefKind kind = RefKind::Other;
+    bool isHead = false;
+};
 
 /// Table model over a graph snapshot.
 ///
@@ -100,3 +111,5 @@ private:
 };
 
 }  // namespace gbm
+
+Q_DECLARE_METATYPE(gbm::RefChip)

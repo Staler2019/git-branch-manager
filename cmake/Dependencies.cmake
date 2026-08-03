@@ -9,7 +9,7 @@ find_package(SQLite3 QUIET)
 if(SQLite3_FOUND)
     message(STATUS "Using system SQLite3 ${SQLite3_VERSION}")
     add_library(gbm_sqlite3 INTERFACE)
-    target_link_libraries(gbm_sqlite3 INTERFACE SQLite::SQLite3)
+    target_link_libraries(gbm_sqlite3 INTERFACE SQLite3::SQLite3)
 else()
     message(STATUS "System SQLite3 not found; fetching amalgamation")
     # SHA3-256 because that is what sqlite.org publishes next to the download,

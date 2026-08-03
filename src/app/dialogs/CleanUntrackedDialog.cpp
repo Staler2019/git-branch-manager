@@ -1,6 +1,7 @@
 #include "app/dialogs/CleanUntrackedDialog.h"
 
 #include "app/bridge/RepositorySession.h"
+#include "app/dialogs/MessageDialogs.h"
 
 #include <QCheckBox>
 #include <QHBoxLayout>
@@ -67,15 +68,15 @@ CleanUntrackedDialog::CleanUntrackedDialog(RepositorySession* session,
                 if (paths.empty()) {
                     return;
                 }
-                const auto confirmed =
-                    QMessageBox::warning(this,
-                                         QStringLiteral("Remove untracked files?"),
-                                         QStringLiteral("This permanently deletes %1 item(s). "
-                                                        "This cannot be undone.")
-                                             .arg(paths.size()),
-                                         QMessageBox::Discard | QMessageBox::Cancel,
-                                         QMessageBox::Cancel);
-                if (confirmed != QMessageBox::Discard) {
+                const bool confirmed =
+                    dialogs::confirm(this,
+                                     QStringLiteral("Remove untracked files?"),
+                                     QStringLiteral("This permanently deletes %1 item(s). "
+                                                    "This cannot be undone.")
+                                         .arg(paths.size()),
+                                     QStringLiteral("Discard"),
+                                     /*destructive=*/true);
+                if (!confirmed) {
                     return;
                 }
                 CleanRequest request;

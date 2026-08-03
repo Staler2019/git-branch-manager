@@ -549,7 +549,7 @@ TEST_F(RealRepoTest, CreatesRenamesAndDeletesBranches) {
     ASSERT_TRUE(renamed.succeeded) << (renamed.error ? renamed.error->detail : "");
 
     DeleteBranchRequest remove;
-    remove.name = "feature/renamed";
+    remove.names = {"feature/renamed"};
     auto deleted = submitAndWait(makeDeleteBranchOperation(remove));
     ASSERT_TRUE(deleted.succeeded) << (deleted.error ? deleted.error->detail : "");
 
@@ -558,6 +558,42 @@ TEST_F(RealRepoTest, CreatesRenamesAndDeletesBranches) {
     ASSERT_TRUE(snapshot);
     for (const RefInfo& ref : (*snapshot)->refs) {
         EXPECT_EQ(ref.shortName.find("feature/"), std::string::npos);
+    }
+}
+
+// Sidebar multi-select delete (a QTreeView selection filtered down to real,
+// non-HEAD local branches) hands every selected name to one DeleteBranchRequest
+// rather than issuing one operation per branch -- this proves that request
+// shape actually deletes all of them in a single `git branch -d a b c`.
+TEST_F(RealRepoTest, DeletesMultipleBranchesInOneRequest) {
+    commitFile("a.txt", "1\n", "c1");
+    OperationRunner operations(*runner_, paths_);
+
+    auto submitAndWait = [&operations](std::unique_ptr<Operation> operation) {
+        OperationOutcome outcome;
+        operations.submit(std::move(operation),
+                          [&outcome](OperationOutcome result) { outcome = std::move(result); });
+        operations.drain();
+        return outcome;
+    };
+
+    for (const char* name : {"multi-a", "multi-b", "multi-c"}) {
+        CreateBranchRequest create;
+        create.name = name;
+        auto created = submitAndWait(makeCreateBranchOperation(create));
+        ASSERT_TRUE(created.succeeded) << (created.error ? created.error->detail : "");
+    }
+
+    DeleteBranchRequest remove;
+    remove.names = {"multi-a", "multi-b", "multi-c"};
+    auto deleted = submitAndWait(makeDeleteBranchOperation(remove));
+    ASSERT_TRUE(deleted.succeeded) << (deleted.error ? deleted.error->detail : "");
+
+    RefStore store(*runner_, paths_);
+    auto snapshot = store.load(CancellationToken{});
+    ASSERT_TRUE(snapshot);
+    for (const RefInfo& ref : (*snapshot)->refs) {
+        EXPECT_EQ(ref.shortName.find("multi-"), std::string::npos);
     }
 }
 
@@ -588,7 +624,7 @@ TEST_F(RealRepoTest, RefusesToDeleteAnUnmergedBranchWithoutConsent) {
 
     OperationRunner operations(*runner_, paths_);
     DeleteBranchRequest remove;
-    remove.name = "unmerged";
+    remove.names = {"unmerged"};
 
     OperationOutcome outcome;
     operations.submit(makeDeleteBranchOperation(remove),
@@ -920,6 +956,192 @@ TEST_F(RealRepoTest, StagesOnlySelectedLinesWithinAHunk) {
     EXPECT_FALSE((*status)->staged().empty());
     EXPECT_FALSE((*status)->unstaged().empty())
         << "the unselected line must still be sitting unstaged";
+}
+
+// Regression test for the bug reported against the working-copy UI: selecting
+// a subset of lines in a *staged* file's diff and choosing Unstage failed with
+// "patch does not apply". buildLineSelectionPatch's unselected-line handling
+// used to be the same in both directions; unstaging checks the patch's new
+// side against the index (git apply --cached --reverse), which is the
+// opposite of what staging checks, so the two need mirrored (not identical)
+// handling of the lines that were not selected -- see unstaging= on that
+// function.
+TEST_F(RealRepoTest, UnstagesOnlySelectedLinesWithinAHunk) {
+    commitFile("c.txt", "keep\n", "c1");
+    {
+        std::ofstream out(repo_ / "c.txt");
+        out << "keep\nalpha\nbeta\n";
+    }
+    ASSERT_TRUE(run({"add", "c.txt"}));  // Both new lines start out staged.
+
+    DiffService diffs(*runner_, paths_);
+    auto stagedDiff = diffs.workingTreeDiff(true, {}, DiffOptions{}, CancellationToken{});
+    ASSERT_TRUE(stagedDiff) << stagedDiff.error().message;
+    ASSERT_EQ((*stagedDiff)->files.size(), 1u);
+    ASSERT_EQ((*stagedDiff)->files[0].hunks.size(), 1u);
+
+    const DiffHunk& hunk = (*stagedDiff)->files[0].hunks[0];
+    std::vector<bool> selected(hunk.lines.size(), false);
+    for (std::size_t i = 0; i < hunk.lines.size(); ++i) {
+        if (hunk.lines[i].kind == DiffLineKind::Added && hunk.lines[i].text == "alpha") {
+            selected[i] = true;  // Only "alpha" gets unstaged; "beta" stays staged.
+        }
+    }
+
+    const std::string patch = UnifiedDiffParser::buildLineSelectionPatch(
+        (*stagedDiff)->files[0], hunk, selected, /*unstaging=*/true);
+
+    OperationRunner operations(*runner_, paths_);
+    ApplyPatchRequest request;
+    request.patch = patch;
+    request.reverse = true;
+    OperationOutcome outcome;
+    operations.submit(makeApplyPatchOperation(request),
+                      [&outcome](OperationOutcome result) { outcome = std::move(result); });
+    operations.drain();
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    auto indexContent = run({"show", ":c.txt"});
+    ASSERT_TRUE(indexContent);
+    EXPECT_EQ(indexContent->out.find("alpha"), std::string::npos)
+        << "the selected line must have been unstaged";
+    EXPECT_NE(indexContent->out.find("beta"), std::string::npos)
+        << "the unselected line must remain staged";
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status);
+    EXPECT_FALSE((*status)->staged().empty()) << "\"beta\" should still be staged";
+    EXPECT_FALSE((*status)->unstaged().empty()) << "\"alpha\" should be back in the work tree";
+}
+
+// Regression coverage for appendPatchHeader's rename branch. A staged
+// rename-plus-edit is diffed, then a subset of the added lines is unstaged by
+// line selection. The first version of this test asserted the reconstructed
+// patch carried `rename from`/`rename to` headers, matching the staging-side
+// behaviour -- and that turned out to be wrong for unstaging: `git apply
+// --cached --reverse` reverses the whole patch record, so a rename header
+// here undid the rename itself (leaving `old-name.txt` staged again) instead
+// of only reverting "alpha". The fix drops the rename header for `unstaging`
+// and points both sides at `new-name.txt`, since the rename is already staged
+// by the time its content is being partially unstaged.
+TEST_F(RealRepoTest, UnstagesSelectedLinesOfARenamedAndModifiedFile) {
+    std::string original;
+    for (int i = 1; i <= 10; ++i) {
+        original += "line" + std::to_string(i) + "\n";
+    }
+    commitFile("old-name.txt", original, "c1");
+
+    ASSERT_TRUE(run({"mv", "old-name.txt", "new-name.txt"}));
+    {
+        std::ofstream out(repo_ / "new-name.txt", std::ios::app);
+        out << "alpha\nbeta\n";
+    }
+    ASSERT_TRUE(run({"add", "new-name.txt"}));  // Stage the appended lines too.
+
+    DiffService diffs(*runner_, paths_);
+    auto stagedDiff = diffs.workingTreeDiff(true, {}, DiffOptions{}, CancellationToken{});
+    ASSERT_TRUE(stagedDiff) << stagedDiff.error().message;
+    ASSERT_EQ((*stagedDiff)->files.size(), 1u);
+    const DiffFile& file = (*stagedDiff)->files[0];
+    ASSERT_EQ(file.kind, FileChangeKind::Renamed)
+        << "the rename must survive alongside the appended content for this test to be meaningful";
+    ASSERT_EQ(file.oldPath, "old-name.txt");
+    ASSERT_EQ(file.newPath, "new-name.txt");
+    ASSERT_EQ(file.hunks.size(), 1u);
+
+    const DiffHunk& hunk = file.hunks[0];
+    std::vector<bool> selected(hunk.lines.size(), false);
+    for (std::size_t i = 0; i < hunk.lines.size(); ++i) {
+        if (hunk.lines[i].kind == DiffLineKind::Added && hunk.lines[i].text == "alpha") {
+            selected[i] = true;  // Only "alpha" gets unstaged; "beta" stays staged.
+        }
+    }
+
+    const std::string patch =
+        UnifiedDiffParser::buildLineSelectionPatch(file, hunk, selected, /*unstaging=*/true);
+    EXPECT_EQ(patch.find("rename from"), std::string::npos)
+        << "unstaging must not re-describe the rename -- it is already staged";
+    EXPECT_EQ(patch.find("old-name.txt"), std::string::npos)
+        << "the reconstructed patch should target new-name.txt on both sides";
+
+    OperationRunner operations(*runner_, paths_);
+    ApplyPatchRequest request;
+    request.patch = patch;
+    request.reverse = true;
+    OperationOutcome outcome;
+    operations.submit(makeApplyPatchOperation(request),
+                      [&outcome](OperationOutcome result) { outcome = std::move(result); });
+    operations.drain();
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    auto indexContent = run({"show", ":new-name.txt"});
+    ASSERT_TRUE(indexContent);
+    EXPECT_EQ(indexContent->out.find("alpha"), std::string::npos)
+        << "the selected line must have been unstaged";
+    EXPECT_NE(indexContent->out.find("beta"), std::string::npos)
+        << "the unselected line must remain staged";
+    auto oldPathInIndex = run({"cat-file", "-e", ":old-name.txt"});
+    EXPECT_FALSE(oldPathInIndex) << "the rename itself must still be staged under the new name";
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status);
+    EXPECT_FALSE((*status)->staged().empty()) << "the rename plus \"beta\" should still be staged";
+    EXPECT_FALSE((*status)->unstaged().empty()) << "\"alpha\" should be back in the work tree";
+}
+
+// Same hazard as above, but through buildHunkPatch/"Unstage Hunk" -- the path
+// DiffView::contextMenuEvent and SideBySideDiffView::showLineContextMenu both
+// use, unlike the line-selection path above. Whole-hunk unstage of a rename's
+// content must also leave the rename staged.
+TEST_F(RealRepoTest, UnstagesAWholeHunkOfARenamedAndModifiedFile) {
+    std::string original;
+    for (int i = 1; i <= 10; ++i) {
+        original += "line" + std::to_string(i) + "\n";
+    }
+    commitFile("orig.txt", original, "c1");
+
+    ASSERT_TRUE(run({"mv", "orig.txt", "renamed.txt"}));
+    {
+        std::ofstream out(repo_ / "renamed.txt", std::ios::app);
+        out << "extra1\nextra2\n";
+    }
+    ASSERT_TRUE(run({"add", "renamed.txt"}));
+
+    DiffService diffs(*runner_, paths_);
+    auto stagedDiff = diffs.workingTreeDiff(true, {}, DiffOptions{}, CancellationToken{});
+    ASSERT_TRUE(stagedDiff) << stagedDiff.error().message;
+    ASSERT_EQ((*stagedDiff)->files.size(), 1u);
+    const DiffFile& file = (*stagedDiff)->files[0];
+    ASSERT_EQ(file.kind, FileChangeKind::Renamed);
+    ASSERT_EQ(file.hunks.size(), 1u);
+
+    const std::string patch = UnifiedDiffParser::buildHunkPatch(
+        file, file.hunks[0], /*reverse=*/false, /*unstaging=*/true);
+    EXPECT_EQ(patch.find("rename from"), std::string::npos)
+        << "unstaging the whole hunk must not re-describe the rename either";
+
+    OperationRunner operations(*runner_, paths_);
+    ApplyPatchRequest request;
+    request.patch = patch;
+    request.reverse = true;
+    OperationOutcome outcome;
+    operations.submit(makeApplyPatchOperation(request),
+                      [&outcome](OperationOutcome result) { outcome = std::move(result); });
+    operations.drain();
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    auto indexContent = run({"show", ":renamed.txt"});
+    ASSERT_TRUE(indexContent) << "the rename must still be staged under the new name";
+    EXPECT_EQ(indexContent->out.find("extra1"), std::string::npos)
+        << "the whole hunk's content must have been unstaged";
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status);
+    EXPECT_FALSE((*status)->staged().empty()) << "the rename should still be staged";
+    EXPECT_FALSE((*status)->unstaged().empty()) << "the content should be back in the work tree";
 }
 
 TEST_F(RealRepoTest, CommitsStagedChanges) {

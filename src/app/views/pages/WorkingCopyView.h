@@ -19,9 +19,11 @@ class QListWidgetItem;
 class QPlainTextEdit;
 class QPushButton;
 class QStackedWidget;
+class QTabWidget;
 
 namespace gbm {
 
+class FileContentView;
 class RepositorySession;
 class SideBySideDiffView;
 struct WorkingCopyEntry;
@@ -58,6 +60,7 @@ signals:
 private slots:
     void onWorkingCopyStatusUpdated();
     void onWorkingCopyDiffReady(QString path, bool staged, std::shared_ptr<const ParsedDiff> diff);
+    void onFileContentReady(QString path, QString revision, QString content, bool exists);
     void onWorkingCopyOperationFinished(const OperationOutcome& outcome);
     void onStagedSelectionChanged();
     void onUnstagedSelectionChanged();
@@ -131,10 +134,30 @@ private:
     /// check state -- a stray stage/unstage call there would race the very
     /// status refresh that triggered the rebuild.
     bool rebuilding_ = false;
-    QStackedWidget* diffStack_ = nullptr;
-    DiffView* diffView_ = nullptr;
-    SideBySideDiffView* sideBySideView_ = nullptr;
-    QCheckBox* sideBySideToggle_ = nullptr;
+
+    /// One tab's worth of diff UI: the unified/side-by-side toggle this class
+    /// already had, just duplicated per tab instead of shared across a single
+    /// pane. `staged` is fixed at construction and is *not* inherited from
+    /// whichever list the user last clicked -- the Working-changes tab is
+    /// always the work-tree-vs-index diff and the Staged tab is always the
+    /// index-vs-HEAD diff, regardless of which file-list row is selected.
+    struct DiffTab {
+        bool staged = false;
+        QStackedWidget* stack = nullptr;
+        DiffView* diffView = nullptr;
+        SideBySideDiffView* sideBySideView = nullptr;
+        QCheckBox* sideBySideToggle = nullptr;
+    };
+
+    DiffTab buildDiffTab(QWidget* parent, bool staged);
+    /// Routes a workingCopyDiffReady reply to whichever DiffTab requested it.
+    void showDiffInTab(DiffTab& tab, std::shared_ptr<const ParsedDiff> diff);
+    void clearDiffTab(const DiffTab& tab);
+
+    QTabWidget* diffTabs_ = nullptr;
+    FileContentView* originalView_ = nullptr;
+    DiffTab workingTab_;
+    DiffTab stagedTab_;
     QPlainTextEdit* messageEdit_ = nullptr;
     QCheckBox* amendCheck_ = nullptr;
     QPushButton* commitButton_ = nullptr;

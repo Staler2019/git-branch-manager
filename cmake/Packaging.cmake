@@ -29,9 +29,17 @@ if(WIN32)
     set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
     set(CPACK_NSIS_EXECUTABLES_DIRECTORY ".")
     set(CPACK_NSIS_MUI_FINISHPAGE_RUN "git-branch-manager.exe")
+    # Installer/uninstaller wizard icon and Add/Remove Programs entry -- same
+    # source as the .exe's own embedded icon (src/app/CMakeLists.txt), just a
+    # different CPack knob for the NSIS script it generates.
+    set(CPACK_NSIS_MUI_ICON "${CMAKE_CURRENT_LIST_DIR}/../resources/branding/app-icon.ico")
+    set(CPACK_NSIS_MUI_UNIICON "${CMAKE_CURRENT_LIST_DIR}/../resources/branding/app-icon.ico")
 elseif(APPLE)
     set(CPACK_GENERATOR "DragNDrop")
     set(CPACK_DMG_FORMAT "UDZO")
+    # No separate DMG-icon directive needed: the bundled .app already carries
+    # MACOSX_BUNDLE_ICON_FILE (src/app/CMakeLists.txt), and that's what shows
+    # up both inside the mounted DMG and once copied to /Applications.
 else()
     set(CPACK_GENERATOR "TGZ")
 endif()

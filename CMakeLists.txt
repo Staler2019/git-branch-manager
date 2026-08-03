@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.24)
+cmake_minimum_required(VERSION 3.25)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 include(Version)
@@ -27,6 +27,7 @@ option(GBM_SANITIZE "Enable sanitizers (address,undefined | thread)" "")
 
 include(Sanitizers)
 include(Warnings)
+include(Format)
 
 # ---------------------------------------------------------------------------
 # Dependencies. Deliberately tiny: no vcpkg, no Conan. FetchContent with

@@ -5,7 +5,6 @@
 #include <QAction>
 #include <QContextMenuEvent>
 #include <QFont>
-#include <QFontDatabase>
 #include <QMenu>
 #include <QTextBlockFormat>
 #include <QTextCharFormat>
@@ -18,7 +17,10 @@ namespace gbm {
 DiffView::DiffView(QWidget* parent) : QPlainTextEdit(parent) {
     setReadOnly(true);
     setLineWrapMode(QPlainTextEdit::NoWrap);
-    setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    // ThemeManager::monoFont() (not QFontDatabase::systemFont) so this shows
+    // the bundled JetBrains Mono instead of whatever fixed-width font the
+    // platform happens to default to -- matches the side-by-side diff pane.
+    setFont(ThemeManager::monoFont(12));
     setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
     setPlaceholderText(QStringLiteral("Select a commit to see its changes"));
     setAccessibleName(QStringLiteral("Diff"));
@@ -101,7 +103,12 @@ void DiffView::contextMenuEvent(QContextMenuEvent* event) {
     QAction* hunkAction = menu->addAction(showingStaged_ ? tr("Unstage Hunk") : tr("Stage Hunk"));
     const bool reverse = showingStaged_;
     connect(hunkAction, &QAction::triggered, this, [this, span, reverse] {
-        const std::string patch = UnifiedDiffParser::buildHunkPatch(*span->file, *span->hunk);
+        // `reverse` doubles as buildHunkPatch's `unstaging` here too -- a
+        // renamed file's hunk unstaged via `git apply --cached --reverse`
+        // would otherwise undo the rename along with the content; see that
+        // parameter's doc comment.
+        const std::string patch = UnifiedDiffParser::buildHunkPatch(
+            *span->file, *span->hunk, /*reverse=*/false, /*unstaging=*/reverse);
         emit applyPatchRequested(QString::fromStdString(patch), reverse);
     });
 
@@ -127,8 +134,13 @@ void DiffView::contextMenuEvent(QContextMenuEvent* event) {
                         selected[index] = true;
                     }
                 }
-                const std::string patch =
-                    UnifiedDiffParser::buildLineSelectionPatch(*span->file, *span->hunk, selected);
+                // `reverse` here doubles as buildLineSelectionPatch's `unstaging`:
+                // showingStaged_ means this pane is showing `git diff --cached`,
+                // so "stage" here really means "unstage" (apply --cached
+                // --reverse), and the patch's unselected-line handling has to
+                // match -- see the doc comment on buildLineSelectionPatch.
+                const std::string patch = UnifiedDiffParser::buildLineSelectionPatch(
+                    *span->file, *span->hunk, selected, /*unstaging=*/reverse);
                 emit applyPatchRequested(QString::fromStdString(patch), reverse);
             });
         }

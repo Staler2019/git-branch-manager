@@ -174,6 +174,15 @@ public:
                               const std::string& oursBlob,
                               const std::string& theirsBlob);
 
+    /// Reads one file's content at `revision` (e.g. `"HEAD"` for the last
+    /// commit, `""` for the index), for the Working Copy view's read-only
+    /// "Original" tab. Mirrors requestConflictSides's threading: a co-process
+    /// read on the read pool, hopped back to the UI thread. A path that does
+    /// not exist at that revision (a brand-new untracked file has no `HEAD`
+    /// side) is reported via `exists = false` on the reply rather than as an
+    /// error -- this is a display query, not an operation.
+    void requestFileContent(const std::string& path, const std::string& revision);
+
     // --- M3: stashes -----------------------------------------------------
 
     StashListPtr stashes() const { return stashes_.current(); }
@@ -358,6 +367,11 @@ signals:
     /// it failed -- the request is best-effort display, not itself an
     /// operation worth failing loudly over.
     void conflictSidesReady(QString path, QString ancestor, QString ours, QString theirs);
+    /// Reply to requestFileContent. `exists` is false when `revision:path`
+    /// does not resolve to an object (new untracked file, or a path renamed
+    /// away by `revision`) -- distinct from an existing-but-empty file, which
+    /// reports `exists = true` with an empty `content`.
+    void fileContentReady(QString path, QString revision, QString content, bool exists);
     /// Separate from `operationFinished`: MainWindow's checkout-recovery UI
     /// (stash/discard choices) does not apply to staging and commit, so the
     /// working-copy panel gets its own completion signal to react to.

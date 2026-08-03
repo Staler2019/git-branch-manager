@@ -4,6 +4,7 @@
 
 #include <QColor>
 #include <QFont>
+#include <QIcon>
 #include <QPalette>
 #include <QString>
 
@@ -43,6 +44,14 @@ public:
 
     static QString label(ThemeId theme);
 
+    /// A small colour-block icon representing `theme`'s palette -- built from
+    /// its token table directly, without applying the theme -- so the toolbar
+    /// theme picker can show all three at once as swatches (item 9: "change
+    /// theme icon to color block, the word description is not needed") rather
+    /// than one text-labelled action per theme. `sizePx` is the icon's
+    /// (square) side length in device-independent pixels.
+    static QIcon swatch(ThemeId theme, int sizePx = 16);
+
     /// Colour for `token` under `theme`, regardless of what is currently applied.
     static QColor color(ThemeId theme, Token token);
 
@@ -58,6 +67,14 @@ public:
     static QFont uiFont(int pixelSize);
 
     static QFont monoFont(int pixelSize);
+
+    /// Uppercase, semibold, letter-spaced label font for sidebar section
+    /// headers ("REPOSITORIES", "STASH", ...). QSS cannot express
+    /// letter-spacing, so both the painted headers (`RefRowDelegate`) and the
+    /// plain `QLabel` ones (`SidebarPanel`'s Repositories/Stash sections)
+    /// call this instead of each hand-rolling their own QFont, which is what
+    /// let them drift apart in the first place.
+    static QFont sectionHeaderFont();
 
     /// Substitutes every `@token-name` placeholder in `qssTemplate` (see
     /// `resources/qss/app.qss` for the naming convention) with the hex colour

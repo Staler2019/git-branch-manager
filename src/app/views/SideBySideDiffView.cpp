@@ -6,7 +6,6 @@
 #include <QAction>
 #include <QClipboard>
 #include <QContextMenuEvent>
-#include <QFontDatabase>
 #include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -27,6 +26,17 @@ namespace {
 constexpr int kGutterWidth = 20;
 constexpr int kCheckboxSize = 13;
 
+// Bounds for the content-derived height computed in preferredHeight(). The
+// floor keeps a one- or two-line diff from collapsing to nothing; the
+// ceiling is protection against a single file's diff turning into a
+// 100,000-pixel widget -- past it the pane's own scrollbar takes over again,
+// same as before this change. Deliberately generous (a typical file's full
+// hunk set should fit without that inner scrollbar ever appearing) since the
+// bug this fixes is exactly a cap that was too small (QPlainTextEdit's
+// content-independent default sizeHint, effectively a handful of lines).
+constexpr int kMinPreferredRows = 8;
+constexpr int kMaxPreferredRows = 120;
+
 // Filler for the side with nothing to show, distinct from (and quieter than)
 // both the added/removed tints and the ordinary background.
 QColor paddingBackground(const QPalette& palette) {
@@ -45,7 +55,10 @@ public:
     explicit DiffPane(QWidget* parent) : QPlainTextEdit(parent) {
         setReadOnly(true);
         setLineWrapMode(QPlainTextEdit::NoWrap);
-        setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+        // ThemeManager::monoFont() (not QFontDatabase::systemFont) so this
+        // pane actually shows the bundled JetBrains Mono instead of whatever
+        // fixed-width font the platform happens to default to.
+        setFont(ThemeManager::monoFont(12));
         setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
         setUndoRedoEnabled(false);
     }
@@ -178,6 +191,31 @@ SideBySideDiffView::SideBySideDiffView(QWidget* parent) : QWidget(parent) {
     });
 }
 
+int SideBySideDiffView::preferredHeight() const {
+    // Both panes get exactly one QTextBlock per row (see render()'s
+    // insertLine calls, always issued in pairs), so either document's block
+    // count is the row count -- no separate counter to keep in sync.
+    const int rows = left_->document() != nullptr ? left_->document()->blockCount() : 0;
+    const int clampedRows = qBound(kMinPreferredRows, rows, kMaxPreferredRows);
+    const int lineSpacing = left_->fontMetrics().lineSpacing();
+
+    int height = clampedRows * lineSpacing;
+    height += left_->frameWidth() * 2;
+    if (summaryLabel_->isVisible()) {
+        height += summaryLabel_->sizeHint().height();
+    }
+    if (resultPreview_->isVisible()) {
+        height += resultPreview_->maximumHeight();
+    }
+    // outer's own spacing between the (up to three) stacked widgets.
+    height += 4 * 2;
+    return height;
+}
+
+QSize SideBySideDiffView::sizeHint() const {
+    return QSize(QWidget::sizeHint().width(), preferredHeight());
+}
+
 void SideBySideDiffView::setStagingEnabled(bool enabled) {
     if (stagingEnabled_ == enabled) {
         return;
@@ -243,6 +281,7 @@ void SideBySideDiffView::clearDiff() {
     right_->clear();
     updateSummary();
     updateResultPreview();
+    updateGeometry();
 }
 
 void SideBySideDiffView::showMessage(const QString& message) {
@@ -254,6 +293,7 @@ void SideBySideDiffView::showMessage(const QString& message) {
     left_->appendPlainText(message);
     updateSummary();
     updateResultPreview();
+    updateGeometry();
 }
 
 void SideBySideDiffView::showDiff(std::shared_ptr<const ParsedDiff> diff) {
@@ -317,8 +357,13 @@ void SideBySideDiffView::toggleLine(bool onLeftPane, int blockNumber) {
 
     std::vector<bool> selected(marker->hunk->lines.size(), false);
     selected[marker->lineIndex] = true;
-    const std::string patch =
-        UnifiedDiffParser::buildLineSelectionPatch(*marker->file, *marker->hunk, selected);
+    // showingStaged_ doubles as buildLineSelectionPatch's `unstaging` here, the
+    // same as DiffView::contextMenuEvent's line-selection action -- this pane
+    // is reachable staging-enabled from DiffPage::showWorkingCopyDiff(staged =
+    // true), and without this the "patch does not apply" bug (item 7) still
+    // hit by toggling a single line here even after DiffView's fix.
+    const std::string patch = UnifiedDiffParser::buildLineSelectionPatch(
+        *marker->file, *marker->hunk, selected, /*unstaging=*/showingStaged_);
     emit applyPatchRequested(QString::fromStdString(patch), showingStaged_);
 
     (onLeftPane ? leftGutter_ : rightGutter_)->update();
@@ -345,7 +390,11 @@ void SideBySideDiffView::showLineContextMenu(bool onLeftPane,
     const DiffHunk* hunk = marker->hunk;
     const bool reverse = showingStaged_;
     connect(hunkAction, &QAction::triggered, this, [this, file, hunk, reverse] {
-        const std::string patch = UnifiedDiffParser::buildHunkPatch(*file, *hunk);
+        // See DiffView::contextMenuEvent's identical hunk-staging action: this
+        // pane is staging-enabled from DiffPage::showWorkingCopyDiff, so the
+        // same rename-unstage hazard applies here.
+        const std::string patch = UnifiedDiffParser::buildHunkPatch(
+            *file, *hunk, /*reverse=*/false, /*unstaging=*/reverse);
         emit applyPatchRequested(QString::fromStdString(patch), reverse);
     });
 
@@ -566,6 +615,10 @@ void SideBySideDiffView::render(const ParsedDiff& diff, const QString& onlyPath)
     }
     updateSummary();
     updateResultPreview();
+    // Row count just changed (a new diff, or the same diff re-rendered by
+    // refreshTheme with a different onlyPath) -- preferredHeight()'s cached
+    // callers (the section body in DiffPage, indirectly) need to re-query it.
+    updateGeometry();
 }
 
 }  // namespace gbm

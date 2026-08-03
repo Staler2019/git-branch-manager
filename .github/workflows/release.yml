@@ -190,22 +190,9 @@ jobs:
           curl -fsSL -o linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
           curl -fsSL -o linuxdeploy-plugin-qt https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
           chmod +x linuxdeploy linuxdeploy-plugin-qt
-          cat > AppDir/usr/share/applications/git-branch-manager.desktop <<'DESKTOP'
-          [Desktop Entry]
-          Type=Application
-          Name=git-branch-manager
-          Exec=git-branch-manager
-          Icon=git-branch-manager
-          Categories=Development;
-          Terminal=false
-          DESKTOP
-          # linuxdeploy requires an icon and fails the build without one. A minimal
-          # valid PNG, written directly rather than converted, so this does not
-          # depend on ImageMagick being present on the runner.
-          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
-          base64 -d > AppDir/usr/share/icons/hicolor/256x256/apps/git-branch-manager.png <<'PNG'
-          iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==
-          PNG
+          mkdir -p AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/256x256/apps
+          cp resources/branding/git-branch-manager.desktop AppDir/usr/share/applications/
+          cp resources/branding/app-icon-256.png AppDir/usr/share/icons/hicolor/256x256/apps/git-branch-manager.png
           export QMAKE="$(which qmake6 || which qmake)"
           ./linuxdeploy --appdir AppDir --plugin qt --output appimage || \
             echo "AppImage build failed; the tarball is still published"

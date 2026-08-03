@@ -78,6 +78,11 @@ signals:
 
     void statusMessage(QString message);
 
+    /// "Open repository" in the repo-list context menu -- the only in-menu
+    /// way to open a repository that is not already the current one, since
+    /// Fetch/Pull/Push there are disabled until it is.
+    void openRepositoryRequested(int row);
+
 private slots:
     void onFilterChanged(const QString& text);
     void onRefContextMenuRequested(const QPoint& pos);
@@ -97,6 +102,21 @@ private:
     void showRemoteBranchContextMenu(const QModelIndex& index, const QPoint& globalPos);
     void showTagContextMenu(const QModelIndex& index, const QPoint& globalPos);
 
+    /// Builds the persistence key for a grouping/section node ("Branches",
+    /// "Branches/feature", "Remotes/origin", ...) by walking the index's
+    /// ancestors and joining their DisplayRole text -- ref leaves never get
+    /// expanded/collapsed (no children), so this only ever runs on section
+    /// roots and slash-separated grouping nodes.
+    QString refNodeKey(const QModelIndex& index) const;
+
+    /// Re-applies each grouping node's last expanded/collapsed state after
+    /// refModel_ resets, and installs the defaults (Branches expanded,
+    /// Remotes/Tags collapsed) for nodes never seen before. Guarded by
+    /// restoringRefExpansion_ so the expanded()/collapsed() signals this
+    /// provokes are not mistaken for new user action and re-saved.
+    void restoreRefExpansion();
+    void saveRefExpansion(const QModelIndex& index, bool expanded);
+
     RepoListModel* repoModel_ = nullptr;
     RefTreeModel* refModel_ = nullptr;
     QTreeView* refView_ = nullptr;
@@ -107,6 +127,8 @@ private:
     QAction* searchIconAction_ = nullptr;
     QListView* repoListView_ = nullptr;
     QListWidget* stashList_ = nullptr;
+
+    bool restoringRefExpansion_ = false;
 };
 
 }  // namespace gbm

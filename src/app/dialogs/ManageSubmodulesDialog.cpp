@@ -1,6 +1,7 @@
 #include "app/dialogs/ManageSubmodulesDialog.h"
 
 #include "app/bridge/RepositorySession.h"
+#include "app/dialogs/MessageDialogs.h"
 
 #include <QAbstractItemView>
 #include <QHBoxLayout>
@@ -105,26 +106,20 @@ ManageSubmodulesDialog::ManageSubmodulesDialog(RepositorySession* session,
     layout->addLayout(buttonRow);
 
     connect(addButton, &QPushButton::clicked, this, [this, session, runWithFeedback] {
-        bool ok = false;
-        const QString url = QInputDialog::getText(this,
-                                                  QStringLiteral("Add submodule"),
-                                                  QStringLiteral("URL:"),
-                                                  QLineEdit::Normal,
-                                                  QString(),
-                                                  &ok);
-        if (!ok || url.isEmpty()) {
+        const auto urlResult =
+            dialogs::promptText(this, QStringLiteral("Add submodule"), QStringLiteral("URL:"));
+        if (!urlResult || urlResult->isEmpty()) {
             return;
         }
-        const QString path =
-            QInputDialog::getText(this,
-                                  QStringLiteral("Add submodule"),
-                                  QStringLiteral("Path (leave blank to derive from the URL):"),
-                                  QLineEdit::Normal,
-                                  QString(),
-                                  &ok);
-        if (!ok) {
+        const QString url = *urlResult;
+        const auto pathResult =
+            dialogs::promptText(this,
+                                QStringLiteral("Add submodule"),
+                                QStringLiteral("Path (leave blank to derive from the URL):"));
+        if (!pathResult) {
             return;
         }
+        const QString path = *pathResult;
         AddSubmoduleRequest request;
         request.url = url.toStdString();
         request.path = path.toStdString();
@@ -168,17 +163,17 @@ ManageSubmodulesDialog::ManageSubmodulesDialog(RepositorySession* session,
             if (!info) {
                 return;
             }
-            const auto confirmed =
-                QMessageBox::warning(this,
-                                     QStringLiteral("Deinitialize submodule?"),
-                                     QStringLiteral("This removes the checked-out files for \"%1\" "
-                                                    "(any local changes inside it are discarded). "
-                                                    "\"%1\" stays listed in .gitmodules and can be "
-                                                    "initialised again later.")
-                                         .arg(QString::fromStdString(info->path)),
-                                     QMessageBox::Yes | QMessageBox::Cancel,
-                                     QMessageBox::Cancel);
-            if (confirmed != QMessageBox::Yes) {
+            const bool confirmed =
+                dialogs::confirm(this,
+                                 QStringLiteral("Deinitialize submodule?"),
+                                 QStringLiteral("This removes the checked-out files for \"%1\" "
+                                                "(any local changes inside it are discarded). "
+                                                "\"%1\" stays listed in .gitmodules and can be "
+                                                "initialised again later.")
+                                     .arg(QString::fromStdString(info->path)),
+                                 QStringLiteral("Yes"),
+                                 /*destructive=*/true);
+            if (!confirmed) {
                 return;
             }
             DeinitSubmodulesRequest request;

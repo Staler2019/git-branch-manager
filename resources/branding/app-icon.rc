@@ -1,0 +1,4 @@
+// Windows resource script embedding the app icon into the .exe (taskbar,
+// Explorer, Alt-Tab). See resources/branding/app-icon.svg for the source and
+// scripts/gen-app-icon.sh to regenerate app-icon.ico after an icon change.
+IDI_ICON1 ICON "app-icon.ico"

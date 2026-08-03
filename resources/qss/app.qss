@@ -82,6 +82,24 @@ QMenu::separator {
     margin: 4px 6px;
 }
 
+/* --- title bar --------------------------------------------------------------*/
+
+/* The in-window row containing the app icon, app name, and the (now
+ * non-native, see MainWindow::buildMenus) QMenuBar itself -- matches
+ * Design.pdf's single dark title row rather than leaving File/Edit/… to
+ * float on QMenuBar's own @surface-panel background with no container. */
+QWidget#gbmTitleBar {
+    background: @surface-sunken;
+    border-bottom: 1px solid @border-subtle;
+}
+
+/* Inside #gbmTitleBar, so the menu bar reads as part of the row rather than
+ * a second banded surface sitting on top of it. */
+QWidget#gbmTitleBar QMenuBar {
+    background: transparent;
+    border-bottom: none;
+}
+
 /* --- toolbar --------------------------------------------------------------*/
 
 QToolBar {
@@ -110,6 +128,60 @@ QToolBar QToolButton:checked {
     color: @accent;
 }
 
+QLabel#gbmRepoNameLabel {
+    font-size: 18px;
+    font-weight: 600;
+}
+
+QLabel#gbmRepoBranchLabel {
+    color: @text-secondary;
+}
+
+/* The read-only Clean/Conflict state indicator (MainWindow::buildMenus).
+ * Disabled QToolButtons so QSS's :checked state still applies -- Fusion
+ * dims disabled widgets via QPalette::Disabled, which these two explicitly
+ * override back to full colour, since "read-only" is not "unavailable". */
+QWidget#gbmSegmented {
+    background: @surface-sunken;
+    border-radius: 8px;
+    padding: 2px;
+}
+
+QWidget#gbmSegmented QToolButton {
+    border-radius: 6px;
+    padding: 4px 12px;
+    color: @text-secondary;
+    background: transparent;
+}
+
+QWidget#gbmSegmented QToolButton:disabled {
+    color: @text-secondary;
+}
+
+QWidget#gbmSegmented QToolButton:checked {
+    background: @accent;
+    color: @text-on-accent;
+}
+
+QWidget#gbmSegmented QToolButton:checked:disabled {
+    color: @text-on-accent;
+}
+
+/* --- conflict banner --------------------------------------------------------*/
+
+/* `.gbm-banner-warning` in components.css. Previously a hand-rolled
+ * setStyleSheet() call in MainWindow::restyleBanner(), re-applied manually
+ * on every theme switch; objectName + qApp->setStyleSheet() now does that
+ * automatically like everything else. */
+QWidget#gbmBanner {
+    background: @diff-del-bg;
+    border-bottom: 1px solid @border-subtle;
+}
+
+QLabel#gbmBannerLabel {
+    color: @diff-del-text;
+}
+
 /* --- buttons --------------------------------------------------------------*/
 
 QPushButton {
@@ -117,8 +189,8 @@ QPushButton {
     color: @text-primary;
     border: 1px solid @border-default;
     border-radius: 6px;
-    padding: 4px 12px;
-    min-height: 22px;
+    padding: 0 12px;
+    min-height: 30px;
 }
 
 QPushButton:hover {
@@ -182,15 +254,19 @@ QTextEdit {
     color: @text-primary;
     border: 1px solid @border-default;
     border-radius: 6px;
-    padding: 4px 8px;
+    padding: 0 12px;
+    min-height: 30px;
     selection-background-color: @accent;
     selection-color: @text-on-accent;
 }
 
+/* `.gbm-input:focus` also specifies `box-shadow: var(--shadow-focus)` -- a
+ * 3px accent-subtle glow QSS cannot express. Approximated with a 2px solid
+ * border-focus outline instead of the 1px default. */
 QLineEdit:focus,
 QPlainTextEdit:focus,
 QTextEdit:focus {
-    border-color: @border-focus;
+    border: 2px solid @border-focus;
 }
 
 QLineEdit:disabled {
@@ -264,6 +340,18 @@ QLabel#gbmPanelHeader {
     padding: 6px 2px;
 }
 
+/* DiffPage's per-file section headers (item 12): same card/header recipe as
+ * `#gbmPanel`/`#gbmPanelHeader` above, but the header is a plain QWidget (not
+ * a QLabel) because it is clickable -- see DiffPage.cpp's ClickableHeader. */
+QWidget#gbmPanelHeader {
+    font-weight: 600;
+    border-top-left-radius: 10px;
+    border-top-right-radius: 10px;
+}
+QWidget#gbmPanelHeader:hover {
+    background: @surface-hover;
+}
+
 QLabel#workingCopyPlaceholder {
     color: @text-tertiary;
 }
@@ -271,6 +359,45 @@ QLabel#workingCopyPlaceholder {
 QLabel#gbmPanelCaption {
     color: @text-tertiary;
     font-size: 11px;
+}
+
+/* --- commit expansion panel -------------------------------------------------*/
+
+/* The card CommitExpansionPanel shows beneath the (hand-painted, not QSS)
+ * summary strip when a commit row is expanded in place. Sunken rather than
+ * `#gbmPanel`'s @surface-panel, so it reads as inset into the selected row
+ * above it instead of as a separate raised surface. */
+QWidget#gbmExpansionCard {
+    background: @surface-sunken;
+    border-radius: 10px;
+}
+
+QLabel#gbmExpansionSummary {
+    color: @text-secondary;
+}
+
+/* `.gbm-badge` in components.css: min-width 18, height 18, padding 0 5,
+ * radius-full, 10.5px semibold mono -- rounded to 11px, matching every other
+ * `text-2xs` consumer in this file (see the sidebar section header comment). */
+QLabel#gbmBadgeAdded,
+QLabel#gbmBadgeRemoved {
+    min-width: 18px;
+    min-height: 18px;
+    max-height: 18px;
+    padding: 0 5px;
+    border-radius: 9px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+QLabel#gbmBadgeAdded {
+    background: @diff-add-bg;
+    color: @diff-add-text;
+}
+
+QLabel#gbmBadgeRemoved {
+    background: @diff-del-bg;
+    color: @diff-del-text;
 }
 
 /* --- tree / table views -----------------------------------------------------*/
@@ -289,7 +416,8 @@ QTableView {
 
 QTreeView::item,
 QTableView::item {
-    padding: 2px 4px;
+    padding: 0 12px;
+    border-radius: 4px;
 }
 
 QTreeView::item:hover,
@@ -297,10 +425,30 @@ QTableView::item:hover {
     background: @surface-hover;
 }
 
+/* Commit history and the ref tree/repo list paint their own selected-state
+ * background at the delegate level (CommitRowDelegate/GraphColumnDelegate
+ * full-bleed @surface-selected; RefRowDelegate/the sidebar repo delegate
+ * paint an inset rounded highlight instead of full-bleed) -- scoped selectors
+ * so this generic rule only covers plain views with no custom delegate
+ * (the changed-files list, working-copy panels, dialog tables) instead of
+ * fighting the hand-painted ones. */
 QTreeView::item:selected,
 QTableView::item:selected {
     background: @surface-selected;
     color: @text-primary;
+}
+
+QTableView#gbmCommitView::item:selected {
+    background: transparent;
+}
+
+/* gbmRefView, gbmRepoList and gbmStashList's delegates all paint their own
+ * inset selection/hover fill, so the generic rule above would double-draw
+ * (harmless, but redundant) without these overrides. */
+QTreeView#gbmRefView::item:selected,
+QListView#gbmRepoList::item:selected,
+QListWidget#gbmStashList::item:selected {
+    background: transparent;
 }
 
 QHeaderView::section {
@@ -341,13 +489,25 @@ QTabBar::tab:selected {
 }
 
 /* --- splitters ----------------------------------------------------------- */
+/* A handle with no explicit width/height collapses to almost nothing under a
+ * QSS-styled Fusion splitter, which is why these used to be effectively
+ * undraggable -- setHandleWidth() in code reserves the space; these rules
+ * make that space read as a grabbable hairline rather than a solid bar. */
 
-QSplitter::handle {
-    background: @border-subtle;
+QSplitter::handle:horizontal {
+    width: 6px;
+    background: transparent;
+    border-left: 1px solid @border-subtle;
+}
+
+QSplitter::handle:vertical {
+    height: 6px;
+    background: transparent;
+    border-top: 1px solid @border-subtle;
 }
 
 QSplitter::handle:hover {
-    background: @border-strong;
+    border-color: @border-strong;
 }
 
 /* --- scrollbars ------------------------------------------------------------*/
@@ -404,4 +564,207 @@ QStatusBar {
 
 QStatusBar::item {
     border: none;
+}
+
+/* --- dialogs ----------------------------------------------------------------*/
+
+/* All 20 QDialog subclasses (dialogs/*.h, views/CredentialDialog.h) and every
+ * QMessageBox/QInputDialog already inherit QWidget/QPushButton/QLineEdit/
+ * QCheckBox/QTreeView etc. from the rules above -- qApp->setStyleSheet()
+ * (ThemeManager::apply) is application-wide. What was actually missing is a
+ * background of their own (QDialog fell through to the Fusion palette,
+ * mismatched against the panel surfaces used everywhere else) and the widget
+ * vocabulary dialogs lean on that nothing above covers: combo/spin/radio/
+ * group boxes, tooltips, progress bars. */
+QDialog {
+    background: @surface-panel;
+}
+
+QMessageBox {
+    background: @surface-panel;
+}
+
+/* Scoped to inside a dialog, deliberately not a bare `QLabel` rule: the
+ * toolbar repo/branch labels, the title-bar app name, and DiffPage's
+ * inline-styled stats/empty labels all rely on their own colour and would be
+ * overridden by an app-wide QLabel selector. */
+QDialog QLabel,
+QMessageBox QLabel {
+    color: @text-primary;
+}
+
+QDialogButtonBox {
+    padding-top: 8px;
+}
+
+/* --- combo boxes --------------------------------------------------------- */
+
+/* Same box recipe as QLineEdit/QPushButton above, so a combo box reads as
+ * part of the same input family instead of a Fusion holdover. */
+QComboBox {
+    background: @surface-panel;
+    color: @text-primary;
+    border: 1px solid @border-default;
+    border-radius: 6px;
+    padding: 0 12px;
+    min-height: 30px;
+}
+
+QComboBox:hover {
+    border-color: @border-strong;
+}
+
+QComboBox:focus {
+    border: 2px solid @border-focus;
+}
+
+QComboBox:disabled {
+    color: @text-tertiary;
+    background: @surface-sunken;
+}
+
+QComboBox::drop-down {
+    width: 24px;
+    border: none;
+}
+
+/* A CSS-triangle arrow rather than an SVG: QSS cannot recolour an image per
+ * theme (see the same reasoning on QCheckBox::indicator above), and a solid
+ * triangle needs no theme-specific asset at all. */
+QComboBox::down-arrow {
+    width: 0;
+    height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid @text-secondary;
+    margin-right: 8px;
+}
+
+QComboBox QAbstractItemView {
+    background: @surface-overlay;
+    color: @text-primary;
+    border: 1px solid @border-default;
+    border-radius: 6px;
+    padding: 4px;
+    outline: none;
+    selection-background-color: @accent;
+    selection-color: @text-on-accent;
+}
+
+/* --- spin boxes ------------------------------------------------------------ */
+
+QSpinBox,
+QDoubleSpinBox {
+    background: @surface-panel;
+    color: @text-primary;
+    border: 1px solid @border-default;
+    border-radius: 6px;
+    padding: 0 8px;
+    min-height: 30px;
+}
+
+QSpinBox:focus,
+QDoubleSpinBox:focus {
+    border: 2px solid @border-focus;
+}
+
+QSpinBox::up-button,
+QDoubleSpinBox::up-button,
+QSpinBox::down-button,
+QDoubleSpinBox::down-button {
+    width: 18px;
+    border: none;
+    background: transparent;
+}
+
+QSpinBox::up-arrow,
+QDoubleSpinBox::up-arrow {
+    width: 0;
+    height: 0;
+    border-left: 3px solid transparent;
+    border-right: 3px solid transparent;
+    border-bottom: 4px solid @text-secondary;
+}
+
+QSpinBox::down-arrow,
+QDoubleSpinBox::down-arrow {
+    width: 0;
+    height: 0;
+    border-left: 3px solid transparent;
+    border-right: 3px solid transparent;
+    border-top: 4px solid @text-secondary;
+}
+
+/* --- radio buttons ----------------------------------------------------------*/
+
+/* Same size/border recipe as QCheckBox::indicator above, round instead of
+ * squared -- the two are meant to read as one family of controls. */
+QRadioButton::indicator {
+    width: 15px;
+    height: 15px;
+    border-radius: 8px;
+    border: 1.5px solid @border-strong;
+    background: @surface-panel;
+}
+
+QRadioButton::indicator:hover {
+    border-color: @accent;
+}
+
+QRadioButton::indicator:checked {
+    background: @accent;
+    border-color: @accent;
+}
+
+QRadioButton::indicator:disabled {
+    border-color: @border-subtle;
+    background: @surface-sunken;
+}
+
+QRadioButton {
+    spacing: 8px;
+}
+
+/* --- group boxes ------------------------------------------------------------*/
+
+QGroupBox {
+    border: 1px solid @border-subtle;
+    border-radius: 10px;
+    margin-top: 14px;
+    padding-top: 8px;
+    font-weight: 600;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 10px;
+    padding: 0 4px;
+    color: @text-primary;
+}
+
+/* --- tooltips ---------------------------------------------------------------*/
+
+QToolTip {
+    background: @surface-overlay;
+    color: @text-primary;
+    border: 1px solid @border-default;
+    border-radius: 4px;
+    padding: 4px 8px;
+}
+
+/* --- progress bars ------------------------------------------------------------*/
+
+QProgressBar {
+    background: @surface-sunken;
+    color: @text-primary;
+    border: 1px solid @border-subtle;
+    border-radius: 6px;
+    text-align: center;
+    min-height: 16px;
+}
+
+QProgressBar::chunk {
+    background: @accent;
+    border-radius: 5px;
 }

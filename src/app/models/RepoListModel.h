@@ -26,6 +26,9 @@ public:
         PathRole = Qt::UserRole + 1,
         RepoIdRole,
         IsStaleRole,
+        KindRole,    ///< int(RepoKind) -- which icon SidebarRowDelegate picks.
+        AheadRole,   ///< int, 0 if no probe yet.
+        BehindRole,  ///< int, 0 if no probe yet.
     };
 
     explicit RepoListModel(QObject* parent = nullptr);

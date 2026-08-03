@@ -1,6 +1,7 @@
 #include "app/dialogs/ManageStashesDialog.h"
 
 #include "app/bridge/RepositorySession.h"
+#include "app/dialogs/MessageDialogs.h"
 
 #include <QHBoxLayout>
 #include <QInputDialog>
@@ -85,14 +86,14 @@ ManageStashesDialog::ManageStashesDialog(RepositorySession* session,
             if (!index) {
                 return;
             }
-            const auto confirmed = QMessageBox::warning(this,
-                                                        QStringLiteral("Drop stash?"),
-                                                        QStringLiteral("This permanently deletes "
-                                                                       "stash@{%1}.")
-                                                            .arg(*index),
-                                                        QMessageBox::Discard | QMessageBox::Cancel,
-                                                        QMessageBox::Cancel);
-            if (confirmed != QMessageBox::Discard) {
+            const bool confirmed = dialogs::confirm(this,
+                                                    QStringLiteral("Drop stash?"),
+                                                    QStringLiteral("This permanently deletes "
+                                                                   "stash@{%1}.")
+                                                        .arg(*index),
+                                                    QStringLiteral("Discard"),
+                                                    /*destructive=*/true);
+            if (!confirmed) {
                 return;
             }
             StashDropRequest request;
@@ -105,16 +106,12 @@ ManageStashesDialog::ManageStashesDialog(RepositorySession* session,
             if (!index) {
                 return;
             }
-            bool ok = false;
-            const QString name = QInputDialog::getText(this,
-                                                       QStringLiteral("Create branch from stash"),
-                                                       QStringLiteral("Branch name:"),
-                                                       QLineEdit::Normal,
-                                                       QString(),
-                                                       &ok);
-            if (!ok || name.isEmpty()) {
+            const auto nameResult = dialogs::promptText(
+                this, QStringLiteral("Create branch from stash"), QStringLiteral("Branch name:"));
+            if (!nameResult || nameResult->isEmpty()) {
                 return;
             }
+            const QString name = *nameResult;
             StashBranchRequest request;
             request.index = *index;
             request.branchName = name.toStdString();

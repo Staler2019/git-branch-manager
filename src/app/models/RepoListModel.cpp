@@ -61,6 +61,12 @@ QVariant RepoListModel::data(const QModelIndex& index, int role) const {
             // No probe yet means the detail columns are showing cached or unknown
             // values; the view dims them rather than implying they are current.
             return probe == nullptr;
+        case KindRole:
+            return static_cast<int>(repo->kind);
+        case AheadRole:
+            return probe == nullptr ? 0 : probe->ahead;
+        case BehindRole:
+            return probe == nullptr ? 0 : probe->behind;
         default:
             break;
     }

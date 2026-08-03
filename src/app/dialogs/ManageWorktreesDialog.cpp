@@ -1,6 +1,7 @@
 #include "app/dialogs/ManageWorktreesDialog.h"
 
 #include "app/bridge/RepositorySession.h"
+#include "app/dialogs/MessageDialogs.h"
 
 #include <QAbstractItemView>
 #include <QDir>
@@ -100,16 +101,12 @@ ManageWorktreesDialog::ManageWorktreesDialog(RepositorySession* session,
         if (parentDir.isEmpty()) {
             return;
         }
-        bool ok = false;
-        const QString folderName = QInputDialog::getText(this,
-                                                         QStringLiteral("New worktree"),
-                                                         QStringLiteral("Folder name:"),
-                                                         QLineEdit::Normal,
-                                                         QString(),
-                                                         &ok);
-        if (!ok || folderName.isEmpty()) {
+        const auto folderNameResult = dialogs::promptText(
+            this, QStringLiteral("New worktree"), QStringLiteral("Folder name:"));
+        if (!folderNameResult || folderNameResult->isEmpty()) {
             return;
         }
+        const QString folderName = *folderNameResult;
 
         QStringList branchNames;
         if (const RefSnapshotPtr refs = session->refs()) {
@@ -119,17 +116,12 @@ ManageWorktreesDialog::ManageWorktreesDialog(RepositorySession* session,
         }
         QString branch;
         if (!branchNames.isEmpty()) {
-            bool branchOk = false;
-            branch = QInputDialog::getItem(this,
-                                           QStringLiteral("New worktree"),
-                                           QStringLiteral("Branch:"),
-                                           branchNames,
-                                           0,
-                                           false,
-                                           &branchOk);
-            if (!branchOk) {
+            const auto branchResult = dialogs::promptChoice(
+                this, QStringLiteral("New worktree"), QStringLiteral("Branch:"), branchNames, 0);
+            if (!branchResult) {
                 return;
             }
+            branch = *branchResult;
         }
 
         AddWorktreeRequest request;
@@ -145,19 +137,19 @@ ManageWorktreesDialog::ManageWorktreesDialog(RepositorySession* session,
                 return;
             }
             if (info->isMain) {
-                QMessageBox::information(this,
-                                         QStringLiteral("Cannot remove"),
-                                         QStringLiteral("The main worktree cannot be removed."));
+                dialogs::info(this,
+                              QStringLiteral("Cannot remove"),
+                              QStringLiteral("The main worktree cannot be removed."));
                 return;
             }
-            const auto confirmed =
-                QMessageBox::warning(this,
-                                     QStringLiteral("Remove worktree?"),
-                                     QStringLiteral("Remove the worktree at \"%1\"?")
-                                         .arg(QString::fromStdString(info->path.string())),
-                                     QMessageBox::Yes | QMessageBox::Cancel,
-                                     QMessageBox::Cancel);
-            if (confirmed != QMessageBox::Yes) {
+            const bool confirmed =
+                dialogs::confirm(this,
+                                 QStringLiteral("Remove worktree?"),
+                                 QStringLiteral("Remove the worktree at \"%1\"?")
+                                     .arg(QString::fromStdString(info->path.string())),
+                                 QStringLiteral("Yes"),
+                                 /*destructive=*/true);
+            if (!confirmed) {
                 return;
             }
             const std::filesystem::path path = info->path;
@@ -183,16 +175,12 @@ ManageWorktreesDialog::ManageWorktreesDialog(RepositorySession* session,
             if (!info) {
                 return;
             }
-            bool ok = false;
-            const QString reason = QInputDialog::getText(this,
-                                                         QStringLiteral("Lock worktree"),
-                                                         QStringLiteral("Reason (optional):"),
-                                                         QLineEdit::Normal,
-                                                         QString(),
-                                                         &ok);
-            if (!ok) {
+            const auto reasonResult = dialogs::promptText(
+                this, QStringLiteral("Lock worktree"), QStringLiteral("Reason (optional):"));
+            if (!reasonResult) {
                 return;
             }
+            const QString reason = *reasonResult;
             LockWorktreeRequest request;
             request.path = info->path;
             request.reason = reason.toStdString();

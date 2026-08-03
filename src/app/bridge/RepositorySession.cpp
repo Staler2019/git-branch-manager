@@ -464,6 +464,49 @@ void RepositorySession::requestConflictSides(const std::string& path,
     });
 }
 
+void RepositorySession::requestFileContent(const std::string& path, const std::string& revision) {
+    const CancellationToken token = readCancel_.token();
+    setBusy(true);
+
+    readPool_.postFront([this, path, revision, token] {
+        if (token.isCancelled()) {
+            QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+            return;
+        }
+        if (auto started = catFile_->start(); !started) {
+            GitError error = std::move(started).error();
+            QMetaObject::invokeMethod(
+                this,
+                [this, error] {
+                    setBusy(false);
+                    emit errorOccurred(error);
+                },
+                Qt::QueuedConnection);
+            return;
+        }
+
+        // `revision:path`, e.g. "HEAD:src/main.cpp" or ":src/main.cpp" for the
+        // index -- the same syntax CatFileBatch::read documents accepting.
+        const std::string object = revision + ":" + path;
+        auto result = catFile_->read(object);
+        // Best-effort, like requestConflictSides: a missing object (untracked
+        // file, or a path that did not exist at `revision`) is a normal
+        // display state, not a failure worth surfacing as an error.
+        const bool exists = static_cast<bool>(result);
+        const std::string content = exists ? result->content : std::string();
+
+        const QString qpath = QString::fromStdString(path);
+        const QString qrevision = QString::fromStdString(revision);
+        QMetaObject::invokeMethod(
+            this,
+            [this, qpath, qrevision, content, exists] {
+                setBusy(false);
+                emit fileContentReady(qpath, qrevision, QString::fromStdString(content), exists);
+            },
+            Qt::QueuedConnection);
+    });
+}
+
 void RepositorySession::submitAndRefresh(std::unique_ptr<Operation> operation,
                                          std::function<void(bool)> afterFinished) {
     setBusy(true);

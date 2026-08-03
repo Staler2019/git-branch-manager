@@ -4,6 +4,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace gbm {
 
@@ -22,7 +23,10 @@ struct RenameBranchRequest {
 };
 
 struct DeleteBranchRequest {
-    std::string name;
+    /// One or more branch names to delete in a single `git branch`/`git push
+    /// --delete` invocation -- git accepts multiple names to either command,
+    /// so a multi-select delete is one operation, not N.
+    std::vector<std::string> names;
     /// Deletes even when the branch is not merged. Requires an explicit user
     /// decision, because the commits become reachable only through the reflog.
     bool force = false;

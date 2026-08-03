@@ -31,6 +31,45 @@ std::vector<std::string_view> splitLines(std::string_view text) {
     return lines;
 }
 
+/// Writes the `diff --git`/`--- `/`+++ ` header block used by both
+/// buildHunkPatch and buildLineSelectionPatch, including `rename from`/
+/// `rename to` (or `copy from`/`copy to`) when `file` is one -- without them,
+/// `git apply` has no way to associate the hunk with a file whose path
+/// changed, since `--- a/oldPath` alone reads as "this file still exists at
+/// oldPath", which a rename makes untrue.
+///
+/// `unstaging` suppresses the rename/copy metadata and points both sides of
+/// the header at `newPath`. `git apply --cached --reverse` reverses the
+/// *entire* patch record, `rename from`/`rename to` included -- so a header
+/// built the same way for staging and unstaging would, on unstage, undo the
+/// rename itself rather than just the selected content. By the time a rename
+/// is being unstaged, the index already has the file at `newPath` (the rename
+/// was staged first); the reconstructed patch only needs to describe a
+/// content change at that path, which content-only, same-path headers do
+/// without touching the rename that already landed.
+void appendPatchHeader(std::string& patch,
+                       const DiffFile& file,
+                       const std::string& oldPath,
+                       const std::string& newPath,
+                       bool unstaging) {
+    const bool isRenameOrCopy =
+        (file.kind == FileChangeKind::Renamed || file.kind == FileChangeKind::Copied) &&
+        oldPath != newPath;
+    const bool contentOnlyAtNewPath = unstaging && isRenameOrCopy;
+    const std::string& headerOldPath = contentOnlyAtNewPath ? newPath : oldPath;
+
+    patch += "diff --git a/" + headerOldPath + " b/" + newPath + "\n";
+    if (isRenameOrCopy && !contentOnlyAtNewPath) {
+        patch += "similarity index " + std::to_string(file.similarity) + "%\n";
+        patch +=
+            (file.kind == FileChangeKind::Renamed ? "rename from " : "copy from ") + oldPath + "\n";
+        patch +=
+            (file.kind == FileChangeKind::Renamed ? "rename to " : "copy to ") + newPath + "\n";
+    }
+    patch += "--- a/" + headerOldPath + "\n";
+    patch += "+++ b/" + newPath + "\n";
+}
+
 std::uint32_t parseUint(std::string_view text) {
     std::uint32_t value = 0;
     std::from_chars(text.data(), text.data() + text.size(), value);
@@ -342,7 +381,8 @@ ParsedDiff UnifiedDiffParser::parse(std::string_view diffText) const {
 
 std::string UnifiedDiffParser::buildHunkPatch(const DiffFile& file,
                                               const DiffHunk& hunk,
-                                              bool reverse) {
+                                              bool reverse,
+                                              bool unstaging) {
     // A minimal single-hunk patch. `git apply` needs the file headers even for one
     // hunk, and the counts must match the emitted lines exactly or it refuses.
     const std::string& oldPath = file.oldPath.empty() ? file.newPath : file.oldPath;
@@ -368,9 +408,7 @@ std::string UnifiedDiffParser::buildHunkPatch(const DiffFile& file,
     }
 
     std::string patch;
-    patch += "diff --git a/" + oldPath + " b/" + newPath + "\n";
-    patch += "--- a/" + oldPath + "\n";
-    patch += "+++ b/" + newPath + "\n";
+    appendPatchHeader(patch, file, oldPath, newPath, unstaging);
     // Reversing a patch swaps the two sides, not just the line markers: emitting
     // flipped signs against the original ranges produces a patch git rejects.
     // (Callers may instead keep reverse=false and pass `git apply --reverse`.)
@@ -403,7 +441,8 @@ std::string UnifiedDiffParser::buildHunkPatch(const DiffFile& file,
 
 std::string UnifiedDiffParser::buildLineSelectionPatch(const DiffFile& file,
                                                        const DiffHunk& hunk,
-                                                       const std::vector<bool>& selected) {
+                                                       const std::vector<bool>& selected,
+                                                       bool unstaging) {
     const std::string& oldPath = file.oldPath.empty() ? file.newPath : file.oldPath;
     const std::string& newPath = file.newPath.empty() ? file.oldPath : file.newPath;
 
@@ -415,47 +454,92 @@ std::string UnifiedDiffParser::buildLineSelectionPatch(const DiffFile& file,
     std::vector<EmittedLine> body;
     body.reserve(hunk.lines.size());
 
-    std::uint32_t oldCount = 0;
-    std::uint32_t newCount = 0;
+    // Whether the line immediately before the current position was actually
+    // emitted into `body` (as opposed to dropped) -- a NoNewlineMarker only
+    // makes sense following a line that is actually present in the patch;
+    // emitting it after a dropped line produces a patch `git apply` rejects.
+    bool previousLineEmitted = false;
+
     for (std::size_t i = 0; i < hunk.lines.size(); ++i) {
         const DiffLine& line = hunk.lines[i];
         const bool isSelected = i < selected.size() && selected[i];
         switch (line.kind) {
             case DiffLineKind::Context:
                 body.push_back({' ', &line.text});
-                ++oldCount;
-                ++newCount;
+                previousLineEmitted = true;
                 break;
             case DiffLineKind::Added:
                 if (isSelected) {
+                    // Selected: stays added either way -- staging it adds it,
+                    // unstaging it takes it back out of the index.
                     body.push_back({'+', &line.text});
-                    ++newCount;
+                    previousLineEmitted = true;
+                } else if (unstaging) {
+                    // Unstaging: an unselected added line *is* already in the
+                    // index (that is what "staged" means), and must stay
+                    // there -- from the reverse patch's point of view it is
+                    // unchanged context, not something to drop.
+                    body.push_back({' ', &line.text});
+                    previousLineEmitted = true;
+                } else {
+                    // Staging: an unselected added line was never staged, so
+                    // it is simply omitted rather than turned into context.
+                    previousLineEmitted = false;
                 }
-                // Not selected: the line was never staged, so it is simply
-                // omitted rather than turned into context.
                 break;
             case DiffLineKind::Removed:
                 if (isSelected) {
+                    // Selected: stays removed either way -- staging it
+                    // removes it, unstaging it puts it back in the index.
                     body.push_back({'-', &line.text});
-                    ++oldCount;
+                    previousLineEmitted = true;
+                } else if (unstaging) {
+                    // Unstaging: an unselected removed line was never in the
+                    // index to begin with (only a selected removal would
+                    // have staged its removal), so it is omitted here too --
+                    // the opposite of the staging case below.
+                    previousLineEmitted = false;
                 } else {
-                    // Not selected: the line is not being removed, so from the
-                    // patch's point of view it survives unchanged.
+                    // Staging: an unselected removed line is not being
+                    // removed, so from the patch's point of view it survives
+                    // unchanged.
                     body.push_back({' ', &line.text});
-                    ++oldCount;
-                    ++newCount;
+                    previousLineEmitted = true;
                 }
                 break;
             case DiffLineKind::NoNewlineMarker:
-                body.push_back({'\\', &line.text});
+                if (previousLineEmitted) {
+                    body.push_back({'\\', &line.text});
+                }
                 break;
         }
     }
 
+    // Counts are derived from what was actually emitted, not recomputed from
+    // `DiffLineKind` in a second pass that could drift out of sync with the
+    // selection logic above -- that mismatch is exactly the bug class that
+    // produces git's "patch does not apply".
+    std::uint32_t oldCount = 0;
+    std::uint32_t newCount = 0;
+    for (const EmittedLine& emitted : body) {
+        switch (emitted.marker) {
+            case ' ':
+                ++oldCount;
+                ++newCount;
+                break;
+            case '+':
+                ++newCount;
+                break;
+            case '-':
+                ++oldCount;
+                break;
+            default:
+                break;  // '\\': annotates the previous line, adds no line of its own.
+        }
+    }
+
     std::string patch;
-    patch += "diff --git a/" + oldPath + " b/" + newPath + "\n";
-    patch += "--- a/" + oldPath + "\n";
-    patch += "+++ b/" + newPath + "\n";
+    appendPatchHeader(patch, file, oldPath, newPath, unstaging);
     patch += "@@ -" + std::to_string(hunk.oldStart) + "," + std::to_string(oldCount) + " +" +
              std::to_string(hunk.newStart) + "," + std::to_string(newCount) + " @@\n";
 

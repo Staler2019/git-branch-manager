@@ -8,12 +8,14 @@
 // real (offscreen) `QApplication`, which the last slot uses to prove `apply()`
 // actually pushes a theme-specific stylesheet and palette.
 #include "app/bridge/ThemeManager.h"
+#include "app/theme/IconLoader.h"
 #include "app/theme/Metrics.h"
 #include "app/theme/ThemeTokens.h"
 #include "app/theme/Tokens.h"
 
 #include <QApplication>
 #include <QFile>
+#include <QImage>
 #include <QRegularExpression>
 #include <QSettings>
 #include <QTemporaryDir>
@@ -181,6 +183,34 @@ private slots:
         QVERIFY(light.contains(QStringLiteral("#f5f6f8")));  // light-ide surface-sunken
         QCOMPARE(QApplication::palette().color(QPalette::Window),
                  ThemeManager::color(ThemeId::LightIde, Token::SurfaceApp));
+    }
+
+    // IconLoader's whole job is recoloring an SVG whose stroke was baked to
+    // a literal opaque colour (never `currentColor` -- Qt's SVG renderer does
+    // not resolve it) by recompositing with SourceIn. Before the app.qrc
+    // AUTORCC fix, `QSvgRenderer::isValid()` would have been false here and
+    // this would have silently produced a fully transparent icon -- exactly
+    // the failure class that fix addresses, so this is the regression guard
+    // for it on the icon-loading path specifically.
+    void iconLoaderProducesANonTransparentPixmap() {
+        ThemeManager::apply(ThemeId::DarkTechnical);
+        const QIcon icon = IconLoader::icon(QStringLiteral("git-branch"), Token::TextPrimary, 16);
+        QVERIFY(!icon.isNull());
+
+        const QPixmap pixmap = icon.pixmap(16, 16);
+        QVERIFY(!pixmap.isNull());
+        const QImage image = pixmap.toImage();
+
+        bool foundOpaquePixel = false;
+        for (int y = 0; y < image.height() && !foundOpaquePixel; ++y) {
+            for (int x = 0; x < image.width(); ++x) {
+                if (qAlpha(image.pixel(x, y)) > 0) {
+                    foundOpaquePixel = true;
+                    break;
+                }
+            }
+        }
+        QVERIFY2(foundOpaquePixel, "IconLoader produced a fully transparent pixmap");
     }
 
 private:

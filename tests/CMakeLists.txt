@@ -55,7 +55,7 @@ target_link_libraries(gbm_graph_check PRIVATE gbm_core gbm_warnings)
 # --- Qt model tests --------------------------------------------------------
 # Only when the GUI is being built. Runs offscreen, so it needs no display in CI.
 if(GBM_BUILD_APP)
-    find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Widgets Test)
+    find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Widgets Svg Test)
 
     qt_add_executable(gbm_model_tests ui/ModelsTest.cpp
         "${CMAKE_SOURCE_DIR}/src/app/models/CommitListModel.cpp"
@@ -90,6 +90,7 @@ if(GBM_BUILD_APP)
     # check, so it gets its own qt_add_executable mirroring gbm_model_tests.
     qt_add_executable(gbm_theme_tests ui/ThemeTest.cpp
         "${CMAKE_SOURCE_DIR}/src/app/bridge/ThemeManager.cpp"
+        "${CMAKE_SOURCE_DIR}/src/app/theme/IconLoader.cpp"
         "${CMAKE_SOURCE_DIR}/src/app/theme/ThemeTokens.cpp"
         "${CMAKE_SOURCE_DIR}/resources/app.qrc")
 
@@ -97,7 +98,7 @@ if(GBM_BUILD_APP)
 
     target_include_directories(gbm_theme_tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
     target_link_libraries(gbm_theme_tests
-        PRIVATE gbm_core Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test gbm_warnings)
+        PRIVATE gbm_core Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg Qt6::Test gbm_warnings)
 
     add_test(NAME qt_theme COMMAND gbm_theme_tests)
     set_tests_properties(qt_theme PROPERTIES

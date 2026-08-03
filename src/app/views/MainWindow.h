@@ -18,6 +18,7 @@
 #include "core/workers/ThreadPool.h"
 
 #include <QLabel>
+#include <QList>
 #include <QMainWindow>
 #include <QPoint>
 #include <QTableView>
@@ -25,6 +26,8 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
+#include <string>
 
 class QAction;
 class QLineEdit;
@@ -34,6 +37,7 @@ class QStackedWidget;
 class QTabWidget;
 class QProgressBar;
 class QTimer;
+class QToolButton;
 
 namespace gbm {
 
@@ -48,6 +52,33 @@ public:
     /// first paint never waits on anything.
     void loadInitialState();
 
+    /// Test/debug seam for `GBM_SCREENSHOT_REPO`: classifies `path` directly
+    /// (bypassing the discovery scan/cache) and opens it exactly as
+    /// `onRepoActivated` would, so a screenshot can be taken of the repository
+    /// shell instead of the browser page `stack_` otherwise starts on.
+    void openRepositoryAtPathForScreenshot(const QString& path);
+
+    /// Test/debug seam for `GBM_SCREENSHOT_EXPAND_ROW`: selects and expands
+    /// `row` directly, so a screenshot can verify the inline commit
+    /// expansion panel without simulating the click sequence
+    /// onCommitRowClicked otherwise requires.
+    void expandCommitRowForScreenshot(int row);
+
+    /// Test/debug seam for `GBM_SCREENSHOT_SELECT_ROW`: selects `row` without
+    /// expanding it, so a screenshot can verify the selected (but not
+    /// expanded) row's background is uniform across all five columns --
+    /// expandCommitRowForScreenshot's panel would otherwise cover exactly the
+    /// area in question.
+    void selectCommitRowForScreenshot(int row);
+
+    /// Test/debug seam for `GBM_SCREENSHOT_SWITCH_THEME_AFTER`: calls the
+    /// private `applyThemeAndRefresh(theme)` a screenshot can otherwise only
+    /// reach by simulating a toolbar click -- exists specifically to verify
+    /// that a *runtime* theme switch re-bakes every IconLoader-tinted icon
+    /// (title bar, Fetch/Pull/Push, Refresh, the palette icons), not just
+    /// that starting the process already on that theme looks right.
+    void switchThemeForScreenshot(ThemeId theme);
+
 private slots:
     void onAddBaseFolder();
     void onManageBaseFolders();
@@ -55,6 +86,8 @@ private slots:
     void onForceRefresh();
     void onCancelScan();
     void onRepoActivated(const QModelIndex& index);
+    void onRepoRowClicked(const QModelIndex& index);
+    void openPendingRepo();
     void onCommitSelectionChanged();
     void onRefActivated(const QModelIndex& index);
     void onCheckoutRequested();
@@ -105,10 +138,18 @@ private slots:
     void onResetBranchRequested();
     void onRebaseRequested();
     void onInteractiveRebaseRequested();
+    /// Shared by onRebaseRequested() (Branch menu -- reads commitView_'s
+    /// selection, the only OID available there) and the commit context menu's
+    /// "Rebase current onto here" (which already knows the clicked row's OID
+    /// and used to re-derive it from the selection instead, only correct
+    /// because the context-menu handler force-selects the clicked row first).
+    /// Passing it explicitly removes that indirection.
+    void performRebase(const ObjectId& upstream);
     void onBannerContinue();
     void onBannerSkip();
     void onBannerAbort();
     void onCleanUntracked();
+    void onOpenTerminal();
     void onShowReflog();
     void onUndoLastOperation();
     void onFileContextMenuRequested(const QPoint& pos);
@@ -134,6 +175,19 @@ private:
     void closeRepository();
     void probeVisibleRepos();
     void updateStateBanner();
+    /// Restores `splitter`'s sizes from QSettings key `window/splitters/<key>`
+    /// if present, then connects splitterMoved to persist future changes
+    /// under the same key. Called once per splitter from buildUi() after its
+    /// panes and stretch factors are set up, so an absent saved value falls
+    /// back to whatever the stretch factors already produce.
+    void setupPersistentSplitter(QSplitter* splitter, const QString& key);
+
+    /// "origin" if a remote by that name exists, else the sole remote if
+    /// there is exactly one, else std::nullopt -- shared by onPush() (silent
+    /// auto-detection of a missing upstream) and onPushSetUpstream() (the
+    /// interactive remote picker), so the two agree on what "the" remote
+    /// means when there is no ambiguity.
+    std::optional<std::string> resolveDefaultRemoteName() const;
     void showError(const QString& summary, const GitError& error);
 
     /// Applies `theme`, then repaints everything Phase 0's single-token-table
@@ -153,11 +207,6 @@ private:
     /// density, and would otherwise go stale until the next collapse.
     void onDensityToggled(bool compact);
 
-    /// Re-applies the banner's background/text colours from the current
-    /// theme. Called once at construction and again by
-    /// `applyThemeAndRefresh` after every theme switch.
-    void restyleBanner();
-
     /// Submits a merge/cherry-pick style request and waits for exactly one
     /// `workingCopyOperationFinished`. On success or a plain error, reports it
     /// and is done. On a recoverable choice (currently always
@@ -165,7 +214,16 @@ private:
     /// re-arms itself and calls `submit(true)` again -- so `submit` never runs
     /// more than once per user decision, and this needs no member state to
     /// carry the retry across the asynchronous round trip.
-    void armWorkingCopyChoiceHandler(std::function<void(bool stashFirst)> submit, bool stashFirst);
+    /// `announceSuccess`: most callers are satisfied by the statusLabel_ text
+    /// this already sets on success; rebase-onto-a-commit is not, since a
+    /// "current branch is up to date" no-op success looks identical to
+    /// nothing having happened if the only feedback is a status-bar corner.
+    /// When true, a successful outcome also gets a QMessageBox so it cannot
+    /// be missed. Defaults to false rather than changing behaviour for
+    /// checkout/merge/revert/reset/cherry-pick, which already share this path.
+    void armWorkingCopyChoiceHandler(std::function<void(bool stashFirst)> submit,
+                                     bool stashFirst,
+                                     bool announceSuccess = false);
 
     /// The M3 equivalent for operations that are not a checkout/merge/
     /// cherry-pick: shows the outcome exactly the same way (status text,
@@ -198,12 +256,6 @@ private:
     /// Destroys the current expansion (if any) and restores its row to the
     /// default height. Safe to call when nothing is expanded.
     void collapseExpandedCommitRow();
-
-    /// Builds the panel shown by expandCommitRow(): a summary line plus each
-    /// changed file with its +added/-removed counts, built from whatever
-    /// currentFiles_/currentDiff_ currently hold for the (necessarily
-    /// selected) expanded row.
-    QWidget* buildCommitExpansionPanel(int row) const;
 
     /// Re-populates the currently expanded panel's content once
     /// onCommitDetailsReady delivers data for the row that is expanded --
@@ -251,6 +303,13 @@ private:
     static constexpr int kDiffTab = 2;
     static constexpr int kRepositoryTab = 3;
 
+    /// Members (rather than buildUi() locals) only so their sizes can be
+    /// persisted to QSettings on splitterMoved and restored on startup --
+    /// see restoreSplitterSizes()/persistSplitterSizes() in MainWindow.cpp.
+    QSplitter* outerSplitter_ = nullptr;
+    QSplitter* rightSplitter_ = nullptr;
+    QSplitter* detailSplitter_ = nullptr;
+
     /// The row currently showing its inline expansion panel, or -1 if none.
     /// Invariant: at most one row is ever expanded, it is always the selected
     /// row (expansion only toggles on a row that is already selected), and
@@ -277,9 +336,36 @@ private:
     QAction* undoAction_ = nullptr;
     QProgressBar* busyBar_ = nullptr;
 
+    /// Icons baked once via IconLoader::icon() at buildMenus() time, unlike
+    /// the delegate-painted ones (sidebar rows, ref pills) that call it fresh
+    /// on every paint. IconLoader::clearCache() alone does not repaint an
+    /// already-set QIcon/QPixmap, so applyThemeAndRefresh() re-bakes each of
+    /// these explicitly after clearing the cache -- otherwise they keep the
+    /// previous theme's tint indefinitely after a theme switch.
+    QLabel* titleBarIconLabel_ = nullptr;
+    QAction* fetchAction_ = nullptr;
+    QAction* pullAction_ = nullptr;
+    QAction* pushAction_ = nullptr;
+    QAction* refreshAction_ = nullptr;
+    QList<QAction*>
+        toolbarThemeActions_;  // Same order as {DarkTechnical, LightIde, NeutralProfessional}.
+    /// The toolbar's styled Fetch/Pull/Push buttons construct their icon from
+    /// fetchAction_->icon() etc. as a one-time snapshot, not a live binding
+    /// to the action -- setting the action's icon later does not move these.
+    QPushButton* fetchButton_ = nullptr;
+    QPushButton* pullButton_ = nullptr;
+    QPushButton* pushButton_ = nullptr;
+
     /// Coalesces a burst of scroll events into a single `probeVisibleRepos()`
     /// call instead of one per event.
     QTimer* probeDebounce_ = nullptr;
+
+    /// Coalesces a burst of selection changes (e.g. arrow-key or click
+    /// scrubbing down the repository list) into opening only the row the
+    /// user actually lands on, rather than opening -- and immediately
+    /// tearing down -- a RepositorySession per row passed through.
+    QTimer* repoOpenDebounce_ = nullptr;
+    int pendingRepoOpenRow_ = -1;
 
     /// The target of the checkout currently in flight (a ref name or a raw
     /// commit hex), so onOperationFinished's dirty-work-tree retry re-issues

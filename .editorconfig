@@ -1,0 +1,31 @@
+# EditorConfig: https://editorconfig.org
+# Mirrors .clang-format (Google base, 4-space indent, 100-column limit) so
+# editors match what clang-format 18 will produce without waiting for a save.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{cpp,h,cc,hh,cxx,hxx}]
+indent_style = space
+indent_size = 4
+max_line_length = 100
+
+[*.{cmake,txt}]
+indent_style = space
+indent_size = 4
+
+[CMakeLists.txt]
+indent_style = space
+indent_size = 4
+
+[*.{json,yml,yaml}]
+indent_style = space
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false

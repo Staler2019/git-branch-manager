@@ -769,7 +769,10 @@ void MainWindow::buildMenus() {
     // dropped, since the design's toolbar row has no equivalent affordance.
     toolBar->addAction(
         QStringLiteral("Repositories"), this, [this] { stack_->setCurrentIndex(0); });
-    toolBar->addAction(QStringLiteral("Terminal"), this, &MainWindow::onOpenTerminal);
+    // No toolbar "Terminal" button (removed): it was text-only with no icon
+    // and duplicated the Repository menu's "Open in terminal" (below) and the
+    // sidebar's repo-context-menu entry, which both remain the affordances
+    // for this action.
 
     auto* leftSpacer = new QWidget(toolBar);
     leftSpacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);

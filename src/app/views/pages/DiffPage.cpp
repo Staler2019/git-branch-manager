@@ -237,6 +237,13 @@ void DiffPage::ensureSectionBodyBuilt(FileSection& section) {
     if (diff_) {
         diffView->showFile(diff_, section.path);
     }
+    // sizeHint() alone is enough when this body is the layout's only voice on
+    // its own height, but a QVBoxLayout item competing with siblings for
+    // space can still get squeezed below it. A minimum height pins the floor
+    // explicitly so an expanded section always shows its content rather than
+    // falling back to the pane's own inner scrollbar -- set after showFile()
+    // so it reflects this diff's actual row count, not an empty view's.
+    diffView->setMinimumHeight(diffView->preferredHeight());
     connect(
         diffView, &SideBySideDiffView::applyPatchRequested, this, &DiffPage::applyPatchRequested);
     bodyLayout->addWidget(diffView);

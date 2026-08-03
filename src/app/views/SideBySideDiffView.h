@@ -34,6 +34,16 @@ class SideBySideDiffView : public QWidget {
 public:
     explicit SideBySideDiffView(QWidget* parent = nullptr);
 
+    /// Content-derived height: enough to show every rendered row up to a cap,
+    /// so a section expanded in DiffPage grows to fit its diff instead of
+    /// showing a handful of lines behind its own inner scrollbar. See the
+    /// .cpp for the row-count/cap details. Exposed publicly (not just
+    /// overridden as sizeHint()) so a caller whose layout doesn't honour
+    /// sizeHint -- a QVBoxLayout item competing for space with siblings, say
+    /// -- can fall back to `setMinimumHeight(preferredHeight())` directly.
+    int preferredHeight() const;
+    QSize sizeHint() const override;
+
     void showDiff(std::shared_ptr<const ParsedDiff> diff);
 
     /// Shows a single file from a multi-file diff.

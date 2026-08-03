@@ -165,14 +165,31 @@ The `core` / `app` split is load-bearing rather than tidy: `core` links no Qt
 target, so the entire data layer runs under GoogleTest with no `QApplication`, and
 CI fails the build if a Qt header appears under `src/core`.
 
+## Installing
+
+Download the latest release for your platform from the
+[Releases](../../releases) page. Released binaries are built with Qt 6.10,
+which needs macOS 13 or newer; the macOS download is Apple Silicon only.
+
+### macOS: clearing the quarantine attribute
+
+The macOS build is only signed and notarized when the maintainer's Apple
+Developer credentials are configured in CI; a fork or an unconfigured
+release ships an unsigned `.dmg`. Gatekeeper quarantines anything downloaded
+with a browser, so opening an unsigned build gives a "git-branch-manager is
+damaged and can't be opened" or "Apple could not verify" dialog instead of
+launching. Clear the quarantine extended attribute after moving the app to
+`/Applications` (or wherever you keep it), then launch it normally:
+
+```bash
+xattr -cr /Applications/git-branch-manager.app
+```
+
 ## Building
 
 Requires CMake 3.25+ (the `cmake --workflow` presets below need `workflowPresets`,
 added in the CMakePresets v6 schema, which requires 3.25), a C++20 compiler,
 and Qt 6.4+ for the GUI.
-
-Released binaries are built with Qt 6.10, which needs macOS 13 or newer; the
-macOS download is Apple Silicon only.
 
 ```bash
 # GUI + tests

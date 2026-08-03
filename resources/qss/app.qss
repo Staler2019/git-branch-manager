@@ -565,3 +565,206 @@ QStatusBar {
 QStatusBar::item {
     border: none;
 }
+
+/* --- dialogs ----------------------------------------------------------------*/
+
+/* All 20 QDialog subclasses (dialogs/*.h, views/CredentialDialog.h) and every
+ * QMessageBox/QInputDialog already inherit QWidget/QPushButton/QLineEdit/
+ * QCheckBox/QTreeView etc. from the rules above -- qApp->setStyleSheet()
+ * (ThemeManager::apply) is application-wide. What was actually missing is a
+ * background of their own (QDialog fell through to the Fusion palette,
+ * mismatched against the panel surfaces used everywhere else) and the widget
+ * vocabulary dialogs lean on that nothing above covers: combo/spin/radio/
+ * group boxes, tooltips, progress bars. */
+QDialog {
+    background: @surface-panel;
+}
+
+QMessageBox {
+    background: @surface-panel;
+}
+
+/* Scoped to inside a dialog, deliberately not a bare `QLabel` rule: the
+ * toolbar repo/branch labels, the title-bar app name, and DiffPage's
+ * inline-styled stats/empty labels all rely on their own colour and would be
+ * overridden by an app-wide QLabel selector. */
+QDialog QLabel,
+QMessageBox QLabel {
+    color: @text-primary;
+}
+
+QDialogButtonBox {
+    padding-top: 8px;
+}
+
+/* --- combo boxes --------------------------------------------------------- */
+
+/* Same box recipe as QLineEdit/QPushButton above, so a combo box reads as
+ * part of the same input family instead of a Fusion holdover. */
+QComboBox {
+    background: @surface-panel;
+    color: @text-primary;
+    border: 1px solid @border-default;
+    border-radius: 6px;
+    padding: 0 12px;
+    min-height: 30px;
+}
+
+QComboBox:hover {
+    border-color: @border-strong;
+}
+
+QComboBox:focus {
+    border: 2px solid @border-focus;
+}
+
+QComboBox:disabled {
+    color: @text-tertiary;
+    background: @surface-sunken;
+}
+
+QComboBox::drop-down {
+    width: 24px;
+    border: none;
+}
+
+/* A CSS-triangle arrow rather than an SVG: QSS cannot recolour an image per
+ * theme (see the same reasoning on QCheckBox::indicator above), and a solid
+ * triangle needs no theme-specific asset at all. */
+QComboBox::down-arrow {
+    width: 0;
+    height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid @text-secondary;
+    margin-right: 8px;
+}
+
+QComboBox QAbstractItemView {
+    background: @surface-overlay;
+    color: @text-primary;
+    border: 1px solid @border-default;
+    border-radius: 6px;
+    padding: 4px;
+    outline: none;
+    selection-background-color: @accent;
+    selection-color: @text-on-accent;
+}
+
+/* --- spin boxes ------------------------------------------------------------ */
+
+QSpinBox,
+QDoubleSpinBox {
+    background: @surface-panel;
+    color: @text-primary;
+    border: 1px solid @border-default;
+    border-radius: 6px;
+    padding: 0 8px;
+    min-height: 30px;
+}
+
+QSpinBox:focus,
+QDoubleSpinBox:focus {
+    border: 2px solid @border-focus;
+}
+
+QSpinBox::up-button,
+QDoubleSpinBox::up-button,
+QSpinBox::down-button,
+QDoubleSpinBox::down-button {
+    width: 18px;
+    border: none;
+    background: transparent;
+}
+
+QSpinBox::up-arrow,
+QDoubleSpinBox::up-arrow {
+    width: 0;
+    height: 0;
+    border-left: 3px solid transparent;
+    border-right: 3px solid transparent;
+    border-bottom: 4px solid @text-secondary;
+}
+
+QSpinBox::down-arrow,
+QDoubleSpinBox::down-arrow {
+    width: 0;
+    height: 0;
+    border-left: 3px solid transparent;
+    border-right: 3px solid transparent;
+    border-top: 4px solid @text-secondary;
+}
+
+/* --- radio buttons ----------------------------------------------------------*/
+
+/* Same size/border recipe as QCheckBox::indicator above, round instead of
+ * squared -- the two are meant to read as one family of controls. */
+QRadioButton::indicator {
+    width: 15px;
+    height: 15px;
+    border-radius: 8px;
+    border: 1.5px solid @border-strong;
+    background: @surface-panel;
+}
+
+QRadioButton::indicator:hover {
+    border-color: @accent;
+}
+
+QRadioButton::indicator:checked {
+    background: @accent;
+    border-color: @accent;
+}
+
+QRadioButton::indicator:disabled {
+    border-color: @border-subtle;
+    background: @surface-sunken;
+}
+
+QRadioButton {
+    spacing: 8px;
+}
+
+/* --- group boxes ------------------------------------------------------------*/
+
+QGroupBox {
+    border: 1px solid @border-subtle;
+    border-radius: 10px;
+    margin-top: 14px;
+    padding-top: 8px;
+    font-weight: 600;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 10px;
+    padding: 0 4px;
+    color: @text-primary;
+}
+
+/* --- tooltips ---------------------------------------------------------------*/
+
+QToolTip {
+    background: @surface-overlay;
+    color: @text-primary;
+    border: 1px solid @border-default;
+    border-radius: 4px;
+    padding: 4px 8px;
+}
+
+/* --- progress bars ------------------------------------------------------------*/
+
+QProgressBar {
+    background: @surface-sunken;
+    color: @text-primary;
+    border: 1px solid @border-subtle;
+    border-radius: 6px;
+    text-align: center;
+    min-height: 16px;
+}
+
+QProgressBar::chunk {
+    background: @accent;
+    border-radius: 5px;
+}

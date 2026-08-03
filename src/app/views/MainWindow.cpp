@@ -16,6 +16,7 @@
 #include "app/dialogs/ManageSubmodulesDialog.h"
 #include "app/dialogs/ManageWorktreesDialog.h"
 #include "app/dialogs/MergeDialog.h"
+#include "app/dialogs/MessageDialogs.h"
 #include "app/dialogs/PreferencesDialog.h"
 #include "app/dialogs/ReflogDialog.h"
 #include "app/dialogs/ResetBranchDialog.h"
@@ -912,8 +913,7 @@ void MainWindow::onAddBaseFolder() {
         return;
     }
 
-    bool depthAccepted = false;
-    const int depth = QInputDialog::getInt(
+    const auto depth = dialogs::promptInt(
         this,
         QStringLiteral("Scan depth"),
         QStringLiteral("How many levels below this folder should be scanned?\n"
@@ -921,14 +921,12 @@ void MainWindow::onAddBaseFolder() {
                        "raise it to also find repositories nested further down."),
         1,
         0,
-        10,
-        1,
-        &depthAccepted);
-    if (!depthAccepted) {
+        10);
+    if (!depth) {
         return;
     }
 
-    if (auto added = discovery_->addBaseFolder(path, depth); !added) {
+    if (auto added = discovery_->addBaseFolder(path, *depth); !added) {
         showError(QStringLiteral("Could not add that folder"), added.error());
         return;
     }
@@ -1657,13 +1655,13 @@ void MainWindow::showCommitContextMenu(int row, const QPoint& globalPos) {
         tabWidget_->setCurrentIndex(kDiffTab);
         session_->requestCompareWithWorkingCopy(oid);
     } else if (chosen == deleteBranchAction) {
-        const auto confirmed =
-            QMessageBox::warning(this,
-                                 QStringLiteral("Delete branch?"),
-                                 QStringLiteral("Delete branch \"%1\"?").arg(tipBranchName),
-                                 QMessageBox::Yes | QMessageBox::Cancel,
-                                 QMessageBox::Cancel);
-        if (confirmed != QMessageBox::Yes) {
+        const bool confirmed =
+            dialogs::confirm(this,
+                             QStringLiteral("Delete branch?"),
+                             QStringLiteral("Delete branch \"%1\"?").arg(tipBranchName),
+                             QStringLiteral("Delete"),
+                             /*destructive=*/true);
+        if (!confirmed) {
             return;
         }
         DeleteBranchRequest request;
@@ -1801,13 +1799,13 @@ void MainWindow::onOperationFinished(const OperationOutcome& outcome) {
                     break;
                 case OperationChoice::Kind::ForceDiscard: {
                     // A destructive action gets an explicit second confirmation.
-                    const auto confirmed =
-                        QMessageBox::warning(this,
-                                             QStringLiteral("Discard changes?"),
-                                             QString::fromStdString(choice.explanation),
-                                             QMessageBox::Discard | QMessageBox::Cancel,
-                                             QMessageBox::Cancel);
-                    if (confirmed == QMessageBox::Discard) {
+                    const bool confirmed =
+                        dialogs::confirm(this,
+                                         QStringLiteral("Discard changes?"),
+                                         QString::fromStdString(choice.explanation),
+                                         QStringLiteral("Discard"),
+                                         /*destructive=*/true);
+                    if (confirmed) {
                         retry.force = true;
                         session_->checkout(retry);
                     }
@@ -1915,7 +1913,7 @@ void MainWindow::armWorkingCopyChoiceHandler(std::function<void(bool)> submit,
                         const QString summary = QString::fromStdString(outcome.summary);
                         statusLabel_->setText(summary);
                         if (announceSuccess) {
-                            QMessageBox::information(this, QStringLiteral("Rebase"), summary);
+                            dialogs::info(this, QStringLiteral("Rebase"), summary);
                         }
                         return;
                     }
@@ -2021,13 +2019,13 @@ void MainWindow::runWithFeedback(std::function<void()> submit,
                             break;
                         }
                         if (choice.destructive) {
-                            const auto confirmed =
-                                QMessageBox::warning(this,
-                                                     QStringLiteral("Are you sure?"),
-                                                     QString::fromStdString(choice.explanation),
-                                                     QMessageBox::Yes | QMessageBox::Cancel,
-                                                     QMessageBox::Cancel);
-                            if (confirmed != QMessageBox::Yes) {
+                            const bool confirmed =
+                                dialogs::confirm(this,
+                                                 QStringLiteral("Are you sure?"),
+                                                 QString::fromStdString(choice.explanation),
+                                                 QStringLiteral("Yes"),
+                                                 /*destructive=*/true);
+                            if (!confirmed) {
                                 break;
                             }
                         }
@@ -2151,20 +2149,19 @@ void MainWindow::onPushSetUpstream() {
             defaultIndex = found;
         }
     }
-    bool ok = false;
-    const QString remote = QInputDialog::getItem(
-        this, QStringLiteral("Push"), QStringLiteral("Remote:"), names, defaultIndex, false, &ok);
-    if (!ok || remote.isEmpty()) {
+    const auto remote = dialogs::promptChoice(
+        this, QStringLiteral("Push"), QStringLiteral("Remote:"), names, defaultIndex);
+    if (!remote || remote->isEmpty()) {
         return;
     }
 
     const RefSnapshotPtr refs = session_->refs();
     PushRequest request;
-    request.remoteName = remote.toStdString();
+    request.remoteName = remote->toStdString();
     request.branch = refs ? refs->head.branchName : std::string();
     request.setUpstream = true;
 
-    statusLabel_->setText(QStringLiteral("Pushing to %1…").arg(remote));
+    statusLabel_->setText(QStringLiteral("Pushing to %1…").arg(*remote));
     runWithFeedback([this, request] { session_->pushChanges(request); });
 }
 
@@ -2172,16 +2169,16 @@ void MainWindow::onPushForceWithLease() {
     if (!session_) {
         return;
     }
-    const auto confirmed = QMessageBox::warning(
+    const bool confirmed = dialogs::confirm(
         this,
         QStringLiteral("Force-with-lease push?"),
         QStringLiteral(
             "This overwrites the remote branch with your history, unless someone else has "
             "pushed to it since your last fetch — in which case Git refuses rather than "
             "silently discarding their work."),
-        QMessageBox::Yes | QMessageBox::Cancel,
-        QMessageBox::Cancel);
-    if (confirmed != QMessageBox::Yes) {
+        QStringLiteral("Yes"),
+        /*destructive=*/true);
+    if (!confirmed) {
         return;
     }
 
@@ -2235,24 +2232,19 @@ void MainWindow::onNewTag() {
         return;
     }
 
-    bool ok = false;
-    const QString name = QInputDialog::getText(this,
-                                               QStringLiteral("New tag"),
-                                               QStringLiteral("Tag name:"),
-                                               QLineEdit::Normal,
-                                               QString(),
-                                               &ok);
-    if (!ok || name.isEmpty()) {
+    const auto name =
+        dialogs::promptText(this, QStringLiteral("New tag"), QStringLiteral("Tag name:"));
+    if (!name || name->isEmpty()) {
         return;
     }
-    const QString message = QInputDialog::getMultiLineText(
+    const auto message = dialogs::promptMultiLineText(
         this,
         QStringLiteral("New tag"),
         QStringLiteral("Message (leave empty for a lightweight tag):"));
 
     CreateTagRequest request;
-    request.name = name.toStdString();
-    request.message = message.toStdString();
+    request.name = name->toStdString();
+    request.message = message ? message->toStdString() : std::string();
 
     // Tags whatever commit is selected in the history list, or HEAD if none is.
     if (commitView_->selectionModel() != nullptr) {
@@ -2265,7 +2257,7 @@ void MainWindow::onNewTag() {
         }
     }
 
-    statusLabel_->setText(QStringLiteral("Creating tag %1…").arg(name));
+    statusLabel_->setText(QStringLiteral("Creating tag %1…").arg(*name));
     runWithFeedback([this, request] { session_->createTag(request); });
 }
 
@@ -2313,14 +2305,14 @@ void MainWindow::onBannerAbort() {
     if (!session_) {
         return;
     }
-    const auto confirmed =
-        QMessageBox::warning(this,
-                             QStringLiteral("Abort?"),
-                             QStringLiteral("This unwinds the operation in progress back to "
-                                            "where it started."),
-                             QMessageBox::Yes | QMessageBox::Cancel,
-                             QMessageBox::Cancel);
-    if (confirmed != QMessageBox::Yes) {
+    const bool confirmed =
+        dialogs::confirm(this,
+                         QStringLiteral("Abort?"),
+                         QStringLiteral("This unwinds the operation in progress back to "
+                                        "where it started."),
+                         QStringLiteral("Yes"),
+                         /*destructive=*/true);
+    if (!confirmed) {
         return;
     }
 
@@ -2357,15 +2349,15 @@ void MainWindow::onResetBranchRequested() {
 
     const ResetMode mode = dialog.mode();
     if (mode == ResetMode::Hard) {
-        const auto confirmed = QMessageBox::warning(
+        const bool confirmed = dialogs::confirm(
             this,
             QStringLiteral("Hard reset?"),
             QStringLiteral("This permanently discards uncommitted changes, and any commits not "
                            "reachable from %1.")
                 .arg(QString::fromStdString(target.shortHex())),
-            QMessageBox::Discard | QMessageBox::Cancel,
-            QMessageBox::Cancel);
-        if (confirmed != QMessageBox::Discard) {
+            QStringLiteral("Discard"),
+            /*destructive=*/true);
+        if (!confirmed) {
             return;
         }
     }
@@ -2397,14 +2389,12 @@ void MainWindow::performRebase(const ObjectId& upstream) {
         return;
     }
 
-    const auto confirmed =
-        QMessageBox::question(this,
-                              QStringLiteral("Rebase"),
-                              QStringLiteral("Rebase the current branch onto %1?")
-                                  .arg(QString::fromStdString(upstream.shortHex())),
-                              QMessageBox::Yes | QMessageBox::Cancel,
-                              QMessageBox::Cancel);
-    if (confirmed != QMessageBox::Yes) {
+    const bool confirmed = dialogs::confirm(this,
+                                            QStringLiteral("Rebase"),
+                                            QStringLiteral("Rebase the current branch onto %1?")
+                                                .arg(QString::fromStdString(upstream.shortHex())),
+                                            QStringLiteral("Yes"));
+    if (!confirmed) {
         return;
     }
 
@@ -2468,7 +2458,7 @@ void MainWindow::onOpenTerminal() {
     const QString path = QString::fromStdString(session_->paths().workDir().string());
     QString error;
     if (!openTerminalAt(path, &error)) {
-        QMessageBox::warning(this, QStringLiteral("Open in terminal"), error);
+        dialogs::warn(this, QStringLiteral("Open in terminal"), error);
     }
 }
 
@@ -2497,15 +2487,15 @@ void MainWindow::onUndoLastOperation() {
         return;
     }
     const auto& entry = session_->undoJournal().back();
-    const auto confirmed = QMessageBox::question(
+    const bool confirmed = dialogs::confirm(
         this,
         QStringLiteral("Undo?"),
         QStringLiteral("Undo \"%1\"? This resets the current branch back to where it stood "
                        "before.")
             .arg(QString::fromStdString(entry.description)),
-        QMessageBox::Yes | QMessageBox::Cancel,
-        QMessageBox::Cancel);
-    if (confirmed != QMessageBox::Yes) {
+        QStringLiteral("Yes"),
+        /*destructive=*/true);
+    if (!confirmed) {
         return;
     }
     statusLabel_->setText(QStringLiteral("Undoing…"));
@@ -2576,27 +2566,18 @@ void MainWindow::onFileContextMenuRequested(const QPoint& pos) {
     }
 
     if (chosen == lineHistoryAction) {
-        bool ok = false;
-        const int startLine = QInputDialog::getInt(this,
-                                                   QStringLiteral("Line history"),
-                                                   QStringLiteral("Start line:"),
-                                                   1,
-                                                   1,
-                                                   1000000,
-                                                   1,
-                                                   &ok);
-        if (!ok) {
+        const auto startLine = dialogs::promptInt(
+            this, QStringLiteral("Line history"), QStringLiteral("Start line:"), 1, 1, 1000000);
+        if (!startLine) {
             return;
         }
-        const int endLine = QInputDialog::getInt(this,
-                                                 QStringLiteral("Line history"),
-                                                 QStringLiteral("End line:"),
-                                                 startLine,
-                                                 startLine,
-                                                 1000000,
-                                                 1,
-                                                 &ok);
-        if (!ok) {
+        const auto endLine = dialogs::promptInt(this,
+                                                QStringLiteral("Line history"),
+                                                QStringLiteral("End line:"),
+                                                *startLine,
+                                                *startLine,
+                                                1000000);
+        if (!endLine) {
             return;
         }
 
@@ -2609,7 +2590,7 @@ void MainWindow::onFileContextMenuRequested(const QPoint& pos) {
                                   LineHistoryDialog dialog(path, chunks, this);
                                   dialog.exec();
                               });
-        session_->requestLineHistory(stdPath, startLine, endLine, revision);
+        session_->requestLineHistory(stdPath, *startLine, *endLine, revision);
     }
 }
 

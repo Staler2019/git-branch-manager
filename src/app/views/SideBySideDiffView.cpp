@@ -6,7 +6,6 @@
 #include <QAction>
 #include <QClipboard>
 #include <QContextMenuEvent>
-#include <QFontDatabase>
 #include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -45,7 +44,10 @@ public:
     explicit DiffPane(QWidget* parent) : QPlainTextEdit(parent) {
         setReadOnly(true);
         setLineWrapMode(QPlainTextEdit::NoWrap);
-        setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+        // ThemeManager::monoFont() (not QFontDatabase::systemFont) so this
+        // pane actually shows the bundled JetBrains Mono instead of whatever
+        // fixed-width font the platform happens to default to.
+        setFont(ThemeManager::monoFont(12));
         setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
         setUndoRedoEnabled(false);
     }
@@ -317,8 +319,13 @@ void SideBySideDiffView::toggleLine(bool onLeftPane, int blockNumber) {
 
     std::vector<bool> selected(marker->hunk->lines.size(), false);
     selected[marker->lineIndex] = true;
-    const std::string patch =
-        UnifiedDiffParser::buildLineSelectionPatch(*marker->file, *marker->hunk, selected);
+    // showingStaged_ doubles as buildLineSelectionPatch's `unstaging` here, the
+    // same as DiffView::contextMenuEvent's line-selection action -- this pane
+    // is reachable staging-enabled from DiffPage::showWorkingCopyDiff(staged =
+    // true), and without this the "patch does not apply" bug (item 7) still
+    // hit by toggling a single line here even after DiffView's fix.
+    const std::string patch = UnifiedDiffParser::buildLineSelectionPatch(
+        *marker->file, *marker->hunk, selected, /*unstaging=*/showingStaged_);
     emit applyPatchRequested(QString::fromStdString(patch), showingStaged_);
 
     (onLeftPane ? leftGutter_ : rightGutter_)->update();
@@ -345,7 +352,11 @@ void SideBySideDiffView::showLineContextMenu(bool onLeftPane,
     const DiffHunk* hunk = marker->hunk;
     const bool reverse = showingStaged_;
     connect(hunkAction, &QAction::triggered, this, [this, file, hunk, reverse] {
-        const std::string patch = UnifiedDiffParser::buildHunkPatch(*file, *hunk);
+        // See DiffView::contextMenuEvent's identical hunk-staging action: this
+        // pane is staging-enabled from DiffPage::showWorkingCopyDiff, so the
+        // same rename-unstage hazard applies here.
+        const std::string patch =
+            UnifiedDiffParser::buildHunkPatch(*file, *hunk, /*reverse=*/false, /*unstaging=*/reverse);
         emit applyPatchRequested(QString::fromStdString(patch), reverse);
     });
 

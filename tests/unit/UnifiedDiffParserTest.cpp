@@ -424,5 +424,103 @@ TEST(UnifiedDiffParser, LineSelectionPatchWithNothingSelectedIsAllContext) {
     EXPECT_NE(patch.find("@@ -1,2 +1,2 @@"), std::string::npos) << patch;
 }
 
+// --- unstaging=true: the mirror image of the three staging cases above. ---
+// StageOps applies these with `git apply --cached --reverse`, which checks
+// the patch's *new* side against the index -- the opposite of the staging
+// checks above -- so an unselected added line (already in the index) must
+// stay as context, and an unselected removed line (never in the index) must
+// be dropped, rather than the other way around.
+
+TEST(UnifiedDiffParser, UnstagingPatchKeepsUnselectedAdditionsAsContext) {
+    const std::string diff =
+        "diff --git a/f.txt b/f.txt\n"
+        "--- a/f.txt\n"
+        "+++ b/f.txt\n"
+        "@@ -1,2 +1,4 @@\n"
+        " keep\n"
+        "+wanted\n"
+        "+unwanted\n"
+        " keep2\n";
+
+    const ParsedDiff parsed = UnifiedDiffParser{}.parse(diff);
+    const DiffHunk& hunk = parsed.files[0].hunks[0];
+    ASSERT_EQ(hunk.lines.size(), 4u);
+
+    // Only "+wanted" (index 1) is selected to be unstaged; "+unwanted" stays
+    // staged and so must remain in the patch as context, not vanish.
+    std::vector<bool> selected(hunk.lines.size(), false);
+    selected[1] = true;
+
+    const std::string patch = UnifiedDiffParser::buildLineSelectionPatch(
+        parsed.files[0], hunk, selected, /*unstaging=*/true);
+
+    EXPECT_NE(patch.find("+wanted"), std::string::npos) << patch;
+    EXPECT_NE(patch.find(" unwanted"), std::string::npos) << patch;
+    EXPECT_EQ(patch.find("+unwanted"), std::string::npos) << patch;
+    // The header stays forward (StageOps supplies --reverse separately).
+    // Old side: "keep" + "unwanted" (now context) + "keep2" = 3.
+    // New side: all four lines except the omitted-nothing, i.e. "keep" +
+    // "wanted" + "unwanted" (context) + "keep2" = 4.
+    EXPECT_NE(patch.find("@@ -1,3 +1,4 @@"), std::string::npos) << patch;
+}
+
+TEST(UnifiedDiffParser, UnstagingPatchDropsUnselectedRemovals) {
+    const std::string diff =
+        "diff --git a/f.txt b/f.txt\n"
+        "--- a/f.txt\n"
+        "+++ b/f.txt\n"
+        "@@ -1,4 +1,2 @@\n"
+        " keep\n"
+        "-wanted gone\n"
+        "-unwanted gone\n"
+        " keep2\n";
+
+    const ParsedDiff parsed = UnifiedDiffParser{}.parse(diff);
+    const DiffHunk& hunk = parsed.files[0].hunks[0];
+    ASSERT_EQ(hunk.lines.size(), 4u);
+
+    // Only "-wanted gone" (index 1) is selected to be unstaged (put back);
+    // "-unwanted gone" stays removed in the index and so was never there to
+    // begin with from this patch's point of view -- it must be dropped, not
+    // turned into context.
+    std::vector<bool> selected(hunk.lines.size(), false);
+    selected[1] = true;
+
+    const std::string patch = UnifiedDiffParser::buildLineSelectionPatch(
+        parsed.files[0], hunk, selected, /*unstaging=*/true);
+
+    EXPECT_NE(patch.find("-wanted gone"), std::string::npos) << patch;
+    EXPECT_EQ(patch.find("unwanted gone"), std::string::npos) << patch;
+    // Old side: "keep" + "wanted gone" (restored) + "keep2" = 3.
+    // New side: "keep" + "keep2" ("unwanted gone" dropped entirely) = 2.
+    EXPECT_NE(patch.find("@@ -1,3 +1,2 @@"), std::string::npos) << patch;
+}
+
+TEST(UnifiedDiffParser, UnstagingPatchWithNothingSelectedKeepsAllAddedLinesAsContext) {
+    const std::string diff =
+        "diff --git a/f.txt b/f.txt\n"
+        "--- a/f.txt\n"
+        "+++ b/f.txt\n"
+        "@@ -1,2 +1,3 @@\n"
+        " keep\n"
+        "+added\n"
+        " keep2\n";
+
+    const ParsedDiff parsed = UnifiedDiffParser{}.parse(diff);
+    const DiffHunk& hunk = parsed.files[0].hunks[0];
+    const std::vector<bool> selected(hunk.lines.size(), false);
+
+    const std::string patch = UnifiedDiffParser::buildLineSelectionPatch(
+        parsed.files[0], hunk, selected, /*unstaging=*/true);
+
+    // Nothing selected to unstage: the added line is already in the index
+    // and stays there, so it must appear as context, not be dropped (which
+    // is what the staging-mode equivalent of this test asserts instead).
+    EXPECT_NE(patch.find(" added"), std::string::npos) << patch;
+    EXPECT_EQ(patch.find("+added"), std::string::npos) << patch;
+    // Both sides now include "added" as context: old=3, new=3.
+    EXPECT_NE(patch.find("@@ -1,3 +1,3 @@"), std::string::npos) << patch;
+}
+
 }  // namespace
 }  // namespace gbm

@@ -3,6 +3,7 @@
 #include "app/bridge/RepositorySession.h"
 #include "app/bridge/ThemeManager.h"
 #include "app/theme/Tokens.h"
+#include "app/views/FileContentView.h"
 #include "app/views/SideBySideDiffView.h"
 #include "core/git/ops/CommitOps.h"
 #include "core/git/ops/ConflictOps.h"
@@ -26,16 +27,51 @@
 #include <QMimeData>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QSettings>
 #include <QSplitter>
 #include <QStackedWidget>
+#include <QTabWidget>
+#include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
+#include <QVariant>
 
 #include <functional>
 
 namespace gbm {
 
 namespace {
+
+/// Restores `splitter`'s sizes from QSettings key `window/splitters/<key>` if
+/// present, then persists future changes under the same key -- mirrors
+/// MainWindow::setupPersistentSplitter, duplicated locally rather than shared
+/// since the two classes have no common base to hang a helper off.
+void setupPersistentSplitter(QSplitter* splitter, const QString& key) {
+    const QString settingsKey = QStringLiteral("window/splitters/%1").arg(key);
+
+    QSettings settings;
+    const QVariant saved = settings.value(settingsKey);
+    if (saved.isValid()) {
+        const QVariantList list = saved.toList();
+        QList<int> sizes;
+        sizes.reserve(list.size());
+        for (const QVariant& value : list) {
+            sizes.append(value.toInt());
+        }
+        if (!sizes.isEmpty()) {
+            QTimer::singleShot(0, splitter, [splitter, sizes] { splitter->setSizes(sizes); });
+        }
+    }
+
+    QObject::connect(splitter, &QSplitter::splitterMoved, splitter, [splitter, settingsKey] {
+        QSettings settingsToSave;
+        QVariantList list;
+        for (int size : splitter->sizes()) {
+            list.append(size);
+        }
+        settingsToSave.setValue(settingsKey, list);
+    });
+}
 
 /// "old -> new" for a rename/copy, otherwise just the path.
 QString pathLabel(const WorkingCopyEntry& entry) {
@@ -178,14 +214,22 @@ void WorkingCopyView::buildUi() {
     outerLayout->addWidget(summaryLabel_);
 
     auto* splitter = new QSplitter(Qt::Horizontal, this);
+    splitter->setHandleWidth(6);
+    splitter->setChildrenCollapsible(false);
 
     auto* leftWidget = new QWidget(splitter);
+    leftWidget->setMinimumWidth(200);
     auto* leftLayout = new QVBoxLayout(leftWidget);
     leftLayout->setContentsMargins(0, 0, 0, 0);
 
     // Two equal panels, board-style: conflicted + unstaged/untracked entries
-    // on the left, staged entries on the right.
-    auto* boardRow = new QHBoxLayout();
+    // on the left, staged entries on the right. A QSplitter (not a plain
+    // QHBoxLayout) so the two columns are user-resizable relative to each
+    // other, matching every other divider in the app.
+    auto* boardSplitter = new QSplitter(Qt::Horizontal, leftWidget);
+    boardSplitter->setHandleWidth(6);
+    boardSplitter->setChildrenCollapsible(false);
+
     const FilePanel unstagedPanel = buildFilePanel(tr("Unstaged"));
     const FilePanel stagedPanel = buildFilePanel(tr("Staged"));
     unstagedList_ = unstagedPanel.list;
@@ -197,19 +241,27 @@ void WorkingCopyView::buildUi() {
     stagedCountLabel_ = stagedPanel.countLabel;
     stagedList_->setAccessibleName(tr("Staged changes"));
 
-    auto* unstagedColumn = new QVBoxLayout();
+    auto* unstagedColumnWidget = new QWidget(boardSplitter);
+    unstagedColumnWidget->setMinimumWidth(120);
+    auto* unstagedColumn = new QVBoxLayout(unstagedColumnWidget);
+    unstagedColumn->setContentsMargins(0, 0, 0, 0);
     unstagedColumn->addWidget(unstagedPanel.frame, 1);
-    stageAllButton_ = new QPushButton(tr("Stage All"), leftWidget);
+    stageAllButton_ = new QPushButton(tr("Stage All"), unstagedColumnWidget);
     unstagedColumn->addWidget(stageAllButton_);
-    boardRow->addLayout(unstagedColumn, 1);
+    boardSplitter->addWidget(unstagedColumnWidget);
 
-    auto* stagedColumn = new QVBoxLayout();
+    auto* stagedColumnWidget = new QWidget(boardSplitter);
+    stagedColumnWidget->setMinimumWidth(120);
+    auto* stagedColumn = new QVBoxLayout(stagedColumnWidget);
+    stagedColumn->setContentsMargins(0, 0, 0, 0);
     stagedColumn->addWidget(stagedPanel.frame, 1);
-    unstageAllButton_ = new QPushButton(tr("Unstage All"), leftWidget);
+    unstageAllButton_ = new QPushButton(tr("Unstage All"), stagedColumnWidget);
     stagedColumn->addWidget(unstageAllButton_);
-    boardRow->addLayout(stagedColumn, 1);
+    boardSplitter->addWidget(stagedColumnWidget);
 
-    leftLayout->addLayout(boardRow, 1);
+    boardSplitter->setStretchFactor(0, 1);
+    boardSplitter->setStretchFactor(1, 1);
+    leftLayout->addWidget(boardSplitter, 1);
 
     messageEdit_ = new QPlainTextEdit(leftWidget);
     messageEdit_->setPlaceholderText(tr("Commit message…"));
@@ -229,28 +281,35 @@ void WorkingCopyView::buildUi() {
 
     splitter->addWidget(leftWidget);
 
-    auto* diffPane = new QWidget(splitter);
-    auto* diffPaneLayout = new QVBoxLayout(diffPane);
-    diffPaneLayout->setContentsMargins(0, 0, 0, 0);
+    diffTabs_ = new QTabWidget(splitter);
+    diffTabs_->setMinimumWidth(200);
+    diffTabs_->setDocumentMode(true);
 
-    sideBySideToggle_ = new QCheckBox(tr("Side by side"), diffPane);
-    diffPaneLayout->addWidget(sideBySideToggle_, 0, Qt::AlignRight);
+    originalView_ = new FileContentView(diffTabs_);
+    diffTabs_->addTab(originalView_, tr("Original (HEAD)"));
 
-    diffStack_ = new QStackedWidget(diffPane);
-    // Hunk- and line-level staging live on this instance's context menu; see
-    // DiffView::setStagingEnabled. The side-by-side pane is read-only -- it
-    // has no equivalent context menu, so staging always happens from the
-    // unified view.
-    diffView_ = new DiffView(diffStack_);
-    diffView_->setStagingEnabled(true);
-    sideBySideView_ = new SideBySideDiffView(diffStack_);
-    diffStack_->addWidget(diffView_);
-    diffStack_->addWidget(sideBySideView_);
-    diffPaneLayout->addWidget(diffStack_, 1);
+    workingTab_ = buildDiffTab(diffTabs_, /*staged=*/false);
+    diffTabs_->addTab(workingTab_.stack->parentWidget(), tr("Working changes"));
 
-    splitter->addWidget(diffPane);
+    stagedTab_ = buildDiffTab(diffTabs_, /*staged=*/true);
+    diffTabs_->addTab(stagedTab_.stack->parentWidget(), tr("Staged"));
+
+    {
+        QSettings settings;
+        const int lastTab = settings.value(QStringLiteral("workingCopy/lastDiffTab"), 1).toInt();
+        diffTabs_->setCurrentIndex(qBound(0, lastTab, diffTabs_->count() - 1));
+    }
+    connect(diffTabs_, &QTabWidget::currentChanged, this, [](int index) {
+        QSettings settings;
+        settings.setValue(QStringLiteral("workingCopy/lastDiffTab"), index);
+    });
+
+    splitter->addWidget(diffTabs_);
     splitter->setStretchFactor(0, 2);
     splitter->setStretchFactor(1, 3);
+
+    setupPersistentSplitter(splitter, QStringLiteral("workingCopyMain"));
+    setupPersistentSplitter(boardSplitter, QStringLiteral("workingCopyBoard"));
 
     outerLayout->addWidget(splitter, 1);
 
@@ -332,10 +391,6 @@ void WorkingCopyView::buildUi() {
             }
         }
     });
-    connect(sideBySideToggle_, &QCheckBox::toggled, this, [this](bool sideBySide) {
-        diffStack_->setCurrentWidget(sideBySide ? static_cast<QWidget*>(sideBySideView_)
-                                                : static_cast<QWidget*>(diffView_));
-    });
     connect(stageAllButton_, &QPushButton::clicked, this, &WorkingCopyView::onStageAllClicked);
     connect(unstageAllButton_, &QPushButton::clicked, this, &WorkingCopyView::onUnstageAllClicked);
     connect(commitButton_, &QPushButton::clicked, this, &WorkingCopyView::onCommitClicked);
@@ -343,13 +398,63 @@ void WorkingCopyView::buildUi() {
         messageEdit_->setPlaceholderText(amend ? tr("Leave empty to keep the previous message")
                                                : tr("Commit message…"));
     });
+}
+
+WorkingCopyView::DiffTab WorkingCopyView::buildDiffTab(QWidget* parent, bool staged) {
+    DiffTab tab;
+    tab.staged = staged;
+
+    auto* container = new QWidget(parent);
+    auto* layout = new QVBoxLayout(container);
+    layout->setContentsMargins(0, 0, 0, 0);
+
+    tab.sideBySideToggle = new QCheckBox(tr("Side by side"), container);
+    layout->addWidget(tab.sideBySideToggle, 0, Qt::AlignRight);
+
+    tab.stack = new QStackedWidget(container);
+    // Hunk- and line-level staging live on this instance's context menu; see
+    // DiffView::setStagingEnabled. The side-by-side pane stays read-only here
+    // (unlike DiffPage's) -- it has no equivalent context menu, so staging
+    // always happens from the unified view.
+    tab.diffView = new DiffView(tab.stack);
+    tab.diffView->setStagingEnabled(true);
+    // Fixed for this tab's lifetime, not inherited from whichever file-list
+    // row is selected -- see the DiffTab comment in the header.
+    tab.diffView->setShowingStagedDiff(staged);
+    tab.sideBySideView = new SideBySideDiffView(tab.stack);
+    tab.stack->addWidget(tab.diffView);
+    tab.stack->addWidget(tab.sideBySideView);
+    layout->addWidget(tab.stack, 1);
+
+    QStackedWidget* stack = tab.stack;
+    SideBySideDiffView* sideBySideView = tab.sideBySideView;
+    DiffView* diffView = tab.diffView;
+    connect(tab.sideBySideToggle, &QCheckBox::toggled, this, [stack, sideBySideView, diffView](bool sideBySide) {
+        stack->setCurrentWidget(sideBySide ? static_cast<QWidget*>(sideBySideView)
+                                           : static_cast<QWidget*>(diffView));
+    });
     connect(
-        diffView_, &DiffView::applyPatchRequested, this, &WorkingCopyView::onApplyPatchRequested);
+        tab.diffView, &DiffView::applyPatchRequested, this, &WorkingCopyView::onApplyPatchRequested);
+
+    return tab;
+}
+
+void WorkingCopyView::showDiffInTab(DiffTab& tab, std::shared_ptr<const ParsedDiff> diff) {
+    tab.diffView->showDiff(diff);
+    tab.sideBySideView->showDiff(std::move(diff));
+}
+
+void WorkingCopyView::clearDiffTab(const DiffTab& tab) {
+    tab.diffView->clearDiff();
+    tab.sideBySideView->clearDiff();
 }
 
 void WorkingCopyView::refreshTheme() {
-    diffView_->refreshTheme();
-    sideBySideView_->refreshTheme();
+    originalView_->refreshTheme();
+    workingTab_.diffView->refreshTheme();
+    workingTab_.sideBySideView->refreshTheme();
+    stagedTab_.diffView->refreshTheme();
+    stagedTab_.sideBySideView->refreshTheme();
 }
 
 void WorkingCopyView::setSession(RepositorySession* session) {
@@ -367,13 +472,18 @@ void WorkingCopyView::setSession(RepositorySession* session) {
                 this,
                 &WorkingCopyView::onWorkingCopyDiffReady);
         connect(session_,
+                &RepositorySession::fileContentReady,
+                this,
+                &WorkingCopyView::onFileContentReady);
+        connect(session_,
                 &RepositorySession::workingCopyOperationFinished,
                 this,
                 &WorkingCopyView::onWorkingCopyOperationFinished);
         session_->refreshWorkingCopyStatus();
     } else {
-        diffView_->clearDiff();
-        sideBySideView_->clearDiff();
+        originalView_->clear();
+        clearDiffTab(workingTab_);
+        clearDiffTab(stagedTab_);
         messageEdit_->clear();
         rebuildLists();
     }
@@ -463,8 +573,9 @@ void WorkingCopyView::rebuildLists() {
         }
     }
     if (previous && !reselected) {
-        diffView_->clearDiff();
-        sideBySideView_->clearDiff();
+        originalView_->clear();
+        clearDiffTab(workingTab_);
+        clearDiffTab(stagedTab_);
     }
 
     unstagedStack_->setCurrentIndex(unstagedList_->count() > 0 ? 0 : 1);
@@ -495,13 +606,24 @@ void WorkingCopyView::refreshSelectedDiff() {
     }
     const auto selection = currentSelection();
     if (!selection) {
-        diffView_->clearDiff();
-        sideBySideView_->clearDiff();
+        originalView_->clear();
+        clearDiffTab(workingTab_);
+        clearDiffTab(stagedTab_);
         return;
     }
-    diffView_->showMessage(tr("Loading changes…"));
-    sideBySideView_->showMessage(tr("Loading changes…"));
-    session_->requestWorkingCopyDiff(selection->path, selection->staged);
+    originalView_->showMessage(tr("Loading…"));
+    workingTab_.diffView->showMessage(tr("Loading changes…"));
+    workingTab_.sideBySideView->showMessage(tr("Loading changes…"));
+    stagedTab_.diffView->showMessage(tr("Loading changes…"));
+    stagedTab_.sideBySideView->showMessage(tr("Loading changes…"));
+    // Both diffs are requested regardless of which list the selection came
+    // from: the two tabs are fixed comparisons (work-tree-vs-index,
+    // index-vs-HEAD), not a mirror of whichever list happens to be selected --
+    // a file selected in the unstaged list can still have staged content from
+    // an earlier partial stage, and vice versa.
+    session_->requestWorkingCopyDiff(selection->path, false);
+    session_->requestWorkingCopyDiff(selection->path, true);
+    session_->requestFileContent(selection->path, "HEAD");
 }
 
 void WorkingCopyView::onWorkingCopyStatusUpdated() {
@@ -512,14 +634,31 @@ void WorkingCopyView::onWorkingCopyDiffReady(QString path,
                                              bool staged,
                                              std::shared_ptr<const ParsedDiff> diff) {
     const auto selection = currentSelection();
+    if (!selection || QString::fromStdString(selection->path) != path) {
+        // The user moved on before this arrived. Note: no longer gated on
+        // `selection->staged` -- both the working-changes and staged diffs
+        // are fetched for whichever file is selected, regardless of which
+        // list it was selected from (see refreshSelectedDiff).
+        return;
+    }
+    showDiffInTab(staged ? stagedTab_ : workingTab_, std::move(diff));
+}
+
+void WorkingCopyView::onFileContentReady(QString path, QString revision, QString content, bool exists) {
+    const auto selection = currentSelection();
     if (!selection || QString::fromStdString(selection->path) != path ||
-        selection->staged != staged) {
+        revision != QStringLiteral("HEAD")) {
         // The user moved on before this arrived.
         return;
     }
-    diffView_->setShowingStagedDiff(staged);
-    diffView_->showDiff(diff);
-    sideBySideView_->showDiff(std::move(diff));
+    if (exists) {
+        originalView_->showContent(content);
+    } else {
+        // A brand-new untracked file (or one added since HEAD) has no HEAD
+        // side to show -- a placeholder beats erroring on a perfectly normal
+        // state.
+        originalView_->showMessage(tr("This file does not exist yet at HEAD"));
+    }
 }
 
 void WorkingCopyView::onWorkingCopyOperationFinished(const OperationOutcome& outcome) {

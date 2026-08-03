@@ -6,6 +6,7 @@
 #include "app/models/RefTreeModel.h"
 #include "app/models/RepoListModel.h"
 #include "app/models/SidebarRowDelegate.h"
+#include "app/views/TerminalLauncher.h"
 #include "core/git/RefStore.h"
 #include "core/git/ops/CheckoutOp.h"
 #include "core/git/ops/RebaseOps.h"
@@ -28,16 +29,55 @@
 #include <QMessageBox>
 #include <QPainter>
 #include <QPixmap>
+#include <QSet>
+#include <QSettings>
+#include <QSplitter>
 #include <QStringList>
+#include <QTimer>
 #include <QTreeView>
 #include <QUrl>
 #include <QVBoxLayout>
+#include <QVariant>
 
+#include <functional>
 #include <utility>
 
 namespace gbm {
 
 namespace {
+
+/// Restores `splitter`'s sizes from QSettings key `window/splitters/<key>` if
+/// present, then persists future changes under the same key. Duplicated
+/// (rather than shared) alongside MainWindow's and WorkingCopyView's copies
+/// of the same few lines -- the three classes have no common base to hang a
+/// shared helper off, and this is small enough that a new home for it is not
+/// worth the indirection.
+void setupPersistentSplitter(QSplitter* splitter, const QString& key) {
+    const QString settingsKey = QStringLiteral("window/splitters/%1").arg(key);
+
+    QSettings settings;
+    const QVariant saved = settings.value(settingsKey);
+    if (saved.isValid()) {
+        const QVariantList list = saved.toList();
+        QList<int> sizes;
+        sizes.reserve(list.size());
+        for (const QVariant& value : list) {
+            sizes.append(value.toInt());
+        }
+        if (!sizes.isEmpty()) {
+            QTimer::singleShot(0, splitter, [splitter, sizes] { splitter->setSizes(sizes); });
+        }
+    }
+
+    QObject::connect(splitter, &QSplitter::splitterMoved, splitter, [splitter, settingsKey] {
+        QSettings settingsToSave;
+        QVariantList list;
+        for (int size : splitter->sizes()) {
+            list.append(size);
+        }
+        settingsToSave.setValue(settingsKey, list);
+    });
+}
 
 /// A small hand-drawn magnifying glass, theme-tinted at paint time.
 ///
@@ -140,16 +180,33 @@ void SidebarPanel::buildUi() {
     connect(filterEdit_, &QLineEdit::textChanged, this, &SidebarPanel::onFilterChanged);
     layout->addWidget(filterEdit_);
 
-    auto addSectionHeader = [this, layout](const QString& text) {
-        auto* label = new QLabel(text.toUpper(), this);
+    // Repositories / Branches-Remotes-Tags / Stash are a vertical QSplitter
+    // (not a plain QVBoxLayout with maximumHeight caps, as before) so all
+    // three are user-resizable relative to each other. Each section's header
+    // label must be wrapped together with its view in its own container
+    // widget first: a QSplitter's direct children are its resizable panes, so
+    // a bare header QLabel added as a splitter child would become an
+    // independently draggable sliver of its own rather than staying attached
+    // to the view below it.
+    auto* sectionSplitter = new QSplitter(Qt::Vertical, this);
+    sectionSplitter->setHandleWidth(6);
+    sectionSplitter->setChildrenCollapsible(false);
+
+    auto addSectionHeader = [](QWidget* parent, QVBoxLayout* sectionLayout, const QString& text) {
+        auto* label = new QLabel(text.toUpper(), parent);
         label->setObjectName(QStringLiteral("sidebarSectionHeader"));
         label->setFont(ThemeManager::sectionHeaderFont());
-        layout->addWidget(label);
+        sectionLayout->addWidget(label);
     };
 
     // --- Repositories ---------------------------------------------------------
-    addSectionHeader(QStringLiteral("Repositories"));
-    repoListView_ = new QListView(this);
+    auto* repoSection = new QWidget(sectionSplitter);
+    repoSection->setMinimumHeight(60);
+    auto* repoSectionLayout = new QVBoxLayout(repoSection);
+    repoSectionLayout->setContentsMargins(0, 0, 0, 0);
+    repoSectionLayout->setSpacing(0);
+    addSectionHeader(repoSection, repoSectionLayout, QStringLiteral("Repositories"));
+    repoListView_ = new QListView(repoSection);
     repoListView_->setObjectName(QStringLiteral("gbmRepoList"));
     repoListView_->setAccessibleName(QStringLiteral("Repositories"));
     repoListView_->setModel(repoModel_);
@@ -157,40 +214,83 @@ void SidebarPanel::buildUi() {
     repoListView_->setItemDelegate(
         new SidebarRowDelegate(SidebarRowDelegate::Kind::Repository, repoListView_));
     repoListView_->setUniformItemSizes(true);
-    repoListView_->setMaximumHeight(120);
     repoListView_->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(repoListView_,
             &QListView::customContextMenuRequested,
             this,
             &SidebarPanel::onRepoContextMenuRequested);
-    layout->addWidget(repoListView_);
+    repoSectionLayout->addWidget(repoListView_, 1);
+    sectionSplitter->addWidget(repoSection);
 
     // --- Branches / Remotes / Tags -------------------------------------------
     // refView_/refModel_ are constructed and owned by MainWindow; this panel
     // only takes over their layout position and context-menu policy.
-    refView_->setParent(this);
+    auto* refSection = new QWidget(sectionSplitter);
+    refSection->setMinimumHeight(80);
+    auto* refSectionLayout = new QVBoxLayout(refSection);
+    refSectionLayout->setContentsMargins(0, 0, 0, 0);
+    refSectionLayout->setSpacing(0);
+    refView_->setParent(refSection);
     refView_->setItemDelegate(new RefRowDelegate(refView_));
+    // Extended (not the QTreeView default Single) so several local branches
+    // can be Ctrl/Shift-selected and deleted together; showBranchContextMenu
+    // below reads the full selection, not just the clicked row.
+    refView_->setSelectionMode(QAbstractItemView::ExtendedSelection);
     refView_->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(refView_,
             &QTreeView::customContextMenuRequested,
             this,
             &SidebarPanel::onRefContextMenuRequested);
-    layout->addWidget(refView_, 1);
+    // Persist each grouping node's expand/collapse state across restarts.
+    // restoreRefExpansion() (connected to modelReset below) provokes these
+    // same signals while it runs; restoringRefExpansion_ tells them apart
+    // from real user clicks so a restore never re-saves itself as new state.
+    connect(refView_, &QTreeView::expanded, this, [this](const QModelIndex& index) {
+        if (!restoringRefExpansion_) {
+            saveRefExpansion(index, true);
+        }
+    });
+    connect(refView_, &QTreeView::collapsed, this, [this](const QModelIndex& index) {
+        if (!restoringRefExpansion_) {
+            saveRefExpansion(index, false);
+        }
+    });
+    connect(refModel_, &QAbstractItemModel::modelReset, this, &SidebarPanel::restoreRefExpansion);
+    refSectionLayout->addWidget(refView_, 1);
+    sectionSplitter->addWidget(refSection);
 
     // --- Stash ----------------------------------------------------------------
-    addSectionHeader(QStringLiteral("Stash"));
-    stashList_ = new QListWidget(this);
+    auto* stashSection = new QWidget(sectionSplitter);
+    stashSection->setMinimumHeight(60);
+    auto* stashSectionLayout = new QVBoxLayout(stashSection);
+    stashSectionLayout->setContentsMargins(0, 0, 0, 0);
+    stashSectionLayout->setSpacing(0);
+    addSectionHeader(stashSection, stashSectionLayout, QStringLiteral("Stash"));
+    stashList_ = new QListWidget(stashSection);
     stashList_->setObjectName(QStringLiteral("gbmStashList"));
     stashList_->setAccessibleName(QStringLiteral("Stashes"));
     stashList_->setItemDelegate(
         new SidebarRowDelegate(SidebarRowDelegate::Kind::Stash, stashList_));
-    stashList_->setMaximumHeight(120);
     stashList_->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(stashList_,
             &QListWidget::customContextMenuRequested,
             this,
             &SidebarPanel::onStashContextMenuRequested);
-    layout->addWidget(stashList_);
+    stashSectionLayout->addWidget(stashList_, 1);
+    sectionSplitter->addWidget(stashSection);
+
+    // Repositories and Stash default to their old fixed 120px allowance;
+    // Branches/Remotes/Tags gets the rest. setSizes() before the splitter has
+    // real geometry gets recomputed from these on first resize rather than
+    // honored as-is, which is fine here since that recomputation preserves
+    // the same proportions.
+    sectionSplitter->setSizes({120, 400, 120});
+    sectionSplitter->setStretchFactor(0, 0);
+    sectionSplitter->setStretchFactor(1, 1);
+    sectionSplitter->setStretchFactor(2, 0);
+    setupPersistentSplitter(sectionSplitter, QStringLiteral("sidebarSections"));
+
+    layout->addWidget(sectionSplitter, 1);
 }
 
 void SidebarPanel::refreshTheme() {
@@ -228,7 +328,12 @@ void SidebarPanel::reloadStashes() {
 
 void SidebarPanel::onFilterChanged(const QString& text) {
     const QString filter = text.trimmed();
+    // applyRefFilter() force-expands matching groups while a filter is active
+    // (below); that is transient filtering state, not a user's deliberate
+    // expand/collapse, so it must not overwrite the persisted expansion set.
+    restoringRefExpansion_ = true;
     applyRefFilter(QModelIndex(), filter);
+    restoringRefExpansion_ = false;
 
     for (int row = 0; row < repoModel_->rowCount(); ++row) {
         const QModelIndex index = repoModel_->index(row, RepoListModel::ColumnName);
@@ -263,6 +368,67 @@ bool SidebarPanel::applyRefFilter(const QModelIndex& parent, const QString& filt
     return anyVisibleChild;
 }
 
+namespace {
+constexpr auto kExpandedRefNodesSettingsKey = "sidebar/expandedRefNodes";
+}  // namespace
+
+QString SidebarPanel::refNodeKey(const QModelIndex& index) const {
+    QStringList parts;
+    for (QModelIndex cursor = index; cursor.isValid(); cursor = cursor.parent()) {
+        parts.prepend(refModel_->data(cursor, Qt::DisplayRole).toString());
+    }
+    return parts.join(QLatin1Char('/'));
+}
+
+void SidebarPanel::saveRefExpansion(const QModelIndex& index, bool expanded) {
+    const QString key = refNodeKey(index);
+    if (key.isEmpty()) {
+        return;
+    }
+    QSettings settings;
+    QStringList expandedKeys =
+        settings.value(QLatin1String(kExpandedRefNodesSettingsKey)).toStringList();
+    expandedKeys.removeAll(key);
+    if (expanded) {
+        expandedKeys.append(key);
+    }
+    settings.setValue(QLatin1String(kExpandedRefNodesSettingsKey), expandedKeys);
+}
+
+void SidebarPanel::restoreRefExpansion() {
+    QSettings settings;
+    // The very first time this ever runs there is no saved value at all --
+    // bootstrap the one-time default (Branches expanded; everything else,
+    // including Remotes/Tags, collapsed) and persist it immediately. From
+    // then on the saved list is the sole source of truth: a key's absence
+    // means collapsed, full stop, with no separate "default" to fall back to
+    // -- that is what lets a later explicit collapse of "Branches" stick.
+    QStringList expandedKeys;
+    if (settings.contains(QLatin1String(kExpandedRefNodesSettingsKey))) {
+        expandedKeys = settings.value(QLatin1String(kExpandedRefNodesSettingsKey)).toStringList();
+    } else {
+        expandedKeys = {QStringLiteral("Branches")};
+        settings.setValue(QLatin1String(kExpandedRefNodesSettingsKey), expandedKeys);
+    }
+    const QSet<QString> expandedSet(expandedKeys.begin(), expandedKeys.end());
+
+    restoringRefExpansion_ = true;
+    std::function<void(const QModelIndex&)> walk = [&](const QModelIndex& parent) {
+        const int rows = refModel_->rowCount(parent);
+        for (int row = 0; row < rows; ++row) {
+            const QModelIndex index = refModel_->index(row, 0, parent);
+            if (expandedSet.contains(refNodeKey(index))) {
+                refView_->expand(index);
+            } else {
+                refView_->collapse(index);
+            }
+            walk(index);
+        }
+    };
+    walk(QModelIndex());
+    restoringRefExpansion_ = false;
+}
+
 void SidebarPanel::onRefContextMenuRequested(const QPoint& pos) {
     const QModelIndex index = refView_->indexAt(pos);
     if (!index.isValid() || session_ == nullptr) {
@@ -272,7 +438,16 @@ void SidebarPanel::onRefContextMenuRequested(const QPoint& pos) {
         return;  // A grouping node ("feature/") or section header has no menu.
     }
 
-    refView_->setCurrentIndex(index);
+    // Right-clicking a row that is not already part of the current selection
+    // replaces the selection (single-row, as before); right-clicking a row
+    // that is already selected -- including a multi-row Ctrl/Shift selection
+    // -- leaves it alone, so showBranchContextMenu below can act on the whole
+    // selection instead of just the clicked row. Mirrors MainWindow's
+    // onCommitContextMenuRequested.
+    if (!refView_->selectionModel()->isSelected(index)) {
+        refView_->selectionModel()->select(
+            index, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+    }
     const QPoint globalPos = refView_->viewport()->mapToGlobal(pos);
     const auto kind =
         static_cast<RefKind>(refModel_->data(index, RefTreeModel::RefKindRole).toInt());
@@ -295,6 +470,24 @@ void SidebarPanel::showBranchContextMenu(const QModelIndex& index, const QPoint&
     const QString name = refModel_->refNameAt(index);
     const bool isHead = refModel_->data(index, RefTreeModel::IsHeadRole).toBool();
 
+    // Every action except Delete operates on the single clicked branch --
+    // checkout, rename, merge-into-current, push and rebase-onto only make
+    // sense for one branch at a time. Delete is the one multi-select
+    // extends to (item 6), so it alone reads the full selection, filtered
+    // down to real local branches other than HEAD (a HEAD branch can never
+    // be deleted; a grouping/section node or a remote/tag row that happens
+    // to share the selection is not a local branch at all).
+    QStringList deletableNames;
+    for (const QModelIndex& selected : refView_->selectionModel()->selectedRows()) {
+        const bool isLocalBranch =
+            refModel_->data(selected, RefTreeModel::IsRefRole).toBool() &&
+            static_cast<RefKind>(refModel_->data(selected, RefTreeModel::RefKindRole).toInt()) ==
+                RefKind::LocalBranch;
+        if (isLocalBranch && !refModel_->data(selected, RefTreeModel::IsHeadRole).toBool()) {
+            deletableNames.append(refModel_->refNameAt(selected));
+        }
+    }
+
     QMenu menu(this);
     QAction* checkoutAction = menu.addAction(QStringLiteral("Checkout %1").arg(name));
     checkoutAction->setEnabled(!isHead);
@@ -309,8 +502,11 @@ void SidebarPanel::showBranchContextMenu(const QModelIndex& index, const QPoint&
     QAction* pushAction = menu.addAction(QStringLiteral("Push…"));
     QAction* copyAction = menu.addAction(QStringLiteral("Copy branch name"));
     menu.addSeparator();
-    QAction* deleteAction = menu.addAction(QStringLiteral("Delete branch…"));
-    deleteAction->setEnabled(!isHead);
+    QAction* deleteAction = menu.addAction(deletableNames.size() > 1
+                                              ? QStringLiteral("Delete %1 branches…")
+                                                    .arg(deletableNames.size())
+                                              : QStringLiteral("Delete branch…"));
+    deleteAction->setEnabled(!deletableNames.isEmpty());
     markDanger(deleteAction);
 
     QAction* chosen = menu.exec(globalPos);
@@ -392,18 +588,30 @@ void SidebarPanel::showBranchContextMenu(const QModelIndex& index, const QPoint&
     } else if (chosen == copyAction) {
         QGuiApplication::clipboard()->setText(name);
     } else if (chosen == deleteAction) {
-        const auto confirmed =
-            QMessageBox::warning(this,
-                                 QStringLiteral("Delete branch?"),
-                                 QStringLiteral("Delete branch \"%1\"?").arg(name),
-                                 QMessageBox::Yes | QMessageBox::Cancel,
-                                 QMessageBox::Cancel);
+        if (deletableNames.isEmpty()) {
+            return;
+        }
+        const QString confirmText = deletableNames.size() > 1
+                                       ? QStringLiteral("Delete %1 branches?\n\n%2")
+                                             .arg(deletableNames.size())
+                                             .arg(deletableNames.join(QStringLiteral("\n")))
+                                       : QStringLiteral("Delete branch \"%1\"?")
+                                             .arg(deletableNames.first());
+        const auto confirmed = QMessageBox::warning(this,
+                                                    QStringLiteral("Delete branch?"),
+                                                    confirmText,
+                                                    QMessageBox::Yes | QMessageBox::Cancel,
+                                                    QMessageBox::Cancel);
         if (confirmed != QMessageBox::Yes) {
             return;
         }
         DeleteBranchRequest request;
-        request.name = name.toStdString();
-        emit statusMessage(QStringLiteral("Deleting %1…").arg(name));
+        for (const QString& deletableName : deletableNames) {
+            request.names.push_back(deletableName.toStdString());
+        }
+        emit statusMessage(deletableNames.size() > 1
+                              ? QStringLiteral("Deleting %1 branches…").arg(deletableNames.size())
+                              : QStringLiteral("Deleting %1…").arg(deletableNames.first()));
         runWithFeedback_([this, request] { session_->deleteBranch(request); },
                          [this, request](OperationChoice::Kind kind) mutable {
                              // The only choice DeleteBranchOperation ever offers: the branch
@@ -480,7 +688,7 @@ void SidebarPanel::showRemoteBranchContextMenu(const QModelIndex& index, const Q
             return;
         }
         DeleteBranchRequest request;
-        request.name = branchName;
+        request.names = {branchName};
         request.isRemote = true;
         request.remoteName = remoteName;
         emit statusMessage(
@@ -566,7 +774,10 @@ void SidebarPanel::onRepoContextMenuRequested(const QPoint& pos) {
         session_ != nullptr && QString::fromStdString(session_->paths().workDir().string()) == path;
 
     QMenu menu(this);
+    QAction* openRepoAction = menu.addAction(QStringLiteral("Open repository"));
+    openRepoAction->setEnabled(!isOpenRepo);
     QAction* openInFileManagerAction = menu.addAction(QStringLiteral("Open in file manager"));
+    QAction* openInTerminalAction = menu.addAction(QStringLiteral("Open in terminal"));
     QAction* fetchAction = menu.addAction(QStringLiteral("Fetch"));
     QAction* pullAction = menu.addAction(QStringLiteral("Pull"));
     QAction* pushAction = menu.addAction(QStringLiteral("Push"));
@@ -600,8 +811,15 @@ void SidebarPanel::onRepoContextMenuRequested(const QPoint& pos) {
         return;
     }
 
-    if (chosen == openInFileManagerAction) {
+    if (chosen == openRepoAction) {
+        emit openRepositoryRequested(index.row());
+    } else if (chosen == openInFileManagerAction) {
         QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+    } else if (chosen == openInTerminalAction) {
+        QString error;
+        if (!openTerminalAt(path, &error)) {
+            QMessageBox::warning(this, QStringLiteral("Open in terminal"), error);
+        }
     } else if (chosen == fetchAction) {
         emit statusMessage(QStringLiteral("Fetching…"));
         runWithFeedback_([this] { session_->fetchRemote(FetchRequest{}); }, nullptr);

@@ -4,6 +4,7 @@
 
 #include <QColor>
 #include <QFont>
+#include <QIcon>
 #include <QPalette>
 #include <QString>
 
@@ -42,6 +43,14 @@ public:
     static void apply(ThemeId theme);
 
     static QString label(ThemeId theme);
+
+    /// A small colour-block icon representing `theme`'s palette -- built from
+    /// its token table directly, without applying the theme -- so the toolbar
+    /// theme picker can show all three at once as swatches (item 9: "change
+    /// theme icon to color block, the word description is not needed") rather
+    /// than one text-labelled action per theme. `sizePx` is the icon's
+    /// (square) side length in device-independent pixels.
+    static QIcon swatch(ThemeId theme, int sizePx = 16);
 
     /// Colour for `token` under `theme`, regardless of what is currently applied.
     static QColor color(ThemeId theme, Token token);

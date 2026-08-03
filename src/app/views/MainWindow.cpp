@@ -25,6 +25,7 @@
 #include "app/theme/Metrics.h"
 #include "app/views/CommitExpansionPanel.h"
 #include "app/views/CredentialDialog.h"
+#include "app/views/TerminalLauncher.h"
 #include "core/discovery/RepoClassifier.h"
 #include "core/git/ops/CheckoutOp.h"
 
@@ -50,6 +51,7 @@
 #include <QProgressBar>
 #include <QPushButton>
 #include <QScrollBar>
+#include <QSettings>
 #include <QSizePolicy>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -62,8 +64,10 @@
 #include <QToolBar>
 #include <QToolButton>
 #include <QVBoxLayout>
+#include <QVariant>
 
 #include <algorithm>
+#include <array>
 #include <filesystem>
 #include <utility>
 
@@ -179,6 +183,18 @@ void MainWindow::buildUi() {
                                                         QHeaderView::ResizeToContents);
     repoView_->horizontalHeader()->setStretchLastSection(true);
     connect(repoView_, &QTableView::activated, this, &MainWindow::onRepoActivated);
+    // A single click only used to move the selection -- nothing opened the
+    // repository until a double-click (activated) fired. Selecting a row is
+    // the natural "open this one" gesture, so route it the same way,
+    // debounced below so scrubbing down the list with the mouse or arrow
+    // keys opens only the row the user lands on.
+    connect(repoView_, &QTableView::clicked, this, &MainWindow::onRepoRowClicked);
+    connect(repoView_->selectionModel(),
+            &QItemSelectionModel::currentRowChanged,
+            this,
+            [this](const QModelIndex& current, const QModelIndex&) {
+                onRepoRowClicked(current);
+            });
 
     // Probing is driven by what is actually visible, not by the list's size. A
     // flick of the scrollbar fires many valueChanged signals in a row; without
@@ -191,6 +207,13 @@ void MainWindow::buildUi() {
     connect(repoView_->verticalScrollBar(), &QScrollBar::valueChanged, this, [this] {
         probeDebounce_->start();
     });
+
+    // Coalesces a burst of selection changes into opening only the last row
+    // selected, rather than one RepositorySession per row passed through.
+    repoOpenDebounce_ = new QTimer(this);
+    repoOpenDebounce_->setSingleShot(true);
+    repoOpenDebounce_->setInterval(150);
+    connect(repoOpenDebounce_, &QTimer::timeout, this, &MainWindow::openPendingRepo);
 
     browserLayout->addWidget(repoSearch_);
     browserLayout->addWidget(repoView_, 1);
@@ -246,6 +269,9 @@ void MainWindow::buildUi() {
     repoLayout->addWidget(bannerRow);
 
     auto* outerSplitter = new QSplitter(Qt::Horizontal, repoPage);
+    outerSplitter_ = outerSplitter;
+    outerSplitter->setHandleWidth(6);
+    outerSplitter->setChildrenCollapsible(false);
 
     refModel_ = new RefTreeModel(this);
     refView_ = new QTreeView(outerSplitter);
@@ -276,6 +302,18 @@ void MainWindow::buildUi() {
             &QAbstractItemView::activated,
             this,
             &MainWindow::onRepoActivated);
+    // Same single-click-opens fix as the repository browser page, debounced
+    // through the same pending-row/timer pair.
+    connect(sidebar_->repoListView(),
+            &QAbstractItemView::clicked,
+            this,
+            &MainWindow::onRepoRowClicked);
+    // "Open repository" in the repo-list context menu -- a deliberate menu
+    // choice, so it opens immediately rather than through the debounce.
+    connect(sidebar_, &SidebarPanel::openRepositoryRequested, this, [this](int row) {
+        pendingRepoOpenRow_ = row;
+        openPendingRepo();
+    });
     outerSplitter->addWidget(sidebar_);
 
     // The right side is a Tabs-styled QTabWidget rather than a fifth
@@ -286,11 +324,15 @@ void MainWindow::buildUi() {
     tabWidget_->setDocumentMode(true);
 
     auto* rightSplitter = new QSplitter(Qt::Vertical, tabWidget_);
+    rightSplitter_ = rightSplitter;
+    rightSplitter->setHandleWidth(6);
+    rightSplitter->setChildrenCollapsible(false);
 
     commitModel_ = new CommitListModel(this);
     commitView_ = new QTableView(rightSplitter);
     commitView_->setObjectName(QStringLiteral("gbmCommitView"));
     commitView_->setAccessibleName(QStringLiteral("Commit history"));
+    commitView_->setMinimumHeight(80);
     commitView_->setModel(commitModel_);
     commitView_->setSelectionBehavior(QAbstractItemView::SelectRows);
     commitView_->verticalHeader()->setVisible(false);
@@ -346,11 +388,15 @@ void MainWindow::buildUi() {
     rightSplitter->addWidget(commitView_);
 
     auto* detailSplitter = new QSplitter(Qt::Horizontal, rightSplitter);
+    detailSplitter_ = detailSplitter;
+    detailSplitter->setHandleWidth(6);
+    detailSplitter->setChildrenCollapsible(false);
     fileView_ = new QTableView(detailSplitter);
     fileView_->setAccessibleName(QStringLiteral("Changed files"));
     fileView_->setSelectionBehavior(QAbstractItemView::SelectRows);
     fileView_->verticalHeader()->setVisible(false);
     fileView_->setShowGrid(false);
+    fileView_->setMinimumWidth(80);
     fileView_->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(fileView_,
             &QTableView::customContextMenuRequested,
@@ -410,6 +456,13 @@ void MainWindow::buildUi() {
     // resize event instead of being honored as-is, so this is deferred to
     // the next event-loop turn (after the initial show/resize has happened).
     QTimer::singleShot(0, outerSplitter, [outerSplitter] { outerSplitter->setSizes({250, 1150}); });
+    // Scheduled after the default-sizing lambda above (and after
+    // rightSplitter/detailSplitter's own stretch-factor defaults apply), so a
+    // saved size wins over the built-in default rather than being clobbered
+    // by it.
+    setupPersistentSplitter(outerSplitter_, QStringLiteral("outer"));
+    setupPersistentSplitter(rightSplitter_, QStringLiteral("right"));
+    setupPersistentSplitter(detailSplitter_, QStringLiteral("detail"));
 
     repoLayout->addWidget(outerSplitter, 1);
 
@@ -567,10 +620,11 @@ void MainWindow::buildMenus() {
     }
 
     // --- Repository ------------------------------------------------------------
-    // "Open in terminal" and "Remove repository" omitted: neither capability
-    // exists. There is no per-repository removal -- only whole-base-folder
-    // removal via Manage base folders… (File) -- and adding either would be
-    // new bridge/core functionality, out of scope for a decomposition phase.
+    // "Remove repository" omitted: there is no per-repository removal, only
+    // whole-base-folder removal via Manage base folders… (File), and adding
+    // one would be new bridge/core functionality. "Open in terminal" (below)
+    // no longer is: TerminalLauncher gives it a real, self-contained
+    // implementation rather than needing new bridge/core surface.
     auto* repoMenu = bar->addMenu(QStringLiteral("Reposi&tory"));
     auto* fetchAction = repoMenu->addAction(QStringLiteral("Fetch"), this, &MainWindow::onFetch);
     fetchAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+F")));
@@ -586,6 +640,7 @@ void MainWindow::buildMenus() {
     pushAction_ = pushAction;
     repoMenu->addAction(
         QStringLiteral("Repository settings…"), this, &MainWindow::onShowRepositorySettings);
+    repoMenu->addAction(QStringLiteral("Open in terminal"), this, &MainWindow::onOpenTerminal);
     repoMenu->addSeparator();
 
     auto* stashMenu = repoMenu->addMenu(QStringLiteral("Stash"));
@@ -690,12 +745,18 @@ void MainWindow::buildMenus() {
     });
 
     // --- toolbar -------------------------------------------------------------
-    // Repo name + "/ branch", a spacer, a centered read-only Clean/Conflict
-    // state indicator, a spacer, Fetch/Pull/Push as real styled buttons (the
-    // same QAction objects the menus above use, so there is only ever one
+    // Repo name + "/ branch", a spacer, Fetch/Pull/Push as real styled buttons
+    // (the same QAction objects the menus above use, so there is only ever one
     // shortcut owner each), a Refresh icon button, a separator, and the three
     // theme switches -- checkable now, reflecting the current theme, unlike
-    // the plain non-checkable QActions this replaces.
+    // the plain non-checkable QActions this replaces. There is deliberately no
+    // Clean/Conflict indicator here: it used to reflect sequencer state
+    // (RepoState::isClean()) rather than actual file conflicts, which read as
+    // a confusing always-visible toggle. The real conflict signal
+    // (WorkingCopyStatus::conflicted()) already drives its own
+    // conditionally-shown banner (bannerRow_ / updateSequencerControls) and
+    // WorkingCopyView's inline conflict rows -- both appear only when a
+    // conflict actually exists.
     auto* toolBar = addToolBar(QStringLiteral("Main"));
     toolBar->setObjectName(QStringLiteral("gbmToolBar"));
     toolBar->setMovable(false);
@@ -712,32 +773,11 @@ void MainWindow::buildMenus() {
     // dropped, since the design's toolbar row has no equivalent affordance.
     toolBar->addAction(
         QStringLiteral("Repositories"), this, [this] { stack_->setCurrentIndex(0); });
+    toolBar->addAction(QStringLiteral("Terminal"), this, &MainWindow::onOpenTerminal);
 
     auto* leftSpacer = new QWidget(toolBar);
     leftSpacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     toolBar->addWidget(leftSpacer);
-
-    // Read-only state indicator -- confirmed via your conflict screenshot:
-    // "Conflict" lights up while a sequencer operation is in progress, and
-    // the existing bannerRow_ below still carries Skip/Abort/Continue. Not a
-    // filter; nothing here changes what the right pane shows.
-    auto* segmented = new QWidget(toolBar);
-    segmented->setObjectName(QStringLiteral("gbmSegmented"));
-    auto* segmentedLayout = new QHBoxLayout(segmented);
-    segmentedLayout->setContentsMargins(2, 2, 2, 2);
-    segmentedLayout->setSpacing(2);
-    stateCleanButton_ = new QToolButton(segmented);
-    stateCleanButton_->setText(QStringLiteral("Clean"));
-    stateCleanButton_->setCheckable(true);
-    stateCleanButton_->setChecked(true);
-    stateCleanButton_->setEnabled(false);  // Read-only: reflects state, not clickable.
-    stateConflictButton_ = new QToolButton(segmented);
-    stateConflictButton_->setText(QStringLiteral("Conflict"));
-    stateConflictButton_->setCheckable(true);
-    stateConflictButton_->setEnabled(false);
-    segmentedLayout->addWidget(stateCleanButton_);
-    segmentedLayout->addWidget(stateConflictButton_);
-    toolBar->addWidget(segmented);
 
     auto* rightSpacer = new QWidget(toolBar);
     rightSpacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
@@ -770,19 +810,26 @@ void MainWindow::buildMenus() {
     // Checkable and exclusive, unlike the plain QActions this replaces (which
     // showed no current-theme state at all) -- matches the already-checkable
     // View > Theme submenu built above, and shares its highlighted-when-
-    // checked look with app.qss's QToolButton:checked rule.
+    // checked look with app.qss's QToolButton:checked rule. Each is a
+    // generated colour-block swatch of that theme's own palette rather than a
+    // generic palette icon + name: the name moves to the tooltip (item 9 --
+    // "change theme icon to color block, the word description is not
+    // needed"), and the button is forced icon-only since the toolbar itself
+    // defaults to icon-beside-text.
     auto* toolbarThemeGroup = new QActionGroup(this);
     toolbarThemeGroup->setExclusive(true);
     for (ThemeId theme :
          {ThemeId::DarkTechnical, ThemeId::LightIde, ThemeId::NeutralProfessional}) {
-        QAction* action = toolBar->addAction(
-            IconLoader::icon(QStringLiteral("palette"), Token::TextSecondary),
-            ThemeManager::label(theme));
+        QAction* action = toolBar->addAction(ThemeManager::swatch(theme), QString());
+        action->setToolTip(ThemeManager::label(theme));
         action->setCheckable(true);
         action->setChecked(theme == currentTheme);
         toolbarThemeGroup->addAction(action);
         connect(action, &QAction::triggered, this, [this, theme] { applyThemeAndRefresh(theme); });
         toolbarThemeActions_.append(action);
+        if (auto* button = qobject_cast<QToolButton*>(toolBar->widgetForAction(action))) {
+            button->setToolButtonStyle(Qt::ToolButtonIconOnly);
+        }
     }
 }
 
@@ -957,19 +1004,46 @@ void MainWindow::onRepoActivated(const QModelIndex& index) {
     }
 }
 
+void MainWindow::onRepoRowClicked(const QModelIndex& index) {
+    if (!index.isValid()) {
+        return;
+    }
+    pendingRepoOpenRow_ = index.row();
+    repoOpenDebounce_->start();
+}
+
+void MainWindow::openPendingRepo() {
+    if (pendingRepoOpenRow_ < 0) {
+        return;
+    }
+    const int row = pendingRepoOpenRow_;
+    pendingRepoOpenRow_ = -1;
+    if (const RepoRecord* record = repoModel_->repoAt(row)) {
+        openRepository(*record);
+    }
+}
+
 void MainWindow::openRepository(const RepoRecord& record) {
+    // Selecting the already-open repository (a re-click, or the debounced
+    // handler above firing once more after `activated` already opened it)
+    // must not tear down and rebuild the whole session -- on a 500 MB
+    // repository that is expensive and visibly resets scroll position and
+    // in-flight reads for no reason.
+    if (session_ && session_->paths().gitDir() == record.toPaths().gitDir()) {
+        return;
+    }
     closeRepository();
 
     session_ = std::make_unique<RepositorySession>(installation_, record.toPaths(), readPool_);
 
     connect(session_.get(), &RepositorySession::graphUpdated, this, &MainWindow::onGraphUpdated);
     connect(session_.get(), &RepositorySession::refsUpdated, this, [this] {
+        // No unconditional expandToDepth(1) here: SidebarPanel restores each
+        // node's last expanded/collapsed state (persisted per session) the
+        // moment refModel_->setRefs() resets the model below, and doing our
+        // own expansion afterward would immediately clobber that restore.
         refModel_->setRefs(session_->refs());
         commitModel_->onRefsUpdated();
-        // Depth 1 rather than 0: with pills now doing the work of showing what
-        // a ref is, the section roots (Branches/Remotes/Tags) read better
-        // expanded by default instead of collapsed.
-        refView_->expandToDepth(1);
         if (const RefSnapshotPtr refs = session_->refs()) {
             toolBarBranchLabel_->setText(
                 QStringLiteral("/ %1").arg(QString::fromStdString(refs->head.branchName)));
@@ -1146,8 +1220,16 @@ void MainWindow::applyThemeAndRefresh(ThemeId theme) {
     pullAction_->setIcon(IconLoader::icon(QStringLiteral("arrow-down"), Token::TextSecondary));
     pushAction_->setIcon(IconLoader::icon(QStringLiteral("arrow-up"), Token::TextOnAccent));
     refreshAction_->setIcon(IconLoader::icon(QStringLiteral("refresh-cw"), Token::TextSecondary));
-    for (QAction* action : std::as_const(toolbarThemeActions_)) {
-        action->setIcon(IconLoader::icon(QStringLiteral("palette"), Token::TextSecondary));
+    // Each swatch is generated from its own theme's palette (unlike the
+    // fixed palette icon this replaced), so re-baking must pair each action
+    // back up with the theme it represents rather than repainting all three
+    // identically. toolbarThemeActions_ is populated in exactly this order
+    // in buildMenus().
+    static constexpr std::array<ThemeId, 3> kToolbarThemeOrder{
+        ThemeId::DarkTechnical, ThemeId::LightIde, ThemeId::NeutralProfessional};
+    for (int i = 0; i < toolbarThemeActions_.size() && i < static_cast<int>(kToolbarThemeOrder.size());
+        ++i) {
+        toolbarThemeActions_[i]->setIcon(ThemeManager::swatch(kToolbarThemeOrder[i]));
     }
     // The toolbar buttons snapshot their action's icon at construction (see
     // the comment on fetchButton_ in MainWindow.h) rather than tracking it
@@ -1178,14 +1260,46 @@ void MainWindow::onDensityToggled(bool compact) {
     repoView_->viewport()->update();
 }
 
+void MainWindow::setupPersistentSplitter(QSplitter* splitter, const QString& key) {
+    if (splitter == nullptr) {
+        return;
+    }
+    const QString settingsKey = QStringLiteral("window/splitters/%1").arg(key);
+
+    QSettings settings;
+    const QVariant saved = settings.value(settingsKey);
+    if (saved.isValid()) {
+        const QVariantList list = saved.toList();
+        QList<int> sizes;
+        sizes.reserve(list.size());
+        for (const QVariant& value : list) {
+            sizes.append(value.toInt());
+        }
+        if (!sizes.isEmpty()) {
+            // Deferred: called before the splitter has a real geometry (same
+            // reason outerSplitter's own default-sizing lambda above is
+            // deferred), and scheduled after that lambda so a saved size
+            // wins over the built-in default instead of being overwritten.
+            QTimer::singleShot(0, splitter, [splitter, sizes] { splitter->setSizes(sizes); });
+        }
+    }
+
+    connect(splitter, &QSplitter::splitterMoved, splitter, [splitter, settingsKey] {
+        QSettings settingsToSave;
+        QVariantList list;
+        for (int size : splitter->sizes()) {
+            list.append(size);
+        }
+        settingsToSave.setValue(settingsKey, list);
+    });
+}
+
 void MainWindow::updateStateBanner() {
     if (!session_) {
         bannerLabel_->parentWidget()->setVisible(false);
         if (undoAction_) {
             undoAction_->setEnabled(false);
         }
-        stateCleanButton_->setChecked(true);
-        stateConflictButton_->setChecked(false);
         return;
     }
     if (undoAction_) {
@@ -1195,8 +1309,6 @@ void MainWindow::updateStateBanner() {
     const RepoState state = session_->state();
     const std::string description = state.describe();
     updateSequencerControls(state);
-    stateCleanButton_->setChecked(state.isClean());
-    stateConflictButton_->setChecked(!state.isClean());
     if (description.empty()) {
         bannerLabel_->parentWidget()->setVisible(false);
         return;
@@ -1519,7 +1631,11 @@ void MainWindow::showCommitContextMenu(int row, const QPoint& globalPos) {
     } else if (chosen == copyShaAction) {
         QGuiApplication::clipboard()->setText(QString::fromStdString(oid.hex()));
     } else if (chosen == rebaseAction) {
-        onRebaseRequested();
+        // Passes the clicked row's own OID rather than going through
+        // onRebaseRequested() (which re-derives it from commitView_'s
+        // selection) -- that used to work only because this handler
+        // force-selects the clicked row first; now it is not load-bearing.
+        performRebase(oid);
     } else if (chosen == resetAction) {
         onResetBranchRequested();
     } else if (chosen == revertAction) {
@@ -1549,7 +1665,7 @@ void MainWindow::showCommitContextMenu(int row, const QPoint& globalPos) {
             return;
         }
         DeleteBranchRequest request;
-        request.name = tipBranchName.toStdString();
+        request.names = {tipBranchName.toStdString()};
         statusLabel_->setText(QStringLiteral("Deleting %1…").arg(tipBranchName));
         runWithFeedback([this, request] { session_->deleteBranch(request); },
                         [this, request](OperationChoice::Kind kind) mutable {
@@ -1780,7 +1896,9 @@ void MainWindow::onCherryPickRequested() {
         false);
 }
 
-void MainWindow::armWorkingCopyChoiceHandler(std::function<void(bool)> submit, bool stashFirst) {
+void MainWindow::armWorkingCopyChoiceHandler(std::function<void(bool)> submit,
+                                            bool stashFirst,
+                                            bool announceSuccess) {
     // A one-shot connection: the handler disconnects itself the moment it runs,
     // so it never reacts to an unrelated working-copy operation finishing later.
     auto connection = std::make_shared<QMetaObject::Connection>();
@@ -1788,11 +1906,15 @@ void MainWindow::armWorkingCopyChoiceHandler(std::function<void(bool)> submit, b
         connect(session_.get(),
                 &RepositorySession::workingCopyOperationFinished,
                 this,
-                [this, submit, connection](const OperationOutcome& outcome) {
+                [this, submit, connection, announceSuccess](const OperationOutcome& outcome) {
                     QObject::disconnect(*connection);
 
                     if (outcome.succeeded) {
-                        statusLabel_->setText(QString::fromStdString(outcome.summary));
+                        const QString summary = QString::fromStdString(outcome.summary);
+                        statusLabel_->setText(summary);
+                        if (announceSuccess) {
+                            QMessageBox::information(this, QStringLiteral("Rebase"), summary);
+                        }
                         return;
                     }
                     if (outcome.choices.empty()) {
@@ -1824,7 +1946,7 @@ void MainWindow::armWorkingCopyChoiceHandler(std::function<void(bool)> submit, b
                             continue;
                         }
                         if (outcome.choices[i].kind == OperationChoice::Kind::StashAndRetry) {
-                            armWorkingCopyChoiceHandler(submit, true);
+                            armWorkingCopyChoiceHandler(submit, true, announceSuccess);
                         }
                         break;
                     }
@@ -1955,12 +2077,56 @@ void MainWindow::onPull() {
         false);
 }
 
+std::optional<std::string> MainWindow::resolveDefaultRemoteName() const {
+    const auto remotes = session_ ? session_->remotes() : nullptr;
+    if (!remotes || remotes->empty()) {
+        return std::nullopt;
+    }
+    for (const RemoteInfo& remote : *remotes) {
+        if (remote.name == "origin") {
+            return remote.name;
+        }
+    }
+    if (remotes->size() == 1) {
+        return remotes->front().name;
+    }
+    return std::nullopt;  // Ambiguous: let the caller ask.
+}
+
 void MainWindow::onPush() {
     if (!session_) {
         return;
     }
+
+    // A branch with no upstream yet makes a bare `git push` fail outright
+    // (git's "no upstream branch" fatal) -- detect that from the HEAD ref's
+    // own tracking info and push with --set-upstream to create the upstream
+    // instead of surfacing that error. Only falls back to the interactive
+    // remote picker (onPushSetUpstream's prompt) when the default remote
+    // cannot be resolved unambiguously; the common single-remote case just
+    // pushes.
+    PushRequest request;
+    if (const RefSnapshotPtr refs = session_->refs()) {
+        for (const RefInfo& ref : refs->refs) {
+            if (ref.kind != RefKind::LocalBranch || !ref.isHead) {
+                continue;
+            }
+            if (!ref.hasTrackingInfo) {
+                const std::optional<std::string> remote = resolveDefaultRemoteName();
+                if (!remote) {
+                    onPushSetUpstream();
+                    return;
+                }
+                request.remoteName = *remote;
+                request.branch = ref.shortName;
+                request.setUpstream = true;
+            }
+            break;
+        }
+    }
+
     statusLabel_->setText(QStringLiteral("Pushing…"));
-    runWithFeedback([this] { session_->pushChanges(PushRequest{}); });
+    runWithFeedback([this, request] { session_->pushChanges(request); });
 }
 
 void MainWindow::onPushSetUpstream() {
@@ -1976,9 +2142,16 @@ void MainWindow::onPushSetUpstream() {
     if (names.isEmpty()) {
         names << QStringLiteral("origin");
     }
+    int defaultIndex = 0;
+    if (const std::optional<std::string> defaultRemote = resolveDefaultRemoteName()) {
+        const int found = names.indexOf(QString::fromStdString(*defaultRemote));
+        if (found >= 0) {
+            defaultIndex = found;
+        }
+    }
     bool ok = false;
     const QString remote = QInputDialog::getItem(
-        this, QStringLiteral("Push"), QStringLiteral("Remote:"), names, 0, false, &ok);
+        this, QStringLiteral("Push"), QStringLiteral("Remote:"), names, defaultIndex, false, &ok);
     if (!ok || remote.isEmpty()) {
         return;
     }
@@ -2214,6 +2387,13 @@ void MainWindow::onRebaseRequested() {
     if (upstream.isNull()) {
         return;
     }
+    performRebase(upstream);
+}
+
+void MainWindow::performRebase(const ObjectId& upstream) {
+    if (!session_) {
+        return;
+    }
 
     const auto confirmed =
         QMessageBox::question(this,
@@ -2226,6 +2406,17 @@ void MainWindow::onRebaseRequested() {
         return;
     }
 
+    // If `upstream` is already an ancestor of HEAD, `git rebase` is a
+    // legitimate, correct no-op -- the commits after it are already based on
+    // it -- and exits 0 reporting "up to date" rather than an error. There is
+    // no synchronous way to tell that apart from a real rebase up front
+    // without a `merge-base --is-ancestor` read, and every git read in this
+    // app goes through the async OperationRunner/read pool rather than
+    // blocking the UI thread, so that check is deliberately not done here.
+    // Showing the outcome explicitly (below) rather than only in
+    // statusLabel_ means the no-op case still tells the user clearly that
+    // nothing needed to change, instead of looking like the action silently
+    // did nothing.
     RebaseRequest request;
     request.upstream = upstream.hex();
     statusLabel_->setText(QStringLiteral("Rebasing…"));
@@ -2234,7 +2425,8 @@ void MainWindow::onRebaseRequested() {
             request.stashFirst = stashFirst;
             session_->startRebase(request);
         },
-        false);
+        false,
+        /*announceSuccess=*/true);
 }
 
 void MainWindow::onInteractiveRebaseRequested() {
@@ -2266,6 +2458,17 @@ void MainWindow::onInteractiveRebaseRequested() {
 }
 
 // --- M4: clean ---------------------------------------------------------------
+
+void MainWindow::onOpenTerminal() {
+    if (!session_) {
+        return;
+    }
+    const QString path = QString::fromStdString(session_->paths().workDir().string());
+    QString error;
+    if (!openTerminalAt(path, &error)) {
+        QMessageBox::warning(this, QStringLiteral("Open in terminal"), error);
+    }
+}
 
 void MainWindow::onCleanUntracked() {
     if (!session_) {

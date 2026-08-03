@@ -340,6 +340,18 @@ QLabel#gbmPanelHeader {
     padding: 6px 2px;
 }
 
+/* DiffPage's per-file section headers (item 12): same card/header recipe as
+ * `#gbmPanel`/`#gbmPanelHeader` above, but the header is a plain QWidget (not
+ * a QLabel) because it is clickable -- see DiffPage.cpp's ClickableHeader. */
+QWidget#gbmPanelHeader {
+    font-weight: 600;
+    border-top-left-radius: 10px;
+    border-top-right-radius: 10px;
+}
+QWidget#gbmPanelHeader:hover {
+    background: @surface-hover;
+}
+
 QLabel#workingCopyPlaceholder {
     color: @text-tertiary;
 }
@@ -477,13 +489,25 @@ QTabBar::tab:selected {
 }
 
 /* --- splitters ----------------------------------------------------------- */
+/* A handle with no explicit width/height collapses to almost nothing under a
+ * QSS-styled Fusion splitter, which is why these used to be effectively
+ * undraggable -- setHandleWidth() in code reserves the space; these rules
+ * make that space read as a grabbable hairline rather than a solid bar. */
 
-QSplitter::handle {
-    background: @border-subtle;
+QSplitter::handle:horizontal {
+    width: 6px;
+    background: transparent;
+    border-left: 1px solid @border-subtle;
+}
+
+QSplitter::handle:vertical {
+    height: 6px;
+    background: transparent;
+    border-top: 1px solid @border-subtle;
 }
 
 QSplitter::handle:hover {
-    background: @border-strong;
+    border-color: @border-strong;
 }
 
 /* --- scrollbars ------------------------------------------------------------*/

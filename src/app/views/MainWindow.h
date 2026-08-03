@@ -26,6 +26,8 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
+#include <string>
 
 class QAction;
 class QLineEdit;
@@ -84,6 +86,8 @@ private slots:
     void onForceRefresh();
     void onCancelScan();
     void onRepoActivated(const QModelIndex& index);
+    void onRepoRowClicked(const QModelIndex& index);
+    void openPendingRepo();
     void onCommitSelectionChanged();
     void onRefActivated(const QModelIndex& index);
     void onCheckoutRequested();
@@ -134,10 +138,18 @@ private slots:
     void onResetBranchRequested();
     void onRebaseRequested();
     void onInteractiveRebaseRequested();
+    /// Shared by onRebaseRequested() (Branch menu -- reads commitView_'s
+    /// selection, the only OID available there) and the commit context menu's
+    /// "Rebase current onto here" (which already knows the clicked row's OID
+    /// and used to re-derive it from the selection instead, only correct
+    /// because the context-menu handler force-selects the clicked row first).
+    /// Passing it explicitly removes that indirection.
+    void performRebase(const ObjectId& upstream);
     void onBannerContinue();
     void onBannerSkip();
     void onBannerAbort();
     void onCleanUntracked();
+    void onOpenTerminal();
     void onShowReflog();
     void onUndoLastOperation();
     void onFileContextMenuRequested(const QPoint& pos);
@@ -163,6 +175,19 @@ private:
     void closeRepository();
     void probeVisibleRepos();
     void updateStateBanner();
+    /// Restores `splitter`'s sizes from QSettings key `window/splitters/<key>`
+    /// if present, then connects splitterMoved to persist future changes
+    /// under the same key. Called once per splitter from buildUi() after its
+    /// panes and stretch factors are set up, so an absent saved value falls
+    /// back to whatever the stretch factors already produce.
+    void setupPersistentSplitter(QSplitter* splitter, const QString& key);
+
+    /// "origin" if a remote by that name exists, else the sole remote if
+    /// there is exactly one, else std::nullopt -- shared by onPush() (silent
+    /// auto-detection of a missing upstream) and onPushSetUpstream() (the
+    /// interactive remote picker), so the two agree on what "the" remote
+    /// means when there is no ambiguity.
+    std::optional<std::string> resolveDefaultRemoteName() const;
     void showError(const QString& summary, const GitError& error);
 
     /// Applies `theme`, then repaints everything Phase 0's single-token-table
@@ -189,7 +214,16 @@ private:
     /// re-arms itself and calls `submit(true)` again -- so `submit` never runs
     /// more than once per user decision, and this needs no member state to
     /// carry the retry across the asynchronous round trip.
-    void armWorkingCopyChoiceHandler(std::function<void(bool stashFirst)> submit, bool stashFirst);
+    /// `announceSuccess`: most callers are satisfied by the statusLabel_ text
+    /// this already sets on success; rebase-onto-a-commit is not, since a
+    /// "current branch is up to date" no-op success looks identical to
+    /// nothing having happened if the only feedback is a status-bar corner.
+    /// When true, a successful outcome also gets a QMessageBox so it cannot
+    /// be missed. Defaults to false rather than changing behaviour for
+    /// checkout/merge/revert/reset/cherry-pick, which already share this path.
+    void armWorkingCopyChoiceHandler(std::function<void(bool stashFirst)> submit,
+                                     bool stashFirst,
+                                     bool announceSuccess = false);
 
     /// The M3 equivalent for operations that are not a checkout/merge/
     /// cherry-pick: shows the outcome exactly the same way (status text,
@@ -269,6 +303,13 @@ private:
     static constexpr int kDiffTab = 2;
     static constexpr int kRepositoryTab = 3;
 
+    /// Members (rather than buildUi() locals) only so their sizes can be
+    /// persisted to QSettings on splitterMoved and restored on startup --
+    /// see restoreSplitterSizes()/persistSplitterSizes() in MainWindow.cpp.
+    QSplitter* outerSplitter_ = nullptr;
+    QSplitter* rightSplitter_ = nullptr;
+    QSplitter* detailSplitter_ = nullptr;
+
     /// The row currently showing its inline expansion panel, or -1 if none.
     /// Invariant: at most one row is ever expanded, it is always the selected
     /// row (expansion only toggles on a row that is already selected), and
@@ -287,12 +328,6 @@ private:
     QLabel* statusLabel_ = nullptr;
     QLabel* toolBarRepoNameLabel_ = nullptr;
     QLabel* toolBarBranchLabel_ = nullptr;
-    /// The "Clean | Conflict" read-only state indicator in the toolbar --
-    /// confirmed against your conflict screenshot: it reflects
-    /// `RepositorySession::state().isClean()`, updated alongside the banner
-    /// in updateStateBanner(); it is not a filter and does not accept clicks.
-    QToolButton* stateCleanButton_ = nullptr;
-    QToolButton* stateConflictButton_ = nullptr;
     QWidget* bannerRow_ = nullptr;
     QLabel* bannerLabel_ = nullptr;
     QPushButton* bannerContinueButton_ = nullptr;
@@ -323,6 +358,13 @@ private:
     /// Coalesces a burst of scroll events into a single `probeVisibleRepos()`
     /// call instead of one per event.
     QTimer* probeDebounce_ = nullptr;
+
+    /// Coalesces a burst of selection changes (e.g. arrow-key or click
+    /// scrubbing down the repository list) into opening only the row the
+    /// user actually lands on, rather than opening -- and immediately
+    /// tearing down -- a RepositorySession per row passed through.
+    QTimer* repoOpenDebounce_ = nullptr;
+    int pendingRepoOpenRow_ = -1;
 
     /// The target of the checkout currently in flight (a ref name or a raw
     /// commit hex), so onOperationFinished's dirty-work-tree retry re-issues

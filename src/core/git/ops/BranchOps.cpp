@@ -127,7 +127,10 @@ class DeleteBranchOperation final : public Operation {
 public:
     explicit DeleteBranchOperation(DeleteBranchRequest request) : request_(std::move(request)) {}
 
-    std::string describe() const override { return "Delete branch " + request_.name; }
+    std::string describe() const override {
+        return "Delete branch" + std::string(request_.names.size() > 1 ? "es " : " ") +
+               joinNames();
+    }
 
     OperationOutcome run(IProcessRunner& runner,
                          const RepoPaths& paths,
@@ -138,10 +141,11 @@ public:
         if (request_.isRemote) {
             // Deleting a remote branch is a network operation with a very
             // different blast radius from deleting a local ref.
-            args = {"push", request_.remoteName, "--delete", request_.name};
+            args = {"push", request_.remoteName, "--delete"};
         } else {
-            args = {"branch", request_.force ? "-D" : "-d", request_.name};
+            args = {"branch", request_.force ? "-D" : "-d"};
         }
+        args.insert(args.end(), request_.names.begin(), request_.names.end());
 
         GitCommand command(paths.commandDir(), std::move(args));
         command.timeout =
@@ -150,7 +154,7 @@ public:
         auto result = runner.run(command, token);
         if (result) {
             outcome.succeeded = true;
-            outcome.summary = "Deleted " + request_.name;
+            outcome.summary = "Deleted " + joinNames();
             return outcome;
         }
 
@@ -182,6 +186,17 @@ public:
     }
 
 private:
+    std::string joinNames() const {
+        std::string joined;
+        for (std::size_t i = 0; i < request_.names.size(); ++i) {
+            if (i > 0) {
+                joined += ", ";
+            }
+            joined += request_.names[i];
+        }
+        return joined;
+    }
+
     DeleteBranchRequest request_;
 };
 

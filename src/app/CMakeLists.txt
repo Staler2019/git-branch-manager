@@ -54,10 +54,12 @@ qt_add_executable(git-branch-manager
     views/CommitExpansionPanel.cpp
     views/CredentialDialog.cpp
     views/DiffView.cpp
+    views/FileContentView.cpp
     views/MainWindow.cpp
     views/OperationLogView.cpp
     views/SideBySideDiffView.cpp
     views/SidebarPanel.cpp
+    views/TerminalLauncher.cpp
     # views/TopBar.cpp  # added in Phase 3
 
     views/pages/DiffPage.cpp

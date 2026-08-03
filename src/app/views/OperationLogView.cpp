@@ -1,9 +1,10 @@
 #include "app/views/OperationLogView.h"
 
+#include "app/bridge/ThemeManager.h"
+
 #include <QApplication>
 #include <QClipboard>
 #include <QDateTime>
-#include <QFontDatabase>
 #include <QHBoxLayout>
 #include <QMetaObject>
 #include <QPushButton>
@@ -18,7 +19,10 @@ OperationLogView::OperationLogView(QWidget* parent) : QWidget(parent) {
     text_ = new QPlainTextEdit(this);
     text_->setReadOnly(true);
     text_->setMaximumBlockCount(kMaxBlocks);
-    text_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    // ThemeManager::monoFont() (not QFontDatabase::systemFont) so the log
+    // shows the bundled JetBrains Mono instead of whatever fixed-width font
+    // the platform happens to default to.
+    text_->setFont(ThemeManager::monoFont(12));
     text_->setLineWrapMode(QPlainTextEdit::NoWrap);
     text_->setPlaceholderText(QStringLiteral("Git commands run by this session appear here"));
     text_->setAccessibleName(QStringLiteral("Operation log"));

@@ -32,11 +32,8 @@ void CommitRowDelegate::paint(QPainter* painter,
     paintRow(painter, option.rect, index, selected, hovered);
 }
 
-void CommitRowDelegate::paintRow(QPainter* painter,
-                                const QRect& rect,
-                                const QModelIndex& index,
-                                bool selected,
-                                bool hovered) {
+void CommitRowDelegate::paintRow(
+    QPainter* painter, const QRect& rect, const QModelIndex& index, bool selected, bool hovered) {
     painter->save();
     painter->setRenderHint(QPainter::Antialiasing, true);
 
@@ -59,6 +56,7 @@ void CommitRowDelegate::paintRow(QPainter* painter,
         RefChip chip;
         int width;
     };
+
     std::vector<PositionedChip> chips;
     chips.reserve(std::min<int>(refs.size(), kMaxChips));
     for (int i = 0; i < refs.size() && static_cast<int>(chips.size()) < kMaxChips; ++i) {
@@ -87,7 +85,8 @@ void CommitRowDelegate::paintRow(QPainter* painter,
     const int subjectAreaWidth =
         std::max(0, padded.width() - (chips.empty() ? 0 : chipsWidth + kSubjectToChipsGap));
     const QString subject = index.data(Qt::DisplayRole).toString();
-    const QString elidedSubject = subjectMetrics.elidedText(subject, Qt::ElideRight, subjectAreaWidth);
+    const QString elidedSubject =
+        subjectMetrics.elidedText(subject, Qt::ElideRight, subjectAreaWidth);
 
     painter->setFont(subjectFont);
     painter->setPen(ThemeManager::color(Token::TextPrimary));

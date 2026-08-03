@@ -347,7 +347,8 @@ private:
     QAction* pullAction_ = nullptr;
     QAction* pushAction_ = nullptr;
     QAction* refreshAction_ = nullptr;
-    QList<QAction*> toolbarThemeActions_;  // Same order as {DarkTechnical, LightIde, NeutralProfessional}.
+    QList<QAction*>
+        toolbarThemeActions_;  // Same order as {DarkTechnical, LightIde, NeutralProfessional}.
     /// The toolbar's styled Fetch/Pull/Push buttons construct their icon from
     /// fetchAction_->icon() etc. as a one-time snapshot, not a live binding
     /// to the action -- setting the action's icon later does not move these.

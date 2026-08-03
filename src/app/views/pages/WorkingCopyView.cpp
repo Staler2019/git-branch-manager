@@ -429,12 +429,17 @@ WorkingCopyView::DiffTab WorkingCopyView::buildDiffTab(QWidget* parent, bool sta
     QStackedWidget* stack = tab.stack;
     SideBySideDiffView* sideBySideView = tab.sideBySideView;
     DiffView* diffView = tab.diffView;
-    connect(tab.sideBySideToggle, &QCheckBox::toggled, this, [stack, sideBySideView, diffView](bool sideBySide) {
-        stack->setCurrentWidget(sideBySide ? static_cast<QWidget*>(sideBySideView)
-                                           : static_cast<QWidget*>(diffView));
-    });
-    connect(
-        tab.diffView, &DiffView::applyPatchRequested, this, &WorkingCopyView::onApplyPatchRequested);
+    connect(tab.sideBySideToggle,
+            &QCheckBox::toggled,
+            this,
+            [stack, sideBySideView, diffView](bool sideBySide) {
+                stack->setCurrentWidget(sideBySide ? static_cast<QWidget*>(sideBySideView)
+                                                   : static_cast<QWidget*>(diffView));
+            });
+    connect(tab.diffView,
+            &DiffView::applyPatchRequested,
+            this,
+            &WorkingCopyView::onApplyPatchRequested);
 
     return tab;
 }
@@ -644,7 +649,10 @@ void WorkingCopyView::onWorkingCopyDiffReady(QString path,
     showDiffInTab(staged ? stagedTab_ : workingTab_, std::move(diff));
 }
 
-void WorkingCopyView::onFileContentReady(QString path, QString revision, QString content, bool exists) {
+void WorkingCopyView::onFileContentReady(QString path,
+                                         QString revision,
+                                         QString content,
+                                         bool exists) {
     const auto selection = currentSelection();
     if (!selection || QString::fromStdString(selection->path) != path ||
         revision != QStringLiteral("HEAD")) {

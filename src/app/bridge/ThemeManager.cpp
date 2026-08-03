@@ -215,9 +215,10 @@ void ThemeManager::apply(ThemeId theme) {
         // produced a plausible-looking window with no stylesheet at all --
         // see the AUTORCC comment in src/app/CMakeLists.txt for the root
         // cause and how it was found.
-        qWarning("ThemeManager: could not open :/qss/app.qss (%s) -- the "
-                 "resource is missing from this build, so no stylesheet was applied",
-                 qUtf8Printable(qssFile.errorString()));
+        qWarning(
+            "ThemeManager: could not open :/qss/app.qss (%s) -- the "
+            "resource is missing from this build, so no stylesheet was applied",
+            qUtf8Printable(qssFile.errorString()));
     }
 
     saveSetting(theme);
@@ -268,8 +269,8 @@ QIcon ThemeManager::swatch(ThemeId theme, int sizePx) {
     const qreal stripHeight = sizePx * 0.3;
     painter.setPen(Qt::NoPen);
     painter.setBrush(accent);
-    painter.drawRect(QRectF(bounds.left(), bounds.bottom() - stripHeight,
-                            bounds.width(), stripHeight));
+    painter.drawRect(
+        QRectF(bounds.left(), bounds.bottom() - stripHeight, bounds.width(), stripHeight));
 
     painter.end();
     return QIcon(pixmap);

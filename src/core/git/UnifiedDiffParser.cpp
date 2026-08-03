@@ -48,10 +48,10 @@ std::vector<std::string_view> splitLines(std::string_view text) {
 /// content change at that path, which content-only, same-path headers do
 /// without touching the rename that already landed.
 void appendPatchHeader(std::string& patch,
-                      const DiffFile& file,
-                      const std::string& oldPath,
-                      const std::string& newPath,
-                      bool unstaging) {
+                       const DiffFile& file,
+                       const std::string& oldPath,
+                       const std::string& newPath,
+                       bool unstaging) {
     const bool isRenameOrCopy =
         (file.kind == FileChangeKind::Renamed || file.kind == FileChangeKind::Copied) &&
         oldPath != newPath;
@@ -61,10 +61,10 @@ void appendPatchHeader(std::string& patch,
     patch += "diff --git a/" + headerOldPath + " b/" + newPath + "\n";
     if (isRenameOrCopy && !contentOnlyAtNewPath) {
         patch += "similarity index " + std::to_string(file.similarity) + "%\n";
-        patch += (file.kind == FileChangeKind::Renamed ? "rename from " : "copy from ") + oldPath +
-                 "\n";
-        patch += (file.kind == FileChangeKind::Renamed ? "rename to " : "copy to ") + newPath +
-                 "\n";
+        patch +=
+            (file.kind == FileChangeKind::Renamed ? "rename from " : "copy from ") + oldPath + "\n";
+        patch +=
+            (file.kind == FileChangeKind::Renamed ? "rename to " : "copy to ") + newPath + "\n";
     }
     patch += "--- a/" + headerOldPath + "\n";
     patch += "+++ b/" + newPath + "\n";

@@ -31,10 +31,10 @@ public:
     /// `QStyleOptionViewItem` because `CommitExpansionPanel` has no such
     /// option to read from -- it is a plain widget, not a view item.
     static void paintRow(QPainter* painter,
-                        const QRect& rect,
-                        const QModelIndex& index,
-                        bool selected,
-                        bool hovered = false);
+                         const QRect& rect,
+                         const QModelIndex& index,
+                         bool selected,
+                         bool hovered = false);
 
 private:
     static constexpr int kMaxChips = 3;

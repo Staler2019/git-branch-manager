@@ -20,7 +20,7 @@ namespace gbm {
 namespace {
 
 constexpr int kIconSize = 16;
-constexpr int kInset = 4;       // Inset selection/hover background from the row edge.
+constexpr int kInset = 4;  // Inset selection/hover background from the row edge.
 constexpr int kRadius = 6;
 constexpr int kBadgeFontSize = 11;
 
@@ -43,7 +43,7 @@ SidebarRowDelegate::SidebarRowDelegate(Kind kind, QObject* parent)
     : QStyledItemDelegate(parent), kind_(kind) {}
 
 QSize SidebarRowDelegate::sizeHint(const QStyleOptionViewItem& option,
-                                  const QModelIndex& index) const {
+                                   const QModelIndex& index) const {
     QSize size = QStyledItemDelegate::sizeHint(option, index);
     size.setHeight(std::max(size.height(), ThemeManager::rowHeight()));
     return size;
@@ -66,9 +66,9 @@ void SidebarRowDelegate::paint(QPainter* painter,
         painter->fillPath(path, ThemeManager::color(Token::SurfaceHover));
     }
 
-    const QString iconName =
-        kind_ == Kind::Repository ? repoIconName(index.data(RepoListModel::KindRole).toInt())
-                                  : QStringLiteral("archive");
+    const QString iconName = kind_ == Kind::Repository
+                                 ? repoIconName(index.data(RepoListModel::KindRole).toInt())
+                                 : QStringLiteral("archive");
     const QIcon icon = IconLoader::icon(iconName, Token::TextSecondary, kIconSize);
 
     QRect iconRect(insetRect.left() + 6,
@@ -108,9 +108,8 @@ void SidebarRowDelegate::paint(QPainter* painter,
                          insetRect.top(),
                          std::max(insetRect.right() - 6 - badgeWidth - textLeft, 0),
                          insetRect.height());
-    const QString elided = textMetrics.elidedText(index.data(Qt::DisplayRole).toString(),
-                                                   Qt::ElideMiddle,
-                                                   textRect.width());
+    const QString elided = textMetrics.elidedText(
+        index.data(Qt::DisplayRole).toString(), Qt::ElideMiddle, textRect.width());
     painter->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, elided);
 
     if (!badgeText.isEmpty()) {

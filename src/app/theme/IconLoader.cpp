@@ -29,8 +29,9 @@ QString cacheKeyFor(const QString& name, Token token, int pixelSize, qreal dpr) 
 }  // namespace
 
 QIcon IconLoader::icon(const QString& name, Token token, int pixelSize) {
-    const qreal dpr =
-        QGuiApplication::primaryScreen() ? QGuiApplication::primaryScreen()->devicePixelRatio() : 1.0;
+    const qreal dpr = QGuiApplication::primaryScreen()
+                          ? QGuiApplication::primaryScreen()->devicePixelRatio()
+                          : 1.0;
     const QString key = cacheKeyFor(name, token, pixelSize, dpr);
     if (const auto it = cache().constFind(key); it != cache().constEnd()) {
         return it.value();

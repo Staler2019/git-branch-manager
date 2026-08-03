@@ -355,8 +355,8 @@ void SideBySideDiffView::showLineContextMenu(bool onLeftPane,
         // See DiffView::contextMenuEvent's identical hunk-staging action: this
         // pane is staging-enabled from DiffPage::showWorkingCopyDiff, so the
         // same rename-unstage hazard applies here.
-        const std::string patch =
-            UnifiedDiffParser::buildHunkPatch(*file, *hunk, /*reverse=*/false, /*unstaging=*/reverse);
+        const std::string patch = UnifiedDiffParser::buildHunkPatch(
+            *file, *hunk, /*reverse=*/false, /*unstaging=*/reverse);
         emit applyPatchRequested(QString::fromStdString(patch), reverse);
     });
 

@@ -128,8 +128,7 @@ public:
     explicit DeleteBranchOperation(DeleteBranchRequest request) : request_(std::move(request)) {}
 
     std::string describe() const override {
-        return "Delete branch" + std::string(request_.names.size() > 1 ? "es " : " ") +
-               joinNames();
+        return "Delete branch" + std::string(request_.names.size() > 1 ? "es " : " ") + joinNames();
     }
 
     OperationOutcome run(IProcessRunner& runner,

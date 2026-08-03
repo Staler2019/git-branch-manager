@@ -177,8 +177,8 @@ void DiffPage::rebuildSections(std::shared_ptr<const ParsedDiff> diff) {
                 title += QStringLiteral("  (deleted)");
                 break;
             case FileChangeKind::Renamed:
-                title = QString::fromStdString(file.oldPath) + QStringLiteral("  →  ") +
-                        section->path;
+                title =
+                    QString::fromStdString(file.oldPath) + QStringLiteral("  →  ") + section->path;
                 break;
             case FileChangeKind::Copied:
                 title += QStringLiteral("  (copied from ") + QString::fromStdString(file.oldPath) +
@@ -237,7 +237,8 @@ void DiffPage::ensureSectionBodyBuilt(FileSection& section) {
     if (diff_) {
         diffView->showFile(diff_, section.path);
     }
-    connect(diffView, &SideBySideDiffView::applyPatchRequested, this, &DiffPage::applyPatchRequested);
+    connect(
+        diffView, &SideBySideDiffView::applyPatchRequested, this, &DiffPage::applyPatchRequested);
     bodyLayout->addWidget(diffView);
 
     static_cast<QVBoxLayout*>(section.frame->layout())->addWidget(body);

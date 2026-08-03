@@ -502,10 +502,9 @@ void SidebarPanel::showBranchContextMenu(const QModelIndex& index, const QPoint&
     QAction* pushAction = menu.addAction(QStringLiteral("Push…"));
     QAction* copyAction = menu.addAction(QStringLiteral("Copy branch name"));
     menu.addSeparator();
-    QAction* deleteAction = menu.addAction(deletableNames.size() > 1
-                                              ? QStringLiteral("Delete %1 branches…")
-                                                    .arg(deletableNames.size())
-                                              : QStringLiteral("Delete branch…"));
+    QAction* deleteAction = menu.addAction(
+        deletableNames.size() > 1 ? QStringLiteral("Delete %1 branches…").arg(deletableNames.size())
+                                  : QStringLiteral("Delete branch…"));
     deleteAction->setEnabled(!deletableNames.isEmpty());
     markDanger(deleteAction);
 
@@ -591,12 +590,12 @@ void SidebarPanel::showBranchContextMenu(const QModelIndex& index, const QPoint&
         if (deletableNames.isEmpty()) {
             return;
         }
-        const QString confirmText = deletableNames.size() > 1
-                                       ? QStringLiteral("Delete %1 branches?\n\n%2")
-                                             .arg(deletableNames.size())
-                                             .arg(deletableNames.join(QStringLiteral("\n")))
-                                       : QStringLiteral("Delete branch \"%1\"?")
-                                             .arg(deletableNames.first());
+        const QString confirmText =
+            deletableNames.size() > 1
+                ? QStringLiteral("Delete %1 branches?\n\n%2")
+                      .arg(deletableNames.size())
+                      .arg(deletableNames.join(QStringLiteral("\n")))
+                : QStringLiteral("Delete branch \"%1\"?").arg(deletableNames.first());
         const auto confirmed = QMessageBox::warning(this,
                                                     QStringLiteral("Delete branch?"),
                                                     confirmText,
@@ -610,8 +609,8 @@ void SidebarPanel::showBranchContextMenu(const QModelIndex& index, const QPoint&
             request.names.push_back(deletableName.toStdString());
         }
         emit statusMessage(deletableNames.size() > 1
-                              ? QStringLiteral("Deleting %1 branches…").arg(deletableNames.size())
-                              : QStringLiteral("Deleting %1…").arg(deletableNames.first()));
+                               ? QStringLiteral("Deleting %1 branches…").arg(deletableNames.size())
+                               : QStringLiteral("Deleting %1…").arg(deletableNames.first()));
         runWithFeedback_([this, request] { session_->deleteBranch(request); },
                          [this, request](OperationChoice::Kind kind) mutable {
                              // The only choice DeleteBranchOperation ever offers: the branch

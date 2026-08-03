@@ -192,9 +192,7 @@ void MainWindow::buildUi() {
     connect(repoView_->selectionModel(),
             &QItemSelectionModel::currentRowChanged,
             this,
-            [this](const QModelIndex& current, const QModelIndex&) {
-                onRepoRowClicked(current);
-            });
+            [this](const QModelIndex& current, const QModelIndex&) { onRepoRowClicked(current); });
 
     // Probing is driven by what is actually visible, not by the list's size. A
     // flick of the scrollbar fires many valueChanged signals in a row; without
@@ -304,10 +302,8 @@ void MainWindow::buildUi() {
             &MainWindow::onRepoActivated);
     // Same single-click-opens fix as the repository browser page, debounced
     // through the same pending-row/timer pair.
-    connect(sidebar_->repoListView(),
-            &QAbstractItemView::clicked,
-            this,
-            &MainWindow::onRepoRowClicked);
+    connect(
+        sidebar_->repoListView(), &QAbstractItemView::clicked, this, &MainWindow::onRepoRowClicked);
     // "Open repository" in the repo-list context menu -- a deliberate menu
     // choice, so it opens immediately rather than through the debounce.
     connect(sidebar_, &SidebarPanel::openRepositoryRequested, this, [this](int row) {
@@ -350,7 +346,7 @@ void MainWindow::buildUi() {
     commitView_->setItemDelegateForColumn(CommitListModel::ColumnGraph, graphDelegate_);
     commitView_->setColumnWidth(CommitListModel::ColumnGraph, 160);
     commitView_->setItemDelegateForColumn(CommitListModel::ColumnSubject,
-                                         new CommitRowDelegate(this));
+                                          new CommitRowDelegate(this));
     commitView_->horizontalHeader()->setSectionResizeMode(CommitListModel::ColumnSubject,
                                                           QHeaderView::Stretch);
 
@@ -1133,7 +1129,8 @@ void MainWindow::openRepositoryAtPathForScreenshot(const QString& path) {
     const auto classified = RepoClassifier::classify(std::filesystem::path(path.toStdString()));
     if (!classified.isRepo()) {
         statusLabel_->setText(
-            QStringLiteral("GBM_SCREENSHOT_REPO does not look like a git repository: %1").arg(path));
+            QStringLiteral("GBM_SCREENSHOT_REPO does not look like a git repository: %1")
+                .arg(path));
         return;
     }
     RepoRecord record;
@@ -1227,8 +1224,9 @@ void MainWindow::applyThemeAndRefresh(ThemeId theme) {
     // in buildMenus().
     static constexpr std::array<ThemeId, 3> kToolbarThemeOrder{
         ThemeId::DarkTechnical, ThemeId::LightIde, ThemeId::NeutralProfessional};
-    for (int i = 0; i < toolbarThemeActions_.size() && i < static_cast<int>(kToolbarThemeOrder.size());
-        ++i) {
+    for (int i = 0;
+         i < toolbarThemeActions_.size() && i < static_cast<int>(kToolbarThemeOrder.size());
+         ++i) {
         toolbarThemeActions_[i]->setIcon(ThemeManager::swatch(kToolbarThemeOrder[i]));
     }
     // The toolbar buttons snapshot their action's icon at construction (see
@@ -1533,7 +1531,8 @@ void MainWindow::refreshExpandedCommitPanel() {
     if (!detailsMatchThisRow) {
         return;
     }
-    static_cast<CommitExpansionPanel*>(expandedCommitPanel_)->setDetails(currentFiles_, currentDiff_);
+    static_cast<CommitExpansionPanel*>(expandedCommitPanel_)
+        ->setDetails(currentFiles_, currentDiff_);
     commitView_->setRowHeight(row, expandedCommitPanel_->sizeHint().height());
 }
 
@@ -1897,8 +1896,8 @@ void MainWindow::onCherryPickRequested() {
 }
 
 void MainWindow::armWorkingCopyChoiceHandler(std::function<void(bool)> submit,
-                                            bool stashFirst,
-                                            bool announceSuccess) {
+                                             bool stashFirst,
+                                             bool announceSuccess) {
     // A one-shot connection: the handler disconnects itself the moment it runs,
     // so it never reacts to an unrelated working-copy operation finishing later.
     auto connection = std::make_shared<QMetaObject::Connection>();

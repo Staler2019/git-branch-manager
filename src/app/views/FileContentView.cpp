@@ -3,8 +3,8 @@
 #include "app/bridge/ThemeManager.h"
 
 #include <QHBoxLayout>
-#include <QPainter>
 #include <QPaintEvent>
+#include <QPainter>
 #include <QTextBlock>
 
 namespace gbm {
@@ -43,7 +43,8 @@ public:
             lines /= 10;
             ++digits;
         }
-        return kGutterPadding * 2 + editor_->fontMetrics().horizontalAdvance(QLatin1Char('9')) * digits;
+        return kGutterPadding * 2 +
+               editor_->fontMetrics().horizontalAdvance(QLatin1Char('9')) * digits;
     }
 
 protected:

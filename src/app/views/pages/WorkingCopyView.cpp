@@ -234,10 +234,12 @@ void WorkingCopyView::buildUi() {
     const FilePanel unstagedPanel = buildFilePanel(tr("Unstaged"));
     const FilePanel stagedPanel = buildFilePanel(tr("Staged"));
     unstagedList_ = unstagedPanel.list;
+    unstagedList_->setObjectName(QStringLiteral("workingCopyUnstagedList"));
     unstagedStack_ = unstagedPanel.stack;
     unstagedCountLabel_ = unstagedPanel.countLabel;
     unstagedList_->setAccessibleName(tr("Unstaged changes"));
     stagedList_ = stagedPanel.list;
+    stagedList_->setObjectName(QStringLiteral("workingCopyStagedList"));
     stagedStack_ = stagedPanel.stack;
     stagedCountLabel_ = stagedPanel.countLabel;
     stagedList_->setAccessibleName(tr("Staged changes"));
@@ -248,6 +250,7 @@ void WorkingCopyView::buildUi() {
     unstagedColumn->setContentsMargins(0, 0, 0, 0);
     unstagedColumn->addWidget(unstagedPanel.frame, 1);
     stageAllButton_ = new QPushButton(tr("Stage All"), unstagedColumnWidget);
+    stageAllButton_->setObjectName(QStringLiteral("secondaryButton"));
     unstagedColumn->addWidget(stageAllButton_);
     boardSplitter->addWidget(unstagedColumnWidget);
 
@@ -257,6 +260,7 @@ void WorkingCopyView::buildUi() {
     stagedColumn->setContentsMargins(0, 0, 0, 0);
     stagedColumn->addWidget(stagedPanel.frame, 1);
     unstageAllButton_ = new QPushButton(tr("Unstage All"), stagedColumnWidget);
+    unstageAllButton_->setObjectName(QStringLiteral("secondaryButton"));
     stagedColumn->addWidget(unstageAllButton_);
     boardSplitter->addWidget(stagedColumnWidget);
 

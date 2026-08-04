@@ -333,6 +333,33 @@ GitResult<DiffService::ParsedDiffPtr> DiffService::commitVsWorkingTree(const Obj
     return ParsedDiffPtr(std::make_shared<ParsedDiff>(parser.parse(result->out)));
 }
 
+GitResult<DiffService::ParsedDiffPtr> DiffService::stashDiff(int stashIndex,
+                                                             bool includeUntracked,
+                                                             const DiffOptions& options,
+                                                             CancellationToken token) {
+    GBM_ASSERT_NOT_UI_THREAD();
+
+    std::vector<std::string> args{"stash", "show", "-p"};
+    for (auto& flag : diffFlags(options)) {
+        args.push_back(std::move(flag));
+    }
+    if (includeUntracked) {
+        args.emplace_back("--include-untracked");
+    }
+    args.push_back("stash@{" + std::to_string(stashIndex) + "}");
+
+    GitCommand command(paths_.commandDir(), std::move(args));
+    command.timeout = std::chrono::seconds(180);
+
+    auto result = runner_.run(command, token);
+    if (!result) {
+        return fail(std::move(result).error());
+    }
+
+    UnifiedDiffParser parser;
+    return ParsedDiffPtr(std::make_shared<ParsedDiff>(parser.parse(result->out)));
+}
+
 void DiffService::clearCaches() {
     diffCache_.clear();
     fileListCache_.clear();

@@ -54,16 +54,24 @@ ManageStashesDialog::ManageStashesDialog(RepositorySession* session,
     auto* buttonRow = new QHBoxLayout();
     auto* applyButton = new QPushButton(QStringLiteral("Apply"), this);
     auto* popButton = new QPushButton(QStringLiteral("Pop"), this);
+    auto* diffButton = new QPushButton(QStringLiteral("View diff"), this);
     auto* dropButton = new QPushButton(QStringLiteral("Drop"), this);
     auto* branchButton = new QPushButton(QStringLiteral("Create branch…"), this);
     auto* closeButton = new QPushButton(QStringLiteral("Close"), this);
     buttonRow->addWidget(applyButton);
     buttonRow->addWidget(popButton);
+    buttonRow->addWidget(diffButton);
     buttonRow->addWidget(dropButton);
     buttonRow->addWidget(branchButton);
     buttonRow->addStretch(1);
     buttonRow->addWidget(closeButton);
     layout->addLayout(buttonRow);
+
+    connect(diffButton, &QPushButton::clicked, this, [this, selectedIndex] {
+        if (auto index = selectedIndex()) {
+            emit stashDiffRequested(*index);
+        }
+    });
 
     connect(applyButton, &QPushButton::clicked, this, [session, runWithFeedback, selectedIndex] {
         if (auto index = selectedIndex()) {

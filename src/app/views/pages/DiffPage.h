@@ -52,6 +52,12 @@ public:
                              bool staged,
                              std::shared_ptr<const ParsedDiff> diff);
 
+    /// Shows a stash's contents ("View diff" on the sidebar/Manage Stashes
+    /// stash context menu), as produced by
+    /// `RepositorySession::stashDiffReady`. Never stageable: applying a
+    /// stash's changes is `git stash apply`/`pop`, not line/hunk staging.
+    void showStashDiff(int index, std::shared_ptr<const ParsedDiff> diff);
+
     /// Shows a transient status message ("Comparing…") in place of a diff.
     void showMessage(const QString& message);
 

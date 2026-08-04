@@ -19,6 +19,13 @@ public:
     ManageStashesDialog(RepositorySession* session,
                         RunWithFeedbackFn runWithFeedback,
                         QWidget* parent = nullptr);
+
+signals:
+    /// "View diff" on the selected stash. The dialog has no diff view of its
+    /// own -- MainWindow handles this the same way it does the sidebar's
+    /// stash "View diff" (RepositorySession::requestStashDiff, shown on the
+    /// Diff tab).
+    void stashDiffRequested(int index);
 };
 
 }  // namespace gbm

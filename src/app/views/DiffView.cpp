@@ -226,20 +226,22 @@ void DiffView::render(const ParsedDiff& diff, const QString& onlyPath) {
             const int firstLine = cursor.blockNumber();
 
             for (const DiffLine& line : hunk.lines) {
+                // No leading +/-/space marker character: the background/
+                // foreground color already distinguishes added vs. removed
+                // vs. context lines (matching SideBySideDiffView, which has
+                // never printed one), and dropping it keeps copied text free
+                // of diff-marker noise.
                 switch (line.kind) {
                     case DiffLineKind::Added:
-                        cursor.insertText(QStringLiteral("+") + QString::fromStdString(line.text) +
-                                              QStringLiteral("\n"),
+                        cursor.insertText(QString::fromStdString(line.text) + QStringLiteral("\n"),
                                           added);
                         break;
                     case DiffLineKind::Removed:
-                        cursor.insertText(QStringLiteral("-") + QString::fromStdString(line.text) +
-                                              QStringLiteral("\n"),
+                        cursor.insertText(QString::fromStdString(line.text) + QStringLiteral("\n"),
                                           removed);
                         break;
                     case DiffLineKind::Context:
-                        cursor.insertText(QStringLiteral(" ") + QString::fromStdString(line.text) +
-                                              QStringLiteral("\n"),
+                        cursor.insertText(QString::fromStdString(line.text) + QStringLiteral("\n"),
                                           plain);
                         break;
                     case DiffLineKind::NoNewlineMarker:

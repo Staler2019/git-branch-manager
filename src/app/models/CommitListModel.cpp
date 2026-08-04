@@ -6,6 +6,7 @@
 
 #include <QBrush>
 #include <QDateTime>
+#include <QFont>
 #include <QLocale>
 #include <QVariant>
 
@@ -24,7 +25,10 @@ void CommitListModel::setSession(RepositorySession* session) {
     pending_.clear();
     visibleFirst_ = 0;
     visibleLast_ = 0;
+    mineEmailLower_.clear();
+    mineNameLower_.clear();
     endResetModel();
+    onEffectiveIdentityUpdated();
 }
 
 int CommitListModel::rowCount(const QModelIndex& parent) const {
@@ -43,6 +47,19 @@ ObjectId CommitListModel::oidAt(int row) const {
         return {};
     }
     return snapshot_->oids[static_cast<std::size_t>(row)];
+}
+
+bool CommitListModel::isMine(const CommitMeta* meta) const {
+    if (meta == nullptr) {
+        return false;
+    }
+    if (!mineEmailLower_.isEmpty() && !meta->author.email.empty()) {
+        return QString::fromStdString(meta->author.email).toLower() == mineEmailLower_;
+    }
+    if (!mineNameLower_.isEmpty() && !meta->author.name.empty()) {
+        return QString::fromStdString(meta->author.name).toLower() == mineNameLower_;
+    }
+    return false;
 }
 
 const CommitMeta* CommitListModel::metadataFor(int row) const {
@@ -72,6 +89,8 @@ QVariant CommitListModel::data(const QModelIndex& index, int role) const {
             return QString::fromStdString(oidAt(row).hex());
         case HasMetadataRole:
             return metadataFor(row) != nullptr;
+        case IsMineRole:
+            return isMine(metadataFor(row));
         case RefsRole: {
             QVariantList chips;
             if (refs_) {
@@ -138,7 +157,20 @@ QVariant CommitListModel::data(const QModelIndex& index, int role) const {
     // with no dataChanged needed -- the same pattern GraphColumnDelegate and
     // RefRowDelegate already rely on.
     switch (index.column()) {
-        case ColumnAuthor:
+        case ColumnAuthor: {
+            const bool mine = isMine(meta);
+            if (role == Qt::FontRole) {
+                QFont font = ThemeManager::monoFont(kTextXs);
+                if (mine) {
+                    font.setBold(true);
+                }
+                return font;
+            }
+            if (role == Qt::ForegroundRole) {
+                return QBrush(ThemeManager::color(mine ? Token::Accent : Token::TextTertiary));
+            }
+            break;
+        }
         case ColumnDate:
         case ColumnShortSha:
             if (role == Qt::FontRole) {
@@ -222,6 +254,22 @@ void CommitListModel::onRefsUpdated() {
         emit dataChanged(index(0, 0),
                          index(static_cast<int>(snapshot_->rowCount()) - 1, ColumnCount - 1),
                          {RefsRole, Qt::DisplayRole});
+    }
+}
+
+void CommitListModel::onEffectiveIdentityUpdated() {
+    mineEmailLower_.clear();
+    mineNameLower_.clear();
+    if (session_) {
+        if (const EffectiveIdentityPtr identity = session_->effectiveIdentity()) {
+            mineEmailLower_ = QString::fromStdString(identity->email).toLower();
+            mineNameLower_ = QString::fromStdString(identity->name).toLower();
+        }
+    }
+    if (snapshot_ && snapshot_->rowCount() > 0) {
+        emit dataChanged(index(0, 0),
+                         index(static_cast<int>(snapshot_->rowCount()) - 1, ColumnCount - 1),
+                         {IsMineRole, Qt::FontRole, Qt::ForegroundRole});
     }
 }
 

@@ -37,6 +37,7 @@ qt_add_executable(git-branch-manager
     dialogs/CherryPickDialog.cpp
     dialogs/CleanUntrackedDialog.cpp
     dialogs/FileHistoryDialog.cpp
+    dialogs/GraphBranchFilterDialog.cpp
     dialogs/InteractiveRebaseDialog.cpp
     dialogs/KeyboardShortcutsDialog.cpp
     dialogs/LineHistoryDialog.cpp

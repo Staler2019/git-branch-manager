@@ -19,6 +19,11 @@ constexpr int kPillFontSize = 11;
 constexpr int kSubjectFontSize = kTextSm;
 constexpr int kChipGap = kSpace2;
 constexpr int kSubjectToChipsGap = kSpace3;
+/// A thin accent bar marking "my" commits (CommitListModel::IsMineRole),
+/// drawn at the subject's left edge rather than recoloring the whole line --
+/// noticeable while scanning, but not louder than the ref chips.
+constexpr int kMineMarkerWidth = 3;
+constexpr int kMineMarkerGap = kSpace2;
 
 }  // namespace
 
@@ -80,19 +85,31 @@ void CommitRowDelegate::paintRow(
     }
     chips.resize(chipsShown);
 
+    const bool mine = index.data(CommitListModel::IsMineRole).toBool();
+    const int markerReserve = mine ? kMineMarkerWidth + kMineMarkerGap : 0;
+
     const QFont subjectFont = ThemeManager::uiFont(kSubjectFontSize);
     const QFontMetrics subjectMetrics(subjectFont);
-    const int subjectAreaWidth =
-        std::max(0, padded.width() - (chips.empty() ? 0 : chipsWidth + kSubjectToChipsGap));
+    const int subjectAreaWidth = std::max(
+        0, padded.width() - markerReserve - (chips.empty() ? 0 : chipsWidth + kSubjectToChipsGap));
     const QString subject = index.data(Qt::DisplayRole).toString();
     const QString elidedSubject =
         subjectMetrics.elidedText(subject, Qt::ElideRight, subjectAreaWidth);
 
+    if (mine) {
+        const QRect markerRect(
+            padded.left(), padded.top() + kSpace1, kMineMarkerWidth, padded.height() - 2 * kSpace1);
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(ThemeManager::color(Token::Accent));
+        painter->drawRoundedRect(markerRect, 1.5, 1.5);
+    }
+
     painter->setFont(subjectFont);
     painter->setPen(ThemeManager::color(Token::TextPrimary));
-    painter->drawText(QRect(padded.left(), padded.top(), subjectAreaWidth, padded.height()),
-                      Qt::AlignVCenter | Qt::AlignLeft,
-                      elidedSubject);
+    painter->drawText(
+        QRect(padded.left() + markerReserve, padded.top(), subjectAreaWidth, padded.height()),
+        Qt::AlignVCenter | Qt::AlignLeft,
+        elidedSubject);
 
     int chipX = padded.right() - chipsWidth;
     for (const auto& entry : chips) {

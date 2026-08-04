@@ -25,11 +25,12 @@ struct LocalIdentity;
 ///   checkbox and fields read and write real `git config --local` state
 ///   through `RepositorySession::setLocalIdentityOverride` /
 ///   `clearLocalIdentityOverride` -- see `ConfigOps.h`.
-/// - "Performance for this repository" is UI-only. `HistoryProvider` has no
-///   pagination or row-cap concept today, so the checkbox and row-count
-///   field persist to `QSettings` (keyed by repository path, for
-///   forward-compatibility) but do not change how history loads. This is
-///   stated in the caption rather than left to look functional.
+/// - "Performance for this repository" persists to `QSettings` (keyed by
+///   repository path) and is read back by `RepositorySession::refreshHistory`
+///   to cap `HistoryQuery::maxCount` on the next history walk -- see
+///   `maxGraphRowsSetting`/`performanceSettingsKeyPrefix` in
+///   RepositorySession.cpp, which must agree with `settingsKeyPrefix()`/
+///   `kDefaultMaxGraphRows` below on the exact key format.
 class RepositoryPage : public QWidget {
     Q_OBJECT
 
@@ -79,6 +80,7 @@ private:
 
     QCheckBox* largeRepoModeCheck_ = nullptr;
     QSpinBox* maxGraphRowsSpin_ = nullptr;
+    QCheckBox* autoFetchCheck_ = nullptr;
 
     QLabel* footerLabel_ = nullptr;
 };

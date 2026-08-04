@@ -70,11 +70,13 @@ signals:
     void checkoutRequested();
     void mergeIntoCurrentRequested();
 
-    /// Repository Settings and Diff have no content of their own yet (Phase 6
-    /// and Phase 5's job respectively) -- this just asks MainWindow to
-    /// navigate to whichever page currently stands in for them.
+    /// Repository Settings has no content of its own yet (Phase 6's job) --
+    /// this just asks MainWindow to navigate to whichever page currently
+    /// stands in for it.
     void repositorySettingsRequested();
-    void diffRequested();
+    /// "View diff" on the stash context menu -- MainWindow requests the
+    /// diff from the session and shows it on the Diff tab.
+    void stashDiffRequested(int index);
 
     void statusMessage(QString message);
 

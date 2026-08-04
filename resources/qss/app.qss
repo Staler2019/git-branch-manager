@@ -414,14 +414,25 @@ QTableView {
     outline: none;
 }
 
+/* Row padding/hover/selected below is shared with QListView/QListWidget so
+ * that plain item lists (the working-copy Unstaged/Staged panels, the
+ * changed-files list) read as the same row height and hover treatment as
+ * the tree/table views -- without also pulling in the tree/table's boxed
+ * background and border, which several QListView/QListWidget usages (the
+ * sidebar repo list, the stash list) are deliberately meant to sit flush
+ * without. */
 QTreeView::item,
-QTableView::item {
+QTableView::item,
+QListView::item,
+QListWidget::item {
     padding: 0 12px;
     border-radius: 4px;
 }
 
 QTreeView::item:hover,
-QTableView::item:hover {
+QTableView::item:hover,
+QListView::item:hover,
+QListWidget::item:hover {
     background: @surface-hover;
 }
 
@@ -433,7 +444,9 @@ QTableView::item:hover {
  * (the changed-files list, working-copy panels, dialog tables) instead of
  * fighting the hand-painted ones. */
 QTreeView::item:selected,
-QTableView::item:selected {
+QTableView::item:selected,
+QListView::item:selected,
+QListWidget::item:selected {
     background: @surface-selected;
     color: @text-primary;
 }

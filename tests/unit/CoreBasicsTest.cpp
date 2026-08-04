@@ -132,7 +132,7 @@ TEST(CancellationToken, FiresCallbacksExactlyOnce) {
     EXPECT_FALSE(token.isCancelled());
 
     std::atomic_int calls{0};
-    token.onCancel([&calls] { ++calls; });
+    auto reg = token.onCancel([&calls] { ++calls; });
 
     source.cancel();
     source.cancel();  // Idempotent.
@@ -148,8 +148,72 @@ TEST(CancellationToken, RunsCallbackImmediatelyIfAlreadyCancelled) {
     source.cancel();
 
     std::atomic_bool ran{false};
-    source.token().onCancel([&ran] { ran = true; });
+    auto reg = source.token().onCancel([&ran] { ran = true; });
     EXPECT_TRUE(ran.load());
+}
+
+TEST(CancellationToken, UnregisteringABeforeCancelPreventsItFromFiring) {
+    // This is what ProcessRunner::execute() relies on: a callback capturing
+    // stack state that has already gone out of scope must never fire, even
+    // if cancel() is called afterward on the same CancellationSource (e.g.
+    // RepositorySession::cancelPendingReads() firing once for a whole
+    // session's worth of already-finished reads).
+    CancellationSource source;
+    CancellationToken token = source.token();
+
+    std::atomic_int calls{0};
+    {
+        auto reg = token.onCancel([&calls] { ++calls; });
+        reg.reset();  // Explicit unregister -- the case a destructor also covers.
+    }
+
+    source.cancel();
+    EXPECT_EQ(calls.load(), 0);
+}
+
+TEST(CancellationToken, RegistrationDestructorUnregisters) {
+    CancellationSource source;
+    CancellationToken token = source.token();
+
+    std::atomic_int calls{0};
+    {
+        auto reg = token.onCancel([&calls] { ++calls; });
+        // reg destructs here, at the end of this block, before cancel() runs.
+    }
+
+    source.cancel();
+    EXPECT_EQ(calls.load(), 0);
+}
+
+TEST(CancellationToken, MovedRegistrationStillUnregisters) {
+    CancellationSource source;
+    CancellationToken token = source.token();
+
+    std::atomic_int calls{0};
+    auto reg = token.onCancel([&calls] { ++calls; });
+    auto moved = std::move(reg);
+
+    moved.reset();
+    source.cancel();
+    EXPECT_EQ(calls.load(), 0);
+}
+
+TEST(CancellationToken, SeveralRegistrationsAreIndependent) {
+    // Unregistering one callback must not disturb another registered on the
+    // same token -- the id-based removal has to target exactly one entry.
+    CancellationSource source;
+    CancellationToken token = source.token();
+
+    std::atomic_int firstCalls{0};
+    std::atomic_int secondCalls{0};
+    auto first = token.onCancel([&firstCalls] { ++firstCalls; });
+    auto second = token.onCancel([&secondCalls] { ++secondCalls; });
+
+    first.reset();
+    source.cancel();
+
+    EXPECT_EQ(firstCalls.load(), 0);
+    EXPECT_EQ(secondCalls.load(), 1);
 }
 
 // --- thread pool -----------------------------------------------------------
@@ -181,6 +245,62 @@ TEST(ThreadPool, DefaultSizeLeavesRoomForTheUiThread) {
     const std::size_t size = ThreadPool::defaultThreadCount();
     EXPECT_GE(size, 2u);
     EXPECT_LE(size, 6u);
+}
+
+TEST(ThreadPool, CancelQueuedAndDrainDiscardsQueuedWorkButWaitsForTheActiveTask) {
+    // This is exactly the shape MainWindow::closeRepository() relies on: cancel
+    // the token(s) a running task carries, then call this so no queued lambda
+    // capturing the about-to-be-destroyed RepositorySession ever runs, and
+    // nothing is still touching it when the call returns.
+    ThreadPool pool("test", 1);  // One worker: makes queue-vs-active deterministic.
+    std::atomic_bool activeTaskStarted{false};
+    std::atomic_bool activeTaskMayFinish{false};
+    std::atomic_bool activeTaskFinished{false};
+    std::atomic_int queuedTasksRun{0};
+
+    pool.post([&] {
+        activeTaskStarted.store(true);
+        while (!activeTaskMayFinish.load()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        activeTaskFinished.store(true);
+    });
+
+    // Wait until the pool has actually picked up the first task, so the
+    // remaining posts land in the queue behind it (single worker) instead of
+    // racing to start first.
+    while (!activeTaskStarted.load()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    for (int i = 0; i < 10; ++i) {
+        pool.post([&queuedTasksRun] { ++queuedTasksRun; });
+    }
+    EXPECT_GT(pool.queueDepth(), 0u);
+
+    // Let the active task finish shortly after cancelQueuedAndDrain() starts
+    // waiting, from a second thread, so this actually exercises the "blocks
+    // until currently-executing work finishes" half of the contract rather
+    // than returning instantly because nothing was active.
+    std::thread releaser([&] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        activeTaskMayFinish.store(true);
+    });
+
+    pool.cancelQueuedAndDrain();
+    releaser.join();
+
+    EXPECT_TRUE(activeTaskFinished.load())
+        << "must wait for the active task, not just clear the queue";
+    EXPECT_EQ(queuedTasksRun.load(), 0) << "queued-but-not-started work must be discarded, not run";
+    EXPECT_EQ(pool.queueDepth(), 0u);
+
+    // The pool itself is still usable afterward -- cancelQueuedAndDrain() is
+    // not a shutdown.
+    std::atomic_int total{0};
+    pool.post([&total] { ++total; });
+    pool.drain();
+    EXPECT_EQ(total.load(), 1);
 }
 
 // --- debouncer -------------------------------------------------------------
@@ -288,7 +408,7 @@ TEST(HistoryProvider, RejectsMalformedRecordsWithoutThrowing) {
 
 TEST(HistoryQuery, UsesTopoOrderAndSeedsTipsBeforeAll) {
     HistoryQuery query;
-    query.includeRefs = {"refs/heads/main"};
+    query.seedRefs = {"refs/heads/main"};
     const auto args = query.toRevListArgs();
 
     ASSERT_FALSE(args.empty());
@@ -298,13 +418,27 @@ TEST(HistoryQuery, UsesTopoOrderAndSeedsTipsBeforeAll) {
     EXPECT_NE(std::find(args.begin(), args.end(), "--parents"), args.end());
     EXPECT_NE(std::find(args.begin(), args.end(), "--timestamp"), args.end());
 
-    // The explicit tip must precede --all: the graph builder gives lane 0 to the
+    // The seed tip must precede --all: the graph builder gives lane 0 to the
     // first tip it sees, which is how the trunk stays leftmost.
     const auto tipAt = std::find(args.begin(), args.end(), "refs/heads/main");
     const auto allAt = std::find(args.begin(), args.end(), "--all");
     ASSERT_NE(tipAt, args.end());
     ASSERT_NE(allAt, args.end());
     EXPECT_LT(tipAt - args.begin(), allAt - args.begin());
+}
+
+TEST(HistoryQuery, NarrowsToIncludeRefsWithoutAll) {
+    // includeRefs (the graph branch filter) must actually narrow the walk,
+    // not just reorder --all's tips -- --all must be absent entirely.
+    HistoryQuery query;
+    query.seedRefs = {"refs/heads/main"};  // Must be ignored once includeRefs is set.
+    query.includeRefs = {"refs/heads/feature-a", "refs/heads/feature-b"};
+    const auto args = query.toRevListArgs();
+
+    EXPECT_EQ(std::find(args.begin(), args.end(), "--all"), args.end());
+    EXPECT_EQ(std::find(args.begin(), args.end(), "refs/heads/main"), args.end());
+    EXPECT_NE(std::find(args.begin(), args.end(), "refs/heads/feature-a"), args.end());
+    EXPECT_NE(std::find(args.begin(), args.end(), "refs/heads/feature-b"), args.end());
 }
 
 TEST(HistoryQuery, PushesFilteringDownIntoGit) {

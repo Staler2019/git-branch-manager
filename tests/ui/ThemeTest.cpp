@@ -26,17 +26,20 @@ using namespace gbm;
 
 namespace {
 
-constexpr std::array<Token, 37> kAllTokens{
-    Token::SurfaceApp,    Token::SurfacePanel,    Token::SurfacePanelRaised, Token::SurfaceSunken,
-    Token::SurfaceHover,  Token::SurfaceSelected, Token::SurfaceOverlay,     Token::BorderSubtle,
-    Token::BorderDefault, Token::BorderStrong,    Token::BorderFocus,        Token::TextPrimary,
-    Token::TextSecondary, Token::TextTertiary,    Token::TextOnAccent,       Token::TextLink,
-    Token::Accent,        Token::AccentHover,     Token::AccentActive,       Token::AccentSubtle,
-    Token::Success,       Token::Danger,          Token::DangerHover,        Token::Warning,
-    Token::DiffAddBg,     Token::DiffAddText,     Token::DiffDelBg,          Token::DiffDelText,
-    Token::DiffAddStrong, Token::DiffDelStrong,   Token::ScrollbarThumb,     Token::GraphLane1,
-    Token::GraphLane2,    Token::GraphLane3,      Token::GraphLane4,         Token::GraphLane5,
-    Token::GraphLane6,
+constexpr std::array<Token, 39> kAllTokens{
+    Token::SurfaceApp,     Token::SurfacePanel,  Token::SurfacePanelRaised,
+    Token::SurfaceSunken,  Token::SurfaceHover,  Token::SurfaceSelected,
+    Token::SurfaceOverlay, Token::BorderSubtle,  Token::BorderDefault,
+    Token::BorderStrong,   Token::BorderFocus,   Token::TextPrimary,
+    Token::TextSecondary,  Token::TextTertiary,  Token::TextOnAccent,
+    Token::TextLink,       Token::Accent,        Token::AccentHover,
+    Token::AccentActive,   Token::AccentSubtle,  Token::RefChipFill,
+    Token::RefChipText,    Token::Success,       Token::Danger,
+    Token::DangerHover,    Token::Warning,       Token::DiffAddBg,
+    Token::DiffAddText,    Token::DiffDelBg,     Token::DiffDelText,
+    Token::DiffAddStrong,  Token::DiffDelStrong, Token::ScrollbarThumb,
+    Token::GraphLane1,     Token::GraphLane2,    Token::GraphLane3,
+    Token::GraphLane4,     Token::GraphLane5,    Token::GraphLane6,
 };
 
 constexpr std::array<ThemeId, 3> kAllThemes{

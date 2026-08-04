@@ -20,7 +20,20 @@ namespace gbm {
 /// orders of magnitude faster inside git, and a filter proxy in front of 500k
 /// rows would be unusable. Changing a filter restarts the walk.
 struct HistoryQuery {
-    std::vector<std::string> includeRefs;  ///< Empty means --all.
+    /// Tips to walk from before `--all`, purely to order them ahead of it --
+    /// the graph builder gives lane 0 to the first tip it sees, which is how
+    /// HEAD's branch (or the trunk) stays leftmost. Every commit reachable
+    /// from any ref is still included; this never narrows the walk. Populated
+    /// automatically from the refs whenever includeRefs is empty -- see
+    /// RepositorySession::refreshHistory.
+    std::vector<std::string> seedRefs;
+    /// When non-empty, narrows the walk to only what's reachable from these
+    /// refs -- no implicit `--all`. This is what "Branches…" (the graph
+    /// branch filter) sets. Every ref here must exist in the current
+    /// RefSnapshot before being handed to rev-list: a name that's gone stale
+    /// (e.g. a pruned `refs/remotes/origin/*`) aborts the whole walk with
+    /// "unknown revision" rather than just being skipped.
+    std::vector<std::string> includeRefs;
     std::vector<std::string> excludeRefs;
     std::optional<std::string> pathFilter;
     std::optional<std::string> grep;

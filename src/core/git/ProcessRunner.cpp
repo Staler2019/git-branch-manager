@@ -775,9 +775,20 @@ private:
 
         // Cancelling closes the child down. Registered after a successful spawn
         // so there is no window in which we could signal a pid we do not own.
-        std::atomic_bool cancelObserved{false};
-        token.onCancel([child, &cancelObserved] {
-            cancelObserved.store(true);
+        //
+        // `cancelObserved` is a shared_ptr, not a stack local captured by
+        // reference: without the Registration below, a cancel firing after
+        // this function had already returned (readCancel_ was only replaced
+        // on the next explicit cancelPendingReads(), so a session could
+        // accumulate one registered callback per git process for its whole
+        // lifetime, and cancelPendingReads() fired all of them at once on
+        // repo switch) wrote into a long-dead stack frame. `cancelReg`
+        // unregisters the callback on every return path below, and the
+        // shared_ptr is belt-and-braces against any callback that is already
+        // mid-fire when that happens.
+        auto cancelObserved = std::make_shared<std::atomic_bool>(false);
+        CancellationToken::Registration cancelReg = token.onCancel([child, cancelObserved] {
+            cancelObserved->store(true);
             child->terminate();
         });
 
@@ -795,7 +806,14 @@ private:
         result.exitCode = child->wait();
         result.duration =
             std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - started);
-        result.cancelled = cancelObserved.load() || token.isCancelled();
+        result.cancelled = cancelObserved->load() || token.isCancelled();
+
+        // The child has been waited on (reaped) by this point, and every
+        // path below only reports the result -- nothing past here needs the
+        // callback to stay registered, so unregister it now rather than
+        // leaving it live until the caller's CancellationSource is
+        // eventually replaced or destroyed.
+        cancelReg.reset();
 
         recordOperation(
             command, argv, result.err, result.exitCode, started, result.cancelled, result.timedOut);

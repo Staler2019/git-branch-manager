@@ -43,6 +43,11 @@ void parseTrack(std::string_view track, RefInfo& info) {
     }
     info.hasTrackingInfo = true;
 
+    if (track.find("[gone]") != std::string_view::npos) {
+        info.isGone = true;
+        return;
+    }
+
     auto readNumberAfter = [&track](std::string_view keyword) -> int {
         const std::size_t at = track.find(keyword);
         if (at == std::string_view::npos) {
@@ -260,6 +265,12 @@ GitResult<RefSnapshotPtr> RefStore::load(CancellationToken token) {
     return RefSnapshotPtr(snapshot);
 }
 
+bool RefStore::refExists(const RefSnapshot& refs, const std::string& fullName) {
+    return std::any_of(refs.refs.begin(), refs.refs.end(), [&fullName](const RefInfo& ref) {
+        return ref.fullName == fullName;
+    });
+}
+
 std::vector<std::string> RefStore::historySeedRefs(const RefSnapshot& refs) {
     // Order matters: the graph builder gives lane 0 to the first tip it sees, so
     // HEAD and the trunk must come before --all. Everything after that is just
@@ -280,9 +291,18 @@ std::vector<std::string> RefStore::historySeedRefs(const RefSnapshot& refs) {
         push("HEAD");
     }
 
-    // The upstream of HEAD, so the graph shows what the remote has too.
+    // The upstream of HEAD, so the graph shows what the remote has too --
+    // but only if it still exists. `%(upstream)` comes from
+    // `branch.<name>.remote`/`.merge` config, which survives the
+    // remote-tracking ref being pruned (the remote was removed, or the
+    // branch was deleted upstream and pruned locally): git then reports
+    // `%(upstream:track)` as `[gone]` (parsed into RefInfo::isGone above),
+    // but the stale name itself is still handed back. Passing it to rev-list
+    // unchecked aborts the *entire* walk with "unknown revision", not just
+    // this one seed -- so both signals from the same for-each-ref call are
+    // checked before trusting it.
     for (const RefInfo& ref : refs.refs) {
-        if (ref.isHead && !ref.upstream.empty()) {
+        if (ref.isHead && !ref.upstream.empty() && !ref.isGone && refExists(refs, ref.upstream)) {
             push(ref.upstream);
         }
     }
@@ -290,11 +310,7 @@ std::vector<std::string> RefStore::historySeedRefs(const RefSnapshot& refs) {
     // Conventional trunk names, whichever exists.
     for (const char* trunk :
          {"refs/heads/main", "refs/heads/master", "refs/heads/develop", "refs/heads/trunk"}) {
-        const bool exists =
-            std::any_of(refs.refs.begin(), refs.refs.end(), [trunk](const RefInfo& ref) {
-                return ref.fullName == trunk;
-            });
-        if (exists) {
+        if (refExists(refs, trunk)) {
             push(trunk);
         }
     }

@@ -39,8 +39,28 @@ public:
     std::size_t queueDepth() const;
 
     /// Blocks until the queue drains. For tests and shutdown only — never call
-    /// this from the UI thread.
+    /// this from the UI thread: it waits for every currently-queued task too,
+    /// which is unbounded.
     void drain();
+
+    /// Discards every not-yet-started task, then blocks until whatever is
+    /// currently *executing* finishes. Unlike drain(), this is meant to be
+    /// called from the UI thread -- typically right after cancelling the
+    /// token(s) those tasks carry, so "currently executing" resolves quickly
+    /// in the common case: a task built on ProcessRunner kills its child and
+    /// returns within roughly one process-kill round trip; a task built on
+    /// CatFileBatch stops *issuing further requests* within roughly one
+    /// cat-file round trip (checked before each object, not mid-request), but
+    /// a single request already in flight when cancellation fires is a plain
+    /// blocking pipe read with no deadline and runs to completion against
+    /// whatever the child process does. That is only unbounded if the child
+    /// itself hangs, which is not expected of a process this app spawns and
+    /// owns, but it is not a hard guarantee this method makes. This is what
+    /// makes it safe to destroy a RepositorySession right after calling this
+    /// (no queued lambda capturing `this` can run, and nothing is still
+    /// running when it returns) -- not a promise of a bounded wait time. See
+    /// MainWindow::closeRepository.
+    void cancelQueuedAndDrain();
 
     void shutdown();
 

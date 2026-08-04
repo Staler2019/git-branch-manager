@@ -37,6 +37,7 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QDialog>
+#include <QElapsedTimer>
 #include <QFileDialog>
 #include <QGuiApplication>
 #include <QHBoxLayout>
@@ -146,6 +147,19 @@ MainWindow::MainWindow(GitInstallation installation, QWidget* parent)
                 repoModel_->setProbe(repoId, probe);
             });
     connect(discovery_.get(), &DiscoveryController::errorOccurred, this, &MainWindow::onCoreError);
+
+    // App-level activation, not QEvent::WindowActivate: the latter fires on
+    // this window every time a child dialog (Branches…, a QMessageBox, …) is
+    // dismissed, since focus returns to MainWindow as a *window* activation
+    // even though the app itself never lost focus. That would resync on
+    // every dialog close, not just on alt-tab back into the app -- see
+    // onWindowActivated()'s doc comment.
+    connect(
+        qApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState state) {
+            if (state == Qt::ApplicationActive) {
+                onWindowActivated();
+            }
+        });
 }
 
 MainWindow::~MainWindow() {
@@ -153,6 +167,13 @@ MainWindow::~MainWindow() {
     // teardown must not call into a destroyed widget.
     Log::instance().setOperationSink(nullptr);
     Log::instance().setMessageSink(nullptr);
+    // closeRepository() cancels, drains and destroys session_ (in that
+    // order -- see its own comments) before returning, so readPool_ is
+    // already idle and holds nothing capturing the now-destroyed session by
+    // the time shutdown() below joins its workers. Keep this ordering: a
+    // shutdown() before closeRepository() would join workers that are still
+    // draining, and ThreadPool::shutdown() *joins* whatever is still queued
+    // rather than discarding it.
     closeRepository();
     readPool_.shutdown();
 }
@@ -606,17 +627,20 @@ void MainWindow::buildMenus() {
     viewMenu->addSeparator();
     // Refresh/rescan/cancel-scan have no home in the design's 7-menu table --
     // View is the most sensible fit, so they stay here.
-    auto* refreshAction =
-        viewMenu->addAction(QStringLiteral("Refresh"), this, &MainWindow::onRefresh);
+    //
+    // This action only rescans the repository-browser list (see
+    // rescanRepositories()) -- an open session re-syncs itself automatically
+    // on window re-activation instead (resyncOpenSession(), wired from
+    // event()), so the button has nothing to do on the graph page and is
+    // hidden there by the stack_->currentChanged connection below.
+    auto* refreshAction = viewMenu->addAction(
+        QStringLiteral("Refresh Repository List"), this, &MainWindow::onRefresh);
     refreshAction->setShortcut(QKeySequence(Qt::Key_F5));
-    // Real Lucide SVGs (refresh-cw, download-cloud, arrow-down-to-line,
-    // arrow-up-from-line) are what the design names, but this sandbox has no
-    // network access to fetch them -- Qt's bundled standard icons stand in
-    // rather than shipping fabricated placeholder SVGs.
-    refreshAction->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
     refreshAction_ = refreshAction;
-    auto* forceAction = viewMenu->addAction(
-        QStringLiteral("Refresh (rescan everything)"), this, &MainWindow::onForceRefresh);
+    auto* forceAction =
+        viewMenu->addAction(QStringLiteral("Refresh Repository List (rescan everything)"),
+                            this,
+                            &MainWindow::onForceRefresh);
     forceAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+F5")));
     viewMenu->addAction(QStringLiteral("Cancel scan"), this, &MainWindow::onCancelScan);
     viewMenu->addAction(QStringLiteral("Preferences…"), this, &MainWindow::onShowPreferences);
@@ -823,6 +847,16 @@ void MainWindow::buildMenus() {
     refreshAction->setIcon(IconLoader::icon(QStringLiteral("refresh-cw"), Token::TextSecondary));
     toolBar->addAction(refreshAction);
 
+    // "Refresh Repository List" only does anything on the repository-browser
+    // page (stack_ index 0); an open session (index 1, which includes the
+    // graph) re-syncs itself on window re-activation instead, so the action
+    // -- toolbar button and View menu entry alike, since both are this same
+    // QAction -- has no reason to occupy space there.
+    connect(stack_, &QStackedWidget::currentChanged, this, [this](int index) {
+        refreshAction_->setVisible(index == 0);
+    });
+    refreshAction_->setVisible(stack_->currentIndex() == 0);
+
     toolBar->addSeparator();
 
     // Checkable and exclusive, unlike the plain QActions this replaces (which
@@ -968,28 +1002,28 @@ void MainWindow::onManageBaseFolders() {
 }
 
 void MainWindow::onRefresh() {
-    discovery_->startScan(ScanMode::Incremental);
-    // The discovery rescan above only refreshes the sidebar's repo list --
-    // it never touches the currently open session, so external changes (a
-    // `git stash` run in another terminal, for instance) were invisible
-    // until the user switched tabs. Refresh the open session's live state
-    // too.
-    if (session_) {
-        session_->refreshWorkingCopyStatus();
-        session_->refreshStashes();
-        session_->refreshRefs();
-        session_->refreshHistory();
-    }
+    rescanRepositories(ScanMode::Incremental);
 }
 
 void MainWindow::onForceRefresh() {
-    discovery_->startScan(ScanMode::Full);
-    if (session_) {
-        session_->refreshWorkingCopyStatus();
-        session_->refreshStashes();
-        session_->refreshRefs();
-        session_->refreshHistory();
+    rescanRepositories(ScanMode::Full);
+}
+
+void MainWindow::rescanRepositories(ScanMode mode) {
+    // Repository-browser list only -- an open session (the graph, working
+    // copy, stashes) re-syncs itself on window re-activation instead; see
+    // resyncOpenSession() and onWindowActivated(). Deliberately does not
+    // touch session_ here even when one is open.
+    discovery_->startScan(mode);
+}
+
+void MainWindow::resyncOpenSession() {
+    if (!session_) {
+        return;
     }
+    session_->refreshWorkingCopyStatus();
+    session_->refreshStashes();
+    session_->refreshRefsAndHistory();
 }
 
 void MainWindow::onCancelScan() {
@@ -997,13 +1031,34 @@ void MainWindow::onCancelScan() {
     statusLabel_->setText(QStringLiteral("Cancelling scan…"));
 }
 
+void MainWindow::onWindowActivated() {
+    // Called from qApp's applicationStateChanged reaching Qt::ApplicationActive
+    // -- i.e. the app regaining OS-level focus (alt-tab back in), not any
+    // window inside it becoming active. Throttled: alt-tabbing repeatedly must
+    // not queue a rev-list walk per activation. maybeAutoFetch() below is
+    // unaffected by this throttle -- it is network work and is gated by its
+    // own, much longer interval (RepositorySession::kAutoFetchMinInterval), so
+    // this only controls how often the (local, cheap) resync can run.
+    if (windowActivateThrottle_.isValid() &&
+        windowActivateThrottle_.elapsed() < kWindowActivateThrottleMs) {
+        return;
+    }
+    windowActivateThrottle_.restart();
+
+    resyncOpenSession();
+    if (session_) {
+        session_->maybeAutoFetch();
+    }
+}
+
 void MainWindow::onShowHistory() {
     if (session_) {
         stack_->setCurrentIndex(1);
         tabWidget_->setCurrentIndex(kHistoryTab);
-        // Sync branch status on every visit, not just on repo open -- see
-        // RepositorySession::maybeAutoFetch (debounced, silent on failure).
-        session_->maybeAutoFetch();
+        // No maybeAutoFetch() here anymore: repo-open plus window
+        // re-activation (onWindowActivated) already cover it, and firing a
+        // silent `git fetch` on every tab visit was needlessly eager -- see
+        // RepositorySession::kAutoFetchMinInterval's comment.
     }
 }
 
@@ -1162,9 +1217,10 @@ void MainWindow::openRepository(const RepoRecord& record) {
     updateStateBanner();
 
     // Refs first, so the history walk can be seeded with HEAD and the trunk; that
-    // seeding order is what puts the trunk in lane 0.
-    session_->refreshRefs();
-    session_->refreshHistory();
+    // seeding order is what puts the trunk in lane 0. refreshRefsAndHistory()
+    // shares a single for-each-ref load between the two rather than each
+    // independently re-running it -- see its doc comment.
+    session_->refreshRefsAndHistory();
     // So the remote picker in the Push/Push tag dialogs has something to show
     // the first time they are opened, without waiting on a Fetch.
     session_->refreshRemotes();
@@ -1219,6 +1275,22 @@ void MainWindow::closeRepository() {
         return;
     }
     session_->cancelPendingReads();
+    // Block until every read task this session posted to readPool_ has
+    // either been discarded (still queued) or actually noticed cancellation
+    // and returned (already running) -- without this, session_.reset() below
+    // could destroy the session while a worker thread was still inside it
+    // (RepositorySession, CatFileBatch, HistoryProvider, ...), which is
+    // exactly the "Unhandled exception in reads worker: no such process"
+    // reports on Windows traced back to. In the expected case this resolves
+    // quickly: every read this session posts is built on ProcessRunner (which
+    // now unregisters its cancel callback on every return path) or
+    // CatFileBatch (whose read()/readCommit()/readCommits() now all take a
+    // token, checked before each object starts). That is not a hard bound,
+    // though -- CatFileBatch's pipe read has no deadline, so a single request
+    // already in flight when cancellation fires still blocks until the child
+    // answers it. See ThreadPool::cancelQueuedAndDrain's doc for the same
+    // caveat spelled out in full.
+    readPool_.cancelQueuedAndDrain();
     // commitModel_->setSession(nullptr) resets the model, which fires
     // modelAboutToBeReset and collapses any inline expansion -- see the
     // connection in buildUi() -- but the closing-repository case is worth

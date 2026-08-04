@@ -45,13 +45,22 @@ std::vector<std::string> HistoryQuery::toRevListArgs() const {
         args.emplace_back("--until=" + std::to_string(*until));
     }
 
-    // Explicit tips first, then --all. rev-list de-duplicates, and the graph
-    // builder assigns lane 0 to the first tip it encounters, so this ordering is
-    // what pins the trunk to the leftmost column.
-    for (const std::string& ref : includeRefs) {
-        args.push_back(ref);
+    // includeRefs narrows the walk (the branch filter): no --all, only what's
+    // reachable from these tips. Otherwise seedRefs (usually HEAD's branch
+    // plus its upstream and the trunk) go first purely to order the tips --
+    // rev-list de-duplicates, and the graph builder assigns lane 0 to the
+    // first tip it encounters, so this ordering is what pins the trunk to the
+    // leftmost column -- and --all still supplies everything else.
+    if (!includeRefs.empty()) {
+        for (const std::string& ref : includeRefs) {
+            args.push_back(ref);
+        }
+    } else {
+        for (const std::string& ref : seedRefs) {
+            args.push_back(ref);
+        }
+        args.emplace_back("--all");
     }
-    args.emplace_back("--all");
 
     for (const std::string& ref : excludeRefs) {
         args.emplace_back("--not");

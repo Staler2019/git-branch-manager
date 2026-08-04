@@ -13,9 +13,10 @@ namespace gbm {
 
 /// Lets the user pick which branches the History graph should be built
 /// from. Backed by RepositorySession::setHistoryFilter / HistoryQuery::
-/// includeRefs -- both already fully wired to `git rev-list`, this dialog is
-/// just the missing UI for it. Nothing checked means "show everything",
-/// matching HistoryQuery::includeRefs's own "empty means --all" contract.
+/// includeRefs, which narrows the `git rev-list` walk to only what's
+/// reachable from the checked refs (no `--all`) -- this dialog is just the
+/// UI for it. Nothing checked means "show everything", matching
+/// HistoryQuery::includeRefs's own "empty means --all" contract.
 class GraphBranchFilterDialog : public QDialog {
     Q_OBJECT
 

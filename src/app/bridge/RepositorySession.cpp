@@ -81,11 +81,11 @@ std::uint64_t fingerprintRefs(const RefSnapshot& refs) {
 }
 
 bool historyQueryEquals(const HistoryQuery& a, const HistoryQuery& b) {
-    return a.includeRefs == b.includeRefs && a.excludeRefs == b.excludeRefs &&
-           a.pathFilter == b.pathFilter && a.grep == b.grep && a.author == b.author &&
-           a.since == b.since && a.until == b.until && a.firstParentOnly == b.firstParentOnly &&
-           a.includeReflog == b.includeReflog && a.dateOrder == b.dateOrder &&
-           a.maxCount == b.maxCount;
+    return a.seedRefs == b.seedRefs && a.includeRefs == b.includeRefs &&
+           a.excludeRefs == b.excludeRefs && a.pathFilter == b.pathFilter && a.grep == b.grep &&
+           a.author == b.author && a.since == b.since && a.until == b.until &&
+           a.firstParentOnly == b.firstParentOnly && a.includeReflog == b.includeReflog &&
+           a.dateOrder == b.dateOrder && a.maxCount == b.maxCount;
 }
 
 }  // namespace
@@ -154,11 +154,11 @@ void RepositorySession::setBusy(bool busy) {
 }
 
 void RepositorySession::refreshHistory(HistoryQuery query) {
-    // A bare refreshHistory() call is what every existing call site uses
-    // (the Refresh button, a checkout, a fetch completing, ...) and means
-    // "refresh with whatever's currently selected" -- if setHistoryFilter()
-    // has set a branch filter, substitute it here rather than letting an
-    // incidental refresh silently revert the graph to "show everything".
+    // A bare refreshHistory() call is what setHistoryFilter() and a few other
+    // ref-independent callers use, and means "refresh with whatever's
+    // currently selected" -- if setHistoryFilter() has set a branch filter,
+    // substitute it here rather than letting an incidental refresh silently
+    // revert the graph to "show everything".
     if (historyQueryEquals(query, HistoryQuery{}) &&
         !historyQueryEquals(activeHistoryQuery_, HistoryQuery{})) {
         query = activeHistoryQuery_;
@@ -181,75 +181,137 @@ void RepositorySession::refreshHistory(HistoryQuery query) {
     setBusy(true);
 
     readPool_.post([this, query = std::move(query), token]() mutable {
-        // Re-read refs here rather than trusting refs_.current(): callers
-        // routinely call refreshRefs() and refreshHistory() back-to-back
-        // after a mutating operation, and the two run as independent tasks
-        // on the pool with no ordering guarantee between them. Reading
-        // refs_.current() could observe the pre-operation snapshot and wrongly
-        // conclude nothing changed. `for-each-ref` is one cheap process, so
-        // paying for it again here to get a fingerprint we can trust is a
-        // good trade against skipping a multi-second `rev-list` walk.
+        // Re-read refs here rather than trusting refs_.current(): a caller
+        // that calls this alone (no adjacent refreshRefs()) has no other
+        // guarantee refs_ reflects anything that happened since the last
+        // refresh. Callers that DO have a fresh RefSnapshotPtr in hand
+        // already -- refreshRefs() immediately followed by refreshHistory(),
+        // which is every other call site -- should call
+        // refreshRefsAndHistory() instead, which shares one `for-each-ref`
+        // load between the two rather than paying for this one twice.
         auto freshRefs = refStore_->load(token);
         if (!freshRefs && freshRefs.error().code == GitError::Code::Cancelled) {
             QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
             return;
         }
         const RefSnapshotPtr refsForSeed = freshRefs ? *freshRefs : refs_.current();
+        walkHistoryWithRefs(std::move(query), refsForSeed, token);
+    });
+}
 
-        // If no explicit tips were given, seed from the refs so the trunk
-        // lands in lane 0.
-        if (query.includeRefs.empty() && refsForSeed) {
-            query.includeRefs = RefStore::historySeedRefs(*refsForSeed);
-        }
+void RepositorySession::refreshRefsAndHistory(HistoryQuery query) {
+    if (historyQueryEquals(query, HistoryQuery{}) &&
+        !historyQueryEquals(activeHistoryQuery_, HistoryQuery{})) {
+        query = activeHistoryQuery_;
+    }
+    if (query.maxCount == 0) {
+        query.maxCount = maxGraphRowsSetting(paths_);
+    }
 
-        const std::uint64_t fingerprint = refsForSeed ? fingerprintRefs(*refsForSeed) : 0;
-        if (hasLastWalk_ && fingerprint == lastWalkFingerprint_ &&
-            historyQueryEquals(query, lastWalkQuery_)) {
-            if (const GraphSnapshotPtr current = graph_.current(); current && current->complete) {
-                // Nothing that could change the walk's result has happened
-                // since the last completed walk with this same query -- skip
-                // re-running `rev-list` and just republish what we have.
+    historyCancel_.cancel();
+    historyCancel_ = CancellationSource();
+    const CancellationToken token = historyCancel_.token();
+
+    setBusy(true);
+
+    readPool_.post([this, query = std::move(query), token]() mutable {
+        auto freshRefs = refStore_->load(token);
+        if (!freshRefs) {
+            if (freshRefs.error().code != GitError::Code::Cancelled) {
+                GitError error = std::move(freshRefs).error();
                 QMetaObject::invokeMethod(
-                    this,
-                    [this] {
-                        emit graphUpdated(true);
-                        setBusy(false);
-                    },
-                    Qt::QueuedConnection);
-                return;
+                    this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
+            }
+            QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+            return;
+        }
+        const RefSnapshotPtr refsForSeed = *freshRefs;
+        refs_.publish(refsForSeed);
+        QMetaObject::invokeMethod(this, [this] { emit refsUpdated(); }, Qt::QueuedConnection);
+        walkHistoryWithRefs(std::move(query), refsForSeed, token);
+    });
+}
+
+void RepositorySession::walkHistoryWithRefs(HistoryQuery query,
+                                            RefSnapshotPtr refsForSeed,
+                                            CancellationToken token) {
+    // Always seed from the refs so the trunk lands in lane 0 -- this is
+    // ordering only (HistoryQuery::toRevListArgs), never narrowing: it is
+    // followed by --all whenever includeRefs (the branch filter) is
+    // empty, and ignored outright when includeRefs is set.
+    if (refsForSeed) {
+        query.seedRefs = RefStore::historySeedRefs(*refsForSeed);
+    }
+
+    // The branch filter (query.includeRefs) is sticky -- see
+    // setHistoryFilter -- and can go stale between when it was chosen
+    // and when this refresh actually runs: a filtered-on branch or
+    // remote-tracking ref can be deleted or pruned in between. Drop
+    // anything no longer present in the fresh snapshot rather than
+    // handing rev-list a dead name, which would abort the entire walk.
+    // If everything gets dropped, toRevListArgs' includeRefs.empty()
+    // check falls back to "show everything", same as an unset filter.
+    if (!query.includeRefs.empty() && refsForSeed) {
+        std::vector<std::string> stillValid;
+        stillValid.reserve(query.includeRefs.size());
+        for (const std::string& ref : query.includeRefs) {
+            if (RefStore::refExists(*refsForSeed, ref)) {
+                stillValid.push_back(ref);
+            } else {
+                GBM_LOG_WARN("Branch filter: '" + ref +
+                             "' no longer exists, dropping it from the graph filter");
             }
         }
+        query.includeRefs = std::move(stillValid);
+    }
 
-        auto result = history_->walk(
-            query,
-            [this, token](GraphSnapshotPtr chunk) {
-                if (token.isCancelled()) {
-                    return;
-                }
-                const bool complete = chunk->complete;
-                graph_.publish(std::move(chunk));
-                // Queued, so the UI thread picks it up in its own event loop.
-                QMetaObject::invokeMethod(
-                    this, [this, complete] { emit graphUpdated(complete); }, Qt::QueuedConnection);
-            },
-            token);
-
-        if (result) {
+    const std::uint64_t fingerprint = refsForSeed ? fingerprintRefs(*refsForSeed) : 0;
+    if (hasLastWalk_ && fingerprint == lastWalkFingerprint_ &&
+        historyQueryEquals(query, lastWalkQuery_)) {
+        if (const GraphSnapshotPtr current = graph_.current(); current && current->complete) {
+            // Nothing that could change the walk's result has happened
+            // since the last completed walk with this same query -- skip
+            // re-running `rev-list` and just republish what we have.
             QMetaObject::invokeMethod(
                 this,
-                [this, fingerprint, query] {
-                    lastWalkFingerprint_ = fingerprint;
-                    lastWalkQuery_ = query;
-                    hasLastWalk_ = true;
+                [this] {
+                    emit graphUpdated(true);
+                    setBusy(false);
                 },
                 Qt::QueuedConnection);
-        } else if (result.error().code != GitError::Code::Cancelled) {
-            GitError error = std::move(result).error();
-            QMetaObject::invokeMethod(
-                this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
+            return;
         }
-        QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
-    });
+    }
+
+    auto result = history_->walk(
+        query,
+        [this, token](GraphSnapshotPtr chunk) {
+            if (token.isCancelled()) {
+                return;
+            }
+            const bool complete = chunk->complete;
+            graph_.publish(std::move(chunk));
+            // Queued, so the UI thread picks it up in its own event loop.
+            QMetaObject::invokeMethod(
+                this, [this, complete] { emit graphUpdated(complete); }, Qt::QueuedConnection);
+        },
+        token);
+
+    if (result) {
+        QMetaObject::invokeMethod(
+            this,
+            [this, fingerprint, query] {
+                lastWalkFingerprint_ = fingerprint;
+                lastWalkQuery_ = query;
+                hasLastWalk_ = true;
+            },
+            Qt::QueuedConnection);
+    } else if (result.error().code != GitError::Code::Cancelled) {
+        GitError error = std::move(result).error();
+        QMetaObject::invokeMethod(
+            this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
+    }
+    QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
 }
 
 void RepositorySession::setHistoryFilter(HistoryQuery query) {
@@ -293,7 +355,7 @@ void RepositorySession::requestCommitMetadata(std::vector<ObjectId> oids) {
                 this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
             return;
         }
-        std::vector<CommitMeta> metadata = catFile_->readCommits(oids);
+        std::vector<CommitMeta> metadata = catFile_->readCommits(oids, token);
         if (token.isCancelled() || metadata.empty()) {
             return;
         }
@@ -350,8 +412,7 @@ void RepositorySession::checkout(const CheckoutRequest& request) {
                 setBusy(false);
                 emit operationFinished(outcome);
                 if (outcome.succeeded) {
-                    refreshRefs();
-                    refreshHistory();
+                    refreshRefsAndHistory();
                 }
             },
             Qt::QueuedConnection);
@@ -393,6 +454,14 @@ void RepositorySession::deleteBranch(const DeleteBranchRequest& request) {
 void RepositorySession::cancelPendingReads() {
     readCancel_.cancel();
     readCancel_ = CancellationSource();
+    // historyCancel_ is otherwise only touched by refreshHistory() itself
+    // (superseding the previous walk on every new one) -- without cancelling
+    // it here too, a history walk in flight when the session is about to be
+    // destroyed would only be noticed inside ~RepositorySession(), by which
+    // point the caller (MainWindow::closeRepository) has no chance to wait
+    // for the worker to actually stop before the destructor runs.
+    historyCancel_.cancel();
+    historyCancel_ = CancellationSource();
 }
 
 void RepositorySession::refreshWorkingCopyStatus() {
@@ -489,8 +558,7 @@ void RepositorySession::submitWorkingCopyOperation(std::unique_ptr<Operation> op
                     if (alsoRefreshHistory) {
                         // A commit moved HEAD, so both the ref list and the
                         // graph need to reflect it.
-                        refreshRefs();
-                        refreshHistory();
+                        refreshRefsAndHistory();
                     }
                 }
             },
@@ -581,12 +649,14 @@ void RepositorySession::requestConflictSides(const std::string& path,
 
         // Best-effort: a stage that fails to read (or does not exist) shows as
         // empty rather than failing the whole request, so the two sides that
-        // did read are still shown.
-        auto readOrEmpty = [this](const std::string& blob) {
-            if (blob.empty()) {
+        // did read are still shown. Checked between the three reads (not just
+        // once above): a cancellation arriving while the first blob is being
+        // fetched should stop the remaining two from starting.
+        auto readOrEmpty = [this, token](const std::string& blob) {
+            if (blob.empty() || token.isCancelled()) {
                 return std::string();
             }
-            auto object = catFile_->read(blob);
+            auto object = catFile_->read(blob, token);
             return object ? object->content : std::string();
         };
         const std::string ancestor = readOrEmpty(ancestorBlob);
@@ -631,7 +701,7 @@ void RepositorySession::requestFileContent(const std::string& path, const std::s
         // `revision:path`, e.g. "HEAD:src/main.cpp" or ":src/main.cpp" for the
         // index -- the same syntax CatFileBatch::read documents accepting.
         const std::string object = revision + ":" + path;
-        auto result = catFile_->read(object);
+        auto result = catFile_->read(object, token);
         // Best-effort, like requestConflictSides: a missing object (untracked
         // file, or a path that did not exist at `revision`) is a normal
         // display state, not a failure worth surfacing as an error.
@@ -651,24 +721,30 @@ void RepositorySession::requestFileContent(const std::string& path, const std::s
 }
 
 void RepositorySession::submitAndRefresh(std::unique_ptr<Operation> operation,
-                                         std::function<void(bool)> afterFinished) {
-    setBusy(true);
-    operations_->submit(std::move(operation),
-                        [this, afterFinished = std::move(afterFinished)](OperationOutcome outcome) {
-                            // Runs on the operation runner's serial thread; hop to the UI
-                            // thread before touching anything Qt, same as
-                            // submitWorkingCopyOperation.
-                            QMetaObject::invokeMethod(
-                                this,
-                                [this, outcome = std::move(outcome), afterFinished] {
-                                    setBusy(false);
-                                    emit workingCopyOperationFinished(outcome);
-                                    if (afterFinished) {
-                                        afterFinished(outcome.succeeded);
-                                    }
-                                },
-                                Qt::QueuedConnection);
-                        });
+                                         std::function<void(bool)> afterFinished,
+                                         bool drivesBusy) {
+    if (drivesBusy) {
+        setBusy(true);
+    }
+    operations_->submit(
+        std::move(operation),
+        [this, afterFinished = std::move(afterFinished), drivesBusy](OperationOutcome outcome) {
+            // Runs on the operation runner's serial thread; hop to the UI
+            // thread before touching anything Qt, same as
+            // submitWorkingCopyOperation.
+            QMetaObject::invokeMethod(
+                this,
+                [this, outcome = std::move(outcome), afterFinished, drivesBusy] {
+                    if (drivesBusy) {
+                        setBusy(false);
+                    }
+                    emit workingCopyOperationFinished(outcome);
+                    if (afterFinished) {
+                        afterFinished(outcome.succeeded);
+                    }
+                },
+                Qt::QueuedConnection);
+        });
 }
 
 // --- M3: stashes -------------------------------------------------------
@@ -724,8 +800,7 @@ void RepositorySession::branchFromStash(const StashBranchRequest& request) {
         if (succeeded) {
             refreshWorkingCopyStatus();
             refreshStashes();
-            refreshRefs();
-            refreshHistory();
+            refreshRefsAndHistory();
         }
     });
 }
@@ -883,7 +958,10 @@ void RepositorySession::fetchRemote(FetchRequest request) {
     submitAndRefresh(makeFetchOperation(std::move(request)), [this](bool succeeded) {
         askpass_->stop();
         if (succeeded) {
-            refreshRefs();
+            // A fetch can bring in new commits on remote-tracking refs; without
+            // this the graph kept showing "not pulled yet" until the user
+            // pulled or merged, even though the commits were already fetched.
+            refreshRefsAndHistory();
         }
     });
 }
@@ -892,11 +970,22 @@ void RepositorySession::fetchRemoteSilently() {
     // No askpassDir wiring: an empty FetchRequest::askpassDir means "no
     // credential prompt is possible", so an auth failure fails fast instead
     // of starting the askpass watcher that would otherwise surface a dialog.
-    submitAndRefresh(makeFetchOperation(FetchRequest{}), [this](bool succeeded) {
-        if (succeeded) {
-            refreshRefs();
-        }
-    });
+    // prune = true so a deleted remote branch's remote-tracking ref actually
+    // goes away here, instead of lingering as a `[gone]` upstream that
+    // historySeedRefs has to keep filtering out on every refresh.
+    FetchRequest request;
+    request.prune = true;
+    // drivesBusy = false: this runs automatically (repo open, window
+    // re-activation), not from a user action, so the UI must not read as
+    // stalled for a network round trip nobody asked for.
+    submitAndRefresh(
+        makeFetchOperation(std::move(request)),
+        [this](bool succeeded) {
+            if (succeeded) {
+                refreshRefsAndHistory();
+            }
+        },
+        /*drivesBusy=*/false);
 }
 
 void RepositorySession::maybeAutoFetch() {
@@ -920,8 +1009,7 @@ void RepositorySession::pullChanges(PullRequest request) {
         askpass_->stop();
         refreshWorkingCopyStatus();
         if (succeeded) {
-            refreshRefs();
-            refreshHistory();
+            refreshRefsAndHistory();
         }
     });
 }

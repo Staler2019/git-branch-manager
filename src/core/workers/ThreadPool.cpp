@@ -59,6 +59,12 @@ void ThreadPool::drain() {
     idle_.wait(lock, [this] { return tasks_.empty() && activeTasks_ == 0; });
 }
 
+void ThreadPool::cancelQueuedAndDrain() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    tasks_.clear();
+    idle_.wait(lock, [this] { return activeTasks_ == 0; });
+}
+
 void ThreadPool::shutdown() {
     {
         std::lock_guard<std::mutex> lock(mutex_);

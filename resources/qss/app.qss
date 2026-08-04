@@ -128,6 +128,12 @@ QToolBar QToolButton:checked {
     color: @accent;
 }
 
+QToolBar::separator {
+    background: @border-subtle;
+    width: 1px;
+    margin: 6px 4px;
+}
+
 QLabel#gbmRepoNameLabel {
     font-size: 18px;
     font-weight: 600;
@@ -400,6 +406,24 @@ QLabel#gbmBadgeRemoved {
     color: @diff-del-text;
 }
 
+/* --- scroll areas -------------------------------------------------------- */
+
+/* DiffPage and CommitExpansionPanel both set QFrame::NoFrame in code, which
+ * only drops the border -- the Fusion style still fills QScrollArea and its
+ * internal viewport with QPalette::Base, a plain default gray with no
+ * theme token behind it, which read as a seam against the panel surfaces
+ * around it. The viewport has no stable object name to select directly, so
+ * this targets it structurally: the immediate-child QWidget QScrollArea
+ * creates to host setWidget()'s content. */
+QScrollArea {
+    background: transparent;
+    border: none;
+}
+
+QScrollArea > QWidget {
+    background: transparent;
+}
+
 /* --- tree / table views -----------------------------------------------------*/
 
 QTreeView,
@@ -471,6 +495,15 @@ QHeaderView::section {
     border-bottom: 1px solid @border-default;
     border-right: 1px solid @border-subtle;
     padding: 4px 8px;
+}
+
+/* The square left over where a vertical and horizontal scrollbar meet, e.g.
+ * gbmCommitView/gbmRefView/gbmRepoView once history or the ref tree grows
+ * wide enough to scroll sideways -- otherwise a default gray square sits
+ * between two themed scrollbars. */
+QAbstractScrollArea::corner {
+    background: @surface-panel-raised;
+    border: none;
 }
 
 /* --- tabs -------------------------------------------------------------------*/
@@ -546,6 +579,14 @@ QScrollBar::sub-line:vertical {
     height: 0;
 }
 
+/* The trough above/below the handle -- QScrollBar:vertical's own background
+ * above only covers the groove as a whole; without these two, the page
+ * regions specifically fell back to a default (non-transparent) fill. */
+QScrollBar::add-page:vertical,
+QScrollBar::sub-page:vertical {
+    background: transparent;
+}
+
 QScrollBar:horizontal {
     background: transparent;
     height: 12px;
@@ -565,6 +606,11 @@ QScrollBar::handle:horizontal:hover {
 QScrollBar::add-line:horizontal,
 QScrollBar::sub-line:horizontal {
     width: 0;
+}
+
+QScrollBar::add-page:horizontal,
+QScrollBar::sub-page:horizontal {
+    background: transparent;
 }
 
 /* --- status bar ------------------------------------------------------------*/

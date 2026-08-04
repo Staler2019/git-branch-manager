@@ -11,7 +11,7 @@ namespace {
 // parallel arrays (rather than, say, a QHash per theme) makes it obvious at a
 // glance that every theme defines every token, and a mismatched row count is a
 // compile-time array-size error rather than a silent runtime gap.
-constexpr int kTokenCount = 37;
+constexpr int kTokenCount = 39;
 
 using TokenTable = std::array<const char*, kTokenCount>;
 
@@ -39,6 +39,8 @@ constexpr TokenTable kDarkTechnical{{
     "#4c9bff",  // AccentHover
     "#1f6ce0",  // AccentActive
     "#0d2a4d",  // AccentSubtle
+    "#1c3f66",  // RefChipFill -- distinct from SurfaceSelected (#0d2a4d)
+    "#eaf1fe",  // RefChipText -- ~10:1 contrast against RefChipFill
     "#3fb950",  // Success
     "#f85149",  // Danger
     "#ff6a63",  // DangerHover
@@ -80,6 +82,8 @@ constexpr TokenTable kLightIde{{
     "#1f6ce0",  // AccentHover
     "#1857b8",  // AccentActive
     "#eaf1fe",  // AccentSubtle
+    "#c7dbfa",  // RefChipFill -- distinct from SurfaceSelected (#e4edfd) and AccentSubtle (#eaf1fe)
+    "#1857b8",  // RefChipText -- ~5.2:1 contrast against RefChipFill
     "#1a7f37",  // Success
     "#cf222e",  // Danger
     "#a40e26",  // DangerHover
@@ -124,6 +128,8 @@ constexpr TokenTable kNeutralProfessional{{
     "#1f6ce0",  // AccentHover       (accent-600)
     "#1857b8",  // AccentActive      (accent-700)
     "#eaf1fe",  // AccentSubtle      (accent-50)
+    "#c7dbfa",  // RefChipFill -- distinct from SurfaceSelected/AccentSubtle (both accent-50)
+    "#1857b8",  // RefChipText       (accent-700)
     "#1a8a4a",  // Success           (green-500)
     "#d33d3d",  // Danger            (red-500)
     "#b32c2c",  // DangerHover       (red-600)

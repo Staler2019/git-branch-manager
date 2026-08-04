@@ -36,6 +36,14 @@ enum class Token {
     AccentHover,
     AccentActive,
     AccentSubtle,
+    /// Non-HEAD local-branch ref chip (PillPainter::colorsForRef). Deliberately
+    /// its own tokens rather than reusing Accent/AccentSubtle: AccentSubtle is
+    /// byte-identical to SurfaceSelected in the dark and neutral themes, so a
+    /// chip painted with it disappears entirely on a selected commit row.
+    /// RefChipFill doubles as the chip's border, matching how the HEAD chip
+    /// already uses one token (Accent) for both.
+    RefChipFill,
+    RefChipText,
     Success,
     Danger,
     DangerHover,

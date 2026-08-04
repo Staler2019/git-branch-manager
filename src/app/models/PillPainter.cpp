@@ -44,13 +44,20 @@ PillColors PillPainter::colorsForRef(RefKind kind, bool isHead) {
                         ThemeManager::color(Token::Accent),
                         ThemeManager::color(Token::Accent)};
             }
-            return {ThemeManager::color(Token::Accent),
-                    ThemeManager::color(Token::AccentSubtle),
-                    ThemeManager::color(Token::AccentSubtle)};
+            // RefChipFill/RefChipText, not Accent/AccentSubtle: AccentSubtle is
+            // byte-identical to SurfaceSelected in the dark and neutral themes,
+            // so a chip painted with it disappeared entirely on a selected row.
+            return {ThemeManager::color(Token::RefChipText),
+                    ThemeManager::color(Token::RefChipFill),
+                    ThemeManager::color(Token::RefChipFill)};
         case RefKind::Tag:
+            // SurfaceHover rather than no fill (QColor() = invalid, so
+            // fillPath was skipped entirely) -- without it the "pill" was
+            // just an outline with no fill, compositing straight onto
+            // whatever the view painted behind it.
             return {ThemeManager::color(Token::Warning),
                     ThemeManager::color(Token::BorderDefault),
-                    QColor()};
+                    ThemeManager::color(Token::SurfaceHover)};
         case RefKind::RemoteBranch:
         case RefKind::Note:
         case RefKind::Stash:
@@ -58,7 +65,7 @@ PillColors PillPainter::colorsForRef(RefKind kind, bool isHead) {
         default:
             return {ThemeManager::color(Token::TextTertiary),
                     ThemeManager::color(Token::BorderDefault),
-                    QColor()};
+                    ThemeManager::color(Token::SurfaceHover)};
     }
 }
 

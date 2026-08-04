@@ -17,6 +17,7 @@
 #include "core/git/GitExecutable.h"
 #include "core/workers/ThreadPool.h"
 
+#include <QElapsedTimer>
 #include <QLabel>
 #include <QList>
 #include <QMainWindow>
@@ -85,6 +86,7 @@ private slots:
     void onRefresh();
     void onForceRefresh();
     void onCancelScan();
+    void onWindowActivated();
     void onRepoActivated(const QModelIndex& index);
     void onRepoRowClicked(const QModelIndex& index);
     void openPendingRepo();
@@ -176,6 +178,19 @@ private:
     void buildMenus();
     void openRepository(const RepoRecord& record);
     void closeRepository();
+
+    /// Rescans the base folders for repositories (what the "Refresh
+    /// Repository List" action/F5 does). Only touches the repo-list page --
+    /// an already-open session is untouched, see resyncOpenSession().
+    void rescanRepositories(ScanMode mode);
+
+    /// Re-syncs the currently open session's working-copy status, stashes,
+    /// refs and history from disk -- everything an external `git` command run
+    /// in another terminal could have changed. Called on window re-activation
+    /// (throttled, see windowActivateThrottle_); no longer reachable from the
+    /// Refresh button, which is repo-list-only now (see rescanRepositories()).
+    /// A no-op if no session is open.
+    void resyncOpenSession();
     void probeVisibleRepos();
     void updateStateBanner();
     /// Restores `splitter`'s sizes from QSettings key `window/splitters/<key>`
@@ -370,6 +385,14 @@ private:
     /// tearing down -- a RepositorySession per row passed through.
     QTimer* repoOpenDebounce_ = nullptr;
     int pendingRepoOpenRow_ = -1;
+
+    /// Throttles resyncOpenSession() on repeated app-activation events (e.g.
+    /// alt-tab drumming) to roughly once per second. Local git reads only --
+    /// the auto-fetch triggered alongside it (RepositorySession::
+    /// maybeAutoFetch) is gated by its own, much longer interval, not this
+    /// one; see the call site in onWindowActivated().
+    QElapsedTimer windowActivateThrottle_;
+    static constexpr qint64 kWindowActivateThrottleMs = 1000;
 
     /// The target of the checkout currently in flight (a ref name or a raw
     /// commit hex), so onOperationFinished's dirty-work-tree retry re-issues

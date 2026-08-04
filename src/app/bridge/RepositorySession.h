@@ -89,7 +89,11 @@ public:
 
     /// Starts (or restarts) the history walk. Any walk already running is
     /// cancelled rather than waited for, which is what makes changing a filter or
-    /// switching repositories feel immediate.
+    /// switching repositories feel immediate. Re-reads refs itself (see the
+    /// comment inside), so a caller that just changed something ref-related
+    /// and wants both refreshed should call refreshRefsAndHistory() instead
+    /// -- this alone is for the cases with no accompanying refreshRefs()
+    /// call, e.g. setHistoryFilter().
     void refreshHistory(HistoryQuery query = {});
 
     /// Sets the branch/ref filter the graph should show from now on (empty
@@ -105,6 +109,14 @@ public:
     const HistoryQuery& historyFilter() const { return activeHistoryQuery_; }
 
     void refreshRefs();
+
+    /// refreshRefs() + refreshHistory() sharing a single `for-each-ref` load
+    /// instead of each independently re-running it. Every current call site
+    /// that calls both back-to-back should call this instead: measured on a
+    /// synthetic repository with ~3.8k refs, the second for-each-ref alone
+    /// cost more than the entire rev-list walk that followed it (~750ms vs
+    /// ~450ms for 50k commits with a commit-graph) -- see docs/PERFORMANCE.md.
+    void refreshRefsAndHistory(HistoryQuery query = {});
 
     /// Queues metadata for rows the user can actually see. Called by the model on
     /// a cache miss; never blocks the caller.
@@ -128,6 +140,15 @@ public:
     /// through the same askpass dance as `deleteTag`'s `alsoRemote` path.
     void deleteBranch(const DeleteBranchRequest& request);
 
+    /// Cancels every in-flight read this session may have posted to the
+    /// shared read pool -- both readCancel_ (refs, metadata, diffs, working
+    /// copy status, ...) and historyCancel_ (the history walk, which
+    /// supersedes itself independently on every refreshHistory() call, so it
+    /// needs its own explicit cancel here too). Called before destroying this
+    /// session (MainWindow::closeRepository) so no queued or in-flight
+    /// worker task is still touching it -- see ThreadPool::cancelQueuedAndDrain,
+    /// which the caller uses right after this to actually wait for whatever
+    /// was already running to notice and stop.
     void cancelPendingReads();
 
     /// The most recent working-copy status. May be stale until the next
@@ -458,8 +479,25 @@ private:
     /// banner reacts uniformly regardless of which kind of operation this is),
     /// and hands the outcome to `afterFinished` for the caller to decide what
     /// to refresh.
+    ///
+    /// `drivesBusy`: false for background work the user didn't ask for and
+    /// shouldn't have to watch (currently just fetchRemoteSilently) -- the UI
+    /// should not read as stalled for a network operation nobody triggered.
+    /// Every user-initiated caller leaves this at the default.
     void submitAndRefresh(std::unique_ptr<Operation> operation,
-                          std::function<void(bool succeeded)> afterFinished);
+                          std::function<void(bool succeeded)> afterFinished,
+                          bool drivesBusy = true);
+
+    /// The seed/filter/fingerprint/walk portion shared by refreshHistory()'s
+    /// and refreshRefsAndHistory()'s posted tasks -- everything after "I now
+    /// have a RefSnapshotPtr". Runs on a worker thread. `refsForSeed` may be
+    /// null (refs unreadable, e.g. a repository with no commits yet); the
+    /// walk still runs with no seed, matching refreshHistory()'s prior
+    /// behaviour. Handles its own busy/error/graphUpdated signalling, so
+    /// callers only need to have called setBusy(true) beforehand.
+    void walkHistoryWithRefs(HistoryQuery query,
+                             RefSnapshotPtr refsForSeed,
+                             CancellationToken token);
 
     GitInstallation installation_;
     RepoPaths paths_;
@@ -516,7 +554,13 @@ private:
 
     /// Debounce state for maybeAutoFetch(); nullopt before the first call.
     std::optional<std::chrono::steady_clock::time_point> lastAutoFetchAt_;
-    static constexpr std::chrono::seconds kAutoFetchMinInterval{30};
+    /// 30s was tuned for "every History tab visit", which this no longer
+    /// runs on (see MainWindow::onShowHistory) -- the remaining triggers are
+    /// repo-open and window re-activation (MainWindow::onWindowActivated),
+    /// both far less frequent, so a silent `git fetch` no longer needs to be
+    /// this eager. Still short enough that opening the app after a while
+    /// away, or alt-tabbing back after a long break, picks up new commits.
+    static constexpr std::chrono::minutes kAutoFetchMinInterval{5};
 
     int busyCount_ = 0;
 };

@@ -352,13 +352,20 @@ bool CatFileBatch::isRunning() const {
     return impl_ && impl_->isRunning() && !poisoned_;
 }
 
-GitResult<CatFileBatch::Object> CatFileBatch::read(std::string_view revision) {
+GitResult<CatFileBatch::Object> CatFileBatch::read(std::string_view revision,
+                                                   CancellationToken token) {
     GBM_ASSERT_NOT_UI_THREAD();
 
     // A revision containing a newline would inject a second request into the
     // protocol stream. Reject rather than sanitise: no legitimate caller does it.
     if (revision.empty() || revision.find('\n') != std::string_view::npos) {
         return fail(GitError::Code::InvalidArgument, "Invalid object revision");
+    }
+
+    // Checked before taking the lock and before any I/O -- see the doc comment
+    // on this method for what this does and does not bound.
+    if (token.isCancelled()) {
+        return fail(GitError::Code::Cancelled, "Read cancelled");
     }
 
     std::lock_guard<std::mutex> lock(mutex_);
@@ -453,11 +460,11 @@ GitResult<CatFileBatch::Object> CatFileBatch::read(std::string_view revision) {
     return object;
 }
 
-GitResult<CommitMeta> CatFileBatch::readCommit(const ObjectId& oid) {
+GitResult<CommitMeta> CatFileBatch::readCommit(const ObjectId& oid, CancellationToken token) {
     if (oid.isNull()) {
         return fail(GitError::Code::InvalidArgument, "Null object id");
     }
-    auto object = read(oid.hex());
+    auto object = read(oid.hex(), token);
     if (!object) {
         return fail(std::move(object).error());
     }
@@ -468,11 +475,20 @@ GitResult<CommitMeta> CatFileBatch::readCommit(const ObjectId& oid) {
     return CommitMeta::parseRawCommit(oid, object->content);
 }
 
-std::vector<CommitMeta> CatFileBatch::readCommits(const std::vector<ObjectId>& oids) {
+std::vector<CommitMeta> CatFileBatch::readCommits(const std::vector<ObjectId>& oids,
+                                                  CancellationToken token) {
     std::vector<CommitMeta> result;
     result.reserve(oids.size());
     for (const auto& oid : oids) {
-        auto meta = readCommit(oid);
+        // Checked per-oid, not just once before the loop: a viewport request
+        // can carry hundreds of oids, and a session close or repository
+        // switch cancelling mid-batch must stop issuing requests immediately
+        // rather than running the loop to completion against a CatFileBatch
+        // that may already be mid-stop() on another thread.
+        if (token.isCancelled()) {
+            break;
+        }
+        auto meta = readCommit(oid, token);
         if (meta) {
             result.push_back(std::move(*meta));
         }

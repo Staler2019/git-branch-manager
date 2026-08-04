@@ -336,13 +336,76 @@ TEST(RefStore, SeedsHistoryWithHeadBeforeTrunk) {
     main.fullName = "refs/heads/main";
     main.kind = RefKind::LocalBranch;
 
-    snapshot.refs = {feature, main};
+    // The upstream ref itself must be present for historySeedRefs to trust
+    // it -- see RefStore::refExists.
+    RefInfo upstream;
+    upstream.fullName = "refs/remotes/origin/feature";
+    upstream.kind = RefKind::RemoteBranch;
+
+    snapshot.refs = {feature, main, upstream};
 
     const auto seeds = RefStore::historySeedRefs(snapshot);
     ASSERT_GE(seeds.size(), 3u);
     EXPECT_EQ(seeds[0], "refs/heads/feature") << "HEAD must be seeded first";
     EXPECT_NE(std::find(seeds.begin(), seeds.end(), "refs/remotes/origin/feature"), seeds.end());
     EXPECT_NE(std::find(seeds.begin(), seeds.end(), "refs/heads/main"), seeds.end());
+}
+
+TEST(RefStore, ExcludesAGoneUpstreamFromHistorySeeds) {
+    // `branch.<name>.remote`/`.merge` config still names an upstream after
+    // its remote-tracking ref is pruned (e.g. `git remote remove origin`, or
+    // the branch was deleted upstream and pruned locally) -- git reports
+    // that as `[gone]` in %(upstream:track), but still hands back the dead
+    // name in %(upstream). Seeding rev-list with it aborts the entire walk
+    // with "unknown revision", so it must never reach historySeedRefs'
+    // output even though `upstream` is non-empty.
+    RefSnapshot snapshot;
+    snapshot.head.kind = HeadInfo::Kind::Branch;
+    snapshot.head.fullRef = "refs/heads/feature";
+
+    RefInfo feature;
+    feature.fullName = "refs/heads/feature";
+    feature.kind = RefKind::LocalBranch;
+    feature.isHead = true;
+    feature.upstream = "refs/remotes/origin/feature";
+    feature.hasTrackingInfo = true;
+    feature.isGone = true;
+    // Deliberately no "refs/remotes/origin/feature" entry in snapshot.refs --
+    // that is exactly the pruned state being tested.
+
+    snapshot.refs = {feature};
+
+    const auto seeds = RefStore::historySeedRefs(snapshot);
+    EXPECT_EQ(std::find(seeds.begin(), seeds.end(), "refs/remotes/origin/feature"), seeds.end());
+    EXPECT_NE(std::find(seeds.begin(), seeds.end(), "refs/heads/feature"), seeds.end());
+}
+
+TEST(RefStore, ParsesGoneTrackFieldWithoutCountingAsAheadOrBehind) {
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response symbolic;
+    symbolic.out = "refs/heads/feature";
+    runner.whenArgsContain({"symbolic-ref"}, symbolic);
+
+    FakeProcessRunner::Response revParse;
+    revParse.out = std::string(40, 'a');
+    runner.whenArgsContain({"rev-parse"}, revParse);
+
+    const char sep = '\x1f';
+    FakeProcessRunner::Response refs;
+    refs.out = std::string("refs/heads/feature") + sep + "commit" + sep + std::string(40, 'a') +
+               sep + "" + sep + "refs/remotes/origin/feature" + sep + "[gone]" + sep + "*" + sep +
+               "" + "\n";
+    runner.whenArgsContain({"for-each-ref"}, refs);
+
+    RefStore store(runner, testPaths());
+    auto snapshot = store.load(CancellationToken{});
+    ASSERT_TRUE(snapshot) << snapshot.error().message;
+
+    ASSERT_EQ((*snapshot)->refs.size(), 1u);
+    EXPECT_TRUE((*snapshot)->refs[0].isGone);
+    EXPECT_TRUE((*snapshot)->refs[0].hasTrackingInfo);
+    EXPECT_EQ((*snapshot)->refs[0].ahead, 0);
+    EXPECT_EQ((*snapshot)->refs[0].behind, 0);
 }
 
 }  // namespace

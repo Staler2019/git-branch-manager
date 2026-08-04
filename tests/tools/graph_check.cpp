@@ -83,17 +83,43 @@ int main(int argc, char** argv) {
     const gbm::RepoPaths paths(repoPath, repoPath / ".git", repoPath / ".git");
 
     // --- refs ---------------------------------------------------------------
+    // Timed, and run twice, to make the single-call cost and the
+    // "if something ran for-each-ref twice" cost both visible on whatever
+    // repository this is pointed at -- not just the rev-list walk
+    // docs/PERFORMANCE.md already measures. This is what motivated
+    // RepositorySession::refreshRefsAndHistory(), which shares one load
+    // between refreshRefs() and refreshHistory() instead of each
+    // independently re-running it (every call site that needs both now uses
+    // it); the second timing below is what that fix avoids paying for. See
+    // docs/PERFORMANCE.md's "UI refresh path" section for the numbers this
+    // produced on a repository with a few thousand refs.
     gbm::RefStore refStore(*runner, paths);
+    const auto refsStart = std::chrono::steady_clock::now();
     auto refs = refStore.load(gbm::CancellationToken{});
+    const auto refsFirstMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::steady_clock::now() - refsStart)
+                                 .count();
     if (!refs) {
         std::fprintf(stderr, "could not read refs: %s\n", refs.error().message.c_str());
         return 1;
     }
-    std::fprintf(stderr, "refs: %zu\n", (*refs)->totalRefCount);
+
+    const auto refsSecondStart = std::chrono::steady_clock::now();
+    auto refsAgain = refStore.load(gbm::CancellationToken{});
+    const auto refsSecondMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                  std::chrono::steady_clock::now() - refsSecondStart)
+                                  .count();
+    check(static_cast<bool>(refsAgain), "second for-each-ref call failed");
+
+    std::fprintf(stderr,
+                 "refs: %zu (for-each-ref: %lldms once, %lldms twice back-to-back)\n",
+                 (*refs)->totalRefCount,
+                 static_cast<long long>(refsFirstMs),
+                 static_cast<long long>(refsFirstMs + refsSecondMs));
 
     // --- walk ---------------------------------------------------------------
     gbm::HistoryQuery query;
-    query.includeRefs = gbm::RefStore::historySeedRefs(**refs);
+    query.seedRefs = gbm::RefStore::historySeedRefs(**refs);
 
     const auto start = std::chrono::steady_clock::now();
     std::chrono::steady_clock::time_point firstChunk{};
@@ -147,7 +173,7 @@ int main(int argc, char** argv) {
     // The single most valuable assertion here: a plausible-looking graph built
     // from a misparsed walk is far worse than an obvious failure.
     std::vector<std::string> expectedArgs{"rev-list", "--topo-order"};
-    for (const std::string& ref : query.includeRefs) {
+    for (const std::string& ref : query.seedRefs) {
         expectedArgs.push_back(ref);
     }
     expectedArgs.emplace_back("--all");

@@ -156,3 +156,28 @@ Kept here so implementation does not depend on re-fetching the design project.
 .gbm-diffline-ctx{color:var(--text-secondary)}
 .gbm-diffline-hunk{color:var(--text-tertiary);background:var(--surface-sunken)}
 ```
+
+## Departure from the source: `--ref-chip-fill` / `--ref-chip-text`
+
+The verbatim spec above (`.gbm-tag-branch`, line 119) has the non-current branch
+chip use `--accent-subtle` for both border and background. In implementation
+that token turned out to be **byte-identical to `--surface-selected`** in
+`dark-technical` (`#0d2a4d`) and `neutral-professional` (`#eaf1fe`), so the chip
+disappeared entirely on a selected commit row — a real readability bug, not an
+implementation slip; it traces back to this source file.
+
+`Token::RefChipFill` / `Token::RefChipText` (`src/app/theme/Tokens.h`,
+`ThemeTokens.cpp`) exist to fix that and are **not** part of the design
+project's token set — do not "correct" them back to `--accent-subtle` to match
+this doc. Values, chosen for ≥4.5:1 text contrast and visible separation from
+`--surface-selected`/`--accent-subtle` in every theme:
+
+| Theme | `--ref-chip-fill` | `--ref-chip-text` |
+|---|---|---|
+| dark-technical | `#1c3f66` | `#eaf1fe` |
+| light-ide | `#c7dbfa` | `#1857b8` |
+| neutral-professional | `#c7dbfa` | `#1857b8` |
+
+Consumed directly by `PillPainter::colorsForRef` (C++), not via an `app.qss`
+`@` placeholder, so there is no corresponding entry in `ThemeManager.cpp`'s
+placeholder table.

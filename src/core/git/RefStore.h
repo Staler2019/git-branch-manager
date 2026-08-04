@@ -27,6 +27,11 @@ struct RefInfo {
     int ahead = 0;
     int behind = 0;
     bool hasTrackingInfo = false;
+    /// True when `%(upstream:track)` reported `[gone]`: `upstream` is a name
+    /// git still remembers from `branch.<name>.remote`/`.merge` config, but
+    /// the remote-tracking ref it names no longer exists (the remote was
+    /// removed, or the branch was deleted upstream and pruned locally).
+    bool isGone = false;
     bool isHead = false;
     bool isSymbolic = false;
     std::string worktreePath;  ///< Set when checked out in a linked worktree.
@@ -83,7 +88,18 @@ public:
     /// Ref tips to seed the history walk with, in the order they must be passed
     /// to rev-list. Seeding order is what assigns lane 0 to the trunk, so this
     /// deliberately lists HEAD and the trunk branch before anything else.
+    /// Every tip has already passed refExists() -- a stale name (a deleted
+    /// branch, or an upstream whose remote-tracking ref was pruned) is never
+    /// returned here.
     static std::vector<std::string> historySeedRefs(const RefSnapshot& refs);
+
+    /// Whether `fullName` (e.g. "refs/heads/main" or
+    /// "refs/remotes/origin/main") names a ref actually present in `refs`
+    /// right now. Every revision handed to `rev-list` as an explicit argument
+    /// -- a seed tip, a branch-filter selection -- must pass this first: git
+    /// rejects an unknown one with "fatal: ambiguous argument", which aborts
+    /// the *entire* walk rather than just omitting that one tip.
+    static bool refExists(const RefSnapshot& refs, const std::string& fullName);
 
     /// Whether a ref name is one git will accept, checked before we try to
     /// create it so the user gets a clear message instead of raw git output.

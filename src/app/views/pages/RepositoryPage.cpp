@@ -125,16 +125,35 @@ void RepositoryPage::buildUi() {
     });
 
     auto* captionLabel = new QLabel(
-        tr("Every cap is visible — a truncated history page always states how many commits "
-           "it left out. This setting does not change history loading yet: git-branch-manager "
-           "has no pagination in HistoryProvider today, so this only records the intent for "
-           "when that lands."),
+        tr("Every cap is visible — when the graph is capped, the history view says how many "
+           "commits it left out. Applies the next time history is refreshed for this "
+           "repository."),
         perfCard);
     captionLabel->setObjectName(QStringLiteral("gbmPanelCaption"));
     captionLabel->setWordWrap(true);
     perfCardLayout->addWidget(captionLabel);
 
     outerLayout->addWidget(perfCard);
+
+    // --- "Sync" -------------------------------------------------------------
+    QFrame* syncCard = buildCard(this, tr("Sync"));
+    auto* syncCardLayout = qobject_cast<QVBoxLayout*>(syncCard->layout());
+
+    autoFetchCheck_ =
+        new QCheckBox(tr("Automatically fetch when opening this repository"), syncCard);
+    syncCardLayout->addWidget(autoFetchCheck_);
+    connect(autoFetchCheck_, &QCheckBox::toggled, this, [this](bool) { savePerformanceSetting(); });
+
+    auto* syncCaptionLabel =
+        new QLabel(tr("Runs quietly in the background. If it needs credentials that aren't "
+                      "already stored, it simply fails without prompting -- fetch manually from "
+                      "the toolbar if you need to sign in."),
+                   syncCard);
+    syncCaptionLabel->setObjectName(QStringLiteral("gbmPanelCaption"));
+    syncCaptionLabel->setWordWrap(true);
+    syncCardLayout->addWidget(syncCaptionLabel);
+
+    outerLayout->addWidget(syncCard);
 
     // --- footer ----------------------------------------------------------------
     footerLabel_ = new QLabel(
@@ -274,6 +293,11 @@ void RepositoryPage::loadPerformanceSettings() {
         settings.value(prefix + QStringLiteral("largeRepoMode"), false).toBool();
     const int maxRows =
         settings.value(prefix + QStringLiteral("maxGraphRows"), kDefaultMaxGraphRows).toInt();
+    // Default on: the user asked for this to just work without being opted
+    // into, and a failed silent fetch (see RepositorySession::fetchRemoteSilently)
+    // never surfaces a prompt, so there is no downside to defaulting it on.
+    const bool autoFetch =
+        settings.value(prefix + QStringLiteral("autoFetchOnOpen"), true).toBool();
 
     largeRepoModeCheck_->blockSignals(true);
     largeRepoModeCheck_->setChecked(largeRepoMode);
@@ -283,6 +307,10 @@ void RepositoryPage::loadPerformanceSettings() {
     maxGraphRowsSpin_->setValue(maxRows);
     maxGraphRowsSpin_->blockSignals(false);
     maxGraphRowsSpin_->setEnabled(largeRepoMode);
+
+    autoFetchCheck_->blockSignals(true);
+    autoFetchCheck_->setChecked(autoFetch);
+    autoFetchCheck_->blockSignals(false);
 }
 
 void RepositoryPage::savePerformanceSetting() {
@@ -293,6 +321,7 @@ void RepositoryPage::savePerformanceSetting() {
     QSettings settings;
     settings.setValue(prefix + QStringLiteral("largeRepoMode"), largeRepoModeCheck_->isChecked());
     settings.setValue(prefix + QStringLiteral("maxGraphRows"), maxGraphRowsSpin_->value());
+    settings.setValue(prefix + QStringLiteral("autoFetchOnOpen"), autoFetchCheck_->isChecked());
 }
 
 }  // namespace gbm

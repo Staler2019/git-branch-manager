@@ -53,6 +53,12 @@ public:
 
     bool truncated() const noexcept { return snapshot_.truncated; }
 
+    /// Marks the snapshot as partial for a reason external to the row cap above
+    /// -- e.g. the walk itself was capped with `--max-count`. Kept separate from
+    /// the internal row-cap path so callers can flag "the query stopped early"
+    /// without pretending it was this builder's own limit that did it.
+    void markTruncated() noexcept { snapshot_.truncated = true; }
+
     /// Marks a row as carrying refs / being HEAD, for renderer decoration.
     void setRowFlags(RowId row, std::uint8_t flagsToSet);
 

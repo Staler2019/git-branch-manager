@@ -43,6 +43,12 @@ public:
         if (request_.keepIndex) {
             args.emplace_back("--keep-index");
         }
+        if (!request_.paths.empty()) {
+            args.emplace_back("--");
+            for (const std::string& path : request_.paths) {
+                args.push_back(path);
+            }
+        }
 
         GitCommand command(paths.commandDir(), std::move(args));
         command.timeout = std::chrono::seconds(600);

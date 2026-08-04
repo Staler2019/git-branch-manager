@@ -7,6 +7,7 @@
 #include "app/dialogs/CherryPickDialog.h"
 #include "app/dialogs/CleanUntrackedDialog.h"
 #include "app/dialogs/FileHistoryDialog.h"
+#include "app/dialogs/GraphBranchFilterDialog.h"
 #include "app/dialogs/InteractiveRebaseDialog.h"
 #include "app/dialogs/KeyboardShortcutsDialog.h"
 #include "app/dialogs/LineHistoryDialog.h"
@@ -293,7 +294,7 @@ void MainWindow::buildUi() {
             &SidebarPanel::repositorySettingsRequested,
             this,
             &MainWindow::onShowRepositorySettings);
-    connect(sidebar_, &SidebarPanel::diffRequested, this, &MainWindow::onShowDiffTab);
+    connect(sidebar_, &SidebarPanel::stashDiffRequested, this, &MainWindow::onStashDiffRequested);
     connect(sidebar_, &SidebarPanel::statusMessage, this, [this](const QString& text) {
         statusLabel_->setText(text);
     });
@@ -382,7 +383,24 @@ void MainWindow::buildUi() {
         collapseExpandedCommitRow();
     });
 
-    rightSplitter->addWidget(commitView_);
+    auto* historyTopWidget = new QWidget(rightSplitter);
+    auto* historyTopLayout = new QVBoxLayout(historyTopWidget);
+    historyTopLayout->setContentsMargins(0, 0, 0, 0);
+    historyTopLayout->setSpacing(0);
+
+    auto* graphToolbarRow = new QHBoxLayout();
+    graphToolbarRow->setContentsMargins(kSpace2, kSpace1, kSpace2, kSpace1);
+    branchFilterButton_ = new QPushButton(QStringLiteral("Branches…"), historyTopWidget);
+    branchFilterButton_->setObjectName(QStringLiteral("secondaryButton"));
+    branchFilterButton_->setToolTip(
+        QStringLiteral("Choose which branches the graph is built from"));
+    connect(branchFilterButton_, &QPushButton::clicked, this, &MainWindow::onFilterGraphBranches);
+    graphToolbarRow->addWidget(branchFilterButton_);
+    graphToolbarRow->addStretch(1);
+    historyTopLayout->addLayout(graphToolbarRow);
+    historyTopLayout->addWidget(commitView_, 1);
+
+    rightSplitter->addWidget(historyTopWidget);
 
     auto* detailSplitter = new QSplitter(Qt::Horizontal, rightSplitter);
     detailSplitter_ = detailSplitter;
@@ -951,10 +969,27 @@ void MainWindow::onManageBaseFolders() {
 
 void MainWindow::onRefresh() {
     discovery_->startScan(ScanMode::Incremental);
+    // The discovery rescan above only refreshes the sidebar's repo list --
+    // it never touches the currently open session, so external changes (a
+    // `git stash` run in another terminal, for instance) were invisible
+    // until the user switched tabs. Refresh the open session's live state
+    // too.
+    if (session_) {
+        session_->refreshWorkingCopyStatus();
+        session_->refreshStashes();
+        session_->refreshRefs();
+        session_->refreshHistory();
+    }
 }
 
 void MainWindow::onForceRefresh() {
     discovery_->startScan(ScanMode::Full);
+    if (session_) {
+        session_->refreshWorkingCopyStatus();
+        session_->refreshStashes();
+        session_->refreshRefs();
+        session_->refreshHistory();
+    }
 }
 
 void MainWindow::onCancelScan() {
@@ -966,6 +1001,9 @@ void MainWindow::onShowHistory() {
     if (session_) {
         stack_->setCurrentIndex(1);
         tabWidget_->setCurrentIndex(kHistoryTab);
+        // Sync branch status on every visit, not just on repo open -- see
+        // RepositorySession::maybeAutoFetch (debounced, silent on failure).
+        session_->maybeAutoFetch();
     }
 }
 
@@ -1051,6 +1089,10 @@ void MainWindow::openRepository(const RepoRecord& record) {
             commitModel_,
             &CommitListModel::onCommitMetadataReady);
     connect(session_.get(),
+            &RepositorySession::effectiveIdentityUpdated,
+            commitModel_,
+            &CommitListModel::onEffectiveIdentityUpdated);
+    connect(session_.get(),
             &RepositorySession::commitDetailsReady,
             this,
             &MainWindow::onCommitDetailsReady);
@@ -1078,6 +1120,8 @@ void MainWindow::openRepository(const RepoRecord& record) {
             &RepositorySession::compareWithWorkingCopyReady,
             this,
             &MainWindow::onCompareWithWorkingCopyReady);
+    connect(
+        session_.get(), &RepositorySession::stashDiffReady, this, &MainWindow::onStashDiffReady);
     connect(session_.get(),
             &RepositorySession::workingCopyDiffReady,
             this,
@@ -1124,6 +1168,14 @@ void MainWindow::openRepository(const RepoRecord& record) {
     // So the remote picker in the Push/Push tag dialogs has something to show
     // the first time they are opened, without waiting on a Fetch.
     session_->refreshRemotes();
+    // So the history view can mark "my" commits from the moment it first
+    // paints, rather than only after the user happens to visit Repository
+    // Settings (which is the only other place that reads identity today).
+    session_->refreshEffectiveIdentity();
+    // Best-effort background sync so ahead/behind and remote branch tips
+    // are not stuck at whatever they were the last time the user manually
+    // fetched; see RepositorySession::maybeAutoFetch for why this is silent.
+    session_->maybeAutoFetch();
 }
 
 void MainWindow::openRepositoryAtPathForScreenshot(const QString& path) {
@@ -1692,6 +1744,42 @@ void MainWindow::onCompareWithWorkingCopyReady(const ObjectId& commit,
     diffPage_->showCompareWithWorkingCopy(commit, std::move(diff));
 }
 
+void MainWindow::onFilterGraphBranches() {
+    if (!session_) {
+        return;
+    }
+    const RefSnapshotPtr refs = session_->refs();
+    if (!refs) {
+        return;
+    }
+
+    GraphBranchFilterDialog dialog(*refs, session_->historyFilter().includeRefs, this);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    HistoryQuery query;
+    query.includeRefs = dialog.selectedRefs();
+    session_->setHistoryFilter(std::move(query));
+}
+
+void MainWindow::onStashDiffRequested(int index) {
+    if (!session_) {
+        return;
+    }
+    diffPage_->showMessage(QStringLiteral("Loading stash@{%1}…").arg(index));
+    tabWidget_->setCurrentIndex(kDiffTab);
+    session_->requestStashDiff(index);
+}
+
+void MainWindow::onStashDiffReady(int index, std::shared_ptr<const ParsedDiff> diff) {
+    // Not stageable, same reasoning as onCompareWithWorkingCopyReady.
+    diffTabShownPath_.clear();
+    diffTabShownStaged_ = false;
+    diffTabShownIsStageable_ = false;
+    diffPage_->showStashDiff(index, std::move(diff));
+}
+
 void MainWindow::onViewFileDiffRequested(QString path, bool staged) {
     if (!session_) {
         return;
@@ -2195,7 +2283,7 @@ void MainWindow::onStashChanges() {
         return;
     }
 
-    StashChangesDialog dialog(this);
+    StashChangesDialog dialog(session_->workingCopyStatus(), this);
     if (dialog.exec() != QDialog::Accepted) {
         return;
     }
@@ -2211,6 +2299,8 @@ void MainWindow::onManageStashes() {
     }
 
     ManageStashesDialog dialog(session_.get(), feedbackFn(), this);
+    connect(
+        &dialog, &ManageStashesDialog::stashDiffRequested, this, &MainWindow::onStashDiffRequested);
     dialog.exec();
 }
 

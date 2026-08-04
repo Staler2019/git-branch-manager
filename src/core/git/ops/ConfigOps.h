@@ -23,6 +23,15 @@ struct LocalIdentity {
     bool overridden = false;
 };
 
+/// `user.name`/`user.email` as git itself would resolve them for a new
+/// commit here: `--local` if set, otherwise falling back to `--global`/
+/// system config. Unlike LocalIdentity this has no "overridden" notion --
+/// it is simply whichever value wins.
+struct EffectiveIdentity {
+    std::string name;
+    std::string email;
+};
+
 /// Reads `user.name`/`user.email` scoped `--local` to one repository.
 /// Read-only, like RefStore/RemoteStore.
 class LocalIdentityStore {
@@ -32,6 +41,11 @@ public:
     /// Never fails on an unset key -- `git config --get` exiting 1 with no
     /// stderr just means "nothing here", not an error worth surfacing.
     GitResult<LocalIdentity> read(CancellationToken token);
+
+    /// Same tolerance for an unset key, but without `--local`, so the result
+    /// matches whatever identity `git commit` would actually attribute a new
+    /// commit to (used to decide whether a commit in the graph is "mine").
+    GitResult<EffectiveIdentity> readEffective(CancellationToken token);
 
 private:
     IProcessRunner& runner_;

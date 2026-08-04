@@ -163,6 +163,18 @@ public:
                                                  const DiffOptions& options,
                                                  CancellationToken token);
 
+    /// `git stash show -p stash@{N}`. Shells out to git's own stash-show
+    /// rather than re-deriving the diff from a stash commit's parents (HEAD,
+    /// index, and optionally a third untracked-files parent): matching git's
+    /// own output exactly is safer than hand-rolling that merge-diff logic.
+    /// Deliberately uncached, like commitVsWorkingTree: `stash@{N}` is a
+    /// moving reference (N means "Nth most recent"), so a cache keyed on the
+    /// index alone would go stale the moment an earlier stash is dropped.
+    GitResult<ParsedDiffPtr> stashDiff(int stashIndex,
+                                       bool includeUntracked,
+                                       const DiffOptions& options,
+                                       CancellationToken token);
+
     void clearCaches();
 
     std::size_t diffCacheBytes() const { return diffCache_.usedBytes(); }

@@ -51,6 +51,11 @@ public:
         RefsRole,
         ObjectIdRole,
         HasMetadataRole,
+        /// True when the row's author matches the current effective git
+        /// identity (RepositorySession::effectiveIdentity). False, not just
+        /// absent, when metadata hasn't arrived yet -- callers should treat a
+        /// miss the same as "not mine" rather than re-querying.
+        IsMineRole,
     };
 
     explicit CommitListModel(QObject* parent = nullptr);
@@ -86,6 +91,9 @@ public slots:
     void onGraphUpdated(bool complete);
     void onRefsUpdated();
     void onCommitMetadataReady(const std::vector<CommitMeta>& metadata);
+    /// Re-reads RepositorySession::effectiveIdentity() and repaints, so
+    /// IsMineRole reflects it without waiting for a metadata fetch.
+    void onEffectiveIdentityUpdated();
 
 private:
     /// Rows either side of the viewport to prefetch, so scrolling stays ahead of
@@ -96,10 +104,17 @@ private:
 
     void scheduleMetadataFetch(int firstRow, int lastRow);
     const CommitMeta* metadataFor(int row) const;
+    bool isMine(const CommitMeta* meta) const;
 
     RepositorySession* session_ = nullptr;
     GraphSnapshotPtr snapshot_;
     RefSnapshotPtr refs_;
+
+    /// Lower-cased effective-identity email/name, cached so IsMineRole is a
+    /// cheap string compare per row rather than a session call. Email is the
+    /// reliable key; name is only consulted when either side has no email.
+    QString mineEmailLower_;
+    QString mineNameLower_;
 
     /// oid hex -> metadata. Bounded; trimmed from the far side of the viewport.
     QHash<QString, CommitMeta> metadata_;

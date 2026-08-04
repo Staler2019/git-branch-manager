@@ -37,6 +37,9 @@ struct StashSaveRequest {
     std::string message;
     bool includeUntracked = false;
     bool keepIndex = false;
+    /// Restricts the stash to these paths (`git stash push -- <paths>`).
+    /// Empty means every changed path, exactly like plain `git stash push`.
+    std::vector<std::string> paths;
 };
 
 struct StashApplyRequest {

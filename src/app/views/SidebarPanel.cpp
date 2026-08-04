@@ -869,10 +869,7 @@ void SidebarPanel::onStashContextMenuRequested(const QPoint& pos) {
             QStringLiteral("Creating %1 from stash@{%2}…").arg(name).arg(stashIndex));
         runWithFeedback_([this, request] { session_->branchFromStash(request); }, nullptr);
     } else if (chosen == diffAction) {
-        // No standalone Diff page exists yet (Phase 5's job) -- this asks
-        // MainWindow to navigate to whichever view currently stands in for
-        // it, same as the branch/repo menus' "Repository settings" entry.
-        emit diffRequested();
+        emit stashDiffRequested(stashIndex);
     } else if (chosen == dropAction) {
         const bool confirmed =
             dialogs::confirm(this,

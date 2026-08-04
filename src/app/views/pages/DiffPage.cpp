@@ -92,6 +92,13 @@ void DiffPage::showWorkingCopyDiff(const QString& path,
     rebuildSections(std::move(diff));
 }
 
+void DiffPage::showStashDiff(int index, std::shared_ptr<const ParsedDiff> diff) {
+    headerLabel_->setText(QStringLiteral("stash@{%1}").arg(index));
+    stageable_ = false;
+    showingStaged_ = false;
+    rebuildSections(std::move(diff));
+}
+
 void DiffPage::showMessage(const QString& message) {
     headerLabel_->setText(message);
     clearSections();

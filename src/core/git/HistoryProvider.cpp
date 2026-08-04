@@ -192,6 +192,15 @@ GitResult<GraphSnapshotPtr> HistoryProvider::walk(const HistoryQuery& query,
         return fail(std::move(result).error());
     }
 
+    // `--max-count` stops rev-list itself rather than the builder's own row
+    // cap, so builder.truncated() would otherwise stay false even though the
+    // history shown is partial -- mark it explicitly so the existing
+    // "history truncated" UI (which already reads GraphSnapshot::truncated)
+    // reports it correctly.
+    if (query.maxCount > 0 && builder.rowCount() >= query.maxCount) {
+        builder.markTruncated();
+    }
+
     builder.finish();
     auto finalSnapshot = builder.snapshot();
 

@@ -109,6 +109,9 @@ private slots:
     void onCommitRowClicked(const QModelIndex& index);
     void onCompareWithWorkingCopyReady(const ObjectId& commit,
                                        std::shared_ptr<const ParsedDiff> diff);
+    void onStashDiffRequested(int index);
+    void onStashDiffReady(int index, std::shared_ptr<const ParsedDiff> diff);
+    void onFilterGraphBranches();
 
     /// "View diff" from either of WorkingCopyView's context menus: switches
     /// to the Diff tab and requests this path's working-copy diff.
@@ -283,6 +286,7 @@ private:
     QTableView* repoView_ = nullptr;
     QLineEdit* repoSearch_ = nullptr;
     QTableView* commitView_ = nullptr;
+    QPushButton* branchFilterButton_ = nullptr;
     QTreeView* refView_ = nullptr;
     SidebarPanel* sidebar_ = nullptr;
     QTableView* fileView_ = nullptr;

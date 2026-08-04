@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <utility>
+#include <vector>
 
 namespace gbm {
 
@@ -13,11 +14,11 @@ namespace {
 /// unset -- not a genuine failure, just "nothing here". Treated as an empty
 /// value rather than surfaced as an error, the same way every git GUI reads
 /// optional config.
-std::string readLocalConfigValue(IProcessRunner& runner,
-                                 const RepoPaths& paths,
-                                 const char* key,
-                                 CancellationToken token) {
-    GitCommand command(paths.commandDir(), {"config", "--local", "--get", key});
+std::string readConfigValue(IProcessRunner& runner,
+                            const RepoPaths& paths,
+                            std::vector<std::string> args,
+                            CancellationToken token) {
+    GitCommand command(paths.commandDir(), std::move(args));
     command.timeout = std::chrono::seconds(10);
     auto result = runner.run(command, token);
     if (!result) {
@@ -28,6 +29,27 @@ std::string readLocalConfigValue(IProcessRunner& runner,
         value.pop_back();
     }
     return value;
+}
+
+/// `git config --local --get <key>` exits 1 with empty stderr when the key is
+/// unset -- not a genuine failure, just "nothing here". Treated as an empty
+/// value rather than surfaced as an error, the same way every git GUI reads
+/// optional config.
+std::string readLocalConfigValue(IProcessRunner& runner,
+                                 const RepoPaths& paths,
+                                 const char* key,
+                                 CancellationToken token) {
+    return readConfigValue(runner, paths, {"config", "--local", "--get", key}, token);
+}
+
+/// `git config --get <key>` with no scope flag: git resolves `--local` >
+/// `--global` > system, exactly the precedence a new commit's author would
+/// use. Same unset-key tolerance as readLocalConfigValue.
+std::string readEffectiveConfigValue(IProcessRunner& runner,
+                                     const RepoPaths& paths,
+                                     const char* key,
+                                     CancellationToken token) {
+    return readConfigValue(runner, paths, {"config", "--get", key}, token);
 }
 
 class SetLocalIdentityOperation final : public Operation {
@@ -106,6 +128,15 @@ GitResult<LocalIdentity> LocalIdentityStore::read(CancellationToken token) {
     identity.name = readLocalConfigValue(runner_, paths_, "user.name", token);
     identity.email = readLocalConfigValue(runner_, paths_, "user.email", token);
     identity.overridden = !identity.name.empty() || !identity.email.empty();
+    return identity;
+}
+
+GitResult<EffectiveIdentity> LocalIdentityStore::readEffective(CancellationToken token) {
+    GBM_ASSERT_NOT_UI_THREAD();
+
+    EffectiveIdentity identity;
+    identity.name = readEffectiveConfigValue(runner_, paths_, "user.name", token);
+    identity.email = readEffectiveConfigValue(runner_, paths_, "user.email", token);
     return identity;
 }
 

@@ -3,12 +3,92 @@
 #include "core/base/Logging.h"
 #include "core/git/AskpassHelper.h"
 
+#include <QLatin1Char>
 #include <QMetaObject>
 #include <QMetaType>
+#include <QSettings>
+#include <QString>
 
+#include <cstdint>
 #include <utility>
 
 namespace gbm {
+
+namespace {
+
+/// Mirrors RepositoryPage::kDefaultMaxGraphRows / settingsKeyPrefix() exactly
+/// -- both read the same `repositoryPerf/<path>/*` QSettings keys, so the two
+/// must agree on the key format. Duplicated rather than shared because
+/// RepositoryPage (a UI widget) is not something this bridge-layer class
+/// should depend on; if the key format ever changes it needs updating in
+/// both places.
+constexpr int kDefaultMaxGraphRows = 5000;
+
+QString performanceSettingsKeyPrefix(const RepoPaths& paths) {
+    QString path = QString::fromStdString(paths.commandDir().string());
+    path.replace(QLatin1Char('/'), QLatin1Char('_'));
+    path.replace(QLatin1Char('\\'), QLatin1Char('_'));
+    path.replace(QLatin1Char(':'), QLatin1Char('_'));
+    return QStringLiteral("repositoryPerf/%1/").arg(path);
+}
+
+/// 0 (no cap) when large-repository mode is off or unset for this repo.
+std::uint32_t maxGraphRowsSetting(const RepoPaths& paths) {
+    const QString prefix = performanceSettingsKeyPrefix(paths);
+    if (prefix.isEmpty()) {
+        return 0;
+    }
+    QSettings settings;
+    const bool largeRepoMode =
+        settings.value(prefix + QStringLiteral("largeRepoMode"), false).toBool();
+    if (!largeRepoMode) {
+        return 0;
+    }
+    const int maxRows =
+        settings.value(prefix + QStringLiteral("maxGraphRows"), kDefaultMaxGraphRows).toInt();
+    return maxRows > 0 ? static_cast<std::uint32_t>(maxRows) : 0;
+}
+
+/// Mirrors RepositoryPage's "Sync" card checkbox; same key format note as
+/// maxGraphRowsSetting above. Defaults to on.
+bool autoFetchOnOpenSetting(const RepoPaths& paths) {
+    const QString prefix = performanceSettingsKeyPrefix(paths);
+    if (prefix.isEmpty()) {
+        return true;
+    }
+    QSettings settings;
+    return settings.value(prefix + QStringLiteral("autoFetchOnOpen"), true).toBool();
+}
+
+std::uint64_t combineHash(std::uint64_t seed, std::uint64_t value) {
+    // boost::hash_combine's mixing constant/shifts; good enough for a cache
+    // key, no cryptographic properties needed.
+    seed ^= value + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
+    return seed;
+}
+
+/// A cheap stand-in for "did anything the history walk depends on change".
+/// Folds HEAD's target plus every ref's name and target oid, so any branch/
+/// tag move, create, or delete changes the fingerprint -- exactly the set of
+/// events that can change what `git rev-list` would produce.
+std::uint64_t fingerprintRefs(const RefSnapshot& refs) {
+    std::uint64_t fp = combineHash(0, refs.head.target.hash());
+    for (const RefInfo& ref : refs.refs) {
+        fp = combineHash(fp, std::hash<std::string>{}(ref.fullName));
+        fp = combineHash(fp, ref.target.hash());
+    }
+    return fp;
+}
+
+bool historyQueryEquals(const HistoryQuery& a, const HistoryQuery& b) {
+    return a.includeRefs == b.includeRefs && a.excludeRefs == b.excludeRefs &&
+           a.pathFilter == b.pathFilter && a.grep == b.grep && a.author == b.author &&
+           a.since == b.since && a.until == b.until && a.firstParentOnly == b.firstParentOnly &&
+           a.includeReflog == b.includeReflog && a.dateOrder == b.dateOrder &&
+           a.maxCount == b.maxCount;
+}
+
+}  // namespace
 
 RepositorySession::RepositorySession(GitInstallation installation,
                                      RepoPaths paths,
@@ -74,6 +154,24 @@ void RepositorySession::setBusy(bool busy) {
 }
 
 void RepositorySession::refreshHistory(HistoryQuery query) {
+    // A bare refreshHistory() call is what every existing call site uses
+    // (the Refresh button, a checkout, a fetch completing, ...) and means
+    // "refresh with whatever's currently selected" -- if setHistoryFilter()
+    // has set a branch filter, substitute it here rather than letting an
+    // incidental refresh silently revert the graph to "show everything".
+    if (historyQueryEquals(query, HistoryQuery{}) &&
+        !historyQueryEquals(activeHistoryQuery_, HistoryQuery{})) {
+        query = activeHistoryQuery_;
+    }
+
+    // Apply this repository's "large-repository mode" cap (Repository
+    // Settings > Performance) when the caller hasn't already asked for a
+    // specific limit -- read on this (the UI) thread since QSettings access
+    // from a worker isn't worth the risk for a value read once per call.
+    if (query.maxCount == 0) {
+        query.maxCount = maxGraphRowsSetting(paths_);
+    }
+
     // Supersede rather than queue: the previous walk's results are no longer what
     // the user is looking at.
     historyCancel_.cancel();
@@ -83,11 +181,42 @@ void RepositorySession::refreshHistory(HistoryQuery query) {
     setBusy(true);
 
     readPool_.post([this, query = std::move(query), token]() mutable {
-        // If no explicit tips were given, seed from the refs we already have so the
-        // trunk lands in lane 0.
-        if (query.includeRefs.empty()) {
-            if (auto refs = refs_.current()) {
-                query.includeRefs = RefStore::historySeedRefs(*refs);
+        // Re-read refs here rather than trusting refs_.current(): callers
+        // routinely call refreshRefs() and refreshHistory() back-to-back
+        // after a mutating operation, and the two run as independent tasks
+        // on the pool with no ordering guarantee between them. Reading
+        // refs_.current() could observe the pre-operation snapshot and wrongly
+        // conclude nothing changed. `for-each-ref` is one cheap process, so
+        // paying for it again here to get a fingerprint we can trust is a
+        // good trade against skipping a multi-second `rev-list` walk.
+        auto freshRefs = refStore_->load(token);
+        if (!freshRefs && freshRefs.error().code == GitError::Code::Cancelled) {
+            QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+            return;
+        }
+        const RefSnapshotPtr refsForSeed = freshRefs ? *freshRefs : refs_.current();
+
+        // If no explicit tips were given, seed from the refs so the trunk
+        // lands in lane 0.
+        if (query.includeRefs.empty() && refsForSeed) {
+            query.includeRefs = RefStore::historySeedRefs(*refsForSeed);
+        }
+
+        const std::uint64_t fingerprint = refsForSeed ? fingerprintRefs(*refsForSeed) : 0;
+        if (hasLastWalk_ && fingerprint == lastWalkFingerprint_ &&
+            historyQueryEquals(query, lastWalkQuery_)) {
+            if (const GraphSnapshotPtr current = graph_.current(); current && current->complete) {
+                // Nothing that could change the walk's result has happened
+                // since the last completed walk with this same query -- skip
+                // re-running `rev-list` and just republish what we have.
+                QMetaObject::invokeMethod(
+                    this,
+                    [this] {
+                        emit graphUpdated(true);
+                        setBusy(false);
+                    },
+                    Qt::QueuedConnection);
+                return;
             }
         }
 
@@ -105,13 +234,27 @@ void RepositorySession::refreshHistory(HistoryQuery query) {
             },
             token);
 
-        if (!result && result.error().code != GitError::Code::Cancelled) {
+        if (result) {
+            QMetaObject::invokeMethod(
+                this,
+                [this, fingerprint, query] {
+                    lastWalkFingerprint_ = fingerprint;
+                    lastWalkQuery_ = query;
+                    hasLastWalk_ = true;
+                },
+                Qt::QueuedConnection);
+        } else if (result.error().code != GitError::Code::Cancelled) {
             GitError error = std::move(result).error();
             QMetaObject::invokeMethod(
                 this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
         }
         QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
     });
+}
+
+void RepositorySession::setHistoryFilter(HistoryQuery query) {
+    activeHistoryQuery_ = query;
+    refreshHistory(std::move(query));
 }
 
 void RepositorySession::refreshRefs() {
@@ -587,6 +730,34 @@ void RepositorySession::branchFromStash(const StashBranchRequest& request) {
     });
 }
 
+void RepositorySession::requestStashDiff(int index) {
+    const CancellationToken token = readCancel_.token();
+    setBusy(true);
+
+    // postFront: mirrors requestCompareWithWorkingCopy -- the newest request
+    // is what the user is looking at.
+    readPool_.postFront([this, index, token] {
+        if (token.isCancelled()) {
+            QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+            return;
+        }
+
+        auto diff = diffs_->stashDiff(index, /*includeUntracked=*/true, DiffOptions{}, token);
+        if (diff) {
+            auto diffPtr = *diff;
+            QMetaObject::invokeMethod(
+                this,
+                [this, index, diffPtr] { emit stashDiffReady(index, diffPtr); },
+                Qt::QueuedConnection);
+        } else if (diff.error().code != GitError::Code::Cancelled) {
+            GitError error = std::move(diff).error();
+            QMetaObject::invokeMethod(
+                this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
+        }
+        QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+    });
+}
+
 // --- M3: tags ------------------------------------------------------------
 
 void RepositorySession::createTag(const CreateTagRequest& request) {
@@ -715,6 +886,29 @@ void RepositorySession::fetchRemote(FetchRequest request) {
             refreshRefs();
         }
     });
+}
+
+void RepositorySession::fetchRemoteSilently() {
+    // No askpassDir wiring: an empty FetchRequest::askpassDir means "no
+    // credential prompt is possible", so an auth failure fails fast instead
+    // of starting the askpass watcher that would otherwise surface a dialog.
+    submitAndRefresh(makeFetchOperation(FetchRequest{}), [this](bool succeeded) {
+        if (succeeded) {
+            refreshRefs();
+        }
+    });
+}
+
+void RepositorySession::maybeAutoFetch() {
+    if (!autoFetchOnOpenSetting(paths_)) {
+        return;
+    }
+    const auto now = std::chrono::steady_clock::now();
+    if (lastAutoFetchAt_ && now - *lastAutoFetchAt_ < kAutoFetchMinInterval) {
+        return;
+    }
+    lastAutoFetchAt_ = now;
+    fetchRemoteSilently();
 }
 
 void RepositorySession::pullChanges(PullRequest request) {
@@ -1240,10 +1434,30 @@ void RepositorySession::refreshLocalIdentity() {
     });
 }
 
+void RepositorySession::refreshEffectiveIdentity() {
+    const CancellationToken token = readCancel_.token();
+    setBusy(true);
+
+    readPool_.post([this, token] {
+        auto identity = localIdentityStore_->readEffective(token);
+        if (identity) {
+            effectiveIdentity_.publish(std::make_shared<EffectiveIdentity>(std::move(*identity)));
+            QMetaObject::invokeMethod(
+                this, [this] { emit effectiveIdentityUpdated(); }, Qt::QueuedConnection);
+        } else if (identity.error().code != GitError::Code::Cancelled) {
+            GitError error = std::move(identity).error();
+            QMetaObject::invokeMethod(
+                this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
+        }
+        QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+    });
+}
+
 void RepositorySession::setLocalIdentityOverride(const SetLocalIdentityRequest& request) {
     submitAndRefresh(makeSetLocalIdentityOperation(request), [this](bool succeeded) {
         if (succeeded) {
             refreshLocalIdentity();
+            refreshEffectiveIdentity();
         }
     });
 }
@@ -1252,6 +1466,7 @@ void RepositorySession::clearLocalIdentityOverride() {
     submitAndRefresh(makeClearLocalIdentityOperation(), [this](bool succeeded) {
         if (succeeded) {
             refreshLocalIdentity();
+            refreshEffectiveIdentity();
         }
     });
 }

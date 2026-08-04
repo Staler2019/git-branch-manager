@@ -40,6 +40,8 @@
 #include <QObject>
 #include <QString>
 
+#include <chrono>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -55,6 +57,7 @@ using BisectStatusPtr = std::shared_ptr<const BisectStatus>;
 using LfsFileListPtr = std::shared_ptr<const std::vector<LfsFileInfo>>;
 using LfsPatternListPtr = std::shared_ptr<const std::vector<std::string>>;
 using LocalIdentityPtr = std::shared_ptr<const LocalIdentity>;
+using EffectiveIdentityPtr = std::shared_ptr<const EffectiveIdentity>;
 
 /// One open repository, and the single place where core callbacks become Qt
 /// signals.
@@ -88,6 +91,18 @@ public:
     /// cancelled rather than waited for, which is what makes changing a filter or
     /// switching repositories feel immediate.
     void refreshHistory(HistoryQuery query = {});
+
+    /// Sets the branch/ref filter the graph should show from now on (empty
+    /// `query.includeRefs` means "show everything", the default) and
+    /// refreshes immediately. Unlike a one-off refreshHistory(query) call,
+    /// this selection sticks: every bare refreshHistory() afterwards (the
+    /// Refresh button, a checkout, a fetch, ...) reapplies it instead of
+    /// silently reverting to "show everything".
+    void setHistoryFilter(HistoryQuery query);
+
+    /// The filter set by the last setHistoryFilter() call (default-
+    /// constructed, i.e. "show everything", if none has been set).
+    const HistoryQuery& historyFilter() const { return activeHistoryQuery_; }
 
     void refreshRefs();
 
@@ -194,6 +209,13 @@ public:
     void dropStash(const StashDropRequest& request);
     void branchFromStash(const StashBranchRequest& request);
 
+    /// Requests `git stash show -p --include-untracked stash@{index}`. Reply
+    /// on stashDiffReady. `--include-untracked` is passed unconditionally --
+    /// StashEntry does not record whether the stash was created with it, and
+    /// asking for it on a stash that has no untracked-files parent is a
+    /// documented no-op rather than an error, so this is safe either way.
+    void requestStashDiff(int index);
+
     // --- M3: tags ----------------------------------------------------------
     // Tags themselves are read through refs() / RefKind::Tag; only the
     // mutating side is new here.
@@ -228,6 +250,20 @@ public:
     void fetchRemote(FetchRequest request);
     void pullChanges(PullRequest request);
     void pushChanges(PushRequest request);
+
+    /// Fetches every remote with no credential prompt wired up: if
+    /// authentication is needed, the fetch fails immediately (see
+    /// FetchRequest::askpassDir's doc comment) instead of surfacing the
+    /// askpass dialog. Also skips runWithFeedback's modal-on-failure path --
+    /// callers get workingCopyOperationFinished like any other operation, but
+    /// nothing shows it unless they wire something up themselves.
+    void fetchRemoteSilently();
+
+    /// Calls fetchRemoteSilently() if the "Sync" repository setting
+    /// (Repository Settings > Automatically fetch when opening this
+    /// repository) is on, debounced so calling this on every repo-open and
+    /// every History-tab visit does not hammer the remote.
+    void maybeAutoFetch();
 
     /// Answers or dismisses the credential prompt currently outstanding, if
     /// any. A no-op if none is.
@@ -338,6 +374,14 @@ public:
 
     void refreshLocalIdentity();
 
+    /// Whichever `user.name`/`user.email` git itself would attribute a new
+    /// commit to here (local override falling back to global/system config).
+    /// Used to decide whether a commit in the graph is "mine" -- see
+    /// CommitListModel::IsMineRole.
+    EffectiveIdentityPtr effectiveIdentity() const { return effectiveIdentity_.current(); }
+
+    void refreshEffectiveIdentity();
+
     /// Sets `user.name`/`user.email` scoped `--local` to this repository only.
     void setLocalIdentityOverride(const SetLocalIdentityRequest& request);
 
@@ -378,12 +422,15 @@ signals:
     void workingCopyOperationFinished(OperationOutcome outcome);
 
     void stashesUpdated();
+    /// Reply to requestStashDiff.
+    void stashDiffReady(int index, std::shared_ptr<const ParsedDiff> diff);
     void worktreesUpdated();
     void remotesUpdated();
     void submodulesUpdated();
     void bisectStatusUpdated();
     void lfsUpdated();
     void localIdentityUpdated();
+    void effectiveIdentityUpdated();
 
     /// A `git` subprocess spawned by one of the M3 remote/tag operations is
     /// blocked waiting for `prompt`. The view layer is expected to show it and
@@ -449,11 +496,27 @@ private:
     SnapshotHolder<std::vector<LfsFileInfo>> lfsFiles_;
     std::optional<LfsInstallation> lfsInstallation_;
     SnapshotHolder<LocalIdentity> localIdentity_;
+    SnapshotHolder<EffectiveIdentity> effectiveIdentity_;
 
     /// Cancels the in-flight history walk when a new one starts.
     CancellationSource historyCancel_;
     /// Cancels viewport-driven reads (metadata, diffs) when the user moves on.
     CancellationSource readCancel_;
+
+    /// State from the last *completed* history walk, used by refreshHistory()
+    /// to skip re-running `git rev-list` when nothing that could change its
+    /// result (refs, query filters) has happened since. See fingerprintRefs()
+    /// in RepositorySession.cpp.
+    bool hasLastWalk_ = false;
+    std::uint64_t lastWalkFingerprint_ = 0;
+    HistoryQuery lastWalkQuery_;
+
+    /// The user's current branch/ref filter -- see setHistoryFilter().
+    HistoryQuery activeHistoryQuery_;
+
+    /// Debounce state for maybeAutoFetch(); nullopt before the first call.
+    std::optional<std::chrono::steady_clock::time_point> lastAutoFetchAt_;
+    static constexpr std::chrono::seconds kAutoFetchMinInterval{30};
 
     int busyCount_ = 0;
 };

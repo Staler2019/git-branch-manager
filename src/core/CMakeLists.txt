@@ -31,6 +31,7 @@ add_library(gbm_core STATIC
     git/ops/ConfigOps.cpp
     git/ops/ConflictOps.cpp
     git/ops/LfsOps.cpp
+    git/ops/MaintenanceOps.cpp
     git/ops/MergeOps.cpp
     git/ops/PatchOps.cpp
     git/ops/RebaseOps.cpp

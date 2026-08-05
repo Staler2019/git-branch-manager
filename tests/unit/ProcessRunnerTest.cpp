@@ -408,5 +408,61 @@ TEST(RefStore, ParsesGoneTrackFieldWithoutCountingAsAheadOrBehind) {
     EXPECT_EQ((*snapshot)->refs[0].behind, 0);
 }
 
+TEST(RefStore, LoadsEveryRefWithASingleForEachRefInvocation) {
+    // A counted invariant, not a wall-clock one -- same reasoning as
+    // HistoryProvider.PublishesChunksOnAGeometricSchedule above.
+    //
+    // Ahead/behind comes from %(upstream:track) inside the one for-each-ref
+    // above on purpose (see RefStore::load). The obvious-looking alternative --
+    // a `rev-list --count` per branch -- is one process per ref, which turns a
+    // sub-second load on docs/PERFORMANCE.md's 3,798-ref repository into
+    // minutes. Every parsed field would still be correct if someone did that,
+    // so the process count is the only thing that can catch it.
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response symbolic;
+    symbolic.out = "refs/heads/main";
+    runner.whenArgsContain({"symbolic-ref"}, symbolic);
+
+    FakeProcessRunner::Response revParse;
+    revParse.out = std::string(40, 'a');
+    runner.whenArgsContain({"rev-parse"}, revParse);
+
+    // Enough refs, each with tracking info, that a per-ref process would be
+    // unmistakable in the invocation list rather than a rounding error.
+    const char sep = '\x1f';
+    FakeProcessRunner::Response refs;
+    for (int i = 0; i < 200; ++i) {
+        char oid[41];
+        std::snprintf(oid, sizeof(oid), "%040d", i);
+        const std::string name = "branch-" + std::to_string(i);
+        refs.out += "refs/heads/" + name + sep + "commit" + sep + oid + sep + "" + sep +
+                    "refs/remotes/origin/" + name + sep + "[ahead 1, behind 2]" + sep + "" + sep +
+                    "" + "\n";
+    }
+    runner.whenArgsContain({"for-each-ref"}, refs);
+
+    RefStore store(runner, testPaths());
+    auto snapshot = store.load(CancellationToken{});
+    ASSERT_TRUE(snapshot) << snapshot.error().message;
+    ASSERT_EQ((*snapshot)->refs.size(), 200u);
+    EXPECT_EQ((*snapshot)->ofKind(RefKind::LocalBranch).front()->ahead, 1);
+
+    std::size_t forEachRefCalls = 0;
+    for (std::size_t i = 0; i < runner.invocationCount(); ++i) {
+        const std::vector<std::string> args = runner.invokedArgs(i);
+        if (!args.empty() && args.front() == "for-each-ref") {
+            ++forEachRefCalls;
+        }
+    }
+    EXPECT_EQ(forEachRefCalls, 1u)
+        << "one load() must cost exactly one for-each-ref, not one per ref";
+
+    // Three processes in total: symbolic-ref and rev-parse for HEAD
+    // (readHead), then the single for-each-ref. Pinned so that adding "just
+    // one more quick git call" to load() has to be a deliberate edit to this
+    // number.
+    EXPECT_EQ(runner.invocationCount(), 3u);
+}
+
 }  // namespace
 }  // namespace gbm

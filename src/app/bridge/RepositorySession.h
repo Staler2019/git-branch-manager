@@ -22,6 +22,7 @@
 #include "core/git/ops/ConfigOps.h"
 #include "core/git/ops/ConflictOps.h"
 #include "core/git/ops/LfsOps.h"
+#include "core/git/ops/MaintenanceOps.h"
 #include "core/git/ops/MergeOps.h"
 #include "core/git/ops/PatchOps.h"
 #include "core/git/ops/RebaseOps.h"
@@ -286,6 +287,25 @@ public:
     /// every History-tab visit does not hammer the remote.
     void maybeAutoFetch();
 
+    // --- Commit-graph maintenance -------------------------------------------
+
+    /// Filesystem check only, no subprocess -- see hasCommitGraph(RepoPaths)
+    /// in core/git/ops/MaintenanceOps.h. Safe to call on the UI thread, unlike
+    /// nearly everything else on this class.
+    bool hasCommitGraph() const;
+
+    /// The user's saved answer to the commit-graph advice banner/settings
+    /// checkbox for this repository. Mirrors RepositoryPage's checkbox state --
+    /// see the key-format note on commitGraphPreferenceSetting() in the .cpp.
+    CommitGraphPreference commitGraphPreference() const;
+
+    /// `git commit-graph write`, run through the same operation queue as every
+    /// other mutation. Unlike fetchRemoteSilently(), this is always something
+    /// the user explicitly asked for (the perf banner's "Optimize" button or
+    /// the settings card's "Optimize now"), so it drives the busy indicator
+    /// like a normal operation instead of running invisibly.
+    void writeCommitGraph();
+
     /// Answers or dismisses the credential prompt currently outstanding, if
     /// any. A no-op if none is.
     void provideCredential(const QString& secret);
@@ -441,6 +461,11 @@ signals:
     /// (stash/discard choices) does not apply to staging and commit, so the
     /// working-copy panel gets its own completion signal to react to.
     void workingCopyOperationFinished(OperationOutcome outcome);
+
+    /// Reply to writeCommitGraph(). Separate from workingCopyOperationFinished
+    /// so MainWindow's perf banner can react to exactly this operation instead
+    /// of filtering every operation outcome for one it happens to recognise.
+    void commitGraphWriteFinished(bool succeeded);
 
     void stashesUpdated();
     /// Reply to requestStashDiff.

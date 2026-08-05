@@ -6,6 +6,7 @@
 // binary doubles as a profiling entry point.
 //
 //   gbm_graph_check <repo-path> [--print-rows N] [--max-bytes-per-commit F]
+//                              [--commit-graph-ab N] [--min-graph-speedup F]
 //
 #include "core/base/CancellationToken.h"
 #include "core/git/GitExecutable.h"
@@ -13,6 +14,7 @@
 #include "core/git/RefStore.h"
 #include "core/graph/GraphAsciiRenderer.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -49,6 +51,234 @@ std::vector<std::string> splitLines(const std::string& text) {
     return lines;
 }
 
+// --- timed walk, and the commit-graph A/B gate ------------------------------
+
+struct WalkTiming {
+    long long firstChunkMs = 0;
+    long long totalMs = 0;
+    std::size_t rows = 0;
+    std::size_t chunks = 0;
+    gbm::GraphSnapshotPtr snapshot;  ///< Null when the walk failed.
+};
+
+/// One timed walk. Extracted so the single-run path below and the
+/// commit-graph A/B loop measure through exactly the same code -- if the two
+/// ever drifted, the ratio the gate asserts on would be comparing two
+/// different things.
+WalkTiming timeOneWalk(gbm::HistoryProvider& provider, const gbm::HistoryQuery& query) {
+    const auto start = std::chrono::steady_clock::now();
+    std::chrono::steady_clock::time_point firstChunk{};
+    std::size_t chunks = 0;
+
+    auto snapshot = provider.walk(
+        query,
+        [&](gbm::GraphSnapshotPtr chunk) {
+            if (chunks == 0) {
+                firstChunk = std::chrono::steady_clock::now();
+            }
+            ++chunks;
+            (void)chunk;
+        },
+        gbm::CancellationToken{});
+    const auto done = std::chrono::steady_clock::now();
+
+    WalkTiming timing;
+    if (!snapshot) {
+        std::fprintf(stderr, "walk failed: %s\n", snapshot.error().message.c_str());
+        return timing;
+    }
+    timing.snapshot = *snapshot;
+    timing.rows = (*snapshot)->rowCount();
+    timing.chunks = chunks;
+    timing.firstChunkMs =
+        std::chrono::duration_cast<std::chrono::milliseconds>(firstChunk - start).count();
+    timing.totalMs = std::chrono::duration_cast<std::chrono::milliseconds>(done - start).count();
+    return timing;
+}
+
+void setEnvVar(const char* key, const char* value) {
+#if defined(_WIN32)
+    ::_putenv_s(key, value);
+#else
+    ::setenv(key, value, 1);
+#endif
+}
+
+/// Turns git's use of an existing commit-graph file on or off for every git
+/// child this driver spawns from here on.
+///
+/// It has to arrive out of band, in the environment, rather than as a
+/// `git -c core.commitGraph=false` argument on the walk's own command line:
+/// HistoryProvider owns the rev-list argv, and the entire point of this
+/// measurement is to time the argv the app actually runs. ProcessRunner
+/// copies the parent's environment at spawn time, so a setenv here is picked
+/// up by the very next child and nothing spawned before it.
+///
+/// Chosen over writing/deleting the commit-graph file between arms because
+/// nothing on disk changes either way: same pack, same inodes, same warm page
+/// cache. Physically mutating the repository between arms would move the
+/// cache underneath the comparison -- exactly the confound a ratio test
+/// cannot absorb.
+///
+/// Needs GIT_CONFIG_COUNT, i.e. git >= 2.31 -- one minor above this project's
+/// 2.30 floor. The caller checks the version first: a silently ignored toggle
+/// would make both arms identical and report a false ~1.0x regression.
+void setCommitGraphEnabled(bool enabled) {
+    setEnvVar("GIT_CONFIG_COUNT", "1");
+    setEnvVar("GIT_CONFIG_KEY_0", "core.commitGraph");
+    setEnvVar("GIT_CONFIG_VALUE_0", enabled ? "true" : "false");
+}
+
+long long medianOf(std::vector<long long> values) {
+    // Median, not mean and not best-of-N. A mean is dragged by the one sample
+    // that got descheduled; best-of-N systematically flatters whichever arm
+    // happened to catch the quietest moment on the machine. With an odd
+    // sample count the median is a real observation, not an average of luck.
+    std::sort(values.begin(), values.end());
+    return values.empty() ? 0 : values[values.size() / 2];
+}
+
+std::string joinSamples(const std::vector<long long>& values) {
+    std::string text;
+    for (const long long value : values) {
+        if (!text.empty()) {
+            text += ' ';
+        }
+        text += std::to_string(value);
+    }
+    return text;
+}
+
+/// Times the same walk with and without git's commit-graph and fails if the
+/// graph has stopped buying what docs/PERFORMANCE.md claims it buys.
+///
+/// A *ratio*, deliberately, and never an absolute millisecond ceiling. On a
+/// real 162,368-commit clone, removing the commit-graph moved
+/// time-to-first-chunk 62ms -> 898ms and the full walk 195ms -> 1027ms -- but
+/// on that same warm repository the identical operation swung 83ms -> 1069ms
+/// across five runs of an unchanged binary (see
+/// docs/reports/vscode-graph-performance.md). An absolute gate wide enough to
+/// survive that spread would catch nothing; one tight enough to catch a
+/// regression would go red most nights. The ratio between two arms measured
+/// seconds apart on one machine is stable in a way neither arm's absolute
+/// value is: whatever is making the machine slow that moment is making both
+/// arms slow.
+void runCommitGraphAb(gbm::HistoryProvider& provider,
+                      const gbm::HistoryQuery& query,
+                      const gbm::GitInstallation& installation,
+                      int pairs,
+                      double minSpeedup) {
+    // GIT_CONFIG_COUNT is git 2.31; this project's floor is 2.30. Refusing
+    // here is the whole reason this check exists: on 2.30 the toggle is
+    // silently ignored, both arms use the commit-graph, and the run would
+    // report a false ~1.0x regression instead of naming the real problem.
+    if (installation.version < gbm::GitVersion{2, 31, 0}) {
+        check(false,
+              "commit-graph A/B needs git 2.31 for GIT_CONFIG_COUNT; found " +
+                  installation.version.toString());
+        return;
+    }
+
+    // A warm-up walk whose timing is discarded. The first walk pays for
+    // faulting the pack and the commit-graph file into the page cache;
+    // charging that cost to whichever arm happens to run first would bias
+    // exactly the comparison this gate exists to make fairly.
+    setCommitGraphEnabled(true);
+    const WalkTiming warmup = timeOneWalk(provider, query);
+    if (!warmup.snapshot) {
+        check(false, "commit-graph A/B warm-up walk failed");
+        return;
+    }
+
+    std::vector<long long> offTotal;
+    std::vector<long long> offFirst;
+    std::vector<long long> onTotal;
+    std::vector<long long> onFirst;
+    bool rowsAgree = true;
+
+    for (int i = 0; i < pairs; ++i) {
+        // The no-graph arm runs first in every pair on purpose. It touches a
+        // superset of the pages the graph arm needs, so any residual
+        // cold-cache cost lands on the arm already called slow: the bias runs
+        // toward *understating* the speedup, so a pass can never be an
+        // artefact of the ordering.
+        setCommitGraphEnabled(false);
+        const WalkTiming off = timeOneWalk(provider, query);
+        setCommitGraphEnabled(true);
+        const WalkTiming on = timeOneWalk(provider, query);
+        if (!off.snapshot || !on.snapshot) {
+            check(false, "a walk failed during the commit-graph A/B loop");
+            return;
+        }
+        rowsAgree = rowsAgree && off.rows == warmup.rows && on.rows == warmup.rows;
+        offTotal.push_back(off.totalMs);
+        offFirst.push_back(off.firstChunkMs);
+        onTotal.push_back(on.totalMs);
+        onFirst.push_back(on.firstChunkMs);
+    }
+    setCommitGraphEnabled(true);  // Leave the process in the state main() otherwise expects.
+
+    // If the two arms disagree on row count they did not walk the same
+    // history, and whatever ratio came out of them means nothing.
+    check(rowsAgree, "the commit-graph A/B arms walked different row counts");
+
+    const long long offMs = medianOf(offTotal);
+    const long long onMs = medianOf(onTotal);
+    const long long offFirstMs = medianOf(offFirst);
+    const long long onFirstMs = medianOf(onFirst);
+
+    std::fprintf(stderr,
+                 "commit-graph A/B (%d pairs, %zu rows):\n"
+                 "  graph off: total median=%lldms [%s] first-chunk median=%lldms\n"
+                 "  graph on : total median=%lldms [%s] first-chunk median=%lldms\n",
+                 pairs,
+                 warmup.rows,
+                 offMs,
+                 joinSamples(offTotal).c_str(),
+                 offFirstMs,
+                 onMs,
+                 joinSamples(onTotal).c_str(),
+                 onFirstMs);
+
+    // Below this floor, 1ms clock resolution and process-spawn cost are a
+    // large fraction of the measurement and the ratio stops meaning anything.
+    // This is the guard against the one realistic way the gate degenerates
+    // into passing on noise: someone shrinking the fixture to make CI faster.
+    constexpr long long kMinMeasurableMs = 50;
+    check(onMs >= kMinMeasurableMs,
+          "fixture too small to time: the commit-graph walk took " + std::to_string(onMs) +
+              "ms, under the " + std::to_string(kMinMeasurableMs) +
+              "ms floor -- raise the fixture's commit count");
+
+    const double totalSpeedup =
+        static_cast<double>(offMs) / static_cast<double>(std::max<long long>(onMs, 1));
+    const double firstSpeedup =
+        static_cast<double>(offFirstMs) / static_cast<double>(std::max<long long>(onFirstMs, 1));
+
+    // One machine-readable line for the nightly job's Step Summary to grep.
+    std::fprintf(stderr,
+                 "commit-graph-ab: rows=%zu pairs=%d off_total_ms=%lld on_total_ms=%lld "
+                 "total_speedup=%.2f off_first_ms=%lld on_first_ms=%lld first_speedup=%.2f\n",
+                 warmup.rows,
+                 pairs,
+                 offMs,
+                 onMs,
+                 totalSpeedup,
+                 offFirstMs,
+                 onFirstMs,
+                 firstSpeedup);
+
+    // Gated on total, reported on first-chunk. Time-to-first-chunk is the more
+    // dramatic number (14x vs 5.3x on a real 162k-commit clone) because
+    // streaming topo-order is exactly what the commit-graph enables -- but it
+    // is a single instant, one descheduling away from a wrong answer, whereas
+    // total aggregates the whole walk and averages that away. One gate, on
+    // the steadier metric; the other number is here for the nightly trend.
+    check(totalSpeedup >= minSpeedup,
+          "commit-graph speedup fell to " + std::to_string(totalSpeedup) + "x, under the " +
+              std::to_string(minSpeedup) + "x gate");
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -60,12 +290,23 @@ int main(int argc, char** argv) {
     const std::filesystem::path repoPath = argv[1];
     int printRows = 0;
     double maxBytesPerCommit = 140.0;
+    int commitGraphAbPairs = 0;
+    double minGraphSpeedup = 2.0;
 
     for (int i = 2; i < argc; ++i) {
         if (std::strcmp(argv[i], "--print-rows") == 0 && i + 1 < argc) {
             printRows = std::atoi(argv[++i]);
         } else if (std::strcmp(argv[i], "--max-bytes-per-commit") == 0 && i + 1 < argc) {
             maxBytesPerCommit = std::atof(argv[++i]);
+        } else if (std::strcmp(argv[i], "--commit-graph-ab") == 0 && i + 1 < argc) {
+            commitGraphAbPairs = std::atoi(argv[++i]);
+            // Forced odd so medianOf() returns a real observation rather than
+            // averaging the two middle samples.
+            if (commitGraphAbPairs > 0 && commitGraphAbPairs % 2 == 0) {
+                ++commitGraphAbPairs;
+            }
+        } else if (std::strcmp(argv[i], "--min-graph-speedup") == 0 && i + 1 < argc) {
+            minGraphSpeedup = std::atof(argv[++i]);
         }
     }
 
@@ -227,6 +468,14 @@ int main(int argc, char** argv) {
           std::to_string(movedRight) + " first-parent chains moved right (should be 0)");
     std::fprintf(
         stderr, "first-parent edges: %zu straight, %zu moved right\n", straight, movedRight);
+
+    // Runs after correctness is established above: a broken walk should
+    // report as a walk bug, not a perf regression. Off by default (0 pairs);
+    // the commit_graph_speedup_ratio ctest is the only caller that turns it
+    // on, via RunCommitGraphRatioCheck.cmake.
+    if (commitGraphAbPairs > 0) {
+        runCommitGraphAb(provider, query, *installation, commitGraphAbPairs, minGraphSpeedup);
+    }
 
     if (printRows > 0) {
         gbm::AsciiRenderOptions options;

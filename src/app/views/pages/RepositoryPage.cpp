@@ -3,6 +3,7 @@
 #include "app/bridge/RepositorySession.h"
 #include "app/bridge/ThemeManager.h"
 #include "core/git/ops/ConfigOps.h"
+#include "core/git/ops/MaintenanceOps.h"
 #include "core/git/ops/RemoteOps.h"
 
 #include <QCheckBox>
@@ -10,6 +11,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QPushButton>
 #include <QSettings>
 #include <QSpinBox>
 #include <QVBoxLayout>
@@ -133,6 +135,40 @@ void RepositoryPage::buildUi() {
     captionLabel->setWordWrap(true);
     perfCardLayout->addWidget(captionLabel);
 
+    commitGraphCheck_ = new QCheckBox(tr("Keep commit-graph up to date"), perfCard);
+    perfCardLayout->addWidget(commitGraphCheck_);
+    // Its own write path, not savePerformanceSetting(): that slot is shared by
+    // largeRepoModeCheck_/maxGraphRowsSpin_/autoFetchCheck_ too, and it always
+    // rewrites all four keys from the widgets' *current displayed* state --
+    // but "unset" (never asked) and "declined" both render this checkbox
+    // unchecked (see loadPerformanceSettings() below), so toggling any of the
+    // other three would have silently turned "unset" into "declined" and
+    // permanently suppressed the perf-advice banner for a repository nobody
+    // ever actually declined it on.
+    connect(
+        commitGraphCheck_, &QCheckBox::toggled, this, &RepositoryPage::saveCommitGraphPreference);
+
+    auto* commitGraphRow = new QHBoxLayout();
+    commitGraphStatusLabel_ = new QLabel(perfCard);
+    commitGraphStatusLabel_->setObjectName(QStringLiteral("gbmPanelCaption"));
+    commitGraphRow->addWidget(commitGraphStatusLabel_, 1);
+    commitGraphOptimizeButton_ = new QPushButton(tr("Optimize now"), perfCard);
+    connect(commitGraphOptimizeButton_,
+            &QPushButton::clicked,
+            this,
+            &RepositoryPage::onCommitGraphOptimizeClicked);
+    commitGraphRow->addWidget(commitGraphOptimizeButton_);
+    perfCardLayout->addLayout(commitGraphRow);
+
+    auto* commitGraphCaption = new QLabel(
+        tr("Speeds up history loading on large repositories by writing a `commit-graph` index "
+           "into `.git/`. Same optimization the perf hint offers after opening a large "
+           "repository for the first time."),
+        perfCard);
+    commitGraphCaption->setObjectName(QStringLiteral("gbmPanelCaption"));
+    commitGraphCaption->setWordWrap(true);
+    perfCardLayout->addWidget(commitGraphCaption);
+
     outerLayout->addWidget(perfCard);
 
     // --- "Sync" -------------------------------------------------------------
@@ -192,9 +228,14 @@ void RepositoryPage::setSession(RepositorySession* session) {
             &RepositoryPage::onLocalIdentityUpdated);
     connect(
         session_, &RepositorySession::remotesUpdated, this, [this] { refreshRepositoryCard(); });
+    connect(session_,
+            &RepositorySession::commitGraphWriteFinished,
+            this,
+            &RepositoryPage::onCommitGraphWriteFinished);
 
     refreshRepositoryCard();
     loadPerformanceSettings();
+    refreshCommitGraphStatus();
     session_->refreshLocalIdentity();
 }
 
@@ -311,6 +352,16 @@ void RepositoryPage::loadPerformanceSettings() {
     autoFetchCheck_->blockSignals(true);
     autoFetchCheck_->setChecked(autoFetch);
     autoFetchCheck_->blockSignals(false);
+
+    // "unset" (never asked) reads as unchecked here, same as "declined" -- the
+    // checkbox is a plain boolean and has no third state to show it in. The
+    // perf-advice banner is where "unset" is actually distinguished, by
+    // offering the choice at all instead of assuming "no".
+    const QString commitGraph =
+        settings.value(prefix + QStringLiteral("commitGraph"), QStringLiteral("unset")).toString();
+    commitGraphCheck_->blockSignals(true);
+    commitGraphCheck_->setChecked(commitGraph == QStringLiteral("enabled"));
+    commitGraphCheck_->blockSignals(false);
 }
 
 void RepositoryPage::savePerformanceSetting() {
@@ -322,6 +373,71 @@ void RepositoryPage::savePerformanceSetting() {
     settings.setValue(prefix + QStringLiteral("largeRepoMode"), largeRepoModeCheck_->isChecked());
     settings.setValue(prefix + QStringLiteral("maxGraphRows"), maxGraphRowsSpin_->value());
     settings.setValue(prefix + QStringLiteral("autoFetchOnOpen"), autoFetchCheck_->isChecked());
+    // commitGraph is deliberately NOT written here -- see
+    // saveCommitGraphPreference() and the doc comment on commitGraphCheck_'s
+    // connect() above for why sharing this slot broke persistence.
+}
+
+void RepositoryPage::saveCommitGraphPreference() {
+    const QString prefix = settingsKeyPrefix();
+    if (prefix.isEmpty()) {
+        return;
+    }
+    QSettings settings;
+    // Unlike the other three settings, this checkbox toggling off is a
+    // deliberate choice made from Settings, not a "maybe later" -- so it maps
+    // straight to "declined", never back to "unset". "unset" is only ever the
+    // state a repository starts in, before this checkbox has been touched.
+    settings.setValue(
+        prefix + QStringLiteral("commitGraph"),
+        commitGraphCheck_->isChecked() ? QStringLiteral("enabled") : QStringLiteral("declined"));
+}
+
+void RepositoryPage::refreshCommitGraphStatus() {
+    if (!session_) {
+        commitGraphStatusLabel_->setText(QString());
+        commitGraphOptimizeButton_->setEnabled(false);
+        return;
+    }
+    const bool hasGraph = session_->hasCommitGraph();
+    commitGraphStatusLabel_->setText(hasGraph ? tr("commit-graph is up to date")
+                                              : tr("no commit-graph built yet"));
+    // Disabled while one is already present -- rebuilding an up-to-date graph
+    // is wasted work, not a mistake worth letting the user make from here.
+    commitGraphOptimizeButton_->setEnabled(!hasGraph);
+}
+
+void RepositoryPage::onCommitGraphOptimizeClicked() {
+    if (!session_) {
+        return;
+    }
+    commitGraphOptimizeButton_->setEnabled(false);
+    session_->writeCommitGraph();
+}
+
+void RepositoryPage::onCommitGraphWriteFinished(bool succeeded) {
+    // Failure leaves the button re-enabled so the user can retry; no separate
+    // error surface here since submitAndRefresh already emits
+    // workingCopyOperationFinished, which MainWindow's operation log shows.
+    (void)succeeded;
+    refreshCommitGraphStatus();
+
+    // This write can be triggered from MainWindow's perf-advice banner, not
+    // only from this page's own "Optimize now" button -- and the banner's
+    // "Optimize" path writes the commitGraph preference to "enabled" before
+    // starting the write. Without re-reading it here, a user who clicks the
+    // banner and then opens Settings would see this checkbox still showing
+    // its stale pre-click state.
+    const QString prefix = settingsKeyPrefix();
+    if (!prefix.isEmpty()) {
+        QSettings settings;
+        const QString commitGraph =
+            settings.value(prefix + QStringLiteral("commitGraph"), QStringLiteral("unset"))
+                .toString();
+        commitGraphCheck_->blockSignals(true);
+        commitGraphCheck_->setChecked(commitGraph == QStringLiteral("enabled"));
+        commitGraphCheck_->blockSignals(false);
+    }
 }
 
 }  // namespace gbm

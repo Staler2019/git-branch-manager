@@ -82,6 +82,22 @@ namespace {
 /// stats, so only what is on screen gets probed.
 constexpr int kProbeMargin = 20;
 
+/// Same `repositoryPerf/<path>/commitGraph` key RepositoryPage's checkbox and
+/// RepositorySession::commitGraphPreference() read -- see the key-format note
+/// on RepositoryPage::settingsKeyPrefix() for why this tiny snippet is
+/// duplicated per UI class rather than shared, and follow that same
+/// convention here: RepositorySession only ever reads this setting, the UI
+/// that shows the choice writes it. "Not now" deliberately does not write --
+/// it leaves the preference Unset, which is what makes it "ask again later"
+/// instead of "never ask".
+QString commitGraphSettingsKey(const RepositorySession& session) {
+    QString path = QString::fromStdString(session.paths().commandDir().string());
+    path.replace(QLatin1Char('/'), QLatin1Char('_'));
+    path.replace(QLatin1Char('\\'), QLatin1Char('_'));
+    path.replace(QLatin1Char(':'), QLatin1Char('_'));
+    return QStringLiteral("repositoryPerf/%1/commitGraph").arg(path);
+}
+
 /// The minimum acceptable danger treatment for a destructive menu action,
 /// mirroring `SidebarPanel.cpp`'s `markDanger`: QSS cannot select one
 /// `QMenu::item` out of many, so this tints the action's icon instead.
@@ -288,6 +304,45 @@ void MainWindow::buildUi() {
 
     bannerRow->setVisible(false);
     repoLayout->addWidget(bannerRow);
+
+    // A performance advisory, not a repository-state warning -- see the
+    // sibling-of-bannerRow_ comment on perfHintRow_ in the header for why this
+    // is a separate widget rather than another mode of the banner above.
+    perfHintRow_ = new QWidget(repoPage);
+    perfHintRow_->setObjectName(QStringLiteral("gbmPerfHint"));
+    auto* perfHintRow = perfHintRow_;
+    auto* perfHintLayout = new QHBoxLayout(perfHintRow);
+    perfHintLayout->setContentsMargins(kSpace4, kSpace2, kSpace4, kSpace2);
+    perfHintLayout->setSpacing(kSpace3);
+
+    perfHintLabel_ = new QLabel(perfHintRow);
+    perfHintLabel_->setObjectName(QStringLiteral("gbmPerfHintLabel"));
+    perfHintLabel_->setWordWrap(true);
+    perfHintLabel_->setText(
+        tr("This repository has no commit-graph. Building one makes history load faster."));
+    perfHintLayout->addWidget(perfHintLabel_, 1);
+
+    perfHintDismissButton_ = new QPushButton(QStringLiteral("✕"), perfHintRow);
+    perfHintDismissButton_->setObjectName(QStringLiteral("secondaryButton"));
+    perfHintDismissButton_->setAccessibleName(QStringLiteral("Dismiss performance hint"));
+    perfHintNotNowButton_ = new QPushButton(tr("Not now"), perfHintRow);
+    perfHintNotNowButton_->setObjectName(QStringLiteral("secondaryButton"));
+    perfHintOptimizeButton_ = new QPushButton(tr("Optimize"), perfHintRow);
+    perfHintOptimizeButton_->setObjectName(QStringLiteral("primaryButton"));
+    connect(perfHintOptimizeButton_,
+            &QPushButton::clicked,
+            this,
+            &MainWindow::onPerfHintOptimizeClicked);
+    connect(
+        perfHintNotNowButton_, &QPushButton::clicked, this, &MainWindow::onPerfHintNotNowClicked);
+    connect(
+        perfHintDismissButton_, &QPushButton::clicked, this, &MainWindow::onPerfHintDismissClicked);
+    perfHintLayout->addWidget(perfHintNotNowButton_);
+    perfHintLayout->addWidget(perfHintOptimizeButton_);
+    perfHintLayout->addWidget(perfHintDismissButton_);
+
+    perfHintRow->setVisible(false);
+    repoLayout->addWidget(perfHintRow);
 
     auto* outerSplitter = new QSplitter(Qt::Horizontal, repoPage);
     outerSplitter_ = outerSplitter;
@@ -1168,6 +1223,10 @@ void MainWindow::openRepository(const RepoRecord& record) {
             this,
             [this](const OperationOutcome&) { updateStateBanner(); });
     connect(session_.get(),
+            &RepositorySession::commitGraphWriteFinished,
+            this,
+            &MainWindow::onCommitGraphWriteFinished);
+    connect(session_.get(),
             &RepositorySession::credentialRequested,
             this,
             &MainWindow::onCredentialRequested);
@@ -1313,6 +1372,15 @@ void MainWindow::closeRepository() {
     toolBarBranchLabel_->setText(QString());
     stack_->setCurrentIndex(0);
     bannerLabel_->parentWidget()->setVisible(false);
+    perfHintRow_->setVisible(false);
+    commitGraphHintShown_ = false;
+    // Undoes onPerfHintOptimizeClicked's setEnabled(false): if a
+    // writeCommitGraph() was still in flight when this repository closed,
+    // commitGraphWriteFinished never arrives to re-enable these, and the next
+    // repository's hint would otherwise render with Optimize/Not now
+    // permanently greyed out.
+    perfHintOptimizeButton_->setEnabled(true);
+    perfHintNotNowButton_->setEnabled(true);
 }
 
 void MainWindow::applyThemeAndRefresh(ThemeId theme) {
@@ -1481,9 +1549,75 @@ void MainWindow::onGraphUpdated(bool complete) {
         const int width = graphDelegate_->widthForRows(
             0, static_cast<int>(std::min<std::size_t>(snapshot->rowCount(), 200)));
         commitView_->setColumnWidth(CommitListModel::ColumnGraph, width);
+
+        // Same "every cap is visible" reasoning as the truncated/overflowedEdges
+        // text above, applied to a cap the user doesn't even know exists yet: a
+        // missing commit-graph is invisible until someone notices history feels
+        // slow. commitGraphHintShown_ is why this only ever offers once per
+        // session -- see its doc comment on why that guard is load-bearing, not
+        // defensive.
+        //
+        // rowCount() is post-cap once large-repository mode is on (see
+        // RepositorySession::maxGraphRowsSetting), so comparing it directly
+        // against kCommitGraphAdviceMinRows would mean a user who capped
+        // history at, say, 5,000 rows could never clear the threshold no
+        // matter how large the real repository is -- exactly the population
+        // most likely to benefit from a commit-graph. snapshot->truncated
+        // means the real history exceeds whatever cap is in effect, so that
+        // alone is treated as clearing the threshold rather than comparing
+        // the capped count against it.
+        const std::uint32_t rowCountForAdvice =
+            snapshot->truncated
+                ? std::max<std::uint32_t>(static_cast<std::uint32_t>(snapshot->rowCount()),
+                                          kCommitGraphAdviceMinRows)
+                : static_cast<std::uint32_t>(snapshot->rowCount());
+        if (complete && session_ && !commitGraphHintShown_ &&
+            shouldOfferCommitGraph(
+                session_->hasCommitGraph(), rowCountForAdvice, session_->commitGraphPreference())) {
+            commitGraphHintShown_ = true;
+            perfHintRow_->setVisible(true);
+        }
     }
 
     onCommitScrolled();
+}
+
+void MainWindow::onPerfHintOptimizeClicked() {
+    if (!session_) {
+        return;
+    }
+    QSettings settings;
+    settings.setValue(commitGraphSettingsKey(*session_), QStringLiteral("enabled"));
+    perfHintOptimizeButton_->setEnabled(false);
+    perfHintNotNowButton_->setEnabled(false);
+    session_->writeCommitGraph();
+}
+
+void MainWindow::onPerfHintNotNowClicked() {
+    // Preference is left Unset on purpose: this is "ask me later", not "never
+    // ask" -- unlike the dismiss (x) button below. It disappears for the rest
+    // of this session because commitGraphHintShown_ stays true, and is offered
+    // again the next time this repository is opened.
+    perfHintRow_->setVisible(false);
+}
+
+void MainWindow::onPerfHintDismissClicked() {
+    if (session_) {
+        QSettings settings;
+        settings.setValue(commitGraphSettingsKey(*session_), QStringLiteral("declined"));
+    }
+    perfHintRow_->setVisible(false);
+}
+
+void MainWindow::onCommitGraphWriteFinished(bool succeeded) {
+    perfHintOptimizeButton_->setEnabled(true);
+    perfHintNotNowButton_->setEnabled(true);
+    if (succeeded) {
+        perfHintRow_->setVisible(false);
+    }
+    // Failure leaves the hint up so the user can retry; no separate error
+    // surface here since submitAndRefresh already emits
+    // workingCopyOperationFinished, which the operation log shows.
 }
 
 void MainWindow::onCommitScrolled() {

@@ -60,6 +60,26 @@ bool autoFetchOnOpenSetting(const RepoPaths& paths) {
     return settings.value(prefix + QStringLiteral("autoFetchOnOpen"), true).toBool();
 }
 
+/// Mirrors RepositoryPage's "Keep commit-graph up to date" checkbox, same key
+/// format note as above. Defaults to Unset (never written before), which is
+/// the only state shouldOfferCommitGraph() treats as "still worth asking".
+CommitGraphPreference commitGraphPreferenceSetting(const RepoPaths& paths) {
+    const QString prefix = performanceSettingsKeyPrefix(paths);
+    if (prefix.isEmpty()) {
+        return CommitGraphPreference::Unset;
+    }
+    QSettings settings;
+    const QString value =
+        settings.value(prefix + QStringLiteral("commitGraph"), QStringLiteral("unset")).toString();
+    if (value == QStringLiteral("enabled")) {
+        return CommitGraphPreference::Enabled;
+    }
+    if (value == QStringLiteral("declined")) {
+        return CommitGraphPreference::Declined;
+    }
+    return CommitGraphPreference::Unset;
+}
+
 std::uint64_t combineHash(std::uint64_t seed, std::uint64_t value) {
     // boost::hash_combine's mixing constant/shifts; good enough for a cache
     // key, no cryptographic properties needed.
@@ -998,6 +1018,33 @@ void RepositorySession::maybeAutoFetch() {
     }
     lastAutoFetchAt_ = now;
     fetchRemoteSilently();
+}
+
+// --- Commit-graph maintenance -----------------------------------------------
+
+bool RepositorySession::hasCommitGraph() const {
+    return gbm::hasCommitGraph(paths_);
+}
+
+CommitGraphPreference RepositorySession::commitGraphPreference() const {
+    return commitGraphPreferenceSetting(paths_);
+}
+
+void RepositorySession::writeCommitGraph() {
+    WriteCommitGraphRequest request;
+    request.split = installation_.capabilities.commitGraphSplit;
+    request.changedPaths = installation_.capabilities.changedPathBloom;
+    // No refreshRefsAndHistory() on success, unlike every other mutation above:
+    // the commits are unchanged, so the ref fingerprint walkHistoryWithRefs()
+    // caches is unchanged too, and a re-walk would just short-circuit on that
+    // cache while still paying for a second for-each-ref -- see
+    // walkHistoryWithRefs()'s fingerprint check above. The graph is consulted
+    // lazily by the next real history walk regardless of whether one runs now.
+    // afterFinished already runs on the UI thread -- submitAndRefresh's own
+    // completion lambda is what does the hop, same as every other caller
+    // below (e.g. initSubmodules) -- so this just emits directly.
+    submitAndRefresh(makeWriteCommitGraphOperation(request),
+                     [this](bool succeeded) { emit commitGraphWriteFinished(succeeded); });
 }
 
 void RepositorySession::pullChanges(PullRequest request) {

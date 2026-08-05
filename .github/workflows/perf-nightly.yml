@@ -1,0 +1,96 @@
+name: perf-nightly
+
+# The timing gate cannot live in ci.yml. tests/CMakeLists.txt already says why:
+# a shared pull-request runner is far too noisy for timing assertions to gate
+# a branch. Nightly on one pinned image instead, so a regression surfaces as a
+# break in a trend rather than as a flaky red X on somebody's PR.
+on:
+  schedule:
+    # Off the hour on purpose: GitHub's scheduler queues heavily at :00, and a
+    # perf job that waits in a queue lands on a busier runner.
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+# No cancel-in-progress, unlike ci.yml: there is never a queue of these, and
+# killing a run mid-measurement throws away a fixture build for nothing.
+concurrency:
+  group: perf-nightly
+
+jobs:
+  commit-graph-ratio:
+    name: commit-graph speedup
+    # Pinned, not -latest, for the same reason the sanitizer jobs in ci.yml
+    # are pinned: a runner image rolling forward underneath a performance
+    # trend makes the trend unreadable. One OS only -- this measures a
+    # property of git and the walk, not of the platform.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja and a pinned CMake
+        uses: lukka/get-cmake@latest
+
+      - name: Report the git version
+        # GIT_CONFIG_COUNT is 2.31; gbm_graph_check's A/B mode refuses to
+        # measure below that rather than silently reporting a false
+        # regression -- see tests/tools/graph_check.cpp. Logged unconditionally
+        # so a runner image bump that moves git shows up next to the numbers
+        # it moved.
+        run: git --version
+
+      # core-only: the walk under test is Qt-free, so this skips the Qt
+      # install and everything it drags in -- only the two binaries the gate
+      # needs get built.
+      - name: Configure and build
+        run: |
+          cmake --preset core-only
+          cmake --build --preset core-only --target gen_history gbm_graph_check
+
+      - name: Measure
+        run: |
+          set -o pipefail
+          ctest --preset perf 2>&1 | tee perf.log
+
+      # always(), including on failure: the numbers from the run that just
+      # tripped the gate are the entire reason to open the summary.
+      - name: Publish measurements
+        if: always()
+        run: |
+          line=$(grep -m1 'commit-graph-ab:' perf.log || true)
+          if [ -z "$line" ]; then
+            {
+              echo "## commit-graph speedup"
+              echo
+              echo 'No measurement line in `perf.log` -- the run failed before measuring.'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          field() { sed -n "s/.*$1=\([0-9.]*\).*/\1/p" <<<"$line"; }
+          {
+            echo "## commit-graph speedup -- $(date -u '+%Y-%m-%d')"
+            echo
+            echo "git: $(git --version) - rows: $(field rows) - pairs: $(field pairs)"
+            echo
+            echo '| metric | graph off | graph on | speedup |'
+            echo '|---|---|---|---|'
+            printf '| full walk | %sms | %sms | **%sx** |\n' \
+              "$(field off_total_ms)" "$(field on_total_ms)" "$(field total_speedup)"
+            printf '| time to first chunk | %sms | %sms | %sx |\n' \
+              "$(field off_first_ms)" "$(field on_first_ms)" "$(field first_speedup)"
+            echo
+            echo 'Gate is on the full walk only; time-to-first-chunk is reported for the trend.'
+            echo
+            echo '```'
+            echo "$line"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the full log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-log
+          path: perf.log
+          if-no-files-found: ignore

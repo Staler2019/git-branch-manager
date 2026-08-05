@@ -50,6 +50,15 @@ rule; `QDialog`, `QComboBox` (including its popup `QAbstractItemView`),
 `QDialogButtonBox`, `QScrollBar` (handle + groove), `QMenuBar`/`QMenu`
 (including separators) all have dedicated rules already.
 
+## Added since this audit, with coverage from the start
+
+`QWidget#gbmPerfHint` / `QLabel#gbmPerfHintLabel` (MainWindow's dismissible
+commit-graph advice row): styled alongside `gbmBanner`/`gbmBannerLabel` in the
+same commit that added the widget, using `@accent-subtle` rather than
+`gbmBanner`'s warning-red `@diff-del-bg` -- this is a suggestion, not a
+warning. Verified via `ThemeTest::qssSubstitutionLeavesNoUnresolvedPlaceholder`
+and `everyTokenResolvesInEveryTheme`.
+
 ## Inline `setStyleSheet` call sites (bypass the token system on purpose or not)
 
 `DiffPage.cpp`, `WorkingCopyView.cpp` (x2), `CommitExpansionPanel.cpp` each

@@ -1,5 +1,16 @@
 include(GoogleTest)
 
+# Source-only, so deliberately not inside the GBM_BUILD_APP guard below: this
+# must gate the core-only, asan-ubsan and tsan presets too, not just the full
+# app builds -- it reads src/app's *text*, not anything that needs Qt to
+# compile. See CheckNoDuplicateRefRefresh.cmake for why this is a source check
+# rather than a runtime one.
+add_test(NAME no_duplicate_ref_refresh_call_sites
+    COMMAND "${CMAKE_COMMAND}"
+            -DSOURCE_DIR=${CMAKE_SOURCE_DIR}
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckNoDuplicateRefRefresh.cmake")
+set_tests_properties(no_duplicate_ref_refresh_call_sites PROPERTIES LABELS "unit")
+
 # Test doubles live here rather than in the shipped library.
 add_library(gbm_test_support STATIC support/FakeProcessRunner.cpp)
 target_include_directories(gbm_test_support PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -11,6 +22,7 @@ add_executable(gbm_core_tests
     unit/DiscoveryTest.cpp
     unit/GitIntegrationTest.cpp
     unit/GraphBuilderTest.cpp
+    unit/MaintenanceOpsTest.cpp
     unit/ProcessRunnerTest.cpp
     unit/SideBySideDiffTest.cpp
     unit/UnifiedDiffParserTest.cpp
@@ -51,6 +63,45 @@ endif()
 # A small driver used by the test above and for manual profiling.
 add_executable(gbm_graph_check tools/graph_check.cpp)
 target_link_libraries(gbm_graph_check PRIVATE gbm_core gbm_warnings)
+
+# --- nightly commit-graph speedup gate --------------------------------------
+# Not a pull-request gate: it builds a ${GBM_PERF_COMMITS}-commit fixture and
+# then times things, and a shared CI runner is far too noisy for timing to
+# gate somebody's branch (see the label comment at the top of this file). The
+# `perf` label keeps it out of every CI preset's filter automatically;
+# perf-nightly.yml is the only thing that asks for it.
+set(GBM_PERF_COMMITS 100000 CACHE STRING
+    "Commits in the commit-graph perf fixture. Calibrated -- see docs/PERFORMANCE.md before changing.")
+set(GBM_PERF_SAMPLES 5 CACHE STRING
+    "Off/on walk pairs per perf run. Forced odd by graph_check so the median is a real sample.")
+set(GBM_PERF_MIN_SPEEDUP 2.0 CACHE STRING
+    "Minimum commit-graph speedup asserted by the gate, roughly half the calibrated median.")
+
+if(GIT_FOUND)
+    add_test(NAME commit_graph_speedup_ratio
+        COMMAND "${CMAKE_COMMAND}"
+                -DGIT_EXECUTABLE=${GIT_EXECUTABLE}
+                -DGEN_HISTORY=$<TARGET_FILE:gen_history>
+                -DWALKER=$<TARGET_FILE:gbm_graph_check>
+                # Not graph_matches_git_on_generated_history's fixture-repo: the
+                # two tests must never be able to delete each other's repository
+                # mid-run.
+                -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/perf-repo
+                -DCOMMITS=${GBM_PERF_COMMITS}
+                -DSAMPLES=${GBM_PERF_SAMPLES}
+                -DMIN_SPEEDUP=${GBM_PERF_MIN_SPEEDUP}
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunCommitGraphRatioCheck.cmake")
+    set_tests_properties(commit_graph_speedup_ratio PROPERTIES
+        LABELS "perf"
+        # ~30s at 100k commits on a dev machine; slack here is deliberate for a
+        # cold, shared runner -- a timeout on this test is a false alarm, not a
+        # finding.
+        TIMEOUT 600
+        # A ctest -j neighbour saturating the machine is the largest noise
+        # source available to a timing test. One property removes it.
+        RUN_SERIAL TRUE
+        ENVIRONMENT "GIT_OPTIONAL_LOCKS=0")
+endif()
 
 # --- Qt model tests --------------------------------------------------------
 # Only when the GUI is being built. Runs offscreen, so it needs no display in CI.

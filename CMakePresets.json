@@ -71,8 +71,25 @@
       "output": { "outputOnFailure": true },
       "execution": { "noTestsAction": "error", "stopOnFailure": false }
     },
-    { "name": "dev", "inherits": "tbase", "configurePreset": "dev" },
-    { "name": "core-only", "inherits": "tbase", "configurePreset": "core-only" },
+    {
+      "name": "dev",
+      "inherits": "tbase",
+      "configurePreset": "dev",
+      "filter": { "exclude": { "label": "perf" } }
+    },
+    {
+      "name": "core-only",
+      "inherits": "tbase",
+      "configurePreset": "core-only",
+      "filter": { "exclude": { "label": "perf" } }
+    },
+    {
+      "name": "perf",
+      "inherits": "tbase",
+      "configurePreset": "core-only",
+      "filter": { "include": { "label": "perf" } },
+      "output": { "outputOnFailure": true, "verbosity": "verbose" }
+    },
     {
       "name": "asan-ubsan",
       "inherits": "tbase",
@@ -124,6 +141,14 @@
         { "type": "configure", "name": "core-only" },
         { "type": "build", "name": "core-only" },
         { "type": "test", "name": "core-only" }
+      ]
+    },
+    {
+      "name": "perf",
+      "steps": [
+        { "type": "configure", "name": "core-only" },
+        { "type": "build", "name": "core-only" },
+        { "type": "test", "name": "perf" }
       ]
     },
     {

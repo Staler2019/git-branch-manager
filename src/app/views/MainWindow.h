@@ -153,6 +153,10 @@ private slots:
     void onBannerContinue();
     void onBannerSkip();
     void onBannerAbort();
+    void onPerfHintOptimizeClicked();
+    void onPerfHintNotNowClicked();
+    void onPerfHintDismissClicked();
+    void onCommitGraphWriteFinished(bool succeeded);
     void onCleanUntracked();
     void onOpenTerminal();
     void onShowReflog();
@@ -352,6 +356,26 @@ private:
     QPushButton* bannerContinueButton_ = nullptr;
     QPushButton* bannerSkipButton_ = nullptr;
     QPushButton* bannerAbortButton_ = nullptr;
+
+    /// A sibling of bannerRow_, not a reuse of it: bannerRow_ reflects
+    /// RepoState (merge/rebase/cherry-pick in progress) via updateStateBanner()
+    /// and is driven by workingCopyOperationFinished; this one is an
+    /// unrelated, dismissible performance hint driven by onGraphUpdated(). The
+    /// two concerns would fight over one slot's worth of space if merged.
+    QWidget* perfHintRow_ = nullptr;
+    QLabel* perfHintLabel_ = nullptr;
+    QPushButton* perfHintOptimizeButton_ = nullptr;
+    QPushButton* perfHintNotNowButton_ = nullptr;
+    QPushButton* perfHintDismissButton_ = nullptr;
+    /// Set the first time the hint is shown for the current session, and
+    /// never cleared until the next openRepository(). Without this,
+    /// MainWindow::openRepository()'s unconditional maybeAutoFetch() call
+    /// produces a second graphUpdated(complete=true) 750ms-1s later on a
+    /// successful silent fetch (see RepositorySession::fetchRemoteSilently),
+    /// which would otherwise reopen a hint the user just dismissed -- observed
+    /// in 2 of 4 headless runs against a real large clone; see
+    /// docs/reports/vscode-graph-performance.md's bottleneck #3.
+    bool commitGraphHintShown_ = false;
     QAction* undoAction_ = nullptr;
     QProgressBar* busyBar_ = nullptr;
 

@@ -188,6 +188,19 @@ QLabel#gbmBannerLabel {
     color: @diff-del-text;
 }
 
+/* Sibling of gbmBanner, not a reuse: gbmBanner is a repository-state warning
+ * (dirty merge/rebase), this is a dismissible performance advisory -- see the
+ * doc comment on MainWindow::perfHintRow_. @accent-subtle instead of the
+ * warning-red @diff-del-bg above: nothing is wrong, this is a suggestion. */
+QWidget#gbmPerfHint {
+    background: @accent-subtle;
+    border-bottom: 1px solid @border-subtle;
+}
+
+QLabel#gbmPerfHintLabel {
+    color: @text-primary;
+}
+
 /* --- buttons --------------------------------------------------------------*/
 
 QPushButton {

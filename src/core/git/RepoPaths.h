@@ -82,6 +82,16 @@ public:
 
     std::filesystem::path shallowFile() const { return commonDir_ / "shallow"; }
 
+    /// The single-file commit-graph. Lives under commonDir(): the object store
+    /// is shared across linked worktrees, so every worktree sees one graph.
+    std::filesystem::path commitGraphFile() const { return objectsDir() / "info" / "commit-graph"; }
+
+    /// The split commit-graph chain (`commit-graph write --split`, git >= 2.24).
+    /// A repository has one form or the other, never both.
+    std::filesystem::path commitGraphChainFile() const {
+        return objectsDir() / "info" / "commit-graphs" / "commit-graph-chain";
+    }
+
     /// A human-facing name for the repository, derived from the work tree (or
     /// the git directory for bare repos).
     std::string displayName() const {

@@ -223,6 +223,93 @@ unit-tested is `GraphUpdateOrigin::toString()` (`tests/unit/CoreBasicsTest.cpp`,
 `GraphUpdateOrigin` section) -- the pure mapping both the log line and any
 future assertion depend on.
 
+### Bridge-layer timing probe: making the Qt delta visible
+
+The same vscode investigation (`docs/reports/vscode-graph-performance.md`,
+bottleneck #4) found that this section's own promise -- "unlike the section
+above, this measures what a refresh actually costs once Qt ... is in the
+loop" -- wasn't actually being kept. `gbm_graph_check`'s time-to-first-chunk on
+the real vscode clone was **62 ms**; the real Qt app, same repository, same
+state, five runs: **83, 94, 172, 916, 1069 ms**. Nothing recorded that 17x
+spread. It was only visible at all because `MainWindow` had been temporarily
+instrumented with timing prints for the investigation and reverted
+afterward -- exactly the throwaway instrumentation this section replaces.
+
+**Fix applied:** `RepositorySession::refreshHistory()`/`refreshRefsAndHistory()`
+build a `WalkTimingProbe` (`app/bridge/WalkTimingProbe.h`) right after
+`setBusy(true)` -- that instant is timestamp zero -- whenever `GBM_TIMING=1` is
+set; null (and free to check against) otherwise. The probe is threaded through
+the posted worker lambda, `walkHistoryWithRefs()`, and the chunk callback,
+marking five points along the way:
+
+| Mark | Where | What it isolates |
+|---|---|---|
+| `queue_ms` | UI request -> worker lambda entry | Read-pool wait (bottleneck #2's residue) |
+| `refs_ms` | worker entry -> `for-each-ref` done | The `RefStore::load()` cost measured above |
+| `walk_ms` | refs done -> chunk built in core | `rev-list` + `GraphBuilder` -- what `gbm_graph_check` measures |
+| `hop_ms` | chunk built -> `emitGraphUpdated()` on the UI thread | The `Qt::QueuedConnection` latency -- the pure bridge cost this section exists to expose |
+| `apply_ms` | `emitGraphUpdated()` -> `noteGraphApplied()` returns | Model reset, `widthForRows()`, status text -- UI-thread work `MainWindow::onGraphUpdated()` does |
+
+`main.cpp` installs a `Log::TimingSink` that writes each line straight to
+`stderr` when `GBM_TIMING=1` -- a separate sink from the Operation Log panel's
+`MessageSink`, so a headless `QT_QPA_PLATFORM=offscreen` run (how this
+investigation's own numbers were taken) prints these lines too. A refresh logs
+at most two: `outcome=first-chunk` and `outcome=complete`, matching
+`gbm_graph_check`'s own `time-to-first-chunk=... total=...` shape rather than
+one line per chunk in `HistoryProvider`'s geometric publish schedule. The
+fingerprint fast path logs `outcome=skipped` (no `walk_ms`, since no
+`rev-list` ran); a failed `for-each-ref`/`rev-list` logs `outcome=failed`
+directly, since that path never reaches `emitGraphUpdated()` at all; a
+superseded walk logs `outcome=cancelled` the same way, unless it had already
+logged a first-chunk line, in which case the cancellation is left implicit
+(no `complete` line ever follows). An unreached mark prints `-`, never `0` --
+see `core/base/WalkTiming.h`'s doc comment on why a skipped walk must not read
+as a suspiciously fast one.
+
+Reproduce against the same kind of fixture this section's other numbers use:
+
+```bash
+R=/tmp/gbm-timing-fixture
+git init --quiet --bare $R/.git && git -C $R config core.bare false
+./build/dev/tests/gen_history --commits 50000 --branches 3000 --merge-rate 0.05 \
+    --octopus 2 --tags 800 --seed 7 | git -C $R fast-import --quiet
+git -C $R commit-graph write --reachable --changed-paths
+
+QT_QPA_PLATFORM=offscreen GBM_TIMING=1 GBM_SCREENSHOT=/tmp/shot.png GBM_SCREENSHOT_REPO=$R \
+    ./build/dev/src/app/git-branch-manager 2>&1 | grep gbm-timing
+```
+
+Sample output against a 5,000-commit fixture on this machine:
+
+```
+gbm-timing walk origin=explicit outcome=first-chunk rows=256 queue_ms=0 refs_ms=86 walk_ms=21 hop_ms=0 apply_ms=0 total_ms=107
+gbm-timing walk origin=explicit outcome=complete rows=5000 queue_ms=0 refs_ms=86 walk_ms=25 hop_ms=1 apply_ms=1 total_ms=113
+```
+
+`hop_ms` and `apply_ms` read near-zero here -- consistent with `docs/PERFORMANCE.md`'s
+recurring point that the number that matters is the comparison, not any single
+run's digits: this section exists so that on a machine or a repository where
+the bridge overhead *isn't* negligible, the `queue_ms`/`refs_ms`/`walk_ms`/`hop_ms`/`apply_ms`
+breakdown says which segment to chase instead of leaving the whole refresh as
+one undifferentiated number.
+
+Like the other fixes in this section, `RepositorySession` has no test harness,
+so this wiring is not regression-tested end to end. What *is* unit-tested is
+the pure formatting and env-gate logic behind it -- `formatWalkTiming()`,
+`toString(WalkOutcome)`, and `walkTimingEnabledForValue()`
+(`tests/unit/CoreBasicsTest.cpp`, "walk timing" section) -- including the
+dash-for-unreached-mark behavior and that `total_ms` falls back to the last
+mark actually reached rather than always requiring `apply_ms`.
+
+**Not covered:** no CI job measures this. `perf-nightly.yml` builds
+`--preset core-only`, which links no Qt, so it cannot exercise
+`RepositorySession` or the bridge probe at all; adding a Qt job there is next
+in line if this trend ever needs unattended tracking (see this file's own
+"Deferred, not implemented in this pass" precedent above). For now this is a
+manual, on-demand probe, same tier as the vscode-scale reproductions
+`docs/reports/vscode-graph-performance.md` itself names as "manual/local only,
+not automated."
+
 ## Repository performance settings
 
 `commit-graph` is the single largest lever this app controls, and until now

@@ -193,6 +193,36 @@ pure, testable function for the same reason.
 OS-level first-touch I/O, not application logic; this change only ensures it
 no longer delays the one thing the user opened the repository to see.
 
+### Auto-fetch resync signal: telling a background resync apart from the initial walk
+
+The same vscode investigation (`docs/reports/vscode-graph-performance.md`,
+bottleneck #3) found that 2 of 4 headless runs printed a **second**
+`graphUpdated(complete=true)` 750ms-1s after the first, with no way to tell it
+apart from "the first walk was just slow". The cause: `openRepository()` calls
+`maybeAutoFetch()` (Settings > "Sync" repository setting, default on), and its
+`fetchRemoteSilently()` re-triggers `refreshRefsAndHistory()` on a successful
+fetch that moved refs -- likely correct behaviour, but silent.
+
+**Fix applied:** `RepositorySession::graphUpdated(bool complete,
+GraphUpdateOrigin origin)` now carries a `GraphUpdateOrigin` (`core/git/HistoryProvider.h`)
+alongside `complete`. `fetchRemoteSilently()` -- `maybeAutoFetch()`'s only
+caller -- is the sole call site that passes `AutoFetchResync`; every other
+refresh (repo open, Refresh, filter/checkout/operation-driven refreshes)
+keeps the default `Explicit`. A new `emitGraphUpdated()` helper logs the
+origin before every emission (`Info` for `AutoFetchResync`, `Debug`
+otherwise), so a silent background resync now leaves a distinct trace in the
+operation log instead of looking identical to a slow initial walk. Both the
+signal and the log line exist for the same reason: the UI can react to the
+distinction later if it needs to, and any future perf gate can assert on it,
+without either being blocked on this pass actually changing visible UI
+behaviour.
+
+Like the other two fixes in this section, `RepositorySession` has no test
+harness, so this wiring is not regression-tested end to end. What *is*
+unit-tested is `GraphUpdateOrigin::toString()` (`tests/unit/CoreBasicsTest.cpp`,
+`GraphUpdateOrigin` section) -- the pure mapping both the log line and any
+future assertion depend on.
+
 ## Repository performance settings
 
 `commit-graph` is the single largest lever this app controls, and until now

@@ -2,6 +2,7 @@
 
 #include "app/bridge/AskpassWatcher.h"
 #include "app/bridge/SnapshotHolder.h"
+#include "app/bridge/WalkTimingProbe.h"
 #include "core/base/CancellationToken.h"
 #include "core/git/BlameStore.h"
 #include "core/git/CatFileBatch.h"
@@ -127,6 +128,16 @@ public:
     /// docs/reports/vscode-graph-performance.md, bottleneck #3.
     void refreshRefsAndHistory(HistoryQuery query = {},
                                GraphUpdateOrigin origin = GraphUpdateOrigin::Explicit);
+
+    /// Closes out the timing record graphUpdated()'s handler (MainWindow::
+    /// onGraphUpdated) started applying -- called once that handler has
+    /// finished its model reset / column sizing work, with `complete` and
+    /// `rows` exactly as the handler received/computed them. A no-op when
+    /// GBM_TIMING=1 wasn't set for this refresh (see WalkTimingProbe), so
+    /// this call costs nothing when the probe is off. See
+    /// docs/PERFORMANCE.md, "Bridge-layer timing probe" and
+    /// docs/reports/vscode-graph-performance.md, bottleneck #4.
+    void noteGraphApplied(bool complete, std::size_t rows);
 
     /// Queues metadata for rows the user can actually see. Called by the model on
     /// a cache miss; never blocks the caller.
@@ -555,13 +566,17 @@ private:
     void walkHistoryWithRefs(HistoryQuery query,
                              RefSnapshotPtr refsForSeed,
                              CancellationToken token,
-                             GraphUpdateOrigin origin);
+                             GraphUpdateOrigin origin,
+                             WalkTimingProbePtr timing);
 
     /// Logs `origin` (see GraphUpdateOrigin) alongside `complete` before
     /// emitting graphUpdated(), so the two publish sites in
     /// walkHistoryWithRefs() share one place that does both instead of
-    /// duplicating the log line.
-    void emitGraphUpdated(bool complete, GraphUpdateOrigin origin);
+    /// duplicating the log line. `timing` is null unless GBM_TIMING=1 was
+    /// set for this refresh; when present, marks chunkDeliveredMs and stashes
+    /// the probe in pendingTimingProbe_ for noteGraphApplied() to finish once
+    /// MainWindow::onGraphUpdated() has done its UI work.
+    void emitGraphUpdated(bool complete, GraphUpdateOrigin origin, WalkTimingProbePtr timing);
 
     /// Opens initialWorkingCopyGate_ and runs refreshWorkingCopyStatus() if a
     /// refreshWorkingCopyStatusWhenIdle() call was held pending. Called from
@@ -630,6 +645,13 @@ private:
 
     /// The user's current branch/ref filter -- see setHistoryFilter().
     HistoryQuery activeHistoryQuery_;
+
+    /// The in-flight refresh's timing probe, from the moment emitGraphUpdated()
+    /// marks chunkDeliveredMs until noteGraphApplied() consumes it. UI-thread
+    /// only -- both ends run inside a Qt::QueuedConnection lambda or a slot
+    /// invoked synchronously from one. Null whenever GBM_TIMING wasn't set for
+    /// the in-flight refresh, or once noteGraphApplied() has consumed it.
+    WalkTimingProbePtr pendingTimingProbe_;
 
     /// Debounce state for maybeAutoFetch(); nullopt before the first call.
     std::optional<std::chrono::steady_clock::time_point> lastAutoFetchAt_;

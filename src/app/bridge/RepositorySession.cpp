@@ -200,7 +200,19 @@ void RepositorySession::refreshHistory(HistoryQuery query) {
 
     setBusy(true);
 
-    readPool_.post([this, query = std::move(query), token]() mutable {
+    // Timestamp zero for this refresh's gbm-timing line -- see
+    // WalkTimingProbe's doc comment and
+    // docs/reports/vscode-graph-performance.md, bottleneck #4. Null (and
+    // free to check against) whenever GBM_TIMING=1 wasn't set.
+    WalkTimingProbePtr timing;
+    if (walkTimingEnabled()) {
+        timing = std::make_shared<WalkTimingProbe>(GraphUpdateOrigin::Explicit);
+    }
+
+    readPool_.post([this, query = std::move(query), token, timing]() mutable {
+        if (timing) {
+            timing->markWorkerStarted();
+        }
         // Re-read refs here rather than trusting refs_.current(): a caller
         // that calls this alone (no adjacent refreshRefs()) has no other
         // guarantee refs_ reflects anything that happened since the last
@@ -215,12 +227,17 @@ void RepositorySession::refreshHistory(HistoryQuery query) {
             // and reassigned) before it even reached walkHistoryWithRefs(),
             // so the newer call that superseded it owns releasing
             // initialWorkingCopyGate_ -- releasing here too is harmless
-            // (idempotent) but not required.
+            // (idempotent) but not required. No timing line either, for the
+            // same reason: the superseding call's own probe covers it.
             QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
             return;
         }
+        if (timing) {
+            timing->markRefsLoaded();
+        }
         const RefSnapshotPtr refsForSeed = freshRefs ? *freshRefs : refs_.current();
-        walkHistoryWithRefs(std::move(query), refsForSeed, token, GraphUpdateOrigin::Explicit);
+        walkHistoryWithRefs(
+            std::move(query), refsForSeed, token, GraphUpdateOrigin::Explicit, timing);
     });
 }
 
@@ -239,13 +256,33 @@ void RepositorySession::refreshRefsAndHistory(HistoryQuery query, GraphUpdateOri
 
     setBusy(true);
 
-    readPool_.post([this, query = std::move(query), token, origin]() mutable {
+    WalkTimingProbePtr timing;
+    if (walkTimingEnabled()) {
+        timing = std::make_shared<WalkTimingProbe>(origin);
+    }
+
+    readPool_.post([this, query = std::move(query), token, origin, timing]() mutable {
+        if (timing) {
+            timing->markWorkerStarted();
+        }
         auto freshRefs = refStore_->load(token);
         if (!freshRefs) {
             if (freshRefs.error().code != GitError::Code::Cancelled) {
                 GitError error = std::move(freshRefs).error();
                 QMetaObject::invokeMethod(
                     this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
+            }
+            // No walk is going to run for this call, so this is the only
+            // chance to log a line for it -- neither emitGraphUpdated() nor
+            // noteGraphApplied() will ever run. refsLoadedMs stays unreached
+            // (-1) deliberately: the for-each-ref call is exactly what
+            // failed or was cancelled here.
+            if (timing) {
+                const WalkOutcome outcome = freshRefs.error().code == GitError::Code::Cancelled
+                                                ? WalkOutcome::Cancelled
+                                                : WalkOutcome::Failed;
+                logTiming(
+                    formatWalkTiming(toString(timing->origin()), outcome, 0, timing->snapshot()));
             }
             // Refs could not be loaded at all, so no walk is going to run for
             // this call. Release initialWorkingCopyGate_ only when this was a
@@ -269,17 +306,21 @@ void RepositorySession::refreshRefsAndHistory(HistoryQuery query, GraphUpdateOri
                 Qt::QueuedConnection);
             return;
         }
+        if (timing) {
+            timing->markRefsLoaded();
+        }
         const RefSnapshotPtr refsForSeed = *freshRefs;
         refs_.publish(refsForSeed);
         QMetaObject::invokeMethod(this, [this] { emit refsUpdated(); }, Qt::QueuedConnection);
-        walkHistoryWithRefs(std::move(query), refsForSeed, token, origin);
+        walkHistoryWithRefs(std::move(query), refsForSeed, token, origin, timing);
     });
 }
 
 void RepositorySession::walkHistoryWithRefs(HistoryQuery query,
                                             RefSnapshotPtr refsForSeed,
                                             CancellationToken token,
-                                            GraphUpdateOrigin origin) {
+                                            GraphUpdateOrigin origin,
+                                            WalkTimingProbePtr timing) {
     // Always seed from the refs so the trunk lands in lane 0 -- this is
     // ordering only (HistoryQuery::toRevListArgs), never narrowing: it is
     // followed by --all whenever includeRefs (the branch filter) is
@@ -319,7 +360,7 @@ void RepositorySession::walkHistoryWithRefs(HistoryQuery query,
             // re-running `rev-list` and just republish what we have.
             QMetaObject::invokeMethod(
                 this,
-                [this, token, origin] {
+                [this, token, origin, timing] {
                     setBusy(false);
                     // Same reasoning as the final catch-all below: if `token`
                     // is cancelled, this call was itself superseded before
@@ -333,7 +374,14 @@ void RepositorySession::walkHistoryWithRefs(HistoryQuery query,
                     if (token.isCancelled()) {
                         return;
                     }
-                    emitGraphUpdated(true, origin);
+                    // No rev-list ran, so this line must read outcome=skipped
+                    // rather than emitGraphUpdated()'s complete=true
+                    // suggesting a real walk finished -- see
+                    // WalkTimingProbe::markSkipped().
+                    if (timing) {
+                        timing->markSkipped();
+                    }
+                    emitGraphUpdated(true, origin, timing);
                     releaseInitialWorkingCopyGate();
                 },
                 Qt::QueuedConnection);
@@ -343,11 +391,14 @@ void RepositorySession::walkHistoryWithRefs(HistoryQuery query,
 
     auto result = history_->walk(
         query,
-        [this, token, origin](GraphSnapshotPtr chunk) {
+        [this, token, origin, timing](GraphSnapshotPtr chunk) {
             if (token.isCancelled()) {
                 return;
             }
             const bool complete = chunk->complete;
+            if (timing) {
+                timing->markChunkBuilt();
+            }
             graph_.publish(std::move(chunk));
             // Queued, so the UI thread picks it up in its own event loop.
             // Also releases initialWorkingCopyGate_ on the first chunk --
@@ -357,8 +408,8 @@ void RepositorySession::walkHistoryWithRefs(HistoryQuery query,
             // docs/reports/vscode-graph-performance.md, bottleneck #2.
             QMetaObject::invokeMethod(
                 this,
-                [this, complete, origin] {
-                    emitGraphUpdated(complete, origin);
+                [this, complete, origin, timing] {
+                    emitGraphUpdated(complete, origin, timing);
                     releaseInitialWorkingCopyGate();
                 },
                 Qt::QueuedConnection);
@@ -376,6 +427,13 @@ void RepositorySession::walkHistoryWithRefs(HistoryQuery query,
             Qt::QueuedConnection);
     } else if (result.error().code != GitError::Code::Cancelled) {
         GitError error = std::move(result).error();
+        // A genuine walk failure never reaches emitGraphUpdated(), so this is
+        // the only chance to log it -- unlike the fingerprint-skip path
+        // above, this really doesn't reach MainWindow.
+        if (timing) {
+            logTiming(formatWalkTiming(
+                toString(timing->origin()), WalkOutcome::Failed, 0, timing->snapshot()));
+        }
         QMetaObject::invokeMethod(
             this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
     }
@@ -394,9 +452,18 @@ void RepositorySession::walkHistoryWithRefs(HistoryQuery query,
     // release instead.
     QMetaObject::invokeMethod(
         this,
-        [this, token] {
+        [this, token, timing] {
             setBusy(false);
             if (token.isCancelled()) {
+                // A walk that already delivered a chunk (firstChunkLogged())
+                // has already logged for this probe -- e.g. it was streaming
+                // when a newer refresh superseded it. Logging Cancelled here
+                // too would be a second, redundant line for the same probe;
+                // only log when this walk never got that far.
+                if (timing && !timing->firstChunkLogged()) {
+                    logTiming(formatWalkTiming(
+                        toString(timing->origin()), WalkOutcome::Cancelled, 0, timing->snapshot()));
+                }
                 return;
             }
             releaseInitialWorkingCopyGate();
@@ -404,7 +471,9 @@ void RepositorySession::walkHistoryWithRefs(HistoryQuery query,
         Qt::QueuedConnection);
 }
 
-void RepositorySession::emitGraphUpdated(bool complete, GraphUpdateOrigin origin) {
+void RepositorySession::emitGraphUpdated(bool complete,
+                                         GraphUpdateOrigin origin,
+                                         WalkTimingProbePtr timing) {
     // AutoFetchResync at Info: this is exactly the case
     // docs/reports/vscode-graph-performance.md bottleneck #3 flagged as
     // silent -- a second graphUpdated() a moment after the first, with no way
@@ -418,7 +487,43 @@ void RepositorySession::emitGraphUpdated(bool complete, GraphUpdateOrigin origin
     } else {
         GBM_LOG_DEBUG(message);
     }
+
+    if (timing) {
+        timing->markChunkDelivered();
+        // Set before emit: graphUpdated() is connected same-thread, so
+        // MainWindow::onGraphUpdated() -> noteGraphApplied() runs
+        // synchronously inside this emit, and needs to find it here.
+        pendingTimingProbe_ = std::move(timing);
+    }
+
     emit graphUpdated(complete, origin);
+}
+
+void RepositorySession::noteGraphApplied(bool complete, std::size_t rows) {
+    if (!pendingTimingProbe_) {
+        return;
+    }
+    // Consumed unconditionally, whether or not this call ends up logging a
+    // line -- either way, this probe's UI-apply leg is now accounted for.
+    const WalkTimingProbePtr timing = std::move(pendingTimingProbe_);
+    timing->markUiApplied();
+
+    WalkOutcome outcome;
+    if (timing->consumeSkipped()) {
+        outcome = WalkOutcome::Skipped;
+    } else if (complete) {
+        outcome = WalkOutcome::Complete;
+    } else if (!timing->firstChunkLogged()) {
+        outcome = WalkOutcome::FirstChunk;
+    } else {
+        // An intermediate chunk between the first and the last -- see
+        // HistoryProvider.h's geometric publish schedule. Not logged, so a
+        // walk produces at most a first-chunk and a complete line rather
+        // than one per chunk.
+        return;
+    }
+    timing->setFirstChunkLogged();
+    logTiming(formatWalkTiming(toString(timing->origin()), outcome, rows, timing->snapshot()));
 }
 
 void RepositorySession::setHistoryFilter(HistoryQuery query) {

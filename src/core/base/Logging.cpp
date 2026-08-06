@@ -68,6 +68,11 @@ void Log::setOperationSink(OperationSink sink) {
     operationSink_ = std::move(sink);
 }
 
+void Log::setTimingSink(TimingSink sink) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    timingSink_ = std::move(sink);
+}
+
 void Log::write(LogLevel level, std::string_view message) {
     MessageSink sink;
     {
@@ -93,8 +98,24 @@ void Log::recordOperation(const OperationRecord& record) {
     sink(record);
 }
 
+void Log::recordTiming(std::string_view line) {
+    TimingSink sink;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!timingSink_) {
+            return;
+        }
+        sink = timingSink_;
+    }
+    sink(line);
+}
+
 void logMessage(LogLevel level, std::string_view message) {
     Log::instance().write(level, message);
+}
+
+void logTiming(std::string_view line) {
+    Log::instance().recordTiming(line);
 }
 
 }  // namespace gbm

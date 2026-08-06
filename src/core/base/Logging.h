@@ -37,6 +37,13 @@ class Log {
 public:
     using MessageSink = std::function<void(LogLevel, std::string_view)>;
     using OperationSink = std::function<void(const OperationRecord&)>;
+    /// One already-formatted `gbm-timing ...` line (see core/base/WalkTiming.h).
+    /// A separate sink from MessageSink because the app's operation log panel
+    /// already owns MessageSink, and a headless run (how
+    /// docs/reports/vscode-graph-performance.md's bridge-layer measurements
+    /// were taken) has no panel to send it to -- the app installs this one
+    /// only when GBM_TIMING=1, writing to stderr instead.
+    using TimingSink = std::function<void(std::string_view)>;
 
     static Log& instance();
 
@@ -45,9 +52,11 @@ public:
 
     void setMessageSink(MessageSink sink);
     void setOperationSink(OperationSink sink);
+    void setTimingSink(TimingSink sink);
 
     void write(LogLevel level, std::string_view message);
     void recordOperation(const OperationRecord& record);
+    void recordTiming(std::string_view line);
 
 private:
     Log() = default;
@@ -56,9 +65,11 @@ private:
     LogLevel level_ = LogLevel::Info;
     MessageSink messageSink_;
     OperationSink operationSink_;
+    TimingSink timingSink_;
 };
 
 void logMessage(LogLevel level, std::string_view message);
+void logTiming(std::string_view line);
 
 #define GBM_LOG_DEBUG(msg) ::gbm::logMessage(::gbm::LogLevel::Debug, (msg))
 #define GBM_LOG_INFO(msg) ::gbm::logMessage(::gbm::LogLevel::Info, (msg))

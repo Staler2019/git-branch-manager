@@ -15,6 +15,7 @@
 #include "app/views/pages/RepositoryPage.h"
 #include "app/views/pages/WorkingCopyView.h"
 #include "core/git/GitExecutable.h"
+#include "core/git/HistoryProvider.h"
 #include "core/workers/ThreadPool.h"
 
 #include <QElapsedTimer>
@@ -95,7 +96,7 @@ private slots:
     void onCheckoutRequested();
     void onMergeRequested();
     void onCherryPickRequested();
-    void onGraphUpdated(bool complete);
+    void onGraphUpdated(bool complete, GraphUpdateOrigin origin);
     void onCommitDetailsReady(const ObjectId& commit,
                               std::shared_ptr<const std::vector<ChangedFile>> files,
                               std::shared_ptr<const ParsedDiff> diff);

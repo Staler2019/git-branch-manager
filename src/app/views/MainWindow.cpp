@@ -183,6 +183,11 @@ MainWindow::~MainWindow() {
     // teardown must not call into a destroyed widget.
     Log::instance().setOperationSink(nullptr);
     Log::instance().setMessageSink(nullptr);
+    // The stderr timing sink (main.cpp, GBM_TIMING=1) captures no widget, so
+    // this isn't a dangling-pointer risk like the two sinks above -- cleared
+    // anyway for symmetry, so a destroyed MainWindow never has anything of
+    // its own still wired into Log.
+    Log::instance().setTimingSink(nullptr);
     // closeRepository() cancels, drains and destroys session_ (in that
     // order -- see its own comments) before returning, so readPool_ is
     // already idle and holds nothing capturing the now-destroyed session by
@@ -1259,6 +1264,23 @@ void MainWindow::openRepository(const RepoRecord& record) {
             });
 
     commitModel_->setSession(session_.get());
+
+    // Posted to the read pool before any of the panel setSession() calls
+    // below (specifically before workingCopyView_->setSession(), which
+    // speculatively queues the cold `git status` scan) so the history walk is
+    // never stuck behind it on a shared pool that may have as few as 2
+    // threads -- see docs/reports/vscode-graph-performance.md, bottleneck #2,
+    // and RepositorySession::refreshWorkingCopyStatusWhenIdle(). Safe to call
+    // this early: every RepositorySession signal above is already connected,
+    // and every emission is Qt::QueuedConnection, so nothing can be delivered
+    // before this function returns control to the event loop.
+    //
+    // Refs first, so the history walk can be seeded with HEAD and the trunk; that
+    // seeding order is what puts the trunk in lane 0. refreshRefsAndHistory()
+    // shares a single for-each-ref load between the two rather than each
+    // independently re-running it -- see its doc comment.
+    session_->refreshRefsAndHistory();
+
     diffView_->clearDiff();
     diffPage_->clearDiff();
     diffTabShownPath_.clear();
@@ -1275,11 +1297,6 @@ void MainWindow::openRepository(const RepoRecord& record) {
     tabWidget_->setCurrentIndex(kHistoryTab);
     updateStateBanner();
 
-    // Refs first, so the history walk can be seeded with HEAD and the trunk; that
-    // seeding order is what puts the trunk in lane 0. refreshRefsAndHistory()
-    // shares a single for-each-ref load between the two rather than each
-    // independently re-running it -- see its doc comment.
-    session_->refreshRefsAndHistory();
     // So the remote picker in the Push/Push tag dialogs has something to show
     // the first time they are opened, without waiting on a Fetch.
     session_->refreshRemotes();
@@ -1523,7 +1540,12 @@ void MainWindow::updateSequencerControls(const RepoState& state) {
     bannerAbortButton_->setVisible(isRebase || isCherryPick || isMerge);
 }
 
-void MainWindow::onGraphUpdated(bool complete) {
+void MainWindow::onGraphUpdated(bool complete, GraphUpdateOrigin origin) {
+    // origin is not read here yet -- it exists so this slot and any future
+    // gate can tell an auto-fetch resync apart from every other walk, per
+    // docs/reports/vscode-graph-performance.md bottleneck #3.
+    // RepositorySession::emitGraphUpdated() already logs it distinctly.
+    Q_UNUSED(origin);
     commitModel_->onGraphUpdated(complete);
 
     if (auto snapshot = commitModel_->snapshot()) {
@@ -1580,6 +1602,15 @@ void MainWindow::onGraphUpdated(bool complete) {
     }
 
     onCommitScrolled();
+
+    // Last, so it accounts for everything this slot just did -- see
+    // docs/PERFORMANCE.md, "Bridge-layer timing probe" and
+    // docs/reports/vscode-graph-performance.md, bottleneck #4. A no-op unless
+    // GBM_TIMING=1 was set for this refresh.
+    if (session_) {
+        const auto appliedSnapshot = commitModel_->snapshot();
+        session_->noteGraphApplied(complete, appliedSnapshot ? appliedSnapshot->rowCount() : 0);
+    }
 }
 
 void MainWindow::onPerfHintOptimizeClicked() {

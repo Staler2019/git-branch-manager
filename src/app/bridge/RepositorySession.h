@@ -2,6 +2,7 @@
 
 #include "app/bridge/AskpassWatcher.h"
 #include "app/bridge/SnapshotHolder.h"
+#include "app/bridge/WalkTimingProbe.h"
 #include "core/base/CancellationToken.h"
 #include "core/git/BlameStore.h"
 #include "core/git/CatFileBatch.h"
@@ -36,6 +37,7 @@
 #include "core/git/ops/UndoOps.h"
 #include "core/git/ops/WorktreeOps.h"
 #include "core/graph/GraphSnapshot.h"
+#include "core/workers/StartupReadGate.h"
 #include "core/workers/ThreadPool.h"
 
 #include <QObject>
@@ -117,7 +119,25 @@ public:
     /// synthetic repository with ~3.8k refs, the second for-each-ref alone
     /// cost more than the entire rev-list walk that followed it (~750ms vs
     /// ~450ms for 50k commits with a commit-graph) -- see docs/PERFORMANCE.md.
-    void refreshRefsAndHistory(HistoryQuery query = {});
+    ///
+    /// `origin` is threaded straight through to graphUpdated() and affects no
+    /// control flow here -- emitGraphUpdated() reads it only to choose a log
+    /// level. fetchRemoteSilently() is the only caller that passes
+    /// AutoFetchResync; every other call site keeps the default. See
+    /// GraphUpdateOrigin's doc comment and
+    /// docs/reports/vscode-graph-performance.md, bottleneck #3.
+    void refreshRefsAndHistory(HistoryQuery query = {},
+                               GraphUpdateOrigin origin = GraphUpdateOrigin::Explicit);
+
+    /// Closes out the timing record graphUpdated()'s handler (MainWindow::
+    /// onGraphUpdated) started applying -- called once that handler has
+    /// finished its model reset / column sizing work, with `complete` and
+    /// `rows` exactly as the handler received/computed them. A no-op when
+    /// GBM_TIMING=1 wasn't set for this refresh (see WalkTimingProbe), so
+    /// this call costs nothing when the probe is off. See
+    /// docs/PERFORMANCE.md, "Bridge-layer timing probe" and
+    /// docs/reports/vscode-graph-performance.md, bottleneck #4.
+    void noteGraphApplied(bool complete, std::size_t rows);
 
     /// Queues metadata for rows the user can actually see. Called by the model on
     /// a cache miss; never blocks the caller.
@@ -159,7 +179,24 @@ public:
     /// Re-reads `git status`. Deliberately uncached at the RepositorySession
     /// level too, matching WorkingCopyStatusReader: the work tree changes on
     /// every keystroke, so a snapshot is only ever "as of the last refresh".
+    /// Always runs immediately -- for the speculative repo-open call, see
+    /// refreshWorkingCopyStatusWhenIdle() instead. Also opens
+    /// initialWorkingCopyGate_, so a user-driven call (staging, the Working
+    /// Copy tab, resyncOpenSession()) is never itself held back by it.
     void refreshWorkingCopyStatus();
+
+    /// Speculative variant used when a repository is first opened
+    /// (WorkingCopyView::setSession()). The cold `git status` scan on a
+    /// large, freshly-cloned tree can cost tens of seconds (see
+    /// docs/reports/vscode-graph-performance.md, bottleneck #2) and the read
+    /// pool has as few as 2 threads (ThreadPool::defaultThreadCount()) -- run
+    /// unconditionally, this can queue ahead of the history walk and delay
+    /// the very first thing the user opened the repository to see. Runs
+    /// immediately once the history walk has produced its first result
+    /// (success, error, cancellation, or a fingerprint-skip that reuses the
+    /// prior graph) via releaseInitialWorkingCopyGate(); coalesces any number
+    /// of calls made before that into a single scan.
+    void refreshWorkingCopyStatusWhenIdle();
 
     /// Diff of one path against the index (staged=false) or HEAD
     /// (staged=true), for the working-copy panel.
@@ -431,8 +468,14 @@ public:
     void clearLocalIdentityOverride();
 
 signals:
-    /// A newer graph snapshot is available (possibly partial).
-    void graphUpdated(bool complete);
+    /// A newer graph snapshot is available (possibly partial). `origin`
+    /// distinguishes the walk this snapshot came from -- see
+    /// GraphUpdateOrigin's doc comment and
+    /// docs/reports/vscode-graph-performance.md, bottleneck #3: without it, a
+    /// silent auto-fetch resync (maybeAutoFetch() -> fetchRemoteSilently() ->
+    /// refreshRefsAndHistory()) is indistinguishable from the initial walk
+    /// just running slowly.
+    void graphUpdated(bool complete, GraphUpdateOrigin origin);
     void refsUpdated();
     void commitMetadataReady(const std::vector<CommitMeta>& metadata);
     void commitDetailsReady(const ObjectId& commit,
@@ -522,7 +565,28 @@ private:
     /// callers only need to have called setBusy(true) beforehand.
     void walkHistoryWithRefs(HistoryQuery query,
                              RefSnapshotPtr refsForSeed,
-                             CancellationToken token);
+                             CancellationToken token,
+                             GraphUpdateOrigin origin,
+                             WalkTimingProbePtr timing);
+
+    /// Logs `origin` (see GraphUpdateOrigin) alongside `complete` before
+    /// emitting graphUpdated(), so the two publish sites in
+    /// walkHistoryWithRefs() share one place that does both instead of
+    /// duplicating the log line. `timing` is null unless GBM_TIMING=1 was
+    /// set for this refresh; when present, marks chunkDeliveredMs and stashes
+    /// the probe in pendingTimingProbe_ for noteGraphApplied() to finish once
+    /// MainWindow::onGraphUpdated() has done its UI work.
+    void emitGraphUpdated(bool complete, GraphUpdateOrigin origin, WalkTimingProbePtr timing);
+
+    /// Opens initialWorkingCopyGate_ and runs refreshWorkingCopyStatus() if a
+    /// refreshWorkingCopyStatusWhenIdle() call was held pending. Called from
+    /// every terminal path of walkHistoryWithRefs() (first published chunk,
+    /// error, cancellation) and from the fingerprint-skip early return in
+    /// refreshHistory()/refreshRefsAndHistory() that republishes the prior
+    /// graph without walking -- must run on the UI thread, so every call site
+    /// reaches it from inside a Qt::QueuedConnection lambda, same as the
+    /// signal emissions right next to it.
+    void releaseInitialWorkingCopyGate();
 
     GitInstallation installation_;
     RepoPaths paths_;
@@ -574,8 +638,20 @@ private:
     std::uint64_t lastWalkFingerprint_ = 0;
     HistoryQuery lastWalkQuery_;
 
+    /// Holds the repo-open speculative status scan back until the history
+    /// walk has produced its first result -- see
+    /// refreshWorkingCopyStatusWhenIdle(). UI-thread only.
+    StartupReadGate initialWorkingCopyGate_;
+
     /// The user's current branch/ref filter -- see setHistoryFilter().
     HistoryQuery activeHistoryQuery_;
+
+    /// The in-flight refresh's timing probe, from the moment emitGraphUpdated()
+    /// marks chunkDeliveredMs until noteGraphApplied() consumes it. UI-thread
+    /// only -- both ends run inside a Qt::QueuedConnection lambda or a slot
+    /// invoked synchronously from one. Null whenever GBM_TIMING wasn't set for
+    /// the in-flight refresh, or once noteGraphApplied() has consumed it.
+    WalkTimingProbePtr pendingTimingProbe_;
 
     /// Debounce state for maybeAutoFetch(); nullopt before the first call.
     std::optional<std::chrono::steady_clock::time_point> lastAutoFetchAt_;

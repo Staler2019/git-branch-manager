@@ -1,6 +1,7 @@
 #include "core/base/CancellationToken.h"
 #include "core/base/Error.h"
 #include "core/base/ObjectId.h"
+#include "core/base/WalkTiming.h"
 #include "core/git/AskpassHelper.h"
 #include "core/git/CommitMeta.h"
 #include "core/git/GitExecutable.h"
@@ -522,6 +523,99 @@ TEST(GraphUpdateOrigin, ExplicitDescribesAnyDirectWalk) {
 
 TEST(GraphUpdateOrigin, AutoFetchResyncDescribesTheBackgroundResync) {
     EXPECT_EQ(toString(GraphUpdateOrigin::AutoFetchResync), "auto-fetch resync");
+}
+
+// --- walk timing -------------------------------------------------------------
+// Formats the bridge-boundary timing line RepositorySession emits per history
+// refresh when GBM_TIMING=1. See docs/reports/vscode-graph-performance.md,
+// bottleneck #4: the Qt/bridge overhead was undocumented and volatile (62ms
+// core-only vs. 83-1069ms in the real app for the same walk) because nothing
+// recorded it. RepositorySession itself has no test harness, so the parsing
+// and formatting logic lives here, pure and Qt-free.
+
+TEST(WalkTimingEnabled, OnlyTheLiteralOneTurnsItOn) {
+    EXPECT_FALSE(walkTimingEnabledForValue(nullptr));
+    EXPECT_FALSE(walkTimingEnabledForValue(""));
+    EXPECT_FALSE(walkTimingEnabledForValue("0"));
+    EXPECT_FALSE(walkTimingEnabledForValue("true"));
+    EXPECT_FALSE(walkTimingEnabledForValue("yes"));
+    EXPECT_TRUE(walkTimingEnabledForValue("1"));
+}
+
+TEST(WalkOutcomeToString, LabelsEveryOutcome) {
+    EXPECT_EQ(toString(WalkOutcome::FirstChunk), "first-chunk");
+    EXPECT_EQ(toString(WalkOutcome::Complete), "complete");
+    EXPECT_EQ(toString(WalkOutcome::Skipped), "skipped");
+    EXPECT_EQ(toString(WalkOutcome::Failed), "failed");
+    EXPECT_EQ(toString(WalkOutcome::Cancelled), "cancelled");
+}
+
+TEST(FormatWalkTiming, RendersEverySegmentWhenTheFullChainWasReached) {
+    WalkMarks marks;
+    marks.workerStartedMs = 3;
+    marks.refsLoadedMs = 44;
+    marks.chunkBuiltMs = 106;
+    marks.chunkDeliveredMs = 114;
+    marks.uiAppliedMs = 133;
+
+    const std::string line = formatWalkTiming("explicit", WalkOutcome::FirstChunk, 256, marks);
+
+    EXPECT_EQ(line,
+              "gbm-timing walk origin=explicit outcome=first-chunk rows=256 "
+              "queue_ms=3 refs_ms=41 walk_ms=62 hop_ms=8 apply_ms=19 total_ms=133");
+}
+
+TEST(FormatWalkTiming, PrintsADashForEverySegmentThatNeverReachedItsEndMark) {
+    // The fingerprint fast path (RepositorySession::walkHistoryWithRefs())
+    // republishes the previous graph without running rev-list at all -- no
+    // chunk is ever built, so walk_ms/hop_ms must not read as a suspiciously
+    // fast zero.
+    WalkMarks marks;
+    marks.workerStartedMs = 2;
+    marks.refsLoadedMs = 9;
+    // chunkBuiltMs, chunkDeliveredMs, uiAppliedMs stay unreached (-1).
+
+    const std::string line = formatWalkTiming("explicit", WalkOutcome::Skipped, 4000, marks);
+
+    EXPECT_EQ(line,
+              "gbm-timing walk origin=explicit outcome=skipped rows=4000 "
+              "queue_ms=2 refs_ms=7 walk_ms=- hop_ms=- apply_ms=- total_ms=9");
+}
+
+TEST(FormatWalkTiming, TotalMsIsTheLastMarkReachedNotAlwaysUiApplied) {
+    // Failed/cancelled/skipped refreshes never reach MainWindow, so there is
+    // no UI-apply leg -- total_ms must fall back to whatever mark the refresh
+    // actually got to rather than reading as "-" or as a misleadingly small
+    // number.
+    WalkMarks marks;
+    marks.workerStartedMs = 1;
+    marks.refsLoadedMs = 5;
+    // The for-each-ref load itself failed, so nothing past refsLoadedMs runs.
+
+    const std::string line = formatWalkTiming("explicit", WalkOutcome::Failed, 0, marks);
+
+    EXPECT_EQ(line,
+              "gbm-timing walk origin=explicit outcome=failed rows=0 "
+              "queue_ms=1 refs_ms=4 walk_ms=- hop_ms=- apply_ms=- total_ms=5");
+}
+
+TEST(FormatWalkTiming, EmitsAutoFetchResyncOriginVerbatim) {
+    // origin is threaded straight through from GraphUpdateOrigin::toString()
+    // (see the GraphUpdateOrigin section above) -- this only checks
+    // formatWalkTiming doesn't reformat or truncate it.
+    WalkMarks marks;
+    marks.workerStartedMs = 1;
+    marks.refsLoadedMs = 2;
+    marks.chunkBuiltMs = 3;
+    marks.chunkDeliveredMs = 4;
+    marks.uiAppliedMs = 5;
+
+    const std::string line =
+        formatWalkTiming("auto-fetch resync", WalkOutcome::Complete, 12000, marks);
+
+    EXPECT_EQ(line,
+              "gbm-timing walk origin=auto-fetch resync outcome=complete rows=12000 "
+              "queue_ms=1 refs_ms=1 walk_ms=1 hop_ms=1 apply_ms=1 total_ms=5");
 }
 
 // --- commit object parsing -------------------------------------------------

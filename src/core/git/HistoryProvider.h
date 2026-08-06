@@ -11,6 +11,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace gbm {
@@ -47,6 +48,23 @@ struct HistoryQuery {
 
     std::vector<std::string> toRevListArgs() const;
 };
+
+/// Why a history walk was started. RepositorySession threads this from each
+/// walk's trigger site through to `graphUpdated`, so a background resync
+/// never looks identical to the initial walk just running slowly -- see
+/// docs/reports/vscode-graph-performance.md, bottleneck #3.
+enum class GraphUpdateOrigin : std::uint8_t {
+    /// Repo open, the Refresh button, a filter/checkout/operation-driven
+    /// refresh, or any other direct call -- everything except the one case
+    /// below.
+    Explicit,
+    /// `RepositorySession::refreshRefsAndHistory()` called after
+    /// `maybeAutoFetch()`'s background `git fetch` succeeded and moved refs.
+    AutoFetchResync,
+};
+
+/// Short label for logging and tests -- "explicit" / "auto-fetch resync".
+std::string_view toString(GraphUpdateOrigin origin);
 
 /// Streams `git rev-list` into graph snapshots.
 ///

@@ -74,6 +74,16 @@ std::vector<std::string> HistoryQuery::toRevListArgs() const {
     return args;
 }
 
+std::string_view toString(GraphUpdateOrigin origin) {
+    switch (origin) {
+        case GraphUpdateOrigin::Explicit:
+            return "explicit";
+        case GraphUpdateOrigin::AutoFetchResync:
+            return "auto-fetch resync";
+    }
+    return "unknown";
+}
+
 HistoryProvider::HistoryProvider(IProcessRunner& runner, RepoPaths paths)
     : runner_(runner), paths_(std::move(paths)) {}
 

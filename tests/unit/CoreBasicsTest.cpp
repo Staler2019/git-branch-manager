@@ -510,6 +510,20 @@ TEST(HistoryQuery, PushesFilteringDownIntoGit) {
     EXPECT_LT(separator - args.begin(), path - args.begin());
 }
 
+// --- GraphUpdateOrigin -------------------------------------------------------
+// See docs/reports/vscode-graph-performance.md, bottleneck #3: a
+// maybeAutoFetch()-triggered resync used to be indistinguishable from the
+// initial walk just running slowly. toString() is what both the
+// RepositorySession log line and any future test/gate read to tell them apart.
+
+TEST(GraphUpdateOrigin, ExplicitDescribesAnyDirectWalk) {
+    EXPECT_EQ(toString(GraphUpdateOrigin::Explicit), "explicit");
+}
+
+TEST(GraphUpdateOrigin, AutoFetchResyncDescribesTheBackgroundResync) {
+    EXPECT_EQ(toString(GraphUpdateOrigin::AutoFetchResync), "auto-fetch resync");
+}
+
 // --- commit object parsing -------------------------------------------------
 
 TEST(CommitMeta, ParsesARawCommitObject) {

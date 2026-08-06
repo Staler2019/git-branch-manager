@@ -36,6 +36,7 @@
 #include "core/git/ops/UndoOps.h"
 #include "core/git/ops/WorktreeOps.h"
 #include "core/graph/GraphSnapshot.h"
+#include "core/workers/StartupReadGate.h"
 #include "core/workers/ThreadPool.h"
 
 #include <QObject>
@@ -159,7 +160,24 @@ public:
     /// Re-reads `git status`. Deliberately uncached at the RepositorySession
     /// level too, matching WorkingCopyStatusReader: the work tree changes on
     /// every keystroke, so a snapshot is only ever "as of the last refresh".
+    /// Always runs immediately -- for the speculative repo-open call, see
+    /// refreshWorkingCopyStatusWhenIdle() instead. Also opens
+    /// initialWorkingCopyGate_, so a user-driven call (staging, the Working
+    /// Copy tab, resyncOpenSession()) is never itself held back by it.
     void refreshWorkingCopyStatus();
+
+    /// Speculative variant used when a repository is first opened
+    /// (WorkingCopyView::setSession()). The cold `git status` scan on a
+    /// large, freshly-cloned tree can cost tens of seconds (see
+    /// docs/reports/vscode-graph-performance.md, bottleneck #2) and the read
+    /// pool has as few as 2 threads (ThreadPool::defaultThreadCount()) -- run
+    /// unconditionally, this can queue ahead of the history walk and delay
+    /// the very first thing the user opened the repository to see. Runs
+    /// immediately once the history walk has produced its first result
+    /// (success, error, cancellation, or a fingerprint-skip that reuses the
+    /// prior graph) via releaseInitialWorkingCopyGate(); coalesces any number
+    /// of calls made before that into a single scan.
+    void refreshWorkingCopyStatusWhenIdle();
 
     /// Diff of one path against the index (staged=false) or HEAD
     /// (staged=true), for the working-copy panel.
@@ -524,6 +542,16 @@ private:
                              RefSnapshotPtr refsForSeed,
                              CancellationToken token);
 
+    /// Opens initialWorkingCopyGate_ and runs refreshWorkingCopyStatus() if a
+    /// refreshWorkingCopyStatusWhenIdle() call was held pending. Called from
+    /// every terminal path of walkHistoryWithRefs() (first published chunk,
+    /// error, cancellation) and from the fingerprint-skip early return in
+    /// refreshHistory()/refreshRefsAndHistory() that republishes the prior
+    /// graph without walking -- must run on the UI thread, so every call site
+    /// reaches it from inside a Qt::QueuedConnection lambda, same as the
+    /// signal emissions right next to it.
+    void releaseInitialWorkingCopyGate();
+
     GitInstallation installation_;
     RepoPaths paths_;
     ThreadPool& readPool_;
@@ -573,6 +601,11 @@ private:
     bool hasLastWalk_ = false;
     std::uint64_t lastWalkFingerprint_ = 0;
     HistoryQuery lastWalkQuery_;
+
+    /// Holds the repo-open speculative status scan back until the history
+    /// walk has produced its first result -- see
+    /// refreshWorkingCopyStatusWhenIdle(). UI-thread only.
+    StartupReadGate initialWorkingCopyGate_;
 
     /// The user's current branch/ref filter -- see setHistoryFilter().
     HistoryQuery activeHistoryQuery_;

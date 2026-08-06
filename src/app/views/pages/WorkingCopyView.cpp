@@ -489,7 +489,15 @@ void WorkingCopyView::setSession(RepositorySession* session) {
                 &RepositorySession::workingCopyOperationFinished,
                 this,
                 &WorkingCopyView::onWorkingCopyOperationFinished);
-        session_->refreshWorkingCopyStatus();
+        // Speculative: on a large, freshly-cloned repository the cold `git
+        // status` scan can cost tens of seconds and would otherwise queue
+        // ahead of the history walk on the shared read pool -- see
+        // RepositorySession::refreshWorkingCopyStatusWhenIdle() and
+        // docs/reports/vscode-graph-performance.md, bottleneck #2. Runs
+        // immediately once the graph has its first result; an explicit visit
+        // to this tab (MainWindow::onShowWorkingCopy) always refreshes
+        // eagerly regardless.
+        session_->refreshWorkingCopyStatusWhenIdle();
     } else {
         originalView_->clear();
         clearDiffTab(workingTab_);

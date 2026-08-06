@@ -8,6 +8,7 @@
 #include "core/git/RefStore.h"
 #include "core/git/RepoPaths.h"
 #include "core/workers/Debouncer.h"
+#include "core/workers/StartupReadGate.h"
 #include "core/workers/ThreadPool.h"
 
 #include <atomic>
@@ -344,6 +345,54 @@ TEST(Debouncer, CoalescesEventsArrivingMidRun) {
     EXPECT_TRUE(debouncer.finish()) << "exactly one more run should follow";
     EXPECT_TRUE(debouncer.shouldFire(start + std::chrono::milliseconds(40)));
     EXPECT_FALSE(debouncer.finish()) << "and then no more";
+}
+
+// --- startup read gate -------------------------------------------------------
+// Decision table for RepositorySession::refreshWorkingCopyStatusWhenIdle():
+// holds back the speculative cold-scan on repo open until the history walk has
+// something to show, without ever losing or duplicating the held request. See
+// docs/reports/vscode-graph-performance.md, bottleneck #2.
+
+TEST(StartupReadGate, HoldsTheFirstRequestWhileClosed) {
+    StartupReadGate gate;
+    EXPECT_FALSE(gate.isOpen());
+    EXPECT_FALSE(gate.requestOrHold());
+}
+
+TEST(StartupReadGate, RepeatedRequestsWhileClosedStayCoalescedIntoOne) {
+    // A burst of setSession()/resync calls before the graph paints must not
+    // fan out into one scan per call once the gate opens.
+    StartupReadGate gate;
+    EXPECT_FALSE(gate.requestOrHold());
+    EXPECT_FALSE(gate.requestOrHold());
+    EXPECT_FALSE(gate.requestOrHold());
+
+    EXPECT_TRUE(gate.release());
+    EXPECT_TRUE(gate.isOpen());
+}
+
+TEST(StartupReadGate, ReleaseWithNoPendingRequestStillOpens) {
+    // A repository with no commits at all publishes no chunk before the walk's
+    // other terminal paths (error, cancel, fingerprint-skip) run -- the gate
+    // must still open so the panel is never stuck empty.
+    StartupReadGate gate;
+    EXPECT_FALSE(gate.release());
+    EXPECT_TRUE(gate.isOpen());
+}
+
+TEST(StartupReadGate, ReleaseIsIdempotent) {
+    StartupReadGate gate;
+    EXPECT_FALSE(gate.requestOrHold());
+    EXPECT_TRUE(gate.release());
+    EXPECT_FALSE(gate.release()) << "a second release must not re-run the held request";
+}
+
+TEST(StartupReadGate, OnceOpenEveryRequestRunsImmediately) {
+    StartupReadGate gate;
+    gate.release();
+    ASSERT_TRUE(gate.isOpen());
+    EXPECT_TRUE(gate.requestOrHold());
+    EXPECT_TRUE(gate.requestOrHold());
 }
 
 // --- git version detection -------------------------------------------------

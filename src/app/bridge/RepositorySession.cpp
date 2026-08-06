@@ -211,6 +211,11 @@ void RepositorySession::refreshHistory(HistoryQuery query) {
         // load between the two rather than paying for this one twice.
         auto freshRefs = refStore_->load(token);
         if (!freshRefs && freshRefs.error().code == GitError::Code::Cancelled) {
+            // This call was itself superseded (historyCancel_ was cancelled
+            // and reassigned) before it even reached walkHistoryWithRefs(),
+            // so the newer call that superseded it owns releasing
+            // initialWorkingCopyGate_ -- releasing here too is harmless
+            // (idempotent) but not required.
             QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
             return;
         }
@@ -242,7 +247,26 @@ void RepositorySession::refreshRefsAndHistory(HistoryQuery query) {
                 QMetaObject::invokeMethod(
                     this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
             }
-            QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+            // Refs could not be loaded at all, so no walk is going to run for
+            // this call. Release initialWorkingCopyGate_ only when this was a
+            // genuine error (token not cancelled) -- that is a true terminal
+            // state, and the panel must not stay stuck empty because a
+            // repository failed to load its refs. When this was instead a
+            // supersede-cancellation, the newer call that cancelled this one
+            // is already underway and owns releasing the gate itself once it
+            // reaches its own terminal path; releasing here too would open
+            // the gate before that newer call has a result, letting the cold
+            // status scan race ahead of the very walk this ordering fix
+            // exists to protect.
+            QMetaObject::invokeMethod(
+                this,
+                [this, token] {
+                    setBusy(false);
+                    if (!token.isCancelled()) {
+                        releaseInitialWorkingCopyGate();
+                    }
+                },
+                Qt::QueuedConnection);
             return;
         }
         const RefSnapshotPtr refsForSeed = *freshRefs;
@@ -297,6 +321,7 @@ void RepositorySession::walkHistoryWithRefs(HistoryQuery query,
                 [this] {
                     emit graphUpdated(true);
                     setBusy(false);
+                    releaseInitialWorkingCopyGate();
                 },
                 Qt::QueuedConnection);
             return;
@@ -312,8 +337,18 @@ void RepositorySession::walkHistoryWithRefs(HistoryQuery query,
             const bool complete = chunk->complete;
             graph_.publish(std::move(chunk));
             // Queued, so the UI thread picks it up in its own event loop.
+            // Also releases initialWorkingCopyGate_ on the first chunk --
+            // idempotent on every chunk after that -- so the speculative
+            // repo-open status scan runs once the graph has something to
+            // show instead of waiting for the entire walk to finish. See
+            // docs/reports/vscode-graph-performance.md, bottleneck #2.
             QMetaObject::invokeMethod(
-                this, [this, complete] { emit graphUpdated(complete); }, Qt::QueuedConnection);
+                this,
+                [this, complete] {
+                    emit graphUpdated(complete);
+                    releaseInitialWorkingCopyGate();
+                },
+                Qt::QueuedConnection);
         },
         token);
 
@@ -331,7 +366,29 @@ void RepositorySession::walkHistoryWithRefs(HistoryQuery query,
         QMetaObject::invokeMethod(
             this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
     }
-    QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+    // The last thing this function does: covers the success/error paths, and
+    // is the only release point reached when history_->walk() fails before
+    // ever publishing a chunk (e.g. rev-list itself fails to start).
+    // setBusy(false) stays unconditional -- it must run regardless of
+    // cancellation to balance this call's setBusy(true), or the busy
+    // indicator would stick on. The gate release does not: when `token` is
+    // cancelled, this walk was itself superseded (historyCancel_ reassigned
+    // by a newer refreshHistory()/refreshRefsAndHistory() call -- e.g. from
+    // maybeAutoFetch(), resyncOpenSession(), or a rapid user action shortly
+    // after repo open), and releasing here would open the gate -- letting
+    // the cold status scan start -- before the walk that actually superseded
+    // this one has a result. That newer call's own terminal path owns the
+    // release instead.
+    QMetaObject::invokeMethod(
+        this,
+        [this, token] {
+            setBusy(false);
+            if (token.isCancelled()) {
+                return;
+            }
+            releaseInitialWorkingCopyGate();
+        },
+        Qt::QueuedConnection);
 }
 
 void RepositorySession::setHistoryFilter(HistoryQuery query) {
@@ -485,6 +542,14 @@ void RepositorySession::cancelPendingReads() {
 }
 
 void RepositorySession::refreshWorkingCopyStatus() {
+    // Always runs, and always opens initialWorkingCopyGate_ -- a user-driven
+    // or post-operation refresh must never itself be held back by the
+    // repo-open gate, and once real data has been requested this way there is
+    // nothing left for the gate to usefully defer. release()'s own return
+    // value is unused here: if a refreshWorkingCopyStatusWhenIdle() call was
+    // pending, this call already supersedes it.
+    initialWorkingCopyGate_.release();
+
     const CancellationToken token = readCancel_.token();
     setBusy(true);
 
@@ -501,6 +566,21 @@ void RepositorySession::refreshWorkingCopyStatus() {
         }
         QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
     });
+}
+
+void RepositorySession::refreshWorkingCopyStatusWhenIdle() {
+    // Speculative repo-open call -- see the doc comment on this method in
+    // RepositorySession.h and releaseInitialWorkingCopyGate() below for why
+    // this is held back rather than run unconditionally.
+    if (initialWorkingCopyGate_.requestOrHold()) {
+        refreshWorkingCopyStatus();
+    }
+}
+
+void RepositorySession::releaseInitialWorkingCopyGate() {
+    if (initialWorkingCopyGate_.release()) {
+        refreshWorkingCopyStatus();
+    }
 }
 
 void RepositorySession::requestWorkingCopyDiff(const std::string& path, bool staged) {

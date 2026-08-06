@@ -1259,6 +1259,23 @@ void MainWindow::openRepository(const RepoRecord& record) {
             });
 
     commitModel_->setSession(session_.get());
+
+    // Posted to the read pool before any of the panel setSession() calls
+    // below (specifically before workingCopyView_->setSession(), which
+    // speculatively queues the cold `git status` scan) so the history walk is
+    // never stuck behind it on a shared pool that may have as few as 2
+    // threads -- see docs/reports/vscode-graph-performance.md, bottleneck #2,
+    // and RepositorySession::refreshWorkingCopyStatusWhenIdle(). Safe to call
+    // this early: every RepositorySession signal above is already connected,
+    // and every emission is Qt::QueuedConnection, so nothing can be delivered
+    // before this function returns control to the event loop.
+    //
+    // Refs first, so the history walk can be seeded with HEAD and the trunk; that
+    // seeding order is what puts the trunk in lane 0. refreshRefsAndHistory()
+    // shares a single for-each-ref load between the two rather than each
+    // independently re-running it -- see its doc comment.
+    session_->refreshRefsAndHistory();
+
     diffView_->clearDiff();
     diffPage_->clearDiff();
     diffTabShownPath_.clear();
@@ -1275,11 +1292,6 @@ void MainWindow::openRepository(const RepoRecord& record) {
     tabWidget_->setCurrentIndex(kHistoryTab);
     updateStateBanner();
 
-    // Refs first, so the history walk can be seeded with HEAD and the trunk; that
-    // seeding order is what puts the trunk in lane 0. refreshRefsAndHistory()
-    // shares a single for-each-ref load between the two rather than each
-    // independently re-running it -- see its doc comment.
-    session_->refreshRefsAndHistory();
     // So the remote picker in the Push/Push tag dialogs has something to show
     // the first time they are opened, without waiting on a Fetch.
     session_->refreshRemotes();

@@ -142,6 +142,57 @@ before committing to more than the stage that dominates):
   above on the repository in question to see which stage actually dominates
   before reaching for either of the two deferred items.
 
+### Repo-open scheduling: the cold status scan does not block the graph walk
+
+The same vscode investigation (`docs/reports/vscode-graph-performance.md`,
+bottleneck #2) measured `git status --porcelain=v2` -- what
+`WorkingCopyStatusReader` runs -- at **34.7 / 45.0 / 56.3 s wall** on the first
+run after cloning 17,157 files (page-cache misses and metadata journaling
+across newly-written files; 7-8% CPU, so not fixable by making the app's own
+code faster). The report judged this "a resource-contention risk .. not a
+serialization bottleneck" because the read pool has >= 2 threads. That
+reasoning missed the *queue order*: `MainWindow::openRepository()` used to
+post the working-copy scan, the stash list, and the local-identity read
+before the history walk. `ThreadPool::defaultThreadCount()` clamps to
+`[2, 6]`, so on a 2-thread pool (a dual-core box, or a 2-vCPU CI runner) the
+graph walk was queued behind the 35-56s scan -- a real serialization
+bottleneck for exactly the machines least able to absorb it.
+
+**Fix applied:** two changes, working together.
+
+1. `MainWindow::openRepository()` now posts `refreshRefsAndHistory()`
+   immediately after `commitModel_->setSession()`, before
+   `workingCopyView_->setSession()` (which is what queues the status scan).
+   The history walk is the first thing on the read pool's queue instead of
+   the fourth. Safe because every `RepositorySession` signal is
+   `Qt::QueuedConnection` and the UI thread stays inside `openRepository()`
+   until every panel is connected -- nothing can be delivered out of order.
+2. `RepositorySession::refreshWorkingCopyStatusWhenIdle()` (used only by
+   `WorkingCopyView::setSession()`'s repo-open call) holds the scan back via
+   a small pure gate, `core/workers/StartupReadGate.h`, until the history
+   walk has produced its first result -- success, error, cancellation, or the
+   fingerprint-skip fast path that republishes the prior graph without
+   walking. Any number of calls made before that release coalesce into
+   exactly one scan; nothing is lost. Every other caller
+   (`refreshWorkingCopyStatus()` itself -- staging, the Working Copy tab,
+   window-reactivation resync, post-operation refreshes) stays eager and
+   also opens the gate unconditionally, so a user-driven read is never held
+   back by it.
+
+Like the `for-each-ref` duplicate-load fix above, `RepositorySession` has no
+test harness, so this wiring itself is not regression-tested end to end.
+What *is* unit-tested is the gate's decision table
+(`tests/unit/CoreBasicsTest.cpp`, `StartupReadGate` section) -- coalescing
+repeated holds into one pending request, opening even with nothing pending
+(so a repository that errors on open, or has no commits, never leaves the
+Working Copy panel stuck empty), and idempotent release. That mirrors how the
+commit-graph advice logic below was pulled out of `RepositorySession` into a
+pure, testable function for the same reason.
+
+**Not fixed, and not fixable in-app:** the cold-scan cost itself. It is
+OS-level first-touch I/O, not application logic; this change only ensures it
+no longer delays the one thing the user opened the repository to see.
+
 ## Repository performance settings
 
 `commit-graph` is the single largest lever this app controls, and until now

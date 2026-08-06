@@ -220,11 +220,11 @@ void RepositorySession::refreshHistory(HistoryQuery query) {
             return;
         }
         const RefSnapshotPtr refsForSeed = freshRefs ? *freshRefs : refs_.current();
-        walkHistoryWithRefs(std::move(query), refsForSeed, token);
+        walkHistoryWithRefs(std::move(query), refsForSeed, token, GraphUpdateOrigin::Explicit);
     });
 }
 
-void RepositorySession::refreshRefsAndHistory(HistoryQuery query) {
+void RepositorySession::refreshRefsAndHistory(HistoryQuery query, GraphUpdateOrigin origin) {
     if (historyQueryEquals(query, HistoryQuery{}) &&
         !historyQueryEquals(activeHistoryQuery_, HistoryQuery{})) {
         query = activeHistoryQuery_;
@@ -239,7 +239,7 @@ void RepositorySession::refreshRefsAndHistory(HistoryQuery query) {
 
     setBusy(true);
 
-    readPool_.post([this, query = std::move(query), token]() mutable {
+    readPool_.post([this, query = std::move(query), token, origin]() mutable {
         auto freshRefs = refStore_->load(token);
         if (!freshRefs) {
             if (freshRefs.error().code != GitError::Code::Cancelled) {
@@ -272,13 +272,14 @@ void RepositorySession::refreshRefsAndHistory(HistoryQuery query) {
         const RefSnapshotPtr refsForSeed = *freshRefs;
         refs_.publish(refsForSeed);
         QMetaObject::invokeMethod(this, [this] { emit refsUpdated(); }, Qt::QueuedConnection);
-        walkHistoryWithRefs(std::move(query), refsForSeed, token);
+        walkHistoryWithRefs(std::move(query), refsForSeed, token, origin);
     });
 }
 
 void RepositorySession::walkHistoryWithRefs(HistoryQuery query,
                                             RefSnapshotPtr refsForSeed,
-                                            CancellationToken token) {
+                                            CancellationToken token,
+                                            GraphUpdateOrigin origin) {
     // Always seed from the refs so the trunk lands in lane 0 -- this is
     // ordering only (HistoryQuery::toRevListArgs), never narrowing: it is
     // followed by --all whenever includeRefs (the branch filter) is
@@ -318,8 +319,8 @@ void RepositorySession::walkHistoryWithRefs(HistoryQuery query,
             // re-running `rev-list` and just republish what we have.
             QMetaObject::invokeMethod(
                 this,
-                [this] {
-                    emit graphUpdated(true);
+                [this, origin] {
+                    emitGraphUpdated(true, origin);
                     setBusy(false);
                     releaseInitialWorkingCopyGate();
                 },
@@ -330,7 +331,7 @@ void RepositorySession::walkHistoryWithRefs(HistoryQuery query,
 
     auto result = history_->walk(
         query,
-        [this, token](GraphSnapshotPtr chunk) {
+        [this, token, origin](GraphSnapshotPtr chunk) {
             if (token.isCancelled()) {
                 return;
             }
@@ -344,8 +345,8 @@ void RepositorySession::walkHistoryWithRefs(HistoryQuery query,
             // docs/reports/vscode-graph-performance.md, bottleneck #2.
             QMetaObject::invokeMethod(
                 this,
-                [this, complete] {
-                    emit graphUpdated(complete);
+                [this, complete, origin] {
+                    emitGraphUpdated(complete, origin);
                     releaseInitialWorkingCopyGate();
                 },
                 Qt::QueuedConnection);
@@ -389,6 +390,23 @@ void RepositorySession::walkHistoryWithRefs(HistoryQuery query,
             releaseInitialWorkingCopyGate();
         },
         Qt::QueuedConnection);
+}
+
+void RepositorySession::emitGraphUpdated(bool complete, GraphUpdateOrigin origin) {
+    // AutoFetchResync at Info: this is exactly the case
+    // docs/reports/vscode-graph-performance.md bottleneck #3 flagged as
+    // silent -- a second graphUpdated() a moment after the first, with no way
+    // to tell it apart from "the walk was just slow". Every other origin logs
+    // at Debug, matching the log-noise level GBM_LOG_WARN's neighbours in
+    // this file already use for routine per-walk detail.
+    const std::string message = std::string("Graph updated (") + std::string(toString(origin)) +
+                                ", " + (complete ? "complete)" : "partial)");
+    if (origin == GraphUpdateOrigin::AutoFetchResync) {
+        GBM_LOG_INFO(message);
+    } else {
+        GBM_LOG_DEBUG(message);
+    }
+    emit graphUpdated(complete, origin);
 }
 
 void RepositorySession::setHistoryFilter(HistoryQuery query) {
@@ -1082,7 +1100,11 @@ void RepositorySession::fetchRemoteSilently() {
         makeFetchOperation(std::move(request)),
         [this](bool succeeded) {
             if (succeeded) {
-                refreshRefsAndHistory();
+                // fetchRemoteSilently()'s only caller is maybeAutoFetch(), so
+                // this resync is always the "silent second graph rebuild"
+                // case -- see docs/reports/vscode-graph-performance.md,
+                // bottleneck #3.
+                refreshRefsAndHistory({}, GraphUpdateOrigin::AutoFetchResync);
             }
         },
         /*drivesBusy=*/false);

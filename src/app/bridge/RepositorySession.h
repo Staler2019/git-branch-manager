@@ -118,7 +118,14 @@ public:
     /// synthetic repository with ~3.8k refs, the second for-each-ref alone
     /// cost more than the entire rev-list walk that followed it (~750ms vs
     /// ~450ms for 50k commits with a commit-graph) -- see docs/PERFORMANCE.md.
-    void refreshRefsAndHistory(HistoryQuery query = {});
+    ///
+    /// `origin` is threaded straight through to graphUpdated() and reaches no
+    /// other decision in this class -- fetchRemoteSilently() is the only
+    /// caller that passes AutoFetchResync; every other call site keeps the
+    /// default. See GraphUpdateOrigin's doc comment and
+    /// docs/reports/vscode-graph-performance.md, bottleneck #3.
+    void refreshRefsAndHistory(HistoryQuery query = {},
+                               GraphUpdateOrigin origin = GraphUpdateOrigin::Explicit);
 
     /// Queues metadata for rows the user can actually see. Called by the model on
     /// a cache miss; never blocks the caller.
@@ -449,8 +456,14 @@ public:
     void clearLocalIdentityOverride();
 
 signals:
-    /// A newer graph snapshot is available (possibly partial).
-    void graphUpdated(bool complete);
+    /// A newer graph snapshot is available (possibly partial). `origin`
+    /// distinguishes the walk this snapshot came from -- see
+    /// GraphUpdateOrigin's doc comment and
+    /// docs/reports/vscode-graph-performance.md, bottleneck #3: without it, a
+    /// silent auto-fetch resync (maybeAutoFetch() -> fetchRemoteSilently() ->
+    /// refreshRefsAndHistory()) is indistinguishable from the initial walk
+    /// just running slowly.
+    void graphUpdated(bool complete, GraphUpdateOrigin origin);
     void refsUpdated();
     void commitMetadataReady(const std::vector<CommitMeta>& metadata);
     void commitDetailsReady(const ObjectId& commit,
@@ -540,7 +553,14 @@ private:
     /// callers only need to have called setBusy(true) beforehand.
     void walkHistoryWithRefs(HistoryQuery query,
                              RefSnapshotPtr refsForSeed,
-                             CancellationToken token);
+                             CancellationToken token,
+                             GraphUpdateOrigin origin);
+
+    /// Logs `origin` (see GraphUpdateOrigin) alongside `complete` before
+    /// emitting graphUpdated(), so the two publish sites in
+    /// walkHistoryWithRefs() share one place that does both instead of
+    /// duplicating the log line.
+    void emitGraphUpdated(bool complete, GraphUpdateOrigin origin);
 
     /// Opens initialWorkingCopyGate_ and runs refreshWorkingCopyStatus() if a
     /// refreshWorkingCopyStatusWhenIdle() call was held pending. Called from

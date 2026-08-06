@@ -1535,7 +1535,12 @@ void MainWindow::updateSequencerControls(const RepoState& state) {
     bannerAbortButton_->setVisible(isRebase || isCherryPick || isMerge);
 }
 
-void MainWindow::onGraphUpdated(bool complete) {
+void MainWindow::onGraphUpdated(bool complete, GraphUpdateOrigin origin) {
+    // origin is not read here yet -- it exists so this slot and any future
+    // gate can tell an auto-fetch resync apart from every other walk, per
+    // docs/reports/vscode-graph-performance.md bottleneck #3.
+    // RepositorySession::emitGraphUpdated() already logs it distinctly.
+    Q_UNUSED(origin);
     commitModel_->onGraphUpdated(complete);
 
     if (auto snapshot = commitModel_->snapshot()) {

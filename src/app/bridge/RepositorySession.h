@@ -119,10 +119,11 @@ public:
     /// cost more than the entire rev-list walk that followed it (~750ms vs
     /// ~450ms for 50k commits with a commit-graph) -- see docs/PERFORMANCE.md.
     ///
-    /// `origin` is threaded straight through to graphUpdated() and reaches no
-    /// other decision in this class -- fetchRemoteSilently() is the only
-    /// caller that passes AutoFetchResync; every other call site keeps the
-    /// default. See GraphUpdateOrigin's doc comment and
+    /// `origin` is threaded straight through to graphUpdated() and affects no
+    /// control flow here -- emitGraphUpdated() reads it only to choose a log
+    /// level. fetchRemoteSilently() is the only caller that passes
+    /// AutoFetchResync; every other call site keeps the default. See
+    /// GraphUpdateOrigin's doc comment and
     /// docs/reports/vscode-graph-performance.md, bottleneck #3.
     void refreshRefsAndHistory(HistoryQuery query = {},
                                GraphUpdateOrigin origin = GraphUpdateOrigin::Explicit);

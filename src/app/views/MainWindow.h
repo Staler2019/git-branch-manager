@@ -15,6 +15,7 @@
 #include "app/views/pages/RepositoryPage.h"
 #include "app/views/pages/WorkingCopyView.h"
 #include "core/git/GitExecutable.h"
+#include "core/git/HistoryProvider.h"
 #include "core/workers/ThreadPool.h"
 
 #include <QElapsedTimer>

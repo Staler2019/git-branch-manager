@@ -319,9 +319,21 @@ void RepositorySession::walkHistoryWithRefs(HistoryQuery query,
             // re-running `rev-list` and just republish what we have.
             QMetaObject::invokeMethod(
                 this,
-                [this, origin] {
-                    emitGraphUpdated(true, origin);
+                [this, token, origin] {
                     setBusy(false);
+                    // Same reasoning as the final catch-all below: if `token`
+                    // is cancelled, this call was itself superseded before
+                    // reaching here, and the newer call that superseded it
+                    // owns emitting and releasing the gate once it has its
+                    // own result. Emitting/releasing here too would let the
+                    // cold status scan (and a stale graph snapshot) race
+                    // ahead of that still-in-flight walk -- exactly the
+                    // bottleneck #2 serialization this gate exists to
+                    // prevent.
+                    if (token.isCancelled()) {
+                        return;
+                    }
+                    emitGraphUpdated(true, origin);
                     releaseInitialWorkingCopyGate();
                 },
                 Qt::QueuedConnection);

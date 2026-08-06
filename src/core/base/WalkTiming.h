@@ -69,8 +69,8 @@ struct WalkMarks {
 /// than a number when either endpoint was never reached, so a skipped or
 /// failed refresh cannot be misread as an unusually fast one.
 std::string formatWalkTiming(std::string_view origin,
-                              WalkOutcome outcome,
-                              std::size_t rows,
-                              const WalkMarks& marks);
+                             WalkOutcome outcome,
+                             std::size_t rows,
+                             const WalkMarks& marks);
 
 }  // namespace gbm

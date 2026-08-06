@@ -183,6 +183,11 @@ MainWindow::~MainWindow() {
     // teardown must not call into a destroyed widget.
     Log::instance().setOperationSink(nullptr);
     Log::instance().setMessageSink(nullptr);
+    // The stderr timing sink (main.cpp, GBM_TIMING=1) captures no widget, so
+    // this isn't a dangling-pointer risk like the two sinks above -- cleared
+    // anyway for symmetry, so a destroyed MainWindow never has anything of
+    // its own still wired into Log.
+    Log::instance().setTimingSink(nullptr);
     // closeRepository() cancels, drains and destroys session_ (in that
     // order -- see its own comments) before returning, so readPool_ is
     // already idle and holds nothing capturing the now-destroyed session by
@@ -1597,6 +1602,15 @@ void MainWindow::onGraphUpdated(bool complete, GraphUpdateOrigin origin) {
     }
 
     onCommitScrolled();
+
+    // Last, so it accounts for everything this slot just did -- see
+    // docs/PERFORMANCE.md, "Bridge-layer timing probe" and
+    // docs/reports/vscode-graph-performance.md, bottleneck #4. A no-op unless
+    // GBM_TIMING=1 was set for this refresh.
+    if (session_) {
+        const auto appliedSnapshot = commitModel_->snapshot();
+        session_->noteGraphApplied(complete, appliedSnapshot ? appliedSnapshot->rowCount() : 0);
+    }
 }
 
 void MainWindow::onPerfHintOptimizeClicked() {

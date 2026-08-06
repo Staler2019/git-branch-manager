@@ -4,6 +4,7 @@
 #include "app/views/MainWindow.h"
 #include "core/base/Logging.h"
 #include "core/base/ThreadCheck.h"
+#include "core/base/WalkTiming.h"
 #include "core/git/AskpassHelper.h"
 #include "core/git/GitExecutable.h"
 
@@ -15,6 +16,7 @@
 #include <QStandardPaths>
 #include <QTimer>
 
+#include <cstdio>
 #include <cstdlib>
 #include <string_view>
 
@@ -158,6 +160,20 @@ int main(int argc, char** argv) {
     gbm::ThemeManager::apply(gbm::ThemeManager::loadSetting());
 
     gbm::Log::instance().setLevel(gbm::LogLevel::Info);
+
+    // GBM_TIMING=1: writes the `gbm-timing walk ...` line RepositorySession
+    // logs per history refresh straight to stderr, so a headless run (how
+    // docs/reports/vscode-graph-performance.md's bridge-layer measurements
+    // were taken -- QT_QPA_PLATFORM=offscreen has no Operation Log panel to
+    // send these to) is enough to reproduce them. See docs/PERFORMANCE.md,
+    // "Bridge-layer timing probe", and core/base/WalkTiming.h. Off by
+    // default -- walkTimingEnabled() is also what RepositorySession checks
+    // before building a probe at all, so this and that check must agree.
+    if (gbm::walkTimingEnabled()) {
+        gbm::Log::instance().setTimingSink([](std::string_view line) {
+            std::fprintf(stderr, "%.*s\n", static_cast<int>(line.size()), line.data());
+        });
+    }
 
     // Git is detected, never bundled. If it is missing or too old, say so plainly
     // and point at the fix rather than failing later with a confusing git error.

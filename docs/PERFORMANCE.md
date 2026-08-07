@@ -357,21 +357,36 @@ request-merging RepositorySession needs on top of "when to fire":
 - **Deliberate exception:** `setHistoryFilter()` bypasses the *delay*, not
   `refreshCoalescer_` itself. A filter change alters *what* the user is
   looking at; folding it behind an in-flight walk would leave the wrong
-  graph on screen for up to a full walk, so it resets the coalescer and
-  calls `RefreshCoalescer::fireNow()` to mark it running immediately instead
-  of waiting out the window -- the same "supersede rather than queue"
-  behaviour every refresh had before this fix. `fireNow()` still matters
-  here: without it, a request arriving while the filter's own walk is in
-  flight would read the coalescer as idle, arm its own independent walk,
-  and cancel the filter's walk out from under it via `historyCancel_`. With
-  it, that request correctly folds and is delivered once the filter's walk
-  completes. Each walk's terminal path also only calls `finishRefresh()`
-  when its own token was *not* cancelled -- a superseded walk's terminal
-  path reporting "finished" would otherwise corrupt the running_ state that
-  the walk that superseded it now owns. (Caught in code review after the
-  initial pass wired this incorrectly; see `RefreshCoalescer.h`'s doc
-  comment on `fireNow()` and the `!token.isCancelled()` guards in
-  `RepositorySession.cpp`'s terminal lambdas.)
+  graph on screen for up to a full walk, so it calls
+  `RefreshCoalescer::fireNow()` to mark it running immediately (under a
+  fresh generation, see below) instead of waiting out the window -- the same
+  "supersede rather than queue" behaviour every refresh had before this fix.
+  `fireNow()` still matters here: without it, a request arriving while the
+  filter's own walk is in flight would read the coalescer as idle, arm its
+  own independent walk, and cancel the filter's walk out from under it via
+  `historyCancel_`. With it, that request correctly folds and is delivered
+  once the filter's walk completes. `fireNow()` also *merges* rather than
+  discards whatever was already pending, so a `refreshRefs()` that was
+  already armed or folded in when the filter change arrives is absorbed into
+  the immediate fire's own batch (`RepositorySession::setHistoryFilter()`
+  checks it via `takePending()` and calls `startRefsAndHistory()` instead of
+  `startHistoryOnly()` when it's set) rather than silently lost.
+- **Generation counter, not cancellation-token guessing:** every dispatch
+  (`RefreshCoalescer::onTimeout()`/`fireNow()`) returns a monotonically
+  increasing `Generation`. `finishRefresh(generation)` only actually ends the
+  debounce when `generation` still matches the coalescer's current one --
+  otherwise a newer dispatch has already superseded it, and the call is a
+  safe no-op. Every terminal path in `RepositorySession.cpp` now calls
+  `finishRefresh(generation)` unconditionally. An earlier version of this fix
+  tried to guard the same race with each terminal path's own
+  `CancellationToken::isCancelled()` instead; code review found that this
+  missed `startRefsOnly()`, which is driven by `readCancel_` -- a
+  cancellation source `historyCancel_`-based supersession never touches -- so
+  its terminal path could still corrupt `running_` state a newer,
+  `historyCancel_`-superseding walk now owned. The generation counter is
+  owned entirely by `RefreshCoalescer` itself, so one check covers every
+  terminal path uniformly regardless of which cancellation source (if any)
+  that path uses.
 - **`coalesce_ms`:** without a label of its own, the window's wait would
   silently inflate `queue_ms` above and make the bridge-layer timing probe's
   own published numbers misleading. `WalkMarks::firedMs` (`core/base/WalkTiming.h`)
@@ -381,7 +396,9 @@ request-merging RepositorySession needs on top of "when to fire":
 `RepositorySession::cancelPendingReads()` (called before a session is torn
 down) also resets `refreshCoalescer_` and stops the timer, so a session about
 to be destroyed cannot leave a fold wedged with nothing left to call
-`finishRefresh()` again and clear it.
+`finishRefresh()` again and clear it. `reset()` deliberately does not touch
+the generation counter -- it must keep increasing so a very late report from
+before teardown can never coincidentally match a future dispatch.
 
 Like every other fix in this file that touches `RepositorySession`, the Qt
 wiring itself has no test harness and is not regression-tested end to end --
@@ -390,11 +407,12 @@ implemented this. What *is* fully unit-tested is the pure decision table
 `RefreshCoalescer` wraps (`tests/unit/CoreBasicsTest.cpp`, "refresh
 coalescer" section): a burst inside the window firing once, the
 refs-only/history union merge, the in-flight fold and its delivery via
-`onFinished()`, `reset()` clearing pending/running/dirty state, and the
-Explicit-outranks-AutoFetchResync merge rule -- plus `coalesce_ms`'s pure
-formatting ("walk timing" section: the window-wait rendering, the
-dash-when-`firedMs`-unreached case, and `total_ms`'s fallback to `firedMs`
-alone).
+`onFinished(generation)`, a stale generation's report being a no-op, `reset()`
+clearing pending/running/dirty state, the Explicit-outranks-AutoFetchResync
+merge rule, and `fireNow()` merging (rather than discarding) an
+already-pending batch -- plus `coalesce_ms`'s pure formatting ("walk timing"
+section: the window-wait rendering, the dash-when-`firedMs`-unreached case,
+and `total_ms`'s fallback to `firedMs` alone).
 
 ## Repository performance settings
 

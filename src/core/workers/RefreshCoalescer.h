@@ -92,6 +92,30 @@ public:
     /// period has genuinely elapsed and a refresh must start now.
     bool onTimeout(Clock::time_point now = Clock::now()) { return debouncer_.shouldFire(now); }
 
+    /// Bypasses the delay window and marks a refresh running immediately --
+    /// for a caller that must fire right now rather than wait out the
+    /// coalescing delay (RepositorySession::setHistoryFilter(), the one
+    /// deliberate exception documented on the class above). Discards
+    /// whatever was pending, the same as reset(): an immediate fire supplies
+    /// its own query directly rather than going through takePending().
+    ///
+    /// Marking running_ here (rather than leaving the caller to bypass this
+    /// class entirely) is what makes a request arriving during the immediate
+    /// fire correctly Fold instead of arming its own independent refresh --
+    /// which would otherwise race ahead and cancel the fire that was
+    /// supposed to be immediate. Reuses the same mechanism
+    /// Debouncer::finish() already relies on for a folded follow-up:
+    /// notifyEvent() at the clock epoch guarantees the very next
+    /// shouldFire() check sees an elapsed delay no matter how small `now`
+    /// is.
+    void fireNow(Clock::time_point now = Clock::now()) {
+        pendingWantsRefs_ = false;
+        pendingWantsHistory_ = false;
+        pendingHasExplicit_ = false;
+        debouncer_.notifyEvent(Clock::time_point{});
+        debouncer_.shouldFire(now);
+    }
+
     /// Wraps Debouncer::finish(): true when a request folded in while the
     /// refresh that just completed was running, so the caller must
     /// immediately re-drive the timer (start(0)) for the follow-up run.

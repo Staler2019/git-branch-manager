@@ -120,14 +120,15 @@ regression-tested; it is judged more correct -- a session should not present a
 graph built from before a ref load failure as current -- but it is a real,
 deliberate change in the 8 converted call sites' error behavior.
 
+**Also fixed, in a later pass:** a burst of `refreshRefs()`/`refreshHistory()`/
+`refreshRefsAndHistory()` calls firing in quick succession (e.g. a checkout
+immediately followed by a rename) used to spawn one `for-each-ref` per call --
+this fix only shares the load *within* one call. See "Refresh coalescing"
+below.
+
 **Deferred, not implemented in this pass** (the plan's own gate: measure
 before committing to more than the stage that dominates):
 
-- **Debouncing a burst of `refreshHistory()`/`refreshRefsAndHistory()` calls**
-  (`core/workers/Debouncer.h` exists, unused) so several operations firing in
-  quick succession collapse into one walk. Real, but secondary to the
-  duplicate-load fix above, and needs a `QTimer`-driven integration this pass
-  didn't have room for.
 - **Persisting commit metadata** (`CatFileBatch`/`cat-file` results) in
   `RepoIndexDb` instead of the in-process ~20k-entry `QHash` that starts
   empty every session. Explicitly the largest remaining piece, and the
@@ -235,16 +236,19 @@ spread. It was only visible at all because `MainWindow` had been temporarily
 instrumented with timing prints for the investigation and reverted
 afterward -- exactly the throwaway instrumentation this section replaces.
 
-**Fix applied:** `RepositorySession::refreshHistory()`/`refreshRefsAndHistory()`
-build a `WalkTimingProbe` (`app/bridge/WalkTimingProbe.h`) right after
-`setBusy(true)` -- that instant is timestamp zero -- whenever `GBM_TIMING=1` is
-set; null (and free to check against) otherwise. The probe is threaded through
-the posted worker lambda, `walkHistoryWithRefs()`, and the chunk callback,
-marking five points along the way:
+**Fix applied:** `RepositorySession::requestRefresh()` builds a
+`WalkTimingProbe` (`app/bridge/WalkTimingProbe.h`) on the first request of a
+`RefreshCoalescer` window -- that instant is timestamp zero -- whenever
+`GBM_TIMING=1` is set; null (and free to check against) otherwise. (Since
+"Refresh coalescing" below landed; before that it was built right after
+`setBusy(true)`.) The probe is threaded through the posted worker lambda,
+`walkHistoryWithRefs()`, and the chunk callback, marking six points along the
+way:
 
 | Mark | Where | What it isolates |
 |---|---|---|
-| `queue_ms` | UI request -> worker lambda entry | Read-pool wait (bottleneck #2's residue) |
+| `coalesce_ms` | request accepted -> `RefreshCoalescer` fires | The debounce window from "Refresh coalescing" below -- added once that section landed, so it doesn't silently inflate `queue_ms` |
+| `queue_ms` | `RefreshCoalescer` fires -> worker lambda entry | Read-pool wait (bottleneck #2's residue) |
 | `refs_ms` | worker entry -> `for-each-ref` done | The `RefStore::load()` cost measured above |
 | `walk_ms` | refs done -> chunk built in core | `rev-list` + `GraphBuilder` -- what `gbm_graph_check` measures |
 | `hop_ms` | chunk built -> `emitGraphUpdated()` on the UI thread | The `Qt::QueuedConnection` latency -- the pure bridge cost this section exists to expose |
@@ -282,16 +286,21 @@ QT_QPA_PLATFORM=offscreen GBM_TIMING=1 GBM_SCREENSHOT=/tmp/shot.png GBM_SCREENSH
 Sample output against a 5,000-commit fixture on this machine:
 
 ```
-gbm-timing walk origin=explicit outcome=first-chunk rows=256 queue_ms=0 refs_ms=86 walk_ms=21 hop_ms=0 apply_ms=0 total_ms=107
-gbm-timing walk origin=explicit outcome=complete rows=5000 queue_ms=0 refs_ms=86 walk_ms=25 hop_ms=1 apply_ms=1 total_ms=113
+gbm-timing walk origin=explicit outcome=first-chunk rows=256 coalesce_ms=150 queue_ms=0 refs_ms=86 walk_ms=21 hop_ms=0 apply_ms=0 total_ms=257
+gbm-timing walk origin=explicit outcome=complete rows=5000 coalesce_ms=150 queue_ms=0 refs_ms=86 walk_ms=25 hop_ms=1 apply_ms=1 total_ms=263
 ```
 
 `hop_ms` and `apply_ms` read near-zero here -- consistent with `docs/PERFORMANCE.md`'s
 recurring point that the number that matters is the comparison, not any single
 run's digits: this section exists so that on a machine or a repository where
-the bridge overhead *isn't* negligible, the `queue_ms`/`refs_ms`/`walk_ms`/`hop_ms`/`apply_ms`
-breakdown says which segment to chase instead of leaving the whole refresh as
-one undifferentiated number.
+the bridge overhead *isn't* negligible, the
+`coalesce_ms`/`queue_ms`/`refs_ms`/`walk_ms`/`hop_ms`/`apply_ms` breakdown says
+which segment to chase instead of leaving the whole refresh as one
+undifferentiated number. `coalesce_ms` here reads a steady 150 -- this
+repository opened with nothing else competing for the coalescing window, so
+every refresh waits the full debounce delay; see "Refresh coalescing" below
+for when it reads lower (a request folded into an already-running refresh)
+or `-` (the request was superseded before ever firing).
 
 Like the other fixes in this section, `RepositorySession` has no test harness,
 so this wiring is not regression-tested end to end. What *is* unit-tested is
@@ -309,6 +318,71 @@ in line if this trend ever needs unattended tracking (see this file's own
 manual, on-demand probe, same tier as the vscode-scale reproductions
 `docs/reports/vscode-graph-performance.md` itself names as "manual/local only,
 not automated."
+
+### Refresh coalescing: collapsing a burst into one for-each-ref load
+
+`docs/reports/vscode-graph-performance.md`, bottleneck #6, found that
+`for-each-ref` scales with ref count, not commit count -- on the 3,798-ref
+fixture above, one call cost more than the entire commit-graph-accelerated
+50k-commit walk that followed it. The "UI refresh path" fix earlier in this
+file stopped one *call* from paying for `for-each-ref` twice; it did nothing
+about a *burst* of calls. `refreshRefs()`/`refreshHistory()`/
+`refreshRefsAndHistory()` each independently cancelled and re-ran the load, so
+e.g. a checkout immediately followed by a branch rename spawned two
+`for-each-ref` processes and threw the first one's result away mid-flight.
+`core/workers/Debouncer.h` already existed for exactly this shape (a burst
+collapsing into one action, with an in-flight action's follow-up delivered
+once rather than queued) but was unused.
+
+**Fix applied:** `RepositorySession` now routes all three entry points
+through `refreshCoalescer_`, a `RefreshCoalescer`
+(`core/workers/RefreshCoalescer.h`) wrapping `Debouncer` with the
+request-merging RepositorySession needs on top of "when to fire":
+
+- **Window:** 150 ms, trailing, restarted on every request -- the same
+  interval `MainWindow`'s existing `probeDebounce_`/`repoOpenDebounce_`
+  already use for this shape.
+- **Merge rule:** a window's `wantsRefs`/`wantsHistory` are the union of
+  every request in it (a `refreshRefs()`-only call folded in with a pending
+  `refreshRefsAndHistory()` does not drop the history half), and `origin`
+  merges with `Explicit` always outranking `AutoFetchResync` -- a real user
+  action folded into a window that also contained a silent auto-fetch resync
+  must still log (and behave) as `Explicit`.
+- **In-flight fold:** a request arriving while a refresh is already running
+  is not queued or dropped; it sets a dirty flag and produces exactly one
+  follow-up run once the in-flight refresh's terminal path reports it done
+  (`RepositorySession::finishRefresh()`), re-firing with zero added delay --
+  `Debouncer::finish()`'s existing "fire immediately, no second wait"
+  behaviour.
+- **Deliberate exception:** `setHistoryFilter()` bypasses the coalescer
+  entirely. A filter change alters *what* the user is looking at; folding it
+  behind an in-flight walk would leave the wrong graph on screen for up to a
+  full walk, so it resets `refreshCoalescer_` and fires immediately instead,
+  the same "supersede rather than queue" behaviour every refresh had before
+  this fix.
+- **`coalesce_ms`:** without a label of its own, the window's wait would
+  silently inflate `queue_ms` above and make the bridge-layer timing probe's
+  own published numbers misleading. `WalkMarks::firedMs` (`core/base/WalkTiming.h`)
+  and `WalkTimingProbe::markFired()` (`app/bridge/WalkTimingProbe.h`) add it
+  as its own segment -- see the mark table above.
+
+`RepositorySession::cancelPendingReads()` (called before a session is torn
+down) also resets `refreshCoalescer_` and stops the timer, so a session about
+to be destroyed cannot leave a fold wedged with nothing left to call
+`finishRefresh()` again and clear it.
+
+Like every other fix in this file that touches `RepositorySession`, the Qt
+wiring itself has no test harness and is not regression-tested end to end --
+verified manually instead, per the Validation section of the plan that
+implemented this. What *is* fully unit-tested is the pure decision table
+`RefreshCoalescer` wraps (`tests/unit/CoreBasicsTest.cpp`, "refresh
+coalescer" section): a burst inside the window firing once, the
+refs-only/history union merge, the in-flight fold and its delivery via
+`onFinished()`, `reset()` clearing pending/running/dirty state, and the
+Explicit-outranks-AutoFetchResync merge rule -- plus `coalesce_ms`'s pure
+formatting ("walk timing" section: the window-wait rendering, the
+dash-when-`firedMs`-unreached case, and `total_ms`'s fallback to `firedMs`
+alone).
 
 ## Repository performance settings
 

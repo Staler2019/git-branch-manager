@@ -675,6 +675,7 @@ TEST(WalkOutcomeToString, LabelsEveryOutcome) {
 
 TEST(FormatWalkTiming, RendersEverySegmentWhenTheFullChainWasReached) {
     WalkMarks marks;
+    marks.firedMs = 1;
     marks.workerStartedMs = 3;
     marks.refsLoadedMs = 44;
     marks.chunkBuiltMs = 106;
@@ -685,7 +686,7 @@ TEST(FormatWalkTiming, RendersEverySegmentWhenTheFullChainWasReached) {
 
     EXPECT_EQ(line,
               "gbm-timing walk origin=explicit outcome=first-chunk rows=256 "
-              "queue_ms=3 refs_ms=41 walk_ms=62 hop_ms=8 apply_ms=19 total_ms=133");
+              "coalesce_ms=1 queue_ms=2 refs_ms=41 walk_ms=62 hop_ms=8 apply_ms=19 total_ms=133");
 }
 
 TEST(FormatWalkTiming, PrintsADashForEverySegmentThatNeverReachedItsEndMark) {
@@ -694,6 +695,7 @@ TEST(FormatWalkTiming, PrintsADashForEverySegmentThatNeverReachedItsEndMark) {
     // chunk is ever built, so walk_ms/hop_ms must not read as a suspiciously
     // fast zero.
     WalkMarks marks;
+    marks.firedMs = 1;
     marks.workerStartedMs = 2;
     marks.refsLoadedMs = 9;
     // chunkBuiltMs, chunkDeliveredMs, uiAppliedMs stay unreached (-1).
@@ -702,7 +704,7 @@ TEST(FormatWalkTiming, PrintsADashForEverySegmentThatNeverReachedItsEndMark) {
 
     EXPECT_EQ(line,
               "gbm-timing walk origin=explicit outcome=skipped rows=4000 "
-              "queue_ms=2 refs_ms=7 walk_ms=- hop_ms=- apply_ms=- total_ms=9");
+              "coalesce_ms=1 queue_ms=1 refs_ms=7 walk_ms=- hop_ms=- apply_ms=- total_ms=9");
 }
 
 TEST(FormatWalkTiming, TotalMsIsTheLastMarkReachedNotAlwaysUiApplied) {
@@ -711,6 +713,7 @@ TEST(FormatWalkTiming, TotalMsIsTheLastMarkReachedNotAlwaysUiApplied) {
     // actually got to rather than reading as "-" or as a misleadingly small
     // number.
     WalkMarks marks;
+    marks.firedMs = 0;
     marks.workerStartedMs = 1;
     marks.refsLoadedMs = 5;
     // The for-each-ref load itself failed, so nothing past refsLoadedMs runs.
@@ -719,7 +722,7 @@ TEST(FormatWalkTiming, TotalMsIsTheLastMarkReachedNotAlwaysUiApplied) {
 
     EXPECT_EQ(line,
               "gbm-timing walk origin=explicit outcome=failed rows=0 "
-              "queue_ms=1 refs_ms=4 walk_ms=- hop_ms=- apply_ms=- total_ms=5");
+              "coalesce_ms=0 queue_ms=1 refs_ms=4 walk_ms=- hop_ms=- apply_ms=- total_ms=5");
 }
 
 TEST(FormatWalkTiming, EmitsAutoFetchResyncOriginVerbatim) {
@@ -727,6 +730,7 @@ TEST(FormatWalkTiming, EmitsAutoFetchResyncOriginVerbatim) {
     // (see the GraphUpdateOrigin section above) -- this only checks
     // formatWalkTiming doesn't reformat or truncate it.
     WalkMarks marks;
+    marks.firedMs = 0;
     marks.workerStartedMs = 1;
     marks.refsLoadedMs = 2;
     marks.chunkBuiltMs = 3;
@@ -738,7 +742,48 @@ TEST(FormatWalkTiming, EmitsAutoFetchResyncOriginVerbatim) {
 
     EXPECT_EQ(line,
               "gbm-timing walk origin=auto-fetch resync outcome=complete rows=12000 "
-              "queue_ms=1 refs_ms=1 walk_ms=1 hop_ms=1 apply_ms=1 total_ms=5");
+              "coalesce_ms=0 queue_ms=1 refs_ms=1 walk_ms=1 hop_ms=1 apply_ms=1 total_ms=5");
+}
+
+TEST(FormatWalkTiming, CoalesceMsReflectsTheRefreshCoalescerWindowWait) {
+    // See docs/reports/vscode-graph-performance.md bottleneck #6: with a
+    // coalescing window in front of the walk, queue_ms alone would silently
+    // absorb the debounce delay -- coalesce_ms keeps it labelled instead.
+    WalkMarks marks;
+    marks.firedMs = 150;
+    marks.workerStartedMs = 152;
+    // Nothing past workerStartedMs was reached.
+
+    const std::string line = formatWalkTiming("explicit", WalkOutcome::Failed, 0, marks);
+
+    EXPECT_EQ(line,
+              "gbm-timing walk origin=explicit outcome=failed rows=0 "
+              "coalesce_ms=150 queue_ms=2 refs_ms=- walk_ms=- hop_ms=- apply_ms=- total_ms=152");
+}
+
+TEST(FormatWalkTiming, PrintsADashForCoalesceAndQueueWhenFiredWasNeverReached) {
+    // A refresh cancelled before RefreshCoalescer ever fired it (superseded
+    // while still folded) never marks firedMs -- must read as absent, not as
+    // an implausibly instant 0.
+    WalkMarks marks;
+
+    const std::string line = formatWalkTiming("explicit", WalkOutcome::Cancelled, 0, marks);
+
+    EXPECT_EQ(line,
+              "gbm-timing walk origin=explicit outcome=cancelled rows=0 "
+              "coalesce_ms=- queue_ms=- refs_ms=- walk_ms=- hop_ms=- apply_ms=- total_ms=-");
+}
+
+TEST(FormatWalkTiming, TotalMsFallsBackToFiredMsWhenNothingElseWasReached) {
+    WalkMarks marks;
+    marks.firedMs = 7;
+    // Every later mark stays unreached (-1).
+
+    const std::string line = formatWalkTiming("explicit", WalkOutcome::Cancelled, 0, marks);
+
+    EXPECT_EQ(line,
+              "gbm-timing walk origin=explicit outcome=cancelled rows=0 "
+              "coalesce_ms=7 queue_ms=- refs_ms=- walk_ms=- hop_ms=- apply_ms=- total_ms=7");
 }
 
 // --- commit object parsing -------------------------------------------------

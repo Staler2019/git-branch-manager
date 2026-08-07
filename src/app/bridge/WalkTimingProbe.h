@@ -36,6 +36,17 @@ public:
 
     GraphUpdateOrigin origin() const { return origin_; }
 
+    /// Corrects the origin this probe logs as, without touching requestedAt_
+    /// (timestamp zero). Needed because a probe is created at the first
+    /// request of a RefreshCoalescer window -- before the window's final
+    /// merged origin (Explicit always wins) is known -- see
+    /// docs/reports/vscode-graph-performance.md, bottleneck #6.
+    void setOrigin(GraphUpdateOrigin origin) { origin_ = origin; }
+
+    /// RefreshCoalescer released this refresh and it is about to actually
+    /// start -- t0 for every mark below, and the endpoint of coalesce_ms.
+    void markFired() { mark(firedMs_); }
+
     void markWorkerStarted() { mark(workerStartedMs_); }
 
     void markRefsLoaded() { mark(refsLoadedMs_); }
@@ -71,6 +82,7 @@ public:
 
     WalkMarks snapshot() const {
         WalkMarks marks;
+        marks.firedMs = firedMs_.load();
         marks.workerStartedMs = workerStartedMs_.load();
         marks.refsLoadedMs = refsLoadedMs_.load();
         marks.chunkBuiltMs = chunkBuiltMs_.load();
@@ -88,6 +100,7 @@ private:
 
     GraphUpdateOrigin origin_;
     std::chrono::steady_clock::time_point requestedAt_;
+    std::atomic<std::int64_t> firedMs_{-1};
     std::atomic<std::int64_t> workerStartedMs_{-1};
     std::atomic<std::int64_t> refsLoadedMs_{-1};
     std::atomic<std::int64_t> chunkBuiltMs_{-1};

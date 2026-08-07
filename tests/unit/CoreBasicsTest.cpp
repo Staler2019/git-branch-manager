@@ -519,6 +519,68 @@ TEST(RefreshCoalescer, TakePendingClearsTheBatchForTheNextWindow) {
     EXPECT_EQ(pending.origin, GraphUpdateOrigin::AutoFetchResync);
 }
 
+TEST(RefreshCoalescer, FireNowMarksRunningSoALaterRequestFoldsInstead) {
+    // RepositorySession::setHistoryFilter() bypasses the delay window (a
+    // filter change must be seen immediately) but must still occupy the
+    // coalescer the same way a real fire would -- otherwise a request
+    // arriving during the filter's own walk would Arm a second, independent
+    // walk and cancel the filter's walk out from under it.
+    RefreshCoalescer coalescer;
+    const auto start = RefreshCoalescer::Clock::now();
+
+    coalescer.fireNow(start);
+
+    EXPECT_EQ(coalescer.request(true, false, GraphUpdateOrigin::Explicit,
+                                start + std::chrono::milliseconds(10)),
+              RefreshCoalescer::RefreshAction::Fold);
+}
+
+TEST(RefreshCoalescer, ARequestDuringAnImmediateFireIsDeliveredByOnFinished) {
+    RefreshCoalescer coalescer;
+    const auto start = RefreshCoalescer::Clock::now();
+
+    coalescer.fireNow(start);
+    coalescer.request(true, false, GraphUpdateOrigin::Explicit,
+                      start + std::chrono::milliseconds(10));
+
+    EXPECT_TRUE(coalescer.onFinished()) << "the folded request must run once the fire completes";
+    const RefreshCoalescer::PendingRefresh pending = coalescer.takePending();
+    EXPECT_TRUE(pending.wantsRefs);
+    EXPECT_FALSE(pending.wantsHistory);
+}
+
+TEST(RefreshCoalescer, FireNowDiscardsAnyPreviouslyPendingBatch) {
+    RefreshCoalescer coalescer;
+    const auto start = RefreshCoalescer::Clock::now();
+
+    // A window is mid-flight (armed, not yet fired) when fireNow() is called
+    // -- its batch must not leak into the immediate fire, which has its own
+    // caller-supplied query and does not go through takePending() at all.
+    coalescer.request(false, true, GraphUpdateOrigin::AutoFetchResync, start);
+    coalescer.fireNow(start + std::chrono::milliseconds(5));
+
+    coalescer.request(true, false, GraphUpdateOrigin::Explicit,
+                      start + std::chrono::milliseconds(10));
+    ASSERT_TRUE(coalescer.onFinished());
+    const RefreshCoalescer::PendingRefresh pending = coalescer.takePending();
+    EXPECT_TRUE(pending.wantsRefs);
+    EXPECT_FALSE(pending.wantsHistory)
+        << "the pre-fireNow() request's wantsHistory must not have survived";
+}
+
+TEST(RefreshCoalescer, FireNowWhileAlreadyRunningFoldsRatherThanDoubleFiring) {
+    // Defensive: RepositorySession always calls reset() immediately before
+    // fireNow(), but fireNow() must still behave safely on its own if that
+    // ever changes.
+    RefreshCoalescer coalescer;
+    const auto start = RefreshCoalescer::Clock::now();
+
+    coalescer.fireNow(start);
+    coalescer.fireNow(start + std::chrono::milliseconds(5));
+
+    EXPECT_TRUE(coalescer.onFinished()) << "the second fireNow() should have folded in";
+}
+
 // --- git version detection -------------------------------------------------
 
 TEST(GitVersion, ParsesVendorSuffixedVersions) {

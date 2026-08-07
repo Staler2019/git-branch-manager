@@ -9,6 +9,7 @@
 #include "core/git/RefStore.h"
 #include "core/git/RepoPaths.h"
 #include "core/workers/Debouncer.h"
+#include "core/workers/RefreshCoalescer.h"
 #include "core/workers/StartupReadGate.h"
 #include "core/workers/ThreadPool.h"
 
@@ -394,6 +395,128 @@ TEST(StartupReadGate, OnceOpenEveryRequestRunsImmediately) {
     ASSERT_TRUE(gate.isOpen());
     EXPECT_TRUE(gate.requestOrHold());
     EXPECT_TRUE(gate.requestOrHold());
+}
+
+// --- refresh coalescer -------------------------------------------------------
+// Decision table for RepositorySession's refresh entry points
+// (refreshRefs()/refreshHistory()/refreshRefsAndHistory()): merges a burst of
+// requests into one for-each-ref load instead of spawning one per call. See
+// docs/reports/vscode-graph-performance.md, bottleneck #6.
+
+TEST(RefreshCoalescer, ABurstOfRequestsInsideTheWindowYieldsOneFire) {
+    RefreshCoalescer coalescer;
+    const auto start = RefreshCoalescer::Clock::now();
+
+    EXPECT_EQ(coalescer.request(true, true, GraphUpdateOrigin::Explicit, start),
+              RefreshCoalescer::RefreshAction::Arm);
+    EXPECT_EQ(coalescer.request(true, true, GraphUpdateOrigin::Explicit,
+                                start + std::chrono::milliseconds(50)),
+              RefreshCoalescer::RefreshAction::Arm)
+        << "still idle -- no refresh has started firing yet";
+
+    EXPECT_FALSE(coalescer.onTimeout(start + std::chrono::milliseconds(100)))
+        << "quiet period restarted by the second request, not yet elapsed";
+    EXPECT_TRUE(coalescer.onTimeout(start + std::chrono::milliseconds(250)))
+        << "150ms after the last request in the burst";
+}
+
+TEST(RefreshCoalescer, RefreshRefsFoldsIntoAPendingRefreshRefsAndHistoryAsTheUnion) {
+    RefreshCoalescer coalescer;
+    const auto start = RefreshCoalescer::Clock::now();
+
+    coalescer.request(/*wantsRefs=*/true, /*wantsHistory=*/true, GraphUpdateOrigin::Explicit,
+                      start);
+    coalescer.request(/*wantsRefs=*/true, /*wantsHistory=*/false, GraphUpdateOrigin::Explicit,
+                      start + std::chrono::milliseconds(10));
+
+    ASSERT_TRUE(coalescer.onTimeout(start + std::chrono::milliseconds(200)));
+    const RefreshCoalescer::PendingRefresh pending = coalescer.takePending();
+    EXPECT_TRUE(pending.wantsRefs);
+    EXPECT_TRUE(pending.wantsHistory)
+        << "a refreshRefs()-only request must not drop a still-pending history refresh";
+}
+
+TEST(RefreshCoalescer, ARequestArrivingWhileRunningFoldsAndIsDeliveredByOnFinished) {
+    RefreshCoalescer coalescer;
+    const auto start = RefreshCoalescer::Clock::now();
+
+    coalescer.request(true, true, GraphUpdateOrigin::Explicit, start);
+    ASSERT_TRUE(coalescer.onTimeout(start + std::chrono::milliseconds(200)));
+    coalescer.takePending();
+
+    EXPECT_EQ(coalescer.request(true, false, GraphUpdateOrigin::Explicit,
+                                start + std::chrono::milliseconds(210)),
+              RefreshCoalescer::RefreshAction::Fold)
+        << "a refresh is already running -- the timer must not be re-armed";
+
+    EXPECT_TRUE(coalescer.onFinished()) << "exactly one more run should follow";
+    const RefreshCoalescer::PendingRefresh pending = coalescer.takePending();
+    EXPECT_TRUE(pending.wantsRefs);
+    EXPECT_FALSE(pending.wantsHistory);
+}
+
+TEST(RefreshCoalescer, OnFinishedWithNothingFoldedReturnsFalse) {
+    RefreshCoalescer coalescer;
+    const auto start = RefreshCoalescer::Clock::now();
+
+    coalescer.request(true, true, GraphUpdateOrigin::Explicit, start);
+    ASSERT_TRUE(coalescer.onTimeout(start + std::chrono::milliseconds(200)));
+    coalescer.takePending();
+
+    EXPECT_FALSE(coalescer.onFinished()) << "no request arrived while running -- nothing to redo";
+}
+
+TEST(RefreshCoalescer, ResetClearsPendingRunningAndDirtyState) {
+    RefreshCoalescer coalescer;
+    const auto start = RefreshCoalescer::Clock::now();
+
+    coalescer.request(true, true, GraphUpdateOrigin::Explicit, start);
+    ASSERT_TRUE(coalescer.onTimeout(start + std::chrono::milliseconds(200)));
+    // Folds while running, which would otherwise leave a dirty follow-up owed.
+    coalescer.request(true, false, GraphUpdateOrigin::Explicit,
+                      start + std::chrono::milliseconds(210));
+
+    coalescer.reset();
+
+    EXPECT_FALSE(coalescer.onFinished())
+        << "reset must drop the fold -- a torn-down session cannot leave one wedged";
+    EXPECT_EQ(coalescer.request(true, true, GraphUpdateOrigin::Explicit,
+                                start + std::chrono::milliseconds(220)),
+              RefreshCoalescer::RefreshAction::Arm)
+        << "reset must also clear running_, or every request after teardown would fold forever";
+}
+
+TEST(RefreshCoalescer, ExplicitOutranksAutoFetchResyncInTheMerge) {
+    RefreshCoalescer coalescer;
+    const auto start = RefreshCoalescer::Clock::now();
+
+    coalescer.request(true, true, GraphUpdateOrigin::AutoFetchResync, start);
+    coalescer.request(true, false, GraphUpdateOrigin::Explicit,
+                      start + std::chrono::milliseconds(10));
+
+    ASSERT_TRUE(coalescer.onTimeout(start + std::chrono::milliseconds(200)));
+    EXPECT_EQ(coalescer.takePending().origin, GraphUpdateOrigin::Explicit)
+        << "a real user action folded into a silent auto-fetch window must still log as Explicit";
+}
+
+TEST(RefreshCoalescer, TakePendingClearsTheBatchForTheNextWindow) {
+    RefreshCoalescer coalescer;
+    const auto start = RefreshCoalescer::Clock::now();
+
+    coalescer.request(true, true, GraphUpdateOrigin::Explicit, start);
+    ASSERT_TRUE(coalescer.onTimeout(start + std::chrono::milliseconds(200)));
+    coalescer.takePending();
+    ASSERT_FALSE(coalescer.onFinished());
+
+    // A fresh window after the run finished must start from an empty batch,
+    // not still report the previous window's flags.
+    coalescer.request(false, true, GraphUpdateOrigin::AutoFetchResync,
+                      start + std::chrono::milliseconds(400));
+    ASSERT_TRUE(coalescer.onTimeout(start + std::chrono::milliseconds(600)));
+    const RefreshCoalescer::PendingRefresh pending = coalescer.takePending();
+    EXPECT_FALSE(pending.wantsRefs);
+    EXPECT_TRUE(pending.wantsHistory);
+    EXPECT_EQ(pending.origin, GraphUpdateOrigin::AutoFetchResync);
 }
 
 // --- git version detection -------------------------------------------------

@@ -584,30 +584,40 @@ private:
     /// quiet period has genuinely elapsed (see RefreshCoalescer::onTimeout());
     /// otherwise dispatches the merged batch to whichever of
     /// startRefsAndHistory()/startHistoryOnly()/startRefsOnly() the batch's
-    /// wantsRefs/wantsHistory flags call for.
+    /// wantsRefs/wantsHistory flags call for, threading the dispatched
+    /// RefreshCoalescer::Generation through so its eventual finishRefresh()
+    /// call can be matched back to this exact dispatch.
     void onRefreshTimeout();
 
     /// Reports one coalesced batch's actual refresh work as finished to
     /// refreshCoalescer_, and immediately re-arms refreshTimer_ (zero delay)
-    /// when a request folded in while it was running -- called from every
-    /// terminal path below that setBusy(true) started.
-    void finishRefresh();
+    /// when a request folded in while it was running -- called unconditionally
+    /// from every terminal path below that setBusy(true) started, passing
+    /// back the RefreshCoalescer::Generation that dispatch was given. A stale
+    /// generation (a newer dispatch already superseded this one -- see
+    /// RefreshCoalescer's class doc comment) makes this a safe no-op, so
+    /// every call site can call it unconditionally rather than needing to
+    /// first check whether its own CancellationToken was cancelled.
+    void finishRefresh(RefreshCoalescer::Generation generation);
 
     /// Today's refreshRefsAndHistory() body, minus building `timing` itself
     /// -- requestRefresh()/onRefreshTimeout() do that once per coalesced
     /// batch instead of once per call.
     void startRefsAndHistory(HistoryQuery query,
                              GraphUpdateOrigin origin,
-                             WalkTimingProbePtr timing);
+                             WalkTimingProbePtr timing,
+                             RefreshCoalescer::Generation generation);
 
     /// Today's refreshHistory() body, same relationship to requestRefresh()
     /// as startRefsAndHistory() above.
-    void startHistoryOnly(HistoryQuery query, WalkTimingProbePtr timing);
+    void startHistoryOnly(HistoryQuery query,
+                          WalkTimingProbePtr timing,
+                          RefreshCoalescer::Generation generation);
 
     /// Today's refreshRefs() body. No WalkTimingProbe: a refs-only refresh
     /// never ran the history walk the probe measures, matching the original
     /// refreshRefs()'s behaviour.
-    void startRefsOnly();
+    void startRefsOnly(RefreshCoalescer::Generation generation);
 
     /// The seed/filter/fingerprint/walk portion shared by refreshHistory()'s
     /// and refreshRefsAndHistory()'s posted tasks -- everything after "I now
@@ -620,7 +630,8 @@ private:
                              RefSnapshotPtr refsForSeed,
                              CancellationToken token,
                              GraphUpdateOrigin origin,
-                             WalkTimingProbePtr timing);
+                             WalkTimingProbePtr timing,
+                             RefreshCoalescer::Generation generation);
 
     /// Logs `origin` (see GraphUpdateOrigin) alongside `complete` before
     /// emitting graphUpdated(), so the two publish sites in

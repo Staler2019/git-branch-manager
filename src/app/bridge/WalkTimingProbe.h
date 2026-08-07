@@ -12,15 +12,16 @@ namespace gbm {
 
 /// Shared, per-refresh carrier for the marks core/base/WalkTiming.h turns
 /// into a `gbm-timing walk ...` line -- see
-/// docs/reports/vscode-graph-performance.md, bottleneck #4. Built once per
-/// RepositorySession::refreshHistory()/refreshRefsAndHistory() call, right
-/// after setBusy(true) (that instant is timestamp zero), and threaded
-/// through the posted worker lambda, walkHistoryWithRefs(), and the chunk
-/// callback. Null whenever walkTimingEnabled() is false -- every
+/// docs/reports/vscode-graph-performance.md, bottlenecks #4 and #6. Built
+/// once per RefreshCoalescer window, on its first request
+/// (RepositorySession::requestRefresh(), or setHistoryFilter()'s immediate
+/// bypass -- that instant is timestamp zero), and threaded through
+/// onRefreshTimeout(), the posted worker lambda, walkHistoryWithRefs(), and
+/// the chunk callback. Null whenever walkTimingEnabled() is false -- every
 /// RepositorySession call site checks for null before touching a mark,
 /// which is what keeps this free when the probe is off.
 ///
-/// The five timing marks are std::atomic<std::int64_t>, not plain fields:
+/// The six timing marks are std::atomic<std::int64_t>, not plain fields:
 /// the worker thread marks workerStartedMs/refsLoadedMs/chunkBuiltMs while
 /// the UI thread may still be formatting the previous chunk's line (a walk
 /// can publish several chunks before it completes), and this object carries

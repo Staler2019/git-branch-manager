@@ -301,16 +301,13 @@ void RepositorySession::startHistoryOnly(HistoryQuery query, WalkTimingProbePtr 
             // This call was itself superseded (historyCancel_ was cancelled
             // and reassigned) before it even reached walkHistoryWithRefs(),
             // so the newer call that superseded it owns releasing
-            // initialWorkingCopyGate_ -- releasing here too is harmless
-            // (idempotent) but not required. No timing line either, for the
-            // same reason: the superseding call's own probe covers it.
-            QMetaObject::invokeMethod(
-                this,
-                [this] {
-                    setBusy(false);
-                    finishRefresh();
-                },
-                Qt::QueuedConnection);
+            // initialWorkingCopyGate_ *and* reporting completion to
+            // refreshCoalescer_ via finishRefresh() -- calling it here too
+            // would incorrectly clear running_ state that now belongs to the
+            // superseding call's own still-in-flight refresh. No timing line
+            // either, for the same reason: the superseding call's own probe
+            // covers it.
+            QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
             return;
         }
         if (timing) {
@@ -377,10 +374,17 @@ void RepositorySession::startRefsAndHistory(HistoryQuery query,
                 this,
                 [this, token] {
                     setBusy(false);
-                    finishRefresh();
-                    if (!token.isCancelled()) {
-                        releaseInitialWorkingCopyGate();
+                    if (token.isCancelled()) {
+                        // The newer call that superseded this one owns both
+                        // releasing the gate and reporting completion to
+                        // refreshCoalescer_ once it reaches its own terminal
+                        // path -- doing either here too would corrupt state
+                        // (or open the gate) out from under that still-
+                        // in-flight refresh.
+                        return;
                     }
+                    finishRefresh();
+                    releaseInitialWorkingCopyGate();
                 },
                 Qt::QueuedConnection);
             return;
@@ -441,19 +445,20 @@ void RepositorySession::walkHistoryWithRefs(HistoryQuery query,
                 this,
                 [this, token, origin, timing] {
                     setBusy(false);
-                    finishRefresh();
                     // Same reasoning as the final catch-all below: if `token`
                     // is cancelled, this call was itself superseded before
                     // reaching here, and the newer call that superseded it
-                    // owns emitting and releasing the gate once it has its
-                    // own result. Emitting/releasing here too would let the
-                    // cold status scan (and a stale graph snapshot) race
-                    // ahead of that still-in-flight walk -- exactly the
-                    // bottleneck #2 serialization this gate exists to
-                    // prevent.
+                    // owns emitting and releasing the gate, and reporting
+                    // completion to refreshCoalescer_, once it has its own
+                    // result. Doing any of that here too would let the cold
+                    // status scan (and a stale graph snapshot) race ahead of
+                    // that still-in-flight walk -- exactly the bottleneck #2
+                    // serialization this gate exists to prevent -- and would
+                    // corrupt refreshCoalescer_'s running_ state besides.
                     if (token.isCancelled()) {
                         return;
                     }
+                    finishRefresh();
                     // No rev-list ran, so this line must read outcome=skipped
                     // rather than emitGraphUpdated()'s complete=true
                     // suggesting a real walk finished -- see
@@ -534,19 +539,25 @@ void RepositorySession::walkHistoryWithRefs(HistoryQuery query,
         this,
         [this, token, timing] {
             setBusy(false);
-            finishRefresh();
             if (token.isCancelled()) {
-                // A walk that already delivered a chunk (firstChunkLogged())
-                // has already logged for this probe -- e.g. it was streaming
-                // when a newer refresh superseded it. Logging Cancelled here
-                // too would be a second, redundant line for the same probe;
-                // only log when this walk never got that far.
+                // This walk was itself superseded (historyCancel_ reassigned
+                // by a newer call) -- that newer call's own terminal path
+                // owns releasing the gate and reporting completion to
+                // refreshCoalescer_ via finishRefresh() instead; calling it
+                // here too would corrupt running_ state that now belongs to
+                // that still-in-flight refresh. A walk that already
+                // delivered a chunk (firstChunkLogged()) has already logged
+                // for this probe -- e.g. it was streaming when a newer
+                // refresh superseded it. Logging Cancelled here too would be
+                // a second, redundant line for the same probe; only log when
+                // this walk never got that far.
                 if (timing && !timing->firstChunkLogged()) {
                     logTiming(formatWalkTiming(
                         toString(timing->origin()), WalkOutcome::Cancelled, 0, timing->snapshot()));
                 }
                 return;
             }
+            finishRefresh();
             releaseInitialWorkingCopyGate();
         },
         Qt::QueuedConnection);
@@ -610,21 +621,26 @@ void RepositorySession::noteGraphApplied(bool complete, std::size_t rows) {
 void RepositorySession::setHistoryFilter(HistoryQuery query) {
     activeHistoryQuery_ = query;
 
-    // Bypasses refreshCoalescer_: a filter change alters *what* the user is
-    // looking at, and folding it behind an in-flight walk would leave the
-    // wrong graph on screen for up to a full walk -- the one deliberate
-    // exception to bottleneck #6's coalescing (see
+    // Bypasses the coalescing *delay*: a filter change alters *what* the
+    // user is looking at, and folding it behind an in-flight walk would
+    // leave the wrong graph on screen for up to a full walk -- the one
+    // deliberate exception to bottleneck #6's coalescing (see
     // docs/reports/vscode-graph-performance.md and refreshHistory()'s doc
-    // comment). Drops whatever the coalescer had pending, same as
-    // cancelPendingReads().
+    // comment). It does not bypass refreshCoalescer_ itself: fireNow()
+    // still marks it running, so a request arriving while this walk is in
+    // flight correctly folds and is delivered afterward, rather than arming
+    // its own independent walk that would cancel this one out from under it.
     refreshCoalescer_.reset();
     refreshTimer_->stop();
     pendingRefreshQuery_ = HistoryQuery{};
+    pendingRefreshProbe_.reset();
 
     WalkTimingProbePtr timing;
     if (walkTimingEnabled()) {
         timing = std::make_shared<WalkTimingProbe>(GraphUpdateOrigin::Explicit);
+        timing->markFired();
     }
+    refreshCoalescer_.fireNow();
     startHistoryOnly(std::move(query), std::move(timing));
 }
 

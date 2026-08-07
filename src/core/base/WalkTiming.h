@@ -73,10 +73,12 @@ struct WalkMarks {
 /// whole shape is unit-testable without a RepositorySession, which has no
 /// test harness (see docs/PERFORMANCE.md).
 ///
-/// Each `*_ms=` field is the gap between two consecutive marks (queue_ms is
-/// the gap from timestamp zero to the first mark). A field prints `-` rather
-/// than a number when either endpoint was never reached, so a skipped or
-/// failed refresh cannot be misread as an unusually fast one.
+/// Each `*_ms=` field is the gap between two consecutive marks (coalesce_ms
+/// is the gap from timestamp zero to firedMs; queue_ms is firedMs to
+/// workerStartedMs, i.e. the worker-pool queue wait after RefreshCoalescer
+/// released the request). A field prints `-` rather than a number when
+/// either endpoint was never reached, so a skipped or failed refresh cannot
+/// be misread as an unusually fast one.
 std::string formatWalkTiming(std::string_view origin,
                              WalkOutcome outcome,
                              std::size_t rows,

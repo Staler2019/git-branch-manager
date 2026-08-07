@@ -131,14 +131,10 @@ jobs:
           modules: ''            # Core/Gui/Widgets only - smaller and faster
           cache: true
 
-      - name: Configure, build and test
-        run: cmake --workflow --preset ${{ matrix.preset }}
-
-      # The offscreen platform means the Qt model tests need no display.
-      - name: Run tests
+      - name: CI with workflow preset
         env:
           QT_QPA_PLATFORM: offscreen
-        run: ctest --preset ${{ matrix.preset }}
+        run: cmake --workflow --preset ${{ matrix.preset }}
 
       - name: Upload test logs
         if: failure()

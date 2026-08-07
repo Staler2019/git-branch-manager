@@ -590,6 +590,7 @@ TEST(RefreshCoalescer, ARequestDuringAnImmediateFireIsDeliveredByOnFinished) {
 
     const RefreshCoalescer::Generation generation =
         coalescer.fireNow(false, true, GraphUpdateOrigin::Explicit, start);
+    coalescer.takePending();
     coalescer.request(true, false, GraphUpdateOrigin::Explicit,
                       start + std::chrono::milliseconds(10));
 

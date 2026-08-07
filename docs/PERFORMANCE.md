@@ -354,12 +354,24 @@ request-merging RepositorySession needs on top of "when to fire":
   (`RepositorySession::finishRefresh()`), re-firing with zero added delay --
   `Debouncer::finish()`'s existing "fire immediately, no second wait"
   behaviour.
-- **Deliberate exception:** `setHistoryFilter()` bypasses the coalescer
-  entirely. A filter change alters *what* the user is looking at; folding it
-  behind an in-flight walk would leave the wrong graph on screen for up to a
-  full walk, so it resets `refreshCoalescer_` and fires immediately instead,
-  the same "supersede rather than queue" behaviour every refresh had before
-  this fix.
+- **Deliberate exception:** `setHistoryFilter()` bypasses the *delay*, not
+  `refreshCoalescer_` itself. A filter change alters *what* the user is
+  looking at; folding it behind an in-flight walk would leave the wrong
+  graph on screen for up to a full walk, so it resets the coalescer and
+  calls `RefreshCoalescer::fireNow()` to mark it running immediately instead
+  of waiting out the window -- the same "supersede rather than queue"
+  behaviour every refresh had before this fix. `fireNow()` still matters
+  here: without it, a request arriving while the filter's own walk is in
+  flight would read the coalescer as idle, arm its own independent walk,
+  and cancel the filter's walk out from under it via `historyCancel_`. With
+  it, that request correctly folds and is delivered once the filter's walk
+  completes. Each walk's terminal path also only calls `finishRefresh()`
+  when its own token was *not* cancelled -- a superseded walk's terminal
+  path reporting "finished" would otherwise corrupt the running_ state that
+  the walk that superseded it now owns. (Caught in code review after the
+  initial pass wired this incorrectly; see `RefreshCoalescer.h`'s doc
+  comment on `fireNow()` and the `!token.isCancelled()` guards in
+  `RepositorySession.cpp`'s terminal lambdas.)
 - **`coalesce_ms`:** without a label of its own, the window's wait would
   silently inflate `queue_ms` above and make the bridge-layer timing probe's
   own published numbers misleading. `WalkMarks::firedMs` (`core/base/WalkTiming.h`)

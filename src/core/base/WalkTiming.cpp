@@ -60,7 +60,9 @@ std::string formatWalkTiming(std::string_view origin,
     out += std::to_string(rows);
     out.push_back(' ');
 
-    appendSegment(out, "queue_ms", 0, marks.workerStartedMs);
+    appendSegment(out, "coalesce_ms", 0, marks.firedMs);
+    out.push_back(' ');
+    appendSegment(out, "queue_ms", marks.firedMs, marks.workerStartedMs);
     out.push_back(' ');
     appendSegment(out, "refs_ms", marks.workerStartedMs, marks.refsLoadedMs);
     out.push_back(' ');
@@ -85,6 +87,8 @@ std::string formatWalkTiming(std::string_view origin,
         total = marks.refsLoadedMs;
     } else if (marks.workerStartedMs >= 0) {
         total = marks.workerStartedMs;
+    } else if (marks.firedMs >= 0) {
+        total = marks.firedMs;
     }
     out += "total_ms=";
     if (total < 0) {

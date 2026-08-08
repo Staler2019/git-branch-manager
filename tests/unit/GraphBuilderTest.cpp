@@ -438,14 +438,16 @@ TEST(GraphSnapshot, MemoryStaysWithinTheBudget) {
 TEST(GraphSnapshot, FindRowSurvivesStreamedChunksAndMissesCleanly) {
     // The index backing findRow is rebuilt by finalizeIndices() on every
     // streamed chunk (see GraphSnapshot.h), not just once at the end. This
-    // pins the contract that matters to callers -- every emitted oid is
-    // findable after a chunk boundary, an oid that was never added is not,
-    // and a miss must leave the caller's output untouched.
+    // pins the contract that matters to callers -- every oid emitted so far is
+    // findable after a chunk boundary (not just the first one), an oid that
+    // has not been added yet misses cleanly even mid-stream, and a miss must
+    // leave the caller's output untouched.
     auto commits = makeRandomDag(500, 424242, 0.2, 2);
 
     GraphBuilder builder;
     std::size_t since = 0;
-    for (const Commit& commit : commits) {
+    for (std::size_t i = 0; i < commits.size(); ++i) {
+        const Commit& commit = commits[i];
         std::vector<ObjectId> parents;
         for (int parent : commit.parents) {
             parents.push_back(oidFor(parent));
@@ -453,9 +455,17 @@ TEST(GraphSnapshot, FindRowSurvivesStreamedChunksAndMissesCleanly) {
         builder.add(oidFor(commit.id), parents, 1000u + static_cast<std::uint32_t>(commit.id));
         if (++since >= 37) {
             auto midStream = builder.snapshot();  // Exercise finalizeIndices() mid-stream.
-            RowId row = 0;
-            EXPECT_TRUE(midStream->findRow(oidFor(commits.front().id), &row))
-                << "the newest commit so far must always be findable";
+            for (std::size_t added = 0; added <= i; ++added) {
+                RowId row = 0;
+                EXPECT_TRUE(midStream->findRow(oidFor(commits[added].id), &row))
+                    << "commit id " << commits[added].id << " was already added but is not findable";
+            }
+            if (i + 1 < commits.size()) {
+                RowId notYetAdded = 0xDEADBEEFu;
+                EXPECT_FALSE(midStream->findRow(oidFor(commits[i + 1].id), &notYetAdded))
+                    << "commit id " << commits[i + 1].id << " has not been added yet but was found";
+                EXPECT_EQ(notYetAdded, 0xDEADBEEFu);
+            }
             since = 0;
         }
     }

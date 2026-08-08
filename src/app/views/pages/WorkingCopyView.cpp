@@ -287,8 +287,10 @@ void WorkingCopyView::buildUi() {
 
     splitter->addWidget(leftWidget);
 
-    diffTabs_ = new QTabWidget(splitter);
-    diffTabs_->setMinimumWidth(200);
+    conflictStack_ = new QStackedWidget(splitter);
+    conflictStack_->setMinimumWidth(200);
+
+    diffTabs_ = new QTabWidget(conflictStack_);
     diffTabs_->setDocumentMode(true);
 
     originalView_ = new FileContentView(diffTabs_);
@@ -310,7 +312,19 @@ void WorkingCopyView::buildUi() {
         settings.setValue(QStringLiteral("workingCopy/lastDiffTab"), index);
     });
 
-    splitter->addWidget(diffTabs_);
+    conflictStack_->addWidget(diffTabs_);
+    conflictPanel_ = new ConflictResolvePanel(conflictStack_);
+    conflictStack_->addWidget(conflictPanel_);
+    connect(conflictPanel_,
+            &ConflictResolvePanel::resolutionSubmitted,
+            this,
+            &WorkingCopyView::onConflictPanelResolved);
+    connect(conflictPanel_,
+            &ConflictResolvePanel::cancelled,
+            this,
+            &WorkingCopyView::onConflictPanelCancelled);
+
+    splitter->addWidget(conflictStack_);
     splitter->setStretchFactor(0, 2);
     splitter->setStretchFactor(1, 3);
 
@@ -617,6 +631,40 @@ void WorkingCopyView::rebuildLists() {
     commitButton_->setEnabled(stagedList_->count() > 0 && !hasConflicts);
     stageAllButton_->setEnabled(unstagedList_->count() > conflictedCount);
     unstageAllButton_->setEnabled(stagedList_->count() > 0);
+
+    maybeAutoShowConflictPanel();
+}
+
+void WorkingCopyView::maybeAutoShowConflictPanel() {
+    const WorkingCopyStatusPtr status = session_ ? session_->workingCopyStatus() : nullptr;
+    const bool hasConflicts = status && !status->conflicted().empty();
+
+    if (!hasConflicts) {
+        // A fresh batch of conflicts (if any arrives later) should auto-show
+        // again -- the suppression only ever applies to the batch that was
+        // open when the user closed the panel.
+        autoShowSuppressed_ = false;
+        if (conflictStack_->currentWidget() == conflictPanel_) {
+            conflictStack_->setCurrentWidget(diffTabs_);
+        }
+        return;
+    }
+
+    if (autoShowSuppressed_ || conflictStack_->currentWidget() == conflictPanel_) {
+        return;
+    }
+
+    conflictPanel_->showEntry(session_, *status->conflicted().front());
+    conflictStack_->setCurrentWidget(conflictPanel_);
+}
+
+void WorkingCopyView::onConflictPanelResolved() {
+    conflictStack_->setCurrentWidget(diffTabs_);
+}
+
+void WorkingCopyView::onConflictPanelCancelled() {
+    autoShowSuppressed_ = true;
+    conflictStack_->setCurrentWidget(diffTabs_);
 }
 
 void WorkingCopyView::refreshSelectedDiff() {

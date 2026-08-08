@@ -23,6 +23,7 @@ class QTabWidget;
 
 namespace gbm {
 
+class ConflictResolvePanel;
 class FileContentView;
 class RepositorySession;
 class SideBySideDiffView;
@@ -78,6 +79,15 @@ private slots:
     /// Per-file checkbox toggled in the staged panel: unchecking unstages the
     /// file.
     void onStagedItemChanged(QListWidgetItem* item);
+    /// The embedded auto-shown conflict panel submitted a resolution: switch
+    /// back to the diff tabs. autoShowSuppressed_ is left alone -- if other
+    /// conflicts remain in this batch, the next rebuildLists() (triggered by
+    /// the status refresh that follows) auto-shows the panel again.
+    void onConflictPanelResolved();
+    /// The user closed the embedded conflict panel without resolving: switch
+    /// back to the diff tabs and suppress auto-show until this batch of
+    /// conflicts is fully resolved -- see autoShowSuppressed_.
+    void onConflictPanelCancelled();
 
 private:
     void buildUi();
@@ -96,10 +106,15 @@ private:
     FilePanel buildFilePanel(const QString& title);
     void rebuildLists();
     void refreshSelectedDiff();
-    /// Shows the three stages plus Take Mine/Take Theirs/Mark Resolved, and
-    /// submits whichever the user picks. Blocks (modally) until closed, same
-    /// as onManageBaseFolders in MainWindow.
+    /// Shows the three stages plus Take Mine/Take Theirs/Mark Resolved in a
+    /// modal dialog, for the "double-click a conflicted entry" path. The
+    /// same ConflictResolvePanel this dialog embeds is also embedded
+    /// directly (non-modally) in conflictStack_ -- see rebuildLists().
     void openConflictResolutionDialog(const WorkingCopyEntry& entry);
+    /// Switches conflictStack_ to the embedded ConflictResolvePanel for the
+    /// first conflicted entry, if not already showing and not suppressed --
+    /// called from the tail of rebuildLists(). See autoShowSuppressed_.
+    void maybeAutoShowConflictPanel();
     /// Builds and shows the unstaged-file context menu (Stage file / View
     /// diff / Open file / Copy path / Discard changes) for `entry`.
     void showUnstagedContextMenu(const WorkingCopyEntry& entry, const QPoint& globalPos);
@@ -155,6 +170,18 @@ private:
     void clearDiffTab(const DiffTab& tab);
 
     QTabWidget* diffTabs_ = nullptr;
+    /// Wraps diffTabs_ (page 0) and conflictPanel_ (page 1) so a conflict can
+    /// take over the right-hand pane without a modal dialog. rebuildLists()
+    /// switches pages via maybeAutoShowConflictPanel(); the panel's own
+    /// resolved/cancelled signals switch back to page 0.
+    QStackedWidget* conflictStack_ = nullptr;
+    ConflictResolvePanel* conflictPanel_ = nullptr;
+    /// Set when the user manually closes the auto-shown conflict panel
+    /// (Cancel) so rebuildLists() doesn't immediately reopen it on the next
+    /// status refresh -- same latch shape as the #20 banner fix. Cleared
+    /// once the working copy has no conflicts left, so the *next* conflict
+    /// batch still auto-shows.
+    bool autoShowSuppressed_ = false;
     FileContentView* originalView_ = nullptr;
     DiffTab workingTab_;
     DiffTab stagedTab_;

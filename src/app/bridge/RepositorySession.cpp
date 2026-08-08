@@ -246,6 +246,13 @@ void RepositorySession::onRefreshTimeout() {
         startHistoryOnly(std::move(query), std::move(timing), generation);
     } else if (pending.wantsRefs) {
         startRefsOnly(generation);
+    } else {
+        // Every request() call sets at least one flag, so this should never
+        // actually happen -- but if it somehow does, finishRefresh() must
+        // still close out this generation, or the coalescer's debouncer is
+        // left "running" forever and every future request() folds instead
+        // of arming.
+        finishRefresh(generation);
     }
 }
 

@@ -74,15 +74,18 @@ this map, so it was safe to replace outright.
 1. `index_` was replaced with `oidOrder_`, a `std::vector<RowId>` of row
    indices sorted by `oids[row]`. `findRow()` now binary searches it instead
    of hashing.
-2. `finalizeIndices()` rebuilds `oidOrder_` with a single `std::sort()` on
-   every call rather than attempting to merge with a previous chunk's state:
-   `GraphBuilder::snapshot()` publishes each streamed chunk as a fresh copy of
-   the builder's running state and calls `finalizeIndices()` only on that
-   copy, never on the builder's own persistent snapshot, so there is no prior
-   sorted state to reuse across calls -- the `unordered_map` version already
-   rebuilt from scratch on every chunk (`index_.clear()` then a full
+2. `finalizeIndices()` rebuilds `oidOrder_` with a single `std::stable_sort()`
+   on every call rather than attempting to merge with a previous chunk's
+   state: `GraphBuilder::snapshot()` publishes each streamed chunk as a fresh
+   copy of the builder's running state and calls `finalizeIndices()` only on
+   that copy, never on the builder's own persistent snapshot, so there is no
+   prior sorted state to reuse across calls -- the `unordered_map` version
+   already rebuilt from scratch on every chunk (`index_.clear()` then a full
    re-insert loop); a full sort is the equivalent-order replacement without
-   per-entry hash-map allocation.
+   per-entry hash-map allocation. `stable_sort` rather than `sort` so a
+   duplicate `ObjectId` (never happens for real git commits, but was
+   deterministic first-insert-wins under the old hash map) keeps that same
+   tie-break instead of resolving to an arbitrary row.
 3. `approximateBytes()` now counts `oidOrder_.capacity() * sizeof(RowId)`,
    which is exact rather than estimated -- this makes the metric more honest,
    not just smaller.

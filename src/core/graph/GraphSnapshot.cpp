@@ -57,7 +57,12 @@ void GraphSnapshot::finalizeIndices() {
     for (RowId row = 0; row < oids.size(); ++row) {
         oidOrder_[row] = row;
     }
-    std::sort(
+    // stable_sort, not sort: git commits never produce duplicate ObjectIds in
+    // practice, but the old unordered_map this replaced resolved a duplicate
+    // deterministically (first insert wins). Keeping that same first-row-wins
+    // tie-break costs nothing measurable at this size and avoids leaving
+    // findRow()'s result for a duplicate oid unspecified.
+    std::stable_sort(
         oidOrder_.begin(), oidOrder_.end(), [this](RowId a, RowId b) { return oids[a] < oids[b]; });
 
     // Bucket k records the first edge that could still be open at row

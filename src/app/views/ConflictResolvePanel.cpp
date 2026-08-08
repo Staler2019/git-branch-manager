@@ -318,15 +318,66 @@ void ConflictResolvePanel::onWorkingTreeContentReady(const QString& path,
     }
     middleEditable_ = editable;
     saveButton_->setEnabled(editable);
-    if (editable) {
-        middleContentHasCrlf_ = content.contains(QStringLiteral("\r\n"));
-        middleEdit_->setReadOnly(false);
-        middleEdit_->setPlainText(content);
-    } else {
+    if (!editable) {
         middleEdit_->setReadOnly(true);
         middleEdit_->setPlainText(
             tr("(binary or non-UTF-8 content — use Take Left or Take Right)"));
+        parsedMarkers_ = ParsedConflictFile{};
+        regionResolutions_.clear();
+        return;
     }
+
+    middleContentHasCrlf_ = content.contains(QStringLiteral("\r\n"));
+    parsedMarkers_ = ConflictMarkerParser{}.parse(content.toStdString());
+    regionResolutions_.assign(parsedMarkers_.regionCount, ConflictRegionResolution{});
+    middleEdit_->setReadOnly(false);
+    // regionCount == 0 covers both "no markers at all" and "the parser gave
+    // up on a malformed file" (parsedMarkers_.wellFormed == false) -- either
+    // way there is nothing to render per-region, so the raw on-disk content
+    // is shown exactly as before per-region resolution existed.
+    middleEdit_->setPlainText(parsedMarkers_.regionCount == 0 ? content
+                                                              : buildMiddlePreviewText());
+}
+
+QString ConflictResolvePanel::buildMiddlePreviewText() const {
+    QString text;
+    int regionIndex = 0;
+    for (const ConflictSegment& segment : parsedMarkers_.segments) {
+        if (segment.kind == ConflictSegmentKind::Text) {
+            for (const std::string& line : segment.lines) {
+                text += QString::fromStdString(line);
+            }
+            continue;
+        }
+
+        const ConflictRegionResolution& resolution =
+            regionResolutions_[static_cast<std::size_t>(regionIndex)];
+        const std::vector<std::string>* chosen = nullptr;
+        switch (resolution.choice) {
+            case ConflictRegionChoice::Ours:
+                chosen = &segment.ours;
+                break;
+            case ConflictRegionChoice::Theirs:
+                chosen = &segment.theirs;
+                break;
+            case ConflictRegionChoice::Custom:
+                chosen = &resolution.customLines;
+                break;
+            case ConflictRegionChoice::Unresolved:
+                break;
+        }
+        if (chosen != nullptr) {
+            for (const std::string& line : *chosen) {
+                text += QString::fromStdString(line);
+            }
+        } else {
+            text += tr("Conflict %1 of %2 — not resolved yet.\n")
+                        .arg(regionIndex + 1)
+                        .arg(parsedMarkers_.regionCount);
+        }
+        ++regionIndex;
+    }
+    return text;
 }
 
 void ConflictResolvePanel::submitResolution(int choice) {

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/git/ConflictMarkerParser.h"
+
 #include <QWidget>
 
 #include <string>
@@ -50,6 +52,14 @@ private:
     void onWorkingTreeContentReady(const QString& path, const QString& content, bool editable);
     void submitResolution(int choice);
 
+    /// Renders the middle column's text for the current parsedMarkers_ +
+    /// regionResolutions_: plain-text segments pass through verbatim, a
+    /// resolved region's chosen lines are inlined, and an unresolved region
+    /// becomes one placeholder line -- conflict marker text (<<<<<<< etc.)
+    /// never appears in the result. Only meaningful when
+    /// parsedMarkers_.regionCount > 0; see onWorkingTreeContentReady.
+    QString buildMiddlePreviewText() const;
+
     RepositorySession* session_ = nullptr;
     std::string path_;
     bool ancestorBlobMissing_ = false;
@@ -63,6 +73,16 @@ private:
     /// Mirrors whether the middle column is currently editable (i.e. the
     /// on-disk content decoded as text) -- gates the Save button.
     bool middleEditable_ = false;
+    /// The on-disk content split into plain-text/region segments -- see
+    /// ConflictMarkerParser. regionCount == 0 (no markers, or a malformed
+    /// file the parser gave up on) means the middle column just shows
+    /// on-disk content verbatim, same as before per-region resolution
+    /// existed.
+    ParsedConflictFile parsedMarkers_;
+    /// One entry per parsedMarkers_ region, same order. Empty/Unresolved
+    /// entries render as a placeholder line in buildMiddlePreviewText()
+    /// rather than ever showing that region's raw marker text.
+    std::vector<ConflictRegionResolution> regionResolutions_;
 
     QLabel* kindLabel_ = nullptr;
     QCheckBox* ancestorToggle_ = nullptr;

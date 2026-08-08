@@ -695,17 +695,48 @@ void RepositorySession::startRefsOnly(RefreshCoalescer::Generation generation) {
 
     readPool_.post([this, token, generation] {
         auto snapshot = refStore_->load(token);
-        if (snapshot) {
-            refs_.publish(*snapshot);
-            QMetaObject::invokeMethod(this, [this] { emit refsUpdated(); }, Qt::QueuedConnection);
-        } else if (snapshot.error().code != GitError::Code::Cancelled) {
-            GitError error = std::move(snapshot).error();
+        if (!snapshot) {
+            if (snapshot.error().code != GitError::Code::Cancelled) {
+                GitError error = std::move(snapshot).error();
+                QMetaObject::invokeMethod(
+                    this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
+            }
             QMetaObject::invokeMethod(
-                this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
+                this,
+                [this, generation] {
+                    setBusy(false);
+                    finishRefresh(generation);
+                },
+                Qt::QueuedConnection);
+            return;
         }
+
         QMetaObject::invokeMethod(
             this,
-            [this, generation] {
+            [this, generation, snapshot = std::move(*snapshot)] {
+                // readCancel_ (used above) is shared across ~25 unrelated
+                // read call sites and, unlike historyCancel_, is never
+                // reassigned per-dispatch -- so it cannot tell this load
+                // apart from a newer one. Check the generation here instead,
+                // on the UI thread right before publishing: if a newer
+                // dispatch (fireNow() from setHistoryFilter(), or another
+                // startRefsOnly()/startRefsAndHistory() from requestRefresh())
+                // has already superseded this one, that dispatch now owns
+                // refs_ and this snapshot -- even though it loaded fine --
+                // is stale and must be dropped rather than overwrite it.
+                //
+                // The one case this deliberately does not cover: a
+                // superseding startHistoryOnly() (refs not requested) also
+                // fails this check and drops a still-fresher snapshot than
+                // what refs_ currently holds. Accepted tradeoff -- the
+                // superseding dispatch owns refs_, and it is simpler for
+                // exactly one generation to ever be allowed to publish than
+                // to special-case "superseded, but only by a request that
+                // didn't want refs".
+                if (generation == refreshCoalescer_.currentGeneration()) {
+                    refs_.publish(snapshot);
+                    emit refsUpdated();
+                }
                 setBusy(false);
                 finishRefresh(generation);
             },

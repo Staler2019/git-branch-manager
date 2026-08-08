@@ -1039,6 +1039,17 @@ void RepositorySession::submitWorkingCopyOperation(std::unique_ptr<Operation> op
                         // graph need to reflect it.
                         refreshRefsAndHistory();
                     }
+                } else if (outcome.error && outcome.error->code == GitError::Code::Conflict) {
+                    // Merge/cherry-pick/rebase/revert stopping on a conflict is
+                    // not this operation failing to do its job (see e.g. the
+                    // comment on MergeOps.cpp's Conflict branch) -- it is git
+                    // stopping exactly where it should, with new conflicted
+                    // entries already on disk. HEAD has not moved, so only the
+                    // working tree needs to be re-read; without this, the
+                    // working-copy panel (and its conflict auto-show) would sit
+                    // stale until something unrelated triggered a refresh, e.g.
+                    // MainWindow::onWindowActivated().
+                    refreshWorkingCopyStatus();
                 }
             },
             Qt::QueuedConnection);

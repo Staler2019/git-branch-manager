@@ -747,6 +747,15 @@ void WorkingCopyView::onWorkingCopyOperationFinished(const OperationOutcome& out
         }
         return;
     }
+    if (outcome.error && outcome.error->code == GitError::Code::Conflict) {
+        // Not a real failure -- the conflict is already visible via the
+        // working-copy panel (which refreshWorkingCopyStatus() -- triggered
+        // for this same outcome, see RepositorySession::submitWorkingCopyOperation
+        // -- is about to update, auto-showing the resolve view). A modal box
+        // on top of that would just be noise.
+        emit statusMessage(QString::fromStdString(outcome.summary));
+        return;
+    }
     if (outcome.error) {
         emit errorOccurred(QString::fromStdString(outcome.summary), *outcome.error);
     }

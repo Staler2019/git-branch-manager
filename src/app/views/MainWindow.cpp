@@ -281,7 +281,6 @@ void MainWindow::buildUi() {
 
     bannerLabel_ = new QLabel(bannerRow);
     bannerLabel_->setObjectName(QStringLiteral("gbmBannerLabel"));
-    bannerLabel_->setVisible(false);
     bannerLabel_->setWordWrap(true);
     bannerLabel_->setAccessibleName(QStringLiteral("Repository state banner"));
     bannerLayout->addWidget(bannerLabel_, 1);

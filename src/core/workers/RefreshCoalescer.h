@@ -159,11 +159,19 @@ public:
     /// stale -- a newer dispatch has already superseded it -- and this is a
     /// no-op that returns false without touching any state.
     bool onFinished(Generation generation) {
-        if (generation != generation_) {
+        if (generation == 0 || generation != generation_) {
             return false;
         }
         return debouncer_.finish();
     }
+
+    /// The generation currently dispatched (0 if none has fired yet). Lets a
+    /// terminal path re-check, on the UI thread right before it publishes,
+    /// whether a newer dispatch has already superseded the one it was
+    /// carrying out -- see RepositorySession::startRefsOnly() for why that
+    /// check has to happen here rather than via a worker-thread read of this
+    /// (deliberately not thread-safe) class's state.
+    Generation currentGeneration() const { return generation_; }
 
     /// Consumes and clears the merged batch this fire covers. Must be called
     /// exactly once per onTimeout()/fireNow() that dispatched, right before

@@ -511,6 +511,19 @@ TEST(RefreshCoalescer, OnFinishedWithAStaleGenerationIsANoOp) {
         << "the current generation's own report still ends its run and delivers the fold";
 }
 
+TEST(RefreshCoalescer, OnFinishedWithGenerationZeroIsANoOp) {
+    // 0 is the reserved "did not dispatch" sentinel (see the class doc
+    // comment and onTimeout()'s own contract), never a real generation a
+    // caller should be able to close out. generation_ also starts at 0
+    // before the first dispatch, so this locks the sentinel as permanently
+    // unmatchable rather than relying on it merely coinciding with an
+    // untouched generation_.
+    RefreshCoalescer coalescer;
+
+    EXPECT_FALSE(coalescer.onFinished(0))
+        << "0 must never be treated as a real, closeable generation";
+}
+
 TEST(RefreshCoalescer, ResetClearsPendingRunningAndDirtyState) {
     RefreshCoalescer coalescer;
     const auto start = RefreshCoalescer::Clock::now();

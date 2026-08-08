@@ -155,6 +155,15 @@ private:
     /// binary searches this rather than hashing, which is both smaller (4 bytes
     /// per row vs. a hash-map node) and cheaper to rebuild on every streamed
     /// chunk (no per-entry allocation).
+    ///
+    /// Every entry is a row index into `oids`, valid only as long as `oids`
+    /// isn't shrunk or reordered out from under it. Unlike the old hash map
+    /// (which stored oids by value and needed no such assumption), this index
+    /// is safe today only because GraphBuilder never does either -- rows are
+    /// exclusively appended (see GraphBuilder.cpp) and finalizeIndices() fully
+    /// rebuilds oidOrder_ from oids on every call. A future change that
+    /// shrinks or reorders `oids` without also rebuilding oidOrder_ first
+    /// would silently invalidate it.
     std::vector<RowId> oidOrder_;
 };
 

@@ -44,13 +44,22 @@ bool walkTimingEnabledForValue(const char* value);
 bool walkTimingEnabled();
 
 /// One history refresh's segment boundaries, each as milliseconds elapsed
-/// since the request was issued (RepositorySession::refreshHistory() /
-/// refreshRefsAndHistory(), right after setBusy(true) -- that instant is
+/// since the request was accepted (RepositorySession's refreshRefs() /
+/// refreshHistory() / refreshRefsAndHistory() call -- that instant is
 /// timestamp zero and is not itself a field here). -1 means "not reached":
 /// distinct from 0, which would misrepresent a mark the fingerprint-skip or
 /// error paths never touch (e.g. chunkBuiltMs when no walk ran at all) as
 /// free rather than absent.
+///
+/// firedMs is the first mark reached and the odd one out: every mark after it
+/// is a worker- or UI-thread event inside the walk itself, but firedMs is
+/// RefreshCoalescer deciding the debounce window has elapsed and the walk may
+/// actually start (see docs/reports/vscode-graph-performance.md, bottleneck
+/// #6). Without it, the coalescing delay would silently inflate queue_ms
+/// (worker queue wait) with a cost that has nothing to do with the worker
+/// queue.
 struct WalkMarks {
+    std::int64_t firedMs = -1;           ///< t0: RefreshCoalescer released the request
     std::int64_t workerStartedMs = -1;   ///< t1: pool task began (queue wait ends)
     std::int64_t refsLoadedMs = -1;      ///< t2: for-each-ref done
     std::int64_t chunkBuiltMs = -1;      ///< t3: chunk built in core (worker thread)
@@ -64,10 +73,12 @@ struct WalkMarks {
 /// whole shape is unit-testable without a RepositorySession, which has no
 /// test harness (see docs/PERFORMANCE.md).
 ///
-/// Each `*_ms=` field is the gap between two consecutive marks (queue_ms is
-/// the gap from timestamp zero to the first mark). A field prints `-` rather
-/// than a number when either endpoint was never reached, so a skipped or
-/// failed refresh cannot be misread as an unusually fast one.
+/// Each `*_ms=` field is the gap between two consecutive marks (coalesce_ms
+/// is the gap from timestamp zero to firedMs; queue_ms is firedMs to
+/// workerStartedMs, i.e. the worker-pool queue wait after RefreshCoalescer
+/// released the request). A field prints `-` rather than a number when
+/// either endpoint was never reached, so a skipped or failed refresh cannot
+/// be misread as an unusually fast one.
 std::string formatWalkTiming(std::string_view origin,
                              WalkOutcome outcome,
                              std::size_t rows,

@@ -2,6 +2,9 @@ add_library(gbm_warnings INTERFACE)
 
 if(MSVC)
     target_compile_options(gbm_warnings INTERFACE /W4 /permissive- /utf-8 /Zc:__cplusplus)
+    if(GBM_WERROR)
+        target_compile_options(gbm_warnings INTERFACE /WX)
+    endif()
     target_compile_definitions(gbm_warnings INTERFACE
         _CRT_SECURE_NO_WARNINGS
         NOMINMAX                # else windows.h min/max macros break std::min
@@ -12,4 +15,7 @@ else()
         -Wall -Wextra -Wpedantic
         -Wcast-qual -Wshadow -Wnon-virtual-dtor -Woverloaded-virtual
         -Wdouble-promotion -Wformat=2)
+    if(GBM_WERROR)
+        target_compile_options(gbm_warnings INTERFACE -Werror)
+    endif()
 endif()

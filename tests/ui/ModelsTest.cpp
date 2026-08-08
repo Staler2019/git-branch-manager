@@ -83,7 +83,7 @@ private slots:
     void refTreeModelNestsSlashSeparatedBranchNames();
     void refTreeModelFlagsSectionRootsButNotGroupingNodes();
     void commitListModelSatisfiesTheModelContract();
-    void commitListModelNeverBlocksInData();
+    void commitListModelDataMissReturnsPlaceholder();
     void graphDelegateWidthShrinksForLinearHistory();
     void graphDelegatePaletteCoversEveryLaneColor();
 };
@@ -233,15 +233,18 @@ void ModelsTest::commitListModelSatisfiesTheModelContract() {
     QVERIFY(!model.data(model.index(0, 0), Qt::DisplayRole).isValid());
 }
 
-void ModelsTest::commitListModelNeverBlocksInData() {
-    // The contract: a metadata miss returns a placeholder immediately. With 500k
-    // rows, one synchronous read here would be run once per visible cell per frame.
+void ModelsTest::commitListModelDataMissReturnsPlaceholder() {
+    // The deterministic half of the non-blocking data() contract: a metadata
+    // miss returns a placeholder rather than fetching. The wall-clock half
+    // (the miss path must also be fast) lives in ModelsPerfTest under the
+    // "perf" label -- see tests/CMakeLists.txt for why timing assertions
+    // don't gate every PR.
     CommitListModel model;
 
     GraphBuilder builder;
-    for (int i = 1; i <= 5000; ++i) {
+    for (int i = 1; i <= 100; ++i) {
         std::vector<ObjectId> parents;
-        if (i < 5000) {
+        if (i < 100) {
             parents.push_back(oidFor(i + 1));
         }
         builder.add(oidFor(i), parents, 1000u + static_cast<std::uint32_t>(i));
@@ -250,30 +253,13 @@ void ModelsTest::commitListModelNeverBlocksInData() {
 
     // No session, so metadata never arrives: the worst case the contract is about.
     model.setSnapshotForTesting(builder.snapshot());
-    QCOMPARE(model.rowCount(), 5000);
+    QCOMPARE(model.rowCount(), 100);
 
-    QElapsedTimer timer;
-    timer.start();
-    int placeholders = 0;
     for (int row = 0; row < model.rowCount(); ++row) {
-        for (int column = 0; column < CommitListModel::ColumnCount; ++column) {
-            const QVariant value = model.data(model.index(row, column), Qt::DisplayRole);
-            if (column == CommitListModel::ColumnSubject &&
-                value.toString() == QStringLiteral("…")) {
-                ++placeholders;
-            }
-        }
+        const QVariant value =
+            model.data(model.index(row, CommitListModel::ColumnSubject), Qt::DisplayRole);
+        QCOMPARE(value.toString(), QStringLiteral("…"));
     }
-    const qint64 elapsed = timer.elapsed();
-
-    // Every subject must be the placeholder, proving the miss path returned rather
-    // than fetching, and the whole sweep must be far faster than any git call.
-    QCOMPARE(placeholders, 5000);
-    QVERIFY2(elapsed < 500,
-             qPrintable(QStringLiteral("data() took %1 ms over %2 cells; it must "
-                                       "never block")
-                            .arg(elapsed)
-                            .arg(5000 * CommitListModel::ColumnCount)));
 
     // Columns backed by the snapshot itself (date, short sha) are populated even
     // with no metadata, so the view is never a wall of placeholders.

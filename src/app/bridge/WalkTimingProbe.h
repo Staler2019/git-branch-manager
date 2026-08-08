@@ -12,15 +12,16 @@ namespace gbm {
 
 /// Shared, per-refresh carrier for the marks core/base/WalkTiming.h turns
 /// into a `gbm-timing walk ...` line -- see
-/// docs/reports/vscode-graph-performance.md, bottleneck #4. Built once per
-/// RepositorySession::refreshHistory()/refreshRefsAndHistory() call, right
-/// after setBusy(true) (that instant is timestamp zero), and threaded
-/// through the posted worker lambda, walkHistoryWithRefs(), and the chunk
-/// callback. Null whenever walkTimingEnabled() is false -- every
+/// docs/reports/vscode-graph-performance.md, bottlenecks #4 and #6. Built
+/// once per RefreshCoalescer window, on its first request
+/// (RepositorySession::requestRefresh(), or setHistoryFilter()'s immediate
+/// bypass -- that instant is timestamp zero), and threaded through
+/// onRefreshTimeout(), the posted worker lambda, walkHistoryWithRefs(), and
+/// the chunk callback. Null whenever walkTimingEnabled() is false -- every
 /// RepositorySession call site checks for null before touching a mark,
 /// which is what keeps this free when the probe is off.
 ///
-/// The five timing marks are std::atomic<std::int64_t>, not plain fields:
+/// The six timing marks are std::atomic<std::int64_t>, not plain fields:
 /// the worker thread marks workerStartedMs/refsLoadedMs/chunkBuiltMs while
 /// the UI thread may still be formatting the previous chunk's line (a walk
 /// can publish several chunks before it completes), and this object carries
@@ -35,6 +36,17 @@ public:
         : origin_(origin), requestedAt_(std::chrono::steady_clock::now()) {}
 
     GraphUpdateOrigin origin() const { return origin_; }
+
+    /// Corrects the origin this probe logs as, without touching requestedAt_
+    /// (timestamp zero). Needed because a probe is created at the first
+    /// request of a RefreshCoalescer window -- before the window's final
+    /// merged origin (Explicit always wins) is known -- see
+    /// docs/reports/vscode-graph-performance.md, bottleneck #6.
+    void setOrigin(GraphUpdateOrigin origin) { origin_ = origin; }
+
+    /// RefreshCoalescer released this refresh and it is about to actually
+    /// start -- t0 for every mark below, and the endpoint of coalesce_ms.
+    void markFired() { mark(firedMs_); }
 
     void markWorkerStarted() { mark(workerStartedMs_); }
 
@@ -71,6 +83,7 @@ public:
 
     WalkMarks snapshot() const {
         WalkMarks marks;
+        marks.firedMs = firedMs_.load();
         marks.workerStartedMs = workerStartedMs_.load();
         marks.refsLoadedMs = refsLoadedMs_.load();
         marks.chunkBuiltMs = chunkBuiltMs_.load();
@@ -88,6 +101,7 @@ private:
 
     GraphUpdateOrigin origin_;
     std::chrono::steady_clock::time_point requestedAt_;
+    std::atomic<std::int64_t> firedMs_{-1};
     std::atomic<std::int64_t> workerStartedMs_{-1};
     std::atomic<std::int64_t> refsLoadedMs_{-1};
     std::atomic<std::int64_t> chunkBuiltMs_{-1};

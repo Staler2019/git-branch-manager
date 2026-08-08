@@ -24,6 +24,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 option(GBM_BUILD_APP "Build the Qt GUI application" ON)
 option(GBM_BUILD_TESTS "Build the test suite" ON)
 option(GBM_SANITIZE "Enable sanitizers (address,undefined | thread)" "")
+option(GBM_WERROR "Treat compiler warnings as errors (-Werror/-WX)" ON)
 
 include(Sanitizers)
 include(Warnings)

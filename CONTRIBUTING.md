@@ -42,6 +42,14 @@ cmake --workflow --preset tsan
 
 Run the app: `./build/dev/src/app/git-branch-manager`
 
+Warnings are treated as errors by default (`-Werror`/`/WX`, via
+`gbm_warnings` in `cmake/Warnings.cmake`), so a build that only warned
+before will now fail to compile, with no per-file exceptions. If a compiler
+flags a real memory-safety warning (bounds, overread, use-after-free), fix
+the code rather than suppressing the diagnostic. CI always builds with this
+on; a downstream packager who hits a new warning from a compiler version CI
+doesn't test can opt out with `-DGBM_WERROR=OFF`.
+
 ## Formatting
 
 CI's `lint` job rejects any PR that isn't clang-format-clean (clang-format 18,

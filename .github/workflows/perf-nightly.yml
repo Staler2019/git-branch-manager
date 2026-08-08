@@ -94,3 +94,55 @@ jobs:
           name: perf-log
           path: perf.log
           if-no-files-found: ignore
+
+  qt-models-perf:
+    name: CommitListModel timing (Qt)
+    # Same pinning rationale as commit-graph-ratio above. This one needs Qt
+    # (see tests/ui/ModelsPerfTest.cpp and the "qt-perf" testPreset), unlike
+    # that job, so it installs it -- same recipe ci.yml uses for its Linux
+    # matrix leg.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja and a pinned CMake
+        uses: lukka/get-cmake@latest
+
+      - name: Install Linux GUI dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev libxkbcommon-x11-0 libxcb-cursor0 \
+            libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+            libxcb-render-util0 libxcb-shape0 libxcb-xinerama0
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.10.*'
+          modules: ''
+          cache: true
+
+      # dev, not core-only: gbm_model_perf_tests links src/app/bridge and
+      # src/app/models, which need Qt to compile. Only the one target actually
+      # under test gets built, not the whole dev preset's test surface.
+      - name: Configure and build
+        run: |
+          cmake --preset dev
+          cmake --build --preset dev --target gbm_model_perf_tests
+
+      - name: Measure
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          set -o pipefail
+          ctest --preset qt-perf 2>&1 | tee qt-models-perf.log
+
+      - name: Upload the full log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qt-models-perf-log
+          path: qt-models-perf.log
+          if-no-files-found: ignore

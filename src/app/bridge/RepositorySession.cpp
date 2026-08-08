@@ -8,6 +8,7 @@
 #include <QMetaType>
 #include <QSettings>
 #include <QString>
+#include <QTimer>
 
 #include <cstdint>
 #include <utility>
@@ -139,6 +140,13 @@ RepositorySession::RepositorySession(GitInstallation installation,
     askpass_ = new AskpassWatcher(this);
     connect(
         askpass_, &AskpassWatcher::promptReceived, this, &RepositorySession::credentialRequested);
+
+    // Single-shot, restarted on every requestRefresh() call that returns Arm
+    // -- see refreshCoalescer_'s doc comment and
+    // docs/reports/vscode-graph-performance.md, bottleneck #6.
+    refreshTimer_ = new QTimer(this);
+    refreshTimer_->setSingleShot(true);
+    connect(refreshTimer_, &QTimer::timeout, this, &RepositorySession::onRefreshTimeout);
 }
 
 RepositorySession::~RepositorySession() {
@@ -174,11 +182,101 @@ void RepositorySession::setBusy(bool busy) {
 }
 
 void RepositorySession::refreshHistory(HistoryQuery query) {
-    // A bare refreshHistory() call is what setHistoryFilter() and a few other
-    // ref-independent callers use, and means "refresh with whatever's
-    // currently selected" -- if setHistoryFilter() has set a branch filter,
-    // substitute it here rather than letting an incidental refresh silently
-    // revert the graph to "show everything".
+    requestRefresh(
+        /*wantsRefs=*/false, /*wantsHistory=*/true, std::move(query), GraphUpdateOrigin::Explicit);
+}
+
+void RepositorySession::refreshRefsAndHistory(HistoryQuery query, GraphUpdateOrigin origin) {
+    requestRefresh(/*wantsRefs=*/true, /*wantsHistory=*/true, std::move(query), origin);
+}
+
+void RepositorySession::requestRefresh(bool wantsRefs,
+                                       bool wantsHistory,
+                                       HistoryQuery query,
+                                       GraphUpdateOrigin origin) {
+    // A refreshRefs()-only request has no opinion about the history query --
+    // must not clobber a real filter a preceding request already set for
+    // this same window.
+    if (wantsHistory) {
+        pendingRefreshQuery_ = std::move(query);
+    }
+
+    // Timestamp zero for this window's gbm-timing line -- see
+    // WalkTimingProbe's doc comment and
+    // docs/reports/vscode-graph-performance.md, bottlenecks #4 and #6. Null
+    // (and free to check against) whenever GBM_TIMING=1 wasn't set. Created
+    // once per window, on its first request -- later requests in the same
+    // window reuse it so requestedAt_ stays the window's actual start.
+    if (!pendingRefreshProbe_ && walkTimingEnabled()) {
+        pendingRefreshProbe_ = std::make_shared<WalkTimingProbe>(origin);
+    }
+
+    if (refreshCoalescer_.request(wantsRefs, wantsHistory, origin) ==
+        RefreshCoalescer::RefreshAction::Arm) {
+        refreshTimer_->start(RefreshCoalescer::kDelay);
+    }
+    // Fold: a refresh is already running and refreshTimer_ must be left
+    // alone -- finishRefresh() re-arms it (with zero delay) once that
+    // refresh's terminal path reports it done.
+}
+
+void RepositorySession::onRefreshTimeout() {
+    const RefreshCoalescer::Generation generation = refreshCoalescer_.onTimeout();
+    if (generation == 0) {
+        // refreshTimer_ uses Qt's default Qt::CoarseTimer, which Qt
+        // documents as firing up to ~5% early -- so shouldFire() can see the
+        // quiet period as not yet elapsed even though the timer fired. Must
+        // re-arm rather than just return, or this pending batch is left
+        // wedged: nothing else re-fires the timer, since a request() call
+        // that folds (RefreshAction::Fold) deliberately leaves it alone.
+        refreshTimer_->start(RefreshCoalescer::kDelay);
+        return;
+    }
+
+    const RefreshCoalescer::PendingRefresh pending = refreshCoalescer_.takePending();
+    WalkTimingProbePtr timing = std::move(pendingRefreshProbe_);
+    if (timing) {
+        // The probe was created at the window's first request, before the
+        // final merged origin (Explicit always wins) was known.
+        timing->setOrigin(pending.origin);
+        timing->markFired();
+    }
+    HistoryQuery query = std::move(pendingRefreshQuery_);
+    pendingRefreshQuery_ = HistoryQuery{};
+
+    if (pending.wantsRefs && pending.wantsHistory) {
+        startRefsAndHistory(std::move(query), pending.origin, std::move(timing), generation);
+    } else if (pending.wantsHistory) {
+        startHistoryOnly(std::move(query), std::move(timing), generation);
+    } else if (pending.wantsRefs) {
+        startRefsOnly(generation);
+    } else {
+        // Every request() call sets at least one flag, so this should never
+        // actually happen -- but if it somehow does, finishRefresh() must
+        // still close out this generation, or the coalescer's debouncer is
+        // left "running" forever and every future request() folds instead
+        // of arming.
+        finishRefresh(generation);
+    }
+}
+
+void RepositorySession::finishRefresh(RefreshCoalescer::Generation generation) {
+    if (refreshCoalescer_.onFinished(generation)) {
+        // Debouncer::finish() already reset its internal clock to fire
+        // immediately (no second wait) -- start(0) queues onRefreshTimeout()
+        // for the next event loop tick rather than re-entering it directly
+        // from inside this terminal handler.
+        refreshTimer_->start(0);
+    }
+}
+
+void RepositorySession::startHistoryOnly(HistoryQuery query,
+                                         WalkTimingProbePtr timing,
+                                         RefreshCoalescer::Generation generation) {
+    // Means "refresh with whatever's currently selected" -- if
+    // setHistoryFilter() has set a branch filter, substitute it here rather
+    // than letting an incidental refresh silently revert the graph to "show
+    // everything".
     if (historyQueryEquals(query, HistoryQuery{}) &&
         !historyQueryEquals(activeHistoryQuery_, HistoryQuery{})) {
         query = activeHistoryQuery_;
@@ -200,16 +298,7 @@ void RepositorySession::refreshHistory(HistoryQuery query) {
 
     setBusy(true);
 
-    // Timestamp zero for this refresh's gbm-timing line -- see
-    // WalkTimingProbe's doc comment and
-    // docs/reports/vscode-graph-performance.md, bottleneck #4. Null (and
-    // free to check against) whenever GBM_TIMING=1 wasn't set.
-    WalkTimingProbePtr timing;
-    if (walkTimingEnabled()) {
-        timing = std::make_shared<WalkTimingProbe>(GraphUpdateOrigin::Explicit);
-    }
-
-    readPool_.post([this, query = std::move(query), token, timing]() mutable {
+    readPool_.post([this, query = std::move(query), token, timing, generation]() mutable {
         if (timing) {
             timing->markWorkerStarted();
         }
@@ -224,12 +313,21 @@ void RepositorySession::refreshHistory(HistoryQuery query) {
         auto freshRefs = refStore_->load(token);
         if (!freshRefs && freshRefs.error().code == GitError::Code::Cancelled) {
             // This call was itself superseded (historyCancel_ was cancelled
-            // and reassigned) before it even reached walkHistoryWithRefs(),
-            // so the newer call that superseded it owns releasing
-            // initialWorkingCopyGate_ -- releasing here too is harmless
-            // (idempotent) but not required. No timing line either, for the
-            // same reason: the superseding call's own probe covers it.
-            QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+            // and reassigned) before it even reached walkHistoryWithRefs().
+            // `generation` is therefore guaranteed stale by now (historyCancel_
+            // is only ever reassigned alongside a new RefreshCoalescer
+            // dispatch -- see RepositorySession.h's finishRefresh() doc
+            // comment), so finishRefresh() below is a safe no-op and does not
+            // need a token check first. No timing line either: the superseding
+            // call's own probe covers it, and initialWorkingCopyGate_ is left
+            // for that superseding call's own terminal path to release.
+            QMetaObject::invokeMethod(
+                this,
+                [this, generation] {
+                    setBusy(false);
+                    finishRefresh(generation);
+                },
+                Qt::QueuedConnection);
             return;
         }
         if (timing) {
@@ -237,11 +335,14 @@ void RepositorySession::refreshHistory(HistoryQuery query) {
         }
         const RefSnapshotPtr refsForSeed = freshRefs ? *freshRefs : refs_.current();
         walkHistoryWithRefs(
-            std::move(query), refsForSeed, token, GraphUpdateOrigin::Explicit, timing);
+            std::move(query), refsForSeed, token, GraphUpdateOrigin::Explicit, timing, generation);
     });
 }
 
-void RepositorySession::refreshRefsAndHistory(HistoryQuery query, GraphUpdateOrigin origin) {
+void RepositorySession::startRefsAndHistory(HistoryQuery query,
+                                            GraphUpdateOrigin origin,
+                                            WalkTimingProbePtr timing,
+                                            RefreshCoalescer::Generation generation) {
     if (historyQueryEquals(query, HistoryQuery{}) &&
         !historyQueryEquals(activeHistoryQuery_, HistoryQuery{})) {
         query = activeHistoryQuery_;
@@ -256,12 +357,7 @@ void RepositorySession::refreshRefsAndHistory(HistoryQuery query, GraphUpdateOri
 
     setBusy(true);
 
-    WalkTimingProbePtr timing;
-    if (walkTimingEnabled()) {
-        timing = std::make_shared<WalkTimingProbe>(origin);
-    }
-
-    readPool_.post([this, query = std::move(query), token, origin, timing]() mutable {
+    readPool_.post([this, query = std::move(query), token, origin, timing, generation]() mutable {
         if (timing) {
             timing->markWorkerStarted();
         }
@@ -285,10 +381,13 @@ void RepositorySession::refreshRefsAndHistory(HistoryQuery query, GraphUpdateOri
                     formatWalkTiming(toString(timing->origin()), outcome, 0, timing->snapshot()));
             }
             // Refs could not be loaded at all, so no walk is going to run for
-            // this call. Release initialWorkingCopyGate_ only when this was a
-            // genuine error (token not cancelled) -- that is a true terminal
-            // state, and the panel must not stay stuck empty because a
-            // repository failed to load its refs. When this was instead a
+            // this call. finishRefresh(generation) is unconditional -- a
+            // stale generation (this call was superseded) is a safe no-op,
+            // see RepositorySession.h's finishRefresh() doc comment.
+            // Release initialWorkingCopyGate_ only when this was a genuine
+            // error (token not cancelled) -- that is a true terminal state,
+            // and the panel must not stay stuck empty because a repository
+            // failed to load its refs. When this was instead a
             // supersede-cancellation, the newer call that cancelled this one
             // is already underway and owns releasing the gate itself once it
             // reaches its own terminal path; releasing here too would open
@@ -297,11 +396,13 @@ void RepositorySession::refreshRefsAndHistory(HistoryQuery query, GraphUpdateOri
             // exists to protect.
             QMetaObject::invokeMethod(
                 this,
-                [this, token] {
+                [this, token, generation] {
                     setBusy(false);
-                    if (!token.isCancelled()) {
-                        releaseInitialWorkingCopyGate();
+                    finishRefresh(generation);
+                    if (token.isCancelled()) {
+                        return;
                     }
+                    releaseInitialWorkingCopyGate();
                 },
                 Qt::QueuedConnection);
             return;
@@ -312,7 +413,7 @@ void RepositorySession::refreshRefsAndHistory(HistoryQuery query, GraphUpdateOri
         const RefSnapshotPtr refsForSeed = *freshRefs;
         refs_.publish(refsForSeed);
         QMetaObject::invokeMethod(this, [this] { emit refsUpdated(); }, Qt::QueuedConnection);
-        walkHistoryWithRefs(std::move(query), refsForSeed, token, origin, timing);
+        walkHistoryWithRefs(std::move(query), refsForSeed, token, origin, timing, generation);
     });
 }
 
@@ -320,7 +421,8 @@ void RepositorySession::walkHistoryWithRefs(HistoryQuery query,
                                             RefSnapshotPtr refsForSeed,
                                             CancellationToken token,
                                             GraphUpdateOrigin origin,
-                                            WalkTimingProbePtr timing) {
+                                            WalkTimingProbePtr timing,
+                                            RefreshCoalescer::Generation generation) {
     // Always seed from the refs so the trunk lands in lane 0 -- this is
     // ordering only (HistoryQuery::toRevListArgs), never narrowing: it is
     // followed by --all whenever includeRefs (the branch filter) is
@@ -360,17 +462,19 @@ void RepositorySession::walkHistoryWithRefs(HistoryQuery query,
             // re-running `rev-list` and just republish what we have.
             QMetaObject::invokeMethod(
                 this,
-                [this, token, origin, timing] {
+                [this, token, origin, timing, generation] {
                     setBusy(false);
+                    // finishRefresh(generation) is unconditional -- a stale
+                    // generation (this call was superseded) is a safe no-op.
                     // Same reasoning as the final catch-all below: if `token`
                     // is cancelled, this call was itself superseded before
                     // reaching here, and the newer call that superseded it
                     // owns emitting and releasing the gate once it has its
-                    // own result. Emitting/releasing here too would let the
-                    // cold status scan (and a stale graph snapshot) race
-                    // ahead of that still-in-flight walk -- exactly the
-                    // bottleneck #2 serialization this gate exists to
-                    // prevent.
+                    // own result -- doing either here too would let the cold
+                    // status scan (and a stale graph snapshot) race ahead of
+                    // that still-in-flight walk, exactly the bottleneck #2
+                    // serialization this gate exists to prevent.
+                    finishRefresh(generation);
                     if (token.isCancelled()) {
                         return;
                     }
@@ -452,14 +556,24 @@ void RepositorySession::walkHistoryWithRefs(HistoryQuery query,
     // release instead.
     QMetaObject::invokeMethod(
         this,
-        [this, token, timing] {
+        [this, token, timing, generation] {
             setBusy(false);
+            // finishRefresh(generation) is unconditional -- a stale
+            // generation (this walk was superseded) is a safe no-op, so it
+            // does not need a token check first (see RepositorySession.h's
+            // finishRefresh() doc comment).
+            finishRefresh(generation);
             if (token.isCancelled()) {
-                // A walk that already delivered a chunk (firstChunkLogged())
-                // has already logged for this probe -- e.g. it was streaming
-                // when a newer refresh superseded it. Logging Cancelled here
-                // too would be a second, redundant line for the same probe;
-                // only log when this walk never got that far.
+                // This walk was itself superseded (historyCancel_ reassigned
+                // by a newer call) -- that newer call's own terminal path
+                // owns releasing the gate instead; releasing it here too
+                // would let the cold status scan race ahead of that
+                // still-in-flight refresh. A walk that already delivered a
+                // chunk (firstChunkLogged()) has already logged for this
+                // probe -- e.g. it was streaming when a newer refresh
+                // superseded it. Logging Cancelled here too would be a
+                // second, redundant line for the same probe; only log when
+                // this walk never got that far.
                 if (timing && !timing->firstChunkLogged()) {
                     logTiming(formatWalkTiming(
                         toString(timing->origin()), WalkOutcome::Cancelled, 0, timing->snapshot()));
@@ -528,24 +642,105 @@ void RepositorySession::noteGraphApplied(bool complete, std::size_t rows) {
 
 void RepositorySession::setHistoryFilter(HistoryQuery query) {
     activeHistoryQuery_ = query;
-    refreshHistory(std::move(query));
+
+    // Bypasses the coalescing *delay*: a filter change alters *what* the
+    // user is looking at, and folding it behind an in-flight walk would
+    // leave the wrong graph on screen for up to a full walk -- the one
+    // deliberate exception to bottleneck #6's coalescing (see
+    // docs/reports/vscode-graph-performance.md and refreshHistory()'s doc
+    // comment). It does not bypass refreshCoalescer_ itself: fireNow()
+    // still marks it running (under a fresh generation), so a request
+    // arriving while this walk is in flight correctly folds and is
+    // delivered afterward, rather than arming its own independent walk that
+    // would cancel this one out from under it.
+    refreshTimer_->stop();
+
+    // Merges this filter change's own want (wantsHistory only) with
+    // whatever was already pending -- an armed-but-unfired or
+    // folded-but-undelivered refreshRefs() from just before the filter
+    // change must not be silently dropped just because this call bypasses
+    // the delay. See RefreshCoalescer::fireNow()'s doc comment.
+    const RefreshCoalescer::Generation generation = refreshCoalescer_.fireNow(
+        /*wantsRefs=*/false, /*wantsHistory=*/true, GraphUpdateOrigin::Explicit);
+    const RefreshCoalescer::PendingRefresh pending = refreshCoalescer_.takePending();
+
+    // The superseded window's own query/probe are irrelevant here: this
+    // call's `query` (the new filter) always wins over whatever was queued
+    // for the window fireNow() just superseded.
+    pendingRefreshQuery_ = HistoryQuery{};
+    pendingRefreshProbe_.reset();
+
+    WalkTimingProbePtr timing;
+    if (walkTimingEnabled()) {
+        timing = std::make_shared<WalkTimingProbe>(GraphUpdateOrigin::Explicit);
+        timing->markFired();
+    }
+
+    if (pending.wantsRefs) {
+        startRefsAndHistory(
+            std::move(query), GraphUpdateOrigin::Explicit, std::move(timing), generation);
+    } else {
+        startHistoryOnly(std::move(query), std::move(timing), generation);
+    }
 }
 
 void RepositorySession::refreshRefs() {
+    requestRefresh(
+        /*wantsRefs=*/true, /*wantsHistory=*/false, HistoryQuery{}, GraphUpdateOrigin::Explicit);
+}
+
+void RepositorySession::startRefsOnly(RefreshCoalescer::Generation generation) {
     const CancellationToken token = readCancel_.token();
     setBusy(true);
 
-    readPool_.post([this, token] {
+    readPool_.post([this, token, generation] {
         auto snapshot = refStore_->load(token);
-        if (snapshot) {
-            refs_.publish(*snapshot);
-            QMetaObject::invokeMethod(this, [this] { emit refsUpdated(); }, Qt::QueuedConnection);
-        } else if (snapshot.error().code != GitError::Code::Cancelled) {
-            GitError error = std::move(snapshot).error();
+        if (!snapshot) {
+            if (snapshot.error().code != GitError::Code::Cancelled) {
+                GitError error = std::move(snapshot).error();
+                QMetaObject::invokeMethod(
+                    this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
+            }
             QMetaObject::invokeMethod(
-                this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
+                this,
+                [this, generation] {
+                    setBusy(false);
+                    finishRefresh(generation);
+                },
+                Qt::QueuedConnection);
+            return;
         }
-        QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+
+        QMetaObject::invokeMethod(
+            this,
+            [this, generation, snapshot = std::move(*snapshot)] {
+                // readCancel_ (used above) is shared across ~25 unrelated
+                // read call sites and, unlike historyCancel_, is never
+                // reassigned per-dispatch -- so it cannot tell this load
+                // apart from a newer one. Check the generation here instead,
+                // on the UI thread right before publishing: if a newer
+                // dispatch (fireNow() from setHistoryFilter(), or another
+                // startRefsOnly()/startRefsAndHistory() from requestRefresh())
+                // has already superseded this one, that dispatch now owns
+                // refs_ and this snapshot -- even though it loaded fine --
+                // is stale and must be dropped rather than overwrite it.
+                //
+                // The one case this deliberately does not cover: a
+                // superseding startHistoryOnly() (refs not requested) also
+                // fails this check and drops a still-fresher snapshot than
+                // what refs_ currently holds. Accepted tradeoff -- the
+                // superseding dispatch owns refs_, and it is simpler for
+                // exactly one generation to ever be allowed to publish than
+                // to special-case "superseded, but only by a request that
+                // didn't want refs".
+                if (generation == refreshCoalescer_.currentGeneration()) {
+                    refs_.publish(snapshot);
+                    emit refsUpdated();
+                }
+                setBusy(false);
+                finishRefresh(generation);
+            },
+            Qt::QueuedConnection);
     });
 }
 
@@ -674,6 +869,15 @@ void RepositorySession::cancelPendingReads() {
     // for the worker to actually stop before the destructor runs.
     historyCancel_.cancel();
     historyCancel_ = CancellationSource();
+
+    // Backstop for refreshCoalescer_: a session about to be destroyed must
+    // not leave a Fold wedged (see RefreshCoalescer::reset()'s doc comment)
+    // -- nothing would ever call finishRefresh() again to clear it once this
+    // session's remaining terminal paths finish landing.
+    refreshCoalescer_.reset();
+    refreshTimer_->stop();
+    pendingRefreshQuery_ = HistoryQuery{};
+    pendingRefreshProbe_.reset();
 }
 
 void RepositorySession::refreshWorkingCopyStatus() {

@@ -37,6 +37,7 @@
 #include "core/git/ops/UndoOps.h"
 #include "core/git/ops/WorktreeOps.h"
 #include "core/graph/GraphSnapshot.h"
+#include "core/workers/RefreshCoalescer.h"
 #include "core/workers/StartupReadGate.h"
 #include "core/workers/ThreadPool.h"
 
@@ -49,6 +50,8 @@
 #include <memory>
 #include <optional>
 #include <vector>
+
+class QTimer;
 
 namespace gbm {
 
@@ -90,13 +93,17 @@ public:
 
     RepoState state() const;
 
-    /// Starts (or restarts) the history walk. Any walk already running is
-    /// cancelled rather than waited for, which is what makes changing a filter or
-    /// switching repositories feel immediate. Re-reads refs itself (see the
-    /// comment inside), so a caller that just changed something ref-related
-    /// and wants both refreshed should call refreshRefsAndHistory() instead
-    /// -- this alone is for the cases with no accompanying refreshRefs()
-    /// call, e.g. setHistoryFilter().
+    /// Requests a history walk. Re-reads refs itself (see the comment
+    /// inside), so a caller that just changed something ref-related and
+    /// wants both refreshed should call refreshRefsAndHistory() instead --
+    /// this alone is for the cases with no accompanying refreshRefs() call.
+    ///
+    /// Merged through refreshCoalescer_ along with every other refresh entry
+    /// point below: a burst of calls within the coalescing window collapses
+    /// into one actual walk rather than one `for-each-ref` per call -- see
+    /// docs/reports/vscode-graph-performance.md, bottleneck #6.
+    /// setHistoryFilter() is the one exception and bypasses this, since a
+    /// filter change must be seen immediately.
     void refreshHistory(HistoryQuery query = {});
 
     /// Sets the branch/ref filter the graph should show from now on (empty
@@ -126,6 +133,11 @@ public:
     /// AutoFetchResync; every other call site keeps the default. See
     /// GraphUpdateOrigin's doc comment and
     /// docs/reports/vscode-graph-performance.md, bottleneck #3.
+    ///
+    /// Also merged through refreshCoalescer_ (see refreshHistory()'s doc
+    /// comment above) -- a call folded together with a plain refreshRefs()
+    /// or refreshHistory() in the same window still fires as the union, and
+    /// Explicit always outranks AutoFetchResync in the merge.
     void refreshRefsAndHistory(HistoryQuery query = {},
                                GraphUpdateOrigin origin = GraphUpdateOrigin::Explicit);
 
@@ -556,6 +568,57 @@ private:
                           std::function<void(bool succeeded)> afterFinished,
                           bool drivesBusy = true);
 
+    /// Shared entry point behind refreshHistory()/refreshRefs()/
+    /// refreshRefsAndHistory(): merges the request into refreshCoalescer_'s
+    /// pending batch and (re)arms refreshTimer_ when the coalescer says to.
+    /// `query` is only stored when `wantsHistory` -- a refreshRefs()-only
+    /// request must not clobber a real filter a preceding request in the
+    /// same window already set. See docs/reports/vscode-graph-performance.md,
+    /// bottleneck #6.
+    void requestRefresh(bool wantsRefs,
+                        bool wantsHistory,
+                        HistoryQuery query,
+                        GraphUpdateOrigin origin);
+
+    /// refreshTimer_'s timeout() handler. A no-op unless the coalescer's
+    /// quiet period has genuinely elapsed (see RefreshCoalescer::onTimeout());
+    /// otherwise dispatches the merged batch to whichever of
+    /// startRefsAndHistory()/startHistoryOnly()/startRefsOnly() the batch's
+    /// wantsRefs/wantsHistory flags call for, threading the dispatched
+    /// RefreshCoalescer::Generation through so its eventual finishRefresh()
+    /// call can be matched back to this exact dispatch.
+    void onRefreshTimeout();
+
+    /// Reports one coalesced batch's actual refresh work as finished to
+    /// refreshCoalescer_, and immediately re-arms refreshTimer_ (zero delay)
+    /// when a request folded in while it was running -- called unconditionally
+    /// from every terminal path below that setBusy(true) started, passing
+    /// back the RefreshCoalescer::Generation that dispatch was given. A stale
+    /// generation (a newer dispatch already superseded this one -- see
+    /// RefreshCoalescer's class doc comment) makes this a safe no-op, so
+    /// every call site can call it unconditionally rather than needing to
+    /// first check whether its own CancellationToken was cancelled.
+    void finishRefresh(RefreshCoalescer::Generation generation);
+
+    /// Today's refreshRefsAndHistory() body, minus building `timing` itself
+    /// -- requestRefresh()/onRefreshTimeout() do that once per coalesced
+    /// batch instead of once per call.
+    void startRefsAndHistory(HistoryQuery query,
+                             GraphUpdateOrigin origin,
+                             WalkTimingProbePtr timing,
+                             RefreshCoalescer::Generation generation);
+
+    /// Today's refreshHistory() body, same relationship to requestRefresh()
+    /// as startRefsAndHistory() above.
+    void startHistoryOnly(HistoryQuery query,
+                          WalkTimingProbePtr timing,
+                          RefreshCoalescer::Generation generation);
+
+    /// Today's refreshRefs() body. No WalkTimingProbe: a refs-only refresh
+    /// never ran the history walk the probe measures, matching the original
+    /// refreshRefs()'s behaviour.
+    void startRefsOnly(RefreshCoalescer::Generation generation);
+
     /// The seed/filter/fingerprint/walk portion shared by refreshHistory()'s
     /// and refreshRefsAndHistory()'s posted tasks -- everything after "I now
     /// have a RefSnapshotPtr". Runs on a worker thread. `refsForSeed` may be
@@ -567,7 +630,8 @@ private:
                              RefSnapshotPtr refsForSeed,
                              CancellationToken token,
                              GraphUpdateOrigin origin,
-                             WalkTimingProbePtr timing);
+                             WalkTimingProbePtr timing,
+                             RefreshCoalescer::Generation generation);
 
     /// Logs `origin` (see GraphUpdateOrigin) alongside `complete` before
     /// emitting graphUpdated(), so the two publish sites in
@@ -645,6 +709,26 @@ private:
 
     /// The user's current branch/ref filter -- see setHistoryFilter().
     HistoryQuery activeHistoryQuery_;
+
+    /// Merges a burst of refreshRefs()/refreshHistory()/
+    /// refreshRefsAndHistory() calls into one actual refresh -- see
+    /// requestRefresh() and docs/reports/vscode-graph-performance.md,
+    /// bottleneck #6. UI-thread only, same as every RefreshCoalescer call
+    /// site must be.
+    RefreshCoalescer refreshCoalescer_;
+    /// Single-shot, restarted on every requestRefresh() call that returns
+    /// RefreshCoalescer::RefreshAction::Arm -- mirrors MainWindow's
+    /// probeDebounce_/repoOpenDebounce_. Owned (parented to `this`),
+    /// constructed in the RepositorySession constructor.
+    QTimer* refreshTimer_ = nullptr;
+    /// The newest history query from the in-progress coalescing window --
+    /// only ever set by a request that had wantsHistory (see
+    /// requestRefresh()).
+    HistoryQuery pendingRefreshQuery_;
+    /// The in-progress coalescing window's timing probe, created on its
+    /// first request when GBM_TIMING=1. Moved out (and a new one created for
+    /// the next window) once onRefreshTimeout() dispatches.
+    WalkTimingProbePtr pendingRefreshProbe_;
 
     /// The in-flight refresh's timing probe, from the moment emitGraphUpdated()
     /// marks chunkDeliveredMs until noteGraphApplied() consumes it. UI-thread

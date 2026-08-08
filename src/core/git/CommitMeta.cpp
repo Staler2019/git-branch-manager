@@ -15,6 +15,28 @@ std::int64_t parseInt(std::string_view text) {
     return result.ec == std::errc{} ? value : 0;
 }
 
+// An explicit scan instead of std::string_view::find(char, from): the latter
+// lowers to char_traits::find -> __builtin_memchr, which GCC 11 at -O2 can
+// misjudge the bound of after inlining through a substr/min chain, emitting
+// a false-positive -Wstringop-overread (the memchr call itself is correct).
+//
+// Applied unconditionally for every compiler, not just GCC 11 -- a version
+// guard (e.g. #if __GNUC__ == 11) would mean GCC 12+ silently falls back to
+// the vectorized find() path that nobody has re-verified is free of this
+// false positive, for a signature line that is at most a few dozen bytes
+// long. Given the project's -Wstringop-overread policy (a real memory-safety
+// warning gets fixed at the root, not suppressed -- see CONTRIBUTING.md), one
+// verified code path on every compiler beats a faster, unverified one on
+// most of them.
+std::size_t findChar(std::string_view text, char needle, std::size_t from = 0) {
+    for (std::size_t i = from; i < text.size(); ++i) {
+        if (text[i] == needle) {
+            return i;
+        }
+    }
+    return std::string_view::npos;
+}
+
 }  // namespace
 
 Signature parseSignature(std::string_view text) {
@@ -46,7 +68,7 @@ Signature parseSignature(std::string_view text) {
         return signature;
     }
 
-    const std::size_t space = rest.find(' ');
+    const std::size_t space = findChar(rest, ' ');
     signature.when = parseInt(space == std::string_view::npos ? rest : rest.substr(0, space));
 
     if (space != std::string_view::npos) {
@@ -70,7 +92,7 @@ CommitMeta CommitMeta::parseRawCommit(const ObjectId& oid, std::string_view raw)
     // mergetag, encoding, and whatever git adds next) is skipped rather than
     // treated as an error, so an unfamiliar header never breaks history browsing.
     while (cursor < raw.size()) {
-        const std::size_t lineEnd = raw.find('\n', cursor);
+        const std::size_t lineEnd = findChar(raw, '\n', cursor);
         const std::string_view line = raw.substr(
             cursor, lineEnd == std::string_view::npos ? std::string_view::npos : lineEnd - cursor);
         if (line.empty()) {
@@ -101,7 +123,7 @@ CommitMeta CommitMeta::parseRawCommit(const ObjectId& oid, std::string_view raw)
 
         // Continuation lines of a multi-line header (gpgsig) start with a space.
         while (cursor < raw.size() && raw[cursor] == ' ') {
-            const std::size_t continuationEnd = raw.find('\n', cursor);
+            const std::size_t continuationEnd = findChar(raw, '\n', cursor);
             if (continuationEnd == std::string_view::npos) {
                 cursor = raw.size();
                 break;
@@ -111,7 +133,7 @@ CommitMeta CommitMeta::parseRawCommit(const ObjectId& oid, std::string_view raw)
     }
 
     std::string_view message = raw.substr(std::min(cursor, raw.size()));
-    const std::size_t subjectEnd = message.find('\n');
+    const std::size_t subjectEnd = findChar(message, '\n');
     if (subjectEnd == std::string_view::npos) {
         meta.subject = std::string(message);
         return meta;

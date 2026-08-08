@@ -75,11 +75,12 @@ private:
     /// marker-free result (now editable, for final touch-ups) once every
     /// region has a choice. Also refreshes the strip and the highlight.
     void refreshMiddleFromResolutions();
-    /// Sets `regionResolutions_[index]` to a plain Ours/Theirs choice (no
-    /// custom lines), re-renders, and jumps to the next still-unresolved
-    /// region if there is one, so working through a batch of conflicts is a
-    /// straight line of clicks.
-    void resolveRegion(int index, ConflictRegionChoice choice);
+    /// Sets `regionResolutions_[index]` to `resolution`, re-renders, and
+    /// jumps to the next still-unresolved region if there is one, so working
+    /// through a batch of conflicts is a straight line of clicks. Shared by
+    /// Take Left/Take Right (plain Ours/Theirs, no custom lines) and the
+    /// line-picker dialog (Custom).
+    void resolveRegion(int index, ConflictRegionResolution resolution);
     /// Take-left/take-right applied to every region at once.
     void resolveAllRegions(ConflictRegionChoice choice);
     /// Moves currentRegionIndex_ by `delta`, clamped to the valid range.
@@ -93,6 +94,15 @@ private:
     /// then stale -- the buffer is the fully assembled text, not the
     /// per-region preview they were measured against).
     void highlightCurrentRegion();
+    /// The Region segment backing `regionIndex` (0-based, region-only
+    /// numbering, matching currentRegionIndex_/regionResolutions_) --
+    /// parsedMarkers_.segments also holds Text segments interleaved in
+    /// between, so this isn't a direct index. Returns nullptr if regionIndex
+    /// is out of range.
+    const ConflictSegment* regionSegment(int regionIndex) const;
+    /// Opens the line-picker dialog for the current region and, if accepted,
+    /// resolves it as Custom{selected lines}.
+    void pickLinesForCurrentRegion();
 
     RepositorySession* session_ = nullptr;
     std::string path_;
@@ -143,6 +153,7 @@ private:
     QPushButton* regionNextButton_ = nullptr;
     QPushButton* regionTakeLeftButton_ = nullptr;
     QPushButton* regionTakeRightButton_ = nullptr;
+    QPushButton* regionPickLinesButton_ = nullptr;
     QPushButton* regionTakeLeftAllButton_ = nullptr;
     QPushButton* regionTakeRightAllButton_ = nullptr;
 };

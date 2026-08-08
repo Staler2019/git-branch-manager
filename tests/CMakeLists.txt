@@ -24,6 +24,7 @@ add_executable(gbm_core_tests
     unit/GraphBuilderTest.cpp
     unit/MaintenanceOpsTest.cpp
     unit/ProcessRunnerTest.cpp
+    unit/RepoStateTest.cpp
     unit/SideBySideDiffTest.cpp
     unit/UnifiedDiffParserTest.cpp
 )

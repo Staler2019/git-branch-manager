@@ -5,12 +5,14 @@
 namespace gbm {
 
 bool GraphSnapshot::findRow(const ObjectId& oid, RowId* out) const {
-    const auto it = index_.find(oid);
-    if (it == index_.end()) {
+    const auto it = std::lower_bound(
+        oidOrder_.begin(), oidOrder_.end(), oid,
+        [this](RowId row, const ObjectId& key) { return oids[row] < key; });
+    if (it == oidOrder_.end() || !(oids[*it] == oid)) {
         return false;
     }
     if (out != nullptr) {
-        *out = it->second;
+        *out = *it;
     }
     return true;
 }
@@ -44,11 +46,18 @@ std::vector<RowId> GraphSnapshot::parentsOf(RowId row) const {
 }
 
 void GraphSnapshot::finalizeIndices() {
-    index_.clear();
-    index_.reserve(oids.size() * 2);
+    // Every call rebuilds from scratch rather than reusing a previous
+    // oidOrder_: GraphBuilder::snapshot() (see GraphBuilder.cpp) publishes each
+    // streamed chunk as a fresh copy of the builder's running snapshot and
+    // calls finalizeIndices() on that copy, never on the builder's own state,
+    // so there is no prior sorted state in `copy` to merge with -- an
+    // incremental sort would just be a from-scratch sort with extra steps.
+    oidOrder_.resize(oids.size());
     for (RowId row = 0; row < oids.size(); ++row) {
-        index_.emplace(oids[row], row);
+        oidOrder_[row] = row;
     }
+    std::sort(oidOrder_.begin(), oidOrder_.end(),
+              [this](RowId a, RowId b) { return oids[a] < oids[b]; });
 
     // Bucket k records the first edge that could still be open at row
     // k * kBucketRows. Because `edges` is sorted by childRow and an edge always
@@ -154,8 +163,9 @@ std::size_t GraphSnapshot::approximateBytes() const {
     total += edges.capacity() * sizeof(Edge);
     total += edgeBucket_.capacity() * sizeof(std::uint32_t);
     total += bucketMaxLane_.capacity() * sizeof(LaneId);
-    // Roughly what a node-based hash map costs per entry.
-    total += index_.size() * (sizeof(ObjectId) + sizeof(RowId) + 2 * sizeof(void*));
+    // Exact, unlike the hash-map estimate this replaced: a vector's capacity()
+    // is the real allocation, with no per-node allocator overhead to guess at.
+    total += oidOrder_.capacity() * sizeof(RowId);
     return total;
 }
 

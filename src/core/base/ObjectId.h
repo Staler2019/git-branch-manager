@@ -110,6 +110,11 @@ private:
     std::uint8_t length_ = 0;
 };
 
+// Pinned like RowMeta and Edge in GraphSnapshot.h: this is the largest
+// per-row field in GraphSnapshot::oids, so a silent size change would move
+// the memory budget without any of those static_asserts catching it.
+static_assert(sizeof(ObjectId) == 33, "ObjectId must stay 33 bytes; see the memory budget");
+
 }  // namespace gbm
 
 template <>

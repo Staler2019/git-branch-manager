@@ -18,6 +18,10 @@ enum class ConflictResolution : std::uint8_t {
     /// just clear the conflict stages and stage the current working-tree
     /// content, whatever that is.
     MarkResolved,
+    /// The caller supplies the resolved file content directly (e.g. an
+    /// in-app editor): write `resolvedContent` to the path on disk, then
+    /// clear the conflict stages and stage it, same as MarkResolved.
+    WriteResolved,
 };
 
 struct ResolveConflictRequest {
@@ -27,6 +31,12 @@ struct ResolveConflictRequest {
     /// an ordinary content pick -- see WorkingCopyEntry::oursBlob/theirsBlob.
     bool oursBlobMissing = false;
     bool theirsBlobMissing = false;
+    /// Only for WriteResolved: written to `path` verbatim (no line-ending or
+    /// encoding translation), replacing whatever is currently on disk. Must
+    /// be non-empty -- an empty value is rejected rather than truncating the
+    /// file, since an empty edit is far more likely to be a caller bug than
+    /// an intentionally emptied file.
+    std::string resolvedContent;
 };
 
 /// Resolves one conflicted path and stages the result, ready for the commit

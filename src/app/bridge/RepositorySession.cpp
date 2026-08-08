@@ -223,9 +223,13 @@ void RepositorySession::requestRefresh(bool wantsRefs,
 void RepositorySession::onRefreshTimeout() {
     const RefreshCoalescer::Generation generation = refreshCoalescer_.onTimeout();
     if (generation == 0) {
-        // The QTimer firing no earlier than its interval means this should
-        // never actually happen -- see RefreshCoalescer.h's doc comment --
-        // but if it somehow does, there is nothing to dispatch yet.
+        // refreshTimer_ uses Qt's default Qt::CoarseTimer, which Qt
+        // documents as firing up to ~5% early -- so shouldFire() can see the
+        // quiet period as not yet elapsed even though the timer fired. Must
+        // re-arm rather than just return, or this pending batch is left
+        // wedged: nothing else re-fires the timer, since a request() call
+        // that folds (RefreshAction::Fold) deliberately leaves it alone.
+        refreshTimer_->start(RefreshCoalescer::kDelay);
         return;
     }
 

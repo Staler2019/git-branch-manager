@@ -16,9 +16,12 @@
 #include <QSettings>
 #include <QSplitter>
 #include <QTextBlock>
+#include <QTextCursor>
+#include <QTextEdit>
 #include <QTimer>
 #include <QVBoxLayout>
 
+#include <algorithm>
 #include <utility>
 
 namespace gbm {
@@ -190,12 +193,57 @@ ConflictResolvePanel::ConflictResolvePanel(QWidget* parent) : QWidget(parent) {
     std::tie(ancestorContainer_, ancestorEdit_) = makePane(tr("Common ancestor"));
     ancestorContainer_->setVisible(false);
     std::tie(std::ignore, oursEdit_) = makePane(tr("Current branch (mine)"));
-    std::tie(std::ignore, middleEdit_) = makePane(tr("Resolved content (editable)"));
+    QWidget* middleContainer = nullptr;
+    std::tie(middleContainer, middleEdit_) = makePane(tr("Resolved content (editable)"));
     std::tie(std::ignore, theirsEdit_) = makePane(tr("Merged branch (theirs)"));
     layout->addWidget(panesSplitter_, 1);
     setupPersistentSplitter(panesSplitter_, QStringLiteral("conflictPanes"));
 
     connect(ancestorToggle_, &QCheckBox::toggled, ancestorContainer_, &QWidget::setVisible);
+
+    // Per-region controls, inserted between the middle pane's title and its
+    // text view -- not inline inside the QPlainTextEdit itself. Qt has no
+    // way to embed widgets inside a plain text view's flow, and switching to
+    // something that does (e.g. QTextEdit + QTextObjectInterface, or a
+    // QListWidget) would give up the line-number gutter ConflictTextEdit
+    // already provides for comparatively little gain -- a strip above the
+    // text does the same job.
+    regionStrip_ = new QWidget(middleContainer);
+    auto* stripLayout = new QHBoxLayout(regionStrip_);
+    stripLayout->setContentsMargins(0, 0, 0, 0);
+    regionPrevButton_ = new QPushButton(QStringLiteral("◀"), regionStrip_);
+    regionPositionLabel_ = new QLabel(regionStrip_);
+    regionNextButton_ = new QPushButton(QStringLiteral("▶"), regionStrip_);
+    regionTakeLeftButton_ = new QPushButton(tr("Take Left"), regionStrip_);
+    regionTakeRightButton_ = new QPushButton(tr("Take Right"), regionStrip_);
+    regionTakeLeftAllButton_ = new QPushButton(tr("Take Left (All)"), regionStrip_);
+    regionTakeRightAllButton_ = new QPushButton(tr("Take Right (All)"), regionStrip_);
+    stripLayout->addWidget(regionPrevButton_);
+    stripLayout->addWidget(regionPositionLabel_);
+    stripLayout->addWidget(regionNextButton_);
+    stripLayout->addWidget(regionTakeLeftButton_);
+    stripLayout->addWidget(regionTakeRightButton_);
+    stripLayout->addStretch(1);
+    stripLayout->addWidget(regionTakeLeftAllButton_);
+    stripLayout->addWidget(regionTakeRightAllButton_);
+    regionStrip_->setVisible(false);
+    // Index 1: after the title label (index 0), before the text view.
+    static_cast<QVBoxLayout*>(middleContainer->layout())->insertWidget(1, regionStrip_);
+
+    connect(regionPrevButton_, &QPushButton::clicked, this, [this] { navigateRegion(-1); });
+    connect(regionNextButton_, &QPushButton::clicked, this, [this] { navigateRegion(1); });
+    connect(regionTakeLeftButton_, &QPushButton::clicked, this, [this] {
+        resolveRegion(currentRegionIndex_, ConflictRegionChoice::Ours);
+    });
+    connect(regionTakeRightButton_, &QPushButton::clicked, this, [this] {
+        resolveRegion(currentRegionIndex_, ConflictRegionChoice::Theirs);
+    });
+    connect(regionTakeLeftAllButton_, &QPushButton::clicked, this, [this] {
+        resolveAllRegions(ConflictRegionChoice::Ours);
+    });
+    connect(regionTakeRightAllButton_, &QPushButton::clicked, this, [this] {
+        resolveAllRegions(ConflictRegionChoice::Theirs);
+    });
 
     auto* buttonRow = new QHBoxLayout();
     auto* takeLeftButton = new QPushButton(tr("Take Left (Mine)"), this);
@@ -330,16 +378,23 @@ void ConflictResolvePanel::onWorkingTreeContentReady(const QString& path,
     middleContentHasCrlf_ = content.contains(QStringLiteral("\r\n"));
     parsedMarkers_ = ConflictMarkerParser{}.parse(content.toStdString());
     regionResolutions_.assign(parsedMarkers_.regionCount, ConflictRegionResolution{});
+    currentRegionIndex_ = 0;
     middleEdit_->setReadOnly(false);
+    regionStrip_->setVisible(parsedMarkers_.regionCount > 0);
     // regionCount == 0 covers both "no markers at all" and "the parser gave
     // up on a malformed file" (parsedMarkers_.wellFormed == false) -- either
     // way there is nothing to render per-region, so the raw on-disk content
     // is shown exactly as before per-region resolution existed.
-    middleEdit_->setPlainText(parsedMarkers_.regionCount == 0 ? content
-                                                              : buildMiddlePreviewText());
+    if (parsedMarkers_.regionCount == 0) {
+        middleEdit_->setPlainText(content);
+    } else {
+        refreshMiddleFromResolutions();
+    }
+    saveButton_->setEnabled(canSave());
 }
 
-QString ConflictResolvePanel::buildMiddlePreviewText() const {
+QString ConflictResolvePanel::buildMiddlePreviewText(
+    std::vector<std::pair<int, int>>* regionRanges) const {
     QString text;
     int regionIndex = 0;
     for (const ConflictSegment& segment : parsedMarkers_.segments) {
@@ -350,6 +405,7 @@ QString ConflictResolvePanel::buildMiddlePreviewText() const {
             continue;
         }
 
+        const int rangeStart = text.size();
         const ConflictRegionResolution& resolution =
             regionResolutions_[static_cast<std::size_t>(regionIndex)];
         const std::vector<std::string>* chosen = nullptr;
@@ -375,9 +431,110 @@ QString ConflictResolvePanel::buildMiddlePreviewText() const {
                         .arg(regionIndex + 1)
                         .arg(parsedMarkers_.regionCount);
         }
+        if (regionRanges != nullptr) {
+            regionRanges->emplace_back(rangeStart, text.size() - rangeStart);
+        }
         ++regionIndex;
     }
     return text;
+}
+
+bool ConflictResolvePanel::allRegionsResolved() const {
+    return std::all_of(
+        regionResolutions_.begin(), regionResolutions_.end(), [](const ConflictRegionResolution& r) {
+            return r.choice != ConflictRegionChoice::Unresolved;
+        });
+}
+
+bool ConflictResolvePanel::canSave() const {
+    if (!middleEditable_) {
+        return false;
+    }
+    if (parsedMarkers_.regionCount == 0) {
+        return true;
+    }
+    return allRegionsResolved();
+}
+
+void ConflictResolvePanel::refreshMiddleFromResolutions() {
+    if (allRegionsResolved()) {
+        regionTextRanges_.clear();
+        const std::optional<std::string> assembled =
+            ConflictMarkerParser::assemble(parsedMarkers_, regionResolutions_);
+        middleEdit_->setPlainText(QString::fromStdString(*assembled));
+    } else {
+        regionTextRanges_.clear();
+        middleEdit_->setPlainText(buildMiddlePreviewText(&regionTextRanges_));
+    }
+    saveButton_->setEnabled(canSave());
+    updateRegionStrip();
+    highlightCurrentRegion();
+}
+
+void ConflictResolvePanel::resolveRegion(int index, ConflictRegionChoice choice) {
+    if (index < 0 || static_cast<std::size_t>(index) >= regionResolutions_.size()) {
+        return;
+    }
+    regionResolutions_[static_cast<std::size_t>(index)] = ConflictRegionResolution{choice, {}};
+
+    bool jumped = false;
+    for (std::size_t i = 0; i < regionResolutions_.size(); ++i) {
+        if (regionResolutions_[i].choice == ConflictRegionChoice::Unresolved) {
+            currentRegionIndex_ = static_cast<int>(i);
+            jumped = true;
+            break;
+        }
+    }
+    if (!jumped) {
+        currentRegionIndex_ =
+            std::min(index, static_cast<int>(regionResolutions_.size()) - 1);
+    }
+    refreshMiddleFromResolutions();
+}
+
+void ConflictResolvePanel::resolveAllRegions(ConflictRegionChoice choice) {
+    for (ConflictRegionResolution& resolution : regionResolutions_) {
+        resolution = ConflictRegionResolution{choice, {}};
+    }
+    refreshMiddleFromResolutions();
+}
+
+void ConflictResolvePanel::navigateRegion(int delta) {
+    if (regionResolutions_.empty()) {
+        return;
+    }
+    const int count = static_cast<int>(regionResolutions_.size());
+    currentRegionIndex_ = std::clamp(currentRegionIndex_ + delta, 0, count - 1);
+    updateRegionStrip();
+    highlightCurrentRegion();
+}
+
+void ConflictResolvePanel::updateRegionStrip() {
+    if (parsedMarkers_.regionCount == 0) {
+        return;
+    }
+    const int count = static_cast<int>(regionResolutions_.size());
+    regionPositionLabel_->setText(tr("Conflict %1/%2").arg(currentRegionIndex_ + 1).arg(count));
+    regionPrevButton_->setEnabled(currentRegionIndex_ > 0);
+    regionNextButton_->setEnabled(currentRegionIndex_ < count - 1);
+}
+
+void ConflictResolvePanel::highlightCurrentRegion() {
+    if (static_cast<std::size_t>(currentRegionIndex_) >= regionTextRanges_.size()) {
+        middleEdit_->setExtraSelections({});
+        return;
+    }
+    const auto [start, length] = regionTextRanges_[static_cast<std::size_t>(currentRegionIndex_)];
+    QTextCursor cursor(middleEdit_->document());
+    cursor.setPosition(start);
+    cursor.setPosition(start + length, QTextCursor::KeepAnchor);
+
+    QTextEdit::ExtraSelection selection;
+    selection.cursor = cursor;
+    selection.format.setBackground(ThemeManager::color(Token::SurfaceSunken));
+    middleEdit_->setExtraSelections({selection});
+    middleEdit_->setTextCursor(cursor);
+    middleEdit_->ensureCursorVisible();
 }
 
 void ConflictResolvePanel::submitResolution(int choice) {
@@ -398,10 +555,17 @@ void ConflictResolvePanel::submitResolution(int choice) {
             request.resolution = ConflictResolution::TakeTheirs;
             break;
         default: {
-            if (!middleEditable_) {
+            if (!canSave()) {
                 return;
             }
             request.resolution = ConflictResolution::WriteResolved;
+            // Once every region has a choice, the middle buffer holds the
+            // assembled result (now editable for final touch-ups) rather
+            // than the per-region preview -- see refreshMiddleFromResolutions
+            // -- so re-running assemble() here would just reconstruct
+            // whatever the user may have hand-edited on top of it. Read the
+            // buffer either way; assemble() only ever fed it, never bypassed
+            // it.
             QString edited = middleEdit_->toPlainText();
             if (middleContentHasCrlf_) {
                 edited.replace(QStringLiteral("\n"), QStringLiteral("\r\n"));

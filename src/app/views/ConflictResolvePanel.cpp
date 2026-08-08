@@ -273,6 +273,16 @@ void ConflictResolvePanel::showEntry(RepositorySession* session, const WorkingCo
     middleContentHasCrlf_ = false;
     middleEditable_ = false;
     saveButton_->setEnabled(false);
+    // The panel is reused across every conflict in a batch (see the
+    // UniqueConnection comment below), so the previous entry's per-region
+    // state must not leak into this one -- otherwise a text conflict's
+    // regionStrip_ stays visible (with stale N/M text) over a subsequent
+    // binary/delete-modify conflict that has no regions of its own.
+    parsedMarkers_ = ParsedConflictFile{};
+    regionResolutions_.clear();
+    regionTextRanges_.clear();
+    currentRegionIndex_ = 0;
+    regionStrip_->setVisible(false);
 
     QString kindText;
     switch (entry.conflict) {
@@ -372,6 +382,7 @@ void ConflictResolvePanel::onWorkingTreeContentReady(const QString& path,
             tr("(binary or non-UTF-8 content — use Take Left or Take Right)"));
         parsedMarkers_ = ParsedConflictFile{};
         regionResolutions_.clear();
+        regionStrip_->setVisible(false);
         return;
     }
 
@@ -457,7 +468,8 @@ bool ConflictResolvePanel::canSave() const {
 }
 
 void ConflictResolvePanel::refreshMiddleFromResolutions() {
-    if (allRegionsResolved()) {
+    const bool resolved = allRegionsResolved();
+    if (resolved) {
         regionTextRanges_.clear();
         const std::optional<std::string> assembled =
             ConflictMarkerParser::assemble(parsedMarkers_, regionResolutions_);
@@ -466,6 +478,10 @@ void ConflictResolvePanel::refreshMiddleFromResolutions() {
         regionTextRanges_.clear();
         middleEdit_->setPlainText(buildMiddlePreviewText(&regionTextRanges_));
     }
+    // Stays read-only until every region is resolved -- otherwise the user
+    // could type into the placeholder-filled preview, only to have the next
+    // Take Left/Right click silently discard it via setPlainText above.
+    middleEdit_->setReadOnly(!resolved);
     saveButton_->setEnabled(canSave());
     updateRegionStrip();
     highlightCurrentRegion();
@@ -477,17 +493,24 @@ void ConflictResolvePanel::resolveRegion(int index, ConflictRegionChoice choice)
     }
     regionResolutions_[static_cast<std::size_t>(index)] = ConflictRegionResolution{choice, {}};
 
+    // Look forward from just past `index` first, wrapping around to the
+    // start -- but never back onto `index` itself -- so resolving region 2
+    // out of {0: unresolved, 1: unresolved, 2: unresolved} lands on 0, not
+    // back on 2, while working straight through in order still advances one
+    // step at a time as the doc comment promises.
+    const int count = static_cast<int>(regionResolutions_.size());
     bool jumped = false;
-    for (std::size_t i = 0; i < regionResolutions_.size(); ++i) {
-        if (regionResolutions_[i].choice == ConflictRegionChoice::Unresolved) {
-            currentRegionIndex_ = static_cast<int>(i);
+    for (int offset = 1; offset < count; ++offset) {
+        const int candidate = (index + offset) % count;
+        if (regionResolutions_[static_cast<std::size_t>(candidate)].choice ==
+            ConflictRegionChoice::Unresolved) {
+            currentRegionIndex_ = candidate;
             jumped = true;
             break;
         }
     }
     if (!jumped) {
-        currentRegionIndex_ =
-            std::min(index, static_cast<int>(regionResolutions_.size()) - 1);
+        currentRegionIndex_ = std::min(index, count - 1);
     }
     refreshMiddleFromResolutions();
 }
@@ -525,15 +548,23 @@ void ConflictResolvePanel::highlightCurrentRegion() {
         return;
     }
     const auto [start, length] = regionTextRanges_[static_cast<std::size_t>(currentRegionIndex_)];
-    QTextCursor cursor(middleEdit_->document());
-    cursor.setPosition(start);
-    cursor.setPosition(start + length, QTextCursor::KeepAnchor);
+    QTextCursor highlightCursor(middleEdit_->document());
+    highlightCursor.setPosition(start);
+    highlightCursor.setPosition(start + length, QTextCursor::KeepAnchor);
 
     QTextEdit::ExtraSelection selection;
-    selection.cursor = cursor;
+    selection.cursor = highlightCursor;
     selection.format.setBackground(ThemeManager::color(Token::SurfaceSunken));
     middleEdit_->setExtraSelections({selection});
-    middleEdit_->setTextCursor(cursor);
+
+    // A collapsed cursor at the region's start, not `highlightCursor` itself
+    // -- setTextCursor() with an active KeepAnchor range would make the
+    // whole region the live selection, so the next keystroke replaces it.
+    // The ExtraSelection above already paints the highlight; this only needs
+    // to scroll the view there.
+    QTextCursor scrollCursor(middleEdit_->document());
+    scrollCursor.setPosition(start);
+    middleEdit_->setTextCursor(scrollCursor);
     middleEdit_->ensureCursorVisible();
 }
 

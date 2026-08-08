@@ -289,7 +289,11 @@ int main(int argc, char** argv) {
 
     const std::filesystem::path repoPath = argv[1];
     int printRows = 0;
-    double maxBytesPerCommit = 140.0;
+    // ~18% above the measured post-oidOrder_ cost (75-77 bytes/commit across a
+    // 5000-commit synthetic fixture, a 20k-commit perf-shaped fixture, and this
+    // repo's own real history). Keep in sync with GraphBuilderTest.cpp's
+    // MemoryStaysWithinTheBudget threshold -- see docs/PERFORMANCE.md.
+    double maxBytesPerCommit = 92.0;
     int commitGraphAbPairs = 0;
     double minGraphSpeedup = 2.0;
 

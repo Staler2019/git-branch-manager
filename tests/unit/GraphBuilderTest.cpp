@@ -417,7 +417,11 @@ TEST(GraphSnapshot, MaxLaneInRangeLetsTheGutterShrink) {
 
 TEST(GraphSnapshot, MemoryStaysWithinTheBudget) {
     // The design budgets 64 MB per open repository for the graph of a 500k-commit
-    // history. Scaled down, that means comfortably under ~140 bytes per commit.
+    // history. 92 bytes/commit is ~18% above the measured post-oidOrder_ cost
+    // (77.3 on this fixture, 75-76 on a 20k-commit perf-shaped fixture and on
+    // this repo's own real history -- see docs/PERFORMANCE.md, "GraphSnapshot
+    // memory layout"), not a round number picked without measuring. Keep this
+    // in sync with graph_check.cpp's --max-bytes-per-commit default.
     auto snapshot = build(makeRandomDag(5000, 12345, 0.15, 2));
     const double bytesPerCommit =
         static_cast<double>(snapshot->approximateBytes()) / snapshot->rowCount();
@@ -427,7 +431,7 @@ TEST(GraphSnapshot, MemoryStaysWithinTheBudget) {
     // passing run that never shows the margin makes silent regressions easy.
     std::fprintf(stderr, "GraphSnapshot memory: %.1f bytes/commit\n", bytesPerCommit);
 
-    EXPECT_LT(bytesPerCommit, 140.0)
+    EXPECT_LT(bytesPerCommit, 92.0)
         << "at " << bytesPerCommit << " bytes/commit, 500k commits would exceed the 64 MB budget";
 }
 

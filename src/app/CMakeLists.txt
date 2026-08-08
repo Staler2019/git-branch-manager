@@ -54,6 +54,7 @@ qt_add_executable(git-branch-manager
     dialogs/StashChangesDialog.cpp
 
     views/CommitExpansionPanel.cpp
+    views/ConflictResolvePanel.cpp
     views/CredentialDialog.cpp
     views/DiffView.cpp
     views/FileContentView.cpp

@@ -4,6 +4,7 @@
 #include "app/bridge/ThemeManager.h"
 #include "app/dialogs/MessageDialogs.h"
 #include "app/theme/Tokens.h"
+#include "app/views/ConflictResolvePanel.h"
 #include "app/views/FileContentView.h"
 #include "app/views/SideBySideDiffView.h"
 #include "core/git/ops/CommitOps.h"
@@ -876,122 +877,14 @@ void WorkingCopyView::openConflictResolutionDialog(const WorkingCopyEntry& entry
     dialog.setWindowTitle(tr("Resolve conflict — %1").arg(QString::fromStdString(entry.path)));
     auto* layout = new QVBoxLayout(&dialog);
 
-    QString kindText;
-    switch (entry.conflict) {
-        case ConflictKind::BothAdded:
-            kindText = tr("Both sides added this file.");
-            break;
-        case ConflictKind::BothModified:
-            kindText = tr("Both sides modified this file.");
-            break;
-        case ConflictKind::BothDeleted:
-            kindText = tr("Both sides deleted this file.");
-            break;
-        case ConflictKind::AddedByUs:
-            kindText = tr("You added this file; the other side did not touch it.");
-            break;
-        case ConflictKind::DeletedByUs:
-            kindText = tr("You deleted this file; the other side modified it.");
-            break;
-        case ConflictKind::AddedByThem:
-            kindText = tr("The other side added this file; you did not touch it.");
-            break;
-        case ConflictKind::DeletedByThem:
-            kindText = tr("The other side deleted this file; you modified it.");
-            break;
-        case ConflictKind::None:
-            break;
-    }
-    if (!kindText.isEmpty()) {
-        layout->addWidget(new QLabel(kindText, &dialog));
-    }
-
-    auto* panesLayout = new QHBoxLayout();
-    auto makePane = [&](const QString& title) {
-        auto* container = new QWidget(&dialog);
-        auto* paneLayout = new QVBoxLayout(container);
-        paneLayout->setContentsMargins(0, 0, 0, 0);
-        paneLayout->addWidget(new QLabel(title, container));
-        auto* edit = new QPlainTextEdit(container);
-        edit->setReadOnly(true);
-        edit->setLineWrapMode(QPlainTextEdit::NoWrap);
-        edit->setPlainText(tr("Loading…"));
-        paneLayout->addWidget(edit, 1);
-        panesLayout->addWidget(container);
-        return edit;
-    };
-    QPlainTextEdit* ancestorEdit = makePane(tr("Common ancestor"));
-    QPlainTextEdit* oursEdit = makePane(tr("Mine (ours)"));
-    QPlainTextEdit* theirsEdit = makePane(tr("Theirs"));
-    if (entry.ancestorBlob.empty()) {
-        ancestorEdit->setPlainText(tr("(no common ancestor)"));
-    }
-    if (entry.oursBlob.empty()) {
-        oursEdit->setPlainText(tr("(deleted on this side)"));
-    }
-    if (entry.theirsBlob.empty()) {
-        theirsEdit->setPlainText(tr("(deleted on the other side)"));
-    }
-    layout->addLayout(panesLayout, 1);
-
-    // Scoped to the dialog's lifetime via the context object: if the request's
-    // reply arrives after the dialog has already closed, Qt drops the
-    // connection rather than calling back into destroyed widgets.
-    const QString path = QString::fromStdString(entry.path);
-    connect(session_,
-            &RepositorySession::conflictSidesReady,
-            &dialog,
-            [path, ancestorEdit, oursEdit, theirsEdit](
-                QString readyPath, QString ancestor, QString ours, QString theirs) {
-                if (readyPath != path) {
-                    return;
-                }
-                ancestorEdit->setPlainText(ancestor);
-                oursEdit->setPlainText(ours);
-                theirsEdit->setPlainText(theirs);
-            });
-    session_->requestConflictSides(
-        entry.path, entry.ancestorBlob, entry.oursBlob, entry.theirsBlob);
-
-    auto* buttonRow = new QHBoxLayout();
-    auto* takeOursButton = new QPushButton(tr("Take Mine"), &dialog);
-    auto* takeTheirsButton = new QPushButton(tr("Take Theirs"), &dialog);
-    auto* markResolvedButton = new QPushButton(tr("Mark Resolved"), &dialog);
-    auto* cancelButton = new QPushButton(tr("Cancel"), &dialog);
-    buttonRow->addWidget(takeOursButton);
-    buttonRow->addWidget(takeTheirsButton);
-    buttonRow->addWidget(markResolvedButton);
-    buttonRow->addStretch(1);
-    buttonRow->addWidget(cancelButton);
-    layout->addLayout(buttonRow);
-
-    connect(takeOursButton, &QPushButton::clicked, &dialog, [&dialog] { dialog.done(1); });
-    connect(takeTheirsButton, &QPushButton::clicked, &dialog, [&dialog] { dialog.done(2); });
-    connect(markResolvedButton, &QPushButton::clicked, &dialog, [&dialog] { dialog.done(3); });
-    connect(cancelButton, &QPushButton::clicked, &dialog, [&dialog] { dialog.done(0); });
+    auto* panel = new ConflictResolvePanel(&dialog);
+    layout->addWidget(panel, 1);
+    connect(panel, &ConflictResolvePanel::resolutionSubmitted, &dialog, &QDialog::accept);
+    connect(panel, &ConflictResolvePanel::cancelled, &dialog, &QDialog::reject);
+    panel->showEntry(session_, entry);
 
     dialog.resize(720, 420);
-    const int result = dialog.exec();
-    if (result == 0 || session_ == nullptr) {
-        return;
-    }
-
-    ResolveConflictRequest request;
-    request.path = entry.path;
-    request.oursBlobMissing = entry.oursBlob.empty();
-    request.theirsBlobMissing = entry.theirsBlob.empty();
-    switch (result) {
-        case 1:
-            request.resolution = ConflictResolution::TakeOurs;
-            break;
-        case 2:
-            request.resolution = ConflictResolution::TakeTheirs;
-            break;
-        default:
-            request.resolution = ConflictResolution::MarkResolved;
-            break;
-    }
-    session_->resolveConflict(request);
+    dialog.exec();
 }
 
 void WorkingCopyView::onStageAllClicked() {

@@ -75,7 +75,7 @@
       "name": "dev",
       "inherits": "tbase",
       "configurePreset": "dev",
-      "filter": { "exclude": { "label": "perf" } }
+      "filter": { "exclude": { "label": "perf|qt-perf" } }
     },
     {
       "name": "core-only",
@@ -88,6 +88,13 @@
       "inherits": "tbase",
       "configurePreset": "core-only",
       "filter": { "include": { "label": "perf" } },
+      "output": { "outputOnFailure": true, "verbosity": "verbose" }
+    },
+    {
+      "name": "qt-perf",
+      "inherits": "tbase",
+      "configurePreset": "dev",
+      "filter": { "include": { "label": "qt-perf" } },
       "output": { "outputOnFailure": true, "verbosity": "verbose" }
     },
     {
@@ -149,6 +156,14 @@
         { "type": "configure", "name": "core-only" },
         { "type": "build", "name": "core-only" },
         { "type": "test", "name": "perf" }
+      ]
+    },
+    {
+      "name": "qt-perf",
+      "steps": [
+        { "type": "configure", "name": "dev" },
+        { "type": "build", "name": "dev" },
+        { "type": "test", "name": "qt-perf" }
       ]
     },
     {

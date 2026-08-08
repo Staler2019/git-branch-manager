@@ -154,9 +154,15 @@ if(GBM_BUILD_APP)
     target_link_libraries(gbm_model_perf_tests
         PRIVATE gbm_core Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test gbm_warnings)
 
+    # "qt-perf", not "perf" -- unlike commit_graph_speedup_ratio, this binary
+    # needs Qt, so it needs its own testPreset/CI job wired to a
+    # Qt-enabled configurePreset. Reusing the "perf" label would make it look
+    # covered by the existing perf workflowPreset (configurePreset
+    # "core-only", GBM_BUILD_APP=OFF), which never builds this target at all
+    # -- see .github/workflows/perf-nightly.yml's "qt-models-perf" job.
     add_test(NAME qt_models_perf COMMAND gbm_model_perf_tests)
     set_tests_properties(qt_models_perf PROPERTIES
-        LABELS "perf"
+        LABELS "qt-perf"
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Separate binary rather than an extra source in gbm_model_tests: QtTest's

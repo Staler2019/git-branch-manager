@@ -1,12 +1,17 @@
 // Timing check for CommitListModel::data()'s non-blocking contract.
 //
-// Split out of ModelsTest.cpp and given the "perf" label (see
-// tests/CMakeLists.txt) rather than "unit": wall-clock assertions are too
-// noisy on shared CI runners to gate every PR, so this runs on the same
-// nightly cadence as commit_graph_speedup_ratio instead. The deterministic
-// half of the contract -- a metadata miss returns the placeholder rather
-// than fetching -- stays in ModelsTest::commitListModelDataMissReturnsPlaceholder,
-// which needs no wall clock and does gate every PR.
+// Split out of ModelsTest.cpp and given the "qt-perf" label (see
+// tests/CMakeLists.txt), not "unit" or "perf": wall-clock assertions are too
+// noisy on shared CI runners to gate every PR, so this runs nightly instead,
+// on the same schedule as (but a separate job from) commit_graph_speedup_ratio
+// -- see the "qt-models-perf" job in .github/workflows/perf-nightly.yml. It
+// needs its own label and job because, unlike that Qt-free walk, this binary
+// needs Qt: the "perf" label's only testPreset runs against the Qt-free
+// core-only configurePreset, which never builds this target at all. The
+// deterministic half of the contract -- a metadata miss returns the
+// placeholder rather than fetching -- stays in
+// ModelsTest::commitListModelDataMissReturnsPlaceholder, which needs no wall
+// clock and does gate every PR.
 #include "app/models/CommitListModel.h"
 #include "core/graph/GraphBuilder.h"
 

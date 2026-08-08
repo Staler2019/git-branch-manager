@@ -417,13 +417,75 @@ TEST(GraphSnapshot, MaxLaneInRangeLetsTheGutterShrink) {
 
 TEST(GraphSnapshot, MemoryStaysWithinTheBudget) {
     // The design budgets 64 MB per open repository for the graph of a 500k-commit
-    // history. Scaled down, that means comfortably under ~140 bytes per commit.
+    // history. 92 bytes/commit is ~18% above the measured post-oidOrder_ cost
+    // (77.3 on this fixture, 75-76 on a 20k-commit perf-shaped fixture and on
+    // this repo's own real history -- see docs/PERFORMANCE.md, "GraphSnapshot
+    // memory layout"), not a round number picked without measuring. Keep this
+    // in sync with graph_check.cpp's --max-bytes-per-commit default.
     auto snapshot = build(makeRandomDag(5000, 12345, 0.15, 2));
     const double bytesPerCommit =
         static_cast<double>(snapshot->approximateBytes()) / snapshot->rowCount();
 
-    EXPECT_LT(bytesPerCommit, 140.0)
+    // Printed unconditionally, not just on failure: this is the number bottleneck
+    // #5 in docs/reports/vscode-graph-performance.md tracks over time, and a
+    // passing run that never shows the margin makes silent regressions easy.
+    std::fprintf(stderr, "GraphSnapshot memory: %.1f bytes/commit\n", bytesPerCommit);
+
+    EXPECT_LT(bytesPerCommit, 92.0)
         << "at " << bytesPerCommit << " bytes/commit, 500k commits would exceed the 64 MB budget";
+}
+
+TEST(GraphSnapshot, FindRowSurvivesStreamedChunksAndMissesCleanly) {
+    // The index backing findRow is rebuilt by finalizeIndices() on every
+    // streamed chunk (see GraphSnapshot.h), not just once at the end. This
+    // pins the contract that matters to callers -- every oid emitted so far is
+    // findable after a chunk boundary (not just the first one), an oid that
+    // has not been added yet misses cleanly even mid-stream, and a miss must
+    // leave the caller's output untouched.
+    auto commits = makeRandomDag(500, 424242, 0.2, 2);
+
+    GraphBuilder builder;
+    std::size_t since = 0;
+    for (std::size_t i = 0; i < commits.size(); ++i) {
+        const Commit& commit = commits[i];
+        std::vector<ObjectId> parents;
+        for (int parent : commit.parents) {
+            parents.push_back(oidFor(parent));
+        }
+        builder.add(oidFor(commit.id), parents, 1000u + static_cast<std::uint32_t>(commit.id));
+        if (++since >= 37) {
+            auto midStream = builder.snapshot();  // Exercise finalizeIndices() mid-stream.
+            for (std::size_t added = 0; added <= i; ++added) {
+                RowId row = 0;
+                EXPECT_TRUE(midStream->findRow(oidFor(commits[added].id), &row))
+                    << "commit id " << commits[added].id << " was already added but is not findable";
+            }
+            if (i + 1 < commits.size()) {
+                RowId notYetAdded = 0xDEADBEEFu;
+                EXPECT_FALSE(midStream->findRow(oidFor(commits[i + 1].id), &notYetAdded))
+                    << "commit id " << commits[i + 1].id << " has not been added yet but was found";
+                EXPECT_EQ(notYetAdded, 0xDEADBEEFu);
+            }
+            since = 0;
+        }
+    }
+    builder.finish();
+    auto snapshot = builder.snapshot();
+
+    for (const Commit& commit : commits) {
+        RowId row = 0;
+        ASSERT_TRUE(snapshot->findRow(oidFor(commit.id), &row)) << "missing oid for id " << commit.id;
+        EXPECT_EQ(snapshot->oids[row], oidFor(commit.id));
+    }
+
+    // An oid that was never part of this history must miss cleanly and must not
+    // touch the caller's output parameter.
+    RowId sentinel = 0xDEADBEEFu;
+    EXPECT_FALSE(snapshot->findRow(oidFor(999999), &sentinel));
+    EXPECT_EQ(sentinel, 0xDEADBEEFu);
+
+    // findRow(oid, nullptr) must not crash; only presence is asked for.
+    EXPECT_TRUE(snapshot->findRow(oidFor(commits.back().id), nullptr));
 }
 
 // --- ASCII renderer --------------------------------------------------------

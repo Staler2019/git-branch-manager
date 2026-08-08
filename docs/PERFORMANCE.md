@@ -18,7 +18,7 @@ written), on a single developer machine:
 |---|---|---|
 | Time to first painted rows | **331 ms** | < 500 ms |
 | Full graph built in background | **629 ms** | < 3 s |
-| Memory for the graph | **124 bytes/commit** (≈59 MB projected at 500k) | ≤ 64 MB |
+| Memory for the graph | **75 bytes/commit** (≈36 MB projected at 500k) | ≤ 64 MB |
 | First-parent chains that stay straight | **199,960 / 199,960** | all |
 | Row order vs `git rev-list --topo-order` | **exact match** | exact match |
 
@@ -47,6 +47,75 @@ render cap and pushes about 12% of edges into the overflow gutter. For compariso
 `git log --graph` needs *more* columns than we use on the same input (51 vs 31 on a
 4-branch variant), so the width is a property of the topology rather than of the
 lane allocator.
+
+### GraphSnapshot memory layout: replacing the row index with a sorted array
+
+`docs/reports/vscode-graph-performance.md`, bottleneck #5, measured a real
+vscode clone at **124.2 bytes/commit** -- matching the synthetic fixture above
+almost exactly -- and projected that to **59.2 MB at 500k commits against the
+64 MB target: 7% headroom**. The report's finding was that this is "a fixed
+per-row struct cost in `GraphSnapshot`, consistent across synthetic and real
+data -- structural, not a topology artifact," and recommended profiling the
+row layout for compression before the next larger benchmark blows the budget,
+and tracking the ratio in CI while margin still exists.
+
+Breaking down `GraphSnapshot::approximateBytes()`'s own accounting showed
+`std::unordered_map<ObjectId, RowId> index_` -- the row lookup used by "select
+this commit" and ref decoration -- alone accounted for **~43%** of the total
+(~53 bytes/commit by the estimator's own formula; a real libc++ hash-map node
+runs closer to 56-64 bytes once padding and malloc size-class rounding are
+counted, and the estimator did not count `finalizeIndices()`'s
+`index_.reserve(oids.size() * 2)` bucket array at all). A grep across `src/`
+and `tests/` found zero callers of the public `index()` accessor that exposed
+this map, so it was safe to replace outright.
+
+**Fix applied:**
+
+1. `index_` was replaced with `oidOrder_`, a `std::vector<RowId>` of row
+   indices sorted by `oids[row]`. `findRow()` now binary searches it instead
+   of hashing.
+2. `finalizeIndices()` rebuilds `oidOrder_` with a single `std::stable_sort()`
+   on every call rather than attempting to merge with a previous chunk's
+   state: `GraphBuilder::snapshot()` publishes each streamed chunk as a fresh
+   copy of the builder's running state and calls `finalizeIndices()` only on
+   that copy, never on the builder's own persistent snapshot, so there is no
+   prior sorted state to reuse across calls -- the `unordered_map` version
+   already rebuilt from scratch on every chunk (`index_.clear()` then a full
+   re-insert loop); a full sort is the equivalent-order replacement without
+   per-entry hash-map allocation. `stable_sort` rather than `sort` so a
+   duplicate `ObjectId` (never happens for real git commits, but was
+   deterministic first-insert-wins under the old hash map) keeps that same
+   tie-break instead of resolving to an arbitrary row.
+3. `approximateBytes()` now counts `oidOrder_.capacity() * sizeof(RowId)`,
+   which is exact rather than estimated -- this makes the metric more honest,
+   not just smaller.
+4. `ObjectId` gained the `static_assert(sizeof(ObjectId) == 33)` that
+   `RowMeta` and `Edge` already had, since it is the largest per-row field and
+   had no compile-time pin on its size.
+
+Measured post-fix: **77.3 bytes/commit** on the 5,000-commit synthetic
+fixture used by the PR gate, **75.1** on a 20,000-commit fixture shaped like
+the nightly commit-graph gate's fixture, and **75.6** on this repository's own
+history -- consistent across three different topologies, matching the
+report's "structural, not topology" finding. Both hardcoded budget checks
+(`tests/unit/GraphBuilderTest.cpp`'s `MemoryStaysWithinTheBudget`, and
+`gbm_graph_check`'s `--max-bytes-per-commit` default) were tightened from
+140.0 to 92.0 bytes/commit -- about 18% above the measured value, not a round
+number chosen without measuring.
+
+**Tracked in CI:** `gbm_graph_check` now also prints a machine-readable
+`graph-memory: rows=... bytes_per_commit=... projected_mb_500k=... budget=...`
+line, and the nightly `commit-graph-ratio` job (`.github/workflows/perf-nightly.yml`)
+publishes it to the run's Step Summary alongside the existing commit-graph
+speedup table -- the same "gate a counted invariant, not wall-clock time"
+pattern the commit-graph speedup gate below already uses, since bytes/commit
+for a fixed-seed fixture is deterministic.
+
+Unlike the two sections above, `GraphSnapshot` is pure core with no Qt
+dependency and is fully unit-tested: `GraphSnapshot.MemoryStaysWithinTheBudget`
+gates the PR build, and `GraphSnapshot.FindRowSurvivesStreamedChunksAndMissesCleanly`
+(`tests/unit/GraphBuilderTest.cpp`) pins the contract that findRow() must
+survive a chunk boundary and miss cleanly on an oid that was never added.
 
 ## UI refresh path
 

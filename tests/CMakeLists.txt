@@ -76,6 +76,10 @@ set(GBM_PERF_SAMPLES 5 CACHE STRING
     "Off/on walk pairs per perf run. Forced odd by graph_check so the median is a real sample.")
 set(GBM_PERF_MIN_SPEEDUP 2.0 CACHE STRING
     "Minimum commit-graph speedup asserted by the gate, roughly half the calibrated median.")
+set(GBM_MAX_BYTES_PER_COMMIT 92.0 CACHE STRING
+    "Maximum GraphSnapshot bytes/commit asserted by the nightly gate, ~18% above the measured
+     post-oidOrder_ cost -- see docs/PERFORMANCE.md before changing. Kept in sync with
+     GraphBuilderTest.cpp's MemoryStaysWithinTheBudget PR gate.")
 
 if(GIT_FOUND)
     add_test(NAME commit_graph_speedup_ratio
@@ -90,6 +94,7 @@ if(GIT_FOUND)
                 -DCOMMITS=${GBM_PERF_COMMITS}
                 -DSAMPLES=${GBM_PERF_SAMPLES}
                 -DMIN_SPEEDUP=${GBM_PERF_MIN_SPEEDUP}
+                -DMAX_BYTES_PER_COMMIT=${GBM_MAX_BYTES_PER_COMMIT}
                 -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunCommitGraphRatioCheck.cmake")
     set_tests_properties(commit_graph_speedup_ratio PROPERTIES
         LABELS "perf"

@@ -65,27 +65,50 @@ jobs:
               echo
               echo 'No measurement line in `perf.log` -- the run failed before measuring.'
             } >> "$GITHUB_STEP_SUMMARY"
-            exit 0
+          else
+            field() { sed -n "s/.*$1=\([0-9.]*\).*/\1/p" <<<"$line"; }
+            {
+              echo "## commit-graph speedup -- $(date -u '+%Y-%m-%d')"
+              echo
+              echo "git: $(git --version) - rows: $(field rows) - pairs: $(field pairs)"
+              echo
+              echo '| metric | graph off | graph on | speedup |'
+              echo '|---|---|---|---|'
+              printf '| full walk | %sms | %sms | **%sx** |\n' \
+                "$(field off_total_ms)" "$(field on_total_ms)" "$(field total_speedup)"
+              printf '| time to first chunk | %sms | %sms | %sx |\n' \
+                "$(field off_first_ms)" "$(field on_first_ms)" "$(field first_speedup)"
+              echo
+              echo 'Gate is on the full walk only; time-to-first-chunk is reported for the trend.'
+              echo
+              echo '```'
+              echo "$line"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
-          field() { sed -n "s/.*$1=\([0-9.]*\).*/\1/p" <<<"$line"; }
-          {
-            echo "## commit-graph speedup -- $(date -u '+%Y-%m-%d')"
-            echo
-            echo "git: $(git --version) - rows: $(field rows) - pairs: $(field pairs)"
-            echo
-            echo '| metric | graph off | graph on | speedup |'
-            echo '|---|---|---|---|'
-            printf '| full walk | %sms | %sms | **%sx** |\n' \
-              "$(field off_total_ms)" "$(field on_total_ms)" "$(field total_speedup)"
-            printf '| time to first chunk | %sms | %sms | %sx |\n' \
-              "$(field off_first_ms)" "$(field on_first_ms)" "$(field first_speedup)"
-            echo
-            echo 'Gate is on the full walk only; time-to-first-chunk is reported for the trend.'
-            echo
-            echo '```'
-            echo "$line"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Bottleneck #5 in docs/reports/vscode-graph-performance.md: track
+          # GraphSnapshot's bytes/commit in CI while margin still exists, using
+          # the same fixture this job already builds. Independent of the
+          # speedup measurement above, so one failing does not hide the other.
+          memLine=$(grep -m1 'graph-memory:' perf.log || true)
+          if [ -n "$memLine" ]; then
+            memField() { sed -n "s/.*$1=\([0-9.]*\).*/\1/p" <<<"$memLine"; }
+            {
+              echo
+              echo "## GraphSnapshot memory -- $(date -u '+%Y-%m-%d')"
+              echo
+              echo '| rows | bytes/commit | budget | projected MB @ 500k |'
+              echo '|---|---|---|---|'
+              printf '| %s | %s | %s | %s |\n' \
+                "$(memField rows)" "$(memField bytes_per_commit)" "$(memField budget)" \
+                "$(memField projected_mb_500k)"
+              echo
+              echo '```'
+              echo "$memLine"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Upload the full log
         if: always()

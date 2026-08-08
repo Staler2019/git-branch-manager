@@ -6,17 +6,17 @@
 // without ever claiming a count it doesn't have.
 #include "core/git/RepoState.h"
 
-#include <gtest/gtest.h>
-
 #include <algorithm>
 #include <cctype>
+#include <gtest/gtest.h>
 #include <string>
 
 namespace gbm {
 namespace {
 
 bool containsDigit(const std::string& text) {
-    return std::any_of(text.begin(), text.end(), [](unsigned char ch) { return std::isdigit(ch) != 0; });
+    return std::any_of(
+        text.begin(), text.end(), [](unsigned char ch) { return std::isdigit(ch) != 0; });
 }
 
 TEST(BuildStateBannerText, MergeWithKnownConflictsProducesHeadlineAndInstruction) {
@@ -74,7 +74,8 @@ TEST(BuildStateBannerText, UnknownConflictCountNeverClaimsANumber) {
     RepoState state;
     state.flags = RepoState::Merge;
 
-    const StateBannerText banner = buildStateBannerText(state, /*conflictedFileCount=*/std::nullopt);
+    const StateBannerText banner =
+        buildStateBannerText(state, /*conflictedFileCount=*/std::nullopt);
 
     EXPECT_FALSE(banner.headline.empty());
     EXPECT_FALSE(containsDigit(banner.headline));

@@ -146,11 +146,11 @@ protected:
     }
 
     QMimeData* mimeData(const QList<QListWidgetItem*>& items) const override {
-        auto* data = new QMimeData();
+        auto* mime = new QMimeData();
         if (!items.isEmpty()) {
-            data->setData(kFilePathMimeType, items.first()->data(Qt::UserRole).toByteArray());
+            mime->setData(kFilePathMimeType, items.first()->data(Qt::UserRole).toByteArray());
         }
-        return data;
+        return mime;
     }
 };
 

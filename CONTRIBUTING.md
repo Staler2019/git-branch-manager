@@ -42,6 +42,12 @@ cmake --workflow --preset tsan
 
 Run the app: `./build/dev/src/app/git-branch-manager`
 
+Warnings are treated as errors (`-Werror`/`/WX`, via `gbm_warnings` in
+`cmake/Warnings.cmake`), so a build that only warned before will now fail
+to compile. The one standing exception is GCC's `-Wstringop-overread`,
+which has a known false positive against `std::string_view::find()`;
+that's suppressed for `CommitMeta.cpp` only, not project-wide.
+
 ## Formatting
 
 CI's `lint` job rejects any PR that isn't clang-format-clean (clang-format 18,

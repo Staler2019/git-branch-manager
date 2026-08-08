@@ -1226,6 +1226,15 @@ void MainWindow::openRepository(const RepoRecord& record) {
             &RepositorySession::workingCopyOperationFinished,
             this,
             [this](const OperationOutcome&) { updateStateBanner(); });
+    // The conflict count in the banner comes from workingCopyStatus(), which
+    // can still be null the first time updateStateBanner() runs above (a cold
+    // `git status` scan can take tens of seconds -- see StartupReadGate). This
+    // recomputes the banner once that scan actually lands, so a repo opened
+    // mid-merge doesn't get stuck showing "in progress" with no file count.
+    connect(session_.get(),
+            &RepositorySession::workingCopyStatusUpdated,
+            this,
+            &MainWindow::updateStateBanner);
     connect(session_.get(),
             &RepositorySession::commitGraphWriteFinished,
             this,

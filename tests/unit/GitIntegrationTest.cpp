@@ -1417,6 +1417,73 @@ TEST_F(RealRepoTest, AConflictingMergeCanBeResolvedByTakingEitherSide) {
     EXPECT_TRUE(RepoState::read(paths_).isClean());
 }
 
+TEST_F(RealRepoTest, WriteResolvedWritesTheEditedContentAndStagesIt) {
+    commitFile("shared.txt", "base\n", "base");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "left"}));
+    commitFile("shared.txt", "left change\n", "left");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("shared.txt", "right change\n", "right");
+
+    OperationRunner operations(*runner_, paths_);
+    MergeRequest request;
+    request.target = "left";
+    request.mode = MergeMode::NoFastForward;
+    auto merged = submitAndWait(operations, makeMergeOperation(request));
+    ASSERT_FALSE(merged.succeeded);
+
+    ResolveConflictRequest resolve;
+    resolve.path = "shared.txt";
+    resolve.resolution = ConflictResolution::WriteResolved;
+    resolve.resolvedContent = "hand-merged result\n";
+    auto resolved = submitAndWait(operations, makeResolveConflictOperation(resolve));
+    ASSERT_TRUE(resolved.succeeded) << (resolved.error ? resolved.error->detail : "");
+
+    std::ifstream in(repo_ / "shared.txt", std::ios::binary);
+    const std::string onDisk((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    EXPECT_EQ(onDisk, "hand-merged result\n");
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto afterResolve = reader.read(CancellationToken{});
+    ASSERT_TRUE(afterResolve);
+    EXPECT_TRUE(afterResolve->get()->conflicted().empty());
+
+    auto staged = run({"show", ":shared.txt"});
+    ASSERT_TRUE(staged);
+    EXPECT_EQ(staged->out, "hand-merged result")
+        << "the edited content must be what gets staged, not either original side";
+}
+
+TEST_F(RealRepoTest, WriteResolvedWithEmptyContentFailsInsteadOfTruncatingTheFile) {
+    commitFile("shared.txt", "base\n", "base");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "left"}));
+    commitFile("shared.txt", "left change\n", "left");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("shared.txt", "right change\n", "right");
+
+    OperationRunner operations(*runner_, paths_);
+    MergeRequest request;
+    request.target = "left";
+    request.mode = MergeMode::NoFastForward;
+    auto merged = submitAndWait(operations, makeMergeOperation(request));
+    ASSERT_FALSE(merged.succeeded);
+
+    ResolveConflictRequest resolve;
+    resolve.path = "shared.txt";
+    resolve.resolution = ConflictResolution::WriteResolved;
+    resolve.resolvedContent = "";
+    auto resolved = submitAndWait(operations, makeResolveConflictOperation(resolve));
+
+    EXPECT_FALSE(resolved.succeeded);
+    ASSERT_TRUE(resolved.error.has_value());
+    EXPECT_EQ(resolved.error->code, GitError::Code::InvalidArgument);
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto stillConflicted = reader.read(CancellationToken{});
+    ASSERT_TRUE(stillConflicted);
+    EXPECT_EQ(stillConflicted->get()->conflicted().size(), 1u)
+        << "a rejected WriteResolved must not touch the working tree or the index";
+}
+
 TEST_F(RealRepoTest, MergeOffersStashAndRetryWhenTheWorkTreeIsDirty) {
     commitFile("a.txt", "base\n", "c1");
     ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));

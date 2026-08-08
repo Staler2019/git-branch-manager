@@ -27,6 +27,7 @@ target_link_libraries(gbm_test_support PUBLIC gbm_core PRIVATE gbm_warnings)
 
 # --- core unit + integration tests (no Qt needed) --------------------------
 add_executable(gbm_core_tests
+    unit/ConflictMarkerParserTest.cpp
     unit/CoreBasicsTest.cpp
     unit/DiscoveryTest.cpp
     unit/GitIntegrationTest.cpp

@@ -44,9 +44,9 @@ Run the app: `./build/dev/src/app/git-branch-manager`
 
 Warnings are treated as errors (`-Werror`/`/WX`, via `gbm_warnings` in
 `cmake/Warnings.cmake`), so a build that only warned before will now fail
-to compile. The one standing exception is GCC's `-Wstringop-overread`,
-which has a known false positive against `std::string_view::find()`;
-that's suppressed for `CommitMeta.cpp` only, not project-wide.
+to compile, with no per-file exceptions. If a compiler flags a real memory-
+safety warning (bounds, overread, use-after-free), fix the code rather than
+suppressing the diagnostic.
 
 ## Formatting
 

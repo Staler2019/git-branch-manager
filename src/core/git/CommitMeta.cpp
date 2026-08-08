@@ -19,6 +19,15 @@ std::int64_t parseInt(std::string_view text) {
 // lowers to char_traits::find -> __builtin_memchr, which GCC 11 at -O2 can
 // misjudge the bound of after inlining through a substr/min chain, emitting
 // a false-positive -Wstringop-overread (the memchr call itself is correct).
+//
+// Applied unconditionally for every compiler, not just GCC 11 -- a version
+// guard (e.g. #if __GNUC__ == 11) would mean GCC 12+ silently falls back to
+// the vectorized find() path that nobody has re-verified is free of this
+// false positive, for a signature line that is at most a few dozen bytes
+// long. Given the project's -Wstringop-overread policy (a real memory-safety
+// warning gets fixed at the root, not suppressed -- see CONTRIBUTING.md), one
+// verified code path on every compiler beats a faster, unverified one on
+// most of them.
 std::size_t findChar(std::string_view text, char needle, std::size_t from = 0) {
     for (std::size_t i = from; i < text.size(); ++i) {
         if (text[i] == needle) {

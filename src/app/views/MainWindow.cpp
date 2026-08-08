@@ -2315,6 +2315,16 @@ void MainWindow::armWorkingCopyChoiceHandler(std::function<void(bool)> submit,
                         return;
                     }
                     if (outcome.choices.empty()) {
+                        // A Conflict outcome from merge/cherry-pick/rebase/revert is
+                        // git stopping exactly where it should, not a failure -- the
+                        // working-copy panel (see RepositorySession::submitWorkingCopyOperation)
+                        // is already refreshing to show it. A modal box on top of that
+                        // would just be noise (and duplicate the one WorkingCopyView
+                        // already suppresses for the same outcome).
+                        if (outcome.error && outcome.error->code == GitError::Code::Conflict) {
+                            statusLabel_->setText(QString::fromStdString(outcome.summary));
+                            return;
+                        }
                         if (outcome.error) {
                             showError(QString::fromStdString(outcome.summary), *outcome.error);
                         }
@@ -2384,6 +2394,13 @@ void MainWindow::runWithFeedback(std::function<void()> submit,
                         return;
                     }
                     if (outcome.choices.empty()) {
+                        // See the matching branch in armWorkingCopyChoiceHandler: a
+                        // Conflict outcome (e.g. from continuing a rebase into another
+                        // conflicting commit) is expected, not a failure -- no modal.
+                        if (outcome.error && outcome.error->code == GitError::Code::Conflict) {
+                            statusLabel_->setText(QString::fromStdString(outcome.summary));
+                            return;
+                        }
                         if (outcome.error) {
                             showError(QString::fromStdString(outcome.summary), *outcome.error);
                         }

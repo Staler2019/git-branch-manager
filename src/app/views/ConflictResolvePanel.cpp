@@ -272,17 +272,23 @@ void ConflictResolvePanel::showEntry(RepositorySession* session, const WorkingCo
 
     // Scoped to this widget's lifetime: if a reply arrives after the panel
     // has already been destroyed, Qt drops the connection rather than
-    // calling back into a dangling this.
+    // calling back into a dangling this. UniqueConnection matters here --
+    // showEntry() is called again for every conflict in a batch on a panel
+    // that is embedded (not recreated), so a plain connect() would stack a
+    // new duplicate on top of every previous one and fire the handler N
+    // times on the Nth call.
     connect(session_,
             &RepositorySession::conflictSidesReady,
             this,
-            &ConflictResolvePanel::onConflictSidesReady);
+            &ConflictResolvePanel::onConflictSidesReady,
+            Qt::UniqueConnection);
     session_->requestConflictSides(entry.path, entry.ancestorBlob, entry.oursBlob, entry.theirsBlob);
 
     connect(session_,
             &RepositorySession::workingTreeContentReady,
             this,
-            &ConflictResolvePanel::onWorkingTreeContentReady);
+            &ConflictResolvePanel::onWorkingTreeContentReady,
+            Qt::UniqueConnection);
     session_->requestWorkingTreeContent(entry.path);
 }
 

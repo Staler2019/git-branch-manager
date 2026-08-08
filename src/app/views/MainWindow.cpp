@@ -1514,13 +1514,23 @@ void MainWindow::updateStateBanner() {
     }
 
     const RepoState state = session_->state();
-    const std::string description = state.describe();
     updateSequencerControls(state);
-    if (description.empty()) {
+
+    // Null until the first working-copy scan lands (StartupReadGate can hold
+    // that back for tens of seconds on a large repository) -- nullopt tells
+    // buildStateBannerText to describe the state without ever guessing a
+    // conflict count.
+    std::optional<std::size_t> conflictedFileCount;
+    if (const WorkingCopyStatusPtr status = session_->workingCopyStatus()) {
+        conflictedFileCount = status->conflicted().size();
+    }
+
+    const StateBannerText banner = buildStateBannerText(state, conflictedFileCount);
+    if (banner.headline.empty()) {
         bannerLabel_->parentWidget()->setVisible(false);
         return;
     }
-    bannerLabel_->setText(QString::fromStdString(description));
+    bannerLabel_->setText(QString::fromStdString(banner.headline));
     bannerLabel_->parentWidget()->setVisible(true);
 }
 

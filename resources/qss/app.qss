@@ -175,17 +175,33 @@ QWidget#gbmSegmented QToolButton:checked:disabled {
 
 /* --- conflict banner --------------------------------------------------------*/
 
-/* `.gbm-banner-warning` in components.css. Previously a hand-rolled
- * setStyleSheet() call in MainWindow::restyleBanner(), re-applied manually
- * on every theme switch; objectName + qApp->setStyleSheet() now does that
- * automatically like everything else. */
-QWidget#gbmBanner {
+/* `.gbm-banner-warning` / `.gbm-banner-info` in components.css. Previously a
+ * hand-rolled setStyleSheet() call in MainWindow::restyleBanner(), re-applied
+ * manually on every theme switch; objectName + qApp->setStyleSheet() now does
+ * that automatically like everything else.
+ *
+ * Two variants, picked by the "conflict" dynamic property MainWindow sets in
+ * updateStateBanner(): an in-progress sequencer state with no known
+ * conflicts (e.g. a clean rebase) is informational, not a warning -- only an
+ * actual conflict gets the warning-red treatment. */
+QWidget#gbmBanner[conflict="true"] {
     background: @diff-del-bg;
     border-bottom: 1px solid @border-subtle;
 }
 
-QLabel#gbmBannerLabel {
+QLabel#gbmBannerLabel[conflict="true"],
+QLabel#gbmBannerInstructionLabel[conflict="true"] {
     color: @diff-del-text;
+}
+
+QWidget#gbmBanner[conflict="false"] {
+    background: @accent-subtle;
+    border-bottom: 1px solid @border-subtle;
+}
+
+QLabel#gbmBannerLabel[conflict="false"],
+QLabel#gbmBannerInstructionLabel[conflict="false"] {
+    color: @text-primary;
 }
 
 /* Sibling of gbmBanner, not a reuse: gbmBanner is a repository-state warning

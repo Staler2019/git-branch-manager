@@ -11,6 +11,15 @@ add_test(NAME no_duplicate_ref_refresh_call_sites
             -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckNoDuplicateRefRefresh.cmake")
 set_tests_properties(no_duplicate_ref_refresh_call_sites PROPERTIES LABELS "unit")
 
+# Same rationale as the check above: pins the issue #20 banner-visibility
+# regression (see CheckBannerLabelNotHidden.cmake) without needing a full
+# MainWindow runtime harness.
+add_test(NAME banner_label_not_explicitly_hidden
+    COMMAND "${CMAKE_COMMAND}"
+            -DSOURCE_DIR=${CMAKE_SOURCE_DIR}
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckBannerLabelNotHidden.cmake")
+set_tests_properties(banner_label_not_explicitly_hidden PROPERTIES LABELS "unit")
+
 # Test doubles live here rather than in the shipped library.
 add_library(gbm_test_support STATIC support/FakeProcessRunner.cpp)
 target_include_directories(gbm_test_support PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -24,6 +33,7 @@ add_executable(gbm_core_tests
     unit/GraphBuilderTest.cpp
     unit/MaintenanceOpsTest.cpp
     unit/ProcessRunnerTest.cpp
+    unit/RepoStateTest.cpp
     unit/SideBySideDiffTest.cpp
     unit/UnifiedDiffParserTest.cpp
 )

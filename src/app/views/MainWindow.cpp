@@ -273,18 +273,45 @@ void MainWindow::buildUi() {
     bannerLayout->setContentsMargins(kSpace4, kSpace2, kSpace4, kSpace2);
     bannerLayout->setSpacing(kSpace3);
 
-    auto* bannerIcon = new QLabel(bannerRow);
-    bannerIcon->setPixmap(
+    bannerIcon_ = new QLabel(bannerRow);
+    bannerIcon_->setPixmap(
         IconLoader::icon(QStringLiteral("alert-triangle"), Token::DiffDelText).pixmap(16, 16));
-    bannerIcon->setAccessibleName(QStringLiteral("Warning"));
-    bannerLayout->addWidget(bannerIcon);
+    bannerIcon_->setAccessibleName(QStringLiteral("Warning"));
+    bannerLayout->addWidget(bannerIcon_);
 
-    bannerLabel_ = new QLabel(bannerRow);
+    auto* bannerTextColumn = new QWidget(bannerRow);
+    auto* bannerTextLayout = new QVBoxLayout(bannerTextColumn);
+    bannerTextLayout->setContentsMargins(0, 0, 0, 0);
+    bannerTextLayout->setSpacing(kSpace1);
+
+    bannerLabel_ = new QLabel(bannerTextColumn);
     bannerLabel_->setObjectName(QStringLiteral("gbmBannerLabel"));
-    bannerLabel_->setVisible(false);
     bannerLabel_->setWordWrap(true);
     bannerLabel_->setAccessibleName(QStringLiteral("Repository state banner"));
-    bannerLayout->addWidget(bannerLabel_, 1);
+    bannerTextLayout->addWidget(bannerLabel_);
+
+    // Second line: what to do about the conflict. Unlike bannerLabel_
+    // (issue #20), this one is safe to hide at construction because
+    // updateStateBanner() unconditionally sets its visibility -- true or
+    // false -- on every call, rather than relying on ancestor propagation.
+    bannerInstructionLabel_ = new QLabel(bannerTextColumn);
+    bannerInstructionLabel_->setObjectName(QStringLiteral("gbmBannerInstructionLabel"));
+    bannerInstructionLabel_->setWordWrap(true);
+    bannerInstructionLabel_->setAccessibleName(
+        QStringLiteral("Repository state banner instruction"));
+    bannerInstructionLabel_->setVisible(false);
+    bannerTextLayout->addWidget(bannerInstructionLabel_);
+
+    bannerLayout->addWidget(bannerTextColumn, 1);
+
+    // gbmBanner's QSS rule is keyed on the "conflict" property (see app.qss);
+    // without a value set here, the row renders unstyled -- no background, no
+    // border -- from construction until the first updateStateBanner() call.
+    for (QWidget* widget : {bannerRow_,
+                            static_cast<QWidget*>(bannerLabel_),
+                            static_cast<QWidget*>(bannerInstructionLabel_)}) {
+        widget->setProperty("conflict", false);
+    }
 
     // Continue/Skip/Abort for whichever sequencer operation (merge, cherry-pick,
     // revert or rebase) RepoState reports in progress -- see
@@ -1227,6 +1254,15 @@ void MainWindow::openRepository(const RepoRecord& record) {
             &RepositorySession::workingCopyOperationFinished,
             this,
             [this](const OperationOutcome&) { updateStateBanner(); });
+    // The conflict count in the banner comes from workingCopyStatus(), which
+    // can still be null the first time updateStateBanner() runs above (a cold
+    // `git status` scan can take tens of seconds -- see StartupReadGate). This
+    // recomputes the banner once that scan actually lands, so a repo opened
+    // mid-merge doesn't get stuck showing "in progress" with no file count.
+    connect(session_.get(),
+            &RepositorySession::workingCopyStatusUpdated,
+            this,
+            &MainWindow::updateStateBanner);
     connect(session_.get(),
             &RepositorySession::commitGraphWriteFinished,
             this,
@@ -1388,7 +1424,7 @@ void MainWindow::closeRepository() {
     toolBarRepoNameLabel_->setText(QString());
     toolBarBranchLabel_->setText(QString());
     stack_->setCurrentIndex(0);
-    bannerLabel_->parentWidget()->setVisible(false);
+    bannerRow_->setVisible(false);
     perfHintRow_->setVisible(false);
     commitGraphHintShown_ = false;
     // Undoes onPerfHintOptimizeClicked's setEnabled(false): if a
@@ -1504,7 +1540,7 @@ void MainWindow::setupPersistentSplitter(QSplitter* splitter, const QString& key
 
 void MainWindow::updateStateBanner() {
     if (!session_) {
-        bannerLabel_->parentWidget()->setVisible(false);
+        bannerRow_->setVisible(false);
         if (undoAction_) {
             undoAction_->setEnabled(false);
         }
@@ -1515,14 +1551,50 @@ void MainWindow::updateStateBanner() {
     }
 
     const RepoState state = session_->state();
-    const std::string description = state.describe();
     updateSequencerControls(state);
-    if (description.empty()) {
-        bannerLabel_->parentWidget()->setVisible(false);
+
+    // Null until the first working-copy scan lands (StartupReadGate can hold
+    // that back for tens of seconds on a large repository) -- nullopt tells
+    // buildStateBannerText to describe the state without ever guessing a
+    // conflict count.
+    std::optional<std::size_t> conflictedFileCount;
+    if (const WorkingCopyStatusPtr status = session_->workingCopyStatus()) {
+        conflictedFileCount = status->conflicted().size();
+    }
+
+    const StateBannerText banner = buildStateBannerText(state, conflictedFileCount);
+    if (banner.headline.empty()) {
+        bannerRow_->setVisible(false);
         return;
     }
-    bannerLabel_->setText(QString::fromStdString(description));
-    bannerLabel_->parentWidget()->setVisible(true);
+    bannerLabel_->setText(QString::fromStdString(banner.headline));
+
+    bannerInstructionLabel_->setText(QString::fromStdString(banner.instruction));
+    bannerInstructionLabel_->setVisible(!banner.instruction.empty());
+
+    // "conflict" switches gbmBanner between the warning (red) and info (blue)
+    // QSS variants -- see app.qss. Set on each widget individually (matching
+    // this codebase's existing objectName-per-widget styling convention)
+    // rather than relying on a QSS descendant selector to pick up an
+    // ancestor's property. A dynamic property change needs an explicit
+    // repolish; Qt does not re-evaluate stylesheet selectors on its own when
+    // a property used by one changes.
+    for (QWidget* widget : {bannerRow_,
+                            static_cast<QWidget*>(bannerLabel_),
+                            static_cast<QWidget*>(bannerInstructionLabel_)}) {
+        widget->setProperty("conflict", banner.isConflict);
+        widget->style()->unpolish(widget);
+        widget->style()->polish(widget);
+    }
+
+    // IconLoader bakes the token colour into the pixmap, so it does not
+    // follow the property-driven QSS above -- it has to be repainted here to
+    // avoid a warning-red triangle sitting inside an info-blue banner.
+    bannerIcon_->setPixmap(IconLoader::icon(QStringLiteral("alert-triangle"),
+                                            banner.isConflict ? Token::DiffDelText : Token::Accent)
+                               .pixmap(16, 16));
+
+    bannerRow_->setVisible(true);
 }
 
 void MainWindow::updateSequencerControls(const RepoState& state) {

@@ -353,7 +353,16 @@ private:
     QLabel* toolBarRepoNameLabel_ = nullptr;
     QLabel* toolBarBranchLabel_ = nullptr;
     QWidget* bannerRow_ = nullptr;
+    /// Recolored (not restyled via QSS) in updateStateBanner() to match the
+    /// conflict/info variant: IconLoader bakes the token colour into the
+    /// pixmap itself, so a dynamic property + repolish (as used for the
+    /// labels) has no effect on it.
+    QLabel* bannerIcon_ = nullptr;
     QLabel* bannerLabel_ = nullptr;
+    /// Second line of the banner: what to do about the conflict. Only shown
+    /// when buildStateBannerText() produces a non-empty instruction (i.e.
+    /// there's an actual conflict, not just an in-progress sequencer state).
+    QLabel* bannerInstructionLabel_ = nullptr;
     QPushButton* bannerContinueButton_ = nullptr;
     QPushButton* bannerSkipButton_ = nullptr;
     QPushButton* bannerAbortButton_ = nullptr;

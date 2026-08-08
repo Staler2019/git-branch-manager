@@ -422,8 +422,56 @@ TEST(GraphSnapshot, MemoryStaysWithinTheBudget) {
     const double bytesPerCommit =
         static_cast<double>(snapshot->approximateBytes()) / snapshot->rowCount();
 
+    // Printed unconditionally, not just on failure: this is the number bottleneck
+    // #5 in docs/reports/vscode-graph-performance.md tracks over time, and a
+    // passing run that never shows the margin makes silent regressions easy.
+    std::fprintf(stderr, "GraphSnapshot memory: %.1f bytes/commit\n", bytesPerCommit);
+
     EXPECT_LT(bytesPerCommit, 140.0)
         << "at " << bytesPerCommit << " bytes/commit, 500k commits would exceed the 64 MB budget";
+}
+
+TEST(GraphSnapshot, FindRowSurvivesStreamedChunksAndMissesCleanly) {
+    // The index backing findRow is rebuilt by finalizeIndices() on every
+    // streamed chunk (see GraphSnapshot.h), not just once at the end. This
+    // pins the contract that matters to callers -- every emitted oid is
+    // findable after a chunk boundary, an oid that was never added is not,
+    // and a miss must leave the caller's output untouched.
+    auto commits = makeRandomDag(500, 424242, 0.2, 2);
+
+    GraphBuilder builder;
+    std::size_t since = 0;
+    for (const Commit& commit : commits) {
+        std::vector<ObjectId> parents;
+        for (int parent : commit.parents) {
+            parents.push_back(oidFor(parent));
+        }
+        builder.add(oidFor(commit.id), parents, 1000u + static_cast<std::uint32_t>(commit.id));
+        if (++since >= 37) {
+            auto midStream = builder.snapshot();  // Exercise finalizeIndices() mid-stream.
+            RowId row = 0;
+            EXPECT_TRUE(midStream->findRow(oidFor(commits.front().id), &row))
+                << "the newest commit so far must always be findable";
+            since = 0;
+        }
+    }
+    builder.finish();
+    auto snapshot = builder.snapshot();
+
+    for (const Commit& commit : commits) {
+        RowId row = 0;
+        ASSERT_TRUE(snapshot->findRow(oidFor(commit.id), &row)) << "missing oid for id " << commit.id;
+        EXPECT_EQ(snapshot->oids[row], oidFor(commit.id));
+    }
+
+    // An oid that was never part of this history must miss cleanly and must not
+    // touch the caller's output parameter.
+    RowId sentinel = 0xDEADBEEFu;
+    EXPECT_FALSE(snapshot->findRow(oidFor(999999), &sentinel));
+    EXPECT_EQ(sentinel, 0xDEADBEEFu);
+
+    // findRow(oid, nullptr) must not crash; only presence is asked for.
+    EXPECT_TRUE(snapshot->findRow(oidFor(commits.back().id), nullptr));
 }
 
 // --- ASCII renderer --------------------------------------------------------

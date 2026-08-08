@@ -4,9 +4,11 @@
 
 #include <string>
 
+class QCheckBox;
 class QLabel;
 class QPlainTextEdit;
 class QPushButton;
+class QSplitter;
 
 namespace gbm {
 
@@ -16,7 +18,9 @@ struct WorkingCopyEntry;
 /// One conflicted path's resolution view: left = the current branch's side
 /// (ours), middle = the editable resolved content (the actual working-tree
 /// file, conflict markers and all), right = the merged-in branch's side
-/// (theirs). Wired to
+/// (theirs), plus an optional common-ancestor column (hidden by default --
+/// see ancestorToggle_) placed leftmost. All four panes live in one
+/// QSplitter so their widths persist across sessions. Wired to
 /// RepositorySession::requestConflictSides/requestWorkingTreeContent/
 /// resolveConflict. Extracted from
 /// WorkingCopyView::openConflictResolutionDialog so the same widget can be
@@ -48,6 +52,7 @@ private:
 
     RepositorySession* session_ = nullptr;
     std::string path_;
+    bool ancestorBlobMissing_ = false;
     bool oursBlobMissing_ = false;
     bool theirsBlobMissing_ = false;
     /// True when the middle column's on-disk content had CRLF line endings,
@@ -60,6 +65,10 @@ private:
     bool middleEditable_ = false;
 
     QLabel* kindLabel_ = nullptr;
+    QCheckBox* ancestorToggle_ = nullptr;
+    QSplitter* panesSplitter_ = nullptr;
+    QWidget* ancestorContainer_ = nullptr;
+    QPlainTextEdit* ancestorEdit_ = nullptr;
     QPlainTextEdit* oursEdit_ = nullptr;
     QPlainTextEdit* middleEdit_ = nullptr;
     QPlainTextEdit* theirsEdit_ = nullptr;

@@ -4,24 +4,69 @@
 #include "core/git/WorkingCopyStatus.h"
 #include "core/git/ops/ConflictOps.h"
 
+#include <QCheckBox>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QSettings>
+#include <QSplitter>
+#include <QTimer>
 #include <QVBoxLayout>
 
+#include <utility>
+
 namespace gbm {
+
+namespace {
+
+/// Mirrors WorkingCopyView::setupPersistentSplitter exactly -- both read the
+/// same `window/splitters/<key>` QSettings keys. Duplicated rather than
+/// shared: the two classes have no common base to hang a helper off, same
+/// reasoning as WorkingCopyView's own copy.
+void setupPersistentSplitter(QSplitter* splitter, const QString& key) {
+    const QString settingsKey = QStringLiteral("window/splitters/%1").arg(key);
+
+    QSettings settings;
+    const QVariant saved = settings.value(settingsKey);
+    if (saved.isValid()) {
+        const QVariantList list = saved.toList();
+        QList<int> sizes;
+        sizes.reserve(list.size());
+        for (const QVariant& value : list) {
+            sizes.append(value.toInt());
+        }
+        if (!sizes.isEmpty()) {
+            QTimer::singleShot(0, splitter, [splitter, sizes] { splitter->setSizes(sizes); });
+        }
+    }
+
+    QObject::connect(splitter, &QSplitter::splitterMoved, splitter, [splitter, settingsKey] {
+        QSettings settingsToSave;
+        QVariantList list;
+        for (int size : splitter->sizes()) {
+            list.append(size);
+        }
+        settingsToSave.setValue(settingsKey, list);
+    });
+}
+
+}  // namespace
 
 ConflictResolvePanel::ConflictResolvePanel(QWidget* parent) : QWidget(parent) {
     auto* layout = new QVBoxLayout(this);
 
+    auto* headerRow = new QHBoxLayout();
     kindLabel_ = new QLabel(this);
     kindLabel_->setVisible(false);
-    layout->addWidget(kindLabel_);
+    headerRow->addWidget(kindLabel_, 1);
+    ancestorToggle_ = new QCheckBox(tr("Show common ancestor"), this);
+    headerRow->addWidget(ancestorToggle_);
+    layout->addLayout(headerRow);
 
-    auto* panesLayout = new QHBoxLayout();
+    panesSplitter_ = new QSplitter(Qt::Horizontal, this);
     auto makePane = [&](const QString& title) {
-        auto* container = new QWidget(this);
+        auto* container = new QWidget(panesSplitter_);
         auto* paneLayout = new QVBoxLayout(container);
         paneLayout->setContentsMargins(0, 0, 0, 0);
         paneLayout->addWidget(new QLabel(title, container));
@@ -30,13 +75,18 @@ ConflictResolvePanel::ConflictResolvePanel(QWidget* parent) : QWidget(parent) {
         edit->setLineWrapMode(QPlainTextEdit::NoWrap);
         edit->setPlainText(tr("Loading…"));
         paneLayout->addWidget(edit, 1);
-        panesLayout->addWidget(container);
-        return edit;
+        panesSplitter_->addWidget(container);
+        return std::pair{container, edit};
     };
-    oursEdit_ = makePane(tr("Current branch (mine)"));
-    middleEdit_ = makePane(tr("Resolved content (editable)"));
-    theirsEdit_ = makePane(tr("Merged branch (theirs)"));
-    layout->addLayout(panesLayout, 1);
+    std::tie(ancestorContainer_, ancestorEdit_) = makePane(tr("Common ancestor"));
+    ancestorContainer_->setVisible(false);
+    std::tie(std::ignore, oursEdit_) = makePane(tr("Current branch (mine)"));
+    std::tie(std::ignore, middleEdit_) = makePane(tr("Resolved content (editable)"));
+    std::tie(std::ignore, theirsEdit_) = makePane(tr("Merged branch (theirs)"));
+    layout->addWidget(panesSplitter_, 1);
+    setupPersistentSplitter(panesSplitter_, QStringLiteral("conflictPanes"));
+
+    connect(ancestorToggle_, &QCheckBox::toggled, ancestorContainer_, &QWidget::setVisible);
 
     auto* buttonRow = new QHBoxLayout();
     auto* takeLeftButton = new QPushButton(tr("Take Left (Mine)"), this);
@@ -60,6 +110,7 @@ ConflictResolvePanel::ConflictResolvePanel(QWidget* parent) : QWidget(parent) {
 void ConflictResolvePanel::showEntry(RepositorySession* session, const WorkingCopyEntry& entry) {
     session_ = session;
     path_ = entry.path;
+    ancestorBlobMissing_ = entry.ancestorBlob.empty();
     oursBlobMissing_ = entry.oursBlob.empty();
     theirsBlobMissing_ = entry.theirsBlob.empty();
     middleContentHasCrlf_ = false;
@@ -95,10 +146,14 @@ void ConflictResolvePanel::showEntry(RepositorySession* session, const WorkingCo
     kindLabel_->setText(kindText);
     kindLabel_->setVisible(!kindText.isEmpty());
 
+    ancestorEdit_->setPlainText(tr("Loading…"));
     oursEdit_->setPlainText(tr("Loading…"));
     middleEdit_->setReadOnly(true);
     middleEdit_->setPlainText(tr("Loading…"));
     theirsEdit_->setPlainText(tr("Loading…"));
+    if (entry.ancestorBlob.empty()) {
+        ancestorEdit_->setPlainText(tr("(no common ancestor)"));
+    }
     if (entry.oursBlob.empty()) {
         oursEdit_->setPlainText(tr("(deleted on this side)"));
     }
@@ -126,9 +181,11 @@ void ConflictResolvePanel::onConflictSidesReady(const QString& path,
                                                  const QString& ancestor,
                                                  const QString& ours,
                                                  const QString& theirs) {
-    Q_UNUSED(ancestor);
     if (path.toStdString() != path_) {
         return;
+    }
+    if (!ancestorBlobMissing_) {
+        ancestorEdit_->setPlainText(ancestor);
     }
     if (!oursBlobMissing_) {
         oursEdit_->setPlainText(ours);

@@ -6,8 +6,9 @@ namespace gbm {
 
 bool GraphSnapshot::findRow(const ObjectId& oid, RowId* out) const {
     const auto it = std::lower_bound(
-        oidOrder_.begin(), oidOrder_.end(), oid,
-        [this](RowId row, const ObjectId& key) { return oids[row] < key; });
+        oidOrder_.begin(), oidOrder_.end(), oid, [this](RowId row, const ObjectId& key) {
+            return oids[row] < key;
+        });
     if (it == oidOrder_.end() || !(oids[*it] == oid)) {
         return false;
     }
@@ -56,8 +57,8 @@ void GraphSnapshot::finalizeIndices() {
     for (RowId row = 0; row < oids.size(); ++row) {
         oidOrder_[row] = row;
     }
-    std::sort(oidOrder_.begin(), oidOrder_.end(),
-              [this](RowId a, RowId b) { return oids[a] < oids[b]; });
+    std::sort(
+        oidOrder_.begin(), oidOrder_.end(), [this](RowId a, RowId b) { return oids[a] < oids[b]; });
 
     // Bucket k records the first edge that could still be open at row
     // k * kBucketRows. Because `edges` is sorted by childRow and an edge always

@@ -6,18 +6,11 @@
 // without ever claiming a count it doesn't have.
 #include "core/git/RepoState.h"
 
-#include <algorithm>
-#include <cctype>
 #include <gtest/gtest.h>
 #include <string>
 
 namespace gbm {
 namespace {
-
-bool containsDigit(const std::string& text) {
-    return std::any_of(
-        text.begin(), text.end(), [](unsigned char ch) { return std::isdigit(ch) != 0; });
-}
 
 TEST(BuildStateBannerText, MergeWithKnownConflictsProducesHeadlineAndInstruction) {
     RepoState state;
@@ -69,16 +62,17 @@ TEST(BuildStateBannerText, CleanStateWithNoConflictsProducesEmptyHeadline) {
 
 TEST(BuildStateBannerText, UnknownConflictCountNeverClaimsANumber) {
     // Status hasn't loaded yet (StartupReadGate still holding it back): the
-    // banner may say a merge is in progress, but must never say "0 files" or
-    // any other invented count.
+    // banner may say a merge is in progress, but must never append a
+    // fabricated conflict count -- the headline should be exactly what
+    // describe() reports, untouched.
     RepoState state;
     state.flags = RepoState::Merge;
 
     const StateBannerText banner =
         buildStateBannerText(state, /*conflictedFileCount=*/std::nullopt);
 
-    EXPECT_FALSE(banner.headline.empty());
-    EXPECT_FALSE(containsDigit(banner.headline));
+    EXPECT_EQ(banner.headline, state.describe());
+    EXPECT_FALSE(banner.isConflict);
 }
 
 }  // namespace

@@ -148,9 +148,12 @@ StateBannerText buildStateBannerText(const RepoState& state,
 
     if (hasKnownConflicts) {
         banner.isConflict = true;
-        banner.headline += " — " + std::to_string(*conflictedFileCount) + " file" +
+        banner.headline += " - " + std::to_string(*conflictedFileCount) + " file" +
                            (*conflictedFileCount == 1 ? "" : "s") + " with conflicts";
-        banner.instruction = "Resolve the conflicts, then mark them resolved before continuing.";
+        // Not all sequencer states offer a Continue button (plain merges and
+        // apply-only conflicts don't -- see updateSequencerControls()), so this
+        // must stay true regardless of which controls end up visible.
+        banner.instruction = "Resolve the conflicts, then mark them as resolved.";
     }
 
     return banner;

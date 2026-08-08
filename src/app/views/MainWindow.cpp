@@ -279,11 +279,30 @@ void MainWindow::buildUi() {
     bannerIcon->setAccessibleName(QStringLiteral("Warning"));
     bannerLayout->addWidget(bannerIcon);
 
-    bannerLabel_ = new QLabel(bannerRow);
+    auto* bannerTextColumn = new QWidget(bannerRow);
+    auto* bannerTextLayout = new QVBoxLayout(bannerTextColumn);
+    bannerTextLayout->setContentsMargins(0, 0, 0, 0);
+    bannerTextLayout->setSpacing(kSpace1);
+
+    bannerLabel_ = new QLabel(bannerTextColumn);
     bannerLabel_->setObjectName(QStringLiteral("gbmBannerLabel"));
     bannerLabel_->setWordWrap(true);
     bannerLabel_->setAccessibleName(QStringLiteral("Repository state banner"));
-    bannerLayout->addWidget(bannerLabel_, 1);
+    bannerTextLayout->addWidget(bannerLabel_);
+
+    // Second line: what to do about the conflict. Unlike bannerLabel_
+    // (issue #20), this one is safe to hide at construction because
+    // updateStateBanner() unconditionally sets its visibility -- true or
+    // false -- on every call, rather than relying on ancestor propagation.
+    bannerInstructionLabel_ = new QLabel(bannerTextColumn);
+    bannerInstructionLabel_->setObjectName(QStringLiteral("gbmBannerInstructionLabel"));
+    bannerInstructionLabel_->setWordWrap(true);
+    bannerInstructionLabel_->setAccessibleName(
+        QStringLiteral("Repository state banner instruction"));
+    bannerInstructionLabel_->setVisible(false);
+    bannerTextLayout->addWidget(bannerInstructionLabel_);
+
+    bannerLayout->addWidget(bannerTextColumn, 1);
 
     // Continue/Skip/Abort for whichever sequencer operation (merge, cherry-pick,
     // revert or rebase) RepoState reports in progress -- see
@@ -1396,7 +1415,7 @@ void MainWindow::closeRepository() {
     toolBarRepoNameLabel_->setText(QString());
     toolBarBranchLabel_->setText(QString());
     stack_->setCurrentIndex(0);
-    bannerLabel_->parentWidget()->setVisible(false);
+    bannerRow_->setVisible(false);
     perfHintRow_->setVisible(false);
     commitGraphHintShown_ = false;
     // Undoes onPerfHintOptimizeClicked's setEnabled(false): if a
@@ -1512,7 +1531,7 @@ void MainWindow::setupPersistentSplitter(QSplitter* splitter, const QString& key
 
 void MainWindow::updateStateBanner() {
     if (!session_) {
-        bannerLabel_->parentWidget()->setVisible(false);
+        bannerRow_->setVisible(false);
         if (undoAction_) {
             undoAction_->setEnabled(false);
         }
@@ -1536,11 +1555,30 @@ void MainWindow::updateStateBanner() {
 
     const StateBannerText banner = buildStateBannerText(state, conflictedFileCount);
     if (banner.headline.empty()) {
-        bannerLabel_->parentWidget()->setVisible(false);
+        bannerRow_->setVisible(false);
         return;
     }
     bannerLabel_->setText(QString::fromStdString(banner.headline));
-    bannerLabel_->parentWidget()->setVisible(true);
+
+    bannerInstructionLabel_->setText(QString::fromStdString(banner.instruction));
+    bannerInstructionLabel_->setVisible(!banner.instruction.empty());
+
+    // "conflict" switches gbmBanner between the warning (red) and info (blue)
+    // QSS variants -- see app.qss. Set on each widget individually (matching
+    // this codebase's existing objectName-per-widget styling convention)
+    // rather than relying on a QSS descendant selector to pick up an
+    // ancestor's property. A dynamic property change needs an explicit
+    // repolish; Qt does not re-evaluate stylesheet selectors on its own when
+    // a property used by one changes.
+    for (QWidget* widget : {bannerRow_,
+                            static_cast<QWidget*>(bannerLabel_),
+                            static_cast<QWidget*>(bannerInstructionLabel_)}) {
+        widget->setProperty("conflict", banner.isConflict);
+        widget->style()->unpolish(widget);
+        widget->style()->polish(widget);
+    }
+
+    bannerRow_->setVisible(true);
 }
 
 void MainWindow::updateSequencerControls(const RepoState& state) {

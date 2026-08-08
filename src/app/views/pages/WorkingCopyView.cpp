@@ -654,6 +654,11 @@ void WorkingCopyView::maybeAutoShowConflictPanel() {
         return;
     }
 
+    const QSettings settings;
+    if (!settings.value(QStringLiteral("workingCopy/autoShowConflictPanel"), true).toBool()) {
+        return;
+    }
+
     conflictPanel_->showEntry(session_, *status->conflicted().front());
     conflictStack_->setCurrentWidget(conflictPanel_);
 }

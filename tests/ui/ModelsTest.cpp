@@ -268,8 +268,13 @@ void ModelsTest::commitListModelNeverBlocksInData() {
 
     // Every subject must be the placeholder, proving the miss path returned rather
     // than fetching, and the whole sweep must be far faster than any git call.
+    // Threshold has real headroom over observed CI noise: ~242ms locally,
+    // 545-550ms on two independent CI runs (macOS job, different branches).
+    // A synchronous git call in the miss path would blow past this by orders
+    // of magnitude, not by a small multiple, so headroom here doesn't mask
+    // the regression the test exists to catch.
     QCOMPARE(placeholders, 5000);
-    QVERIFY2(elapsed < 500,
+    QVERIFY2(elapsed < 1500,
              qPrintable(QStringLiteral("data() took %1 ms over %2 cells; it must "
                                        "never block")
                             .arg(elapsed)

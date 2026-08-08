@@ -33,26 +33,27 @@ ConflictResolvePanel::ConflictResolvePanel(QWidget* parent) : QWidget(parent) {
         panesLayout->addWidget(container);
         return edit;
     };
-    ancestorEdit_ = makePane(tr("Common ancestor"));
-    oursEdit_ = makePane(tr("Mine (ours)"));
-    theirsEdit_ = makePane(tr("Theirs"));
+    oursEdit_ = makePane(tr("Current branch (mine)"));
+    middleEdit_ = makePane(tr("Resolved content (editable)"));
+    theirsEdit_ = makePane(tr("Merged branch (theirs)"));
     layout->addLayout(panesLayout, 1);
 
     auto* buttonRow = new QHBoxLayout();
-    auto* takeOursButton = new QPushButton(tr("Take Mine"), this);
-    auto* takeTheirsButton = new QPushButton(tr("Take Theirs"), this);
-    auto* markResolvedButton = new QPushButton(tr("Mark Resolved"), this);
+    auto* takeLeftButton = new QPushButton(tr("Take Left (Mine)"), this);
+    auto* takeRightButton = new QPushButton(tr("Take Right (Theirs)"), this);
+    saveButton_ = new QPushButton(tr("Save and Mark Resolved"), this);
+    saveButton_->setEnabled(false);
     auto* cancelButton = new QPushButton(tr("Cancel"), this);
-    buttonRow->addWidget(takeOursButton);
-    buttonRow->addWidget(takeTheirsButton);
-    buttonRow->addWidget(markResolvedButton);
+    buttonRow->addWidget(takeLeftButton);
+    buttonRow->addWidget(takeRightButton);
+    buttonRow->addWidget(saveButton_);
     buttonRow->addStretch(1);
     buttonRow->addWidget(cancelButton);
     layout->addLayout(buttonRow);
 
-    connect(takeOursButton, &QPushButton::clicked, this, [this] { submitResolution(1); });
-    connect(takeTheirsButton, &QPushButton::clicked, this, [this] { submitResolution(2); });
-    connect(markResolvedButton, &QPushButton::clicked, this, [this] { submitResolution(3); });
+    connect(takeLeftButton, &QPushButton::clicked, this, [this] { submitResolution(1); });
+    connect(takeRightButton, &QPushButton::clicked, this, [this] { submitResolution(2); });
+    connect(saveButton_, &QPushButton::clicked, this, [this] { submitResolution(3); });
     connect(cancelButton, &QPushButton::clicked, this, [this] { submitResolution(0); });
 }
 
@@ -61,6 +62,9 @@ void ConflictResolvePanel::showEntry(RepositorySession* session, const WorkingCo
     path_ = entry.path;
     oursBlobMissing_ = entry.oursBlob.empty();
     theirsBlobMissing_ = entry.theirsBlob.empty();
+    middleContentHasCrlf_ = false;
+    middleEditable_ = false;
+    saveButton_->setEnabled(false);
 
     QString kindText;
     switch (entry.conflict) {
@@ -91,12 +95,10 @@ void ConflictResolvePanel::showEntry(RepositorySession* session, const WorkingCo
     kindLabel_->setText(kindText);
     kindLabel_->setVisible(!kindText.isEmpty());
 
-    ancestorEdit_->setPlainText(tr("Loading…"));
     oursEdit_->setPlainText(tr("Loading…"));
+    middleEdit_->setReadOnly(true);
+    middleEdit_->setPlainText(tr("Loading…"));
     theirsEdit_->setPlainText(tr("Loading…"));
-    if (entry.ancestorBlob.empty()) {
-        ancestorEdit_->setPlainText(tr("(no common ancestor)"));
-    }
     if (entry.oursBlob.empty()) {
         oursEdit_->setPlainText(tr("(deleted on this side)"));
     }
@@ -104,26 +106,55 @@ void ConflictResolvePanel::showEntry(RepositorySession* session, const WorkingCo
         theirsEdit_->setPlainText(tr("(deleted on the other side)"));
     }
 
-    // Scoped to this widget's lifetime: if the request's reply arrives after
-    // the panel has already been destroyed, Qt drops the connection rather
-    // than calling back into a dangling this.
+    // Scoped to this widget's lifetime: if a reply arrives after the panel
+    // has already been destroyed, Qt drops the connection rather than
+    // calling back into a dangling this.
     connect(session_,
             &RepositorySession::conflictSidesReady,
             this,
             &ConflictResolvePanel::onConflictSidesReady);
     session_->requestConflictSides(entry.path, entry.ancestorBlob, entry.oursBlob, entry.theirsBlob);
+
+    connect(session_,
+            &RepositorySession::workingTreeContentReady,
+            this,
+            &ConflictResolvePanel::onWorkingTreeContentReady);
+    session_->requestWorkingTreeContent(entry.path);
 }
 
 void ConflictResolvePanel::onConflictSidesReady(const QString& path,
                                                  const QString& ancestor,
                                                  const QString& ours,
                                                  const QString& theirs) {
+    Q_UNUSED(ancestor);
     if (path.toStdString() != path_) {
         return;
     }
-    ancestorEdit_->setPlainText(ancestor);
-    oursEdit_->setPlainText(ours);
-    theirsEdit_->setPlainText(theirs);
+    if (!oursBlobMissing_) {
+        oursEdit_->setPlainText(ours);
+    }
+    if (!theirsBlobMissing_) {
+        theirsEdit_->setPlainText(theirs);
+    }
+}
+
+void ConflictResolvePanel::onWorkingTreeContentReady(const QString& path,
+                                                      const QString& content,
+                                                      bool editable) {
+    if (path.toStdString() != path_) {
+        return;
+    }
+    middleEditable_ = editable;
+    saveButton_->setEnabled(editable);
+    if (editable) {
+        middleContentHasCrlf_ = content.contains(QStringLiteral("\r\n"));
+        middleEdit_->setReadOnly(false);
+        middleEdit_->setPlainText(content);
+    } else {
+        middleEdit_->setReadOnly(true);
+        middleEdit_->setPlainText(
+            tr("(binary or non-UTF-8 content — use Take Left or Take Right)"));
+    }
 }
 
 void ConflictResolvePanel::submitResolution(int choice) {
@@ -143,9 +174,18 @@ void ConflictResolvePanel::submitResolution(int choice) {
         case 2:
             request.resolution = ConflictResolution::TakeTheirs;
             break;
-        default:
-            request.resolution = ConflictResolution::MarkResolved;
+        default: {
+            if (!middleEditable_) {
+                return;
+            }
+            request.resolution = ConflictResolution::WriteResolved;
+            QString edited = middleEdit_->toPlainText();
+            if (middleContentHasCrlf_) {
+                edited.replace(QStringLiteral("\n"), QStringLiteral("\r\n"));
+            }
+            request.resolvedContent = edited.toUtf8().toStdString();
             break;
+        }
     }
     session_->resolveConflict(request);
     emit resolutionSubmitted();

@@ -108,16 +108,23 @@ endif()
 if(GBM_BUILD_APP)
     find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Widgets Svg Test)
 
-    qt_add_executable(gbm_model_tests ui/ModelsTest.cpp
+    # Shared by gbm_model_tests and gbm_model_perf_tests below: both link the
+    # models/bridge code their respective QtTest binary exercises, and a perf
+    # split that silently drifted from what "unit" actually covers would be
+    # worse than the duplication it replaces.
+    set(GBM_MODEL_TEST_SOURCES
         "${CMAKE_SOURCE_DIR}/src/app/models/CommitListModel.cpp"
-        "${CMAKE_SOURCE_DIR}/src/app/models/GraphColumnDelegate.cpp"
-        "${CMAKE_SOURCE_DIR}/src/app/models/RefTreeModel.cpp"
-        "${CMAKE_SOURCE_DIR}/src/app/models/RepoListModel.cpp"
         "${CMAKE_SOURCE_DIR}/src/app/bridge/AskpassWatcher.cpp"
         "${CMAKE_SOURCE_DIR}/src/app/bridge/RepositorySession.cpp"
         "${CMAKE_SOURCE_DIR}/src/app/bridge/ThemeManager.cpp"
         "${CMAKE_SOURCE_DIR}/src/app/theme/ThemeTokens.cpp"
         "${CMAKE_SOURCE_DIR}/resources/app.qrc")
+
+    qt_add_executable(gbm_model_tests ui/ModelsTest.cpp
+        ${GBM_MODEL_TEST_SOURCES}
+        "${CMAKE_SOURCE_DIR}/src/app/models/GraphColumnDelegate.cpp"
+        "${CMAKE_SOURCE_DIR}/src/app/models/RefTreeModel.cpp"
+        "${CMAKE_SOURCE_DIR}/src/app/models/RepoListModel.cpp")
 
     # qt_standard_project_setup() is directory-scoped and lives in src/app, so this
     # target needs AUTOMOC turned on explicitly -- the models are all QObjects.
@@ -139,13 +146,7 @@ if(GBM_BUILD_APP)
     # non-blocking-data() timing check gets its own "perf" binary rather than
     # living in gbm_model_tests' "unit" one. Separate qt_add_executable for
     # the same QTEST_MAIN-per-binary reason as gbm_theme_tests below.
-    qt_add_executable(gbm_model_perf_tests ui/ModelsPerfTest.cpp
-        "${CMAKE_SOURCE_DIR}/src/app/models/CommitListModel.cpp"
-        "${CMAKE_SOURCE_DIR}/src/app/bridge/AskpassWatcher.cpp"
-        "${CMAKE_SOURCE_DIR}/src/app/bridge/RepositorySession.cpp"
-        "${CMAKE_SOURCE_DIR}/src/app/bridge/ThemeManager.cpp"
-        "${CMAKE_SOURCE_DIR}/src/app/theme/ThemeTokens.cpp"
-        "${CMAKE_SOURCE_DIR}/resources/app.qrc")
+    qt_add_executable(gbm_model_perf_tests ui/ModelsPerfTest.cpp ${GBM_MODEL_TEST_SOURCES})
 
     set_target_properties(gbm_model_perf_tests PROPERTIES AUTOMOC ON AUTORCC ON)
 

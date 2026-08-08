@@ -273,11 +273,11 @@ void MainWindow::buildUi() {
     bannerLayout->setContentsMargins(kSpace4, kSpace2, kSpace4, kSpace2);
     bannerLayout->setSpacing(kSpace3);
 
-    auto* bannerIcon = new QLabel(bannerRow);
-    bannerIcon->setPixmap(
+    bannerIcon_ = new QLabel(bannerRow);
+    bannerIcon_->setPixmap(
         IconLoader::icon(QStringLiteral("alert-triangle"), Token::DiffDelText).pixmap(16, 16));
-    bannerIcon->setAccessibleName(QStringLiteral("Warning"));
-    bannerLayout->addWidget(bannerIcon);
+    bannerIcon_->setAccessibleName(QStringLiteral("Warning"));
+    bannerLayout->addWidget(bannerIcon_);
 
     auto* bannerTextColumn = new QWidget(bannerRow);
     auto* bannerTextLayout = new QVBoxLayout(bannerTextColumn);
@@ -303,6 +303,15 @@ void MainWindow::buildUi() {
     bannerTextLayout->addWidget(bannerInstructionLabel_);
 
     bannerLayout->addWidget(bannerTextColumn, 1);
+
+    // gbmBanner's QSS rule is keyed on the "conflict" property (see app.qss);
+    // without a value set here, the row renders unstyled -- no background, no
+    // border -- from construction until the first updateStateBanner() call.
+    for (QWidget* widget : {bannerRow_,
+                            static_cast<QWidget*>(bannerLabel_),
+                            static_cast<QWidget*>(bannerInstructionLabel_)}) {
+        widget->setProperty("conflict", false);
+    }
 
     // Continue/Skip/Abort for whichever sequencer operation (merge, cherry-pick,
     // revert or rebase) RepoState reports in progress -- see
@@ -1577,6 +1586,13 @@ void MainWindow::updateStateBanner() {
         widget->style()->unpolish(widget);
         widget->style()->polish(widget);
     }
+
+    // IconLoader bakes the token colour into the pixmap, so it does not
+    // follow the property-driven QSS above -- it has to be repainted here to
+    // avoid a warning-red triangle sitting inside an info-blue banner.
+    bannerIcon_->setPixmap(IconLoader::icon(QStringLiteral("alert-triangle"),
+                                            banner.isConflict ? Token::DiffDelText : Token::Accent)
+                               .pixmap(16, 16));
 
     bannerRow_->setVisible(true);
 }

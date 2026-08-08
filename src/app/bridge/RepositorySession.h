@@ -269,6 +269,16 @@ public:
     /// error -- this is a display query, not an operation.
     void requestFileContent(const std::string& path, const std::string& revision);
 
+    /// Reads a conflicted path's actual on-disk content -- conflict markers
+    /// and all -- for the resolution panel's editable middle column. Unlike
+    /// requestFileContent, there is no revision to read from: a conflicted
+    /// path has no stage 0, so `git cat-file` cannot see it. Reply on
+    /// workingTreeContentReady; `editable` is false when the file could not
+    /// be read, is too large, or is not well-formed UTF-8 text (a binary
+    /// conflict), in which case content is empty and the panel must fall
+    /// back to Take Left/Take Right only.
+    void requestWorkingTreeContent(const std::string& path);
+
     // --- M3: stashes -----------------------------------------------------
 
     StashListPtr stashes() const { return stashes_.current(); }
@@ -512,6 +522,10 @@ signals:
     /// away by `revision`) -- distinct from an existing-but-empty file, which
     /// reports `exists = true` with an empty `content`.
     void fileContentReady(QString path, QString revision, QString content, bool exists);
+    /// Reply to requestWorkingTreeContent, matched back up by path. `content`
+    /// is empty whenever `editable` is false (unreadable, oversized, or not
+    /// well-formed UTF-8) -- see requestWorkingTreeContent's doc comment.
+    void workingTreeContentReady(QString path, QString content, bool editable);
     /// Separate from `operationFinished`: MainWindow's checkout-recovery UI
     /// (stash/discard choices) does not apply to staging and commit, so the
     /// working-copy panel gets its own completion signal to react to.

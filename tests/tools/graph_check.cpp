@@ -406,10 +406,22 @@ int main(int argc, char** argv) {
     if (rows > 0) {
         const double bytesPerCommit =
             static_cast<double>((*snapshot)->approximateBytes()) / static_cast<double>(rows);
+        const double projectedMb500k = bytesPerCommit * 500000.0 / (1024.0 * 1024.0);
         std::fprintf(stderr,
                      "memory=%.1f bytes/commit (%.1f MB projected at 500k)\n",
                      bytesPerCommit,
-                     bytesPerCommit * 500000.0 / (1024.0 * 1024.0));
+                     projectedMb500k);
+        // One machine-readable line for the nightly job's Step Summary to grep,
+        // mirroring the commit-graph-ab: line above. See docs/reports/
+        // vscode-graph-performance.md, bottleneck #5: "track this ratio in CI
+        // now, while margin still exists."
+        std::fprintf(stderr,
+                     "graph-memory: rows=%zu bytes_per_commit=%.1f projected_mb_500k=%.1f "
+                     "budget=%.1f\n",
+                     rows,
+                     bytesPerCommit,
+                     projectedMb500k,
+                     maxBytesPerCommit);
         check(bytesPerCommit < maxBytesPerCommit,
               "memory per commit exceeds the budget: " + std::to_string(bytesPerCommit));
     }

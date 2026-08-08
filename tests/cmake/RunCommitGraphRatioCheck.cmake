@@ -29,6 +29,9 @@ endif()
 if(NOT DEFINED MIN_SPEEDUP)
     set(MIN_SPEEDUP 2.0)
 endif()
+if(NOT DEFINED MAX_BYTES_PER_COMMIT)
+    set(MAX_BYTES_PER_COMMIT 92.0)
+endif()
 
 file(REMOVE_RECURSE "${WORK_DIR}")
 file(MAKE_DIRECTORY "${WORK_DIR}")
@@ -102,6 +105,7 @@ execute_process(
     COMMAND "${WALKER}" "${WORK_DIR}"
             --commit-graph-ab ${SAMPLES}
             --min-graph-speedup ${MIN_SPEEDUP}
+            --max-bytes-per-commit ${MAX_BYTES_PER_COMMIT}
     ERROR_VARIABLE measurements
     ECHO_ERROR_VARIABLE
     RESULT_VARIABLE result)

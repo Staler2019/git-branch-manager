@@ -13,11 +13,4 @@ else()
         -Wcast-qual -Wshadow -Wnon-virtual-dtor -Woverloaded-virtual
         -Wdouble-promotion -Wformat=2
         -Werror)
-    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-        # GCC has a known false positive for -Wstringop-overread against
-        # std::string_view::find() after inlining (e.g. CommitMeta.cpp's
-        # parseRawCommit). Keep it visible as a warning without failing the
-        # build on it.
-        target_compile_options(gbm_warnings INTERFACE -Wno-error=stringop-overread)
-    endif()
 endif()

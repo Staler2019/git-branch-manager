@@ -66,6 +66,14 @@ target_link_libraries(gbm_core
     PUBLIC gbm_sqlite3
     PRIVATE gbm_warnings gbm_sanitizers)
 
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    # GCC has a known false positive for -Wstringop-overread against
+    # std::string_view::find() after inlining, in parseRawCommit() here.
+    # Keep it visible as a warning without failing the build on it.
+    set_source_files_properties(git/CommitMeta.cpp PROPERTIES
+        COMPILE_OPTIONS -Wno-error=stringop-overread)
+endif()
+
 if(NOT WIN32)
     find_package(Threads REQUIRED)
     target_link_libraries(gbm_core PUBLIC Threads::Threads)

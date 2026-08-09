@@ -20,6 +20,7 @@
         <file alias="icons/palette.svg">icons/palette.svg</file>
         <file alias="icons/file.svg">icons/file.svg</file>
         <file alias="icons/alert-triangle.svg">icons/alert-triangle.svg</file>
+        <file alias="icons/check.svg">icons/check.svg</file>
         <file alias="icons/chevron-right.svg">icons/chevron-right.svg</file>
         <file alias="icons/LUCIDE-ISC.txt">icons/LUCIDE-ISC.txt</file>
         <file alias="fonts/Inter-OFL.txt">fonts/Inter-OFL.txt</file>

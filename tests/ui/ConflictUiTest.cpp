@@ -21,15 +21,19 @@
 // RepositorySession feeding real conflict content. Ancestry survives that --
 // setVisible(false) does not remove the widget from its parent's layout.
 #include "app/views/ConflictResolvePanel.h"
+#include "app/views/ConflictResolveWindow.h"
 #include "app/views/ConflictTextEdit.h"
+#include "core/git/ConflictBatch.h"
 #include "core/git/ConflictMarkerParser.h"
 #include "core/git/TextTraits.h"
+#include "core/git/WorkingCopyStatus.h"
 
 #include <QApplication>
 #include <QCheckBox>
 #include <QDropEvent>
 #include <QKeySequence>
 #include <QLabel>
+#include <QListWidget>
 #include <QMimeData>
 #include <QMouseEvent>
 #include <QPushButton>
@@ -86,6 +90,18 @@ ParsedConflictFile makeTwoRegionParsedFile() {
     parsed.segments = {leadingText, regionZero, middleText, regionOne, trailingText};
     parsed.regionCount = 2;
     return parsed;
+}
+
+// Mirrors ConflictBatchTest.cpp's own helper -- ConflictResolveWindow's rail
+// is driven by refreshBatch(), the same conflicted()-shaped input
+// ConflictBatch::merge() takes, so these tests build the same kind of
+// fixture rather than a live RepositorySession (which, as elsewhere in this
+// file, has no light test harness).
+WorkingCopyEntry makeConflictedEntry(const std::string& path, ConflictKind kind) {
+    WorkingCopyEntry entry;
+    entry.path = path;
+    entry.conflict = kind;
+    return entry;
 }
 
 // dragEnterEvent()/dropEvent() are protected overrides -- Qt's own
@@ -970,6 +986,168 @@ private slots:
         QTest::keyClick(edit, Qt::Key_Left);
 
         QCOMPARE(leftFired, 0);
+    }
+
+    // Design B1's pure navigation seam -- mirrors
+    // ConflictResolvePanel::resolveRegion()'s own forward-then-wrap-but-
+    // never-back-onto-self search, so this is tested the same shape rather
+    // than reinventing coverage: a straight-line pass through {0: resolved
+    // (just now), 1: unresolved, 2: unresolved} lands on 1 first, and once
+    // every other entry is resolved there is nothing left to jump to.
+    void nextUnresolvedRailIndexFindsForwardThenWrapsButNeverBackOntoSelf() {
+        std::vector<ConflictBatchEntry> entries = {
+            {"a.cpp", ConflictKind::BothModified, ConflictFileState::Resolved},
+            {"b.h", ConflictKind::BothAdded, ConflictFileState::Unresolved},
+            {"c.txt", ConflictKind::BothAdded, ConflictFileState::Unresolved},
+        };
+        QCOMPARE(nextUnresolvedRailIndex(entries, 0), std::optional<int>(1));
+
+        // Resolving index 0 out of {0: resolved, 1: resolved, 2: unresolved}
+        // must land on 2, not wrap uselessly past it back onto 0.
+        entries[1].state = ConflictFileState::Resolved;
+        QCOMPARE(nextUnresolvedRailIndex(entries, 0), std::optional<int>(2));
+
+        // Nothing left once every other entry is resolved -- must never
+        // return resolvedIndex itself.
+        entries[2].state = ConflictFileState::Resolved;
+        QCOMPARE(nextUnresolvedRailIndex(entries, 0), std::nullopt);
+    }
+
+    void nextUnresolvedRailIndexReturnsNulloptForAnEmptyOrOutOfRangeInput() {
+        QCOMPARE(nextUnresolvedRailIndex({}, 0), std::nullopt);
+        std::vector<ConflictBatchEntry> entries = {
+            {"a.cpp", ConflictKind::BothModified, ConflictFileState::Unresolved},
+        };
+        QCOMPARE(nextUnresolvedRailIndex(entries, 5), std::nullopt);
+    }
+
+    // Design B1's core acceptance test, verbatim from the plan's own task
+    // table: "3 個衝突項 → rail 3 列". refreshBatch() is driven directly with
+    // a hand-built conflicted() vector -- ConflictResolveWindow has no
+    // session yet, same as every other test in this file never constructing
+    // a live RepositorySession.
+    void refreshBatchPopulatesRailInFirstAppearanceOrder() {
+        ConflictResolveWindow window;
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        auto* rail = window.findChild<QListWidget*>(QStringLiteral("conflictRailList"));
+        QVERIFY(rail != nullptr);
+
+        const WorkingCopyEntry a = makeConflictedEntry("a.cpp", ConflictKind::BothModified);
+        const WorkingCopyEntry b = makeConflictedEntry("b.h", ConflictKind::BothAdded);
+        const WorkingCopyEntry c = makeConflictedEntry("c.txt", ConflictKind::BothDeleted);
+        window.refreshBatch({&a, &b, &c});
+
+        QCOMPARE(rail->count(), 3);
+        QCOMPARE(rail->item(0)->text(), QStringLiteral("a.cpp"));
+        QCOMPARE(rail->item(1)->text(), QStringLiteral("b.h"));
+        QCOMPARE(rail->item(2)->text(), QStringLiteral("c.txt"));
+    }
+
+    // The other half of the plan's own acceptance test: "其一轉已解 → ✔、留
+    // 原位、進度 1/3、自動選下一個". a.cpp is the initially auto-selected first
+    // entry (see refreshBatch()'s "first population" branch); dropping it
+    // from the next scan is exactly what an external `git add a.cpp` (or
+    // this app's own save) looks like from ConflictBatch's point of view.
+    void resolvingTheSelectedEntryKeepsRowInPlaceUpdatesProgressAndAutoAdvances() {
+        ConflictResolveWindow window;
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        auto* rail = window.findChild<QListWidget*>(QStringLiteral("conflictRailList"));
+        auto* progress =
+            window.findChild<QLabel*>(QStringLiteral("conflictRailProgressLabel"));
+        QVERIFY(rail != nullptr);
+        QVERIFY(progress != nullptr);
+
+        const WorkingCopyEntry a = makeConflictedEntry("a.cpp", ConflictKind::BothModified);
+        const WorkingCopyEntry b = makeConflictedEntry("b.h", ConflictKind::BothAdded);
+        const WorkingCopyEntry c = makeConflictedEntry("c.txt", ConflictKind::BothDeleted);
+        window.refreshBatch({&a, &b, &c});
+        QCOMPARE(rail->currentItem()->text(), QStringLiteral("a.cpp"));
+
+        window.refreshBatch({&b, &c});
+
+        // Still 3 rows, a.cpp still first (never reordered to the bottom).
+        QCOMPARE(rail->count(), 3);
+        QCOMPARE(rail->item(0)->text(), QStringLiteral("a.cpp"));
+        QVERIFY(!rail->item(0)->icon().isNull());
+        QCOMPARE(progress->text(), QStringLiteral("1 / 3 resolved"));
+        // Auto-advanced to the next unresolved entry.
+        QCOMPARE(rail->currentItem()->text(), QStringLiteral("b.h"));
+    }
+
+    // A file resolved elsewhere (not the row the user is currently looking
+    // at) must not yank the selection away -- see refreshBatch()'s own doc
+    // comment on why this is diffed against currentEntryIndex_ specifically
+    // rather than "anything changed -> jump".
+    void resolvingADifferentEntryThanTheSelectedOneDoesNotStealFocus() {
+        ConflictResolveWindow window;
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        auto* rail = window.findChild<QListWidget*>(QStringLiteral("conflictRailList"));
+
+        const WorkingCopyEntry a = makeConflictedEntry("a.cpp", ConflictKind::BothModified);
+        const WorkingCopyEntry b = makeConflictedEntry("b.h", ConflictKind::BothAdded);
+        window.refreshBatch({&a, &b});
+        QCOMPARE(rail->currentItem()->text(), QStringLiteral("a.cpp"));
+
+        // b.h resolved externally while a.cpp (the selection) is untouched.
+        window.refreshBatch({&a});
+
+        QCOMPARE(rail->currentItem()->text(), QStringLiteral("a.cpp"));
+    }
+
+    // Design B2's must_not_do: "預設關閉" so progress stays visible.
+    void hideResolvedCheckboxDefaultsOffAndFiltersWhenChecked() {
+        ConflictResolveWindow window;
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        auto* checkbox =
+            window.findChild<QCheckBox*>(QStringLiteral("conflictHideResolvedCheckbox"));
+        auto* rail = window.findChild<QListWidget*>(QStringLiteral("conflictRailList"));
+        QVERIFY(checkbox != nullptr);
+        QVERIFY(!checkbox->isChecked());
+
+        const WorkingCopyEntry a = makeConflictedEntry("a.cpp", ConflictKind::BothModified);
+        const WorkingCopyEntry b = makeConflictedEntry("b.h", ConflictKind::BothAdded);
+        window.refreshBatch({&a, &b});
+        window.refreshBatch({&b});  // a.cpp resolved
+        QCOMPARE(rail->count(), 2);
+
+        checkbox->setChecked(true);
+        QCOMPARE(rail->count(), 1);
+        QCOMPARE(rail->item(0)->text(), QStringLiteral("b.h"));
+
+        checkbox->setChecked(false);
+        QCOMPARE(rail->count(), 2);
+    }
+
+    // Design B2's 3-state rail: a path this window's own panel_ resolved
+    // (resolutionSubmitted() emitted while it was selected) is distinguished
+    // from one that dropped out of conflicted() with no such signal --
+    // exactly the "已在此視窗之外解決" case the plan's rail-state table
+    // describes.
+    void externallyResolvedEntryGetsAnExternalTooltipUnlikeOneResolvedThroughThisWindow() {
+        ConflictResolveWindow window;
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        auto* rail = window.findChild<QListWidget*>(QStringLiteral("conflictRailList"));
+        auto* panel = window.findChild<ConflictResolvePanel*>();
+        QVERIFY(panel != nullptr);
+
+        const WorkingCopyEntry a = makeConflictedEntry("a.cpp", ConflictKind::BothModified);
+        const WorkingCopyEntry b = makeConflictedEntry("b.h", ConflictKind::BothAdded);
+        window.refreshBatch({&a, &b});
+        QCOMPARE(rail->currentItem()->text(), QStringLiteral("a.cpp"));
+
+        // a.cpp resolved through this window's own panel_.
+        emit panel->resolutionSubmitted();
+        window.refreshBatch({&b});
+        QVERIFY(!rail->item(0)->toolTip().contains(QStringLiteral("outside")));
+
+        // b.h resolved with no such signal -- an external `git add b.h`.
+        window.refreshBatch({});
+        QVERIFY(rail->item(1)->toolTip().contains(QStringLiteral("outside")));
     }
 
 private:

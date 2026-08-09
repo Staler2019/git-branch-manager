@@ -220,16 +220,21 @@ if(GBM_BUILD_APP)
     # ThemeTokens.cpp/app.qrc) rather than guessing a shorter list --
     # GBM_WERROR is on, so a missing source here is a full build-cycle cost
     # per miss. Separate binary for the usual QTEST_MAIN-per-binary reason.
+    # ConflictResolveWindow.cpp (C12) pulls in IconLoader.cpp for its rail
+    # row icons, which needs Qt6::Svg to rasterize the bundled Lucide SVGs
+    # (see gbm_theme_tests below).
     qt_add_executable(gbm_conflict_ui_tests ui/ConflictUiTest.cpp
         ${GBM_MODEL_TEST_SOURCES}
         "${CMAKE_SOURCE_DIR}/src/app/views/ConflictResolvePanel.cpp"
-        "${CMAKE_SOURCE_DIR}/src/app/views/ConflictTextEdit.cpp")
+        "${CMAKE_SOURCE_DIR}/src/app/views/ConflictResolveWindow.cpp"
+        "${CMAKE_SOURCE_DIR}/src/app/views/ConflictTextEdit.cpp"
+        "${CMAKE_SOURCE_DIR}/src/app/theme/IconLoader.cpp")
 
     set_target_properties(gbm_conflict_ui_tests PROPERTIES AUTOMOC ON AUTORCC ON)
 
     target_include_directories(gbm_conflict_ui_tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
     target_link_libraries(gbm_conflict_ui_tests
-        PRIVATE gbm_core Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test gbm_warnings)
+        PRIVATE gbm_core Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg Qt6::Test gbm_warnings)
 
     add_test(NAME qt_conflict_ui COMMAND gbm_conflict_ui_tests)
     set_tests_properties(qt_conflict_ui PROPERTIES

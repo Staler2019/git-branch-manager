@@ -7,16 +7,11 @@
 #include "core/git/WorkingCopyStatus.h"
 #include "core/git/ops/ConflictOps.h"
 
-#include <QAbstractButton>
 #include <QCheckBox>
-#include <QDialog>
-#include <QDialogButtonBox>
-#include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPlainTextEdit>
 #include <QPushButton>
-#include <QScrollArea>
 #include <QSettings>
 #include <QSplitter>
 #include <QTextCursor>
@@ -30,165 +25,6 @@
 namespace gbm {
 
 namespace {
-
-/// A line string's text with its trailing "\r\n"/"\n" stripped, for display
-/// as a checkbox label -- indentation is kept (only the line ending goes),
-/// since it's still code the user is choosing between.
-QString lineLabelText(const std::string& line) {
-    QString text = QString::fromStdString(line);
-    if (text.endsWith(QStringLiteral("\r\n"))) {
-        text.chop(2);
-    } else if (text.endsWith(QLatin1Char('\n'))) {
-        text.chop(1);
-    }
-    return text;
-}
-
-/// "逐行挑" (pick lines): a modal dialog for one conflict region, offering a
-/// checkbox per source line on each side (in original order) and a live
-/// preview of the concatenation of everything checked -- left side first,
-/// then right side. It stitches together a subset of each side's lines
-/// rather than letting the user interleave/reorder them; reordering would
-/// need a very different UI (drag-and-drop or an ordered pick list) for a
-/// case the plan doesn't call for. A modal is fine here specifically because
-/// the user opens it deliberately from the region strip -- unlike the
-/// auto-popping dialogs removed earlier in this epic (issue #2), this one
-/// never appears on its own.
-///
-/// Every line handed in already carries its own trailing line ending: a
-/// Region segment's ours/theirs lines are always followed by at least the
-/// closing ">>>>>>>" marker line within the file, so none of them can be the
-/// file's true last line -- the only line ConflictMarkerParser ever leaves
-/// without a line ending (see ConflictSegment's doc comment). So selected
-/// lines can just be concatenated as-is; no endings need to be invented.
-class ConflictLinePickDialog : public QDialog {
-public:
-    /// `preselected` is the region's current resolution, if any -- reopening
-    /// the dialog on an already-Custom-resolved region should show what was
-    /// picked last time, not force starting over from scratch.
-    ConflictLinePickDialog(std::vector<std::string> oursLines,
-                            std::vector<std::string> theirsLines,
-                            const std::vector<std::string>& preselected,
-                            QWidget* parent);
-
-    /// Only meaningful once exec() has returned QDialog::Accepted.
-    std::vector<std::string> selectedLines() const;
-
-private:
-    void updatePreview();
-
-    std::vector<std::string> oursLines_;
-    std::vector<std::string> theirsLines_;
-    std::vector<QCheckBox*> oursChecks_;
-    std::vector<QCheckBox*> theirsChecks_;
-    QPlainTextEdit* preview_ = nullptr;
-    QAbstractButton* okButton_ = nullptr;
-};
-
-ConflictLinePickDialog::ConflictLinePickDialog(std::vector<std::string> oursLines,
-                                                std::vector<std::string> theirsLines,
-                                                const std::vector<std::string>& preselected,
-                                                QWidget* parent)
-    : QDialog(parent), oursLines_(std::move(oursLines)), theirsLines_(std::move(theirsLines)) {
-    // No Q_OBJECT (this class lives in an anonymous namespace, so it isn't
-    // MOC-visible) -- tr() would silently resolve to QDialog::tr() with the
-    // wrong translation context, so every string here goes through
-    // QObject::tr() explicitly instead for a consistent context.
-    setWindowTitle(QObject::tr("Pick Lines"));
-
-    auto* layout = new QVBoxLayout(this);
-
-    // `preselected` may contain duplicate identical lines (e.g. repeated
-    // blank lines or "}"), so each entry is matched against the next
-    // not-yet-matched occurrence on either side, in order, rather than
-    // matching every equal line at once.
-    std::vector<bool> oursMatched(oursLines_.size(), false);
-    std::vector<bool> theirsMatched(theirsLines_.size(), false);
-    auto consumeMatch = [](const std::string& line, const std::vector<std::string>& source,
-                            std::vector<bool>& matched) {
-        for (std::size_t i = 0; i < source.size(); ++i) {
-            if (!matched[i] && source[i] == line) {
-                matched[i] = true;
-                return true;
-            }
-        }
-        return false;
-    };
-    for (const std::string& line : preselected) {
-        if (!consumeMatch(line, oursLines_, oursMatched)) {
-            consumeMatch(line, theirsLines_, theirsMatched);
-        }
-    }
-
-    auto makeColumn = [this](const QString& title,
-                              const std::vector<std::string>& lines,
-                              const std::vector<bool>& matched,
-                              std::vector<QCheckBox*>& checks) {
-        auto* group = new QGroupBox(title);
-        auto* groupLayout = new QVBoxLayout(group);
-        for (std::size_t i = 0; i < lines.size(); ++i) {
-            auto* check = new QCheckBox(lineLabelText(lines[i]), group);
-            check->setChecked(matched[i]);
-            connect(check, &QCheckBox::toggled, this, &ConflictLinePickDialog::updatePreview);
-            groupLayout->addWidget(check);
-            checks.push_back(check);
-        }
-        groupLayout->addStretch(1);
-        auto* scroll = new QScrollArea(this);
-        scroll->setWidget(group);
-        scroll->setWidgetResizable(true);
-        return scroll;
-    };
-    auto* columns = new QHBoxLayout();
-    columns->addWidget(makeColumn(QObject::tr("Current branch (mine)"), oursLines_, oursMatched, oursChecks_));
-    columns->addWidget(
-        makeColumn(QObject::tr("Merged branch (theirs)"), theirsLines_, theirsMatched, theirsChecks_));
-    layout->addLayout(columns, 1);
-
-    layout->addWidget(new QLabel(QObject::tr("Preview"), this));
-    preview_ = new QPlainTextEdit(this);
-    preview_->setReadOnly(true);
-    preview_->setLineWrapMode(QPlainTextEdit::NoWrap);
-    layout->addWidget(preview_);
-
-    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
-    okButton_ = buttons->button(QDialogButtonBox::Ok);
-    connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
-    layout->addWidget(buttons);
-
-    resize(640, 480);
-    updatePreview();
-}
-
-std::vector<std::string> ConflictLinePickDialog::selectedLines() const {
-    std::vector<std::string> result;
-    for (std::size_t i = 0; i < oursChecks_.size(); ++i) {
-        if (oursChecks_[i]->isChecked()) {
-            result.push_back(oursLines_[i]);
-        }
-    }
-    for (std::size_t i = 0; i < theirsChecks_.size(); ++i) {
-        if (theirsChecks_[i]->isChecked()) {
-            result.push_back(theirsLines_[i]);
-        }
-    }
-    return result;
-}
-
-void ConflictLinePickDialog::updatePreview() {
-    const std::vector<std::string> selected = selectedLines();
-    QString text;
-    for (const std::string& line : selected) {
-        text += QString::fromStdString(line);
-    }
-    preview_->setPlainText(text);
-    // An empty pick would resolve the region to nothing with no visible
-    // trace it ever had content -- force at least one line checked before
-    // Ok is reachable. Deliberately dropping a region isn't a use case this
-    // dialog serves.
-    okButton_->setEnabled(!selected.empty());
-}
 
 // panesSplitter_ persistence, split by whether the ancestor column is
 // currently shown: a size list saved with the ancestor hidden has its
@@ -306,7 +142,6 @@ ConflictResolvePanel::ConflictResolvePanel(QWidget* parent) : QWidget(parent) {
     regionNextButton_ = new QPushButton(QStringLiteral("▶"), regionStrip_);
     regionTakeLeftButton_ = new QPushButton(tr("Take Left"), regionStrip_);
     regionTakeRightButton_ = new QPushButton(tr("Take Right"), regionStrip_);
-    regionPickLinesButton_ = new QPushButton(tr("Pick Lines…"), regionStrip_);
     regionTakeLeftAllButton_ = new QPushButton(tr("Take Left (All)"), regionStrip_);
     regionTakeRightAllButton_ = new QPushButton(tr("Take Right (All)"), regionStrip_);
     stripLayout->addWidget(regionPrevButton_);
@@ -314,7 +149,6 @@ ConflictResolvePanel::ConflictResolvePanel(QWidget* parent) : QWidget(parent) {
     stripLayout->addWidget(regionNextButton_);
     stripLayout->addWidget(regionTakeLeftButton_);
     stripLayout->addWidget(regionTakeRightButton_);
-    stripLayout->addWidget(regionPickLinesButton_);
     stripLayout->addStretch(1);
     stripLayout->addWidget(regionTakeLeftAllButton_);
     stripLayout->addWidget(regionTakeRightAllButton_);
@@ -363,6 +197,18 @@ ConflictResolvePanel::ConflictResolvePanel(QWidget* parent) : QWidget(parent) {
                                                      : ConflictRegionChoice::Ours,
                                                  {}});
     });
+    // Design A2: click-to-toggle-line composition. Both panes share one
+    // handler; which side clicked is baked into the connection itself
+    // rather than inferred from the sender, since ConflictSide already
+    // exists to say exactly that.
+    connect(oursEdit_, &ConflictTextEdit::lineToggled, this,
+            [this](int regionIndex, int lineOffset, Qt::KeyboardModifiers modifiers) {
+                onRegionLineToggled(regionIndex, ConflictSide::Ours, lineOffset, modifiers);
+            });
+    connect(theirsEdit_, &ConflictTextEdit::lineToggled, this,
+            [this](int regionIndex, int lineOffset, Qt::KeyboardModifiers modifiers) {
+                onRegionLineToggled(regionIndex, ConflictSide::Theirs, lineOffset, modifiers);
+            });
     // Equal default split -- overridden a moment later by
     // restoreConflictPanesSizes()'s deferred restore if sizes were saved
     // from a previous session.
@@ -411,9 +257,6 @@ ConflictResolvePanel::ConflictResolvePanel(QWidget* parent) : QWidget(parent) {
         resolveRegion(currentRegionIndex_,
                        ConflictRegionResolution{ConflictRegionChoice::Theirs, {}});
     });
-    connect(regionPickLinesButton_, &QPushButton::clicked, this, [this] {
-        pickLinesForCurrentRegion();
-    });
     connect(regionTakeLeftAllButton_, &QPushButton::clicked, this, [this] {
         resolveAllRegions(ConflictRegionChoice::Ours);
     });
@@ -459,6 +302,10 @@ void ConflictResolvePanel::showEntry(RepositorySession* session, const WorkingCo
     regionTextRanges_.clear();
     currentRegionIndex_ = 0;
     regionStrip_->setVisible(false);
+    customOursLineSelected_.clear();
+    customTheirsLineSelected_.clear();
+    customLineSelectionSeeded_.clear();
+    lastLineClickAnchor_.reset();
     ancestorBlobText_.clear();
     oursBlobText_.clear();
     theirsBlobText_.clear();
@@ -600,6 +447,9 @@ void ConflictResolvePanel::onWorkingTreeContentReady(const QString& path,
             tr("(binary or non-UTF-8 content — use Take Left or Take Right)"));
         parsedMarkers_ = ParsedConflictFile{};
         regionResolutions_.clear();
+        customOursLineSelected_.clear();
+        customTheirsLineSelected_.clear();
+        customLineSelectionSeeded_.clear();
         regionStrip_->setVisible(false);
         refreshSidePanes();
         return;
@@ -608,6 +458,12 @@ void ConflictResolvePanel::onWorkingTreeContentReady(const QString& path,
     middleContentHasCrlf_ = content.contains(QStringLiteral("\r\n"));
     parsedMarkers_ = ConflictMarkerParser{}.parse(content.toStdString());
     regionResolutions_.assign(parsedMarkers_.regionCount, ConflictRegionResolution{});
+    // Index-aligned with regionResolutions_ -- see
+    // ensureCustomLineSelectionSeeded()/resetCustomLineSelection().
+    customOursLineSelected_.assign(parsedMarkers_.regionCount, {});
+    customTheirsLineSelected_.assign(parsedMarkers_.regionCount, {});
+    customLineSelectionSeeded_.assign(parsedMarkers_.regionCount, false);
+    lastLineClickAnchor_.reset();
     currentRegionIndex_ = 0;
     middleEdit_->setReadOnly(false);
     regionStrip_->setVisible(parsedMarkers_.regionCount > 0);
@@ -712,6 +568,7 @@ void ConflictResolvePanel::resolveRegion(int index, ConflictRegionResolution res
         return;
     }
     regionResolutions_[static_cast<std::size_t>(index)] = std::move(resolution);
+    resetCustomLineSelection(index);
 
     // Look forward from just past `index` first, wrapping around to the
     // start -- but never back onto `index` itself -- so resolving region 2
@@ -736,8 +593,9 @@ void ConflictResolvePanel::resolveRegion(int index, ConflictRegionResolution res
 }
 
 void ConflictResolvePanel::resolveAllRegions(ConflictRegionChoice choice) {
-    for (ConflictRegionResolution& resolution : regionResolutions_) {
-        resolution = ConflictRegionResolution{choice, {}};
+    for (std::size_t index = 0; index < regionResolutions_.size(); ++index) {
+        regionResolutions_[index] = ConflictRegionResolution{choice, {}};
+        resetCustomLineSelection(static_cast<int>(index));
     }
     refreshMiddleFromResolutions();
 }
@@ -759,26 +617,77 @@ const ConflictSegment* ConflictResolvePanel::regionSegment(int regionIndex) cons
     return nullptr;
 }
 
-void ConflictResolvePanel::pickLinesForCurrentRegion() {
-    const ConflictSegment* segment = regionSegment(currentRegionIndex_);
+void ConflictResolvePanel::ensureCustomLineSelectionSeeded(int regionIndex,
+                                                            const ConflictSegment& segment) {
+    const auto index = static_cast<std::size_t>(regionIndex);
+    if (customLineSelectionSeeded_[index]) {
+        return;
+    }
+    customLineSelectionSeeded_[index] = true;
+    const ConflictRegionChoice choice = regionResolutions_[index].choice;
+    customOursLineSelected_[index].assign(segment.ours.size(), choice == ConflictRegionChoice::Ours);
+    customTheirsLineSelected_[index].assign(segment.theirs.size(),
+                                             choice == ConflictRegionChoice::Theirs);
+}
+
+void ConflictResolvePanel::resetCustomLineSelection(int regionIndex) {
+    if (regionIndex < 0 || static_cast<std::size_t>(regionIndex) >= customLineSelectionSeeded_.size()) {
+        return;
+    }
+    const auto index = static_cast<std::size_t>(regionIndex);
+    customLineSelectionSeeded_[index] = false;
+    customOursLineSelected_[index].clear();
+    customTheirsLineSelected_[index].clear();
+    oursEdit_->setRegionLineSelection(regionIndex, {});
+    theirsEdit_->setRegionLineSelection(regionIndex, {});
+    if (lastLineClickAnchor_.has_value() && lastLineClickAnchor_->regionIndex == regionIndex) {
+        lastLineClickAnchor_.reset();
+    }
+}
+
+void ConflictResolvePanel::onRegionLineToggled(int regionIndex, ConflictSide side, int lineOffset,
+                                                Qt::KeyboardModifiers modifiers) {
+    if (regionIndex < 0 || static_cast<std::size_t>(regionIndex) >= regionResolutions_.size()) {
+        return;
+    }
+    const ConflictSegment* segment = regionSegment(regionIndex);
     if (segment == nullptr) {
         return;
     }
-    // Reopening on a region already resolved as Custom should show what was
-    // picked last time rather than forcing a re-pick from scratch.
-    static const std::vector<std::string> kNoPreselection;
-    const std::vector<std::string>* preselected = &kNoPreselection;
-    const auto index = static_cast<std::size_t>(currentRegionIndex_);
-    if (index < regionResolutions_.size() &&
-        regionResolutions_[index].choice == ConflictRegionChoice::Custom) {
-        preselected = &regionResolutions_[index].customLines;
-    }
-    ConflictLinePickDialog dialog(segment->ours, segment->theirs, *preselected, this);
-    if (dialog.exec() != QDialog::Accepted) {
+    ensureCustomLineSelectionSeeded(regionIndex, *segment);
+
+    const auto index = static_cast<std::size_t>(regionIndex);
+    std::vector<bool>& selected =
+        (side == ConflictSide::Theirs) ? customTheirsLineSelected_[index] : customOursLineSelected_[index];
+    if (lineOffset < 0 || static_cast<std::size_t>(lineOffset) >= selected.size()) {
         return;
     }
-    resolveRegion(currentRegionIndex_,
-                   ConflictRegionResolution{ConflictRegionChoice::Custom, dialog.selectedLines()});
+
+    // Shift+click extends a range from the last plain click in this same
+    // region+side; anywhere else it falls back to a plain toggle rather
+    // than guessing at a cross-side/region "range".
+    if ((modifiers & Qt::ShiftModifier) && lastLineClickAnchor_.has_value() &&
+        lastLineClickAnchor_->regionIndex == regionIndex && lastLineClickAnchor_->side == side) {
+        const int lo = std::min(lastLineClickAnchor_->lineOffset, lineOffset);
+        const int hi = std::max(lastLineClickAnchor_->lineOffset, lineOffset);
+        for (int i = lo; i <= hi; ++i) {
+            selected[static_cast<std::size_t>(i)] = true;
+        }
+    } else {
+        selected[static_cast<std::size_t>(lineOffset)] = !selected[static_cast<std::size_t>(lineOffset)];
+    }
+    lastLineClickAnchor_ = LineClickAnchor{regionIndex, side, lineOffset};
+
+    // Deliberately not resolveRegion(): that also jumps currentRegionIndex_
+    // to the next unresolved region, which is right for a one-shot Take
+    // Left/Right/drag but wrong here -- the user is still composing this
+    // region line by line and jumping away mid-click would be jarring.
+    regionResolutions_[index] = ConflictRegionResolution{
+        ConflictRegionChoice::Custom,
+        composeCustomRegionLines(*segment, customOursLineSelected_[index], customTheirsLineSelected_[index])};
+    refreshMiddleFromResolutions();
+    oursEdit_->setRegionLineSelection(regionIndex, customOursLineSelected_[index]);
+    theirsEdit_->setRegionLineSelection(regionIndex, customTheirsLineSelected_[index]);
 }
 
 void ConflictResolvePanel::navigateRegion(int delta) {

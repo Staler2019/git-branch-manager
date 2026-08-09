@@ -392,6 +392,162 @@ private slots:
         QVERIFY(edit.extraSelections().isEmpty());
     }
 
+    // Design A2's fixed composition order: every selected ours line (in
+    // original order) first, then every selected theirs line (in original
+    // order) -- regardless of which one was clicked more recently. Selects
+    // a non-contiguous, non-"first N" subset on each side specifically so a
+    // bug that only worked for prefixes or fully-contiguous selections
+    // would fail this.
+    void composeCustomRegionLinesOrdersOursBeforeTheirs() {
+        ConflictSegment segment;
+        segment.kind = ConflictSegmentKind::Region;
+        segment.ours = {"ours0\n", "ours1\n"};
+        segment.theirs = {"theirs0\n", "theirs1\n", "theirs2\n"};
+
+        const std::vector<bool> oursSelected = {true, false};
+        const std::vector<bool> theirsSelected = {false, true, true};
+
+        const std::vector<std::string> result =
+            composeCustomRegionLines(segment, oursSelected, theirsSelected);
+        QCOMPARE(result.size(), static_cast<std::size_t>(3));
+        QCOMPARE(QString::fromStdString(result[0]), QStringLiteral("ours0\n"));
+        QCOMPARE(QString::fromStdString(result[1]), QStringLiteral("theirs1\n"));
+        QCOMPARE(QString::fromStdString(result[2]), QStringLiteral("theirs2\n"));
+    }
+
+    void composeCustomRegionLinesHandlesNothingSelected() {
+        ConflictSegment segment;
+        segment.kind = ConflictSegmentKind::Region;
+        segment.ours = {"ours0\n"};
+        segment.theirs = {"theirs0\n"};
+        const std::vector<bool> noneSelected = {false};
+        QVERIFY(composeCustomRegionLines(segment, noneSelected, noneSelected).empty());
+    }
+
+    // Design A2: a plain click (press, then release without moving past
+    // the drag threshold) on a region row emits lineToggled with that
+    // region's index and the row's offset from the region's first line --
+    // not the drag path from the previous commit.
+    void oursLineClickEmitsLineToggled() {
+        ConflictTextEdit edit;
+        edit.setSide(ConflictSide::Ours);
+        edit.setPlainText(QStringLiteral("aaa\nbbb\nccc\nddd\n"));
+        edit.setRegionSpans({RegionRowSpan{0, 1, 2}});  // blocks 1..2 = "bbb"/"ccc"
+        edit.resize(300, 200);
+        edit.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&edit));
+
+        int toggledRegionIndex = -1;
+        int toggledLineOffset = -1;
+        int toggleCount = 0;
+        Qt::KeyboardModifiers capturedModifiers;
+        connect(&edit,
+                &ConflictTextEdit::lineToggled,
+                [&](int regionIndex, int lineOffset, Qt::KeyboardModifiers modifiers) {
+                    toggledRegionIndex = regionIndex;
+                    toggledLineOffset = lineOffset;
+                    capturedModifiers = modifiers;
+                    ++toggleCount;
+                });
+
+        // block 2 ("ccc") is the region's second row -> lineOffset 1.
+        QTextCursor targetCursor(edit.document()->findBlockByNumber(2));
+        const QPoint pos = edit.cursorRect(targetCursor).center();
+        auto sendMouse = [&](QEvent::Type type, Qt::MouseButton button, Qt::MouseButtons buttons,
+                              Qt::KeyboardModifiers modifiers) {
+            QMouseEvent event(
+                type, QPointF(pos), edit.viewport()->mapToGlobal(pos), button, buttons, modifiers);
+            QCoreApplication::sendEvent(edit.viewport(), &event);
+        };
+        // A move first: hoveredSpanIndex_ (set only by mouseMoveEvent) is
+        // what mousePressEvent checks before it records a drag candidate --
+        // this mirrors the real "mouse enters, then presses" sequence.
+        sendMouse(QEvent::MouseMove, Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+        sendMouse(QEvent::MouseButtonPress, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        sendMouse(QEvent::MouseButtonRelease, Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+
+        QCOMPARE(toggleCount, 1);
+        QCOMPARE(toggledRegionIndex, 0);
+        QCOMPARE(toggledLineOffset, 1);
+        QVERIFY(!(capturedModifiers & Qt::ShiftModifier));
+    }
+
+    // Shift+click's range-select decision lives in ConflictResolvePanel
+    // (lastLineClickAnchor_), not in ConflictTextEdit -- the widget's own
+    // job is just to pass the modifier through faithfully.
+    void oursShiftClickPassesShiftModifierThrough() {
+        ConflictTextEdit edit;
+        edit.setSide(ConflictSide::Ours);
+        edit.setPlainText(QStringLiteral("aaa\nbbb\nccc\nddd\n"));
+        edit.setRegionSpans({RegionRowSpan{0, 1, 2}});
+        edit.resize(300, 200);
+        edit.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&edit));
+
+        int toggleCount = 0;
+        Qt::KeyboardModifiers capturedModifiers;
+        connect(&edit,
+                &ConflictTextEdit::lineToggled,
+                [&](int, int, Qt::KeyboardModifiers modifiers) {
+                    capturedModifiers = modifiers;
+                    ++toggleCount;
+                });
+
+        QTextCursor targetCursor(edit.document()->findBlockByNumber(1));
+        const QPoint pos = edit.cursorRect(targetCursor).center();
+        auto sendMouse = [&](QEvent::Type type, Qt::MouseButton button, Qt::MouseButtons buttons) {
+            QMouseEvent event(type,
+                               QPointF(pos),
+                               edit.viewport()->mapToGlobal(pos),
+                               button,
+                               buttons,
+                               Qt::ShiftModifier);
+            QCoreApplication::sendEvent(edit.viewport(), &event);
+        };
+        sendMouse(QEvent::MouseMove, Qt::NoButton, Qt::NoButton);
+        sendMouse(QEvent::MouseButtonPress, Qt::LeftButton, Qt::LeftButton);
+        sendMouse(QEvent::MouseButtonRelease, Qt::LeftButton, Qt::NoButton);
+
+        QCOMPARE(toggleCount, 1);
+        QVERIFY(capturedModifiers & Qt::ShiftModifier);
+    }
+
+    // setRegionLineSelection()'s persistent highlight must coexist with the
+    // transient hover highlight from the previous commit -- both are real
+    // extraSelections() entries at once, not one clobbering the other.
+    void setRegionLineSelectionPersistsAndCoexistsWithHover() {
+        ConflictTextEdit edit;
+        edit.setSide(ConflictSide::Ours);
+        edit.setPlainText(QStringLiteral("aaa\nbbb\nccc\nddd\n"));
+        edit.setRegionSpans({RegionRowSpan{0, 1, 2}});
+        edit.resize(300, 200);
+        edit.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&edit));
+
+        QVERIFY(edit.extraSelections().isEmpty());
+
+        edit.setRegionLineSelection(0, {true, false});  // select block 1 ("bbb") only
+        QCOMPARE(edit.extraSelections().size(), 1);
+
+        auto moveTo = [&](const QPoint& pos) {
+            QMouseEvent event(QEvent::MouseMove,
+                               QPointF(pos),
+                               edit.viewport()->mapToGlobal(pos),
+                               Qt::NoButton,
+                               Qt::NoButton,
+                               Qt::NoModifier);
+            QCoreApplication::sendEvent(edit.viewport(), &event);
+        };
+        // Hover over block 2 ("ccc"), the region's other (unselected) row --
+        // the persistent selection on block 1 must survive alongside it.
+        QTextCursor hoverCursor(edit.document()->findBlockByNumber(2));
+        moveTo(edit.cursorRect(hoverCursor).center());
+        QCOMPARE(edit.extraSelections().size(), 2);
+
+        edit.setRegionLineSelection(0, {});  // clear
+        QCOMPARE(edit.extraSelections().size(), 1);  // hover selection remains
+    }
+
 private:
     std::unique_ptr<QTemporaryDir> tempDir_;
     std::unique_ptr<ConflictResolvePanel> panel_;

@@ -20,6 +20,8 @@
 #include <QTextCursor>
 #include <QWidget>
 
+#include <algorithm>
+
 namespace gbm {
 
 const char kConflictRegionMimeType[] = "application/x-gbm-conflict-region";
@@ -107,7 +109,69 @@ void ConflictTextEdit::setRegionSpans(std::vector<RegionRowSpan> spans) {
     regionSpans_ = std::move(spans);
     hoveredSpanIndex_ = -1;
     dragCandidateSpanIndex_ = -1;
-    setExtraSelections({});
+    // Stale block numbers: a new render means the same regionIndex's rows
+    // may now sit at completely different block numbers, so any previously
+    // recorded selection would light up the wrong lines.
+    selectedBlocksByRegion_.clear();
+    applyExtraSelections();
+}
+
+void ConflictTextEdit::setRegionLineSelection(int regionIndex, const std::vector<bool>& selectedLines) {
+    const RegionRowSpan* span = spanForRegionIndex(regionIndex);
+    std::vector<int> blocks;
+    if (span != nullptr) {
+        for (std::size_t i = 0; i < selectedLines.size() && static_cast<int>(i) < span->blockCount;
+             ++i) {
+            if (selectedLines[i]) {
+                blocks.push_back(span->firstBlock + static_cast<int>(i));
+            }
+        }
+    }
+    if (blocks.empty()) {
+        selectedBlocksByRegion_.erase(regionIndex);
+    } else {
+        selectedBlocksByRegion_[regionIndex] = std::move(blocks);
+    }
+    applyExtraSelections();
+    lineNumberArea_->update();
+}
+
+void ConflictTextEdit::applyExtraSelections() {
+    QList<QTextEdit::ExtraSelection> selections;
+    for (const auto& [regionIndex, blocks] : selectedBlocksByRegion_) {
+        for (int block : blocks) {
+            QTextBlock blockObj = document()->findBlockByNumber(block);
+            if (!blockObj.isValid()) {
+                continue;
+            }
+            QTextCursor cursor(blockObj);
+            cursor.select(QTextCursor::LineUnderCursor);
+            QTextEdit::ExtraSelection selection;
+            selection.cursor = cursor;
+            selection.format.setBackground(ThemeManager::color(Token::AccentSubtle));
+            selection.format.setProperty(QTextFormat::FullWidthSelection, true);
+            selections.push_back(selection);
+        }
+    }
+    if (hoveredSpanIndex_ >= 0) {
+        const RegionRowSpan& span = regionSpans_[static_cast<std::size_t>(hoveredSpanIndex_)];
+        QTextBlock firstBlockObj = document()->findBlockByNumber(span.firstBlock);
+        QTextBlock lastBlockObj =
+            document()->findBlockByNumber(span.firstBlock + span.blockCount - 1);
+        if (firstBlockObj.isValid() && lastBlockObj.isValid()) {
+            QTextCursor cursor(firstBlockObj);
+            cursor.setPosition(lastBlockObj.position() + lastBlockObj.length() - 1,
+                                QTextCursor::KeepAnchor);
+            QTextEdit::ExtraSelection selection;
+            selection.cursor = cursor;
+            selection.format.setBackground(ThemeManager::color(Token::SurfaceHover));
+            selection.format.setProperty(QTextFormat::FullWidthSelection, true);
+            // Appended last: later entries paint on top, so hover stays
+            // visible even over an already-selected (checked) line.
+            selections.push_back(selection);
+        }
+    }
+    setExtraSelections(selections);
 }
 
 const RegionRowSpan* ConflictTextEdit::spanForBlock(int block) const {
@@ -130,26 +194,15 @@ const RegionRowSpan* ConflictTextEdit::spanForRegionIndex(int regionIndex) const
 
 void ConflictTextEdit::updateHoverPresentation() {
     if (hoveredSpanIndex_ < 0) {
-        setExtraSelections({});
         unsetCursor();
-        return;
+    } else {
+        setCursor(Qt::OpenHandCursor);
     }
-    const RegionRowSpan& span = regionSpans_[static_cast<std::size_t>(hoveredSpanIndex_)];
-    QTextBlock firstBlockObj = document()->findBlockByNumber(span.firstBlock);
-    QTextBlock lastBlockObj =
-        document()->findBlockByNumber(span.firstBlock + span.blockCount - 1);
-    if (!firstBlockObj.isValid() || !lastBlockObj.isValid()) {
-        return;
-    }
-    QTextCursor cursor(firstBlockObj);
-    cursor.setPosition(lastBlockObj.position() + lastBlockObj.length() - 1, QTextCursor::KeepAnchor);
-
-    QTextEdit::ExtraSelection selection;
-    selection.cursor = cursor;
-    selection.format.setBackground(ThemeManager::color(Token::SurfaceHover));
-    selection.format.setProperty(QTextFormat::FullWidthSelection, true);
-    setExtraSelections({selection});
-    setCursor(Qt::OpenHandCursor);
+    // The hover selection itself is built by applyExtraSelections() from
+    // hoveredSpanIndex_ directly, so it stays layered correctly on top of
+    // any persistent line-selection highlights (setRegionLineSelection())
+    // rather than this function clobbering them with setExtraSelections({}).
+    applyExtraSelections();
 }
 
 void ConflictTextEdit::updateDropTargetPresentation(const RegionRowSpan* span) {
@@ -190,7 +243,7 @@ void ConflictTextEdit::mouseMoveEvent(QMouseEvent* event) {
         const RegionRowSpan span = regionSpans_[static_cast<std::size_t>(dragCandidateSpanIndex_)];
         dragCandidateSpanIndex_ = -1;
         hoveredSpanIndex_ = -1;
-        setExtraSelections({});
+        applyExtraSelections();
         unsetCursor();
 
         QTextBlock firstBlockObj = document()->findBlockByNumber(span.firstBlock);
@@ -234,6 +287,26 @@ void ConflictTextEdit::mousePressEvent(QMouseEvent* event) {
         return;
     }
     QPlainTextEdit::mousePressEvent(event);
+}
+
+void ConflictTextEdit::mouseReleaseEvent(QMouseEvent* event) {
+    // Design A2: dragCandidateSpanIndex_ still being set here (rather than
+    // -1, which mouseMoveEvent() sets the moment a press turns into an
+    // actual drag) means the press never moved past
+    // QApplication::startDragDistance() -- a plain click on a region row,
+    // not a drag. lineOffset is relative to that region's own first row,
+    // matching setRegionLineSelection()'s indexing.
+    if (dragCandidateSpanIndex_ >= 0) {
+        const RegionRowSpan& span = regionSpans_[static_cast<std::size_t>(dragCandidateSpanIndex_)];
+        const int block = cursorForPosition(event->pos()).blockNumber();
+        const int lineOffset = block - span.firstBlock;
+        dragCandidateSpanIndex_ = -1;
+        if (lineOffset >= 0 && lineOffset < span.blockCount) {
+            emit lineToggled(span.regionIndex, lineOffset, event->modifiers());
+        }
+        return;
+    }
+    QPlainTextEdit::mouseReleaseEvent(event);
 }
 
 void ConflictTextEdit::leaveEvent(QEvent* event) {
@@ -349,10 +422,26 @@ SidePaneRender buildSidePaneText(const ParsedConflictFile& parsed, ConflictSide 
     return render;
 }
 
+std::vector<std::string> composeCustomRegionLines(const ConflictSegment& segment,
+                                                    const std::vector<bool>& oursSelected,
+                                                    const std::vector<bool>& theirsSelected) {
+    std::vector<std::string> result;
+    for (std::size_t i = 0; i < segment.ours.size(); ++i) {
+        if (i < oursSelected.size() && oursSelected[i]) {
+            result.push_back(segment.ours[i]);
+        }
+    }
+    for (std::size_t i = 0; i < segment.theirs.size(); ++i) {
+        if (i < theirsSelected.size() && theirsSelected[i]) {
+            result.push_back(segment.theirs[i]);
+        }
+    }
+    return result;
+}
+
 void ConflictTextEdit::lineNumberAreaPaintEvent(QPaintEvent* event) {
     QPainter painter(lineNumberArea_);
     painter.fillRect(event->rect(), ThemeManager::color(Token::SurfaceSunken));
-    painter.setPen(ThemeManager::color(Token::TextTertiary));
 
     QTextBlock block = firstVisibleBlock();
     int blockNumber = block.blockNumber();
@@ -361,12 +450,25 @@ void ConflictTextEdit::lineNumberAreaPaintEvent(QPaintEvent* event) {
 
     while (block.isValid() && top <= event->rect().bottom()) {
         if (block.isVisible() && bottom >= event->rect().top()) {
+            // Design A2: a selected line gets a check mark instead of (not
+            // alongside) its plain number -- the accent background from
+            // applyExtraSelections() already marks the row, so the gutter
+            // only needs to name *why*, not repeat it.
+            bool selected = false;
+            for (const auto& [regionIndex, blocks] : selectedBlocksByRegion_) {
+                if (std::find(blocks.begin(), blocks.end(), blockNumber) != blocks.end()) {
+                    selected = true;
+                    break;
+                }
+            }
+            painter.setPen(selected ? ThemeManager::color(Token::Accent)
+                                     : ThemeManager::color(Token::TextTertiary));
             painter.drawText(0,
                               top,
                               lineNumberArea_->width() - 6,
                               fontMetrics().height(),
                               Qt::AlignRight,
-                              QString::number(blockNumber + 1));
+                              selected ? QStringLiteral("✓") : QString::number(blockNumber + 1));
         }
         block = block.next();
         top = bottom;

@@ -5,12 +5,13 @@
 
 #include <QWidget>
 
+#include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 class QCheckBox;
 class QLabel;
-class QPlainTextEdit;
 class QPushButton;
 class QSplitter;
 
@@ -114,9 +115,35 @@ private:
     /// between, so this isn't a direct index. Returns nullptr if regionIndex
     /// is out of range.
     const ConflictSegment* regionSegment(int regionIndex) const;
-    /// Opens the line-picker dialog for the current region and, if accepted,
-    /// resolves it as Custom{selected lines}.
-    void pickLinesForCurrentRegion();
+
+    /// Design A2: a click on a single ours/theirs line toggles whether that
+    /// line is part of a Custom resolution for its region -- `side`/
+    /// `lineOffset` come from ConflictTextEdit::lineToggled(), `lineOffset`
+    /// being 0-based from that region's first row on that side. Plain click
+    /// toggles just that line; Shift+click extends from the last plain
+    /// click in the same region+side (see lastLineClickAnchor_) to
+    /// `lineOffset`, selecting the whole range. Unlike resolveRegion(), this
+    /// never jumps to the next unresolved region -- the user is still
+    /// working through this one line by line.
+    void onRegionLineToggled(int regionIndex, ConflictSide side, int lineOffset, Qt::KeyboardModifiers modifiers);
+    /// Lazily sizes and seeds customOursLineSelected_[regionIndex]/
+    /// customTheirsLineSelected_[regionIndex] the first time a line in that
+    /// region is clicked: all-false if the region is still Unresolved (or
+    /// already Custom -- a fresh in-progress Custom selection isn't
+    /// recoverable from customLines alone, since that would need matching
+    /// each stored line back to a side+offset), or seeded to match
+    /// segment.ours/theirs entirely selected if the region was already
+    /// Ours/Theirs (e.g. via Take Left/Right or a drag) -- so the first
+    /// click starts from what's already chosen rather than discarding it.
+    /// A no-op on every later call for the same region.
+    void ensureCustomLineSelectionSeeded(int regionIndex, const ConflictSegment& segment);
+    /// Clears regionIndex's in-progress line-click selection and its
+    /// gutter check marks on both edits -- called whenever something other
+    /// than the click flow itself sets that region's resolution (Take Left/
+    /// Right, Take All, or a drag), since any of those supersede whatever
+    /// partial line selection was in progress and leaving it displayed
+    /// would be stale.
+    void resetCustomLineSelection(int regionIndex);
 
     RepositorySession* session_ = nullptr;
     std::string path_;
@@ -149,6 +176,30 @@ private:
     /// buffer switches to the assembled result, not that preview).
     std::vector<std::pair<int, int>> regionTextRanges_;
 
+    /// Design A2's line-click bookkeeping. Index-aligned with
+    /// parsedMarkers_'s region-only numbering (same as regionResolutions_),
+    /// and each region's inner vector is index-aligned with
+    /// regionSegment(regionIndex)->ours/theirs respectively. Empty until
+    /// ensureCustomLineSelectionSeeded() first sizes it for that region.
+    std::vector<std::vector<bool>> customOursLineSelected_;
+    std::vector<std::vector<bool>> customTheirsLineSelected_;
+    /// Whether ensureCustomLineSelectionSeeded() has already run for a
+    /// given region -- can't infer this from the selection vectors' own
+    /// emptiness, since a region with zero lines on one side (a valid
+    /// conflict shape) would look identical to "not yet seeded".
+    std::vector<bool> customLineSelectionSeeded_;
+    /// A single click's target, so a following Shift+click in the *same*
+    /// region and side can extend a range from it -- see
+    /// onRegionLineToggled(). A Shift+click elsewhere (different region or
+    /// side) just falls back to a plain toggle instead of guessing at a
+    /// cross-side/region "range".
+    struct LineClickAnchor {
+        int regionIndex = 0;
+        ConflictSide side = ConflictSide::Ours;
+        int lineOffset = 0;
+    };
+    std::optional<LineClickAnchor> lastLineClickAnchor_;
+
     /// Raw on-disk blob text for each side, captured verbatim by
     /// onConflictSidesReady() rather than written straight into the edits --
     /// refreshSidePanes() needs it retained as the fallback render whenever
@@ -175,7 +226,6 @@ private:
     QPushButton* regionNextButton_ = nullptr;
     QPushButton* regionTakeLeftButton_ = nullptr;
     QPushButton* regionTakeRightButton_ = nullptr;
-    QPushButton* regionPickLinesButton_ = nullptr;
     QPushButton* regionTakeLeftAllButton_ = nullptr;
     QPushButton* regionTakeRightAllButton_ = nullptr;
 };

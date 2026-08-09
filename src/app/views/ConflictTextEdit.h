@@ -6,6 +6,7 @@
 #include <QPoint>
 #include <QString>
 
+#include <map>
 #include <optional>
 #include <vector>
 
@@ -70,6 +71,19 @@ struct SidePaneRender {
 /// regionCount > 0; see refreshSidePanes().
 SidePaneRender buildSidePaneText(const ParsedConflictFile& parsed, ConflictSide side);
 
+/// Design A2: builds a Custom resolution's line list from which of
+/// `segment`'s ours/theirs lines are selected -- every selected ours line,
+/// in its original order, followed by every selected theirs line, in its
+/// original order. That's a fixed composition order regardless of the
+/// order the user actually clicked in, so the middle pane's preview stays
+/// predictable rather than depending on click history. `oursSelected`/
+/// `theirsSelected` are index-aligned with segment.ours/theirs; either may
+/// be shorter than its segment vector (not-yet-clicked lines default to
+/// unselected) but never longer.
+std::vector<std::string> composeCustomRegionLines(const ConflictSegment& segment,
+                                                    const std::vector<bool>& oursSelected,
+                                                    const std::vector<bool>& theirsSelected);
+
 /// MIME type carrying a dragged conflict region from an ours/theirs pane to
 /// the result pane. Payload is just 2 packed qint32s (side, regionIndex) --
 /// see encodeConflictRegionMimeData()/decodeConflictRegionMimeData(). Drop
@@ -127,17 +141,32 @@ public:
     /// see buildSidePaneText(). Empty clears hover/drag entirely (e.g. a
     /// regionless file, or before the working-tree reply has parsed one).
     void setRegionSpans(std::vector<RegionRowSpan> spans);
+    /// Design A2: marks which of regionIndex's rendered lines are currently
+    /// part of a Custom line-by-line selection -- accent background plus a
+    /// check mark in the line-number gutter (separate from, and layered
+    /// with, hover's own transient highlight). Replaces any selection
+    /// previously recorded for this region; pass an all-false/empty vector
+    /// to clear it. `selectedLines` is index-aligned with that region's
+    /// side of the segment (e.g. segment.ours for an Ours pane), same as
+    /// the vectors buildSidePaneText() and composeCustomRegionLines() use.
+    void setRegionLineSelection(int regionIndex, const std::vector<bool>& selectedLines);
 
 signals:
     /// Emitted by a Result-side pane's dropEvent() once a valid conflict-
     /// region payload lands and the pane was accepting drops (see
     /// dragEnterEvent()).
     void regionDropped(int regionIndex, ConflictSide fromSide);
+    /// Design A2: emitted by mouseReleaseEvent() when a plain press-then-
+    /// release (not a drag -- see dragCandidateSpanIndex_) lands on an
+    /// Ours/Theirs pane's region row. `lineOffset` is 0-based from that
+    /// region's first row (RegionRowSpan::firstBlock).
+    void lineToggled(int regionIndex, int lineOffset, Qt::KeyboardModifiers modifiers);
 
 protected:
     void resizeEvent(QResizeEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
+    void mouseReleaseEvent(QMouseEvent* event) override;
     void leaveEvent(QEvent* event) override;
     void dragEnterEvent(QDragEnterEvent* event) override;
     void dragMoveEvent(QDragMoveEvent* event) override;
@@ -165,6 +194,13 @@ private:
     /// Highlights `span`'s row range as a would-accept drop target, or
     /// clears the highlight when `span` is nullptr.
     void updateDropTargetPresentation(const RegionRowSpan* span);
+    /// Rebuilds and applies the full extraSelections() list: one persistent
+    /// accent-background selection per block in selectedBlocksByRegion_,
+    /// plus the transient hover selection on top if hoveredSpanIndex_ >= 0.
+    /// The two coexist -- setRegionLineSelection()'s check marks must
+    /// survive a hover elsewhere, and hovering must still show over an
+    /// already-selected line.
+    void applyExtraSelections();
 
     QWidget* lineNumberArea_ = nullptr;
     ConflictSide side_ = ConflictSide::Ours;
@@ -176,8 +212,16 @@ private:
     /// dragCandidateSpanIndex_ >= 0.
     QPoint dragStartPos_;
     /// Which regionSpans_ index the most recent press landed in, or -1 if
-    /// the press wasn't over a region (nothing to drag from there).
+    /// the press wasn't over a region (nothing to drag from there). Also
+    /// doubles as "a click, not a drag, is still pending" for
+    /// mouseReleaseEvent() -- mouseMoveEvent() clears it the moment a press
+    /// turns into a real drag.
     int dragCandidateSpanIndex_ = -1;
+    /// regionIndex -> absolute block numbers currently marked selected via
+    /// setRegionLineSelection() -- keyed by region (rather than one flat
+    /// set) so replacing one region's selection can never leave behind a
+    /// stray block that belonged to another region's now-stale call.
+    std::map<int, std::vector<int>> selectedBlocksByRegion_;
 };
 
 }  // namespace gbm

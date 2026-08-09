@@ -21,6 +21,8 @@
 // RepositorySession feeding real conflict content. Ancestry survives that --
 // setVisible(false) does not remove the widget from its parent's layout.
 #include "app/views/ConflictResolvePanel.h"
+#include "app/views/ConflictTextEdit.h"
+#include "core/git/ConflictMarkerParser.h"
 
 #include <QApplication>
 #include <QCheckBox>
@@ -42,6 +44,39 @@ constexpr int kAncestorPaneIndex = 0;
 constexpr int kOursPaneIndex = 1;
 constexpr int kMiddlePaneIndex = 2;
 constexpr int kTheirsPaneIndex = 3;
+
+// A small parsed file with two regions, built by hand rather than run
+// through ConflictMarkerParser::parse() -- buildSidePaneText() only cares
+// about the already-split segments, so the test can pin the exact block
+// (line) numbers it expects without also depending on marker-line parsing.
+ParsedConflictFile makeTwoRegionParsedFile() {
+    ConflictSegment leadingText;
+    leadingText.kind = ConflictSegmentKind::Text;
+    leadingText.lines = {"line1\n", "line2\n"};
+
+    ConflictSegment regionZero;
+    regionZero.kind = ConflictSegmentKind::Region;
+    regionZero.ours = {"oursA\n"};
+    regionZero.theirs = {"theirsA\n", "theirsA2\n"};
+
+    ConflictSegment middleText;
+    middleText.kind = ConflictSegmentKind::Text;
+    middleText.lines = {"line3\n"};
+
+    ConflictSegment regionOne;
+    regionOne.kind = ConflictSegmentKind::Region;
+    regionOne.ours = {"oursB\n", "oursB2\n"};
+    regionOne.theirs = {"theirsB\n"};
+
+    ConflictSegment trailingText;
+    trailingText.kind = ConflictSegmentKind::Text;
+    trailingText.lines = {"line4\n"};
+
+    ParsedConflictFile parsed;
+    parsed.segments = {leadingText, regionZero, middleText, regionOne, trailingText};
+    parsed.regionCount = 2;
+    return parsed;
+}
 
 }  // namespace
 
@@ -132,6 +167,59 @@ private slots:
                                            "after being shown")
                                 .arg(splitter_->sizes()[kAncestorPaneIndex])
                                 .arg(ancestorPane->minimumWidth())));
+    }
+
+    // Design A0: the left/right panes render from parsedMarkers_'s segments
+    // rather than the raw ours/theirs blobs, so a region on either side maps
+    // to a known [firstBlock, blockCount) range -- needed by hover/drag (a
+    // later commit) to know which rows belong to which region. Ours and
+    // theirs diverge in line count here (1 line vs 2 for region 0, 2 vs 1 for
+    // region 1) specifically so a bug that mixed up the two sides' line
+    // counts would fail this rather than accidentally cancel out.
+    void buildSidePaneTextMapsRegionsToBlockRanges() {
+        const ParsedConflictFile parsed = makeTwoRegionParsedFile();
+
+        const SidePaneRender oursRender = buildSidePaneText(parsed, ConflictSide::Ours);
+        QCOMPARE(oursRender.text,
+                 QStringLiteral("line1\nline2\noursA\nline3\noursB\noursB2\nline4\n"));
+        QCOMPARE(oursRender.spans.size(), static_cast<std::size_t>(2));
+        QCOMPARE(oursRender.spans[0].regionIndex, 0);
+        QCOMPARE(oursRender.spans[0].firstBlock, 2);
+        QCOMPARE(oursRender.spans[0].blockCount, 1);
+        QCOMPARE(oursRender.spans[1].regionIndex, 1);
+        QCOMPARE(oursRender.spans[1].firstBlock, 4);
+        QCOMPARE(oursRender.spans[1].blockCount, 2);
+
+        const SidePaneRender theirsRender = buildSidePaneText(parsed, ConflictSide::Theirs);
+        QCOMPARE(theirsRender.text,
+                 QStringLiteral("line1\nline2\ntheirsA\ntheirsA2\nline3\ntheirsB\nline4\n"));
+        QCOMPARE(theirsRender.spans.size(), static_cast<std::size_t>(2));
+        QCOMPARE(theirsRender.spans[0].regionIndex, 0);
+        QCOMPARE(theirsRender.spans[0].firstBlock, 2);
+        QCOMPARE(theirsRender.spans[0].blockCount, 2);
+        QCOMPARE(theirsRender.spans[1].regionIndex, 1);
+        QCOMPARE(theirsRender.spans[1].firstBlock, 5);
+        QCOMPARE(theirsRender.spans[1].blockCount, 1);
+    }
+
+    // A file with no regions at all (regionCount == 0) is exactly the shape
+    // ConflictMarkerParser produces for a malformed file too -- see
+    // ConflictMarkerParserTest.cpp's wellFormed == false case, which already
+    // pins regionCount == 0 for that case. buildSidePaneText() itself is only
+    // ever invoked by ConflictResolvePanel when regionCount > 0 (see
+    // refreshSidePanes()); called directly on a regionless file it must
+    // degrade to "the text, no spans" rather than assert or misbehave.
+    void buildSidePaneTextHandlesNoRegions() {
+        ConflictSegment onlyText;
+        onlyText.kind = ConflictSegmentKind::Text;
+        onlyText.lines = {"unchanged1\n", "unchanged2\n"};
+        ParsedConflictFile parsed;
+        parsed.segments = {onlyText};
+        parsed.regionCount = 0;
+
+        const SidePaneRender oursRender = buildSidePaneText(parsed, ConflictSide::Ours);
+        QCOMPARE(oursRender.text, QStringLiteral("unchanged1\nunchanged2\n"));
+        QVERIFY(oursRender.spans.empty());
     }
 
 private:

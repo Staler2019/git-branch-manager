@@ -445,6 +445,11 @@ void ConflictResolvePanel::showEntry(RepositorySession* session, const WorkingCo
     regionTextRanges_.clear();
     currentRegionIndex_ = 0;
     regionStrip_->setVisible(false);
+    ancestorBlobText_.clear();
+    oursBlobText_.clear();
+    theirsBlobText_.clear();
+    oursRegionSpans_.clear();
+    theirsRegionSpans_.clear();
 
     QString kindText;
     switch (entry.conflict) {
@@ -519,14 +524,48 @@ void ConflictResolvePanel::onConflictSidesReady(const QString& path,
     if (path.toStdString() != path_) {
         return;
     }
+    // Stored rather than written straight into the edits: this reply and
+    // onWorkingTreeContentReady()'s are two independent RepositorySession
+    // requests with no ordering guarantee, so the actual rendering decision
+    // (parsedMarkers_-driven vs. this blob) happens in refreshSidePanes(),
+    // called from both handlers' tails.
+    ancestorBlobText_ = ancestor;
+    oursBlobText_ = ours;
+    theirsBlobText_ = theirs;
+    refreshSidePanes();
+}
+
+void ConflictResolvePanel::refreshSidePanes() {
     if (!ancestorBlobMissing_) {
-        ancestorEdit_->setPlainText(ancestor);
+        // The ancestor column has no per-side segment of its own to render
+        // from (diff3's ||||||| base is only sometimes present -- see
+        // ConflictSegment::hasBase) -- it stays a raw blob regardless of
+        // parsedMarkers_.
+        ancestorEdit_->setPlainText(ancestorBlobText_);
     }
+
+    const bool renderFromRegions = parsedMarkers_.regionCount > 0;
+
     if (!oursBlobMissing_) {
-        oursEdit_->setPlainText(ours);
+        if (renderFromRegions) {
+            const SidePaneRender render = buildSidePaneText(parsedMarkers_, ConflictSide::Ours);
+            oursEdit_->setPlainText(render.text);
+            oursRegionSpans_ = render.spans;
+        } else {
+            oursEdit_->setPlainText(oursBlobText_);
+            oursRegionSpans_.clear();
+        }
     }
+
     if (!theirsBlobMissing_) {
-        theirsEdit_->setPlainText(theirs);
+        if (renderFromRegions) {
+            const SidePaneRender render = buildSidePaneText(parsedMarkers_, ConflictSide::Theirs);
+            theirsEdit_->setPlainText(render.text);
+            theirsRegionSpans_ = render.spans;
+        } else {
+            theirsEdit_->setPlainText(theirsBlobText_);
+            theirsRegionSpans_.clear();
+        }
     }
 }
 
@@ -545,6 +584,7 @@ void ConflictResolvePanel::onWorkingTreeContentReady(const QString& path,
         parsedMarkers_ = ParsedConflictFile{};
         regionResolutions_.clear();
         regionStrip_->setVisible(false);
+        refreshSidePanes();
         return;
     }
 
@@ -563,6 +603,7 @@ void ConflictResolvePanel::onWorkingTreeContentReady(const QString& path,
     } else {
         refreshMiddleFromResolutions();
     }
+    refreshSidePanes();
     saveButton_->setEnabled(canSave());
 }
 

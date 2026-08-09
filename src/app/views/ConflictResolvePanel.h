@@ -1,5 +1,6 @@
 #pragma once
 
+#include "app/views/ConflictTextEdit.h"
 #include "core/git/ConflictMarkerParser.h"
 
 #include <QWidget>
@@ -52,6 +53,18 @@ private:
                               const QString& theirs);
     void onWorkingTreeContentReady(const QString& path, const QString& content, bool editable);
     void submitResolution(int choice);
+
+    /// Re-renders the ours/theirs panes (and their region row-span maps)
+    /// from whichever source is authoritative right now: parsedMarkers_'s
+    /// segments (see buildSidePaneText() in ConflictTextEdit.h) once
+    /// regionCount > 0, or the raw blob text captured by
+    /// onConflictSidesReady() otherwise. Called from the tail of *both*
+    /// onConflictSidesReady() and onWorkingTreeContentReady() -- those are
+    /// two independent RepositorySession replies with no ordering guarantee,
+    /// so whichever lands second is what actually produces the correct,
+    /// final render; the one that lands first produces a partial render
+    /// that this then replaces.
+    void refreshSidePanes();
 
     /// Renders the middle column's text for the current parsedMarkers_ +
     /// regionResolutions_: plain-text segments pass through verbatim, a
@@ -134,6 +147,20 @@ private:
     /// highlightCurrentRegion(). Empty once every region is resolved (the
     /// buffer switches to the assembled result, not that preview).
     std::vector<std::pair<int, int>> regionTextRanges_;
+
+    /// Raw on-disk blob text for each side, captured verbatim by
+    /// onConflictSidesReady() rather than written straight into the edits --
+    /// refreshSidePanes() needs it retained as the fallback render whenever
+    /// parsedMarkers_.regionCount == 0 (no regions yet, or none at all).
+    QString ancestorBlobText_;
+    QString oursBlobText_;
+    QString theirsBlobText_;
+    /// regionIndex -> [firstBlock, blockCount) row spans for the ours/theirs
+    /// panes' most recent parsedMarkers_-driven render -- see
+    /// buildSidePaneText() in ConflictTextEdit.h. Empty whenever rendering
+    /// fell back to blob text instead.
+    std::vector<RegionRowSpan> oursRegionSpans_;
+    std::vector<RegionRowSpan> theirsRegionSpans_;
 
     QLabel* kindLabel_ = nullptr;
     QCheckBox* ancestorToggle_ = nullptr;

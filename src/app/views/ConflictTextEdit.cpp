@@ -70,6 +70,35 @@ void ConflictTextEdit::resizeEvent(QResizeEvent* event) {
     lineNumberArea_->setGeometry(QRect(cr.left(), cr.top(), lineNumberAreaWidth(), cr.height()));
 }
 
+SidePaneRender buildSidePaneText(const ParsedConflictFile& parsed, ConflictSide side) {
+    Q_ASSERT(side != ConflictSide::Result);
+
+    SidePaneRender render;
+    int blockCursor = 0;
+    int regionIndex = 0;
+    for (const ConflictSegment& segment : parsed.segments) {
+        if (segment.kind == ConflictSegmentKind::Text) {
+            for (const std::string& line : segment.lines) {
+                render.text += QString::fromStdString(line);
+            }
+            blockCursor += static_cast<int>(segment.lines.size());
+            continue;
+        }
+
+        const std::vector<std::string>& sideLines =
+            (side == ConflictSide::Theirs) ? segment.theirs : segment.ours;
+        const int firstBlock = blockCursor;
+        for (const std::string& line : sideLines) {
+            render.text += QString::fromStdString(line);
+        }
+        const int blockCount = static_cast<int>(sideLines.size());
+        render.spans.push_back(RegionRowSpan{regionIndex, firstBlock, blockCount});
+        blockCursor += blockCount;
+        ++regionIndex;
+    }
+    return render;
+}
+
 void ConflictTextEdit::lineNumberAreaPaintEvent(QPaintEvent* event) {
     QPainter painter(lineNumberArea_);
     painter.fillRect(event->rect(), ThemeManager::color(Token::SurfaceSunken));

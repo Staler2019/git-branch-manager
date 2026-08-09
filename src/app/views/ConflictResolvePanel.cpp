@@ -17,12 +17,14 @@
 #include <QSettings>
 #include <QShortcut>
 #include <QSplitter>
+#include <QStringList>
 #include <QTextCursor>
 #include <QTextEdit>
 #include <QTimer>
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <tuple>
 #include <utility>
 
 namespace gbm {
@@ -33,6 +35,93 @@ bool middleBufferHasUnsavedEdits(const QString& currentText, const QString& last
         return false;
     }
     return currentText != lastAssembledText;
+}
+
+namespace {
+
+// Untranslated technical tokens -- LF/CRLF/Mixed/UTF-16 LE/UTF-16 BE/
+// Non-UTF-8/Binary read the same regardless of UI language, the same way
+// this app never translates e.g. "M/M" conflict-kind shorthand. Empty
+// return means "nothing worth badging" (Utf8/Utf8Bom, or LineEndingKind::
+// None -- see ConflictTraitsSummary's own doc comment).
+QString lineEndingBadgeToken(LineEndingKind kind) {
+    switch (kind) {
+        case LineEndingKind::Lf:
+            return QStringLiteral("LF");
+        case LineEndingKind::Crlf:
+            return QStringLiteral("CRLF");
+        case LineEndingKind::Mixed:
+            return QStringLiteral("Mixed");
+        case LineEndingKind::None:
+            return QString();
+    }
+    return QString();
+}
+
+QString encodingBadgeToken(EncodingKind kind) {
+    switch (kind) {
+        case EncodingKind::Utf8:
+        case EncodingKind::Utf8Bom:
+            return QString();
+        case EncodingKind::Utf16Le:
+            return QStringLiteral("UTF-16 LE");
+        case EncodingKind::Utf16Be:
+            return QStringLiteral("UTF-16 BE");
+        case EncodingKind::NonUtf8:
+            return QStringLiteral("Non-UTF-8");
+        case EncodingKind::Binary:
+            return QStringLiteral("Binary");
+    }
+    return QString();
+}
+
+bool isEncodingUnsafeForLineOps(EncodingKind kind) {
+    return kind == EncodingKind::NonUtf8 || kind == EncodingKind::Binary ||
+           kind == EncodingKind::Utf16Le || kind == EncodingKind::Utf16Be;
+}
+
+// Appends `token` to `badge`, joined with ", " when `badge` already has
+// content -- a side can carry both a line-ending token and an encoding
+// token at once (e.g. CRLF *and* Non-UTF-8), and neither should clobber the
+// other.
+void appendBadgeToken(QString& badge, const QString& token) {
+    if (token.isEmpty()) {
+        return;
+    }
+    if (badge.isEmpty()) {
+        badge = token;
+    } else {
+        badge += QStringLiteral(", ") + token;
+    }
+}
+
+}  // namespace
+
+ConflictTraitsSummary summarizeConflictSideTraits(const TextTraits& ours, const TextTraits& theirs) {
+    ConflictTraitsSummary summary;
+
+    // Diff-based: must_not_do explicitly forbids a badge/warning when the
+    // two sides already agree, and LineEndingKind::None never disagrees
+    // with anything (see the header's own comment).
+    if (ours.lineEnding != LineEndingKind::None && theirs.lineEnding != LineEndingKind::None &&
+        ours.lineEnding != theirs.lineEnding) {
+        summary.lineEndingsDiffer = true;
+        appendBadgeToken(summary.oursBadge, lineEndingBadgeToken(ours.lineEnding));
+        appendBadgeToken(summary.theirsBadge, lineEndingBadgeToken(theirs.lineEnding));
+    }
+
+    // Absolute, not diff-based: each side's own encoding decides its own
+    // badge and its own unsafe flag, regardless of the other side's.
+    summary.oursLineOpsUnsafe = isEncodingUnsafeForLineOps(ours.encoding);
+    summary.theirsLineOpsUnsafe = isEncodingUnsafeForLineOps(theirs.encoding);
+    if (summary.oursLineOpsUnsafe) {
+        appendBadgeToken(summary.oursBadge, encodingBadgeToken(ours.encoding));
+    }
+    if (summary.theirsLineOpsUnsafe) {
+        appendBadgeToken(summary.theirsBadge, encodingBadgeToken(theirs.encoding));
+    }
+
+    return summary;
 }
 
 namespace {
@@ -130,6 +219,23 @@ ConflictResolvePanel::ConflictResolvePanel(QWidget* parent) : QWidget(parent) {
     headerRow->addWidget(ancestorToggle_);
     layout->addLayout(headerRow);
 
+    // Design A5's file-level warning banner -- reflects oursTraits_/
+    // theirsTraits_ (blob-level, independent of region parsing), so it sits
+    // above regionStrip_ rather than being gated by it; see
+    // updateTraitsPresentation(). Starts hidden -- nothing has been loaded
+    // yet, and summarizeConflictSideTraits() of two default TextTraits has
+    // nothing to say (must_not_do: never show this when there's nothing to
+    // disagree about).
+    traitsWarningRow_ = new QWidget(this);
+    traitsWarningRow_->setObjectName(QStringLiteral("conflictTraitsWarningRow"));
+    auto* traitsWarningLayout = new QHBoxLayout(traitsWarningRow_);
+    traitsWarningLayout->setContentsMargins(0, 0, 0, 0);
+    traitsWarningLabel_ = new QLabel(traitsWarningRow_);
+    traitsWarningLabel_->setWordWrap(true);
+    traitsWarningLayout->addWidget(traitsWarningLabel_, 1);
+    traitsWarningRow_->setVisible(false);
+    layout->addWidget(traitsWarningRow_);
+
     // Per-region controls now live in their own full-width row above
     // panesSplitter_, not inside the middle pane's own layout. They used to
     // be inserted directly into the middle pane's container (see git
@@ -211,7 +317,16 @@ ConflictResolvePanel::ConflictResolvePanel(QWidget* parent) : QWidget(parent) {
         container->setMinimumWidth(160);
         auto* paneLayout = new QVBoxLayout(container);
         paneLayout->setContentsMargins(0, 0, 0, 0);
-        paneLayout->addWidget(new QLabel(title, container));
+        // Design A5's per-column badge lives beside the title rather than
+        // below it, so the badges row doesn't add its own vertical strip --
+        // hidden (empty text) until updateTraitsPresentation() has
+        // something to say about this side.
+        auto* titleRow = new QHBoxLayout();
+        titleRow->addWidget(new QLabel(title, container), 1);
+        auto* badge = new QLabel(container);
+        badge->setVisible(false);
+        titleRow->addWidget(badge);
+        paneLayout->addLayout(titleRow);
         auto* edit = new ConflictTextEdit(container);
         edit->setReadOnly(true);
         // NoFocus by default: ancestor/ours/theirs never take keyboard input
@@ -238,13 +353,17 @@ ConflictResolvePanel::ConflictResolvePanel(QWidget* parent) : QWidget(parent) {
         const int index = panesSplitter_->count();
         panesSplitter_->addWidget(container);
         panesSplitter_->setStretchFactor(index, 1);
-        return std::pair{container, edit};
+        return std::tuple{container, edit, badge};
     };
-    std::tie(ancestorContainer_, ancestorEdit_) = makePane(tr("Common ancestor"));
+    std::tie(ancestorContainer_, ancestorEdit_, std::ignore) = makePane(tr("Common ancestor"));
     ancestorContainer_->setVisible(false);
-    std::tie(std::ignore, oursEdit_) = makePane(tr("Current branch (mine)"));
-    std::tie(std::ignore, middleEdit_) = makePane(tr("Resolved content (editable)"));
-    std::tie(std::ignore, theirsEdit_) = makePane(tr("Merged branch (theirs)"));
+    std::tie(std::ignore, oursEdit_, oursTraitBadge_) = makePane(tr("Current branch (mine)"));
+    std::tie(std::ignore, middleEdit_, std::ignore) = makePane(tr("Resolved content (editable)"));
+    std::tie(std::ignore, theirsEdit_, theirsTraitBadge_) = makePane(tr("Merged branch (theirs)"));
+    // Named so ConflictUiTest can locate them without depending on tr() text
+    // -- matching ancestorToggle_/regionResetButton_'s own convention.
+    oursTraitBadge_->setObjectName(QStringLiteral("conflictOursTraitBadge"));
+    theirsTraitBadge_->setObjectName(QStringLiteral("conflictTheirsTraitBadge"));
     // Design A1: ours/theirs are hover+drag sources, the middle (result)
     // pane is the only drop target -- see ConflictTextEdit::setSide(). The
     // ancestor pane is left at its default (no region spans are ever fed
@@ -346,10 +465,20 @@ ConflictResolvePanel::ConflictResolvePanel(QWidget* parent) : QWidget(parent) {
     // site's paired setFocusPolicy()). While middleEdit_ *is* that buffer,
     // Left/Right there reverting to plain cursor movement is the expected,
     // not swallowed, behavior -- it is genuinely a text box at that point.
+    // Design A5: the keyboard equivalents resolve a region to one side's
+    // whole content -- the exact same outcome a completed drag from that
+    // side produces (resolveRegion() with a plain Ours/Theirs choice). A
+    // drag from an encoding-unsafe side can never start in the first place
+    // (see refreshSidePanes()'s empty-regionSpans gate), so leaving these
+    // shortcuts unguarded would be a one-keystroke bypass of that same
+    // restriction -- advisor caught this before it landed.
     auto* takeLeftShortcut = new QShortcut(QKeySequence(Qt::Key_Left), this);
     takeLeftShortcut->setContext(Qt::WidgetWithChildrenShortcut);
     connect(takeLeftShortcut, &QShortcut::activated, this, [this] {
         if (regionResolutions_.empty()) {
+            return;
+        }
+        if (summarizeConflictSideTraits(oursTraits_, theirsTraits_).oursLineOpsUnsafe) {
             return;
         }
         resolveRegion(currentRegionIndex_, ConflictRegionResolution{ConflictRegionChoice::Ours, {}});
@@ -358,6 +487,9 @@ ConflictResolvePanel::ConflictResolvePanel(QWidget* parent) : QWidget(parent) {
     takeRightShortcut->setContext(Qt::WidgetWithChildrenShortcut);
     connect(takeRightShortcut, &QShortcut::activated, this, [this] {
         if (regionResolutions_.empty()) {
+            return;
+        }
+        if (summarizeConflictSideTraits(oursTraits_, theirsTraits_).theirsLineOpsUnsafe) {
             return;
         }
         resolveRegion(currentRegionIndex_,
@@ -417,6 +549,13 @@ void ConflictResolvePanel::showEntry(RepositorySession* session, const WorkingCo
     theirsBlobText_.clear();
     oursEdit_->setRegionSpans({});
     theirsEdit_->setRegionSpans({});
+    // Design A5: reset to "nothing to disagree about" -- the previous
+    // file's traits reply must not leak into this one and leave a stale
+    // badge/warning showing (or a side wrongly still disabled) before the
+    // new reply arrives.
+    oursTraits_ = TextTraits{};
+    theirsTraits_ = TextTraits{};
+    updateTraitsPresentation();
 
     QString kindText;
     switch (entry.conflict) {
@@ -489,6 +628,18 @@ void ConflictResolvePanel::showEntry(RepositorySession* session, const WorkingCo
             this,
             &ConflictResolvePanel::onConflictSidesReady,
             Qt::UniqueConnection);
+    // Design A5: a separate signal from conflictSidesReady (see
+    // RepositorySession::conflictSideTraitsReady's own doc comment), but the
+    // same request triggers both -- requestConflictSides() computes traits
+    // on the undecoded bytes before the QString conversion that
+    // conflictSidesReady's payload already went through, and emits both
+    // signals from the same queued callback. No separate request call
+    // needed here.
+    connect(session_,
+            &RepositorySession::conflictSideTraitsReady,
+            this,
+            &ConflictResolvePanel::onConflictSideTraitsReady,
+            Qt::UniqueConnection);
     session_->requestConflictSides(entry.path, entry.ancestorBlob, entry.oursBlob, entry.theirsBlob);
 
     connect(session_,
@@ -517,6 +668,52 @@ void ConflictResolvePanel::onConflictSidesReady(const QString& path,
     refreshSidePanes();
 }
 
+void ConflictResolvePanel::onConflictSideTraitsReady(const QString& path,
+                                                      const TextTraits& /*ancestor*/,
+                                                      const TextTraits& ours,
+                                                      const TextTraits& theirs) {
+    if (path.toStdString() != path_) {
+        return;
+    }
+    oursTraits_ = ours;
+    theirsTraits_ = theirs;
+    updateTraitsPresentation();
+    // refreshSidePanes() reads the same summarizeConflictSideTraits() result
+    // to decide whether to feed a pane its real region spans or an empty
+    // list (see there) -- re-running it here keeps that decision in sync
+    // with whichever of this reply and onConflictSidesReady()'s own arrives
+    // second (no ordering guarantee between them; C9b's comment on
+    // RepositorySession::requestConflictSides notwithstanding -- both
+    // signals share one emission there, but this handler must still be
+    // correct standing alone rather than relying on that implementation
+    // detail).
+    refreshSidePanes();
+}
+
+void ConflictResolvePanel::updateTraitsPresentation() {
+    const ConflictTraitsSummary summary = summarizeConflictSideTraits(oursTraits_, theirsTraits_);
+    oursTraitBadge_->setText(summary.oursBadge);
+    oursTraitBadge_->setVisible(!summary.oursBadge.isEmpty());
+    theirsTraitBadge_->setText(summary.theirsBadge);
+    theirsTraitBadge_->setVisible(!summary.theirsBadge.isEmpty());
+
+    QStringList warnings;
+    if (summary.lineEndingsDiffer) {
+        warnings << tr("Line endings differ between the two sides (%1 vs %2). Saving always "
+                       "keeps the working tree's original line ending, regardless of which "
+                       "side you take.")
+                        .arg(lineEndingBadgeToken(oursTraits_.lineEnding),
+                             lineEndingBadgeToken(theirsTraits_.lineEnding));
+    }
+    if (summary.oursLineOpsUnsafe || summary.theirsLineOpsUnsafe) {
+        warnings << tr("One side is not valid UTF-8 -- dragging or clicking individual lines "
+                       "from that column is disabled to avoid corrupting the result. Use Take "
+                       "Left or Take Right for the whole file instead.");
+    }
+    traitsWarningLabel_->setText(warnings.join(QStringLiteral("\n")));
+    traitsWarningRow_->setVisible(!warnings.isEmpty());
+}
+
 void ConflictResolvePanel::refreshSidePanes() {
     if (!ancestorBlobMissing_) {
         // The ancestor column has no per-side segment of its own to render
@@ -527,6 +724,16 @@ void ConflictResolvePanel::refreshSidePanes() {
     }
 
     const bool renderFromRegions = parsedMarkers_.regionCount > 0;
+    // Design A5: a side whose encoding isn't valid UTF-8 never gets region
+    // spans, regardless of what buildSidePaneText() computed -- with no
+    // spans, spanForBlock() always returns nullptr, so hover/drag/line-click
+    // are all inert on that pane (see ConflictTextEdit::mouseMoveEvent/
+    // mousePressEvent/mouseReleaseEvent, and
+    // emptyRegionSpansLeaveHoverInertEvenOverWhatWouldBeARegionRow() in
+    // ConflictUiTest.cpp, which pins that this actually holds). This is the
+    // same mechanism a regionless file already uses ({} in the `else`
+    // branches below) -- Design A5 just adds a second reason to reach it.
+    const ConflictTraitsSummary traits = summarizeConflictSideTraits(oursTraits_, theirsTraits_);
 
     if (!oursBlobMissing_) {
         if (renderFromRegions) {
@@ -535,7 +742,8 @@ void ConflictResolvePanel::refreshSidePanes() {
             // setRegionSpans() after setPlainText(): its block numbers must
             // refer to the document that was just set, not whatever the
             // pane showed before.
-            oursEdit_->setRegionSpans(render.spans);
+            oursEdit_->setRegionSpans(traits.oursLineOpsUnsafe ? std::vector<RegionRowSpan>{}
+                                                                : render.spans);
         } else {
             oursEdit_->setPlainText(oursBlobText_);
             oursEdit_->setRegionSpans({});
@@ -546,7 +754,8 @@ void ConflictResolvePanel::refreshSidePanes() {
         if (renderFromRegions) {
             const SidePaneRender render = buildSidePaneText(parsedMarkers_, ConflictSide::Theirs);
             theirsEdit_->setPlainText(render.text);
-            theirsEdit_->setRegionSpans(render.spans);
+            theirsEdit_->setRegionSpans(traits.theirsLineOpsUnsafe ? std::vector<RegionRowSpan>{}
+                                                                    : render.spans);
         } else {
             theirsEdit_->setPlainText(theirsBlobText_);
             theirsEdit_->setRegionSpans({});

@@ -2,6 +2,7 @@
 
 #include "app/views/ConflictTextEdit.h"
 #include "core/git/ConflictMarkerParser.h"
+#include "core/git/TextTraits.h"
 
 #include <QWidget>
 
@@ -40,6 +41,45 @@ struct WorkingCopyEntry;
 bool middleBufferHasUnsavedEdits(const QString& currentText, const QString& lastAssembledText,
                                   bool isReadOnly);
 
+/// Design A5: what to show/restrict for one pair of sides' TextTraits.
+///
+/// Line-ending badges/warning are diff-based only -- must_not_do: "不得在行
+/// 尾一致時顯示徽章或警告列" (never show a badge or warning when the two
+/// sides' line endings already agree). A side reporting
+/// LineEndingKind::None (an empty or single-line blob has no line-ending
+/// opinion of its own) never participates in that comparison either way --
+/// there is nothing for it to disagree with, so `lineEndingsDiffer` stays
+/// false whenever either side is None. `oursBadge`/`theirsBadge` carry the
+/// raw technical token (LF, CRLF, Mixed, Non-UTF-8, ...) untranslated,
+/// matching how this app leaves other protocol-level acronyms alone; the
+/// surrounding sentence is composed and translated by the caller
+/// (ConflictResolvePanel::updateTraitsPresentation(), a member function so
+/// tr() is available -- this one is a free function so it stays directly
+/// unit-testable, same reasoning as middleBufferHasUnsavedEdits() above).
+///
+/// Encoding badges/unsafe flags are the opposite of diff-based: each side's
+/// badge and *LineOpsUnsafe flag come from that side's own encoding alone,
+/// independent of the other side's. Design A5's must_not_do only ties a
+/// column's badge to its own restriction ("停用該欄的拖曳與點行...並在該欄
+/// 標明原因"), not to whether the other column also happens to be unsafe.
+/// Utf8/Utf8Bom are the only encodings considered safe for per-line
+/// composition; NonUtf8, Binary, and both UTF-16 variants are all "not
+/// valid UTF-8" per the plan's literal wording and are therefore unsafe --
+/// per-line drag/click on that side would silently mix encodings into
+/// middleEdit_'s otherwise-UTF-8 buffer.
+struct ConflictTraitsSummary {
+    QString oursBadge;
+    QString theirsBadge;
+    bool lineEndingsDiffer = false;
+    bool oursLineOpsUnsafe = false;
+    bool theirsLineOpsUnsafe = false;
+};
+
+/// Pure/testable core of Design A5's presentation and restriction rules --
+/// see ConflictTraitsSummary's own doc comment for exactly which fields are
+/// diff-based and which are absolute per-side.
+ConflictTraitsSummary summarizeConflictSideTraits(const TextTraits& ours, const TextTraits& theirs);
+
 /// One conflicted path's resolution view: left = the current branch's side
 /// (ours), middle = the editable resolved content (the actual working-tree
 /// file, conflict markers and all), right = the merged-in branch's side
@@ -72,6 +112,14 @@ private:
                               const QString& ancestor,
                               const QString& ours,
                               const QString& theirs);
+    /// Design A5: ancestor's traits are received but deliberately unused --
+    /// the ancestor pane is never a drag/click source (see setSide()'s own
+    /// comment) and never gets a badge, so there is nothing for its traits
+    /// to gate. See RepositorySession::conflictSideTraitsReady's own comment
+    /// on why this is a separate signal from conflictSidesReady rather than
+    /// an extension of it.
+    void onConflictSideTraitsReady(const QString& path, const TextTraits& ancestor,
+                                    const TextTraits& ours, const TextTraits& theirs);
     void onWorkingTreeContentReady(const QString& path, const QString& content, bool editable);
     void submitResolution(int choice);
 
@@ -86,6 +134,15 @@ private:
     /// final render; the one that lands first produces a partial render
     /// that this then replaces.
     void refreshSidePanes();
+
+    /// Design A5: re-derives a ConflictTraitsSummary from oursTraits_/
+    /// theirsTraits_ and applies it -- badge text + visibility on
+    /// oursTraitBadge_/theirsTraitBadge_, the combined warning sentence(s)
+    /// on traitsWarningRow_/traitsWarningLabel_. Does *not* touch
+    /// regionSpans_ on either pane itself -- refreshSidePanes() reads the
+    /// same summary to decide that, so the two stay in lockstep by always
+    /// being called together (see onConflictSideTraitsReady()).
+    void updateTraitsPresentation();
 
     /// Renders the middle column's text for the current parsedMarkers_ +
     /// regionResolutions_: plain-text segments pass through verbatim, a
@@ -257,8 +314,24 @@ private:
     QString oursBlobText_;
     QString theirsBlobText_;
 
+    /// Design A5: the two sides' undecoded-byte traits, as last reported by
+    /// RepositorySession::conflictSideTraitsReady(). Default-constructed
+    /// (TextTraits{}, i.e. LineEndingKind::None on both, EncodingKind::Utf8
+    /// on both) until that reply arrives -- summarizeConflictSideTraits()
+    /// treats that as "nothing to disagree about", so no badge/warning
+    /// shows and no pane is restricted before the reply lands, rather than
+    /// showing a false positive from two stale/default values.
+    TextTraits oursTraits_;
+    TextTraits theirsTraits_;
+
     QLabel* kindLabel_ = nullptr;
     QCheckBox* ancestorToggle_ = nullptr;
+    /// Design A5's file-level warning banner -- see updateTraitsPresentation().
+    /// Sits above regionStrip_ since it reflects the blob-level traits, not
+    /// anything region-parsing-dependent, so it's relevant even for a
+    /// regionCount == 0 file.
+    QWidget* traitsWarningRow_ = nullptr;
+    QLabel* traitsWarningLabel_ = nullptr;
     QSplitter* panesSplitter_ = nullptr;
     QWidget* ancestorContainer_ = nullptr;
     /// ancestorEdit_/oursEdit_/theirsEdit_ are permanently Qt::NoFocus --
@@ -274,6 +347,13 @@ private:
     ConflictTextEdit* oursEdit_ = nullptr;
     ConflictTextEdit* middleEdit_ = nullptr;
     ConflictTextEdit* theirsEdit_ = nullptr;
+    /// Design A5's per-column badges (e.g. "CRLF", "Non-UTF-8") -- hidden
+    /// (empty text) whenever ConflictTraitsSummary has nothing to say about
+    /// that side. See updateTraitsPresentation(). No ancestor/middle
+    /// equivalent -- the ancestor pane is never a drag/click source and the
+    /// middle pane isn't either side, so neither ever needs one.
+    QLabel* oursTraitBadge_ = nullptr;
+    QLabel* theirsTraitBadge_ = nullptr;
     QPushButton* saveButton_ = nullptr;
 
     /// Per-region controls shown above the middle column, only while

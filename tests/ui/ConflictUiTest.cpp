@@ -23,11 +23,13 @@
 #include "app/views/ConflictResolvePanel.h"
 #include "app/views/ConflictTextEdit.h"
 #include "core/git/ConflictMarkerParser.h"
+#include "core/git/TextTraits.h"
 
 #include <QApplication>
 #include <QCheckBox>
 #include <QDropEvent>
 #include <QKeySequence>
+#include <QLabel>
 #include <QMimeData>
 #include <QMouseEvent>
 #include <QPushButton>
@@ -395,6 +397,45 @@ private slots:
         QVERIFY(edit.extraSelections().isEmpty());
     }
 
+    // Design A5 leans entirely on this: disabling a side's drag/line-click
+    // once its encoding is unsafe is implemented as feeding it an empty
+    // span list (see ConflictResolvePanel::refreshSidePanes()), not a new
+    // ConflictTextEdit flag -- spanForBlock() always returns nullptr with no
+    // spans, so hoveredSpanIndex_/dragCandidateSpanIndex_ can never become
+    // valid and mouseMoveEvent()'s hover-highlight/drag-start block and
+    // mouseReleaseEvent()'s line-toggle path are both dead code regardless
+    // of where the mouse is. This is the companion negative case to
+    // oursEditHighlightsHoveredRegionAndClearsOutsideIt() above -- same
+    // document and same hover position, but setRegionSpans({}) instead of a
+    // real span -- pinning that the *mechanism* this whole feature rests on
+    // actually holds, independent of any panel/session wiring.
+    void emptyRegionSpansLeaveHoverInertEvenOverWhatWouldBeARegionRow() {
+        ConflictTextEdit edit;
+        edit.setSide(ConflictSide::Ours);
+        edit.setPlainText(QStringLiteral("aaa\nbbb\nccc\nddd\n"));
+        edit.setRegionSpans({});
+        edit.resize(300, 200);
+        edit.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&edit));
+
+        auto moveTo = [&](const QPoint& pos) {
+            QMouseEvent event(QEvent::MouseMove,
+                               QPointF(pos),
+                               edit.viewport()->mapToGlobal(pos),
+                               Qt::NoButton,
+                               Qt::NoButton,
+                               Qt::NoModifier);
+            QCoreApplication::sendEvent(edit.viewport(), &event);
+        };
+
+        // Same block (1, "bbb") that was inside RegionRowSpan{0, 1, 2} in the
+        // companion test above -- there the exact same position produced a
+        // highlight; here, with no spans at all, it must not.
+        QTextCursor hoverCursor(edit.document()->findBlockByNumber(1));
+        moveTo(edit.cursorRect(hoverCursor).center());
+        QVERIFY(edit.extraSelections().isEmpty());
+    }
+
     // Design A2's fixed composition order: every selected ours line (in
     // original order) first, then every selected theirs line (in original
     // order) -- regardless of which one was clicked more recently. Selects
@@ -608,6 +649,112 @@ private slots:
             QStringLiteral("edited"), QStringLiteral("original"), /*isReadOnly=*/true));
     }
 
+    // Design A5's must_not_do: "不得在行尾一致時顯示徽章或警告列" -- matching
+    // line endings must never produce a badge or warning.
+    void summarizeConflictSideTraitsShowsNothingWhenLineEndingsMatch() {
+        TextTraits ours;
+        ours.lineEnding = LineEndingKind::Lf;
+        TextTraits theirs;
+        theirs.lineEnding = LineEndingKind::Lf;
+
+        const ConflictTraitsSummary summary = summarizeConflictSideTraits(ours, theirs);
+        QVERIFY(!summary.lineEndingsDiffer);
+        QVERIFY(summary.oursBadge.isEmpty());
+        QVERIFY(summary.theirsBadge.isEmpty());
+    }
+
+    void summarizeConflictSideTraitsFlagsDifferingLineEndingsWithBadges() {
+        TextTraits ours;
+        ours.lineEnding = LineEndingKind::Crlf;
+        TextTraits theirs;
+        theirs.lineEnding = LineEndingKind::Lf;
+
+        const ConflictTraitsSummary summary = summarizeConflictSideTraits(ours, theirs);
+        QVERIFY(summary.lineEndingsDiffer);
+        QCOMPARE(summary.oursBadge, QStringLiteral("CRLF"));
+        QCOMPARE(summary.theirsBadge, QStringLiteral("LF"));
+    }
+
+    // LineEndingKind::None ("no opinion" -- an empty or single-line blob)
+    // must never register as a disagreement, even against a side that does
+    // have an opinion -- there is nothing for None to disagree with.
+    void summarizeConflictSideTraitsTreatsNoneAsNoOpinion() {
+        TextTraits ours;
+        ours.lineEnding = LineEndingKind::Crlf;
+        TextTraits theirs;
+        theirs.lineEnding = LineEndingKind::None;
+
+        const ConflictTraitsSummary summary = summarizeConflictSideTraits(ours, theirs);
+        QVERIFY(!summary.lineEndingsDiffer);
+        QVERIFY(summary.oursBadge.isEmpty());
+        QVERIFY(summary.theirsBadge.isEmpty());
+    }
+
+    // Utf8/Utf8Bom are both considered safe -- neither sets the unsafe flag
+    // nor produces a badge, even though they're technically different
+    // EncodingKind values from each other.
+    void summarizeConflictSideTraitsTreatsUtf8AndUtf8BomAsSafe() {
+        TextTraits ours;
+        ours.encoding = EncodingKind::Utf8;
+        TextTraits theirs;
+        theirs.encoding = EncodingKind::Utf8Bom;
+
+        const ConflictTraitsSummary summary = summarizeConflictSideTraits(ours, theirs);
+        QVERIFY(!summary.oursLineOpsUnsafe);
+        QVERIFY(!summary.theirsLineOpsUnsafe);
+        QVERIFY(summary.oursBadge.isEmpty());
+        QVERIFY(summary.theirsBadge.isEmpty());
+    }
+
+    // NonUtf8, Binary, and both UTF-16 variants are all "not valid UTF-8"
+    // per the plan's literal wording -- each must flag that side unsafe and
+    // carry a badge, independent of what the *other* side's encoding is
+    // (unlike the line-ending fields above, this is not diff-based).
+    void summarizeConflictSideTraitsFlagsEveryNonUtf8EncodingAsUnsafe() {
+        TextTraits safeTheirs;  // kept Utf8 (the default) throughout below.
+
+        TextTraits nonUtf8Ours;
+        nonUtf8Ours.encoding = EncodingKind::NonUtf8;
+        ConflictTraitsSummary summary = summarizeConflictSideTraits(nonUtf8Ours, safeTheirs);
+        QVERIFY(summary.oursLineOpsUnsafe);
+        QVERIFY(!summary.theirsLineOpsUnsafe);
+        QVERIFY(!summary.oursBadge.isEmpty());
+
+        TextTraits binaryOurs;
+        binaryOurs.encoding = EncodingKind::Binary;
+        summary = summarizeConflictSideTraits(binaryOurs, safeTheirs);
+        QVERIFY(summary.oursLineOpsUnsafe);
+
+        TextTraits utf16LeOurs;
+        utf16LeOurs.encoding = EncodingKind::Utf16Le;
+        summary = summarizeConflictSideTraits(utf16LeOurs, safeTheirs);
+        QVERIFY(summary.oursLineOpsUnsafe);
+
+        TextTraits utf16BeTheirs;
+        utf16BeTheirs.encoding = EncodingKind::Utf16Be;
+        summary = summarizeConflictSideTraits(safeTheirs, utf16BeTheirs);
+        QVERIFY(!summary.oursLineOpsUnsafe);
+        QVERIFY(summary.theirsLineOpsUnsafe);
+        QVERIFY(!summary.theirsBadge.isEmpty());
+    }
+
+    // A side can carry both kinds of badge at once (differing line ending
+    // *and* unsafe encoding) -- both must still show, not one clobbering the
+    // other.
+    void summarizeConflictSideTraitsCombinesLineEndingAndEncodingBadges() {
+        TextTraits ours;
+        ours.lineEnding = LineEndingKind::Crlf;
+        ours.encoding = EncodingKind::NonUtf8;
+        TextTraits theirs;
+        theirs.lineEnding = LineEndingKind::Lf;
+
+        const ConflictTraitsSummary summary = summarizeConflictSideTraits(ours, theirs);
+        QVERIFY(summary.lineEndingsDiffer);
+        QVERIFY(summary.oursLineOpsUnsafe);
+        QVERIFY(summary.oursBadge.contains(QStringLiteral("CRLF")));
+        QVERIFY(!summary.theirsBadge.contains(QStringLiteral("Non-UTF-8")));
+    }
+
     // Design A3's keyboard equivalents rely on Qt::WidgetWithChildrenShortcut
     // firing for plain Left/Right/Backspace on an ordinary QWidget under
     // offscreen QPA -- not something to assume without checking (advisor
@@ -683,6 +830,32 @@ private slots:
         QVERIFY2(hintRow != nullptr, "expected the first-use direct-manipulation hint row");
         QVERIFY2(!hintRow->isVisible(),
                  "hint row must start hidden -- no conflict with regions is loaded yet");
+    }
+
+    // Design A5's presentation widgets must start inert -- no traits reply
+    // has arrived yet in this fixture (showEntry() is never called here; see
+    // the file header's note on RepositorySession having no light test
+    // harness), so oursTraits_/theirsTraits_ are still both default-
+    // constructed and summarizeConflictSideTraits() of two defaults has
+    // nothing to say. This is the structural half of Design A5's coverage --
+    // the actual conflictSideTraitsReady -> updateTraitsPresentation() wiring
+    // has the same untestable-without-a-session gap as C8's focus-policy
+    // transition; see summarizeConflictSideTraits*() above for the covered
+    // decision logic and the manual test plan (items 30-32) for the wiring.
+    void traitsWarningRowAndBadgesStartHiddenWithNoTraitsLoadedYet() {
+        QWidget* warningRow =
+            panel_->findChild<QWidget*>(QStringLiteral("conflictTraitsWarningRow"));
+        QVERIFY2(warningRow != nullptr, "expected Design A5's traits warning row");
+        QVERIFY(!warningRow->isVisible());
+
+        QLabel* oursBadge =
+            panel_->findChild<QLabel*>(QStringLiteral("conflictOursTraitBadge"));
+        QLabel* theirsBadge =
+            panel_->findChild<QLabel*>(QStringLiteral("conflictTheirsTraitBadge"));
+        QVERIFY2(oursBadge != nullptr, "expected the ours-pane trait badge label");
+        QVERIFY2(theirsBadge != nullptr, "expected the theirs-pane trait badge label");
+        QVERIFY(!oursBadge->isVisible());
+        QVERIFY(!theirsBadge->isVisible());
     }
 
     // Regression for the bug advisor caught before this landed: an earlier

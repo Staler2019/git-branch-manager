@@ -53,6 +53,20 @@ public:
     /// discard it based on this value).
     static ConflictBatch forOperation(std::string operationFingerprint);
 
+    /// Rebuilds a batch from entries in their last-known state, verbatim --
+    /// used by the app-side QSettings persistence layer to resume a batch
+    /// across app restarts, where there is no live git-status scan to
+    /// merge() against yet (see WorkingCopyStatus::conflicted()'s own
+    /// unavailability at that point). Trusts the caller's `entries` as-is,
+    /// including whatever order and state they were saved in -- this is a
+    /// resume aid, not a second way to derive state, so the very next
+    /// merge() call re-derives every entry fresh from the first real scan
+    /// the same way it always does, silently correcting anything stale a
+    /// restore might have carried over (a file resolved by hand while the
+    /// app was closed, say).
+    static ConflictBatch restore(std::string operationFingerprint,
+                                  std::vector<ConflictBatchEntry> entries);
+
     /// Merges in one git-status scan's conflicted paths:
     ///  - Every path already tracked has its state re-derived fresh from
     ///    whether it's still present in `conflicted` -- present means

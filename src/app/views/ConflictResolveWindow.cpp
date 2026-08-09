@@ -1,5 +1,6 @@
 #include "app/views/ConflictResolveWindow.h"
 
+#include "app/bridge/ConflictBatchStore.h"
 #include "app/bridge/RepositorySession.h"
 #include "app/theme/IconLoader.h"
 #include "app/theme/Tokens.h"
@@ -156,6 +157,14 @@ ConflictResolveWindow* ConflictResolveWindow::openFor(QWidget* parent, Repositor
     window->session_ = session;
 
     if (session != nullptr) {
+        // Design B2: resume whatever batch (if any) was saved for this exact
+        // operation before the first live merge() -- see
+        // ConflictBatchStore::operationFingerprint()'s own comment on what
+        // "exact" means here and its accepted trade-off.
+        const std::string fingerprint =
+            ConflictBatchStore::operationFingerprint(session->paths(), session->state());
+        window->conflictBatch_ = ConflictBatchStore::load(session->paths(), fingerprint);
+
         connect(session, &RepositorySession::workingCopyStatusUpdated, window,
                 &ConflictResolveWindow::onSessionWorkingCopyStatusUpdated, Qt::UniqueConnection);
         window->currentStatus_ = session->workingCopyStatus();
@@ -208,6 +217,20 @@ void ConflictResolveWindow::refreshBatch(const std::vector<const WorkingCopyEntr
             }
         }
         selectEntryIndex(firstUnresolved >= 0 ? firstUnresolved : 0);
+    }
+
+    // Design B2: persist after every merge so the batch survives an app
+    // restart mid-operation. Cleared instead once every tracked file is
+    // resolved *and* the sequencer operation itself has actually ended
+    // (isClean()) -- allResolved() alone isn't enough, since a rebase can
+    // finish one step fully resolved and then immediately surface a fresh
+    // conflict on the next commit it replays.
+    if (session_ != nullptr) {
+        if (conflictBatch_.allResolved() && session_->state().isClean()) {
+            ConflictBatchStore::clear(session_->paths());
+        } else {
+            ConflictBatchStore::save(session_->paths(), conflictBatch_);
+        }
     }
 }
 

@@ -11,6 +11,14 @@ ConflictBatch ConflictBatch::forOperation(std::string operationFingerprint) {
     return batch;
 }
 
+ConflictBatch ConflictBatch::restore(std::string operationFingerprint,
+                                      std::vector<ConflictBatchEntry> entries) {
+    ConflictBatch batch;
+    batch.operationFingerprint_ = std::move(operationFingerprint);
+    batch.entries_ = std::move(entries);
+    return batch;
+}
+
 void ConflictBatch::merge(const std::vector<const WorkingCopyEntry*>& conflicted) {
     // Re-derive every already-tracked path's state fresh from this scan --
     // see the header's own comment on why this must never be "sticky".

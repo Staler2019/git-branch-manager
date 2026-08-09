@@ -20,11 +20,14 @@
 // size-hint comparison pass for the wrong reason without a live
 // RepositorySession feeding real conflict content. Ancestry survives that --
 // setVisible(false) does not remove the widget from its parent's layout.
+#include "app/bridge/ConflictBatchStore.h"
 #include "app/views/ConflictResolvePanel.h"
 #include "app/views/ConflictResolveWindow.h"
 #include "app/views/ConflictTextEdit.h"
 #include "core/git/ConflictBatch.h"
 #include "core/git/ConflictMarkerParser.h"
+#include "core/git/RepoPaths.h"
+#include "core/git/RepoState.h"
 #include "core/git/TextTraits.h"
 #include "core/git/WorkingCopyStatus.h"
 
@@ -45,6 +48,7 @@
 #include <QTextEdit>
 #include <QtTest>
 
+#include <filesystem>
 #include <memory>
 
 using namespace gbm;
@@ -102,6 +106,14 @@ WorkingCopyEntry makeConflictedEntry(const std::string& path, ConflictKind kind)
     entry.path = path;
     entry.conflict = kind;
     return entry;
+}
+
+// ConflictBatchStore only ever hashes/stats commandDir()'s path string --
+// it never touches this directory on disk -- so a fake, never-created path
+// is enough to exercise the QSettings round-trip.
+RepoPaths makeFakeRepoPaths(const std::string& name) {
+    const std::filesystem::path workDir = std::filesystem::path("/tmp") / name;
+    return RepoPaths(workDir, workDir / ".git", workDir / ".git");
 }
 
 // dragEnterEvent()/dropEvent() are protected overrides -- Qt's own
@@ -1148,6 +1160,111 @@ private slots:
         // b.h resolved with no such signal -- an external `git add b.h`.
         window.refreshBatch({});
         QVERIFY(rail->item(1)->toolTip().contains(QStringLiteral("outside")));
+    }
+
+    // Design B2's fingerprint trade-off, made concrete: same repo path, same
+    // RepoState shape -> same fingerprint (so a genuine resume works), but a
+    // different rebase step or different flags -> a different one (so a
+    // later, unrelated operation doesn't silently inherit an older batch).
+    void operationFingerprintVariesWithRepoStateShapeNotJustPath() {
+        const RepoPaths paths = makeFakeRepoPaths("fp-repo");
+        RepoState mergeState;
+        mergeState.flags = RepoState::Merge;
+        RepoState rebaseStepTwo;
+        rebaseStepTwo.flags = RepoState::RebaseMerge;
+        rebaseStepTwo.rebaseStep = 2;
+        rebaseStepTwo.rebaseTotal = 5;
+        RepoState rebaseStepThree = rebaseStepTwo;
+        rebaseStepThree.rebaseStep = 3;
+
+        const std::string mergeFingerprint = ConflictBatchStore::operationFingerprint(paths, mergeState);
+        const std::string rebaseTwoFingerprint =
+            ConflictBatchStore::operationFingerprint(paths, rebaseStepTwo);
+        const std::string rebaseThreeFingerprint =
+            ConflictBatchStore::operationFingerprint(paths, rebaseStepThree);
+
+        QVERIFY(mergeFingerprint != rebaseTwoFingerprint);
+        QVERIFY(rebaseTwoFingerprint != rebaseThreeFingerprint);
+        QCOMPARE(ConflictBatchStore::operationFingerprint(paths, mergeState), mergeFingerprint);
+    }
+
+    void loadReturnsFreshEmptyBatchWhenNothingWasEverSaved() {
+        const RepoPaths paths = makeFakeRepoPaths("never-saved-repo");
+        const ConflictBatch batch = ConflictBatchStore::load(paths, "fp-1");
+        QVERIFY(batch.entries().empty());
+        QCOMPARE(QString::fromStdString(batch.operationFingerprint()), QStringLiteral("fp-1"));
+    }
+
+    // The core round-trip: save what merge() produced, load it back under
+    // the same fingerprint, and get the same entries in the same order --
+    // this is what lets a batch survive an app restart mid-operation.
+    void saveThenLoadRoundTripsEntriesWhenFingerprintMatches() {
+        const RepoPaths paths = makeFakeRepoPaths("roundtrip-repo");
+        ConflictBatch batch = ConflictBatch::forOperation("fp-1");
+        const WorkingCopyEntry a = makeConflictedEntry("a.cpp", ConflictKind::BothModified);
+        const WorkingCopyEntry b = makeConflictedEntry("b.h", ConflictKind::BothAdded);
+        batch.merge({&a, &b});
+        batch.merge({&b});  // a.cpp resolved
+
+        ConflictBatchStore::save(paths, batch);
+        const ConflictBatch loaded = ConflictBatchStore::load(paths, "fp-1");
+
+        QCOMPARE(loaded.entries().size(), 2u);
+        QCOMPARE(QString::fromStdString(loaded.entries()[0].path), QStringLiteral("a.cpp"));
+        QVERIFY(loaded.entries()[0].state == ConflictFileState::Resolved);
+        QCOMPARE(QString::fromStdString(loaded.entries()[1].path), QStringLiteral("b.h"));
+        QVERIFY(loaded.entries()[1].state == ConflictFileState::Unresolved);
+        QCOMPARE(QString::fromStdString(loaded.operationFingerprint()), QStringLiteral("fp-1"));
+    }
+
+    // forOperation()'s own contract: a different fingerprint means a
+    // different operation entirely, no migration. A merge --abort followed
+    // by a fresh merge that hits different conflicts must not inherit the
+    // old batch's entries.
+    void loadDiscardsTheSavedBatchWhenFingerprintDiffers() {
+        const RepoPaths paths = makeFakeRepoPaths("mismatch-repo");
+        ConflictBatch batch = ConflictBatch::forOperation("fp-1");
+        const WorkingCopyEntry a = makeConflictedEntry("a.cpp", ConflictKind::BothModified);
+        batch.merge({&a});
+        ConflictBatchStore::save(paths, batch);
+
+        const ConflictBatch loaded = ConflictBatchStore::load(paths, "fp-2");
+
+        QVERIFY(loaded.entries().empty());
+        QCOMPARE(QString::fromStdString(loaded.operationFingerprint()), QStringLiteral("fp-2"));
+    }
+
+    void clearRemovesTheSavedBatchSoALaterLoadStartsFresh() {
+        const RepoPaths paths = makeFakeRepoPaths("clear-repo");
+        ConflictBatch batch = ConflictBatch::forOperation("fp-1");
+        const WorkingCopyEntry a = makeConflictedEntry("a.cpp", ConflictKind::BothModified);
+        batch.merge({&a});
+        ConflictBatchStore::save(paths, batch);
+
+        ConflictBatchStore::clear(paths);
+        const ConflictBatch loaded = ConflictBatchStore::load(paths, "fp-1");
+
+        QVERIFY(loaded.entries().empty());
+    }
+
+    // ConflictResolveWindow's own persistence wiring (refreshBatch()'s tail):
+    // once every tracked entry is resolved, the saved batch is cleared
+    // rather than persisted, so no stale checkmarks linger past the
+    // operation. Without a live session this only proves refreshBatch()
+    // still runs correctly when session_ stays nullptr (no persistence to
+    // touch at all) -- the actual persist/clear branch needs a live
+    // RepositorySession, covered by manual verification per the plan.
+    void refreshBatchWithNoSessionNeverTouchesPersistence() {
+        ConflictResolveWindow window;
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        const WorkingCopyEntry a = makeConflictedEntry("a.cpp", ConflictKind::BothModified);
+        window.refreshBatch({&a});
+        window.refreshBatch({});  // fully resolved, no session to persist through
+
+        const RepoPaths paths = makeFakeRepoPaths("no-session-repo");
+        const ConflictBatch loaded = ConflictBatchStore::load(paths, "unrelated-fingerprint");
+        QVERIFY(loaded.entries().empty());
     }
 
 private:

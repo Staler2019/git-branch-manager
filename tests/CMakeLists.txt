@@ -225,6 +225,7 @@ if(GBM_BUILD_APP)
     # (see gbm_theme_tests below).
     qt_add_executable(gbm_conflict_ui_tests ui/ConflictUiTest.cpp
         ${GBM_MODEL_TEST_SOURCES}
+        "${CMAKE_SOURCE_DIR}/src/app/bridge/ConflictBatchStore.cpp"
         "${CMAKE_SOURCE_DIR}/src/app/views/ConflictResolvePanel.cpp"
         "${CMAKE_SOURCE_DIR}/src/app/views/ConflictResolveWindow.cpp"
         "${CMAKE_SOURCE_DIR}/src/app/views/ConflictTextEdit.cpp"

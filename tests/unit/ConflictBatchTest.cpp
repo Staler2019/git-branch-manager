@@ -162,5 +162,44 @@ TEST(ConflictBatch, ForOperationWithADifferentFingerprintStartsFreshAndEmpty) {
     EXPECT_EQ(second.operationFingerprint(), "op-2");
 }
 
+// restore() is the app-side persistence layer's resume path (Design B2's
+// QSettings round-trip) -- unlike forOperation()+merge(), it must trust the
+// caller's saved state verbatim rather than re-deriving it, since there is
+// no live git-status scan to merge() against yet at app startup.
+TEST(ConflictBatch, RestoreSeedsEntriesInGivenStateVerbatim) {
+    std::vector<ConflictBatchEntry> saved = {
+        {"a.cpp", ConflictKind::BothModified, ConflictFileState::Resolved},
+        {"b.h", ConflictKind::BothAdded, ConflictFileState::Unresolved},
+    };
+    const ConflictBatch batch = ConflictBatch::restore("op-1", saved);
+
+    ASSERT_EQ(batch.entries().size(), 2u);
+    EXPECT_EQ(batch.entries()[0].path, "a.cpp");
+    EXPECT_EQ(batch.entries()[0].state, ConflictFileState::Resolved);
+    EXPECT_EQ(batch.entries()[1].path, "b.h");
+    EXPECT_EQ(batch.entries()[1].state, ConflictFileState::Unresolved);
+    EXPECT_EQ(batch.operationFingerprint(), "op-1");
+    EXPECT_EQ(batch.resolvedCount(), 1u);
+}
+
+// A restore is only a resume aid, not a second source of truth -- the very
+// next merge() must re-derive every entry's state fresh from the live scan,
+// exactly as if the batch had never been restored, so a file resolved by
+// hand while the app was closed (and therefore missing from `saved`
+// entirely, or stale in it) self-corrects rather than staying wrong forever.
+TEST(ConflictBatch, ANextMergeAfterRestoreRederivesStateFromTheLiveScan) {
+    std::vector<ConflictBatchEntry> saved = {
+        {"a.cpp", ConflictKind::BothModified, ConflictFileState::Unresolved},
+    };
+    ConflictBatch batch = ConflictBatch::restore("op-1", saved);
+
+    // a.cpp was actually resolved by hand while the app was closed.
+    batch.merge({});
+
+    ASSERT_EQ(batch.entries().size(), 1u);
+    EXPECT_EQ(batch.entries()[0].state, ConflictFileState::Resolved);
+    EXPECT_TRUE(batch.allResolved());
+}
+
 }  // namespace
 }  // namespace gbm

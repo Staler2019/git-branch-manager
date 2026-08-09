@@ -21,6 +21,10 @@ TEST(BuildStateBannerText, MergeWithKnownConflictsProducesHeadlineAndInstruction
     EXPECT_NE(banner.headline.find("Merge"), std::string::npos);
     EXPECT_NE(banner.headline.find('3'), std::string::npos);
     EXPECT_FALSE(banner.instruction.empty());
+    // Design C2: the instruction now points at the banner's own Resolve
+    // Conflicts entry point rather than describing the (removed) embedded
+    // panel in the abstract -- see MainWindow's bannerResolveButton_.
+    EXPECT_NE(banner.instruction.find("Resolve Conflicts"), std::string::npos);
     EXPECT_TRUE(banner.isConflict);
 }
 

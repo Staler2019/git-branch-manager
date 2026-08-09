@@ -26,6 +26,7 @@
 #include "app/theme/IconLoader.h"
 #include "app/theme/Metrics.h"
 #include "app/views/CommitExpansionPanel.h"
+#include "app/views/ConflictResolveWindow.h"
 #include "app/views/CredentialDialog.h"
 #include "app/views/TerminalLauncher.h"
 #include "core/discovery/RepoClassifier.h"
@@ -313,6 +314,18 @@ void MainWindow::buildUi() {
         widget->setProperty("conflict", false);
     }
 
+    // Design C2: the one entry point into ConflictResolveWindow, ahead of
+    // Skip/Abort/Continue since resolving conflicts is a precondition for
+    // Continue on any sequencer operation that offers it. Visibility is
+    // driven by banner.isConflict in updateStateBanner(), not by
+    // updateSequencerControls() -- see bannerResolveButton_'s own comment.
+    bannerResolveButton_ = new QPushButton(QStringLiteral("Resolve Conflicts…"), bannerRow);
+    bannerResolveButton_->setObjectName(QStringLiteral("primaryButton"));
+    bannerResolveButton_->setVisible(false);
+    connect(bannerResolveButton_, &QPushButton::clicked, this,
+            &MainWindow::onBannerResolveConflicts);
+    bannerLayout->addWidget(bannerResolveButton_);
+
     // Continue/Skip/Abort for whichever sequencer operation (merge, cherry-pick,
     // revert or rebase) RepoState reports in progress -- see
     // updateSequencerControls. Not every operation offers all three: a plain
@@ -329,7 +342,8 @@ void MainWindow::buildUi() {
     connect(bannerContinueButton_, &QPushButton::clicked, this, &MainWindow::onBannerContinue);
     connect(bannerSkipButton_, &QPushButton::clicked, this, &MainWindow::onBannerSkip);
     connect(bannerAbortButton_, &QPushButton::clicked, this, &MainWindow::onBannerAbort);
-    // Skip/Abort/Continue, left to right, matching your conflict screenshot.
+    // Resolve Conflicts/Skip/Abort/Continue, left to right, matching your
+    // conflict screenshot.
     bannerLayout->addWidget(bannerSkipButton_);
     bannerLayout->addWidget(bannerAbortButton_);
     bannerLayout->addWidget(bannerContinueButton_);
@@ -1571,6 +1585,11 @@ void MainWindow::updateStateBanner() {
 
     bannerInstructionLabel_->setText(QString::fromStdString(banner.instruction));
     bannerInstructionLabel_->setVisible(!banner.instruction.empty());
+    // Design C2: gated on isConflict itself, not on updateSequencerControls()'s
+    // RepoState.flags checks -- a plain merge or an `git apply --3way`
+    // conflict offers none of Continue/Skip/Abort but still has files to
+    // resolve.
+    bannerResolveButton_->setVisible(banner.isConflict);
 
     // "conflict" switches gbmBanner between the warning (red) and info (blue)
     // QSS variants -- see app.qss. Set on each widget individually (matching
@@ -2690,6 +2709,16 @@ void MainWindow::onCredentialRequested(QString prompt) {
 }
 
 // --- M4: sequencer controls (Continue/Skip/Abort on the banner) ------------
+
+void MainWindow::onBannerResolveConflicts() {
+    if (!session_) {
+        return;
+    }
+    // No initialPath -- openFor() falls through to auto-selecting the first
+    // unresolved entry (see refreshBatch()'s currentEntryIndex_ < 0 branch),
+    // same as it does for any batch with nothing already selected.
+    ConflictResolveWindow::openFor(this, session_.get(), QString());
+}
 
 void MainWindow::onBannerContinue() {
     if (!session_) {

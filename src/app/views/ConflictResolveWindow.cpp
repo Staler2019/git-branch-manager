@@ -224,6 +224,18 @@ ConflictResolveWindow* ConflictResolveWindow::openFor(QWidget* parent, Repositor
         if (window->currentStatus_) {
             window->refreshBatch(window->currentStatus_->conflicted());
         }
+        // The banner's "Resolve Conflicts..." button (MainWindow's route into
+        // here) is reachable from every tab, not just Working Copy -- and
+        // opening a repository does not itself request a working-copy status
+        // scan (that only happens on visiting the Working Copy tab or window
+        // reactivation; see MainWindow::onShowWorkingCopy()/resyncOpenSession()).
+        // Without this, a repository opened straight onto a pre-existing
+        // conflict and resolved via the banner button would show an empty
+        // rail and every pane stuck on "Loading..." until something else
+        // happened to trigger a status refresh. Same "ask for a fresh read on
+        // every visit" reasoning as onShowWorkingCopy() -- harmless if a scan
+        // is already in flight or the cache is already current.
+        session->refreshWorkingCopyStatus();
     }
 
     const std::vector<ConflictBatchEntry>& entries = window->conflictBatch_.entries();

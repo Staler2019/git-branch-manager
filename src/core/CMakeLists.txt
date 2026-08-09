@@ -12,6 +12,7 @@ add_library(gbm_core STATIC
     git/BlameStore.cpp
     git/CatFileBatch.cpp
     git/CommitMeta.cpp
+    git/ConflictBatch.cpp
     git/ConflictMarkerParser.cpp
     git/DiffService.cpp
     git/FileHistoryStore.cpp

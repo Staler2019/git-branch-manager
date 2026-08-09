@@ -56,6 +56,17 @@ public:
 
     std::filesystem::path mergeHeadFile() const { return gitDir_ / "MERGE_HEAD"; }
 
+    /// The commit message git already prepared for a merge -- "Merge branch
+    /// 'x'" plus a "# Conflicts:" listing once conflicts are involved. Design
+    /// C3: read to pre-fill the working copy's commit message box instead of
+    /// making the user retype what git already knows.
+    std::filesystem::path mergeMsgFile() const { return gitDir_ / "MERGE_MSG"; }
+
+    /// Same idea as mergeMsgFile(), but for `git merge --squash` (which never
+    /// writes MERGE_HEAD, since a squash merge has no second parent to
+    /// record).
+    std::filesystem::path squashMsgFile() const { return gitDir_ / "SQUASH_MSG"; }
+
     std::filesystem::path cherryPickHeadFile() const { return gitDir_ / "CHERRY_PICK_HEAD"; }
 
     std::filesystem::path revertHeadFile() const { return gitDir_ / "REVERT_HEAD"; }

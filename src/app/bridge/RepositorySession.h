@@ -280,6 +280,16 @@ public:
     /// back to Take Left/Take Right only.
     void requestWorkingTreeContent(const std::string& path);
 
+    /// Design C3: reads whatever commit message git already prepared for the
+    /// current merge/squash (see readPreparedCommitMessage() in core) so the
+    /// working copy view can pre-fill its commit message box once conflicts
+    /// are resolved, instead of leaving the user to retype what git already
+    /// knows. Mirrors requestWorkingTreeContent's threading -- a co-process
+    /// read on the read pool, hopped back to the UI thread. Reply on
+    /// preparedCommitMessageReady; an empty string there is a normal result
+    /// (no MERGE_MSG/SQUASH_MSG exists), not an error.
+    void requestPreparedCommitMessage();
+
     // --- M3: stashes -----------------------------------------------------
 
     StashListPtr stashes() const { return stashes_.current(); }
@@ -544,6 +554,10 @@ signals:
     /// is empty whenever `editable` is false (unreadable, oversized, or not
     /// well-formed UTF-8) -- see requestWorkingTreeContent's doc comment.
     void workingTreeContentReady(QString path, QString content, bool editable);
+    /// Reply to requestPreparedCommitMessage(). An empty `message` means
+    /// neither MERGE_MSG nor SQUASH_MSG exists -- a normal result (e.g.
+    /// conflicts from `git apply --3way`), not an error.
+    void preparedCommitMessageReady(QString message);
     /// Separate from `operationFinished`: MainWindow's checkout-recovery UI
     /// (stash/discard choices) does not apply to staging and commit, so the
     /// working-copy panel gets its own completion signal to react to.

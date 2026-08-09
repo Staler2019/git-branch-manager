@@ -3,6 +3,7 @@
 #include "core/base/FsUtil.h"
 #include "core/base/Logging.h"
 #include "core/git/AskpassHelper.h"
+#include "core/git/PreparedCommitMessage.h"
 
 #include <QLatin1Char>
 #include <QMetaObject>
@@ -1243,6 +1244,28 @@ void RepositorySession::requestWorkingTreeContent(const std::string& path) {
             [this, qpath, content, editable] {
                 setBusy(false);
                 emit workingTreeContentReady(qpath, QString::fromStdString(content), editable);
+            },
+            Qt::QueuedConnection);
+    });
+}
+
+void RepositorySession::requestPreparedCommitMessage() {
+    const CancellationToken token = readCancel_.token();
+    setBusy(true);
+
+    readPool_.postFront([this, token] {
+        if (token.isCancelled()) {
+            QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+            return;
+        }
+
+        const std::string message = readPreparedCommitMessage(paths_);
+
+        QMetaObject::invokeMethod(
+            this,
+            [this, message] {
+                setBusy(false);
+                emit preparedCommitMessageReady(QString::fromStdString(message));
             },
             Qt::QueuedConnection);
     });

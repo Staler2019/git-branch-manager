@@ -26,9 +26,14 @@
 
 #include <QApplication>
 #include <QCheckBox>
+#include <QDropEvent>
+#include <QMimeData>
+#include <QMouseEvent>
 #include <QSettings>
 #include <QSplitter>
 #include <QTemporaryDir>
+#include <QTextBlock>
+#include <QTextEdit>
 #include <QtTest>
 
 #include <memory>
@@ -77,6 +82,21 @@ ParsedConflictFile makeTwoRegionParsedFile() {
     parsed.regionCount = 2;
     return parsed;
 }
+
+// dragEnterEvent()/dropEvent() are protected overrides -- Qt's own
+// Drag/Drop delivery is a separate subsystem from ordinary event()/notify()
+// dispatch (unlike mouse events) and QCoreApplication::sendEvent() with a
+// directly constructed QDropEvent does not reach them outside a live
+// platform drag session (confirmed with a standalone plain-QWidget spike,
+// so it isn't a ConflictTextEdit-specific quirk). A protected-handler-
+// calling subclass is the seam this test suite actually has for exercising
+// that logic -- see the plan's own note that a real QDrag::exec() drag loop
+// is untestable under offscreen QPA regardless.
+class DropTestableConflictTextEdit : public ConflictTextEdit {
+public:
+    using ConflictTextEdit::ConflictTextEdit;
+    void triggerDrop(QDropEvent* event) { dropEvent(event); }
+};
 
 }  // namespace
 
@@ -220,6 +240,156 @@ private slots:
         const SidePaneRender oursRender = buildSidePaneText(parsed, ConflictSide::Ours);
         QCOMPARE(oursRender.text, QStringLiteral("unchanged1\nunchanged2\n"));
         QVERIFY(oursRender.spans.empty());
+    }
+
+    // Design A1's drag payload is just 2 packed ints -- round-tripping it
+    // doesn't need a widget at all.
+    void conflictRegionMimeDataRoundTrips() {
+        QMimeData* mime =
+            encodeConflictRegionMimeData(3, ConflictSide::Theirs, QStringLiteral("hello\n"));
+        const auto decoded = decodeConflictRegionMimeData(mime);
+        QVERIFY(decoded.has_value());
+        QCOMPARE(decoded->regionIndex, 3);
+        QCOMPARE(static_cast<int>(decoded->fromSide), static_cast<int>(ConflictSide::Theirs));
+        QCOMPARE(mime->text(), QStringLiteral("hello\n"));
+        delete mime;
+    }
+
+    void conflictRegionMimeDataRejectsUnrelatedMime() {
+        QMimeData plainMime;
+        plainMime.setText(QStringLiteral("just text, not a conflict-region drag"));
+        QVERIFY(!decodeConflictRegionMimeData(&plainMime).has_value());
+        QVERIFY(!decodeConflictRegionMimeData(nullptr).has_value());
+    }
+
+    // Design A1's core hazard-avoidance rule: the result pane only accepts
+    // a drop while it is still read-only (some region unresolved). Once
+    // every region is resolved it becomes the user's freely-editable
+    // buffer, and ConflictResolvePanel::refreshMiddleFromResolutions()
+    // would otherwise silently discard whatever they just typed the next
+    // time a region gets (re-)resolved -- the same hazard already documented
+    // for the Take Left/Right buttons.
+    //
+    // Delivered via DropTestableConflictTextEdit's direct call into
+    // dropEvent()/dragEnterEvent() rather than QCoreApplication::sendEvent()
+    // with a hand-built QDropEvent: a spike proved sendEvent() never
+    // actually reaches QWidget::dropEvent() for a directly constructed
+    // event outside a live platform drag session (true even for a plain
+    // QWidget, not a ConflictTextEdit quirk) -- Drag/Drop delivery is a
+    // separate subsystem from ordinary event()/notify() dispatch, unlike
+    // mouse events. A protected-handler-calling subclass is the seam that's
+    // actually left to test with; see the plan's own note that a live
+    // QDrag::exec() drag loop is untestable under offscreen QPA regardless.
+    void middleEditAcceptsDropWhileReadOnly() {
+        DropTestableConflictTextEdit edit;
+        edit.setSide(ConflictSide::Result);
+        edit.setReadOnly(true);
+
+        int droppedRegionIndex = -1;
+        ConflictSide droppedSide = ConflictSide::Ours;
+        int dropCount = 0;
+        connect(&edit, &ConflictTextEdit::regionDropped, [&](int regionIndex, ConflictSide side) {
+            droppedRegionIndex = regionIndex;
+            droppedSide = side;
+            ++dropCount;
+        });
+
+        QMimeData* mime =
+            encodeConflictRegionMimeData(1, ConflictSide::Theirs, QStringLiteral("theirsB\n"));
+        QDropEvent dropEvent(
+            QPointF(5, 5), Qt::CopyAction, mime, Qt::LeftButton, Qt::NoModifier);
+        edit.triggerDrop(&dropEvent);
+        delete mime;
+
+        QCOMPARE(dropCount, 1);
+        QCOMPARE(droppedRegionIndex, 1);
+        QCOMPARE(static_cast<int>(droppedSide), static_cast<int>(ConflictSide::Theirs));
+    }
+
+    void middleEditRejectsDropOnceFullyResolved() {
+        DropTestableConflictTextEdit edit;
+        edit.setSide(ConflictSide::Result);
+        edit.setReadOnly(false);  // every region resolved -- freely editable now
+
+        int dropCount = 0;
+        connect(&edit, &ConflictTextEdit::regionDropped, [&](int, ConflictSide) { ++dropCount; });
+
+        QMimeData* mime =
+            encodeConflictRegionMimeData(0, ConflictSide::Ours, QStringLiteral("oursA\n"));
+        QDropEvent dropEvent(
+            QPointF(5, 5), Qt::CopyAction, mime, Qt::LeftButton, Qt::NoModifier);
+        edit.triggerDrop(&dropEvent);
+        delete mime;
+
+        QCOMPARE(dropCount, 0);
+    }
+
+    // Ours/theirs are drag sources only -- they must never accept a drop
+    // even while read-only, or a region dragged out of one could be dropped
+    // straight back onto the other and fire regionDropped with a target
+    // that makes no sense.
+    void oursEditNeverAcceptsDrop() {
+        DropTestableConflictTextEdit edit;
+        edit.setSide(ConflictSide::Ours);
+        edit.setReadOnly(true);
+
+        int dropCount = 0;
+        connect(&edit, &ConflictTextEdit::regionDropped, [&](int, ConflictSide) { ++dropCount; });
+
+        QMimeData* mime =
+            encodeConflictRegionMimeData(0, ConflictSide::Ours, QStringLiteral("oursA\n"));
+        QDropEvent dropEvent(
+            QPointF(5, 5), Qt::CopyAction, mime, Qt::LeftButton, Qt::NoModifier);
+        edit.triggerDrop(&dropEvent);
+        delete mime;
+
+        QCOMPARE(dropCount, 0);
+    }
+
+    // Hovering a region raises it (background highlight); moving off it (or
+    // onto a plain-text row outside any span) must clear the highlight
+    // rather than leave it stuck -- a direct-manipulation surface with no
+    // visible "this is draggable" state fails ux3.rule.mental_model_alignment.
+    void oursEditHighlightsHoveredRegionAndClearsOutsideIt() {
+        ConflictTextEdit edit;
+        edit.setSide(ConflictSide::Ours);
+        edit.setPlainText(QStringLiteral("aaa\nbbb\nccc\nddd\n"));
+        edit.setRegionSpans({RegionRowSpan{0, 1, 2}});  // blocks 1..2 = "bbb"/"ccc"
+        edit.resize(300, 200);
+        edit.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&edit));
+
+        QVERIFY(edit.extraSelections().isEmpty());
+
+        // A direct, synthetic QMouseEvent sent straight to the viewport --
+        // matching how QAbstractScrollArea (a QPlainTextEdit base) routes
+        // real mouse input to the outer widget's mouseMoveEvent() override
+        // -- rather than QTest::mouseMove()'s global-cursor-warp path,
+        // which depends on window activation/focus that offscreen QPA
+        // doesn't reliably grant a never-activated widget.
+        auto moveTo = [&](const QPoint& pos) {
+            QMouseEvent event(QEvent::MouseMove,
+                               QPointF(pos),
+                               edit.viewport()->mapToGlobal(pos),
+                               Qt::NoButton,
+                               Qt::NoButton,
+                               Qt::NoModifier);
+            QCoreApplication::sendEvent(edit.viewport(), &event);
+        };
+
+        QTextCursor hoverCursor(edit.document()->findBlockByNumber(1));
+        moveTo(edit.cursorRect(hoverCursor).center());
+
+        QCOMPARE(edit.extraSelections().size(), 1);
+        const QTextEdit::ExtraSelection selection = edit.extraSelections().first();
+        QCOMPARE(selection.cursor.selectionStart(), edit.document()->findBlockByNumber(1).position());
+        const QTextBlock lastRegionBlock = edit.document()->findBlockByNumber(2);
+        QCOMPARE(selection.cursor.selectionEnd(),
+                 lastRegionBlock.position() + lastRegionBlock.length() - 1);
+
+        QTextCursor outsideCursor(edit.document()->findBlockByNumber(0));
+        moveTo(edit.cursorRect(outsideCursor).center());
+        QVERIFY(edit.extraSelections().isEmpty());
     }
 
 private:

@@ -91,8 +91,9 @@ private:
     /// Sets `regionResolutions_[index]` to `resolution`, re-renders, and
     /// jumps to the next still-unresolved region if there is one, so working
     /// through a batch of conflicts is a straight line of clicks. Shared by
-    /// Take Left/Take Right (plain Ours/Theirs, no custom lines) and the
-    /// line-picker dialog (Custom).
+    /// Take Left/Take Right (plain Ours/Theirs, no custom lines), the
+    /// line-picker dialog (Custom), and dragging a region onto the middle
+    /// pane (plain Ours/Theirs, via ConflictTextEdit::regionDropped()).
     void resolveRegion(int index, ConflictRegionResolution resolution);
     /// Take-left/take-right applied to every region at once.
     void resolveAllRegions(ConflictRegionChoice choice);
@@ -155,21 +156,15 @@ private:
     QString ancestorBlobText_;
     QString oursBlobText_;
     QString theirsBlobText_;
-    /// regionIndex -> [firstBlock, blockCount) row spans for the ours/theirs
-    /// panes' most recent parsedMarkers_-driven render -- see
-    /// buildSidePaneText() in ConflictTextEdit.h. Empty whenever rendering
-    /// fell back to blob text instead.
-    std::vector<RegionRowSpan> oursRegionSpans_;
-    std::vector<RegionRowSpan> theirsRegionSpans_;
 
     QLabel* kindLabel_ = nullptr;
     QCheckBox* ancestorToggle_ = nullptr;
     QSplitter* panesSplitter_ = nullptr;
     QWidget* ancestorContainer_ = nullptr;
-    QPlainTextEdit* ancestorEdit_ = nullptr;
-    QPlainTextEdit* oursEdit_ = nullptr;
-    QPlainTextEdit* middleEdit_ = nullptr;
-    QPlainTextEdit* theirsEdit_ = nullptr;
+    ConflictTextEdit* ancestorEdit_ = nullptr;
+    ConflictTextEdit* oursEdit_ = nullptr;
+    ConflictTextEdit* middleEdit_ = nullptr;
+    ConflictTextEdit* theirsEdit_ = nullptr;
     QPushButton* saveButton_ = nullptr;
 
     /// Per-region controls shown above the middle column, only while

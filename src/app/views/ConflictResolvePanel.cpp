@@ -349,6 +349,20 @@ ConflictResolvePanel::ConflictResolvePanel(QWidget* parent) : QWidget(parent) {
     std::tie(std::ignore, oursEdit_) = makePane(tr("Current branch (mine)"));
     std::tie(std::ignore, middleEdit_) = makePane(tr("Resolved content (editable)"));
     std::tie(std::ignore, theirsEdit_) = makePane(tr("Merged branch (theirs)"));
+    // Design A1: ours/theirs are hover+drag sources, the middle (result)
+    // pane is the only drop target -- see ConflictTextEdit::setSide(). The
+    // ancestor pane is left at its default (no region spans are ever fed
+    // into it, so hover/drag is a no-op there regardless).
+    oursEdit_->setSide(ConflictSide::Ours);
+    theirsEdit_->setSide(ConflictSide::Theirs);
+    middleEdit_->setSide(ConflictSide::Result);
+    connect(middleEdit_, &ConflictTextEdit::regionDropped, this, [this](int regionIndex, ConflictSide fromSide) {
+        resolveRegion(regionIndex,
+                       ConflictRegionResolution{fromSide == ConflictSide::Theirs
+                                                     ? ConflictRegionChoice::Theirs
+                                                     : ConflictRegionChoice::Ours,
+                                                 {}});
+    });
     // Equal default split -- overridden a moment later by
     // restoreConflictPanesSizes()'s deferred restore if sizes were saved
     // from a previous session.
@@ -448,8 +462,8 @@ void ConflictResolvePanel::showEntry(RepositorySession* session, const WorkingCo
     ancestorBlobText_.clear();
     oursBlobText_.clear();
     theirsBlobText_.clear();
-    oursRegionSpans_.clear();
-    theirsRegionSpans_.clear();
+    oursEdit_->setRegionSpans({});
+    theirsEdit_->setRegionSpans({});
 
     QString kindText;
     switch (entry.conflict) {
@@ -550,10 +564,13 @@ void ConflictResolvePanel::refreshSidePanes() {
         if (renderFromRegions) {
             const SidePaneRender render = buildSidePaneText(parsedMarkers_, ConflictSide::Ours);
             oursEdit_->setPlainText(render.text);
-            oursRegionSpans_ = render.spans;
+            // setRegionSpans() after setPlainText(): its block numbers must
+            // refer to the document that was just set, not whatever the
+            // pane showed before.
+            oursEdit_->setRegionSpans(render.spans);
         } else {
             oursEdit_->setPlainText(oursBlobText_);
-            oursRegionSpans_.clear();
+            oursEdit_->setRegionSpans({});
         }
     }
 
@@ -561,10 +578,10 @@ void ConflictResolvePanel::refreshSidePanes() {
         if (renderFromRegions) {
             const SidePaneRender render = buildSidePaneText(parsedMarkers_, ConflictSide::Theirs);
             theirsEdit_->setPlainText(render.text);
-            theirsRegionSpans_ = render.spans;
+            theirsEdit_->setRegionSpans(render.spans);
         } else {
             theirsEdit_->setPlainText(theirsBlobText_);
-            theirsRegionSpans_.clear();
+            theirsEdit_->setRegionSpans({});
         }
     }
 }

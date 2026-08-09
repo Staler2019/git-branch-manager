@@ -1152,16 +1152,24 @@ void RepositorySession::requestConflictSides(const std::string& path,
         const std::string ancestor = readOrEmpty(ancestorBlob);
         const std::string ours = readOrEmpty(oursBlob);
         const std::string theirs = readOrEmpty(theirsBlob);
+        // Design A5: computed here, on the still-undecoded std::string --
+        // detectTextTraits() must see the original bytes (see TextTraits.h's
+        // own doc comment on why this cannot happen after the
+        // QString::fromStdString() conversions below).
+        const TextTraits ancestorTraits = detectTextTraits(ancestor);
+        const TextTraits oursTraits = detectTextTraits(ours);
+        const TextTraits theirsTraits = detectTextTraits(theirs);
 
         const QString qpath = QString::fromStdString(path);
         QMetaObject::invokeMethod(
             this,
-            [this, qpath, ancestor, ours, theirs] {
+            [this, qpath, ancestor, ours, theirs, ancestorTraits, oursTraits, theirsTraits] {
                 setBusy(false);
                 emit conflictSidesReady(qpath,
                                         QString::fromStdString(ancestor),
                                         QString::fromStdString(ours),
                                         QString::fromStdString(theirs));
+                emit conflictSideTraitsReady(qpath, ancestorTraits, oursTraits, theirsTraits);
             },
             Qt::QueuedConnection);
     });

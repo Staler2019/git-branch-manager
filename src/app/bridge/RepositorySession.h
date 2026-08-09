@@ -14,6 +14,7 @@
 #include "core/git/RefStore.h"
 #include "core/git/ReflogStore.h"
 #include "core/git/RepoState.h"
+#include "core/git/TextTraits.h"
 #include "core/git/WorkingCopyStatus.h"
 #include "core/git/ops/BisectOps.h"
 #include "core/git/ops/BranchOps.h"
@@ -517,6 +518,23 @@ signals:
     /// it failed -- the request is best-effort display, not itself an
     /// operation worth failing loudly over.
     void conflictSidesReady(QString path, QString ancestor, QString ours, QString theirs);
+    /// Design A5: the same three stages' line-ending/encoding traits,
+    /// detected on the raw bytes *before* the QString conversion above --
+    /// once decoded, the original byte-level encoding is unrecoverable (see
+    /// TextTraits.h). Emitted alongside conflictSidesReady rather than
+    /// folded into it, so this is purely additive: existing
+    /// conflictSidesReady connections and its 4-argument signature are
+    /// untouched, and a receiver that does not yet care about traits (there
+    /// is none yet -- ConflictResolvePanel starts consuming this in a later
+    /// commit) simply does not connect to it. A stage with no content
+    /// (missing or unreadable, same as conflictSidesReady's own empty-string
+    /// case) reports a default-constructed TextTraits -- LineEndingKind::None,
+    /// EncodingKind::Utf8, hasFinalNewline true -- which detectTextTraits()
+    /// would also compute for genuinely empty input, so "absent" and "empty"
+    /// are indistinguishable here on purpose (matching conflictSidesReady's
+    /// own choice not to distinguish them for content either).
+    void conflictSideTraitsReady(QString path, TextTraits ancestor, TextTraits ours,
+                                  TextTraits theirs);
     /// Reply to requestFileContent. `exists` is false when `revision:path`
     /// does not resolve to an object (new untracked file, or a path renamed
     /// away by `revision`) -- distinct from an existing-but-empty file, which

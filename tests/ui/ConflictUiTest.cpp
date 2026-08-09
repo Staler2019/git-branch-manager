@@ -1267,6 +1267,109 @@ private slots:
         QVERIFY(loaded.entries().empty());
     }
 
+    // C13: the window blocks the parent for as long as it's open -- the
+    // mechanism that removes the "main window switches repos while this is
+    // open" hazard the earlier openFor() doc comment used to warn about.
+    void windowIsApplicationModal() {
+        ConflictResolveWindow window;
+        QCOMPARE(window.windowModality(), Qt::ApplicationModal);
+    }
+
+    // C13's must_not_do: Abort is a repo-level destructive operation and
+    // stays on the main window's banner only -- it must never appear as a
+    // control inside this window.
+    void noAbortControlExistsInThisWindow() {
+        ConflictResolveWindow window;
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        for (QPushButton* button : window.findChildren<QPushButton*>()) {
+            QVERIFY2(!button->text().contains(QStringLiteral("Abort"), Qt::CaseInsensitive),
+                     qPrintable(QStringLiteral("found an Abort control (%1) inside the resolve "
+                                               "window -- it must stay on the main window banner")
+                                    .arg(button->text())));
+        }
+    }
+
+    // The plan's own TDD note, first half: "未全部完成時「全部套用並完成」為
+    // disabled". Flipped on the instant the batch's last entry resolves,
+    // same refreshBatch() call every other batch-state assertion here uses.
+    void finishAllButtonEnabledOnlyOnceEveryEntryIsResolved() {
+        ConflictResolveWindow window;
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        auto* finishAllButton =
+            window.findChild<QPushButton*>(QStringLiteral("conflictWindowFinishAllButton"));
+        QVERIFY(finishAllButton != nullptr);
+        QVERIFY(!finishAllButton->isEnabled());
+
+        const WorkingCopyEntry a = makeConflictedEntry("a.cpp", ConflictKind::BothModified);
+        const WorkingCopyEntry b = makeConflictedEntry("b.h", ConflictKind::BothAdded);
+        window.refreshBatch({&a, &b});
+        QVERIFY(!finishAllButton->isEnabled());
+
+        window.refreshBatch({&b});  // a.cpp resolved, b.h still isn't
+        QVERIFY(!finishAllButton->isEnabled());
+
+        window.refreshBatch({});  // both resolved
+        QVERIFY(finishAllButton->isEnabled());
+    }
+
+    // 儲存目前進度 only ever needs to flush *something* once at least one
+    // file in the batch has actually been resolved -- with zero resolved,
+    // there is nothing for it to keep.
+    void saveProgressButtonEnabledOnceAtLeastOneEntryIsResolved() {
+        ConflictResolveWindow window;
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        auto* saveProgressButton =
+            window.findChild<QPushButton*>(QStringLiteral("conflictWindowSaveProgressButton"));
+        QVERIFY(saveProgressButton != nullptr);
+        QVERIFY(!saveProgressButton->isEnabled());
+
+        const WorkingCopyEntry a = makeConflictedEntry("a.cpp", ConflictKind::BothModified);
+        const WorkingCopyEntry b = makeConflictedEntry("b.h", ConflictKind::BothAdded);
+        window.refreshBatch({&a, &b});
+        QVERIFY(!saveProgressButton->isEnabled());
+
+        window.refreshBatch({&b});  // a.cpp resolved
+        QVERIFY(saveProgressButton->isEnabled());
+    }
+
+    // The plan's own TDD note, second half: "有未儲存選擇時取消會走確認路
+    // 徑" -- and its converse, pinned here since it is the only half a
+    // sessionless panel_ can actually exercise (see
+    // ConflictResolvePanel::hasUnsavedProgress()'s session_ == nullptr
+    // guard): with nothing loaded into panel_, there is nothing to confirm,
+    // so Cancel must close immediately rather than block on a QMessageBox
+    // this test has no way to answer.
+    void cancelWithNothingPendingClosesWithoutBlockingOnAConfirmation() {
+        ConflictResolveWindow window;
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        auto* cancelButton =
+            window.findChild<QPushButton*>(QStringLiteral("conflictWindowCancelButton"));
+        QVERIFY(cancelButton != nullptr);
+
+        QTest::mouseClick(cancelButton, Qt::LeftButton);
+
+        QVERIFY(!window.isVisible());
+    }
+
+    // Esc must close the window the same way the Cancel button does, even
+    // though nothing here has keyboard focus on a child widget that would
+    // otherwise swallow it (see the WindowShortcut comment in the
+    // constructor for why a focused middleEdit_ specifically is not at risk
+    // for this key).
+    void escapeClosesTheWindowLikeCancel() {
+        ConflictResolveWindow window;
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+        QTest::keyClick(&window, Qt::Key_Escape);
+
+        QVERIFY(!window.isVisible());
+    }
+
 private:
     std::unique_ptr<QTemporaryDir> tempDir_;
     std::unique_ptr<ConflictResolvePanel> panel_;

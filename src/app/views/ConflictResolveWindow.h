@@ -15,6 +15,7 @@ class QCloseEvent;
 class QLabel;
 class QListWidget;
 class QListWidgetItem;
+class QPushButton;
 class QSplitter;
 
 namespace gbm {
@@ -45,15 +46,35 @@ std::optional<int> nextUnresolvedRailIndex(const std::vector<ConflictBatchEntry>
 /// This is the wider view the modal QDialog in
 /// WorkingCopyView::openConflictResolutionDialog() (720x420, no file
 /// picker, no progress memory) could never give -- see the plan's Context
-/// section. Non-modal in this commit: it opens via show(), not exec(), so
-/// the main window stays interactive. Design B1's three explicit exits and
-/// ApplicationModal wiring land in a later commit (C13) as an independently
-/// revertable decision -- see openFor()'s own comment.
+/// section.
 ///
 /// Batch memory here is in-memory only, scoped to this window's lifetime --
 /// QSettings persistence across app restarts and a real operationFingerprint
 /// (RepoState-derived) are a separate commit (C12b) so that persistence
 /// bug surface doesn't ride along with "does the window work at all".
+///
+/// C13: modal with three explicit exits. This stays a plain QWidget rather
+/// than becoming a QDialog -- setWindowModality(Qt::ApplicationModal) works
+/// on any top-level QWidget, and switching to QDialog::exec() would collide
+/// with WA_DeleteOnClose (the dialog would delete itself out from under
+/// exec()'s own stack frame on close). Three buttons at the bottom map to
+/// the plan's three exits (儲存目前進度/全部套用並完成/取消); Esc and the
+/// window's own close button (titlebar X / Alt+F4 / Cmd+W) all resolve to
+/// the same Cancel path via closeEvent() -- see pendingExit_'s own comment
+/// for how that single guard covers every exit without prompting twice.
+/// Abort (git merge --abort) is deliberately never offered here -- it is a
+/// repo-level destructive operation, not a per-file one, and stays on the
+/// main window's banner only (must_not_do).
+///
+/// A note on what "unsaved" means here: ConflictResolvePanel writes each
+/// file to the working tree and index the moment its own Save is pressed
+/// (see submitResolution()) -- by the time a file shows resolved in the
+/// rail, it is already on disk. So 儲存目前進度/全部套用並完成 have nothing
+/// to flush beyond closing (progress is already persisted via
+/// ConflictBatchStore on every refreshBatch()), and 取消's confirmation is
+/// scoped to *only* the currently open file's not-yet-submitted choices --
+/// see ConflictResolvePanel::hasUnsavedProgress(). Previously saved files in
+/// this batch are never at risk from Cancel.
 class ConflictResolveWindow : public QWidget {
     Q_OBJECT
 
@@ -63,16 +84,17 @@ public:
     /// The only production construction path: builds the window, wires it
     /// to `session`'s workingCopyStatusUpdated() signal, does the first
     /// refreshBatch() from the session's current status, selects
-    /// `initialPath` if it's conflicted, and show()s it (non-modal -- see
-    /// the class comment). Takes a QWidget* rather than MainWindow* so this
-    /// header never needs to include MainWindow.h.
+    /// `initialPath` if it's conflicted, and show()s it. ApplicationModal
+    /// (see the class comment) means the main window is blocked for the
+    /// duration, so there is no session-swap-while-open hazard to guard
+    /// against: the parent cannot switch repos while this is up. Takes a
+    /// QWidget* rather than MainWindow* so this header never needs to
+    /// include MainWindow.h.
     ///
-    /// Parented to `parent` and WA_DeleteOnClose, so it is destroyed either
-    /// when the user closes it or when `parent` (and therefore the session
-    /// it borrows) goes away -- there is no session-swap-while-open hazard
-    /// to guard against yet because nothing production-side calls this
-    /// until C16 wires up the banner entry point, and this window does not
-    /// yet outlive a single repo session by design.
+    /// Parented to `parent` and WA_DeleteOnClose, so it is destroyed once
+    /// the user leaves through one of the three exits. The returned pointer
+    /// is only useful before that -- callers must not hold onto it past
+    /// their own return, same as any WA_DeleteOnClose widget.
     static ConflictResolveWindow* openFor(QWidget* parent, RepositorySession* session,
                                           const QString& initialPath);
 
@@ -92,18 +114,42 @@ public:
     void refreshBatch(const std::vector<const WorkingCopyEntry*>& conflicted);
 
 protected:
-    /// Persists window geometry (`window/conflictResolveWindow/geometry`) --
-    /// the first geometry persistence anywhere in this app (see the plan's
-    /// own note that src/app has none today).
+    /// The single guard every exit funnels through -- see pendingExit_'s own
+    /// comment for why this, rather than each button, is what decides
+    /// whether to confirm and what to persist. Also persists window geometry
+    /// (`window/conflictResolveWindow/geometry`) -- the first geometry
+    /// persistence anywhere in this app (see the plan's own note that
+    /// src/app has none today).
     void closeEvent(QCloseEvent* event) override;
 
 private:
+    /// Which exit is in flight when closeEvent() runs -- set by a button's
+    /// click handler just before it calls close(), read (and reset) by
+    /// closeEvent() itself. Esc and the window's own close affordance never
+    /// go through a button, so they reach closeEvent() with this still None;
+    /// treating that the same as Cancel is exactly "Esc 與視窗關閉鈕都對應
+    /// 「取消」" from the plan. Routing every exit through this one enum
+    /// rather than letting each button decide for itself is what keeps a
+    /// button's own confirm-then-close from being asked again a second time
+    /// once closeEvent() runs -- there is exactly one place that ever shows
+    /// the confirmation dialog.
+    enum class PendingExit { None, SaveProgress, FinishAll, Cancel };
+    PendingExit pendingExit_ = PendingExit::None;
+
     void rebuildRailRows();
     void selectEntryIndex(int index);
     void onPanelResolutionSubmitted();
     void onSessionWorkingCopyStatusUpdated();
     void saveSplitterSizes();
     void restoreSplitterSizes();
+    /// Design B1's exit button enablement: 儲存目前進度 once at least one
+    /// file is resolved, 全部套用並完成 only once the whole batch is.
+    void updateExitButtonsEnabled();
+    /// True if it's fine to close right now: either the currently open file
+    /// has nothing unsaved, or the user just confirmed discarding it via a
+    /// QMessageBox. See the class comment on why only the *currently open*
+    /// file is ever at risk.
+    bool confirmDiscardCurrentFileProgressIfAny();
 
     RepositorySession* session_ = nullptr;
     ConflictBatch conflictBatch_ = ConflictBatch::forOperation("");
@@ -130,6 +176,12 @@ private:
     QLabel* progressLabel_ = nullptr;
     QSplitter* splitter_ = nullptr;
     ConflictResolvePanel* panel_ = nullptr;
+
+    /// Design B1's three explicit exits. Deliberately no Abort button here
+    /// -- see the class comment's must_not_do.
+    QPushButton* saveProgressButton_ = nullptr;
+    QPushButton* finishAllButton_ = nullptr;
+    QPushButton* cancelButton_ = nullptr;
 };
 
 }  // namespace gbm

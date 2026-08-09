@@ -537,6 +537,8 @@ void ConflictResolvePanel::showEntry(RepositorySession* session, const WorkingCo
     regionResolutions_.clear();
     regionTextRanges_.clear();
     lastAssembledMiddleText_.clear();
+    wholeFileBaselineText_.clear();
+    submittedCurrentEntry_ = false;
     currentRegionIndex_ = 0;
     regionStrip_->setVisible(false);
     updateDirectManipulationHintVisibility();
@@ -816,6 +818,9 @@ void ConflictResolvePanel::onWorkingTreeContentReady(const QString& path,
     // is shown exactly as before per-region resolution existed.
     if (parsedMarkers_.regionCount == 0) {
         middleEdit_->setPlainText(content);
+        // hasUnsavedProgress()'s baseline for this path -- see its own
+        // comment on why this can't reuse lastAssembledMiddleText_.
+        wholeFileBaselineText_ = middleEdit_->toPlainText();
     } else {
         refreshMiddleFromResolutions();
     }
@@ -950,6 +955,7 @@ void ConflictResolvePanel::resolveRegion(int index, ConflictRegionResolution res
     if (index < 0 || static_cast<std::size_t>(index) >= regionResolutions_.size()) {
         return;
     }
+    submittedCurrentEntry_ = false;
     regionResolutions_[static_cast<std::size_t>(index)] = std::move(resolution);
     resetCustomLineSelection(index);
 
@@ -976,6 +982,7 @@ void ConflictResolvePanel::resolveRegion(int index, ConflictRegionResolution res
 }
 
 void ConflictResolvePanel::resolveAllRegions(ConflictRegionChoice choice) {
+    submittedCurrentEntry_ = false;
     for (std::size_t index = 0; index < regionResolutions_.size(); ++index) {
         regionResolutions_[index] = ConflictRegionResolution{choice, {}};
         resetCustomLineSelection(static_cast<int>(index));
@@ -1011,6 +1018,7 @@ void ConflictResolvePanel::resetRegionToUnresolved(int index) {
             return;
         }
     }
+    submittedCurrentEntry_ = false;
     regionResolutions_[static_cast<std::size_t>(index)] = ConflictRegionResolution{};
     resetCustomLineSelection(index);
     currentRegionIndex_ = index;
@@ -1214,7 +1222,31 @@ void ConflictResolvePanel::submitResolution(int choice) {
         }
     }
     session_->resolveConflict(request);
+    // Design B1 (C13): from this point on hasUnsavedProgress() reports false
+    // for this file until something changes it again -- the request above
+    // already carries whatever regionResolutions_/middleEdit_ held, so there
+    // is nothing left unsaved to warn about.
+    submittedCurrentEntry_ = true;
     emit resolutionSubmitted();
+}
+
+bool ConflictResolvePanel::hasUnsavedProgress() const {
+    if (session_ == nullptr || submittedCurrentEntry_ || !middleEditable_) {
+        return false;
+    }
+    if (parsedMarkers_.regionCount == 0) {
+        // The whole-file-edit path never goes through
+        // refreshMiddleFromResolutions(), so lastAssembledMiddleText_ means
+        // nothing here -- compare against the as-loaded baseline instead.
+        return middleEdit_->toPlainText() != wholeFileBaselineText_;
+    }
+    for (const auto& resolution : regionResolutions_) {
+        if (resolution.choice != ConflictRegionChoice::Unresolved) {
+            return true;
+        }
+    }
+    return middleBufferHasUnsavedEdits(middleEdit_->toPlainText(), lastAssembledMiddleText_,
+                                        middleEdit_->isReadOnly());
 }
 
 }  // namespace gbm

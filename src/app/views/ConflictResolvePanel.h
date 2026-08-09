@@ -100,6 +100,19 @@ public:
     /// its on-disk (editable) content via `session`.
     void showEntry(RepositorySession* session, const WorkingCopyEntry& entry);
 
+    /// Design B1 (C13): whether the file currently loaded has conflict-
+    /// resolution choices that have not gone through submitResolution() yet
+    /// -- a region already given a choice, a hand-edit to the fully-
+    /// assembled middleEdit_ buffer once every region has one, or (for a
+    /// regionCount == 0 whole-file conflict) a hand-edit to the raw on-disk
+    /// content itself. False once submitResolution() has gone through for
+    /// this file, and false again from showEntry() on for whatever comes
+    /// next -- see submitResolution()'s own comment on why nothing further
+    /// back than "the file on screen right now" needs checking here: every
+    /// earlier file in the batch was already written via
+    /// session_->resolveConflict() at the moment its own Save fired.
+    bool hasUnsavedProgress() const;
+
 signals:
     /// A resolution (take left / take right / save & mark resolved) has been
     /// submitted to the session.
@@ -256,6 +269,19 @@ private:
     /// Mirrors whether the middle column is currently editable (i.e. the
     /// on-disk content decoded as text) -- gates the Save button.
     bool middleEditable_ = false;
+    /// Design B1 (C13): true once submitResolution() has gone through for
+    /// whichever file is currently loaded -- reset to false by showEntry()
+    /// for the next file and by every mutation of regionResolutions_
+    /// (resolveRegion()/resolveAllRegions()/resetRegionToUnresolved()), so a
+    /// change made *after* a save (however unlikely before the window moves
+    /// on) still counts as unsaved again. See hasUnsavedProgress().
+    bool submittedCurrentEntry_ = false;
+    /// The regionCount == 0 whole-file-edit path's baseline for
+    /// hasUnsavedProgress() -- the content as loaded, before any hand-edit.
+    /// Unlike lastAssembledMiddleText_ (which only means something once
+    /// every region is resolved), this path never goes through
+    /// refreshMiddleFromResolutions() at all, so it needs its own baseline.
+    QString wholeFileBaselineText_;
     /// The on-disk content split into plain-text/region segments -- see
     /// ConflictMarkerParser. regionCount == 0 (no markers, or a malformed
     /// file the parser gave up on) means the middle column just shows

@@ -9,9 +9,13 @@
 #include <QCheckBox>
 #include <QCloseEvent>
 #include <QHBoxLayout>
+#include <QKeySequence>
 #include <QLabel>
 #include <QListWidget>
+#include <QMessageBox>
+#include <QPushButton>
 #include <QSettings>
+#include <QShortcut>
 #include <QSplitter>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -81,6 +85,9 @@ QString conflictWindowSplitterKey() {
 ConflictResolveWindow::ConflictResolveWindow(QWidget* parent) : QWidget(parent) {
     setWindowFlag(Qt::Window, true);
     setWindowTitle(tr("Resolve Conflicts"));
+    // C13: modal for the whole time this window is open -- see the class
+    // comment for why this stays a QWidget rather than becoming a QDialog.
+    setWindowModality(Qt::ApplicationModal);
 
     railList_ = new QListWidget(this);
     railList_->setObjectName(QStringLiteral("conflictRailList"));
@@ -108,12 +115,10 @@ ConflictResolveWindow::ConflictResolveWindow(QWidget* parent) : QWidget(parent) 
     panel_ = new ConflictResolvePanel(this);
     connect(panel_, &ConflictResolvePanel::resolutionSubmitted, this,
             &ConflictResolveWindow::onPanelResolutionSubmitted);
-    // Design B1's three explicit exits (儲存目前進度/全部套用並完成/取消) land in
-    // C13 -- cancelled() is deliberately left unconnected here since a
-    // single file's cancel no longer means "close the whole window" once
-    // several files share one window (there's no equivalent single-file
-    // modal to close back to). Revisit once C13 defines what "cancel"
-    // means at the window level.
+    // panel_->cancelled() is deliberately left unconnected: a single file's
+    // cancel no longer means "close the whole window" once several files
+    // share one window. What "cancel" means at the window level is the
+    // cancelButton_/pendingExit_ machinery below instead.
     connect(railList_, &QListWidget::currentItemChanged, this,
             [this](QListWidgetItem* current, QListWidgetItem* /*previous*/) {
                 if (current == nullptr) {
@@ -132,9 +137,56 @@ ConflictResolveWindow::ConflictResolveWindow(QWidget* parent) : QWidget(parent) 
     splitter_->setStretchFactor(1, 4);
     connect(splitter_, &QSplitter::splitterMoved, this, [this] { saveSplitterSizes(); });
 
+    // Design B1's three explicit exits. Each button records its intent in
+    // pendingExit_ and then just calls close() -- closeEvent() is the one
+    // place that decides whether to confirm and what to persist, so there
+    // is exactly one confirmation dialog per close attempt, not one per
+    // button plus one in closeEvent().
+    cancelButton_ = new QPushButton(tr("Cancel"), this);
+    cancelButton_->setObjectName(QStringLiteral("conflictWindowCancelButton"));
+    connect(cancelButton_, &QPushButton::clicked, this, [this] {
+        pendingExit_ = PendingExit::Cancel;
+        close();
+    });
+
+    saveProgressButton_ = new QPushButton(tr("Save Current Progress"), this);
+    saveProgressButton_->setObjectName(QStringLiteral("conflictWindowSaveProgressButton"));
+    connect(saveProgressButton_, &QPushButton::clicked, this, [this] {
+        pendingExit_ = PendingExit::SaveProgress;
+        close();
+    });
+
+    finishAllButton_ = new QPushButton(tr("Apply All and Finish"), this);
+    finishAllButton_->setObjectName(QStringLiteral("conflictWindowFinishAllButton"));
+    finishAllButton_->setDefault(true);
+    connect(finishAllButton_, &QPushButton::clicked, this, [this] {
+        pendingExit_ = PendingExit::FinishAll;
+        close();
+    });
+
+    auto* exitRow = new QHBoxLayout();
+    exitRow->addStretch(1);
+    exitRow->addWidget(cancelButton_);
+    exitRow->addWidget(saveProgressButton_);
+    exitRow->addWidget(finishAllButton_);
+
+    // Esc must reach this window even while middleEdit_ (a QPlainTextEdit)
+    // has focus. A WindowShortcut fires ahead of the focused widget's own
+    // key handling for keys that widget doesn't itself reserve via
+    // ShortcutOverride -- Escape has no text-editing meaning, unlike
+    // Left/Right/Backspace (see the C8 hazard those needed a workaround
+    // for), so no such workaround is needed here.
+    auto* escapeShortcut = new QShortcut(QKeySequence(Qt::Key_Escape), this);
+    escapeShortcut->setContext(Qt::WindowShortcut);
+    connect(escapeShortcut, &QShortcut::activated, this, [this] {
+        pendingExit_ = PendingExit::Cancel;
+        close();
+    });
+
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
-    layout->addWidget(splitter_);
+    layout->addWidget(splitter_, 1);
+    layout->addLayout(exitRow);
 
     QSettings settings;
     const QVariant savedGeometry = settings.value(conflictResolveWindowGeometryKey());
@@ -148,6 +200,7 @@ ConflictResolveWindow::ConflictResolveWindow(QWidget* parent) : QWidget(parent) 
         }
     }
     restoreSplitterSizes();
+    updateExitButtonsEnabled();
 }
 
 ConflictResolveWindow* ConflictResolveWindow::openFor(QWidget* parent, RepositorySession* session,
@@ -232,6 +285,8 @@ void ConflictResolveWindow::refreshBatch(const std::vector<const WorkingCopyEntr
             ConflictBatchStore::save(session_->paths(), conflictBatch_);
         }
     }
+
+    updateExitButtonsEnabled();
 }
 
 void ConflictResolveWindow::rebuildRailRows() {
@@ -361,9 +416,44 @@ void ConflictResolveWindow::restoreSplitterSizes() {
 }
 
 void ConflictResolveWindow::closeEvent(QCloseEvent* event) {
+    // The titlebar close button / Alt+F4 / Cmd+W all skip every button
+    // above, so pendingExit_ is still None when they trigger this --
+    // treating that the same as an explicit Cancel is exactly "Esc 與視窗
+    // 關閉鈕都對應「取消」" from the plan.
+    const PendingExit exit = pendingExit_ == PendingExit::None ? PendingExit::Cancel : pendingExit_;
+    pendingExit_ = PendingExit::None;
+
+    // 全部套用並完成 is only ever enabled once conflictBatch_.allResolved()
+    // (see updateExitButtonsEnabled()), which means whatever file panel_ has
+    // loaded is already resolved and submitted -- nothing to confirm. Every
+    // other exit (including the titlebar/Esc fallback above) can be closing
+    // out from under an in-progress file, so those still ask.
+    if (exit != PendingExit::FinishAll && !confirmDiscardCurrentFileProgressIfAny()) {
+        event->ignore();
+        return;
+    }
+
     QSettings settings;
     settings.setValue(conflictResolveWindowGeometryKey(), saveGeometry());
     QWidget::closeEvent(event);
+}
+
+void ConflictResolveWindow::updateExitButtonsEnabled() {
+    saveProgressButton_->setEnabled(conflictBatch_.resolvedCount() > 0);
+    finishAllButton_->setEnabled(conflictBatch_.allResolved());
+}
+
+bool ConflictResolveWindow::confirmDiscardCurrentFileProgressIfAny() {
+    if (panel_ == nullptr || !panel_->hasUnsavedProgress()) {
+        return true;
+    }
+    const auto answer = QMessageBox::question(
+        this, tr("Discard unsaved progress?"),
+        tr("The file you're currently working on has choices that haven't been saved yet. "
+           "Closing now will discard them -- files you've already saved are not affected. "
+           "Continue?"),
+        QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
+    return answer == QMessageBox::Yes;
 }
 
 }  // namespace gbm

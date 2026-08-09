@@ -65,7 +65,7 @@ public:
     /// restore might have carried over (a file resolved by hand while the
     /// app was closed, say).
     static ConflictBatch restore(std::string operationFingerprint,
-                                  std::vector<ConflictBatchEntry> entries);
+                                 std::vector<ConflictBatchEntry> entries);
 
     /// Merges in one git-status scan's conflicted paths:
     ///  - Every path already tracked has its state re-derived fresh from
@@ -84,10 +84,12 @@ public:
     void merge(const std::vector<const WorkingCopyEntry*>& conflicted);
 
     const std::vector<ConflictBatchEntry>& entries() const { return entries_; }
+
     std::size_t resolvedCount() const;
     /// True only once every tracked path is Resolved -- vacuously false
     /// for an empty batch (nothing to call "all resolved" about yet).
     bool allResolved() const;
+
     const std::string& operationFingerprint() const { return operationFingerprint_; }
 
 private:

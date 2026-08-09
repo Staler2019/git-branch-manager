@@ -12,7 +12,7 @@ ConflictBatch ConflictBatch::forOperation(std::string operationFingerprint) {
 }
 
 ConflictBatch ConflictBatch::restore(std::string operationFingerprint,
-                                      std::vector<ConflictBatchEntry> entries) {
+                                     std::vector<ConflictBatchEntry> entries) {
     ConflictBatch batch;
     batch.operationFingerprint_ = std::move(operationFingerprint);
     batch.entries_ = std::move(entries);
@@ -23,11 +23,10 @@ void ConflictBatch::merge(const std::vector<const WorkingCopyEntry*>& conflicted
     // Re-derive every already-tracked path's state fresh from this scan --
     // see the header's own comment on why this must never be "sticky".
     for (ConflictBatchEntry& entry : entries_) {
-        const bool stillConflicted =
-            std::any_of(conflicted.begin(), conflicted.end(),
-                        [&entry](const WorkingCopyEntry* candidate) {
-                            return candidate->path == entry.path;
-                        });
+        const bool stillConflicted = std::any_of(
+            conflicted.begin(), conflicted.end(), [&entry](const WorkingCopyEntry* candidate) {
+                return candidate->path == entry.path;
+            });
         entry.state = stillConflicted ? ConflictFileState::Unresolved : ConflictFileState::Resolved;
     }
 
@@ -35,15 +34,15 @@ void ConflictBatch::merge(const std::vector<const WorkingCopyEntry*>& conflicted
     // entries_'s existing order is left untouched above, so first-appearance
     // order holds across every call.
     for (const WorkingCopyEntry* candidate : conflicted) {
-        const bool alreadyTracked =
-            std::any_of(entries_.begin(), entries_.end(), [candidate](const ConflictBatchEntry& entry) {
+        const bool alreadyTracked = std::any_of(
+            entries_.begin(), entries_.end(), [candidate](const ConflictBatchEntry& entry) {
                 return entry.path == candidate->path;
             });
         if (alreadyTracked) {
             continue;
         }
-        entries_.push_back(
-            ConflictBatchEntry{candidate->path, candidate->conflict, ConflictFileState::Unresolved});
+        entries_.push_back(ConflictBatchEntry{
+            candidate->path, candidate->conflict, ConflictFileState::Unresolved});
     }
 }
 

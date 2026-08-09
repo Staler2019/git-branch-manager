@@ -35,7 +35,7 @@ class RepositorySession;
 /// middleBufferHasUnsavedEdits()/summarizeConflictSideTraits() in
 /// ConflictResolvePanel.h.
 std::optional<int> nextUnresolvedRailIndex(const std::vector<ConflictBatchEntry>& entries,
-                                            int resolvedIndex);
+                                           int resolvedIndex);
 
 /// Design B1 + B2's app-side wiring: a standalone window listing every
 /// conflicted file in the current merge/rebase/cherry-pick (left rail,
@@ -95,7 +95,8 @@ public:
     /// the user leaves through one of the three exits. The returned pointer
     /// is only useful before that -- callers must not hold onto it past
     /// their own return, same as any WA_DeleteOnClose widget.
-    static ConflictResolveWindow* openFor(QWidget* parent, RepositorySession* session,
+    static ConflictResolveWindow* openFor(QWidget* parent,
+                                          RepositorySession* session,
                                           const QString& initialPath);
 
     /// Merges `conflicted` into the in-memory ConflictBatch and re-renders

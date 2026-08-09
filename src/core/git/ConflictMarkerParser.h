@@ -57,8 +57,7 @@ public:
     /// choice, so assembling a partial resolution is always a caller bug
     /// rather than a state to render.
     static std::optional<std::string> assemble(
-        const ParsedConflictFile& parsed,
-        const std::vector<ConflictRegionResolution>& resolutions);
+        const ParsedConflictFile& parsed, const std::vector<ConflictRegionResolution>& resolutions);
 };
 
 }  // namespace gbm

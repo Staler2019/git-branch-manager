@@ -15,7 +15,7 @@ std::string readPreparedCommitMessage(const RepoPaths& paths) {
 }
 
 bool shouldApplyPreparedCommitMessage(const std::string& currentMessageBoxText,
-                                       const std::string& lastAutofilledMessage) {
+                                      const std::string& lastAutofilledMessage) {
     return currentMessageBoxText.empty() || currentMessageBoxText == lastAutofilledMessage;
 }
 

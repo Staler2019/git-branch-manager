@@ -33,6 +33,6 @@ std::string readPreparedCommitMessage(const RepoPaths& paths);
 /// so it's directly unit-testable with no Qt widget or RepositorySession
 /// involved -- same reasoning as ConflictBatch/TextTraits living in core.
 bool shouldApplyPreparedCommitMessage(const std::string& currentMessageBoxText,
-                                       const std::string& lastAutofilledMessage);
+                                      const std::string& lastAutofilledMessage);
 
 }  // namespace gbm

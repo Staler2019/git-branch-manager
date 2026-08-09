@@ -543,8 +543,10 @@ signals:
     /// would also compute for genuinely empty input, so "absent" and "empty"
     /// are indistinguishable here on purpose (matching conflictSidesReady's
     /// own choice not to distinguish them for content either).
-    void conflictSideTraitsReady(QString path, TextTraits ancestor, TextTraits ours,
-                                  TextTraits theirs);
+    void conflictSideTraitsReady(QString path,
+                                 TextTraits ancestor,
+                                 TextTraits ours,
+                                 TextTraits theirs);
     /// Reply to requestFileContent. `exists` is false when `revision:path`
     /// does not resolve to an object (new untracked file, or a path renamed
     /// away by `revision`) -- distinct from an existing-but-empty file, which

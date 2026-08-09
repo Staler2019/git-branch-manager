@@ -20,7 +20,8 @@ QString conflictBatchGroup(const RepoPaths& paths) {
 
 }  // namespace
 
-std::string ConflictBatchStore::operationFingerprint(const RepoPaths& paths, const RepoState& state) {
+std::string ConflictBatchStore::operationFingerprint(const RepoPaths& paths,
+                                                     const RepoState& state) {
     return paths.commandDir().string() + "|" + std::to_string(state.flags) + "|" +
            std::to_string(state.rebaseStep) + "/" + std::to_string(state.rebaseTotal);
 }
@@ -44,7 +45,8 @@ ConflictBatch ConflictBatchStore::load(const RepoPaths& paths, const std::string
         ConflictBatchEntry entry;
         entry.path = settings.value(QStringLiteral("path")).toString().toStdString();
         entry.kind = static_cast<ConflictKind>(settings.value(QStringLiteral("kind")).toInt());
-        entry.state = static_cast<ConflictFileState>(settings.value(QStringLiteral("state")).toInt());
+        entry.state =
+            static_cast<ConflictFileState>(settings.value(QStringLiteral("state")).toInt());
         entries.push_back(std::move(entry));
     }
     settings.endArray();
@@ -59,7 +61,7 @@ void ConflictBatchStore::save(const RepoPaths& paths, const ConflictBatch& batch
     settings.beginGroup(group);
 
     settings.setValue(QStringLiteral("fingerprint"),
-                       QString::fromStdString(batch.operationFingerprint()));
+                      QString::fromStdString(batch.operationFingerprint()));
 
     const std::vector<ConflictBatchEntry>& entries = batch.entries();
     settings.beginWriteArray(QStringLiteral("entries"));

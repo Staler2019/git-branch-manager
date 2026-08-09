@@ -26,7 +26,7 @@
 namespace gbm {
 
 std::optional<int> nextUnresolvedRailIndex(const std::vector<ConflictBatchEntry>& entries,
-                                            int resolvedIndex) {
+                                           int resolvedIndex) {
     const int count = static_cast<int>(entries.size());
     if (count == 0 || resolvedIndex < 0 || resolvedIndex >= count) {
         return std::nullopt;
@@ -113,13 +113,17 @@ ConflictResolveWindow::ConflictResolveWindow(QWidget* parent) : QWidget(parent) 
     railContainer->setMinimumWidth(200);
 
     panel_ = new ConflictResolvePanel(this);
-    connect(panel_, &ConflictResolvePanel::resolutionSubmitted, this,
+    connect(panel_,
+            &ConflictResolvePanel::resolutionSubmitted,
+            this,
             &ConflictResolveWindow::onPanelResolutionSubmitted);
     // panel_->cancelled() is deliberately left unconnected: a single file's
     // cancel no longer means "close the whole window" once several files
     // share one window. What "cancel" means at the window level is the
     // cancelButton_/pendingExit_ machinery below instead.
-    connect(railList_, &QListWidget::currentItemChanged, this,
+    connect(railList_,
+            &QListWidget::currentItemChanged,
+            this,
             [this](QListWidgetItem* current, QListWidgetItem* /*previous*/) {
                 if (current == nullptr) {
                     return;
@@ -203,8 +207,9 @@ ConflictResolveWindow::ConflictResolveWindow(QWidget* parent) : QWidget(parent) 
     updateExitButtonsEnabled();
 }
 
-ConflictResolveWindow* ConflictResolveWindow::openFor(QWidget* parent, RepositorySession* session,
-                                                       const QString& initialPath) {
+ConflictResolveWindow* ConflictResolveWindow::openFor(QWidget* parent,
+                                                      RepositorySession* session,
+                                                      const QString& initialPath) {
     auto* window = new ConflictResolveWindow(parent);
     window->setAttribute(Qt::WA_DeleteOnClose);
     window->session_ = session;
@@ -218,8 +223,11 @@ ConflictResolveWindow* ConflictResolveWindow::openFor(QWidget* parent, Repositor
             ConflictBatchStore::operationFingerprint(session->paths(), session->state());
         window->conflictBatch_ = ConflictBatchStore::load(session->paths(), fingerprint);
 
-        connect(session, &RepositorySession::workingCopyStatusUpdated, window,
-                &ConflictResolveWindow::onSessionWorkingCopyStatusUpdated, Qt::UniqueConnection);
+        connect(session,
+                &RepositorySession::workingCopyStatusUpdated,
+                window,
+                &ConflictResolveWindow::onSessionWorkingCopyStatusUpdated,
+                Qt::UniqueConnection);
         window->currentStatus_ = session->workingCopyStatus();
         if (window->currentStatus_) {
             window->refreshBatch(window->currentStatus_->conflicted());
@@ -262,9 +270,10 @@ void ConflictResolveWindow::refreshBatch(const std::vector<const WorkingCopyEntr
     bool selectedJustResolved = false;
     if (currentEntryIndex_ >= 0 && static_cast<std::size_t>(currentEntryIndex_) < before.size() &&
         static_cast<std::size_t>(currentEntryIndex_) < after.size()) {
-        selectedJustResolved =
-            before[static_cast<std::size_t>(currentEntryIndex_)].state == ConflictFileState::Unresolved &&
-            after[static_cast<std::size_t>(currentEntryIndex_)].state == ConflictFileState::Resolved;
+        selectedJustResolved = before[static_cast<std::size_t>(currentEntryIndex_)].state ==
+                                   ConflictFileState::Unresolved &&
+                               after[static_cast<std::size_t>(currentEntryIndex_)].state ==
+                                   ConflictFileState::Resolved;
     }
 
     rebuildRailRows();
@@ -328,8 +337,8 @@ void ConflictResolveWindow::rebuildRailRows() {
             item->setIcon(IconLoader::icon(QStringLiteral("alert-triangle"), Token::Warning));
             const QString token = conflictKindShortToken(entry.kind);
             item->setToolTip(token.isEmpty() ? QString::fromStdString(entry.path)
-                                              : QStringLiteral("%1 (%2)").arg(
-                                                    QString::fromStdString(entry.path), token));
+                                             : QStringLiteral("%1 (%2)").arg(
+                                                   QString::fromStdString(entry.path), token));
         }
         railList_->addItem(item);
 
@@ -460,11 +469,13 @@ bool ConflictResolveWindow::confirmDiscardCurrentFileProgressIfAny() {
         return true;
     }
     const auto answer = QMessageBox::question(
-        this, tr("Discard unsaved progress?"),
+        this,
+        tr("Discard unsaved progress?"),
         tr("The file you're currently working on has choices that haven't been saved yet. "
            "Closing now will discard them -- files you've already saved are not affected. "
            "Continue?"),
-        QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
+        QMessageBox::Yes | QMessageBox::Cancel,
+        QMessageBox::Cancel);
     return answer == QMessageBox::Yes;
 }
 

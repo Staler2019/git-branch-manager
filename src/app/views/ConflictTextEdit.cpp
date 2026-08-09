@@ -13,8 +13,8 @@
 #include <QDropEvent>
 #include <QMimeData>
 #include <QMouseEvent>
-#include <QPainter>
 #include <QPaintEvent>
+#include <QPainter>
 #include <QResizeEvent>
 #include <QTextBlock>
 #include <QTextCursor>
@@ -26,7 +26,9 @@ namespace gbm {
 
 const char kConflictRegionMimeType[] = "application/x-gbm-conflict-region";
 
-QMimeData* encodeConflictRegionMimeData(int regionIndex, ConflictSide fromSide, const QString& sideText) {
+QMimeData* encodeConflictRegionMimeData(int regionIndex,
+                                        ConflictSide fromSide,
+                                        const QString& sideText) {
     QByteArray payload;
     QDataStream stream(&payload, QIODevice::WriteOnly);
     stream << static_cast<qint32>(fromSide) << static_cast<qint32>(regionIndex);
@@ -80,8 +82,7 @@ ConflictTextEdit::ConflictTextEdit(QWidget* parent) : QPlainTextEdit(parent) {
             &QPlainTextEdit::blockCountChanged,
             this,
             &ConflictTextEdit::updateLineNumberAreaWidth);
-    connect(
-        this, &QPlainTextEdit::updateRequest, this, &ConflictTextEdit::updateLineNumberArea);
+    connect(this, &QPlainTextEdit::updateRequest, this, &ConflictTextEdit::updateLineNumberArea);
     updateLineNumberAreaWidth(0);
     // Needed for mouseMoveEvent() to fire on plain hover (no button held) --
     // that's how a region raises itself before the user has pressed
@@ -116,7 +117,8 @@ void ConflictTextEdit::setRegionSpans(std::vector<RegionRowSpan> spans) {
     applyExtraSelections();
 }
 
-void ConflictTextEdit::setRegionLineSelection(int regionIndex, const std::vector<bool>& selectedLines) {
+void ConflictTextEdit::setRegionLineSelection(int regionIndex,
+                                              const std::vector<bool>& selectedLines) {
     const RegionRowSpan* span = spanForRegionIndex(regionIndex);
     std::vector<int> blocks;
     if (span != nullptr) {
@@ -161,7 +163,7 @@ void ConflictTextEdit::applyExtraSelections() {
         if (firstBlockObj.isValid() && lastBlockObj.isValid()) {
             QTextCursor cursor(firstBlockObj);
             cursor.setPosition(lastBlockObj.position() + lastBlockObj.length() - 1,
-                                QTextCursor::KeepAnchor);
+                               QTextCursor::KeepAnchor);
             QTextEdit::ExtraSelection selection;
             selection.cursor = cursor;
             selection.format.setBackground(ThemeManager::color(Token::SurfaceHover));
@@ -218,7 +220,8 @@ void ConflictTextEdit::updateDropTargetPresentation(const RegionRowSpan* span) {
         return;
     }
     QTextCursor cursor(firstBlockObj);
-    cursor.setPosition(lastBlockObj.position() + lastBlockObj.length() - 1, QTextCursor::KeepAnchor);
+    cursor.setPosition(lastBlockObj.position() + lastBlockObj.length() - 1,
+                       QTextCursor::KeepAnchor);
 
     QTextEdit::ExtraSelection selection;
     selection.cursor = cursor;
@@ -253,7 +256,7 @@ void ConflictTextEdit::mouseMoveEvent(QMouseEvent* event) {
         if (firstBlockObj.isValid() && lastBlockObj.isValid()) {
             QTextCursor cursor(firstBlockObj);
             cursor.setPosition(lastBlockObj.position() + lastBlockObj.length() - 1,
-                                QTextCursor::KeepAnchor);
+                               QTextCursor::KeepAnchor);
             sideText = cursor.selectedText();
         }
 
@@ -423,8 +426,8 @@ SidePaneRender buildSidePaneText(const ParsedConflictFile& parsed, ConflictSide 
 }
 
 std::vector<std::string> composeCustomRegionLines(const ConflictSegment& segment,
-                                                    const std::vector<bool>& oursSelected,
-                                                    const std::vector<bool>& theirsSelected) {
+                                                  const std::vector<bool>& oursSelected,
+                                                  const std::vector<bool>& theirsSelected) {
     std::vector<std::string> result;
     for (std::size_t i = 0; i < segment.ours.size(); ++i) {
         if (i < oursSelected.size() && oursSelected[i]) {
@@ -506,20 +509,22 @@ void ConflictTextEdit::lineNumberAreaPaintEvent(QPaintEvent* event) {
             // matching the plan's "邊框＋底色" spec (background alone wasn't
             // implementing the border half of that).
             if (hoveredSpanIndex_ >= 0) {
-                const RegionRowSpan& hovered = regionSpans_[static_cast<std::size_t>(hoveredSpanIndex_)];
+                const RegionRowSpan& hovered =
+                    regionSpans_[static_cast<std::size_t>(hoveredSpanIndex_)];
                 if (blockNumber >= hovered.firstBlock &&
                     blockNumber < hovered.firstBlock + hovered.blockCount) {
-                    painter.fillRect(QRect(0, top, 3, bottom - top), ThemeManager::color(Token::Accent));
+                    painter.fillRect(QRect(0, top, 3, bottom - top),
+                                     ThemeManager::color(Token::Accent));
                 }
             }
             painter.setPen(selected ? ThemeManager::color(Token::Accent)
-                                     : ThemeManager::color(Token::TextTertiary));
+                                    : ThemeManager::color(Token::TextTertiary));
             painter.drawText(0,
-                              top,
-                              lineNumberArea_->width() - 6,
-                              fontMetrics().height(),
-                              Qt::AlignRight,
-                              selected ? QStringLiteral("✓") : QString::number(blockNumber + 1));
+                             top,
+                             lineNumberArea_->width() - 6,
+                             fontMetrics().height(),
+                             Qt::AlignRight,
+                             selected ? QStringLiteral("✓") : QString::number(blockNumber + 1));
         }
         block = block.next();
         top = bottom;

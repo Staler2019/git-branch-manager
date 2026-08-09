@@ -322,8 +322,8 @@ void MainWindow::buildUi() {
     bannerResolveButton_ = new QPushButton(QStringLiteral("Resolve Conflicts…"), bannerRow);
     bannerResolveButton_->setObjectName(QStringLiteral("primaryButton"));
     bannerResolveButton_->setVisible(false);
-    connect(bannerResolveButton_, &QPushButton::clicked, this,
-            &MainWindow::onBannerResolveConflicts);
+    connect(
+        bannerResolveButton_, &QPushButton::clicked, this, &MainWindow::onBannerResolveConflicts);
     bannerLayout->addWidget(bannerResolveButton_);
 
     // Continue/Skip/Abort for whichever sequencer operation (merge, cherry-pick,

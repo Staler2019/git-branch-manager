@@ -29,8 +29,9 @@
 
 namespace gbm {
 
-bool middleBufferHasUnsavedEdits(const QString& currentText, const QString& lastAssembledText,
-                                  bool isReadOnly) {
+bool middleBufferHasUnsavedEdits(const QString& currentText,
+                                 const QString& lastAssembledText,
+                                 bool isReadOnly) {
     if (isReadOnly) {
         return false;
     }
@@ -97,7 +98,8 @@ void appendBadgeToken(QString& badge, const QString& token) {
 
 }  // namespace
 
-ConflictTraitsSummary summarizeConflictSideTraits(const TextTraits& ours, const TextTraits& theirs) {
+ConflictTraitsSummary summarizeConflictSideTraits(const TextTraits& ours,
+                                                  const TextTraits& theirs) {
     ConflictTraitsSummary summary;
 
     // Diff-based: must_not_do explicitly forbids a badge/warning when the
@@ -371,22 +373,29 @@ ConflictResolvePanel::ConflictResolvePanel(QWidget* parent) : QWidget(parent) {
     oursEdit_->setSide(ConflictSide::Ours);
     theirsEdit_->setSide(ConflictSide::Theirs);
     middleEdit_->setSide(ConflictSide::Result);
-    connect(middleEdit_, &ConflictTextEdit::regionDropped, this, [this](int regionIndex, ConflictSide fromSide) {
-        resolveRegion(regionIndex,
-                       ConflictRegionResolution{fromSide == ConflictSide::Theirs
-                                                     ? ConflictRegionChoice::Theirs
-                                                     : ConflictRegionChoice::Ours,
-                                                 {}});
-    });
+    connect(middleEdit_,
+            &ConflictTextEdit::regionDropped,
+            this,
+            [this](int regionIndex, ConflictSide fromSide) {
+                resolveRegion(regionIndex,
+                              ConflictRegionResolution{fromSide == ConflictSide::Theirs
+                                                           ? ConflictRegionChoice::Theirs
+                                                           : ConflictRegionChoice::Ours,
+                                                       {}});
+            });
     // Design A2: click-to-toggle-line composition. Both panes share one
     // handler; which side clicked is baked into the connection itself
     // rather than inferred from the sender, since ConflictSide already
     // exists to say exactly that.
-    connect(oursEdit_, &ConflictTextEdit::lineToggled, this,
+    connect(oursEdit_,
+            &ConflictTextEdit::lineToggled,
+            this,
             [this](int regionIndex, int lineOffset, Qt::KeyboardModifiers modifiers) {
                 onRegionLineToggled(regionIndex, ConflictSide::Ours, lineOffset, modifiers);
             });
-    connect(theirsEdit_, &ConflictTextEdit::lineToggled, this,
+    connect(theirsEdit_,
+            &ConflictTextEdit::lineToggled,
+            this,
             [this](int regionIndex, int lineOffset, Qt::KeyboardModifiers modifiers) {
                 onRegionLineToggled(regionIndex, ConflictSide::Theirs, lineOffset, modifiers);
             });
@@ -394,8 +403,7 @@ ConflictResolvePanel::ConflictResolvePanel(QWidget* parent) : QWidget(parent) {
     // restoreConflictPanesSizes()'s deferred restore if sizes were saved
     // from a previous session.
     const int equalShare = qMax(panesSplitter_->width(), 800) / panesSplitter_->count();
-    panesSplitter_->setSizes(
-        QList<int>(panesSplitter_->count(), equalShare));
+    panesSplitter_->setSizes(QList<int>(panesSplitter_->count(), equalShare));
     layout->addWidget(panesSplitter_, 1);
     // isHidden() rather than isVisible(): the latter also reflects ancestor
     // visibility, and the panel itself isn't shown yet at construction time
@@ -431,8 +439,9 @@ ConflictResolvePanel::ConflictResolvePanel(QWidget* parent) : QWidget(parent) {
 
     connect(regionPrevButton_, &QPushButton::clicked, this, [this] { navigateRegion(-1); });
     connect(regionNextButton_, &QPushButton::clicked, this, [this] { navigateRegion(1); });
-    connect(regionResetButton_, &QPushButton::clicked, this,
-            [this] { resetRegionToUnresolved(currentRegionIndex_); });
+    connect(regionResetButton_, &QPushButton::clicked, this, [this] {
+        resetRegionToUnresolved(currentRegionIndex_);
+    });
     connect(regionTakeLeftAllButton_, &QPushButton::clicked, this, [this] {
         resolveAllRegions(ConflictRegionChoice::Ours);
     });
@@ -481,7 +490,8 @@ ConflictResolvePanel::ConflictResolvePanel(QWidget* parent) : QWidget(parent) {
         if (summarizeConflictSideTraits(oursTraits_, theirsTraits_).oursLineOpsUnsafe) {
             return;
         }
-        resolveRegion(currentRegionIndex_, ConflictRegionResolution{ConflictRegionChoice::Ours, {}});
+        resolveRegion(currentRegionIndex_,
+                      ConflictRegionResolution{ConflictRegionChoice::Ours, {}});
     });
     auto* takeRightShortcut = new QShortcut(QKeySequence(Qt::Key_Right), this);
     takeRightShortcut->setContext(Qt::WidgetWithChildrenShortcut);
@@ -493,12 +503,13 @@ ConflictResolvePanel::ConflictResolvePanel(QWidget* parent) : QWidget(parent) {
             return;
         }
         resolveRegion(currentRegionIndex_,
-                       ConflictRegionResolution{ConflictRegionChoice::Theirs, {}});
+                      ConflictRegionResolution{ConflictRegionChoice::Theirs, {}});
     });
     auto* resetShortcut = new QShortcut(QKeySequence(Qt::Key_Backspace), this);
     resetShortcut->setContext(Qt::WidgetWithChildrenShortcut);
-    connect(resetShortcut, &QShortcut::activated, this,
-            [this] { resetRegionToUnresolved(currentRegionIndex_); });
+    connect(resetShortcut, &QShortcut::activated, this, [this] {
+        resetRegionToUnresolved(currentRegionIndex_);
+    });
 
     auto* buttonRow = new QHBoxLayout();
     auto* takeLeftButton = new QPushButton(tr("Take Left (Mine)"), this);
@@ -642,7 +653,8 @@ void ConflictResolvePanel::showEntry(RepositorySession* session, const WorkingCo
             this,
             &ConflictResolvePanel::onConflictSideTraitsReady,
             Qt::UniqueConnection);
-    session_->requestConflictSides(entry.path, entry.ancestorBlob, entry.oursBlob, entry.theirsBlob);
+    session_->requestConflictSides(
+        entry.path, entry.ancestorBlob, entry.oursBlob, entry.theirsBlob);
 
     connect(session_,
             &RepositorySession::workingTreeContentReady,
@@ -653,9 +665,9 @@ void ConflictResolvePanel::showEntry(RepositorySession* session, const WorkingCo
 }
 
 void ConflictResolvePanel::onConflictSidesReady(const QString& path,
-                                                 const QString& ancestor,
-                                                 const QString& ours,
-                                                 const QString& theirs) {
+                                                const QString& ancestor,
+                                                const QString& ours,
+                                                const QString& theirs) {
     if (path.toStdString() != path_) {
         return;
     }
@@ -671,9 +683,9 @@ void ConflictResolvePanel::onConflictSidesReady(const QString& path,
 }
 
 void ConflictResolvePanel::onConflictSideTraitsReady(const QString& path,
-                                                      const TextTraits& /*ancestor*/,
-                                                      const TextTraits& ours,
-                                                      const TextTraits& theirs) {
+                                                     const TextTraits& /*ancestor*/,
+                                                     const TextTraits& ours,
+                                                     const TextTraits& theirs) {
     if (path.toStdString() != path_) {
         return;
     }
@@ -708,9 +720,10 @@ void ConflictResolvePanel::updateTraitsPresentation() {
                              lineEndingBadgeToken(theirsTraits_.lineEnding));
     }
     if (summary.oursLineOpsUnsafe || summary.theirsLineOpsUnsafe) {
-        warnings << tr("One side is not valid UTF-8 -- dragging or clicking individual lines "
-                       "from that column is disabled to avoid corrupting the result. Use Take "
-                       "Left or Take Right for the whole file instead.");
+        warnings << tr(
+            "One side is not valid UTF-8 -- dragging or clicking individual lines "
+            "from that column is disabled to avoid corrupting the result. Use Take "
+            "Left or Take Right for the whole file instead.");
     }
     traitsWarningLabel_->setText(warnings.join(QStringLiteral("\n")));
     traitsWarningRow_->setVisible(!warnings.isEmpty());
@@ -745,7 +758,7 @@ void ConflictResolvePanel::refreshSidePanes() {
             // refer to the document that was just set, not whatever the
             // pane showed before.
             oursEdit_->setRegionSpans(traits.oursLineOpsUnsafe ? std::vector<RegionRowSpan>{}
-                                                                : render.spans);
+                                                               : render.spans);
         } else {
             oursEdit_->setPlainText(oursBlobText_);
             oursEdit_->setRegionSpans({});
@@ -757,7 +770,7 @@ void ConflictResolvePanel::refreshSidePanes() {
             const SidePaneRender render = buildSidePaneText(parsedMarkers_, ConflictSide::Theirs);
             theirsEdit_->setPlainText(render.text);
             theirsEdit_->setRegionSpans(traits.theirsLineOpsUnsafe ? std::vector<RegionRowSpan>{}
-                                                                    : render.spans);
+                                                                   : render.spans);
         } else {
             theirsEdit_->setPlainText(theirsBlobText_);
             theirsEdit_->setRegionSpans({});
@@ -766,8 +779,8 @@ void ConflictResolvePanel::refreshSidePanes() {
 }
 
 void ConflictResolvePanel::onWorkingTreeContentReady(const QString& path,
-                                                      const QString& content,
-                                                      bool editable) {
+                                                     const QString& content,
+                                                     bool editable) {
     if (path.toStdString() != path_) {
         return;
     }
@@ -875,10 +888,11 @@ QString ConflictResolvePanel::buildMiddlePreviewText(
 }
 
 bool ConflictResolvePanel::allRegionsResolved() const {
-    return std::all_of(
-        regionResolutions_.begin(), regionResolutions_.end(), [](const ConflictRegionResolution& r) {
-            return r.choice != ConflictRegionChoice::Unresolved;
-        });
+    return std::all_of(regionResolutions_.begin(),
+                       regionResolutions_.end(),
+                       [](const ConflictRegionResolution& r) {
+                           return r.choice != ConflictRegionChoice::Unresolved;
+                       });
 }
 
 bool ConflictResolvePanel::canSave() const {
@@ -998,7 +1012,8 @@ void ConflictResolvePanel::resetRegionToUnresolved(int index) {
     if (index < 0 || static_cast<std::size_t>(index) >= regionResolutions_.size()) {
         return;
     }
-    if (regionResolutions_[static_cast<std::size_t>(index)].choice == ConflictRegionChoice::Unresolved) {
+    if (regionResolutions_[static_cast<std::size_t>(index)].choice ==
+        ConflictRegionChoice::Unresolved) {
         return;  // Nothing to reset.
     }
     // Once every region is resolved, middleEdit_ becomes the user's freely
@@ -1009,8 +1024,8 @@ void ConflictResolvePanel::resetRegionToUnresolved(int index) {
     // go through -- "undo my last choice" is the whole point of the
     // affordance -- so this asks for confirmation instead of refusing
     // outright.
-    if (middleBufferHasUnsavedEdits(middleEdit_->toPlainText(), lastAssembledMiddleText_,
-                                     middleEdit_->isReadOnly())) {
+    if (middleBufferHasUnsavedEdits(
+            middleEdit_->toPlainText(), lastAssembledMiddleText_, middleEdit_->isReadOnly())) {
         const auto answer = QMessageBox::question(
             this,
             tr("Discard edited result?"),
@@ -1047,20 +1062,22 @@ const ConflictSegment* ConflictResolvePanel::regionSegment(int regionIndex) cons
 }
 
 void ConflictResolvePanel::ensureCustomLineSelectionSeeded(int regionIndex,
-                                                            const ConflictSegment& segment) {
+                                                           const ConflictSegment& segment) {
     const auto index = static_cast<std::size_t>(regionIndex);
     if (customLineSelectionSeeded_[index]) {
         return;
     }
     customLineSelectionSeeded_[index] = true;
     const ConflictRegionChoice choice = regionResolutions_[index].choice;
-    customOursLineSelected_[index].assign(segment.ours.size(), choice == ConflictRegionChoice::Ours);
+    customOursLineSelected_[index].assign(segment.ours.size(),
+                                          choice == ConflictRegionChoice::Ours);
     customTheirsLineSelected_[index].assign(segment.theirs.size(),
-                                             choice == ConflictRegionChoice::Theirs);
+                                            choice == ConflictRegionChoice::Theirs);
 }
 
 void ConflictResolvePanel::resetCustomLineSelection(int regionIndex) {
-    if (regionIndex < 0 || static_cast<std::size_t>(regionIndex) >= customLineSelectionSeeded_.size()) {
+    if (regionIndex < 0 ||
+        static_cast<std::size_t>(regionIndex) >= customLineSelectionSeeded_.size()) {
         return;
     }
     const auto index = static_cast<std::size_t>(regionIndex);
@@ -1074,7 +1091,8 @@ void ConflictResolvePanel::resetCustomLineSelection(int regionIndex) {
     }
 }
 
-void ConflictResolvePanel::showWholeSideLineSelection(int regionIndex, ConflictRegionChoice choice) {
+void ConflictResolvePanel::showWholeSideLineSelection(int regionIndex,
+                                                      ConflictRegionChoice choice) {
     const ConflictSegment* segment = regionSegment(regionIndex);
     if (segment == nullptr) {
         return;
@@ -1082,11 +1100,14 @@ void ConflictResolvePanel::showWholeSideLineSelection(int regionIndex, ConflictR
     oursEdit_->setRegionLineSelection(
         regionIndex, std::vector<bool>(segment->ours.size(), choice == ConflictRegionChoice::Ours));
     theirsEdit_->setRegionLineSelection(
-        regionIndex, std::vector<bool>(segment->theirs.size(), choice == ConflictRegionChoice::Theirs));
+        regionIndex,
+        std::vector<bool>(segment->theirs.size(), choice == ConflictRegionChoice::Theirs));
 }
 
-void ConflictResolvePanel::onRegionLineToggled(int regionIndex, ConflictSide side, int lineOffset,
-                                                Qt::KeyboardModifiers modifiers) {
+void ConflictResolvePanel::onRegionLineToggled(int regionIndex,
+                                               ConflictSide side,
+                                               int lineOffset,
+                                               Qt::KeyboardModifiers modifiers) {
     if (regionIndex < 0 || static_cast<std::size_t>(regionIndex) >= regionResolutions_.size()) {
         return;
     }
@@ -1097,8 +1118,8 @@ void ConflictResolvePanel::onRegionLineToggled(int regionIndex, ConflictSide sid
     ensureCustomLineSelectionSeeded(regionIndex, *segment);
 
     const auto index = static_cast<std::size_t>(regionIndex);
-    std::vector<bool>& selected =
-        (side == ConflictSide::Theirs) ? customTheirsLineSelected_[index] : customOursLineSelected_[index];
+    std::vector<bool>& selected = (side == ConflictSide::Theirs) ? customTheirsLineSelected_[index]
+                                                                 : customOursLineSelected_[index];
     if (lineOffset < 0 || static_cast<std::size_t>(lineOffset) >= selected.size()) {
         return;
     }
@@ -1114,7 +1135,8 @@ void ConflictResolvePanel::onRegionLineToggled(int regionIndex, ConflictSide sid
             selected[static_cast<std::size_t>(i)] = true;
         }
     } else {
-        selected[static_cast<std::size_t>(lineOffset)] = !selected[static_cast<std::size_t>(lineOffset)];
+        selected[static_cast<std::size_t>(lineOffset)] =
+            !selected[static_cast<std::size_t>(lineOffset)];
     }
     lastLineClickAnchor_ = LineClickAnchor{regionIndex, side, lineOffset};
 
@@ -1124,7 +1146,8 @@ void ConflictResolvePanel::onRegionLineToggled(int regionIndex, ConflictSide sid
     // region line by line and jumping away mid-click would be jarring.
     regionResolutions_[index] = ConflictRegionResolution{
         ConflictRegionChoice::Custom,
-        composeCustomRegionLines(*segment, customOursLineSelected_[index], customTheirsLineSelected_[index])};
+        composeCustomRegionLines(
+            *segment, customOursLineSelected_[index], customTheirsLineSelected_[index])};
     refreshMiddleFromResolutions();
     oursEdit_->setRegionLineSelection(regionIndex, customOursLineSelected_[index]);
     theirsEdit_->setRegionLineSelection(regionIndex, customTheirsLineSelected_[index]);
@@ -1260,8 +1283,8 @@ bool ConflictResolvePanel::hasUnsavedProgress() const {
             return true;
         }
     }
-    return middleBufferHasUnsavedEdits(middleEdit_->toPlainText(), lastAssembledMiddleText_,
-                                        middleEdit_->isReadOnly());
+    return middleBufferHasUnsavedEdits(
+        middleEdit_->toPlainText(), lastAssembledMiddleText_, middleEdit_->isReadOnly());
 }
 
 }  // namespace gbm

@@ -38,8 +38,9 @@ struct WorkingCopyEntry;
 /// free-editing buffer, so there is nothing of theirs to lose yet no matter
 /// what the two strings say (they're expected to differ constantly while
 /// still previewing).
-bool middleBufferHasUnsavedEdits(const QString& currentText, const QString& lastAssembledText,
-                                  bool isReadOnly);
+bool middleBufferHasUnsavedEdits(const QString& currentText,
+                                 const QString& lastAssembledText,
+                                 bool isReadOnly);
 
 /// Design A5: what to show/restrict for one pair of sides' TextTraits.
 ///
@@ -131,8 +132,10 @@ private:
     /// to gate. See RepositorySession::conflictSideTraitsReady's own comment
     /// on why this is a separate signal from conflictSidesReady rather than
     /// an extension of it.
-    void onConflictSideTraitsReady(const QString& path, const TextTraits& ancestor,
-                                    const TextTraits& ours, const TextTraits& theirs);
+    void onConflictSideTraitsReady(const QString& path,
+                                   const TextTraits& ancestor,
+                                   const TextTraits& ours,
+                                   const TextTraits& theirs);
     void onWorkingTreeContentReady(const QString& path, const QString& content, bool editable);
     void submitResolution(int choice);
 
@@ -236,7 +239,10 @@ private:
     /// `lineOffset`, selecting the whole range. Unlike resolveRegion(), this
     /// never jumps to the next unresolved region -- the user is still
     /// working through this one line by line.
-    void onRegionLineToggled(int regionIndex, ConflictSide side, int lineOffset, Qt::KeyboardModifiers modifiers);
+    void onRegionLineToggled(int regionIndex,
+                             ConflictSide side,
+                             int lineOffset,
+                             Qt::KeyboardModifiers modifiers);
     /// Lazily sizes and seeds customOursLineSelected_[regionIndex]/
     /// customTheirsLineSelected_[regionIndex] the first time a line in that
     /// region is clicked: all-false if the region is still Unresolved (or
@@ -331,6 +337,7 @@ private:
     /// emptiness, since a region with zero lines on one side (a valid
     /// conflict shape) would look identical to "not yet seeded".
     std::vector<bool> customLineSelectionSeeded_;
+
     /// A single click's target, so a following Shift+click in the *same*
     /// region and side can extend a range from it -- see
     /// onRegionLineToggled(). A Shift+click elsewhere (different region or
@@ -341,6 +348,7 @@ private:
         ConflictSide side = ConflictSide::Ours;
         int lineOffset = 0;
     };
+
     std::optional<LineClickAnchor> lastLineClickAnchor_;
 
     /// Raw on-disk blob text for each side, captured verbatim by

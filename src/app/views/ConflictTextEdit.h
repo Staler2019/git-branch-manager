@@ -81,8 +81,8 @@ SidePaneRender buildSidePaneText(const ParsedConflictFile& parsed, ConflictSide 
 /// be shorter than its segment vector (not-yet-clicked lines default to
 /// unselected) but never longer.
 std::vector<std::string> composeCustomRegionLines(const ConflictSegment& segment,
-                                                    const std::vector<bool>& oursSelected,
-                                                    const std::vector<bool>& theirsSelected);
+                                                  const std::vector<bool>& oursSelected,
+                                                  const std::vector<bool>& theirsSelected);
 
 /// Design A3: the middle (result) pane's own region -> row-span map, mirroring
 /// buildSidePaneText()'s block-counting pattern but reading each region's
@@ -97,8 +97,8 @@ std::vector<std::string> composeCustomRegionLines(const ConflictSegment& segment
 /// (same contract as ConflictRegionResolution vectors elsewhere); a region
 /// index past the end of `resolutions` degrades to a zero-length span rather
 /// than asserting.
-std::vector<RegionRowSpan> buildMiddleRegionSpans(const ParsedConflictFile& parsed,
-                                                   const std::vector<ConflictRegionResolution>& resolutions);
+std::vector<RegionRowSpan> buildMiddleRegionSpans(
+    const ParsedConflictFile& parsed, const std::vector<ConflictRegionResolution>& resolutions);
 
 /// MIME type carrying a dragged conflict region from an ours/theirs pane to
 /// the result pane. Payload is just 2 packed qint32s (side, regionIndex) --
@@ -113,7 +113,9 @@ extern const char kConflictRegionMimeType[];
 /// QMimeData payload under kConflictRegionMimeType, plus a text/plain
 /// fallback (`sideText`, e.g. that region's rendered lines) for drops
 /// outside the app. Caller owns the returned object.
-QMimeData* encodeConflictRegionMimeData(int regionIndex, ConflictSide fromSide, const QString& sideText);
+QMimeData* encodeConflictRegionMimeData(int regionIndex,
+                                        ConflictSide fromSide,
+                                        const QString& sideText);
 
 struct DecodedConflictRegionDrag {
     int regionIndex = 0;

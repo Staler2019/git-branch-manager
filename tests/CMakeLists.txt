@@ -45,6 +45,7 @@ add_executable(gbm_core_tests
     unit/ProcessRunnerTest.cpp
     unit/RepoStateTest.cpp
     unit/SideBySideDiffTest.cpp
+    unit/TextTraitsTest.cpp
     unit/UnifiedDiffParserTest.cpp
 )
 target_link_libraries(gbm_core_tests

@@ -23,6 +23,7 @@ add_library(gbm_core STATIC
     git/ReflogStore.cpp
     git/RepoState.cpp
     git/SideBySideDiff.cpp
+    git/TextTraits.cpp
     git/UnifiedDiffParser.cpp
     git/WorkingCopyStatus.cpp
     git/ops/BisectOps.cpp

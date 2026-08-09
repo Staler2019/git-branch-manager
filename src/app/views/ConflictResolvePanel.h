@@ -255,6 +255,17 @@ private:
     /// partial line selection was in progress and leaving it displayed
     /// would be stale.
     void resetCustomLineSelection(int regionIndex);
+    /// Paints every line on the winning side's gutter as checked (and
+    /// clears the other side's) for a whole-side resolution -- Take Left/
+    /// Right, Take All, or a region dropped onto the middle pane. Without
+    /// this, only line-by-line Custom picks (onRegionLineToggled()) ever
+    /// showed the check-mark affordance; a whole-side choice left the
+    /// source pane looking untouched even though it fully contributed.
+    /// Only call after resetCustomLineSelection(regionIndex) -- this does
+    /// not touch customLineSelectionSeeded_, so a later line click still
+    /// starts lazily seeded via ensureCustomLineSelectionSeeded() rather
+    /// than through this display-only path.
+    void showWholeSideLineSelection(int regionIndex, ConflictRegionChoice choice);
 
     RepositorySession* session_ = nullptr;
     std::string path_;

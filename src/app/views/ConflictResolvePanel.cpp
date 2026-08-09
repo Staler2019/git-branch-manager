@@ -979,6 +979,7 @@ void ConflictResolvePanel::resolveRegion(int index, ConflictRegionResolution res
         currentRegionIndex_ = std::min(index, count - 1);
     }
     refreshMiddleFromResolutions();
+    showWholeSideLineSelection(index, regionResolutions_[static_cast<std::size_t>(index)].choice);
 }
 
 void ConflictResolvePanel::resolveAllRegions(ConflictRegionChoice choice) {
@@ -988,6 +989,9 @@ void ConflictResolvePanel::resolveAllRegions(ConflictRegionChoice choice) {
         resetCustomLineSelection(static_cast<int>(index));
     }
     refreshMiddleFromResolutions();
+    for (std::size_t index = 0; index < regionResolutions_.size(); ++index) {
+        showWholeSideLineSelection(static_cast<int>(index), choice);
+    }
 }
 
 void ConflictResolvePanel::resetRegionToUnresolved(int index) {
@@ -1068,6 +1072,17 @@ void ConflictResolvePanel::resetCustomLineSelection(int regionIndex) {
     if (lastLineClickAnchor_.has_value() && lastLineClickAnchor_->regionIndex == regionIndex) {
         lastLineClickAnchor_.reset();
     }
+}
+
+void ConflictResolvePanel::showWholeSideLineSelection(int regionIndex, ConflictRegionChoice choice) {
+    const ConflictSegment* segment = regionSegment(regionIndex);
+    if (segment == nullptr) {
+        return;
+    }
+    oursEdit_->setRegionLineSelection(
+        regionIndex, std::vector<bool>(segment->ours.size(), choice == ConflictRegionChoice::Ours));
+    theirsEdit_->setRegionLineSelection(
+        regionIndex, std::vector<bool>(segment->theirs.size(), choice == ConflictRegionChoice::Theirs));
 }
 
 void ConflictResolvePanel::onRegionLineToggled(int regionIndex, ConflictSide side, int lineOffset,

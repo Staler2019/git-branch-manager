@@ -564,6 +564,18 @@ void MainWindow::buildUi() {
             &WorkingCopyView::viewFileDiffRequested,
             this,
             &MainWindow::onViewFileDiffRequested);
+    // Design C4: the working copy view no longer embeds a conflict panel or
+    // its own modal dialog -- double-clicking a conflicted entry there just
+    // asks for the same ConflictResolveWindow the banner button opens,
+    // pre-selected to this path.
+    connect(workingCopyView_,
+            &WorkingCopyView::resolveConflictsRequested,
+            this,
+            [this](const QString& path) {
+                if (session_) {
+                    ConflictResolveWindow::openFor(this, session_.get(), path);
+                }
+            });
     tabWidget_->addTab(workingCopyView_, QStringLiteral("Working Copy"));
 
     // --- Diff tab ------------------------------------------------------------

@@ -23,7 +23,6 @@ class QTabWidget;
 
 namespace gbm {
 
-class ConflictResolvePanel;
 class FileContentView;
 class RepositorySession;
 class SideBySideDiffView;
@@ -57,6 +56,12 @@ signals:
     /// for DiffPage -- the same RepositorySession::requestWorkingCopyDiff
     /// this view's own embedded pane already uses, just redirected.
     void viewFileDiffRequested(QString path, bool staged);
+    /// Design C4: double-clicking a conflicted entry used to open a 720x420
+    /// modal QDialog embedding a ConflictResolvePanel right here
+    /// (openConflictResolutionDialog(), removed). MainWindow now owns the
+    /// one path into ConflictResolveWindow (see bannerResolveButton_), so
+    /// this just asks for the same window, pre-selecting `path`.
+    void resolveConflictsRequested(QString path);
 
 private slots:
     void onWorkingCopyStatusUpdated();
@@ -79,15 +84,6 @@ private slots:
     /// Per-file checkbox toggled in the staged panel: unchecking unstages the
     /// file.
     void onStagedItemChanged(QListWidgetItem* item);
-    /// The embedded auto-shown conflict panel submitted a resolution: switch
-    /// back to the diff tabs. autoShowSuppressed_ is left alone -- if other
-    /// conflicts remain in this batch, the next rebuildLists() (triggered by
-    /// the status refresh that follows) auto-shows the panel again.
-    void onConflictPanelResolved();
-    /// The user closed the embedded conflict panel without resolving: switch
-    /// back to the diff tabs and suppress auto-show until this batch of
-    /// conflicts is fully resolved -- see autoShowSuppressed_.
-    void onConflictPanelCancelled();
     /// Design C3: reply to requestPreparedCommitMessage(), fired once
     /// rebuildLists() notices every conflict just cleared. See
     /// autofilledMessage_'s own comment for the overwrite guard.
@@ -110,15 +106,6 @@ private:
     FilePanel buildFilePanel(const QString& title);
     void rebuildLists();
     void refreshSelectedDiff();
-    /// Shows the three stages plus Take Mine/Take Theirs/Mark Resolved in a
-    /// modal dialog, for the "double-click a conflicted entry" path. The
-    /// same ConflictResolvePanel this dialog embeds is also embedded
-    /// directly (non-modally) in conflictStack_ -- see rebuildLists().
-    void openConflictResolutionDialog(const WorkingCopyEntry& entry);
-    /// Switches conflictStack_ to the embedded ConflictResolvePanel for the
-    /// first conflicted entry, if not already showing and not suppressed --
-    /// called from the tail of rebuildLists(). See autoShowSuppressed_.
-    void maybeAutoShowConflictPanel();
     /// Builds and shows the unstaged-file context menu (Stage file / View
     /// diff / Open file / Copy path / Discard changes) for `entry`.
     void showUnstagedContextMenu(const WorkingCopyEntry& entry, const QPoint& globalPos);
@@ -173,19 +160,12 @@ private:
     void showDiffInTab(DiffTab& tab, std::shared_ptr<const ParsedDiff> diff);
     void clearDiffTab(const DiffTab& tab);
 
+    /// Design C4: placed directly in the splitter now -- no longer wrapped
+    /// in a conflictStack_/conflictPanel_ pair that could take over this
+    /// pane. Resolving conflicts is now exclusively ConflictResolveWindow's
+    /// job (see resolveConflictsRequested()); this view only ever shows
+    /// diffs.
     QTabWidget* diffTabs_ = nullptr;
-    /// Wraps diffTabs_ (page 0) and conflictPanel_ (page 1) so a conflict can
-    /// take over the right-hand pane without a modal dialog. rebuildLists()
-    /// switches pages via maybeAutoShowConflictPanel(); the panel's own
-    /// resolved/cancelled signals switch back to page 0.
-    QStackedWidget* conflictStack_ = nullptr;
-    ConflictResolvePanel* conflictPanel_ = nullptr;
-    /// Set when the user manually closes the auto-shown conflict panel
-    /// (Cancel) so rebuildLists() doesn't immediately reopen it on the next
-    /// status refresh -- same latch shape as the #20 banner fix. Cleared
-    /// once the working copy has no conflicts left, so the *next* conflict
-    /// batch still auto-shows.
-    bool autoShowSuppressed_ = false;
     /// Design C3: whether the last rebuildLists() saw at least one
     /// conflicted file -- compared against the current call's status to
     /// detect the Unresolved -> none transition that triggers

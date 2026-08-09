@@ -29,6 +29,15 @@ add_test(NAME conflict_splitter_configured
             -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckConflictSplitterConfigured.cmake")
 set_tests_properties(conflict_splitter_configured PROPERTIES LABELS "unit")
 
+# Same rationale again: pins Design C4's removal of the embedded conflict
+# panel (see CheckNoEmbeddedConflictPanel.cmake) for the presets that never
+# build Qt at all.
+add_test(NAME no_embedded_conflict_panel
+    COMMAND "${CMAKE_COMMAND}"
+            -DSOURCE_DIR=${CMAKE_SOURCE_DIR}
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckNoEmbeddedConflictPanel.cmake")
+set_tests_properties(no_embedded_conflict_panel PROPERTIES LABELS "unit")
+
 # Test doubles live here rather than in the shipped library.
 add_library(gbm_test_support STATIC support/FakeProcessRunner.cpp)
 target_include_directories(gbm_test_support PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")

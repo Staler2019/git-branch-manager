@@ -499,6 +499,19 @@ void ConflictTextEdit::lineNumberAreaPaintEvent(QPaintEvent* event) {
                     break;
                 }
             }
+            // applyExtraSelections()'s hover background (Token::SurfaceHover,
+            // #161b22 on a #0d1117 dark-theme base) is barely distinguishable
+            // from the unhovered pane -- a solid accent-colored bar down the
+            // gutter is the actual "this is a draggable block" affordance,
+            // matching the plan's "邊框＋底色" spec (background alone wasn't
+            // implementing the border half of that).
+            if (hoveredSpanIndex_ >= 0) {
+                const RegionRowSpan& hovered = regionSpans_[static_cast<std::size_t>(hoveredSpanIndex_)];
+                if (blockNumber >= hovered.firstBlock &&
+                    blockNumber < hovered.firstBlock + hovered.blockCount) {
+                    painter.fillRect(QRect(0, top, 3, bottom - top), ThemeManager::color(Token::Accent));
+                }
+            }
             painter.setPen(selected ? ThemeManager::color(Token::Accent)
                                      : ThemeManager::color(Token::TextTertiary));
             painter.drawText(0,

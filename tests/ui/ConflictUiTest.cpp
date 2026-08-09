@@ -21,6 +21,8 @@
 // RepositorySession feeding real conflict content. Ancestry survives that --
 // setVisible(false) does not remove the widget from its parent's layout.
 #include "app/bridge/ConflictBatchStore.h"
+#include "app/bridge/ThemeManager.h"
+#include "app/theme/Tokens.h"
 #include "app/views/ConflictResolvePanel.h"
 #include "app/views/ConflictResolveWindow.h"
 #include "app/views/ConflictTextEdit.h"
@@ -423,6 +425,47 @@ private slots:
         QTextCursor outsideCursor(edit.document()->findBlockByNumber(0));
         moveTo(edit.cursorRect(outsideCursor).center());
         QVERIFY(edit.extraSelections().isEmpty());
+    }
+
+    // Bug fix (user report): the hover highlight above relies solely on
+    // applyExtraSelections()'s SurfaceHover background, which is #161b22 on
+    // the dark theme's #0d1117 editor base -- close enough to invisible that
+    // a user reported "hover時也沒有區塊可以讓我拖曳選擇" (hovering shows no
+    // draggable block) even though hoveredSpanIndex_ was being set
+    // correctly. lineNumberAreaPaintEvent() now also paints a solid
+    // Token::Accent stripe down the gutter for the hovered span's rows --
+    // this pins that pixel-level effect rather than just the underlying
+    // state the test above already covers.
+    void hoveringARegionPaintsAnAccentStripeInTheGutter() {
+        ConflictTextEdit edit;
+        edit.setSide(ConflictSide::Ours);
+        edit.setPlainText(QStringLiteral("aaa\nbbb\nccc\nddd\n"));
+        edit.setRegionSpans({RegionRowSpan{0, 1, 2}});
+        edit.resize(300, 200);
+        edit.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&edit));
+
+        auto moveTo = [&](const QPoint& pos) {
+            QMouseEvent event(QEvent::MouseMove,
+                               QPointF(pos),
+                               edit.viewport()->mapToGlobal(pos),
+                               Qt::NoButton,
+                               Qt::NoButton,
+                               Qt::NoModifier);
+            QCoreApplication::sendEvent(edit.viewport(), &event);
+        };
+
+        const QTextCursor hoverCursor(edit.document()->findBlockByNumber(1));
+        const QPoint viewportPoint = edit.cursorRect(hoverCursor).center();
+        const QPoint gutterProbe(1, edit.viewport()->mapTo(&edit, viewportPoint).y());
+        const QColor accent = ThemeManager::color(Token::Accent);
+
+        const QImage before = edit.grab().toImage();
+        QVERIFY(QColor(before.pixel(gutterProbe)) != accent);
+
+        moveTo(viewportPoint);
+        const QImage after = edit.grab().toImage();
+        QCOMPARE(QColor(after.pixel(gutterProbe)), accent);
     }
 
     // Design A5 leans entirely on this: disabling a side's drag/line-click

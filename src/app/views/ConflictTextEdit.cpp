@@ -439,6 +439,44 @@ std::vector<std::string> composeCustomRegionLines(const ConflictSegment& segment
     return result;
 }
 
+std::vector<RegionRowSpan> buildMiddleRegionSpans(
+    const ParsedConflictFile& parsed, const std::vector<ConflictRegionResolution>& resolutions) {
+    std::vector<RegionRowSpan> spans;
+    int blockCursor = 0;
+    int regionIndex = 0;
+    for (const ConflictSegment& segment : parsed.segments) {
+        if (segment.kind == ConflictSegmentKind::Text) {
+            blockCursor += static_cast<int>(segment.lines.size());
+            continue;
+        }
+
+        int lineCount = 0;
+        if (static_cast<std::size_t>(regionIndex) < resolutions.size()) {
+            const ConflictRegionResolution& resolution =
+                resolutions[static_cast<std::size_t>(regionIndex)];
+            switch (resolution.choice) {
+                case ConflictRegionChoice::Ours:
+                    lineCount = static_cast<int>(segment.ours.size());
+                    break;
+                case ConflictRegionChoice::Theirs:
+                    lineCount = static_cast<int>(segment.theirs.size());
+                    break;
+                case ConflictRegionChoice::Custom:
+                    lineCount = static_cast<int>(resolution.customLines.size());
+                    break;
+                case ConflictRegionChoice::Unresolved:
+                    // buildMiddlePreviewText()'s one placeholder line.
+                    lineCount = 1;
+                    break;
+            }
+        }
+        spans.push_back(RegionRowSpan{regionIndex, blockCursor, lineCount});
+        blockCursor += lineCount;
+        ++regionIndex;
+    }
+    return spans;
+}
+
 void ConflictTextEdit::lineNumberAreaPaintEvent(QPaintEvent* event) {
     QPainter painter(lineNumberArea_);
     painter.fillRect(event->rect(), ThemeManager::color(Token::SurfaceSunken));

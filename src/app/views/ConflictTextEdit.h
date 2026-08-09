@@ -84,6 +84,22 @@ std::vector<std::string> composeCustomRegionLines(const ConflictSegment& segment
                                                     const std::vector<bool>& oursSelected,
                                                     const std::vector<bool>& theirsSelected);
 
+/// Design A3: the middle (result) pane's own region -> row-span map, mirroring
+/// buildSidePaneText()'s block-counting pattern but reading each region's
+/// *current resolution* rather than always both raw sides -- the middle pane
+/// only ever shows the chosen lines (Ours/Theirs/Custom), or, for a region
+/// still Unresolved, the single placeholder line
+/// ConflictResolvePanel::buildMiddlePreviewText() emits for it. Needed so
+/// hovering/resetting a resolved region on that pane -- and the drop-target
+/// highlight in dragMoveEvent() above, which was previously never fed a span
+/// map at all -- can find its rows the same way ours/theirs already can.
+/// `resolutions` must be index-aligned with `parsed`'s region-only numbering
+/// (same contract as ConflictRegionResolution vectors elsewhere); a region
+/// index past the end of `resolutions` degrades to a zero-length span rather
+/// than asserting.
+std::vector<RegionRowSpan> buildMiddleRegionSpans(const ParsedConflictFile& parsed,
+                                                   const std::vector<ConflictRegionResolution>& resolutions);
+
 /// MIME type carrying a dragged conflict region from an ours/theirs pane to
 /// the result pane. Payload is just 2 packed qint32s (side, regionIndex) --
 /// see encodeConflictRegionMimeData()/decodeConflictRegionMimeData(). Drop

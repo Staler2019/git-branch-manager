@@ -20,6 +20,26 @@ namespace gbm {
 class RepositorySession;
 struct WorkingCopyEntry;
 
+/// Design A3's reset confirmation gate: once every region is resolved,
+/// `middleEdit_` becomes the user's freely-editable buffer (see
+/// refreshMiddleFromResolutions()) -- `currentText` may have since diverged
+/// from `lastAssembledText` (the exact text last written when the buffer
+/// became editable) by the user's own typing. Resetting one region back to
+/// Unresolved re-renders that buffer from the per-region preview, discarding
+/// any such divergence, so this is the predicate resetRegionToUnresolved()
+/// checks before doing that silently. A free function (not a member) so it's
+/// directly unit-testable without constructing a panel or session -- same
+/// reasoning as buildSidePaneText()/composeCustomRegionLines() in
+/// ConflictTextEdit.h.
+///
+/// `isReadOnly` short-circuits to false: while any region remains
+/// Unresolved the buffer is still the per-region preview, not the user's
+/// free-editing buffer, so there is nothing of theirs to lose yet no matter
+/// what the two strings say (they're expected to differ constantly while
+/// still previewing).
+bool middleBufferHasUnsavedEdits(const QString& currentText, const QString& lastAssembledText,
+                                  bool isReadOnly);
+
 /// One conflicted path's resolution view: left = the current branch's side
 /// (ours), middle = the editable resolved content (the actual working-tree
 /// file, conflict markers and all), right = the merged-in branch's side
@@ -92,17 +112,38 @@ private:
     /// Sets `regionResolutions_[index]` to `resolution`, re-renders, and
     /// jumps to the next still-unresolved region if there is one, so working
     /// through a batch of conflicts is a straight line of clicks. Shared by
-    /// Take Left/Take Right (plain Ours/Theirs, no custom lines), the
-    /// line-picker dialog (Custom), and dragging a region onto the middle
-    /// pane (plain Ours/Theirs, via ConflictTextEdit::regionDropped()).
+    /// Take Left/Take Right (plain Ours/Theirs, no custom lines), their
+    /// keyboard equivalents (Left/Right -- Design A3, see the constructor's
+    /// QShortcut wiring), and dragging a region onto the middle pane (plain
+    /// Ours/Theirs, via ConflictTextEdit::regionDropped()).
     void resolveRegion(int index, ConflictRegionResolution resolution);
     /// Take-left/take-right applied to every region at once.
     void resolveAllRegions(ConflictRegionChoice choice);
+    /// Design A3: sets regionResolutions_[index] back to Unresolved -- the
+    /// direct-manipulation surface's one recovery path (must_not_do:
+    /// "每個區塊都要能一鍵重設回未解決"), reachable via regionResetButton_ or
+    /// the Backspace shortcut. A no-op if the region is already Unresolved.
+    /// Guarded by middleBufferHasUnsavedEdits(): once every region is
+    /// resolved, resetting one would silently re-render (and thus discard)
+    /// anything the user has typed into the now-editable middleEdit_ since
+    /// it became editable, so that case asks for confirmation first rather
+    /// than eating the edit outright -- unlike the drop/Take Left/Right
+    /// hazard elsewhere, reset must still be able to go through once
+    /// confirmed, since "undo my last per-region choice" is the whole point
+    /// of the affordance.
+    void resetRegionToUnresolved(int index);
     /// Moves currentRegionIndex_ by `delta`, clamped to the valid range.
     void navigateRegion(int delta);
     /// Reflects currentRegionIndex_ (position, resolved state, prev/next
-    /// enablement) onto the strip widgets. No-op when regionCount == 0.
+    /// enablement, and regionResetButton_'s enabled state) onto the strip
+    /// widgets. No-op when regionCount == 0.
     void updateRegionStrip();
+    /// Design A3: shows directManipulationHintRow_ iff regionStrip_ is
+    /// currently visible (there is direct-manipulation UI to explain) and
+    /// the user hasn't dismissed it before (QSettings
+    /// "conflictResolve/hintDismissed") -- called everywhere
+    /// regionStrip_->setVisible() is, so the two never fall out of sync.
+    void updateDirectManipulationHintVisibility();
     /// Scrolls the middle column to and highlights the current region's
     /// rendered text, using the ranges buildMiddlePreviewText() recorded.
     /// Clears the highlight once every region is resolved (the ranges are
@@ -175,6 +216,14 @@ private:
     /// highlightCurrentRegion(). Empty once every region is resolved (the
     /// buffer switches to the assembled result, not that preview).
     std::vector<std::pair<int, int>> regionTextRanges_;
+    /// The exact text refreshMiddleFromResolutions() last wrote into
+    /// middleEdit_ when it switched to the fully-assembled, editable result
+    /// (every region resolved) -- empty whenever that isn't the current
+    /// state. Compared against middleEdit_->toPlainText() by
+    /// middleBufferHasUnsavedEdits() so resetRegionToUnresolved() knows
+    /// whether the user has typed anything into that buffer since, and
+    /// therefore whether resetting a region would silently discard it.
+    QString lastAssembledMiddleText_;
 
     /// Design A2's line-click bookkeeping. Index-aligned with
     /// parsedMarkers_'s region-only numbering (same as regionResolutions_),
@@ -212,6 +261,15 @@ private:
     QCheckBox* ancestorToggle_ = nullptr;
     QSplitter* panesSplitter_ = nullptr;
     QWidget* ancestorContainer_ = nullptr;
+    /// ancestorEdit_/oursEdit_/theirsEdit_ are permanently Qt::NoFocus --
+    /// pure display/hover/drag surfaces, never a typing target (see
+    /// makePane() in the .cpp). middleEdit_ toggles between Qt::NoFocus and
+    /// Qt::StrongFocus in lockstep with its own setReadOnly() calls, gaining
+    /// keyboard focus only once it is genuinely the free-editing buffer --
+    /// otherwise Design A3's Left/Right/Backspace shortcuts (constructor)
+    /// would be silently unreachable the moment any pane took focus, since a
+    /// focused QPlainTextEdit claims those keys as its own cursor-navigation
+    /// keys before the shortcut ever gets a chance.
     ConflictTextEdit* ancestorEdit_ = nullptr;
     ConflictTextEdit* oursEdit_ = nullptr;
     ConflictTextEdit* middleEdit_ = nullptr;
@@ -219,15 +277,31 @@ private:
     QPushButton* saveButton_ = nullptr;
 
     /// Per-region controls shown above the middle column, only while
-    /// parsedMarkers_.regionCount > 0 -- see updateRegionStrip().
+    /// parsedMarkers_.regionCount > 0 -- see updateRegionStrip(). Take
+    /// Left/Take Right (per-region) were removed in Design A3: dragging a
+    /// region onto the middle pane (Commit 6) and the Left/Right keyboard
+    /// shortcuts below now cover that same action, and keeping a third,
+    /// redundant pair of buttons around just for symmetry would have
+    /// widened regionStrip_ again for no reason.
     QWidget* regionStrip_ = nullptr;
     QLabel* regionPositionLabel_ = nullptr;
     QPushButton* regionPrevButton_ = nullptr;
     QPushButton* regionNextButton_ = nullptr;
-    QPushButton* regionTakeLeftButton_ = nullptr;
-    QPushButton* regionTakeRightButton_ = nullptr;
+    /// Design A3's recovery affordance -- resets the *current* region back
+    /// to Unresolved; see resetRegionToUnresolved(). Disabled while the
+    /// current region already is Unresolved (nothing to reset).
+    QPushButton* regionResetButton_ = nullptr;
     QPushButton* regionTakeLeftAllButton_ = nullptr;
     QPushButton* regionTakeRightAllButton_ = nullptr;
+
+    /// Design A3's first-use hint: a single dismissible row below
+    /// regionStrip_ explaining the drag/click interactions, since neither is
+    /// discoverable on its own (ux3.rule.mental_model_alignment) -- see
+    /// updateDirectManipulationHintVisibility(). Mirrors
+    /// MainWindow's perfHintRow_ dismissible-hint pattern.
+    QWidget* directManipulationHintRow_ = nullptr;
+    QLabel* directManipulationHintLabel_ = nullptr;
+    QPushButton* directManipulationHintDismissButton_ = nullptr;
 };
 
 }  // namespace gbm

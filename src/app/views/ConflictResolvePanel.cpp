@@ -9,10 +9,13 @@
 
 #include <QCheckBox>
 #include <QHBoxLayout>
+#include <QKeySequence>
 #include <QLabel>
+#include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSettings>
+#include <QShortcut>
 #include <QSplitter>
 #include <QTextCursor>
 #include <QTextEdit>
@@ -23,6 +26,14 @@
 #include <utility>
 
 namespace gbm {
+
+bool middleBufferHasUnsavedEdits(const QString& currentText, const QString& lastAssembledText,
+                                  bool isReadOnly) {
+    if (isReadOnly) {
+        return false;
+    }
+    return currentText != lastAssembledText;
+}
 
 namespace {
 
@@ -140,20 +151,53 @@ ConflictResolvePanel::ConflictResolvePanel(QWidget* parent) : QWidget(parent) {
     regionPrevButton_ = new QPushButton(QStringLiteral("◀"), regionStrip_);
     regionPositionLabel_ = new QLabel(regionStrip_);
     regionNextButton_ = new QPushButton(QStringLiteral("▶"), regionStrip_);
-    regionTakeLeftButton_ = new QPushButton(tr("Take Left"), regionStrip_);
-    regionTakeRightButton_ = new QPushButton(tr("Take Right"), regionStrip_);
+    // Design A3: per-region Take Left/Take Right are gone -- dragging a
+    // region onto the middle pane (Commit 6) and the Left/Right keyboard
+    // shortcuts wired below now cover that same action. regionResetButton_
+    // is new: the direct-manipulation surface's one recovery path.
+    regionResetButton_ = new QPushButton(tr("Reset"), regionStrip_);
+    // Named so ConflictUiTest can find it without depending on tr() text,
+    // matching ancestorToggle_/regionStrip_'s own objectName convention.
+    regionResetButton_->setObjectName(QStringLiteral("conflictRegionResetButton"));
     regionTakeLeftAllButton_ = new QPushButton(tr("Take Left (All)"), regionStrip_);
     regionTakeRightAllButton_ = new QPushButton(tr("Take Right (All)"), regionStrip_);
     stripLayout->addWidget(regionPrevButton_);
     stripLayout->addWidget(regionPositionLabel_);
     stripLayout->addWidget(regionNextButton_);
-    stripLayout->addWidget(regionTakeLeftButton_);
-    stripLayout->addWidget(regionTakeRightButton_);
+    stripLayout->addWidget(regionResetButton_);
     stripLayout->addStretch(1);
     stripLayout->addWidget(regionTakeLeftAllButton_);
     stripLayout->addWidget(regionTakeRightAllButton_);
     regionStrip_->setVisible(false);
     layout->addWidget(regionStrip_);
+
+    // Design A3's first-use hint -- mirrors MainWindow's perfHintRow_
+    // dismissible-hint pattern (label + a small "✕" dismiss button, state
+    // persisted so it doesn't come back once dismissed). Visibility is kept
+    // in lockstep with regionStrip_'s via updateDirectManipulationHintVisibility(),
+    // called everywhere regionStrip_->setVisible() is.
+    directManipulationHintRow_ = new QWidget(this);
+    directManipulationHintRow_->setObjectName(QStringLiteral("conflictDirectManipulationHint"));
+    auto* hintLayout = new QHBoxLayout(directManipulationHintRow_);
+    hintLayout->setContentsMargins(0, 0, 0, 0);
+    directManipulationHintLabel_ = new QLabel(
+        tr("Drag a highlighted region from the left or right pane into the middle to take it, "
+           "or click individual lines to compose the result yourself."),
+        directManipulationHintRow_);
+    directManipulationHintLabel_->setWordWrap(true);
+    hintLayout->addWidget(directManipulationHintLabel_, 1);
+    directManipulationHintDismissButton_ =
+        new QPushButton(QStringLiteral("✕"), directManipulationHintRow_);
+    directManipulationHintDismissButton_->setObjectName(QStringLiteral("secondaryButton"));
+    directManipulationHintDismissButton_->setAccessibleName(tr("Dismiss hint"));
+    hintLayout->addWidget(directManipulationHintDismissButton_);
+    directManipulationHintRow_->setVisible(false);
+    layout->addWidget(directManipulationHintRow_);
+    connect(directManipulationHintDismissButton_, &QPushButton::clicked, this, [this] {
+        QSettings settings;
+        settings.setValue(QStringLiteral("conflictResolve/hintDismissed"), true);
+        updateDirectManipulationHintVisibility();
+    });
 
     panesSplitter_ = new QSplitter(Qt::Horizontal, this);
     // House configuration every other splitter in this app already carries
@@ -170,6 +214,24 @@ ConflictResolvePanel::ConflictResolvePanel(QWidget* parent) : QWidget(parent) {
         paneLayout->addWidget(new QLabel(title, container));
         auto* edit = new ConflictTextEdit(container);
         edit->setReadOnly(true);
+        // NoFocus by default: ancestor/ours/theirs never take keyboard input
+        // (pure display + hover/drag surfaces -- see setSide() below) and
+        // stay this way permanently. middleEdit_ is the one exception --
+        // Design A3's Left/Right/Backspace shortcuts (see the
+        // Qt::WidgetWithChildrenShortcut wiring further down) only reach
+        // this panel while focus sits somewhere *without* its own opinion on
+        // those keys; a focused QPlainTextEdit intercepts Left/Right/
+        // Backspace as cursor navigation/deletion before the shortcut ever
+        // gets a chance (confirmed empirically -- a focused QPlainTextEdit
+        // swallows Left with zero shortcut fires, not merely "unlikely to
+        // fire"). Clicking a region row to hover/drag/toggle-a-line would
+        // otherwise silently hand keyboard focus to that pane and break the
+        // keyboard path for the rest of the session. middleEdit_ regains
+        // Qt::StrongFocus, and only then, at each point it actually becomes
+        // the user's free-editing buffer -- see the setReadOnly(false)/
+        // setReadOnly(!resolved) call sites below, each paired with the
+        // matching setFocusPolicy() call.
+        edit->setFocusPolicy(Qt::NoFocus);
         edit->setLineWrapMode(QPlainTextEdit::NoWrap);
         edit->setPlainText(tr("Loading…"));
         paneLayout->addWidget(edit, 1);
@@ -250,19 +312,61 @@ ConflictResolvePanel::ConflictResolvePanel(QWidget* parent) : QWidget(parent) {
 
     connect(regionPrevButton_, &QPushButton::clicked, this, [this] { navigateRegion(-1); });
     connect(regionNextButton_, &QPushButton::clicked, this, [this] { navigateRegion(1); });
-    connect(regionTakeLeftButton_, &QPushButton::clicked, this, [this] {
-        resolveRegion(currentRegionIndex_, ConflictRegionResolution{ConflictRegionChoice::Ours, {}});
-    });
-    connect(regionTakeRightButton_, &QPushButton::clicked, this, [this] {
-        resolveRegion(currentRegionIndex_,
-                       ConflictRegionResolution{ConflictRegionChoice::Theirs, {}});
-    });
+    connect(regionResetButton_, &QPushButton::clicked, this,
+            [this] { resetRegionToUnresolved(currentRegionIndex_); });
     connect(regionTakeLeftAllButton_, &QPushButton::clicked, this, [this] {
         resolveAllRegions(ConflictRegionChoice::Ours);
     });
     connect(regionTakeRightAllButton_, &QPushButton::clicked, this, [this] {
         resolveAllRegions(ConflictRegionChoice::Theirs);
     });
+
+    // Design A3's keyboard equivalents -- must not be omitted (must_not_do:
+    // "不可省 -- 純拖曳介面無法用鍵盤操作"): a pane's hover+drag surface has
+    // no keyboard path of its own, so without these, resolving a conflict
+    // would be entirely unusable without a mouse. Qt::WidgetWithChildrenShortcut
+    // fires while focus is anywhere in this panel's subtree -- e.g. after
+    // clicking Prev/Next or the panel itself -- without needing the panel to
+    // hold focus directly.
+    //
+    // A focused QPlainTextEdit does *not* let this shortcut through --
+    // Left/Right/Backspace are its own cursor-navigation/deletion keys, and
+    // it claims the QEvent::ShortcutOverride before the shortcut ever gets a
+    // chance (confirmed empirically: a focused QPlainTextEdit swallows Left
+    // with zero shortcut activations, not merely "less likely to fire").
+    // That would have made the keyboard path this comment insists on
+    // literally unreachable the moment a user clicked into ancestor/ours/
+    // theirs to hover, drag, or toggle a line (Design A1/A2) -- clicking
+    // hands that pane keyboard focus by default and it never gives it back.
+    // Fixed at the source instead of worked around here: ancestor/ours/
+    // theirs are permanently Qt::NoFocus (see makePane() above -- they are
+    // pure display/hover/drag surfaces, never a typing target), and
+    // middleEdit_ only gains Qt::StrongFocus at the specific points it
+    // becomes the actual free-editing buffer (see each setReadOnly() call
+    // site's paired setFocusPolicy()). While middleEdit_ *is* that buffer,
+    // Left/Right there reverting to plain cursor movement is the expected,
+    // not swallowed, behavior -- it is genuinely a text box at that point.
+    auto* takeLeftShortcut = new QShortcut(QKeySequence(Qt::Key_Left), this);
+    takeLeftShortcut->setContext(Qt::WidgetWithChildrenShortcut);
+    connect(takeLeftShortcut, &QShortcut::activated, this, [this] {
+        if (regionResolutions_.empty()) {
+            return;
+        }
+        resolveRegion(currentRegionIndex_, ConflictRegionResolution{ConflictRegionChoice::Ours, {}});
+    });
+    auto* takeRightShortcut = new QShortcut(QKeySequence(Qt::Key_Right), this);
+    takeRightShortcut->setContext(Qt::WidgetWithChildrenShortcut);
+    connect(takeRightShortcut, &QShortcut::activated, this, [this] {
+        if (regionResolutions_.empty()) {
+            return;
+        }
+        resolveRegion(currentRegionIndex_,
+                       ConflictRegionResolution{ConflictRegionChoice::Theirs, {}});
+    });
+    auto* resetShortcut = new QShortcut(QKeySequence(Qt::Key_Backspace), this);
+    resetShortcut->setContext(Qt::WidgetWithChildrenShortcut);
+    connect(resetShortcut, &QShortcut::activated, this,
+            [this] { resetRegionToUnresolved(currentRegionIndex_); });
 
     auto* buttonRow = new QHBoxLayout();
     auto* takeLeftButton = new QPushButton(tr("Take Left (Mine)"), this);
@@ -300,8 +404,10 @@ void ConflictResolvePanel::showEntry(RepositorySession* session, const WorkingCo
     parsedMarkers_ = ParsedConflictFile{};
     regionResolutions_.clear();
     regionTextRanges_.clear();
+    lastAssembledMiddleText_.clear();
     currentRegionIndex_ = 0;
     regionStrip_->setVisible(false);
+    updateDirectManipulationHintVisibility();
     customOursLineSelected_.clear();
     customTheirsLineSelected_.clear();
     customLineSelectionSeeded_.clear();
@@ -344,6 +450,21 @@ void ConflictResolvePanel::showEntry(RepositorySession* session, const WorkingCo
     ancestorEdit_->setPlainText(tr("Loading…"));
     oursEdit_->setPlainText(tr("Loading…"));
     middleEdit_->setReadOnly(true);
+    // showEntry() runs again for every file in a batch on a reused panel
+    // (see the connect()s just below) -- a previous file that finished
+    // fully resolved would have left middleEdit_ at Qt::StrongFocus (see
+    // the pairing at each setReadOnly() call site), so this reset must be
+    // explicit rather than assumed from the constructor's one-time default.
+    // clearFocus() alongside setFocusPolicy(): dropping a focused widget's
+    // policy to NoFocus does *not* by itself take focus away from it
+    // (confirmed empirically -- hasFocus() stays true) -- if the user was
+    // mid-edit in file A's middleEdit_ when it finished and this fires for
+    // file B, leaving focus behind here would silently reopen the exact
+    // swallow bug the NoFocus fix exists to close, just via the reuse path
+    // instead of the first-click path. clearFocus() is a harmless no-op
+    // when nothing was focused.
+    middleEdit_->setFocusPolicy(Qt::NoFocus);
+    middleEdit_->clearFocus();
     middleEdit_->setPlainText(tr("Loading…"));
     theirsEdit_->setPlainText(tr("Loading…"));
     if (entry.ancestorBlob.empty()) {
@@ -443,6 +564,11 @@ void ConflictResolvePanel::onWorkingTreeContentReady(const QString& path,
     saveButton_->setEnabled(editable);
     if (!editable) {
         middleEdit_->setReadOnly(true);
+        // clearFocus() alongside setFocusPolicy() -- see showEntry()'s
+        // matching comment on why NoFocus alone does not take focus away
+        // from a widget that already has it.
+        middleEdit_->setFocusPolicy(Qt::NoFocus);
+        middleEdit_->clearFocus();
         middleEdit_->setPlainText(
             tr("(binary or non-UTF-8 content — use Take Left or Take Right)"));
         parsedMarkers_ = ParsedConflictFile{};
@@ -451,6 +577,7 @@ void ConflictResolvePanel::onWorkingTreeContentReady(const QString& path,
         customTheirsLineSelected_.clear();
         customLineSelectionSeeded_.clear();
         regionStrip_->setVisible(false);
+        updateDirectManipulationHintVisibility();
         refreshSidePanes();
         return;
     }
@@ -466,7 +593,14 @@ void ConflictResolvePanel::onWorkingTreeContentReady(const QString& path,
     lastLineClickAnchor_.reset();
     currentRegionIndex_ = 0;
     middleEdit_->setReadOnly(false);
+    // Mirrors setReadOnly(false) above -- overridden a moment later by
+    // refreshMiddleFromResolutions()'s own pairing when regionCount > 0 (see
+    // there), but this is the one that sticks for the regionCount == 0 path
+    // just below, where the raw content is immediately the free-editing
+    // buffer with no per-region resolution step at all.
+    middleEdit_->setFocusPolicy(Qt::StrongFocus);
     regionStrip_->setVisible(parsedMarkers_.regionCount > 0);
+    updateDirectManipulationHintVisibility();
     // regionCount == 0 covers both "no markers at all" and "the parser gave
     // up on a malformed file" (parsedMarkers_.wellFormed == false) -- either
     // way there is nothing to render per-region, so the raw on-disk content
@@ -550,14 +684,54 @@ void ConflictResolvePanel::refreshMiddleFromResolutions() {
         const std::optional<std::string> assembled =
             ConflictMarkerParser::assemble(parsedMarkers_, regionResolutions_);
         middleEdit_->setPlainText(QString::fromStdString(*assembled));
+        // Read back from the widget rather than reusing *assembled directly:
+        // on a CRLF file *assembled still has \r\n (see middleContentHasCrlf_),
+        // but QPlainTextEdit normalises everything it displays to bare \n --
+        // comparing the two later in middleBufferHasUnsavedEdits() would
+        // then read as "edited" on every CRLF file even with zero actual
+        // user edits.
+        lastAssembledMiddleText_ = middleEdit_->toPlainText();
     } else {
         regionTextRanges_.clear();
+        // Not the buffer middleBufferHasUnsavedEdits() should ever compare
+        // against -- cleared so a later reset (while still not fully
+        // resolved) can't mistake a stale value from a previous
+        // fully-resolved state for "what the user is looking at now".
+        lastAssembledMiddleText_.clear();
         middleEdit_->setPlainText(buildMiddlePreviewText(&regionTextRanges_));
     }
     // Stays read-only until every region is resolved -- otherwise the user
     // could type into the placeholder-filled preview, only to have the next
     // Take Left/Right click silently discard it via setPlainText above.
     middleEdit_->setReadOnly(!resolved);
+    // Paired with setReadOnly() above: middleEdit_ only takes keyboard focus
+    // once it is genuinely the user's free-editing buffer. Kept off the rest
+    // of the time so Design A3's Left/Right/Backspace shortcuts (see the
+    // Qt::WidgetWithChildrenShortcut wiring in the constructor) keep
+    // reaching this panel instead of being swallowed as this pane's own
+    // cursor-navigation/deletion keys while it's still just a per-region
+    // preview nobody is meant to type into yet.
+    middleEdit_->setFocusPolicy(resolved ? Qt::StrongFocus : Qt::NoFocus);
+    if (!resolved) {
+        // clearFocus() alongside the drop to NoFocus: this branch runs from
+        // resetRegionToUnresolved(), reachable while the user was mid-edit
+        // in the just-finished result -- setFocusPolicy(NoFocus) alone
+        // leaves a widget that already had focus still reporting
+        // hasFocus() == true (see showEntry()'s matching comment), which
+        // would reopen the Left/Right/Backspace swallow this whole fix
+        // exists to close. Not needed in the `resolved` branch above --
+        // focus is being granted there, not taken away.
+        middleEdit_->clearFocus();
+    }
+    // middleEdit_ was never fed a span map before this commit (see
+    // buildMiddleRegionSpans()'s doc comment) -- Commit 6's drop-target
+    // highlight (dragMoveEvent()'s updateDropTargetPresentation() call) was
+    // silently inert as a result, since spanForRegionIndex() always came back
+    // empty. Middle-pane hover itself is still a no-op regardless (see
+    // ConflictTextEdit::mouseMoveEvent()'s early return for
+    // ConflictSide::Result) -- not needed now that reset is a strip button,
+    // not a hover affordance on this pane.
+    middleEdit_->setRegionSpans(buildMiddleRegionSpans(parsedMarkers_, regionResolutions_));
     saveButton_->setEnabled(canSave());
     updateRegionStrip();
     highlightCurrentRegion();
@@ -597,6 +771,40 @@ void ConflictResolvePanel::resolveAllRegions(ConflictRegionChoice choice) {
         regionResolutions_[index] = ConflictRegionResolution{choice, {}};
         resetCustomLineSelection(static_cast<int>(index));
     }
+    refreshMiddleFromResolutions();
+}
+
+void ConflictResolvePanel::resetRegionToUnresolved(int index) {
+    if (index < 0 || static_cast<std::size_t>(index) >= regionResolutions_.size()) {
+        return;
+    }
+    if (regionResolutions_[static_cast<std::size_t>(index)].choice == ConflictRegionChoice::Unresolved) {
+        return;  // Nothing to reset.
+    }
+    // Once every region is resolved, middleEdit_ becomes the user's freely
+    // editable buffer (see refreshMiddleFromResolutions()) -- resetting one
+    // region re-renders that buffer from the per-region preview, discarding
+    // anything typed into it since. Unlike the drop/Take Left/Right hazard
+    // this same buffer already guards against, reset must still be able to
+    // go through -- "undo my last choice" is the whole point of the
+    // affordance -- so this asks for confirmation instead of refusing
+    // outright.
+    if (middleBufferHasUnsavedEdits(middleEdit_->toPlainText(), lastAssembledMiddleText_,
+                                     middleEdit_->isReadOnly())) {
+        const auto answer = QMessageBox::question(
+            this,
+            tr("Discard edited result?"),
+            tr("You've edited the resolved result since finishing this file. Resetting this "
+               "conflict will discard those edits. Continue?"),
+            QMessageBox::Yes | QMessageBox::Cancel,
+            QMessageBox::Cancel);
+        if (answer != QMessageBox::Yes) {
+            return;
+        }
+    }
+    regionResolutions_[static_cast<std::size_t>(index)] = ConflictRegionResolution{};
+    resetCustomLineSelection(index);
+    currentRegionIndex_ = index;
     refreshMiddleFromResolutions();
 }
 
@@ -708,6 +916,29 @@ void ConflictResolvePanel::updateRegionStrip() {
     regionPositionLabel_->setText(tr("Conflict %1/%2").arg(currentRegionIndex_ + 1).arg(count));
     regionPrevButton_->setEnabled(currentRegionIndex_ > 0);
     regionNextButton_->setEnabled(currentRegionIndex_ < count - 1);
+    regionResetButton_->setEnabled(
+        regionResolutions_[static_cast<std::size_t>(currentRegionIndex_)].choice !=
+        ConflictRegionChoice::Unresolved);
+}
+
+void ConflictResolvePanel::updateDirectManipulationHintVisibility() {
+    // Deliberately parsedMarkers_.regionCount > 0, not
+    // regionStrip_->isVisible(): the latter also reflects every ancestor's
+    // visibility (see the constructor's own comment on isHidden() vs.
+    // isVisible() for panesSplitter_'s persistence), and this panel is
+    // typically shown as `new ConflictResolvePanel; ...; panel->show()` (or,
+    // once C13 lands, inside a not-yet-exec()'d QDialog) -- isVisible()
+    // would read false at every one of this function's call sites
+    // regardless of regionStrip_'s own state, making the hint permanently
+    // inert.
+    if (parsedMarkers_.regionCount == 0) {
+        directManipulationHintRow_->setVisible(false);
+        return;
+    }
+    QSettings settings;
+    const bool dismissed =
+        settings.value(QStringLiteral("conflictResolve/hintDismissed"), false).toBool();
+    directManipulationHintRow_->setVisible(!dismissed);
 }
 
 void ConflictResolvePanel::highlightCurrentRegion() {

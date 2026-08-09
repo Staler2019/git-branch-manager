@@ -373,6 +373,13 @@ ConflictResolvePanel::ConflictResolvePanel(QWidget* parent) : QWidget(parent) {
     // already provides for comparatively little gain -- a strip above the
     // text does the same job.
     regionStrip_ = new QWidget(middleContainer);
+    // Named so ConflictUiTest can locate it structurally (ancestor-of-a-pane
+    // check) regardless of its current visibility -- setVisible(false) below
+    // hides it but does not remove it from middleContainer's layout, so a
+    // size-hint-based test would silently pass for the wrong reason (hidden
+    // items are excluded from minimumSizeHint()) while an objectName lookup
+    // still finds it.
+    regionStrip_->setObjectName(QStringLiteral("conflictRegionStrip"));
     auto* stripLayout = new QHBoxLayout(regionStrip_);
     stripLayout->setContentsMargins(0, 0, 0, 0);
     regionPrevButton_ = new QPushButton(QStringLiteral("◀"), regionStrip_);

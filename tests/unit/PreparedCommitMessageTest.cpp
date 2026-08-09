@@ -63,5 +63,24 @@ TEST_F(PreparedCommitMessage, ReturnsEmptyStringWhenNeitherFileExists) {
     EXPECT_EQ(readPreparedCommitMessage(paths()), "");
 }
 
+TEST(ShouldApplyPreparedCommitMessage, TrueWhenTheMessageBoxIsEmpty) {
+    EXPECT_TRUE(shouldApplyPreparedCommitMessage("", "anything, or nothing"));
+}
+
+TEST(ShouldApplyPreparedCommitMessage, TrueWhenTheBoxStillHoldsTheLastAutofilledValue) {
+    EXPECT_TRUE(shouldApplyPreparedCommitMessage("Merge branch 'x'", "Merge branch 'x'"));
+}
+
+TEST(ShouldApplyPreparedCommitMessage, FalseWhenTheUserHasTypedSomethingOfTheirOwn) {
+    EXPECT_FALSE(shouldApplyPreparedCommitMessage("my own message", "Merge branch 'x'"));
+}
+
+TEST(ShouldApplyPreparedCommitMessage, FalseWhenTheUserEditedAwayFromWhatWasAutofilled) {
+    // Not just "non-empty" -- specifically diverged from the autofilled
+    // value, e.g. the user tweaked the prepared message rather than
+    // replacing it wholesale.
+    EXPECT_FALSE(shouldApplyPreparedCommitMessage("Merge branch 'x' (fixed typo)", "Merge branch 'x'"));
+}
+
 }  // namespace
 }  // namespace gbm

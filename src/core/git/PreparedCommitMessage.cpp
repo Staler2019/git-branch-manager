@@ -14,4 +14,9 @@ std::string readPreparedCommitMessage(const RepoPaths& paths) {
     return std::string();
 }
 
+bool shouldApplyPreparedCommitMessage(const std::string& currentMessageBoxText,
+                                       const std::string& lastAutofilledMessage) {
+    return currentMessageBoxText.empty() || currentMessageBoxText == lastAutofilledMessage;
+}
+
 }  // namespace gbm

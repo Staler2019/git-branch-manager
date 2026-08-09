@@ -88,6 +88,10 @@ private slots:
     /// back to the diff tabs and suppress auto-show until this batch of
     /// conflicts is fully resolved -- see autoShowSuppressed_.
     void onConflictPanelCancelled();
+    /// Design C3: reply to requestPreparedCommitMessage(), fired once
+    /// rebuildLists() notices every conflict just cleared. See
+    /// autofilledMessage_'s own comment for the overwrite guard.
+    void onPreparedCommitMessageReady(const QString& message);
 
 private:
     void buildUi();
@@ -182,6 +186,23 @@ private:
     /// once the working copy has no conflicts left, so the *next* conflict
     /// batch still auto-shows.
     bool autoShowSuppressed_ = false;
+    /// Design C3: whether the last rebuildLists() saw at least one
+    /// conflicted file -- compared against the current call's status to
+    /// detect the Unresolved -> none transition that triggers
+    /// requestPreparedCommitMessage(). Reset in setSession() (both branches:
+    /// a brand-new session has no history of its own to react to, and a
+    /// leftover true from the previous session must not fire a spurious
+    /// request against an unrelated repo that never had conflicts).
+    bool hadConflictedFilesLastRefresh_ = false;
+    /// Design C3's overwrite guard (must_not_do: "不得覆蓋使用者已經打好的
+    /// commit message"): what onPreparedCommitMessageReady() last wrote into
+    /// messageEdit_, if anything. A fill only happens when messageEdit_ is
+    /// empty or still holds exactly this value -- once the user types
+    /// something of their own, this stops matching and no future reply ever
+    /// overwrites it again. Cleared everywhere messageEdit_ itself is
+    /// cleared, so a fresh empty box after a commit/session-switch is
+    /// fillable again rather than permanently "already autofilled".
+    QString autofilledMessage_;
     FileContentView* originalView_ = nullptr;
     DiffTab workingTab_;
     DiffTab stagedTab_;

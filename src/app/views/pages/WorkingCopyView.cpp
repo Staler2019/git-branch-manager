@@ -7,6 +7,7 @@
 #include "app/views/ConflictResolvePanel.h"
 #include "app/views/FileContentView.h"
 #include "app/views/SideBySideDiffView.h"
+#include "core/git/PreparedCommitMessage.h"
 #include "core/git/ops/CommitOps.h"
 #include "core/git/ops/ConflictOps.h"
 #include "core/git/ops/ResetOps.h"
@@ -487,6 +488,11 @@ void WorkingCopyView::setSession(RepositorySession* session) {
         disconnect(session_, nullptr, this, nullptr);
     }
     session_ = session;
+    // Design C3: a leftover true from whatever repo was open before must not
+    // fire a spurious requestPreparedCommitMessage() against this (possibly
+    // unrelated, never-conflicted) session's first status refresh -- see
+    // hadConflictedFilesLastRefresh_'s own comment.
+    hadConflictedFilesLastRefresh_ = false;
     if (session_ != nullptr) {
         connect(session_,
                 &RepositorySession::workingCopyStatusUpdated,
@@ -504,6 +510,10 @@ void WorkingCopyView::setSession(RepositorySession* session) {
                 &RepositorySession::workingCopyOperationFinished,
                 this,
                 &WorkingCopyView::onWorkingCopyOperationFinished);
+        connect(session_,
+                &RepositorySession::preparedCommitMessageReady,
+                this,
+                &WorkingCopyView::onPreparedCommitMessageReady);
         // Speculative: on a large, freshly-cloned repository the cold `git
         // status` scan can cost tens of seconds and would otherwise queue
         // ahead of the history walk on the shared read pool -- see
@@ -518,6 +528,7 @@ void WorkingCopyView::setSession(RepositorySession* session) {
         clearDiffTab(workingTab_);
         clearDiffTab(stagedTab_);
         messageEdit_->clear();
+        autofilledMessage_.clear();
         rebuildLists();
     }
 }
@@ -632,6 +643,17 @@ void WorkingCopyView::rebuildLists() {
     stageAllButton_->setEnabled(unstagedList_->count() > conflictedCount);
     unstageAllButton_->setEnabled(stagedList_->count() > 0);
 
+    // Design C3: the conflicts this view had just resolved -- the last
+    // rebuildLists() saw at least one, this one sees none. Requested here
+    // rather than compared against ConflictBatch (which can still show
+    // "resolved" rows the rail hasn't hidden yet): commandDir()'s working
+    // copy status is the one source both this view and the resolve window
+    // agree on for "are there still conflicts right now".
+    if (hadConflictedFilesLastRefresh_ && !hasConflicts && session_ != nullptr) {
+        session_->requestPreparedCommitMessage();
+    }
+    hadConflictedFilesLastRefresh_ = hasConflicts;
+
     maybeAutoShowConflictPanel();
 }
 
@@ -670,6 +692,24 @@ void WorkingCopyView::onConflictPanelResolved() {
 void WorkingCopyView::onConflictPanelCancelled() {
     autoShowSuppressed_ = true;
     conflictStack_->setCurrentWidget(diffTabs_);
+}
+
+void WorkingCopyView::onPreparedCommitMessageReady(const QString& message) {
+    if (message.isEmpty()) {
+        // Nothing prepared (e.g. conflicts from `git apply --3way`, which
+        // writes neither MERGE_MSG nor SQUASH_MSG) -- a normal result, not
+        // an error, and not something to blank the box over.
+        return;
+    }
+    if (!shouldApplyPreparedCommitMessage(messageEdit_->toPlainText().toStdString(),
+                                          autofilledMessage_.toStdString())) {
+        // The user already has something of their own in the box -- must
+        // not overwrite it (must_not_do: "不得覆蓋使用者已經打好的 commit
+        // message").
+        return;
+    }
+    messageEdit_->setPlainText(message);
+    autofilledMessage_ = message;
 }
 
 void WorkingCopyView::refreshSelectedDiff() {
@@ -743,6 +783,7 @@ void WorkingCopyView::onWorkingCopyOperationFinished(const OperationOutcome& out
         // no other working-copy operation's summary starts that way.
         if (outcome.summary.rfind("Commit", 0) == 0 || outcome.summary.rfind("Amend", 0) == 0) {
             messageEdit_->clear();
+            autofilledMessage_.clear();
             amendCheck_->setChecked(false);
         }
         return;

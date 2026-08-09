@@ -3,6 +3,7 @@
 #include "app/bridge/RepositorySession.h"
 #include "app/bridge/ThemeManager.h"
 #include "app/theme/Tokens.h"
+#include "app/views/ConflictTextEdit.h"
 #include "core/git/WorkingCopyStatus.h"
 #include "core/git/ops/ConflictOps.h"
 
@@ -13,14 +14,11 @@
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QPainter>
 #include <QPlainTextEdit>
 #include <QPushButton>
-#include <QResizeEvent>
 #include <QScrollArea>
 #include <QSettings>
 #include <QSplitter>
-#include <QTextBlock>
 #include <QTextCursor>
 #include <QTextEdit>
 #include <QTimer>
@@ -32,110 +30,6 @@
 namespace gbm {
 
 namespace {
-
-/// A read-only-friendly QPlainTextEdit with a line-number gutter in its
-/// viewport margin -- the standard Qt "Code Editor" example pattern
-/// (firstVisibleBlock/blockBoundingGeometry are protected on QPlainTextEdit,
-/// so a companion LineNumberArea widget can only reach them through a
-/// subclass). Local to this file: nothing else in the app needs line
-/// numbers yet, so this isn't pulled out into its own reusable class.
-class LineNumberArea;
-
-class ConflictTextEdit : public QPlainTextEdit {
-public:
-    explicit ConflictTextEdit(QWidget* parent = nullptr);
-
-protected:
-    void resizeEvent(QResizeEvent* event) override;
-
-private:
-    friend class LineNumberArea;
-    int lineNumberAreaWidth() const;
-    void lineNumberAreaPaintEvent(QPaintEvent* event);
-    void updateLineNumberAreaWidth(int newBlockCount);
-    void updateLineNumberArea(const QRect& rect, int dy);
-
-    QWidget* lineNumberArea_ = nullptr;
-};
-
-class LineNumberArea : public QWidget {
-public:
-    explicit LineNumberArea(ConflictTextEdit* editor) : QWidget(editor), editor_(editor) {}
-
-    QSize sizeHint() const override { return QSize(editor_->lineNumberAreaWidth(), 0); }
-
-protected:
-    void paintEvent(QPaintEvent* event) override { editor_->lineNumberAreaPaintEvent(event); }
-
-private:
-    ConflictTextEdit* editor_;
-};
-
-ConflictTextEdit::ConflictTextEdit(QWidget* parent) : QPlainTextEdit(parent) {
-    lineNumberArea_ = new LineNumberArea(this);
-    connect(this,
-            &QPlainTextEdit::blockCountChanged,
-            this,
-            &ConflictTextEdit::updateLineNumberAreaWidth);
-    connect(
-        this, &QPlainTextEdit::updateRequest, this, &ConflictTextEdit::updateLineNumberArea);
-    updateLineNumberAreaWidth(0);
-}
-
-int ConflictTextEdit::lineNumberAreaWidth() const {
-    int digits = 1;
-    for (int maxBlock = qMax(1, blockCount()); maxBlock >= 10; maxBlock /= 10) {
-        ++digits;
-    }
-    return 10 + fontMetrics().horizontalAdvance(QLatin1Char('9')) * digits;
-}
-
-void ConflictTextEdit::updateLineNumberAreaWidth(int /*newBlockCount*/) {
-    setViewportMargins(lineNumberAreaWidth(), 0, 0, 0);
-}
-
-void ConflictTextEdit::updateLineNumberArea(const QRect& rect, int dy) {
-    if (dy != 0) {
-        lineNumberArea_->scroll(0, dy);
-    } else {
-        lineNumberArea_->update(0, rect.y(), lineNumberArea_->width(), rect.height());
-    }
-    if (rect.contains(viewport()->rect())) {
-        updateLineNumberAreaWidth(0);
-    }
-}
-
-void ConflictTextEdit::resizeEvent(QResizeEvent* event) {
-    QPlainTextEdit::resizeEvent(event);
-    const QRect cr = contentsRect();
-    lineNumberArea_->setGeometry(QRect(cr.left(), cr.top(), lineNumberAreaWidth(), cr.height()));
-}
-
-void ConflictTextEdit::lineNumberAreaPaintEvent(QPaintEvent* event) {
-    QPainter painter(lineNumberArea_);
-    painter.fillRect(event->rect(), ThemeManager::color(Token::SurfaceSunken));
-    painter.setPen(ThemeManager::color(Token::TextTertiary));
-
-    QTextBlock block = firstVisibleBlock();
-    int blockNumber = block.blockNumber();
-    int top = qRound(blockBoundingGeometry(block).translated(contentOffset()).top());
-    int bottom = top + qRound(blockBoundingRect(block).height());
-
-    while (block.isValid() && top <= event->rect().bottom()) {
-        if (block.isVisible() && bottom >= event->rect().top()) {
-            painter.drawText(0,
-                              top,
-                              lineNumberArea_->width() - 6,
-                              fontMetrics().height(),
-                              Qt::AlignRight,
-                              QString::number(blockNumber + 1));
-        }
-        block = block.next();
-        top = bottom;
-        bottom = top + qRound(blockBoundingRect(block).height());
-        ++blockNumber;
-    }
-}
 
 /// A line string's text with its trailing "\r\n"/"\n" stripped, for display
 /// as a checkbox label -- indentation is kept (only the line ending goes),

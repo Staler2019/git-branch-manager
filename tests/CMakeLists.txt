@@ -220,7 +220,8 @@ if(GBM_BUILD_APP)
     # per miss. Separate binary for the usual QTEST_MAIN-per-binary reason.
     qt_add_executable(gbm_conflict_ui_tests ui/ConflictUiTest.cpp
         ${GBM_MODEL_TEST_SOURCES}
-        "${CMAKE_SOURCE_DIR}/src/app/views/ConflictResolvePanel.cpp")
+        "${CMAKE_SOURCE_DIR}/src/app/views/ConflictResolvePanel.cpp"
+        "${CMAKE_SOURCE_DIR}/src/app/views/ConflictTextEdit.cpp")
 
     set_target_properties(gbm_conflict_ui_tests PROPERTIES AUTOMOC ON AUTORCC ON)
 

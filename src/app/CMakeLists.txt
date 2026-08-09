@@ -55,6 +55,7 @@ qt_add_executable(git-branch-manager
 
     views/CommitExpansionPanel.cpp
     views/ConflictResolvePanel.cpp
+    views/ConflictTextEdit.cpp
     views/CredentialDialog.cpp
     views/DiffView.cpp
     views/FileContentView.cpp

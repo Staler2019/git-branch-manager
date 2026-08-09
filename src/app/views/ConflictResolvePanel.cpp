@@ -296,35 +296,82 @@ void ConflictLinePickDialog::updatePreview() {
     okButton_->setEnabled(!selected.empty());
 }
 
-/// Mirrors WorkingCopyView::setupPersistentSplitter exactly -- both read the
-/// same `window/splitters/<key>` QSettings keys. Duplicated rather than
-/// shared: the two classes have no common base to hang a helper off, same
-/// reasoning as WorkingCopyView's own copy.
-void setupPersistentSplitter(QSplitter* splitter, const QString& key) {
-    const QString settingsKey = QStringLiteral("window/splitters/%1").arg(key);
+// panesSplitter_ persistence, split by whether the ancestor column is
+// currently shown: a size list saved with the ancestor hidden has its
+// index-0 entry near zero, and applying that list once the ancestor is
+// shown again would leave it collapsed-looking even though
+// childrenCollapsible() is off. Two keys means a 3-column and a 4-column
+// layout each remember their own widths instead of clobbering each other.
+// Local to this file rather than shared with WorkingCopyView's own
+// setupPersistentSplitter -- that one has a single, always-visible layout
+// and no equivalent need for a variant key.
+QString conflictPanesSettingsKey(bool ancestorVisible) {
+    return QStringLiteral("window/splitters/conflictPanes%1").arg(ancestorVisible ? 4 : 3);
+}
 
+/// Restores sizes saved for the given ancestor-visibility variant, if any
+/// were saved and the saved list's length still matches the splitter's
+/// current pane count -- a length mismatch means stale or corrupt data, and
+/// is silently ignored rather than partially applied.
+void restoreConflictPanesSizes(QSplitter* splitter, bool ancestorVisible) {
     QSettings settings;
-    const QVariant saved = settings.value(settingsKey);
-    if (saved.isValid()) {
-        const QVariantList list = saved.toList();
-        QList<int> sizes;
-        sizes.reserve(list.size());
-        for (const QVariant& value : list) {
-            sizes.append(value.toInt());
-        }
-        if (!sizes.isEmpty()) {
-            QTimer::singleShot(0, splitter, [splitter, sizes] { splitter->setSizes(sizes); });
+    const QVariant saved = settings.value(conflictPanesSettingsKey(ancestorVisible));
+    if (!saved.isValid()) {
+        return;
+    }
+    const QVariantList list = saved.toList();
+    if (list.size() != splitter->count()) {
+        return;
+    }
+    QList<int> sizes;
+    sizes.reserve(list.size());
+    for (const QVariant& value : list) {
+        sizes.append(value.toInt());
+    }
+    QTimer::singleShot(0, splitter, [splitter, sizes] { splitter->setSizes(sizes); });
+}
+
+void saveConflictPanesSizes(QSplitter* splitter, bool ancestorVisible) {
+    QSettings settings;
+    QVariantList list;
+    for (int size : splitter->sizes()) {
+        list.append(size);
+    }
+    settings.setValue(conflictPanesSettingsKey(ancestorVisible), list);
+}
+
+// Pane order is fixed by makePane()'s call order in the constructor.
+constexpr int kAncestorPaneIndex = 0;
+
+/// Called right after the ancestor pane becomes visible when there is no
+/// saved 4-column layout to restore yet (first time the toggle is ever
+/// checked): Qt's own redistribution after showing a previously-hidden
+/// splitter child tends to leave it far under its minimum width, so this
+/// borrows the shortfall from whichever pane is currently widest instead of
+/// leaving the ancestor column looking broken.
+void borrowWidthForAncestorPane(QSplitter* splitter) {
+    QList<int> sizes = splitter->sizes();
+    if (sizes.size() != splitter->count() || sizes.isEmpty()) {
+        return;
+    }
+    QWidget* ancestorPane = splitter->widget(kAncestorPaneIndex);
+    const int minimumWidth = ancestorPane->minimumWidth();
+    if (sizes[kAncestorPaneIndex] >= minimumWidth) {
+        return;
+    }
+    int widestIndex = 0;
+    for (int i = 1; i < sizes.size(); ++i) {
+        if (sizes[i] > sizes[widestIndex]) {
+            widestIndex = i;
         }
     }
-
-    QObject::connect(splitter, &QSplitter::splitterMoved, splitter, [splitter, settingsKey] {
-        QSettings settingsToSave;
-        QVariantList list;
-        for (int size : splitter->sizes()) {
-            list.append(size);
-        }
-        settingsToSave.setValue(settingsKey, list);
-    });
+    const int deficit = minimumWidth - sizes[kAncestorPaneIndex];
+    if (widestIndex == kAncestorPaneIndex || sizes[widestIndex] - deficit < minimumWidth) {
+        return;
+    }
+    sizes[kAncestorPaneIndex] = minimumWidth;
+    sizes[widestIndex] -= deficit;
+    splitter->setSizes(sizes);
 }
 
 }  // namespace
@@ -337,6 +384,8 @@ ConflictResolvePanel::ConflictResolvePanel(QWidget* parent) : QWidget(parent) {
     kindLabel_->setVisible(false);
     headerRow->addWidget(kindLabel_, 1);
     ancestorToggle_ = new QCheckBox(tr("Show common ancestor"), this);
+    // Named so ConflictUiTest can drive it without depending on tr() text.
+    ancestorToggle_->setObjectName(QStringLiteral("conflictAncestorToggle"));
     headerRow->addWidget(ancestorToggle_);
     layout->addLayout(headerRow);
 
@@ -407,15 +456,43 @@ ConflictResolvePanel::ConflictResolvePanel(QWidget* parent) : QWidget(parent) {
     std::tie(std::ignore, middleEdit_) = makePane(tr("Resolved content (editable)"));
     std::tie(std::ignore, theirsEdit_) = makePane(tr("Merged branch (theirs)"));
     // Equal default split -- overridden a moment later by
-    // setupPersistentSplitter()'s deferred restore if sizes were saved from
-    // a previous session.
+    // restoreConflictPanesSizes()'s deferred restore if sizes were saved
+    // from a previous session.
     const int equalShare = qMax(panesSplitter_->width(), 800) / panesSplitter_->count();
     panesSplitter_->setSizes(
         QList<int>(panesSplitter_->count(), equalShare));
     layout->addWidget(panesSplitter_, 1);
-    setupPersistentSplitter(panesSplitter_, QStringLiteral("conflictPanes"));
+    // isHidden() rather than isVisible(): the latter also reflects ancestor
+    // visibility, and the panel itself isn't shown yet at construction time
+    // -- every widget's isVisible() would read false regardless of what
+    // ancestorContainer_'s own explicit state is. isHidden() only reports
+    // whether setVisible(false) was called directly on this widget, which
+    // is exactly what ancestorToggle_ controls.
+    restoreConflictPanesSizes(panesSplitter_, !ancestorContainer_->isHidden());
 
-    connect(ancestorToggle_, &QCheckBox::toggled, ancestorContainer_, &QWidget::setVisible);
+    connect(panesSplitter_, &QSplitter::splitterMoved, panesSplitter_, [this] {
+        saveConflictPanesSizes(panesSplitter_, !ancestorContainer_->isHidden());
+    });
+
+    connect(ancestorToggle_, &QCheckBox::toggled, this, [this](bool visible) {
+        ancestorContainer_->setVisible(visible);
+        // Deferred: QSplitter's redistribution after a child's visibility
+        // changes isn't guaranteed to have happened yet on this same call
+        // stack, and both the restore-vs-borrow decision and the save
+        // immediately after need splitter->sizes() to already reflect the
+        // new visibility.
+        QTimer::singleShot(0, panesSplitter_, [this, visible] {
+            if (visible) {
+                QSettings settings;
+                if (settings.contains(conflictPanesSettingsKey(true))) {
+                    restoreConflictPanesSizes(panesSplitter_, true);
+                } else {
+                    borrowWidthForAncestorPane(panesSplitter_);
+                }
+            }
+            saveConflictPanesSizes(panesSplitter_, visible);
+        });
+    });
 
     connect(regionPrevButton_, &QPushButton::clicked, this, [this] { navigateRegion(-1); });
     connect(regionNextButton_, &QPushButton::clicked, this, [this] { navigateRegion(1); });

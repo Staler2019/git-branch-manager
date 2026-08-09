@@ -23,8 +23,13 @@
 #include "app/views/ConflictResolvePanel.h"
 
 #include <QApplication>
+#include <QCheckBox>
+#include <QSettings>
 #include <QSplitter>
+#include <QTemporaryDir>
 #include <QtTest>
+
+#include <memory>
 
 using namespace gbm;
 
@@ -44,10 +49,22 @@ class ConflictUiTest : public QObject {
     Q_OBJECT
 
 private slots:
+    // QSettings is redirected to a throwaway directory for the whole run --
+    // conflictPanes3/conflictPanes4 must not read or write the developer's
+    // real settings file. Mirrors ThemeTest.cpp's own isolation.
+    void initTestCase() {
+        tempDir_ = std::make_unique<QTemporaryDir>();
+        QVERIFY(tempDir_->isValid());
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, tempDir_->path());
+    }
+
     // minimumSizeHint() on a never-shown widget is unreliable -- the layout
     // has not been activated yet -- so every test here shows the panel and
     // waits for exposure before measuring.
     void init() {
+        QSettings settings;
+        settings.clear();
         panel_ = std::make_unique<ConflictResolvePanel>();
         panel_->show();
         QVERIFY(QTest::qWaitForWindowExposed(panel_.get()));
@@ -92,7 +109,33 @@ private slots:
         }
     }
 
+    // The ancestor column starts hidden, so its saved width (if any) came
+    // from a 3-column layout and is meaningless once it's shown -- checking
+    // it there first exercised the childrenCollapsible(false)/minimumWidth
+    // fix; this exercises the companion fix, that showing it for the first
+    // time actually lands it at a usable width instead of near zero.
+    void ancestorPaneGetsAUsableWidthOnceShown() {
+        auto* toggle = panel_->findChild<QCheckBox*>(QStringLiteral("conflictAncestorToggle"));
+        QVERIFY(toggle != nullptr);
+        QVERIFY(!toggle->isChecked());
+
+        toggle->setChecked(true);
+        // The borrow-width fallback (and the save that follows it) is
+        // deferred via QTimer::singleShot(0, ...) so QSplitter's own
+        // redistribution after the visibility change has already happened.
+        QTest::qWait(50);
+
+        QWidget* ancestorPane = splitter_->widget(kAncestorPaneIndex);
+        QVERIFY(ancestorPane->isVisible());
+        QVERIFY2(splitter_->sizes()[kAncestorPaneIndex] >= ancestorPane->minimumWidth(),
+                 qPrintable(QStringLiteral("ancestor pane width %1 is under its own minimum %2 "
+                                           "after being shown")
+                                .arg(splitter_->sizes()[kAncestorPaneIndex])
+                                .arg(ancestorPane->minimumWidth())));
+    }
+
 private:
+    std::unique_ptr<QTemporaryDir> tempDir_;
     std::unique_ptr<ConflictResolvePanel> panel_;
     QSplitter* splitter_ = nullptr;
 };

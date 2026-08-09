@@ -340,45 +340,21 @@ ConflictResolvePanel::ConflictResolvePanel(QWidget* parent) : QWidget(parent) {
     headerRow->addWidget(ancestorToggle_);
     layout->addLayout(headerRow);
 
-    panesSplitter_ = new QSplitter(Qt::Horizontal, this);
-    auto makePane = [&](const QString& title) {
-        auto* container = new QWidget(panesSplitter_);
-        auto* paneLayout = new QVBoxLayout(container);
-        paneLayout->setContentsMargins(0, 0, 0, 0);
-        paneLayout->addWidget(new QLabel(title, container));
-        auto* edit = new ConflictTextEdit(container);
-        edit->setReadOnly(true);
-        edit->setLineWrapMode(QPlainTextEdit::NoWrap);
-        edit->setPlainText(tr("Loading…"));
-        paneLayout->addWidget(edit, 1);
-        panesSplitter_->addWidget(container);
-        return std::pair{container, edit};
-    };
-    std::tie(ancestorContainer_, ancestorEdit_) = makePane(tr("Common ancestor"));
-    ancestorContainer_->setVisible(false);
-    std::tie(std::ignore, oursEdit_) = makePane(tr("Current branch (mine)"));
-    QWidget* middleContainer = nullptr;
-    std::tie(middleContainer, middleEdit_) = makePane(tr("Resolved content (editable)"));
-    std::tie(std::ignore, theirsEdit_) = makePane(tr("Merged branch (theirs)"));
-    layout->addWidget(panesSplitter_, 1);
-    setupPersistentSplitter(panesSplitter_, QStringLiteral("conflictPanes"));
-
-    connect(ancestorToggle_, &QCheckBox::toggled, ancestorContainer_, &QWidget::setVisible);
-
-    // Per-region controls, inserted between the middle pane's title and its
-    // text view -- not inline inside the QPlainTextEdit itself. Qt has no
-    // way to embed widgets inside a plain text view's flow, and switching to
-    // something that does (e.g. QTextEdit + QTextObjectInterface, or a
-    // QListWidget) would give up the line-number gutter ConflictTextEdit
-    // already provides for comparatively little gain -- a strip above the
-    // text does the same job.
-    regionStrip_ = new QWidget(middleContainer);
+    // Per-region controls now live in their own full-width row above
+    // panesSplitter_, not inside the middle pane's own layout. They used to
+    // be inserted directly into the middle pane's container (see git
+    // history) which inflated that pane's minimumSizeHint far past its
+    // siblings' and made the splitter refuse to shrink it -- the actual
+    // cause of the "drag bar feels wired wrong" report. A strip above the
+    // splitter still sits between the title row and the panes visually, it
+    // just no longer counts toward any one pane's minimum width.
+    regionStrip_ = new QWidget(this);
     // Named so ConflictUiTest can locate it structurally (ancestor-of-a-pane
     // check) regardless of its current visibility -- setVisible(false) below
-    // hides it but does not remove it from middleContainer's layout, so a
-    // size-hint-based test would silently pass for the wrong reason (hidden
-    // items are excluded from minimumSizeHint()) while an objectName lookup
-    // still finds it.
+    // hides it but does not remove it from the layout, so a size-hint-based
+    // test would silently pass for the wrong reason (hidden items are
+    // excluded from minimumSizeHint()) while an objectName lookup still
+    // finds it.
     regionStrip_->setObjectName(QStringLiteral("conflictRegionStrip"));
     auto* stripLayout = new QHBoxLayout(regionStrip_);
     stripLayout->setContentsMargins(0, 0, 0, 0);
@@ -400,8 +376,46 @@ ConflictResolvePanel::ConflictResolvePanel(QWidget* parent) : QWidget(parent) {
     stripLayout->addWidget(regionTakeLeftAllButton_);
     stripLayout->addWidget(regionTakeRightAllButton_);
     regionStrip_->setVisible(false);
-    // Index 1: after the title label (index 0), before the text view.
-    static_cast<QVBoxLayout*>(middleContainer->layout())->insertWidget(1, regionStrip_);
+    layout->addWidget(regionStrip_);
+
+    panesSplitter_ = new QSplitter(Qt::Horizontal, this);
+    // House configuration every other splitter in this app already carries
+    // (see WorkingCopyView.cpp, SidebarPanel.cpp) -- panesSplitter_ was the
+    // one exception, which let panes get dragged to zero width and never
+    // recover.
+    panesSplitter_->setHandleWidth(6);
+    panesSplitter_->setChildrenCollapsible(false);
+    auto makePane = [&](const QString& title) {
+        auto* container = new QWidget(panesSplitter_);
+        container->setMinimumWidth(160);
+        auto* paneLayout = new QVBoxLayout(container);
+        paneLayout->setContentsMargins(0, 0, 0, 0);
+        paneLayout->addWidget(new QLabel(title, container));
+        auto* edit = new ConflictTextEdit(container);
+        edit->setReadOnly(true);
+        edit->setLineWrapMode(QPlainTextEdit::NoWrap);
+        edit->setPlainText(tr("Loading…"));
+        paneLayout->addWidget(edit, 1);
+        const int index = panesSplitter_->count();
+        panesSplitter_->addWidget(container);
+        panesSplitter_->setStretchFactor(index, 1);
+        return std::pair{container, edit};
+    };
+    std::tie(ancestorContainer_, ancestorEdit_) = makePane(tr("Common ancestor"));
+    ancestorContainer_->setVisible(false);
+    std::tie(std::ignore, oursEdit_) = makePane(tr("Current branch (mine)"));
+    std::tie(std::ignore, middleEdit_) = makePane(tr("Resolved content (editable)"));
+    std::tie(std::ignore, theirsEdit_) = makePane(tr("Merged branch (theirs)"));
+    // Equal default split -- overridden a moment later by
+    // setupPersistentSplitter()'s deferred restore if sizes were saved from
+    // a previous session.
+    const int equalShare = qMax(panesSplitter_->width(), 800) / panesSplitter_->count();
+    panesSplitter_->setSizes(
+        QList<int>(panesSplitter_->count(), equalShare));
+    layout->addWidget(panesSplitter_, 1);
+    setupPersistentSplitter(panesSplitter_, QStringLiteral("conflictPanes"));
+
+    connect(ancestorToggle_, &QCheckBox::toggled, ancestorContainer_, &QWidget::setVisible);
 
     connect(regionPrevButton_, &QPushButton::clicked, this, [this] { navigateRegion(-1); });
     connect(regionNextButton_, &QPushButton::clicked, this, [this] { navigateRegion(1); });

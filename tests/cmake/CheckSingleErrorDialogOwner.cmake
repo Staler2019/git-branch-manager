@@ -67,13 +67,49 @@ string(FIND "${cpp_text}" "WorkingCopyView::errorOccurred" error_occurred_pos)
 if(error_occurred_pos EQUAL -1)
     list(APPEND failures "could not locate the WorkingCopyView::errorOccurred connection in MainWindow.cpp to inspect")
 else()
-    string(SUBSTRING "${cpp_text}" ${error_occurred_pos} 700 handler_window)
+    string(SUBSTRING "${cpp_text}" ${error_occurred_pos} 1000 handler_window)
     string(FIND "${handler_window}" "armedFeedbackHandlers_" guard_pos)
     string(FIND "${handler_window}" "showError(summary" show_error_pos)
     if(show_error_pos EQUAL -1)
-        list(APPEND failures "expected to find a showError(summary, ...) call within 700 characters of the WorkingCopyView::errorOccurred connection")
+        list(APPEND failures "expected to find a showError(summary, ...) call within 1000 characters of the WorkingCopyView::errorOccurred connection")
     elseif(guard_pos EQUAL -1 OR guard_pos GREATER show_error_pos)
         list(APPEND failures "WorkingCopyView::errorOccurred handler calls showError() without checking armedFeedbackHandlers_ first -- this duplicates the dialog runWithFeedback()/armWorkingCopyChoiceHandler() already shows")
+    endif()
+
+    # When the counter suppresses the dialog, the fallback text must still be
+    # `summary` (BranchOps's rewritten message, e.g. after comparing against
+    # remote-tracking refs), not error.message (git's raw, often-useless
+    # "not fully merged" text) -- onCoreError(error) only has the latter, so
+    # calling it here would silently regress the wording Task 2/3 fixed for
+    # the one case (armed handler present) where it matters.
+    string(FIND "${handler_window}" "statusLabel_->setText(summary)" summary_used_pos)
+    if(summary_used_pos EQUAL -1)
+        list(APPEND failures "WorkingCopyView::errorOccurred's suppressed branch does not use statusLabel_->setText(summary) -- it must show BranchOps's rewritten summary, not error.message, when downgrading to the status bar")
+    endif()
+    if(handler_window MATCHES "onCoreError\\(error\\)")
+        list(APPEND failures "WorkingCopyView::errorOccurred's suppressed branch calls onCoreError(error), which uses error.message instead of the caller's rewritten summary")
+    endif()
+endif()
+
+# closeRepository() must reset the counter, not just leave it to the
+# arming lambdas: those lambdas are connected to session_, so
+# session_.reset() destroys any still-armed connection without ever
+# running it, and the decrement lives only inside that lambda. Without an
+# explicit reset here the count would stay stuck above zero across a repo
+# switch/close made while an operation was in flight, permanently
+# downgrading every later WorkingCopyView error to the status bar instead
+# of the dialog it should get.
+string(FIND "${cpp_text}" "session_.reset();" session_reset_pos)
+if(session_reset_pos EQUAL -1)
+    list(APPEND failures "could not locate session_.reset() in MainWindow.cpp to inspect")
+else()
+    math(EXPR reset_window_start "${session_reset_pos} - 400")
+    if(reset_window_start LESS 0)
+        set(reset_window_start 0)
+    endif()
+    string(SUBSTRING "${cpp_text}" ${reset_window_start} 400 reset_window)
+    if(NOT reset_window MATCHES "armedFeedbackHandlers_[ \t\r\n]*=[ \t\r\n]*0;")
+        list(APPEND failures "closeRepository() does not reset armedFeedbackHandlers_ to 0 before session_.reset() -- a connection armed against the old session dies silently without decrementing, leaking the count")
     endif()
 endif()
 

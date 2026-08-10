@@ -568,7 +568,16 @@ void MainWindow::buildUi() {
                 // working-copy actions. Still surfaced via the status bar and
                 // operation log so nothing is silently dropped.
                 if (armedFeedbackHandlers_ > 0) {
-                    onCoreError(error);
+                    // Same destinations as onCoreError (status bar + operation
+                    // log), but using `summary` rather than error.message: for
+                    // a delete blocked by an unmerged branch, error.message is
+                    // still git's raw "not fully merged" text, while summary is
+                    // what BranchOps rewrote it to (possibly after comparing
+                    // against remote-tracking refs) -- onCoreError would have
+                    // thrown that improvement away.
+                    statusLabel_->setText(summary);
+                    logMessage(LogLevel::Error,
+                               error.message + (error.detail.empty() ? "" : ": " + error.detail));
                     return;
                 }
                 showError(summary, error);
@@ -1457,6 +1466,12 @@ void MainWindow::closeRepository() {
     workingCopyView_->setSession(nullptr);
     sidebar_->setSession(nullptr);
     repositoryPage_->setSession(nullptr);
+    // Any runWithFeedback()/armWorkingCopyChoiceHandler() connection still
+    // armed against this session dies with it below without ever running its
+    // lambda, so the decrement it would have done never happens -- reset the
+    // count explicitly here rather than leaving it stuck above zero for the
+    // rest of the window's life (see armedFeedbackHandlers_'s doc comment).
+    armedFeedbackHandlers_ = 0;
     session_.reset();
     pendingCheckoutTarget_.clear();
     setWindowTitle(QStringLiteral("git-branch-manager"));

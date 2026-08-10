@@ -3,11 +3,89 @@
 #include "core/base/FsUtil.h"
 #include "core/git/RefStore.h"
 
+#include <sstream>
+#include <string_view>
 #include <utility>
 
 namespace gbm {
 
 namespace {
+
+/// After `git branch -d <name>` refuses because the branch is "not fully
+/// merged", checks whether a remote-tracking ref other than the branch's own
+/// already contains it -- the exact state left by squash- or merge-committing
+/// a PR without having pulled the integration branch since. `-d` only checks
+/// reachability from local refs, so it cannot tell "genuinely unmerged" apart
+/// from "merged on the remote, local view is stale" on its own.
+///
+/// This can only narrow "not found" down to "not found in the last-fetched
+/// view" -- refs/remotes/ is a local cache, not the remote's live state -- so
+/// the "not found" branch below must say exactly that rather than asserting
+/// the branch was never merged anywhere.
+void refineSummaryFromRemoteRefs(IProcessRunner& runner,
+                                 const RepoPaths& paths,
+                                 const std::string& name,
+                                 CancellationToken token,
+                                 OperationOutcome& outcome) {
+    GitCommand probe(paths.commandDir(),
+                     {"for-each-ref", "--format=%(refname)", "--contains", name, "refs/remotes/"});
+    probe.timeout = std::chrono::milliseconds(5000);
+
+    auto probeResult = runner.run(probe, token);
+    if (!probeResult) {
+        // The probe failing (offline, corrupt ref, timeout) must not mask the
+        // real delete failure with something less informative -- leave
+        // outcome.summary exactly as the caller already set it.
+        return;
+    }
+
+    static constexpr std::string_view kRemotesPrefix = "refs/remotes/";
+    std::string elsewhere;
+    std::istringstream lines(probeResult->out);
+    std::string line;
+    while (std::getline(lines, line)) {
+        if (line.empty()) {
+            continue;
+        }
+        // The branch's own remote-tracking ref (e.g. refs/remotes/origin/<name>)
+        // only means it was pushed, not that anything merged it -- exclude it
+        // so a plain `git push` doesn't get misread as "safe to delete".
+        const bool isOwnUpstream =
+            line.size() > name.size() + 1 &&
+            line.compare(line.size() - name.size(), name.size(), name) == 0 &&
+            line[line.size() - name.size() - 1] == '/';
+        if (isOwnUpstream) {
+            continue;
+        }
+        // refs/remotes/<remote>/HEAD is a symref alias for that remote's
+        // default branch, not a real one -- `for-each-ref` lists it
+        // alongside the branches it points at (and, sorting alphabetically,
+        // before them), so without this it would win as "the" remote to
+        // name and tell the user their commits are safe on a ref that means
+        // nothing to them.
+        static constexpr std::string_view kHeadSuffix = "/HEAD";
+        if (line.size() >= kHeadSuffix.size() &&
+            line.compare(line.size() - kHeadSuffix.size(), kHeadSuffix.size(), kHeadSuffix) == 0) {
+            continue;
+        }
+        elsewhere = line;
+        break;
+    }
+
+    if (elsewhere.empty()) {
+        outcome.summary =
+            "This branch's commits were not found on any remote-tracking ref from your last "
+            "fetch. If it was just merged on the remote, fetch and try again -- otherwise "
+            "deleting it makes them reachable only through the reflog";
+        return;
+    }
+
+    const std::string label = elsewhere.rfind(kRemotesPrefix, 0) == 0
+                                  ? elsewhere.substr(kRemotesPrefix.size())
+                                  : elsewhere;
+    outcome.summary = "This branch's commits already exist on " + label +
+                      "; deleting it will not lose anything, your local branch is just behind";
+}
 
 class CreateBranchOperation final : public Operation {
 public:
@@ -171,6 +249,15 @@ public:
             outcome.summary =
                 "This branch has commits that are not merged into any other "
                 "branch you have locally";
+            // "Not merged locally" and "genuinely unmerged" are different claims:
+            // a local integration branch that is simply behind its remote (the
+            // exact situation right after squash- or merge-committing a PR and
+            // not yet pulling) fails `-d` too, even though deleting it loses
+            // nothing. Single-branch only, matching the shape of the summary
+            // this produces; a multi-branch delete keeps the message above.
+            if (request_.names.size() == 1) {
+                refineSummaryFromRemoteRefs(runner, paths, request_.names.front(), token, outcome);
+            }
             outcome.choices.push_back(
                 {OperationChoice::Kind::ForceDiscard,
                  "Delete anyway",

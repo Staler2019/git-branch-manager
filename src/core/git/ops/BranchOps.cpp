@@ -161,9 +161,16 @@ public:
         outcome.summary = error.message;
 
         // `-d` refuses to delete unmerged work. Offering `-D` is legitimate, but
-        // it has to be labelled honestly.
+        // it has to be labelled honestly. Left unhandled this falls through to
+        // classifyGitStderr's generic "Git reported an error" fallback, which
+        // sends the user hunting through a collapsed Details pane for git's own
+        // "not fully merged" phrasing -- see the worktree case below, which
+        // already avoids exactly that.
         const bool notMerged = error.detail.find("not fully merged") != std::string::npos;
         if (notMerged && !request_.force) {
+            outcome.summary =
+                "This branch has commits that are not merged into any other "
+                "branch you have locally";
             outcome.choices.push_back(
                 {OperationChoice::Kind::ForceDiscard,
                  "Delete anyway",

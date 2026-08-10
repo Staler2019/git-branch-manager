@@ -687,6 +687,12 @@ TEST_F(RealRepoTest, RefusesToDeleteAnUnmergedBranchWithoutConsent) {
     operations.drain();
 
     EXPECT_FALSE(outcome.succeeded);
+    // The headline the user actually reads has to say what happened, not
+    // fall back to classifyGitStderr's generic "Git reported an error" --
+    // that string carries no information and sent a real user hunting
+    // through a collapsed Details pane for git's own phrasing.
+    EXPECT_NE(outcome.summary, "Git reported an error");
+    EXPECT_NE(outcome.summary.find("not merged"), std::string::npos);
     bool offersForce = false;
     for (const OperationChoice& choice : outcome.choices) {
         if (choice.kind == OperationChoice::Kind::ForceDiscard) {

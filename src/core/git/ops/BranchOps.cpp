@@ -11,6 +11,18 @@ namespace gbm {
 
 namespace {
 
+/// What refineSummaryFromRemoteRefs found, so the caller can pick a "Delete
+/// anyway" explanation that agrees with the summary it just wrote -- without
+/// this, a FoundElsewhere summary ("...will not lose anything") sat next to
+/// an explanation that still claimed "only reachable through the reflog",
+/// two directly contradictory claims in the one dialog the whole probe exists
+/// to make trustworthy.
+enum class RemoteRefProbeOutcome {
+    ProbeFailed,
+    NotFoundElsewhere,
+    FoundElsewhere,
+};
+
 /// After `git branch -d <name>` refuses because the branch is "not fully
 /// merged", checks whether a remote-tracking ref other than the branch's own
 /// already contains it -- the exact state left by squash- or merge-committing
@@ -22,11 +34,11 @@ namespace {
 /// view" -- refs/remotes/ is a local cache, not the remote's live state -- so
 /// the "not found" branch below must say exactly that rather than asserting
 /// the branch was never merged anywhere.
-void refineSummaryFromRemoteRefs(IProcessRunner& runner,
-                                 const RepoPaths& paths,
-                                 const std::string& name,
-                                 CancellationToken token,
-                                 OperationOutcome& outcome) {
+RemoteRefProbeOutcome refineSummaryFromRemoteRefs(IProcessRunner& runner,
+                                                  const RepoPaths& paths,
+                                                  const std::string& name,
+                                                  CancellationToken token,
+                                                  OperationOutcome& outcome) {
     GitCommand probe(paths.commandDir(),
                      {"for-each-ref", "--format=%(refname)", "--contains", name, "refs/remotes/"});
     probe.timeout = std::chrono::milliseconds(5000);
@@ -36,7 +48,7 @@ void refineSummaryFromRemoteRefs(IProcessRunner& runner,
         // The probe failing (offline, corrupt ref, timeout) must not mask the
         // real delete failure with something less informative -- leave
         // outcome.summary exactly as the caller already set it.
-        return;
+        return RemoteRefProbeOutcome::ProbeFailed;
     }
 
     static constexpr std::string_view kRemotesPrefix = "refs/remotes/";
@@ -77,7 +89,7 @@ void refineSummaryFromRemoteRefs(IProcessRunner& runner,
             "This branch's commits were not found on any remote-tracking ref from your last "
             "fetch. If it was just merged on the remote, fetch and try again -- otherwise "
             "deleting it makes them reachable only through the reflog";
-        return;
+        return RemoteRefProbeOutcome::NotFoundElsewhere;
     }
 
     const std::string label = elsewhere.rfind(kRemotesPrefix, 0) == 0
@@ -85,6 +97,7 @@ void refineSummaryFromRemoteRefs(IProcessRunner& runner,
                                   : elsewhere;
     outcome.summary = "This branch's commits already exist on " + label +
                       "; deleting it will not lose anything, your local branch is just behind";
+    return RemoteRefProbeOutcome::FoundElsewhere;
 }
 
 class CreateBranchOperation final : public Operation {
@@ -261,15 +274,30 @@ public:
             // not yet pulling) fails `-d` too, even though deleting it loses
             // nothing. Single-branch only, matching the shape of the summary
             // this produces; a multi-branch delete keeps the message above.
+            RemoteRefProbeOutcome probeOutcome = RemoteRefProbeOutcome::ProbeFailed;
             if (request_.names.size() == 1) {
-                refineSummaryFromRemoteRefs(runner, paths, request_.names.front(), token, outcome);
+                probeOutcome = refineSummaryFromRemoteRefs(
+                    runner, paths, request_.names.front(), token, outcome);
             }
-            outcome.choices.push_back(
-                {OperationChoice::Kind::ForceDiscard,
-                 "Delete anyway",
-                 "This branch has commits that are not merged anywhere else. After deleting, they "
-                 "are only reachable through the reflog.",
-                 true});
+            // The "Delete anyway" explanation must agree with whatever summary
+            // is now showing above it: when the probe found the commits on
+            // another remote-tracking ref, outcome.summary already says
+            // deleting loses nothing -- pairing that with "only reachable
+            // through the reflog" here would tell the user two contradictory
+            // things in the same dialog.
+            const std::string deleteAnywayExplanation =
+                probeOutcome == RemoteRefProbeOutcome::FoundElsewhere
+                    ? "This branch's commits already exist on another remote-tracking ref, so "
+                      "deleting it will not lose anything."
+                    : (request_.names.size() > 1
+                           ? "These branches have commits that are not merged anywhere else. After "
+                             "deleting, they are only reachable through the reflog."
+                           : "This branch has commits that are not merged anywhere else. After "
+                             "deleting, they are only reachable through the reflog.");
+            outcome.choices.push_back({OperationChoice::Kind::ForceDiscard,
+                                       "Delete anyway",
+                                       deleteAnywayExplanation,
+                                       true});
             outcome.choices.push_back(
                 {OperationChoice::Kind::Abort, "Cancel", "Keep the branch.", false});
         }

@@ -55,6 +55,14 @@ TEST(DeleteBranchOperation, ReportsSafeToDeleteWhenAnotherRemoteRefContainsIt) {
     EXPECT_NE(outcome.summary.find("not lose"), std::string::npos);
     // Never claims certainty it does not have.
     EXPECT_EQ(outcome.summary.find("Git reported an error"), std::string::npos);
+
+    // The "Delete anyway" choice must agree with the summary above it: once
+    // the probe found the commits elsewhere, the explanation must not still
+    // warn that deleting makes them "only reachable through the reflog" --
+    // that directly contradicts "will not lose anything" in the summary.
+    ASSERT_FALSE(outcome.choices.empty());
+    EXPECT_NE(outcome.choices.front().explanation.find("will not lose"), std::string::npos);
+    EXPECT_EQ(outcome.choices.front().explanation.find("reflog"), std::string::npos);
 }
 
 TEST(DeleteBranchOperation, SkipsOriginHeadAsTheReportedRemote) {
@@ -130,6 +138,11 @@ TEST(DeleteBranchOperation, PluralizesTheNotMergedSummaryForAMultiBranchDelete) 
     EXPECT_FALSE(outcome.succeeded);
     EXPECT_NE(outcome.summary.find("These branches"), std::string::npos);
     EXPECT_EQ(outcome.summary.find("This branch "), std::string::npos);
+    // The choice explanation must be pluralized the same way -- it is a
+    // separate string built independently of the summary.
+    ASSERT_FALSE(outcome.choices.empty());
+    EXPECT_NE(outcome.choices.front().explanation.find("These branches"), std::string::npos);
+    EXPECT_EQ(outcome.choices.front().explanation.find("This branch "), std::string::npos);
 }
 
 TEST(DeleteBranchOperation, KeepsExistingSummaryWhenTheProbeItselfFails) {

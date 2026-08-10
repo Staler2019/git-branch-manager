@@ -198,6 +198,24 @@ RepositorySession::~RepositorySession() {
     if (catFile_) {
         catFile_->stop();
     }
+
+    // busyCount_ still above zero here means some setBusy(true) never got its
+    // matching setBusy(false) -- exactly the spinner-never-stops shape from
+    // issue #24. MainWindow::closeRepository() cancels and drains readPool_
+    // before this destructor runs, so by now every legitimately in-flight
+    // read has already had its chance to call setBusy(false); what's left in
+    // outstandingBusySites_ is the actual leak, worth a log even though this
+    // session (and its indicator) is about to go away either way.
+    if (busyCount_ > 0) {
+        std::string sites;
+        for (const std::string& site : outstandingBusySites_) {
+            sites += "\n  " + site;
+        }
+        logMessage(LogLevel::Debug,
+                   "RepositorySession destroyed with busyCount_=" +
+                       std::to_string(busyCount_) + ", never-balanced setBusy(true) call site(s):" +
+                       sites);
+    }
 }
 
 QString RepositorySession::displayName() const {
@@ -208,7 +226,7 @@ RepoState RepositorySession::state() const {
     return RepoState::read(paths_);
 }
 
-void RepositorySession::setBusy(bool busy) {
+void RepositorySession::setBusy(bool busy, std::source_location loc) {
     // Reference-counted: several reads may be in flight, and the indicator should
     // only clear when the last one finishes.
     const bool wasBusy = busyCount_ > 0;
@@ -216,10 +234,28 @@ void RepositorySession::setBusy(bool busy) {
     if (busyCount_ < 0) {
         busyCount_ = 0;
     }
+    if (busy) {
+        outstandingBusySites_.push_back(std::string(loc.file_name()) + ":" +
+                                         std::to_string(loc.line()) + " (" +
+                                         loc.function_name() + ")");
+    } else if (!outstandingBusySites_.empty()) {
+        outstandingBusySites_.erase(outstandingBusySites_.begin());
+    }
     const bool isBusy = busyCount_ > 0;
     if (isBusy != wasBusy) {
         emit busyChanged(isBusy);
     }
+}
+
+std::vector<std::string> RepositorySession::debugOutstandingBusySites() const {
+    return outstandingBusySites_;
+}
+
+BusyToken RepositorySession::makeBusyToken(std::source_location loc) {
+    setBusy(true, loc);
+    return BusyToken([this] {
+        QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+    });
 }
 
 void RepositorySession::refreshHistory(HistoryQuery query) {
@@ -816,11 +852,19 @@ void RepositorySession::requestCommitMetadata(std::vector<ObjectId> oids) {
 
 void RepositorySession::requestCommitDetails(const ObjectId& commit) {
     const CancellationToken token = readCancel_.token();
-    setBusy(true);
+    BusyToken busy = makeBusyToken();
 
-    readPool_.postFront([this, commit, token] {
+    // busy is moved into a body-local (not left as a captured closure member)
+    // so it releases while this lambda is still running -- i.e. before
+    // ThreadPool::workerLoop() decrements activeTasks_ and cancelQueuedAndDrain()
+    // can conclude the task is done. A release deferred past that point would
+    // still fire eventually (when the closure itself is destroyed), but by
+    // then MainWindow::closeRepository() may already have destroyed this
+    // session, and the release callback's QMetaObject::invokeMethod(this, ...)
+    // needs `this` to still be alive.
+    readPool_.postFront([this, commit, token, busy = std::move(busy)]() mutable {
+        BusyToken busyGuard = std::move(busy);
         if (token.isCancelled()) {
-            QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
             return;
         }
 
@@ -844,8 +888,6 @@ void RepositorySession::requestCommitDetails(const ObjectId& commit) {
             QMetaObject::invokeMethod(
                 this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
         }
-
-        QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
     });
 }
 
@@ -1119,81 +1161,75 @@ void RepositorySession::requestConflictSides(const std::string& path,
                                              const std::string& oursBlob,
                                              const std::string& theirsBlob) {
     const CancellationToken token = readCancel_.token();
-    setBusy(true);
+    BusyToken busy = makeBusyToken();
 
-    readPool_.postFront([this, path, ancestorBlob, oursBlob, theirsBlob, token] {
-        if (token.isCancelled()) {
-            QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
-            return;
-        }
-        if (auto started = catFile_->start(); !started) {
-            GitError error = std::move(started).error();
+    // See requestCommitDetails's comment on why busy is moved into a
+    // body-local rather than left as a captured closure member.
+    readPool_.postFront(
+        [this, path, ancestorBlob, oursBlob, theirsBlob, token, busy = std::move(busy)]() mutable {
+            BusyToken busyGuard = std::move(busy);
+            if (token.isCancelled()) {
+                return;
+            }
+            if (auto started = catFile_->start(); !started) {
+                GitError error = std::move(started).error();
+                QMetaObject::invokeMethod(
+                    this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
+                return;
+            }
+
+            // Best-effort: a stage that fails to read (or does not exist) shows as
+            // empty rather than failing the whole request, so the two sides that
+            // did read are still shown. Checked between the three reads (not just
+            // once above): a cancellation arriving while the first blob is being
+            // fetched should stop the remaining two from starting.
+            auto readOrEmpty = [this, token](const std::string& blob) {
+                if (blob.empty() || token.isCancelled()) {
+                    return std::string();
+                }
+                auto object = catFile_->read(blob, token);
+                return object ? object->content : std::string();
+            };
+            const std::string ancestor = readOrEmpty(ancestorBlob);
+            const std::string ours = readOrEmpty(oursBlob);
+            const std::string theirs = readOrEmpty(theirsBlob);
+            // Design A5: computed here, on the still-undecoded std::string --
+            // detectTextTraits() must see the original bytes (see TextTraits.h's
+            // own doc comment on why this cannot happen after the
+            // QString::fromStdString() conversions below).
+            const TextTraits ancestorTraits = detectTextTraits(ancestor);
+            const TextTraits oursTraits = detectTextTraits(ours);
+            const TextTraits theirsTraits = detectTextTraits(theirs);
+
+            const QString qpath = QString::fromStdString(path);
             QMetaObject::invokeMethod(
                 this,
-                [this, error] {
-                    setBusy(false);
-                    emit errorOccurred(error);
+                [this, qpath, ancestor, ours, theirs, ancestorTraits, oursTraits, theirsTraits] {
+                    emit conflictSidesReady(qpath,
+                                            QString::fromStdString(ancestor),
+                                            QString::fromStdString(ours),
+                                            QString::fromStdString(theirs));
+                    emit conflictSideTraitsReady(qpath, ancestorTraits, oursTraits, theirsTraits);
                 },
                 Qt::QueuedConnection);
-            return;
-        }
-
-        // Best-effort: a stage that fails to read (or does not exist) shows as
-        // empty rather than failing the whole request, so the two sides that
-        // did read are still shown. Checked between the three reads (not just
-        // once above): a cancellation arriving while the first blob is being
-        // fetched should stop the remaining two from starting.
-        auto readOrEmpty = [this, token](const std::string& blob) {
-            if (blob.empty() || token.isCancelled()) {
-                return std::string();
-            }
-            auto object = catFile_->read(blob, token);
-            return object ? object->content : std::string();
-        };
-        const std::string ancestor = readOrEmpty(ancestorBlob);
-        const std::string ours = readOrEmpty(oursBlob);
-        const std::string theirs = readOrEmpty(theirsBlob);
-        // Design A5: computed here, on the still-undecoded std::string --
-        // detectTextTraits() must see the original bytes (see TextTraits.h's
-        // own doc comment on why this cannot happen after the
-        // QString::fromStdString() conversions below).
-        const TextTraits ancestorTraits = detectTextTraits(ancestor);
-        const TextTraits oursTraits = detectTextTraits(ours);
-        const TextTraits theirsTraits = detectTextTraits(theirs);
-
-        const QString qpath = QString::fromStdString(path);
-        QMetaObject::invokeMethod(
-            this,
-            [this, qpath, ancestor, ours, theirs, ancestorTraits, oursTraits, theirsTraits] {
-                setBusy(false);
-                emit conflictSidesReady(qpath,
-                                        QString::fromStdString(ancestor),
-                                        QString::fromStdString(ours),
-                                        QString::fromStdString(theirs));
-                emit conflictSideTraitsReady(qpath, ancestorTraits, oursTraits, theirsTraits);
-            },
-            Qt::QueuedConnection);
-    });
+        });
 }
 
 void RepositorySession::requestFileContent(const std::string& path, const std::string& revision) {
     const CancellationToken token = readCancel_.token();
-    setBusy(true);
+    BusyToken busy = makeBusyToken();
 
-    readPool_.postFront([this, path, revision, token] {
+    // See requestCommitDetails's comment on why busy is moved into a
+    // body-local rather than left as a captured closure member.
+    readPool_.postFront([this, path, revision, token, busy = std::move(busy)]() mutable {
+        BusyToken busyGuard = std::move(busy);
         if (token.isCancelled()) {
-            QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
             return;
         }
         if (auto started = catFile_->start(); !started) {
             GitError error = std::move(started).error();
             QMetaObject::invokeMethod(
-                this,
-                [this, error] {
-                    setBusy(false);
-                    emit errorOccurred(error);
-                },
-                Qt::QueuedConnection);
+                this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
             return;
         }
 
@@ -1212,7 +1248,6 @@ void RepositorySession::requestFileContent(const std::string& path, const std::s
         QMetaObject::invokeMethod(
             this,
             [this, qpath, qrevision, content, exists] {
-                setBusy(false);
                 emit fileContentReady(qpath, qrevision, QString::fromStdString(content), exists);
             },
             Qt::QueuedConnection);

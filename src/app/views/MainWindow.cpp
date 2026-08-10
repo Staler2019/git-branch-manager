@@ -1450,7 +1450,26 @@ void MainWindow::closeRepository() {
     // already in flight when cancellation fires still blocks until the child
     // answers it. See ThreadPool::cancelQueuedAndDrain's doc for the same
     // caveat spelled out in full.
+    //
+    // This has been observed to hang the UI thread on Windows after several
+    // repository switches (issue #23), but not reproduced on macOS -- so this
+    // measures rather than changes behavior: log a warning if the drain takes
+    // longer than kDrainWarnThresholdMs, with the queue depth and thread count
+    // at the moment the drain started, so a report from a stuck session can
+    // say whether it is stuck *in* the drain or somewhere else.
+    const std::size_t queueDepthBeforeDrain = readPool_.queueDepth();
+    const std::size_t threadCountAtDrain = readPool_.threadCount();
+    QElapsedTimer drainTimer;
+    drainTimer.start();
     readPool_.cancelQueuedAndDrain();
+    constexpr qint64 kDrainWarnThresholdMs = 2000;
+    const qint64 drainMs = drainTimer.elapsed();
+    if (drainMs >= kDrainWarnThresholdMs) {
+        logMessage(LogLevel::Warn,
+                   "closeRepository: cancelQueuedAndDrain took " + std::to_string(drainMs) +
+                       "ms (queueDepth=" + std::to_string(queueDepthBeforeDrain) +
+                       ", threadCount=" + std::to_string(threadCountAtDrain) + ")");
+    }
     // commitModel_->setSession(nullptr) resets the model, which fires
     // modelAboutToBeReset and collapses any inline expansion -- see the
     // connection in buildUi() -- but the closing-repository case is worth

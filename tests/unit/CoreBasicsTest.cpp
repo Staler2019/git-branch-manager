@@ -8,6 +8,7 @@
 #include "core/git/HistoryProvider.h"
 #include "core/git/RefStore.h"
 #include "core/git/RepoPaths.h"
+#include "core/workers/BusyToken.h"
 #include "core/workers/Debouncer.h"
 #include "core/workers/RefreshCoalescer.h"
 #include "core/workers/StartupReadGate.h"
@@ -304,6 +305,94 @@ TEST(ThreadPool, CancelQueuedAndDrainDiscardsQueuedWorkButWaitsForTheActiveTask)
     pool.post([&total] { ++total; });
     pool.drain();
     EXPECT_EQ(total.load(), 1);
+}
+
+// --- busy token --------------------------------------------------------------
+
+TEST(BusyToken, EmptyTokenReleasesNothing) {
+    BusyToken token;
+    EXPECT_FALSE(static_cast<bool>(token));
+    token.reset();  // must not crash or call anything
+}
+
+TEST(BusyToken, ReleasesOnDestruction) {
+    int releaseCount = 0;
+    {
+        BusyToken token([&] { ++releaseCount; });
+        EXPECT_TRUE(static_cast<bool>(token));
+        EXPECT_EQ(releaseCount, 0);
+    }
+    EXPECT_EQ(releaseCount, 1);
+}
+
+TEST(BusyToken, ResetReleasesExactlyOnceEvenIfDestructorAlsoFires) {
+    int releaseCount = 0;
+    {
+        BusyToken token([&] { ++releaseCount; });
+        token.reset();
+        EXPECT_EQ(releaseCount, 1);
+        EXPECT_FALSE(static_cast<bool>(token));
+        token.reset();  // idempotent: already fired
+        EXPECT_EQ(releaseCount, 1);
+    }
+    EXPECT_EQ(releaseCount, 1);  // destructor of an already-empty token is a no-op
+}
+
+TEST(BusyToken, MoveConstructionTransfersOwnership) {
+    int releaseCount = 0;
+    BusyToken original([&] { ++releaseCount; });
+    BusyToken moved(std::move(original));
+
+    EXPECT_FALSE(static_cast<bool>(original));
+    EXPECT_TRUE(static_cast<bool>(moved));
+
+    // The moved-from token must not also release -- exactly one release.
+    original.reset();
+    EXPECT_EQ(releaseCount, 0);
+
+    moved.reset();
+    EXPECT_EQ(releaseCount, 1);
+}
+
+TEST(BusyToken, MoveAssignmentReleasesWhateverTheTargetOwnedFirst) {
+    int firstReleaseCount = 0;
+    int secondReleaseCount = 0;
+    BusyToken first([&] { ++firstReleaseCount; });
+    BusyToken second([&] { ++secondReleaseCount; });
+
+    first = std::move(second);
+    // Assigning into `first` must release the busy unit it owned before the
+    // assignment, exactly like destroying it would -- otherwise the busy
+    // count that token was guarding never gets decremented.
+    EXPECT_EQ(firstReleaseCount, 1);
+    EXPECT_EQ(secondReleaseCount, 0);
+    EXPECT_FALSE(static_cast<bool>(second));
+    EXPECT_TRUE(static_cast<bool>(first));
+
+    first.reset();
+    EXPECT_EQ(secondReleaseCount, 1);
+}
+
+TEST(BusyToken, NestedTokensEachReleaseIndependently) {
+    // Mirrors the reference-counted busy indicator: several tokens in flight
+    // at once, each must decrement exactly once regardless of destruction order.
+    int busyCount = 0;
+    auto acquire = [&] {
+        ++busyCount;
+        return BusyToken([&] { --busyCount; });
+    };
+
+    BusyToken a = acquire();
+    BusyToken b = acquire();
+    BusyToken c = acquire();
+    EXPECT_EQ(busyCount, 3);
+
+    b.reset();
+    EXPECT_EQ(busyCount, 2);
+
+    a.reset();
+    c.reset();
+    EXPECT_EQ(busyCount, 0);
 }
 
 // --- debouncer -------------------------------------------------------------

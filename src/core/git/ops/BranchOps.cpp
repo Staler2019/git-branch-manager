@@ -246,9 +246,15 @@ public:
         // already avoids exactly that.
         const bool notMerged = error.detail.find("not fully merged") != std::string::npos;
         if (notMerged && !request_.force) {
-            outcome.summary =
-                "This branch has commits that are not merged into any other "
-                "branch you have locally";
+            // Matches describe()'s singular/plural split above: a multi-branch
+            // delete can legitimately hit this with more than one name in
+            // request_.names, and "This branch" reads wrong when several were
+            // selected.
+            outcome.summary = request_.names.size() > 1
+                                  ? "These branches have commits that are not merged into any "
+                                    "other branch you have locally"
+                                  : "This branch has commits that are not merged into any other "
+                                    "branch you have locally";
             // "Not merged locally" and "genuinely unmerged" are different claims:
             // a local integration branch that is simply behind its remote (the
             // exact situation right after squash- or merge-committing a PR and

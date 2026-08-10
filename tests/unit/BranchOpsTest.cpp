@@ -4,7 +4,6 @@
 // it does not) are exactly the git responses a fake runner can script on
 // demand, without depending on git's own timing to reach either state.
 #include "core/git/ops/BranchOps.h"
-
 #include "support/FakeProcessRunner.h"
 
 #include <gtest/gtest.h>
@@ -106,6 +105,31 @@ TEST(DeleteBranchOperation, SuggestsFetchingWhenNoRemoteRefContainsIt) {
     // Must not overclaim: this is "not found in the last-fetched view", not a
     // confirmed "this really was never merged anywhere".
     EXPECT_EQ(outcome.summary.find("Git reported an error"), std::string::npos);
+}
+
+TEST(DeleteBranchOperation, PluralizesTheNotMergedSummaryForAMultiBranchDelete) {
+    FakeProcessRunner runner;
+
+    // Same "not fully merged" stderr, but for a request naming several
+    // branches at once -- the refineSummaryFromRemoteRefs probe only runs for
+    // a single-name request, so this exercises the summary BranchOps sets
+    // before that guard, which must read "These branches", not "This branch".
+    FakeProcessRunner::Response failure;
+    failure.exitCode = 1;
+    failure.err =
+        "error: the branch 'multi-a' is not fully merged\n"
+        "hint: If you are sure you want to delete it, run 'git branch -D multi-a'\n";
+    runner.whenArgsContain({"branch", "-d", "multi-a", "multi-b"}, failure);
+
+    DeleteBranchRequest request;
+    request.names = {"multi-a", "multi-b"};
+    auto operation = makeDeleteBranchOperation(request);
+
+    OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
+
+    EXPECT_FALSE(outcome.succeeded);
+    EXPECT_NE(outcome.summary.find("These branches"), std::string::npos);
+    EXPECT_EQ(outcome.summary.find("This branch "), std::string::npos);
 }
 
 TEST(DeleteBranchOperation, KeepsExistingSummaryWhenTheProbeItselfFails) {

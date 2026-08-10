@@ -350,6 +350,22 @@ private:
     /// first click that merely changed the selection.
     int lastClickedCommitRow_ = -1;
 
+    /// Number of one-shot `workingCopyOperationFinished` listeners currently
+    /// armed by runWithFeedback()/armWorkingCopyChoiceHandler(). While this is
+    /// positive, one of those listeners owns reporting the next outcome to the
+    /// user, so the always-connected WorkingCopyView::errorOccurred handler
+    /// must not also pop a dialog for it -- see the connection at the top of
+    /// the constructor. A counter rather than a bool because StashAndRetry
+    /// re-arms armWorkingCopyChoiceHandler for the same round trip.
+    ///
+    /// Both arming sites connect to session_, so closeRepository() destroying
+    /// session_ silently drops any still-armed connection without ever running
+    /// its lambda -- the decrement lives only inside that lambda, so without an
+    /// explicit reset there the count would stay stuck above zero for the rest
+    /// of the window's life, permanently downgrading every later error to the
+    /// status bar. See closeRepository().
+    int armedFeedbackHandlers_ = 0;
+
     QLabel* statusLabel_ = nullptr;
     QLabel* toolBarRepoNameLabel_ = nullptr;
     QLabel* toolBarBranchLabel_ = nullptr;

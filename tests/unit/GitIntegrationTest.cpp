@@ -687,6 +687,17 @@ TEST_F(RealRepoTest, RefusesToDeleteAnUnmergedBranchWithoutConsent) {
     operations.drain();
 
     EXPECT_FALSE(outcome.succeeded);
+    // The headline the user actually reads has to say what happened, not
+    // fall back to classifyGitStderr's generic "Git reported an error" --
+    // that string carries no information and sent a real user hunting
+    // through a collapsed Details pane for git's own phrasing.
+    EXPECT_NE(outcome.summary, "Git reported an error");
+    // This fixture has no remote configured, so the remote-ref probe
+    // (BranchOpsTest.cpp covers its branches directly against a fake runner)
+    // finds nothing and the summary must say so honestly -- "fetch and try
+    // again", not a claim that the branch was definitely never merged
+    // anywhere, which is not something a local-only check can know.
+    EXPECT_NE(outcome.summary.find("fetch"), std::string::npos);
     bool offersForce = false;
     for (const OperationChoice& choice : outcome.choices) {
         if (choice.kind == OperationChoice::Kind::ForceDiscard) {
@@ -698,6 +709,83 @@ TEST_F(RealRepoTest, RefusesToDeleteAnUnmergedBranchWithoutConsent) {
         }
     }
     EXPECT_TRUE(offersForce);
+}
+
+// The scenario this whole check exists for: a PR merged on the remote (here,
+// a second clone standing in for "someone else merged it on GitHub", which
+// also deletes the source branch the way GitHub's "delete branch" button
+// does) while this repository's own `main` never saw that merge directly,
+// only through a later `fetch --prune`. `-d` cannot see past that -- it only
+// checks reachability from local refs and from the branch's own upstream,
+// and pruning is what removes that upstream from the local view, which is
+// what actually makes `-d` fail here (verified against real git: as long as
+// origin/feature still exists locally, unmoved, `-d` treats the branch as
+// "merged into its own unchanged upstream" and succeeds even though HEAD
+// never merged it -- pruning is required to reproduce the user-reported
+// failure at all). The remote-ref probe can see past that failure, and must
+// say so rather than defaulting to the destructive-sounding fallback.
+TEST_F(RealRepoTest, ReportsSafeToDeleteWhenAnotherClonePushedTheMergeAndPrunedTheSource) {
+    const std::filesystem::path remote = repo_.string() + "-bare-remote-safe";
+    std::filesystem::remove_all(remote);
+    std::filesystem::create_directories(remote);
+    GitCommand initBare(remote, {"init", "--quiet", "--bare", "--initial-branch=main"});
+    initBare.timeout = std::chrono::seconds(30);
+    ASSERT_TRUE(runner_->run(initBare, CancellationToken{}));
+    extraDirs_.push_back(remote);
+
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"remote", "add", "origin", remote.string()}));
+    ASSERT_TRUE(run({"push", "--quiet", "-u", "origin", "main"}));
+
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("b.txt", "only on feature\n", "feature work");
+    ASSERT_TRUE(run({"push", "--quiet", "-u", "origin", "feature"}));
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+
+    // A second, independent clone merges, pushes, and deletes the source
+    // branch on the remote -- repo_'s local `main` never sees that merge
+    // except through a later `fetch`.
+    const std::filesystem::path integrator = repo_.string() + "-integrator";
+    std::filesystem::remove_all(integrator);
+    extraDirs_.push_back(integrator);
+    GitCommand clone(repo_.parent_path(),
+                     {"clone", "--quiet", remote.string(), integrator.string()});
+    clone.timeout = std::chrono::seconds(30);
+    ASSERT_TRUE(runner_->run(clone, CancellationToken{}));
+
+    auto runIntegrator = [&](std::vector<std::string> args) {
+        GitCommand command(integrator, std::move(args));
+        command.timeout = std::chrono::seconds(30);
+        return runner_->run(command, CancellationToken{});
+    };
+    ASSERT_TRUE(runIntegrator({"config", "user.email", "test@example.invalid"}));
+    ASSERT_TRUE(runIntegrator({"config", "user.name", "Test"}));
+    ASSERT_TRUE(runIntegrator({"config", "commit.gpgsign", "false"}));
+    ASSERT_TRUE(runIntegrator({"fetch", "--quiet", "origin", "feature"}));
+    ASSERT_TRUE(
+        runIntegrator({"merge", "--quiet", "--no-ff", "-m", "Merge feature", "origin/feature"}));
+    ASSERT_TRUE(runIntegrator({"push", "--quiet", "origin", "main"}));
+    ASSERT_TRUE(runIntegrator({"push", "--quiet", "origin", "--delete", "feature"}));
+
+    // Bring repo_'s remote-tracking view up to date without touching its
+    // local `main` -- exactly what "merged and its branch auto-deleted on
+    // GitHub, haven't fetched yet" looks like. `--prune` is what removes the
+    // local origin/feature ref this branch's `-d` check would otherwise be
+    // satisfied by.
+    ASSERT_TRUE(run({"fetch", "--quiet", "--prune", "origin"}));
+
+    OperationRunner operations(*runner_, paths_);
+    DeleteBranchRequest remove;
+    remove.names = {"feature"};
+
+    OperationOutcome outcome;
+    operations.submit(makeDeleteBranchOperation(remove),
+                      [&outcome](OperationOutcome result) { outcome = std::move(result); });
+    operations.drain();
+
+    EXPECT_FALSE(outcome.succeeded);
+    EXPECT_NE(outcome.summary.find("origin/main"), std::string::npos);
+    EXPECT_NE(outcome.summary.find("not lose"), std::string::npos);
 }
 
 TEST_F(RealRepoTest, CancelsAReadOnlyWalkPromptly) {

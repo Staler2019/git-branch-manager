@@ -36,7 +36,13 @@ Everything below works end to end on Linux, macOS and Windows.
   Branches section header can select every such branch in one go — excluding
   HEAD and branches checked out in a linked worktree — so the user still
   deletes them through the normal multi-select Delete rather than a one-click
-  bulk action.
+  bulk action. When Git refuses that delete because the branch is not fully
+  merged, the app checks whether a remote-tracking ref (other than the
+  branch's own) already contains it — the state left by merging a PR without
+  having fetched since — and says so plainly rather than showing Git's raw
+  wording; when it genuinely cannot tell, it suggests fetching rather than
+  claiming the branch was never merged anywhere. A failed operation is
+  reported exactly once, never as two stacked dialogs for the same failure.
 - **Worktrees, stash and tags**: add/remove/lock/prune worktrees; save/apply/
   pop/drop/branch stashes; create/delete/push annotated or lightweight tags.
 - **Fetch, pull and push**, with credential prompts routed through an askpass

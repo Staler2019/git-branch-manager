@@ -126,6 +126,7 @@ private slots:
     void refTreeModelNestsSlashSeparatedBranchNames();
     void refTreeModelFlagsSectionRootsButNotGroupingNodes();
     void refTreeModelExposesGoneAndTrackingRoles();
+    void refTreeModelListsGoneBranchIndexesExcludingHeadAndWorktrees();
     void commitListModelSatisfiesTheModelContract();
     void commitListModelDataMissReturnsPlaceholder();
     void graphDelegateWidthShrinksForLinearHistory();
@@ -311,6 +312,25 @@ void ModelsTest::refTreeModelExposesGoneAndTrackingRoles() {
 
     const QString mainTip = model.data(main, Qt::ToolTipRole).toString();
     QVERIFY(!mainTip.contains(QStringLiteral("no longer exists")));
+}
+
+void ModelsTest::refTreeModelListsGoneBranchIndexesExcludingHeadAndWorktrees() {
+    RefTreeModel model;
+    model.setRefs(makeRefsWithGone());
+
+    // One assertion simultaneously proves orphan-head (gone + HEAD) and
+    // wt-gone (gone + linked worktree) are excluded alongside main/local-only.
+    const QModelIndexList gone = model.goneLocalBranchIndexes();
+    QCOMPARE(gone.size(), 1);
+    QCOMPARE(model.data(gone.first(), RefTreeModel::ShortNameRole).toString(),
+             QStringLiteral("stale"));
+
+    RefTreeModel noneGoneModel;
+    noneGoneModel.setRefs(makeRefs());
+    QVERIFY(noneGoneModel.goneLocalBranchIndexes().isEmpty());
+
+    RefTreeModel emptyModel;
+    QVERIFY(emptyModel.goneLocalBranchIndexes().isEmpty());
 }
 
 void ModelsTest::commitListModelSatisfiesTheModelContract() {

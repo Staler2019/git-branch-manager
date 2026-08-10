@@ -56,6 +56,13 @@ public:
     /// Full ref name for an index, or an empty string for a grouping node.
     QString refNameAt(const QModelIndex& index) const;
 
+    /// Indexes of local branches whose configured upstream no longer exists,
+    /// in tree order. HEAD and branches checked out in a linked worktree are
+    /// excluded: `git branch -d` refuses both, and BranchOps batches every
+    /// selected name into one invocation (BranchOps.cpp), so one refusal
+    /// would fail the whole delete.
+    QModelIndexList goneLocalBranchIndexes() const;
+
 private:
     struct Node {
         QString label;
@@ -77,6 +84,7 @@ private:
 
     void rebuild();
     Node* nodeFor(const QModelIndex& index) const;
+    void collectGoneLocalBranches(Node* node, QModelIndexList& out) const;
 
     RefSnapshotPtr refs_;
     std::unique_ptr<Node> root_;

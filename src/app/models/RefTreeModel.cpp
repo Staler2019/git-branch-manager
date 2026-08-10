@@ -253,4 +253,23 @@ QString RefTreeModel::refNameAt(const QModelIndex& index) const {
     return node == nullptr || !node->isRef ? QString() : node->shortName;
 }
 
+void RefTreeModel::collectGoneLocalBranches(Node* node, QModelIndexList& out) const {
+    for (std::size_t row = 0; row < node->children.size(); ++row) {
+        Node* child = node->children[static_cast<std::size_t>(row)].get();
+        if (child->isRef && child->kind == RefKind::LocalBranch && child->isGone &&
+            !child->isHead && !child->inWorktree) {
+            out.append(createIndex(static_cast<int>(row), 0, child));
+        }
+        collectGoneLocalBranches(child, out);
+    }
+}
+
+QModelIndexList RefTreeModel::goneLocalBranchIndexes() const {
+    // root_ always exists (constructor and rebuild() both allocate it), even
+    // with no refs loaded -- it just has zero children, so this is empty.
+    QModelIndexList result;
+    collectGoneLocalBranches(root_.get(), result);
+    return result;
+}
+
 }  // namespace gbm

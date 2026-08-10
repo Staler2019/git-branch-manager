@@ -159,7 +159,27 @@ int main(int argc, char** argv) {
     // the saved choice instead of flashing the default theme first.
     gbm::ThemeManager::apply(gbm::ThemeManager::loadSetting());
 
-    gbm::Log::instance().setLevel(gbm::LogLevel::Info);
+    // GBM_LOG_LEVEL=trace|debug|info|warn|error: lowers the sink threshold
+    // below the Info default. Needed to capture the Debug-level
+    // ThreadPool::cancelQueuedAndDrain diagnostics (issue #23) when
+    // reproducing the Windows repo-switch stall -- those are too frequent
+    // (fire on every close/switch) to leave visible at the default level.
+    gbm::LogLevel logLevel = gbm::LogLevel::Info;
+    if (const char* levelEnv = std::getenv("GBM_LOG_LEVEL"); levelEnv != nullptr) {
+        const std::string_view level(levelEnv);
+        if (level == "trace") {
+            logLevel = gbm::LogLevel::Trace;
+        } else if (level == "debug") {
+            logLevel = gbm::LogLevel::Debug;
+        } else if (level == "info") {
+            logLevel = gbm::LogLevel::Info;
+        } else if (level == "warn") {
+            logLevel = gbm::LogLevel::Warn;
+        } else if (level == "error") {
+            logLevel = gbm::LogLevel::Error;
+        }
+    }
+    gbm::Log::instance().setLevel(logLevel);
 
     // GBM_TIMING=1: writes the `gbm-timing walk ...` line RepositorySession
     // logs per history refresh straight to stderr, so a headless run (how

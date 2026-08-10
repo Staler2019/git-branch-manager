@@ -635,12 +635,38 @@ void MainWindow::buildUi() {
     setupPersistentSplitter(rightSplitter_, QStringLiteral("right"));
     setupPersistentSplitter(detailSplitter_, QStringLiteral("detail"));
 
-    repoLayout->addWidget(outerSplitter, 1);
-
     logView_ = new OperationLogView(repoPage);
-    logView_->setMaximumHeight(160);
+    // A floor, not a ceiling: the panel used to carry a hard
+    // setMaximumHeight(160) with no splitter handle, so it could never be
+    // made bigger than a few lines -- exactly what made a long stderr dump
+    // unreadable without scrolling one line at a time.
+    logView_->setMinimumHeight(80);
     logView_->setVisible(false);
-    repoLayout->addWidget(logView_);
+
+    // Vertical splitter so the operation log panel gets a drag handle like
+    // every other pane in this window, instead of the fixed-height strip it
+    // was before.
+    auto* logSplitter = new QSplitter(Qt::Vertical, repoPage);
+    logSplitter_ = logSplitter;
+    logSplitter->setHandleWidth(6);
+    logSplitter->setChildrenCollapsible(false);
+    logSplitter->addWidget(outerSplitter);
+    logSplitter->addWidget(logView_);
+    // The log panel keeps roughly its own size on window resize rather than
+    // growing with the rest of the window -- stretch factor 0 vs. the main
+    // content's 1, same relationship outerSplitter uses between the sidebar
+    // and everything else below.
+    logSplitter->setStretchFactor(0, 1);
+    logSplitter->setStretchFactor(1, 0);
+    // Deferred for the same reason outerSplitter's own default-sizing lambda
+    // is: setSizes() before the splitter has a real geometry gets recomputed
+    // from the stretch factors on the first resize instead of being honored.
+    // Scheduled before setupPersistentSplitter() below so a saved size wins
+    // over this default instead of being clobbered by it.
+    QTimer::singleShot(0, logSplitter, [logSplitter] { logSplitter->setSizes({800, 220}); });
+    setupPersistentSplitter(logSplitter_, QStringLiteral("log"));
+
+    repoLayout->addWidget(logSplitter, 1);
 
     stack_->addWidget(repoPage);
 
@@ -1450,7 +1476,26 @@ void MainWindow::closeRepository() {
     // already in flight when cancellation fires still blocks until the child
     // answers it. See ThreadPool::cancelQueuedAndDrain's doc for the same
     // caveat spelled out in full.
+    //
+    // This has been observed to hang the UI thread on Windows after several
+    // repository switches (issue #23), but not reproduced on macOS -- so this
+    // measures rather than changes behavior: log a warning if the drain takes
+    // longer than kDrainWarnThresholdMs, with the queue depth and thread count
+    // at the moment the drain started, so a report from a stuck session can
+    // say whether it is stuck *in* the drain or somewhere else.
+    const std::size_t queueDepthBeforeDrain = readPool_.queueDepth();
+    const std::size_t threadCountAtDrain = readPool_.threadCount();
+    QElapsedTimer drainTimer;
+    drainTimer.start();
     readPool_.cancelQueuedAndDrain();
+    constexpr qint64 kDrainWarnThresholdMs = 2000;
+    const qint64 drainMs = drainTimer.elapsed();
+    if (drainMs >= kDrainWarnThresholdMs) {
+        logMessage(LogLevel::Warn,
+                   "closeRepository: cancelQueuedAndDrain took " + std::to_string(drainMs) +
+                       "ms (queueDepth=" + std::to_string(queueDepthBeforeDrain) +
+                       ", threadCount=" + std::to_string(threadCountAtDrain) + ")");
+    }
     // commitModel_->setSession(nullptr) resets the model, which fires
     // modelAboutToBeReset and collapses any inline expansion -- see the
     // connection in buildUi() -- but the closing-repository case is worth

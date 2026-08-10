@@ -38,6 +38,7 @@
 #include "core/git/ops/UndoOps.h"
 #include "core/git/ops/WorktreeOps.h"
 #include "core/graph/GraphSnapshot.h"
+#include "core/workers/BusyToken.h"
 #include "core/workers/RefreshCoalescer.h"
 #include "core/workers/StartupReadGate.h"
 #include "core/workers/ThreadPool.h"
@@ -50,6 +51,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <source_location>
 #include <vector>
 
 class QTimer;
@@ -595,8 +597,30 @@ signals:
     void lineHistoryReady(std::vector<LineHistoryChunk> chunks);
     void reflogReady(std::vector<ReflogEntry> entries);
 
+public:
+    /// Source locations of outstanding (not yet balanced by a setBusy(false))
+    /// setBusy(true) calls, formatted "file:line (function)", oldest first.
+    /// Always empty once busyCount_ returns to 0. Exists so a session that
+    /// never stops looking busy (issue #24 -- graph view's spinner that never
+    /// stops) can be asked which call site is holding it open, instead of
+    /// having to add temporary logging to find out.
+    std::vector<std::string> debugOutstandingBusySites() const;
+
 private:
-    void setBusy(bool busy);
+    /// `loc` defaults to the caller's own location, so none of the ~30
+    /// existing call sites need to change -- it exists purely to feed
+    /// outstandingBusySites_. See debugOutstandingBusySites().
+    void setBusy(bool busy, std::source_location loc = std::source_location::current());
+
+    /// Returns a token that has already done the setBusy(true) this call
+    /// represents; destroying (or resetting) the token does the matching
+    /// setBusy(false), hopping back to the UI thread first if needed since
+    /// tokens are typically destroyed from a readPool_ worker. Prefer this
+    /// over a manual setBusy(true)/setBusy(false) pair for any new call site:
+    /// letting the token's destructor run on every return path (including
+    /// ones added later) is what makes forgetting the decrement impossible.
+    [[nodiscard]] BusyToken makeBusyToken(
+        std::source_location loc = std::source_location::current());
     /// Runs a staging/commit Operation and, on success, refreshes whatever it
     /// could have changed. Shared by stageFiles/unstageFiles/applyPatch/commitChanges
     /// so each stays a one-line call.
@@ -796,6 +820,13 @@ private:
     static constexpr std::chrono::minutes kAutoFetchMinInterval{5};
 
     int busyCount_ = 0;
+    /// One entry per outstanding setBusy(true), oldest first; a setBusy(false)
+    /// pops the oldest entry (an approximation -- true/false calls do not
+    /// carry a shared identity to pair exactly, but since legitimately
+    /// finished requests always eventually pop their own entry, whatever is
+    /// left once the session is otherwise idle is genuinely unpaired). See
+    /// debugOutstandingBusySites().
+    std::vector<std::string> outstandingBusySites_;
 };
 
 }  // namespace gbm

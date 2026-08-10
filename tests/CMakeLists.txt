@@ -38,6 +38,15 @@ add_test(NAME no_embedded_conflict_panel
             -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckNoEmbeddedConflictPanel.cmake")
 set_tests_properties(no_embedded_conflict_panel PROPERTIES LABELS "unit")
 
+# Same rationale again: pins the fix for a failed working-copy-adjacent
+# operation (e.g. a sidebar branch delete) popping two "Git reported an
+# error" dialogs back to back -- see CheckSingleErrorDialogOwner.cmake.
+add_test(NAME single_error_dialog_owner
+    COMMAND "${CMAKE_COMMAND}"
+            -DSOURCE_DIR=${CMAKE_SOURCE_DIR}
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckSingleErrorDialogOwner.cmake")
+set_tests_properties(single_error_dialog_owner PROPERTIES LABELS "unit")
+
 # Test doubles live here rather than in the shipped library.
 add_library(gbm_test_support STATIC support/FakeProcessRunner.cpp)
 target_include_directories(gbm_test_support PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")

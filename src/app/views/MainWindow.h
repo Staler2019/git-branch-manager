@@ -350,6 +350,15 @@ private:
     /// first click that merely changed the selection.
     int lastClickedCommitRow_ = -1;
 
+    /// Number of one-shot `workingCopyOperationFinished` listeners currently
+    /// armed by runWithFeedback()/armWorkingCopyChoiceHandler(). While this is
+    /// positive, one of those listeners owns reporting the next outcome to the
+    /// user, so the always-connected WorkingCopyView::errorOccurred handler
+    /// must not also pop a dialog for it -- see the connection at the top of
+    /// the constructor. A counter rather than a bool because StashAndRetry
+    /// re-arms armWorkingCopyChoiceHandler for the same round trip.
+    int armedFeedbackHandlers_ = 0;
+
     QLabel* statusLabel_ = nullptr;
     QLabel* toolBarRepoNameLabel_ = nullptr;
     QLabel* toolBarBranchLabel_ = nullptr;

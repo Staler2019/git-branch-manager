@@ -559,7 +559,20 @@ void MainWindow::buildUi() {
     connect(workingCopyView_,
             &WorkingCopyView::errorOccurred,
             this,
-            [this](const QString& summary, const GitError& error) { showError(summary, error); });
+            [this](const QString& summary, const GitError& error) {
+                // If a runWithFeedback()/armWorkingCopyChoiceHandler() caller is
+                // already waiting on this same workingCopyOperationFinished, that
+                // caller owns showing the outcome (see armedFeedbackHandlers_'s
+                // declaration) -- popping a second modal here duplicated it for
+                // every operation the sidebar or a dialog initiated, not just
+                // working-copy actions. Still surfaced via the status bar and
+                // operation log so nothing is silently dropped.
+                if (armedFeedbackHandlers_ > 0) {
+                    onCoreError(error);
+                    return;
+                }
+                showError(summary, error);
+            });
     connect(workingCopyView_,
             &WorkingCopyView::viewFileDiffRequested,
             this,
@@ -2329,6 +2342,7 @@ void MainWindow::armWorkingCopyChoiceHandler(std::function<void(bool)> submit,
                                              bool announceSuccess) {
     // A one-shot connection: the handler disconnects itself the moment it runs,
     // so it never reacts to an unrelated working-copy operation finishing later.
+    ++armedFeedbackHandlers_;
     auto connection = std::make_shared<QMetaObject::Connection>();
     *connection =
         connect(session_.get(),
@@ -2336,6 +2350,7 @@ void MainWindow::armWorkingCopyChoiceHandler(std::function<void(bool)> submit,
                 this,
                 [this, submit, connection, announceSuccess](const OperationOutcome& outcome) {
                     QObject::disconnect(*connection);
+                    --armedFeedbackHandlers_;
 
                     if (outcome.succeeded) {
                         const QString summary = QString::fromStdString(outcome.summary);
@@ -2412,6 +2427,10 @@ void MainWindow::showError(const QString& summary, const GitError& error) {
 
 void MainWindow::runWithFeedback(std::function<void()> submit,
                                  std::function<void(OperationChoice::Kind)> onChoice) {
+    // See armWorkingCopyChoiceHandler's matching comment: this is the M3
+    // equivalent one-shot connection, and it owns reporting the next outcome
+    // exactly the same way.
+    ++armedFeedbackHandlers_;
     auto connection = std::make_shared<QMetaObject::Connection>();
     *connection =
         connect(session_.get(),
@@ -2419,6 +2438,7 @@ void MainWindow::runWithFeedback(std::function<void()> submit,
                 this,
                 [this, onChoice, connection](const OperationOutcome& outcome) {
                     QObject::disconnect(*connection);
+                    --armedFeedbackHandlers_;
 
                     if (outcome.succeeded) {
                         statusLabel_->setText(QString::fromStdString(outcome.summary));

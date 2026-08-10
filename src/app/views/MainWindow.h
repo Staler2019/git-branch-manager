@@ -334,6 +334,7 @@ private:
     QSplitter* outerSplitter_ = nullptr;
     QSplitter* rightSplitter_ = nullptr;
     QSplitter* detailSplitter_ = nullptr;
+    QSplitter* logSplitter_ = nullptr;
 
     /// The row currently showing its inline expansion panel, or -1 if none.
     /// Invariant: at most one row is ever expanded, it is always the selected

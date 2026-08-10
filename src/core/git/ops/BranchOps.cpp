@@ -281,14 +281,15 @@ public:
             }
             // The "Delete anyway" explanation must agree with whatever summary
             // is now showing above it: when the probe found the commits on
-            // another remote-tracking ref, outcome.summary already says
-            // deleting loses nothing -- pairing that with "only reachable
-            // through the reflog" here would tell the user two contradictory
-            // things in the same dialog.
+            // another remote-tracking ref, reuse outcome.summary verbatim
+            // (it already names the concrete ref, e.g. "origin/main") rather
+            // than writing a second, looser sentence that could drift out of
+            // sync with it again -- pairing "will not lose anything" with
+            // "only reachable through the reflog" here would tell the user
+            // two contradictory things in the same dialog.
             const std::string deleteAnywayExplanation =
                 probeOutcome == RemoteRefProbeOutcome::FoundElsewhere
-                    ? "This branch's commits already exist on another remote-tracking ref, so "
-                      "deleting it will not lose anything."
+                    ? outcome.summary
                     : (request_.names.size() > 1
                            ? "These branches have commits that are not merged anywhere else. After "
                              "deleting, they are only reachable through the reflog."

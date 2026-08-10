@@ -57,10 +57,14 @@ TEST(DeleteBranchOperation, ReportsSafeToDeleteWhenAnotherRemoteRefContainsIt) {
     EXPECT_EQ(outcome.summary.find("Git reported an error"), std::string::npos);
 
     // The "Delete anyway" choice must agree with the summary above it: once
-    // the probe found the commits elsewhere, the explanation must not still
-    // warn that deleting makes them "only reachable through the reflog" --
-    // that directly contradicts "will not lose anything" in the summary.
+    // the probe found the commits elsewhere, the explanation is the same
+    // string as the summary (naming the concrete ref), not a separate,
+    // looser sentence that could drift out of sync with it -- and it must
+    // not still warn that deleting makes them "only reachable through the
+    // reflog", which directly contradicts "will not lose anything".
     ASSERT_FALSE(outcome.choices.empty());
+    EXPECT_EQ(outcome.choices.front().explanation, outcome.summary);
+    EXPECT_NE(outcome.choices.front().explanation.find("origin/main"), std::string::npos);
     EXPECT_NE(outcome.choices.front().explanation.find("will not lose"), std::string::npos);
     EXPECT_EQ(outcome.choices.front().explanation.find("reflog"), std::string::npos);
 }

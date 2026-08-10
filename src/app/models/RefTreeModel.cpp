@@ -8,6 +8,25 @@
 
 namespace gbm {
 
+namespace {
+
+/// `RefInfo::upstream` is a full ref name ("refs/remotes/origin/main" or,
+/// rarely, "refs/heads/main" for a local-to-local tracking setup). The
+/// sidebar tooltip wants the short form ("origin/main"), stripped once here
+/// rather than per paint call in data().
+QString shortUpstream(const std::string& upstream) {
+    QString full = QString::fromStdString(upstream);
+    if (full.startsWith(QStringLiteral("refs/remotes/"))) {
+        return full.mid(13);
+    }
+    if (full.startsWith(QStringLiteral("refs/heads/"))) {
+        return full.mid(11);
+    }
+    return full;
+}
+
+}  // namespace
+
 RefTreeModel::Node* RefTreeModel::Node::childNamed(const QString& name) {
     for (auto& child : children) {
         if (child->label == name) {
@@ -52,6 +71,10 @@ void RefTreeModel::rebuild() {
             case RefKind::LocalBranch:
                 if (locals == nullptr) {
                     locals = root_->childNamed(QStringLiteral("Branches"));
+                    // Typed gate for the sidebar's section-header context menu
+                    // (SidebarPanel::onRefContextMenuRequested), so it doesn't
+                    // have to compare against the "Branches" display string.
+                    locals->kind = RefKind::LocalBranch;
                 }
                 section = locals;
                 break;
@@ -87,6 +110,14 @@ void RefTreeModel::rebuild() {
         cursor->isHead = ref.isHead;
         cursor->ahead = ref.ahead;
         cursor->behind = ref.behind;
+        cursor->isGone = ref.isGone;
+        cursor->inWorktree = !ref.worktreePath.empty();
+        // Gate on the upstream name itself, never on hasTrackingInfo: that
+        // flag is false for a branch that is perfectly in sync with its
+        // upstream, which still has a valid upstream to show in the tooltip.
+        if (!ref.upstream.empty()) {
+            cursor->upstream = shortUpstream(ref.upstream);
+        }
     }
 
     // Stable alphabetical order within each level, with groups before leaves so the
@@ -174,6 +205,19 @@ QVariant RefTreeModel::data(const QModelIndex& index, int role) const {
             }
             return label;
         }
+        case Qt::ToolTipRole: {
+            if (!node->isRef || node->upstream.isEmpty()) {
+                return {};
+            }
+            if (node->isGone) {
+                return QStringLiteral("Upstream %1 no longer exists").arg(node->upstream);
+            }
+            QString tip = QStringLiteral("Tracking %1").arg(node->upstream);
+            if (node->ahead > 0 || node->behind > 0) {
+                tip += QStringLiteral(" · ↑%1 ↓%2").arg(node->ahead).arg(node->behind);
+            }
+            return tip;
+        }
         case Qt::FontRole:
             if (node->isHead) {
                 QFont font;
@@ -193,6 +237,12 @@ QVariant RefTreeModel::data(const QModelIndex& index, int role) const {
             return static_cast<int>(node->kind);
         case IsSectionRole:
             return !node->isRef && node->parent == root_.get();
+        case IsGoneRole:
+            return node->isGone;
+        case AheadRole:
+            return node->ahead;
+        case BehindRole:
+            return node->behind;
         default:
             return {};
     }

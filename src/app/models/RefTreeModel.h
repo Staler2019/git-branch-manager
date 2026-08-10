@@ -32,6 +32,12 @@ public:
         /// paint one as an uppercase section header and the other as an
         /// ordinary tree label.
         IsSectionRole,
+        /// True for a local branch whose configured upstream no longer exists
+        /// (git's `[gone]` marker). Always false when Ahead/BehindRole are
+        /// non-zero -- parseTrack() (RefStore.cpp) never populates both.
+        IsGoneRole,
+        AheadRole,
+        BehindRole,
     };
 
     explicit RefTreeModel(QObject* parent = nullptr);
@@ -60,6 +66,9 @@ private:
         bool isHead = false;
         int ahead = 0;
         int behind = 0;
+        bool isGone = false;
+        bool inWorktree = false;
+        QString upstream;  ///< Short form ("origin/main"), empty when unconfigured.
         Node* parent = nullptr;
         std::vector<std::unique_ptr<Node>> children;
 

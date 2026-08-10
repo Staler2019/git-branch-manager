@@ -70,6 +70,49 @@ RefSnapshotPtr makeRefs() {
     return snapshot;
 }
 
+// A second, separate fixture for M7 (gone/tracking roles) rather than
+// extending makeRefs() above: refTreeModelFlagsSectionRootsButNotGroupingNodes
+// depends on "main" sitting at a fixed row under Branches, and groups sort
+// before leaves, so any new slash-bearing name in makeRefs() would shift it.
+// All names here are deliberately flat.
+RefSnapshotPtr makeRefsWithGone() {
+    auto snapshot = std::make_shared<RefSnapshot>();
+    snapshot->head.kind = HeadInfo::Kind::Branch;
+    snapshot->head.branchName = "main";
+    snapshot->head.fullRef = "refs/heads/main";
+
+    auto addRef = [&snapshot](const std::string& shortName,
+                              bool isHead,
+                              const std::string& upstream,
+                              bool isGone,
+                              int ahead,
+                              int behind,
+                              const std::string& worktreePath) {
+        RefInfo ref;
+        ref.fullName = "refs/heads/" + shortName;
+        ref.kind = RefKind::LocalBranch;
+        ref.shortName = shortName;
+        ref.isHead = isHead;
+        ref.upstream = upstream;
+        ref.isGone = isGone;
+        ref.ahead = ahead;
+        ref.behind = behind;
+        ref.worktreePath = worktreePath;
+        ref.target = oidFor(1);
+        snapshot->refs.push_back(ref);
+    };
+
+    addRef("main", /*isHead=*/true, "refs/remotes/origin/main", false, 0, 0, "");
+    addRef("stale", false, "refs/remotes/origin/stale", /*isGone=*/true, 0, 0, "");
+    addRef("orphan-head", /*isHead=*/true, "refs/remotes/origin/orphan-head", true, 0, 0, "");
+    addRef("wt-gone", false, "refs/remotes/origin/wt-gone", true, 0, 0, "/some/wt");
+    addRef("local-only", false, "", false, 0, 0, "");
+    addRef("ahead-behind", false, "refs/remotes/origin/ahead-behind", false, 2, 1, "");
+
+    snapshot->buildIndex();
+    return snapshot;
+}
+
 }  // namespace
 
 class ModelsTest : public QObject {
@@ -82,6 +125,7 @@ private slots:
     void refTreeModelSatisfiesTheModelContract();
     void refTreeModelNestsSlashSeparatedBranchNames();
     void refTreeModelFlagsSectionRootsButNotGroupingNodes();
+    void refTreeModelExposesGoneAndTrackingRoles();
     void commitListModelSatisfiesTheModelContract();
     void commitListModelDataMissReturnsPlaceholder();
     void graphDelegateWidthShrinksForLinearHistory();
@@ -221,6 +265,52 @@ void ModelsTest::refTreeModelFlagsSectionRootsButNotGroupingNodes() {
     QCOMPARE(model.data(main, Qt::DisplayRole).toString(), QStringLiteral("main"));
     QVERIFY(!model.data(main, RefTreeModel::IsSectionRole).toBool());
     QVERIFY(model.data(main, RefTreeModel::IsRefRole).toBool());
+}
+
+void ModelsTest::refTreeModelExposesGoneAndTrackingRoles() {
+    RefTreeModel model;
+    model.setRefs(makeRefsWithGone());
+
+    const QModelIndex branches = model.index(0, 0);
+    QVERIFY(branches.isValid());
+
+    auto findByShortName = [&](const QString& shortName) {
+        for (int row = 0; row < model.rowCount(branches); ++row) {
+            const QModelIndex candidate = model.index(row, 0, branches);
+            if (model.data(candidate, RefTreeModel::ShortNameRole).toString() == shortName) {
+                return candidate;
+            }
+        }
+        return QModelIndex();
+    };
+
+    const QModelIndex main = findByShortName(QStringLiteral("main"));
+    const QModelIndex stale = findByShortName(QStringLiteral("stale"));
+    const QModelIndex localOnly = findByShortName(QStringLiteral("local-only"));
+    const QModelIndex aheadBehind = findByShortName(QStringLiteral("ahead-behind"));
+    QVERIFY(main.isValid());
+    QVERIFY(stale.isValid());
+    QVERIFY(localOnly.isValid());
+    QVERIFY(aheadBehind.isValid());
+
+    QVERIFY(model.data(stale, RefTreeModel::IsGoneRole).toBool());
+    QVERIFY(!model.data(main, RefTreeModel::IsGoneRole).toBool());
+    QVERIFY(!model.data(localOnly, RefTreeModel::IsGoneRole).toBool());
+
+    QCOMPARE(model.data(aheadBehind, RefTreeModel::AheadRole).toInt(), 2);
+    QCOMPARE(model.data(aheadBehind, RefTreeModel::BehindRole).toInt(), 1);
+    // isGone implies ahead == behind == 0 end-to-end: parseTrack() never
+    // populates both (RefStore.cpp), so the badge and the counter can never
+    // collide on one row.
+    QCOMPARE(model.data(stale, RefTreeModel::AheadRole).toInt(), 0);
+    QCOMPARE(model.data(stale, RefTreeModel::BehindRole).toInt(), 0);
+
+    const QString staleTip = model.data(stale, Qt::ToolTipRole).toString();
+    QVERIFY(staleTip.contains(QStringLiteral("origin/stale")));
+    QVERIFY(staleTip.contains(QStringLiteral("no longer exists")));
+
+    const QString mainTip = model.data(main, Qt::ToolTipRole).toString();
+    QVERIFY(!mainTip.contains(QStringLiteral("no longer exists")));
 }
 
 void ModelsTest::commitListModelSatisfiesTheModelContract() {

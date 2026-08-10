@@ -6,6 +6,7 @@
 #include "app/theme/Tokens.h"
 #include "app/views/FileContentView.h"
 #include "app/views/SideBySideDiffView.h"
+#include "core/git/PreparedCommitMessage.h"
 #include "core/git/ops/CommitOps.h"
 #include "core/git/ops/ConflictOps.h"
 #include "core/git/ops/ResetOps.h"
@@ -13,7 +14,6 @@
 #include <QCheckBox>
 #include <QClipboard>
 #include <QDesktopServices>
-#include <QDialog>
 #include <QDialogButtonBox>
 #include <QDragEnterEvent>
 #include <QDragMoveEvent>
@@ -286,6 +286,10 @@ void WorkingCopyView::buildUi() {
 
     splitter->addWidget(leftWidget);
 
+    // Design C4: diffTabs_ sits directly in the splitter now -- no
+    // conflictStack_ wrapper to switch it out for an embedded
+    // ConflictResolvePanel. Resolving conflicts is exclusively
+    // ConflictResolveWindow's job now (see resolveConflictsRequested()).
     diffTabs_ = new QTabWidget(splitter);
     diffTabs_->setMinimumWidth(200);
     diffTabs_->setDocumentMode(true);
@@ -472,6 +476,11 @@ void WorkingCopyView::setSession(RepositorySession* session) {
         disconnect(session_, nullptr, this, nullptr);
     }
     session_ = session;
+    // Design C3: a leftover true from whatever repo was open before must not
+    // fire a spurious requestPreparedCommitMessage() against this (possibly
+    // unrelated, never-conflicted) session's first status refresh -- see
+    // hadConflictedFilesLastRefresh_'s own comment.
+    hadConflictedFilesLastRefresh_ = false;
     if (session_ != nullptr) {
         connect(session_,
                 &RepositorySession::workingCopyStatusUpdated,
@@ -489,6 +498,10 @@ void WorkingCopyView::setSession(RepositorySession* session) {
                 &RepositorySession::workingCopyOperationFinished,
                 this,
                 &WorkingCopyView::onWorkingCopyOperationFinished);
+        connect(session_,
+                &RepositorySession::preparedCommitMessageReady,
+                this,
+                &WorkingCopyView::onPreparedCommitMessageReady);
         // Speculative: on a large, freshly-cloned repository the cold `git
         // status` scan can cost tens of seconds and would otherwise queue
         // ahead of the history walk on the shared read pool -- see
@@ -503,6 +516,7 @@ void WorkingCopyView::setSession(RepositorySession* session) {
         clearDiffTab(workingTab_);
         clearDiffTab(stagedTab_);
         messageEdit_->clear();
+        autofilledMessage_.clear();
         rebuildLists();
     }
 }
@@ -616,6 +630,35 @@ void WorkingCopyView::rebuildLists() {
     commitButton_->setEnabled(stagedList_->count() > 0 && !hasConflicts);
     stageAllButton_->setEnabled(unstagedList_->count() > conflictedCount);
     unstageAllButton_->setEnabled(stagedList_->count() > 0);
+
+    // Design C3: the conflicts this view had just resolved -- the last
+    // rebuildLists() saw at least one, this one sees none. Requested here
+    // rather than compared against ConflictBatch (which can still show
+    // "resolved" rows the rail hasn't hidden yet): commandDir()'s working
+    // copy status is the one source both this view and the resolve window
+    // agree on for "are there still conflicts right now".
+    if (hadConflictedFilesLastRefresh_ && !hasConflicts && session_ != nullptr) {
+        session_->requestPreparedCommitMessage();
+    }
+    hadConflictedFilesLastRefresh_ = hasConflicts;
+}
+
+void WorkingCopyView::onPreparedCommitMessageReady(const QString& message) {
+    if (message.isEmpty()) {
+        // Nothing prepared (e.g. conflicts from `git apply --3way`, which
+        // writes neither MERGE_MSG nor SQUASH_MSG) -- a normal result, not
+        // an error, and not something to blank the box over.
+        return;
+    }
+    if (!shouldApplyPreparedCommitMessage(messageEdit_->toPlainText().toStdString(),
+                                          autofilledMessage_.toStdString())) {
+        // The user already has something of their own in the box -- must
+        // not overwrite it (must_not_do: "不得覆蓋使用者已經打好的 commit
+        // message").
+        return;
+    }
+    messageEdit_->setPlainText(message);
+    autofilledMessage_ = message;
 }
 
 void WorkingCopyView::refreshSelectedDiff() {
@@ -689,8 +732,18 @@ void WorkingCopyView::onWorkingCopyOperationFinished(const OperationOutcome& out
         // no other working-copy operation's summary starts that way.
         if (outcome.summary.rfind("Commit", 0) == 0 || outcome.summary.rfind("Amend", 0) == 0) {
             messageEdit_->clear();
+            autofilledMessage_.clear();
             amendCheck_->setChecked(false);
         }
+        return;
+    }
+    if (outcome.error && outcome.error->code == GitError::Code::Conflict) {
+        // Not a real failure -- the conflict is already visible via the
+        // working-copy panel (which refreshWorkingCopyStatus() -- triggered
+        // for this same outcome, see RepositorySession::submitWorkingCopyOperation
+        // -- is about to update, auto-showing the resolve view). A modal box
+        // on top of that would just be noise.
+        emit statusMessage(QString::fromStdString(outcome.summary));
         return;
     }
     if (outcome.error) {
@@ -763,17 +816,11 @@ void WorkingCopyView::onConflictedItemActivated(QListWidgetItem* item) {
     if (session_ == nullptr || item == nullptr) {
         return;
     }
-    const std::string path = item->data(Qt::UserRole).toString().toStdString();
-    const WorkingCopyStatusPtr status = session_->workingCopyStatus();
-    if (!status) {
-        return;
-    }
-    for (const WorkingCopyEntry* entry : status->conflicted()) {
-        if (entry->path == path) {
-            openConflictResolutionDialog(*entry);
-            return;
-        }
-    }
+    // Design C4: the lookup this used to do here (matching the path back to
+    // a WorkingCopyEntry to feed openConflictResolutionDialog()) now happens
+    // inside ConflictResolveWindow itself -- see selectEntryIndex(). This
+    // just forwards the path.
+    emit resolveConflictsRequested(item->data(Qt::UserRole).toString());
 }
 
 void WorkingCopyView::showUnstagedContextMenu(const WorkingCopyEntry& entry,
@@ -865,133 +912,6 @@ void WorkingCopyView::showStagedContextMenu(const WorkingCopyEntry& entry,
     } else if (chosen == copyPathAction) {
         QGuiApplication::clipboard()->setText(qpath);
     }
-}
-
-void WorkingCopyView::openConflictResolutionDialog(const WorkingCopyEntry& entry) {
-    if (session_ == nullptr) {
-        return;
-    }
-
-    QDialog dialog(this);
-    dialog.setWindowTitle(tr("Resolve conflict — %1").arg(QString::fromStdString(entry.path)));
-    auto* layout = new QVBoxLayout(&dialog);
-
-    QString kindText;
-    switch (entry.conflict) {
-        case ConflictKind::BothAdded:
-            kindText = tr("Both sides added this file.");
-            break;
-        case ConflictKind::BothModified:
-            kindText = tr("Both sides modified this file.");
-            break;
-        case ConflictKind::BothDeleted:
-            kindText = tr("Both sides deleted this file.");
-            break;
-        case ConflictKind::AddedByUs:
-            kindText = tr("You added this file; the other side did not touch it.");
-            break;
-        case ConflictKind::DeletedByUs:
-            kindText = tr("You deleted this file; the other side modified it.");
-            break;
-        case ConflictKind::AddedByThem:
-            kindText = tr("The other side added this file; you did not touch it.");
-            break;
-        case ConflictKind::DeletedByThem:
-            kindText = tr("The other side deleted this file; you modified it.");
-            break;
-        case ConflictKind::None:
-            break;
-    }
-    if (!kindText.isEmpty()) {
-        layout->addWidget(new QLabel(kindText, &dialog));
-    }
-
-    auto* panesLayout = new QHBoxLayout();
-    auto makePane = [&](const QString& title) {
-        auto* container = new QWidget(&dialog);
-        auto* paneLayout = new QVBoxLayout(container);
-        paneLayout->setContentsMargins(0, 0, 0, 0);
-        paneLayout->addWidget(new QLabel(title, container));
-        auto* edit = new QPlainTextEdit(container);
-        edit->setReadOnly(true);
-        edit->setLineWrapMode(QPlainTextEdit::NoWrap);
-        edit->setPlainText(tr("Loading…"));
-        paneLayout->addWidget(edit, 1);
-        panesLayout->addWidget(container);
-        return edit;
-    };
-    QPlainTextEdit* ancestorEdit = makePane(tr("Common ancestor"));
-    QPlainTextEdit* oursEdit = makePane(tr("Mine (ours)"));
-    QPlainTextEdit* theirsEdit = makePane(tr("Theirs"));
-    if (entry.ancestorBlob.empty()) {
-        ancestorEdit->setPlainText(tr("(no common ancestor)"));
-    }
-    if (entry.oursBlob.empty()) {
-        oursEdit->setPlainText(tr("(deleted on this side)"));
-    }
-    if (entry.theirsBlob.empty()) {
-        theirsEdit->setPlainText(tr("(deleted on the other side)"));
-    }
-    layout->addLayout(panesLayout, 1);
-
-    // Scoped to the dialog's lifetime via the context object: if the request's
-    // reply arrives after the dialog has already closed, Qt drops the
-    // connection rather than calling back into destroyed widgets.
-    const QString path = QString::fromStdString(entry.path);
-    connect(session_,
-            &RepositorySession::conflictSidesReady,
-            &dialog,
-            [path, ancestorEdit, oursEdit, theirsEdit](
-                QString readyPath, QString ancestor, QString ours, QString theirs) {
-                if (readyPath != path) {
-                    return;
-                }
-                ancestorEdit->setPlainText(ancestor);
-                oursEdit->setPlainText(ours);
-                theirsEdit->setPlainText(theirs);
-            });
-    session_->requestConflictSides(
-        entry.path, entry.ancestorBlob, entry.oursBlob, entry.theirsBlob);
-
-    auto* buttonRow = new QHBoxLayout();
-    auto* takeOursButton = new QPushButton(tr("Take Mine"), &dialog);
-    auto* takeTheirsButton = new QPushButton(tr("Take Theirs"), &dialog);
-    auto* markResolvedButton = new QPushButton(tr("Mark Resolved"), &dialog);
-    auto* cancelButton = new QPushButton(tr("Cancel"), &dialog);
-    buttonRow->addWidget(takeOursButton);
-    buttonRow->addWidget(takeTheirsButton);
-    buttonRow->addWidget(markResolvedButton);
-    buttonRow->addStretch(1);
-    buttonRow->addWidget(cancelButton);
-    layout->addLayout(buttonRow);
-
-    connect(takeOursButton, &QPushButton::clicked, &dialog, [&dialog] { dialog.done(1); });
-    connect(takeTheirsButton, &QPushButton::clicked, &dialog, [&dialog] { dialog.done(2); });
-    connect(markResolvedButton, &QPushButton::clicked, &dialog, [&dialog] { dialog.done(3); });
-    connect(cancelButton, &QPushButton::clicked, &dialog, [&dialog] { dialog.done(0); });
-
-    dialog.resize(720, 420);
-    const int result = dialog.exec();
-    if (result == 0 || session_ == nullptr) {
-        return;
-    }
-
-    ResolveConflictRequest request;
-    request.path = entry.path;
-    request.oursBlobMissing = entry.oursBlob.empty();
-    request.theirsBlobMissing = entry.theirsBlob.empty();
-    switch (result) {
-        case 1:
-            request.resolution = ConflictResolution::TakeOurs;
-            break;
-        case 2:
-            request.resolution = ConflictResolution::TakeTheirs;
-            break;
-        default:
-            request.resolution = ConflictResolution::MarkResolved;
-            break;
-    }
-    session_->resolveConflict(request);
 }
 
 void WorkingCopyView::onStageAllClicked() {

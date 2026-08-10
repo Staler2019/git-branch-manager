@@ -128,6 +128,40 @@ std::string RepoState::describe() const {
     return label;
 }
 
+StateBannerText buildStateBannerText(const RepoState& state,
+                                     std::optional<std::size_t> conflictedFileCount) {
+    StateBannerText banner;
+    banner.headline = state.describe();
+
+    const bool hasKnownConflicts = conflictedFileCount.has_value() && *conflictedFileCount > 0;
+
+    // `git apply --3way` leaves conflict markers in the work tree without
+    // writing any sequencer state file, so describe() returns empty even
+    // though there's an active conflict. Give the banner a headline anyway.
+    if (banner.headline.empty() && hasKnownConflicts) {
+        banner.headline = "Conflicts in the working copy";
+    }
+
+    if (banner.headline.empty()) {
+        return banner;
+    }
+
+    if (hasKnownConflicts) {
+        banner.isConflict = true;
+        banner.headline += " - " + std::to_string(*conflictedFileCount) + " file" +
+                           (*conflictedFileCount == 1 ? "" : "s") + " with conflicts";
+        // Design C2: points at MainWindow's bannerResolveButton_, the one
+        // entry point into ConflictResolveWindow now that the working copy
+        // view no longer auto-shows an embedded panel of its own (C17). Not
+        // all sequencer states offer a Continue button (plain merges and
+        // apply-only conflicts don't -- see updateSequencerControls()), so
+        // this must stay true regardless of which controls end up visible.
+        banner.instruction = "Click Resolve Conflicts to fix the remaining files.";
+    }
+
+    return banner;
+}
+
 std::vector<std::filesystem::path> RepoState::watchTargets(const RepoPaths& paths) {
     if (!paths.isValid()) {
         return {};

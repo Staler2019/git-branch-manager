@@ -11,6 +11,33 @@ add_test(NAME no_duplicate_ref_refresh_call_sites
             -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckNoDuplicateRefRefresh.cmake")
 set_tests_properties(no_duplicate_ref_refresh_call_sites PROPERTIES LABELS "unit")
 
+# Same rationale as the check above: pins the issue #20 banner-visibility
+# regression (see CheckBannerLabelNotHidden.cmake) without needing a full
+# MainWindow runtime harness.
+add_test(NAME banner_label_not_explicitly_hidden
+    COMMAND "${CMAKE_COMMAND}"
+            -DSOURCE_DIR=${CMAKE_SOURCE_DIR}
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckBannerLabelNotHidden.cmake")
+set_tests_properties(banner_label_not_explicitly_hidden PROPERTIES LABELS "unit")
+
+# Same rationale again: pins the conflict-pane splitter fix (see
+# CheckConflictSplitterConfigured.cmake) for the presets that never build Qt
+# at all, alongside ConflictUiTest's runtime half further down (Qt-only).
+add_test(NAME conflict_splitter_configured
+    COMMAND "${CMAKE_COMMAND}"
+            -DSOURCE_DIR=${CMAKE_SOURCE_DIR}
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckConflictSplitterConfigured.cmake")
+set_tests_properties(conflict_splitter_configured PROPERTIES LABELS "unit")
+
+# Same rationale again: pins Design C4's removal of the embedded conflict
+# panel (see CheckNoEmbeddedConflictPanel.cmake) for the presets that never
+# build Qt at all.
+add_test(NAME no_embedded_conflict_panel
+    COMMAND "${CMAKE_COMMAND}"
+            -DSOURCE_DIR=${CMAKE_SOURCE_DIR}
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckNoEmbeddedConflictPanel.cmake")
+set_tests_properties(no_embedded_conflict_panel PROPERTIES LABELS "unit")
+
 # Test doubles live here rather than in the shipped library.
 add_library(gbm_test_support STATIC support/FakeProcessRunner.cpp)
 target_include_directories(gbm_test_support PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -18,13 +45,18 @@ target_link_libraries(gbm_test_support PUBLIC gbm_core PRIVATE gbm_warnings)
 
 # --- core unit + integration tests (no Qt needed) --------------------------
 add_executable(gbm_core_tests
+    unit/ConflictBatchTest.cpp
+    unit/ConflictMarkerParserTest.cpp
     unit/CoreBasicsTest.cpp
     unit/DiscoveryTest.cpp
     unit/GitIntegrationTest.cpp
     unit/GraphBuilderTest.cpp
     unit/MaintenanceOpsTest.cpp
+    unit/PreparedCommitMessageTest.cpp
     unit/ProcessRunnerTest.cpp
+    unit/RepoStateTest.cpp
     unit/SideBySideDiffTest.cpp
+    unit/TextTraitsTest.cpp
     unit/UnifiedDiffParserTest.cpp
 )
 target_link_libraries(gbm_core_tests
@@ -189,6 +221,34 @@ if(GBM_BUILD_APP)
 
     add_test(NAME qt_theme COMMAND gbm_theme_tests)
     set_tests_properties(qt_theme PROPERTIES
+        LABELS "unit"
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # ConflictResolvePanel.cpp connects to RepositorySession signals and
+    # calls ThemeManager::color(), so this reuses GBM_MODEL_TEST_SOURCES
+    # verbatim (RepositorySession.cpp/AskpassWatcher.cpp/ThemeManager.cpp/
+    # ThemeTokens.cpp/app.qrc) rather than guessing a shorter list --
+    # GBM_WERROR is on, so a missing source here is a full build-cycle cost
+    # per miss. Separate binary for the usual QTEST_MAIN-per-binary reason.
+    # ConflictResolveWindow.cpp (C12) pulls in IconLoader.cpp for its rail
+    # row icons, which needs Qt6::Svg to rasterize the bundled Lucide SVGs
+    # (see gbm_theme_tests below).
+    qt_add_executable(gbm_conflict_ui_tests ui/ConflictUiTest.cpp
+        ${GBM_MODEL_TEST_SOURCES}
+        "${CMAKE_SOURCE_DIR}/src/app/bridge/ConflictBatchStore.cpp"
+        "${CMAKE_SOURCE_DIR}/src/app/views/ConflictResolvePanel.cpp"
+        "${CMAKE_SOURCE_DIR}/src/app/views/ConflictResolveWindow.cpp"
+        "${CMAKE_SOURCE_DIR}/src/app/views/ConflictTextEdit.cpp"
+        "${CMAKE_SOURCE_DIR}/src/app/theme/IconLoader.cpp")
+
+    set_target_properties(gbm_conflict_ui_tests PROPERTIES AUTOMOC ON AUTORCC ON)
+
+    target_include_directories(gbm_conflict_ui_tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
+    target_link_libraries(gbm_conflict_ui_tests
+        PRIVATE gbm_core Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg Qt6::Test gbm_warnings)
+
+    add_test(NAME qt_conflict_ui COMMAND gbm_conflict_ui_tests)
+    set_tests_properties(qt_conflict_ui PROPERTIES
         LABELS "unit"
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()

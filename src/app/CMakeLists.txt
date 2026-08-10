@@ -15,6 +15,7 @@ qt_add_executable(git-branch-manager
     main.cpp
 
     bridge/AskpassWatcher.cpp
+    bridge/ConflictBatchStore.cpp
     bridge/DiscoveryController.cpp
     bridge/RepositorySession.cpp
     bridge/ThemeManager.cpp
@@ -54,6 +55,9 @@ qt_add_executable(git-branch-manager
     dialogs/StashChangesDialog.cpp
 
     views/CommitExpansionPanel.cpp
+    views/ConflictResolvePanel.cpp
+    views/ConflictResolveWindow.cpp
+    views/ConflictTextEdit.cpp
     views/CredentialDialog.cpp
     views/DiffView.cpp
     views/FileContentView.cpp

@@ -2,12 +2,25 @@
 
 #include "core/git/RepoPaths.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
 
 namespace gbm {
+
+/// Text for the state/conflict banner MainWindow shows above the working
+/// copy. Separate from RepoState::describe() (which stays as the short,
+/// state-only label existing callers rely on) because the banner needs more:
+/// a conflict count, an instruction, and a decision on whether to show at
+/// all when there is no sequencer state but the work tree still has
+/// conflicts (see buildStateBannerText()).
+struct StateBannerText {
+    std::string headline;
+    std::string instruction;
+    bool isConflict = false;
+};
 
 /// Which multi-step git operation, if any, is part-way through.
 ///
@@ -62,5 +75,20 @@ struct RepoState {
     /// one watch per directory and silently cap out on a large repository.
     static std::vector<std::filesystem::path> watchTargets(const RepoPaths& paths);
 };
+
+/// Builds the banner text MainWindow shows for `state`.
+///
+/// `conflictedFileCount` is nullopt when the working copy status hasn't
+/// loaded yet (StartupReadGate can hold that scan back for tens of seconds
+/// on a large repository) -- in that case the banner may still describe an
+/// in-progress sequencer operation, but must never state a conflict count,
+/// since a stale "0 files" would be a lie the moment the real status arrives.
+///
+/// A conflict count greater than zero produces a headline even when `state`
+/// has no sequencer flags set at all: `git apply --3way` leaves conflict
+/// markers in the work tree without writing any sequencer state file, so
+/// RepoState alone can't see it.
+StateBannerText buildStateBannerText(const RepoState& state,
+                                     std::optional<std::size_t> conflictedFileCount);
 
 }  // namespace gbm

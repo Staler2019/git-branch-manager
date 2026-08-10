@@ -56,6 +56,12 @@ signals:
     /// for DiffPage -- the same RepositorySession::requestWorkingCopyDiff
     /// this view's own embedded pane already uses, just redirected.
     void viewFileDiffRequested(QString path, bool staged);
+    /// Design C4: double-clicking a conflicted entry used to open a 720x420
+    /// modal QDialog embedding a ConflictResolvePanel right here
+    /// (openConflictResolutionDialog(), removed). MainWindow now owns the
+    /// one path into ConflictResolveWindow (see bannerResolveButton_), so
+    /// this just asks for the same window, pre-selecting `path`.
+    void resolveConflictsRequested(QString path);
 
 private slots:
     void onWorkingCopyStatusUpdated();
@@ -78,6 +84,10 @@ private slots:
     /// Per-file checkbox toggled in the staged panel: unchecking unstages the
     /// file.
     void onStagedItemChanged(QListWidgetItem* item);
+    /// Design C3: reply to requestPreparedCommitMessage(), fired once
+    /// rebuildLists() notices every conflict just cleared. See
+    /// autofilledMessage_'s own comment for the overwrite guard.
+    void onPreparedCommitMessageReady(const QString& message);
 
 private:
     void buildUi();
@@ -96,10 +106,6 @@ private:
     FilePanel buildFilePanel(const QString& title);
     void rebuildLists();
     void refreshSelectedDiff();
-    /// Shows the three stages plus Take Mine/Take Theirs/Mark Resolved, and
-    /// submits whichever the user picks. Blocks (modally) until closed, same
-    /// as onManageBaseFolders in MainWindow.
-    void openConflictResolutionDialog(const WorkingCopyEntry& entry);
     /// Builds and shows the unstaged-file context menu (Stage file / View
     /// diff / Open file / Copy path / Discard changes) for `entry`.
     void showUnstagedContextMenu(const WorkingCopyEntry& entry, const QPoint& globalPos);
@@ -154,7 +160,29 @@ private:
     void showDiffInTab(DiffTab& tab, std::shared_ptr<const ParsedDiff> diff);
     void clearDiffTab(const DiffTab& tab);
 
+    /// Design C4: placed directly in the splitter now -- no longer wrapped
+    /// in a conflictStack_/conflictPanel_ pair that could take over this
+    /// pane. Resolving conflicts is now exclusively ConflictResolveWindow's
+    /// job (see resolveConflictsRequested()); this view only ever shows
+    /// diffs.
     QTabWidget* diffTabs_ = nullptr;
+    /// Design C3: whether the last rebuildLists() saw at least one
+    /// conflicted file -- compared against the current call's status to
+    /// detect the Unresolved -> none transition that triggers
+    /// requestPreparedCommitMessage(). Reset in setSession() (both branches:
+    /// a brand-new session has no history of its own to react to, and a
+    /// leftover true from the previous session must not fire a spurious
+    /// request against an unrelated repo that never had conflicts).
+    bool hadConflictedFilesLastRefresh_ = false;
+    /// Design C3's overwrite guard (must_not_do: "不得覆蓋使用者已經打好的
+    /// commit message"): what onPreparedCommitMessageReady() last wrote into
+    /// messageEdit_, if anything. A fill only happens when messageEdit_ is
+    /// empty or still holds exactly this value -- once the user types
+    /// something of their own, this stops matching and no future reply ever
+    /// overwrites it again. Cleared everywhere messageEdit_ itself is
+    /// cleared, so a fresh empty box after a commit/session-switch is
+    /// fillable again rather than permanently "already autofilled".
+    QString autofilledMessage_;
     FileContentView* originalView_ = nullptr;
     DiffTab workingTab_;
     DiffTab stagedTab_;

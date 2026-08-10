@@ -1,7 +1,9 @@
 #include "app/bridge/RepositorySession.h"
 
+#include "core/base/FsUtil.h"
 #include "core/base/Logging.h"
 #include "core/git/AskpassHelper.h"
+#include "core/git/PreparedCommitMessage.h"
 
 #include <QLatin1Char>
 #include <QMetaObject>
@@ -24,6 +26,45 @@ namespace {
 /// should depend on; if the key format ever changes it needs updating in
 /// both places.
 constexpr int kDefaultMaxGraphRows = 5000;
+
+/// Above this, a conflicted file is treated the same as binary: shown as
+/// "not editable" rather than loaded whole into a QPlainTextEdit -- see
+/// requestWorkingTreeContent.
+constexpr std::size_t kMaxEditableWorkingTreeBytes = 8 * 1024 * 1024;
+
+/// True when `text` is well-formed UTF-8. A conflicted path that fails this
+/// (or contains an embedded NUL) is shown read-only in the resolution panel
+/// instead of risking silent corruption from QString::fromUtf8's lossy
+/// replacement-character fallback -- see requestWorkingTreeContent.
+bool isValidUtf8(const std::string& text) {
+    std::size_t i = 0;
+    const std::size_t n = text.size();
+    while (i < n) {
+        const auto byte = static_cast<unsigned char>(text[i]);
+        std::size_t extra = 0;
+        if (byte <= 0x7F) {
+            extra = 0;
+        } else if ((byte & 0xE0) == 0xC0) {
+            extra = 1;
+        } else if ((byte & 0xF0) == 0xE0) {
+            extra = 2;
+        } else if ((byte & 0xF8) == 0xF0) {
+            extra = 3;
+        } else {
+            return false;
+        }
+        if (i + extra >= n) {
+            return false;
+        }
+        for (std::size_t k = 1; k <= extra; ++k) {
+            if ((static_cast<unsigned char>(text[i + k]) & 0xC0) != 0x80) {
+                return false;
+            }
+        }
+        i += extra + 1;
+    }
+    return true;
+}
 
 QString performanceSettingsKeyPrefix(const RepoPaths& paths) {
     QString path = QString::fromStdString(paths.commandDir().string());
@@ -999,6 +1040,17 @@ void RepositorySession::submitWorkingCopyOperation(std::unique_ptr<Operation> op
                         // graph need to reflect it.
                         refreshRefsAndHistory();
                     }
+                } else if (outcome.error && outcome.error->code == GitError::Code::Conflict) {
+                    // Merge/cherry-pick/rebase/revert stopping on a conflict is
+                    // not this operation failing to do its job (see e.g. the
+                    // comment on MergeOps.cpp's Conflict branch) -- it is git
+                    // stopping exactly where it should, with new conflicted
+                    // entries already on disk. HEAD has not moved, so only the
+                    // working tree needs to be re-read; without this, the
+                    // working-copy panel (and its conflict auto-show) would sit
+                    // stale until something unrelated triggered a refresh, e.g.
+                    // MainWindow::onWindowActivated().
+                    refreshWorkingCopyStatus();
                 }
             },
             Qt::QueuedConnection);
@@ -1101,16 +1153,24 @@ void RepositorySession::requestConflictSides(const std::string& path,
         const std::string ancestor = readOrEmpty(ancestorBlob);
         const std::string ours = readOrEmpty(oursBlob);
         const std::string theirs = readOrEmpty(theirsBlob);
+        // Design A5: computed here, on the still-undecoded std::string --
+        // detectTextTraits() must see the original bytes (see TextTraits.h's
+        // own doc comment on why this cannot happen after the
+        // QString::fromStdString() conversions below).
+        const TextTraits ancestorTraits = detectTextTraits(ancestor);
+        const TextTraits oursTraits = detectTextTraits(ours);
+        const TextTraits theirsTraits = detectTextTraits(theirs);
 
         const QString qpath = QString::fromStdString(path);
         QMetaObject::invokeMethod(
             this,
-            [this, qpath, ancestor, ours, theirs] {
+            [this, qpath, ancestor, ours, theirs, ancestorTraits, oursTraits, theirsTraits] {
                 setBusy(false);
                 emit conflictSidesReady(qpath,
                                         QString::fromStdString(ancestor),
                                         QString::fromStdString(ours),
                                         QString::fromStdString(theirs));
+                emit conflictSideTraitsReady(qpath, ancestorTraits, oursTraits, theirsTraits);
             },
             Qt::QueuedConnection);
     });
@@ -1154,6 +1214,58 @@ void RepositorySession::requestFileContent(const std::string& path, const std::s
             [this, qpath, qrevision, content, exists] {
                 setBusy(false);
                 emit fileContentReady(qpath, qrevision, QString::fromStdString(content), exists);
+            },
+            Qt::QueuedConnection);
+    });
+}
+
+void RepositorySession::requestWorkingTreeContent(const std::string& path) {
+    const CancellationToken token = readCancel_.token();
+    setBusy(true);
+
+    readPool_.postFront([this, path, token] {
+        if (token.isCancelled()) {
+            QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+            return;
+        }
+
+        // A conflicted path has no stage 0, so the `revision:path` cat-file
+        // read that requestFileContent uses cannot see it -- the content
+        // with conflict markers exists only on disk.
+        const std::filesystem::path target = paths_.workDir() / path;
+        auto raw = fsutil::readSmallFile(target, kMaxEditableWorkingTreeBytes);
+        const bool editable =
+            raw.has_value() && raw->find('\0') == std::string::npos && isValidUtf8(*raw);
+        const std::string content = editable ? *raw : std::string();
+
+        const QString qpath = QString::fromStdString(path);
+        QMetaObject::invokeMethod(
+            this,
+            [this, qpath, content, editable] {
+                setBusy(false);
+                emit workingTreeContentReady(qpath, QString::fromStdString(content), editable);
+            },
+            Qt::QueuedConnection);
+    });
+}
+
+void RepositorySession::requestPreparedCommitMessage() {
+    const CancellationToken token = readCancel_.token();
+    setBusy(true);
+
+    readPool_.postFront([this, token] {
+        if (token.isCancelled()) {
+            QMetaObject::invokeMethod(this, [this] { setBusy(false); }, Qt::QueuedConnection);
+            return;
+        }
+
+        const std::string message = readPreparedCommitMessage(paths_);
+
+        QMetaObject::invokeMethod(
+            this,
+            [this, message] {
+                setBusy(false);
+                emit preparedCommitMessageReady(QString::fromStdString(message));
             },
             Qt::QueuedConnection);
     });

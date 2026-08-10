@@ -1,5 +1,6 @@
 #include "core/git/ops/ConflictOps.h"
 
+#include <fstream>
 #include <utility>
 
 namespace gbm {
@@ -35,6 +36,8 @@ public:
                 return takeSide(runner, paths, token, /*ours=*/false);
             case ConflictResolution::MarkResolved:
                 return markResolved(runner, paths, token);
+            case ConflictResolution::WriteResolved:
+                return writeResolved(runner, paths, token);
         }
         outcome.error = GitError(GitError::Code::InvalidArgument, "Unknown resolution");
         return outcome;
@@ -80,6 +83,42 @@ private:
     OperationOutcome markResolved(IProcessRunner& runner,
                                   const RepoPaths& paths,
                                   CancellationToken token) {
+        return stage(runner, paths, token);
+    }
+
+    /// Writes the caller-supplied content verbatim to `path` on disk, then
+    /// stages it the same way MarkResolved does -- `git add -A` clears the
+    /// conflict stages regardless of how the working-tree content got there.
+    OperationOutcome writeResolved(IProcessRunner& runner,
+                                   const RepoPaths& paths,
+                                   CancellationToken token) {
+        OperationOutcome outcome;
+
+        if (request_.resolvedContent.empty()) {
+            outcome.error =
+                GitError(GitError::Code::InvalidArgument, "No resolved content to write");
+            return outcome;
+        }
+        if (paths.workDir().empty()) {
+            outcome.error =
+                GitError(GitError::Code::InvalidArgument, "No working tree to write into");
+            return outcome;
+        }
+
+        const std::filesystem::path target = paths.workDir() / request_.path;
+        std::ofstream out(target, std::ios::binary | std::ios::trunc);
+        if (!out) {
+            outcome.error = GitError(GitError::Code::Io, "Could not write " + request_.path);
+            return outcome;
+        }
+        out.write(request_.resolvedContent.data(),
+                  static_cast<std::streamsize>(request_.resolvedContent.size()));
+        out.close();
+        if (!out) {
+            outcome.error = GitError(GitError::Code::Io, "Could not write " + request_.path);
+            return outcome;
+        }
+
         return stage(runner, paths, token);
     }
 

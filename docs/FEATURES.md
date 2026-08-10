@@ -15,6 +15,22 @@ Everything below works end to end on Linux, macOS and Windows.
 - **Merge** (fast-forward-only / no-fast-forward / squash), **cherry-pick**
   (single, multi and range), and **conflict resolution** across all three index
   stages, with a side-by-side diff.
+- **A dedicated conflict resolution window**, opened from the state banner's
+  Resolve Conflicts button (or by double-clicking a conflicted file): a
+  resizable, modal window listing every conflicted file — resolved ones stay
+  visible with a checkmark rather than disappearing, and the batch survives
+  closing the window or restarting the app mid-merge. Each file resolves
+  across three or four panes (mine / result / theirs, plus the common
+  ancestor when asked for) by dragging a conflicting block into the middle
+  pane or clicking individual lines to compose the result by hand, with full
+  keyboard equivalents and a one-click reset back to unresolved per block.
+  Line-ending and encoding mismatches between the two sides are called out
+  with a warning instead of silently producing a mixed or garbled result.
+  Three explicit exits — save current progress, apply all and finish, or
+  cancel — are the only way out; a repo-level Abort stays on the main
+  window's banner. Once every conflict is resolved, whatever commit message
+  Git already prepared (merge or squash) is pre-filled automatically without
+  overwriting anything the user has typed.
 - **Worktrees, stash and tags**: add/remove/lock/prune worktrees; save/apply/
   pop/drop/branch stashes; create/delete/push annotated or lightweight tags.
 - **Fetch, pull and push**, with credential prompts routed through an askpass

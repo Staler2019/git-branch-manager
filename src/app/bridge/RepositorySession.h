@@ -14,6 +14,7 @@
 #include "core/git/RefStore.h"
 #include "core/git/ReflogStore.h"
 #include "core/git/RepoState.h"
+#include "core/git/TextTraits.h"
 #include "core/git/WorkingCopyStatus.h"
 #include "core/git/ops/BisectOps.h"
 #include "core/git/ops/BranchOps.h"
@@ -269,6 +270,26 @@ public:
     /// error -- this is a display query, not an operation.
     void requestFileContent(const std::string& path, const std::string& revision);
 
+    /// Reads a conflicted path's actual on-disk content -- conflict markers
+    /// and all -- for the resolution panel's editable middle column. Unlike
+    /// requestFileContent, there is no revision to read from: a conflicted
+    /// path has no stage 0, so `git cat-file` cannot see it. Reply on
+    /// workingTreeContentReady; `editable` is false when the file could not
+    /// be read, is too large, or is not well-formed UTF-8 text (a binary
+    /// conflict), in which case content is empty and the panel must fall
+    /// back to Take Left/Take Right only.
+    void requestWorkingTreeContent(const std::string& path);
+
+    /// Design C3: reads whatever commit message git already prepared for the
+    /// current merge/squash (see readPreparedCommitMessage() in core) so the
+    /// working copy view can pre-fill its commit message box once conflicts
+    /// are resolved, instead of leaving the user to retype what git already
+    /// knows. Mirrors requestWorkingTreeContent's threading -- a co-process
+    /// read on the read pool, hopped back to the UI thread. Reply on
+    /// preparedCommitMessageReady; an empty string there is a normal result
+    /// (no MERGE_MSG/SQUASH_MSG exists), not an error.
+    void requestPreparedCommitMessage();
+
     // --- M3: stashes -----------------------------------------------------
 
     StashListPtr stashes() const { return stashes_.current(); }
@@ -507,11 +528,38 @@ signals:
     /// it failed -- the request is best-effort display, not itself an
     /// operation worth failing loudly over.
     void conflictSidesReady(QString path, QString ancestor, QString ours, QString theirs);
+    /// Design A5: the same three stages' line-ending/encoding traits,
+    /// detected on the raw bytes *before* the QString conversion above --
+    /// once decoded, the original byte-level encoding is unrecoverable (see
+    /// TextTraits.h). Emitted alongside conflictSidesReady rather than
+    /// folded into it, so this is purely additive: existing
+    /// conflictSidesReady connections and its 4-argument signature are
+    /// untouched, and a receiver that does not yet care about traits (there
+    /// is none yet -- ConflictResolvePanel starts consuming this in a later
+    /// commit) simply does not connect to it. A stage with no content
+    /// (missing or unreadable, same as conflictSidesReady's own empty-string
+    /// case) reports a default-constructed TextTraits -- LineEndingKind::None,
+    /// EncodingKind::Utf8, hasFinalNewline true -- which detectTextTraits()
+    /// would also compute for genuinely empty input, so "absent" and "empty"
+    /// are indistinguishable here on purpose (matching conflictSidesReady's
+    /// own choice not to distinguish them for content either).
+    void conflictSideTraitsReady(QString path,
+                                 TextTraits ancestor,
+                                 TextTraits ours,
+                                 TextTraits theirs);
     /// Reply to requestFileContent. `exists` is false when `revision:path`
     /// does not resolve to an object (new untracked file, or a path renamed
     /// away by `revision`) -- distinct from an existing-but-empty file, which
     /// reports `exists = true` with an empty `content`.
     void fileContentReady(QString path, QString revision, QString content, bool exists);
+    /// Reply to requestWorkingTreeContent, matched back up by path. `content`
+    /// is empty whenever `editable` is false (unreadable, oversized, or not
+    /// well-formed UTF-8) -- see requestWorkingTreeContent's doc comment.
+    void workingTreeContentReady(QString path, QString content, bool editable);
+    /// Reply to requestPreparedCommitMessage(). An empty `message` means
+    /// neither MERGE_MSG nor SQUASH_MSG exists -- a normal result (e.g.
+    /// conflicts from `git apply --3way`), not an error.
+    void preparedCommitMessageReady(QString message);
     /// Separate from `operationFinished`: MainWindow's checkout-recovery UI
     /// (stash/discard choices) does not apply to staging and commit, so the
     /// working-copy panel gets its own completion signal to react to.

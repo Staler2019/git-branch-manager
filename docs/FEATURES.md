@@ -31,6 +31,12 @@ Everything below works end to end on Linux, macOS and Windows.
   window's banner. Once every conflict is resolved, whatever commit message
   Git already prepared (merge or squash) is pre-filled automatically without
   overwriting anything the user has typed.
+- **Branch sync hygiene**: a local branch whose upstream was deleted carries a
+  `gone` badge in the sidebar and a tooltip naming the missing upstream; the
+  Branches section header can select every such branch in one go — excluding
+  HEAD and branches checked out in a linked worktree — so the user still
+  deletes them through the normal multi-select Delete rather than a one-click
+  bulk action.
 - **Worktrees, stash and tags**: add/remove/lock/prune worktrees; save/apply/
   pop/drop/branch stashes; create/delete/push annotated or lightweight tags.
 - **Fetch, pull and push**, with credential prompts routed through an askpass

@@ -667,8 +667,8 @@ void SidebarPanel::showBranchSectionContextMenu(const QPoint& globalPos) {
 
     refView_->selectionModel()->clearSelection();
     for (const QModelIndex& goneIndex : visibleGone) {
-        refView_->selectionModel()->select(
-            goneIndex, QItemSelectionModel::Select | QItemSelectionModel::Rows);
+        refView_->selectionModel()->select(goneIndex,
+                                           QItemSelectionModel::Select | QItemSelectionModel::Rows);
     }
     refView_->setCurrentIndex(visibleGone.first());
     refView_->scrollTo(visibleGone.first(), QAbstractItemView::PositionAtCenter);

@@ -104,11 +104,10 @@ void RefRowDelegate::paint(QPainter* painter,
                                     ThemeManager::color(Token::BorderDefault),
                                     ThemeManager::color(Token::SurfaceHover)};
         const int badgePillWidth = badgeWidth - kBadgeGap;
-        const QRect badgeRect(
-            option.rect.right() - kBadgeGap - badgePillWidth,
-            option.rect.top() + (option.rect.height() - PillPainter::kHeight) / 2,
-            badgePillWidth,
-            PillPainter::kHeight);
+        const QRect badgeRect(option.rect.right() - kBadgeGap - badgePillWidth,
+                              option.rect.top() + (option.rect.height() - PillPainter::kHeight) / 2,
+                              badgePillWidth,
+                              PillPainter::kHeight);
         PillPainter::paint(painter, badgeRect, badgeText, badgeFont, goneColors);
     }
 

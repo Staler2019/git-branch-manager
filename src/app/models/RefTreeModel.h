@@ -32,6 +32,12 @@ public:
         /// paint one as an uppercase section header and the other as an
         /// ordinary tree label.
         IsSectionRole,
+        /// True for a local branch whose configured upstream no longer exists
+        /// (git's `[gone]` marker). Always false when Ahead/BehindRole are
+        /// non-zero -- parseTrack() (RefStore.cpp) never populates both.
+        IsGoneRole,
+        AheadRole,
+        BehindRole,
     };
 
     explicit RefTreeModel(QObject* parent = nullptr);
@@ -50,6 +56,13 @@ public:
     /// Full ref name for an index, or an empty string for a grouping node.
     QString refNameAt(const QModelIndex& index) const;
 
+    /// Indexes of local branches whose configured upstream no longer exists,
+    /// in tree order. HEAD and branches checked out in a linked worktree are
+    /// excluded: `git branch -d` refuses both, and BranchOps batches every
+    /// selected name into one invocation (BranchOps.cpp), so one refusal
+    /// would fail the whole delete.
+    QModelIndexList goneLocalBranchIndexes() const;
+
 private:
     struct Node {
         QString label;
@@ -60,6 +73,9 @@ private:
         bool isHead = false;
         int ahead = 0;
         int behind = 0;
+        bool isGone = false;
+        bool inWorktree = false;
+        QString upstream;  ///< Short form ("origin/main"), empty when unconfigured.
         Node* parent = nullptr;
         std::vector<std::unique_ptr<Node>> children;
 
@@ -68,6 +84,7 @@ private:
 
     void rebuild();
     Node* nodeFor(const QModelIndex& index) const;
+    void collectGoneLocalBranches(Node* node, QModelIndexList& out) const;
 
     RefSnapshotPtr refs_;
     std::unique_ptr<Node> root_;

@@ -104,6 +104,10 @@ private:
     void showRemoteBranchContextMenu(const QModelIndex& index, const QPoint& globalPos);
     void showTagContextMenu(const QModelIndex& index, const QPoint& globalPos);
 
+    /// Context menu for the "Branches" section root itself -- the one action
+    /// that operates on the whole section rather than a clicked/selected row.
+    void showBranchSectionContextMenu(const QPoint& globalPos);
+
     /// Builds the persistence key for a grouping/section node ("Branches",
     /// "Branches/feature", "Remotes/origin", ...) by walking the index's
     /// ancestors and joining their DisplayRole text -- ref leaves never get

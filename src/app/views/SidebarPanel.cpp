@@ -436,7 +436,17 @@ void SidebarPanel::onRefContextMenuRequested(const QPoint& pos) {
         return;
     }
     if (!refModel_->data(index, RefTreeModel::IsRefRole).toBool()) {
-        return;  // A grouping node ("feature/") or section header has no menu.
+        // A slash-separated grouping node ("feature/") has no menu. The
+        // "Branches" section root is the one exception: its menu acts on the
+        // whole section rather than a clicked row, so it must never touch
+        // the current row/multi-selection below.
+        const bool isSection = refModel_->data(index, RefTreeModel::IsSectionRole).toBool();
+        const auto sectionKind =
+            static_cast<RefKind>(refModel_->data(index, RefTreeModel::RefKindRole).toInt());
+        if (isSection && sectionKind == RefKind::LocalBranch) {
+            showBranchSectionContextMenu(refView_->viewport()->mapToGlobal(pos));
+        }
+        return;
     }
 
     // Right-clicking a row that is not already part of the current selection
@@ -444,7 +454,9 @@ void SidebarPanel::onRefContextMenuRequested(const QPoint& pos) {
     // that is already selected -- including a multi-row Ctrl/Shift selection
     // -- leaves it alone, so showBranchContextMenu below can act on the whole
     // selection instead of just the clicked row. Mirrors MainWindow's
-    // onCommitContextMenuRequested.
+    // onCommitContextMenuRequested. Confined to the isRef path so a
+    // right-click on the "Branches" header above can never clobber an
+    // existing multi-row branch selection.
     if (!refView_->selectionModel()->isSelected(index)) {
         refView_->selectionModel()->select(
             index, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
@@ -615,6 +627,54 @@ void SidebarPanel::showBranchContextMenu(const QModelIndex& index, const QPoint&
                              }
                          });
     }
+}
+
+void SidebarPanel::showBranchSectionContextMenu(const QPoint& globalPos) {
+    const QModelIndexList allGone = refModel_->goneLocalBranchIndexes();
+    // The menu's count must equal what actually gets selected, so a filter
+    // that hides some gone branches never leaves the user selecting (and
+    // then deleting) more than the dialog told them about.
+    QModelIndexList visibleGone;
+    for (const QModelIndex& goneIndex : allGone) {
+        if (!refView_->isRowHidden(goneIndex.row(), goneIndex.parent())) {
+            visibleGone.append(goneIndex);
+        }
+    }
+
+    QMenu menu(this);
+    QAction* selectGoneAction = menu.addAction(
+        QStringLiteral("Select branches with deleted upstream (%1)").arg(visibleGone.size()));
+    selectGoneAction->setEnabled(!visibleGone.isEmpty());
+    // Not markDanger: this only selects rows, it never deletes anything --
+    // the user still deletes through the normal multi-select Delete action.
+
+    QAction* chosen = menu.exec(globalPos);
+    if (chosen != selectGoneAction || visibleGone.isEmpty()) {
+        return;
+    }
+
+    // A transient reveal, exactly like applyRefFilter()'s forced expansion of
+    // matching groups: not a deliberate user expand/collapse, so it must not
+    // overwrite the persisted expansion set.
+    restoringRefExpansion_ = true;
+    for (const QModelIndex& goneIndex : visibleGone) {
+        for (QModelIndex ancestor = goneIndex.parent(); ancestor.isValid();
+             ancestor = ancestor.parent()) {
+            refView_->expand(ancestor);
+        }
+    }
+    restoringRefExpansion_ = false;
+
+    refView_->selectionModel()->clearSelection();
+    for (const QModelIndex& goneIndex : visibleGone) {
+        refView_->selectionModel()->select(goneIndex,
+                                           QItemSelectionModel::Select | QItemSelectionModel::Rows);
+    }
+    refView_->setCurrentIndex(visibleGone.first());
+    refView_->scrollTo(visibleGone.first(), QAbstractItemView::PositionAtCenter);
+
+    emit statusMessage(
+        QStringLiteral("Selected %1 branches with a deleted upstream").arg(visibleGone.size()));
 }
 
 void SidebarPanel::showRemoteBranchContextMenu(const QModelIndex& index, const QPoint& globalPos) {

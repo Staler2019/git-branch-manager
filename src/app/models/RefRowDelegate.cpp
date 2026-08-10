@@ -15,6 +15,7 @@ namespace gbm {
 namespace {
 
 constexpr int kPillFontSize = 11;
+constexpr int kBadgeGap = 6;  ///< Matches SidebarRowDelegate's badge inset.
 
 }  // namespace
 
@@ -66,13 +67,49 @@ void RefRowDelegate::paint(QPainter* painter,
 
     const QFont font = ThemeManager::monoFont(kPillFontSize);
     const QFontMetrics metrics(font);
-    const int pillWidth = std::min(PillPainter::widthFor(opt.text, metrics),
-                                   option.rect.width() - option.rect.height());
+
+    // A right-aligned "gone" badge for a local branch whose upstream no
+    // longer exists (RefStore's [gone] marker, surfaced as IsGoneRole).
+    // badgeWidth stays 0 for every other row, which makes `available` below
+    // literally today's `option.rect.width() - option.rect.height()` and
+    // nameText literally opt.text -- non-gone rows are provably unchanged.
+    const bool isGone = index.data(RefTreeModel::IsGoneRole).toBool();
+    const QString badgeText = QStringLiteral("gone");
+    const QFont badgeFont = ThemeManager::monoFont(kPillFontSize);
+    int badgeWidth =
+        isGone ? PillPainter::widthFor(badgeText, QFontMetrics(badgeFont)) + kBadgeGap : 0;
+
+    int available = std::max(option.rect.width() - option.rect.height() - badgeWidth, 0);
+    if (available < PillPainter::kHeight) {
+        // Too narrow for both -- drop the badge rather than let it overlap
+        // the name pill; the tooltip still carries the information.
+        badgeWidth = 0;
+        available = std::max(option.rect.width() - option.rect.height(), 0);
+    }
+
+    const QString nameText =
+        badgeWidth > 0 ? metrics.elidedText(opt.text, Qt::ElideMiddle, available) : opt.text;
+    const int pillWidth = std::min(PillPainter::widthFor(nameText, metrics), available);
     const QRect pillRect(option.rect.left(),
                          option.rect.top() + (option.rect.height() - PillPainter::kHeight) / 2,
                          std::max(pillWidth, PillPainter::kHeight),
                          PillPainter::kHeight);
-    PillPainter::paint(painter, pillRect, opt.text, font, colors);
+    PillPainter::paint(painter, pillRect, nameText, font, colors);
+
+    if (badgeWidth > 0) {
+        // Mirrors Tag's own "outline" treatment (colorsForRef) rather than an
+        // invalid fill: an unfilled pill composites straight onto whatever
+        // the view painted behind it and reads poorly on a selected row.
+        const PillColors goneColors{ThemeManager::color(Token::Warning),
+                                    ThemeManager::color(Token::BorderDefault),
+                                    ThemeManager::color(Token::SurfaceHover)};
+        const int badgePillWidth = badgeWidth - kBadgeGap;
+        const QRect badgeRect(option.rect.right() - kBadgeGap - badgePillWidth,
+                              option.rect.top() + (option.rect.height() - PillPainter::kHeight) / 2,
+                              badgePillWidth,
+                              PillPainter::kHeight);
+        PillPainter::paint(painter, badgeRect, badgeText, badgeFont, goneColors);
+    }
 
     painter->restore();
 }

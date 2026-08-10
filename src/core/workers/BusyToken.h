@@ -22,6 +22,7 @@ namespace gbm {
 class BusyToken {
 public:
     BusyToken() = default;
+
     explicit BusyToken(std::function<void()> release) : release_(std::move(release)) {}
 
     BusyToken(const BusyToken&) = delete;

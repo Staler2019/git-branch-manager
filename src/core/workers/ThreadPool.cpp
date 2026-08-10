@@ -64,9 +64,9 @@ void ThreadPool::cancelQueuedAndDrain() {
     const std::size_t discarded = tasks_.size();
     const std::size_t stillRunning = activeTasks_;
     tasks_.clear();
-    logMessage(LogLevel::Debug, name_ + " pool cancelQueuedAndDrain: discarded " +
-                                     std::to_string(discarded) + " queued task(s), " +
-                                     std::to_string(stillRunning) + " still running");
+    logMessage(LogLevel::Debug,
+               name_ + " pool cancelQueuedAndDrain: discarded " + std::to_string(discarded) +
+                   " queued task(s), " + std::to_string(stillRunning) + " still running");
     idle_.wait(lock, [this] { return activeTasks_ == 0; });
 }
 

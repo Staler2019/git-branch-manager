@@ -212,9 +212,8 @@ RepositorySession::~RepositorySession() {
             sites += "\n  " + site;
         }
         logMessage(LogLevel::Debug,
-                   "RepositorySession destroyed with busyCount_=" +
-                       std::to_string(busyCount_) + ", never-balanced setBusy(true) call site(s):" +
-                       sites);
+                   "RepositorySession destroyed with busyCount_=" + std::to_string(busyCount_) +
+                       ", never-balanced setBusy(true) call site(s):" + sites);
     }
 }
 
@@ -236,8 +235,8 @@ void RepositorySession::setBusy(bool busy, std::source_location loc) {
     }
     if (busy) {
         outstandingBusySites_.push_back(std::string(loc.file_name()) + ":" +
-                                         std::to_string(loc.line()) + " (" +
-                                         loc.function_name() + ")");
+                                        std::to_string(loc.line()) + " (" + loc.function_name() +
+                                        ")");
     } else if (!outstandingBusySites_.empty()) {
         outstandingBusySites_.erase(outstandingBusySites_.begin());
     }
@@ -852,18 +851,27 @@ void RepositorySession::requestCommitMetadata(std::vector<ObjectId> oids) {
 
 void RepositorySession::requestCommitDetails(const ObjectId& commit) {
     const CancellationToken token = readCancel_.token();
-    BusyToken busy = makeBusyToken();
+    // shared_ptr, not BusyToken by value: ThreadPool::postFront takes a
+    // std::function<void()>, which requires its target to be
+    // copy-constructible even though it is only ever invoked once -- a
+    // lambda that captured the move-only BusyToken directly would not
+    // compile (static_assert in <functional>). The shared_ptr is copyable;
+    // the BusyToken it owns is moved out into a body-local further down so
+    // it still releases while this lambda is running rather than whenever
+    // the last shared_ptr reference happens to be destroyed.
+    auto busy = std::make_shared<BusyToken>(makeBusyToken());
 
-    // busy is moved into a body-local (not left as a captured closure member)
-    // so it releases while this lambda is still running -- i.e. before
-    // ThreadPool::workerLoop() decrements activeTasks_ and cancelQueuedAndDrain()
-    // can conclude the task is done. A release deferred past that point would
-    // still fire eventually (when the closure itself is destroyed), but by
-    // then MainWindow::closeRepository() may already have destroyed this
+    // busy's BusyToken is moved into a body-local (not left inside the
+    // captured shared_ptr) so it releases while this lambda is still
+    // running -- i.e. before ThreadPool::workerLoop() decrements
+    // activeTasks_ and cancelQueuedAndDrain() can conclude the task is done.
+    // A release deferred past that point would still fire eventually (when
+    // the closure itself is destroyed), but by then
+    // MainWindow::closeRepository() may already have destroyed this
     // session, and the release callback's QMetaObject::invokeMethod(this, ...)
     // needs `this` to still be alive.
-    readPool_.postFront([this, commit, token, busy = std::move(busy)]() mutable {
-        BusyToken busyGuard = std::move(busy);
+    readPool_.postFront([this, commit, token, busy] {
+        BusyToken busyGuard = std::move(*busy);
         if (token.isCancelled()) {
             return;
         }
@@ -1161,68 +1169,67 @@ void RepositorySession::requestConflictSides(const std::string& path,
                                              const std::string& oursBlob,
                                              const std::string& theirsBlob) {
     const CancellationToken token = readCancel_.token();
-    BusyToken busy = makeBusyToken();
+    // See requestCommitDetails's comment on why this is a shared_ptr<BusyToken>
+    // rather than a BusyToken captured by value.
+    auto busy = std::make_shared<BusyToken>(makeBusyToken());
 
-    // See requestCommitDetails's comment on why busy is moved into a
-    // body-local rather than left as a captured closure member.
-    readPool_.postFront(
-        [this, path, ancestorBlob, oursBlob, theirsBlob, token, busy = std::move(busy)]() mutable {
-            BusyToken busyGuard = std::move(busy);
-            if (token.isCancelled()) {
-                return;
-            }
-            if (auto started = catFile_->start(); !started) {
-                GitError error = std::move(started).error();
-                QMetaObject::invokeMethod(
-                    this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
-                return;
-            }
-
-            // Best-effort: a stage that fails to read (or does not exist) shows as
-            // empty rather than failing the whole request, so the two sides that
-            // did read are still shown. Checked between the three reads (not just
-            // once above): a cancellation arriving while the first blob is being
-            // fetched should stop the remaining two from starting.
-            auto readOrEmpty = [this, token](const std::string& blob) {
-                if (blob.empty() || token.isCancelled()) {
-                    return std::string();
-                }
-                auto object = catFile_->read(blob, token);
-                return object ? object->content : std::string();
-            };
-            const std::string ancestor = readOrEmpty(ancestorBlob);
-            const std::string ours = readOrEmpty(oursBlob);
-            const std::string theirs = readOrEmpty(theirsBlob);
-            // Design A5: computed here, on the still-undecoded std::string --
-            // detectTextTraits() must see the original bytes (see TextTraits.h's
-            // own doc comment on why this cannot happen after the
-            // QString::fromStdString() conversions below).
-            const TextTraits ancestorTraits = detectTextTraits(ancestor);
-            const TextTraits oursTraits = detectTextTraits(ours);
-            const TextTraits theirsTraits = detectTextTraits(theirs);
-
-            const QString qpath = QString::fromStdString(path);
+    readPool_.postFront([this, path, ancestorBlob, oursBlob, theirsBlob, token, busy] {
+        BusyToken busyGuard = std::move(*busy);
+        if (token.isCancelled()) {
+            return;
+        }
+        if (auto started = catFile_->start(); !started) {
+            GitError error = std::move(started).error();
             QMetaObject::invokeMethod(
-                this,
-                [this, qpath, ancestor, ours, theirs, ancestorTraits, oursTraits, theirsTraits] {
-                    emit conflictSidesReady(qpath,
-                                            QString::fromStdString(ancestor),
-                                            QString::fromStdString(ours),
-                                            QString::fromStdString(theirs));
-                    emit conflictSideTraitsReady(qpath, ancestorTraits, oursTraits, theirsTraits);
-                },
-                Qt::QueuedConnection);
-        });
+                this, [this, error] { emit errorOccurred(error); }, Qt::QueuedConnection);
+            return;
+        }
+
+        // Best-effort: a stage that fails to read (or does not exist) shows as
+        // empty rather than failing the whole request, so the two sides that
+        // did read are still shown. Checked between the three reads (not just
+        // once above): a cancellation arriving while the first blob is being
+        // fetched should stop the remaining two from starting.
+        auto readOrEmpty = [this, token](const std::string& blob) {
+            if (blob.empty() || token.isCancelled()) {
+                return std::string();
+            }
+            auto object = catFile_->read(blob, token);
+            return object ? object->content : std::string();
+        };
+        const std::string ancestor = readOrEmpty(ancestorBlob);
+        const std::string ours = readOrEmpty(oursBlob);
+        const std::string theirs = readOrEmpty(theirsBlob);
+        // Design A5: computed here, on the still-undecoded std::string --
+        // detectTextTraits() must see the original bytes (see TextTraits.h's
+        // own doc comment on why this cannot happen after the
+        // QString::fromStdString() conversions below).
+        const TextTraits ancestorTraits = detectTextTraits(ancestor);
+        const TextTraits oursTraits = detectTextTraits(ours);
+        const TextTraits theirsTraits = detectTextTraits(theirs);
+
+        const QString qpath = QString::fromStdString(path);
+        QMetaObject::invokeMethod(
+            this,
+            [this, qpath, ancestor, ours, theirs, ancestorTraits, oursTraits, theirsTraits] {
+                emit conflictSidesReady(qpath,
+                                        QString::fromStdString(ancestor),
+                                        QString::fromStdString(ours),
+                                        QString::fromStdString(theirs));
+                emit conflictSideTraitsReady(qpath, ancestorTraits, oursTraits, theirsTraits);
+            },
+            Qt::QueuedConnection);
+    });
 }
 
 void RepositorySession::requestFileContent(const std::string& path, const std::string& revision) {
     const CancellationToken token = readCancel_.token();
-    BusyToken busy = makeBusyToken();
+    // See requestCommitDetails's comment on why this is a shared_ptr<BusyToken>
+    // rather than a BusyToken captured by value.
+    auto busy = std::make_shared<BusyToken>(makeBusyToken());
 
-    // See requestCommitDetails's comment on why busy is moved into a
-    // body-local rather than left as a captured closure member.
-    readPool_.postFront([this, path, revision, token, busy = std::move(busy)]() mutable {
-        BusyToken busyGuard = std::move(busy);
+    readPool_.postFront([this, path, revision, token, busy] {
+        BusyToken busyGuard = std::move(*busy);
         if (token.isCancelled()) {
             return;
         }

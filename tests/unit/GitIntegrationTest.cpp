@@ -525,6 +525,61 @@ TEST_F(RealRepoTest, OffersRecoveryChoicesWhenSwitchingWouldLoseWork) {
     EXPECT_FALSE(stashList->out.empty()) << "the user's work must be recoverable";
 }
 
+// M7: RefInfo::isGone is parsed from git's own `%(upstream:track)` `[gone]`
+// marker (RefStore.cpp), but nothing had ever proven that marker actually
+// reaches it against a real git binary -- every sidebar affordance built on
+// top of isGone is decorative if this doesn't fire.
+TEST_F(RealRepoTest, ReportsGoneWhenTheUpstreamBranchWasDeleted) {
+    const std::filesystem::path remote = repo_.string() + "-bare-remote";
+    std::filesystem::remove_all(remote);
+    std::filesystem::create_directories(remote);
+    GitCommand initBare(remote, {"init", "--quiet", "--bare"});
+    initBare.timeout = std::chrono::seconds(30);
+    ASSERT_TRUE(runner_->run(initBare, CancellationToken{}));
+    extraDirs_.push_back(remote);
+
+    ASSERT_TRUE(run({"remote", "add", "origin", remote.string()}));
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"push", "--quiet", "-u", "origin", "main"}));
+
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "stale"}));
+    // Deliberately not on main: a merged gone branch never exercises the
+    // ForceDiscard retry path real users hit when git refuses `-d`.
+    commitFile("b.txt", "unmerged\n", "only on stale");
+    ASSERT_TRUE(run({"push", "--quiet", "-u", "origin", "stale"}));
+    ASSERT_TRUE(run({"push", "--quiet", "origin", "--delete", "stale"}));
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    ASSERT_TRUE(run({"fetch", "--quiet", "--prune"}));
+
+    RefStore store(*runner_, paths_);
+    auto snapshot = store.load(CancellationToken{});
+    ASSERT_TRUE(snapshot);
+
+    const RefInfo* staleRef = nullptr;
+    const RefInfo* mainRef = nullptr;
+    for (const RefInfo& ref : (*snapshot)->refs) {
+        if (ref.kind != RefKind::LocalBranch) {
+            continue;
+        }
+        if (ref.shortName == "stale") {
+            staleRef = &ref;
+        } else if (ref.shortName == "main") {
+            mainRef = &ref;
+        }
+    }
+    ASSERT_NE(staleRef, nullptr);
+    ASSERT_NE(mainRef, nullptr);
+
+    EXPECT_TRUE(staleRef->isGone);
+    // parseTrack() early-returns on "[gone]", so ahead/behind never populate --
+    // a gone badge and an ahead/behind counter can never coexist on one row.
+    EXPECT_EQ(staleRef->ahead, 0);
+    EXPECT_EQ(staleRef->behind, 0);
+    EXPECT_EQ(staleRef->upstream, "refs/remotes/origin/stale");
+
+    EXPECT_FALSE(mainRef->isGone);
+}
+
 TEST_F(RealRepoTest, CreatesRenamesAndDeletesBranches) {
     commitFile("a.txt", "1\n", "c1");
     OperationRunner operations(*runner_, paths_);

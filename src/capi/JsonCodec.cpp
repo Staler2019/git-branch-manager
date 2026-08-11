@@ -2,6 +2,8 @@
 
 #include "capi/JsonWriter.h"
 
+#include <chrono>
+
 namespace gbm::capi {
 
 std::string toJson(const GitError& error) {
@@ -412,6 +414,117 @@ std::string toJson(const ParsedDiff& diff) {
     jsonAppendBool(out, diff.truncated);
     out += ",\"inputBytes\":";
     jsonAppendInt(out, static_cast<std::int64_t>(diff.inputBytes));
+    out += '}';
+    return out;
+}
+
+std::string toJson(const StashEntry& entry) {
+    std::string out = "{";
+    out += "\"index\":";
+    jsonAppendInt(out, entry.index);
+    out += ",\"message\":";
+    jsonAppendEscaped(out, entry.message);
+    out += ",\"oid\":";
+    jsonAppendEscaped(out, entry.oid);
+    out += ",\"timestamp\":";
+    jsonAppendInt(out, entry.timestamp);
+    out += '}';
+    return out;
+}
+
+std::string toJson(const std::vector<StashEntry>& entries) {
+    std::string out = "[";
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        if (i != 0) out += ',';
+        out += toJson(entries[i]);
+    }
+    out += ']';
+    return out;
+}
+
+std::string toJson(const WorktreeInfo& worktree) {
+    std::string out = "{";
+    out += "\"path\":";
+    jsonAppendEscaped(out, worktree.path.string());
+    out += ",\"headOid\":";
+    jsonAppendEscaped(out, worktree.headOid);
+    out += ",\"branch\":";
+    jsonAppendEscaped(out, worktree.branch);
+    out += ",\"isMain\":";
+    jsonAppendBool(out, worktree.isMain);
+    out += ",\"isBare\":";
+    jsonAppendBool(out, worktree.isBare);
+    out += ",\"isDetached\":";
+    jsonAppendBool(out, worktree.isDetached);
+    out += ",\"isLocked\":";
+    jsonAppendBool(out, worktree.isLocked);
+    out += ",\"lockReason\":";
+    jsonAppendEscaped(out, worktree.lockReason);
+    out += ",\"isPrunable\":";
+    jsonAppendBool(out, worktree.isPrunable);
+    out += ",\"prunableReason\":";
+    jsonAppendEscaped(out, worktree.prunableReason);
+    out += '}';
+    return out;
+}
+
+std::string toJson(const std::vector<WorktreeInfo>& worktrees) {
+    std::string out = "[";
+    for (std::size_t i = 0; i < worktrees.size(); ++i) {
+        if (i != 0) out += ',';
+        out += toJson(worktrees[i]);
+    }
+    out += ']';
+    return out;
+}
+
+std::string toJson(const RemoteInfo& remote) {
+    std::string out = "{";
+    out += "\"name\":";
+    jsonAppendEscaped(out, remote.name);
+    out += ",\"fetchUrl\":";
+    jsonAppendEscaped(out, remote.fetchUrl);
+    out += ",\"pushUrl\":";
+    jsonAppendEscaped(out, remote.pushUrl);
+    out += '}';
+    return out;
+}
+
+std::string toJson(const std::vector<RemoteInfo>& remotes) {
+    std::string out = "[";
+    for (std::size_t i = 0; i < remotes.size(); ++i) {
+        if (i != 0) out += ',';
+        out += toJson(remotes[i]);
+    }
+    out += ']';
+    return out;
+}
+
+std::string toJson(const OperationRecord& record) {
+    std::string out = "{";
+    out += "\"whenEpochMs\":";
+    jsonAppendInt(
+        out,
+        std::chrono::duration_cast<std::chrono::milliseconds>(record.when.time_since_epoch()).count());
+    out += ",\"repoDir\":";
+    jsonAppendEscaped(out, record.repoDir);
+    out += ",\"argv\":[";
+    for (std::size_t i = 0; i < record.argv.size(); ++i) {
+        if (i != 0) out += ',';
+        jsonAppendEscaped(out, record.argv[i]);
+    }
+    out += "],\"commandLine\":";
+    jsonAppendEscaped(out, record.commandLine());
+    out += ",\"exitCode\":";
+    jsonAppendInt(out, record.exitCode);
+    out += ",\"durationMs\":";
+    jsonAppendInt(out, record.durationMs);
+    out += ",\"stderrText\":";
+    jsonAppendEscaped(out, record.stderrText);
+    out += ",\"cancelled\":";
+    jsonAppendBool(out, record.cancelled);
+    out += ",\"timedOut\":";
+    jsonAppendBool(out, record.timedOut);
     out += '}';
     return out;
 }

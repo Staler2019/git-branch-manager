@@ -5,11 +5,18 @@ import '../data/repositories/repo_identity.dart';
 import '../features/conflict_resolution/conflict_resolve_window.dart';
 import '../features/dialogs/about/about_dialog.dart';
 import '../features/dialogs/cherry_pick/cherry_pick_dialog.dart';
+import '../features/dialogs/create_tag/create_tag_dialog.dart';
+import '../features/dialogs/credential/credential_dialog.dart';
 import '../features/dialogs/keyboard_shortcuts/keyboard_shortcuts_dialog.dart';
 import '../features/dialogs/manage_base_folders/manage_base_folders_dialog.dart';
+import '../features/dialogs/manage_remotes/manage_remotes_dialog.dart';
+import '../features/dialogs/manage_stashes/manage_stashes_dialog.dart';
+import '../features/dialogs/manage_worktrees/manage_worktrees_dialog.dart';
 import '../features/dialogs/merge/merge_dialog.dart';
 import '../features/dialogs/reset_branch/reset_branch_dialog.dart';
+import '../features/dialogs/stash_changes/stash_changes_dialog.dart';
 import '../features/history_graph/commit_graph_view.dart';
+import '../features/operation_log/operation_log_dialog.dart';
 import '../features/repo_list/repo_list_screen.dart';
 import '../features/working_copy/working_copy_view.dart';
 import '../features/workspace/workspace_screen.dart';
@@ -99,6 +106,55 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
           return CherryPickDialogContent(identity: identity);
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.stashChangesDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          return StashChangesDialogContent(identity: identity);
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.manageStashesDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          return ManageStashesDialogContent(identity: identity);
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.manageWorktreesDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          return ManageWorktreesDialogContent(identity: identity);
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.manageRemotesDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          return ManageRemotesDialogContent(identity: identity);
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.createTagDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          return CreateTagDialogContent(identity: identity);
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.credentialDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          return CredentialDialogContent(identity: identity);
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.operationLogDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          return OperationLogDialogContent(identity: identity);
         },
       ),
       GoRoute(

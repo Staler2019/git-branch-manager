@@ -30,6 +30,17 @@ class WorkspaceScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final RepoSessionState session = ref.watch(repoSessionProvider(identity));
+    final String repoId = repoIdForRoute(identity);
+
+    // Pushed automatically -- a credential prompt is not something the user
+    // chose to open, unlike every other dialog route. See
+    // CredentialDialogContent's doc comment for the reverse direction
+    // (answering pops it back here without waiting for this to go null).
+    ref.listen(repoSessionProvider(identity).select((state) => state.credentialPrompt), (previous, next) {
+      if (next != null && previous == null) {
+        context.push(RoutePaths.credentialDialogFor(repoId));
+      }
+    });
 
     if (!session.isOpen) {
       return Scaffold(
@@ -39,8 +50,6 @@ class WorkspaceScreen extends ConsumerWidget {
         ),
       );
     }
-
-    final String repoId = repoIdForRoute(identity);
 
     return Scaffold(
       body: Column(
@@ -116,8 +125,36 @@ class _TabRow extends StatelessWidget {
             onPressed: () => context.push(RoutePaths.resetBranchDialogFor(repoId)),
             child: Text('Reset…', style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textSecondary)),
           ),
+          _MoreMenu(repoId: repoId),
         ],
       ),
+    );
+  }
+}
+
+/// Groups the M5 stash/tag/worktree/remote/operation-log dialogs, which are
+/// used less often than merge/cherry-pick/reset, behind one icon button --
+/// keeps the tab row from growing a new inline TextButton per milestone.
+class _MoreMenu extends StatelessWidget {
+  const _MoreMenu({required this.repoId});
+
+  final String repoId;
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    return PopupMenuButton<String>(
+      tooltip: 'More',
+      icon: Icon(Icons.more_horiz, size: 18, color: colors.textSecondary),
+      onSelected: (route) => context.push(route),
+      itemBuilder: (context) => <PopupMenuEntry<String>>[
+        PopupMenuItem<String>(value: RoutePaths.stashChangesDialogFor(repoId), child: const Text('Stash Changes…')),
+        PopupMenuItem<String>(value: RoutePaths.manageStashesDialogFor(repoId), child: const Text('Manage Stashes…')),
+        PopupMenuItem<String>(value: RoutePaths.createTagDialogFor(repoId), child: const Text('Create Tag…')),
+        PopupMenuItem<String>(value: RoutePaths.manageWorktreesDialogFor(repoId), child: const Text('Manage Worktrees…')),
+        PopupMenuItem<String>(value: RoutePaths.manageRemotesDialogFor(repoId), child: const Text('Remotes…')),
+        PopupMenuItem<String>(value: RoutePaths.operationLogDialogFor(repoId), child: const Text('Operation Log…')),
+      ],
     );
   }
 }

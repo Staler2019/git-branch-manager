@@ -54,12 +54,26 @@ std::filesystem::path makeRequestDir() {
 int runClientForDir(const std::filesystem::path& dir, const std::string& prompt) {
     std::error_code ec;
     std::filesystem::create_directories(dir, ec);
+    // Written to a temp file and renamed into place rather than written
+    // directly to kRequestFile: the app-side watcher (AskpassWatcher /
+    // capi::AskpassPoller) polls for kRequestFile's mere existence, so a
+    // direct write would let it observe the file after creation but before
+    // `prompt` is fully flushed, reading a truncated or empty prompt. A
+    // same-directory rename is atomic on every platform this app targets,
+    // so the watcher only ever sees kRequestFile fully written or not at
+    // all.
+    const std::filesystem::path requestPath = dir / std::string(kRequestFile);
+    const std::filesystem::path tmpPath = dir / (std::string(kRequestFile) + ".tmp");
     {
-        std::ofstream request(dir / std::string(kRequestFile), std::ios::binary | std::ios::trunc);
+        std::ofstream request(tmpPath, std::ios::binary | std::ios::trunc);
         if (!request) {
             return 1;
         }
         request << prompt;
+    }
+    std::filesystem::rename(tmpPath, requestPath, ec);
+    if (ec) {
+        return 1;
     }
 
     const auto responsePath = dir / std::string(kResponseFile);

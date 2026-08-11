@@ -24,6 +24,12 @@ abstract final class GbmEventType {
   static const int workingCopyStatusUpdated = 4;
   static const int workingCopyOperationFinished = 5;
   static const int workingCopyDiffReady = 6;
+  static const int stashesUpdated = 7;
+  static const int stashDiffReady = 8;
+  static const int worktreesUpdated = 9;
+  static const int remotesUpdated = 10;
+  static const int credentialRequested = 11;
+  static const int operationLogRecord = 12;
 }
 
 /// `void (*)(GbmSessionHandle, int32_t, const uint8_t*, int32_t, void*)`.
@@ -198,6 +204,134 @@ typedef _CommitChangesNative =
     Void Function(Pointer<Void> session, Pointer<Utf8> message, Int32 amend, Int32 signOff);
 typedef CommitChangesDart = void Function(Pointer<Void> session, Pointer<Utf8> message, int amend, int signOff);
 
+typedef _StashRefreshNative = Void Function(Pointer<Void> session);
+typedef StashRefreshDart = void Function(Pointer<Void> session);
+
+typedef _StashesJsonNative = Int32 Function(Pointer<Void> session);
+typedef StashesJsonDart = int Function(Pointer<Void> session);
+
+typedef _StashSaveNative =
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> message,
+      Int32 includeUntracked,
+      Int32 keepIndex,
+      Pointer<Pointer<Utf8>> paths,
+      Int32 pathCount,
+    );
+typedef StashSaveDart =
+    void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> message,
+      int includeUntracked,
+      int keepIndex,
+      Pointer<Pointer<Utf8>> paths,
+      int pathCount,
+    );
+
+typedef _StashApplyNative = Void Function(Pointer<Void> session, Int32 index, Int32 pop);
+typedef StashApplyDart = void Function(Pointer<Void> session, int index, int pop);
+
+typedef _StashDropNative = Void Function(Pointer<Void> session, Int32 index);
+typedef StashDropDart = void Function(Pointer<Void> session, int index);
+
+typedef _StashBranchNative = Void Function(Pointer<Void> session, Int32 index, Pointer<Utf8> branchName);
+typedef StashBranchDart = void Function(Pointer<Void> session, int index, Pointer<Utf8> branchName);
+
+typedef _StashRequestDiffNative = Void Function(Pointer<Void> session, Int32 index);
+typedef StashRequestDiffDart = void Function(Pointer<Void> session, int index);
+
+typedef _TagCreateNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> name, Pointer<Utf8> target, Pointer<Utf8> message, Int32 force);
+typedef TagCreateDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> name, Pointer<Utf8> target, Pointer<Utf8> message, int force);
+
+typedef _TagDeleteNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> name, Int32 alsoRemote, Pointer<Utf8> remoteName);
+typedef TagDeleteDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> name, int alsoRemote, Pointer<Utf8> remoteName);
+
+typedef _TagPushNative = Void Function(Pointer<Void> session, Pointer<Utf8> remoteName, Pointer<Utf8> name);
+typedef TagPushDart = void Function(Pointer<Void> session, Pointer<Utf8> remoteName, Pointer<Utf8> name);
+
+typedef _WorktreeRefreshNative = Void Function(Pointer<Void> session);
+typedef WorktreeRefreshDart = void Function(Pointer<Void> session);
+
+typedef _WorktreesJsonNative = Int32 Function(Pointer<Void> session);
+typedef WorktreesJsonDart = int Function(Pointer<Void> session);
+
+typedef _WorktreeAddNative =
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> path,
+      Pointer<Utf8> branch,
+      Int32 createBranch,
+      Pointer<Utf8> newBranchName,
+      Int32 detach,
+      Int32 force,
+    );
+typedef WorktreeAddDart =
+    void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> path,
+      Pointer<Utf8> branch,
+      int createBranch,
+      Pointer<Utf8> newBranchName,
+      int detach,
+      int force,
+    );
+
+typedef _WorktreeRemoveNative = Void Function(Pointer<Void> session, Pointer<Utf8> path, Int32 force);
+typedef WorktreeRemoveDart = void Function(Pointer<Void> session, Pointer<Utf8> path, int force);
+
+typedef _WorktreePruneNative = Void Function(Pointer<Void> session);
+typedef WorktreePruneDart = void Function(Pointer<Void> session);
+
+typedef _WorktreeLockNative = Void Function(Pointer<Void> session, Pointer<Utf8> path, Pointer<Utf8> reason);
+typedef WorktreeLockDart = void Function(Pointer<Void> session, Pointer<Utf8> path, Pointer<Utf8> reason);
+
+typedef _WorktreeUnlockNative = Void Function(Pointer<Void> session, Pointer<Utf8> path);
+typedef WorktreeUnlockDart = void Function(Pointer<Void> session, Pointer<Utf8> path);
+
+typedef _RemoteRefreshNative = Void Function(Pointer<Void> session);
+typedef RemoteRefreshDart = void Function(Pointer<Void> session);
+
+typedef _RemotesJsonNative = Int32 Function(Pointer<Void> session);
+typedef RemotesJsonDart = int Function(Pointer<Void> session);
+
+typedef _RemoteFetchNative = Void Function(Pointer<Void> session, Pointer<Utf8> remoteName, Int32 prune, Int32 tags);
+typedef RemoteFetchDart = void Function(Pointer<Void> session, Pointer<Utf8> remoteName, int prune, int tags);
+
+typedef _PullNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> remoteName, Pointer<Utf8> branch, Int32 rebase, Int32 stashFirst);
+typedef PullDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> remoteName, Pointer<Utf8> branch, int rebase, int stashFirst);
+
+typedef _PushNative =
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> remoteName,
+      Pointer<Utf8> branch,
+      Int32 setUpstream,
+      Int32 pushTags,
+      Int32 forceWithLease,
+    );
+typedef PushDart =
+    void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> remoteName,
+      Pointer<Utf8> branch,
+      int setUpstream,
+      int pushTags,
+      int forceWithLease,
+    );
+
+typedef _ProvideCredentialNative = Void Function(Pointer<Void> session, Pointer<Utf8> secret);
+typedef ProvideCredentialDart = void Function(Pointer<Void> session, Pointer<Utf8> secret);
+
+typedef _CancelCredentialNative = Void Function(Pointer<Void> session);
+typedef CancelCredentialDart = void Function(Pointer<Void> session);
+
 typedef _DiscoveryOpenNative = Pointer<Void> Function(Pointer<Utf8> dbPath);
 typedef DiscoveryOpenDart = Pointer<Void> Function(Pointer<Utf8> dbPath);
 
@@ -292,6 +426,36 @@ class GbmBindings {
       stageFiles = library.lookupFunction<_StageFilesNative, StageFilesDart>('gbm_stage_files'),
       unstageFiles = library.lookupFunction<_UnstageFilesNative, UnstageFilesDart>('gbm_unstage_files'),
       commitChanges = library.lookupFunction<_CommitChangesNative, CommitChangesDart>('gbm_commit_changes'),
+      stashRefresh = library.lookupFunction<_StashRefreshNative, StashRefreshDart>('gbm_stash_refresh'),
+      stashesJson = library.lookupFunction<_StashesJsonNative, StashesJsonDart>('gbm_stashes_json'),
+      stashSave = library.lookupFunction<_StashSaveNative, StashSaveDart>('gbm_stash_save'),
+      stashApply = library.lookupFunction<_StashApplyNative, StashApplyDart>('gbm_stash_apply'),
+      stashDrop = library.lookupFunction<_StashDropNative, StashDropDart>('gbm_stash_drop'),
+      stashBranch = library.lookupFunction<_StashBranchNative, StashBranchDart>('gbm_stash_branch'),
+      stashRequestDiff = library.lookupFunction<_StashRequestDiffNative, StashRequestDiffDart>(
+        'gbm_stash_request_diff',
+      ),
+      tagCreate = library.lookupFunction<_TagCreateNative, TagCreateDart>('gbm_tag_create'),
+      tagDelete = library.lookupFunction<_TagDeleteNative, TagDeleteDart>('gbm_tag_delete'),
+      tagPush = library.lookupFunction<_TagPushNative, TagPushDart>('gbm_tag_push'),
+      worktreeRefresh = library.lookupFunction<_WorktreeRefreshNative, WorktreeRefreshDart>('gbm_worktree_refresh'),
+      worktreesJson = library.lookupFunction<_WorktreesJsonNative, WorktreesJsonDart>('gbm_worktrees_json'),
+      worktreeAdd = library.lookupFunction<_WorktreeAddNative, WorktreeAddDart>('gbm_worktree_add'),
+      worktreeRemove = library.lookupFunction<_WorktreeRemoveNative, WorktreeRemoveDart>('gbm_worktree_remove'),
+      worktreePrune = library.lookupFunction<_WorktreePruneNative, WorktreePruneDart>('gbm_worktree_prune'),
+      worktreeLock = library.lookupFunction<_WorktreeLockNative, WorktreeLockDart>('gbm_worktree_lock'),
+      worktreeUnlock = library.lookupFunction<_WorktreeUnlockNative, WorktreeUnlockDart>('gbm_worktree_unlock'),
+      remoteRefresh = library.lookupFunction<_RemoteRefreshNative, RemoteRefreshDart>('gbm_remote_refresh'),
+      remotesJson = library.lookupFunction<_RemotesJsonNative, RemotesJsonDart>('gbm_remotes_json'),
+      remoteFetch = library.lookupFunction<_RemoteFetchNative, RemoteFetchDart>('gbm_remote_fetch'),
+      pull = library.lookupFunction<_PullNative, PullDart>('gbm_pull'),
+      push = library.lookupFunction<_PushNative, PushDart>('gbm_push'),
+      provideCredential = library.lookupFunction<_ProvideCredentialNative, ProvideCredentialDart>(
+        'gbm_provide_credential',
+      ),
+      cancelCredential = library.lookupFunction<_CancelCredentialNative, CancelCredentialDart>(
+        'gbm_cancel_credential',
+      ),
       discoveryOpen = library.lookupFunction<_DiscoveryOpenNative, DiscoveryOpenDart>('gbm_discovery_open'),
       discoveryClose = library.lookupFunction<_DiscoveryCloseNative, DiscoveryCloseDart>('gbm_discovery_close'),
       discoveryAddBaseFolder = library
@@ -347,6 +511,30 @@ class GbmBindings {
   final StageFilesDart stageFiles;
   final UnstageFilesDart unstageFiles;
   final CommitChangesDart commitChanges;
+  final StashRefreshDart stashRefresh;
+  final StashesJsonDart stashesJson;
+  final StashSaveDart stashSave;
+  final StashApplyDart stashApply;
+  final StashDropDart stashDrop;
+  final StashBranchDart stashBranch;
+  final StashRequestDiffDart stashRequestDiff;
+  final TagCreateDart tagCreate;
+  final TagDeleteDart tagDelete;
+  final TagPushDart tagPush;
+  final WorktreeRefreshDart worktreeRefresh;
+  final WorktreesJsonDart worktreesJson;
+  final WorktreeAddDart worktreeAdd;
+  final WorktreeRemoveDart worktreeRemove;
+  final WorktreePruneDart worktreePrune;
+  final WorktreeLockDart worktreeLock;
+  final WorktreeUnlockDart worktreeUnlock;
+  final RemoteRefreshDart remoteRefresh;
+  final RemotesJsonDart remotesJson;
+  final RemoteFetchDart remoteFetch;
+  final PullDart pull;
+  final PushDart push;
+  final ProvideCredentialDart provideCredential;
+  final CancelCredentialDart cancelCredential;
   final DiscoveryOpenDart discoveryOpen;
   final DiscoveryCloseDart discoveryClose;
   final DiscoveryAddBaseFolderDart discoveryAddBaseFolder;

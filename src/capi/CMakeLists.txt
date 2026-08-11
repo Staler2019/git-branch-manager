@@ -3,6 +3,7 @@
 # library -- see the CI grep check in .github/workflows/ci.yml and
 # docs/ARCHITECTURE.md's core/app split.
 add_library(gbm_capi SHARED
+    AskpassPoller.cpp
     Branches.cpp
     CallbackRegistry.cpp
     CherryPick.cpp
@@ -14,10 +15,14 @@ add_library(gbm_capi SHARED
     JsonCodec.cpp
     Merge.cpp
     Refs.cpp
+    Remotes.cpp
     ResetRestore.cpp
     Revert.cpp
     Session.cpp
+    Stash.cpp
+    Tags.cpp
     WorkingCopy.cpp
+    Worktrees.cpp
 )
 
 target_include_directories(gbm_capi PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/../")

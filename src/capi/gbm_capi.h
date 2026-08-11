@@ -90,6 +90,28 @@ enum GbmEventType {
     /// Reply to gbm_working_copy_diff_json(); the echoed path/staged let a
     /// caller that issued several diff requests match replies back up.
     GBM_EVENT_WORKING_COPY_DIFF_READY = 6,
+
+    /// no payload; read the new list with gbm_stashes_json().
+    GBM_EVENT_STASHES_UPDATED = 7,
+    /// payload: {"index": int, "diff": ParsedDiff JSON}. Reply to
+    /// gbm_stash_request_diff().
+    GBM_EVENT_STASH_DIFF_READY = 8,
+    /// no payload; read the new list with gbm_worktrees_json().
+    GBM_EVENT_WORKTREES_UPDATED = 9,
+    /// no payload; read the new list with gbm_remotes_json().
+    GBM_EVENT_REMOTES_UPDATED = 10,
+    /// payload: {"prompt": string}. A `git` subprocess spawned by a
+    /// fetch/pull/push/remote-tag-delete is blocked waiting for a username
+    /// or password -- reply with gbm_provide_credential() or
+    /// gbm_cancel_credential(). See gbm_provide_credential()'s doc comment
+    /// for why a follow-up prompt in the same operation fires this again.
+    GBM_EVENT_CREDENTIAL_REQUESTED = 11,
+    /// payload: OperationRecord JSON. Fired once per `git` invocation this
+    /// session makes, for an operation-log panel -- see
+    /// core/base/Logging.h's OperationRecord doc comment. Distinct from
+    /// every other event: it can fire during a *read* (history refresh,
+    /// working-copy refresh), not only a mutation.
+    GBM_EVENT_OPERATION_LOG_RECORD = 12,
 };
 
 typedef void (*GbmEventCallback)(GbmSessionHandle session,
@@ -326,6 +348,164 @@ GBM_API void gbm_commit_changes(GbmSessionHandle session,
                                 const char* message,
                                 int32_t amend,
                                 int32_t signOff);
+
+// --- Stashes -----------------------------------------------------------
+// Mirrors RepositorySession's "M3: stashes" section -- see
+// src/core/git/ops/StashOps.h.
+
+/// Re-reads `git stash list`. Async: fires GBM_EVENT_STASHES_UPDATED on
+/// success or GBM_EVENT_ERROR_OCCURRED on failure.
+GBM_API void gbm_stash_refresh(GbmSessionHandle session);
+
+/// Populates the staging buffer with the most recently published stash list
+/// as a JSON array. Returns 0 on success, or a negative GbmErrorCode if
+/// gbm_stash_refresh() has not yet published one.
+GBM_API int32_t gbm_stashes_json(GbmSessionHandle session);
+
+/// `git stash push`. `paths`/`pathCount` restrict the stash to those paths,
+/// like gbm_stage_files(); an empty array stashes every changed path. Async:
+/// fires GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success also
+/// refreshes both the working copy and the stash list.
+GBM_API void gbm_stash_save(GbmSessionHandle session,
+                            const char* message,
+                            int32_t includeUntracked,
+                            int32_t keepIndex,
+                            const char* const* paths,
+                            int32_t pathCount);
+
+/// `git stash apply` (pop=0) or `git stash pop` (pop=1). Async: fires
+/// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED. The working copy is always
+/// refreshed, even on a conflicting apply/pop (it still changed the work
+/// tree); the stash list is refreshed only on success, matching pop's own
+/// "does not drop on conflict" behavior.
+GBM_API void gbm_stash_apply(GbmSessionHandle session, int32_t index, int32_t pop);
+
+/// `git stash drop stash@{index}`. Async: fires
+/// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success refreshes the
+/// stash list.
+GBM_API void gbm_stash_drop(GbmSessionHandle session, int32_t index);
+
+/// `git stash branch`. Async: fires GBM_EVENT_WORKING_COPY_OPERATION_FINISHED,
+/// and on success refreshes the working copy, the stash list, and history
+/// (this is also a checkout -- see StashBranchRequest's doc comment).
+GBM_API void gbm_stash_branch(GbmSessionHandle session, int32_t index, const char* branchName);
+
+/// `git stash show -p --include-untracked stash@{index}`. Async: fires
+/// GBM_EVENT_STASH_DIFF_READY.
+GBM_API void gbm_stash_request_diff(GbmSessionHandle session, int32_t index);
+
+// --- Tags ----------------------------------------------------------------
+// Tags themselves are read through gbm_refs_json() (RefKind::Tag); only the
+// mutating side is here -- see src/core/git/ops/TagOps.h.
+
+/// `git tag`, lightweight or annotated depending on whether `message` is
+/// non-empty. `target` empty means HEAD. Async: fires
+/// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success refreshes refs.
+GBM_API void gbm_tag_create(GbmSessionHandle session,
+                            const char* name,
+                            const char* target,
+                            const char* message,
+                            int32_t force);
+
+/// `git tag -d`, optionally followed by `git push <remoteName> --delete
+/// <name>` when `alsoRemote` is set (routed through the same credential
+/// prompt as gbm_remote_fetch() -- see GBM_EVENT_CREDENTIAL_REQUESTED).
+/// Async: fires GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success
+/// refreshes refs.
+GBM_API void gbm_tag_delete(GbmSessionHandle session, const char* name, int32_t alsoRemote, const char* remoteName);
+
+/// `git push <remoteName> <name>`, or every tag (`--tags`) when `name` is
+/// empty. Async: fires GBM_EVENT_WORKING_COPY_OPERATION_FINISHED.
+GBM_API void gbm_tag_push(GbmSessionHandle session, const char* remoteName, const char* name);
+
+// --- Worktrees -------------------------------------------------------------
+// Mirrors RepositorySession's "M3: worktrees" section -- see
+// src/core/git/ops/WorktreeOps.h.
+
+/// Re-reads `git worktree list --porcelain`. Async: fires
+/// GBM_EVENT_WORKTREES_UPDATED on success or GBM_EVENT_ERROR_OCCURRED on
+/// failure.
+GBM_API void gbm_worktree_refresh(GbmSessionHandle session);
+
+/// Populates the staging buffer with the most recently published worktree
+/// list as a JSON array. Returns 0 on success, or a negative GbmErrorCode if
+/// gbm_worktree_refresh() has not yet published one.
+GBM_API int32_t gbm_worktrees_json(GbmSessionHandle session);
+
+/// `git worktree add`. Async: fires GBM_EVENT_WORKING_COPY_OPERATION_FINISHED,
+/// and on success refreshes the worktree list.
+GBM_API void gbm_worktree_add(GbmSessionHandle session,
+                              const char* path,
+                              const char* branch,
+                              int32_t createBranch,
+                              const char* newBranchName,
+                              int32_t detach,
+                              int32_t force);
+
+GBM_API void gbm_worktree_remove(GbmSessionHandle session, const char* path, int32_t force);
+GBM_API void gbm_worktree_prune(GbmSessionHandle session);
+GBM_API void gbm_worktree_lock(GbmSessionHandle session, const char* path, const char* reason);
+GBM_API void gbm_worktree_unlock(GbmSessionHandle session, const char* path);
+
+// --- Remotes -----------------------------------------------------------
+// Mirrors RepositorySession's "M3: remotes" section -- see
+// src/core/git/ops/RemoteOps.h. Fetch/pull/push route credential prompts
+// through GBM_EVENT_CREDENTIAL_REQUESTED /
+// gbm_provide_credential()/gbm_cancel_credential() rather than failing
+// outright the moment auth is needed (GIT_TERMINAL_PROMPT is always 0).
+
+/// Re-reads `git remote -v`. Async: fires GBM_EVENT_REMOTES_UPDATED on
+/// success or GBM_EVENT_ERROR_OCCURRED on failure.
+GBM_API void gbm_remote_refresh(GbmSessionHandle session);
+
+/// Populates the staging buffer with the most recently published remote
+/// list as a JSON array. Returns 0 on success, or a negative GbmErrorCode if
+/// gbm_remote_refresh() has not yet published one.
+GBM_API int32_t gbm_remotes_json(GbmSessionHandle session);
+
+/// `git fetch`. `remoteName` empty fetches every remote (`--all`). Async:
+/// fires GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success also
+/// triggers the same refresh gbm_history_refresh() would (a fetch can bring
+/// in new commits on remote-tracking refs).
+GBM_API void gbm_remote_fetch(GbmSessionHandle session, const char* remoteName, int32_t prune, int32_t tags);
+
+/// `git pull` (merge, or `--rebase` when `rebase` is set). `remoteName`
+/// empty uses the branch's configured upstream. Async: fires
+/// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED; the working copy is always
+/// refreshed, history only on success. A conflicting pull leaves the same
+/// index state a conflicting merge/rebase would (see gbm_merge_branch()'s
+/// doc comment).
+GBM_API void gbm_pull(GbmSessionHandle session,
+                      const char* remoteName,
+                      const char* branch,
+                      int32_t rebase,
+                      int32_t stashFirst);
+
+/// `git push`, with `--force-with-lease` when `forceWithLease` is set --
+/// there is no plain `--force` in this app (see PushForceMode's doc
+/// comment). `branch` empty pushes the current branch. Async: fires
+/// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success also triggers
+/// the same refresh gbm_history_refresh() would (the local remote-tracking
+/// ref moves).
+GBM_API void gbm_push(GbmSessionHandle session,
+                      const char* remoteName,
+                      const char* branch,
+                      int32_t setUpstream,
+                      int32_t pushTags,
+                      int32_t forceWithLease);
+
+// --- Credential prompts (askpass) -------------------------------------
+// Answers or dismisses whichever prompt GBM_EVENT_CREDENTIAL_REQUESTED most
+// recently announced. A no-op if none is currently outstanding.
+
+/// Answers the outstanding prompt. A `git` subprocess can ask more than once
+/// per invocation (e.g. a password after a username), in which case
+/// GBM_EVENT_CREDENTIAL_REQUESTED fires again for the follow-up prompt.
+GBM_API void gbm_provide_credential(GbmSessionHandle session, const char* secret);
+
+/// Dismisses the outstanding prompt; the blocked `git` subprocess fails
+/// cleanly, exactly as if no credential helper were configured at all.
+GBM_API void gbm_cancel_credential(GbmSessionHandle session);
 
 // --- Discovery -------------------------------------------------------------
 // A separate handle class from GbmSessionHandle: discovery scans base

@@ -10,10 +10,14 @@ import '../ffi/gbm_bindings.dart';
 import '../ffi/json_codec.dart';
 import '../models/git_error.dart';
 import '../models/graph_snapshot.dart';
+import '../models/operation_record.dart';
 import '../models/parsed_diff.dart';
 import '../models/ref_snapshot.dart';
+import '../models/remote_info.dart';
 import '../models/repo_state.dart' as model;
+import '../models/stash_entry.dart';
 import '../models/working_copy_status.dart';
+import '../models/worktree_info.dart';
 import 'gbm_bindings_provider.dart';
 import 'repo_identity.dart';
 
@@ -50,6 +54,25 @@ class WorkingCopyDiffReply {
   final ParsedDiff diff;
 }
 
+/// Reply to [RepoSessionController.requestStashDiff]: mirrors
+/// GBM_EVENT_STASH_DIFF_READY's payload shape.
+class StashDiffReply {
+  const StashDiffReply({required this.index, required this.diff});
+
+  factory StashDiffReply.fromJson(Map<String, dynamic> json) {
+    return StashDiffReply(index: json['index'] as int, diff: ParsedDiff.fromJson(json['diff'] as Map<String, dynamic>));
+  }
+
+  final int index;
+  final ParsedDiff diff;
+}
+
+/// Caps how many [OperationRecord]s [RepoSessionState.operationLog] keeps,
+/// mirroring OperationRunner's own undo-journal cap (`kMaxUndoEntries` in
+/// OperationRunner.cpp) -- a live panel fed one record per `git` invocation
+/// needs a bound too, or a long session slowly grows an unbounded list.
+const int _kMaxOperationLogEntries = 500;
+
 /// Everything the workspace shell (`features/workspace`), sidebar
 /// (`features/sidebar`) and history graph (`features/history_graph`) read
 /// for one open repository. Immutable; a new session event produces a new
@@ -66,6 +89,12 @@ class RepoSessionState {
     this.lastError,
     this.workingCopyStatus = WorkingCopyStatus.empty,
     this.lastDiff,
+    this.stashes = const <StashEntry>[],
+    this.lastStashDiff,
+    this.worktrees = const <WorktreeInfo>[],
+    this.remotes = const <RemoteInfo>[],
+    this.credentialPrompt,
+    this.operationLog = const <OperationRecord>[],
   });
 
   final bool isOpen;
@@ -76,6 +105,18 @@ class RepoSessionState {
   final GitError? lastError;
   final WorkingCopyStatus workingCopyStatus;
   final WorkingCopyDiffReply? lastDiff;
+  final List<StashEntry> stashes;
+  final StashDiffReply? lastStashDiff;
+  final List<WorktreeInfo> worktrees;
+  final List<RemoteInfo> remotes;
+  /// The prompt text of a credential request currently awaiting
+  /// [RepoSessionController.provideCredential]/[RepoSessionController.cancelCredential],
+  /// or null if none is outstanding. Cleared by either of those calls, not
+  /// by an event -- gbm_capi has no "prompt answered" event, since the
+  /// answer is this side's own action.
+  final String? credentialPrompt;
+  /// Newest-last, capped at [_kMaxOperationLogEntries].
+  final List<OperationRecord> operationLog;
 
   RepoSessionState copyWith({
     bool? isOpen,
@@ -87,6 +128,13 @@ class RepoSessionState {
     bool clearError = false,
     WorkingCopyStatus? workingCopyStatus,
     WorkingCopyDiffReply? lastDiff,
+    List<StashEntry>? stashes,
+    StashDiffReply? lastStashDiff,
+    List<WorktreeInfo>? worktrees,
+    List<RemoteInfo>? remotes,
+    String? credentialPrompt,
+    bool clearCredentialPrompt = false,
+    List<OperationRecord>? operationLog,
   }) {
     return RepoSessionState(
       isOpen: isOpen ?? this.isOpen,
@@ -97,6 +145,12 @@ class RepoSessionState {
       lastError: clearError ? null : (lastError ?? this.lastError),
       workingCopyStatus: workingCopyStatus ?? this.workingCopyStatus,
       lastDiff: lastDiff ?? this.lastDiff,
+      stashes: stashes ?? this.stashes,
+      lastStashDiff: lastStashDiff ?? this.lastStashDiff,
+      worktrees: worktrees ?? this.worktrees,
+      remotes: remotes ?? this.remotes,
+      credentialPrompt: clearCredentialPrompt ? null : (credentialPrompt ?? this.credentialPrompt),
+      operationLog: operationLog ?? this.operationLog,
     );
   }
 }
@@ -172,6 +226,32 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
         if (payload is Map<String, dynamic>) {
           state = state.copyWith(lastDiff: WorkingCopyDiffReply.fromJson(payload));
         }
+      case GbmEventType.stashesUpdated:
+        _readStashes();
+      case GbmEventType.stashDiffReady:
+        final Object? payload = decodeEventPayload(event.payload);
+        if (payload is Map<String, dynamic>) {
+          state = state.copyWith(lastStashDiff: StashDiffReply.fromJson(payload));
+        }
+      case GbmEventType.worktreesUpdated:
+        _readWorktrees();
+      case GbmEventType.remotesUpdated:
+        _readRemotes();
+      case GbmEventType.credentialRequested:
+        final Object? payload = decodeEventPayload(event.payload);
+        state = state.copyWith(
+          credentialPrompt: payload is Map<String, dynamic> ? payload['prompt'] as String? ?? '' : '',
+        );
+      case GbmEventType.operationLogRecord:
+        final Object? payload = decodeEventPayload(event.payload);
+        if (payload is Map<String, dynamic>) {
+          final List<OperationRecord> updated = <OperationRecord>[...state.operationLog, OperationRecord.fromJson(payload)];
+          state = state.copyWith(
+            operationLog: updated.length > _kMaxOperationLogEntries
+                ? updated.sublist(updated.length - _kMaxOperationLogEntries)
+                : updated,
+          );
+        }
     }
   }
 
@@ -198,6 +278,33 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
       final String json = readLastResultJson(_bindings);
       if (json.isNotEmpty) {
         state = state.copyWith(workingCopyStatus: WorkingCopyStatus.fromJson(jsonDecode(json) as Map<String, dynamic>));
+      }
+    }
+  }
+
+  void _readStashes() {
+    if (_bindings.stashesJson(_session) == 0) {
+      final String json = readLastResultJson(_bindings);
+      if (json.isNotEmpty) {
+        state = state.copyWith(stashes: StashEntry.listFromJson(jsonDecode(json) as List<dynamic>));
+      }
+    }
+  }
+
+  void _readWorktrees() {
+    if (_bindings.worktreesJson(_session) == 0) {
+      final String json = readLastResultJson(_bindings);
+      if (json.isNotEmpty) {
+        state = state.copyWith(worktrees: WorktreeInfo.listFromJson(jsonDecode(json) as List<dynamic>));
+      }
+    }
+  }
+
+  void _readRemotes() {
+    if (_bindings.remotesJson(_session) == 0) {
+      final String json = readLastResultJson(_bindings);
+      if (json.isNotEmpty) {
+        state = state.copyWith(remotes: RemoteInfo.listFromJson(jsonDecode(json) as List<dynamic>));
       }
     }
   }
@@ -379,6 +486,271 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     } finally {
       malloc.free(messagePtr);
     }
+  }
+
+  /// Async: see gbm_stash_refresh()'s doc comment in gbm_capi.h.
+  void refreshStashes() {
+    if (_session == nullptr) return;
+    _bindings.stashRefresh(_session);
+  }
+
+  /// `git stash push`. `paths` restricts the stash to those paths, like
+  /// [stageFiles]; empty stashes every changed path. Async: fires
+  /// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success refreshes
+  /// both the working copy and the stash list.
+  void saveStash(String message, {bool includeUntracked = false, bool keepIndex = false, List<String> paths = const <String>[]}) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> messagePtr = message.toNativeUtf8();
+    try {
+      _withNativeStringArray(
+        paths,
+        (array, count) =>
+            _bindings.stashSave(_session, messagePtr, includeUntracked ? 1 : 0, keepIndex ? 1 : 0, array, count),
+      );
+    } finally {
+      malloc.free(messagePtr);
+    }
+  }
+
+  /// `git stash apply` (pop=false) or `git stash pop` (pop=true). See
+  /// gbm_stash_apply()'s doc comment: the working copy is always refreshed,
+  /// the stash list only on success.
+  void applyStash(int index, {bool pop = false}) {
+    if (_session == nullptr) return;
+    _bindings.stashApply(_session, index, pop ? 1 : 0);
+  }
+
+  /// `git stash drop stash@{index}`.
+  void dropStash(int index) {
+    if (_session == nullptr) return;
+    _bindings.stashDrop(_session, index);
+  }
+
+  /// `git stash branch`. See gbm_stash_branch()'s doc comment: on success
+  /// refreshes the working copy, the stash list, and history.
+  void branchFromStash(int index, String branchName) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> branchPtr = branchName.toNativeUtf8();
+    try {
+      _bindings.stashBranch(_session, index, branchPtr);
+    } finally {
+      malloc.free(branchPtr);
+    }
+  }
+
+  /// `git stash show -p --include-untracked stash@{index}`. Async: fires
+  /// GBM_EVENT_STASH_DIFF_READY.
+  void requestStashDiff(int index) {
+    if (_session == nullptr) return;
+    _bindings.stashRequestDiff(_session, index);
+  }
+
+  /// `git tag`. `target` empty means HEAD; `message` non-empty makes it
+  /// annotated. Async: fires GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and
+  /// on success refreshes history (refs).
+  void createTag(String name, {String target = '', String message = '', bool force = false}) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> namePtr = name.toNativeUtf8();
+    final Pointer<Utf8> targetPtr = target.toNativeUtf8();
+    final Pointer<Utf8> messagePtr = message.toNativeUtf8();
+    try {
+      _bindings.tagCreate(_session, namePtr, targetPtr, messagePtr, force ? 1 : 0);
+    } finally {
+      malloc.free(namePtr);
+      malloc.free(targetPtr);
+      malloc.free(messagePtr);
+    }
+  }
+
+  /// `git tag -d`, optionally followed by a remote delete when
+  /// `alsoRemote` is set (routed through the same credential prompt as
+  /// [fetchRemote] -- see [RepoSessionState.credentialPrompt]).
+  void deleteTag(String name, {bool alsoRemote = false, String remoteName = ''}) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> namePtr = name.toNativeUtf8();
+    final Pointer<Utf8> remotePtr = remoteName.toNativeUtf8();
+    try {
+      _bindings.tagDelete(_session, namePtr, alsoRemote ? 1 : 0, remotePtr);
+    } finally {
+      malloc.free(namePtr);
+      malloc.free(remotePtr);
+    }
+  }
+
+  /// `git push <remoteName> <name>`, or every tag when `name` is empty.
+  void pushTag(String remoteName, {String name = ''}) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> remotePtr = remoteName.toNativeUtf8();
+    final Pointer<Utf8> namePtr = name.toNativeUtf8();
+    try {
+      _bindings.tagPush(_session, remotePtr, namePtr);
+    } finally {
+      malloc.free(remotePtr);
+      malloc.free(namePtr);
+    }
+  }
+
+  /// Async: see gbm_worktree_refresh()'s doc comment in gbm_capi.h.
+  void refreshWorktrees() {
+    if (_session == nullptr) return;
+    _bindings.worktreeRefresh(_session);
+  }
+
+  /// `git worktree add`. See gbm_worktree_add()'s doc comment: on success
+  /// refreshes the worktree list.
+  void addWorktree(
+    String path, {
+    String branch = '',
+    bool createBranch = false,
+    String newBranchName = '',
+    bool detach = false,
+    bool force = false,
+  }) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+    final Pointer<Utf8> branchPtr = branch.toNativeUtf8();
+    final Pointer<Utf8> newBranchPtr = newBranchName.toNativeUtf8();
+    try {
+      _bindings.worktreeAdd(
+        _session,
+        pathPtr,
+        branchPtr,
+        createBranch ? 1 : 0,
+        newBranchPtr,
+        detach ? 1 : 0,
+        force ? 1 : 0,
+      );
+    } finally {
+      malloc.free(pathPtr);
+      malloc.free(branchPtr);
+      malloc.free(newBranchPtr);
+    }
+  }
+
+  void removeWorktree(String path, {bool force = false}) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+    try {
+      _bindings.worktreeRemove(_session, pathPtr, force ? 1 : 0);
+    } finally {
+      malloc.free(pathPtr);
+    }
+  }
+
+  void pruneWorktrees() {
+    if (_session == nullptr) return;
+    _bindings.worktreePrune(_session);
+  }
+
+  void lockWorktree(String path, {String reason = ''}) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+    final Pointer<Utf8> reasonPtr = reason.toNativeUtf8();
+    try {
+      _bindings.worktreeLock(_session, pathPtr, reasonPtr);
+    } finally {
+      malloc.free(pathPtr);
+      malloc.free(reasonPtr);
+    }
+  }
+
+  void unlockWorktree(String path) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+    try {
+      _bindings.worktreeUnlock(_session, pathPtr);
+    } finally {
+      malloc.free(pathPtr);
+    }
+  }
+
+  /// Async: see gbm_remote_refresh()'s doc comment in gbm_capi.h.
+  void refreshRemotes() {
+    if (_session == nullptr) return;
+    _bindings.remoteRefresh(_session);
+  }
+
+  /// `git fetch`. `remoteName` empty fetches every remote. Routes
+  /// credential prompts through [RepoSessionState.credentialPrompt] -- see
+  /// gbm_remote_fetch()'s doc comment in gbm_capi.h. Async: fires
+  /// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success also
+  /// refreshes history.
+  void fetchRemote({String remoteName = '', bool prune = false, bool tags = false}) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> remotePtr = remoteName.toNativeUtf8();
+    try {
+      _bindings.remoteFetch(_session, remotePtr, prune ? 1 : 0, tags ? 1 : 0);
+    } finally {
+      malloc.free(remotePtr);
+    }
+  }
+
+  /// `git pull` (merge, or `--rebase` when `rebase` is set). `remoteName`
+  /// empty uses the branch's configured upstream. See gbm_pull()'s doc
+  /// comment: the working copy is always refreshed, history only on
+  /// success.
+  void pullChanges({String remoteName = '', String branch = '', bool rebase = false, bool stashFirst = false}) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> remotePtr = remoteName.toNativeUtf8();
+    final Pointer<Utf8> branchPtr = branch.toNativeUtf8();
+    try {
+      _bindings.pull(_session, remotePtr, branchPtr, rebase ? 1 : 0, stashFirst ? 1 : 0);
+    } finally {
+      malloc.free(remotePtr);
+      malloc.free(branchPtr);
+    }
+  }
+
+  /// `git push`, with `--force-with-lease` when `forceWithLease` is set --
+  /// there is no plain `--force` (see gbm_push()'s doc comment). `branch`
+  /// empty pushes the current branch.
+  void pushChanges({
+    String remoteName = '',
+    String branch = '',
+    bool setUpstream = false,
+    bool pushTags = false,
+    bool forceWithLease = false,
+  }) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> remotePtr = remoteName.toNativeUtf8();
+    final Pointer<Utf8> branchPtr = branch.toNativeUtf8();
+    try {
+      _bindings.push(_session, remotePtr, branchPtr, setUpstream ? 1 : 0, pushTags ? 1 : 0, forceWithLease ? 1 : 0);
+    } finally {
+      malloc.free(remotePtr);
+      malloc.free(branchPtr);
+    }
+  }
+
+  /// Answers the credential prompt in [RepoSessionState.credentialPrompt],
+  /// if any, and clears it. A `git` subprocess can ask more than once per
+  /// invocation (e.g. a password after a username), in which case
+  /// [RepoSessionState.credentialPrompt] is set again for the follow-up.
+  void provideCredential(String secret) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> secretPtr = secret.toNativeUtf8();
+    try {
+      _bindings.provideCredential(_session, secretPtr);
+    } finally {
+      malloc.free(secretPtr);
+    }
+    state = state.copyWith(clearCredentialPrompt: true);
+  }
+
+  /// Dismisses the outstanding credential prompt, if any, and clears it;
+  /// the blocked `git` subprocess fails cleanly.
+  void cancelCredential() {
+    if (_session == nullptr) return;
+    _bindings.cancelCredential(_session);
+    state = state.copyWith(clearCredentialPrompt: true);
+  }
+
+  /// Empties [RepoSessionState.operationLog] -- the operation-log panel's
+  /// "Clear" action (mirrors `OperationLogView::clearLog()`). Local to this
+  /// session's in-memory list only; does not affect gbm::Log itself, which
+  /// keeps no history of its own (see core/base/Logging.h).
+  void clearOperationLog() {
+    state = state.copyWith(operationLog: const <OperationRecord>[]);
   }
 
   /// Marshals `paths` into a native `const char* const*` for the lifetime of

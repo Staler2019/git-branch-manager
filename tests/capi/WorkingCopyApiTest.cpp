@@ -134,7 +134,18 @@ TEST_F(WorkingCopyApiTest, RefreshReportsModifiedAndUntrackedFiles) {
 TEST_F(WorkingCopyApiTest, WorkingCopyDiffReportsAddedLine) {
     gbm_working_copy_diff(session_, "committed.txt", /*staged=*/0);
 
-    ASSERT_TRUE(log_.waitFor([](const auto& events) { return !events.empty(); }));
+    // Waits specifically for GBM_EVENT_WORKING_COPY_DIFF_READY, not just "any
+    // event": the session now also emits GBM_EVENT_OPERATION_LOG_RECORD for
+    // the underlying `git diff` subprocess (see Session::
+    // dispatchOperationLogRecord()), which arrives first and would otherwise
+    // satisfy a looser "events non-empty" predicate before the diff itself
+    // has actually arrived.
+    ASSERT_TRUE(log_.waitFor([](const auto& events) {
+        for (const auto& [type, payload] : events) {
+            if (type == GBM_EVENT_WORKING_COPY_DIFF_READY) return true;
+        }
+        return false;
+    }));
     const std::vector<std::string> diffs = log_.payloadsOfType(GBM_EVENT_WORKING_COPY_DIFF_READY);
     ASSERT_EQ(diffs.size(), 1u);
     EXPECT_NE(diffs[0].find("\"path\":\"committed.txt\""), std::string::npos) << diffs[0];

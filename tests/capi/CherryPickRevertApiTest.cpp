@@ -86,6 +86,7 @@ protected:
         std::ofstream(repo_ / "base.txt") << "base\n";
         ASSERT_EQ(runGit({"add", "base.txt"}), 0);
         ASSERT_EQ(runGit({"commit", "--quiet", "-m", "Base commit"}), 0);
+        baseCommit_ = commitHex("main");
 
         ASSERT_EQ(runGit({"checkout", "--quiet", "-b", "feature"}), 0);
         std::ofstream(repo_ / "picked.txt") << "picked\n";
@@ -93,6 +94,17 @@ protected:
         ASSERT_EQ(runGit({"commit", "--quiet", "-m", "Commit to cherry-pick"}), 0);
         pickedCommit_ = commitHex("feature");
         ASSERT_EQ(runGit({"checkout", "--quiet", "main"}), 0);
+
+        // A commit unique to main, so cherry-picking feature's commit is not
+        // fast-forward-eligible (main's tip must not equal the picked
+        // commit's parent): git's cherry-pick special-cases that situation
+        // into a bare ref move instead of actually replaying the commit --
+        // see git-cherry-pick(1) -- which would make rowCount below
+        // (and which commit ends up as HEAD) depend on that internal
+        // optimization rather than on gbm_cherry_pick() actually working.
+        std::ofstream(repo_ / "main-only.txt") << "main\n";
+        ASSERT_EQ(runGit({"add", "main-only.txt"}), 0);
+        ASSERT_EQ(runGit({"commit", "--quiet", "-m", "Commit unique to main"}), 0);
 
         session_ = gbm_session_open(repo_.string().c_str(), (repo_ / ".git").string().c_str(), "");
         ASSERT_NE(session_, nullptr);
@@ -130,6 +142,7 @@ protected:
     GbmSessionHandle session_ = nullptr;
     EventLog log_;
     std::string pickedCommit_;
+    std::string baseCommit_;
 };
 
 TEST_F(CherryPickRevertApiTest, CherryPickAppliesCommitOntoCurrentBranch) {
@@ -150,14 +163,20 @@ TEST_F(CherryPickRevertApiTest, CherryPickAppliesCommitOntoCurrentBranch) {
     int32_t rowCount = -1;
     int32_t rowStride = -1;
     gbm_graph_snapshot_rows(session_, &rowCount, &rowStride);
-    EXPECT_EQ(rowCount, 2);  // base + cherry-picked commit
+    // base + main-only commit + feature's own original commit (still
+    // reachable through the still-existing "feature" branch -- the walk
+    // always adds --all, see HistoryQuery::toRevListArgs()) + main's newly
+    // cherry-picked replay.
+    EXPECT_EQ(rowCount, 4);
     gbm_graph_snapshot_release(session_);
 }
 
 TEST_F(CherryPickRevertApiTest, RevertCreatesInverseCommit) {
-    // Revert the base commit itself -- removes base.txt.
-    const std::string baseCommit = commitHex("main");
-    const char* commits[] = {baseCommit.c_str()};
+    // Revert the base commit itself -- removes base.txt. baseCommit_ (not
+    // commitHex("main")) since main's tip is now the later "main-only.txt"
+    // commit added in SetUp() to keep the cherry-pick test's fixture out of
+    // git's fast-forward-eligible case -- see SetUp()'s doc comment above.
+    const char* commits[] = {baseCommit_.c_str()};
     gbm_revert(session_, commits, 1, /*noCommit=*/0, /*stashFirst=*/0);
     ASSERT_TRUE(waitForOperationFinished(log_));
 

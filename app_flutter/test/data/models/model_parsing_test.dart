@@ -9,11 +9,15 @@ import 'package:gbm_flutter/data/models/base_folder_record.dart';
 import 'package:gbm_flutter/data/models/git_error.dart';
 import 'package:gbm_flutter/data/models/graph_snapshot.dart';
 import 'package:gbm_flutter/data/models/operation_outcome.dart';
+import 'package:gbm_flutter/data/models/operation_record.dart';
 import 'package:gbm_flutter/data/models/parsed_diff.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
+import 'package:gbm_flutter/data/models/remote_info.dart';
 import 'package:gbm_flutter/data/models/repo_record.dart';
 import 'package:gbm_flutter/data/models/repo_state.dart' as model;
+import 'package:gbm_flutter/data/models/stash_entry.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
+import 'package:gbm_flutter/data/models/worktree_info.dart';
 
 void main() {
   test('GitError.fromJson round-trips every field', () {
@@ -156,5 +160,47 @@ void main() {
     expect(folders.single.path, '/code');
     expect(folders.single.enabled, isTrue);
     expect(folders.single.maxDepth, 3);
+  });
+
+  test('StashEntry.listFromJson decodes an array', () {
+    final List<dynamic> json = jsonDecode('[{"index":0,"message":"WIP","oid":"aa","timestamp":123}]');
+    final List<StashEntry> stashes = StashEntry.listFromJson(json);
+
+    expect(stashes, hasLength(1));
+    expect(stashes.single.index, 0);
+    expect(stashes.single.message, 'WIP');
+  });
+
+  test('WorktreeInfo.listFromJson decodes an array', () {
+    final List<dynamic> json = jsonDecode(
+      '[{"path":"/repo","headOid":"aa","branch":"main","isMain":true,"isBare":false,'
+      '"isDetached":false,"isLocked":false,"lockReason":"","isPrunable":false,"prunableReason":""}]',
+    );
+    final List<WorktreeInfo> worktrees = WorktreeInfo.listFromJson(json);
+
+    expect(worktrees, hasLength(1));
+    expect(worktrees.single.isMain, isTrue);
+    expect(worktrees.single.branch, 'main');
+  });
+
+  test('RemoteInfo.listFromJson decodes an array', () {
+    final List<dynamic> json = jsonDecode(
+      '[{"name":"origin","fetchUrl":"https://example.invalid/a.git","pushUrl":"https://example.invalid/a.git"}]',
+    );
+    final List<RemoteInfo> remotes = RemoteInfo.listFromJson(json);
+
+    expect(remotes, hasLength(1));
+    expect(remotes.single.name, 'origin');
+  });
+
+  test('OperationRecord.fromJson decodes argv and exposes failed', () {
+    final Map<String, dynamic> json = jsonDecode(
+      '{"whenEpochMs":1000,"repoDir":"/repo","argv":["git","status"],"commandLine":"git status",'
+      '"exitCode":1,"durationMs":5,"stderrText":"error","cancelled":false,"timedOut":false}',
+    );
+    final OperationRecord record = OperationRecord.fromJson(json);
+
+    expect(record.argv, <String>['git', 'status']);
+    expect(record.failed, isTrue);
   });
 }

@@ -6,6 +6,7 @@
 // straight into the staging buffer or an event payload.
 
 #include "core/base/Error.h"
+#include "core/base/Logging.h"
 #include "core/cache/RepoIndexDb.h"
 #include "core/git/CommitMeta.h"
 #include "core/git/OperationRunner.h"
@@ -13,6 +14,9 @@
 #include "core/git/RepoState.h"
 #include "core/git/UnifiedDiffParser.h"
 #include "core/git/WorkingCopyStatus.h"
+#include "core/git/ops/RemoteOps.h"
+#include "core/git/ops/StashOps.h"
+#include "core/git/ops/WorktreeOps.h"
 
 #include <string>
 #include <vector>
@@ -30,5 +34,12 @@ std::string toJson(const std::vector<BaseFolderRecord>& records);
 std::string toJson(const RefSnapshot& refs);
 std::string toJson(const WorkingCopyStatus& status);
 std::string toJson(const ParsedDiff& diff);
+std::string toJson(const StashEntry& entry);
+std::string toJson(const std::vector<StashEntry>& entries);
+std::string toJson(const WorktreeInfo& worktree);
+std::string toJson(const std::vector<WorktreeInfo>& worktrees);
+std::string toJson(const RemoteInfo& remote);
+std::string toJson(const std::vector<RemoteInfo>& remotes);
+std::string toJson(const OperationRecord& record);
 
 }  // namespace gbm::capi

@@ -155,14 +155,20 @@ endif()
 # GBM_BUILD_APP so it builds under the capi-only preset too.
 if(GBM_BUILD_CAPI)
     add_executable(gbm_capi_tests
+        capi/AskpassPollerTest.cpp
         capi/CallbackRegistryTest.cpp
         capi/CherryPickRevertApiTest.cpp
         capi/DiscoveryApiTest.cpp
         capi/JsonCodecTest.cpp
         capi/MergeApiTest.cpp
+        capi/OperationLogApiTest.cpp
+        capi/RemoteApiTest.cpp
         capi/ResetApiTest.cpp
         capi/SessionApiTest.cpp
+        capi/StashApiTest.cpp
+        capi/TagApiTest.cpp
         capi/WorkingCopyApiTest.cpp
+        capi/WorktreeApiTest.cpp
     )
     target_link_libraries(gbm_capi_tests
         PRIVATE gbm_capi gbm_core GTest::gtest GTest::gtest_main gbm_warnings gbm_sanitizers)

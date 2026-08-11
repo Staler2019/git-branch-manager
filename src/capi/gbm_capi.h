@@ -112,6 +112,17 @@ enum GbmEventType {
     /// every other event: it can fire during a *read* (history refresh,
     /// working-copy refresh), not only a mutation.
     GBM_EVENT_OPERATION_LOG_RECORD = 12,
+
+    /// payload: BlameResult JSON. Reply to gbm_request_blame().
+    GBM_EVENT_BLAME_READY = 13,
+    /// payload: FileHistoryEntry JSON array. Reply to
+    /// gbm_request_file_history().
+    GBM_EVENT_FILE_HISTORY_READY = 14,
+    /// payload: LineHistoryChunk JSON array. Reply to
+    /// gbm_request_line_history().
+    GBM_EVENT_LINE_HISTORY_READY = 15,
+    /// payload: ReflogEntry JSON array. Reply to gbm_request_reflog().
+    GBM_EVENT_REFLOG_READY = 16,
 };
 
 typedef void (*GbmEventCallback)(GbmSessionHandle session,
@@ -506,6 +517,58 @@ GBM_API void gbm_provide_credential(GbmSessionHandle session, const char* secret
 /// Dismisses the outstanding prompt; the blocked `git` subprocess fails
 /// cleanly, exactly as if no credential helper were configured at all.
 GBM_API void gbm_cancel_credential(GbmSessionHandle session);
+
+// --- Blame / file history / line history / reflog / undo -----------------
+// Mirrors RepositorySession's blame/file-history/line-history/reflog/undo
+// section -- see src/core/git/{BlameStore,FileHistoryStore,ReflogStore}.h
+// and src/core/git/ops/UndoOps.h. The first four are read-only, like
+// gbm_working_copy_diff(); undo is the one mutation here.
+
+/// Blames `path` as of `revision` (empty means the working tree).
+/// `startLine`/`endLine` are 1-based and inclusive; either 0 blames the
+/// whole file. Async: fires GBM_EVENT_BLAME_READY, or
+/// GBM_EVENT_ERROR_OCCURRED on failure. A newer request for the same
+/// session jumps ahead of any older, still-queued one (interactive
+/// priority, like requesting a different file's diff while a slow one is
+/// still loading).
+GBM_API void gbm_request_blame(GbmSessionHandle session,
+                               const char* path,
+                               const char* revision,
+                               int32_t startLine,
+                               int32_t endLine);
+
+/// Commits that touched `path`, newest first, following renames the way
+/// `git log --follow` does. `startRevision` empty means HEAD. Async: fires
+/// GBM_EVENT_FILE_HISTORY_READY.
+GBM_API void gbm_request_file_history(GbmSessionHandle session, const char* path, const char* startRevision);
+
+/// Commits that touched lines `startLine..endLine` (1-based, inclusive) of
+/// `path`, newest first. Async: fires GBM_EVENT_LINE_HISTORY_READY.
+GBM_API void gbm_request_line_history(GbmSessionHandle session,
+                                      const char* path,
+                                      int32_t startLine,
+                                      int32_t endLine,
+                                      const char* startRevision);
+
+/// `git reflog show <ref>`. `ref` empty means HEAD. Async: fires
+/// GBM_EVENT_REFLOG_READY.
+GBM_API void gbm_request_reflog(GbmSessionHandle session, const char* ref);
+
+/// Populates the staging buffer with the current undo journal (most recent
+/// last) as a JSON array -- one entry per operation submitted this
+/// session, each `{"id", "description", "headBefore", "branchBefore",
+/// "timestamp"}`. Synchronous; always returns 0. A snapshot taken right
+/// after each operation's own outcome event, not a live read of
+/// OperationRunner's journal -- see Session::undoJournal()'s doc comment
+/// for why that matters.
+GBM_API int32_t gbm_undo_journal_json(GbmSessionHandle session);
+
+/// Reverses the most recent journal entry by hard-resetting back to where
+/// HEAD stood before it ran. A no-op if the journal is empty. Refuses if
+/// the checked-out branch has changed since (see UndoOps.h). Async: fires
+/// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success refreshes both
+/// the working copy and history (HEAD moved).
+GBM_API void gbm_undo_last(GbmSessionHandle session);
 
 // --- Discovery -------------------------------------------------------------
 // A separate handle class from GbmSessionHandle: discovery scans base

@@ -102,7 +102,10 @@ Session::Session(GitInstallation installation, RepoPaths paths, std::unique_ptr<
       diffs_(std::make_unique<DiffService>(*runner_, paths_)),
       stashStore_(std::make_unique<StashStore>(*runner_, paths_)),
       worktreeStore_(std::make_unique<WorktreeStore>(*runner_, paths_)),
-      remoteStore_(std::make_unique<RemoteStore>(*runner_, paths_)) {
+      remoteStore_(std::make_unique<RemoteStore>(*runner_, paths_)),
+      blameStore_(std::make_unique<BlameStore>(*runner_, paths_)),
+      fileHistoryStore_(std::make_unique<FileHistoryStore>(*runner_, paths_)),
+      reflogStore_(std::make_unique<ReflogStore>(*runner_, paths_)) {
     ensureOperationLogSinkInstalled();
     registerLiveSession(this);
 }
@@ -276,6 +279,7 @@ void Session::submitWorkingCopyOperation(std::unique_ptr<Operation> operation,
     operations_->submit(std::move(operation), [this, onSuccess = std::move(onSuccess), onAlways = std::move(onAlways)](
                                                    OperationOutcome outcome) {
         const bool succeeded = outcome.succeeded;
+        refreshUndoJournalCache();
         callbacks_.emit(GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, toJson(outcome));
         if (onAlways) {
             onAlways();
@@ -306,6 +310,7 @@ void Session::commitChanges(CommitRequest request) {
 void Session::submitOperation(std::unique_ptr<Operation> operation, bool refreshHistoryOnSuccess) {
     operations_->submit(std::move(operation), [this, refreshHistoryOnSuccess](OperationOutcome outcome) {
         const bool succeeded = outcome.succeeded;
+        refreshUndoJournalCache();
         callbacks_.emit(GBM_EVENT_OPERATION_FINISHED, toJson(outcome));
         refreshWorkingCopy();
         if (succeeded && refreshHistoryOnSuccess) {
@@ -556,6 +561,91 @@ void Session::dispatchOperationLogRecord(const OperationRecord& record) {
             session->publishOperationLogRecord(record);
         }
     }
+}
+
+// --- Blame / file history / line history / reflog / undo -----------------
+
+void Session::requestBlame(std::string path, std::string revision, int startLine, int endLine) {
+    // postFront, not post: a newer blame/file-history/line-history request
+    // supersedes an older, still-queued one in interactive priority --
+    // matches RepositorySession::requestBlame()'s use of readPool_.postFront.
+    sharedReadPool().postFront([this, path = std::move(path), revision = std::move(revision), startLine, endLine]() {
+        const GitResult<BlameResultPtr> result = blameStore_->blame(path, revision, startLine, endLine, CancellationToken{});
+        if (!result) {
+            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+            return;
+        }
+        callbacks_.emit(GBM_EVENT_BLAME_READY, toJson(*result.value()));
+    });
+}
+
+void Session::requestFileHistory(std::string path, std::string startRevision) {
+    sharedReadPool().postFront([this, path = std::move(path), startRevision = std::move(startRevision)]() {
+        const GitResult<std::vector<FileHistoryEntry>> result =
+            fileHistoryStore_->fileHistory(path, startRevision, CancellationToken{});
+        if (!result) {
+            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+            return;
+        }
+        callbacks_.emit(GBM_EVENT_FILE_HISTORY_READY, toJson(result.value()));
+    });
+}
+
+void Session::requestLineHistory(std::string path, int startLine, int endLine, std::string startRevision) {
+    sharedReadPool().postFront(
+        [this, path = std::move(path), startLine, endLine, startRevision = std::move(startRevision)]() {
+            const GitResult<std::vector<LineHistoryChunk>> result =
+                fileHistoryStore_->lineHistory(path, startLine, endLine, startRevision, CancellationToken{});
+            if (!result) {
+                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                return;
+            }
+            callbacks_.emit(GBM_EVENT_LINE_HISTORY_READY, toJson(result.value()));
+        });
+}
+
+void Session::requestReflog(std::string ref) {
+    // post, not postFront: matches RepositorySession::requestReflog(), the
+    // one read-store request among these four that is not treated as
+    // preempting other queued reads (see the M6 capi research notes on why
+    // the Qt original draws that line here).
+    sharedReadPool().post([this, ref = std::move(ref)]() {
+        const GitResult<std::vector<ReflogEntry>> result = reflogStore_->list(ref, CancellationToken{});
+        if (!result) {
+            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+            return;
+        }
+        callbacks_.emit(GBM_EVENT_REFLOG_READY, toJson(result.value()));
+    });
+}
+
+void Session::refreshUndoJournalCache() {
+    std::lock_guard<std::mutex> lock(undoMutex_);
+    undoJournalCache_ = operations_->undoJournal();
+}
+
+std::vector<OperationRunner::UndoEntry> Session::undoJournal() const {
+    std::lock_guard<std::mutex> lock(undoMutex_);
+    return undoJournalCache_;
+}
+
+void Session::undoLastOperation() {
+    std::vector<OperationRunner::UndoEntry> journal;
+    {
+        std::lock_guard<std::mutex> lock(undoMutex_);
+        journal = undoJournalCache_;
+    }
+    if (journal.empty()) {
+        return;
+    }
+    const OperationRunner::UndoEntry& last = journal.back();
+    UndoRequest request;
+    request.headBefore = last.headBefore;
+    request.branchBefore = last.branchBefore;
+    submitWorkingCopyOperation(makeUndoOperation(std::move(request)), [this]() {
+        refreshWorkingCopy();
+        refreshHistory();
+    });
 }
 
 }  // namespace gbm::capi

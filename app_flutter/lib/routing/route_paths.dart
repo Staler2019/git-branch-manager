@@ -26,6 +26,11 @@ abstract final class RoutePaths {
   static const String createTagDialog = '/repo/:repoId/dialogs/create-tag';
   static const String credentialDialog = '/repo/:repoId/dialogs/credential';
   static const String operationLogDialog = '/repo/:repoId/dialogs/operation-log';
+  static const String blameDialog = '/repo/:repoId/dialogs/blame';
+  static const String fileHistoryDialog = '/repo/:repoId/dialogs/file-history';
+  static const String lineHistoryDialog = '/repo/:repoId/dialogs/line-history';
+  static const String reflogDialog = '/repo/:repoId/dialogs/reflog';
+  static const String undoLastDialog = '/repo/:repoId/dialogs/undo-last';
 
   /// Standalone top-level route, not a `/dialogs/<name>` overlay -- see
   /// `features/conflict_resolution/conflict_resolve_window.dart`'s doc
@@ -45,5 +50,17 @@ abstract final class RoutePaths {
   static String createTagDialogFor(String repoId) => '/repo/$repoId/dialogs/create-tag';
   static String credentialDialogFor(String repoId) => '/repo/$repoId/dialogs/credential';
   static String operationLogDialogFor(String repoId) => '/repo/$repoId/dialogs/operation-log';
+  static String blameDialogFor(String repoId, {String path = ''}) =>
+      Uri(path: '/repo/$repoId/dialogs/blame', queryParameters: path.isEmpty ? null : <String, String>{'path': path}).toString();
+  static String fileHistoryDialogFor(String repoId, {String path = ''}) => Uri(
+    path: '/repo/$repoId/dialogs/file-history',
+    queryParameters: path.isEmpty ? null : <String, String>{'path': path},
+  ).toString();
+  static String lineHistoryDialogFor(String repoId, {String path = ''}) => Uri(
+    path: '/repo/$repoId/dialogs/line-history',
+    queryParameters: path.isEmpty ? null : <String, String>{'path': path},
+  ).toString();
+  static String reflogDialogFor(String repoId) => '/repo/$repoId/dialogs/reflog';
+  static String undoLastDialogFor(String repoId) => '/repo/$repoId/dialogs/undo-last';
   static String conflictsFor(String repoId) => '/repo/$repoId/conflicts';
 }

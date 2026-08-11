@@ -8,9 +8,12 @@
 #include "core/base/Error.h"
 #include "core/base/Logging.h"
 #include "core/cache/RepoIndexDb.h"
+#include "core/git/BlameStore.h"
 #include "core/git/CommitMeta.h"
+#include "core/git/FileHistoryStore.h"
 #include "core/git/OperationRunner.h"
 #include "core/git/RefStore.h"
+#include "core/git/ReflogStore.h"
 #include "core/git/RepoState.h"
 #include "core/git/UnifiedDiffParser.h"
 #include "core/git/WorkingCopyStatus.h"
@@ -25,6 +28,7 @@ namespace gbm::capi {
 
 std::string toJson(const GitError& error);
 std::string toJson(const RepoState& state);
+std::string toJson(const Signature& signature);
 std::string toJson(const CommitMeta& meta);
 std::string toJson(const OperationOutcome& outcome);
 std::string toJson(const RepoRecord& record);
@@ -41,5 +45,14 @@ std::string toJson(const std::vector<WorktreeInfo>& worktrees);
 std::string toJson(const RemoteInfo& remote);
 std::string toJson(const std::vector<RemoteInfo>& remotes);
 std::string toJson(const OperationRecord& record);
+std::string toJson(const BlameResult& result);
+std::string toJson(const FileHistoryEntry& entry);
+std::string toJson(const std::vector<FileHistoryEntry>& entries);
+std::string toJson(const LineHistoryChunk& chunk);
+std::string toJson(const std::vector<LineHistoryChunk>& chunks);
+std::string toJson(const ReflogEntry& entry);
+std::string toJson(const std::vector<ReflogEntry>& entries);
+std::string toJson(const OperationRunner::UndoEntry& entry);
+std::string toJson(const std::vector<OperationRunner::UndoEntry>& entries);
 
 }  // namespace gbm::capi

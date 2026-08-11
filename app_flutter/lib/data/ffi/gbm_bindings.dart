@@ -30,6 +30,10 @@ abstract final class GbmEventType {
   static const int remotesUpdated = 10;
   static const int credentialRequested = 11;
   static const int operationLogRecord = 12;
+  static const int blameReady = 13;
+  static const int fileHistoryReady = 14;
+  static const int lineHistoryReady = 15;
+  static const int reflogReady = 16;
 }
 
 /// `void (*)(GbmSessionHandle, int32_t, const uint8_t*, int32_t, void*)`.
@@ -332,6 +336,41 @@ typedef ProvideCredentialDart = void Function(Pointer<Void> session, Pointer<Utf
 typedef _CancelCredentialNative = Void Function(Pointer<Void> session);
 typedef CancelCredentialDart = void Function(Pointer<Void> session);
 
+typedef _RequestBlameNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> path, Pointer<Utf8> revision, Int32 startLine, Int32 endLine);
+typedef RequestBlameDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> path, Pointer<Utf8> revision, int startLine, int endLine);
+
+typedef _RequestFileHistoryNative = Void Function(Pointer<Void> session, Pointer<Utf8> path, Pointer<Utf8> startRevision);
+typedef RequestFileHistoryDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> path, Pointer<Utf8> startRevision);
+
+typedef _RequestLineHistoryNative =
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> path,
+      Int32 startLine,
+      Int32 endLine,
+      Pointer<Utf8> startRevision,
+    );
+typedef RequestLineHistoryDart =
+    void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> path,
+      int startLine,
+      int endLine,
+      Pointer<Utf8> startRevision,
+    );
+
+typedef _RequestReflogNative = Void Function(Pointer<Void> session, Pointer<Utf8> ref);
+typedef RequestReflogDart = void Function(Pointer<Void> session, Pointer<Utf8> ref);
+
+typedef _UndoJournalJsonNative = Int32 Function(Pointer<Void> session);
+typedef UndoJournalJsonDart = int Function(Pointer<Void> session);
+
+typedef _UndoLastNative = Void Function(Pointer<Void> session);
+typedef UndoLastDart = void Function(Pointer<Void> session);
+
 typedef _DiscoveryOpenNative = Pointer<Void> Function(Pointer<Utf8> dbPath);
 typedef DiscoveryOpenDart = Pointer<Void> Function(Pointer<Utf8> dbPath);
 
@@ -456,6 +495,16 @@ class GbmBindings {
       cancelCredential = library.lookupFunction<_CancelCredentialNative, CancelCredentialDart>(
         'gbm_cancel_credential',
       ),
+      requestBlame = library.lookupFunction<_RequestBlameNative, RequestBlameDart>('gbm_request_blame'),
+      requestFileHistory = library.lookupFunction<_RequestFileHistoryNative, RequestFileHistoryDart>(
+        'gbm_request_file_history',
+      ),
+      requestLineHistory = library.lookupFunction<_RequestLineHistoryNative, RequestLineHistoryDart>(
+        'gbm_request_line_history',
+      ),
+      requestReflog = library.lookupFunction<_RequestReflogNative, RequestReflogDart>('gbm_request_reflog'),
+      undoJournalJson = library.lookupFunction<_UndoJournalJsonNative, UndoJournalJsonDart>('gbm_undo_journal_json'),
+      undoLast = library.lookupFunction<_UndoLastNative, UndoLastDart>('gbm_undo_last'),
       discoveryOpen = library.lookupFunction<_DiscoveryOpenNative, DiscoveryOpenDart>('gbm_discovery_open'),
       discoveryClose = library.lookupFunction<_DiscoveryCloseNative, DiscoveryCloseDart>('gbm_discovery_close'),
       discoveryAddBaseFolder = library
@@ -535,6 +584,12 @@ class GbmBindings {
   final PushDart push;
   final ProvideCredentialDart provideCredential;
   final CancelCredentialDart cancelCredential;
+  final RequestBlameDart requestBlame;
+  final RequestFileHistoryDart requestFileHistory;
+  final RequestLineHistoryDart requestLineHistory;
+  final RequestReflogDart requestReflog;
+  final UndoJournalJsonDart undoJournalJson;
+  final UndoLastDart undoLast;
   final DiscoveryOpenDart discoveryOpen;
   final DiscoveryCloseDart discoveryClose;
   final DiscoveryAddBaseFolderDart discoveryAddBaseFolder;

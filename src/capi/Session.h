@@ -17,12 +17,15 @@
 #include "core/base/CancellationToken.h"
 #include "core/base/Error.h"
 #include "core/base/Logging.h"
+#include "core/git/BlameStore.h"
 #include "core/git/DiffService.h"
+#include "core/git/FileHistoryStore.h"
 #include "core/git/GitExecutable.h"
 #include "core/git/HistoryProvider.h"
 #include "core/git/IProcessRunner.h"
 #include "core/git/OperationRunner.h"
 #include "core/git/RefStore.h"
+#include "core/git/ReflogStore.h"
 #include "core/git/RepoPaths.h"
 #include "core/git/RepoState.h"
 #include "core/git/WorkingCopyStatus.h"
@@ -37,6 +40,7 @@
 #include "core/git/ops/StageOps.h"
 #include "core/git/ops/StashOps.h"
 #include "core/git/ops/TagOps.h"
+#include "core/git/ops/UndoOps.h"
 #include "core/git/ops/WorktreeOps.h"
 #include "core/graph/GraphSnapshot.h"
 #include "core/workers/ThreadPool.h"
@@ -204,6 +208,25 @@ public:
     void provideCredential(std::string secret);
     void cancelCredential();
 
+    /// Async: see gbm_request_blame()'s doc comment.
+    void requestBlame(std::string path, std::string revision, int startLine, int endLine);
+
+    /// Async: see gbm_request_file_history()/gbm_request_line_history()'s
+    /// doc comments.
+    void requestFileHistory(std::string path, std::string startRevision);
+    void requestLineHistory(std::string path, int startLine, int endLine, std::string startRevision);
+
+    /// Async: see gbm_request_reflog()'s doc comment.
+    void requestReflog(std::string ref);
+
+    /// The most recently published undo journal, newest last. Thread-safe;
+    /// never blocks. See undoJournalCache_'s doc comment for why this is a
+    /// snapshot rather than a live read of operations_->undoJournal().
+    std::vector<OperationRunner::UndoEntry> undoJournal() const;
+
+    /// Async: see gbm_undo_last()'s doc comment.
+    void undoLastOperation();
+
     /// The process-wide gbm::Log operation sink, installed once (via
     /// std::call_once in the constructor) and shared by every open Session:
     /// gbm::Log is itself a process-wide singleton, with no notion of which
@@ -254,6 +277,24 @@ private:
     /// Serializes `record` and emits it as GBM_EVENT_OPERATION_LOG_RECORD.
     void publishOperationLogRecord(const OperationRecord& record);
 
+    /// Copies operations_->undoJournal() into undoJournalCache_ under
+    /// undoMutex_. Called only from within submitOperation()'s/
+    /// submitWorkingCopyOperation()'s completion callback -- i.e. only ever
+    /// on operations_'s own serial worker thread, which is also the only
+    /// thread that ever calls OperationRunner::recordUndoPoint() (the thing
+    /// that mutates the journal operations_->undoJournal() references). That
+    /// makes this call site-safe even though OperationRunner::undoJournal()
+    /// itself returns an unsynchronized `const vector&` (see its doc
+    /// comment): nothing else can be appending to the vector while this
+    /// runs, because this callback running IS the worker thread being busy.
+    /// undoJournal() (the public accessor below) is the only thing that may
+    /// be called from an arbitrary thread (an FFI caller), which is exactly
+    /// why it reads the mutex-guarded copy instead of going through
+    /// operations_ directly.
+    void refreshUndoJournalCache();
+
+    /// Runs `operation` on operations_, emits GBM_EVENT_OPERATION_FINISHED
+
     /// Runs `operation` on operations_, emits GBM_EVENT_OPERATION_FINISHED
     /// with its outcome, and always refreshes the working copy (a
     /// checkout/reset/merge/cherry-pick/revert can leave conflicted or
@@ -275,6 +316,9 @@ private:
     std::unique_ptr<StashStore> stashStore_;
     std::unique_ptr<WorktreeStore> worktreeStore_;
     std::unique_ptr<RemoteStore> remoteStore_;
+    std::unique_ptr<BlameStore> blameStore_;
+    std::unique_ptr<FileHistoryStore> fileHistoryStore_;
+    std::unique_ptr<ReflogStore> reflogStore_;
 
     CallbackRegistry callbacks_;
     AskpassPoller askpass_;
@@ -307,6 +351,18 @@ private:
     StashListPtr stashes_;
     WorktreeListPtr worktrees_;
     RemoteListPtr remotes_;
+
+    /// A snapshot of operations_->undoJournal(), refreshed by
+    /// refreshUndoJournalCache() (see its doc comment for why this
+    /// indirection exists rather than exposing operations_->undoJournal()
+    /// directly: that accessor is not internally synchronized, so a caller
+    /// on an arbitrary FFI thread reading it concurrently with the worker
+    /// thread's OperationRunner::recordUndoPoint() would be a data race).
+    /// This cache is the capi layer's own translation of a Qt-app assumption
+    /// (a single UI thread reading a cheap accessor "often") into something
+    /// safe to call from any thread.
+    mutable std::mutex undoMutex_;
+    std::vector<OperationRunner::UndoEntry> undoJournalCache_;
 };
 
 }  // namespace gbm::capi

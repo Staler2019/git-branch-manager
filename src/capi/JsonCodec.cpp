@@ -55,9 +55,7 @@ std::string toJson(const RepoState& state) {
     return out;
 }
 
-namespace {
-
-std::string signatureJson(const Signature& sig) {
+std::string toJson(const Signature& sig) {
     std::string out = "{";
     out += "\"name\":";
     jsonAppendEscaped(out, sig.name);
@@ -71,8 +69,6 @@ std::string signatureJson(const Signature& sig) {
     return out;
 }
 
-}  // namespace
-
 std::string toJson(const CommitMeta& meta) {
     std::string out = "{";
     out += "\"oid\":";
@@ -85,9 +81,9 @@ std::string toJson(const CommitMeta& meta) {
         jsonAppendEscaped(out, meta.parents[i].hex());
     }
     out += "],\"author\":";
-    out += signatureJson(meta.author);
+    out += toJson(meta.author);
     out += ",\"committer\":";
-    out += signatureJson(meta.committer);
+    out += toJson(meta.committer);
     out += ",\"subject\":";
     jsonAppendEscaped(out, meta.subject);
     out += ",\"body\":";
@@ -526,6 +522,146 @@ std::string toJson(const OperationRecord& record) {
     out += ",\"timedOut\":";
     jsonAppendBool(out, record.timedOut);
     out += '}';
+    return out;
+}
+
+namespace {
+
+std::string blameLineJson(const BlameLine& line) {
+    std::string out = "{";
+    out += "\"commitOid\":";
+    jsonAppendEscaped(out, line.commitOid.hex());
+    out += ",\"authorName\":";
+    jsonAppendEscaped(out, line.authorName);
+    out += ",\"authorEmail\":";
+    jsonAppendEscaped(out, line.authorEmail);
+    out += ",\"authorTime\":";
+    jsonAppendInt(out, line.authorTime);
+    out += ",\"summary\":";
+    jsonAppendEscaped(out, line.summary);
+    out += ",\"finalLine\":";
+    jsonAppendInt(out, line.finalLine);
+    out += ",\"originalLine\":";
+    jsonAppendInt(out, line.originalLine);
+    out += ",\"content\":";
+    jsonAppendEscaped(out, line.content);
+    out += ",\"boundary\":";
+    jsonAppendBool(out, line.boundary);
+    out += '}';
+    return out;
+}
+
+}  // namespace
+
+std::string toJson(const BlameResult& result) {
+    std::string out = "{\"lines\":[";
+    for (std::size_t i = 0; i < result.lines.size(); ++i) {
+        if (i != 0) out += ',';
+        out += blameLineJson(result.lines[i]);
+    }
+    out += "],\"truncated\":";
+    jsonAppendBool(out, result.truncated);
+    out += '}';
+    return out;
+}
+
+std::string toJson(const FileHistoryEntry& entry) {
+    std::string out = "{";
+    out += "\"oid\":";
+    jsonAppendEscaped(out, entry.oid.hex());
+    out += ",\"author\":";
+    out += toJson(entry.author);
+    out += ",\"subject\":";
+    jsonAppendEscaped(out, entry.subject);
+    out += ",\"status\":";
+    jsonAppendEscaped(out, entry.status);
+    out += ",\"renamedFrom\":";
+    jsonAppendEscaped(out, entry.renamedFrom);
+    out += '}';
+    return out;
+}
+
+std::string toJson(const std::vector<FileHistoryEntry>& entries) {
+    std::string out = "[";
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        if (i != 0) out += ',';
+        out += toJson(entries[i]);
+    }
+    out += ']';
+    return out;
+}
+
+std::string toJson(const LineHistoryChunk& chunk) {
+    std::string out = "{";
+    out += "\"oid\":";
+    jsonAppendEscaped(out, chunk.oid.hex());
+    out += ",\"author\":";
+    out += toJson(chunk.author);
+    out += ",\"subject\":";
+    jsonAppendEscaped(out, chunk.subject);
+    out += ",\"diffText\":";
+    jsonAppendEscaped(out, chunk.diffText);
+    out += '}';
+    return out;
+}
+
+std::string toJson(const std::vector<LineHistoryChunk>& chunks) {
+    std::string out = "[";
+    for (std::size_t i = 0; i < chunks.size(); ++i) {
+        if (i != 0) out += ',';
+        out += toJson(chunks[i]);
+    }
+    out += ']';
+    return out;
+}
+
+std::string toJson(const ReflogEntry& entry) {
+    std::string out = "{";
+    out += "\"index\":";
+    jsonAppendInt(out, entry.index);
+    out += ",\"oid\":";
+    jsonAppendEscaped(out, entry.oid.hex());
+    out += ",\"message\":";
+    jsonAppendEscaped(out, entry.message);
+    out += ",\"who\":";
+    out += toJson(entry.who);
+    out += '}';
+    return out;
+}
+
+std::string toJson(const std::vector<ReflogEntry>& entries) {
+    std::string out = "[";
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        if (i != 0) out += ',';
+        out += toJson(entries[i]);
+    }
+    out += ']';
+    return out;
+}
+
+std::string toJson(const OperationRunner::UndoEntry& entry) {
+    std::string out = "{";
+    out += "\"id\":";
+    jsonAppendInt(out, static_cast<std::int64_t>(entry.id));
+    out += ",\"description\":";
+    jsonAppendEscaped(out, entry.description);
+    out += ",\"headBefore\":";
+    jsonAppendEscaped(out, entry.headBefore.hex());
+    out += ",\"branchBefore\":";
+    jsonAppendEscaped(out, entry.branchBefore);
+    out += ",\"timestamp\":";
+    jsonAppendInt(out, entry.timestamp);
+    out += '}';
+    return out;
+}
+
+std::string toJson(const std::vector<OperationRunner::UndoEntry>& entries) {
+    std::string out = "[";
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        if (i != 0) out += ',';
+        out += toJson(entries[i]);
+    }
+    out += ']';
     return out;
 }
 

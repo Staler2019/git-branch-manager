@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../data/models/working_copy_status.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart' show WorkingCopyDiffReply;
 import '../../data/repositories/working_copy_repository.dart' as wc;
+import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/gbm_button.dart';
 import '../diff/diff_page.dart';
+import '../workspace/workspace_screen.dart' show repoIdForRoute;
 import 'widgets/changed_file_row.dart';
 
 /// Changed-file list (staged/unstaged/untracked) + diff pane + commit box.
@@ -100,6 +103,7 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
   }
 
   Widget _rowFor(WorkingCopyEntry entry, {required bool staged}) {
+    final String repoId = repoIdForRoute(widget.identity);
     return ChangedFileRow(
       entry: entry,
       checked: staged,
@@ -118,6 +122,9 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
         });
         wc.requestWorkingCopyDiff(ref, widget.identity, entry.path, staged: staged);
       },
+      onBlame: () => context.push(RoutePaths.blameDialogFor(repoId, path: entry.path)),
+      onFileHistory: () => context.push(RoutePaths.fileHistoryDialogFor(repoId, path: entry.path)),
+      onLineHistory: () => context.push(RoutePaths.lineHistoryDialogFor(repoId, path: entry.path)),
     );
   }
 }

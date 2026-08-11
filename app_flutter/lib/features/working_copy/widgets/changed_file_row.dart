@@ -15,6 +15,9 @@ class ChangedFileRow extends StatelessWidget {
     required this.selected,
     required this.onCheckToggle,
     required this.onTap,
+    this.onBlame,
+    this.onFileHistory,
+    this.onLineHistory,
   });
 
   final WorkingCopyEntry entry;
@@ -22,6 +25,12 @@ class ChangedFileRow extends StatelessWidget {
   final bool selected;
   final VoidCallback onCheckToggle;
   final VoidCallback onTap;
+  /// When set, a trailing "more" menu offers Blame/File History/Line
+  /// History for this file -- see `working_copy_view.dart`'s wiring of
+  /// these into the M6 dialog routes.
+  final VoidCallback? onBlame;
+  final VoidCallback? onFileHistory;
+  final VoidCallback? onLineHistory;
 
   @override
   Widget build(BuildContext context) {
@@ -46,6 +55,20 @@ class ChangedFileRow extends StatelessWidget {
               ),
             ),
             Text(_statusLabel(entry), style: TextStyle(fontSize: GbmTypography.textXs, color: _statusColor(entry, colors))),
+            if (onBlame != null || onFileHistory != null || onLineHistory != null)
+              PopupMenuButton<VoidCallback>(
+                tooltip: 'File actions',
+                padding: EdgeInsets.zero,
+                icon: Icon(Icons.more_vert, size: 16, color: colors.textTertiary),
+                onSelected: (action) => action(),
+                itemBuilder: (context) => <PopupMenuEntry<VoidCallback>>[
+                  if (onBlame != null) PopupMenuItem<VoidCallback>(value: onBlame, child: const Text('Blame…')),
+                  if (onFileHistory != null)
+                    PopupMenuItem<VoidCallback>(value: onFileHistory, child: const Text('File History…')),
+                  if (onLineHistory != null)
+                    PopupMenuItem<VoidCallback>(value: onLineHistory, child: const Text('Line History…')),
+                ],
+              ),
           ],
         ),
       ),

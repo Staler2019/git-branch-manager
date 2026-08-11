@@ -8,14 +8,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../ffi/event_dispatcher.dart';
 import '../ffi/gbm_bindings.dart';
 import '../ffi/json_codec.dart';
+import '../models/blame_result.dart';
+import '../models/file_history_entry.dart';
 import '../models/git_error.dart';
 import '../models/graph_snapshot.dart';
+import '../models/line_history_chunk.dart';
 import '../models/operation_record.dart';
 import '../models/parsed_diff.dart';
 import '../models/ref_snapshot.dart';
+import '../models/reflog_entry.dart';
 import '../models/remote_info.dart';
 import '../models/repo_state.dart' as model;
 import '../models/stash_entry.dart';
+import '../models/undo_entry.dart';
 import '../models/working_copy_status.dart';
 import '../models/worktree_info.dart';
 import 'gbm_bindings_provider.dart';
@@ -95,6 +100,11 @@ class RepoSessionState {
     this.remotes = const <RemoteInfo>[],
     this.credentialPrompt,
     this.operationLog = const <OperationRecord>[],
+    this.lastBlame,
+    this.lastFileHistory = const <FileHistoryEntry>[],
+    this.lastLineHistory = const <LineHistoryChunk>[],
+    this.lastReflog = const <ReflogEntry>[],
+    this.undoJournal = const <UndoEntry>[],
   });
 
   final bool isOpen;
@@ -117,6 +127,16 @@ class RepoSessionState {
   final String? credentialPrompt;
   /// Newest-last, capped at [_kMaxOperationLogEntries].
   final List<OperationRecord> operationLog;
+  final BlameResult? lastBlame;
+  final List<FileHistoryEntry> lastFileHistory;
+  final List<LineHistoryChunk> lastLineHistory;
+  /// Newest-first -- see gbm_request_reflog()'s doc comment in gbm_capi.h.
+  final List<ReflogEntry> lastReflog;
+  /// Oldest-first, refreshed after every operation that can be undone --
+  /// see Session::refreshUndoJournalCache()'s doc comment in Session.cpp for
+  /// why this only ever changes right after GBM_EVENT_OPERATION_FINISHED /
+  /// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED.
+  final List<UndoEntry> undoJournal;
 
   RepoSessionState copyWith({
     bool? isOpen,
@@ -135,6 +155,11 @@ class RepoSessionState {
     String? credentialPrompt,
     bool clearCredentialPrompt = false,
     List<OperationRecord>? operationLog,
+    BlameResult? lastBlame,
+    List<FileHistoryEntry>? lastFileHistory,
+    List<LineHistoryChunk>? lastLineHistory,
+    List<ReflogEntry>? lastReflog,
+    List<UndoEntry>? undoJournal,
   }) {
     return RepoSessionState(
       isOpen: isOpen ?? this.isOpen,
@@ -151,6 +176,11 @@ class RepoSessionState {
       remotes: remotes ?? this.remotes,
       credentialPrompt: clearCredentialPrompt ? null : (credentialPrompt ?? this.credentialPrompt),
       operationLog: operationLog ?? this.operationLog,
+      lastBlame: lastBlame ?? this.lastBlame,
+      lastFileHistory: lastFileHistory ?? this.lastFileHistory,
+      lastLineHistory: lastLineHistory ?? this.lastLineHistory,
+      lastReflog: lastReflog ?? this.lastReflog,
+      undoJournal: undoJournal ?? this.undoJournal,
     );
   }
 }
@@ -213,6 +243,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
         );
       case GbmEventType.operationFinished:
         _readRepoState();
+        _readUndoJournal();
       case GbmEventType.workingCopyStatusUpdated:
         _readWorkingCopyStatus();
       case GbmEventType.workingCopyOperationFinished:
@@ -221,6 +252,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
           final Object? error = payload['error'];
           state = state.copyWith(lastError: error is Map<String, dynamic> ? GitError.fromJson(error) : null);
         }
+        _readUndoJournal();
       case GbmEventType.workingCopyDiffReady:
         final Object? payload = decodeEventPayload(event.payload);
         if (payload is Map<String, dynamic>) {
@@ -251,6 +283,26 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
                 ? updated.sublist(updated.length - _kMaxOperationLogEntries)
                 : updated,
           );
+        }
+      case GbmEventType.blameReady:
+        final Object? payload = decodeEventPayload(event.payload);
+        if (payload is Map<String, dynamic>) {
+          state = state.copyWith(lastBlame: BlameResult.fromJson(payload));
+        }
+      case GbmEventType.fileHistoryReady:
+        final Object? payload = decodeEventPayload(event.payload);
+        if (payload is List<dynamic>) {
+          state = state.copyWith(lastFileHistory: FileHistoryEntry.listFromJson(payload));
+        }
+      case GbmEventType.lineHistoryReady:
+        final Object? payload = decodeEventPayload(event.payload);
+        if (payload is List<dynamic>) {
+          state = state.copyWith(lastLineHistory: LineHistoryChunk.listFromJson(payload));
+        }
+      case GbmEventType.reflogReady:
+        final Object? payload = decodeEventPayload(event.payload);
+        if (payload is List<dynamic>) {
+          state = state.copyWith(lastReflog: ReflogEntry.listFromJson(payload));
         }
     }
   }
@@ -305,6 +357,20 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
       final String json = readLastResultJson(_bindings);
       if (json.isNotEmpty) {
         state = state.copyWith(remotes: RemoteInfo.listFromJson(jsonDecode(json) as List<dynamic>));
+      }
+    }
+  }
+
+  /// Synchronously re-reads the undo journal cache -- unlike the other
+  /// `_read*` helpers this has no dedicated event; Session refreshes its
+  /// cache as part of every operation's completion callback (see
+  /// Session::refreshUndoJournalCache()'s doc comment), so this is called
+  /// right after GBM_EVENT_OPERATION_FINISHED / GBM_EVENT_WORKING_COPY_OPERATION_FINISHED.
+  void _readUndoJournal() {
+    if (_bindings.undoJournalJson(_session) == 0) {
+      final String json = readLastResultJson(_bindings);
+      if (json.isNotEmpty) {
+        state = state.copyWith(undoJournal: UndoEntry.listFromJson(jsonDecode(json) as List<dynamic>));
       }
     }
   }
@@ -751,6 +817,74 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   /// keeps no history of its own (see core/base/Logging.h).
   void clearOperationLog() {
     state = state.copyWith(operationLog: const <OperationRecord>[]);
+  }
+
+  /// `git blame`. `revision` empty blames from the working copy; `startLine`/
+  /// `endLine` both 0 blames the whole file. Async: fires
+  /// GBM_EVENT_BLAME_READY into [RepoSessionState.lastBlame]. A newer call
+  /// supersedes an older still-queued one (see gbm_request_blame()'s doc
+  /// comment in gbm_capi.h).
+  void requestBlame(String path, {String revision = '', int startLine = 0, int endLine = 0}) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+    final Pointer<Utf8> revisionPtr = revision.toNativeUtf8();
+    try {
+      _bindings.requestBlame(_session, pathPtr, revisionPtr, startLine, endLine);
+    } finally {
+      malloc.free(pathPtr);
+      malloc.free(revisionPtr);
+    }
+  }
+
+  /// `git log --follow` for one file. `startRevision` empty starts from
+  /// HEAD. Async: fires GBM_EVENT_FILE_HISTORY_READY into
+  /// [RepoSessionState.lastFileHistory].
+  void requestFileHistory(String path, {String startRevision = ''}) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+    final Pointer<Utf8> startRevisionPtr = startRevision.toNativeUtf8();
+    try {
+      _bindings.requestFileHistory(_session, pathPtr, startRevisionPtr);
+    } finally {
+      malloc.free(pathPtr);
+      malloc.free(startRevisionPtr);
+    }
+  }
+
+  /// `git log -L startLine,endLine:path`. `startRevision` empty starts from
+  /// HEAD. Async: fires GBM_EVENT_LINE_HISTORY_READY into
+  /// [RepoSessionState.lastLineHistory].
+  void requestLineHistory(String path, int startLine, int endLine, {String startRevision = ''}) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+    final Pointer<Utf8> startRevisionPtr = startRevision.toNativeUtf8();
+    try {
+      _bindings.requestLineHistory(_session, pathPtr, startLine, endLine, startRevisionPtr);
+    } finally {
+      malloc.free(pathPtr);
+      malloc.free(startRevisionPtr);
+    }
+  }
+
+  /// `git reflog show <ref>`. `ref` empty means HEAD. Async: fires
+  /// GBM_EVENT_REFLOG_READY into [RepoSessionState.lastReflog], newest-first.
+  void requestReflog({String ref = ''}) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> refPtr = ref.toNativeUtf8();
+    try {
+      _bindings.requestReflog(_session, refPtr);
+    } finally {
+      malloc.free(refPtr);
+    }
+  }
+
+  /// Reverts the most recent entry in [RepoSessionState.undoJournal] (a
+  /// no-op if it is empty). See gbm_undo_last()'s doc comment in
+  /// gbm_capi.h: fires GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on
+  /// success refreshes both the working copy and history.
+  void undoLast() {
+    if (_session == nullptr) return;
+    _bindings.undoLast(_session);
   }
 
   /// Marshals `paths` into a native `const char* const*` for the lifetime of

@@ -4,16 +4,19 @@
 # docs/ARCHITECTURE.md's core/app split.
 add_library(gbm_capi SHARED
     AskpassPoller.cpp
+    Blame.cpp
     Branches.cpp
     CallbackRegistry.cpp
     CherryPick.cpp
     Conflicts.cpp
     Discovery.cpp
+    FileHistory.cpp
     Graph.cpp
     Handle.cpp
     History.cpp
     JsonCodec.cpp
     Merge.cpp
+    Reflog.cpp
     Refs.cpp
     Remotes.cpp
     ResetRestore.cpp
@@ -21,6 +24,7 @@ add_library(gbm_capi SHARED
     Session.cpp
     Stash.cpp
     Tags.cpp
+    Undo.cpp
     WorkingCopy.cpp
     Worktrees.cpp
 )

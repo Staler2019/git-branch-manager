@@ -4,17 +4,22 @@ import 'package:go_router/go_router.dart';
 import '../data/repositories/repo_identity.dart';
 import '../features/conflict_resolution/conflict_resolve_window.dart';
 import '../features/dialogs/about/about_dialog.dart';
+import '../features/dialogs/blame/blame_dialog.dart';
 import '../features/dialogs/cherry_pick/cherry_pick_dialog.dart';
 import '../features/dialogs/create_tag/create_tag_dialog.dart';
 import '../features/dialogs/credential/credential_dialog.dart';
+import '../features/dialogs/file_history/file_history_dialog.dart';
 import '../features/dialogs/keyboard_shortcuts/keyboard_shortcuts_dialog.dart';
+import '../features/dialogs/line_history/line_history_dialog.dart';
 import '../features/dialogs/manage_base_folders/manage_base_folders_dialog.dart';
 import '../features/dialogs/manage_remotes/manage_remotes_dialog.dart';
 import '../features/dialogs/manage_stashes/manage_stashes_dialog.dart';
 import '../features/dialogs/manage_worktrees/manage_worktrees_dialog.dart';
 import '../features/dialogs/merge/merge_dialog.dart';
+import '../features/dialogs/reflog/reflog_dialog.dart';
 import '../features/dialogs/reset_branch/reset_branch_dialog.dart';
 import '../features/dialogs/stash_changes/stash_changes_dialog.dart';
+import '../features/dialogs/undo_last/undo_last_dialog.dart';
 import '../features/history_graph/commit_graph_view.dart';
 import '../features/operation_log/operation_log_dialog.dart';
 import '../features/repo_list/repo_list_screen.dart';
@@ -155,6 +160,41 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
           return OperationLogDialogContent(identity: identity);
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.blameDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          return BlameDialogContent(identity: identity, initialPath: state.uri.queryParameters['path'] ?? '');
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.fileHistoryDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          return FileHistoryDialogContent(identity: identity, initialPath: state.uri.queryParameters['path'] ?? '');
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.lineHistoryDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          return LineHistoryDialogContent(identity: identity, initialPath: state.uri.queryParameters['path'] ?? '');
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.reflogDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          return ReflogDialogContent(identity: identity);
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.undoLastDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          return UndoLastDialogContent(identity: identity);
         },
       ),
       GoRoute(

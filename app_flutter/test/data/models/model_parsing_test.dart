@@ -6,16 +6,21 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/base_folder_record.dart';
+import 'package:gbm_flutter/data/models/blame_result.dart';
+import 'package:gbm_flutter/data/models/file_history_entry.dart';
 import 'package:gbm_flutter/data/models/git_error.dart';
 import 'package:gbm_flutter/data/models/graph_snapshot.dart';
+import 'package:gbm_flutter/data/models/line_history_chunk.dart';
 import 'package:gbm_flutter/data/models/operation_outcome.dart';
 import 'package:gbm_flutter/data/models/operation_record.dart';
 import 'package:gbm_flutter/data/models/parsed_diff.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
+import 'package:gbm_flutter/data/models/reflog_entry.dart';
 import 'package:gbm_flutter/data/models/remote_info.dart';
 import 'package:gbm_flutter/data/models/repo_record.dart';
 import 'package:gbm_flutter/data/models/repo_state.dart' as model;
 import 'package:gbm_flutter/data/models/stash_entry.dart';
+import 'package:gbm_flutter/data/models/undo_entry.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/data/models/worktree_info.dart';
 
@@ -202,5 +207,63 @@ void main() {
 
     expect(record.argv, <String>['git', 'status']);
     expect(record.failed, isTrue);
+  });
+
+  test('BlameResult.fromJson decodes lines and the truncated flag', () {
+    final Map<String, dynamic> json = jsonDecode(
+      '{"lines":[{"commitOid":"aa","authorName":"A","authorEmail":"a@x","authorTime":1,'
+      '"summary":"init","finalLine":1,"originalLine":1,"content":"hi","boundary":true}],'
+      '"truncated":false}',
+    );
+    final BlameResult result = BlameResult.fromJson(json);
+
+    expect(result.lines, hasLength(1));
+    expect(result.lines.single.boundary, isTrue);
+    expect(result.truncated, isFalse);
+  });
+
+  test('FileHistoryEntry.listFromJson decodes an array', () {
+    final List<dynamic> json = jsonDecode(
+      '[{"oid":"aa","author":{"name":"A","email":"a@x","when":1,"tzOffsetMinutes":0},'
+      '"subject":"init","status":"A","renamedFrom":""}]',
+    );
+    final List<FileHistoryEntry> entries = FileHistoryEntry.listFromJson(json);
+
+    expect(entries, hasLength(1));
+    expect(entries.single.status, 'A');
+    expect(entries.single.author.name, 'A');
+  });
+
+  test('LineHistoryChunk.listFromJson decodes an array', () {
+    final List<dynamic> json = jsonDecode(
+      '[{"oid":"aa","author":{"name":"A","email":"a@x","when":1,"tzOffsetMinutes":0},'
+      '"subject":"init","diffText":"@@ -1 +1 @@"}]',
+    );
+    final List<LineHistoryChunk> chunks = LineHistoryChunk.listFromJson(json);
+
+    expect(chunks, hasLength(1));
+    expect(chunks.single.diffText, '@@ -1 +1 @@');
+  });
+
+  test('ReflogEntry.listFromJson decodes an array newest-first', () {
+    final List<dynamic> json = jsonDecode(
+      '[{"index":0,"oid":"aa","message":"commit: init",'
+      '"who":{"name":"A","email":"a@x","when":1,"tzOffsetMinutes":0}}]',
+    );
+    final List<ReflogEntry> entries = ReflogEntry.listFromJson(json);
+
+    expect(entries, hasLength(1));
+    expect(entries.single.index, 0);
+    expect(entries.single.who.name, 'A');
+  });
+
+  test('UndoEntry.listFromJson decodes an array', () {
+    final List<dynamic> json = jsonDecode(
+      '[{"id":1,"description":"Commit","headBefore":"aa","branchBefore":"main","timestamp":123}]',
+    );
+    final List<UndoEntry> entries = UndoEntry.listFromJson(json);
+
+    expect(entries, hasLength(1));
+    expect(entries.single.branchBefore, 'main');
   });
 }

@@ -96,9 +96,16 @@ class _InteractiveRebaseDialogContentState extends ConsumerState<InteractiveReba
             Expanded(
               child: todo.isEmpty
                   ? Center(child: Text('Enter an upstream and press Load Plan', style: TextStyle(color: colors.textTertiary)))
-                  : ListView.builder(
+                  : ReorderableListView.builder(
+                      // Desktop's default drag-handle affordance sits at the
+                      // trailing edge of each row -- with the action dropdown
+                      // already living there, a leading handle (below, folded
+                      // into _TodoRow) reads more clearly.
+                      buildDefaultDragHandles: false,
                       itemCount: todo.length,
                       itemBuilder: (context, index) => _TodoRow(
+                        key: ValueKey<String>(todo[index].oid),
+                        index: index,
                         entry: todo[index],
                         onActionChanged: (action) {
                           final List<RebaseTodoEntry> updated = List<RebaseTodoEntry>.of(todo);
@@ -106,6 +113,15 @@ class _InteractiveRebaseDialogContentState extends ConsumerState<InteractiveReba
                           setState(() => _editedTodo = updated);
                         },
                       ),
+                      // The todo list's order is the order commits get replayed
+                      // in -- see RebaseOps.h's doc comment -- so reordering
+                      // here is a real edit to the plan, not just display.
+                      onReorderItem: (oldIndex, newIndex) {
+                        final List<RebaseTodoEntry> updated = List<RebaseTodoEntry>.of(todo);
+                        final RebaseTodoEntry moved = updated.removeAt(oldIndex);
+                        updated.insert(newIndex, moved);
+                        setState(() => _editedTodo = updated);
+                      },
                     ),
             ),
           ],
@@ -116,8 +132,9 @@ class _InteractiveRebaseDialogContentState extends ConsumerState<InteractiveReba
 }
 
 class _TodoRow extends StatelessWidget {
-  const _TodoRow({required this.entry, required this.onActionChanged});
+  const _TodoRow({super.key, required this.index, required this.entry, required this.onActionChanged});
 
+  final int index;
   final RebaseTodoEntry entry;
   final ValueChanged<RebaseTodoAction> onActionChanged;
 
@@ -128,6 +145,14 @@ class _TodoRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         children: <Widget>[
+          ReorderableDragStartListener(
+            index: index,
+            child: Semantics(
+              label: 'Drag to reorder ${entry.subject}',
+              child: Icon(Icons.drag_handle, size: 16, color: colors.textTertiary),
+            ),
+          ),
+          const SizedBox(width: GbmSpacing.space1),
           SizedBox(
             width: 110,
             child: DropdownButton<RebaseTodoAction>(

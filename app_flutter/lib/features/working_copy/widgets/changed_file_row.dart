@@ -42,7 +42,9 @@ class ChangedFileRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
-    return InkWell(
+    return Semantics(
+      label: '${entry.path}, ${_statusDescription(entry)}${checked ? ', staged' : ''}',
+      child: InkWell(
       onTap: onTap,
       child: Container(
         height: GbmSpacing.rowHeightCompact,
@@ -52,7 +54,10 @@ class ChangedFileRow extends StatelessWidget {
           children: <Widget>[
             SizedBox(
               width: 24,
-              child: Checkbox(value: checked, onChanged: (_) => onCheckToggle(), visualDensity: VisualDensity.compact),
+              child: Semantics(
+                label: checked ? 'Unstage ${entry.path}' : 'Stage ${entry.path}',
+                child: Checkbox(value: checked, onChanged: (_) => onCheckToggle(), visualDensity: VisualDensity.compact),
+              ),
             ),
             Expanded(
               child: Text(
@@ -84,7 +89,22 @@ class ChangedFileRow extends StatelessWidget {
           ],
         ),
       ),
+      ),
     );
+  }
+
+  String _statusDescription(WorkingCopyEntry entry) {
+    if (entry.untracked) return 'untracked';
+    final FileChangeKind kind = entry.staged ? entry.indexStatus : entry.worktreeStatus;
+    return switch (kind) {
+      FileChangeKind.added => 'added',
+      FileChangeKind.deleted => 'deleted',
+      FileChangeKind.renamed => 'renamed',
+      FileChangeKind.copied => 'copied',
+      FileChangeKind.typeChanged => 'type changed',
+      FileChangeKind.modeChanged => 'mode changed',
+      FileChangeKind.modified => 'modified',
+    };
   }
 
   String _statusLabel(WorkingCopyEntry entry) {

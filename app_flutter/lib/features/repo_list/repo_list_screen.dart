@@ -7,6 +7,7 @@ import '../../data/repositories/discovery_repository.dart';
 import '../../routing/app_router.dart';
 import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
+import '../../theme/theme_mode_provider.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/gbm_banner.dart';
 import '../../widgets/gbm_button.dart';
@@ -48,6 +49,7 @@ class _RepoListScreenState extends ConsumerState<RepoListScreen> {
       appBar: AppBar(
         title: const Text('git-branch-manager'),
         actions: <Widget>[
+          const _ThemeMenu(),
           IconButton(
             icon: LucideIcon('archive', size: 18, color: colors.textSecondary),
             tooltip: 'Manage base folders',
@@ -134,4 +136,45 @@ class _RepoListScreenState extends ConsumerState<RepoListScreen> {
     if (path.isEmpty) return;
     ref.read(discoveryProvider.notifier).addBaseFolderAndScan(path);
   }
+}
+
+/// The Dart analog of the Qt app's View > Theme menu (`ThemeManager`):
+/// light/dark/system, app-wide rather than per-repository, so it lives on
+/// the dashboard's app bar rather than inside any one workspace.
+class _ThemeMenu extends ConsumerWidget {
+  const _ThemeMenu();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final GbmColors colors = context.gbmColors;
+    final ThemeMode mode = ref.watch(themeModeProvider);
+    return PopupMenuButton<ThemeMode>(
+      tooltip: 'Theme',
+      icon: Icon(_iconFor(mode), size: 18, color: colors.textSecondary),
+      onSelected: (selected) => ref.read(themeModeProvider.notifier).setThemeMode(selected),
+      itemBuilder: (context) => <PopupMenuEntry<ThemeMode>>[
+        _themeMenuItem(ThemeMode.light, 'Light', mode),
+        _themeMenuItem(ThemeMode.dark, 'Dark', mode),
+        _themeMenuItem(ThemeMode.system, 'System', mode),
+      ],
+    );
+  }
+
+  PopupMenuItem<ThemeMode> _themeMenuItem(ThemeMode value, String label, ThemeMode current) {
+    return PopupMenuItem<ThemeMode>(
+      value: value,
+      child: Row(
+        children: <Widget>[
+          SizedBox(width: 20, child: value == current ? const Icon(Icons.check, size: 16) : null),
+          Text(label),
+        ],
+      ),
+    );
+  }
+
+  IconData _iconFor(ThemeMode mode) => switch (mode) {
+    ThemeMode.light => Icons.light_mode_outlined,
+    ThemeMode.dark => Icons.dark_mode_outlined,
+    ThemeMode.system => Icons.brightness_auto_outlined,
+  };
 }

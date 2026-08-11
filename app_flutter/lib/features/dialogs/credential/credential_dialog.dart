@@ -74,7 +74,10 @@ class _CredentialDialogContentState extends ConsumerState<CredentialDialogConten
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Text(prompt, style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textSecondary)),
+          Semantics(
+            liveRegion: true,
+            child: Text(prompt, style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textSecondary)),
+          ),
           const SizedBox(height: GbmSpacing.space2),
           TextField(
             controller: _secretController,
@@ -85,7 +88,11 @@ class _CredentialDialogContentState extends ConsumerState<CredentialDialogConten
               ref.read(repoSessionProvider(widget.identity).notifier).provideCredential(_secretController.text);
               context.pop();
             },
-            decoration: const InputDecoration(isDense: true, border: OutlineInputBorder()),
+            decoration: InputDecoration(
+              isDense: true,
+              border: const OutlineInputBorder(),
+              labelText: obscure ? 'Password' : 'Username',
+            ),
           ),
         ],
       ),

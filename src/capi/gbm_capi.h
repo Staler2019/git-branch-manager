@@ -137,6 +137,16 @@ enum GbmEventType {
     GBM_EVENT_LFS_UPDATED = 20,
     /// payload: CleanEntry JSON array. Reply to gbm_clean_preview().
     GBM_EVENT_CLEAN_PREVIEW_READY = 21,
+
+    /// no payload; read with gbm_local_identity_json().
+    GBM_EVENT_LOCAL_IDENTITY_UPDATED = 22,
+    /// no payload; read with gbm_effective_identity_json().
+    GBM_EVENT_EFFECTIVE_IDENTITY_UPDATED = 23,
+    /// payload: {"succeeded": bool}. Reply to gbm_write_commit_graph() --
+    /// separate from GBM_EVENT_OPERATION_FINISHED/WORKING_COPY_OPERATION_
+    /// FINISHED so a caller reacting to the perf-advice banner does not have
+    /// to filter every operation outcome for the one it recognises.
+    GBM_EVENT_COMMIT_GRAPH_WRITE_FINISHED = 24,
 };
 
 typedef void (*GbmEventCallback)(GbmSessionHandle session,
@@ -837,6 +847,58 @@ GBM_API void gbm_patch_import(GbmSessionHandle session,
 GBM_API void gbm_patch_import_continue(GbmSessionHandle session);
 GBM_API void gbm_patch_import_skip(GbmSessionHandle session);
 GBM_API void gbm_patch_import_abort(GbmSessionHandle session);
+
+// --- Local Git identity / commit-graph maintenance -------------------------
+// Mirrors RepositorySession's "Phase 6: per-repository Git identity
+// override" and "Commit-graph maintenance" sections -- see
+// src/core/git/ops/ConfigOps.h and src/core/git/ops/MaintenanceOps.h. The
+// commit-graph *advice* preference (whether the user has already been
+// asked, or declined) has no git-level meaning -- it is a pure UI setting,
+// persisted client-side (see the Flutter side's own local storage), not
+// part of this surface.
+
+/// Re-reads `user.name`/`user.email` scoped `--local` to this repository.
+/// Async: fires GBM_EVENT_LOCAL_IDENTITY_UPDATED on success or
+/// GBM_EVENT_ERROR_OCCURRED on failure.
+GBM_API void gbm_local_identity_refresh(GbmSessionHandle session);
+
+/// Populates the staging buffer with `{"name": string, "email": string,
+/// "overridden": bool}`. Returns 0 on success, or a negative GbmErrorCode
+/// if gbm_local_identity_refresh() has not yet published one.
+GBM_API int32_t gbm_local_identity_json(GbmSessionHandle session);
+
+/// Re-reads whichever `user.name`/`user.email` git itself would attribute a
+/// new commit here (local override falling back to global/system config).
+/// Async: fires GBM_EVENT_EFFECTIVE_IDENTITY_UPDATED.
+GBM_API void gbm_effective_identity_refresh(GbmSessionHandle session);
+
+/// Populates the staging buffer with `{"name": string, "email": string}`.
+/// Returns 0 on success, or a negative GbmErrorCode if
+/// gbm_effective_identity_refresh() has not yet published one.
+GBM_API int32_t gbm_effective_identity_json(GbmSessionHandle session);
+
+/// `git config --local user.name <name>` then `user.email <email>`. Async:
+/// fires GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success
+/// refreshes both the local and effective identity.
+GBM_API void gbm_set_local_identity(GbmSessionHandle session, const char* name, const char* email);
+
+/// `git config --local --unset user.name`/`user.email`, best-effort (an
+/// already-unset key is not treated as a failure). Same event/refresh
+/// contract as gbm_set_local_identity().
+GBM_API void gbm_clear_local_identity(GbmSessionHandle session);
+
+/// Filesystem check only, no subprocess -- whether a commit-graph file
+/// already exists for this repository. Synchronous; returns 1 if present,
+/// 0 otherwise.
+GBM_API int32_t gbm_has_commit_graph(GbmSessionHandle session);
+
+/// `git commit-graph write --reachable [--changed-paths] [--split]`, with
+/// `--split`/`--changed-paths` gated on this git installation's detected
+/// capabilities exactly like RepositorySession::writeCommitGraph(). Async:
+/// fires GBM_EVENT_COMMIT_GRAPH_WRITE_FINISHED; unlike every other
+/// mutation here, does not itself trigger a history refresh (the commits
+/// are unchanged -- see the doc comment on the mirrored Qt method).
+GBM_API void gbm_write_commit_graph(GbmSessionHandle session);
 
 // --- Discovery -------------------------------------------------------------
 // A separate handle class from GbmSessionHandle: discovery scans base

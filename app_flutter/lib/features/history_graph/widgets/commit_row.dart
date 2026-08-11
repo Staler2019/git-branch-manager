@@ -29,46 +29,54 @@ class CommitRow extends StatelessWidget {
     final GbmColors colors = context.gbmColors;
     final Color laneColor = colors.graphLanes[row.color % colors.graphLanes.length];
     final DateTime time = DateTime.fromMillisecondsSinceEpoch(row.commitTime * 1000, isUtc: true);
+    final String date = time.toIso8601String().split('T').first;
 
-    return SizedBox(
-      height: kCommitRowHeight,
-      child: Row(
-        children: <Widget>[
-          SizedBox(
-            width: kGraphLaneWidth * (maxLane + 1),
-            height: kCommitRowHeight,
-            child: CustomPaint(
-              painter: GraphRowPainter(
-                row: row,
-                previousLane: previousLane,
-                nextLane: nextLane,
-                color: laneColor,
-                laneWidth: kGraphLaneWidth,
+    return Semantics(
+      label:
+          '${row.isHead ? 'HEAD, ' : ''}commit ${oidHex.isEmpty ? '' : oidHex.substring(0, 8)}, $date, '
+          '${row.parentCount} parent${row.parentCount == 1 ? '' : 's'}${row.isMerge ? ', merge' : ''}',
+      child: SizedBox(
+        height: kCommitRowHeight,
+        child: Row(
+          children: <Widget>[
+            SizedBox(
+              width: kGraphLaneWidth * (maxLane + 1),
+              height: kCommitRowHeight,
+              child: ExcludeSemantics(
+                child: CustomPaint(
+                  painter: GraphRowPainter(
+                    row: row,
+                    previousLane: previousLane,
+                    nextLane: nextLane,
+                    color: laneColor,
+                    laneWidth: kGraphLaneWidth,
+                  ),
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: GbmSpacing.space2),
-          if (row.isHead)
-            Padding(
-              padding: const EdgeInsets.only(right: GbmSpacing.space2),
+            const SizedBox(width: GbmSpacing.space2),
+            if (row.isHead)
+              Padding(
+                padding: const EdgeInsets.only(right: GbmSpacing.space2),
+                child: Text(
+                  'HEAD',
+                  style: TextStyle(fontSize: GbmTypography.textXs, fontWeight: GbmTypography.weightSemibold, color: colors.accent),
+                ),
+              ),
+            Text(
+              oidHex.isEmpty ? '' : oidHex.substring(0, 8),
+              style: TextStyle(fontFamily: GbmTypography.fontMono, fontSize: GbmTypography.textXs, color: colors.textTertiary),
+            ),
+            const SizedBox(width: GbmSpacing.space3),
+            Expanded(
               child: Text(
-                'HEAD',
-                style: TextStyle(fontSize: GbmTypography.textXs, fontWeight: GbmTypography.weightSemibold, color: colors.accent),
+                '$date · ${row.parentCount} parent${row.parentCount == 1 ? '' : 's'}${row.isMerge ? ' · merge' : ''}',
+                style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textPrimary),
+                overflow: TextOverflow.ellipsis,
               ),
             ),
-          Text(
-            oidHex.isEmpty ? '' : oidHex.substring(0, 8),
-            style: TextStyle(fontFamily: GbmTypography.fontMono, fontSize: GbmTypography.textXs, color: colors.textTertiary),
-          ),
-          const SizedBox(width: GbmSpacing.space3),
-          Expanded(
-            child: Text(
-              '${time.toIso8601String().split('T').first} · ${row.parentCount} parent${row.parentCount == 1 ? '' : 's'}${row.isMerge ? ' · merge' : ''}',
-              style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textPrimary),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

@@ -18,6 +18,7 @@
 #include "core/git/UnifiedDiffParser.h"
 #include "core/git/WorkingCopyStatus.h"
 #include "core/git/ops/BisectOps.h"
+#include "core/git/ops/ConfigOps.h"
 #include "core/git/ops/LfsOps.h"
 #include "core/git/ops/RebaseOps.h"
 #include "core/git/ops/RemoteOps.h"
@@ -70,5 +71,7 @@ std::string toJson(const BisectStatus& status);
 std::string toJson(const LfsInstallation& installation);
 std::string toJson(const LfsFileInfo& file);
 std::string toJson(const std::vector<LfsFileInfo>& files);
+std::string toJson(const LocalIdentity& identity);
+std::string toJson(const EffectiveIdentity& identity);
 
 }  // namespace gbm::capi

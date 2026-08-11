@@ -13,6 +13,7 @@ import '../models/blame_result.dart';
 import '../models/clean_entry.dart';
 import '../models/file_history_entry.dart';
 import '../models/git_error.dart';
+import '../models/git_identity.dart';
 import '../models/graph_snapshot.dart';
 import '../models/lfs_state.dart';
 import '../models/line_history_chunk.dart';
@@ -117,6 +118,10 @@ class RepoSessionState {
     this.lfsInstallation,
     this.lfsPatterns = const <String>[],
     this.lfsFiles = const <LfsFileInfo>[],
+    this.localIdentity = LocalIdentity.empty,
+    this.effectiveIdentity = EffectiveIdentity.empty,
+    this.hasCommitGraph = false,
+    this.lastCommitGraphWriteSucceeded,
   });
 
   final bool isOpen;
@@ -160,6 +165,14 @@ class RepoSessionState {
   final LfsInstallation? lfsInstallation;
   final List<String> lfsPatterns;
   final List<LfsFileInfo> lfsFiles;
+  final LocalIdentity localIdentity;
+  final EffectiveIdentity effectiveIdentity;
+  /// Filesystem check, refreshed by [RepoSessionController.refreshHasCommitGraph]
+  /// and again after [RepoSessionController.writeCommitGraph] succeeds.
+  final bool hasCommitGraph;
+  /// Null until the first gbm_write_commit_graph() reply arrives this
+  /// session.
+  final bool? lastCommitGraphWriteSucceeded;
 
   RepoSessionState copyWith({
     bool? isOpen,
@@ -190,6 +203,10 @@ class RepoSessionState {
     LfsInstallation? lfsInstallation,
     List<String>? lfsPatterns,
     List<LfsFileInfo>? lfsFiles,
+    LocalIdentity? localIdentity,
+    EffectiveIdentity? effectiveIdentity,
+    bool? hasCommitGraph,
+    bool? lastCommitGraphWriteSucceeded,
   }) {
     return RepoSessionState(
       isOpen: isOpen ?? this.isOpen,
@@ -218,6 +235,10 @@ class RepoSessionState {
       lfsInstallation: lfsInstallation ?? this.lfsInstallation,
       lfsPatterns: lfsPatterns ?? this.lfsPatterns,
       lfsFiles: lfsFiles ?? this.lfsFiles,
+      localIdentity: localIdentity ?? this.localIdentity,
+      effectiveIdentity: effectiveIdentity ?? this.effectiveIdentity,
+      hasCommitGraph: hasCommitGraph ?? this.hasCommitGraph,
+      lastCommitGraphWriteSucceeded: lastCommitGraphWriteSucceeded ?? this.lastCommitGraphWriteSucceeded,
     );
   }
 }
@@ -357,6 +378,17 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
         if (payload is List<dynamic>) {
           state = state.copyWith(lastCleanPreview: CleanEntry.listFromJson(payload));
         }
+      case GbmEventType.localIdentityUpdated:
+        _readLocalIdentity();
+      case GbmEventType.effectiveIdentityUpdated:
+        _readEffectiveIdentity();
+      case GbmEventType.commitGraphWriteFinished:
+        final Object? payload = decodeEventPayload(event.payload);
+        final bool succeeded = payload is Map<String, dynamic> ? payload['succeeded'] as bool? ?? false : false;
+        state = state.copyWith(
+          lastCommitGraphWriteSucceeded: succeeded,
+          hasCommitGraph: succeeded ? true : state.hasCommitGraph,
+        );
     }
   }
 
@@ -454,6 +486,26 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
       final String json = readLastResultJson(_bindings);
       if (json.isNotEmpty) {
         state = state.copyWith(lfsFiles: LfsFileInfo.listFromJson(jsonDecode(json) as List<dynamic>));
+      }
+    }
+  }
+
+  void _readLocalIdentity() {
+    if (_bindings.localIdentityJson(_session) == 0) {
+      final String json = readLastResultJson(_bindings);
+      if (json.isNotEmpty) {
+        state = state.copyWith(localIdentity: LocalIdentity.fromJson(jsonDecode(json) as Map<String, dynamic>));
+      }
+    }
+  }
+
+  void _readEffectiveIdentity() {
+    if (_bindings.effectiveIdentityJson(_session) == 0) {
+      final String json = readLastResultJson(_bindings);
+      if (json.isNotEmpty) {
+        state = state.copyWith(
+          effectiveIdentity: EffectiveIdentity.fromJson(jsonDecode(json) as Map<String, dynamic>),
+        );
       }
     }
   }
@@ -1364,6 +1416,57 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   void abortImport() {
     if (_session == nullptr) return;
     _bindings.patchImportAbort(_session);
+  }
+
+  /// Async: see gbm_local_identity_refresh()'s doc comment in gbm_capi.h.
+  void refreshLocalIdentity() {
+    if (_session == nullptr) return;
+    _bindings.localIdentityRefresh(_session);
+  }
+
+  /// Async: see gbm_effective_identity_refresh()'s doc comment.
+  void refreshEffectiveIdentity() {
+    if (_session == nullptr) return;
+    _bindings.effectiveIdentityRefresh(_session);
+  }
+
+  /// `git config --local user.name <name>` then `user.email <email>`.
+  /// Async: fires GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success
+  /// refreshes both [RepoSessionState.localIdentity] and
+  /// [RepoSessionState.effectiveIdentity].
+  void setLocalIdentity(String name, String email) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> namePtr = name.toNativeUtf8();
+    final Pointer<Utf8> emailPtr = email.toNativeUtf8();
+    try {
+      _bindings.setLocalIdentity(_session, namePtr, emailPtr);
+    } finally {
+      malloc.free(namePtr);
+      malloc.free(emailPtr);
+    }
+  }
+
+  /// `git config --local --unset user.name`/`user.email`, best-effort. Same
+  /// event/refresh contract as [setLocalIdentity].
+  void clearLocalIdentity() {
+    if (_session == nullptr) return;
+    _bindings.clearLocalIdentity(_session);
+  }
+
+  /// Filesystem check only, no subprocess -- see gbm_has_commit_graph()'s
+  /// doc comment in gbm_capi.h. Synchronous; updates
+  /// [RepoSessionState.hasCommitGraph] immediately.
+  void refreshHasCommitGraph() {
+    if (_session == nullptr) return;
+    state = state.copyWith(hasCommitGraph: _bindings.hasCommitGraph(_session) != 0);
+  }
+
+  /// `git commit-graph write --reachable [--changed-paths] [--split]`.
+  /// Async: fires GBM_EVENT_COMMIT_GRAPH_WRITE_FINISHED into
+  /// [RepoSessionState.lastCommitGraphWriteSucceeded].
+  void writeCommitGraph() {
+    if (_session == nullptr) return;
+    _bindings.writeCommitGraph(_session);
   }
 
   /// Marshals `paths` into a native `const char* const*` for the lifetime of

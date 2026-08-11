@@ -33,8 +33,10 @@
 #include "core/git/ops/CheckoutOp.h"
 #include "core/git/ops/CherryPickOps.h"
 #include "core/git/ops/CommitOps.h"
+#include "core/git/ops/ConfigOps.h"
 #include "core/git/ops/ConflictOps.h"
 #include "core/git/ops/LfsOps.h"
+#include "core/git/ops/MaintenanceOps.h"
 #include "core/git/ops/MergeOps.h"
 #include "core/git/ops/PatchOps.h"
 #include "core/git/ops/RebaseOps.h"
@@ -66,6 +68,8 @@ using SubmoduleListPtr = std::shared_ptr<const std::vector<SubmoduleInfo>>;
 using BisectStatusPtr = std::shared_ptr<const BisectStatus>;
 using LfsPatternListPtr = std::shared_ptr<const std::vector<std::string>>;
 using LfsFileListPtr = std::shared_ptr<const std::vector<LfsFileInfo>>;
+using LocalIdentityPtr = std::shared_ptr<const LocalIdentity>;
+using EffectiveIdentityPtr = std::shared_ptr<const EffectiveIdentity>;
 
 /// Resolves and caches the git installation once per process. Every Session
 /// shares it: re-probing `git --version` per open repository would be pure
@@ -327,6 +331,33 @@ public:
     void skipImport();
     void abortImport();
 
+    /// Async: see gbm_local_identity_refresh()'s doc comment.
+    void refreshLocalIdentity();
+
+    /// The most recently published LocalIdentity, or null if
+    /// refreshLocalIdentity() has not yet produced one. Thread-safe; never
+    /// blocks.
+    LocalIdentityPtr currentLocalIdentity() const;
+
+    /// Async: see gbm_effective_identity_refresh()'s doc comment.
+    void refreshEffectiveIdentity();
+
+    /// The most recently published EffectiveIdentity, or null if
+    /// refreshEffectiveIdentity() has not yet produced one. Thread-safe;
+    /// never blocks.
+    EffectiveIdentityPtr currentEffectiveIdentity() const;
+
+    /// Async: see gbm_set_local_identity()/gbm_clear_local_identity()'s doc
+    /// comments.
+    void setLocalIdentityOverride(SetLocalIdentityRequest request);
+    void clearLocalIdentityOverride();
+
+    /// Sync: see gbm_has_commit_graph()'s doc comment.
+    bool hasCommitGraph() const;
+
+    /// Async: see gbm_write_commit_graph()'s doc comment.
+    void writeCommitGraph();
+
     /// The process-wide gbm::Log operation sink, installed once (via
     /// std::call_once in the constructor) and shared by every open Session:
     /// gbm::Log is itself a process-wide singleton, with no notion of which
@@ -424,6 +455,7 @@ private:
     std::unique_ptr<SubmoduleStore> submoduleStore_;
     std::unique_ptr<BisectStore> bisectStore_;
     std::unique_ptr<LfsStore> lfsStore_;
+    std::unique_ptr<LocalIdentityStore> localIdentityStore_;
 
     CallbackRegistry callbacks_;
     AskpassPoller askpass_;
@@ -467,6 +499,8 @@ private:
     std::optional<LfsInstallation> lfsInstallation_;
     LfsPatternListPtr lfsPatterns_;
     LfsFileListPtr lfsFiles_;
+    LocalIdentityPtr localIdentity_;
+    EffectiveIdentityPtr effectiveIdentity_;
 
     /// A snapshot of operations_->undoJournal(), refreshed by
     /// refreshUndoJournalCache() (see its doc comment for why this

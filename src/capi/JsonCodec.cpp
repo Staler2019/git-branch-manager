@@ -797,4 +797,26 @@ std::string toJson(const std::vector<LfsFileInfo>& files) {
     return out;
 }
 
+std::string toJson(const LocalIdentity& identity) {
+    std::string out = "{";
+    out += "\"name\":";
+    jsonAppendEscaped(out, identity.name);
+    out += ",\"email\":";
+    jsonAppendEscaped(out, identity.email);
+    out += ",\"overridden\":";
+    jsonAppendBool(out, identity.overridden);
+    out += '}';
+    return out;
+}
+
+std::string toJson(const EffectiveIdentity& identity) {
+    std::string out = "{";
+    out += "\"name\":";
+    jsonAppendEscaped(out, identity.name);
+    out += ",\"email\":";
+    jsonAppendEscaped(out, identity.email);
+    out += '}';
+    return out;
+}
+
 }  // namespace gbm::capi

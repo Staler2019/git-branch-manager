@@ -162,6 +162,7 @@ if(GBM_BUILD_CAPI)
         capi/CherryPickRevertApiTest.cpp
         capi/DiscoveryApiTest.cpp
         capi/FileHistoryApiTest.cpp
+        capi/IdentityApiTest.cpp
         capi/JsonCodecTest.cpp
         capi/LfsApiTest.cpp
         capi/MergeApiTest.cpp

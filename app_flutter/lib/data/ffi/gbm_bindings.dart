@@ -39,6 +39,9 @@ abstract final class GbmEventType {
   static const int bisectStatusUpdated = 19;
   static const int lfsUpdated = 20;
   static const int cleanPreviewReady = 21;
+  static const int localIdentityUpdated = 22;
+  static const int effectiveIdentityUpdated = 23;
+  static const int commitGraphWriteFinished = 24;
 }
 
 /// `void (*)(GbmSessionHandle, int32_t, const uint8_t*, int32_t, void*)`.
@@ -576,6 +579,30 @@ typedef PatchImportSkipDart = void Function(Pointer<Void> session);
 typedef _PatchImportAbortNative = Void Function(Pointer<Void> session);
 typedef PatchImportAbortDart = void Function(Pointer<Void> session);
 
+typedef _LocalIdentityRefreshNative = Void Function(Pointer<Void> session);
+typedef LocalIdentityRefreshDart = void Function(Pointer<Void> session);
+
+typedef _LocalIdentityJsonNative = Int32 Function(Pointer<Void> session);
+typedef LocalIdentityJsonDart = int Function(Pointer<Void> session);
+
+typedef _EffectiveIdentityRefreshNative = Void Function(Pointer<Void> session);
+typedef EffectiveIdentityRefreshDart = void Function(Pointer<Void> session);
+
+typedef _EffectiveIdentityJsonNative = Int32 Function(Pointer<Void> session);
+typedef EffectiveIdentityJsonDart = int Function(Pointer<Void> session);
+
+typedef _SetLocalIdentityNative = Void Function(Pointer<Void> session, Pointer<Utf8> name, Pointer<Utf8> email);
+typedef SetLocalIdentityDart = void Function(Pointer<Void> session, Pointer<Utf8> name, Pointer<Utf8> email);
+
+typedef _ClearLocalIdentityNative = Void Function(Pointer<Void> session);
+typedef ClearLocalIdentityDart = void Function(Pointer<Void> session);
+
+typedef _HasCommitGraphNative = Int32 Function(Pointer<Void> session);
+typedef HasCommitGraphDart = int Function(Pointer<Void> session);
+
+typedef _WriteCommitGraphNative = Void Function(Pointer<Void> session);
+typedef WriteCommitGraphDart = void Function(Pointer<Void> session);
+
 typedef _DiscoveryOpenNative = Pointer<Void> Function(Pointer<Utf8> dbPath);
 typedef DiscoveryOpenDart = Pointer<Void> Function(Pointer<Utf8> dbPath);
 
@@ -763,6 +790,29 @@ class GbmBindings {
       patchImportAbort = library.lookupFunction<_PatchImportAbortNative, PatchImportAbortDart>(
         'gbm_patch_import_abort',
       ),
+      localIdentityRefresh = library.lookupFunction<_LocalIdentityRefreshNative, LocalIdentityRefreshDart>(
+        'gbm_local_identity_refresh',
+      ),
+      localIdentityJson = library.lookupFunction<_LocalIdentityJsonNative, LocalIdentityJsonDart>(
+        'gbm_local_identity_json',
+      ),
+      effectiveIdentityRefresh = library
+          .lookupFunction<_EffectiveIdentityRefreshNative, EffectiveIdentityRefreshDart>(
+            'gbm_effective_identity_refresh',
+          ),
+      effectiveIdentityJson = library.lookupFunction<_EffectiveIdentityJsonNative, EffectiveIdentityJsonDart>(
+        'gbm_effective_identity_json',
+      ),
+      setLocalIdentity = library.lookupFunction<_SetLocalIdentityNative, SetLocalIdentityDart>(
+        'gbm_set_local_identity',
+      ),
+      clearLocalIdentity = library.lookupFunction<_ClearLocalIdentityNative, ClearLocalIdentityDart>(
+        'gbm_clear_local_identity',
+      ),
+      hasCommitGraph = library.lookupFunction<_HasCommitGraphNative, HasCommitGraphDart>('gbm_has_commit_graph'),
+      writeCommitGraph = library.lookupFunction<_WriteCommitGraphNative, WriteCommitGraphDart>(
+        'gbm_write_commit_graph',
+      ),
       discoveryOpen = library.lookupFunction<_DiscoveryOpenNative, DiscoveryOpenDart>('gbm_discovery_open'),
       discoveryClose = library.lookupFunction<_DiscoveryCloseNative, DiscoveryCloseDart>('gbm_discovery_close'),
       discoveryAddBaseFolder = library
@@ -886,6 +936,14 @@ class GbmBindings {
   final PatchImportContinueDart patchImportContinue;
   final PatchImportSkipDart patchImportSkip;
   final PatchImportAbortDart patchImportAbort;
+  final LocalIdentityRefreshDart localIdentityRefresh;
+  final LocalIdentityJsonDart localIdentityJson;
+  final EffectiveIdentityRefreshDart effectiveIdentityRefresh;
+  final EffectiveIdentityJsonDart effectiveIdentityJson;
+  final SetLocalIdentityDart setLocalIdentity;
+  final ClearLocalIdentityDart clearLocalIdentity;
+  final HasCommitGraphDart hasCommitGraph;
+  final WriteCommitGraphDart writeCommitGraph;
   final DiscoveryOpenDart discoveryOpen;
   final DiscoveryCloseDart discoveryClose;
   final DiscoveryAddBaseFolderDart discoveryAddBaseFolder;

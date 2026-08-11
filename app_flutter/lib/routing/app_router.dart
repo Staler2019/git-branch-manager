@@ -22,6 +22,7 @@ import '../features/dialogs/manage_submodules/manage_submodules_dialog.dart';
 import '../features/dialogs/manage_worktrees/manage_worktrees_dialog.dart';
 import '../features/dialogs/merge/merge_dialog.dart';
 import '../features/dialogs/patches/patches_dialog.dart';
+import '../features/dialogs/preferences/preferences_dialog.dart';
 import '../features/dialogs/reflog/reflog_dialog.dart';
 import '../features/dialogs/reset_branch/reset_branch_dialog.dart';
 import '../features/dialogs/stash_changes/stash_changes_dialog.dart';
@@ -243,6 +244,13 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
           return CleanUntrackedDialogContent(identity: identity);
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.preferencesDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          return PreferencesDialogContent(identity: identity);
         },
       ),
       GoRoute(

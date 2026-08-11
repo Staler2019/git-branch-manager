@@ -23,25 +23,35 @@ class DiffLineView extends StatelessWidget {
       DiffLineKind.context => (null, colors.textSecondary, ' '),
     };
 
-    return Container(
-      color: background,
-      padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space3, vertical: 1),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          SizedBox(width: 36, child: _lineNumberText(line.oldLine, colors.textTertiary)),
-          SizedBox(width: 36, child: _lineNumberText(line.newLine, colors.textTertiary)),
-          SizedBox(
-            width: 14,
-            child: Text(marker, style: TextStyle(fontFamily: GbmTypography.fontMono, fontSize: GbmTypography.textSm, color: textColor)),
-          ),
-          Expanded(
-            child: Text(
-              line.text,
-              style: TextStyle(fontFamily: GbmTypography.fontMono, fontSize: GbmTypography.textSm, color: textColor, height: 1.6),
+    final String kindLabel = switch (line.kind) {
+      DiffLineKind.added => 'added',
+      DiffLineKind.removed => 'removed',
+      DiffLineKind.noNewlineMarker => 'no newline at end of file',
+      DiffLineKind.context => 'unchanged',
+    };
+
+    return Semantics(
+      label: '$kindLabel line ${line.text}',
+      child: Container(
+        color: background,
+        padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space3, vertical: 1),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            SizedBox(width: 36, child: _lineNumberText(line.oldLine, colors.textTertiary)),
+            SizedBox(width: 36, child: _lineNumberText(line.newLine, colors.textTertiary)),
+            SizedBox(
+              width: 14,
+              child: Text(marker, style: TextStyle(fontFamily: GbmTypography.fontMono, fontSize: GbmTypography.textSm, color: textColor)),
             ),
-          ),
-        ],
+            Expanded(
+              child: Text(
+                line.text,
+                style: TextStyle(fontFamily: GbmTypography.fontMono, fontSize: GbmTypography.textSm, color: textColor, height: 1.6),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

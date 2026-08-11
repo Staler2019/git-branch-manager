@@ -17,39 +17,52 @@ class BranchTreeItem extends StatelessWidget {
     final GbmColors colors = context.gbmColors;
     final RefChipColors chip = refChipColorsFor(colors, ref.kind, isCurrent: ref.isHead);
 
-    return InkWell(
-      onTap: ref.isHead ? null : onCheckout,
-      borderRadius: BorderRadius.circular(GbmSpacing.radiusSm),
-      child: Container(
-        height: GbmSpacing.rowHeightCompact,
-        padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
-        decoration: BoxDecoration(
-          color: ref.isHead ? colors.surfaceSelected : null,
-          borderRadius: BorderRadius.circular(GbmSpacing.radiusSm),
-        ),
-        child: Row(
-          children: <Widget>[
-            LucideIcon('git-branch', size: 13, color: chip.text == colors.textOnAccent ? colors.accent : chip.text),
-            const SizedBox(width: GbmSpacing.space2),
-            Expanded(
-              child: Text(
-                ref.shortName,
-                style: TextStyle(
-                  fontSize: GbmTypography.textSm,
-                  fontWeight: ref.isHead ? GbmTypography.weightSemibold : GbmTypography.weightRegular,
-                  color: colors.textPrimary,
+    final StringBuffer label = StringBuffer(ref.shortName);
+    if (ref.isHead) label.write(', current branch');
+    if (ref.isGone) {
+      label.write(', upstream gone');
+    } else if (ref.hasTrackingInfo && (ref.ahead > 0 || ref.behind > 0)) {
+      if (ref.ahead > 0) label.write(', ${ref.ahead} ahead');
+      if (ref.behind > 0) label.write(', ${ref.behind} behind');
+    }
+
+    return Semantics(
+      button: !ref.isHead,
+      label: label.toString(),
+      child: InkWell(
+        onTap: ref.isHead ? null : onCheckout,
+        borderRadius: BorderRadius.circular(GbmSpacing.radiusSm),
+        child: Container(
+          height: GbmSpacing.rowHeightCompact,
+          padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
+          decoration: BoxDecoration(
+            color: ref.isHead ? colors.surfaceSelected : null,
+            borderRadius: BorderRadius.circular(GbmSpacing.radiusSm),
+          ),
+          child: Row(
+            children: <Widget>[
+              LucideIcon('git-branch', size: 13, color: chip.text == colors.textOnAccent ? colors.accent : chip.text),
+              const SizedBox(width: GbmSpacing.space2),
+              Expanded(
+                child: Text(
+                  ref.shortName,
+                  style: TextStyle(
+                    fontSize: GbmTypography.textSm,
+                    fontWeight: ref.isHead ? GbmTypography.weightSemibold : GbmTypography.weightRegular,
+                    color: colors.textPrimary,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
-                overflow: TextOverflow.ellipsis,
               ),
-            ),
-            if (ref.isGone)
-              Text('gone', style: TextStyle(fontSize: GbmTypography.textXs, color: colors.danger))
-            else if (ref.hasTrackingInfo && (ref.ahead > 0 || ref.behind > 0))
-              Text(
-                '${ref.ahead > 0 ? '↑${ref.ahead}' : ''}${ref.behind > 0 ? ' ↓${ref.behind}' : ''}',
-                style: TextStyle(fontSize: GbmTypography.textXs, color: colors.textTertiary),
-              ),
-          ],
+              if (ref.isGone)
+                Text('gone', style: TextStyle(fontSize: GbmTypography.textXs, color: colors.danger))
+              else if (ref.hasTrackingInfo && (ref.ahead > 0 || ref.behind > 0))
+                Text(
+                  '${ref.ahead > 0 ? '↑${ref.ahead}' : ''}${ref.behind > 0 ? ' ↓${ref.behind}' : ''}',
+                  style: TextStyle(fontSize: GbmTypography.textXs, color: colors.textTertiary),
+                ),
+            ],
+          ),
         ),
       ),
     );

@@ -108,7 +108,8 @@ Session::Session(GitInstallation installation, RepoPaths paths, std::unique_ptr<
       reflogStore_(std::make_unique<ReflogStore>(*runner_, paths_)),
       submoduleStore_(std::make_unique<SubmoduleStore>(*runner_, paths_)),
       bisectStore_(std::make_unique<BisectStore>(*runner_, paths_)),
-      lfsStore_(std::make_unique<LfsStore>(*runner_, paths_)) {
+      lfsStore_(std::make_unique<LfsStore>(*runner_, paths_)),
+      localIdentityStore_(std::make_unique<LocalIdentityStore>(*runner_, paths_)) {
     ensureOperationLogSinkInstalled();
     registerLiveSession(this);
 }
@@ -932,6 +933,85 @@ void Session::skipImport() {
 
 void Session::abortImport() {
     submitOperation(makeAmAbortOperation(), /*refreshHistoryOnSuccess=*/true);
+}
+
+// --- Local Git identity / commit-graph maintenance ------------------------
+
+void Session::refreshLocalIdentity() {
+    sharedReadPool().post([this]() {
+        const GitResult<LocalIdentity> result = localIdentityStore_->read(CancellationToken{});
+        if (!result) {
+            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+            return;
+        }
+        {
+            std::lock_guard<std::mutex> lock(auxMutex_);
+            localIdentity_ = std::make_shared<const LocalIdentity>(result.value());
+        }
+        callbacks_.emitEmpty(GBM_EVENT_LOCAL_IDENTITY_UPDATED);
+    });
+}
+
+LocalIdentityPtr Session::currentLocalIdentity() const {
+    std::lock_guard<std::mutex> lock(auxMutex_);
+    return localIdentity_;
+}
+
+void Session::refreshEffectiveIdentity() {
+    sharedReadPool().post([this]() {
+        const GitResult<EffectiveIdentity> result = localIdentityStore_->readEffective(CancellationToken{});
+        if (!result) {
+            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+            return;
+        }
+        {
+            std::lock_guard<std::mutex> lock(auxMutex_);
+            effectiveIdentity_ = std::make_shared<const EffectiveIdentity>(result.value());
+        }
+        callbacks_.emitEmpty(GBM_EVENT_EFFECTIVE_IDENTITY_UPDATED);
+    });
+}
+
+EffectiveIdentityPtr Session::currentEffectiveIdentity() const {
+    std::lock_guard<std::mutex> lock(auxMutex_);
+    return effectiveIdentity_;
+}
+
+void Session::setLocalIdentityOverride(SetLocalIdentityRequest request) {
+    submitWorkingCopyOperation(makeSetLocalIdentityOperation(std::move(request)), [this]() {
+        refreshLocalIdentity();
+        refreshEffectiveIdentity();
+    });
+}
+
+void Session::clearLocalIdentityOverride() {
+    submitWorkingCopyOperation(makeClearLocalIdentityOperation(), [this]() {
+        refreshLocalIdentity();
+        refreshEffectiveIdentity();
+    });
+}
+
+bool Session::hasCommitGraph() const {
+    return gbm::hasCommitGraph(paths_);
+}
+
+void Session::writeCommitGraph() {
+    WriteCommitGraphRequest request;
+    request.split = installation_.capabilities.commitGraphSplit;
+    request.changedPaths = installation_.capabilities.changedPathBloom;
+    operations_->submit(makeWriteCommitGraphOperation(request), [this](OperationOutcome outcome) {
+        // Keeps undoJournalCache_ in sync with operations_->undoJournal(),
+        // exactly like submitOperation()/submitWorkingCopyOperation() do --
+        // this bypasses both helpers (it needs its own event, see
+        // GBM_EVENT_COMMIT_GRAPH_WRITE_FINISHED's doc comment), but still
+        // goes through operations_->submit(), so OperationRunner::
+        // recordUndoPoint() still ran and appended an entry.
+        refreshUndoJournalCache();
+        std::string payload = "{\"succeeded\":";
+        jsonAppendBool(payload, outcome.succeeded);
+        payload += '}';
+        callbacks_.emit(GBM_EVENT_COMMIT_GRAPH_WRITE_FINISHED, payload);
+    });
 }
 
 }  // namespace gbm::capi

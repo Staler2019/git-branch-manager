@@ -11,6 +11,7 @@ import 'package:gbm_flutter/data/models/blame_result.dart';
 import 'package:gbm_flutter/data/models/clean_entry.dart';
 import 'package:gbm_flutter/data/models/file_history_entry.dart';
 import 'package:gbm_flutter/data/models/git_error.dart';
+import 'package:gbm_flutter/data/models/git_identity.dart';
 import 'package:gbm_flutter/data/models/graph_snapshot.dart';
 import 'package:gbm_flutter/data/models/lfs_state.dart';
 import 'package:gbm_flutter/data/models/line_history_chunk.dart';
@@ -319,5 +320,15 @@ void main() {
       jsonDecode('[{"path":"a.psd","oid":"aa","downloadedLocally":false}]'),
     );
     expect(files.single.downloadedLocally, isFalse);
+  });
+
+  test('LocalIdentity.fromJson and EffectiveIdentity.fromJson decode their fields', () {
+    final LocalIdentity local = LocalIdentity.fromJson(
+      jsonDecode('{"name":"Repo Override","email":"a@b.c","overridden":true}'),
+    );
+    expect(local.overridden, isTrue);
+
+    final EffectiveIdentity effective = EffectiveIdentity.fromJson(jsonDecode('{"name":"Global User","email":"g@h.i"}'));
+    expect(effective.name, 'Global User');
   });
 }

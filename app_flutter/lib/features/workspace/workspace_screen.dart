@@ -165,6 +165,7 @@ class _MoreMenu extends StatelessWidget {
         PopupMenuItem<String>(value: RoutePaths.manageLfsDialogFor(repoId), child: const Text('Git LFS…')),
         PopupMenuItem<String>(value: RoutePaths.patchesDialogFor(repoId), child: const Text('Patches…')),
         PopupMenuItem<String>(value: RoutePaths.cleanUntrackedDialogFor(repoId), child: const Text('Clean Untracked…')),
+        PopupMenuItem<String>(value: RoutePaths.preferencesDialogFor(repoId), child: const Text('Preferences…')),
       ],
     );
   }

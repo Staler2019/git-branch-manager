@@ -164,6 +164,99 @@ jobs:
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
           ASAN_OPTIONS: detect_leaks=1
 
+  capi-build:
+    name: capi (FFI) - ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Linux,   os: ubuntu-22.04 }
+          - { name: macOS (arm64), os: macos-26 }
+          - { name: Windows, os: windows-latest }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: lukka/get-cmake@latest
+
+      - name: Set up MSVC environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      # Qt-free, like the sanitizer jobs above: capi-only links no Qt, so this
+      # job needs none of the Qt/GUI-dependency setup the `build` job above
+      # does, and stays fast.
+      - name: Build and test gbm_capi
+        run: cmake --workflow --preset capi-only
+
+      - name: Upload the built native library
+        uses: actions/upload-artifact@v4
+        with:
+          name: gbm_capi-${{ matrix.os }}
+          path: |
+            build/capi-only/src/capi/libgbm_capi.so
+            build/capi-only/src/capi/libgbm_capi.dylib
+            build/capi-only/src/capi/gbm_capi.dll
+          if-no-files-found: ignore
+
+      - name: Upload test logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: capi-test-logs-${{ matrix.os }}
+          path: |
+            build/capi-only/Testing/**/*.log
+          if-no-files-found: ignore
+
+  flutter-ci:
+    name: Flutter UI
+    needs: capi-build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: lukka/get-cmake@latest
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: flutter pub get
+        working-directory: app_flutter
+        run: flutter pub get
+
+      - name: flutter analyze
+        working-directory: app_flutter
+        run: flutter analyze
+
+      # Pure-Dart tests only so far (see app_flutter/test/) -- no native
+      # library needed. The real-FFI integration_test/ suite the plan
+      # describes is added once Phase A's build wiring is exercised in CI
+      # (this job, next step) for more than "does it build".
+      - name: flutter test
+        working-directory: app_flutter
+        run: flutter test
+
+      - name: Install Linux desktop build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libgtk-3-dev
+
+      # Proves the whole chain end to end: C++ core -> gbm_capi -> FFI
+      # bindings -> a real Flutter Linux build, not just "the Dart compiles".
+      # See app_flutter/scripts/build_capi.sh and the plan's Phase A/Phase B
+      # build-integration note.
+      - name: Build gbm_capi and bundle it
+        run: app_flutter/scripts/build_capi.sh
+
+      - name: flutter build linux
+        working-directory: app_flutter
+        run: flutter build linux --debug
+
   thread-sanitizer:
     name: Thread sanitizer
     runs-on: ubuntu-22.04

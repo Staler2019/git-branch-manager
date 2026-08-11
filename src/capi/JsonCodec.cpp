@@ -1,0 +1,249 @@
+#include "capi/JsonCodec.h"
+
+#include "capi/JsonWriter.h"
+
+namespace gbm::capi {
+
+std::string toJson(const GitError& error) {
+    std::string out = "{";
+    out += "\"code\":";
+    jsonAppendInt(out, static_cast<std::int64_t>(error.code));
+    out += ",\"codeName\":";
+    jsonAppendEscaped(out, toString(error.code));
+    out += ",\"message\":";
+    jsonAppendEscaped(out, error.message);
+    out += ",\"detail\":";
+    jsonAppendEscaped(out, error.detail);
+    out += ",\"argv\":[";
+    for (std::size_t i = 0; i < error.argv.size(); ++i) {
+        if (i != 0) out += ',';
+        jsonAppendEscaped(out, error.argv[i]);
+    }
+    out += "],\"exitCode\":";
+    jsonAppendInt(out, error.exitCode);
+    out += '}';
+    return out;
+}
+
+std::string toJson(const RepoState& state) {
+    std::string out = "{";
+    out += "\"flags\":";
+    jsonAppendInt(out, state.flags);
+    out += ",\"isClean\":";
+    jsonAppendBool(out, state.isClean());
+    out += ",\"isSequencerOperation\":";
+    jsonAppendBool(out, state.isSequencerOperation());
+    out += ",\"rebaseStep\":";
+    jsonAppendInt(out, state.rebaseStep);
+    out += ",\"rebaseTotal\":";
+    jsonAppendInt(out, state.rebaseTotal);
+    out += ",\"rebaseOntoLabel\":";
+    jsonAppendEscaped(out, state.rebaseOntoLabel);
+    out += ",\"indexLocked\":";
+    jsonAppendBool(out, state.indexLocked);
+    out += ",\"indexLockAgeSeconds\":";
+    if (state.indexLockAgeSeconds.has_value()) {
+        jsonAppendInt(out, *state.indexLockAgeSeconds);
+    } else {
+        out += "null";
+    }
+    out += ",\"describe\":";
+    jsonAppendEscaped(out, state.describe());
+    out += '}';
+    return out;
+}
+
+namespace {
+
+std::string signatureJson(const Signature& sig) {
+    std::string out = "{";
+    out += "\"name\":";
+    jsonAppendEscaped(out, sig.name);
+    out += ",\"email\":";
+    jsonAppendEscaped(out, sig.email);
+    out += ",\"when\":";
+    jsonAppendInt(out, sig.when);
+    out += ",\"tzOffsetMinutes\":";
+    jsonAppendInt(out, sig.tzOffsetMinutes);
+    out += '}';
+    return out;
+}
+
+}  // namespace
+
+std::string toJson(const CommitMeta& meta) {
+    std::string out = "{";
+    out += "\"oid\":";
+    jsonAppendEscaped(out, meta.oid.hex());
+    out += ",\"tree\":";
+    jsonAppendEscaped(out, meta.tree.hex());
+    out += ",\"parents\":[";
+    for (std::size_t i = 0; i < meta.parents.size(); ++i) {
+        if (i != 0) out += ',';
+        jsonAppendEscaped(out, meta.parents[i].hex());
+    }
+    out += "],\"author\":";
+    out += signatureJson(meta.author);
+    out += ",\"committer\":";
+    out += signatureJson(meta.committer);
+    out += ",\"subject\":";
+    jsonAppendEscaped(out, meta.subject);
+    out += ",\"body\":";
+    jsonAppendEscaped(out, meta.body);
+    out += ",\"signed\":";
+    jsonAppendBool(out, meta.signedCommit);
+    out += '}';
+    return out;
+}
+
+namespace {
+
+std::string operationChoiceJson(const OperationChoice& choice) {
+    std::string out = "{";
+    out += "\"kind\":";
+    jsonAppendInt(out, static_cast<std::int64_t>(choice.kind));
+    out += ",\"label\":";
+    jsonAppendEscaped(out, choice.label);
+    out += ",\"explanation\":";
+    jsonAppendEscaped(out, choice.explanation);
+    out += ",\"destructive\":";
+    jsonAppendBool(out, choice.destructive);
+    out += '}';
+    return out;
+}
+
+}  // namespace
+
+std::string toJson(const OperationOutcome& outcome) {
+    std::string out = "{";
+    out += "\"succeeded\":";
+    jsonAppendBool(out, outcome.succeeded);
+    out += ",\"error\":";
+    if (outcome.error.has_value()) {
+        out += toJson(*outcome.error);
+    } else {
+        out += "null";
+    }
+    out += ",\"choices\":[";
+    for (std::size_t i = 0; i < outcome.choices.size(); ++i) {
+        if (i != 0) out += ',';
+        out += operationChoiceJson(outcome.choices[i]);
+    }
+    out += "],\"summary\":";
+    jsonAppendEscaped(out, outcome.summary);
+    out += '}';
+    return out;
+}
+
+std::string toJson(const RepoRecord& record) {
+    std::string out = "{";
+    out += "\"id\":";
+    jsonAppendInt(out, record.id);
+    out += ",\"baseFolderId\":";
+    jsonAppendInt(out, record.baseFolderId);
+    out += ",\"workDir\":";
+    jsonAppendEscaped(out, record.workDir);
+    out += ",\"gitDir\":";
+    jsonAppendEscaped(out, record.gitDir);
+    out += ",\"commonDir\":";
+    jsonAppendEscaped(out, record.commonDir);
+    out += ",\"kind\":";
+    jsonAppendInt(out, static_cast<std::int64_t>(record.kind));
+    out += ",\"name\":";
+    jsonAppendEscaped(out, record.name);
+    out += ",\"parentRepoId\":";
+    if (record.parentRepoId.has_value()) {
+        jsonAppendInt(out, *record.parentRepoId);
+    } else {
+        out += "null";
+    }
+    out += ",\"depth\":";
+    jsonAppendInt(out, record.depth);
+    out += ",\"discoveredAt\":";
+    jsonAppendInt(out, record.discoveredAt);
+    out += ",\"missingSince\":";
+    if (record.missingSince.has_value()) {
+        jsonAppendInt(out, *record.missingSince);
+    } else {
+        out += "null";
+    }
+    out += '}';
+    return out;
+}
+
+namespace {
+
+std::string refInfoJson(const RefInfo& ref) {
+    std::string out = "{";
+    out += "\"fullName\":";
+    jsonAppendEscaped(out, ref.fullName);
+    out += ",\"shortName\":";
+    jsonAppendEscaped(out, ref.shortName);
+    out += ",\"kind\":";
+    jsonAppendInt(out, static_cast<std::int64_t>(ref.kind));
+    out += ",\"target\":";
+    jsonAppendEscaped(out, ref.target.hex());
+    out += ",\"upstream\":";
+    jsonAppendEscaped(out, ref.upstream);
+    out += ",\"ahead\":";
+    jsonAppendInt(out, ref.ahead);
+    out += ",\"behind\":";
+    jsonAppendInt(out, ref.behind);
+    out += ",\"hasTrackingInfo\":";
+    jsonAppendBool(out, ref.hasTrackingInfo);
+    out += ",\"isGone\":";
+    jsonAppendBool(out, ref.isGone);
+    out += ",\"isHead\":";
+    jsonAppendBool(out, ref.isHead);
+    out += ",\"isSymbolic\":";
+    jsonAppendBool(out, ref.isSymbolic);
+    out += ",\"worktreePath\":";
+    jsonAppendEscaped(out, ref.worktreePath);
+    out += '}';
+    return out;
+}
+
+std::string headInfoJson(const HeadInfo& head) {
+    std::string out = "{";
+    out += "\"kind\":";
+    jsonAppendInt(out, static_cast<std::int64_t>(head.kind));
+    out += ",\"branchName\":";
+    jsonAppendEscaped(out, head.branchName);
+    out += ",\"fullRef\":";
+    jsonAppendEscaped(out, head.fullRef);
+    out += ",\"target\":";
+    jsonAppendEscaped(out, head.target.hex());
+    out += '}';
+    return out;
+}
+
+}  // namespace
+
+std::string toJson(const RefSnapshot& refs) {
+    std::string out = "{";
+    out += "\"head\":";
+    out += headInfoJson(refs.head);
+    out += ",\"refCountGuardTripped\":";
+    jsonAppendBool(out, refs.refCountGuardTripped);
+    out += ",\"totalRefCount\":";
+    jsonAppendInt(out, static_cast<std::int64_t>(refs.totalRefCount));
+    out += ",\"refs\":[";
+    for (std::size_t i = 0; i < refs.refs.size(); ++i) {
+        if (i != 0) out += ',';
+        out += refInfoJson(refs.refs[i]);
+    }
+    out += "]}";
+    return out;
+}
+
+std::string toJson(const std::vector<RepoRecord>& records) {
+    std::string out = "[";
+    for (std::size_t i = 0; i < records.size(); ++i) {
+        if (i != 0) out += ',';
+        out += toJson(records[i]);
+    }
+    out += ']';
+    return out;
+}
+
+}  // namespace gbm::capi

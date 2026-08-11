@@ -25,6 +25,16 @@
       "cacheVariables": { "GBM_BUILD_APP": "OFF", "GBM_BUILD_TESTS": "ON" }
     },
     {
+      "name": "capi-only",
+      "inherits": "base",
+      "displayName": "Core + capi (FFI) + tests, no Qt required",
+      "cacheVariables": {
+        "GBM_BUILD_APP": "OFF",
+        "GBM_BUILD_CAPI": "ON",
+        "GBM_BUILD_TESTS": "ON"
+      }
+    },
+    {
       "name": "asan-ubsan",
       "inherits": "base",
       "displayName": "Core with address+undefined sanitizers",
@@ -58,6 +68,7 @@
   "buildPresets": [
     { "name": "dev", "configurePreset": "dev" },
     { "name": "core-only", "configurePreset": "core-only" },
+    { "name": "capi-only", "configurePreset": "capi-only" },
     { "name": "asan-ubsan", "configurePreset": "asan-ubsan" },
     { "name": "tsan", "configurePreset": "tsan" },
     { "name": "ci-linux", "configurePreset": "ci-linux" },
@@ -81,6 +92,12 @@
       "name": "core-only",
       "inherits": "tbase",
       "configurePreset": "core-only",
+      "filter": { "exclude": { "label": "perf" } }
+    },
+    {
+      "name": "capi-only",
+      "inherits": "tbase",
+      "configurePreset": "capi-only",
       "filter": { "exclude": { "label": "perf" } }
     },
     {
@@ -148,6 +165,14 @@
         { "type": "configure", "name": "core-only" },
         { "type": "build", "name": "core-only" },
         { "type": "test", "name": "core-only" }
+      ]
+    },
+    {
+      "name": "capi-only",
+      "steps": [
+        { "type": "configure", "name": "capi-only" },
+        { "type": "build", "name": "capi-only" },
+        { "type": "test", "name": "capi-only" }
       ]
     },
     {

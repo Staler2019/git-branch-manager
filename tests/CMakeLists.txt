@@ -150,6 +150,24 @@ if(GIT_FOUND)
         ENVIRONMENT "GIT_OPTIONAL_LOCKS=0")
 endif()
 
+# --- capi (FFI) tests -------------------------------------------------------
+# Qt-free, like gbm_core_tests above: gated on GBM_BUILD_CAPI rather than
+# GBM_BUILD_APP so it builds under the capi-only preset too.
+if(GBM_BUILD_CAPI)
+    add_executable(gbm_capi_tests
+        capi/CallbackRegistryTest.cpp
+        capi/DiscoveryApiTest.cpp
+        capi/JsonCodecTest.cpp
+        capi/SessionApiTest.cpp
+    )
+    target_link_libraries(gbm_capi_tests
+        PRIVATE gbm_capi gbm_core GTest::gtest GTest::gtest_main gbm_warnings gbm_sanitizers)
+
+    gtest_discover_tests(gbm_capi_tests
+        PROPERTIES LABELS "unit"
+        DISCOVERY_TIMEOUT 60)
+endif()
+
 # --- Qt model tests --------------------------------------------------------
 # Only when the GUI is being built. Runs offscreen, so it needs no display in CI.
 if(GBM_BUILD_APP)

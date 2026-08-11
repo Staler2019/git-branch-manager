@@ -12,6 +12,7 @@ add_executable(gbm_core_tests
     unit/ConflictMarkerParserTest.cpp
     unit/CoreBasicsTest.cpp
     unit/DiscoveryTest.cpp
+    unit/GitExecutableTest.cpp
     unit/GitIntegrationTest.cpp
     unit/GraphBuilderTest.cpp
     unit/MaintenanceOpsTest.cpp

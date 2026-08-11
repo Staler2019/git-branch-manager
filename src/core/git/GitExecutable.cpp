@@ -162,6 +162,23 @@ GitResult<GitInstallation> GitExecutable::probe(const std::filesystem::path& can
         return fail(GitError::Code::NotFound, "No git executable at " + candidate.string());
     }
 
+    // A candidate found by name (PATH lookup, a hardcoded fallback) can still be
+    // unusable: present but missing the executable bit for this user, or
+    // blocked from running by an OS-level policy (e.g. macOS sandboxing denies
+    // process-exec on an otherwise perfectly normal binary). Catching that here
+    // means the resulting error names the file instead of surfacing a generic
+    // spawn failure with no path attached.
+    const auto permissions = std::filesystem::status(candidate, ec).permissions();
+    if (ec) {
+        return fail(GitError::Code::Io, "Could not read permissions for " + candidate.string());
+    }
+    constexpr std::filesystem::perms kAnyExecute = std::filesystem::perms::owner_exec |
+                                                    std::filesystem::perms::group_exec |
+                                                    std::filesystem::perms::others_exec;
+    if ((permissions & kAnyExecute) == std::filesystem::perms::none) {
+        return fail(GitError::Code::Io, candidate.string() + " is not executable");
+    }
+
     auto runner = makeProcessRunner(candidate);
     GitCommand command;
     command.args = {"--version"};
@@ -242,26 +259,45 @@ GitResult<GitInstallation> GitExecutable::detect(const std::filesystem::path& pr
         return probed;
     }
 
-    GitError lastError(GitError::Code::NotFound, "No usable git executable was found");
-    for (const auto& candidate : searchPath()) {
+    const std::vector<std::filesystem::path> candidates = searchPath();
+    // Every candidate's failure reason is kept, not just the last one tried:
+    // with last-write-wins, the final hardcoded fallback's plain "not found"
+    // silently overwrote the real reason an earlier, more likely candidate
+    // (found via PATH) had failed for — e.g. present but blocked from running
+    // by the OS. The aggregated message tells the user which of the several
+    // gits it actually looked at, and why each was rejected.
+    std::vector<std::string> attempts;
+    attempts.reserve(candidates.size());
+    for (const auto& candidate : candidates) {
         auto probed = probe(candidate);
         if (!probed) {
-            lastError = std::move(probed).error();
+            attempts.push_back(candidate.string() + " (" + probed.error().message + ")");
             continue;
         }
         if (!probed->isUsable()) {
-            lastError =
-                GitError(GitError::Code::Unsupported,
-                         "Git " + probed->version.toString() + " at " + candidate.string() +
-                             " is too old; " + GitInstallation::minimumSupported().toString() +
-                             " or newer is required");
+            attempts.push_back(candidate.string() + " (Git " + probed->version.toString() +
+                               " is too old; " + GitInstallation::minimumSupported().toString() +
+                               " or newer is required)");
             continue;
         }
         logMessage(LogLevel::Info,
                    "Using git " + probed->version.toString() + " at " + candidate.string());
         return probed;
     }
-    return fail(std::move(lastError));
+
+    if (attempts.empty()) {
+        return fail(GitError::Code::NotFound,
+                    "No usable git executable was found and no candidate locations exist for "
+                    "this platform");
+    }
+    std::string message = "No usable git executable was found. Tried: ";
+    for (std::size_t i = 0; i < attempts.size(); ++i) {
+        if (i > 0) {
+            message += "; ";
+        }
+        message += attempts[i];
+    }
+    return fail(GitError::Code::NotFound, message);
 }
 
 }  // namespace gbm

@@ -81,6 +81,15 @@ enum GbmEventType {
     GBM_EVENT_REFS_UPDATED = 1,        ///< no payload
     GBM_EVENT_ERROR_OCCURRED = 2,      ///< payload: GitError JSON
     GBM_EVENT_OPERATION_FINISHED = 3,  ///< payload: OperationOutcome JSON
+
+    /// no payload; read the new status with gbm_working_copy_status_json().
+    GBM_EVENT_WORKING_COPY_STATUS_UPDATED = 4,
+    /// payload: OperationOutcome JSON. Fired by stage/unstage/commit.
+    GBM_EVENT_WORKING_COPY_OPERATION_FINISHED = 5,
+    /// payload: {"path": string, "staged": bool, "diff": ParsedDiff JSON}.
+    /// Reply to gbm_working_copy_diff_json(); the echoed path/staged let a
+    /// caller that issued several diff requests match replies back up.
+    GBM_EVENT_WORKING_COPY_DIFF_READY = 6,
 };
 
 typedef void (*GbmEventCallback)(GbmSessionHandle session,
@@ -191,6 +200,47 @@ GBM_API void gbm_branch_checkout(GbmSessionHandle session,
                                  int32_t force,
                                  int32_t stashFirst,
                                  int32_t recurseSubmodules);
+
+// --- Working copy / diff ---------------------------------------------------
+// Mirrors RepositorySession's working-copy methods (RepositorySession.h,
+// "Working Copy" section) and DiffService's workingTreeDiff -- see
+// src/core/git/WorkingCopyStatus.h and src/core/git/DiffService.h.
+
+/// Re-reads `git status`. Deliberately uncached (see WorkingCopyStatusReader's
+/// doc comment: the work tree changes on every keystroke), so this always
+/// runs a fresh scan. Async: fires GBM_EVENT_WORKING_COPY_STATUS_UPDATED on
+/// success or GBM_EVENT_ERROR_OCCURRED on failure.
+GBM_API void gbm_working_copy_refresh(GbmSessionHandle session);
+
+/// Populates the staging buffer with the most recently published
+/// WorkingCopyStatus as JSON. Returns 0 on success, or a negative
+/// GbmErrorCode if gbm_working_copy_refresh() has not yet published one.
+GBM_API int32_t gbm_working_copy_status_json(GbmSessionHandle session);
+
+/// Diff of one path: work tree vs index (staged=0) or index vs HEAD
+/// (staged=1). Async: fires GBM_EVENT_WORKING_COPY_DIFF_READY.
+GBM_API void gbm_working_copy_diff(GbmSessionHandle session, const char* path, int32_t staged);
+
+/// `git add -- <paths>`. `paths`/`pathCount` describe a plain C array of
+/// UTF-8 C strings. Async: fires GBM_EVENT_WORKING_COPY_OPERATION_FINISHED,
+/// and on success also triggers gbm_working_copy_refresh().
+GBM_API void gbm_stage_files(GbmSessionHandle session, const char* const* paths, int32_t pathCount);
+
+/// `git restore --staged -- <paths>`. Same event/refresh contract as
+/// gbm_stage_files().
+GBM_API void gbm_unstage_files(GbmSessionHandle session, const char* const* paths, int32_t pathCount);
+
+/// `git commit` / `git commit --amend`. `message` empty together with
+/// `amend` keeps the existing message (`--amend --no-edit`); empty otherwise
+/// is rejected before git runs. Async: fires
+/// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success also triggers
+/// both gbm_working_copy_refresh() and the same refresh
+/// gbm_history_refresh() would (the new commit needs to appear in the
+/// graph).
+GBM_API void gbm_commit_changes(GbmSessionHandle session,
+                                const char* message,
+                                int32_t amend,
+                                int32_t signOff);
 
 // --- Discovery -------------------------------------------------------------
 // A separate handle class from GbmSessionHandle: discovery scans base

@@ -21,6 +21,9 @@ abstract final class GbmEventType {
   static const int refsUpdated = 1;
   static const int errorOccurred = 2;
   static const int operationFinished = 3;
+  static const int workingCopyStatusUpdated = 4;
+  static const int workingCopyOperationFinished = 5;
+  static const int workingCopyDiffReady = 6;
 }
 
 /// `void (*)(GbmSessionHandle, int32_t, const uint8_t*, int32_t, void*)`.
@@ -105,6 +108,27 @@ typedef BranchCheckoutDart =
       int recurseSubmodules,
     );
 
+typedef _WorkingCopyRefreshNative = Void Function(Pointer<Void> session);
+typedef WorkingCopyRefreshDart = void Function(Pointer<Void> session);
+
+typedef _WorkingCopyStatusJsonNative = Int32 Function(Pointer<Void> session);
+typedef WorkingCopyStatusJsonDart = int Function(Pointer<Void> session);
+
+typedef _WorkingCopyDiffNative = Void Function(Pointer<Void> session, Pointer<Utf8> path, Int32 staged);
+typedef WorkingCopyDiffDart = void Function(Pointer<Void> session, Pointer<Utf8> path, int staged);
+
+typedef _StageFilesNative =
+    Void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> paths, Int32 pathCount);
+typedef StageFilesDart = void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> paths, int pathCount);
+
+typedef _UnstageFilesNative =
+    Void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> paths, Int32 pathCount);
+typedef UnstageFilesDart = void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> paths, int pathCount);
+
+typedef _CommitChangesNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> message, Int32 amend, Int32 signOff);
+typedef CommitChangesDart = void Function(Pointer<Void> session, Pointer<Utf8> message, int amend, int signOff);
+
 typedef _DiscoveryOpenNative = Pointer<Void> Function(Pointer<Utf8> dbPath);
 typedef DiscoveryOpenDart = Pointer<Void> Function(Pointer<Utf8> dbPath);
 
@@ -168,6 +192,17 @@ class GbmBindings {
         'gbm_graph_snapshot_release',
       ),
       branchCheckout = library.lookupFunction<_BranchCheckoutNative, BranchCheckoutDart>('gbm_branch_checkout'),
+      workingCopyRefresh = library.lookupFunction<_WorkingCopyRefreshNative, WorkingCopyRefreshDart>(
+        'gbm_working_copy_refresh',
+      ),
+      workingCopyStatusJson = library
+          .lookupFunction<_WorkingCopyStatusJsonNative, WorkingCopyStatusJsonDart>('gbm_working_copy_status_json'),
+      workingCopyDiff = library.lookupFunction<_WorkingCopyDiffNative, WorkingCopyDiffDart>(
+        'gbm_working_copy_diff',
+      ),
+      stageFiles = library.lookupFunction<_StageFilesNative, StageFilesDart>('gbm_stage_files'),
+      unstageFiles = library.lookupFunction<_UnstageFilesNative, UnstageFilesDart>('gbm_unstage_files'),
+      commitChanges = library.lookupFunction<_CommitChangesNative, CommitChangesDart>('gbm_commit_changes'),
       discoveryOpen = library.lookupFunction<_DiscoveryOpenNative, DiscoveryOpenDart>('gbm_discovery_open'),
       discoveryClose = library.lookupFunction<_DiscoveryCloseNative, DiscoveryCloseDart>('gbm_discovery_close'),
       discoveryAddBaseFolder = library
@@ -196,6 +231,12 @@ class GbmBindings {
   final GraphIntQueryDart graphSnapshotTruncated;
   final GraphReleaseDart graphSnapshotRelease;
   final BranchCheckoutDart branchCheckout;
+  final WorkingCopyRefreshDart workingCopyRefresh;
+  final WorkingCopyStatusJsonDart workingCopyStatusJson;
+  final WorkingCopyDiffDart workingCopyDiff;
+  final StageFilesDart stageFiles;
+  final UnstageFilesDart unstageFiles;
+  final CommitChangesDart commitChanges;
   final DiscoveryOpenDart discoveryOpen;
   final DiscoveryCloseDart discoveryClose;
   final DiscoveryAddBaseFolderDart discoveryAddBaseFolder;

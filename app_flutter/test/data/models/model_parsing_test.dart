@@ -8,9 +8,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/git_error.dart';
 import 'package:gbm_flutter/data/models/graph_snapshot.dart';
 import 'package:gbm_flutter/data/models/operation_outcome.dart';
+import 'package:gbm_flutter/data/models/parsed_diff.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
 import 'package:gbm_flutter/data/models/repo_record.dart';
 import 'package:gbm_flutter/data/models/repo_state.dart' as model;
+import 'package:gbm_flutter/data/models/working_copy_status.dart';
 
 void main() {
   test('GitError.fromJson round-trips every field', () {
@@ -106,5 +108,39 @@ void main() {
     );
 
     expect(view.parentsOf(0), <String>['bb']);
+  });
+
+  test('WorkingCopyStatus.fromJson splits entries by staged/unstaged/untracked', () {
+    final Map<String, dynamic> json = jsonDecode(
+      '{"entries":['
+      '{"path":"a.txt","oldPath":"","untracked":false,"staged":true,"indexStatus":0,'
+      '"hasUnstagedChange":false,"worktreeStatus":0,"conflict":0,"ancestorBlob":"",'
+      '"oursBlob":"","theirsBlob":"","similarity":0,"isSubmodule":false,"isConflicted":false},'
+      '{"path":"b.txt","oldPath":"","untracked":true,"staged":false,"indexStatus":0,'
+      '"hasUnstagedChange":false,"worktreeStatus":0,"conflict":0,"ancestorBlob":"",'
+      '"oursBlob":"","theirsBlob":"","similarity":0,"isSubmodule":false,"isConflicted":false}'
+      ']}',
+    );
+    final WorkingCopyStatus status = WorkingCopyStatus.fromJson(json);
+
+    expect(status.isClean, isFalse);
+    expect(status.staged.map((e) => e.path), <String>['a.txt']);
+    expect(status.untrackedFiles.map((e) => e.path), <String>['b.txt']);
+  });
+
+  test('ParsedDiff.fromJson decodes nested files/hunks/lines', () {
+    final Map<String, dynamic> json = jsonDecode(
+      '{"files":[{"oldPath":"a.txt","newPath":"a.txt","kind":0,"oldMode":"","newMode":"",'
+      '"oldBlob":"","newBlob":"","binary":false,"similarity":0,"addedLines":1,"removedLines":0,'
+      '"displayPath":"a.txt","hunks":[{"oldStart":1,"oldCount":1,"newStart":1,"newCount":2,'
+      '"heading":"","lines":[{"kind":0,"oldLine":1,"newLine":1,"text":"line1"},'
+      '{"kind":1,"oldLine":0,"newLine":2,"text":"line2"}]}]}],"truncated":false,"inputBytes":42}',
+    );
+    final ParsedDiff diff = ParsedDiff.fromJson(json);
+
+    expect(diff.files, hasLength(1));
+    expect(diff.files.single.hunks.single.lines, hasLength(2));
+    expect(diff.files.single.hunks.single.lines[1].kind, DiffLineKind.added);
+    expect(diff.files.single.hunks.single.lines[1].text, 'line2');
   });
 }

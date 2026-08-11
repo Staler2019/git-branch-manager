@@ -246,4 +246,140 @@ std::string toJson(const std::vector<RepoRecord>& records) {
     return out;
 }
 
+namespace {
+
+std::string workingCopyEntryJson(const WorkingCopyEntry& entry) {
+    std::string out = "{";
+    out += "\"path\":";
+    jsonAppendEscaped(out, entry.path);
+    out += ",\"oldPath\":";
+    jsonAppendEscaped(out, entry.oldPath);
+    out += ",\"untracked\":";
+    jsonAppendBool(out, entry.untracked);
+    out += ",\"staged\":";
+    jsonAppendBool(out, entry.staged);
+    out += ",\"indexStatus\":";
+    jsonAppendInt(out, static_cast<std::int64_t>(entry.indexStatus));
+    out += ",\"hasUnstagedChange\":";
+    jsonAppendBool(out, entry.hasUnstagedChange);
+    out += ",\"worktreeStatus\":";
+    jsonAppendInt(out, static_cast<std::int64_t>(entry.worktreeStatus));
+    out += ",\"conflict\":";
+    jsonAppendInt(out, static_cast<std::int64_t>(entry.conflict));
+    out += ",\"ancestorBlob\":";
+    jsonAppendEscaped(out, entry.ancestorBlob);
+    out += ",\"oursBlob\":";
+    jsonAppendEscaped(out, entry.oursBlob);
+    out += ",\"theirsBlob\":";
+    jsonAppendEscaped(out, entry.theirsBlob);
+    out += ",\"similarity\":";
+    jsonAppendInt(out, entry.similarity);
+    out += ",\"isSubmodule\":";
+    jsonAppendBool(out, entry.isSubmodule);
+    out += ",\"isConflicted\":";
+    jsonAppendBool(out, entry.isConflicted());
+    out += '}';
+    return out;
+}
+
+}  // namespace
+
+std::string toJson(const WorkingCopyStatus& status) {
+    std::string out = "{\"entries\":[";
+    for (std::size_t i = 0; i < status.entries.size(); ++i) {
+        if (i != 0) out += ',';
+        out += workingCopyEntryJson(status.entries[i]);
+    }
+    out += "]}";
+    return out;
+}
+
+namespace {
+
+std::string diffLineJson(const DiffLine& line) {
+    std::string out = "{";
+    out += "\"kind\":";
+    jsonAppendInt(out, static_cast<std::int64_t>(line.kind));
+    out += ",\"oldLine\":";
+    jsonAppendInt(out, line.oldLine);
+    out += ",\"newLine\":";
+    jsonAppendInt(out, line.newLine);
+    out += ",\"text\":";
+    jsonAppendEscaped(out, line.text);
+    out += '}';
+    return out;
+}
+
+std::string diffHunkJson(const DiffHunk& hunk) {
+    std::string out = "{";
+    out += "\"oldStart\":";
+    jsonAppendInt(out, hunk.oldStart);
+    out += ",\"oldCount\":";
+    jsonAppendInt(out, hunk.oldCount);
+    out += ",\"newStart\":";
+    jsonAppendInt(out, hunk.newStart);
+    out += ",\"newCount\":";
+    jsonAppendInt(out, hunk.newCount);
+    out += ",\"heading\":";
+    jsonAppendEscaped(out, hunk.heading);
+    out += ",\"lines\":[";
+    for (std::size_t i = 0; i < hunk.lines.size(); ++i) {
+        if (i != 0) out += ',';
+        out += diffLineJson(hunk.lines[i]);
+    }
+    out += "]}";
+    return out;
+}
+
+std::string diffFileJson(const DiffFile& file) {
+    std::string out = "{";
+    out += "\"oldPath\":";
+    jsonAppendEscaped(out, file.oldPath);
+    out += ",\"newPath\":";
+    jsonAppendEscaped(out, file.newPath);
+    out += ",\"kind\":";
+    jsonAppendInt(out, static_cast<std::int64_t>(file.kind));
+    out += ",\"oldMode\":";
+    jsonAppendEscaped(out, file.oldMode);
+    out += ",\"newMode\":";
+    jsonAppendEscaped(out, file.newMode);
+    out += ",\"oldBlob\":";
+    jsonAppendEscaped(out, file.oldBlob);
+    out += ",\"newBlob\":";
+    jsonAppendEscaped(out, file.newBlob);
+    out += ",\"binary\":";
+    jsonAppendBool(out, file.binary);
+    out += ",\"similarity\":";
+    jsonAppendInt(out, file.similarity);
+    out += ",\"addedLines\":";
+    jsonAppendInt(out, file.addedLines);
+    out += ",\"removedLines\":";
+    jsonAppendInt(out, file.removedLines);
+    out += ",\"displayPath\":";
+    jsonAppendEscaped(out, file.displayPath());
+    out += ",\"hunks\":[";
+    for (std::size_t i = 0; i < file.hunks.size(); ++i) {
+        if (i != 0) out += ',';
+        out += diffHunkJson(file.hunks[i]);
+    }
+    out += "]}";
+    return out;
+}
+
+}  // namespace
+
+std::string toJson(const ParsedDiff& diff) {
+    std::string out = "{\"files\":[";
+    for (std::size_t i = 0; i < diff.files.size(); ++i) {
+        if (i != 0) out += ',';
+        out += diffFileJson(diff.files[i]);
+    }
+    out += "],\"truncated\":";
+    jsonAppendBool(out, diff.truncated);
+    out += ",\"inputBytes\":";
+    jsonAppendInt(out, static_cast<std::int64_t>(diff.inputBytes));
+    out += '}';
+    return out;
+}
+
 }  // namespace gbm::capi

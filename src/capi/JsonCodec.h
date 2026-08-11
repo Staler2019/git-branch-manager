@@ -11,6 +11,8 @@
 #include "core/git/OperationRunner.h"
 #include "core/git/RefStore.h"
 #include "core/git/RepoState.h"
+#include "core/git/UnifiedDiffParser.h"
+#include "core/git/WorkingCopyStatus.h"
 
 #include <string>
 #include <vector>
@@ -24,5 +26,7 @@ std::string toJson(const OperationOutcome& outcome);
 std::string toJson(const RepoRecord& record);
 std::string toJson(const std::vector<RepoRecord>& records);
 std::string toJson(const RefSnapshot& refs);
+std::string toJson(const WorkingCopyStatus& status);
+std::string toJson(const ParsedDiff& diff);
 
 }  // namespace gbm::capi

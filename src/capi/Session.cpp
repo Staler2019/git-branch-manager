@@ -1,10 +1,12 @@
 #include "capi/Session.h"
 
 #include "capi/JsonCodec.h"
+#include "capi/JsonWriter.h"
 #include "core/git/ops/CheckoutOp.h"
 #include "core/workers/ThreadPool.h"
 
 #include <mutex>
+#include <utility>
 
 namespace gbm::capi {
 
@@ -57,7 +59,9 @@ Session::Session(GitInstallation installation, RepoPaths paths, std::unique_ptr<
       runner_(std::move(runner)),
       refStore_(std::make_unique<RefStore>(*runner_, paths_)),
       history_(std::make_unique<HistoryProvider>(*runner_, paths_)),
-      operations_(std::make_unique<OperationRunner>(*runner_, paths_)) {}
+      operations_(std::make_unique<OperationRunner>(*runner_, paths_)),
+      workingCopyStatusReader_(std::make_unique<WorkingCopyStatusReader>(*runner_, paths_)),
+      diffs_(std::make_unique<DiffService>(*runner_, paths_)) {}
 
 Session::~Session() {
     // sharedReadPool() is process-wide (see its doc comment), so this is
@@ -155,6 +159,73 @@ void Session::checkout(CheckoutRequest request) {
         if (succeeded) {
             refreshHistory();
         }
+    });
+}
+
+void Session::refreshWorkingCopy() {
+    sharedReadPool().post([this]() {
+        const GitResult<WorkingCopyStatusPtr> result = workingCopyStatusReader_->read(CancellationToken{});
+        if (!result) {
+            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+            return;
+        }
+        {
+            std::lock_guard<std::mutex> lock(workingCopyMutex_);
+            workingCopyStatus_ = result.value();
+        }
+        callbacks_.emitEmpty(GBM_EVENT_WORKING_COPY_STATUS_UPDATED);
+    });
+}
+
+WorkingCopyStatusPtr Session::currentWorkingCopyStatus() const {
+    std::lock_guard<std::mutex> lock(workingCopyMutex_);
+    return workingCopyStatus_;
+}
+
+void Session::requestWorkingCopyDiff(std::string path, bool staged) {
+    sharedReadPool().post([this, path = std::move(path), staged]() {
+        const DiffOptions options;
+        const GitResult<DiffService::ParsedDiffPtr> result =
+            diffs_->workingTreeDiff(staged, {path}, options, CancellationToken{});
+        if (!result) {
+            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+            return;
+        }
+        std::string payload = "{\"path\":";
+        jsonAppendEscaped(payload, path);
+        payload += ",\"staged\":";
+        jsonAppendBool(payload, staged);
+        payload += ",\"diff\":";
+        payload += toJson(*result.value());
+        payload += '}';
+        callbacks_.emit(GBM_EVENT_WORKING_COPY_DIFF_READY, payload);
+    });
+}
+
+void Session::submitWorkingCopyOperation(std::unique_ptr<Operation> operation, std::function<void()> onSuccess) {
+    operations_->submit(std::move(operation), [this, onSuccess = std::move(onSuccess)](OperationOutcome outcome) {
+        const bool succeeded = outcome.succeeded;
+        callbacks_.emit(GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, toJson(outcome));
+        if (succeeded && onSuccess) {
+            onSuccess();
+        }
+    });
+}
+
+void Session::stageFiles(std::vector<std::string> paths) {
+    submitWorkingCopyOperation(makeStageFilesOperation(StageFilesRequest{std::move(paths)}),
+                               [this]() { refreshWorkingCopy(); });
+}
+
+void Session::unstageFiles(std::vector<std::string> paths) {
+    submitWorkingCopyOperation(makeUnstageFilesOperation(UnstageFilesRequest{std::move(paths)}),
+                               [this]() { refreshWorkingCopy(); });
+}
+
+void Session::commitChanges(CommitRequest request) {
+    submitWorkingCopyOperation(makeCommitOperation(std::move(request)), [this]() {
+        refreshWorkingCopy();
+        refreshHistory();
     });
 }
 

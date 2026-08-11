@@ -159,6 +159,7 @@ if(GBM_BUILD_CAPI)
         capi/DiscoveryApiTest.cpp
         capi/JsonCodecTest.cpp
         capi/SessionApiTest.cpp
+        capi/WorkingCopyApiTest.cpp
     )
     target_link_libraries(gbm_capi_tests
         PRIVATE gbm_capi gbm_core GTest::gtest GTest::gtest_main gbm_warnings gbm_sanitizers)

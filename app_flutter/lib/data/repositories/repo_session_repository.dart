@@ -10,10 +10,32 @@ import '../ffi/gbm_bindings.dart';
 import '../ffi/json_codec.dart';
 import '../models/git_error.dart';
 import '../models/graph_snapshot.dart';
+import '../models/parsed_diff.dart';
 import '../models/ref_snapshot.dart';
 import '../models/repo_state.dart' as model;
+import '../models/working_copy_status.dart';
 import 'gbm_bindings_provider.dart';
 import 'repo_identity.dart';
+
+/// Reply to [RepoSessionController.requestDiff]: the diff plus which
+/// path/staged pair it answers, so a caller that fired several diff
+/// requests can tell which one just arrived -- mirrors
+/// GBM_EVENT_WORKING_COPY_DIFF_READY's payload shape.
+class WorkingCopyDiffReply {
+  const WorkingCopyDiffReply({required this.path, required this.staged, required this.diff});
+
+  factory WorkingCopyDiffReply.fromJson(Map<String, dynamic> json) {
+    return WorkingCopyDiffReply(
+      path: json['path'] as String,
+      staged: json['staged'] as bool,
+      diff: ParsedDiff.fromJson(json['diff'] as Map<String, dynamic>),
+    );
+  }
+
+  final String path;
+  final bool staged;
+  final ParsedDiff diff;
+}
 
 /// Everything the workspace shell (`features/workspace`), sidebar
 /// (`features/sidebar`) and history graph (`features/history_graph`) read
@@ -29,6 +51,8 @@ class RepoSessionState {
     this.graph = GraphSnapshotView.empty,
     this.isRefreshing = false,
     this.lastError,
+    this.workingCopyStatus = WorkingCopyStatus.empty,
+    this.lastDiff,
   });
 
   final bool isOpen;
@@ -37,6 +61,8 @@ class RepoSessionState {
   final GraphSnapshotView graph;
   final bool isRefreshing;
   final GitError? lastError;
+  final WorkingCopyStatus workingCopyStatus;
+  final WorkingCopyDiffReply? lastDiff;
 
   RepoSessionState copyWith({
     bool? isOpen,
@@ -46,6 +72,8 @@ class RepoSessionState {
     bool? isRefreshing,
     GitError? lastError,
     bool clearError = false,
+    WorkingCopyStatus? workingCopyStatus,
+    WorkingCopyDiffReply? lastDiff,
   }) {
     return RepoSessionState(
       isOpen: isOpen ?? this.isOpen,
@@ -54,6 +82,8 @@ class RepoSessionState {
       graph: graph ?? this.graph,
       isRefreshing: isRefreshing ?? this.isRefreshing,
       lastError: clearError ? null : (lastError ?? this.lastError),
+      workingCopyStatus: workingCopyStatus ?? this.workingCopyStatus,
+      lastDiff: lastDiff ?? this.lastDiff,
     );
   }
 }
@@ -97,6 +127,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     state = state.copyWith(isOpen: true);
     _readRepoState();
     refreshHistory();
+    refreshWorkingCopy();
   }
 
   void _onEvent(GbmEvent event) {
@@ -115,6 +146,19 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
         );
       case GbmEventType.operationFinished:
         _readRepoState();
+      case GbmEventType.workingCopyStatusUpdated:
+        _readWorkingCopyStatus();
+      case GbmEventType.workingCopyOperationFinished:
+        final Object? payload = decodeEventPayload(event.payload);
+        if (payload is Map<String, dynamic> && payload['succeeded'] == false) {
+          final Object? error = payload['error'];
+          state = state.copyWith(lastError: error is Map<String, dynamic> ? GitError.fromJson(error) : null);
+        }
+      case GbmEventType.workingCopyDiffReady:
+        final Object? payload = decodeEventPayload(event.payload);
+        if (payload is Map<String, dynamic>) {
+          state = state.copyWith(lastDiff: WorkingCopyDiffReply.fromJson(payload));
+        }
     }
   }
 
@@ -132,6 +176,15 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
       final String json = readLastResultJson(_bindings);
       if (json.isNotEmpty) {
         state = state.copyWith(refs: RefSnapshot.fromJson(jsonDecode(json) as Map<String, dynamic>));
+      }
+    }
+  }
+
+  void _readWorkingCopyStatus() {
+    if (_bindings.workingCopyStatusJson(_session) == 0) {
+      final String json = readLastResultJson(_bindings);
+      if (json.isNotEmpty) {
+        state = state.copyWith(workingCopyStatus: WorkingCopyStatus.fromJson(jsonDecode(json) as Map<String, dynamic>));
       }
     }
   }
@@ -161,6 +214,72 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     } finally {
       malloc.free(targetPtr);
       malloc.free(newBranchPtr);
+    }
+  }
+
+  /// Re-reads `git status`. See gbm_working_copy_refresh()'s doc comment in
+  /// gbm_capi.h. Async: [state].workingCopyStatus updates when
+  /// GBM_EVENT_WORKING_COPY_STATUS_UPDATED arrives.
+  void refreshWorkingCopy() {
+    if (_session == nullptr) return;
+    _bindings.workingCopyRefresh(_session);
+  }
+
+  /// Diff of one path: work tree vs index (staged=false) or index vs HEAD
+  /// (staged=true). Async: [state].lastDiff updates when
+  /// GBM_EVENT_WORKING_COPY_DIFF_READY arrives.
+  void requestDiff(String path, {bool staged = false}) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+    try {
+      _bindings.workingCopyDiff(_session, pathPtr, staged ? 1 : 0);
+    } finally {
+      malloc.free(pathPtr);
+    }
+  }
+
+  /// `git add -- <paths>`. Async: fires GBM_EVENT_WORKING_COPY_OPERATION_FINISHED
+  /// and (on success) a working-copy refresh, both reflected in [state].
+  void stageFiles(List<String> paths) {
+    if (_session == nullptr) return;
+    _withNativeStringArray(paths, (array, count) => _bindings.stageFiles(_session, array, count));
+  }
+
+  /// `git restore --staged -- <paths>`. Same event/refresh contract as
+  /// [stageFiles].
+  void unstageFiles(List<String> paths) {
+    if (_session == nullptr) return;
+    _withNativeStringArray(paths, (array, count) => _bindings.unstageFiles(_session, array, count));
+  }
+
+  /// `git commit` / `git commit --amend`. Async: fires
+  /// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success also
+  /// refreshes both the working copy and the history graph (the new commit
+  /// needs to appear there).
+  void commit(String message, {bool amend = false, bool signOff = false}) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> messagePtr = message.toNativeUtf8();
+    try {
+      _bindings.commitChanges(_session, messagePtr, amend ? 1 : 0, signOff ? 1 : 0);
+    } finally {
+      malloc.free(messagePtr);
+    }
+  }
+
+  /// Marshals `paths` into a native `const char* const*` for the lifetime of
+  /// `body`, then frees every string and the array itself.
+  void _withNativeStringArray(List<String> paths, void Function(Pointer<Pointer<Utf8>> array, int count) body) {
+    final Pointer<Pointer<Utf8>> array = malloc<Pointer<Utf8>>(paths.length);
+    try {
+      for (int i = 0; i < paths.length; i++) {
+        array[i] = paths[i].toNativeUtf8();
+      }
+      body(array, paths.length);
+    } finally {
+      for (int i = 0; i < paths.length; i++) {
+        malloc.free(array[i]);
+      }
+      malloc.free(array);
     }
   }
 

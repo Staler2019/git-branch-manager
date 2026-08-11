@@ -15,6 +15,7 @@
 #include "capi/gbm_capi.h"
 #include "core/base/CancellationToken.h"
 #include "core/base/Error.h"
+#include "core/git/DiffService.h"
 #include "core/git/GitExecutable.h"
 #include "core/git/HistoryProvider.h"
 #include "core/git/IProcessRunner.h"
@@ -22,13 +23,18 @@
 #include "core/git/RefStore.h"
 #include "core/git/RepoPaths.h"
 #include "core/git/RepoState.h"
+#include "core/git/WorkingCopyStatus.h"
 #include "core/git/ops/CheckoutOp.h"
+#include "core/git/ops/CommitOps.h"
+#include "core/git/ops/StageOps.h"
 #include "core/graph/GraphSnapshot.h"
 #include "core/workers/ThreadPool.h"
 
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
 namespace gbm::capi {
 
@@ -86,10 +92,35 @@ public:
     /// Async: see gbm_branch_checkout()'s doc comment in gbm_capi.h.
     void checkout(CheckoutRequest request);
 
+    /// Async: see gbm_working_copy_refresh()'s doc comment in gbm_capi.h.
+    void refreshWorkingCopy();
+
+    /// The most recently published working-copy status, or null if
+    /// refreshWorkingCopy() has not yet produced one. Thread-safe; never
+    /// blocks.
+    WorkingCopyStatusPtr currentWorkingCopyStatus() const;
+
+    /// Async: see gbm_working_copy_diff()'s doc comment in gbm_capi.h.
+    void requestWorkingCopyDiff(std::string path, bool staged);
+
+    /// Async: see gbm_stage_files()/gbm_unstage_files()'s doc comments.
+    void stageFiles(std::vector<std::string> paths);
+    void unstageFiles(std::vector<std::string> paths);
+
+    /// Async: see gbm_commit_changes()'s doc comment in gbm_capi.h.
+    void commitChanges(CommitRequest request);
+
 private:
     Session(GitInstallation installation, RepoPaths paths, std::unique_ptr<IProcessRunner> runner);
 
     void publishGraph(GraphSnapshotPtr snapshot);
+
+    /// Runs `operation` on operations_, emits
+    /// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED with its outcome, and on
+    /// success calls `onSuccess` (e.g. to chain a refresh) -- the shared
+    /// tail of stageFiles/unstageFiles/commitChanges, mirroring
+    /// RepositorySession::submitWorkingCopyOperation.
+    void submitWorkingCopyOperation(std::unique_ptr<Operation> operation, std::function<void()> onSuccess);
 
     GitInstallation installation_;
     RepoPaths paths_;
@@ -97,6 +128,8 @@ private:
     std::unique_ptr<RefStore> refStore_;
     std::unique_ptr<HistoryProvider> history_;
     std::unique_ptr<OperationRunner> operations_;
+    std::unique_ptr<WorkingCopyStatusReader> workingCopyStatusReader_;
+    std::unique_ptr<DiffService> diffs_;
 
     CallbackRegistry callbacks_;
 
@@ -107,6 +140,13 @@ private:
     /// releaseExportedGraph() -- Dart's FFI calls are made from a single
     /// isolate at a time by convention, so this needs no lock of its own.
     GraphSnapshotPtr exportedGraph_;
+
+    /// Separate from graphMutex_: working-copy status changes far more
+    /// often (every stage/unstage/commit) and independently of history
+    /// refreshes, so sharing one lock would serialise unrelated readers for
+    /// no reason.
+    mutable std::mutex workingCopyMutex_;
+    WorkingCopyStatusPtr workingCopyStatus_;
 
     /// Cancels the in-flight history walk when a newer refreshHistory() call
     /// supersedes it -- mirrors RepositorySession::historyCancel_.

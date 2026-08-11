@@ -12,6 +12,7 @@ add_library(gbm_capi SHARED
     JsonCodec.cpp
     Refs.cpp
     Session.cpp
+    WorkingCopy.cpp
 )
 
 target_include_directories(gbm_capi PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/../")

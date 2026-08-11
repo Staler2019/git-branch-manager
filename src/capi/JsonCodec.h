@@ -10,6 +10,7 @@
 #include "core/cache/RepoIndexDb.h"
 #include "core/git/BlameStore.h"
 #include "core/git/CommitMeta.h"
+#include "core/git/ConflictMarkerParser.h"
 #include "core/git/FileHistoryStore.h"
 #include "core/git/OperationRunner.h"
 #include "core/git/RefStore.h"
@@ -73,5 +74,6 @@ std::string toJson(const LfsFileInfo& file);
 std::string toJson(const std::vector<LfsFileInfo>& files);
 std::string toJson(const LocalIdentity& identity);
 std::string toJson(const EffectiveIdentity& identity);
+std::string toJson(const ParsedConflictFile& parsed);
 
 }  // namespace gbm::capi

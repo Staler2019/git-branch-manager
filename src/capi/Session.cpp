@@ -2,7 +2,9 @@
 
 #include "capi/JsonCodec.h"
 #include "capi/JsonWriter.h"
+#include "core/base/FsUtil.h"
 #include "core/git/AskpassHelper.h"
+#include "core/git/TextTraits.h"
 #include "core/git/ops/CheckoutOp.h"
 #include "core/workers/ThreadPool.h"
 
@@ -405,6 +407,41 @@ void Session::revertCommit(RevertRequest request) {
 
 void Session::resolveConflict(ResolveConflictRequest request) {
     submitWorkingCopyOperation(makeResolveConflictOperation(std::move(request)), [this]() { refreshWorkingCopy(); });
+}
+
+void Session::requestWorkingTreeContent(std::string path) {
+    sharedReadPool().post([this, path = std::move(path)]() {
+        // Above this, a conflicted file is treated the same as binary: shown
+        // as "not editable" rather than loaded whole into the resolve
+        // editor -- mirrors RepositorySession::requestWorkingTreeContent's
+        // own cap exactly.
+        constexpr std::size_t kMaxEditableWorkingTreeBytes = 8u * 1024u * 1024u;
+        const std::filesystem::path target = paths_.workDir() / path;
+        const std::optional<std::string> raw = fsutil::readSmallFile(target, kMaxEditableWorkingTreeBytes);
+
+        bool editable = false;
+        std::string content;
+        if (raw.has_value()) {
+            const TextTraits traits = detectTextTraits(*raw);
+            // A conflicted path that fails this is shown read-only instead
+            // of risking silent corruption from a lossy UTF-8 decode --
+            // detectTextTraits already folds an embedded NUL into
+            // EncodingKind::Binary, matching RepositorySession's own check.
+            editable = traits.encoding == EncodingKind::Utf8 || traits.encoding == EncodingKind::Utf8Bom;
+            if (editable) {
+                content = *raw;
+            }
+        }
+
+        std::string payload = "{\"path\":";
+        jsonAppendEscaped(payload, path);
+        payload += ",\"content\":";
+        jsonAppendEscaped(payload, content);
+        payload += ",\"editable\":";
+        jsonAppendBool(payload, editable);
+        payload += '}';
+        callbacks_.emit(GBM_EVENT_WORKING_TREE_CONTENT_READY, payload);
+    });
 }
 
 // --- Stashes -------------------------------------------------------------

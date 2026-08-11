@@ -179,6 +179,9 @@ public:
     /// Async: see gbm_resolve_conflict()'s doc comment.
     void resolveConflict(ResolveConflictRequest request);
 
+    /// Async: see gbm_request_working_tree_content()'s doc comment.
+    void requestWorkingTreeContent(std::string path);
+
     /// Async: see gbm_stash_refresh()'s doc comment.
     void refreshStashes();
 

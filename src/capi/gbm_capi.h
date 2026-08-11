@@ -147,6 +147,11 @@ enum GbmEventType {
     /// FINISHED so a caller reacting to the perf-advice banner does not have
     /// to filter every operation outcome for the one it recognises.
     GBM_EVENT_COMMIT_GRAPH_WRITE_FINISHED = 24,
+    /// payload: {"path": string, "content": string, "editable": bool}.
+    /// Reply to gbm_request_working_tree_content(). `content` is empty and
+    /// `editable` is false when the file is binary, contains an embedded
+    /// NUL, is not well-formed UTF-8, or exceeds the display size cap.
+    GBM_EVENT_WORKING_TREE_CONTENT_READY = 25,
 };
 
 typedef void (*GbmEventCallback)(GbmSessionHandle session,
@@ -369,6 +374,25 @@ GBM_API void gbm_resolve_conflict(GbmSessionHandle session,
                                   int32_t oursBlobMissing,
                                   int32_t theirsBlobMissing,
                                   const char* resolvedContent);
+
+/// Reads a conflicted path's raw on-disk content (conflict markers and all)
+/// for the resolve editor -- a conflicted path has no stage 0, so it cannot
+/// be read via a `revision:path` cat-file lookup the way an ordinary
+/// tracked file's content can; the markers exist only on disk. Async: fires
+/// GBM_EVENT_WORKING_TREE_CONTENT_READY. Best-effort: a missing/unreadable
+/// file reports `editable: false` with empty content, not
+/// GBM_EVENT_ERROR_OCCURRED -- see that event's doc comment.
+GBM_API void gbm_request_working_tree_content(GbmSessionHandle session, const char* path);
+
+/// Splits `content` (typically a gbm_request_working_tree_content() reply)
+/// into plain-text and per-region conflict segments, populating the
+/// staging buffer with the result as JSON -- see ConflictMarkerParser's
+/// doc comment in core/git/ConflictMarkerParser.h for the exact parsing
+/// rules (diff3 `|||||||` base, CRLF/no-trailing-newline preservation, and
+/// the regionCount==0 fallback for malformed markers). Pure and
+/// session-independent: does not touch git or the filesystem. Returns 0 on
+/// success.
+GBM_API int32_t gbm_parse_conflict_markers(const char* content);
 
 // --- Working copy / diff ---------------------------------------------------
 // Mirrors RepositorySession's working-copy methods (RepositorySession.h,

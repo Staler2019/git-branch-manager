@@ -19,6 +19,7 @@ import '../models/lfs_state.dart';
 import '../models/line_history_chunk.dart';
 import '../models/operation_choice.dart';
 import '../models/operation_record.dart';
+import '../models/parsed_conflict_file.dart';
 import '../models/parsed_diff.dart';
 import '../models/rebase_todo_entry.dart';
 import '../models/ref_snapshot.dart';
@@ -66,6 +67,24 @@ class WorkingCopyDiffReply {
   final ParsedDiff diff;
 }
 
+/// Reply to [RepoSessionController.requestWorkingTreeContent]: mirrors
+/// GBM_EVENT_WORKING_TREE_CONTENT_READY's payload shape.
+class WorkingTreeContentReply {
+  const WorkingTreeContentReply({required this.path, required this.content, required this.editable});
+
+  factory WorkingTreeContentReply.fromJson(Map<String, dynamic> json) {
+    return WorkingTreeContentReply(
+      path: json['path'] as String,
+      content: json['content'] as String,
+      editable: json['editable'] as bool,
+    );
+  }
+
+  final String path;
+  final String content;
+  final bool editable;
+}
+
 /// Reply to [RepoSessionController.requestStashDiff]: mirrors
 /// GBM_EVENT_STASH_DIFF_READY's payload shape.
 class StashDiffReply {
@@ -101,6 +120,7 @@ class RepoSessionState {
     this.lastError,
     this.workingCopyStatus = WorkingCopyStatus.empty,
     this.lastDiff,
+    this.lastWorkingTreeContent,
     this.stashes = const <StashEntry>[],
     this.lastStashDiff,
     this.worktrees = const <WorktreeInfo>[],
@@ -135,6 +155,7 @@ class RepoSessionState {
   final GitError? lastError;
   final WorkingCopyStatus workingCopyStatus;
   final WorkingCopyDiffReply? lastDiff;
+  final WorkingTreeContentReply? lastWorkingTreeContent;
   final List<StashEntry> stashes;
   final StashDiffReply? lastStashDiff;
   final List<WorktreeInfo> worktrees;
@@ -198,6 +219,7 @@ class RepoSessionState {
     bool clearError = false,
     WorkingCopyStatus? workingCopyStatus,
     WorkingCopyDiffReply? lastDiff,
+    WorkingTreeContentReply? lastWorkingTreeContent,
     List<StashEntry>? stashes,
     StashDiffReply? lastStashDiff,
     List<WorktreeInfo>? worktrees,
@@ -233,6 +255,7 @@ class RepoSessionState {
       lastError: clearError ? null : (lastError ?? this.lastError),
       workingCopyStatus: workingCopyStatus ?? this.workingCopyStatus,
       lastDiff: lastDiff ?? this.lastDiff,
+      lastWorkingTreeContent: lastWorkingTreeContent ?? this.lastWorkingTreeContent,
       stashes: stashes ?? this.stashes,
       lastStashDiff: lastStashDiff ?? this.lastStashDiff,
       worktrees: worktrees ?? this.worktrees,
@@ -388,6 +411,11 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
         final Object? payload = decodeEventPayload(event.payload);
         if (payload is Map<String, dynamic>) {
           state = state.copyWith(lastDiff: WorkingCopyDiffReply.fromJson(payload));
+        }
+      case GbmEventType.workingTreeContentReady:
+        final Object? payload = decodeEventPayload(event.payload);
+        if (payload is Map<String, dynamic>) {
+          state = state.copyWith(lastWorkingTreeContent: WorkingTreeContentReply.fromJson(payload));
         }
       case GbmEventType.stashesUpdated:
         _readStashes();
@@ -920,6 +948,36 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
       malloc.free(pathPtr);
       malloc.free(resolvedContentPtr);
     }
+  }
+
+  /// Reads a conflicted path's raw on-disk content (conflict markers and
+  /// all) for the resolve editor. Async: see
+  /// gbm_request_working_tree_content()'s doc comment in gbm_capi.h --
+  /// [RepoSessionState.lastWorkingTreeContent] updates on reply.
+  void requestWorkingTreeContent(String path) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+    try {
+      _bindings.requestWorkingTreeContent(_session, pathPtr);
+    } finally {
+      malloc.free(pathPtr);
+    }
+  }
+
+  /// Splits `content` (typically a [requestWorkingTreeContent] reply) into
+  /// plain-text and per-region conflict segments. Synchronous and
+  /// session-independent -- see gbm_parse_conflict_markers()'s doc comment
+  /// in gbm_capi.h -- so this returns its result directly rather than going
+  /// through [state].
+  ParsedConflictFile parseConflictMarkers(String content) {
+    final Pointer<Utf8> contentPtr = content.toNativeUtf8();
+    try {
+      _bindings.parseConflictMarkers(contentPtr);
+    } finally {
+      malloc.free(contentPtr);
+    }
+    final String json = readLastResultJson(_bindings);
+    return json.isEmpty ? ParsedConflictFile.empty : ParsedConflictFile.fromJson(jsonDecode(json) as Map<String, dynamic>);
   }
 
   /// Re-reads `git status`. See gbm_working_copy_refresh()'s doc comment in

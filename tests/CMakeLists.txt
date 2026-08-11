@@ -161,6 +161,7 @@ if(GBM_BUILD_CAPI)
         capi/BranchApiTest.cpp
         capi/CallbackRegistryTest.cpp
         capi/CherryPickRevertApiTest.cpp
+        capi/ConflictMarkerApiTest.cpp
         capi/DiscoveryApiTest.cpp
         capi/FileHistoryApiTest.cpp
         capi/IdentityApiTest.cpp

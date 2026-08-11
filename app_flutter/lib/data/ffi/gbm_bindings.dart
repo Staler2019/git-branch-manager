@@ -42,6 +42,7 @@ abstract final class GbmEventType {
   static const int localIdentityUpdated = 22;
   static const int effectiveIdentityUpdated = 23;
   static const int commitGraphWriteFinished = 24;
+  static const int workingTreeContentReady = 25;
 }
 
 /// `void (*)(GbmSessionHandle, int32_t, const uint8_t*, int32_t, void*)`.
@@ -235,6 +236,12 @@ typedef ResolveConflictDart =
       int theirsBlobMissing,
       Pointer<Utf8> resolvedContent,
     );
+
+typedef _RequestWorkingTreeContentNative = Void Function(Pointer<Void> session, Pointer<Utf8> path);
+typedef RequestWorkingTreeContentDart = void Function(Pointer<Void> session, Pointer<Utf8> path);
+
+typedef _ParseConflictMarkersNative = Int32 Function(Pointer<Utf8> content);
+typedef ParseConflictMarkersDart = int Function(Pointer<Utf8> content);
 
 typedef _WorkingCopyRefreshNative = Void Function(Pointer<Void> session);
 typedef WorkingCopyRefreshDart = void Function(Pointer<Void> session);
@@ -750,6 +757,12 @@ class GbmBindings {
       cherryPickAbort = library.lookupFunction<_CherryPickAbortNative, CherryPickAbortDart>('gbm_cherry_pick_abort'),
       revert = library.lookupFunction<_RevertNative, RevertDart>('gbm_revert'),
       resolveConflict = library.lookupFunction<_ResolveConflictNative, ResolveConflictDart>('gbm_resolve_conflict'),
+      requestWorkingTreeContent = library.lookupFunction<_RequestWorkingTreeContentNative, RequestWorkingTreeContentDart>(
+        'gbm_request_working_tree_content',
+      ),
+      parseConflictMarkers = library.lookupFunction<_ParseConflictMarkersNative, ParseConflictMarkersDart>(
+        'gbm_parse_conflict_markers',
+      ),
       workingCopyRefresh = library.lookupFunction<_WorkingCopyRefreshNative, WorkingCopyRefreshDart>(
         'gbm_working_copy_refresh',
       ),
@@ -933,6 +946,8 @@ class GbmBindings {
   final CherryPickAbortDart cherryPickAbort;
   final RevertDart revert;
   final ResolveConflictDart resolveConflict;
+  final RequestWorkingTreeContentDart requestWorkingTreeContent;
+  final ParseConflictMarkersDart parseConflictMarkers;
   final WorkingCopyRefreshDart workingCopyRefresh;
   final WorkingCopyStatusJsonDart workingCopyStatusJson;
   final WorkingCopyDiffDart workingCopyDiff;

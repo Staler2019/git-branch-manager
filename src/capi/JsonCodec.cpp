@@ -819,4 +819,39 @@ std::string toJson(const EffectiveIdentity& identity) {
     return out;
 }
 
+namespace {
+
+std::string conflictSegmentJson(const ConflictSegment& segment) {
+    std::string out = "{\"kind\":";
+    jsonAppendInt(out, static_cast<std::int64_t>(segment.kind));
+    out += ",\"lines\":";
+    out += toJson(segment.lines);
+    out += ",\"ours\":";
+    out += toJson(segment.ours);
+    out += ",\"theirs\":";
+    out += toJson(segment.theirs);
+    out += ",\"base\":";
+    out += toJson(segment.base);
+    out += ",\"hasBase\":";
+    jsonAppendBool(out, segment.hasBase);
+    out += '}';
+    return out;
+}
+
+}  // namespace
+
+std::string toJson(const ParsedConflictFile& parsed) {
+    std::string out = "{\"segments\":[";
+    for (std::size_t i = 0; i < parsed.segments.size(); ++i) {
+        if (i != 0) out += ',';
+        out += conflictSegmentJson(parsed.segments[i]);
+    }
+    out += "],\"regionCount\":";
+    jsonAppendInt(out, static_cast<std::int64_t>(parsed.regionCount));
+    out += ",\"wellFormed\":";
+    jsonAppendBool(out, parsed.wellFormed);
+    out += '}';
+    return out;
+}
+
 }  // namespace gbm::capi

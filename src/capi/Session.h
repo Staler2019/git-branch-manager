@@ -74,9 +74,15 @@ using EffectiveIdentityPtr = std::shared_ptr<const EffectiveIdentity>;
 
 /// Resolves and caches the git installation once per process. Every Session
 /// shares it: re-probing `git --version` per open repository would be pure
-/// waste, and the installation cannot meaningfully change while the process
-/// is running.
+/// waste. Honors the GBM_GIT_PATH environment variable as an explicit
+/// override. Only a successful detection is cached -- a failure is retried on
+/// the next call, since the app has no way to prompt a restart after the user
+/// fixes the underlying problem.
 GitResult<GitInstallation> sharedGitInstallation();
+
+/// Test-only: clears the cache populated by sharedGitInstallation() so a test
+/// can force re-detection, e.g. after changing GBM_GIT_PATH.
+void resetSharedGitInstallationForTest();
 
 /// Shared read-worker pool, sized like RepositorySession's readPool_
 /// (ThreadPool::defaultThreadCount()). One per process, not per session --

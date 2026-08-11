@@ -3,6 +3,7 @@
 // Exercises the same path Dart's FFI bindings will: open a session, refresh
 // history asynchronously, read the packed graph buffer, and check out a
 // branch, all through the C ABI rather than the C++ classes directly.
+#include "capi/Session.h"
 #include "capi/gbm_capi.h"
 #include "core/git/GitExecutable.h"
 #include "core/graph/GraphSnapshot.h"
@@ -192,6 +193,55 @@ TEST_F(CapiSessionTest, CheckoutCreatesAndSwitchesToNewBranch) {
     // A successful checkout also triggers a refresh -- see Session::checkout.
     EXPECT_TRUE(log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_REFS_UPDATED); }));
 }
+
+// --- sharedGitInstallation() / GBM_GIT_PATH ---------------------------------
+//
+// Not a CapiSessionTest: these exercise sharedGitInstallation() itself, not a
+// Session opened against a real repository, and each one restores the process
+// environment and the cache before returning so it cannot leak state into
+// whichever test runs next in this binary.
+#ifndef _WIN32
+TEST(SharedGitInstallation, HonorsGbmGitPathOverride) {
+    auto detected = GitExecutable::detect();
+    if (!detected) {
+        GTEST_SKIP() << "no usable git found: " << detected.error().message;
+    }
+
+    ::setenv("GBM_GIT_PATH", detected->executable.c_str(), 1);
+    resetSharedGitInstallationForTest();
+    auto result = sharedGitInstallation();
+    ::unsetenv("GBM_GIT_PATH");
+    resetSharedGitInstallationForTest();
+
+    ASSERT_TRUE(result) << result.error().message;
+    EXPECT_EQ(result->executable, detected->executable);
+}
+
+TEST(SharedGitInstallation, RetriesInsteadOfPermanentlyCachingAFailure) {
+    resetSharedGitInstallationForTest();
+    ::setenv("GBM_GIT_PATH", "/definitely/not/a/git/binary", 1);
+    auto first = sharedGitInstallation();
+    ASSERT_FALSE(first);
+
+    auto detected = GitExecutable::detect();
+    if (!detected) {
+        ::unsetenv("GBM_GIT_PATH");
+        GTEST_SKIP() << "no usable git found: " << detected.error().message;
+    }
+
+    // Fixed the override and call again *without* an explicit reset: with the
+    // old always-cache-the-result behaviour, `resolved` would already be true
+    // from the failed first call and this would still return that stale
+    // failure instead of re-detecting.
+    ::setenv("GBM_GIT_PATH", detected->executable.c_str(), 1);
+    auto second = sharedGitInstallation();
+    ::unsetenv("GBM_GIT_PATH");
+    resetSharedGitInstallationForTest();
+
+    ASSERT_TRUE(second) << second.error().message;
+    EXPECT_EQ(second->executable, detected->executable);
+}
+#endif
 
 }  // namespace
 }  // namespace gbm::capi

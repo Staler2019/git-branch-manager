@@ -9,6 +9,8 @@
 #include "core/workers/ThreadPool.h"
 
 #include <algorithm>
+#include <cstdlib>
+#include <filesystem>
 #include <mutex>
 #include <utility>
 #include <vector>
@@ -49,19 +51,47 @@ void ensureOperationLogSinkInstalled() {
                    [] { Log::instance().setOperationSink(&Session::dispatchOperationLogRecord); });
 }
 
+std::mutex& gitInstallationMutex() {
+    static std::mutex mutex;
+    return mutex;
+}
+
+bool& gitInstallationResolved() {
+    static bool resolved = false;
+    return resolved;
+}
+
+GitResult<GitInstallation>& cachedGitInstallation() {
+    static GitResult<GitInstallation> cached = fail(GitError::Code::NotFound, "not yet resolved");
+    return cached;
+}
+
 }  // namespace
 
 GitResult<GitInstallation> sharedGitInstallation() {
-    static std::mutex mutex;
-    static bool resolved = false;
-    static GitResult<GitInstallation> cached = fail(GitError::Code::NotFound, "not yet resolved");
-
-    std::lock_guard<std::mutex> lock(mutex);
-    if (!resolved) {
-        cached = GitExecutable::detect();
-        resolved = true;
+    std::lock_guard<std::mutex> lock(gitInstallationMutex());
+    if (!gitInstallationResolved()) {
+        // GBM_GIT_PATH lets someone with several gits installed (or one
+        // blocked from running by an OS policy the app cannot see around, e.g.
+        // macOS sandboxing) pin the exact executable rather than depend on
+        // GitExecutable::detect()'s PATH/fallback search order.
+        const char* overridePath = std::getenv("GBM_GIT_PATH");
+        cachedGitInstallation() = GitExecutable::detect(
+            overridePath != nullptr ? std::filesystem::path(overridePath) : std::filesystem::path{});
+        // Only a *successful* detection is cached. Detection failing once (git
+        // not yet installed, a permission problem not yet fixed) must not lock
+        // that failure in for the rest of the process's lifetime -- the app has
+        // no way to prompt a restart, so every later Session::open() would
+        // otherwise keep failing even after the user fixes the underlying
+        // problem.
+        gitInstallationResolved() = cachedGitInstallation().hasValue();
     }
-    return cached;
+    return cachedGitInstallation();
+}
+
+void resetSharedGitInstallationForTest() {
+    std::lock_guard<std::mutex> lock(gitInstallationMutex());
+    gitInstallationResolved() = false;
 }
 
 ThreadPool& sharedReadPool() {

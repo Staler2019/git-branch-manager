@@ -10,6 +10,18 @@
 namespace gbm::capi {
 namespace {
 
+// Windows paths contain backslashes, which JSON escapes as `\\` -- searching
+// the raw path.string() as a substring of serialized JSON never matches
+// there, even though the same code is correct on POSIX where paths use `/`.
+std::string jsonNeedle(const std::filesystem::path& path) {
+    std::string escaped;
+    for (char c : path.string()) {
+        if (c == '\\') escaped += '\\';
+        escaped += c;
+    }
+    return escaped;
+}
+
 class DiscoveryApiTest : public ::testing::Test {
 protected:
     static void SetUpTestSuite() {
@@ -62,7 +74,7 @@ TEST_F(DiscoveryApiTest, ScanFindsRepositoryUnderBaseFolder) {
     std::string json(static_cast<std::size_t>(gbm_last_result_json_len()), '\0');
     gbm_last_result_json_copy(reinterpret_cast<uint8_t*>(json.data()), static_cast<int32_t>(json.size()));
 
-    EXPECT_NE(json.find(repo_.string()), std::string::npos) << json;
+    EXPECT_NE(json.find(jsonNeedle(repo_)), std::string::npos) << json;
 }
 
 std::string lastResultJson() {
@@ -80,7 +92,7 @@ TEST_F(DiscoveryApiTest, BaseFoldersJsonReportsRegisteredFolder) {
 
     ASSERT_EQ(gbm_discovery_base_folders_json(discovery_), 0);
     const std::string json = lastResultJson();
-    EXPECT_NE(json.find(base_.string()), std::string::npos) << json;
+    EXPECT_NE(json.find(jsonNeedle(base_)), std::string::npos) << json;
     EXPECT_NE(json.find("\"enabled\":true"), std::string::npos) << json;
     EXPECT_NE(json.find("\"maxDepth\":3"), std::string::npos) << json;
 }

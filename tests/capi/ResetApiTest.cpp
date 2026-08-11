@@ -100,9 +100,10 @@ protected:
     }
 
     std::string headCommitSubject() {
-        std::string command = "git -C \"" + repo_.string() + "\" log -1 --format=%s > /tmp/gbm_reset_test_head.txt";
+        const std::string outFile = (repo_ / "..gbm_reset_test_head.txt").string();
+        std::string command = "git -C \"" + repo_.string() + "\" log -1 --format=%s > \"" + outFile + "\"";
         [[maybe_unused]] const int rc = std::system(command.c_str());
-        std::ifstream in("/tmp/gbm_reset_test_head.txt");
+        std::ifstream in(outFile);
         std::string line;
         std::getline(in, line);
         return line;
@@ -129,9 +130,10 @@ TEST_F(ResetApiTest, SoftResetMovesHeadKeepsIndexAndWorkTree) {
 
     EXPECT_EQ(headCommitSubject(), "First commit");
     // Soft reset leaves the second commit's changes staged.
-    std::string diffCmd = "git -C \"" + repo_.string() + "\" diff --cached --name-only > /tmp/gbm_reset_test_staged.txt";
+    const std::string outFile = (repo_ / "..gbm_reset_test_staged.txt").string();
+    std::string diffCmd = "git -C \"" + repo_.string() + "\" diff --cached --name-only > \"" + outFile + "\"";
     [[maybe_unused]] const int rc = std::system(diffCmd.c_str());
-    std::ifstream in("/tmp/gbm_reset_test_staged.txt");
+    std::ifstream in(outFile);
     std::string line;
     std::getline(in, line);
     EXPECT_EQ(line, "file.txt");
@@ -179,9 +181,10 @@ TEST_F(ResetApiTest, RestorePathsStagedUnstagesAFile) {
         return false;
     }));
 
-    std::string diffCmd = "git -C \"" + repo_.string() + "\" diff --cached --name-only > /tmp/gbm_restore_test_staged.txt";
+    const std::string outFile = (repo_ / "..gbm_restore_test_staged.txt").string();
+    std::string diffCmd = "git -C \"" + repo_.string() + "\" diff --cached --name-only > \"" + outFile + "\"";
     [[maybe_unused]] const int rc = std::system(diffCmd.c_str());
-    std::ifstream in("/tmp/gbm_restore_test_staged.txt");
+    std::ifstream in(outFile);
     std::string line;
     std::getline(in, line);
     EXPECT_TRUE(line.empty()) << "expected nothing staged after --staged restore, got: " << line;

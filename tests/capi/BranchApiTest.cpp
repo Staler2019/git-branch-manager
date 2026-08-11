@@ -97,10 +97,11 @@ protected:
     }
 
     std::vector<std::string> localBranches() {
+        const std::string outFile = (repo_ / "..gbm_branch_test_list.txt").string();
         std::string command =
-            "git -C \"" + repo_.string() + "\" branch --format='%(refname:short)' > /tmp/gbm_branch_test_list.txt";
+            "git -C \"" + repo_.string() + "\" branch --format='%(refname:short)' > \"" + outFile + "\"";
         [[maybe_unused]] const int rc = std::system(command.c_str());
-        std::ifstream in("/tmp/gbm_branch_test_list.txt");
+        std::ifstream in(outFile);
         std::vector<std::string> names;
         std::string line;
         while (std::getline(in, line)) {
@@ -130,9 +131,10 @@ TEST_F(BranchApiTest, CreateBranchAddsALocalBranchWithoutMovingHead) {
     const auto branches = localBranches();
     EXPECT_NE(std::find(branches.begin(), branches.end(), "feature-1"), branches.end());
 
-    std::string command = "git -C \"" + repo_.string() + "\" symbolic-ref --short HEAD > /tmp/gbm_branch_test_head.txt";
+    const std::string outFile = (repo_ / "..gbm_branch_test_head.txt").string();
+    std::string command = "git -C \"" + repo_.string() + "\" symbolic-ref --short HEAD > \"" + outFile + "\"";
     [[maybe_unused]] const int rc = std::system(command.c_str());
-    std::ifstream in("/tmp/gbm_branch_test_head.txt");
+    std::ifstream in(outFile);
     std::string head;
     std::getline(in, head);
     EXPECT_EQ(head, "main");
@@ -142,9 +144,10 @@ TEST_F(BranchApiTest, CreateBranchWithCheckoutAfterMovesHead) {
     gbm_branch_create(session_, "feature-2", "", /*checkoutAfter=*/1, /*setUpstream=*/0, "");
     ASSERT_TRUE(waitForOperationFinished());
 
-    std::string command = "git -C \"" + repo_.string() + "\" symbolic-ref --short HEAD > /tmp/gbm_branch_test_head2.txt";
+    const std::string outFile = (repo_ / "..gbm_branch_test_head2.txt").string();
+    std::string command = "git -C \"" + repo_.string() + "\" symbolic-ref --short HEAD > \"" + outFile + "\"";
     [[maybe_unused]] const int rc = std::system(command.c_str());
-    std::ifstream in("/tmp/gbm_branch_test_head2.txt");
+    std::ifstream in(outFile);
     std::string head;
     std::getline(in, head);
     EXPECT_EQ(head, "feature-2");

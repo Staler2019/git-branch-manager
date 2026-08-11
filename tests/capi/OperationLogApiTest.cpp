@@ -22,6 +22,18 @@
 namespace gbm::capi {
 namespace {
 
+// Windows paths contain backslashes, which JSON escapes as `\\` -- searching
+// the raw path.string() as a substring of serialized JSON never matches
+// there, even though the same code is correct on POSIX where paths use `/`.
+std::string jsonNeedle(const std::filesystem::path& path) {
+    std::string escaped;
+    for (char c : path.string()) {
+        if (c == '\\') escaped += '\\';
+        escaped += c;
+    }
+    return escaped;
+}
+
 struct EventLog {
     std::mutex mutex;
     std::condition_variable cv;
@@ -128,7 +140,7 @@ TEST_F(OperationLogApiTest, HistoryRefreshEmitsOperationLogRecordsForItsGitInvoc
     // The repoDir in every record should be this session's own work tree --
     // dispatchOperationLogRecord() must not leak another session's records.
     for (const std::string& record : records) {
-        EXPECT_NE(record.find("\"repoDir\":\"" + repo_.string() + "\""), std::string::npos) << record;
+        EXPECT_NE(record.find("\"repoDir\":\"" + jsonNeedle(repo_) + "\""), std::string::npos) << record;
         EXPECT_NE(record.find("\"argv\":["), std::string::npos) << record;
         EXPECT_NE(record.find("\"commandLine\":"), std::string::npos) << record;
     }

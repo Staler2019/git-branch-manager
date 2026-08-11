@@ -49,8 +49,24 @@ endfunction()
 set(FLUTTER_MANAGED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/flutter")
 add_subdirectory(${FLUTTER_MANAGED_DIR})
 
+# Phase B: build gbm_capi (and its gbm_core dependency) as part of this same
+# CMake invocation, instead of the Phase A build_capi.ps1 two-step -- see
+# linux/CMakeLists.txt's identical block for the full rationale (this
+# mirrors it; unlike the Linux integration, this Windows one has not been
+# built or run in the sandbox this was written in -- no MSVC toolchain was
+# available there. Verify on a real Windows machine before relying on it).
+set(GBM_BUILD_APP OFF CACHE BOOL "" FORCE)
+set(GBM_BUILD_CAPI ON CACHE BOOL "" FORCE)
+set(GBM_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../.." "${CMAKE_CURRENT_BINARY_DIR}/gbm" EXCLUDE_FROM_ALL)
+
 # Application build; see runner/CMakeLists.txt.
 add_subdirectory("runner")
+
+# gbm_capi is EXCLUDE_FROM_ALL (see above), so it needs an explicit
+# dependency edge to actually get built as part of `flutter build`/`flutter
+# run`.
+add_dependencies(${BINARY_NAME} gbm_capi)
 
 
 # Generated plugin build rules, which manage building the plugins and adding
@@ -86,6 +102,13 @@ if(PLUGIN_BUNDLED_LIBRARIES)
     DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
     COMPONENT Runtime)
 endif()
+
+# gbm_capi.dll, built above -- native_library.dart's DynamicLibrary.open()
+# looks for it next to the running executable, which is
+# INSTALL_BUNDLE_LIB_DIR on Windows (see this file's own comment on that
+# variable, above).
+install(FILES "$<TARGET_FILE:gbm_capi>" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+  COMPONENT Runtime)
 
 # Copy the native assets provided by the build.dart from all packages.
 set(NATIVE_ASSETS_DIR "${PROJECT_BUILD_DIR}native_assets/windows/")

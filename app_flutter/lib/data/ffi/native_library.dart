@@ -2,14 +2,22 @@ import 'dart:ffi';
 import 'dart:io';
 
 /// Resolves the `gbm_capi` shared library built from `src/capi/` (see the
-/// implementation plan, section 2.2 "Phase A"). Checked in order:
+/// implementation plan, section 2.2). Checked in order:
 ///
 ///  1. `GBM_CAPI_LIBRARY_PATH` env var -- an explicit override.
 ///  2. Next to the running executable -- where a packaged release build
-///     bundles it (Phase B will make `flutter build` do this automatically).
+///     bundles it. On Linux and Windows this happens automatically: `flutter
+///     build`/`flutter run` now compiles gbm_capi as part of the same CMake
+///     invocation (see linux/CMakeLists.txt's and windows/CMakeLists.txt's
+///     Phase B block) and installs it here. macOS is still Phase A only --
+///     its Xcode-based runner has no CMake build to hook into the same way,
+///     so a packaged macOS release still needs a manual step (see
+///     scripts/build_capi.sh's doc comment).
 ///  3. `build/native/` under the current working directory -- where
 ///     `scripts/build_capi.sh`/`.ps1` copies it for `flutter run`/`flutter
-///     test`, whose working directory is the `app_flutter/` project root.
+///     test` on any platform (including Linux/Windows during day-to-day
+///     development, where candidate #2 only exists after a real `flutter
+///     build`), whose working directory is the `app_flutter/` project root.
 ///
 /// Throws a [StateError] with all three candidate paths if none exist, since
 /// a silent fallback here would surface as a much more confusing

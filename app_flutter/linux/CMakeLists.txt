@@ -54,11 +54,31 @@ add_subdirectory(${FLUTTER_MANAGED_DIR})
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK REQUIRED IMPORTED_TARGET gtk+-3.0)
 
+# Phase B: build gbm_capi (and its gbm_core dependency) as part of this same
+# CMake invocation, instead of the Phase A build_capi.sh two-step -- see the
+# implementation plan's build-integration section. This add_subdirectory
+# pulls in the repository root's CMakeLists.txt as a nested project; by this
+# point CMAKE_BUILD_TYPE is already resolved (set above), so the root
+# project's own "if not already set" default-build-type block is a no-op
+# here and does not clobber whatever config Flutter's tooling requested.
+# Only capi is needed by this runner -- the Qt app and the C++ test suite
+# (and its GoogleTest FetchContent) are irrelevant to a Flutter build and
+# would only slow it down.
+set(GBM_BUILD_APP OFF CACHE BOOL "" FORCE)
+set(GBM_BUILD_CAPI ON CACHE BOOL "" FORCE)
+set(GBM_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../.." "${CMAKE_CURRENT_BINARY_DIR}/gbm" EXCLUDE_FROM_ALL)
+
 # Application build; see runner/CMakeLists.txt.
 add_subdirectory("runner")
 
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)
+
+# gbm_capi is EXCLUDE_FROM_ALL (see above), so it needs an explicit
+# dependency edge to actually get built as part of `flutter build`/`flutter
+# run`, the same way flutter_assemble does just above.
+add_dependencies(${BINARY_NAME} gbm_capi)
 
 # Only the install-generated bundle's copy of the executable will launch
 # correctly, since the resources must in the right relative locations. To avoid
@@ -105,6 +125,15 @@ foreach(bundled_library ${PLUGIN_BUNDLED_LIBRARIES})
     DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
     COMPONENT Runtime)
 endforeach(bundled_library)
+
+# libgbm_capi.so, built above -- native_library.dart's DynamicLibrary.open()
+# looks for it next to the running executable (candidate #2 in its doc
+# comment), which is CMAKE_INSTALL_PREFIX itself here, not lib/ (lib/ is on
+# the executable's $ORIGIN/lib rpath for the Flutter engine and plugins,
+# which are dlopen'd by soname -- gbm_capi is opened by dart:ffi with an
+# explicit path instead, so it does not need to live there).
+install(FILES "$<TARGET_FILE:gbm_capi>" DESTINATION "${CMAKE_INSTALL_PREFIX}"
+  COMPONENT Runtime)
 
 # Copy the native assets provided by the build.dart from all packages.
 set(NATIVE_ASSETS_DIR "${PROJECT_BUILD_DIR}native_assets/linux/")

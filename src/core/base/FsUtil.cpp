@@ -26,7 +26,14 @@ namespace gbm::fsutil {
 
 namespace {
 
-std::string foldCase(std::string_view input) {
+// [[maybe_unused]]: only reachable from the `if constexpr
+// (caseInsensitiveFilesystem())` branches below, which the compiler
+// discards entirely on Linux (see FsUtil.h) -- but `if constexpr` still
+// requires the name to be declared even in the discarded branch of a
+// non-template function, so this cannot be conditionally compiled away the
+// same way its callers are discarded; the attribute just tells compilers
+// that flag "unneeded internal declaration" (Clang) that this is expected.
+[[maybe_unused]] std::string foldCase(std::string_view input) {
     std::string out(input);
     std::transform(out.begin(), out.end(), out.begin(), [](unsigned char c) {
         return static_cast<char>(std::tolower(c));

@@ -12,6 +12,7 @@ import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/gbm_button.dart';
 import '../diff/diff_page.dart';
+import '../diff/side_by_side_diff_view.dart';
 import '../workspace/workspace_screen.dart' show repoIdForRoute;
 import 'widgets/changed_file_row.dart';
 
@@ -30,6 +31,9 @@ class WorkingCopyView extends ConsumerStatefulWidget {
 class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
   String? _selectedPath;
   bool _selectedStaged = false;
+  // Side-by-side is read-only here, mirroring Qt's own WorkingCopyView --
+  // see side_by_side_diff_view.dart's doc comment.
+  bool _sideBySide = false;
   final TextEditingController _messageController = TextEditingController();
 
   @override
@@ -94,30 +98,58 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
         ),
         VerticalDivider(width: 1, color: colors.borderSubtle),
         Expanded(
-          child: _selectedPath == null
-              ? Center(child: Text('Select a file', style: TextStyle(color: colors.textTertiary)))
-              : (diffReply != null && diffReply.path == _selectedPath && diffReply.staged == _selectedStaged)
-              ? DiffPage(
-                  diff: diffReply.diff,
-                  staged: _selectedStaged,
-                  onStageHunk: (_, hunkIndex) {
-                    final RepoSessionController notifier = ref.read(repoSessionProvider(widget.identity).notifier);
-                    if (_selectedStaged) {
-                      notifier.unstageHunk(_selectedPath!, hunkIndex);
-                    } else {
-                      notifier.stageHunk(_selectedPath!, hunkIndex);
-                    }
-                  },
-                  onStageLines: (_, hunkIndex, lineIndices) {
-                    final RepoSessionController notifier = ref.read(repoSessionProvider(widget.identity).notifier);
-                    if (_selectedStaged) {
-                      notifier.unstageLines(_selectedPath!, hunkIndex, lineIndices);
-                    } else {
-                      notifier.stageLines(_selectedPath!, hunkIndex, lineIndices);
-                    }
-                  },
-                )
-              : const Center(child: CircularProgressIndicator()),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              if (_selectedPath != null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: <Widget>[
+                      Checkbox(
+                        value: _sideBySide,
+                        onChanged: (value) => setState(() => _sideBySide = value ?? false),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      Text('Side by side', style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textSecondary)),
+                    ],
+                  ),
+                ),
+              Expanded(
+                child: _selectedPath == null
+                    ? Center(child: Text('Select a file', style: TextStyle(color: colors.textTertiary)))
+                    : (diffReply != null && diffReply.path == _selectedPath && diffReply.staged == _selectedStaged)
+                    ? (_sideBySide
+                          ? SideBySideDiffView(diff: diffReply.diff)
+                          : DiffPage(
+                              diff: diffReply.diff,
+                              staged: _selectedStaged,
+                              onStageHunk: (_, hunkIndex) {
+                                final RepoSessionController notifier = ref.read(
+                                  repoSessionProvider(widget.identity).notifier,
+                                );
+                                if (_selectedStaged) {
+                                  notifier.unstageHunk(_selectedPath!, hunkIndex);
+                                } else {
+                                  notifier.stageHunk(_selectedPath!, hunkIndex);
+                                }
+                              },
+                              onStageLines: (_, hunkIndex, lineIndices) {
+                                final RepoSessionController notifier = ref.read(
+                                  repoSessionProvider(widget.identity).notifier,
+                                );
+                                if (_selectedStaged) {
+                                  notifier.unstageLines(_selectedPath!, hunkIndex, lineIndices);
+                                } else {
+                                  notifier.stageLines(_selectedPath!, hunkIndex, lineIndices);
+                                }
+                              },
+                            ))
+                    : const Center(child: CircularProgressIndicator()),
+              ),
+            ],
+          ),
         ),
       ],
     );

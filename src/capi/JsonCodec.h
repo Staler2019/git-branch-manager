@@ -17,8 +17,13 @@
 #include "core/git/RepoState.h"
 #include "core/git/UnifiedDiffParser.h"
 #include "core/git/WorkingCopyStatus.h"
+#include "core/git/ops/BisectOps.h"
+#include "core/git/ops/LfsOps.h"
+#include "core/git/ops/RebaseOps.h"
 #include "core/git/ops/RemoteOps.h"
+#include "core/git/ops/ResetOps.h"
 #include "core/git/ops/StashOps.h"
+#include "core/git/ops/SubmoduleOps.h"
 #include "core/git/ops/WorktreeOps.h"
 
 #include <string>
@@ -54,5 +59,16 @@ std::string toJson(const ReflogEntry& entry);
 std::string toJson(const std::vector<ReflogEntry>& entries);
 std::string toJson(const OperationRunner::UndoEntry& entry);
 std::string toJson(const std::vector<OperationRunner::UndoEntry>& entries);
+std::string toJson(const std::vector<std::string>& strings);
+std::string toJson(const CleanEntry& entry);
+std::string toJson(const std::vector<CleanEntry>& entries);
+std::string toJson(const RebaseTodoEntry& entry);
+std::string toJson(const std::vector<RebaseTodoEntry>& entries);
+std::string toJson(const SubmoduleInfo& submodule);
+std::string toJson(const std::vector<SubmoduleInfo>& submodules);
+std::string toJson(const BisectStatus& status);
+std::string toJson(const LfsInstallation& installation);
+std::string toJson(const LfsFileInfo& file);
+std::string toJson(const std::vector<LfsFileInfo>& files);
 
 }  // namespace gbm::capi

@@ -156,19 +156,24 @@ endif()
 if(GBM_BUILD_CAPI)
     add_executable(gbm_capi_tests
         capi/AskpassPollerTest.cpp
+        capi/BisectApiTest.cpp
         capi/BlameApiTest.cpp
         capi/CallbackRegistryTest.cpp
         capi/CherryPickRevertApiTest.cpp
         capi/DiscoveryApiTest.cpp
         capi/FileHistoryApiTest.cpp
         capi/JsonCodecTest.cpp
+        capi/LfsApiTest.cpp
         capi/MergeApiTest.cpp
         capi/OperationLogApiTest.cpp
+        capi/PatchApiTest.cpp
+        capi/RebaseApiTest.cpp
         capi/ReflogApiTest.cpp
         capi/RemoteApiTest.cpp
         capi/ResetApiTest.cpp
         capi/SessionApiTest.cpp
         capi/StashApiTest.cpp
+        capi/SubmoduleApiTest.cpp
         capi/TagApiTest.cpp
         capi/UndoApiTest.cpp
         capi/WorkingCopyApiTest.cpp

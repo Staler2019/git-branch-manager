@@ -105,7 +105,10 @@ Session::Session(GitInstallation installation, RepoPaths paths, std::unique_ptr<
       remoteStore_(std::make_unique<RemoteStore>(*runner_, paths_)),
       blameStore_(std::make_unique<BlameStore>(*runner_, paths_)),
       fileHistoryStore_(std::make_unique<FileHistoryStore>(*runner_, paths_)),
-      reflogStore_(std::make_unique<ReflogStore>(*runner_, paths_)) {
+      reflogStore_(std::make_unique<ReflogStore>(*runner_, paths_)),
+      submoduleStore_(std::make_unique<SubmoduleStore>(*runner_, paths_)),
+      bisectStore_(std::make_unique<BisectStore>(*runner_, paths_)),
+      lfsStore_(std::make_unique<LfsStore>(*runner_, paths_)) {
     ensureOperationLogSinkInstalled();
     registerLiveSession(this);
 }
@@ -307,14 +310,20 @@ void Session::commitChanges(CommitRequest request) {
     });
 }
 
-void Session::submitOperation(std::unique_ptr<Operation> operation, bool refreshHistoryOnSuccess) {
-    operations_->submit(std::move(operation), [this, refreshHistoryOnSuccess](OperationOutcome outcome) {
+void Session::submitOperation(std::unique_ptr<Operation> operation,
+                              bool refreshHistoryOnSuccess,
+                              std::function<void()> onSuccess) {
+    operations_->submit(std::move(operation), [this, refreshHistoryOnSuccess, onSuccess = std::move(onSuccess)](
+                                                   OperationOutcome outcome) {
         const bool succeeded = outcome.succeeded;
         refreshUndoJournalCache();
         callbacks_.emit(GBM_EVENT_OPERATION_FINISHED, toJson(outcome));
         refreshWorkingCopy();
         if (succeeded && refreshHistoryOnSuccess) {
             refreshHistory();
+        }
+        if (succeeded && onSuccess) {
+            onSuccess();
         }
     });
 }
@@ -646,6 +655,283 @@ void Session::undoLastOperation() {
         refreshWorkingCopy();
         refreshHistory();
     });
+}
+
+// --- Restore / clean -------------------------------------------------------
+
+void Session::restorePaths(RestoreRequest request) {
+    submitWorkingCopyOperation(makeRestoreOperation(std::move(request)), [this]() { refreshWorkingCopy(); });
+}
+
+void Session::requestCleanPreview(bool includeIgnored) {
+    sharedReadPool().post([this, includeIgnored]() {
+        CleanPreviewer previewer(*runner_, paths_);
+        const GitResult<std::vector<CleanEntry>> result = previewer.preview(includeIgnored, CancellationToken{});
+        if (!result) {
+            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+            return;
+        }
+        callbacks_.emit(GBM_EVENT_CLEAN_PREVIEW_READY, toJson(result.value()));
+    });
+}
+
+void Session::cleanUntracked(CleanRequest request) {
+    submitWorkingCopyOperation(makeCleanOperation(std::move(request)), [this]() { refreshWorkingCopy(); });
+}
+
+// --- Rebase ------------------------------------------------------------
+
+void Session::requestRebasePlan(std::string upstream) {
+    sharedReadPool().post([this, upstream = std::move(upstream)]() {
+        RebasePlanner planner(*runner_, paths_);
+        const GitResult<std::vector<RebaseTodoEntry>> result = planner.plan(upstream, CancellationToken{});
+        if (!result) {
+            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+            return;
+        }
+        callbacks_.emit(GBM_EVENT_REBASE_PLAN_READY, toJson(result.value()));
+    });
+}
+
+void Session::startInteractiveRebase(RebaseInteractiveRequest request) {
+    submitOperation(makeRebaseInteractiveOperation(std::move(request)), /*refreshHistoryOnSuccess=*/true);
+}
+
+void Session::startRebase(RebaseRequest request) {
+    submitOperation(makeRebaseOperation(std::move(request)), /*refreshHistoryOnSuccess=*/true);
+}
+
+void Session::continueRebase() {
+    submitOperation(makeRebaseContinueOperation(), /*refreshHistoryOnSuccess=*/true);
+}
+
+void Session::skipRebase() {
+    submitOperation(makeRebaseSkipOperation(), /*refreshHistoryOnSuccess=*/true);
+}
+
+void Session::abortRebase() {
+    submitOperation(makeRebaseAbortOperation(), /*refreshHistoryOnSuccess=*/true);
+}
+
+// --- Submodules ------------------------------------------------------------
+
+void Session::refreshSubmodules() {
+    sharedReadPool().post([this]() {
+        const GitResult<std::vector<SubmoduleInfo>> result = submoduleStore_->list(CancellationToken{});
+        if (!result) {
+            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+            return;
+        }
+        {
+            std::lock_guard<std::mutex> lock(auxMutex_);
+            submodules_ = std::make_shared<const std::vector<SubmoduleInfo>>(result.value());
+        }
+        callbacks_.emitEmpty(GBM_EVENT_SUBMODULES_UPDATED);
+    });
+}
+
+SubmoduleListPtr Session::currentSubmodules() const {
+    std::lock_guard<std::mutex> lock(auxMutex_);
+    return submodules_;
+}
+
+void Session::addSubmodule(AddSubmoduleRequest request) {
+    request.askpassDir = beginAskpass();
+    submitWorkingCopyOperation(
+        makeAddSubmoduleOperation(std::move(request)),
+        [this]() {
+            refreshWorkingCopy();
+            refreshSubmodules();
+        },
+        [this]() { endAskpass(); });
+}
+
+void Session::initSubmodules(SubmodulePathsRequest request) {
+    submitWorkingCopyOperation(makeInitSubmodulesOperation(std::move(request)), [this]() { refreshSubmodules(); });
+}
+
+void Session::updateSubmodules(UpdateSubmodulesRequest request) {
+    request.askpassDir = beginAskpass();
+    submitWorkingCopyOperation(
+        makeUpdateSubmodulesOperation(std::move(request)),
+        [this]() {
+            refreshWorkingCopy();
+            refreshSubmodules();
+        },
+        [this]() { endAskpass(); });
+}
+
+void Session::syncSubmodules(SubmodulePathsRequest request) {
+    submitWorkingCopyOperation(makeSyncSubmodulesOperation(std::move(request)), [this]() { refreshSubmodules(); });
+}
+
+void Session::deinitSubmodules(DeinitSubmodulesRequest request) {
+    submitWorkingCopyOperation(makeDeinitSubmodulesOperation(std::move(request)), [this]() { refreshSubmodules(); });
+}
+
+// --- Bisect ------------------------------------------------------------
+
+void Session::refreshBisectStatus() {
+    sharedReadPool().post([this]() {
+        const GitResult<BisectStatus> result = bisectStore_->status(CancellationToken{});
+        if (!result) {
+            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+            return;
+        }
+        {
+            std::lock_guard<std::mutex> lock(auxMutex_);
+            bisectStatus_ = std::make_shared<const BisectStatus>(result.value());
+        }
+        callbacks_.emitEmpty(GBM_EVENT_BISECT_STATUS_UPDATED);
+    });
+}
+
+BisectStatusPtr Session::currentBisectStatus() const {
+    std::lock_guard<std::mutex> lock(auxMutex_);
+    return bisectStatus_;
+}
+
+void Session::startBisect(BisectStartRequest request) {
+    submitOperation(
+        makeBisectStartOperation(std::move(request)), /*refreshHistoryOnSuccess=*/true, [this]() { refreshBisectStatus(); });
+}
+
+void Session::markBisect(BisectMarkRequest request) {
+    submitOperation(
+        makeBisectMarkOperation(std::move(request)), /*refreshHistoryOnSuccess=*/true, [this]() { refreshBisectStatus(); });
+}
+
+void Session::skipBisect(BisectSkipRequest request) {
+    submitOperation(
+        makeBisectSkipOperation(std::move(request)), /*refreshHistoryOnSuccess=*/true, [this]() { refreshBisectStatus(); });
+}
+
+void Session::resetBisect(BisectResetRequest request) {
+    submitOperation(
+        makeBisectResetOperation(std::move(request)), /*refreshHistoryOnSuccess=*/true, [this]() { refreshBisectStatus(); });
+}
+
+// --- LFS ---------------------------------------------------------------
+
+void Session::refreshLfs() {
+    const bool needsInstallationProbe = [this]() {
+        std::lock_guard<std::mutex> lock(auxMutex_);
+        return !lfsInstallation_.has_value();
+    }();
+    sharedReadPool().post([this, needsInstallationProbe]() {
+        bool available;
+        if (needsInstallationProbe) {
+            // detectLfs() never fails (a missing `git-lfs` is a normal
+            // result, not an error -- see its doc comment), so there is no
+            // error branch to handle here.
+            const LfsInstallation installation = detectLfs(*runner_, paths_, CancellationToken{}).value();
+            std::lock_guard<std::mutex> lock(auxMutex_);
+            lfsInstallation_ = installation;
+            available = installation.available;
+        } else {
+            std::lock_guard<std::mutex> lock(auxMutex_);
+            available = lfsInstallation_->available;
+        }
+
+        if (!available) {
+            // Matches RepositorySession::refreshLfs(): with no `git-lfs` on
+            // PATH, `git lfs track`/`git lfs ls-files` would themselves fail
+            // (git does not recognise the subcommand), so skip them rather
+            // than surfacing that as an error -- there is nothing to list.
+            callbacks_.emitEmpty(GBM_EVENT_LFS_UPDATED);
+            return;
+        }
+
+        // Matches RepositorySession::refreshLfs(): an individual read
+        // failing here is not fatal to the refresh as a whole -- whichever
+        // of patterns/files succeeded is still published.
+        const GitResult<std::vector<std::string>> patterns = lfsStore_->trackedPatterns(CancellationToken{});
+        const GitResult<std::vector<LfsFileInfo>> files = lfsStore_->listFiles(CancellationToken{});
+        {
+            std::lock_guard<std::mutex> lock(auxMutex_);
+            if (patterns) {
+                lfsPatterns_ = std::make_shared<const std::vector<std::string>>(patterns.value());
+            }
+            if (files) {
+                lfsFiles_ = std::make_shared<const std::vector<LfsFileInfo>>(files.value());
+            }
+        }
+        callbacks_.emitEmpty(GBM_EVENT_LFS_UPDATED);
+    });
+}
+
+std::optional<LfsInstallation> Session::currentLfsInstallation() const {
+    std::lock_guard<std::mutex> lock(auxMutex_);
+    return lfsInstallation_;
+}
+
+LfsPatternListPtr Session::currentLfsPatterns() const {
+    std::lock_guard<std::mutex> lock(auxMutex_);
+    return lfsPatterns_;
+}
+
+LfsFileListPtr Session::currentLfsFiles() const {
+    std::lock_guard<std::mutex> lock(auxMutex_);
+    return lfsFiles_;
+}
+
+void Session::installLfs() {
+    submitWorkingCopyOperation(makeLfsInstallOperation(), [this]() { refreshLfs(); });
+}
+
+void Session::trackLfsPattern(LfsTrackRequest request) {
+    submitWorkingCopyOperation(makeLfsTrackOperation(std::move(request)), [this]() { refreshLfs(); });
+}
+
+void Session::untrackLfsPattern(LfsUntrackRequest request) {
+    submitWorkingCopyOperation(makeLfsUntrackOperation(std::move(request)), [this]() { refreshLfs(); });
+}
+
+void Session::pullLfs(LfsTransferRequest request) {
+    request.askpassDir = beginAskpass();
+    submitWorkingCopyOperation(
+        makeLfsPullOperation(std::move(request)),
+        [this]() {
+            refreshWorkingCopy();
+            refreshLfs();
+        },
+        [this]() { endAskpass(); });
+}
+
+void Session::fetchLfs(LfsTransferRequest request) {
+    request.askpassDir = beginAskpass();
+    submitWorkingCopyOperation(
+        makeLfsFetchOperation(std::move(request)), [this]() { refreshLfs(); }, [this]() { endAskpass(); });
+}
+
+void Session::pruneLfs(LfsPruneRequest request) {
+    submitWorkingCopyOperation(makeLfsPruneOperation(std::move(request)), [this]() { refreshLfs(); });
+}
+
+// --- Patch import/export -------------------------------------------------
+
+void Session::exportPatches(ExportPatchesRequest request) {
+    submitWorkingCopyOperation(makeExportPatchesOperation(std::move(request)), /*onSuccess=*/nullptr);
+}
+
+void Session::applyPatchFiles(ApplyPatchFilesRequest request) {
+    submitWorkingCopyOperation(makeApplyPatchFilesOperation(std::move(request)), [this]() { refreshWorkingCopy(); });
+}
+
+void Session::importPatches(ImportPatchesRequest request) {
+    submitOperation(makeImportPatchesOperation(std::move(request)), /*refreshHistoryOnSuccess=*/true);
+}
+
+void Session::continueImport() {
+    submitOperation(makeAmContinueOperation(), /*refreshHistoryOnSuccess=*/true);
+}
+
+void Session::skipImport() {
+    submitOperation(makeAmSkipOperation(), /*refreshHistoryOnSuccess=*/true);
+}
+
+void Session::abortImport() {
+    submitOperation(makeAmAbortOperation(), /*refreshHistoryOnSuccess=*/true);
 }
 
 }  // namespace gbm::capi

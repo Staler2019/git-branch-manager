@@ -8,18 +8,23 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../ffi/event_dispatcher.dart';
 import '../ffi/gbm_bindings.dart';
 import '../ffi/json_codec.dart';
+import '../models/bisect_status.dart';
 import '../models/blame_result.dart';
+import '../models/clean_entry.dart';
 import '../models/file_history_entry.dart';
 import '../models/git_error.dart';
 import '../models/graph_snapshot.dart';
+import '../models/lfs_state.dart';
 import '../models/line_history_chunk.dart';
 import '../models/operation_record.dart';
 import '../models/parsed_diff.dart';
+import '../models/rebase_todo_entry.dart';
 import '../models/ref_snapshot.dart';
 import '../models/reflog_entry.dart';
 import '../models/remote_info.dart';
 import '../models/repo_state.dart' as model;
 import '../models/stash_entry.dart';
+import '../models/submodule_info.dart';
 import '../models/undo_entry.dart';
 import '../models/working_copy_status.dart';
 import '../models/worktree_info.dart';
@@ -105,6 +110,13 @@ class RepoSessionState {
     this.lastLineHistory = const <LineHistoryChunk>[],
     this.lastReflog = const <ReflogEntry>[],
     this.undoJournal = const <UndoEntry>[],
+    this.lastCleanPreview = const <CleanEntry>[],
+    this.lastRebasePlan = const <RebaseTodoEntry>[],
+    this.submodules = const <SubmoduleInfo>[],
+    this.bisectStatus = BisectStatus.empty,
+    this.lfsInstallation,
+    this.lfsPatterns = const <String>[],
+    this.lfsFiles = const <LfsFileInfo>[],
   });
 
   final bool isOpen;
@@ -137,6 +149,17 @@ class RepoSessionState {
   /// why this only ever changes right after GBM_EVENT_OPERATION_FINISHED /
   /// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED.
   final List<UndoEntry> undoJournal;
+  final List<CleanEntry> lastCleanPreview;
+  /// Oldest-first -- the order gbm_rebase_interactive_start()'s `todo`
+  /// array is applied in, see RebasePlanner::plan()'s doc comment.
+  final List<RebaseTodoEntry> lastRebasePlan;
+  final List<SubmoduleInfo> submodules;
+  final BisectStatus bisectStatus;
+  /// Null until [RepoSessionController.refreshLfs] has run once -- see
+  /// gbm_lfs_installation_json()'s doc comment in gbm_capi.h.
+  final LfsInstallation? lfsInstallation;
+  final List<String> lfsPatterns;
+  final List<LfsFileInfo> lfsFiles;
 
   RepoSessionState copyWith({
     bool? isOpen,
@@ -160,6 +183,13 @@ class RepoSessionState {
     List<LineHistoryChunk>? lastLineHistory,
     List<ReflogEntry>? lastReflog,
     List<UndoEntry>? undoJournal,
+    List<CleanEntry>? lastCleanPreview,
+    List<RebaseTodoEntry>? lastRebasePlan,
+    List<SubmoduleInfo>? submodules,
+    BisectStatus? bisectStatus,
+    LfsInstallation? lfsInstallation,
+    List<String>? lfsPatterns,
+    List<LfsFileInfo>? lfsFiles,
   }) {
     return RepoSessionState(
       isOpen: isOpen ?? this.isOpen,
@@ -181,6 +211,13 @@ class RepoSessionState {
       lastLineHistory: lastLineHistory ?? this.lastLineHistory,
       lastReflog: lastReflog ?? this.lastReflog,
       undoJournal: undoJournal ?? this.undoJournal,
+      lastCleanPreview: lastCleanPreview ?? this.lastCleanPreview,
+      lastRebasePlan: lastRebasePlan ?? this.lastRebasePlan,
+      submodules: submodules ?? this.submodules,
+      bisectStatus: bisectStatus ?? this.bisectStatus,
+      lfsInstallation: lfsInstallation ?? this.lfsInstallation,
+      lfsPatterns: lfsPatterns ?? this.lfsPatterns,
+      lfsFiles: lfsFiles ?? this.lfsFiles,
     );
   }
 }
@@ -304,6 +341,22 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
         if (payload is List<dynamic>) {
           state = state.copyWith(lastReflog: ReflogEntry.listFromJson(payload));
         }
+      case GbmEventType.rebasePlanReady:
+        final Object? payload = decodeEventPayload(event.payload);
+        if (payload is List<dynamic>) {
+          state = state.copyWith(lastRebasePlan: RebaseTodoEntry.listFromJson(payload));
+        }
+      case GbmEventType.submodulesUpdated:
+        _readSubmodules();
+      case GbmEventType.bisectStatusUpdated:
+        _readBisectStatus();
+      case GbmEventType.lfsUpdated:
+        _readLfsState();
+      case GbmEventType.cleanPreviewReady:
+        final Object? payload = decodeEventPayload(event.payload);
+        if (payload is List<dynamic>) {
+          state = state.copyWith(lastCleanPreview: CleanEntry.listFromJson(payload));
+        }
     }
   }
 
@@ -357,6 +410,50 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
       final String json = readLastResultJson(_bindings);
       if (json.isNotEmpty) {
         state = state.copyWith(remotes: RemoteInfo.listFromJson(jsonDecode(json) as List<dynamic>));
+      }
+    }
+  }
+
+  void _readSubmodules() {
+    if (_bindings.submodulesJson(_session) == 0) {
+      final String json = readLastResultJson(_bindings);
+      if (json.isNotEmpty) {
+        state = state.copyWith(submodules: SubmoduleInfo.listFromJson(jsonDecode(json) as List<dynamic>));
+      }
+    }
+  }
+
+  void _readBisectStatus() {
+    if (_bindings.bisectStatusJson(_session) == 0) {
+      final String json = readLastResultJson(_bindings);
+      if (json.isNotEmpty) {
+        state = state.copyWith(bisectStatus: BisectStatus.fromJson(jsonDecode(json) as Map<String, dynamic>));
+      }
+    }
+  }
+
+  /// Reads whichever of installation/patterns/files gbm_lfs_refresh() ended
+  /// up publishing -- patterns/files stay as they were (or unset) when
+  /// `available` is false, see Session::refreshLfs()'s doc comment in
+  /// Session.cpp, so each of the three is read independently rather than
+  /// failing this whole helper when one of them has nothing published yet.
+  void _readLfsState() {
+    if (_bindings.lfsInstallationJson(_session) == 0) {
+      final String json = readLastResultJson(_bindings);
+      if (json.isNotEmpty) {
+        state = state.copyWith(lfsInstallation: LfsInstallation.fromJson(jsonDecode(json) as Map<String, dynamic>));
+      }
+    }
+    if (_bindings.lfsPatternsJson(_session) == 0) {
+      final String json = readLastResultJson(_bindings);
+      if (json.isNotEmpty) {
+        state = state.copyWith(lfsPatterns: (jsonDecode(json) as List<dynamic>).cast<String>());
+      }
+    }
+    if (_bindings.lfsFilesJson(_session) == 0) {
+      final String json = readLastResultJson(_bindings);
+      if (json.isNotEmpty) {
+        state = state.copyWith(lfsFiles: LfsFileInfo.listFromJson(jsonDecode(json) as List<dynamic>));
       }
     }
   }
@@ -885,6 +982,388 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   void undoLast() {
     if (_session == nullptr) return;
     _bindings.undoLast(_session);
+  }
+
+  /// `git restore`. `staged` (--staged): resets the index from `source`
+  /// (default HEAD) without touching the work tree -- "unstage". Not
+  /// staged: overwrites the work tree from `source` (default the index) --
+  /// "discard changes", destructive exactly like [resetTo]'s hard mode
+  /// restricted to these paths. Async: fires
+  /// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success refreshes
+  /// the working copy.
+  void restorePaths(List<String> paths, {bool staged = false, String source = ''}) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> sourcePtr = source.toNativeUtf8();
+    try {
+      _withNativeStringArray(
+        paths,
+        (array, count) => _bindings.restorePaths(_session, array, count, staged ? 1 : 0, sourcePtr),
+      );
+    } finally {
+      malloc.free(sourcePtr);
+    }
+  }
+
+  /// Read-only `git clean -n[x]`. Async: fires
+  /// GBM_EVENT_CLEAN_PREVIEW_READY into [RepoSessionState.lastCleanPreview].
+  void requestCleanPreview({bool includeIgnored = false}) {
+    if (_session == nullptr) return;
+    _bindings.cleanPreview(_session, includeIgnored ? 1 : 0);
+  }
+
+  /// `git clean -fd[x]`. `paths` empty means the whole work tree. Async:
+  /// fires GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success
+  /// refreshes the working copy.
+  void cleanUntracked({List<String> paths = const <String>[], bool includeIgnored = false}) {
+    if (_session == nullptr) return;
+    _withNativeStringArray(paths, (array, count) => _bindings.cleanUntracked(_session, array, count, includeIgnored ? 1 : 0));
+  }
+
+  /// Builds the todo list a plain `git rebase -i <upstream>` would start
+  /// from -- read-only, for the caller to show and let the user edit before
+  /// calling [startInteractiveRebase]. Async: fires
+  /// GBM_EVENT_REBASE_PLAN_READY into [RepoSessionState.lastRebasePlan].
+  void requestRebasePlan(String upstream) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> upstreamPtr = upstream.toNativeUtf8();
+    try {
+      _bindings.requestRebasePlan(_session, upstreamPtr);
+    } finally {
+      malloc.free(upstreamPtr);
+    }
+  }
+
+  /// `git rebase -i`, with `todo` supplied by the caller (typically
+  /// [RepoSessionState.lastRebasePlan], reordered/edited/dropped) instead of
+  /// through an interactive editor. `onto` empty means onto `upstream`
+  /// itself. Async: fires GBM_EVENT_OPERATION_FINISHED; stops at the first
+  /// conflict or `edit` line exactly like `git rebase -i`, leaving the rest
+  /// queued for [continueRebase]/[skipRebase]/[abortRebase] -- the working
+  /// copy is always refreshed, history only on success.
+  void startInteractiveRebase(
+    String upstream,
+    List<RebaseTodoEntry> todo, {
+    String onto = '',
+    bool stashFirst = false,
+  }) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> upstreamPtr = upstream.toNativeUtf8();
+    final Pointer<Utf8> ontoPtr = onto.toNativeUtf8();
+    final Pointer<Int32> actions = malloc<Int32>(todo.length);
+    final Pointer<Pointer<Utf8>> oids = malloc<Pointer<Utf8>>(todo.length);
+    final Pointer<Pointer<Utf8>> subjects = malloc<Pointer<Utf8>>(todo.length);
+    try {
+      for (int i = 0; i < todo.length; i++) {
+        actions[i] = todo[i].action.index;
+        oids[i] = todo[i].oid.toNativeUtf8();
+        subjects[i] = todo[i].subject.toNativeUtf8();
+      }
+      _bindings.rebaseInteractiveStart(
+        _session,
+        upstreamPtr,
+        ontoPtr,
+        actions,
+        oids,
+        subjects,
+        todo.length,
+        stashFirst ? 1 : 0,
+      );
+    } finally {
+      for (int i = 0; i < todo.length; i++) {
+        malloc.free(oids[i]);
+        malloc.free(subjects[i]);
+      }
+      malloc.free(actions);
+      malloc.free(oids);
+      malloc.free(subjects);
+      malloc.free(upstreamPtr);
+      malloc.free(ontoPtr);
+    }
+  }
+
+  /// Plain, non-interactive `git rebase`: replays every commit unchanged.
+  /// Same event/refresh contract as [startInteractiveRebase].
+  void startRebase(String upstream, {String onto = '', bool stashFirst = false}) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> upstreamPtr = upstream.toNativeUtf8();
+    final Pointer<Utf8> ontoPtr = onto.toNativeUtf8();
+    try {
+      _bindings.rebaseStart(_session, upstreamPtr, ontoPtr, stashFirst ? 1 : 0);
+    } finally {
+      malloc.free(upstreamPtr);
+      malloc.free(ontoPtr);
+    }
+  }
+
+  void continueRebase() {
+    if (_session == nullptr) return;
+    _bindings.rebaseContinue(_session);
+  }
+
+  void skipRebase() {
+    if (_session == nullptr) return;
+    _bindings.rebaseSkip(_session);
+  }
+
+  void abortRebase() {
+    if (_session == nullptr) return;
+    _bindings.rebaseAbort(_session);
+  }
+
+  /// Async: see gbm_submodule_refresh()'s doc comment in gbm_capi.h.
+  void refreshSubmodules() {
+    if (_session == nullptr) return;
+    _bindings.submoduleRefresh(_session);
+  }
+
+  /// `git submodule add [-b <branch>] <url> [<path>]`. `path` empty lets
+  /// git derive it from the URL. Async: fires
+  /// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success refreshes
+  /// both the working copy and the submodule list. Routes credential
+  /// prompts through [RepoSessionState.credentialPrompt] like
+  /// [fetchRemote], since this can clone over the network.
+  void addSubmodule(String url, {String path = '', String branch = ''}) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> urlPtr = url.toNativeUtf8();
+    final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+    final Pointer<Utf8> branchPtr = branch.toNativeUtf8();
+    try {
+      _bindings.submoduleAdd(_session, urlPtr, pathPtr, branchPtr);
+    } finally {
+      malloc.free(urlPtr);
+      malloc.free(pathPtr);
+      malloc.free(branchPtr);
+    }
+  }
+
+  /// `git submodule init [--] <paths...>`. `paths` empty means every
+  /// submodule.
+  void initSubmodules({List<String> paths = const <String>[], bool recursive = false}) {
+    if (_session == nullptr) return;
+    _withNativeStringArray(paths, (array, count) => _bindings.submoduleInit(_session, array, count, recursive ? 1 : 0));
+  }
+
+  /// `git submodule update [--init] [--recursive] [--remote] [--] <paths...>`.
+  /// Same credential-prompt routing as [addSubmodule].
+  void updateSubmodules({
+    List<String> paths = const <String>[],
+    bool recursive = false,
+    bool init = false,
+    bool remote = false,
+  }) {
+    if (_session == nullptr) return;
+    _withNativeStringArray(
+      paths,
+      (array, count) =>
+          _bindings.submoduleUpdate(_session, array, count, recursive ? 1 : 0, init ? 1 : 0, remote ? 1 : 0),
+    );
+  }
+
+  /// `git submodule sync [--recursive] [--] <paths...>`.
+  void syncSubmodules({List<String> paths = const <String>[], bool recursive = false}) {
+    if (_session == nullptr) return;
+    _withNativeStringArray(paths, (array, count) => _bindings.submoduleSync(_session, array, count, recursive ? 1 : 0));
+  }
+
+  /// `git submodule deinit [-f] [--] <paths...>`.
+  void deinitSubmodules({List<String> paths = const <String>[], bool force = false}) {
+    if (_session == nullptr) return;
+    _withNativeStringArray(paths, (array, count) => _bindings.submoduleDeinit(_session, array, count, force ? 1 : 0));
+  }
+
+  /// Async: see gbm_bisect_refresh()'s doc comment in gbm_capi.h.
+  void refreshBisectStatus() {
+    if (_session == nullptr) return;
+    _bindings.bisectRefresh(_session);
+  }
+
+  /// `git bisect start [<bad> [<good>...]] [--] [<paths>...]`. `badRef`
+  /// empty together with an empty `goodRefs` is valid (waits for
+  /// [markBisect] afterward). Async: fires GBM_EVENT_OPERATION_FINISHED,
+  /// and on success also refreshes both history (a bisect start checks out
+  /// a commit) and [RepoSessionState.bisectStatus].
+  void startBisect({
+    String badRef = '',
+    List<String> goodRefs = const <String>[],
+    List<String> paths = const <String>[],
+    bool noCheckout = false,
+  }) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> badRefPtr = badRef.toNativeUtf8();
+    try {
+      _withNativeStringArray(
+        goodRefs,
+        (goodArray, goodCount) => _withNativeStringArray(
+          paths,
+          (pathArray, pathCount) => _bindings.bisectStart(
+            _session,
+            badRefPtr,
+            goodArray,
+            goodCount,
+            pathArray,
+            pathCount,
+            noCheckout ? 1 : 0,
+          ),
+        ),
+      );
+    } finally {
+      malloc.free(badRefPtr);
+    }
+  }
+
+  /// `git bisect good|bad [<ref>]`. `ref` empty means HEAD. May conclude
+  /// the bisect, in which case the outcome's summary carries git's own
+  /// "is the first bad commit" message verbatim -- see
+  /// [RepoSessionState.operationLog]/`workingCopyOperationFinished`'s
+  /// payload for that summary.
+  void markBisect({required bool good, String ref = ''}) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> refPtr = ref.toNativeUtf8();
+    try {
+      _bindings.bisectMark(_session, good ? 1 : 0, refPtr);
+    } finally {
+      malloc.free(refPtr);
+    }
+  }
+
+  /// `git bisect skip [<refs...>]`. Empty `refs` skips HEAD.
+  void skipBisect({List<String> refs = const <String>[]}) {
+    if (_session == nullptr) return;
+    _withNativeStringArray(refs, (array, count) => _bindings.bisectSkip(_session, array, count));
+  }
+
+  /// `git bisect reset [<target>]`. `target` empty returns to whatever
+  /// [startBisect] was run from.
+  void resetBisect({String target = ''}) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> targetPtr = target.toNativeUtf8();
+    try {
+      _bindings.bisectReset(_session, targetPtr);
+    } finally {
+      malloc.free(targetPtr);
+    }
+  }
+
+  /// Detects `git-lfs` (once per session, cached) and re-reads tracked
+  /// patterns and file status. Async: fires GBM_EVENT_LFS_UPDATED.
+  void refreshLfs() {
+    if (_session == nullptr) return;
+    _bindings.lfsRefresh(_session);
+  }
+
+  /// `git lfs install --local`.
+  void installLfs() {
+    if (_session == nullptr) return;
+    _bindings.lfsInstall(_session);
+  }
+
+  /// `git lfs track "<pattern>"`. Editing `.gitattributes` further
+  /// (staging, committing) is left to the caller.
+  void trackLfsPattern(String pattern) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> patternPtr = pattern.toNativeUtf8();
+    try {
+      _bindings.lfsTrack(_session, patternPtr);
+    } finally {
+      malloc.free(patternPtr);
+    }
+  }
+
+  /// `git lfs untrack "<pattern>"`.
+  void untrackLfsPattern(String pattern) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> patternPtr = pattern.toNativeUtf8();
+    try {
+      _bindings.lfsUntrack(_session, patternPtr);
+    } finally {
+      malloc.free(patternPtr);
+    }
+  }
+
+  /// `git lfs pull [<remote>]`. `remoteName` empty uses the default remote.
+  /// Same credential-prompt routing as [fetchRemote].
+  void pullLfs({String remoteName = ''}) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> remotePtr = remoteName.toNativeUtf8();
+    try {
+      _bindings.lfsPull(_session, remotePtr);
+    } finally {
+      malloc.free(remotePtr);
+    }
+  }
+
+  /// `git lfs fetch [<remote>]`: downloads objects without touching the
+  /// work tree. Same credential-prompt routing as [fetchRemote].
+  void fetchLfs({String remoteName = ''}) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> remotePtr = remoteName.toNativeUtf8();
+    try {
+      _bindings.lfsFetch(_session, remotePtr);
+    } finally {
+      malloc.free(remotePtr);
+    }
+  }
+
+  /// `git lfs prune [--dry-run]`.
+  void pruneLfs({bool dryRun = false}) {
+    if (_session == nullptr) return;
+    _bindings.lfsPrune(_session, dryRun ? 1 : 0);
+  }
+
+  /// `git format-patch -1 <commit> --start-number <n> -o <dir>`, once per
+  /// commit in `commitHexes` (oldest first, same convention as
+  /// [cherryPick]). Async: fires GBM_EVENT_WORKING_COPY_OPERATION_FINISHED;
+  /// nothing in the repository changes, so no further refresh follows.
+  void exportPatches(List<String> commitHexes, String outputDir) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> outputDirPtr = outputDir.toNativeUtf8();
+    try {
+      _withNativeStringArray(
+        commitHexes,
+        (array, count) => _bindings.patchExport(_session, array, count, outputDirPtr),
+      );
+    } finally {
+      malloc.free(outputDirPtr);
+    }
+  }
+
+  /// `git apply`: applies a plain diff without creating a commit.
+  /// `threeWay` falls back to a merge (leaving conflict markers) instead of
+  /// refusing outright when the patch does not apply cleanly; `updateIndex`
+  /// also stages the result. Async: fires
+  /// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success refreshes
+  /// the working copy.
+  void applyPatchFiles(List<String> patchFiles, {bool threeWay = false, bool updateIndex = false}) {
+    if (_session == nullptr) return;
+    _withNativeStringArray(
+      patchFiles,
+      (array, count) => _bindings.patchApplyFiles(_session, array, count, threeWay ? 1 : 0, updateIndex ? 1 : 0),
+    );
+  }
+
+  /// `git am`: applies one or more `format-patch`-style patches as commits,
+  /// preserving author/date/message. Async: fires
+  /// GBM_EVENT_OPERATION_FINISHED; a patch that does not apply stops the
+  /// sequence exactly like [cherryPick], leaving the rest queued for
+  /// [continueImport]/[skipImport]/[abortImport].
+  void importPatches(List<String> patchFiles, {bool threeWay = false}) {
+    if (_session == nullptr) return;
+    _withNativeStringArray(patchFiles, (array, count) => _bindings.patchImport(_session, array, count, threeWay ? 1 : 0));
+  }
+
+  void continueImport() {
+    if (_session == nullptr) return;
+    _bindings.patchImportContinue(_session);
+  }
+
+  void skipImport() {
+    if (_session == nullptr) return;
+    _bindings.patchImportSkip(_session);
+  }
+
+  void abortImport() {
+    if (_session == nullptr) return;
+    _bindings.patchImportAbort(_session);
   }
 
   /// Marshals `paths` into a native `const char* const*` for the lifetime of

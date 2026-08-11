@@ -6,20 +6,25 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/base_folder_record.dart';
+import 'package:gbm_flutter/data/models/bisect_status.dart';
 import 'package:gbm_flutter/data/models/blame_result.dart';
+import 'package:gbm_flutter/data/models/clean_entry.dart';
 import 'package:gbm_flutter/data/models/file_history_entry.dart';
 import 'package:gbm_flutter/data/models/git_error.dart';
 import 'package:gbm_flutter/data/models/graph_snapshot.dart';
+import 'package:gbm_flutter/data/models/lfs_state.dart';
 import 'package:gbm_flutter/data/models/line_history_chunk.dart';
 import 'package:gbm_flutter/data/models/operation_outcome.dart';
 import 'package:gbm_flutter/data/models/operation_record.dart';
 import 'package:gbm_flutter/data/models/parsed_diff.dart';
+import 'package:gbm_flutter/data/models/rebase_todo_entry.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
 import 'package:gbm_flutter/data/models/reflog_entry.dart';
 import 'package:gbm_flutter/data/models/remote_info.dart';
 import 'package:gbm_flutter/data/models/repo_record.dart';
 import 'package:gbm_flutter/data/models/repo_state.dart' as model;
 import 'package:gbm_flutter/data/models/stash_entry.dart';
+import 'package:gbm_flutter/data/models/submodule_info.dart';
 import 'package:gbm_flutter/data/models/undo_entry.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/data/models/worktree_info.dart';
@@ -265,5 +270,54 @@ void main() {
 
     expect(entries, hasLength(1));
     expect(entries.single.branchBefore, 'main');
+  });
+
+  test('CleanEntry.listFromJson decodes an array', () {
+    final List<dynamic> json = jsonDecode('[{"path":"build/","isDirectory":true}]');
+    final List<CleanEntry> entries = CleanEntry.listFromJson(json);
+
+    expect(entries, hasLength(1));
+    expect(entries.single.isDirectory, isTrue);
+  });
+
+  test('RebaseTodoEntry.listFromJson decodes the action ordinal', () {
+    final List<dynamic> json = jsonDecode('[{"action":1,"oid":"aa","shortOid":"a","subject":"Fix bug"}]');
+    final List<RebaseTodoEntry> entries = RebaseTodoEntry.listFromJson(json);
+
+    expect(entries, hasLength(1));
+    expect(entries.single.action, RebaseTodoAction.edit);
+  });
+
+  test('SubmoduleInfo.listFromJson decodes the state ordinal', () {
+    final List<dynamic> json = jsonDecode(
+      '[{"name":"lib","path":"lib","url":"https://example.invalid/lib.git","branch":"",'
+      '"headOid":"aa","state":2}]',
+    );
+    final List<SubmoduleInfo> submodules = SubmoduleInfo.listFromJson(json);
+
+    expect(submodules, hasLength(1));
+    expect(submodules.single.state, SubmoduleState.modified);
+  });
+
+  test('BisectStatus.fromJson decodes good/skipped oid lists', () {
+    final Map<String, dynamic> json = jsonDecode(
+      '{"active":true,"currentOid":"cc","badOid":"bb","goodOids":["aa"],"skippedOids":[],"logText":"log"}',
+    );
+    final BisectStatus status = BisectStatus.fromJson(json);
+
+    expect(status.active, isTrue);
+    expect(status.goodOids, <String>['aa']);
+  });
+
+  test('LfsInstallation.fromJson and LfsFileInfo.listFromJson decode their fields', () {
+    final LfsInstallation installation = LfsInstallation.fromJson(
+      jsonDecode('{"available":true,"version":"git-lfs/3.4.1"}'),
+    );
+    expect(installation.available, isTrue);
+
+    final List<LfsFileInfo> files = LfsFileInfo.listFromJson(
+      jsonDecode('[{"path":"a.psd","oid":"aa","downloadedLocally":false}]'),
+    );
+    expect(files.single.downloadedLocally, isFalse);
   });
 }

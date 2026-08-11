@@ -4,18 +4,24 @@ import 'package:go_router/go_router.dart';
 import '../data/repositories/repo_identity.dart';
 import '../features/conflict_resolution/conflict_resolve_window.dart';
 import '../features/dialogs/about/about_dialog.dart';
+import '../features/dialogs/bisect/bisect_dialog.dart';
 import '../features/dialogs/blame/blame_dialog.dart';
 import '../features/dialogs/cherry_pick/cherry_pick_dialog.dart';
+import '../features/dialogs/clean_untracked/clean_untracked_dialog.dart';
 import '../features/dialogs/create_tag/create_tag_dialog.dart';
 import '../features/dialogs/credential/credential_dialog.dart';
 import '../features/dialogs/file_history/file_history_dialog.dart';
+import '../features/dialogs/interactive_rebase/interactive_rebase_dialog.dart';
 import '../features/dialogs/keyboard_shortcuts/keyboard_shortcuts_dialog.dart';
 import '../features/dialogs/line_history/line_history_dialog.dart';
 import '../features/dialogs/manage_base_folders/manage_base_folders_dialog.dart';
+import '../features/dialogs/manage_lfs/manage_lfs_dialog.dart';
 import '../features/dialogs/manage_remotes/manage_remotes_dialog.dart';
 import '../features/dialogs/manage_stashes/manage_stashes_dialog.dart';
+import '../features/dialogs/manage_submodules/manage_submodules_dialog.dart';
 import '../features/dialogs/manage_worktrees/manage_worktrees_dialog.dart';
 import '../features/dialogs/merge/merge_dialog.dart';
+import '../features/dialogs/patches/patches_dialog.dart';
 import '../features/dialogs/reflog/reflog_dialog.dart';
 import '../features/dialogs/reset_branch/reset_branch_dialog.dart';
 import '../features/dialogs/stash_changes/stash_changes_dialog.dart';
@@ -195,6 +201,48 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
           return UndoLastDialogContent(identity: identity);
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.interactiveRebaseDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          return InteractiveRebaseDialogContent(identity: identity);
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.manageSubmodulesDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          return ManageSubmodulesDialogContent(identity: identity);
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.bisectDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          return BisectDialogContent(identity: identity);
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.manageLfsDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          return ManageLfsDialogContent(identity: identity);
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.patchesDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          return PatchesDialogContent(identity: identity);
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.cleanUntrackedDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          return CleanUntrackedDialogContent(identity: identity);
         },
       ),
       GoRoute(

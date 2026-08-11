@@ -29,16 +29,21 @@
 #include "core/git/RepoPaths.h"
 #include "core/git/RepoState.h"
 #include "core/git/WorkingCopyStatus.h"
+#include "core/git/ops/BisectOps.h"
 #include "core/git/ops/CheckoutOp.h"
 #include "core/git/ops/CherryPickOps.h"
 #include "core/git/ops/CommitOps.h"
 #include "core/git/ops/ConflictOps.h"
+#include "core/git/ops/LfsOps.h"
 #include "core/git/ops/MergeOps.h"
+#include "core/git/ops/PatchOps.h"
+#include "core/git/ops/RebaseOps.h"
 #include "core/git/ops/RemoteOps.h"
 #include "core/git/ops/ResetOps.h"
 #include "core/git/ops/RevertOps.h"
 #include "core/git/ops/StageOps.h"
 #include "core/git/ops/StashOps.h"
+#include "core/git/ops/SubmoduleOps.h"
 #include "core/git/ops/TagOps.h"
 #include "core/git/ops/UndoOps.h"
 #include "core/git/ops/WorktreeOps.h"
@@ -48,6 +53,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -56,6 +62,10 @@ namespace gbm::capi {
 using StashListPtr = std::shared_ptr<const std::vector<StashEntry>>;
 using WorktreeListPtr = std::shared_ptr<const std::vector<WorktreeInfo>>;
 using RemoteListPtr = std::shared_ptr<const std::vector<RemoteInfo>>;
+using SubmoduleListPtr = std::shared_ptr<const std::vector<SubmoduleInfo>>;
+using BisectStatusPtr = std::shared_ptr<const BisectStatus>;
+using LfsPatternListPtr = std::shared_ptr<const std::vector<std::string>>;
+using LfsFileListPtr = std::shared_ptr<const std::vector<LfsFileInfo>>;
 
 /// Resolves and caches the git installation once per process. Every Session
 /// shares it: re-probing `git --version` per open repository would be pure
@@ -227,6 +237,96 @@ public:
     /// Async: see gbm_undo_last()'s doc comment.
     void undoLastOperation();
 
+    /// Async: see gbm_restore_paths()'s doc comment.
+    void restorePaths(RestoreRequest request);
+
+    /// Async: see gbm_clean_preview()'s doc comment.
+    void requestCleanPreview(bool includeIgnored);
+
+    /// Async: see gbm_clean_untracked()'s doc comment.
+    void cleanUntracked(CleanRequest request);
+
+    /// Async: see gbm_request_rebase_plan()'s doc comment.
+    void requestRebasePlan(std::string upstream);
+
+    /// Async: see gbm_rebase_interactive_start()/_start()/_continue()/
+    /// _skip()/_abort()'s doc comments. Like merge/cherry-pick, a
+    /// conflicting or `edit`-stopped rebase is reported as
+    /// outcome.succeeded == false -- the working copy is still refreshed so
+    /// the stopped-at state shows up.
+    void startInteractiveRebase(RebaseInteractiveRequest request);
+    void startRebase(RebaseRequest request);
+    void continueRebase();
+    void skipRebase();
+    void abortRebase();
+
+    /// Async: see gbm_submodule_refresh()'s doc comment.
+    void refreshSubmodules();
+
+    /// The most recently published submodule list, or null if
+    /// refreshSubmodules() has not yet produced one. Thread-safe; never
+    /// blocks.
+    SubmoduleListPtr currentSubmodules() const;
+
+    /// Async: see gbm_submodule_add()/_init()/_update()/_sync()/_deinit()'s
+    /// doc comments. add()/update() wire a fresh askpass request directory
+    /// into their request before submitting, per beginAskpass()'s doc
+    /// comment -- both can clone/fetch over the network.
+    void addSubmodule(AddSubmoduleRequest request);
+    void initSubmodules(SubmodulePathsRequest request);
+    void updateSubmodules(UpdateSubmodulesRequest request);
+    void syncSubmodules(SubmodulePathsRequest request);
+    void deinitSubmodules(DeinitSubmodulesRequest request);
+
+    /// Async: see gbm_bisect_refresh()'s doc comment.
+    void refreshBisectStatus();
+
+    /// The most recently published BisectStatus, or null if
+    /// refreshBisectStatus() has not yet produced one. Thread-safe; never
+    /// blocks.
+    BisectStatusPtr currentBisectStatus() const;
+
+    /// Async: see gbm_bisect_start()/_mark()/_skip()/_reset()'s doc
+    /// comments.
+    void startBisect(BisectStartRequest request);
+    void markBisect(BisectMarkRequest request);
+    void skipBisect(BisectSkipRequest request);
+    void resetBisect(BisectResetRequest request);
+
+    /// Async: see gbm_lfs_refresh()'s doc comment. Detects `git-lfs` only on
+    /// the first call (see lfsInstallation_'s doc comment); every call
+    /// re-reads tracked patterns and file status.
+    void refreshLfs();
+
+    /// The most recently detected LFS installation, or nullopt if
+    /// refreshLfs() has not yet run. Thread-safe; never blocks.
+    std::optional<LfsInstallation> currentLfsInstallation() const;
+
+    /// The most recently published tracked-pattern/file lists, or null if
+    /// refreshLfs() has not yet produced one. Thread-safe; never blocks.
+    LfsPatternListPtr currentLfsPatterns() const;
+    LfsFileListPtr currentLfsFiles() const;
+
+    /// Async: see gbm_lfs_install()/_track()/_untrack()/_pull()/_fetch()/
+    /// _prune()'s doc comments. pull()/fetch() wire a fresh askpass request
+    /// directory into their request before submitting, like
+    /// addSubmodule()/updateSubmodules().
+    void installLfs();
+    void trackLfsPattern(LfsTrackRequest request);
+    void untrackLfsPattern(LfsUntrackRequest request);
+    void pullLfs(LfsTransferRequest request);
+    void fetchLfs(LfsTransferRequest request);
+    void pruneLfs(LfsPruneRequest request);
+
+    /// Async: see gbm_patch_export()/_apply_files()/_import()/_continue()/
+    /// _skip()/_abort()'s doc comments.
+    void exportPatches(ExportPatchesRequest request);
+    void applyPatchFiles(ApplyPatchFilesRequest request);
+    void importPatches(ImportPatchesRequest request);
+    void continueImport();
+    void skipImport();
+    void abortImport();
+
     /// The process-wide gbm::Log operation sink, installed once (via
     /// std::call_once in the constructor) and shared by every open Session:
     /// gbm::Log is itself a process-wide singleton, with no notion of which
@@ -294,16 +394,18 @@ private:
     void refreshUndoJournalCache();
 
     /// Runs `operation` on operations_, emits GBM_EVENT_OPERATION_FINISHED
-
-    /// Runs `operation` on operations_, emits GBM_EVENT_OPERATION_FINISHED
     /// with its outcome, and always refreshes the working copy (a
-    /// checkout/reset/merge/cherry-pick/revert can leave conflicted or
-    /// simply changed paths whether or not it "succeeded" in the
-    /// OperationOutcome sense -- see mergeBranch()'s doc comment above).
+    /// checkout/reset/merge/cherry-pick/revert/rebase/bisect can leave
+    /// conflicted or simply changed paths whether or not it "succeeded" in
+    /// the OperationOutcome sense -- see mergeBranch()'s doc comment above).
     /// Refreshes history too, but only when `refreshHistoryOnSuccess` and
     /// the operation actually succeeded, since a conflicting/aborted
-    /// operation has not moved any ref.
-    void submitOperation(std::unique_ptr<Operation> operation, bool refreshHistoryOnSuccess);
+    /// operation has not moved any ref. `onSuccess`, if given, runs after
+    /// that -- e.g. bisect operations use it to also refresh their own
+    /// status snapshot, which nothing else here knows to do.
+    void submitOperation(std::unique_ptr<Operation> operation,
+                         bool refreshHistoryOnSuccess,
+                         std::function<void()> onSuccess = nullptr);
 
     GitInstallation installation_;
     RepoPaths paths_;
@@ -319,6 +421,9 @@ private:
     std::unique_ptr<BlameStore> blameStore_;
     std::unique_ptr<FileHistoryStore> fileHistoryStore_;
     std::unique_ptr<ReflogStore> reflogStore_;
+    std::unique_ptr<SubmoduleStore> submoduleStore_;
+    std::unique_ptr<BisectStore> bisectStore_;
+    std::unique_ptr<LfsStore> lfsStore_;
 
     CallbackRegistry callbacks_;
     AskpassPoller askpass_;
@@ -342,15 +447,26 @@ private:
     /// supersedes it -- mirrors RepositorySession::historyCancel_.
     CancellationSource historyCancel_;
 
-    /// Stash/worktree/remote lists change far less often than the graph or
-    /// working-copy status, and independently of each other, but not so
-    /// independently-and-often that they need graphMutex_/
-    /// workingCopyMutex_'s split -- one shared lock across all three is
-    /// simpler and does not meaningfully serialize anything that matters.
+    /// Stash/worktree/remote/submodule/bisect/LFS state all change far less
+    /// often than the graph or working-copy status, and independently of
+    /// each other, but not so independently-and-often that they need
+    /// graphMutex_/workingCopyMutex_'s split -- one shared lock across all
+    /// of them is simpler and does not meaningfully serialize anything that
+    /// matters.
     mutable std::mutex auxMutex_;
     StashListPtr stashes_;
     WorktreeListPtr worktrees_;
     RemoteListPtr remotes_;
+    SubmoduleListPtr submodules_;
+    BisectStatusPtr bisectStatus_;
+    /// Detected once per session, on the first refreshLfs() call -- see
+    /// refreshLfs()'s doc comment. Distinct from the other auxMutex_ fields
+    /// above by staying set once populated (a session's `git-lfs`
+    /// availability cannot change mid-session), rather than being replaced
+    /// on every refresh.
+    std::optional<LfsInstallation> lfsInstallation_;
+    LfsPatternListPtr lfsPatterns_;
+    LfsFileListPtr lfsFiles_;
 
     /// A snapshot of operations_->undoJournal(), refreshed by
     /// refreshUndoJournalCache() (see its doc comment for why this

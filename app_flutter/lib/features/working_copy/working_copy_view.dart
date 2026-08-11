@@ -4,7 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../data/models/working_copy_status.dart';
 import '../../data/repositories/repo_identity.dart';
-import '../../data/repositories/repo_session_repository.dart' show WorkingCopyDiffReply;
+import '../../data/repositories/repo_session_repository.dart' show WorkingCopyDiffReply, repoSessionProvider;
 import '../../data/repositories/working_copy_repository.dart' as wc;
 import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
@@ -125,6 +125,9 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
       onBlame: () => context.push(RoutePaths.blameDialogFor(repoId, path: entry.path)),
       onFileHistory: () => context.push(RoutePaths.fileHistoryDialogFor(repoId, path: entry.path)),
       onLineHistory: () => context.push(RoutePaths.lineHistoryDialogFor(repoId, path: entry.path)),
+      onDiscard: staged
+          ? null
+          : () => ref.read(repoSessionProvider(widget.identity).notifier).restorePaths(<String>[entry.path]),
     );
   }
 }

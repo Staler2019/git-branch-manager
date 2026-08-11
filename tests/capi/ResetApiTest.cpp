@@ -161,5 +161,59 @@ TEST_F(ResetApiTest, HardResetMovesHeadAndDiscardsWorkTreeChanges) {
     gbm_graph_snapshot_release(session_);
 }
 
+TEST_F(ResetApiTest, RestorePathsStagedUnstagesAFile) {
+    ASSERT_EQ(runGit({"add", "file.txt"}), 0);
+    std::ofstream(repo_ / "file.txt") << "v1\nv2\nv3\n";
+    ASSERT_EQ(runGit({"add", "file.txt"}), 0);
+
+    const char* paths[] = {"file.txt"};
+    gbm_restore_paths(session_, paths, 1, /*staged=*/1, "");
+    ASSERT_TRUE(log_.waitFor([](const auto& events) {
+        for (const auto& [type, payload] : events) {
+            if (type == GBM_EVENT_WORKING_COPY_OPERATION_FINISHED) return true;
+        }
+        return false;
+    }));
+
+    std::string diffCmd = "git -C \"" + repo_.string() + "\" diff --cached --name-only > /tmp/gbm_restore_test_staged.txt";
+    [[maybe_unused]] const int rc = std::system(diffCmd.c_str());
+    std::ifstream in("/tmp/gbm_restore_test_staged.txt");
+    std::string line;
+    std::getline(in, line);
+    EXPECT_TRUE(line.empty()) << "expected nothing staged after --staged restore, got: " << line;
+}
+
+TEST_F(ResetApiTest, CleanUntrackedRemovesUntrackedFiles) {
+    std::ofstream(repo_ / "untracked.txt") << "junk\n";
+    ASSERT_TRUE(std::filesystem::exists(repo_ / "untracked.txt"));
+
+    gbm_clean_preview(session_, /*includeIgnored=*/0);
+    ASSERT_TRUE(log_.waitFor([](const auto& events) {
+        for (const auto& [type, payload] : events) {
+            if (type == GBM_EVENT_CLEAN_PREVIEW_READY) return true;
+        }
+        return false;
+    }));
+    const std::string previewJson = [this]() {
+        std::lock_guard<std::mutex> lock(log_.mutex);
+        std::string last;
+        for (const auto& [type, payload] : log_.events) {
+            if (type == GBM_EVENT_CLEAN_PREVIEW_READY) last = payload;
+        }
+        return last;
+    }();
+    EXPECT_NE(previewJson.find("untracked.txt"), std::string::npos) << previewJson;
+
+    gbm_clean_untracked(session_, nullptr, 0, /*includeIgnored=*/0);
+    ASSERT_TRUE(log_.waitFor([](const auto& events) {
+        for (const auto& [type, payload] : events) {
+            if (type == GBM_EVENT_WORKING_COPY_OPERATION_FINISHED) return true;
+        }
+        return false;
+    }));
+
+    EXPECT_FALSE(std::filesystem::exists(repo_ / "untracked.txt"));
+}
+
 }  // namespace
 }  // namespace gbm::capi

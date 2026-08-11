@@ -123,6 +123,20 @@ enum GbmEventType {
     GBM_EVENT_LINE_HISTORY_READY = 15,
     /// payload: ReflogEntry JSON array. Reply to gbm_request_reflog().
     GBM_EVENT_REFLOG_READY = 16,
+
+    /// payload: RebaseTodoEntry JSON array. Reply to
+    /// gbm_request_rebase_plan().
+    GBM_EVENT_REBASE_PLAN_READY = 17,
+    /// no payload; read the new list with gbm_submodules_json().
+    GBM_EVENT_SUBMODULES_UPDATED = 18,
+    /// no payload; read the new status with gbm_bisect_status_json().
+    GBM_EVENT_BISECT_STATUS_UPDATED = 19,
+    /// no payload; read installation/patterns/files with
+    /// gbm_lfs_installation_json()/gbm_lfs_patterns_json()/
+    /// gbm_lfs_files_json().
+    GBM_EVENT_LFS_UPDATED = 20,
+    /// payload: CleanEntry JSON array. Reply to gbm_clean_preview().
+    GBM_EVENT_CLEAN_PREVIEW_READY = 21,
 };
 
 typedef void (*GbmEventCallback)(GbmSessionHandle session,
@@ -569,6 +583,260 @@ GBM_API int32_t gbm_undo_journal_json(GbmSessionHandle session);
 /// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success refreshes both
 /// the working copy and history (HEAD moved).
 GBM_API void gbm_undo_last(GbmSessionHandle session);
+
+// --- Restore / clean -----------------------------------------------------
+// Mirrors RepositorySession's "M4: reset / restore / clean" section -- see
+// src/core/git/ops/ResetOps.h.
+
+/// `git restore`. `staged` (--staged): resets the index from `source`
+/// (default HEAD) without touching the work tree -- "unstage". Not staged:
+/// overwrites the work tree from `source` (default the index) -- "discard
+/// changes", destructive exactly like a hard reset of just these paths.
+/// `source` empty uses the default for whichever mode `staged` selects.
+/// Async: fires GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success
+/// refreshes the working copy.
+GBM_API void gbm_restore_paths(GbmSessionHandle session,
+                               const char* const* paths,
+                               int32_t pathCount,
+                               int32_t staged,
+                               const char* source);
+
+/// Read-only `git clean -n[x]`, so the caller can show exactly what would be
+/// removed before committing to it. Async: fires
+/// GBM_EVENT_CLEAN_PREVIEW_READY, or GBM_EVENT_ERROR_OCCURRED on failure.
+GBM_API void gbm_clean_preview(GbmSessionHandle session, int32_t includeIgnored);
+
+/// `git clean -fd[x]`. `paths`/`pathCount` empty means the whole work tree;
+/// otherwise exactly these paths (what the caller left checked after
+/// reviewing gbm_clean_preview()'s result). Async: fires
+/// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success refreshes the
+/// working copy.
+GBM_API void gbm_clean_untracked(GbmSessionHandle session,
+                                 const char* const* paths,
+                                 int32_t pathCount,
+                                 int32_t includeIgnored);
+
+// --- Rebase ----------------------------------------------------------------
+// Mirrors RepositorySession's "M4: rebase" section -- see
+// src/core/git/ops/RebaseOps.h.
+
+/// Builds the todo list a plain `git rebase -i <upstream>` would start
+/// from -- read-only, so the caller can show and let the user edit it
+/// before anything runs. Async: fires GBM_EVENT_REBASE_PLAN_READY, or
+/// GBM_EVENT_ERROR_OCCURRED on failure.
+GBM_API void gbm_request_rebase_plan(GbmSessionHandle session, const char* upstream);
+
+/// `git rebase -i`, with the todo list supplied by the caller instead of
+/// through an interactive editor. `actions[i]` is a RebaseTodoEntry::Action
+/// ordinal (0=Pick, 1=Edit, 2=Squash, 3=Fixup, 4=Drop, matching
+/// RebaseOps.h); `oids[i]` is that entry's full commit hex (as returned by
+/// gbm_request_rebase_plan(), reordered/dropped as the caller's UI allows);
+/// `subjects[i]` is informational only (written into the todo file as a
+/// comment, never parsed back). `onto` empty means onto `upstream` itself.
+/// Async: fires GBM_EVENT_OPERATION_FINISHED; stops at the first conflict
+/// or `edit` line exactly like `git rebase -i`, leaving the rest queued for
+/// gbm_rebase_continue()/_skip()/_abort() -- the working copy is always
+/// refreshed, history only on success.
+GBM_API void gbm_rebase_interactive_start(GbmSessionHandle session,
+                                          const char* upstream,
+                                          const char* onto,
+                                          const int32_t* actions,
+                                          const char* const* oids,
+                                          const char* const* subjects,
+                                          int32_t entryCount,
+                                          int32_t stashFirst);
+
+/// Plain, non-interactive `git rebase`: replays every commit unchanged.
+/// Same event/refresh contract as gbm_rebase_interactive_start().
+GBM_API void gbm_rebase_start(GbmSessionHandle session,
+                              const char* upstream,
+                              const char* onto,
+                              int32_t stashFirst);
+
+GBM_API void gbm_rebase_continue(GbmSessionHandle session);
+GBM_API void gbm_rebase_skip(GbmSessionHandle session);
+GBM_API void gbm_rebase_abort(GbmSessionHandle session);
+
+// --- Submodules ----------------------------------------------------------
+// Mirrors RepositorySession's "M5: submodules" section -- see
+// src/core/git/ops/SubmoduleOps.h. gbm_submodule_add()/_update() route
+// credential prompts through GBM_EVENT_CREDENTIAL_REQUESTED like
+// gbm_remote_fetch(), since both can clone/fetch over the network.
+
+/// Re-reads `.gitmodules` + `git submodule status`. Async: fires
+/// GBM_EVENT_SUBMODULES_UPDATED on success or GBM_EVENT_ERROR_OCCURRED on
+/// failure.
+GBM_API void gbm_submodule_refresh(GbmSessionHandle session);
+
+/// Populates the staging buffer with the most recently published submodule
+/// list as a JSON array. Returns 0 on success, or a negative GbmErrorCode
+/// if gbm_submodule_refresh() has not yet published one.
+GBM_API int32_t gbm_submodules_json(GbmSessionHandle session);
+
+/// `git submodule add [-b <branch>] <url> [<path>]`. `path` empty lets git
+/// derive it from the URL. Async: fires
+/// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success refreshes both
+/// the working copy and the submodule list.
+GBM_API void gbm_submodule_add(GbmSessionHandle session,
+                               const char* url,
+                               const char* path,
+                               const char* branch);
+
+/// `git submodule init [--] <paths...>`. `paths`/`pathCount` empty means
+/// every submodule. Async: fires GBM_EVENT_WORKING_COPY_OPERATION_FINISHED,
+/// and on success refreshes the submodule list.
+GBM_API void gbm_submodule_init(GbmSessionHandle session,
+                                const char* const* paths,
+                                int32_t pathCount,
+                                int32_t recursive);
+
+/// `git submodule update [--init] [--recursive] [--remote] [--] <paths...>`.
+/// Async: fires GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success
+/// refreshes both the working copy and the submodule list.
+GBM_API void gbm_submodule_update(GbmSessionHandle session,
+                                  const char* const* paths,
+                                  int32_t pathCount,
+                                  int32_t recursive,
+                                  int32_t init,
+                                  int32_t remote);
+
+/// `git submodule sync [--recursive] [--] <paths...>`.
+GBM_API void gbm_submodule_sync(GbmSessionHandle session,
+                                const char* const* paths,
+                                int32_t pathCount,
+                                int32_t recursive);
+
+/// `git submodule deinit [-f] [--] <paths...>`.
+GBM_API void gbm_submodule_deinit(GbmSessionHandle session,
+                                  const char* const* paths,
+                                  int32_t pathCount,
+                                  int32_t force);
+
+// --- Bisect ----------------------------------------------------------------
+// Mirrors RepositorySession's "M5: bisect" section -- see
+// src/core/git/ops/BisectOps.h.
+
+/// Re-reads BISECT_LOG. Async: fires GBM_EVENT_BISECT_STATUS_UPDATED on
+/// success or GBM_EVENT_ERROR_OCCURRED on failure.
+GBM_API void gbm_bisect_refresh(GbmSessionHandle session);
+
+/// Populates the staging buffer with the most recently published
+/// BisectStatus as JSON. Returns 0 on success, or a negative GbmErrorCode
+/// if gbm_bisect_refresh() has not yet published one.
+GBM_API int32_t gbm_bisect_status_json(GbmSessionHandle session);
+
+/// `git bisect start [<bad> [<good>...]] [--] [<paths>...]`. `badRef` empty
+/// together with an empty `goodRefs` is valid (waits for gbm_bisect_mark()
+/// afterward). Async: fires GBM_EVENT_OPERATION_FINISHED, and on success
+/// also refreshes both history (a bisect start checks out a commit) and the
+/// bisect status.
+GBM_API void gbm_bisect_start(GbmSessionHandle session,
+                              const char* badRef,
+                              const char* const* goodRefs,
+                              int32_t goodCount,
+                              const char* const* paths,
+                              int32_t pathCount,
+                              int32_t noCheckout);
+
+/// `git bisect good|bad [<ref>]`. `ref` empty means HEAD. May conclude the
+/// bisect, in which case OperationOutcome::summary carries git's own
+/// "is the first bad commit" message verbatim. Async: fires
+/// GBM_EVENT_OPERATION_FINISHED, and on success refreshes history and the
+/// bisect status.
+GBM_API void gbm_bisect_mark(GbmSessionHandle session, int32_t good, const char* ref);
+
+/// `git bisect skip [<refs...>]`. Empty `refs`/`refCount` skips HEAD.
+GBM_API void gbm_bisect_skip(GbmSessionHandle session, const char* const* refs, int32_t refCount);
+
+/// `git bisect reset [<target>]`. `target` empty returns to whatever
+/// gbm_bisect_start() was run from.
+GBM_API void gbm_bisect_reset(GbmSessionHandle session, const char* target);
+
+// --- LFS -------------------------------------------------------------------
+// Mirrors RepositorySession's "M5: LFS" section -- see
+// src/core/git/ops/LfsOps.h. gbm_lfs_pull()/_fetch() route credential
+// prompts through GBM_EVENT_CREDENTIAL_REQUESTED like gbm_remote_fetch().
+
+/// Detects `git-lfs` (once per session, cached) and re-reads tracked
+/// patterns and file status. Async: fires GBM_EVENT_LFS_UPDATED on success
+/// or GBM_EVENT_ERROR_OCCURRED on failure.
+GBM_API void gbm_lfs_refresh(GbmSessionHandle session);
+
+/// Populates the staging buffer with `{"available": bool, "version":
+/// string}`. Returns 0 on success, or a negative GbmErrorCode if
+/// gbm_lfs_refresh() has not yet run.
+GBM_API int32_t gbm_lfs_installation_json(GbmSessionHandle session);
+
+/// Populates the staging buffer with the tracked-pattern list as a JSON
+/// array of strings.
+GBM_API int32_t gbm_lfs_patterns_json(GbmSessionHandle session);
+
+/// Populates the staging buffer with the tracked-file list as a JSON array.
+GBM_API int32_t gbm_lfs_files_json(GbmSessionHandle session);
+
+/// `git lfs install --local`. Async: fires
+/// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success refreshes LFS
+/// state.
+GBM_API void gbm_lfs_install(GbmSessionHandle session);
+
+/// `git lfs track "<pattern>"`. Editing `.gitattributes` further (staging,
+/// committing) is left to the caller.
+GBM_API void gbm_lfs_track(GbmSessionHandle session, const char* pattern);
+
+/// `git lfs untrack "<pattern>"`.
+GBM_API void gbm_lfs_untrack(GbmSessionHandle session, const char* pattern);
+
+/// `git lfs pull [<remote>]`. `remoteName` empty uses the default remote.
+/// Async: fires GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success
+/// refreshes both the working copy (objects are checked out) and LFS state.
+GBM_API void gbm_lfs_pull(GbmSessionHandle session, const char* remoteName);
+
+/// `git lfs fetch [<remote>]`: downloads objects without touching the work
+/// tree. Same event contract as gbm_lfs_pull(), refreshing LFS state only.
+GBM_API void gbm_lfs_fetch(GbmSessionHandle session, const char* remoteName);
+
+/// `git lfs prune [--dry-run]`.
+GBM_API void gbm_lfs_prune(GbmSessionHandle session, int32_t dryRun);
+
+// --- Patch import/export ---------------------------------------------------
+// Mirrors RepositorySession's "M5: patch import/export" section -- see
+// src/core/git/ops/PatchOps.h.
+
+/// `git format-patch -1 <commit> --start-number <n> -o <dir>`, once per
+/// commit in `commitHexes` (oldest first, same convention as
+/// gbm_cherry_pick()). Async: fires
+/// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED; nothing in the repository
+/// changes, so no further refresh follows.
+GBM_API void gbm_patch_export(GbmSessionHandle session,
+                              const char* const* commitHexes,
+                              int32_t commitCount,
+                              const char* outputDir);
+
+/// `git apply`: applies a plain diff without creating a commit.
+/// `threeWay` falls back to a merge (leaving conflict markers) instead of
+/// refusing outright when the patch does not apply cleanly; `updateIndex`
+/// also stages the result. Async: fires
+/// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success refreshes the
+/// working copy.
+GBM_API void gbm_patch_apply_files(GbmSessionHandle session,
+                                   const char* const* patchFiles,
+                                   int32_t fileCount,
+                                   int32_t threeWay,
+                                   int32_t updateIndex);
+
+/// `git am`: applies one or more `format-patch`-style patches as commits,
+/// preserving author/date/message. Async: fires
+/// GBM_EVENT_OPERATION_FINISHED; a patch that does not apply stops the
+/// sequence exactly like gbm_cherry_pick(), leaving the rest queued for
+/// gbm_patch_import_continue()/_skip()/_abort().
+GBM_API void gbm_patch_import(GbmSessionHandle session,
+                              const char* const* patchFiles,
+                              int32_t fileCount,
+                              int32_t threeWay);
+
+GBM_API void gbm_patch_import_continue(GbmSessionHandle session);
+GBM_API void gbm_patch_import_skip(GbmSessionHandle session);
+GBM_API void gbm_patch_import_abort(GbmSessionHandle session);
 
 // --- Discovery -------------------------------------------------------------
 // A separate handle class from GbmSessionHandle: discovery scans base

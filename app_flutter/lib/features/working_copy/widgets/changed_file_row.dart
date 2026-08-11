@@ -18,6 +18,7 @@ class ChangedFileRow extends StatelessWidget {
     this.onBlame,
     this.onFileHistory,
     this.onLineHistory,
+    this.onDiscard,
   });
 
   final WorkingCopyEntry entry;
@@ -31,6 +32,12 @@ class ChangedFileRow extends StatelessWidget {
   final VoidCallback? onBlame;
   final VoidCallback? onFileHistory;
   final VoidCallback? onLineHistory;
+  /// `git restore` (unstaged/work-tree discard) for this file -- see
+  /// `working_copy_view.dart`'s wiring into
+  /// `RepoSessionController.restorePaths`. Only offered for unstaged
+  /// entries (there is no "discard" for what's already staged, only
+  /// unstage, which the checkbox already does).
+  final VoidCallback? onDiscard;
 
   @override
   Widget build(BuildContext context) {
@@ -55,7 +62,7 @@ class ChangedFileRow extends StatelessWidget {
               ),
             ),
             Text(_statusLabel(entry), style: TextStyle(fontSize: GbmTypography.textXs, color: _statusColor(entry, colors))),
-            if (onBlame != null || onFileHistory != null || onLineHistory != null)
+            if (onBlame != null || onFileHistory != null || onLineHistory != null || onDiscard != null)
               PopupMenuButton<VoidCallback>(
                 tooltip: 'File actions',
                 padding: EdgeInsets.zero,
@@ -67,6 +74,11 @@ class ChangedFileRow extends StatelessWidget {
                     PopupMenuItem<VoidCallback>(value: onFileHistory, child: const Text('File History…')),
                   if (onLineHistory != null)
                     PopupMenuItem<VoidCallback>(value: onLineHistory, child: const Text('Line History…')),
+                  if (onDiscard != null)
+                    PopupMenuItem<VoidCallback>(
+                      value: onDiscard,
+                      child: Text('Discard Changes', style: TextStyle(color: colors.danger)),
+                    ),
                 ],
               ),
           ],

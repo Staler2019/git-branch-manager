@@ -31,6 +31,12 @@ abstract final class RoutePaths {
   static const String lineHistoryDialog = '/repo/:repoId/dialogs/line-history';
   static const String reflogDialog = '/repo/:repoId/dialogs/reflog';
   static const String undoLastDialog = '/repo/:repoId/dialogs/undo-last';
+  static const String interactiveRebaseDialog = '/repo/:repoId/dialogs/interactive-rebase';
+  static const String manageSubmodulesDialog = '/repo/:repoId/dialogs/manage-submodules';
+  static const String bisectDialog = '/repo/:repoId/dialogs/bisect';
+  static const String manageLfsDialog = '/repo/:repoId/dialogs/manage-lfs';
+  static const String patchesDialog = '/repo/:repoId/dialogs/patches';
+  static const String cleanUntrackedDialog = '/repo/:repoId/dialogs/clean-untracked';
 
   /// Standalone top-level route, not a `/dialogs/<name>` overlay -- see
   /// `features/conflict_resolution/conflict_resolve_window.dart`'s doc
@@ -62,5 +68,11 @@ abstract final class RoutePaths {
   ).toString();
   static String reflogDialogFor(String repoId) => '/repo/$repoId/dialogs/reflog';
   static String undoLastDialogFor(String repoId) => '/repo/$repoId/dialogs/undo-last';
+  static String interactiveRebaseDialogFor(String repoId) => '/repo/$repoId/dialogs/interactive-rebase';
+  static String manageSubmodulesDialogFor(String repoId) => '/repo/$repoId/dialogs/manage-submodules';
+  static String bisectDialogFor(String repoId) => '/repo/$repoId/dialogs/bisect';
+  static String manageLfsDialogFor(String repoId) => '/repo/$repoId/dialogs/manage-lfs';
+  static String patchesDialogFor(String repoId) => '/repo/$repoId/dialogs/patches';
+  static String cleanUntrackedDialogFor(String repoId) => '/repo/$repoId/dialogs/clean-untracked';
   static String conflictsFor(String repoId) => '/repo/$repoId/conflicts';
 }

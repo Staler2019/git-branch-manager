@@ -665,4 +665,136 @@ std::string toJson(const std::vector<OperationRunner::UndoEntry>& entries) {
     return out;
 }
 
+std::string toJson(const std::vector<std::string>& strings) {
+    std::string out = "[";
+    for (std::size_t i = 0; i < strings.size(); ++i) {
+        if (i != 0) out += ',';
+        jsonAppendEscaped(out, strings[i]);
+    }
+    out += ']';
+    return out;
+}
+
+std::string toJson(const CleanEntry& entry) {
+    std::string out = "{";
+    out += "\"path\":";
+    jsonAppendEscaped(out, entry.path);
+    out += ",\"isDirectory\":";
+    jsonAppendBool(out, entry.isDirectory);
+    out += '}';
+    return out;
+}
+
+std::string toJson(const std::vector<CleanEntry>& entries) {
+    std::string out = "[";
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        if (i != 0) out += ',';
+        out += toJson(entries[i]);
+    }
+    out += ']';
+    return out;
+}
+
+std::string toJson(const RebaseTodoEntry& entry) {
+    std::string out = "{";
+    out += "\"action\":";
+    jsonAppendInt(out, static_cast<std::int64_t>(entry.action));
+    out += ",\"oid\":";
+    jsonAppendEscaped(out, entry.oid.hex());
+    out += ",\"shortOid\":";
+    jsonAppendEscaped(out, entry.shortOid);
+    out += ",\"subject\":";
+    jsonAppendEscaped(out, entry.subject);
+    out += '}';
+    return out;
+}
+
+std::string toJson(const std::vector<RebaseTodoEntry>& entries) {
+    std::string out = "[";
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        if (i != 0) out += ',';
+        out += toJson(entries[i]);
+    }
+    out += ']';
+    return out;
+}
+
+std::string toJson(const SubmoduleInfo& submodule) {
+    std::string out = "{";
+    out += "\"name\":";
+    jsonAppendEscaped(out, submodule.name);
+    out += ",\"path\":";
+    jsonAppendEscaped(out, submodule.path);
+    out += ",\"url\":";
+    jsonAppendEscaped(out, submodule.url);
+    out += ",\"branch\":";
+    jsonAppendEscaped(out, submodule.branch);
+    out += ",\"headOid\":";
+    jsonAppendEscaped(out, submodule.headOid);
+    out += ",\"state\":";
+    jsonAppendInt(out, static_cast<std::int64_t>(submodule.state));
+    out += '}';
+    return out;
+}
+
+std::string toJson(const std::vector<SubmoduleInfo>& submodules) {
+    std::string out = "[";
+    for (std::size_t i = 0; i < submodules.size(); ++i) {
+        if (i != 0) out += ',';
+        out += toJson(submodules[i]);
+    }
+    out += ']';
+    return out;
+}
+
+std::string toJson(const BisectStatus& status) {
+    std::string out = "{";
+    out += "\"active\":";
+    jsonAppendBool(out, status.active);
+    out += ",\"currentOid\":";
+    jsonAppendEscaped(out, status.currentOid);
+    out += ",\"badOid\":";
+    jsonAppendEscaped(out, status.badOid);
+    out += ",\"goodOids\":";
+    out += toJson(status.goodOids);
+    out += ",\"skippedOids\":";
+    out += toJson(status.skippedOids);
+    out += ",\"logText\":";
+    jsonAppendEscaped(out, status.logText);
+    out += '}';
+    return out;
+}
+
+std::string toJson(const LfsInstallation& installation) {
+    std::string out = "{";
+    out += "\"available\":";
+    jsonAppendBool(out, installation.available);
+    out += ",\"version\":";
+    jsonAppendEscaped(out, installation.version);
+    out += '}';
+    return out;
+}
+
+std::string toJson(const LfsFileInfo& file) {
+    std::string out = "{";
+    out += "\"path\":";
+    jsonAppendEscaped(out, file.path);
+    out += ",\"oid\":";
+    jsonAppendEscaped(out, file.oid);
+    out += ",\"downloadedLocally\":";
+    jsonAppendBool(out, file.downloadedLocally);
+    out += '}';
+    return out;
+}
+
+std::string toJson(const std::vector<LfsFileInfo>& files) {
+    std::string out = "[";
+    for (std::size_t i = 0; i < files.size(); ++i) {
+        if (i != 0) out += ',';
+        out += toJson(files[i]);
+    }
+    out += ']';
+    return out;
+}
+
 }  // namespace gbm::capi

@@ -159,6 +159,12 @@ class _MoreMenu extends StatelessWidget {
         PopupMenuItem<String>(value: RoutePaths.lineHistoryDialogFor(repoId), child: const Text('Line History…')),
         PopupMenuItem<String>(value: RoutePaths.reflogDialogFor(repoId), child: const Text('Reflog…')),
         PopupMenuItem<String>(value: RoutePaths.undoLastDialogFor(repoId), child: const Text('Undo Last Operation…')),
+        PopupMenuItem<String>(value: RoutePaths.interactiveRebaseDialogFor(repoId), child: const Text('Interactive Rebase…')),
+        PopupMenuItem<String>(value: RoutePaths.manageSubmodulesDialogFor(repoId), child: const Text('Submodules…')),
+        PopupMenuItem<String>(value: RoutePaths.bisectDialogFor(repoId), child: const Text('Bisect…')),
+        PopupMenuItem<String>(value: RoutePaths.manageLfsDialogFor(repoId), child: const Text('Git LFS…')),
+        PopupMenuItem<String>(value: RoutePaths.patchesDialogFor(repoId), child: const Text('Patches…')),
+        PopupMenuItem<String>(value: RoutePaths.cleanUntrackedDialogFor(repoId), child: const Text('Clean Untracked…')),
       ],
     );
   }

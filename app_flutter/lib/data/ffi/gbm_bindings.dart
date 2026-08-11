@@ -34,6 +34,11 @@ abstract final class GbmEventType {
   static const int fileHistoryReady = 14;
   static const int lineHistoryReady = 15;
   static const int reflogReady = 16;
+  static const int rebasePlanReady = 17;
+  static const int submodulesUpdated = 18;
+  static const int bisectStatusUpdated = 19;
+  static const int lfsUpdated = 20;
+  static const int cleanPreviewReady = 21;
 }
 
 /// `void (*)(GbmSessionHandle, int32_t, const uint8_t*, int32_t, void*)`.
@@ -371,6 +376,206 @@ typedef UndoJournalJsonDart = int Function(Pointer<Void> session);
 typedef _UndoLastNative = Void Function(Pointer<Void> session);
 typedef UndoLastDart = void Function(Pointer<Void> session);
 
+typedef _RestorePathsNative =
+    Void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> paths, Int32 pathCount, Int32 staged, Pointer<Utf8> source);
+typedef RestorePathsDart =
+    void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> paths, int pathCount, int staged, Pointer<Utf8> source);
+
+typedef _CleanPreviewNative = Void Function(Pointer<Void> session, Int32 includeIgnored);
+typedef CleanPreviewDart = void Function(Pointer<Void> session, int includeIgnored);
+
+typedef _CleanUntrackedNative =
+    Void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> paths, Int32 pathCount, Int32 includeIgnored);
+typedef CleanUntrackedDart =
+    void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> paths, int pathCount, int includeIgnored);
+
+typedef _RequestRebasePlanNative = Void Function(Pointer<Void> session, Pointer<Utf8> upstream);
+typedef RequestRebasePlanDart = void Function(Pointer<Void> session, Pointer<Utf8> upstream);
+
+typedef _RebaseInteractiveStartNative =
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> upstream,
+      Pointer<Utf8> onto,
+      Pointer<Int32> actions,
+      Pointer<Pointer<Utf8>> oids,
+      Pointer<Pointer<Utf8>> subjects,
+      Int32 entryCount,
+      Int32 stashFirst,
+    );
+typedef RebaseInteractiveStartDart =
+    void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> upstream,
+      Pointer<Utf8> onto,
+      Pointer<Int32> actions,
+      Pointer<Pointer<Utf8>> oids,
+      Pointer<Pointer<Utf8>> subjects,
+      int entryCount,
+      int stashFirst,
+    );
+
+typedef _RebaseStartNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> upstream, Pointer<Utf8> onto, Int32 stashFirst);
+typedef RebaseStartDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> upstream, Pointer<Utf8> onto, int stashFirst);
+
+typedef _RebaseContinueNative = Void Function(Pointer<Void> session);
+typedef RebaseContinueDart = void Function(Pointer<Void> session);
+
+typedef _RebaseSkipNative = Void Function(Pointer<Void> session);
+typedef RebaseSkipDart = void Function(Pointer<Void> session);
+
+typedef _RebaseAbortNative = Void Function(Pointer<Void> session);
+typedef RebaseAbortDart = void Function(Pointer<Void> session);
+
+typedef _SubmoduleRefreshNative = Void Function(Pointer<Void> session);
+typedef SubmoduleRefreshDart = void Function(Pointer<Void> session);
+
+typedef _SubmodulesJsonNative = Int32 Function(Pointer<Void> session);
+typedef SubmodulesJsonDart = int Function(Pointer<Void> session);
+
+typedef _SubmoduleAddNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> url, Pointer<Utf8> path, Pointer<Utf8> branch);
+typedef SubmoduleAddDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> url, Pointer<Utf8> path, Pointer<Utf8> branch);
+
+typedef _SubmoduleInitNative =
+    Void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> paths, Int32 pathCount, Int32 recursive);
+typedef SubmoduleInitDart =
+    void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> paths, int pathCount, int recursive);
+
+typedef _SubmoduleUpdateNative =
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> paths,
+      Int32 pathCount,
+      Int32 recursive,
+      Int32 init,
+      Int32 remote,
+    );
+typedef SubmoduleUpdateDart =
+    void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> paths,
+      int pathCount,
+      int recursive,
+      int init,
+      int remote,
+    );
+
+typedef _SubmoduleSyncNative =
+    Void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> paths, Int32 pathCount, Int32 recursive);
+typedef SubmoduleSyncDart =
+    void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> paths, int pathCount, int recursive);
+
+typedef _SubmoduleDeinitNative =
+    Void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> paths, Int32 pathCount, Int32 force);
+typedef SubmoduleDeinitDart =
+    void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> paths, int pathCount, int force);
+
+typedef _BisectRefreshNative = Void Function(Pointer<Void> session);
+typedef BisectRefreshDart = void Function(Pointer<Void> session);
+
+typedef _BisectStatusJsonNative = Int32 Function(Pointer<Void> session);
+typedef BisectStatusJsonDart = int Function(Pointer<Void> session);
+
+typedef _BisectStartNative =
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> badRef,
+      Pointer<Pointer<Utf8>> goodRefs,
+      Int32 goodCount,
+      Pointer<Pointer<Utf8>> paths,
+      Int32 pathCount,
+      Int32 noCheckout,
+    );
+typedef BisectStartDart =
+    void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> badRef,
+      Pointer<Pointer<Utf8>> goodRefs,
+      int goodCount,
+      Pointer<Pointer<Utf8>> paths,
+      int pathCount,
+      int noCheckout,
+    );
+
+typedef _BisectMarkNative = Void Function(Pointer<Void> session, Int32 good, Pointer<Utf8> ref);
+typedef BisectMarkDart = void Function(Pointer<Void> session, int good, Pointer<Utf8> ref);
+
+typedef _BisectSkipNative = Void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> refs, Int32 refCount);
+typedef BisectSkipDart = void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> refs, int refCount);
+
+typedef _BisectResetNative = Void Function(Pointer<Void> session, Pointer<Utf8> target);
+typedef BisectResetDart = void Function(Pointer<Void> session, Pointer<Utf8> target);
+
+typedef _LfsRefreshNative = Void Function(Pointer<Void> session);
+typedef LfsRefreshDart = void Function(Pointer<Void> session);
+
+typedef _LfsInstallationJsonNative = Int32 Function(Pointer<Void> session);
+typedef LfsInstallationJsonDart = int Function(Pointer<Void> session);
+
+typedef _LfsPatternsJsonNative = Int32 Function(Pointer<Void> session);
+typedef LfsPatternsJsonDart = int Function(Pointer<Void> session);
+
+typedef _LfsFilesJsonNative = Int32 Function(Pointer<Void> session);
+typedef LfsFilesJsonDart = int Function(Pointer<Void> session);
+
+typedef _LfsInstallNative = Void Function(Pointer<Void> session);
+typedef LfsInstallDart = void Function(Pointer<Void> session);
+
+typedef _LfsTrackNative = Void Function(Pointer<Void> session, Pointer<Utf8> pattern);
+typedef LfsTrackDart = void Function(Pointer<Void> session, Pointer<Utf8> pattern);
+
+typedef _LfsUntrackNative = Void Function(Pointer<Void> session, Pointer<Utf8> pattern);
+typedef LfsUntrackDart = void Function(Pointer<Void> session, Pointer<Utf8> pattern);
+
+typedef _LfsPullNative = Void Function(Pointer<Void> session, Pointer<Utf8> remoteName);
+typedef LfsPullDart = void Function(Pointer<Void> session, Pointer<Utf8> remoteName);
+
+typedef _LfsFetchNative = Void Function(Pointer<Void> session, Pointer<Utf8> remoteName);
+typedef LfsFetchDart = void Function(Pointer<Void> session, Pointer<Utf8> remoteName);
+
+typedef _LfsPruneNative = Void Function(Pointer<Void> session, Int32 dryRun);
+typedef LfsPruneDart = void Function(Pointer<Void> session, int dryRun);
+
+typedef _PatchExportNative =
+    Void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> commitHexes, Int32 commitCount, Pointer<Utf8> outputDir);
+typedef PatchExportDart =
+    void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> commitHexes, int commitCount, Pointer<Utf8> outputDir);
+
+typedef _PatchApplyFilesNative =
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> patchFiles,
+      Int32 fileCount,
+      Int32 threeWay,
+      Int32 updateIndex,
+    );
+typedef PatchApplyFilesDart =
+    void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> patchFiles,
+      int fileCount,
+      int threeWay,
+      int updateIndex,
+    );
+
+typedef _PatchImportNative =
+    Void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> patchFiles, Int32 fileCount, Int32 threeWay);
+typedef PatchImportDart =
+    void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> patchFiles, int fileCount, int threeWay);
+
+typedef _PatchImportContinueNative = Void Function(Pointer<Void> session);
+typedef PatchImportContinueDart = void Function(Pointer<Void> session);
+
+typedef _PatchImportSkipNative = Void Function(Pointer<Void> session);
+typedef PatchImportSkipDart = void Function(Pointer<Void> session);
+
+typedef _PatchImportAbortNative = Void Function(Pointer<Void> session);
+typedef PatchImportAbortDart = void Function(Pointer<Void> session);
+
 typedef _DiscoveryOpenNative = Pointer<Void> Function(Pointer<Utf8> dbPath);
 typedef DiscoveryOpenDart = Pointer<Void> Function(Pointer<Utf8> dbPath);
 
@@ -505,6 +710,59 @@ class GbmBindings {
       requestReflog = library.lookupFunction<_RequestReflogNative, RequestReflogDart>('gbm_request_reflog'),
       undoJournalJson = library.lookupFunction<_UndoJournalJsonNative, UndoJournalJsonDart>('gbm_undo_journal_json'),
       undoLast = library.lookupFunction<_UndoLastNative, UndoLastDart>('gbm_undo_last'),
+      restorePaths = library.lookupFunction<_RestorePathsNative, RestorePathsDart>('gbm_restore_paths'),
+      cleanPreview = library.lookupFunction<_CleanPreviewNative, CleanPreviewDart>('gbm_clean_preview'),
+      cleanUntracked = library.lookupFunction<_CleanUntrackedNative, CleanUntrackedDart>('gbm_clean_untracked'),
+      requestRebasePlan = library.lookupFunction<_RequestRebasePlanNative, RequestRebasePlanDart>(
+        'gbm_request_rebase_plan',
+      ),
+      rebaseInteractiveStart = library
+          .lookupFunction<_RebaseInteractiveStartNative, RebaseInteractiveStartDart>('gbm_rebase_interactive_start'),
+      rebaseStart = library.lookupFunction<_RebaseStartNative, RebaseStartDart>('gbm_rebase_start'),
+      rebaseContinue = library.lookupFunction<_RebaseContinueNative, RebaseContinueDart>('gbm_rebase_continue'),
+      rebaseSkip = library.lookupFunction<_RebaseSkipNative, RebaseSkipDart>('gbm_rebase_skip'),
+      rebaseAbort = library.lookupFunction<_RebaseAbortNative, RebaseAbortDart>('gbm_rebase_abort'),
+      submoduleRefresh = library.lookupFunction<_SubmoduleRefreshNative, SubmoduleRefreshDart>(
+        'gbm_submodule_refresh',
+      ),
+      submodulesJson = library.lookupFunction<_SubmodulesJsonNative, SubmodulesJsonDart>('gbm_submodules_json'),
+      submoduleAdd = library.lookupFunction<_SubmoduleAddNative, SubmoduleAddDart>('gbm_submodule_add'),
+      submoduleInit = library.lookupFunction<_SubmoduleInitNative, SubmoduleInitDart>('gbm_submodule_init'),
+      submoduleUpdate = library.lookupFunction<_SubmoduleUpdateNative, SubmoduleUpdateDart>('gbm_submodule_update'),
+      submoduleSync = library.lookupFunction<_SubmoduleSyncNative, SubmoduleSyncDart>('gbm_submodule_sync'),
+      submoduleDeinit = library.lookupFunction<_SubmoduleDeinitNative, SubmoduleDeinitDart>('gbm_submodule_deinit'),
+      bisectRefresh = library.lookupFunction<_BisectRefreshNative, BisectRefreshDart>('gbm_bisect_refresh'),
+      bisectStatusJson = library.lookupFunction<_BisectStatusJsonNative, BisectStatusJsonDart>(
+        'gbm_bisect_status_json',
+      ),
+      bisectStart = library.lookupFunction<_BisectStartNative, BisectStartDart>('gbm_bisect_start'),
+      bisectMark = library.lookupFunction<_BisectMarkNative, BisectMarkDart>('gbm_bisect_mark'),
+      bisectSkip = library.lookupFunction<_BisectSkipNative, BisectSkipDart>('gbm_bisect_skip'),
+      bisectReset = library.lookupFunction<_BisectResetNative, BisectResetDart>('gbm_bisect_reset'),
+      lfsRefresh = library.lookupFunction<_LfsRefreshNative, LfsRefreshDart>('gbm_lfs_refresh'),
+      lfsInstallationJson = library.lookupFunction<_LfsInstallationJsonNative, LfsInstallationJsonDart>(
+        'gbm_lfs_installation_json',
+      ),
+      lfsPatternsJson = library.lookupFunction<_LfsPatternsJsonNative, LfsPatternsJsonDart>('gbm_lfs_patterns_json'),
+      lfsFilesJson = library.lookupFunction<_LfsFilesJsonNative, LfsFilesJsonDart>('gbm_lfs_files_json'),
+      lfsInstall = library.lookupFunction<_LfsInstallNative, LfsInstallDart>('gbm_lfs_install'),
+      lfsTrack = library.lookupFunction<_LfsTrackNative, LfsTrackDart>('gbm_lfs_track'),
+      lfsUntrack = library.lookupFunction<_LfsUntrackNative, LfsUntrackDart>('gbm_lfs_untrack'),
+      lfsPull = library.lookupFunction<_LfsPullNative, LfsPullDart>('gbm_lfs_pull'),
+      lfsFetch = library.lookupFunction<_LfsFetchNative, LfsFetchDart>('gbm_lfs_fetch'),
+      lfsPrune = library.lookupFunction<_LfsPruneNative, LfsPruneDart>('gbm_lfs_prune'),
+      patchExport = library.lookupFunction<_PatchExportNative, PatchExportDart>('gbm_patch_export'),
+      patchApplyFiles = library.lookupFunction<_PatchApplyFilesNative, PatchApplyFilesDart>('gbm_patch_apply_files'),
+      patchImport = library.lookupFunction<_PatchImportNative, PatchImportDart>('gbm_patch_import'),
+      patchImportContinue = library.lookupFunction<_PatchImportContinueNative, PatchImportContinueDart>(
+        'gbm_patch_import_continue',
+      ),
+      patchImportSkip = library.lookupFunction<_PatchImportSkipNative, PatchImportSkipDart>(
+        'gbm_patch_import_skip',
+      ),
+      patchImportAbort = library.lookupFunction<_PatchImportAbortNative, PatchImportAbortDart>(
+        'gbm_patch_import_abort',
+      ),
       discoveryOpen = library.lookupFunction<_DiscoveryOpenNative, DiscoveryOpenDart>('gbm_discovery_open'),
       discoveryClose = library.lookupFunction<_DiscoveryCloseNative, DiscoveryCloseDart>('gbm_discovery_close'),
       discoveryAddBaseFolder = library
@@ -590,6 +848,44 @@ class GbmBindings {
   final RequestReflogDart requestReflog;
   final UndoJournalJsonDart undoJournalJson;
   final UndoLastDart undoLast;
+  final RestorePathsDart restorePaths;
+  final CleanPreviewDart cleanPreview;
+  final CleanUntrackedDart cleanUntracked;
+  final RequestRebasePlanDart requestRebasePlan;
+  final RebaseInteractiveStartDart rebaseInteractiveStart;
+  final RebaseStartDart rebaseStart;
+  final RebaseContinueDart rebaseContinue;
+  final RebaseSkipDart rebaseSkip;
+  final RebaseAbortDart rebaseAbort;
+  final SubmoduleRefreshDart submoduleRefresh;
+  final SubmodulesJsonDart submodulesJson;
+  final SubmoduleAddDart submoduleAdd;
+  final SubmoduleInitDart submoduleInit;
+  final SubmoduleUpdateDart submoduleUpdate;
+  final SubmoduleSyncDart submoduleSync;
+  final SubmoduleDeinitDart submoduleDeinit;
+  final BisectRefreshDart bisectRefresh;
+  final BisectStatusJsonDart bisectStatusJson;
+  final BisectStartDart bisectStart;
+  final BisectMarkDart bisectMark;
+  final BisectSkipDart bisectSkip;
+  final BisectResetDart bisectReset;
+  final LfsRefreshDart lfsRefresh;
+  final LfsInstallationJsonDart lfsInstallationJson;
+  final LfsPatternsJsonDart lfsPatternsJson;
+  final LfsFilesJsonDart lfsFilesJson;
+  final LfsInstallDart lfsInstall;
+  final LfsTrackDart lfsTrack;
+  final LfsUntrackDart lfsUntrack;
+  final LfsPullDart lfsPull;
+  final LfsFetchDart lfsFetch;
+  final LfsPruneDart lfsPrune;
+  final PatchExportDart patchExport;
+  final PatchApplyFilesDart patchApplyFiles;
+  final PatchImportDart patchImport;
+  final PatchImportContinueDart patchImportContinue;
+  final PatchImportSkipDart patchImportSkip;
+  final PatchImportAbortDart patchImportAbort;
   final DiscoveryOpenDart discoveryOpen;
   final DiscoveryCloseDart discoveryClose;
   final DiscoveryAddBaseFolderDart discoveryAddBaseFolder;

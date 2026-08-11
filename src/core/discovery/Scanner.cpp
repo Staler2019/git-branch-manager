@@ -197,15 +197,20 @@ void Scanner::workerLoop(SharedState& state,
         // discovered from the parent's metadata instead.
         const bool descend = !classified.isRepo();
 
+        // Deliberately not skip_permission_denied: that option makes a denied
+        // directory look identical to an empty one (ec stays clear, iterator ==
+        // end()), so a permission problem was silently recorded as "0 children,
+        // no repo" and then pruned forever on every later incremental scan. Here
+        // a denial is counted and the directory is left without a signature, so
+        // the next scan retries it instead of skipping it permanently.
         std::error_code ec;
-        std::filesystem::directory_iterator iterator(
-            fsutil::longPathSafe(item.path),
-            std::filesystem::directory_options::skip_permission_denied,
-            ec);
+        std::filesystem::directory_iterator iterator(fsutil::longPathSafe(item.path), ec);
+        bool unreadable = static_cast<bool>(ec);
         if (!ec) {
             const std::filesystem::directory_iterator end;
             for (; iterator != end; iterator.increment(ec)) {
                 if (ec) {
+                    unreadable = true;
                     break;  // Unreadable partway through; keep what we have.
                 }
                 const std::filesystem::directory_entry& entry = *iterator;
@@ -259,7 +264,9 @@ void Scanner::workerLoop(SharedState& state,
             for (auto& child : children) {
                 state.queue.push_back(std::move(child));
             }
-            if (mtime) {
+            if (unreadable) {
+                ++state.unreadable;
+            } else if (mtime) {
                 DirSignature signature;
                 signature.baseFolderId = baseFolder.id;
                 signature.dirPath = key;
@@ -378,6 +385,7 @@ GitResult<ScanResult> Scanner::scan(const BaseFolderRecord& baseFolder,
 
     result.directoriesScanned = state.scanned;
     result.directoriesSkipped = state.skipped;
+    result.directoriesUnreadable = state.unreadable;
     result.reposFound = state.found;
     result.elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                            std::chrono::steady_clock::now() - started)

@@ -30,6 +30,7 @@ enum class ScanMode {
 struct ScanProgress {
     std::int64_t directoriesScanned = 0;
     std::int64_t directoriesSkipped = 0;
+    std::int64_t directoriesUnreadable = 0;
     std::int64_t reposFound = 0;
     std::string currentPath;
 };
@@ -37,6 +38,12 @@ struct ScanProgress {
 struct ScanResult {
     std::int64_t directoriesScanned = 0;
     std::int64_t directoriesSkipped = 0;
+    /// Directories a listing was attempted on but denied by the OS (e.g. a
+    /// permission bit the scanning user doesn't have). Distinct from `skipped`,
+    /// which counts directories deliberately not visited (depth limit, skip
+    /// rules, unchanged incremental subtree). Never given a directory
+    /// signature, so the next scan retries it rather than pruning it forever.
+    std::int64_t directoriesUnreadable = 0;
     std::int64_t reposFound = 0;
     std::int64_t reposMarkedMissing = 0;
     std::int64_t elapsedMs = 0;
@@ -94,6 +101,7 @@ private:
         std::vector<RepoRecord> pending;
         std::int64_t scanned = 0;
         std::int64_t skipped = 0;
+        std::int64_t unreadable = 0;
         std::int64_t found = 0;
         std::size_t activeWorkers = 0;
         std::vector<DirSignature> signatures;

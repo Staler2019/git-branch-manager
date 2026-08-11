@@ -98,8 +98,16 @@ protected:
 
     std::vector<std::string> localBranches() {
         const std::string outFile = (repo_ / "..gbm_branch_test_list.txt").string();
+        // Double quotes, not single: single quotes are POSIX-shell syntax
+        // that cmd.exe passes through literally to git.exe on Windows
+        // instead of stripping, so git received them as part of the format
+        // string and the branch names never came back bare. Unquoted
+        // doesn't work either -- dash (Debian/Ubuntu's /bin/sh, which
+        // std::system() invokes) treats the embedded parens in
+        // %(refname:short) as a syntax error even mid-word. Double quotes
+        // are stripped correctly by both dash and Windows' argv parsing.
         std::string command =
-            "git -C \"" + repo_.string() + "\" branch --format='%(refname:short)' > \"" + outFile + "\"";
+            "git -C \"" + repo_.string() + "\" branch --format=\"%(refname:short)\" > \"" + outFile + "\"";
         [[maybe_unused]] const int rc = std::system(command.c_str());
         std::ifstream in(outFile);
         std::vector<std::string> names;

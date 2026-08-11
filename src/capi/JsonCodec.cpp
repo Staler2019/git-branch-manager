@@ -501,7 +501,8 @@ std::string toJson(const OperationRecord& record) {
     out += "\"whenEpochMs\":";
     jsonAppendInt(
         out,
-        std::chrono::duration_cast<std::chrono::milliseconds>(record.when.time_since_epoch()).count());
+        std::chrono::duration_cast<std::chrono::milliseconds>(record.when.time_since_epoch())
+            .count());
     out += ",\"repoDir\":";
     jsonAppendEscaped(out, record.repoDir);
     out += ",\"argv\":[";

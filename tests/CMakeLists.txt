@@ -137,6 +137,17 @@ if(GBM_BUILD_CAPI)
     target_link_libraries(gbm_capi_tests
         PRIVATE gbm_capi gbm_core GTest::gtest GTest::gtest_main gbm_warnings gbm_sanitizers)
 
+    # gbm_capi is SHARED, so on Windows (no RPATH like Linux/macOS) the
+    # loader can't find gbm_capi.dll unless it sits next to the .exe --
+    # without this, even test *discovery* fails (the runner has to launch
+    # the executable just to enumerate tests).
+    if(WIN32)
+        add_custom_command(TARGET gbm_capi_tests POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE:gbm_capi>" "$<TARGET_FILE_DIR:gbm_capi_tests>"
+            COMMENT "Copying gbm_capi.dll next to gbm_capi_tests.exe")
+    endif()
+
     gtest_discover_tests(gbm_capi_tests
         PROPERTIES LABELS "unit"
         DISCOVERY_TIMEOUT 60)

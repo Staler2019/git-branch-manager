@@ -28,7 +28,8 @@ GBM_API void gbm_request_working_tree_content(GbmSessionHandle session, const ch
 }
 
 GBM_API int32_t gbm_parse_conflict_markers(const char* content) {
-    const ParsedConflictFile parsed = ConflictMarkerParser{}.parse(content != nullptr ? content : "");
+    const ParsedConflictFile parsed =
+        ConflictMarkerParser{}.parse(content != nullptr ? content : "");
     setStagingBuffer(toJson(parsed));
     return 0;
 }

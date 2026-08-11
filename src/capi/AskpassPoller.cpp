@@ -94,7 +94,8 @@ void AskpassPoller::answer(const std::string& secret) {
     if (dir.empty()) {
         return;
     }
-    std::ofstream out(dir / std::string(askpass::kResponseFile), std::ios::binary | std::ios::trunc);
+    std::ofstream out(dir / std::string(askpass::kResponseFile),
+                      std::ios::binary | std::ios::trunc);
     out << secret;
 }
 

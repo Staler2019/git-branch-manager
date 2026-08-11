@@ -35,7 +35,10 @@ GBM_API void gbm_rebase_interactive_start(GbmSessionHandle session,
     toSession(session)->startInteractiveRebase(std::move(request));
 }
 
-GBM_API void gbm_rebase_start(GbmSessionHandle session, const char* upstream, const char* onto, int32_t stashFirst) {
+GBM_API void gbm_rebase_start(GbmSessionHandle session,
+                              const char* upstream,
+                              const char* onto,
+                              int32_t stashFirst) {
     RebaseRequest request;
     request.upstream = upstream != nullptr ? upstream : "";
     request.onto = onto != nullptr ? onto : "";

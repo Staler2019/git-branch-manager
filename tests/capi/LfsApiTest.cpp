@@ -1,8 +1,10 @@
 // Integration test for the M7 LFS slice of the extern "C" surface
-// (gbm_capi.h). Deliberately does not require `git-lfs` to be installed:
+// (gbm_capi.h). Deliberately does not require `git-lfs` to be installed --
 // gbm_lfs_refresh()'s installation probe reports unavailability as a normal
-// result rather than failing (see LfsOps.h's detectLfs() doc comment), so
-// this is safe to run in any environment.
+// result rather than failing (see LfsOps.h's detectLfs() doc comment) -- but
+// also does not assume it is *absent*: GitHub-hosted runners ship git-lfs
+// preinstalled while a local dev sandbox may not, so this only asserts the
+// probe ran and published a boolean, not which value it published.
 #include "capi/gbm_capi.h"
 #include "core/git/GitExecutable.h"
 
@@ -112,15 +114,15 @@ TEST_F(LfsApiTest, RefreshReportsInstallationAvailabilityEvenWithoutGitLfs) {
     ASSERT_EQ(gbm_lfs_installation_json(session_), 0);
     std::string installation(static_cast<std::size_t>(gbm_last_result_json_len()), '\0');
     gbm_last_result_json_copy(reinterpret_cast<uint8_t*>(installation.data()), static_cast<int32_t>(installation.size()));
-    EXPECT_NE(installation.find("\"available\":"), std::string::npos) << installation;
-
-    // Whether patterns/files got published depends on `available` (see
-    // Session::refreshLfs()'s doc comment: with no `git-lfs` on PATH, there
-    // is nothing to list, so they are deliberately left unpublished rather
-    // than surfacing `git lfs track`'s failure as an error) -- this
-    // environment has no git-lfs, so only the installation probe result is
-    // guaranteed here.
-    EXPECT_NE(installation.find("\"available\":false"), std::string::npos) << installation;
+    // Whether git-lfs itself is present varies by environment (present on
+    // GitHub-hosted runners, not necessarily in a local sandbox), so this
+    // only asserts the probe published a boolean either way -- see
+    // Session::refreshLfs()'s doc comment for why patterns/files are left
+    // unpublished when `available` is false rather than surfacing `git lfs
+    // track`'s failure as an error.
+    EXPECT_TRUE(installation.find("\"available\":true") != std::string::npos ||
+                installation.find("\"available\":false") != std::string::npos)
+        << installation;
 }
 
 }  // namespace

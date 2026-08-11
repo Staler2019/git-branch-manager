@@ -15,9 +15,11 @@ GBM_API void gbm_lfs_refresh(GbmSessionHandle session) {
 }
 
 GBM_API int32_t gbm_lfs_installation_json(GbmSessionHandle session) {
-    const std::optional<LfsInstallation> installation = toSession(session)->currentLfsInstallation();
+    const std::optional<LfsInstallation> installation =
+        toSession(session)->currentLfsInstallation();
     if (!installation.has_value()) {
-        setStagingBuffer(toJson(GitError(GitError::Code::NotFound, "gbm_lfs_refresh has not run yet")));
+        setStagingBuffer(
+            toJson(GitError(GitError::Code::NotFound, "gbm_lfs_refresh has not run yet")));
         return -(1 + static_cast<int32_t>(GitError::Code::NotFound));
     }
     setStagingBuffer(toJson(*installation));
@@ -27,7 +29,8 @@ GBM_API int32_t gbm_lfs_installation_json(GbmSessionHandle session) {
 GBM_API int32_t gbm_lfs_patterns_json(GbmSessionHandle session) {
     const LfsPatternListPtr patterns = toSession(session)->currentLfsPatterns();
     if (!patterns) {
-        setStagingBuffer(toJson(GitError(GitError::Code::NotFound, "no LFS pattern list published yet")));
+        setStagingBuffer(
+            toJson(GitError(GitError::Code::NotFound, "no LFS pattern list published yet")));
         return -(1 + static_cast<int32_t>(GitError::Code::NotFound));
     }
     setStagingBuffer(toJson(*patterns));
@@ -37,7 +40,8 @@ GBM_API int32_t gbm_lfs_patterns_json(GbmSessionHandle session) {
 GBM_API int32_t gbm_lfs_files_json(GbmSessionHandle session) {
     const LfsFileListPtr files = toSession(session)->currentLfsFiles();
     if (!files) {
-        setStagingBuffer(toJson(GitError(GitError::Code::NotFound, "no LFS file list published yet")));
+        setStagingBuffer(
+            toJson(GitError(GitError::Code::NotFound, "no LFS file list published yet")));
         return -(1 + static_cast<int32_t>(GitError::Code::NotFound));
     }
     setStagingBuffer(toJson(*files));

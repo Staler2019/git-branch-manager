@@ -155,10 +155,10 @@ enum GbmEventType {
 };
 
 typedef void (*GbmEventCallback)(GbmSessionHandle session,
-                                  int32_t eventType,
-                                  const uint8_t* payload,
-                                  int32_t payloadLen,
-                                  void* userData);
+                                 int32_t eventType,
+                                 const uint8_t* payload,
+                                 int32_t payloadLen,
+                                 void* userData);
 
 /// Frees a payload buffer handed to a GbmEventCallback. Safe to call only
 /// once per payload, and only after the callback that received it has
@@ -231,8 +231,7 @@ GBM_API const uint8_t* gbm_graph_snapshot_oids(GbmSessionHandle session,
                                                int32_t* oidStride);
 
 /// Packed RowId (uint32) parent-pool buffer; see RowMeta::parentOffset.
-GBM_API const uint32_t* gbm_graph_snapshot_parents(GbmSessionHandle session,
-                                                    int32_t* parentCount);
+GBM_API const uint32_t* gbm_graph_snapshot_parents(GbmSessionHandle session, int32_t* parentCount);
 
 /// Packed GraphSnapshot::Edge buffer (16 bytes/edge).
 GBM_API const uint8_t* gbm_graph_snapshot_edges(GbmSessionHandle session,
@@ -276,7 +275,10 @@ GBM_API void gbm_branch_create(GbmSessionHandle session,
 
 /// `git branch -m <from> <to>` (`-M` when `force`). Async: fires
 /// GBM_EVENT_OPERATION_FINISHED, and on success refreshes refs.
-GBM_API void gbm_branch_rename(GbmSessionHandle session, const char* from, const char* to, int32_t force);
+GBM_API void gbm_branch_rename(GbmSessionHandle session,
+                               const char* from,
+                               const char* to,
+                               int32_t force);
 
 /// `git branch -d/-D <names...>` (multiple names in one call, matching
 /// `git branch`'s own multi-name support -- a multi-select delete is one
@@ -421,7 +423,9 @@ GBM_API void gbm_stage_files(GbmSessionHandle session, const char* const* paths,
 
 /// `git restore --staged -- <paths>`. Same event/refresh contract as
 /// gbm_stage_files().
-GBM_API void gbm_unstage_files(GbmSessionHandle session, const char* const* paths, int32_t pathCount);
+GBM_API void gbm_unstage_files(GbmSessionHandle session,
+                               const char* const* paths,
+                               int32_t pathCount);
 
 /// Stages a single hunk from `path`'s unstaged diff (work tree vs index):
 /// recomputes that diff, locates hunk number `hunkIndex` (0-based, in the
@@ -532,7 +536,10 @@ GBM_API void gbm_tag_create(GbmSessionHandle session,
 /// prompt as gbm_remote_fetch() -- see GBM_EVENT_CREDENTIAL_REQUESTED).
 /// Async: fires GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success
 /// refreshes refs.
-GBM_API void gbm_tag_delete(GbmSessionHandle session, const char* name, int32_t alsoRemote, const char* remoteName);
+GBM_API void gbm_tag_delete(GbmSessionHandle session,
+                            const char* name,
+                            int32_t alsoRemote,
+                            const char* remoteName);
 
 /// `git push <remoteName> <name>`, or every tag (`--tags`) when `name` is
 /// empty. Async: fires GBM_EVENT_WORKING_COPY_OPERATION_FINISHED.
@@ -587,7 +594,10 @@ GBM_API int32_t gbm_remotes_json(GbmSessionHandle session);
 /// fires GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success also
 /// triggers the same refresh gbm_history_refresh() would (a fetch can bring
 /// in new commits on remote-tracking refs).
-GBM_API void gbm_remote_fetch(GbmSessionHandle session, const char* remoteName, int32_t prune, int32_t tags);
+GBM_API void gbm_remote_fetch(GbmSessionHandle session,
+                              const char* remoteName,
+                              int32_t prune,
+                              int32_t tags);
 
 /// `git pull` (merge, or `--rebase` when `rebase` is set). `remoteName`
 /// empty uses the branch's configured upstream. Async: fires
@@ -649,7 +659,9 @@ GBM_API void gbm_request_blame(GbmSessionHandle session,
 /// Commits that touched `path`, newest first, following renames the way
 /// `git log --follow` does. `startRevision` empty means HEAD. Async: fires
 /// GBM_EVENT_FILE_HISTORY_READY.
-GBM_API void gbm_request_file_history(GbmSessionHandle session, const char* path, const char* startRevision);
+GBM_API void gbm_request_file_history(GbmSessionHandle session,
+                                      const char* path,
+                                      const char* startRevision);
 
 /// Commits that touched lines `startLine..endLine` (1-based, inclusive) of
 /// `path`, newest first. Async: fires GBM_EVENT_LINE_HISTORY_READY.
@@ -1022,7 +1034,8 @@ GBM_API int32_t gbm_discovery_base_folders_json(GbmDiscoveryHandle discovery);
 /// Unregisters a base folder (its already-discovered repositories stay in
 /// the index, matching RepoIndexDb::removeBaseFolder's own contract).
 /// Returns 0 on success, or a negative GbmErrorCode.
-GBM_API int32_t gbm_discovery_remove_base_folder(GbmDiscoveryHandle discovery, int64_t baseFolderId);
+GBM_API int32_t gbm_discovery_remove_base_folder(GbmDiscoveryHandle discovery,
+                                                 int64_t baseFolderId);
 
 /// Enables/disables a base folder without removing it -- a disabled folder
 /// is skipped by gbm_discovery_scan_all() but its known repositories stay

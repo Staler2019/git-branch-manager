@@ -1,5 +1,13 @@
 # Roadmap
 
+> **Note:** the milestones below predate, and are independent of, the UI
+> rewrite from Qt Widgets (`src/app/`, now removed) to Flutter (`app_flutter/`,
+> calling into the unchanged `src/core` Git logic via `src/capi/`/`dart:ffi`).
+> They describe feature work against `src/core`; every feature they list
+> shipped in the Qt UI and has since been reimplemented in the Flutter UI —
+> see [ARCHITECTURE.md](ARCHITECTURE.md) for the rewrite itself and
+> [FEATURES.md](FEATURES.md) for current, UI-agnostic feature status.
+
 | Milestone | Contents |
 |---|---|
 | **M0 — done** | Build and CI on three platforms, discovery + cache + Refresh, streaming graph, diffs, branch switching, operation log |

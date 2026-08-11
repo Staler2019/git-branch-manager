@@ -13,16 +13,19 @@
       }
     },
     {
-      "name": "dev",
-      "inherits": "base",
-      "displayName": "Developer build (app + tests)",
-      "cacheVariables": { "GBM_BUILD_APP": "ON", "GBM_BUILD_TESTS": "ON" }
-    },
-    {
       "name": "core-only",
       "inherits": "base",
-      "displayName": "Core + tests, no Qt required",
-      "cacheVariables": { "GBM_BUILD_APP": "OFF", "GBM_BUILD_TESTS": "ON" }
+      "displayName": "Core + tests",
+      "cacheVariables": { "GBM_BUILD_TESTS": "ON" }
+    },
+    {
+      "name": "capi-only",
+      "inherits": "base",
+      "displayName": "Core + capi (FFI) + tests",
+      "cacheVariables": {
+        "GBM_BUILD_CAPI": "ON",
+        "GBM_BUILD_TESTS": "ON"
+      }
     },
     {
       "name": "asan-ubsan",
@@ -30,7 +33,6 @@
       "displayName": "Core with address+undefined sanitizers",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "GBM_BUILD_APP": "OFF",
         "GBM_BUILD_TESTS": "ON",
         "GBM_SANITIZE": "address,undefined"
       }
@@ -41,28 +43,16 @@
       "displayName": "Core with thread sanitizer",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "GBM_BUILD_APP": "OFF",
         "GBM_BUILD_TESTS": "ON",
         "GBM_SANITIZE": "thread"
       }
-    },
-    { "name": "ci-linux", "inherits": "dev", "displayName": "CI Linux" },
-    { "name": "ci-macos", "inherits": "dev", "displayName": "CI macOS" },
-    {
-      "name": "ci-windows",
-      "inherits": "dev",
-      "displayName": "CI Windows",
-      "cacheVariables": { "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreadedDLL" }
     }
   ],
   "buildPresets": [
-    { "name": "dev", "configurePreset": "dev" },
     { "name": "core-only", "configurePreset": "core-only" },
+    { "name": "capi-only", "configurePreset": "capi-only" },
     { "name": "asan-ubsan", "configurePreset": "asan-ubsan" },
-    { "name": "tsan", "configurePreset": "tsan" },
-    { "name": "ci-linux", "configurePreset": "ci-linux" },
-    { "name": "ci-macos", "configurePreset": "ci-macos" },
-    { "name": "ci-windows", "configurePreset": "ci-windows" }
+    { "name": "tsan", "configurePreset": "tsan" }
   ],
   "testPresets": [
     {
@@ -72,15 +62,15 @@
       "execution": { "noTestsAction": "error", "stopOnFailure": false }
     },
     {
-      "name": "dev",
-      "inherits": "tbase",
-      "configurePreset": "dev",
-      "filter": { "exclude": { "label": "perf|qt-perf" } }
-    },
-    {
       "name": "core-only",
       "inherits": "tbase",
       "configurePreset": "core-only",
+      "filter": { "exclude": { "label": "perf" } }
+    },
+    {
+      "name": "capi-only",
+      "inherits": "tbase",
+      "configurePreset": "capi-only",
       "filter": { "exclude": { "label": "perf" } }
     },
     {
@@ -88,13 +78,6 @@
       "inherits": "tbase",
       "configurePreset": "core-only",
       "filter": { "include": { "label": "perf" } },
-      "output": { "outputOnFailure": true, "verbosity": "verbose" }
-    },
-    {
-      "name": "qt-perf",
-      "inherits": "tbase",
-      "configurePreset": "dev",
-      "filter": { "include": { "label": "qt-perf" } },
       "output": { "outputOnFailure": true, "verbosity": "verbose" }
     },
     {
@@ -108,40 +91,9 @@
       "inherits": "tbase",
       "configurePreset": "tsan",
       "filter": { "include": { "label": "unit" } }
-    },
-    {
-      "name": "ci-linux",
-      "inherits": "tbase",
-      "configurePreset": "ci-linux",
-      "filter": { "include": { "label": "unit|golden|integration" } }
-    },
-    {
-      "name": "ci-macos",
-      "inherits": "tbase",
-      "configurePreset": "ci-macos",
-      "filter": { "include": { "label": "unit|golden|integration" } }
-    },
-    {
-      "name": "ci-windows",
-      "inherits": "tbase",
-      "configurePreset": "ci-windows",
-      "filter": { "include": { "label": "unit|golden|integration" } }
     }
   ],
-  "packagePresets": [
-    { "name": "ci-linux", "configurePreset": "ci-linux", "generators": ["TGZ"] },
-    { "name": "ci-macos", "configurePreset": "ci-macos", "generators": ["DragNDrop"] },
-    { "name": "ci-windows", "configurePreset": "ci-windows", "generators": ["ZIP", "NSIS"] }
-  ],
   "workflowPresets": [
-    {
-      "name": "dev",
-      "steps": [
-        { "type": "configure", "name": "dev" },
-        { "type": "build", "name": "dev" },
-        { "type": "test", "name": "dev" }
-      ]
-    },
     {
       "name": "core-only",
       "steps": [
@@ -151,19 +103,19 @@
       ]
     },
     {
+      "name": "capi-only",
+      "steps": [
+        { "type": "configure", "name": "capi-only" },
+        { "type": "build", "name": "capi-only" },
+        { "type": "test", "name": "capi-only" }
+      ]
+    },
+    {
       "name": "perf",
       "steps": [
         { "type": "configure", "name": "core-only" },
         { "type": "build", "name": "core-only" },
         { "type": "test", "name": "perf" }
-      ]
-    },
-    {
-      "name": "qt-perf",
-      "steps": [
-        { "type": "configure", "name": "dev" },
-        { "type": "build", "name": "dev" },
-        { "type": "test", "name": "qt-perf" }
       ]
     },
     {
@@ -180,33 +132,6 @@
         { "type": "configure", "name": "tsan" },
         { "type": "build", "name": "tsan" },
         { "type": "test", "name": "tsan" }
-      ]
-    },
-    {
-      "name": "ci-linux",
-      "steps": [
-        { "type": "configure", "name": "ci-linux" },
-        { "type": "build", "name": "ci-linux" },
-        { "type": "test", "name": "ci-linux" },
-        { "type": "package", "name": "ci-linux" }
-      ]
-    },
-    {
-      "name": "ci-macos",
-      "steps": [
-        { "type": "configure", "name": "ci-macos" },
-        { "type": "build", "name": "ci-macos" },
-        { "type": "test", "name": "ci-macos" },
-        { "type": "package", "name": "ci-macos" }
-      ]
-    },
-    {
-      "name": "ci-windows",
-      "steps": [
-        { "type": "configure", "name": "ci-windows" },
-        { "type": "build", "name": "ci-windows" },
-        { "type": "test", "name": "ci-windows" },
-        { "type": "package", "name": "ci-windows" }
       ]
     }
   ]

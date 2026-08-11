@@ -1,5 +1,14 @@
 name: release
 
+# Packages the Flutter UI (app_flutter/) linked against gbm_capi -- the
+# active UI since src/app (Qt) was removed once feature parity was reached
+# (see docs/ARCHITECTURE.md). The Linux leg is verified end to end in this
+# repository's own sandbox (a real `flutter build linux --release` producing
+# a bundle with libgbm_capi.so inside it); the macOS and Windows legs are
+# NOT -- there is no real macOS or Windows machine available where this was
+# written, so treat their first real run with extra care and be ready to
+# fix forward rather than assume they work as written.
+
 on:
   push:
     branches: [main]
@@ -55,19 +64,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: Linux x86_64,  os: ubuntu-22.04,   preset: ci-linux,   arch: x86_64 }
+          # ubuntu-22.04 rather than latest: it fixes the glibc floor for the
+          # release artifact at 2.35, so binaries run on older distributions.
+          - { name: Linux x86_64,  os: ubuntu-22.04,   arch: x86_64 }
           # Apple Silicon only, and one DMG rather than a universal binary: the
-          # target platform is macOS 26 on Apple Silicon, so an Intel slice would
-          # be built and shipped for nobody. There was an x86_64 leg on macos-13
-          # until GitHub retired that image in December 2025 - a job asking for a
-          # retired label does not fail, it queues, which is why the first release
-          # sat for 3h36m and then published nothing.
-          #
-          # The runner is pinned for the same reason ubuntu-22.04 is: a label
-          # rolling forward silently changes the SDK, which is how the AGL link
-          # failure arrived in the first place.
-          - { name: macOS arm64,   os: macos-26,       preset: ci-macos,   arch: arm64 }
-          - { name: Windows x64,   os: windows-latest, preset: ci-windows, arch: x64 }
+          # target platform is macOS on Apple Silicon, so an Intel slice would
+          # be built and shipped for nobody.
+          - { name: macOS arm64,   os: macos-26,       arch: arm64 }
+          - { name: Windows x64,   os: windows-latest, arch: x64 }
     steps:
       - uses: actions/checkout@v4
         with:
@@ -76,64 +80,66 @@ jobs:
 
       - uses: lukka/get-cmake@latest
 
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
       - name: Set up MSVC environment
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
 
-      # Without this the Windows leg publishes a ZIP and no installer: NSIS is
-      # absent from the runner image, and the .exe the collect step looks for is
-      # the NSIS output. Kept in step with ci.yml.
-      - name: Install NSIS
-        if: runner.os == 'Windows'
-        run: |
-          choco install nsis --no-progress -y
-          "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
+      - name: flutter pub get
+        working-directory: app_flutter
+        run: flutter pub get
 
-      - name: Install Linux GUI dependencies
+      # --- Linux: Phase B (linux/CMakeLists.txt) builds and bundles gbm_capi
+      # automatically as part of `flutter build linux`. -------------------
+      - name: Install Linux desktop build dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgl1-mesa-dev libxkbcommon-x11-0 libxcb-cursor0 \
-            libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
-            libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 fuse libfuse2
+          sudo apt-get install -y ninja-build libgtk-3-dev
 
-      # Kept in step with ci.yml: 6.9.2 dropped the -framework AGL reference the
-      # macOS 26 SDK cannot satisfy, and 6.10.0 fixed the Liquid Glass fallout in
-      # Qt's native styles.
-      - name: Install Qt
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: '6.10.*'
-          modules: ''
-          cache: true
-
-      - name: Configure and build
-        env:
-          # cmake/Version.cmake prefers this when it looks like vX.Y.Z, so the binary
-          # reports exactly the version CPack stamps on the artifact.
-          GITHUB_REF_NAME: ${{ needs.tag.outputs.new_tag }}
-          # 13.0 because that is Qt 6.10's own minimum. Qt is explicit that a
-          # deployment target below the one it was built for likely crashes at
-          # runtime, so this moves whenever the Qt series does: 6.9 was 12.0.
-          MACOSX_DEPLOYMENT_TARGET: '13.0'
+      # Pre-existing Flutter-tooling ordering quirk on a from-scratch build
+      # directory (verified in this repository's own sandbox): the install
+      # step looks for build/native_assets/linux before anything else has
+      # created it. Unrelated to gbm_capi's own CMake integration.
+      - name: flutter build linux
+        if: runner.os == 'Linux'
+        working-directory: app_flutter
         run: |
-          cmake --preset ${{ matrix.preset }}
-          cmake --build build/${{ matrix.preset }}
+          mkdir -p build/native_assets/linux
+          flutter build linux --release
 
-      - name: Test
-        env:
-          QT_QPA_PLATFORM: offscreen
-        run: ctest --preset ${{ matrix.preset }}
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          version="${{ needs.tag.outputs.new_version }}"
+          name="git-branch-manager-${version}-linux-${{ matrix.arch }}"
+          mkdir -p dist
+          cp -r app_flutter/build/linux/x64/release/bundle "$name"
+          tar czf "dist/${name}.tar.gz" "$name"
+          rm -rf "$name"
 
-      # Signed before packaging, not after: CPack's ZIP generator just archives
-      # whatever is on disk, so the binary has to already be signed for the ZIP
-      # to carry a signed copy too. The NSIS installer's own wrapper .exe is a
-      # separate file CPack produces afterwards -- see "Sign installer (Windows)".
+      # --- Windows: Phase B (windows/CMakeLists.txt) builds and bundles
+      # gbm_capi automatically as part of `flutter build windows`, mirroring
+      # the Linux integration -- unverified on a real Windows machine (see
+      # this file's header comment). -------------------------------------
+      - name: flutter build windows
+        if: runner.os == 'Windows'
+        working-directory: app_flutter
+        run: flutter build windows --release
+
+      # Signed before packaging, not after: the zip just archives whatever is
+      # on disk, so the binary has to already be signed for the zip to carry
+      # a signed copy too.
       #
       # Skipped when the secrets are absent, so a fork's CI still goes green
       # instead of failing on something it cannot do -- same reasoning as the
-      # macOS signing step below. The emptiness check lives in the script, not
-      # `if`, since neither `secrets` nor `env` is available to a step's `if`.
+      # macOS signing step below. The emptiness check lives in the script,
+      # not `if`, since neither `secrets` nor `env` is available to a step's
+      # own `if` condition.
       - name: Sign the application (Windows)
         if: runner.os == 'Windows'
         shell: bash
@@ -148,63 +154,62 @@ jobs:
           echo "$WINDOWS_CERT_PFX" | base64 --decode > cert.pfx
           signtool sign /f cert.pfx /p "$WINDOWS_CERT_PASSWORD" /fd SHA256 \
             /tr http://timestamp.digicert.com /td SHA256 \
-            "build/${{ matrix.preset }}/src/app/git-branch-manager.exe"
+            "app_flutter/build/windows/x64/runner/Release/gbm_flutter.exe"
           rm -f cert.pfx
         continue-on-error: true
 
-      - name: Package
-        env:
-          GITHUB_REF_NAME: ${{ needs.tag.outputs.new_tag }}
-        run: cpack --preset ${{ matrix.preset }}
-
-      # The NSIS installer is a second, separate .exe CPack produces from the
-      # (already-signed, see above) application binary; it needs its own
-      # signature so Windows trusts the installer itself, not just what it
-      # unpacks. Same skip-when-unconfigured reasoning as the step above.
-      - name: Sign installer (Windows)
+      # No NSIS installer yet, unlike the retired Qt pipeline -- authoring one
+      # against Flutter's bundle layout needs a real Windows machine to
+      # verify, which this was written without (see this file's header
+      # comment). A plain zip matches Flutter's own documented distribution
+      # guidance in the meantime.
+      - name: Package (Windows)
         if: runner.os == 'Windows'
-        shell: bash
-        env:
-          WINDOWS_CERT_PFX: ${{ secrets.WINDOWS_CERT_PFX }}
-          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        shell: pwsh
         run: |
-          if [ -z "$WINDOWS_CERT_PFX" ]; then
-            exit 0
-          fi
-          echo "$WINDOWS_CERT_PFX" | base64 --decode > cert.pfx
-          for installer in build/${{ matrix.preset }}/*.exe; do
-            [ -f "$installer" ] || continue
-            signtool sign /f cert.pfx /p "$WINDOWS_CERT_PASSWORD" /fd SHA256 \
-              /tr http://timestamp.digicert.com /td SHA256 "$installer"
-          done
-          rm -f cert.pfx
-        continue-on-error: true
+          $version = "${{ needs.tag.outputs.new_version }}"
+          $name = "git-branch-manager-$version-windows-${{ matrix.arch }}"
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive -Path "app_flutter/build/windows/x64/runner/Release/*" -DestinationPath "dist/$name.zip"
 
-      # AppImage in addition to the tarball: it is the convenient format, but it
-      # needs FUSE 2 at runtime on some distributions, so the plain tarball must
-      # also be published as a fallback.
-      - name: Build AppImage
-        if: runner.os == 'Linux'
+      # --- macOS: no Phase B (the Xcode-based runner has no CMake build to
+      # hook into the way linux/CMakeLists.txt and windows/CMakeLists.txt do
+      # -- see scripts/build_capi.sh's doc comment), so gbm_capi is built
+      # separately and copied into the .app bundle by hand. -----------------
+      - name: Build gbm_capi (Phase A)
+        if: runner.os == 'macOS'
+        run: app_flutter/scripts/build_capi.sh
+
+      - name: flutter build macos
+        if: runner.os == 'macOS'
+        working-directory: app_flutter
+        run: flutter build macos --release
+
+      # native_library.dart's second lookup candidate is "next to the running
+      # executable" -- for a macOS .app that means Contents/MacOS/, alongside
+      # gbm_flutter itself, which is where flutter build's own bundling never
+      # places gbm_capi (there is no Phase B step to do it). Without this
+      # copy the packaged .app fails to launch outside a repo checkout, since
+      # native_library.dart's third candidate (build/native/ under the
+      # current working directory) does not exist once the .app is moved
+      # anywhere else.
+      - name: Bundle gbm_capi into the .app
+        if: runner.os == 'macOS'
         run: |
-          cmake --install build/ci-linux --prefix "$PWD/AppDir/usr"
-          curl -fsSL -o linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
-          curl -fsSL -o linuxdeploy-plugin-qt https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
-          chmod +x linuxdeploy linuxdeploy-plugin-qt
-          mkdir -p AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/256x256/apps
-          cp resources/branding/git-branch-manager.desktop AppDir/usr/share/applications/
-          cp resources/branding/app-icon-256.png AppDir/usr/share/icons/hicolor/256x256/apps/git-branch-manager.png
-          export QMAKE="$(which qmake6 || which qmake)"
-          ./linuxdeploy --appdir AppDir --plugin qt --output appimage || \
-            echo "AppImage build failed; the tarball is still published"
-        continue-on-error: true
-        working-directory: ${{ github.workspace }}
-        shell: bash
+          set -euo pipefail
+          app="app_flutter/build/macos/Build/Products/Release/gbm_flutter.app"
+          cp build/capi-only/src/capi/libgbm_capi.dylib "$app/Contents/MacOS/"
 
-      # macOS signing and notarization are skipped when the secrets are absent, so a
-      # fork's CI still goes green instead of failing on something it cannot do.
-      # The emptiness check lives in the script, not in `if`: neither the `secrets`
-      # nor the `env` context is available to a step's own `if` condition, so a
-      # condition written there would silently never match.
+      # Signing and notarization are skipped when the secrets are absent, so a
+      # fork's CI still goes green instead of failing on something it cannot
+      # do. The emptiness check lives in the script, not in `if`: neither the
+      # `secrets` nor the `env` context is available to a step's own `if`
+      # condition, so a condition written there would silently never match.
+      #
+      # The just-copied dylib needs its own signature before the bundle as a
+      # whole is (re-)signed -- codesign --deep would otherwise sign it with
+      # whatever ad-hoc identity Flutter's own build left in place, not the
+      # real one.
       - name: Sign and notarize (macOS)
         if: runner.os == 'macOS'
         env:
@@ -214,8 +219,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
-          # Signing secrets are absent in forks, so skip rather than fail: a fork's
-          # CI should still go green on work it cannot possibly do.
+          app="app_flutter/build/macos/Build/Products/Release/gbm_flutter.app"
           if [ -z "$APPLE_CERT_P12" ]; then
             echo "No signing certificate configured; shipping an unsigned build."
             exit 0
@@ -228,7 +232,36 @@ jobs:
             -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k actions \
             build.keychain
-          for dmg in build/ci-macos/*.dmg; do
+          identity=$(security find-identity -v -p codesigning build.keychain | \
+            grep -m1 -o '"[^"]*Developer ID Application[^"]*"' | tr -d '"')
+          codesign --force --options runtime --sign "$identity" \
+            "$app/Contents/MacOS/libgbm_capi.dylib"
+          codesign --deep --force --options runtime --sign "$identity" "$app"
+        continue-on-error: true
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          version="${{ needs.tag.outputs.new_version }}"
+          name="git-branch-manager-$version-macos-${{ matrix.arch }}"
+          mkdir -p dist
+          hdiutil create -volname "git-branch-manager" -srcfolder \
+            "app_flutter/build/macos/Build/Products/Release/gbm_flutter.app" \
+            -ov -format UDZO "dist/$name.dmg"
+
+      - name: Notarize the DMG (macOS)
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERT_P12: ${{ secrets.APPLE_CERT_P12 }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          if [ -z "$APPLE_CERT_P12" ]; then
+            exit 0
+          fi
+          for dmg in dist/*.dmg; do
             xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" \
               --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --wait
             xcrun stapler staple "$dmg"
@@ -239,13 +272,6 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          # Names must carry OS and arch: upload-artifact@v4 no longer merges
-          # same-named uploads across matrix legs, so a collision loses a file.
-          find build -maxdepth 2 -type f \
-            \( -name '*.tar.gz' -o -name '*.zip' -o -name '*.dmg' -o -name '*.exe' \) \
-            -exec cp {} dist/ \;
-          find . -maxdepth 2 -name '*.AppImage' -not -name 'linuxdeploy*' \
-            -exec cp {} dist/ \; 2>/dev/null || true
           ls -la dist
 
       - uses: actions/upload-artifact@v4

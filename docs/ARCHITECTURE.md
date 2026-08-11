@@ -3,22 +3,36 @@
 ## Layout
 
 ```
-src/core/     No Qt at all. C++20 + SQLite. Fully testable headless; CI enforces this.
+src/core/     No Qt, no Dart, no UI toolkit at all. C++20 + SQLite. Fully
+              testable headless; CI enforces this.
   base/       Result/GitError, ObjectId, CancellationToken, FsUtil, thread checks
   git/        Process seam, cat-file co-process, rev-list streaming, refs, diffs, ops
   graph/      The lane algorithm, snapshot layout, ASCII renderer for golden tests
   discovery/  Repository classification and the parallel scanner
   cache/      SQLite schema and queries
-src/app/      Qt 6 Widgets. Thin. No Git logic.
-  bridge/     Where core callbacks become Qt signals — the only threading boundary
-  models/     Virtualized models plus the graph delegate
-  views/      Main window, diff view, operation log
-tests/        Unit, golden, integration, Qt model tests, and the fixture generator
+src/capi/     Thin, Qt-free extern "C" bridge (gbm_capi.h) between core and
+              the Flutter UI, reached via dart:ffi. No Git logic of its own —
+              each function transliterates a core call and publishes the
+              result as JSON (or a packed binary buffer for the commit
+              graph) or an async event.
+app_flutter/  The UI: Flutter + Riverpod + go_router, feature-first widget
+              folders. Calls into gbm_capi via dart:ffi rather than
+              reimplementing any Git logic in Dart — see app_flutter/README
+              and its plan notes for which small, already-tested, pure
+              (no I/O) core algorithms were judged safe to port directly
+              (e.g. the side-by-side diff row-pairing) versus which stayed
+              server-side because of real edge-case complexity (e.g. conflict
+              marker parsing).
+tests/        Unit, golden, integration, capi (FFI surface) tests, and the
+              fixture generator.
 ```
 
-The `core` / `app` split is load-bearing rather than tidy: `core` links no Qt
-target, so the entire data layer runs under GoogleTest with no `QApplication`, and
-CI fails the build if a Qt header appears under `src/core`.
+The `core` / `capi` split is load-bearing rather than tidy: `core` links no UI
+toolkit of any kind, so the entire data layer runs under GoogleTest with no
+UI runtime, and CI fails the build if a Qt header appears under `src/core`
+(a historical check from when `src/app` was a Qt Widgets UI, kept because the
+underlying rule — `core` stays UI-free — still holds for every UI this
+codebase might ever grow).
 
 ## Design decisions worth knowing
 

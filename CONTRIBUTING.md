@@ -3,36 +3,39 @@
 ## Layout
 
 ```
-src/core/     No Qt at all. C++20 + SQLite. Fully testable headless; CI enforces this.
+src/core/     No UI toolkit at all. C++20 + SQLite. Fully testable headless;
+              CI enforces this.
   base/       Result/GitError, ObjectId, CancellationToken, FsUtil, thread checks
   git/        Process seam, cat-file co-process, rev-list streaming, refs, diffs, ops
   graph/      The lane algorithm, snapshot layout, ASCII renderer for golden tests
   discovery/  Repository classification and the parallel scanner
   cache/      SQLite schema and queries
-src/app/      Qt 6 Widgets. Thin. No Git logic.
-  bridge/     Where core callbacks become Qt signals — the only threading boundary
-  models/     Virtualized models plus the graph delegate
-  views/      Main window, diff view, operation log
-tests/        Unit, golden, integration, Qt model tests, and the fixture generator
+src/capi/     Thin extern "C" bridge (gbm_capi.h) between core and the
+              Flutter UI, reached via dart:ffi. No Git logic of its own.
+app_flutter/  The UI: Flutter + Riverpod + go_router.
+tests/        Unit, golden, integration, capi (FFI surface) tests, and the
+              fixture generator.
 ```
 
-The `core` / `app` split is load-bearing rather than tidy: `core` links no Qt
-target, so the entire data layer runs under GoogleTest with no `QApplication`, and
-CI fails the build if a Qt header appears under `src/core`. See
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the invariants behind that split
-and the rest of the design.
+The `core` / `capi` split is load-bearing rather than tidy: `core` links no UI
+toolkit, so the entire data layer runs under GoogleTest with no UI runtime, and
+CI fails the build if a Qt header appears under `src/core` (a historical check
+from when the UI was Qt Widgets; the underlying rule -- `core` stays UI-free --
+still holds). See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the
+invariants behind that split and the rest of the design.
 
 ## Building
 
 Requires CMake 3.25+ (the `cmake --workflow` presets below need `workflowPresets`,
-added in the CMakePresets v6 schema, which requires 3.25), a C++20 compiler,
-and Qt 6.4+ for the GUI.
+added in the CMakePresets v6 schema, which requires 3.25) and a C++20 compiler
+for `src/core`/`src/capi`; the [Flutter SDK](https://docs.flutter.dev/get-started/install)
+(stable channel) for `app_flutter/`.
 
 ```bash
-# GUI + tests
-cmake --workflow --preset dev
+# Core + capi (FFI) + tests
+cmake --workflow --preset capi-only
 
-# Data layer only - no Qt needed at all
+# Data layer only
 cmake --workflow --preset core-only
 
 # Sanitizers
@@ -40,7 +43,8 @@ cmake --workflow --preset asan-ubsan
 cmake --workflow --preset tsan
 ```
 
-Run the app: `./build/dev/src/app/git-branch-manager`
+Run the UI: see the README's "Building from source" section for the
+`app_flutter/scripts/build_capi.sh` + `flutter run` sequence.
 
 Warnings are treated as errors by default (`-Werror`/`/WX`, via
 `gbm_warnings` in `cmake/Warnings.cmake`), so a build that only warned
@@ -103,6 +107,8 @@ produces the wrong version bump rather than just failing a lint.
 
 ## Pull requests
 
-CI runs on every pull request targeting `main`: formatting, the core/Qt layering
-check, commit message linting, the build-and-test matrix on Linux/macOS/Windows,
-and the sanitizer jobs. All of it needs to be green before merge.
+CI runs on every pull request targeting `main`: formatting (`lint`), the
+core/UI layering check, commit message linting (`conventional-commits`), the
+`capi-build` matrix on Linux/macOS/Windows, `flutter-ci` (`flutter analyze` +
+`flutter test` for `app_flutter/`), and the `sanitizers`/`thread-sanitizer`
+jobs. All of it needs to be green before merge.

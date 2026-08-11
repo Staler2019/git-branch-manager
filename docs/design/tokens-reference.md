@@ -166,11 +166,13 @@ that token turned out to be **byte-identical to `--surface-selected`** in
 disappeared entirely on a selected commit row — a real readability bug, not an
 implementation slip; it traces back to this source file.
 
-`Token::RefChipFill` / `Token::RefChipText` (`src/app/theme/Tokens.h`,
-`ThemeTokens.cpp`) exist to fix that and are **not** part of the design
-project's token set — do not "correct" them back to `--accent-subtle` to match
-this doc. Values, chosen for ≥4.5:1 text contrast and visible separation from
-`--surface-selected`/`--accent-subtle` in every theme:
+`refChipFill` / `refChipText` (`app_flutter/lib/theme/tokens.dart`, consumed
+via `ref_chip_colors.dart`; originally `Token::RefChipFill`/`RefChipText` in
+the now-removed Qt `src/app/theme/Tokens.h`) exist to fix that and are **not**
+part of the design project's token set — do not "correct" them back to
+`--accent-subtle` to match this doc. Values, chosen for ≥4.5:1 text contrast
+and visible separation from `--surface-selected`/`--accent-subtle` in every
+theme:
 
 | Theme | `--ref-chip-fill` | `--ref-chip-text` |
 |---|---|---|

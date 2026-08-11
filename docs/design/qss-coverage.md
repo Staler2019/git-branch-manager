@@ -1,5 +1,11 @@
 # QSS coverage audit
 
+> **Historical.** This audit covers the Qt Widgets UI (`src/app/`), removed
+> once the Flutter UI (`app_flutter/`) reached feature parity — see
+> [ARCHITECTURE.md](../ARCHITECTURE.md). Qt style sheets (QSS) have no Flutter
+> equivalent; styling now goes through `app_flutter/lib/theme/`. Kept for
+> historical record of the theming decisions made along the way.
+
 Requested by item 3 ("make sure all styles are self-designed, not default"):
 an inventory of every Qt widget class the app instantiates, checked against
 `resources/qss/app.qss` coverage, so the app is not silently falling back to

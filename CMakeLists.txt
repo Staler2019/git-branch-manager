@@ -21,7 +21,7 @@ endif()
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-option(GBM_BUILD_APP "Build the Qt GUI application" ON)
+option(GBM_BUILD_CAPI "Build the FFI C API shared library for the Flutter UI" ON)
 option(GBM_BUILD_TESTS "Build the test suite" ON)
 option(GBM_SANITIZE "Enable sanitizers (address,undefined | thread)" "")
 option(GBM_WERROR "Treat compiler warnings as errors (-Werror/-WX)" ON)
@@ -38,13 +38,11 @@ include(Dependencies)
 
 add_subdirectory(src/core)
 
-if(GBM_BUILD_APP)
-    add_subdirectory(src/app)
+if(GBM_BUILD_CAPI)
+    add_subdirectory(src/capi)
 endif()
 
 if(GBM_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
 endif()
-
-include(Packaging)

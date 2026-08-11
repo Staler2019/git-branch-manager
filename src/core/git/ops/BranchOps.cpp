@@ -134,6 +134,21 @@ public:
             outcome.summary = outcome.error->message;
             return outcome;
         }
+
+        if (request_.checkoutAfter) {
+            GitCommand checkoutCommand(paths.commandDir(), {"checkout", request_.name});
+            checkoutCommand.timeout = std::chrono::seconds(60);
+            auto checkoutResult = runner.run(checkoutCommand, token);
+            if (!checkoutResult) {
+                // The branch exists at this point -- report the checkout
+                // failure rather than silently leaving HEAD where it was,
+                // since the caller asked to switch to it.
+                outcome.error = std::move(checkoutResult).error();
+                outcome.summary = outcome.error->message;
+                return outcome;
+            }
+        }
+
         outcome.succeeded = true;
         outcome.summary = "Created branch " + request_.name;
         return outcome;

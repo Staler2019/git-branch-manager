@@ -18,7 +18,10 @@ GBM_API void gbm_tag_create(GbmSessionHandle session,
     toSession(session)->createTag(std::move(request));
 }
 
-GBM_API void gbm_tag_delete(GbmSessionHandle session, const char* name, int32_t alsoRemote, const char* remoteName) {
+GBM_API void gbm_tag_delete(GbmSessionHandle session,
+                            const char* name,
+                            int32_t alsoRemote,
+                            const char* remoteName) {
     DeleteTagRequest request;
     request.name = name != nullptr ? name : "";
     request.alsoRemote = alsoRemote != 0;

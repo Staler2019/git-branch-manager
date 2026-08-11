@@ -57,7 +57,10 @@ GBM_API void gbm_patch_apply_files(GbmSessionHandle session,
     toSession(session)->applyPatchFiles(std::move(request));
 }
 
-GBM_API void gbm_patch_import(GbmSessionHandle session, const char* const* patchFiles, int32_t fileCount, int32_t threeWay) {
+GBM_API void gbm_patch_import(GbmSessionHandle session,
+                              const char* const* patchFiles,
+                              int32_t fileCount,
+                              int32_t threeWay) {
     ImportPatchesRequest request;
     request.patchFiles = toPaths(patchFiles, fileCount);
     request.threeWay = threeWay != 0;

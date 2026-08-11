@@ -62,8 +62,14 @@ public:
     int exitCode() const { return exitCode_; }
 
 private:
-    std::thread thread_;
+    // Declared (and thus constructed) before thread_: member init order
+    // follows declaration order regardless of the constructor's init-list
+    // order, and thread_'s member-initializer starts the background thread
+    // immediately -- if exitCode_ were declared after thread_, its `= -1`
+    // default-member-initializer would race the already-running thread's
+    // `exitCode_ = ...` write (TSan-confirmed).
     int exitCode_ = -1;
+    std::thread thread_;
 };
 
 TEST(AskpassPollerTest, AnswerLetsTheClientSucceedWithTheSecret) {

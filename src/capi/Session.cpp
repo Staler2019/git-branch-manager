@@ -45,7 +45,8 @@ void unregisterLiveSession(Session* session) {
 
 void ensureOperationLogSinkInstalled() {
     static std::once_flag flag;
-    std::call_once(flag, [] { Log::instance().setOperationSink(&Session::dispatchOperationLogRecord); });
+    std::call_once(flag,
+                   [] { Log::instance().setOperationSink(&Session::dispatchOperationLogRecord); });
 }
 
 }  // namespace
@@ -93,7 +94,9 @@ std::unique_ptr<Session> Session::open(std::string workDir,
         new Session(installation.value(), std::move(paths), std::move(runner)));
 }
 
-Session::Session(GitInstallation installation, RepoPaths paths, std::unique_ptr<IProcessRunner> runner)
+Session::Session(GitInstallation installation,
+                 RepoPaths paths,
+                 std::unique_ptr<IProcessRunner> runner)
     : installation_(std::move(installation)),
       paths_(std::move(paths)),
       runner_(std::move(runner)),
@@ -190,9 +193,7 @@ void Session::refreshHistory() {
         query.seedRefs = RefStore::historySeedRefs(*refsResult.value());
 
         const GitResult<GraphSnapshotPtr> walkResult = history_->walk(
-            query,
-            [this](GraphSnapshotPtr chunk) { publishGraph(std::move(chunk)); },
-            token);
+            query, [this](GraphSnapshotPtr chunk) { publishGraph(std::move(chunk)); }, token);
 
         if (!walkResult && !token.isCancelled()) {
             callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(walkResult.error()));
@@ -236,15 +237,18 @@ void Session::checkout(CheckoutRequest request) {
 }
 
 void Session::createBranch(CreateBranchRequest request) {
-    submitOperation(makeCreateBranchOperation(std::move(request)), /*refreshHistoryOnSuccess=*/true);
+    submitOperation(makeCreateBranchOperation(std::move(request)),
+                    /*refreshHistoryOnSuccess=*/true);
 }
 
 void Session::renameBranch(RenameBranchRequest request) {
-    submitOperation(makeRenameBranchOperation(std::move(request)), /*refreshHistoryOnSuccess=*/true);
+    submitOperation(makeRenameBranchOperation(std::move(request)),
+                    /*refreshHistoryOnSuccess=*/true);
 }
 
 void Session::deleteBranch(DeleteBranchRequest request) {
-    submitOperation(makeDeleteBranchOperation(std::move(request)), /*refreshHistoryOnSuccess=*/true);
+    submitOperation(makeDeleteBranchOperation(std::move(request)),
+                    /*refreshHistoryOnSuccess=*/true);
 }
 
 void Session::resetTo(ResetRequest request) {
@@ -253,7 +257,8 @@ void Session::resetTo(ResetRequest request) {
 
 void Session::refreshWorkingCopy() {
     sharedReadPool().post([this]() {
-        const GitResult<WorkingCopyStatusPtr> result = workingCopyStatusReader_->read(CancellationToken{});
+        const GitResult<WorkingCopyStatusPtr> result =
+            workingCopyStatusReader_->read(CancellationToken{});
         if (!result) {
             callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
             return;
@@ -294,18 +299,20 @@ void Session::requestWorkingCopyDiff(std::string path, bool staged) {
 void Session::submitWorkingCopyOperation(std::unique_ptr<Operation> operation,
                                          std::function<void()> onSuccess,
                                          std::function<void()> onAlways) {
-    operations_->submit(std::move(operation), [this, onSuccess = std::move(onSuccess), onAlways = std::move(onAlways)](
-                                                   OperationOutcome outcome) {
-        const bool succeeded = outcome.succeeded;
-        refreshUndoJournalCache();
-        callbacks_.emit(GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, toJson(outcome));
-        if (onAlways) {
-            onAlways();
-        }
-        if (succeeded && onSuccess) {
-            onSuccess();
-        }
-    });
+    operations_->submit(std::move(operation),
+                        [this, onSuccess = std::move(onSuccess), onAlways = std::move(onAlways)](
+                            OperationOutcome outcome) {
+                            const bool succeeded = outcome.succeeded;
+                            refreshUndoJournalCache();
+                            callbacks_.emit(GBM_EVENT_WORKING_COPY_OPERATION_FINISHED,
+                                            toJson(outcome));
+                            if (onAlways) {
+                                onAlways();
+                            }
+                            if (succeeded && onSuccess) {
+                                onSuccess();
+                            }
+                        });
 }
 
 void Session::stageFiles(std::vector<std::string> paths) {
@@ -323,7 +330,8 @@ void Session::stageHunk(std::string path, std::size_t hunkIndex) {
     request.path = std::move(path);
     request.staged = false;
     request.hunkIndex = hunkIndex;
-    submitWorkingCopyOperation(makePartialStageOperation(std::move(request)), [this]() { refreshWorkingCopy(); });
+    submitWorkingCopyOperation(makePartialStageOperation(std::move(request)),
+                               [this]() { refreshWorkingCopy(); });
 }
 
 void Session::unstageHunk(std::string path, std::size_t hunkIndex) {
@@ -331,25 +339,32 @@ void Session::unstageHunk(std::string path, std::size_t hunkIndex) {
     request.path = std::move(path);
     request.staged = true;
     request.hunkIndex = hunkIndex;
-    submitWorkingCopyOperation(makePartialStageOperation(std::move(request)), [this]() { refreshWorkingCopy(); });
+    submitWorkingCopyOperation(makePartialStageOperation(std::move(request)),
+                               [this]() { refreshWorkingCopy(); });
 }
 
-void Session::stageLines(std::string path, std::size_t hunkIndex, std::vector<std::size_t> lineIndices) {
+void Session::stageLines(std::string path,
+                         std::size_t hunkIndex,
+                         std::vector<std::size_t> lineIndices) {
     PartialStageRequest request;
     request.path = std::move(path);
     request.staged = false;
     request.hunkIndex = hunkIndex;
     request.lineIndices = std::move(lineIndices);
-    submitWorkingCopyOperation(makePartialStageOperation(std::move(request)), [this]() { refreshWorkingCopy(); });
+    submitWorkingCopyOperation(makePartialStageOperation(std::move(request)),
+                               [this]() { refreshWorkingCopy(); });
 }
 
-void Session::unstageLines(std::string path, std::size_t hunkIndex, std::vector<std::size_t> lineIndices) {
+void Session::unstageLines(std::string path,
+                           std::size_t hunkIndex,
+                           std::vector<std::size_t> lineIndices) {
     PartialStageRequest request;
     request.path = std::move(path);
     request.staged = true;
     request.hunkIndex = hunkIndex;
     request.lineIndices = std::move(lineIndices);
-    submitWorkingCopyOperation(makePartialStageOperation(std::move(request)), [this]() { refreshWorkingCopy(); });
+    submitWorkingCopyOperation(makePartialStageOperation(std::move(request)),
+                               [this]() { refreshWorkingCopy(); });
 }
 
 void Session::commitChanges(CommitRequest request) {
@@ -362,19 +377,20 @@ void Session::commitChanges(CommitRequest request) {
 void Session::submitOperation(std::unique_ptr<Operation> operation,
                               bool refreshHistoryOnSuccess,
                               std::function<void()> onSuccess) {
-    operations_->submit(std::move(operation), [this, refreshHistoryOnSuccess, onSuccess = std::move(onSuccess)](
-                                                   OperationOutcome outcome) {
-        const bool succeeded = outcome.succeeded;
-        refreshUndoJournalCache();
-        callbacks_.emit(GBM_EVENT_OPERATION_FINISHED, toJson(outcome));
-        refreshWorkingCopy();
-        if (succeeded && refreshHistoryOnSuccess) {
-            refreshHistory();
-        }
-        if (succeeded && onSuccess) {
-            onSuccess();
-        }
-    });
+    operations_->submit(std::move(operation),
+                        [this, refreshHistoryOnSuccess, onSuccess = std::move(onSuccess)](
+                            OperationOutcome outcome) {
+                            const bool succeeded = outcome.succeeded;
+                            refreshUndoJournalCache();
+                            callbacks_.emit(GBM_EVENT_OPERATION_FINISHED, toJson(outcome));
+                            refreshWorkingCopy();
+                            if (succeeded && refreshHistoryOnSuccess) {
+                                refreshHistory();
+                            }
+                            if (succeeded && onSuccess) {
+                                onSuccess();
+                            }
+                        });
 }
 
 void Session::mergeBranch(MergeRequest request) {
@@ -406,7 +422,8 @@ void Session::revertCommit(RevertRequest request) {
 }
 
 void Session::resolveConflict(ResolveConflictRequest request) {
-    submitWorkingCopyOperation(makeResolveConflictOperation(std::move(request)), [this]() { refreshWorkingCopy(); });
+    submitWorkingCopyOperation(makeResolveConflictOperation(std::move(request)),
+                               [this]() { refreshWorkingCopy(); });
 }
 
 void Session::requestWorkingTreeContent(std::string path) {
@@ -417,7 +434,8 @@ void Session::requestWorkingTreeContent(std::string path) {
         // own cap exactly.
         constexpr std::size_t kMaxEditableWorkingTreeBytes = 8u * 1024u * 1024u;
         const std::filesystem::path target = paths_.workDir() / path;
-        const std::optional<std::string> raw = fsutil::readSmallFile(target, kMaxEditableWorkingTreeBytes);
+        const std::optional<std::string> raw =
+            fsutil::readSmallFile(target, kMaxEditableWorkingTreeBytes);
 
         bool editable = false;
         std::string content;
@@ -427,7 +445,8 @@ void Session::requestWorkingTreeContent(std::string path) {
             // of risking silent corruption from a lossy UTF-8 decode --
             // detectTextTraits already folds an embedded NUL into
             // EncodingKind::Binary, matching RepositorySession's own check.
-            editable = traits.encoding == EncodingKind::Utf8 || traits.encoding == EncodingKind::Utf8Bom;
+            editable =
+                traits.encoding == EncodingKind::Utf8 || traits.encoding == EncodingKind::Utf8Bom;
             if (editable) {
                 content = *raw;
             }
@@ -479,11 +498,14 @@ void Session::applyStash(StashApplyRequest request) {
     // list is refreshed only on success: pop does not drop its entry on
     // conflict, exactly as plain `git stash pop` does not.
     submitWorkingCopyOperation(
-        makeStashApplyOperation(std::move(request)), [this]() { refreshStashes(); }, [this]() { refreshWorkingCopy(); });
+        makeStashApplyOperation(std::move(request)),
+        [this]() { refreshStashes(); },
+        [this]() { refreshWorkingCopy(); });
 }
 
 void Session::dropStash(StashDropRequest request) {
-    submitWorkingCopyOperation(makeStashDropOperation(std::move(request)), [this]() { refreshStashes(); });
+    submitWorkingCopyOperation(makeStashDropOperation(std::move(request)),
+                               [this]() { refreshStashes(); });
 }
 
 void Session::branchFromStash(StashBranchRequest request) {
@@ -514,7 +536,8 @@ void Session::requestStashDiff(int index) {
 // --- Tags ------------------------------------------------------------------
 
 void Session::createTag(CreateTagRequest request) {
-    submitWorkingCopyOperation(makeCreateTagOperation(std::move(request)), [this]() { refreshHistory(); });
+    submitWorkingCopyOperation(makeCreateTagOperation(std::move(request)),
+                               [this]() { refreshHistory(); });
 }
 
 void Session::deleteTag(DeleteTagRequest request) {
@@ -522,19 +545,24 @@ void Session::deleteTag(DeleteTagRequest request) {
         request.askpassDir = beginAskpass();
     }
     submitWorkingCopyOperation(
-        makeDeleteTagOperation(std::move(request)), [this]() { refreshHistory(); }, [this]() { endAskpass(); });
+        makeDeleteTagOperation(std::move(request)),
+        [this]() { refreshHistory(); },
+        [this]() { endAskpass(); });
 }
 
 void Session::pushTag(PushTagRequest request) {
     request.askpassDir = beginAskpass();
-    submitWorkingCopyOperation(makePushTagOperation(std::move(request)), /*onSuccess=*/nullptr, [this]() { endAskpass(); });
+    submitWorkingCopyOperation(makePushTagOperation(std::move(request)),
+                               /*onSuccess=*/nullptr,
+                               [this]() { endAskpass(); });
 }
 
 // --- Worktrees ---------------------------------------------------------
 
 void Session::refreshWorktrees() {
     sharedReadPool().post([this]() {
-        const GitResult<std::vector<WorktreeInfo>> result = worktreeStore_->list(CancellationToken{});
+        const GitResult<std::vector<WorktreeInfo>> result =
+            worktreeStore_->list(CancellationToken{});
         if (!result) {
             callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
             return;
@@ -553,23 +581,28 @@ WorktreeListPtr Session::currentWorktrees() const {
 }
 
 void Session::addWorktree(AddWorktreeRequest request) {
-    submitWorkingCopyOperation(makeAddWorktreeOperation(std::move(request)), [this]() { refreshWorktrees(); });
+    submitWorkingCopyOperation(makeAddWorktreeOperation(std::move(request)),
+                               [this]() { refreshWorktrees(); });
 }
 
 void Session::removeWorktree(RemoveWorktreeRequest request) {
-    submitWorkingCopyOperation(makeRemoveWorktreeOperation(std::move(request)), [this]() { refreshWorktrees(); });
+    submitWorkingCopyOperation(makeRemoveWorktreeOperation(std::move(request)),
+                               [this]() { refreshWorktrees(); });
 }
 
 void Session::pruneWorktrees() {
-    submitWorkingCopyOperation(makePruneWorktreesOperation(PruneWorktreesRequest{}), [this]() { refreshWorktrees(); });
+    submitWorkingCopyOperation(makePruneWorktreesOperation(PruneWorktreesRequest{}),
+                               [this]() { refreshWorktrees(); });
 }
 
 void Session::lockWorktree(LockWorktreeRequest request) {
-    submitWorkingCopyOperation(makeLockWorktreeOperation(std::move(request)), [this]() { refreshWorktrees(); });
+    submitWorkingCopyOperation(makeLockWorktreeOperation(std::move(request)),
+                               [this]() { refreshWorktrees(); });
 }
 
 void Session::unlockWorktree(UnlockWorktreeRequest request) {
-    submitWorkingCopyOperation(makeUnlockWorktreeOperation(std::move(request)), [this]() { refreshWorktrees(); });
+    submitWorkingCopyOperation(makeUnlockWorktreeOperation(std::move(request)),
+                               [this]() { refreshWorktrees(); });
 }
 
 // --- Remotes -----------------------------------------------------------
@@ -597,7 +630,9 @@ RemoteListPtr Session::currentRemotes() const {
 void Session::fetchRemote(FetchRequest request) {
     request.askpassDir = beginAskpass();
     submitWorkingCopyOperation(
-        makeFetchOperation(std::move(request)), [this]() { refreshHistory(); }, [this]() { endAskpass(); });
+        makeFetchOperation(std::move(request)),
+        [this]() { refreshHistory(); },
+        [this]() { endAskpass(); });
 }
 
 void Session::pullChanges(PullRequest request) {
@@ -614,7 +649,9 @@ void Session::pullChanges(PullRequest request) {
 void Session::pushChanges(PushRequest request) {
     request.askpassDir = beginAskpass();
     submitWorkingCopyOperation(
-        makePushOperation(std::move(request)), [this]() { refreshHistory(); }, [this]() { endAskpass(); });
+        makePushOperation(std::move(request)),
+        [this]() { refreshHistory(); },
+        [this]() { endAskpass(); });
 }
 
 void Session::provideCredential(std::string secret) {
@@ -662,39 +699,48 @@ void Session::requestBlame(std::string path, std::string revision, int startLine
     // postFront, not post: a newer blame/file-history/line-history request
     // supersedes an older, still-queued one in interactive priority --
     // matches RepositorySession::requestBlame()'s use of readPool_.postFront.
-    sharedReadPool().postFront([this, path = std::move(path), revision = std::move(revision), startLine, endLine]() {
-        const GitResult<BlameResultPtr> result = blameStore_->blame(path, revision, startLine, endLine, CancellationToken{});
-        if (!result) {
-            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-            return;
-        }
-        callbacks_.emit(GBM_EVENT_BLAME_READY, toJson(*result.value()));
-    });
-}
-
-void Session::requestFileHistory(std::string path, std::string startRevision) {
-    sharedReadPool().postFront([this, path = std::move(path), startRevision = std::move(startRevision)]() {
-        const GitResult<std::vector<FileHistoryEntry>> result =
-            fileHistoryStore_->fileHistory(path, startRevision, CancellationToken{});
-        if (!result) {
-            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-            return;
-        }
-        callbacks_.emit(GBM_EVENT_FILE_HISTORY_READY, toJson(result.value()));
-    });
-}
-
-void Session::requestLineHistory(std::string path, int startLine, int endLine, std::string startRevision) {
     sharedReadPool().postFront(
-        [this, path = std::move(path), startLine, endLine, startRevision = std::move(startRevision)]() {
-            const GitResult<std::vector<LineHistoryChunk>> result =
-                fileHistoryStore_->lineHistory(path, startLine, endLine, startRevision, CancellationToken{});
+        [this, path = std::move(path), revision = std::move(revision), startLine, endLine]() {
+            const GitResult<BlameResultPtr> result =
+                blameStore_->blame(path, revision, startLine, endLine, CancellationToken{});
             if (!result) {
                 callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
                 return;
             }
-            callbacks_.emit(GBM_EVENT_LINE_HISTORY_READY, toJson(result.value()));
+            callbacks_.emit(GBM_EVENT_BLAME_READY, toJson(*result.value()));
         });
+}
+
+void Session::requestFileHistory(std::string path, std::string startRevision) {
+    sharedReadPool().postFront(
+        [this, path = std::move(path), startRevision = std::move(startRevision)]() {
+            const GitResult<std::vector<FileHistoryEntry>> result =
+                fileHistoryStore_->fileHistory(path, startRevision, CancellationToken{});
+            if (!result) {
+                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                return;
+            }
+            callbacks_.emit(GBM_EVENT_FILE_HISTORY_READY, toJson(result.value()));
+        });
+}
+
+void Session::requestLineHistory(std::string path,
+                                 int startLine,
+                                 int endLine,
+                                 std::string startRevision) {
+    sharedReadPool().postFront([this,
+                                path = std::move(path),
+                                startLine,
+                                endLine,
+                                startRevision = std::move(startRevision)]() {
+        const GitResult<std::vector<LineHistoryChunk>> result = fileHistoryStore_->lineHistory(
+            path, startLine, endLine, startRevision, CancellationToken{});
+        if (!result) {
+            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+            return;
+        }
+        callbacks_.emit(GBM_EVENT_LINE_HISTORY_READY, toJson(result.value()));
+    });
 }
 
 void Session::requestReflog(std::string ref) {
@@ -703,7 +749,8 @@ void Session::requestReflog(std::string ref) {
     // preempting other queued reads (see the M6 capi research notes on why
     // the Qt original draws that line here).
     sharedReadPool().post([this, ref = std::move(ref)]() {
-        const GitResult<std::vector<ReflogEntry>> result = reflogStore_->list(ref, CancellationToken{});
+        const GitResult<std::vector<ReflogEntry>> result =
+            reflogStore_->list(ref, CancellationToken{});
         if (!result) {
             callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
             return;
@@ -744,13 +791,15 @@ void Session::undoLastOperation() {
 // --- Restore / clean -------------------------------------------------------
 
 void Session::restorePaths(RestoreRequest request) {
-    submitWorkingCopyOperation(makeRestoreOperation(std::move(request)), [this]() { refreshWorkingCopy(); });
+    submitWorkingCopyOperation(makeRestoreOperation(std::move(request)),
+                               [this]() { refreshWorkingCopy(); });
 }
 
 void Session::requestCleanPreview(bool includeIgnored) {
     sharedReadPool().post([this, includeIgnored]() {
         CleanPreviewer previewer(*runner_, paths_);
-        const GitResult<std::vector<CleanEntry>> result = previewer.preview(includeIgnored, CancellationToken{});
+        const GitResult<std::vector<CleanEntry>> result =
+            previewer.preview(includeIgnored, CancellationToken{});
         if (!result) {
             callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
             return;
@@ -760,7 +809,8 @@ void Session::requestCleanPreview(bool includeIgnored) {
 }
 
 void Session::cleanUntracked(CleanRequest request) {
-    submitWorkingCopyOperation(makeCleanOperation(std::move(request)), [this]() { refreshWorkingCopy(); });
+    submitWorkingCopyOperation(makeCleanOperation(std::move(request)),
+                               [this]() { refreshWorkingCopy(); });
 }
 
 // --- Rebase ------------------------------------------------------------
@@ -768,7 +818,8 @@ void Session::cleanUntracked(CleanRequest request) {
 void Session::requestRebasePlan(std::string upstream) {
     sharedReadPool().post([this, upstream = std::move(upstream)]() {
         RebasePlanner planner(*runner_, paths_);
-        const GitResult<std::vector<RebaseTodoEntry>> result = planner.plan(upstream, CancellationToken{});
+        const GitResult<std::vector<RebaseTodoEntry>> result =
+            planner.plan(upstream, CancellationToken{});
         if (!result) {
             callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
             return;
@@ -778,7 +829,8 @@ void Session::requestRebasePlan(std::string upstream) {
 }
 
 void Session::startInteractiveRebase(RebaseInteractiveRequest request) {
-    submitOperation(makeRebaseInteractiveOperation(std::move(request)), /*refreshHistoryOnSuccess=*/true);
+    submitOperation(makeRebaseInteractiveOperation(std::move(request)),
+                    /*refreshHistoryOnSuccess=*/true);
 }
 
 void Session::startRebase(RebaseRequest request) {
@@ -801,7 +853,8 @@ void Session::abortRebase() {
 
 void Session::refreshSubmodules() {
     sharedReadPool().post([this]() {
-        const GitResult<std::vector<SubmoduleInfo>> result = submoduleStore_->list(CancellationToken{});
+        const GitResult<std::vector<SubmoduleInfo>> result =
+            submoduleStore_->list(CancellationToken{});
         if (!result) {
             callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
             return;
@@ -831,7 +884,8 @@ void Session::addSubmodule(AddSubmoduleRequest request) {
 }
 
 void Session::initSubmodules(SubmodulePathsRequest request) {
-    submitWorkingCopyOperation(makeInitSubmodulesOperation(std::move(request)), [this]() { refreshSubmodules(); });
+    submitWorkingCopyOperation(makeInitSubmodulesOperation(std::move(request)),
+                               [this]() { refreshSubmodules(); });
 }
 
 void Session::updateSubmodules(UpdateSubmodulesRequest request) {
@@ -846,11 +900,13 @@ void Session::updateSubmodules(UpdateSubmodulesRequest request) {
 }
 
 void Session::syncSubmodules(SubmodulePathsRequest request) {
-    submitWorkingCopyOperation(makeSyncSubmodulesOperation(std::move(request)), [this]() { refreshSubmodules(); });
+    submitWorkingCopyOperation(makeSyncSubmodulesOperation(std::move(request)),
+                               [this]() { refreshSubmodules(); });
 }
 
 void Session::deinitSubmodules(DeinitSubmodulesRequest request) {
-    submitWorkingCopyOperation(makeDeinitSubmodulesOperation(std::move(request)), [this]() { refreshSubmodules(); });
+    submitWorkingCopyOperation(makeDeinitSubmodulesOperation(std::move(request)),
+                               [this]() { refreshSubmodules(); });
 }
 
 // --- Bisect ------------------------------------------------------------
@@ -876,23 +932,27 @@ BisectStatusPtr Session::currentBisectStatus() const {
 }
 
 void Session::startBisect(BisectStartRequest request) {
-    submitOperation(
-        makeBisectStartOperation(std::move(request)), /*refreshHistoryOnSuccess=*/true, [this]() { refreshBisectStatus(); });
+    submitOperation(makeBisectStartOperation(std::move(request)),
+                    /*refreshHistoryOnSuccess=*/true,
+                    [this]() { refreshBisectStatus(); });
 }
 
 void Session::markBisect(BisectMarkRequest request) {
-    submitOperation(
-        makeBisectMarkOperation(std::move(request)), /*refreshHistoryOnSuccess=*/true, [this]() { refreshBisectStatus(); });
+    submitOperation(makeBisectMarkOperation(std::move(request)),
+                    /*refreshHistoryOnSuccess=*/true,
+                    [this]() { refreshBisectStatus(); });
 }
 
 void Session::skipBisect(BisectSkipRequest request) {
-    submitOperation(
-        makeBisectSkipOperation(std::move(request)), /*refreshHistoryOnSuccess=*/true, [this]() { refreshBisectStatus(); });
+    submitOperation(makeBisectSkipOperation(std::move(request)),
+                    /*refreshHistoryOnSuccess=*/true,
+                    [this]() { refreshBisectStatus(); });
 }
 
 void Session::resetBisect(BisectResetRequest request) {
-    submitOperation(
-        makeBisectResetOperation(std::move(request)), /*refreshHistoryOnSuccess=*/true, [this]() { refreshBisectStatus(); });
+    submitOperation(makeBisectResetOperation(std::move(request)),
+                    /*refreshHistoryOnSuccess=*/true,
+                    [this]() { refreshBisectStatus(); });
 }
 
 // --- LFS ---------------------------------------------------------------
@@ -908,7 +968,8 @@ void Session::refreshLfs() {
             // detectLfs() never fails (a missing `git-lfs` is a normal
             // result, not an error -- see its doc comment), so there is no
             // error branch to handle here.
-            const LfsInstallation installation = detectLfs(*runner_, paths_, CancellationToken{}).value();
+            const LfsInstallation installation =
+                detectLfs(*runner_, paths_, CancellationToken{}).value();
             std::lock_guard<std::mutex> lock(auxMutex_);
             lfsInstallation_ = installation;
             available = installation.available;
@@ -929,7 +990,8 @@ void Session::refreshLfs() {
         // Matches RepositorySession::refreshLfs(): an individual read
         // failing here is not fatal to the refresh as a whole -- whichever
         // of patterns/files succeeded is still published.
-        const GitResult<std::vector<std::string>> patterns = lfsStore_->trackedPatterns(CancellationToken{});
+        const GitResult<std::vector<std::string>> patterns =
+            lfsStore_->trackedPatterns(CancellationToken{});
         const GitResult<std::vector<LfsFileInfo>> files = lfsStore_->listFiles(CancellationToken{});
         {
             std::lock_guard<std::mutex> lock(auxMutex_);
@@ -964,11 +1026,13 @@ void Session::installLfs() {
 }
 
 void Session::trackLfsPattern(LfsTrackRequest request) {
-    submitWorkingCopyOperation(makeLfsTrackOperation(std::move(request)), [this]() { refreshLfs(); });
+    submitWorkingCopyOperation(makeLfsTrackOperation(std::move(request)),
+                               [this]() { refreshLfs(); });
 }
 
 void Session::untrackLfsPattern(LfsUntrackRequest request) {
-    submitWorkingCopyOperation(makeLfsUntrackOperation(std::move(request)), [this]() { refreshLfs(); });
+    submitWorkingCopyOperation(makeLfsUntrackOperation(std::move(request)),
+                               [this]() { refreshLfs(); });
 }
 
 void Session::pullLfs(LfsTransferRequest request) {
@@ -985,25 +1049,31 @@ void Session::pullLfs(LfsTransferRequest request) {
 void Session::fetchLfs(LfsTransferRequest request) {
     request.askpassDir = beginAskpass();
     submitWorkingCopyOperation(
-        makeLfsFetchOperation(std::move(request)), [this]() { refreshLfs(); }, [this]() { endAskpass(); });
+        makeLfsFetchOperation(std::move(request)),
+        [this]() { refreshLfs(); },
+        [this]() { endAskpass(); });
 }
 
 void Session::pruneLfs(LfsPruneRequest request) {
-    submitWorkingCopyOperation(makeLfsPruneOperation(std::move(request)), [this]() { refreshLfs(); });
+    submitWorkingCopyOperation(makeLfsPruneOperation(std::move(request)),
+                               [this]() { refreshLfs(); });
 }
 
 // --- Patch import/export -------------------------------------------------
 
 void Session::exportPatches(ExportPatchesRequest request) {
-    submitWorkingCopyOperation(makeExportPatchesOperation(std::move(request)), /*onSuccess=*/nullptr);
+    submitWorkingCopyOperation(makeExportPatchesOperation(std::move(request)),
+                               /*onSuccess=*/nullptr);
 }
 
 void Session::applyPatchFiles(ApplyPatchFilesRequest request) {
-    submitWorkingCopyOperation(makeApplyPatchFilesOperation(std::move(request)), [this]() { refreshWorkingCopy(); });
+    submitWorkingCopyOperation(makeApplyPatchFilesOperation(std::move(request)),
+                               [this]() { refreshWorkingCopy(); });
 }
 
 void Session::importPatches(ImportPatchesRequest request) {
-    submitOperation(makeImportPatchesOperation(std::move(request)), /*refreshHistoryOnSuccess=*/true);
+    submitOperation(makeImportPatchesOperation(std::move(request)),
+                    /*refreshHistoryOnSuccess=*/true);
 }
 
 void Session::continueImport() {
@@ -1042,7 +1112,8 @@ LocalIdentityPtr Session::currentLocalIdentity() const {
 
 void Session::refreshEffectiveIdentity() {
     sharedReadPool().post([this]() {
-        const GitResult<EffectiveIdentity> result = localIdentityStore_->readEffective(CancellationToken{});
+        const GitResult<EffectiveIdentity> result =
+            localIdentityStore_->readEffective(CancellationToken{});
         if (!result) {
             callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
             return;

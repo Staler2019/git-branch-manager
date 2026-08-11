@@ -33,7 +33,8 @@ GBM_API void gbm_bisect_refresh(GbmSessionHandle session) {
 GBM_API int32_t gbm_bisect_status_json(GbmSessionHandle session) {
     const BisectStatusPtr status = toSession(session)->currentBisectStatus();
     if (!status) {
-        setStagingBuffer(toJson(GitError(GitError::Code::NotFound, "no bisect status published yet")));
+        setStagingBuffer(
+            toJson(GitError(GitError::Code::NotFound, "no bisect status published yet")));
         return -(1 + static_cast<int32_t>(GitError::Code::NotFound));
     }
     setStagingBuffer(toJson(*status));

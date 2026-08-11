@@ -15,7 +15,8 @@ GBM_API void gbm_worktree_refresh(GbmSessionHandle session) {
 GBM_API int32_t gbm_worktrees_json(GbmSessionHandle session) {
     const WorktreeListPtr worktrees = toSession(session)->currentWorktrees();
     if (!worktrees) {
-        setStagingBuffer(toJson(GitError(GitError::Code::NotFound, "no worktree list published yet")));
+        setStagingBuffer(
+            toJson(GitError(GitError::Code::NotFound, "no worktree list published yet")));
         return -(1 + static_cast<int32_t>(GitError::Code::NotFound));
     }
     setStagingBuffer(toJson(*worktrees));

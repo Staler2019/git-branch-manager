@@ -15,14 +15,18 @@ GBM_API void gbm_remote_refresh(GbmSessionHandle session) {
 GBM_API int32_t gbm_remotes_json(GbmSessionHandle session) {
     const RemoteListPtr remotes = toSession(session)->currentRemotes();
     if (!remotes) {
-        setStagingBuffer(toJson(GitError(GitError::Code::NotFound, "no remote list published yet")));
+        setStagingBuffer(
+            toJson(GitError(GitError::Code::NotFound, "no remote list published yet")));
         return -(1 + static_cast<int32_t>(GitError::Code::NotFound));
     }
     setStagingBuffer(toJson(*remotes));
     return 0;
 }
 
-GBM_API void gbm_remote_fetch(GbmSessionHandle session, const char* remoteName, int32_t prune, int32_t tags) {
+GBM_API void gbm_remote_fetch(GbmSessionHandle session,
+                              const char* remoteName,
+                              int32_t prune,
+                              int32_t tags) {
     FetchRequest request;
     request.remoteName = remoteName != nullptr ? remoteName : "";
     request.prune = prune != 0;

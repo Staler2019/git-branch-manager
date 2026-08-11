@@ -49,7 +49,8 @@ GBM_API const uint32_t* gbm_graph_snapshot_parents(GbmSessionHandle session, int
         return nullptr;
     }
     if (parentCount != nullptr) *parentCount = static_cast<int32_t>(snapshot->parentPool.size());
-    static_assert(sizeof(RowId) == sizeof(uint32_t), "RowId must stay uint32_t-sized for the FFI view");
+    static_assert(sizeof(RowId) == sizeof(uint32_t),
+                  "RowId must stay uint32_t-sized for the FFI view");
     return reinterpret_cast<const uint32_t*>(snapshot->parentPool.data());
 }
 

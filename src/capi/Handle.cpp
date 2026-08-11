@@ -47,11 +47,10 @@ GBM_API GbmSessionHandle gbm_session_open(const char* workDir,
                                           const char* gitDir,
                                           const char* commonDir) {
     GitError error;
-    std::unique_ptr<Session> session =
-        Session::open(workDir != nullptr ? workDir : "",
-                      gitDir != nullptr ? gitDir : "",
-                      commonDir != nullptr ? commonDir : "",
-                      &error);
+    std::unique_ptr<Session> session = Session::open(workDir != nullptr ? workDir : "",
+                                                     gitDir != nullptr ? gitDir : "",
+                                                     commonDir != nullptr ? commonDir : "",
+                                                     &error);
     if (!session) {
         setStagingBuffer(toJson(error));
         return nullptr;

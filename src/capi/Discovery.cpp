@@ -23,7 +23,8 @@ GBM_API GbmDiscoveryHandle gbm_discovery_open(const char* dbPath) {
     auto* state = new DiscoveryState();
     const std::string path = dbPath != nullptr ? dbPath : "";
 
-    const GitResult<void> openResult = path.empty() ? state->db.openInMemory() : state->db.open(path);
+    const GitResult<void> openResult =
+        path.empty() ? state->db.openInMemory() : state->db.open(path);
     if (!openResult) {
         setStagingBuffer(toJson(openResult.error()));
         delete state;
@@ -73,7 +74,8 @@ GBM_API int32_t gbm_discovery_scan_all(GbmDiscoveryHandle discovery) {
         if (!folder.enabled) {
             continue;
         }
-        const GitResult<ScanResult> result = scanner.scan(folder, ScanMode::Incremental, cancel.token());
+        const GitResult<ScanResult> result =
+            scanner.scan(folder, ScanMode::Incremental, cancel.token());
         if (!result) {
             setStagingBuffer(toJson(result.error()));
             return errorCodeOrdinal(result.error());
@@ -104,7 +106,8 @@ GBM_API int32_t gbm_discovery_base_folders_json(GbmDiscoveryHandle discovery) {
     return 0;
 }
 
-GBM_API int32_t gbm_discovery_remove_base_folder(GbmDiscoveryHandle discovery, int64_t baseFolderId) {
+GBM_API int32_t gbm_discovery_remove_base_folder(GbmDiscoveryHandle discovery,
+                                                 int64_t baseFolderId) {
     DiscoveryState* state = toDiscovery(discovery);
     const GitResult<void> result = state->db.removeBaseFolder(baseFolderId);
     if (!result) {

@@ -18,7 +18,8 @@ GBM_API void gbm_working_copy_refresh(GbmSessionHandle session) {
 GBM_API int32_t gbm_working_copy_status_json(GbmSessionHandle session) {
     const WorkingCopyStatusPtr status = toSession(session)->currentWorkingCopyStatus();
     if (!status) {
-        setStagingBuffer(toJson(GitError(GitError::Code::NotFound, "no working copy status published yet")));
+        setStagingBuffer(
+            toJson(GitError(GitError::Code::NotFound, "no working copy status published yet")));
         return -(1 + static_cast<int32_t>(GitError::Code::NotFound));
     }
     setStagingBuffer(toJson(*status));
@@ -42,11 +43,15 @@ std::vector<std::string> toPathVector(const char* const* paths, int32_t pathCoun
 
 }  // namespace
 
-GBM_API void gbm_stage_files(GbmSessionHandle session, const char* const* paths, int32_t pathCount) {
+GBM_API void gbm_stage_files(GbmSessionHandle session,
+                             const char* const* paths,
+                             int32_t pathCount) {
     toSession(session)->stageFiles(toPathVector(paths, pathCount));
 }
 
-GBM_API void gbm_unstage_files(GbmSessionHandle session, const char* const* paths, int32_t pathCount) {
+GBM_API void gbm_unstage_files(GbmSessionHandle session,
+                               const char* const* paths,
+                               int32_t pathCount) {
     toSession(session)->unstageFiles(toPathVector(paths, pathCount));
 }
 
@@ -70,7 +75,8 @@ GBM_API void gbm_stage_hunk(GbmSessionHandle session, const char* path, int32_t 
 }
 
 GBM_API void gbm_unstage_hunk(GbmSessionHandle session, const char* path, int32_t hunkIndex) {
-    toSession(session)->unstageHunk(path != nullptr ? path : "", static_cast<std::size_t>(hunkIndex));
+    toSession(session)->unstageHunk(path != nullptr ? path : "",
+                                    static_cast<std::size_t>(hunkIndex));
 }
 
 GBM_API void gbm_stage_lines(GbmSessionHandle session,

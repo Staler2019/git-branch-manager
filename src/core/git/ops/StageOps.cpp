@@ -189,7 +189,8 @@ public:
 
         std::string patch;
         if (request_.lineIndices.empty()) {
-            patch = UnifiedDiffParser::buildHunkPatch(file, hunk, /*reverse=*/false, /*unstaging=*/request_.staged);
+            patch = UnifiedDiffParser::buildHunkPatch(
+                file, hunk, /*reverse=*/false, /*unstaging=*/request_.staged);
         } else {
             std::vector<bool> selected(hunk.lines.size(), false);
             for (const std::size_t index : request_.lineIndices) {
@@ -197,7 +198,8 @@ public:
                     selected[index] = true;
                 }
             }
-            patch = UnifiedDiffParser::buildLineSelectionPatch(file, hunk, selected, /*unstaging=*/request_.staged);
+            patch = UnifiedDiffParser::buildLineSelectionPatch(
+                file, hunk, selected, /*unstaging=*/request_.staged);
         }
         if (patch.empty()) {
             outcome.error = GitError(GitError::Code::InvalidArgument, "Nothing selected to apply");

@@ -60,7 +60,10 @@ GBM_API void gbm_branch_create(GbmSessionHandle session,
     toSession(session)->createBranch(std::move(request));
 }
 
-GBM_API void gbm_branch_rename(GbmSessionHandle session, const char* from, const char* to, int32_t force) {
+GBM_API void gbm_branch_rename(GbmSessionHandle session,
+                               const char* from,
+                               const char* to,
+                               int32_t force) {
     RenameBranchRequest request;
     request.from = from != nullptr ? from : "";
     request.to = to != nullptr ? to : "";

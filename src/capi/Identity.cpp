@@ -16,7 +16,8 @@ GBM_API void gbm_local_identity_refresh(GbmSessionHandle session) {
 GBM_API int32_t gbm_local_identity_json(GbmSessionHandle session) {
     const LocalIdentityPtr identity = toSession(session)->currentLocalIdentity();
     if (!identity) {
-        setStagingBuffer(toJson(GitError(GitError::Code::NotFound, "no local identity published yet")));
+        setStagingBuffer(
+            toJson(GitError(GitError::Code::NotFound, "no local identity published yet")));
         return -(1 + static_cast<int32_t>(GitError::Code::NotFound));
     }
     setStagingBuffer(toJson(*identity));
@@ -30,7 +31,8 @@ GBM_API void gbm_effective_identity_refresh(GbmSessionHandle session) {
 GBM_API int32_t gbm_effective_identity_json(GbmSessionHandle session) {
     const EffectiveIdentityPtr identity = toSession(session)->currentEffectiveIdentity();
     if (!identity) {
-        setStagingBuffer(toJson(GitError(GitError::Code::NotFound, "no effective identity published yet")));
+        setStagingBuffer(
+            toJson(GitError(GitError::Code::NotFound, "no effective identity published yet")));
         return -(1 + static_cast<int32_t>(GitError::Code::NotFound));
     }
     setStagingBuffer(toJson(*identity));

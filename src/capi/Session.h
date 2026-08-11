@@ -154,7 +154,9 @@ public:
     void stageHunk(std::string path, std::size_t hunkIndex);
     void unstageHunk(std::string path, std::size_t hunkIndex);
     void stageLines(std::string path, std::size_t hunkIndex, std::vector<std::size_t> lineIndices);
-    void unstageLines(std::string path, std::size_t hunkIndex, std::vector<std::size_t> lineIndices);
+    void unstageLines(std::string path,
+                      std::size_t hunkIndex,
+                      std::vector<std::size_t> lineIndices);
 
     /// Async: see gbm_commit_changes()'s doc comment in gbm_capi.h.
     void commitChanges(CommitRequest request);
@@ -244,7 +246,10 @@ public:
     /// Async: see gbm_request_file_history()/gbm_request_line_history()'s
     /// doc comments.
     void requestFileHistory(std::string path, std::string startRevision);
-    void requestLineHistory(std::string path, int startLine, int endLine, std::string startRevision);
+    void requestLineHistory(std::string path,
+                            int startLine,
+                            int endLine,
+                            std::string startRevision);
 
     /// Async: see gbm_request_reflog()'s doc comment.
     void requestReflog(std::string ref);

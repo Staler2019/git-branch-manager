@@ -126,6 +126,47 @@ typedef BranchCheckoutDart =
       int recurseSubmodules,
     );
 
+typedef _BranchCreateNative =
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> name,
+      Pointer<Utf8> startPoint,
+      Int32 checkoutAfter,
+      Int32 setUpstream,
+      Pointer<Utf8> upstream,
+    );
+typedef BranchCreateDart =
+    void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> name,
+      Pointer<Utf8> startPoint,
+      int checkoutAfter,
+      int setUpstream,
+      Pointer<Utf8> upstream,
+    );
+
+typedef _BranchRenameNative = Void Function(Pointer<Void> session, Pointer<Utf8> from, Pointer<Utf8> to, Int32 force);
+typedef BranchRenameDart = void Function(Pointer<Void> session, Pointer<Utf8> from, Pointer<Utf8> to, int force);
+
+typedef _BranchDeleteNative =
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> names,
+      Int32 nameCount,
+      Int32 force,
+      Int32 isRemote,
+      Pointer<Utf8> remoteName,
+    );
+typedef BranchDeleteDart =
+    void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> names,
+      int nameCount,
+      int force,
+      int isRemote,
+      Pointer<Utf8> remoteName,
+    );
+
 typedef _ResetToNative = Void Function(Pointer<Void> session, Pointer<Utf8> target, Int32 mode);
 typedef ResetToDart = void Function(Pointer<Void> session, Pointer<Utf8> target, int mode);
 
@@ -675,6 +716,9 @@ class GbmBindings {
         'gbm_graph_snapshot_release',
       ),
       branchCheckout = library.lookupFunction<_BranchCheckoutNative, BranchCheckoutDart>('gbm_branch_checkout'),
+      branchCreate = library.lookupFunction<_BranchCreateNative, BranchCreateDart>('gbm_branch_create'),
+      branchRename = library.lookupFunction<_BranchRenameNative, BranchRenameDart>('gbm_branch_rename'),
+      branchDelete = library.lookupFunction<_BranchDeleteNative, BranchDeleteDart>('gbm_branch_delete'),
       resetTo = library.lookupFunction<_ResetToNative, ResetToDart>('gbm_reset_to'),
       mergeBranch = library.lookupFunction<_MergeBranchNative, MergeBranchDart>('gbm_merge_branch'),
       mergeAbort = library.lookupFunction<_MergeAbortNative, MergeAbortDart>('gbm_merge_abort'),
@@ -853,6 +897,9 @@ class GbmBindings {
   final GraphIntQueryDart graphSnapshotTruncated;
   final GraphReleaseDart graphSnapshotRelease;
   final BranchCheckoutDart branchCheckout;
+  final BranchCreateDart branchCreate;
+  final BranchRenameDart branchRename;
+  final BranchDeleteDart branchDelete;
   final ResetToDart resetTo;
   final MergeBranchDart mergeBranch;
   final MergeAbortDart mergeAbort;

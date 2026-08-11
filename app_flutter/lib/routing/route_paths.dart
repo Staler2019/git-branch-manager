@@ -38,6 +38,8 @@ abstract final class RoutePaths {
   static const String patchesDialog = '/repo/:repoId/dialogs/patches';
   static const String cleanUntrackedDialog = '/repo/:repoId/dialogs/clean-untracked';
   static const String preferencesDialog = '/repo/:repoId/dialogs/preferences';
+  static const String checkoutRecoveryDialog = '/repo/:repoId/dialogs/checkout-recovery';
+  static const String deleteBranchRecoveryDialog = '/repo/:repoId/dialogs/delete-branch-recovery';
 
   /// Standalone top-level route, not a `/dialogs/<name>` overlay -- see
   /// `features/conflict_resolution/conflict_resolve_window.dart`'s doc
@@ -76,5 +78,7 @@ abstract final class RoutePaths {
   static String patchesDialogFor(String repoId) => '/repo/$repoId/dialogs/patches';
   static String cleanUntrackedDialogFor(String repoId) => '/repo/$repoId/dialogs/clean-untracked';
   static String preferencesDialogFor(String repoId) => '/repo/$repoId/dialogs/preferences';
+  static String checkoutRecoveryDialogFor(String repoId) => '/repo/$repoId/dialogs/checkout-recovery';
+  static String deleteBranchRecoveryDialogFor(String repoId) => '/repo/$repoId/dialogs/delete-branch-recovery';
   static String conflictsFor(String repoId) => '/repo/$repoId/conflicts';
 }

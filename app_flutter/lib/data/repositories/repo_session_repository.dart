@@ -17,6 +17,7 @@ import '../models/git_identity.dart';
 import '../models/graph_snapshot.dart';
 import '../models/lfs_state.dart';
 import '../models/line_history_chunk.dart';
+import '../models/operation_choice.dart';
 import '../models/operation_record.dart';
 import '../models/parsed_diff.dart';
 import '../models/rebase_todo_entry.dart';
@@ -122,6 +123,8 @@ class RepoSessionState {
     this.effectiveIdentity = EffectiveIdentity.empty,
     this.hasCommitGraph = false,
     this.lastCommitGraphWriteSucceeded,
+    this.checkoutChoices = const <OperationChoice>[],
+    this.deleteBranchChoices = const <OperationChoice>[],
   });
 
   final bool isOpen;
@@ -173,6 +176,17 @@ class RepoSessionState {
   /// Null until the first gbm_write_commit_graph() reply arrives this
   /// session.
   final bool? lastCommitGraphWriteSucceeded;
+  /// Recovery choices (e.g. "Stash changes and checkout") from the most
+  /// recently attempted [RepoSessionController.checkout] call, if it failed
+  /// with any -- empty otherwise. See RepoSessionController.checkout()'s
+  /// doc comment for how these map back to a retried checkout.
+  final List<OperationChoice> checkoutChoices;
+  /// Recovery choices (e.g. "Force delete") from the most recently
+  /// attempted [RepoSessionController.deleteBranch] call, if it failed with
+  /// any -- empty otherwise. Mirrors [checkoutChoices]; see
+  /// RepoSessionController.deleteBranch()'s doc comment for how these map
+  /// back to a retried delete.
+  final List<OperationChoice> deleteBranchChoices;
 
   RepoSessionState copyWith({
     bool? isOpen,
@@ -207,6 +221,8 @@ class RepoSessionState {
     EffectiveIdentity? effectiveIdentity,
     bool? hasCommitGraph,
     bool? lastCommitGraphWriteSucceeded,
+    List<OperationChoice>? checkoutChoices,
+    List<OperationChoice>? deleteBranchChoices,
   }) {
     return RepoSessionState(
       isOpen: isOpen ?? this.isOpen,
@@ -239,6 +255,8 @@ class RepoSessionState {
       effectiveIdentity: effectiveIdentity ?? this.effectiveIdentity,
       hasCommitGraph: hasCommitGraph ?? this.hasCommitGraph,
       lastCommitGraphWriteSucceeded: lastCommitGraphWriteSucceeded ?? this.lastCommitGraphWriteSucceeded,
+      checkoutChoices: checkoutChoices ?? this.checkoutChoices,
+      deleteBranchChoices: deleteBranchChoices ?? this.deleteBranchChoices,
     );
   }
 }
@@ -257,6 +275,28 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   Pointer<Void> _session = nullptr;
   GbmSessionEvents? _events;
   StreamSubscription<GbmEvent>? _subscription;
+
+  /// Remembers the most recently attempted [checkout] call, so a recovery
+  /// choice picked from [RepoSessionState.checkoutChoices] can resubmit the
+  /// same request with `stashFirst`/`force` set -- mirrors
+  /// `MainWindow::checkoutBranch()`'s own `[this, request]` retry closure in
+  /// the Qt app, just as a handful of remembered fields instead of a
+  /// captured request struct. `operations_` on the C++ side is a single
+  /// serial worker, so only one operation is ever actually in flight at a
+  /// time -- these do not need to be tagged with a request id to stay
+  /// correctly paired with the outcome that answers them.
+  bool _awaitingCheckoutOutcome = false;
+  String? _lastCheckoutTarget;
+  bool _lastCheckoutDetach = false;
+  bool _lastCheckoutCreateBranch = false;
+  String _lastCheckoutNewBranchName = '';
+
+  /// Same remembered-request idea as the checkout fields above, for the
+  /// [deleteBranch] "not fully merged" -> "Force delete" recovery flow.
+  bool _awaitingDeleteBranchOutcome = false;
+  List<String> _lastDeleteBranchNames = const <String>[];
+  bool _lastDeleteBranchIsRemote = false;
+  String _lastDeleteBranchRemoteName = '';
 
   void _open() {
     final Pointer<Utf8> workDir = _identity.workDir.toNativeUtf8();
@@ -302,6 +342,39 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
       case GbmEventType.operationFinished:
         _readRepoState();
         _readUndoJournal();
+        final Object? decoded = decodeEventPayload(event.payload);
+        final Map<String, dynamic>? payload = decoded is Map<String, dynamic> ? decoded : null;
+        bool succeeded = true;
+        List<OperationChoice> choices = const <OperationChoice>[];
+        if (payload != null) {
+          succeeded = payload['succeeded'] as bool? ?? true;
+          if (!succeeded) {
+            final Object? choicesJson = payload['choices'];
+            if (choicesJson is List<dynamic>) {
+              choices = OperationChoice.listFromJson(choicesJson);
+            }
+            // Not every failure carries a formal GitError -- BranchOps'
+            // "not fully merged" path (see refineSummaryFromRemoteRefs in
+            // core/git/ops/BranchOps.cpp) only sets `summary` + `choices`,
+            // deliberately preferring a friendlier message over a raw Git
+            // error. Falling back to `summary` here is the only way that
+            // message (or any other choices-only failure) reaches the UI.
+            final GitError? error = _errorFromOutcomePayload(payload);
+            if (error != null) {
+              state = state.copyWith(lastError: error);
+            }
+          }
+        }
+        final bool wasCheckout = _awaitingCheckoutOutcome;
+        _awaitingCheckoutOutcome = false;
+        if (wasCheckout) {
+          state = state.copyWith(checkoutChoices: succeeded ? const <OperationChoice>[] : choices);
+        }
+        final bool wasDeleteBranch = _awaitingDeleteBranchOutcome;
+        _awaitingDeleteBranchOutcome = false;
+        if (wasDeleteBranch) {
+          state = state.copyWith(deleteBranchChoices: succeeded ? const <OperationChoice>[] : choices);
+        }
       case GbmEventType.workingCopyStatusUpdated:
         _readWorkingCopyStatus();
       case GbmEventType.workingCopyOperationFinished:
@@ -510,6 +583,27 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     }
   }
 
+  /// Builds a [GitError] to surface for a failed [OperationOutcome] payload,
+  /// falling back to `summary` (a synthetic `code`/`codeName`/`exitCode`)
+  /// when the outcome carries no formal `error` -- see the doc comment
+  /// where this is called from [_onEvent]'s `operationFinished` case.
+  GitError? _errorFromOutcomePayload(Map<String, dynamic> payload) {
+    final Object? error = payload['error'];
+    if (error is Map<String, dynamic>) {
+      return GitError.fromJson(error);
+    }
+    final String summary = payload['summary'] as String? ?? '';
+    if (summary.isEmpty) return null;
+    return GitError(
+      code: -1,
+      codeName: 'OperationFailed',
+      message: summary,
+      detail: '',
+      argv: const <String>[],
+      exitCode: -1,
+    );
+  }
+
   /// Synchronously re-reads the undo journal cache -- unlike the other
   /// `_read*` helpers this has no dedicated event; Session refreshes its
   /// cache as part of every operation's completion callback (see
@@ -539,17 +633,191 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   }
 
   /// `git switch`/`git checkout`. See gbm_branch_checkout()'s doc comment in
-  /// gbm_capi.h for the target/createBranch/newBranchName relationship.
-  void checkout({required String target, bool createBranch = false, String newBranchName = ''}) {
+  /// gbm_capi.h for the target/createBranch/newBranchName relationship. A
+  /// checkout refused because the work tree is dirty is not itself an
+  /// error: it reports `succeeded: false` with recovery
+  /// [OperationChoice]s (e.g. stash-and-retry) in
+  /// [RepoSessionState.checkoutChoices] instead -- see
+  /// [retryCheckoutWithChoice] for how a chosen one resubmits this same
+  /// call with `stashFirst`/`force` set.
+  void checkout({
+    required String target,
+    bool detach = false,
+    bool createBranch = false,
+    String newBranchName = '',
+    bool force = false,
+    bool stashFirst = false,
+    bool recurseSubmodules = false,
+  }) {
     if (_session == nullptr) return;
+    _awaitingCheckoutOutcome = true;
+    _lastCheckoutTarget = target;
+    _lastCheckoutDetach = detach;
+    _lastCheckoutCreateBranch = createBranch;
+    _lastCheckoutNewBranchName = newBranchName;
     final Pointer<Utf8> targetPtr = target.toNativeUtf8();
     final Pointer<Utf8> newBranchPtr = newBranchName.toNativeUtf8();
     try {
-      _bindings.branchCheckout(_session, targetPtr, 0, createBranch ? 1 : 0, newBranchPtr, 0, 0, 0);
+      _bindings.branchCheckout(
+        _session,
+        targetPtr,
+        detach ? 1 : 0,
+        createBranch ? 1 : 0,
+        newBranchPtr,
+        force ? 1 : 0,
+        stashFirst ? 1 : 0,
+        recurseSubmodules ? 1 : 0,
+      );
     } finally {
       malloc.free(targetPtr);
       malloc.free(newBranchPtr);
     }
+  }
+
+  /// Resubmits the most recently attempted [checkout] with the flag
+  /// [kind] implies (stash-and-retry -> `stashFirst`, force-discard ->
+  /// `force`); any other kind (Abort/Cancel) just dismisses
+  /// [RepoSessionState.checkoutChoices]. A no-op if no checkout has been
+  /// attempted yet this session.
+  void retryCheckoutWithChoice(OperationChoiceKind kind) {
+    final String? target = _lastCheckoutTarget;
+    state = state.copyWith(checkoutChoices: const <OperationChoice>[]);
+    if (target == null) return;
+    switch (kind) {
+      case OperationChoiceKind.stashAndRetry:
+        checkout(
+          target: target,
+          detach: _lastCheckoutDetach,
+          createBranch: _lastCheckoutCreateBranch,
+          newBranchName: _lastCheckoutNewBranchName,
+          stashFirst: true,
+        );
+      case OperationChoiceKind.forceDiscard:
+        checkout(
+          target: target,
+          detach: _lastCheckoutDetach,
+          createBranch: _lastCheckoutCreateBranch,
+          newBranchName: _lastCheckoutNewBranchName,
+          force: true,
+        );
+      case OperationChoiceKind.abort:
+      case OperationChoiceKind.retry:
+      case OperationChoiceKind.removeLock:
+        break;
+    }
+  }
+
+  /// Dismisses [RepoSessionState.checkoutChoices] without retrying --
+  /// the explicit Cancel action.
+  void dismissCheckoutChoices() {
+    state = state.copyWith(checkoutChoices: const <OperationChoice>[]);
+  }
+
+  /// `git branch <name> [<startPoint>]`, optionally checking it out and/or
+  /// setting an upstream. `startPoint` empty means HEAD. Async: a failure
+  /// surfaces through [RepoSessionState.lastError], and on success this
+  /// refreshes refs (and history, if [checkoutAfter] moved HEAD).
+  void createBranch({
+    required String name,
+    String startPoint = '',
+    bool checkoutAfter = false,
+    bool setUpstream = false,
+    String upstream = '',
+  }) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> namePtr = name.toNativeUtf8();
+    final Pointer<Utf8> startPointPtr = startPoint.toNativeUtf8();
+    final Pointer<Utf8> upstreamPtr = upstream.toNativeUtf8();
+    try {
+      _bindings.branchCreate(
+        _session,
+        namePtr,
+        startPointPtr,
+        checkoutAfter ? 1 : 0,
+        setUpstream ? 1 : 0,
+        upstreamPtr,
+      );
+    } finally {
+      malloc.free(namePtr);
+      malloc.free(startPointPtr);
+      malloc.free(upstreamPtr);
+    }
+  }
+
+  /// `git branch -m <from> <to>` (`-M` when [force]). Async, refreshes refs
+  /// on success.
+  void renameBranch({required String from, required String to, bool force = false}) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> fromPtr = from.toNativeUtf8();
+    final Pointer<Utf8> toPtr = to.toNativeUtf8();
+    try {
+      _bindings.branchRename(_session, fromPtr, toPtr, force ? 1 : 0);
+    } finally {
+      malloc.free(fromPtr);
+      malloc.free(toPtr);
+    }
+  }
+
+  /// `git branch -d`/`-D` with the given names (multiple names in one call
+  /// -- a multi-select delete is one operation, not N), or `git push
+  /// --delete` against `remoteName` when [isRemote]. [force] deletes even
+  /// when not fully merged. Async, refreshes refs on success; when Git
+  /// refuses because a branch is not fully merged, the friendly summary
+  /// core already computes (see BranchOps.cpp's `refineSummaryFromRemoteRefs`)
+  /// lands in [RepoSessionState.lastError] and a "Force delete" choice
+  /// lands in [RepoSessionState.deleteBranchChoices] -- see
+  /// [retryDeleteBranchWithChoice] for how a chosen one resubmits this same
+  /// call with `force` set.
+  void deleteBranch({
+    required List<String> names,
+    bool force = false,
+    bool isRemote = false,
+    String remoteName = '',
+  }) {
+    if (_session == nullptr || names.isEmpty) return;
+    _awaitingDeleteBranchOutcome = true;
+    _lastDeleteBranchNames = names;
+    _lastDeleteBranchIsRemote = isRemote;
+    _lastDeleteBranchRemoteName = remoteName;
+    final Pointer<Utf8> remoteNamePtr = remoteName.toNativeUtf8();
+    try {
+      _withNativeStringArray(
+        names,
+        (array, count) => _bindings.branchDelete(_session, array, count, force ? 1 : 0, isRemote ? 1 : 0, remoteNamePtr),
+      );
+    } finally {
+      malloc.free(remoteNamePtr);
+    }
+  }
+
+  /// Resubmits the most recently attempted [deleteBranch] with `force` set
+  /// when [kind] is [OperationChoiceKind.forceDiscard]; any other kind just
+  /// dismisses [RepoSessionState.deleteBranchChoices]. A no-op if no delete
+  /// has been attempted yet this session.
+  void retryDeleteBranchWithChoice(OperationChoiceKind kind) {
+    final List<String> names = _lastDeleteBranchNames;
+    state = state.copyWith(deleteBranchChoices: const <OperationChoice>[]);
+    if (names.isEmpty) return;
+    switch (kind) {
+      case OperationChoiceKind.forceDiscard:
+        deleteBranch(
+          names: names,
+          force: true,
+          isRemote: _lastDeleteBranchIsRemote,
+          remoteName: _lastDeleteBranchRemoteName,
+        );
+      case OperationChoiceKind.stashAndRetry:
+      case OperationChoiceKind.abort:
+      case OperationChoiceKind.retry:
+      case OperationChoiceKind.removeLock:
+        break;
+    }
+  }
+
+  /// Dismisses [RepoSessionState.deleteBranchChoices] without retrying --
+  /// the explicit Cancel action.
+  void dismissDeleteBranchChoices() {
+    state = state.copyWith(deleteBranchChoices: const <OperationChoice>[]);
   }
 
   /// `git reset --soft|--mixed|--hard <target>`. `target` empty means HEAD.

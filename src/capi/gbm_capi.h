@@ -258,6 +258,33 @@ GBM_API void gbm_branch_checkout(GbmSessionHandle session,
                                  int32_t stashFirst,
                                  int32_t recurseSubmodules);
 
+/// `git branch <name> [<startPoint>]`, optionally followed by a checkout
+/// and/or `--track`/`-u <upstream>`. `startPoint` empty means HEAD. Async:
+/// fires GBM_EVENT_OPERATION_FINISHED, and on success refreshes refs (and
+/// history, if `checkoutAfter` moved HEAD).
+GBM_API void gbm_branch_create(GbmSessionHandle session,
+                               const char* name,
+                               const char* startPoint,
+                               int32_t checkoutAfter,
+                               int32_t setUpstream,
+                               const char* upstream);
+
+/// `git branch -m <from> <to>` (`-M` when `force`). Async: fires
+/// GBM_EVENT_OPERATION_FINISHED, and on success refreshes refs.
+GBM_API void gbm_branch_rename(GbmSessionHandle session, const char* from, const char* to, int32_t force);
+
+/// `git branch -d/-D <names...>` (multiple names in one call, matching
+/// `git branch`'s own multi-name support -- a multi-select delete is one
+/// operation, not N), or `git push <remoteName> --delete <names...>` when
+/// `isRemote`. `force` deletes even when not fully merged. Async: fires
+/// GBM_EVENT_OPERATION_FINISHED, and on success refreshes refs.
+GBM_API void gbm_branch_delete(GbmSessionHandle session,
+                               const char* const* names,
+                               int32_t nameCount,
+                               int32_t force,
+                               int32_t isRemote,
+                               const char* remoteName);
+
 // --- Reset -----------------------------------------------------------------
 // Mirrors RepositorySession::resetTo -- see src/core/git/ops/ResetOps.h.
 

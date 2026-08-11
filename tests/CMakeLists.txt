@@ -158,6 +158,7 @@ if(GBM_BUILD_CAPI)
         capi/AskpassPollerTest.cpp
         capi/BisectApiTest.cpp
         capi/BlameApiTest.cpp
+        capi/BranchApiTest.cpp
         capi/CallbackRegistryTest.cpp
         capi/CherryPickRevertApiTest.cpp
         capi/DiscoveryApiTest.cpp

@@ -233,6 +233,18 @@ void Session::checkout(CheckoutRequest request) {
     submitOperation(makeCheckoutOperation(std::move(request)), /*refreshHistoryOnSuccess=*/true);
 }
 
+void Session::createBranch(CreateBranchRequest request) {
+    submitOperation(makeCreateBranchOperation(std::move(request)), /*refreshHistoryOnSuccess=*/true);
+}
+
+void Session::renameBranch(RenameBranchRequest request) {
+    submitOperation(makeRenameBranchOperation(std::move(request)), /*refreshHistoryOnSuccess=*/true);
+}
+
+void Session::deleteBranch(DeleteBranchRequest request) {
+    submitOperation(makeDeleteBranchOperation(std::move(request)), /*refreshHistoryOnSuccess=*/true);
+}
+
 void Session::resetTo(ResetRequest request) {
     submitOperation(makeResetOperation(std::move(request)), /*refreshHistoryOnSuccess=*/true);
 }

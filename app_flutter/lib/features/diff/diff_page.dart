@@ -23,10 +23,17 @@ class DiffPage extends StatelessWidget {
       return Center(child: Text('No changes', style: TextStyle(color: colors.textTertiary)));
     }
 
-    return ListView(
-      children: <Widget>[
-        for (final file in diff.files) _DiffFileSection(file: file),
-      ],
+    // SelectionArea, not per-line SelectableText: a diff is read by
+    // dragging a selection across many lines at once (to copy a whole
+    // hunk), which only a single shared selection scope over the list
+    // supports -- isolated per-widget SelectableText instances would each
+    // be their own selection island.
+    return SelectionArea(
+      child: ListView(
+        children: <Widget>[
+          for (final file in diff.files) _DiffFileSection(file: file),
+        ],
+      ),
     );
   }
 }

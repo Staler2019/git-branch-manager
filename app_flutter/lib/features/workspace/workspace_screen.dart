@@ -42,6 +42,23 @@ class WorkspaceScreen extends ConsumerWidget {
       }
     });
 
+    // Same auto-push pattern as credentialPrompt above -- a checkout
+    // refused on a dirty work tree is not something the user chose to open
+    // a dialog for either.
+    ref.listen(repoSessionProvider(identity).select((state) => state.checkoutChoices), (previous, next) {
+      if (next.isNotEmpty && (previous?.isEmpty ?? true)) {
+        context.push(RoutePaths.checkoutRecoveryDialogFor(repoId));
+      }
+    });
+
+    // Same auto-push pattern, for the "not fully merged" -> "Force delete"
+    // recovery flow (see DeleteBranchRecoveryDialogContent's doc comment).
+    ref.listen(repoSessionProvider(identity).select((state) => state.deleteBranchChoices), (previous, next) {
+      if (next.isNotEmpty && (previous?.isEmpty ?? true)) {
+        context.push(RoutePaths.deleteBranchRecoveryDialogFor(repoId));
+      }
+    });
+
     if (!session.isOpen) {
       return Scaffold(
         appBar: AppBar(leading: BackButton(onPressed: () => context.go(RoutePaths.repoList))),

@@ -30,6 +30,7 @@
 #include "core/git/RepoState.h"
 #include "core/git/WorkingCopyStatus.h"
 #include "core/git/ops/BisectOps.h"
+#include "core/git/ops/BranchOps.h"
 #include "core/git/ops/CheckoutOp.h"
 #include "core/git/ops/CherryPickOps.h"
 #include "core/git/ops/CommitOps.h"
@@ -124,6 +125,11 @@ public:
 
     /// Async: see gbm_branch_checkout()'s doc comment in gbm_capi.h.
     void checkout(CheckoutRequest request);
+
+    /// Async: see gbm_branch_create()/_rename()/_delete()'s doc comments.
+    void createBranch(CreateBranchRequest request);
+    void renameBranch(RenameBranchRequest request);
+    void deleteBranch(DeleteBranchRequest request);
 
     /// Async: see gbm_reset_to()'s doc comment in gbm_capi.h.
     void resetTo(ResetRequest request);

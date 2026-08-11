@@ -6,10 +6,12 @@ import '../features/conflict_resolution/conflict_resolve_window.dart';
 import '../features/dialogs/about/about_dialog.dart';
 import '../features/dialogs/bisect/bisect_dialog.dart';
 import '../features/dialogs/blame/blame_dialog.dart';
+import '../features/dialogs/checkout_recovery/checkout_recovery_dialog.dart';
 import '../features/dialogs/cherry_pick/cherry_pick_dialog.dart';
 import '../features/dialogs/clean_untracked/clean_untracked_dialog.dart';
 import '../features/dialogs/create_tag/create_tag_dialog.dart';
 import '../features/dialogs/credential/credential_dialog.dart';
+import '../features/dialogs/delete_branch_recovery/delete_branch_recovery_dialog.dart';
 import '../features/dialogs/file_history/file_history_dialog.dart';
 import '../features/dialogs/interactive_rebase/interactive_rebase_dialog.dart';
 import '../features/dialogs/keyboard_shortcuts/keyboard_shortcuts_dialog.dart';
@@ -251,6 +253,20 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
           return PreferencesDialogContent(identity: identity);
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.checkoutRecoveryDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          return CheckoutRecoveryDialogContent(identity: identity);
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.deleteBranchRecoveryDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          return DeleteBranchRecoveryDialogContent(identity: identity);
         },
       ),
       GoRoute(

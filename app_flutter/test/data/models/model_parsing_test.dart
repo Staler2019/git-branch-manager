@@ -15,6 +15,7 @@ import 'package:gbm_flutter/data/models/git_identity.dart';
 import 'package:gbm_flutter/data/models/graph_snapshot.dart';
 import 'package:gbm_flutter/data/models/lfs_state.dart';
 import 'package:gbm_flutter/data/models/line_history_chunk.dart';
+import 'package:gbm_flutter/data/models/operation_choice.dart';
 import 'package:gbm_flutter/data/models/operation_outcome.dart';
 import 'package:gbm_flutter/data/models/operation_record.dart';
 import 'package:gbm_flutter/data/models/parsed_diff.dart';
@@ -94,12 +95,29 @@ void main() {
   });
 
   test('OperationOutcome.fromJson decodes a null error on success', () {
-    final Map<String, dynamic> json = jsonDecode('{"succeeded":true,"error":null,"summary":"Switched to main"}');
+    final Map<String, dynamic> json = jsonDecode(
+      '{"succeeded":true,"error":null,"choices":[],"summary":"Switched to main"}',
+    );
     final OperationOutcome outcome = OperationOutcome.fromJson(json);
 
     expect(outcome.succeeded, isTrue);
     expect(outcome.error, isNull);
+    expect(outcome.choices, isEmpty);
     expect(outcome.summary, 'Switched to main');
+  });
+
+  test('OperationOutcome.fromJson decodes recovery choices on failure', () {
+    final Map<String, dynamic> json = jsonDecode(
+      '{"succeeded":false,"error":null,"summary":"","choices":['
+      '{"kind":0,"label":"Stash changes and checkout","explanation":"...","destructive":false},'
+      '{"kind":2,"label":"Cancel","explanation":"Do not check out.","destructive":false}'
+      ']}',
+    );
+    final OperationOutcome outcome = OperationOutcome.fromJson(json);
+
+    expect(outcome.choices, hasLength(2));
+    expect(outcome.choices.first.kind, OperationChoiceKind.stashAndRetry);
+    expect(outcome.choices.last.kind, OperationChoiceKind.abort);
   });
 
   test('GraphRow decodes RowMeta flag bits', () {

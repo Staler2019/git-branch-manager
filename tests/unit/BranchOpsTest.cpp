@@ -176,5 +176,55 @@ TEST(DeleteBranchOperation, KeepsExistingSummaryWhenTheProbeItselfFails) {
     EXPECT_TRUE(offersForce);
 }
 
+TEST(CreateBranchOperation, LeavesHeadAloneWhenCheckoutAfterIsFalse) {
+    FakeProcessRunner runner;
+
+    CreateBranchRequest request;
+    request.name = "feature";
+    request.checkoutAfter = false;
+    auto operation = makeCreateBranchOperation(request);
+
+    OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
+
+    EXPECT_TRUE(outcome.succeeded);
+    ASSERT_EQ(runner.invocationCount(), 1u);
+    EXPECT_EQ(runner.invokedArgs(0)[0], "branch");
+}
+
+TEST(CreateBranchOperation, ChecksOutTheNewBranchWhenCheckoutAfterIsTrue) {
+    FakeProcessRunner runner;
+
+    CreateBranchRequest request;
+    request.name = "feature";
+    request.checkoutAfter = true;
+    auto operation = makeCreateBranchOperation(request);
+
+    OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
+
+    ASSERT_TRUE(outcome.succeeded);
+    ASSERT_EQ(runner.invocationCount(), 2u);
+    EXPECT_EQ(runner.invokedArgs(0)[0], "branch");
+    EXPECT_EQ(runner.invokedArgs(1)[0], "checkout");
+    EXPECT_EQ(runner.invokedArgs(1)[1], "feature");
+}
+
+TEST(CreateBranchOperation, ReportsCheckoutFailureAfterBranchWasAlreadyCreated) {
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response checkoutFailure;
+    checkoutFailure.exitCode = 1;
+    checkoutFailure.err = "error: your local changes would be overwritten by checkout\n";
+    runner.whenArgsContain({"checkout", "feature"}, checkoutFailure);
+
+    CreateBranchRequest request;
+    request.name = "feature";
+    request.checkoutAfter = true;
+    auto operation = makeCreateBranchOperation(request);
+
+    OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
+
+    EXPECT_FALSE(outcome.succeeded);
+    EXPECT_NE(outcome.summary.find("overwritten"), std::string::npos);
+}
+
 }  // namespace
 }  // namespace gbm

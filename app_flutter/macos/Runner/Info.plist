@@ -28,5 +28,13 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>git-branch-manager scans folders you choose for Git repositories, including ones on your Desktop.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>git-branch-manager scans folders you choose for Git repositories, including ones in Documents.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>git-branch-manager scans folders you choose for Git repositories, including ones in Downloads.</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>git-branch-manager scans folders you choose for Git repositories, including ones on removable volumes.</string>
 </dict>
 </plist>

@@ -73,6 +73,12 @@ Other decisions that are easy to get wrong:
   platforms.
 - **A cancelled scan never deletes anything.** It commits what it found and skips
   the mark-missing sweep, because most of the tree was never visited.
+- **The macOS build does not run under App Sandbox.** A Git GUI has to walk
+  arbitrary directories the user names, spawn `git` from wherever it happens
+  to be installed, and hand off to hooks, credential helpers and an askpass
+  program — none of which is compatible with the sandbox's per-file access
+  model. The tradeoff is giving up Mac App Store distribution; direct
+  distribution (notarized `.dmg`/`.zip`) is fine without a sandbox.
 
 ### Two bugs the design caught, as illustration
 

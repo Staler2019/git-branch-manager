@@ -26,8 +26,13 @@ protected:
         std::filesystem::remove_all(base_);
         std::filesystem::create_directories(repo_);
 
+#ifdef _WIN32
+        const std::string cmd = "git -C \"" + repo_.string() +
+                                "\" init --quiet --initial-branch=main >NUL 2>&1";
+#else
         const std::string cmd = "git -C \"" + repo_.string() +
                                 "\" init --quiet --initial-branch=main >/dev/null 2>&1";
+#endif
         ASSERT_EQ(std::system(cmd.c_str()), 0);
     }
 

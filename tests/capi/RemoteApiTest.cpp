@@ -128,7 +128,11 @@ protected:
         for (const auto& arg : args) {
             command += " \"" + arg + "\"";
         }
+#ifdef _WIN32
+        command += " >NUL 2>&1";
+#else
         command += " >/dev/null 2>&1";
+#endif
         return std::system(command.c_str());
     }
 

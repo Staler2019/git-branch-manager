@@ -178,7 +178,14 @@ jobs:
 
   thread-sanitizer:
     name: Thread sanitizer
-    runs-on: ubuntu-22.04
+    # ubuntu-24.04, not ubuntu-22.04 like the other sanitizer jobs: 22.04's
+    # default GCC 11 + libtsan has a confirmed false-positive "double lock of
+    # a mutex" on plain std::condition_variable::wait_for() usage -- reduced
+    # to a ~30-line repro with no gbm_capi code at all (just std::mutex +
+    # std::condition_variable + std::thread) that fails 100% of the time on
+    # GCC 11 and passes 100% of the time on GCC 13, which 24.04 ships by
+    # default. Not an application bug; a toolchain one.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:

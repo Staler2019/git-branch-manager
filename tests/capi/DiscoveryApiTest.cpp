@@ -60,5 +60,49 @@ TEST_F(DiscoveryApiTest, ScanFindsRepositoryUnderBaseFolder) {
     EXPECT_NE(json.find(repo_.string()), std::string::npos) << json;
 }
 
+std::string lastResultJson() {
+    std::string json(static_cast<std::size_t>(gbm_last_result_json_len()), '\0');
+    gbm_last_result_json_copy(reinterpret_cast<uint8_t*>(json.data()), static_cast<int32_t>(json.size()));
+    return json;
+}
+
+TEST_F(DiscoveryApiTest, BaseFoldersJsonReportsRegisteredFolder) {
+    discovery_ = gbm_discovery_open("");
+    ASSERT_NE(discovery_, nullptr);
+
+    const int64_t folderId = gbm_discovery_add_base_folder(discovery_, base_.string().c_str(), 3, 0);
+    ASSERT_GE(folderId, 0);
+
+    ASSERT_EQ(gbm_discovery_base_folders_json(discovery_), 0);
+    const std::string json = lastResultJson();
+    EXPECT_NE(json.find(base_.string()), std::string::npos) << json;
+    EXPECT_NE(json.find("\"enabled\":true"), std::string::npos) << json;
+    EXPECT_NE(json.find("\"maxDepth\":3"), std::string::npos) << json;
+}
+
+TEST_F(DiscoveryApiTest, SetBaseFolderEnabledTogglesFlag) {
+    discovery_ = gbm_discovery_open("");
+    ASSERT_NE(discovery_, nullptr);
+    const int64_t folderId = gbm_discovery_add_base_folder(discovery_, base_.string().c_str(), 3, 0);
+    ASSERT_GE(folderId, 0);
+
+    ASSERT_EQ(gbm_discovery_set_base_folder_enabled(discovery_, folderId, 0), 0);
+
+    ASSERT_EQ(gbm_discovery_base_folders_json(discovery_), 0);
+    EXPECT_NE(lastResultJson().find("\"enabled\":false"), std::string::npos);
+}
+
+TEST_F(DiscoveryApiTest, RemoveBaseFolderDropsItFromTheList) {
+    discovery_ = gbm_discovery_open("");
+    ASSERT_NE(discovery_, nullptr);
+    const int64_t folderId = gbm_discovery_add_base_folder(discovery_, base_.string().c_str(), 3, 0);
+    ASSERT_GE(folderId, 0);
+
+    ASSERT_EQ(gbm_discovery_remove_base_folder(discovery_, folderId), 0);
+
+    ASSERT_EQ(gbm_discovery_base_folders_json(discovery_), 0);
+    EXPECT_EQ(lastResultJson(), "[]");
+}
+
 }  // namespace
 }  // namespace gbm::capi

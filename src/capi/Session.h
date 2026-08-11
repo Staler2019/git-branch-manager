@@ -26,6 +26,7 @@
 #include "core/git/WorkingCopyStatus.h"
 #include "core/git/ops/CheckoutOp.h"
 #include "core/git/ops/CommitOps.h"
+#include "core/git/ops/ResetOps.h"
 #include "core/git/ops/StageOps.h"
 #include "core/graph/GraphSnapshot.h"
 #include "core/workers/ThreadPool.h"
@@ -91,6 +92,9 @@ public:
 
     /// Async: see gbm_branch_checkout()'s doc comment in gbm_capi.h.
     void checkout(CheckoutRequest request);
+
+    /// Async: see gbm_reset_to()'s doc comment in gbm_capi.h.
+    void resetTo(ResetRequest request);
 
     /// Async: see gbm_working_copy_refresh()'s doc comment in gbm_capi.h.
     void refreshWorkingCopy();

@@ -2,10 +2,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../data/repositories/repo_identity.dart';
+import '../features/dialogs/about/about_dialog.dart';
+import '../features/dialogs/keyboard_shortcuts/keyboard_shortcuts_dialog.dart';
+import '../features/dialogs/manage_base_folders/manage_base_folders_dialog.dart';
+import '../features/dialogs/reset_branch/reset_branch_dialog.dart';
 import '../features/history_graph/commit_graph_view.dart';
 import '../features/repo_list/repo_list_screen.dart';
 import '../features/working_copy/working_copy_view.dart';
 import '../features/workspace/workspace_screen.dart';
+import 'dialog_route.dart';
 import 'route_paths.dart';
 
 /// `repoId` in the route is the URL-encoded working-directory path -- simple
@@ -18,13 +23,17 @@ String repoIdFor(String workDir) => Uri.encodeComponent(workDir);
 
 RepoIdentity repoIdentityFromRouteParam(String repoId) => RepoIdentity.forWorkDir(Uri.decodeComponent(repoId));
 
-/// `/`, `/repo/:repoId/history` and `/repo/:repoId/working-copy` so far --
-/// see the plan's routing-table section for the full design
-/// (`/repo/:repoId/diff/:commitId`, `/repo/:repoId/conflicts`, and the 30+
-/// `/repo/:repoId/dialogs/<name>` routes), added milestone by milestone as
-/// the screens behind them are implemented. history/working-copy are the
-/// first ShellRoute children: WorkspaceScreen (sidebar + top bar) persists
-/// across the two, only the main pane swaps -- see workspace_screen.dart.
+/// `/`, `/repo/:repoId/history`, `/repo/:repoId/working-copy`, plus the
+/// first four dialog routes (M3: about, keyboard shortcuts, manage base
+/// folders, reset branch) -- see the plan's routing-table section for the
+/// full design (`/repo/:repoId/diff/:commitId`, `/repo/:repoId/conflicts`,
+/// and the ~26 remaining `/dialogs/<name>` routes), added milestone by
+/// milestone as the screens behind them are implemented.
+///
+/// Dialog routes are top-level (not ShellRoute children): they're pushed
+/// with `context.push()` on top of whatever screen is showing, rendered as
+/// a non-opaque overlay page (see dialog_route.dart), and popped back to it
+/// -- unlike history/working-copy, which replace the shell's main pane.
 final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: RoutePaths.repoList,
@@ -58,6 +67,22 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
             },
           ),
         ],
+      ),
+      dialogRoute(path: RoutePaths.aboutDialog, builder: (context, state) => const AboutDialogContent()),
+      dialogRoute(
+        path: RoutePaths.keyboardShortcutsDialog,
+        builder: (context, state) => const KeyboardShortcutsDialogContent(),
+      ),
+      dialogRoute(
+        path: RoutePaths.manageBaseFoldersDialog,
+        builder: (context, state) => const ManageBaseFoldersDialogContent(),
+      ),
+      dialogRoute(
+        path: RoutePaths.resetBranchDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          return ResetBranchDialogContent(identity: identity);
+        },
       ),
     ],
   );

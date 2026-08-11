@@ -1,0 +1,76 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../../data/models/base_folder_record.dart';
+import '../../../data/repositories/discovery_repository.dart';
+import '../../../theme/gbm_theme.dart';
+import '../../../theme/tokens.dart';
+import '../../../widgets/gbm_dialog_shell.dart';
+
+/// The Dart analog of `ManageBaseFoldersDialog`
+/// (src/app/dialogs/ManageBaseFoldersDialog.cpp). Routed as
+/// `/dialogs/manage-base-folders`. Adding a folder is still done via the
+/// quick-add field on the repo list screen (see repo_list_screen.dart);
+/// this dialog is where existing folders are enabled/disabled or removed.
+class ManageBaseFoldersDialogContent extends ConsumerWidget {
+  const ManageBaseFoldersDialogContent({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final DiscoveryState discovery = ref.watch(discoveryProvider);
+    final GbmColors colors = context.gbmColors;
+
+    return GbmDialogShell(
+      title: 'Base Folders',
+      child: discovery.baseFolders.isEmpty
+          ? Padding(
+              padding: const EdgeInsets.symmetric(vertical: GbmSpacing.space4),
+              child: Text('No base folders yet.', style: TextStyle(color: colors.textTertiary)),
+            )
+          : SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  for (final folder in discovery.baseFolders) _BaseFolderRow(folder: folder),
+                  const SizedBox(height: GbmSpacing.space2),
+                ],
+              ),
+            ),
+    );
+  }
+}
+
+class _BaseFolderRow extends ConsumerWidget {
+  const _BaseFolderRow({required this.folder});
+
+  final BaseFolderRecord folder;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final GbmColors colors = context.gbmColors;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: GbmSpacing.space1),
+      child: Row(
+        children: <Widget>[
+          Checkbox(
+            value: folder.enabled,
+            onChanged: (value) => ref.read(discoveryProvider.notifier).setBaseFolderEnabled(folder.id, value ?? true),
+            visualDensity: VisualDensity.compact,
+          ),
+          Expanded(
+            child: Text(
+              folder.path,
+              style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textPrimary),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          IconButton(
+            icon: Icon(Icons.delete_outline, size: 18, color: colors.danger),
+            tooltip: 'Remove',
+            onPressed: () => ref.read(discoveryProvider.notifier).removeBaseFolder(folder.id),
+          ),
+        ],
+      ),
+    );
+  }
+}

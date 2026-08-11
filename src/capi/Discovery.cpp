@@ -92,3 +92,36 @@ GBM_API int32_t gbm_discovery_list_repos_json(GbmDiscoveryHandle discovery) {
     setStagingBuffer(toJson(records.value()));
     return 0;
 }
+
+GBM_API int32_t gbm_discovery_base_folders_json(GbmDiscoveryHandle discovery) {
+    DiscoveryState* state = toDiscovery(discovery);
+    const GitResult<std::vector<BaseFolderRecord>> folders = state->db.baseFolders();
+    if (!folders) {
+        setStagingBuffer(toJson(folders.error()));
+        return errorCodeOrdinal(folders.error());
+    }
+    setStagingBuffer(toJson(folders.value()));
+    return 0;
+}
+
+GBM_API int32_t gbm_discovery_remove_base_folder(GbmDiscoveryHandle discovery, int64_t baseFolderId) {
+    DiscoveryState* state = toDiscovery(discovery);
+    const GitResult<void> result = state->db.removeBaseFolder(baseFolderId);
+    if (!result) {
+        setStagingBuffer(toJson(result.error()));
+        return errorCodeOrdinal(result.error());
+    }
+    return 0;
+}
+
+GBM_API int32_t gbm_discovery_set_base_folder_enabled(GbmDiscoveryHandle discovery,
+                                                      int64_t baseFolderId,
+                                                      int32_t enabled) {
+    DiscoveryState* state = toDiscovery(discovery);
+    const GitResult<void> result = state->db.setBaseFolderEnabled(baseFolderId, enabled != 0);
+    if (!result) {
+        setStagingBuffer(toJson(result.error()));
+        return errorCodeOrdinal(result.error());
+    }
+    return 0;
+}

@@ -11,6 +11,7 @@ add_library(gbm_capi SHARED
     History.cpp
     JsonCodec.cpp
     Refs.cpp
+    ResetRestore.cpp
     Session.cpp
     WorkingCopy.cpp
 )

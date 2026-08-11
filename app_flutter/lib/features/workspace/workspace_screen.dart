@@ -100,6 +100,11 @@ class _TabRow extends StatelessWidget {
           _Tab(label: 'History', active: !onWorkingCopy, onTap: () => context.go(RoutePaths.historyFor(repoId))),
           const SizedBox(width: GbmSpacing.space4),
           _Tab(label: 'Working Copy', active: onWorkingCopy, onTap: () => context.go(RoutePaths.workingCopyFor(repoId))),
+          const Spacer(),
+          TextButton(
+            onPressed: () => context.push(RoutePaths.resetBranchDialogFor(repoId)),
+            child: Text('Reset…', style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textSecondary)),
+          ),
         ],
       ),
     );

@@ -5,6 +5,7 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/base_folder_record.dart';
 import 'package:gbm_flutter/data/models/git_error.dart';
 import 'package:gbm_flutter/data/models/graph_snapshot.dart';
 import 'package:gbm_flutter/data/models/operation_outcome.dart';
@@ -142,5 +143,18 @@ void main() {
     expect(diff.files.single.hunks.single.lines, hasLength(2));
     expect(diff.files.single.hunks.single.lines[1].kind, DiffLineKind.added);
     expect(diff.files.single.hunks.single.lines[1].text, 'line2');
+  });
+
+  test('BaseFolderRecord.listFromJson decodes an array', () {
+    final List<dynamic> json = jsonDecode(
+      '[{"id":1,"path":"/code","enabled":true,"maxDepth":3,"followLinks":false,'
+      '"lastScanStarted":0,"lastScanFinished":0,"lastScanDirs":0,"lastScanMs":0}]',
+    );
+    final List<BaseFolderRecord> folders = BaseFolderRecord.listFromJson(json);
+
+    expect(folders, hasLength(1));
+    expect(folders.single.path, '/code');
+    expect(folders.single.enabled, isTrue);
+    expect(folders.single.maxDepth, 3);
   });
 }

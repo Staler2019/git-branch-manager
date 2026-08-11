@@ -25,6 +25,8 @@ std::string toJson(const CommitMeta& meta);
 std::string toJson(const OperationOutcome& outcome);
 std::string toJson(const RepoRecord& record);
 std::string toJson(const std::vector<RepoRecord>& records);
+std::string toJson(const BaseFolderRecord& record);
+std::string toJson(const std::vector<BaseFolderRecord>& records);
 std::string toJson(const RefSnapshot& refs);
 std::string toJson(const WorkingCopyStatus& status);
 std::string toJson(const ParsedDiff& diff);

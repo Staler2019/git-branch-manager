@@ -9,22 +9,38 @@ import 'package:path_provider/path_provider.dart';
 
 import '../ffi/gbm_bindings.dart';
 import '../ffi/json_codec.dart';
+import '../models/base_folder_record.dart';
 import '../models/git_error.dart';
 import '../models/repo_record.dart';
 import 'gbm_bindings_provider.dart';
 
 class DiscoveryState {
-  const DiscoveryState({this.isOpen = false, this.repos = const <RepoRecord>[], this.isScanning = false, this.lastError});
+  const DiscoveryState({
+    this.isOpen = false,
+    this.repos = const <RepoRecord>[],
+    this.baseFolders = const <BaseFolderRecord>[],
+    this.isScanning = false,
+    this.lastError,
+  });
 
   final bool isOpen;
   final List<RepoRecord> repos;
+  final List<BaseFolderRecord> baseFolders;
   final bool isScanning;
   final GitError? lastError;
 
-  DiscoveryState copyWith({bool? isOpen, List<RepoRecord>? repos, bool? isScanning, GitError? lastError, bool clearError = false}) {
+  DiscoveryState copyWith({
+    bool? isOpen,
+    List<RepoRecord>? repos,
+    List<BaseFolderRecord>? baseFolders,
+    bool? isScanning,
+    GitError? lastError,
+    bool clearError = false,
+  }) {
     return DiscoveryState(
       isOpen: isOpen ?? this.isOpen,
       repos: repos ?? this.repos,
+      baseFolders: baseFolders ?? this.baseFolders,
       isScanning: isScanning ?? this.isScanning,
       lastError: clearError ? null : (lastError ?? this.lastError),
     );
@@ -68,6 +84,7 @@ class DiscoveryController extends StateNotifier<DiscoveryState> {
     }
     state = state.copyWith(isOpen: true);
     _listRepos();
+    _listBaseFolders();
   }
 
   void _listRepos() {
@@ -75,6 +92,14 @@ class DiscoveryController extends StateNotifier<DiscoveryState> {
       final String json = readLastResultJson(_bindings);
       final List<dynamic> decoded = json.isEmpty ? const <dynamic>[] : jsonDecode(json) as List<dynamic>;
       state = state.copyWith(repos: RepoRecord.listFromJson(decoded));
+    }
+  }
+
+  void _listBaseFolders() {
+    if (_bindings.discoveryBaseFoldersJson(_discovery) == 0) {
+      final String json = readLastResultJson(_bindings);
+      final List<dynamic> decoded = json.isEmpty ? const <dynamic>[] : jsonDecode(json) as List<dynamic>;
+      state = state.copyWith(baseFolders: BaseFolderRecord.listFromJson(decoded));
     }
   }
 
@@ -113,7 +138,32 @@ class DiscoveryController extends StateNotifier<DiscoveryState> {
       return;
     }
     _listRepos();
+    _listBaseFolders();
     state = state.copyWith(isScanning: false);
+  }
+
+  /// Enables/disables a base folder without removing it. See
+  /// gbm_discovery_set_base_folder_enabled()'s doc comment in gbm_capi.h.
+  void setBaseFolderEnabled(int baseFolderId, bool enabled) {
+    if (_discovery == nullptr) return;
+    final int result = _bindings.discoverySetBaseFolderEnabled(_discovery, baseFolderId, enabled ? 1 : 0);
+    if (result != 0) {
+      state = state.copyWith(lastError: _decodeLastError());
+      return;
+    }
+    _listBaseFolders();
+  }
+
+  /// Unregisters a base folder. Its already-discovered repositories stay in
+  /// the list (see gbm_discovery_remove_base_folder()'s doc comment).
+  void removeBaseFolder(int baseFolderId) {
+    if (_discovery == nullptr) return;
+    final int result = _bindings.discoveryRemoveBaseFolder(_discovery, baseFolderId);
+    if (result != 0) {
+      state = state.copyWith(lastError: _decodeLastError());
+      return;
+    }
+    _listBaseFolders();
   }
 
   @override

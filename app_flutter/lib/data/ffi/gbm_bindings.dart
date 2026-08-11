@@ -108,6 +108,9 @@ typedef BranchCheckoutDart =
       int recurseSubmodules,
     );
 
+typedef _ResetToNative = Void Function(Pointer<Void> session, Pointer<Utf8> target, Int32 mode);
+typedef ResetToDart = void Function(Pointer<Void> session, Pointer<Utf8> target, int mode);
+
 typedef _WorkingCopyRefreshNative = Void Function(Pointer<Void> session);
 typedef WorkingCopyRefreshDart = void Function(Pointer<Void> session);
 
@@ -146,6 +149,15 @@ typedef DiscoveryScanAllDart = int Function(Pointer<Void> discovery);
 typedef _DiscoveryListReposJsonNative = Int32 Function(Pointer<Void> discovery);
 typedef DiscoveryListReposJsonDart = int Function(Pointer<Void> discovery);
 
+typedef _DiscoveryBaseFoldersJsonNative = Int32 Function(Pointer<Void> discovery);
+typedef DiscoveryBaseFoldersJsonDart = int Function(Pointer<Void> discovery);
+
+typedef _DiscoveryRemoveBaseFolderNative = Int32 Function(Pointer<Void> discovery, Int64 baseFolderId);
+typedef DiscoveryRemoveBaseFolderDart = int Function(Pointer<Void> discovery, int baseFolderId);
+
+typedef _DiscoverySetBaseFolderEnabledNative =
+    Int32 Function(Pointer<Void> discovery, Int64 baseFolderId, Int32 enabled);
+typedef DiscoverySetBaseFolderEnabledDart = int Function(Pointer<Void> discovery, int baseFolderId, int enabled);
 
 /// Thin, allocation-free wrapper around the `gbm_capi` symbol table. One
 /// instance per isolate is enough; construct it once via [GbmBindings.open]
@@ -192,6 +204,7 @@ class GbmBindings {
         'gbm_graph_snapshot_release',
       ),
       branchCheckout = library.lookupFunction<_BranchCheckoutNative, BranchCheckoutDart>('gbm_branch_checkout'),
+      resetTo = library.lookupFunction<_ResetToNative, ResetToDart>('gbm_reset_to'),
       workingCopyRefresh = library.lookupFunction<_WorkingCopyRefreshNative, WorkingCopyRefreshDart>(
         'gbm_working_copy_refresh',
       ),
@@ -211,7 +224,19 @@ class GbmBindings {
         'gbm_discovery_scan_all',
       ),
       discoveryListReposJson = library
-          .lookupFunction<_DiscoveryListReposJsonNative, DiscoveryListReposJsonDart>('gbm_discovery_list_repos_json');
+          .lookupFunction<_DiscoveryListReposJsonNative, DiscoveryListReposJsonDart>('gbm_discovery_list_repos_json'),
+      discoveryBaseFoldersJson = library
+          .lookupFunction<_DiscoveryBaseFoldersJsonNative, DiscoveryBaseFoldersJsonDart>(
+            'gbm_discovery_base_folders_json',
+          ),
+      discoveryRemoveBaseFolder = library
+          .lookupFunction<_DiscoveryRemoveBaseFolderNative, DiscoveryRemoveBaseFolderDart>(
+            'gbm_discovery_remove_base_folder',
+          ),
+      discoverySetBaseFolderEnabled = library
+          .lookupFunction<_DiscoverySetBaseFolderEnabledNative, DiscoverySetBaseFolderEnabledDart>(
+            'gbm_discovery_set_base_folder_enabled',
+          );
 
   final FreeEventPayloadDart freeEventPayload;
   final LastResultJsonLenDart lastResultJsonLen;
@@ -231,6 +256,7 @@ class GbmBindings {
   final GraphIntQueryDart graphSnapshotTruncated;
   final GraphReleaseDart graphSnapshotRelease;
   final BranchCheckoutDart branchCheckout;
+  final ResetToDart resetTo;
   final WorkingCopyRefreshDart workingCopyRefresh;
   final WorkingCopyStatusJsonDart workingCopyStatusJson;
   final WorkingCopyDiffDart workingCopyDiff;
@@ -242,4 +268,7 @@ class GbmBindings {
   final DiscoveryAddBaseFolderDart discoveryAddBaseFolder;
   final DiscoveryScanAllDart discoveryScanAll;
   final DiscoveryListReposJsonDart discoveryListReposJson;
+  final DiscoveryBaseFoldersJsonDart discoveryBaseFoldersJson;
+  final DiscoveryRemoveBaseFolderDart discoveryRemoveBaseFolder;
+  final DiscoverySetBaseFolderEnabledDart discoverySetBaseFolderEnabled;
 }

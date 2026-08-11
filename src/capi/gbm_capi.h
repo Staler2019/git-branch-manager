@@ -201,6 +201,16 @@ GBM_API void gbm_branch_checkout(GbmSessionHandle session,
                                  int32_t stashFirst,
                                  int32_t recurseSubmodules);
 
+// --- Reset -----------------------------------------------------------------
+// Mirrors RepositorySession::resetTo -- see src/core/git/ops/ResetOps.h.
+
+/// `mode`: 0 = soft, 1 = mixed, 2 = hard (ResetMode's ordinal order in
+/// ResetOps.h: Soft, Mixed, Hard). `target` empty means HEAD. Async: fires
+/// GBM_EVENT_OPERATION_FINISHED, and on success also triggers both a
+/// history refresh (HEAD moved) and a working-copy refresh (mixed/hard
+/// rewrite the index and/or work tree).
+GBM_API void gbm_reset_to(GbmSessionHandle session, const char* target, int32_t mode);
+
 // --- Working copy / diff ---------------------------------------------------
 // Mirrors RepositorySession's working-copy methods (RepositorySession.h,
 // "Working Copy" section) and DiffService's workingTreeDiff -- see
@@ -270,3 +280,20 @@ GBM_API int32_t gbm_discovery_scan_all(GbmDiscoveryHandle discovery);
 /// Populates the staging buffer with every known repository (including
 /// those currently missing) as a JSON array. Returns 0 on success.
 GBM_API int32_t gbm_discovery_list_repos_json(GbmDiscoveryHandle discovery);
+
+/// Populates the staging buffer with every registered base folder as a JSON
+/// array (id/path/enabled/maxDepth/followLinks/lastScan*). Returns 0 on
+/// success.
+GBM_API int32_t gbm_discovery_base_folders_json(GbmDiscoveryHandle discovery);
+
+/// Unregisters a base folder (its already-discovered repositories stay in
+/// the index, matching RepoIndexDb::removeBaseFolder's own contract).
+/// Returns 0 on success, or a negative GbmErrorCode.
+GBM_API int32_t gbm_discovery_remove_base_folder(GbmDiscoveryHandle discovery, int64_t baseFolderId);
+
+/// Enables/disables a base folder without removing it -- a disabled folder
+/// is skipped by gbm_discovery_scan_all() but its known repositories stay
+/// listed. Returns 0 on success, or a negative GbmErrorCode.
+GBM_API int32_t gbm_discovery_set_base_folder_enabled(GbmDiscoveryHandle discovery,
+                                                      int64_t baseFolderId,
+                                                      int32_t enabled);

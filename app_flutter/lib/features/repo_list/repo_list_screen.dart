@@ -45,7 +45,26 @@ class _RepoListScreenState extends ConsumerState<RepoListScreen> {
     final GbmColors colors = context.gbmColors;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('git-branch-manager')),
+      appBar: AppBar(
+        title: const Text('git-branch-manager'),
+        actions: <Widget>[
+          IconButton(
+            icon: LucideIcon('archive', size: 18, color: colors.textSecondary),
+            tooltip: 'Manage base folders',
+            onPressed: () => context.push(RoutePaths.manageBaseFoldersDialog),
+          ),
+          IconButton(
+            icon: const Icon(Icons.keyboard_outlined, size: 18),
+            tooltip: 'Keyboard shortcuts',
+            onPressed: () => context.push(RoutePaths.keyboardShortcutsDialog),
+          ),
+          IconButton(
+            icon: const Icon(Icons.info_outline, size: 18),
+            tooltip: 'About',
+            onPressed: () => context.push(RoutePaths.aboutDialog),
+          ),
+        ],
+      ),
       body: Column(
         children: <Widget>[
           if (discovery.lastError case final error?) GbmWarningBanner(message: error.message),

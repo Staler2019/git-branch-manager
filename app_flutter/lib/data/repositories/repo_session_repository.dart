@@ -17,6 +17,10 @@ import '../models/working_copy_status.dart';
 import 'gbm_bindings_provider.dart';
 import 'repo_identity.dart';
 
+/// Mirrors `gbm::ResetMode` (src/core/git/ops/ResetOps.h) -- ordinal order
+/// matters, it is passed straight through to `gbm_reset_to`.
+enum ResetMode { soft, mixed, hard }
+
 /// Reply to [RepoSessionController.requestDiff]: the diff plus which
 /// path/staged pair it answers, so a caller that fired several diff
 /// requests can tell which one just arrived -- mirrors
@@ -214,6 +218,19 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     } finally {
       malloc.free(targetPtr);
       malloc.free(newBranchPtr);
+    }
+  }
+
+  /// `git reset --soft|--mixed|--hard <target>`. `target` empty means HEAD.
+  /// See gbm_reset_to()'s doc comment in gbm_capi.h: on success also
+  /// refreshes history and the working copy.
+  void resetTo(String target, ResetMode mode) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> targetPtr = target.toNativeUtf8();
+    try {
+      _bindings.resetTo(_session, targetPtr, mode.index);
+    } finally {
+      malloc.free(targetPtr);
     }
   }
 

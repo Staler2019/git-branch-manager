@@ -246,6 +246,40 @@ std::string toJson(const std::vector<RepoRecord>& records) {
     return out;
 }
 
+std::string toJson(const BaseFolderRecord& record) {
+    std::string out = "{";
+    out += "\"id\":";
+    jsonAppendInt(out, record.id);
+    out += ",\"path\":";
+    jsonAppendEscaped(out, record.path);
+    out += ",\"enabled\":";
+    jsonAppendBool(out, record.enabled);
+    out += ",\"maxDepth\":";
+    jsonAppendInt(out, record.maxDepth);
+    out += ",\"followLinks\":";
+    jsonAppendBool(out, record.followLinks);
+    out += ",\"lastScanStarted\":";
+    jsonAppendInt(out, record.lastScanStarted);
+    out += ",\"lastScanFinished\":";
+    jsonAppendInt(out, record.lastScanFinished);
+    out += ",\"lastScanDirs\":";
+    jsonAppendInt(out, record.lastScanDirs);
+    out += ",\"lastScanMs\":";
+    jsonAppendInt(out, record.lastScanMs);
+    out += '}';
+    return out;
+}
+
+std::string toJson(const std::vector<BaseFolderRecord>& records) {
+    std::string out = "[";
+    for (std::size_t i = 0; i < records.size(); ++i) {
+        if (i != 0) out += ',';
+        out += toJson(records[i]);
+    }
+    out += ']';
+    return out;
+}
+
 namespace {
 
 std::string workingCopyEntryJson(const WorkingCopyEntry& entry) {

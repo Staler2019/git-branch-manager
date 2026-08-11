@@ -158,6 +158,7 @@ if(GBM_BUILD_CAPI)
         capi/CallbackRegistryTest.cpp
         capi/DiscoveryApiTest.cpp
         capi/JsonCodecTest.cpp
+        capi/ResetApiTest.cpp
         capi/SessionApiTest.cpp
         capi/WorkingCopyApiTest.cpp
     )

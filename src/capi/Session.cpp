@@ -162,6 +162,17 @@ void Session::checkout(CheckoutRequest request) {
     });
 }
 
+void Session::resetTo(ResetRequest request) {
+    operations_->submit(makeResetOperation(std::move(request)), [this](OperationOutcome outcome) {
+        const bool succeeded = outcome.succeeded;
+        callbacks_.emit(GBM_EVENT_OPERATION_FINISHED, toJson(outcome));
+        if (succeeded) {
+            refreshHistory();
+            refreshWorkingCopy();
+        }
+    });
+}
+
 void Session::refreshWorkingCopy() {
     sharedReadPool().post([this]() {
         const GitResult<WorkingCopyStatusPtr> result = workingCopyStatusReader_->read(CancellationToken{});

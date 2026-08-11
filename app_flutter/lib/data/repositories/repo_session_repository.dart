@@ -21,6 +21,15 @@ import 'repo_identity.dart';
 /// matters, it is passed straight through to `gbm_reset_to`.
 enum ResetMode { soft, mixed, hard }
 
+/// Mirrors `gbm::MergeMode` (src/core/git/ops/MergeOps.h) -- ordinal order
+/// matters, it is passed straight through to `gbm_merge_branch`.
+enum MergeMode { fastForwardOnly, noFastForward, squash }
+
+/// Mirrors `gbm::ConflictResolution` (src/core/git/ops/ConflictOps.h) --
+/// ordinal order matters, it is passed straight through to
+/// `gbm_resolve_conflict`.
+enum ConflictResolution { takeOurs, takeTheirs, markResolved, writeResolved }
+
 /// Reply to [RepoSessionController.requestDiff]: the diff plus which
 /// path/staged pair it answers, so a caller that fired several diff
 /// requests can tell which one just arrived -- mirrors
@@ -231,6 +240,95 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
       _bindings.resetTo(_session, targetPtr, mode.index);
     } finally {
       malloc.free(targetPtr);
+    }
+  }
+
+  /// `git merge`. See gbm_merge_branch()'s doc comment in gbm_capi.h: a
+  /// conflicting merge is reported through [state].lastError like any other
+  /// outcome (error.code == conflict), not thrown -- the working copy is
+  /// always refreshed so conflicted paths show up, history only on success.
+  void mergeBranch(String target, MergeMode mode, {String message = '', bool stashFirst = false}) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> targetPtr = target.toNativeUtf8();
+    final Pointer<Utf8> messagePtr = message.toNativeUtf8();
+    try {
+      _bindings.mergeBranch(_session, targetPtr, mode.index, messagePtr, stashFirst ? 1 : 0);
+    } finally {
+      malloc.free(targetPtr);
+      malloc.free(messagePtr);
+    }
+  }
+
+  /// `git merge --abort`.
+  void mergeAbort() {
+    if (_session == nullptr) return;
+    _bindings.mergeAbort(_session);
+  }
+
+  /// `git cherry-pick`. `commitHexes` is oldest-first, the order commits are
+  /// applied in. See gbm_cherry_pick()'s doc comment in gbm_capi.h: stops at
+  /// the first conflict, leaving the rest queued for [cherryPickContinue]/
+  /// [cherryPickSkip]/[cherryPickAbort].
+  void cherryPick(List<String> commitHexes, {int mainline = 0, bool noCommit = false, bool stashFirst = false}) {
+    if (_session == nullptr) return;
+    _withNativeStringArray(
+      commitHexes,
+      (array, count) => _bindings.cherryPick(_session, array, count, mainline, noCommit ? 1 : 0, stashFirst ? 1 : 0),
+    );
+  }
+
+  void cherryPickContinue() {
+    if (_session == nullptr) return;
+    _bindings.cherryPickContinue(_session);
+  }
+
+  void cherryPickSkip() {
+    if (_session == nullptr) return;
+    _bindings.cherryPickSkip(_session);
+  }
+
+  void cherryPickAbort() {
+    if (_session == nullptr) return;
+    _bindings.cherryPickAbort(_session);
+  }
+
+  /// `git revert`. Same `commitHexes` convention as [cherryPick]. No
+  /// continue/skip/abort entry point -- see gbm_revert()'s doc comment.
+  void revert(List<String> commitHexes, {bool noCommit = false, bool stashFirst = false}) {
+    if (_session == nullptr) return;
+    _withNativeStringArray(
+      commitHexes,
+      (array, count) => _bindings.revert(_session, array, count, noCommit ? 1 : 0, stashFirst ? 1 : 0),
+    );
+  }
+
+  /// Resolves one conflicted path. See gbm_resolve_conflict()'s doc comment
+  /// in gbm_capi.h for how `resolvedContent`/the blob-missing flags apply
+  /// per [ConflictResolution] value. Async: fires
+  /// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED and refreshes the working
+  /// copy on success.
+  void resolveConflict(
+    String path,
+    ConflictResolution resolution, {
+    bool oursBlobMissing = false,
+    bool theirsBlobMissing = false,
+    String resolvedContent = '',
+  }) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+    final Pointer<Utf8> resolvedContentPtr = resolvedContent.toNativeUtf8();
+    try {
+      _bindings.resolveConflict(
+        _session,
+        pathPtr,
+        resolution.index,
+        oursBlobMissing ? 1 : 0,
+        theirsBlobMissing ? 1 : 0,
+        resolvedContentPtr,
+      );
+    } finally {
+      malloc.free(pathPtr);
+      malloc.free(resolvedContentPtr);
     }
   }
 

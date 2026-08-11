@@ -111,6 +111,72 @@ typedef BranchCheckoutDart =
 typedef _ResetToNative = Void Function(Pointer<Void> session, Pointer<Utf8> target, Int32 mode);
 typedef ResetToDart = void Function(Pointer<Void> session, Pointer<Utf8> target, int mode);
 
+typedef _MergeBranchNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> target, Int32 mode, Pointer<Utf8> message, Int32 stashFirst);
+typedef MergeBranchDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> target, int mode, Pointer<Utf8> message, int stashFirst);
+
+typedef _MergeAbortNative = Void Function(Pointer<Void> session);
+typedef MergeAbortDart = void Function(Pointer<Void> session);
+
+typedef _CherryPickNative =
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> commitHexes,
+      Int32 commitCount,
+      Int32 mainline,
+      Int32 noCommit,
+      Int32 stashFirst,
+    );
+typedef CherryPickDart =
+    void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> commitHexes,
+      int commitCount,
+      int mainline,
+      int noCommit,
+      int stashFirst,
+    );
+
+typedef _CherryPickContinueNative = Void Function(Pointer<Void> session);
+typedef CherryPickContinueDart = void Function(Pointer<Void> session);
+
+typedef _CherryPickSkipNative = Void Function(Pointer<Void> session);
+typedef CherryPickSkipDart = void Function(Pointer<Void> session);
+
+typedef _CherryPickAbortNative = Void Function(Pointer<Void> session);
+typedef CherryPickAbortDart = void Function(Pointer<Void> session);
+
+typedef _RevertNative =
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> commitHexes,
+      Int32 commitCount,
+      Int32 noCommit,
+      Int32 stashFirst,
+    );
+typedef RevertDart =
+    void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> commitHexes, int commitCount, int noCommit, int stashFirst);
+
+typedef _ResolveConflictNative =
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> path,
+      Int32 resolution,
+      Int32 oursBlobMissing,
+      Int32 theirsBlobMissing,
+      Pointer<Utf8> resolvedContent,
+    );
+typedef ResolveConflictDart =
+    void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> path,
+      int resolution,
+      int oursBlobMissing,
+      int theirsBlobMissing,
+      Pointer<Utf8> resolvedContent,
+    );
+
 typedef _WorkingCopyRefreshNative = Void Function(Pointer<Void> session);
 typedef WorkingCopyRefreshDart = void Function(Pointer<Void> session);
 
@@ -205,6 +271,16 @@ class GbmBindings {
       ),
       branchCheckout = library.lookupFunction<_BranchCheckoutNative, BranchCheckoutDart>('gbm_branch_checkout'),
       resetTo = library.lookupFunction<_ResetToNative, ResetToDart>('gbm_reset_to'),
+      mergeBranch = library.lookupFunction<_MergeBranchNative, MergeBranchDart>('gbm_merge_branch'),
+      mergeAbort = library.lookupFunction<_MergeAbortNative, MergeAbortDart>('gbm_merge_abort'),
+      cherryPick = library.lookupFunction<_CherryPickNative, CherryPickDart>('gbm_cherry_pick'),
+      cherryPickContinue = library.lookupFunction<_CherryPickContinueNative, CherryPickContinueDart>(
+        'gbm_cherry_pick_continue',
+      ),
+      cherryPickSkip = library.lookupFunction<_CherryPickSkipNative, CherryPickSkipDart>('gbm_cherry_pick_skip'),
+      cherryPickAbort = library.lookupFunction<_CherryPickAbortNative, CherryPickAbortDart>('gbm_cherry_pick_abort'),
+      revert = library.lookupFunction<_RevertNative, RevertDart>('gbm_revert'),
+      resolveConflict = library.lookupFunction<_ResolveConflictNative, ResolveConflictDart>('gbm_resolve_conflict'),
       workingCopyRefresh = library.lookupFunction<_WorkingCopyRefreshNative, WorkingCopyRefreshDart>(
         'gbm_working_copy_refresh',
       ),
@@ -257,6 +333,14 @@ class GbmBindings {
   final GraphReleaseDart graphSnapshotRelease;
   final BranchCheckoutDart branchCheckout;
   final ResetToDart resetTo;
+  final MergeBranchDart mergeBranch;
+  final MergeAbortDart mergeAbort;
+  final CherryPickDart cherryPick;
+  final CherryPickContinueDart cherryPickContinue;
+  final CherryPickSkipDart cherryPickSkip;
+  final CherryPickAbortDart cherryPickAbort;
+  final RevertDart revert;
+  final ResolveConflictDart resolveConflict;
   final WorkingCopyRefreshDart workingCopyRefresh;
   final WorkingCopyStatusJsonDart workingCopyStatusJson;
   final WorkingCopyDiffDart workingCopyDiff;

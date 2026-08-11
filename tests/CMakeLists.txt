@@ -156,8 +156,10 @@ endif()
 if(GBM_BUILD_CAPI)
     add_executable(gbm_capi_tests
         capi/CallbackRegistryTest.cpp
+        capi/CherryPickRevertApiTest.cpp
         capi/DiscoveryApiTest.cpp
         capi/JsonCodecTest.cpp
+        capi/MergeApiTest.cpp
         capi/ResetApiTest.cpp
         capi/SessionApiTest.cpp
         capi/WorkingCopyApiTest.cpp

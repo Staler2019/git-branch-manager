@@ -25,8 +25,12 @@
 #include "core/git/RepoState.h"
 #include "core/git/WorkingCopyStatus.h"
 #include "core/git/ops/CheckoutOp.h"
+#include "core/git/ops/CherryPickOps.h"
 #include "core/git/ops/CommitOps.h"
+#include "core/git/ops/ConflictOps.h"
+#include "core/git/ops/MergeOps.h"
 #include "core/git/ops/ResetOps.h"
+#include "core/git/ops/RevertOps.h"
 #include "core/git/ops/StageOps.h"
 #include "core/graph/GraphSnapshot.h"
 #include "core/workers/ThreadPool.h"
@@ -114,6 +118,26 @@ public:
     /// Async: see gbm_commit_changes()'s doc comment in gbm_capi.h.
     void commitChanges(CommitRequest request);
 
+    /// Async: see gbm_merge_branch()/gbm_merge_abort()'s doc comments.
+    /// A conflicting merge is reported as outcome.succeeded == false with
+    /// GitError::Code::Conflict (see MergeOps.h) -- the working copy is
+    /// still refreshed so the conflicted paths show up.
+    void mergeBranch(MergeRequest request);
+    void abortMerge();
+
+    /// Async: see gbm_cherry_pick()/_continue()/_skip()/_abort()'s doc
+    /// comments.
+    void cherryPick(CherryPickRequest request);
+    void continueCherryPick();
+    void skipCherryPick();
+    void abortCherryPick();
+
+    /// Async: see gbm_revert()'s doc comment.
+    void revertCommit(RevertRequest request);
+
+    /// Async: see gbm_resolve_conflict()'s doc comment.
+    void resolveConflict(ResolveConflictRequest request);
+
 private:
     Session(GitInstallation installation, RepoPaths paths, std::unique_ptr<IProcessRunner> runner);
 
@@ -125,6 +149,16 @@ private:
     /// tail of stageFiles/unstageFiles/commitChanges, mirroring
     /// RepositorySession::submitWorkingCopyOperation.
     void submitWorkingCopyOperation(std::unique_ptr<Operation> operation, std::function<void()> onSuccess);
+
+    /// Runs `operation` on operations_, emits GBM_EVENT_OPERATION_FINISHED
+    /// with its outcome, and always refreshes the working copy (a
+    /// checkout/reset/merge/cherry-pick/revert can leave conflicted or
+    /// simply changed paths whether or not it "succeeded" in the
+    /// OperationOutcome sense -- see mergeBranch()'s doc comment above).
+    /// Refreshes history too, but only when `refreshHistoryOnSuccess` and
+    /// the operation actually succeeded, since a conflicting/aborted
+    /// operation has not moved any ref.
+    void submitOperation(std::unique_ptr<Operation> operation, bool refreshHistoryOnSuccess);
 
     GitInstallation installation_;
     RepoPaths paths_;

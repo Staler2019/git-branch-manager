@@ -1,3 +1,16 @@
+/// Mirrors `gbm::RepoState::Flags` (src/core/git/RepoState.h) -- a bitmask,
+/// not a closed enum, since several sequencer states can theoretically
+/// overlap on disk.
+abstract final class RepoStateFlags {
+  static const int merge = 1 << 0;
+  static const int cherryPick = 1 << 1;
+  static const int revert = 1 << 2;
+  static const int rebaseMerge = 1 << 3;
+  static const int rebaseApply = 1 << 4;
+  static const int bisect = 1 << 5;
+  static const int sequencer = 1 << 6;
+}
+
 /// Mirrors `gbm::RepoState` (src/core/git/RepoState.h) as serialized by
 /// `capi::toJson(const RepoState&)`.
 class RepoState {
@@ -36,4 +49,8 @@ class RepoState {
   final bool indexLocked;
   final int? indexLockAgeSeconds;
   final String describe;
+
+  bool get isMerging => flags & RepoStateFlags.merge != 0;
+  bool get isCherryPicking => flags & RepoStateFlags.cherryPick != 0;
+  bool get isReverting => flags & RepoStateFlags.revert != 0;
 }

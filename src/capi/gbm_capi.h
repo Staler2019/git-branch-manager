@@ -211,6 +211,81 @@ GBM_API void gbm_branch_checkout(GbmSessionHandle session,
 /// rewrite the index and/or work tree).
 GBM_API void gbm_reset_to(GbmSessionHandle session, const char* target, int32_t mode);
 
+// --- Merge -------------------------------------------------------------
+// Mirrors RepositorySession::mergeBranch/abortMerge -- see
+// src/core/git/ops/MergeOps.h.
+
+/// `mode`: 0 = fast-forward-only, 1 = no-fast-forward, 2 = squash
+/// (MergeMode's ordinal order: FastForwardOnly, NoFastForward, Squash).
+/// `message` overrides the default merge commit message (ignored for
+/// squash); pass "" to use git's default. Async: fires
+/// GBM_EVENT_OPERATION_FINISHED. A conflicting merge is reported with
+/// `succeeded: false` and `error.code` == GBM_ERR_CONFLICT, exactly like any
+/// other outcome -- it is not a crash or an exceptional case, see
+/// MergeOps.h's doc comment. Either way the working copy is refreshed so
+/// conflicted paths show up; history is refreshed only on success.
+GBM_API void gbm_merge_branch(GbmSessionHandle session,
+                              const char* target,
+                              int32_t mode,
+                              const char* message,
+                              int32_t stashFirst);
+
+/// `git merge --abort`. Async: fires GBM_EVENT_OPERATION_FINISHED.
+GBM_API void gbm_merge_abort(GbmSessionHandle session);
+
+// --- Cherry-pick -----------------------------------------------------------
+// Mirrors RepositorySession::cherryPick/continueCherryPick/skipCherryPick/
+// abortCherryPick -- see src/core/git/ops/CherryPickOps.h.
+
+/// `commitHexes`/`commitCount`: full or abbreviated hex object ids, oldest
+/// first (the order they are applied in). `mainline` is 1-based, 0 means
+/// "not a merge commit". Async: fires GBM_EVENT_OPERATION_FINISHED; stops at
+/// the first conflict exactly like `git cherry-pick`, leaving the remaining
+/// commits queued for gbm_cherry_pick_continue()/_skip()/_abort().
+GBM_API void gbm_cherry_pick(GbmSessionHandle session,
+                             const char* const* commitHexes,
+                             int32_t commitCount,
+                             int32_t mainline,
+                             int32_t noCommit,
+                             int32_t stashFirst);
+
+GBM_API void gbm_cherry_pick_continue(GbmSessionHandle session);
+GBM_API void gbm_cherry_pick_skip(GbmSessionHandle session);
+GBM_API void gbm_cherry_pick_abort(GbmSessionHandle session);
+
+// --- Revert ------------------------------------------------------------
+// Mirrors RepositorySession::revertCommit -- see src/core/git/ops/RevertOps.h.
+
+/// Same `commitHexes`/`commitCount` convention as gbm_cherry_pick(). Async:
+/// fires GBM_EVENT_OPERATION_FINISHED. No continue/skip/abort entry point --
+/// see RevertOps.h's doc comment for why.
+GBM_API void gbm_revert(GbmSessionHandle session,
+                        const char* const* commitHexes,
+                        int32_t commitCount,
+                        int32_t noCommit,
+                        int32_t stashFirst);
+
+// --- Conflict resolution -----------------------------------------------
+// Mirrors RepositorySession::resolveConflict -- see
+// src/core/git/ops/ConflictOps.h.
+
+/// `resolution`: 0 = take ours, 1 = take theirs, 2 = mark resolved (stage
+/// current on-disk content as-is), 3 = write resolved (write
+/// `resolvedContent` to `path` first, then stage it) -- ConflictResolution's
+/// ordinal order in ConflictOps.h. `oursBlobMissing`/`theirsBlobMissing`
+/// matter only for take-ours/take-theirs (see WorkingCopyEntry::oursBlob/
+/// theirsBlob's doc comments); `resolvedContent` matters only for
+/// write-resolved and must be non-empty then. Async: fires
+/// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED (this is a working-copy-scoped
+/// fix, not a top-level branch operation), and refreshes the working copy
+/// on success.
+GBM_API void gbm_resolve_conflict(GbmSessionHandle session,
+                                  const char* path,
+                                  int32_t resolution,
+                                  int32_t oursBlobMissing,
+                                  int32_t theirsBlobMissing,
+                                  const char* resolvedContent);
+
 // --- Working copy / diff ---------------------------------------------------
 // Mirrors RepositorySession's working-copy methods (RepositorySession.h,
 // "Working Copy" section) and DiffService's workingTreeDiff -- see

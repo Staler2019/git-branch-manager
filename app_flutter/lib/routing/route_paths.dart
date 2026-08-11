@@ -17,9 +17,19 @@ abstract final class RoutePaths {
 
   /// Repo-scoped, per the plan's `/repo/:repoId/dialogs/<name>` design.
   static const String resetBranchDialog = '/repo/:repoId/dialogs/reset-branch';
+  static const String mergeDialog = '/repo/:repoId/dialogs/merge';
+  static const String cherryPickDialog = '/repo/:repoId/dialogs/cherry-pick';
+
+  /// Standalone top-level route, not a `/dialogs/<name>` overlay -- see
+  /// `features/conflict_resolution/conflict_resolve_window.dart`'s doc
+  /// comment for why.
+  static const String conflicts = '/repo/:repoId/conflicts';
 
   static String workspaceFor(String repoId) => historyFor(repoId);
   static String historyFor(String repoId) => '/repo/$repoId/history';
   static String workingCopyFor(String repoId) => '/repo/$repoId/working-copy';
   static String resetBranchDialogFor(String repoId) => '/repo/$repoId/dialogs/reset-branch';
+  static String mergeDialogFor(String repoId) => '/repo/$repoId/dialogs/merge';
+  static String cherryPickDialogFor(String repoId) => '/repo/$repoId/dialogs/cherry-pick';
+  static String conflictsFor(String repoId) => '/repo/$repoId/conflicts';
 }

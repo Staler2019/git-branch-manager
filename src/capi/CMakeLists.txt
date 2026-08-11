@@ -5,13 +5,17 @@
 add_library(gbm_capi SHARED
     Branches.cpp
     CallbackRegistry.cpp
+    CherryPick.cpp
+    Conflicts.cpp
     Discovery.cpp
     Graph.cpp
     Handle.cpp
     History.cpp
     JsonCodec.cpp
+    Merge.cpp
     Refs.cpp
     ResetRestore.cpp
+    Revert.cpp
     Session.cpp
     WorkingCopy.cpp
 )

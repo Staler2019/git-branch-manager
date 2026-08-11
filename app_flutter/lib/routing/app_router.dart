@@ -2,9 +2,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../data/repositories/repo_identity.dart';
+import '../features/conflict_resolution/conflict_resolve_window.dart';
 import '../features/dialogs/about/about_dialog.dart';
+import '../features/dialogs/cherry_pick/cherry_pick_dialog.dart';
 import '../features/dialogs/keyboard_shortcuts/keyboard_shortcuts_dialog.dart';
 import '../features/dialogs/manage_base_folders/manage_base_folders_dialog.dart';
+import '../features/dialogs/merge/merge_dialog.dart';
 import '../features/dialogs/reset_branch/reset_branch_dialog.dart';
 import '../features/history_graph/commit_graph_view.dart';
 import '../features/repo_list/repo_list_screen.dart';
@@ -82,6 +85,27 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
           return ResetBranchDialogContent(identity: identity);
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.mergeDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          return MergeDialogContent(identity: identity);
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.cherryPickDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          return CherryPickDialogContent(identity: identity);
+        },
+      ),
+      GoRoute(
+        path: RoutePaths.conflicts,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          return ConflictResolveWindow(identity: identity);
         },
       ),
     ],

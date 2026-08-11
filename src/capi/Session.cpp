@@ -153,24 +153,11 @@ void Session::publishGraph(GraphSnapshotPtr snapshot) {
 }
 
 void Session::checkout(CheckoutRequest request) {
-    operations_->submit(makeCheckoutOperation(std::move(request)), [this](OperationOutcome outcome) {
-        const bool succeeded = outcome.succeeded;
-        callbacks_.emit(GBM_EVENT_OPERATION_FINISHED, toJson(outcome));
-        if (succeeded) {
-            refreshHistory();
-        }
-    });
+    submitOperation(makeCheckoutOperation(std::move(request)), /*refreshHistoryOnSuccess=*/true);
 }
 
 void Session::resetTo(ResetRequest request) {
-    operations_->submit(makeResetOperation(std::move(request)), [this](OperationOutcome outcome) {
-        const bool succeeded = outcome.succeeded;
-        callbacks_.emit(GBM_EVENT_OPERATION_FINISHED, toJson(outcome));
-        if (succeeded) {
-            refreshHistory();
-            refreshWorkingCopy();
-        }
-    });
+    submitOperation(makeResetOperation(std::move(request)), /*refreshHistoryOnSuccess=*/true);
 }
 
 void Session::refreshWorkingCopy() {
@@ -238,6 +225,49 @@ void Session::commitChanges(CommitRequest request) {
         refreshWorkingCopy();
         refreshHistory();
     });
+}
+
+void Session::submitOperation(std::unique_ptr<Operation> operation, bool refreshHistoryOnSuccess) {
+    operations_->submit(std::move(operation), [this, refreshHistoryOnSuccess](OperationOutcome outcome) {
+        const bool succeeded = outcome.succeeded;
+        callbacks_.emit(GBM_EVENT_OPERATION_FINISHED, toJson(outcome));
+        refreshWorkingCopy();
+        if (succeeded && refreshHistoryOnSuccess) {
+            refreshHistory();
+        }
+    });
+}
+
+void Session::mergeBranch(MergeRequest request) {
+    submitOperation(makeMergeOperation(std::move(request)), /*refreshHistoryOnSuccess=*/true);
+}
+
+void Session::abortMerge() {
+    submitOperation(makeMergeAbortOperation(), /*refreshHistoryOnSuccess=*/true);
+}
+
+void Session::cherryPick(CherryPickRequest request) {
+    submitOperation(makeCherryPickOperation(std::move(request)), /*refreshHistoryOnSuccess=*/true);
+}
+
+void Session::continueCherryPick() {
+    submitOperation(makeCherryPickContinueOperation(), /*refreshHistoryOnSuccess=*/true);
+}
+
+void Session::skipCherryPick() {
+    submitOperation(makeCherryPickSkipOperation(), /*refreshHistoryOnSuccess=*/true);
+}
+
+void Session::abortCherryPick() {
+    submitOperation(makeCherryPickAbortOperation(), /*refreshHistoryOnSuccess=*/true);
+}
+
+void Session::revertCommit(RevertRequest request) {
+    submitOperation(makeRevertOperation(std::move(request)), /*refreshHistoryOnSuccess=*/true);
+}
+
+void Session::resolveConflict(ResolveConflictRequest request) {
+    submitWorkingCopyOperation(makeResolveConflictOperation(std::move(request)), [this]() { refreshWorkingCopy(); });
 }
 
 }  // namespace gbm::capi

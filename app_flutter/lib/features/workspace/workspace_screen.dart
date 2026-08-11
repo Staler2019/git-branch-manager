@@ -53,7 +53,10 @@ class WorkspaceScreen extends ConsumerWidget {
             onBack: () => context.go(RoutePaths.repoList),
           ),
           _TabRow(repoId: repoId),
-          if (session.lastError case final error?) GbmWarningBanner(message: error.message),
+          if (session.workingCopyStatus.conflicted.isNotEmpty)
+            _ConflictBanner(repoId: repoId, count: session.workingCopyStatus.conflicted.length)
+          else if (session.lastError case final error?)
+            GbmWarningBanner(message: error.message),
           Expanded(
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -102,8 +105,47 @@ class _TabRow extends StatelessWidget {
           _Tab(label: 'Working Copy', active: onWorkingCopy, onTap: () => context.go(RoutePaths.workingCopyFor(repoId))),
           const Spacer(),
           TextButton(
+            onPressed: () => context.push(RoutePaths.mergeDialogFor(repoId)),
+            child: Text('Merge…', style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textSecondary)),
+          ),
+          TextButton(
+            onPressed: () => context.push(RoutePaths.cherryPickDialogFor(repoId)),
+            child: Text('Cherry-pick…', style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textSecondary)),
+          ),
+          TextButton(
             onPressed: () => context.push(RoutePaths.resetBranchDialogFor(repoId)),
             child: Text('Reset…', style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textSecondary)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ConflictBanner extends StatelessWidget {
+  const _ConflictBanner({required this.repoId, required this.count});
+
+  final String repoId;
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space4, vertical: GbmSpacing.space2),
+      decoration: BoxDecoration(color: colors.diffDelBg, border: Border(bottom: BorderSide(color: colors.borderSubtle))),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Text(
+              '$count file${count == 1 ? '' : 's'} conflicted',
+              style: TextStyle(fontSize: GbmTypography.textSm, color: colors.diffDelText),
+            ),
+          ),
+          TextButton(
+            onPressed: () => context.go(RoutePaths.conflictsFor(repoId)),
+            child: Text('Resolve…', style: TextStyle(fontSize: GbmTypography.textSm, color: colors.diffDelText, fontWeight: GbmTypography.weightSemibold)),
           ),
         ],
       ),

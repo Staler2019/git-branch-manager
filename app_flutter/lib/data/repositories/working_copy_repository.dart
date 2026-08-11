@@ -40,3 +40,23 @@ void unstageFiles(WidgetRef ref, RepoIdentity identity, List<String> paths) {
 void commitChanges(WidgetRef ref, RepoIdentity identity, String message, {bool amend = false, bool signOff = false}) {
   ref.read(repoSessionProvider(identity).notifier).commit(message, amend: amend, signOff: signOff);
 }
+
+void resolveConflict(
+  WidgetRef ref,
+  RepoIdentity identity,
+  String path,
+  ConflictResolution resolution, {
+  bool oursBlobMissing = false,
+  bool theirsBlobMissing = false,
+  String resolvedContent = '',
+}) {
+  ref
+      .read(repoSessionProvider(identity).notifier)
+      .resolveConflict(
+        path,
+        resolution,
+        oursBlobMissing: oursBlobMissing,
+        theirsBlobMissing: theirsBlobMissing,
+        resolvedContent: resolvedContent,
+      );
+}

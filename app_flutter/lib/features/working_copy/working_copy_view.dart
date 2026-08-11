@@ -4,7 +4,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../data/models/working_copy_status.dart';
 import '../../data/repositories/repo_identity.dart';
-import '../../data/repositories/repo_session_repository.dart' show WorkingCopyDiffReply, repoSessionProvider;
+import '../../data/repositories/repo_session_repository.dart'
+    show RepoSessionController, WorkingCopyDiffReply, repoSessionProvider;
 import '../../data/repositories/working_copy_repository.dart' as wc;
 import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
@@ -42,6 +43,18 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     final WorkingCopyStatus status = ref.watch(wc.repoWorkingCopyStatusProvider(widget.identity));
     final WorkingCopyDiffReply? diffReply = ref.watch(wc.repoLastDiffProvider(widget.identity));
     final GbmColors colors = context.gbmColors;
+
+    // A hunk/line stage or unstage action only refreshes the working-copy
+    // status (see Session::stageHunk() et al.'s doc comments) -- the diff
+    // pane itself is stale until re-requested, so re-fetch it for whatever
+    // is currently selected whenever status changes (covers ordinary
+    // whole-file stage/unstage too, which has the same staleness).
+    ref.listen(wc.repoWorkingCopyStatusProvider(widget.identity), (previous, next) {
+      final String? path = _selectedPath;
+      if (path != null) {
+        wc.requestWorkingCopyDiff(ref, widget.identity, path, staged: _selectedStaged);
+      }
+    });
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -84,7 +97,26 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
           child: _selectedPath == null
               ? Center(child: Text('Select a file', style: TextStyle(color: colors.textTertiary)))
               : (diffReply != null && diffReply.path == _selectedPath && diffReply.staged == _selectedStaged)
-              ? DiffPage(diff: diffReply.diff)
+              ? DiffPage(
+                  diff: diffReply.diff,
+                  staged: _selectedStaged,
+                  onStageHunk: (_, hunkIndex) {
+                    final RepoSessionController notifier = ref.read(repoSessionProvider(widget.identity).notifier);
+                    if (_selectedStaged) {
+                      notifier.unstageHunk(_selectedPath!, hunkIndex);
+                    } else {
+                      notifier.stageHunk(_selectedPath!, hunkIndex);
+                    }
+                  },
+                  onStageLines: (_, hunkIndex, lineIndices) {
+                    final RepoSessionController notifier = ref.read(repoSessionProvider(widget.identity).notifier);
+                    if (_selectedStaged) {
+                      notifier.unstageLines(_selectedPath!, hunkIndex, lineIndices);
+                    } else {
+                      notifier.stageLines(_selectedPath!, hunkIndex, lineIndices);
+                    }
+                  },
+                )
               : const Center(child: CircularProgressIndicator()),
         ),
       ],

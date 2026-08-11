@@ -257,6 +257,26 @@ typedef _CommitChangesNative =
     Void Function(Pointer<Void> session, Pointer<Utf8> message, Int32 amend, Int32 signOff);
 typedef CommitChangesDart = void Function(Pointer<Void> session, Pointer<Utf8> message, int amend, int signOff);
 
+typedef _StageHunkNative = Void Function(Pointer<Void> session, Pointer<Utf8> path, Int32 hunkIndex);
+typedef StageHunkDart = void Function(Pointer<Void> session, Pointer<Utf8> path, int hunkIndex);
+
+typedef _StageLinesNative =
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> path,
+      Int32 hunkIndex,
+      Pointer<Int32> lineIndices,
+      Int32 lineIndexCount,
+    );
+typedef StageLinesDart =
+    void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> path,
+      int hunkIndex,
+      Pointer<Int32> lineIndices,
+      int lineIndexCount,
+    );
+
 typedef _StashRefreshNative = Void Function(Pointer<Void> session);
 typedef StashRefreshDart = void Function(Pointer<Void> session);
 
@@ -740,6 +760,10 @@ class GbmBindings {
       ),
       stageFiles = library.lookupFunction<_StageFilesNative, StageFilesDart>('gbm_stage_files'),
       unstageFiles = library.lookupFunction<_UnstageFilesNative, UnstageFilesDart>('gbm_unstage_files'),
+      stageHunk = library.lookupFunction<_StageHunkNative, StageHunkDart>('gbm_stage_hunk'),
+      unstageHunk = library.lookupFunction<_StageHunkNative, StageHunkDart>('gbm_unstage_hunk'),
+      stageLines = library.lookupFunction<_StageLinesNative, StageLinesDart>('gbm_stage_lines'),
+      unstageLines = library.lookupFunction<_StageLinesNative, StageLinesDart>('gbm_unstage_lines'),
       commitChanges = library.lookupFunction<_CommitChangesNative, CommitChangesDart>('gbm_commit_changes'),
       stashRefresh = library.lookupFunction<_StashRefreshNative, StashRefreshDart>('gbm_stash_refresh'),
       stashesJson = library.lookupFunction<_StashesJsonNative, StashesJsonDart>('gbm_stashes_json'),
@@ -914,6 +938,10 @@ class GbmBindings {
   final WorkingCopyDiffDart workingCopyDiff;
   final StageFilesDart stageFiles;
   final UnstageFilesDart unstageFiles;
+  final StageHunkDart stageHunk;
+  final StageHunkDart unstageHunk;
+  final StageLinesDart stageLines;
+  final StageLinesDart unstageLines;
   final CommitChangesDart commitChanges;
   final StashRefreshDart stashRefresh;
   final StashesJsonDart stashesJson;

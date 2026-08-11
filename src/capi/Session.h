@@ -149,6 +149,13 @@ public:
     void stageFiles(std::vector<std::string> paths);
     void unstageFiles(std::vector<std::string> paths);
 
+    /// Async: see gbm_stage_hunk()/gbm_unstage_hunk()/gbm_stage_lines()/
+    /// gbm_unstage_lines()'s doc comments in gbm_capi.h.
+    void stageHunk(std::string path, std::size_t hunkIndex);
+    void unstageHunk(std::string path, std::size_t hunkIndex);
+    void stageLines(std::string path, std::size_t hunkIndex, std::vector<std::size_t> lineIndices);
+    void unstageLines(std::string path, std::size_t hunkIndex, std::vector<std::size_t> lineIndices);
+
     /// Async: see gbm_commit_changes()'s doc comment in gbm_capi.h.
     void commitChanges(CommitRequest request);
 

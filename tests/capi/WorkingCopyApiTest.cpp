@@ -115,6 +115,34 @@ protected:
         return json;
     }
 
+    /// Triggers gbm_working_copy_diff() and returns the JSON payload of the
+    /// next GBM_EVENT_WORKING_COPY_DIFF_READY, cleared from the log first so
+    /// a later call in the same test can't see a stale earlier reply.
+    std::string requestDiffJson(const std::string& path, bool staged) {
+        {
+            std::lock_guard<std::mutex> lock(log_.mutex);
+            log_.events.clear();
+        }
+        gbm_working_copy_diff(session_, path.c_str(), staged ? 1 : 0);
+        const bool arrived = log_.waitFor([](const auto& events) {
+            for (const auto& [type, payload] : events) {
+                if (type == GBM_EVENT_WORKING_COPY_DIFF_READY) return true;
+            }
+            return false;
+        });
+        if (!arrived) return "";
+        return log_.payloadsOfType(GBM_EVENT_WORKING_COPY_DIFF_READY).back();
+    }
+
+    bool waitForWorkingCopyOperationFinished() {
+        return log_.waitFor([](const auto& events) {
+            for (const auto& [type, payload] : events) {
+                if (type == GBM_EVENT_WORKING_COPY_OPERATION_FINISHED) return true;
+            }
+            return false;
+        });
+    }
+
     std::filesystem::path repo_;
     GbmSessionHandle session_ = nullptr;
     EventLog log_;
@@ -218,6 +246,107 @@ TEST_F(WorkingCopyApiTest, CommitChangesCreatesCommitAndRefreshesGraph) {
     EXPECT_NE(rows, nullptr);
     EXPECT_EQ(rowCount, 2);  // initial commit + the new one
     gbm_graph_snapshot_release(session_);
+}
+
+TEST_F(WorkingCopyApiTest, StageHunkStagesOnlyThatHunkLeavingTheOtherUnstaged) {
+    std::string original;
+    for (int i = 1; i <= 30; ++i) original += "L" + std::to_string(i) + "\n";
+    std::ofstream(repo_ / "multi.txt") << original;
+    ASSERT_EQ(runGit({"add", "multi.txt"}), 0);
+    ASSERT_EQ(runGit({"commit", "--quiet", "-m", "Add multi.txt"}), 0);
+
+    // Two edits far enough apart (well past the default 3-line context on
+    // each side) to land in separate hunks: a top hunk and a bottom hunk.
+    std::string modified;
+    for (int i = 1; i <= 30; ++i) {
+        if (i == 2) {
+            modified += "L2-changed\n";
+        } else if (i == 29) {
+            modified += "L29-changed\n";
+        } else {
+            modified += "L" + std::to_string(i) + "\n";
+        }
+    }
+    std::ofstream(repo_ / "multi.txt") << modified;
+
+    const std::string beforeDiff = requestDiffJson("multi.txt", /*staged=*/false);
+    ASSERT_NE(beforeDiff.find("\"L2-changed\""), std::string::npos) << beforeDiff;
+    ASSERT_NE(beforeDiff.find("\"L29-changed\""), std::string::npos) << beforeDiff;
+
+    gbm_stage_hunk(session_, "multi.txt", /*hunkIndex=*/0);
+    ASSERT_TRUE(waitForWorkingCopyOperationFinished());
+
+    const std::string stagedDiff = requestDiffJson("multi.txt", /*staged=*/true);
+    EXPECT_NE(stagedDiff.find("\"L2-changed\""), std::string::npos) << stagedDiff;
+    EXPECT_EQ(stagedDiff.find("\"L29-changed\""), std::string::npos) << stagedDiff;
+
+    const std::string unstagedDiff = requestDiffJson("multi.txt", /*staged=*/false);
+    EXPECT_EQ(unstagedDiff.find("\"L2-changed\""), std::string::npos) << unstagedDiff;
+    EXPECT_NE(unstagedDiff.find("\"L29-changed\""), std::string::npos) << unstagedDiff;
+}
+
+TEST_F(WorkingCopyApiTest, UnstageHunkReversesAFullyStagedSingleHunkFile) {
+    std::ofstream(repo_ / "single.txt") << "a\nb\nc\n";
+    ASSERT_EQ(runGit({"add", "single.txt"}), 0);
+    ASSERT_EQ(runGit({"commit", "--quiet", "-m", "Add single.txt"}), 0);
+    std::ofstream(repo_ / "single.txt") << "a\nb\nc\nd\n";
+
+    gbm_stage_hunk(session_, "single.txt", /*hunkIndex=*/0);
+    ASSERT_TRUE(waitForWorkingCopyOperationFinished());
+    const std::string stagedDiff = requestDiffJson("single.txt", /*staged=*/true);
+    ASSERT_NE(stagedDiff.find("\"d\""), std::string::npos) << stagedDiff;
+
+    gbm_unstage_hunk(session_, "single.txt", /*hunkIndex=*/0);
+    ASSERT_TRUE(waitForWorkingCopyOperationFinished());
+
+    const std::string stagedAfter = requestDiffJson("single.txt", /*staged=*/true);
+    EXPECT_EQ(stagedAfter.find("\"files\":[{"), std::string::npos) << stagedAfter;
+    const std::string unstagedAfter = requestDiffJson("single.txt", /*staged=*/false);
+    EXPECT_NE(unstagedAfter.find("\"d\""), std::string::npos) << unstagedAfter;
+}
+
+TEST_F(WorkingCopyApiTest, StageLinesStagesOnlyTheSelectedAddedLines) {
+    std::string original;
+    for (int i = 1; i <= 7; ++i) original += "l" + std::to_string(i) + "\n";
+    std::ofstream(repo_ / "lines.txt") << original;
+    ASSERT_EQ(runGit({"add", "lines.txt"}), 0);
+    ASSERT_EQ(runGit({"commit", "--quiet", "-m", "Add lines.txt"}), 0);
+
+    // Insert two new lines between l4 and l5. With the default 3-line
+    // context, the resulting hunk is exactly: context l2,l3,l4 (indices
+    // 0-2), added NEW1,NEW2 (indices 3-4), context l5,l6,l7 (indices 5-7).
+    std::ofstream(repo_ / "lines.txt") << "l1\nl2\nl3\nl4\nNEW1\nNEW2\nl5\nl6\nl7\n";
+
+    const int32_t lineIndices[] = {3};  // NEW1 only
+    gbm_stage_lines(session_, "lines.txt", /*hunkIndex=*/0, lineIndices, 1);
+    ASSERT_TRUE(waitForWorkingCopyOperationFinished());
+
+    const std::string stagedDiff = requestDiffJson("lines.txt", /*staged=*/true);
+    EXPECT_NE(stagedDiff.find("\"NEW1\""), std::string::npos) << stagedDiff;
+    EXPECT_EQ(stagedDiff.find("\"NEW2\""), std::string::npos) << stagedDiff;
+
+    // NEW1 is now part of the index, so the remaining unstaged diff (work
+    // tree vs index) shows it as unchanged context rather than omitting it
+    // entirely -- it still appears in the text, just not as an added line.
+    // Only NEW2 remains a real addition, so the file-level added-line count
+    // drops from 2 to 1.
+    const std::string unstagedDiff = requestDiffJson("lines.txt", /*staged=*/false);
+    EXPECT_NE(unstagedDiff.find("\"addedLines\":1"), std::string::npos) << unstagedDiff;
+    EXPECT_NE(unstagedDiff.find("\"kind\":1,\"oldLine\":0,\"newLine\":6,\"text\":\"NEW2\""), std::string::npos) << unstagedDiff;
+}
+
+TEST_F(WorkingCopyApiTest, StageHunkFailsCleanlyWhenTheHunkIndexNoLongerExists) {
+    std::ofstream(repo_ / "onehunk.txt") << "a\nb\nc\n";
+    ASSERT_EQ(runGit({"add", "onehunk.txt"}), 0);
+    ASSERT_EQ(runGit({"commit", "--quiet", "-m", "Add onehunk.txt"}), 0);
+    std::ofstream(repo_ / "onehunk.txt") << "a\nb\nc\nd\n";
+
+    gbm_stage_hunk(session_, "onehunk.txt", /*hunkIndex=*/5);
+    ASSERT_TRUE(waitForWorkingCopyOperationFinished());
+
+    const std::vector<std::string> outcomes = log_.payloadsOfType(GBM_EVENT_WORKING_COPY_OPERATION_FINISHED);
+    ASSERT_FALSE(outcomes.empty());
+    EXPECT_NE(outcomes.back().find("\"succeeded\":false"), std::string::npos) << outcomes.back();
 }
 
 }  // namespace

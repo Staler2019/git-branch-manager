@@ -399,6 +399,40 @@ GBM_API void gbm_stage_files(GbmSessionHandle session, const char* const* paths,
 /// gbm_stage_files().
 GBM_API void gbm_unstage_files(GbmSessionHandle session, const char* const* paths, int32_t pathCount);
 
+/// Stages a single hunk from `path`'s unstaged diff (work tree vs index):
+/// recomputes that diff, locates hunk number `hunkIndex` (0-based, in the
+/// same order gbm_working_copy_diff's reply lists them), and applies it to
+/// the index only via `git apply --cached`. Same event/refresh contract as
+/// gbm_stage_files(); fails with succeeded=false if `hunkIndex` no longer
+/// exists (the file changed since it was last diffed) -- see
+/// PartialStageRequest's doc comment in core/git/ops/StageOps.h.
+GBM_API void gbm_stage_hunk(GbmSessionHandle session, const char* path, int32_t hunkIndex);
+
+/// The reverse of gbm_stage_hunk(): recomputes `path`'s *staged* diff (index
+/// vs HEAD), locates hunk `hunkIndex` there, and applies it with `git apply
+/// --cached --reverse`. Same event/refresh contract as gbm_stage_files().
+GBM_API void gbm_unstage_hunk(GbmSessionHandle session, const char* path, int32_t hunkIndex);
+
+/// Like gbm_stage_hunk(), but stages only a subset of that hunk's added/
+/// removed lines -- `lineIndices`/`lineIndexCount` index into the hunk's
+/// `lines` array (context and no-newline-marker lines always pass through
+/// regardless of whether their index is included). Same event/refresh
+/// contract as gbm_stage_files().
+GBM_API void gbm_stage_lines(GbmSessionHandle session,
+                             const char* path,
+                             int32_t hunkIndex,
+                             const int32_t* lineIndices,
+                             int32_t lineIndexCount);
+
+/// The reverse of gbm_stage_lines(): recomputes `path`'s *staged* diff,
+/// applied with `git apply --cached --reverse`. Same event/refresh contract
+/// as gbm_stage_files().
+GBM_API void gbm_unstage_lines(GbmSessionHandle session,
+                               const char* path,
+                               int32_t hunkIndex,
+                               const int32_t* lineIndices,
+                               int32_t lineIndexCount);
+
 /// `git commit` / `git commit --amend`. `message` empty together with
 /// `amend` keeps the existing message (`--amend --no-edit`); empty otherwise
 /// is rejected before git runs. Async: fires

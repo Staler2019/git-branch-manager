@@ -9,9 +9,17 @@ import '../../../theme/tokens.dart';
 /// [DiffLine], with old/new line numbers in a fixed-width gutter like every
 /// git diff viewer.
 class DiffLineView extends StatelessWidget {
-  const DiffLineView({super.key, required this.line});
+  const DiffLineView({super.key, required this.line, this.selectable = false, this.selected = false, this.onSelectedChanged});
 
   final DiffLine line;
+  /// Whether this line can be checked for line-level staging -- only added/
+  /// removed lines are ever selectable (context and no-newline-marker lines
+  /// always pass through a rebuilt patch regardless, see
+  /// UnifiedDiffParser::buildLineSelectionPatch's doc comment), so this is
+  /// false for those even when the caller passes true.
+  final bool selectable;
+  final bool selected;
+  final VoidCallback? onSelectedChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -30,6 +38,9 @@ class DiffLineView extends StatelessWidget {
       DiffLineKind.context => 'unchanged',
     };
 
+    final bool showCheckbox =
+        selectable && onSelectedChanged != null && (line.kind == DiffLineKind.added || line.kind == DiffLineKind.removed);
+
     return Semantics(
       label: '$kindLabel line ${line.text}',
       child: Container(
@@ -38,6 +49,20 @@ class DiffLineView extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
+            SizedBox(
+              width: 18,
+              child: showCheckbox
+                  ? Semantics(
+                      label: '${selected ? 'Unselect' : 'Select'} line for partial staging',
+                      child: Checkbox(
+                        value: selected,
+                        onChanged: (_) => onSelectedChanged!(),
+                        visualDensity: VisualDensity.compact,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    )
+                  : null,
+            ),
             SizedBox(width: 36, child: _lineNumberText(line.oldLine, colors.textTertiary)),
             SizedBox(width: 36, child: _lineNumberText(line.newLine, colors.textTertiary)),
             SizedBox(

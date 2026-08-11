@@ -957,6 +957,71 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     _withNativeStringArray(paths, (array, count) => _bindings.unstageFiles(_session, array, count));
   }
 
+  /// Stages a single hunk (0-based `hunkIndex`, in the order the most recent
+  /// unstaged diff for `path` listed them) via `git apply --cached` against
+  /// a freshly-recomputed diff -- see gbm_stage_hunk()'s doc comment in
+  /// gbm_capi.h. Same event/refresh contract as [stageFiles]; a `hunkIndex`
+  /// that no longer exists (the file changed since it was last diffed)
+  /// surfaces as a failed outcome through [RepoSessionState.lastError].
+  void stageHunk(String path, int hunkIndex) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+    try {
+      _bindings.stageHunk(_session, pathPtr, hunkIndex);
+    } finally {
+      malloc.free(pathPtr);
+    }
+  }
+
+  /// The reverse of [stageHunk]: `hunkIndex` indexes into `path`'s *staged*
+  /// diff instead. Same event/refresh contract as [stageFiles].
+  void unstageHunk(String path, int hunkIndex) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+    try {
+      _bindings.unstageHunk(_session, pathPtr, hunkIndex);
+    } finally {
+      malloc.free(pathPtr);
+    }
+  }
+
+  /// Like [stageHunk], but stages only a subset of that hunk's added/
+  /// removed lines -- `lineIndices` index into the hunk's `lines` array
+  /// (context and no-newline-marker lines always pass through regardless).
+  /// Same event/refresh contract as [stageFiles].
+  void stageLines(String path, int hunkIndex, List<int> lineIndices) {
+    if (_session == nullptr || lineIndices.isEmpty) return;
+    final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+    final Pointer<Int32> indices = malloc<Int32>(lineIndices.length);
+    try {
+      for (int i = 0; i < lineIndices.length; i++) {
+        indices[i] = lineIndices[i];
+      }
+      _bindings.stageLines(_session, pathPtr, hunkIndex, indices, lineIndices.length);
+    } finally {
+      malloc.free(pathPtr);
+      malloc.free(indices);
+    }
+  }
+
+  /// The reverse of [stageLines]: `hunkIndex`/`lineIndices` index into
+  /// `path`'s *staged* diff instead. Same event/refresh contract as
+  /// [stageFiles].
+  void unstageLines(String path, int hunkIndex, List<int> lineIndices) {
+    if (_session == nullptr || lineIndices.isEmpty) return;
+    final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+    final Pointer<Int32> indices = malloc<Int32>(lineIndices.length);
+    try {
+      for (int i = 0; i < lineIndices.length; i++) {
+        indices[i] = lineIndices[i];
+      }
+      _bindings.unstageLines(_session, pathPtr, hunkIndex, indices, lineIndices.length);
+    } finally {
+      malloc.free(pathPtr);
+      malloc.free(indices);
+    }
+  }
+
   /// `git commit` / `git commit --amend`. Async: fires
   /// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success also
   /// refreshes both the working copy and the history graph (the new commit

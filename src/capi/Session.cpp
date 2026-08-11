@@ -316,6 +316,40 @@ void Session::unstageFiles(std::vector<std::string> paths) {
                                [this]() { refreshWorkingCopy(); });
 }
 
+void Session::stageHunk(std::string path, std::size_t hunkIndex) {
+    PartialStageRequest request;
+    request.path = std::move(path);
+    request.staged = false;
+    request.hunkIndex = hunkIndex;
+    submitWorkingCopyOperation(makePartialStageOperation(std::move(request)), [this]() { refreshWorkingCopy(); });
+}
+
+void Session::unstageHunk(std::string path, std::size_t hunkIndex) {
+    PartialStageRequest request;
+    request.path = std::move(path);
+    request.staged = true;
+    request.hunkIndex = hunkIndex;
+    submitWorkingCopyOperation(makePartialStageOperation(std::move(request)), [this]() { refreshWorkingCopy(); });
+}
+
+void Session::stageLines(std::string path, std::size_t hunkIndex, std::vector<std::size_t> lineIndices) {
+    PartialStageRequest request;
+    request.path = std::move(path);
+    request.staged = false;
+    request.hunkIndex = hunkIndex;
+    request.lineIndices = std::move(lineIndices);
+    submitWorkingCopyOperation(makePartialStageOperation(std::move(request)), [this]() { refreshWorkingCopy(); });
+}
+
+void Session::unstageLines(std::string path, std::size_t hunkIndex, std::vector<std::size_t> lineIndices) {
+    PartialStageRequest request;
+    request.path = std::move(path);
+    request.staged = true;
+    request.hunkIndex = hunkIndex;
+    request.lineIndices = std::move(lineIndices);
+    submitWorkingCopyOperation(makePartialStageOperation(std::move(request)), [this]() { refreshWorkingCopy(); });
+}
+
 void Session::commitChanges(CommitRequest request) {
     submitWorkingCopyOperation(makeCommitOperation(std::move(request)), [this]() {
         refreshWorkingCopy();

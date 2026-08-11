@@ -339,17 +339,23 @@ logged a first-chunk line, in which case the cancellation is left implicit
 see `core/base/WalkTiming.h`'s doc comment on why a skipped walk must not read
 as a suspiciously fast one.
 
-Reproduce against the same kind of fixture this section's other numbers use:
+Reproduce against the same kind of fixture this section's other numbers use
+(the fixture-generation half still applies unchanged; the `GBM_TIMING`
+instrumentation was wired into the now-removed Qt `src/app`'s `MainWindow`/
+`RepositorySession`, so the second command below is historical, not
+reproducible against the current Flutter UI without adding equivalent
+timing instrumentation to `src/capi`):
 
 ```bash
 R=/tmp/gbm-timing-fixture
 git init --quiet --bare $R/.git && git -C $R config core.bare false
-./build/dev/tests/gen_history --commits 50000 --branches 3000 --merge-rate 0.05 \
+./build/core-only/tests/gen_history --commits 50000 --branches 3000 --merge-rate 0.05 \
     --octopus 2 --tags 800 --seed 7 | git -C $R fast-import --quiet
 git -C $R commit-graph write --reachable --changed-paths
 
-QT_QPA_PLATFORM=offscreen GBM_TIMING=1 GBM_SCREENSHOT=/tmp/shot.png GBM_SCREENSHOT_REPO=$R \
-    ./build/dev/src/app/git-branch-manager 2>&1 | grep gbm-timing
+# Historical (Qt src/app, since removed):
+# QT_QPA_PLATFORM=offscreen GBM_TIMING=1 GBM_SCREENSHOT=/tmp/shot.png GBM_SCREENSHOT_REPO=$R \
+#     ./build/dev/src/app/git-branch-manager 2>&1 | grep gbm-timing
 ```
 
 Sample output against a 5,000-commit fixture on this machine:

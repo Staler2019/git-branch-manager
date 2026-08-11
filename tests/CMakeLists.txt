@@ -1,58 +1,11 @@
 include(GoogleTest)
 
-# Source-only, so deliberately not inside the GBM_BUILD_APP guard below: this
-# must gate the core-only, asan-ubsan and tsan presets too, not just the full
-# app builds -- it reads src/app's *text*, not anything that needs Qt to
-# compile. See CheckNoDuplicateRefRefresh.cmake for why this is a source check
-# rather than a runtime one.
-add_test(NAME no_duplicate_ref_refresh_call_sites
-    COMMAND "${CMAKE_COMMAND}"
-            -DSOURCE_DIR=${CMAKE_SOURCE_DIR}
-            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckNoDuplicateRefRefresh.cmake")
-set_tests_properties(no_duplicate_ref_refresh_call_sites PROPERTIES LABELS "unit")
-
-# Same rationale as the check above: pins the issue #20 banner-visibility
-# regression (see CheckBannerLabelNotHidden.cmake) without needing a full
-# MainWindow runtime harness.
-add_test(NAME banner_label_not_explicitly_hidden
-    COMMAND "${CMAKE_COMMAND}"
-            -DSOURCE_DIR=${CMAKE_SOURCE_DIR}
-            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckBannerLabelNotHidden.cmake")
-set_tests_properties(banner_label_not_explicitly_hidden PROPERTIES LABELS "unit")
-
-# Same rationale again: pins the conflict-pane splitter fix (see
-# CheckConflictSplitterConfigured.cmake) for the presets that never build Qt
-# at all, alongside ConflictUiTest's runtime half further down (Qt-only).
-add_test(NAME conflict_splitter_configured
-    COMMAND "${CMAKE_COMMAND}"
-            -DSOURCE_DIR=${CMAKE_SOURCE_DIR}
-            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckConflictSplitterConfigured.cmake")
-set_tests_properties(conflict_splitter_configured PROPERTIES LABELS "unit")
-
-# Same rationale again: pins Design C4's removal of the embedded conflict
-# panel (see CheckNoEmbeddedConflictPanel.cmake) for the presets that never
-# build Qt at all.
-add_test(NAME no_embedded_conflict_panel
-    COMMAND "${CMAKE_COMMAND}"
-            -DSOURCE_DIR=${CMAKE_SOURCE_DIR}
-            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckNoEmbeddedConflictPanel.cmake")
-set_tests_properties(no_embedded_conflict_panel PROPERTIES LABELS "unit")
-
-# Same rationale again: pins the fix for a failed working-copy-adjacent
-# operation (e.g. a sidebar branch delete) popping two "Git reported an
-# error" dialogs back to back -- see CheckSingleErrorDialogOwner.cmake.
-add_test(NAME single_error_dialog_owner
-    COMMAND "${CMAKE_COMMAND}"
-            -DSOURCE_DIR=${CMAKE_SOURCE_DIR}
-            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckSingleErrorDialogOwner.cmake")
-set_tests_properties(single_error_dialog_owner PROPERTIES LABELS "unit")
-
 # Test doubles live here rather than in the shipped library.
 add_library(gbm_test_support STATIC support/FakeProcessRunner.cpp)
 target_include_directories(gbm_test_support PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(gbm_test_support PUBLIC gbm_core PRIVATE gbm_warnings)
 
-# --- core unit + integration tests (no Qt needed) --------------------------
+# --- core unit + integration tests -------------------------------------
 add_executable(gbm_core_tests
     unit/BranchOpsTest.cpp
     unit/ConflictBatchTest.cpp
@@ -151,8 +104,7 @@ if(GIT_FOUND)
 endif()
 
 # --- capi (FFI) tests -------------------------------------------------------
-# Qt-free, like gbm_core_tests above: gated on GBM_BUILD_CAPI rather than
-# GBM_BUILD_APP so it builds under the capi-only preset too.
+# Gated on GBM_BUILD_CAPI so it builds under the capi-only preset.
 if(GBM_BUILD_CAPI)
     add_executable(gbm_capi_tests
         capi/AskpassPollerTest.cpp
@@ -190,115 +142,3 @@ if(GBM_BUILD_CAPI)
         DISCOVERY_TIMEOUT 60)
 endif()
 
-# --- Qt model tests --------------------------------------------------------
-# Only when the GUI is being built. Runs offscreen, so it needs no display in CI.
-if(GBM_BUILD_APP)
-    find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Widgets Svg Test)
-
-    # Shared by gbm_model_tests and gbm_model_perf_tests below: both link the
-    # models/bridge code their respective QtTest binary exercises, and a perf
-    # split that silently drifted from what "unit" actually covers would be
-    # worse than the duplication it replaces.
-    set(GBM_MODEL_TEST_SOURCES
-        "${CMAKE_SOURCE_DIR}/src/app/models/CommitListModel.cpp"
-        "${CMAKE_SOURCE_DIR}/src/app/bridge/AskpassWatcher.cpp"
-        "${CMAKE_SOURCE_DIR}/src/app/bridge/RepositorySession.cpp"
-        "${CMAKE_SOURCE_DIR}/src/app/bridge/ThemeManager.cpp"
-        "${CMAKE_SOURCE_DIR}/src/app/theme/ThemeTokens.cpp"
-        "${CMAKE_SOURCE_DIR}/resources/app.qrc")
-
-    qt_add_executable(gbm_model_tests ui/ModelsTest.cpp
-        ${GBM_MODEL_TEST_SOURCES}
-        "${CMAKE_SOURCE_DIR}/src/app/models/GraphColumnDelegate.cpp"
-        "${CMAKE_SOURCE_DIR}/src/app/models/RefTreeModel.cpp"
-        "${CMAKE_SOURCE_DIR}/src/app/models/RepoListModel.cpp")
-
-    # qt_standard_project_setup() is directory-scoped and lives in src/app, so this
-    # target needs AUTOMOC turned on explicitly -- the models are all QObjects.
-    # AUTORCC is needed now that GraphColumnDelegate pulls in ThemeManager,
-    # which reads the theme QSS/fonts from resources/app.qrc.
-    set_target_properties(gbm_model_tests PROPERTIES AUTOMOC ON AUTORCC ON)
-
-    target_include_directories(gbm_model_tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
-    target_link_libraries(gbm_model_tests
-        PRIVATE gbm_core Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test gbm_warnings)
-
-    add_test(NAME qt_models COMMAND gbm_model_tests)
-    set_tests_properties(qt_models PROPERTIES
-        LABELS "unit"
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
-
-    # Wall-clock assertions are too noisy on shared CI runners to gate every
-    # PR (see commit_graph_speedup_ratio above), so CommitListModel's
-    # non-blocking-data() timing check gets its own "perf" binary rather than
-    # living in gbm_model_tests' "unit" one. Separate qt_add_executable for
-    # the same QTEST_MAIN-per-binary reason as gbm_theme_tests below.
-    qt_add_executable(gbm_model_perf_tests ui/ModelsPerfTest.cpp ${GBM_MODEL_TEST_SOURCES})
-
-    set_target_properties(gbm_model_perf_tests PROPERTIES AUTOMOC ON AUTORCC ON)
-
-    target_include_directories(gbm_model_perf_tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
-    target_link_libraries(gbm_model_perf_tests
-        PRIVATE gbm_core Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test gbm_warnings)
-
-    # "qt-perf", not "perf" -- unlike commit_graph_speedup_ratio, this binary
-    # needs Qt, so it needs its own testPreset/CI job wired to a
-    # Qt-enabled configurePreset. Reusing the "perf" label would make it look
-    # covered by the existing perf workflowPreset (configurePreset
-    # "core-only", GBM_BUILD_APP=OFF), which never builds this target at all
-    # -- see .github/workflows/perf-nightly.yml's "qt-models-perf" job.
-    add_test(NAME qt_models_perf COMMAND gbm_model_perf_tests)
-    set_tests_properties(qt_models_perf PROPERTIES
-        LABELS "qt-perf"
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
-
-    # Separate binary rather than an extra source in gbm_model_tests: QtTest's
-    # QTEST_MAIN macro defines main() once per binary, and ModelsTest.cpp
-    # already claims it. The theme foundation (ThemeManager + the token
-    # table) needs the app.qrc resource for the "no unresolved @ placeholder"
-    # check, so it gets its own qt_add_executable mirroring gbm_model_tests.
-    qt_add_executable(gbm_theme_tests ui/ThemeTest.cpp
-        "${CMAKE_SOURCE_DIR}/src/app/bridge/ThemeManager.cpp"
-        "${CMAKE_SOURCE_DIR}/src/app/theme/IconLoader.cpp"
-        "${CMAKE_SOURCE_DIR}/src/app/theme/ThemeTokens.cpp"
-        "${CMAKE_SOURCE_DIR}/resources/app.qrc")
-
-    set_target_properties(gbm_theme_tests PROPERTIES AUTOMOC ON AUTORCC ON)
-
-    target_include_directories(gbm_theme_tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
-    target_link_libraries(gbm_theme_tests
-        PRIVATE gbm_core Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg Qt6::Test gbm_warnings)
-
-    add_test(NAME qt_theme COMMAND gbm_theme_tests)
-    set_tests_properties(qt_theme PROPERTIES
-        LABELS "unit"
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
-
-    # ConflictResolvePanel.cpp connects to RepositorySession signals and
-    # calls ThemeManager::color(), so this reuses GBM_MODEL_TEST_SOURCES
-    # verbatim (RepositorySession.cpp/AskpassWatcher.cpp/ThemeManager.cpp/
-    # ThemeTokens.cpp/app.qrc) rather than guessing a shorter list --
-    # GBM_WERROR is on, so a missing source here is a full build-cycle cost
-    # per miss. Separate binary for the usual QTEST_MAIN-per-binary reason.
-    # ConflictResolveWindow.cpp (C12) pulls in IconLoader.cpp for its rail
-    # row icons, which needs Qt6::Svg to rasterize the bundled Lucide SVGs
-    # (see gbm_theme_tests below).
-    qt_add_executable(gbm_conflict_ui_tests ui/ConflictUiTest.cpp
-        ${GBM_MODEL_TEST_SOURCES}
-        "${CMAKE_SOURCE_DIR}/src/app/bridge/ConflictBatchStore.cpp"
-        "${CMAKE_SOURCE_DIR}/src/app/views/ConflictResolvePanel.cpp"
-        "${CMAKE_SOURCE_DIR}/src/app/views/ConflictResolveWindow.cpp"
-        "${CMAKE_SOURCE_DIR}/src/app/views/ConflictTextEdit.cpp"
-        "${CMAKE_SOURCE_DIR}/src/app/theme/IconLoader.cpp")
-
-    set_target_properties(gbm_conflict_ui_tests PROPERTIES AUTOMOC ON AUTORCC ON)
-
-    target_include_directories(gbm_conflict_ui_tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
-    target_link_libraries(gbm_conflict_ui_tests
-        PRIVATE gbm_core Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg Qt6::Test gbm_warnings)
-
-    add_test(NAME qt_conflict_ui COMMAND gbm_conflict_ui_tests)
-    set_tests_properties(qt_conflict_ui PROPERTIES
-        LABELS "unit"
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
-endif()

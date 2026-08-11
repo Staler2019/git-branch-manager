@@ -23,9 +23,12 @@ jobs:
           clang-format-version: '18'
           check-path: 'src'
 
-      # The core/app split is the load-bearing structural decision: core must stay
-      # Qt-free so the whole data layer is testable without a QApplication. A grep
-      # is crude but it cannot be argued with, and it fails fast.
+      # The core/capi split is the load-bearing structural decision: core must
+      # stay free of any UI toolkit so the whole data layer is testable
+      # headless. A grep is crude but it cannot be argued with, and it fails
+      # fast. Historically this caught Qt specifically (src/app, since
+      # removed in favour of the Flutter UI in app_flutter/); the rule itself
+      # -- core never depends on whatever UI sits on top of it -- still holds.
       - name: core must not depend on Qt
         run: |
           if grep -rEn '#include\s*[<"]Q' src/core; then
@@ -62,89 +65,6 @@ jobs:
             fi
           done < <(git rev-list "$base..$head")
           exit $failed
-
-  build:
-    name: ${{ matrix.name }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # ubuntu-22.04 rather than latest: it fixes the glibc floor for the
-          # release artifact at 2.35, so binaries run on older distributions.
-          - { name: Linux (gcc),     os: ubuntu-22.04,  preset: ci-linux }
-          # macos-26, not macos-latest: the target platform is macOS 26 on Apple
-          # Silicon, and pinning means GitHub rolling the label forward cannot
-          # change the SDK underneath us. That is exactly how the AGL breakage
-          # arrived - macos-latest moved to the macOS 26 SDK in June 2026.
-          - { name: macOS (arm64),   os: macos-26,      preset: ci-macos }
-          - { name: Windows (MSVC),  os: windows-latest, preset: ci-windows }
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          # Version derivation uses `git describe`, and the integration tests build
-          # real repositories, so a shallow clone is not enough.
-          fetch-depth: 0
-
-      - name: Install Ninja and a pinned CMake
-        uses: lukka/get-cmake@latest
-
-      # Required for the Ninja generator to find cl.exe. With the Visual Studio
-      # generator this is unnecessary, but builds are markedly slower.
-      - name: Set up MSVC environment
-        if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
-
-      # The workflow preset packages as well as tests, and Windows packaging is
-      # ZIP plus an NSIS installer. NSIS is not on the runner image, and CPack
-      # treats a missing makensis as a hard error after the ZIP already
-      # succeeded. The PATH entry is belt and braces: CPack normally locates
-      # makensis through the registry key NSIS's installer writes.
-      - name: Install NSIS
-        if: runner.os == 'Windows'
-        run: |
-          choco install nsis --no-progress -y
-          "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
-
-      - name: Install Linux GUI dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgl1-mesa-dev libxkbcommon-x11-0 libxcb-cursor0 \
-            libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
-            libxcb-render-util0 libxcb-shape0 libxcb-xinerama0
-
-      # Qt from the official binaries, never built from source: a source build of
-      # qtbase is hours per platform per cache miss. With caching this is ~40 s.
-      #
-      # 6.10 rather than 6.8, for two macOS 26 reasons. Qt up to 6.8.3 links
-      # -framework AGL, which the macOS 26 SDK no longer ships, so every macOS
-      # link failed with "framework 'AGL' not found" (QTBUG-137687); that was
-      # fixed in 6.9.2. And building against the macOS 26 SDK opts the app into
-      # Liquid Glass, whose fallout for Qt's native styles was fixed in 6.10.0.
-      # 6.10 requires macOS 13 or higher, which release.yml's deployment target
-      # has to match.
-      - name: Install Qt
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: '6.10.*'
-          modules: ''            # Core/Gui/Widgets only - smaller and faster
-          cache: true
-
-      - name: CI with workflow preset
-        env:
-          QT_QPA_PLATFORM: offscreen
-        run: cmake --workflow --preset ${{ matrix.preset }}
-
-      - name: Upload test logs
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-logs-${{ matrix.os }}
-          path: |
-            build/${{ matrix.preset }}/Testing/**/*.log
-            build/${{ matrix.preset }}/**/*.log
-          if-no-files-found: ignore
 
   sanitizers:
     name: Sanitizers (asan+ubsan)
@@ -186,8 +106,7 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
 
       # Qt-free, like the sanitizer jobs above: capi-only links no Qt, so this
-      # job needs none of the Qt/GUI-dependency setup the `build` job above
-      # does, and stays fast.
+      # job needs no GUI-toolkit setup at all, and stays fast.
       - name: Build and test gbm_capi
         run: cmake --workflow --preset capi-only
 

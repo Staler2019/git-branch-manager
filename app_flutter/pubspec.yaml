@@ -64,10 +64,13 @@ flutter:
   uses-material-design: true
 
   # Copied from resources/fonts/ and resources/icons/ at the repo root (the
-  # Qt app's resources) -- see docs/design/tokens-reference.md's typography
-  # section and theme/tokens.dart.
+  # former Qt app's resources) -- see docs/design/tokens-reference.md's
+  # typography section and theme/tokens.dart. Declaring the whole directory
+  # (rather than just the font/svg files referenced below) also bundles the
+  # OFL/ISC licence text files alongside them, per THIRD_PARTY_NOTICES.md.
   assets:
     - assets/icons/
+    - assets/fonts/
 
   fonts:
     - family: Inter

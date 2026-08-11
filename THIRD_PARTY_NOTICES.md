@@ -1,25 +1,38 @@
 # Third-party notices
 
-## Qt 6 — LGPL v3
+## Flutter engine and framework — BSD 3-Clause
 
-The GUI links against Qt 6 (`QtCore`, `QtGui`, `QtWidgets`) under the
-**GNU Lesser General Public License version 3**.
+The UI (`app_flutter/`) is built on the **Flutter** engine and framework,
+copyright Google LLC, used under the **BSD 3-Clause License**. A distributed
+binary bundles the Flutter engine (`flutter_linux_gtk.so` / `Flutter.dylib` /
+`flutter_windows.dll`, whichever the target platform uses) and the compiled
+Dart runtime. Flutter's own third-party notices (covering Skia and the rest
+of the engine's dependencies) are reproduced by the Flutter SDK at
+`flutter licenses` and surfaced in-app by `LicenseRegistry` if a licence
+page is added; no separate copy is kept here because they change with the
+Flutter SDK version this project is built against, not with this project's
+own source.
 
-Using Qt under the LGPL in a closed-source or commercial product is permitted,
-but it carries obligations. This project satisfies them as follows:
+Source: <https://github.com/flutter/flutter>
 
-| Obligation | How it is met |
+## Dart packages (`app_flutter/pubspec.yaml`)
+
+Each package below is a direct dependency of the Flutter UI and ships inside
+the built binary, under its own permissive licence (BSD-3-Clause or MIT —
+see each package's own `LICENSE` on pub.dev for the exact text):
+
+| Package | Licence |
 |---|---|
-| Qt must be **dynamically linked**, so a user can replace it | All three packaging paths (`windeployqt`, `macdeployqt`, `linuxdeploy`) ship Qt as shared libraries. CI asserts no Qt library is statically linked. |
-| The LGPL v3 text must accompany the binary | `LICENSES/LGPL-3.0.txt` is installed alongside the application. |
-| Users must be told which LGPL components are used, and be able to obtain their source | The About dialog names Qt with its version and licence, and links to the corresponding source. |
-| No technical measure may prevent relinking against a modified Qt | The application does not verify or pin the Qt libraries it loads. |
+| `flutter_riverpod` (state management) | MIT |
+| `go_router` (routing) | BSD-3-Clause |
+| `path_provider` | BSD-3-Clause |
+| `ffi` (native interop with `gbm_capi`) | BSD-3-Clause |
+| `flutter_svg` (renders the Lucide icons below) | MIT |
+| `shared_preferences` (theme persistence) | BSD-3-Clause |
+| `cupertino_icons` | MIT |
 
-Only LGPL-licensed Qt modules are used. GPL-only add-ons — notably **Qt Charts**
-and **Qt Data Visualization** — are deliberately avoided, because linking them
-would place the whole application under the GPL.
-
-Qt is a trademark of The Qt Company Ltd. Qt source: <https://download.qt.io/>
+`flutter_lints`, `flutter_test`, and other `dev_dependencies` are build/test
+tooling only and are never linked into a distributed binary.
 
 ## SQLite — public domain
 
@@ -45,9 +58,10 @@ at the official installer rather than shipping its own copy.
 
 The UI font is **Inter** by The Inter Project Authors, used under the **SIL
 Open Font License, Version 1.1**. Four static weights (Regular, Medium,
-SemiBold, Bold) are bundled as Qt resources at `resources/fonts/` and
-registered at startup via `QFontDatabase::addApplicationFont`; the full
-licence text ships alongside them at `resources/fonts/Inter-OFL.txt`.
+SemiBold, Bold) are bundled as Flutter assets at `app_flutter/assets/fonts/`
+and declared as the `Inter` font family in `app_flutter/pubspec.yaml`; the
+full licence text ships alongside them at
+`app_flutter/assets/fonts/Inter-OFL.txt`.
 
 Source: <https://github.com/rsms/inter> (v4.1 release,
 <https://github.com/rsms/inter/releases/tag/v4.1>)
@@ -56,9 +70,10 @@ Source: <https://github.com/rsms/inter> (v4.1 release,
 
 The monospace font (SHAs, branch tags, diff lines) is **JetBrains Mono** by
 The JetBrains Mono Project Authors, used under the **SIL Open Font License,
-Version 1.1**. Two static weights (Regular, Medium) are bundled as Qt
-resources at `resources/fonts/`; the full licence text ships alongside them at
-`resources/fonts/JetBrainsMono-OFL.txt`.
+Version 1.1**. Two static weights (Regular, Medium) are bundled as Flutter
+assets at `app_flutter/assets/fonts/` and declared as the `JetBrains Mono`
+font family in `app_flutter/pubspec.yaml`; the full licence text ships
+alongside them at `app_flutter/assets/fonts/JetBrainsMono-OFL.txt`.
 
 Source: <https://github.com/JetBrains/JetBrainsMono> (v2.304 release,
 <https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304>)
@@ -66,13 +81,12 @@ Source: <https://github.com/JetBrains/JetBrainsMono> (v2.304 release,
 ## Lucide — ISC License
 
 Toolbar, sidebar, and file-status icons are drawn from **Lucide**, used under
-the **ISC License**. Fourteen SVGs are bundled as Qt resources at
-`resources/icons/` and loaded at paint time by `IconLoader`, which recolors
-each one per the active theme rather than shipping pre-colored variants; the
-full licence text ships alongside them at `resources/icons/LUCIDE-ISC.txt`.
-Each SVG's `currentColor` paint value is replaced with a literal opaque colour
-at the source file (Qt's SVG renderer does not resolve the CSS keyword), which
-`IconLoader` then discards by recompositing with `QPainter::CompositionMode_SourceIn` —
-so the literal colour baked into the file on disk is never actually seen.
+the **ISC License**. Fourteen SVGs are bundled as Flutter assets at
+`app_flutter/assets/icons/` and rendered by `LucideIcon`
+(`app_flutter/lib/widgets/lucide_icon.dart`) via the `flutter_svg` package,
+which recolors each one per the active theme at paint time (a `ColorFilter`
+applied over the loaded SVG) rather than shipping pre-colored variants; the
+full licence text ships alongside them at
+`app_flutter/assets/icons/LUCIDE-ISC.txt`.
 
 Source: <https://github.com/lucide-icons/lucide>

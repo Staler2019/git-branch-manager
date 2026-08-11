@@ -61,10 +61,9 @@ pkg_check_modules(GTK REQUIRED IMPORTED_TARGET gtk+-3.0)
 # point CMAKE_BUILD_TYPE is already resolved (set above), so the root
 # project's own "if not already set" default-build-type block is a no-op
 # here and does not clobber whatever config Flutter's tooling requested.
-# Only capi is needed by this runner -- the Qt app and the C++ test suite
-# (and its GoogleTest FetchContent) are irrelevant to a Flutter build and
-# would only slow it down.
-set(GBM_BUILD_APP OFF CACHE BOOL "" FORCE)
+# Only capi is needed by this runner -- the C++ test suite (and its
+# GoogleTest FetchContent) is irrelevant to a Flutter build and would only
+# slow it down.
 set(GBM_BUILD_CAPI ON CACHE BOOL "" FORCE)
 set(GBM_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../.." "${CMAKE_CURRENT_BINARY_DIR}/gbm" EXCLUDE_FROM_ALL)

@@ -55,7 +55,6 @@ add_subdirectory(${FLUTTER_MANAGED_DIR})
 # mirrors it; unlike the Linux integration, this Windows one has not been
 # built or run in the sandbox this was written in -- no MSVC toolchain was
 # available there. Verify on a real Windows machine before relying on it).
-set(GBM_BUILD_APP OFF CACHE BOOL "" FORCE)
 set(GBM_BUILD_CAPI ON CACHE BOOL "" FORCE)
 set(GBM_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../.." "${CMAKE_CURRENT_BINARY_DIR}/gbm" EXCLUDE_FROM_ALL)

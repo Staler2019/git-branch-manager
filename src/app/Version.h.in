@@ -1,9 +1,0 @@
-#pragma once
-
-// Generated from Version.h.in. The values come from cmake/Version.cmake, so the
-// binary always reports the same version CPack used for the artifact.
-
-#define GBM_VERSION_STRING "@GBM_VERSION_STRING@"
-#define GBM_VERSION_MAJOR @PROJECT_VERSION_MAJOR@
-#define GBM_VERSION_MINOR @PROJECT_VERSION_MINOR@
-#define GBM_VERSION_PATCH @PROJECT_VERSION_PATCH@

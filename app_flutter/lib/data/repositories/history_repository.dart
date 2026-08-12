@@ -53,3 +53,10 @@ void requestCommitMeta(
   if (missing.isEmpty) return;
   ref.read(repoSessionProvider(identity).notifier).requestCommitMeta(missing);
 }
+
+/// The currently-selected commit's oid in [CommitGraphView], per repository
+/// -- family-scoped like every other per-repo provider here, rather than a
+/// single global `StateProvider`, so selection in one open repository never
+/// leaks into another.
+final StateProviderFamily<String?, RepoIdentity> selectedCommitProvider =
+    StateProvider.family<String?, RepoIdentity>((ref, identity) => null);

@@ -152,6 +152,11 @@ enum GbmEventType {
     /// `editable` is false when the file is binary, contains an embedded
     /// NUL, is not well-formed UTF-8, or exceeds the display size cap.
     GBM_EVENT_WORKING_TREE_CONTENT_READY = 25,
+    /// payload: CommitMeta JSON array, in the same order as the requested
+    /// oids. Reply to gbm_request_commit_meta(). An oid git could not read
+    /// is simply absent from the array rather than failing the whole batch
+    /// -- see CommitMetaStore::read()'s doc comment.
+    GBM_EVENT_COMMIT_META_READY = 26,
 };
 
 typedef void (*GbmEventCallback)(GbmSessionHandle session,
@@ -655,6 +660,18 @@ GBM_API void gbm_request_blame(GbmSessionHandle session,
                                const char* revision,
                                int32_t startLine,
                                int32_t endLine);
+
+/// Batch commit metadata (author/subject/body) for `oids`, e.g. the rows
+/// currently visible in a scrolling commit list. Backed by a single
+/// long-lived `git cat-file --batch` process rather than one `git show` per
+/// oid -- see core/git/CommitMetaStore.h's doc comment. Async: always fires
+/// GBM_EVENT_COMMIT_META_READY, never GBM_EVENT_ERROR_OCCURRED -- an
+/// individual unreadable oid is simply missing from the reply array rather
+/// than failing the whole batch (see CommitMetaStore::read()). Like
+/// gbm_request_blame(), a newer request is not queued behind an older one.
+GBM_API void gbm_request_commit_meta(GbmSessionHandle session,
+                                     const char* const* oids,
+                                     int32_t oidCount);
 
 /// Commits that touched `path`, newest first, following renames the way
 /// `git log --follow` does. `startRevision` empty means HEAD. Async: fires

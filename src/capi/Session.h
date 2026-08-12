@@ -18,6 +18,7 @@
 #include "core/base/Error.h"
 #include "core/base/Logging.h"
 #include "core/git/BlameStore.h"
+#include "core/git/CommitMetaStore.h"
 #include "core/git/DiffService.h"
 #include "core/git/FileHistoryStore.h"
 #include "core/git/GitExecutable.h"
@@ -249,6 +250,9 @@ public:
     /// Async: see gbm_request_blame()'s doc comment.
     void requestBlame(std::string path, std::string revision, int startLine, int endLine);
 
+    /// Async: see gbm_request_commit_meta()'s doc comment.
+    void requestCommitMeta(std::vector<std::string> oids);
+
     /// Async: see gbm_request_file_history()/gbm_request_line_history()'s
     /// doc comments.
     void requestFileHistory(std::string path, std::string startRevision);
@@ -477,6 +481,7 @@ private:
     std::unique_ptr<WorktreeStore> worktreeStore_;
     std::unique_ptr<RemoteStore> remoteStore_;
     std::unique_ptr<BlameStore> blameStore_;
+    std::unique_ptr<CommitMetaStore> commitMetaStore_;
     std::unique_ptr<FileHistoryStore> fileHistoryStore_;
     std::unique_ptr<ReflogStore> reflogStore_;
     std::unique_ptr<SubmoduleStore> submoduleStore_;

@@ -139,6 +139,7 @@ Session::Session(GitInstallation installation,
       worktreeStore_(std::make_unique<WorktreeStore>(*runner_, paths_)),
       remoteStore_(std::make_unique<RemoteStore>(*runner_, paths_)),
       blameStore_(std::make_unique<BlameStore>(*runner_, paths_)),
+      commitMetaStore_(std::make_unique<CommitMetaStore>(installation_.executable, paths_)),
       fileHistoryStore_(std::make_unique<FileHistoryStore>(*runner_, paths_)),
       reflogStore_(std::make_unique<ReflogStore>(*runner_, paths_)),
       submoduleStore_(std::make_unique<SubmoduleStore>(*runner_, paths_)),
@@ -190,6 +191,11 @@ Session::~Session() {
     sharedReadPool().cancelQueuedAndDrain();
 
     askpass_.stop();
+    // Explicit, not relying on member-destruction order: commitMetaStore_
+    // owns the one long-lived child process among these stores (the others
+    // spawn per-call), so end it up front alongside askpass_ rather than
+    // waiting for the destructor to reach it.
+    commitMetaStore_->stop();
 }
 
 void Session::registerCallback(GbmEventCallback callback, void* userData) {
@@ -739,6 +745,20 @@ void Session::requestBlame(std::string path, std::string revision, int startLine
             }
             callbacks_.emit(GBM_EVENT_BLAME_READY, toJson(*result.value()));
         });
+}
+
+void Session::requestCommitMeta(std::vector<std::string> oids) {
+    // postFront, like requestBlame(): a newer viewport (fast scroll) should
+    // not wait behind a stale one still being answered.
+    sharedReadPool().postFront([this, oids = std::move(oids)]() {
+        std::vector<ObjectId> parsed;
+        parsed.reserve(oids.size());
+        for (const std::string& oid : oids) {
+            parsed.push_back(ObjectId::fromHex(oid));
+        }
+        const std::vector<CommitMeta> result = commitMetaStore_->read(parsed, CancellationToken{});
+        callbacks_.emit(GBM_EVENT_COMMIT_META_READY, toJson(result));
+    });
 }
 
 void Session::requestFileHistory(std::string path, std::string startRevision) {

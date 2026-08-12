@@ -65,6 +65,26 @@ Future<void> showGbmMenu(
   );
 }
 
+/// Convenience for a right-click context menu: turns a raw
+/// `TapDownDetails.globalPosition` (from `onSecondaryTapDown`) into the
+/// `RelativeRect` [showGbmMenu] needs, anchored to the nearest [Overlay] --
+/// the same idiom the Flutter cookbook uses for `showMenu` at a tap point.
+/// Shared by every right-click surface (sidebar branch rows, changed-file
+/// rows, repo list tiles, ...) so each doesn't re-derive the overlay math.
+Future<void> showGbmContextMenu(
+  BuildContext context,
+  Offset globalPosition,
+  List<GbmMenuItem> items,
+) {
+  final RenderBox overlay =
+      Overlay.of(context).context.findRenderObject()! as RenderBox;
+  final RelativeRect position = RelativeRect.fromRect(
+    Rect.fromPoints(globalPosition, globalPosition),
+    Offset.zero & overlay.size,
+  );
+  return showGbmMenu(context, position: position, items: items);
+}
+
 class _GbmMenuPanel extends StatelessWidget {
   const _GbmMenuPanel({required this.items});
 

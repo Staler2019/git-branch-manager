@@ -34,14 +34,23 @@ class GraphRowPainter extends CustomPainter {
 
     final Paint linePaint = Paint()
       ..color = color
-      ..strokeWidth = 1.6
+      ..strokeWidth = 1.0
+      ..strokeCap = StrokeCap.round
       ..style = PaintingStyle.stroke;
 
     if (previousLane != null) {
-      canvas.drawLine(Offset(laneWidth * (previousLane! + 0.5), 0), Offset(x, centerY), linePaint);
+      canvas.drawLine(
+        Offset(laneWidth * (previousLane! + 0.5), 0),
+        Offset(x, centerY),
+        linePaint,
+      );
     }
     if (nextLane != null) {
-      canvas.drawLine(Offset(x, centerY), Offset(laneWidth * (nextLane! + 0.5), size.height), linePaint);
+      canvas.drawLine(
+        Offset(x, centerY),
+        Offset(laneWidth * (nextLane! + 0.5), size.height),
+        linePaint,
+      );
     }
 
     final double radius = row.isHead ? 4.5 : 3.5;
@@ -54,7 +63,7 @@ class GraphRowPainter extends CustomPainter {
         Paint()
           ..color = color
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.2,
+          ..strokeWidth = 1.0,
       );
     }
   }

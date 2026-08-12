@@ -9,6 +9,7 @@
 #include "core/base/FsUtil.h"
 #include "core/git/BlameStore.h"
 #include "core/git/CatFileBatch.h"
+#include "core/git/CommitMetaStore.h"
 #include "core/git/DiffService.h"
 #include "core/git/FileHistoryStore.h"
 #include "core/git/GitExecutable.h"
@@ -294,6 +295,89 @@ TEST_F(RealRepoTest, CatFileBatchReadsBlobContent) {
     ASSERT_TRUE(blob) << blob.error().message;
     EXPECT_EQ(blob->type, "blob");
     EXPECT_EQ(blob->content, "line one\nline two\n");
+}
+
+TEST_F(RealRepoTest, CommitMetaStoreBatchReadsCommitsOverOneProcess) {
+    commitFile("a.txt", "one\n", "first");
+    commitFile("a.txt", "two\n", "second");
+    commitFile("a.txt", "three\n", "third");
+
+    HistoryProvider provider(*runner_, paths_);
+    auto snapshot = provider.walk(HistoryQuery{}, nullptr, CancellationToken{});
+    ASSERT_TRUE(snapshot);
+    ASSERT_EQ((*snapshot)->rowCount(), 3u);
+
+    const std::vector<ObjectId> oids{
+        (*snapshot)->oids[0], (*snapshot)->oids[1], (*snapshot)->oids[2]};
+
+    CommitMetaStore store(installation_.executable, paths_);
+    const std::vector<CommitMeta> metas = store.read(oids, CancellationToken{});
+
+    // Order follows the requested oids, one result per oid -- none of them
+    // are missing here, so a viewport request over real history round-trips
+    // 1:1 through the shared cat-file process.
+    ASSERT_EQ(metas.size(), oids.size());
+    EXPECT_EQ(metas[0].subject, "third");
+    EXPECT_EQ(metas[1].subject, "second");
+    EXPECT_EQ(metas[2].subject, "first");
+    for (const auto& meta : metas) {
+        EXPECT_EQ(meta.author.email, "test@example.invalid");
+    }
+}
+
+TEST_F(RealRepoTest, CommitMetaStoreSkipsMissingOidsWithoutAbortingTheRest) {
+    commitFile("a.txt", "one\n", "first");
+    auto head = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(head);
+    const ObjectId real = ObjectId::fromHex(head->out);
+    const ObjectId missing = ObjectId::fromHex(std::string(40, 'e'));
+
+    CommitMetaStore store(installation_.executable, paths_);
+    const std::vector<CommitMeta> metas =
+        store.read({missing, real}, CancellationToken{});
+
+    // The missing oid is simply absent, not a reason to lose `real` too.
+    ASSERT_EQ(metas.size(), 1u);
+    EXPECT_EQ(metas[0].oid, real);
+    EXPECT_EQ(metas[0].subject, "first");
+}
+
+TEST_F(RealRepoTest, CommitMetaStoreStopsIssuingRequestsOnceCancelled) {
+    commitFile("a.txt", "one\n", "first");
+    commitFile("a.txt", "two\n", "second");
+
+    HistoryProvider provider(*runner_, paths_);
+    auto snapshot = provider.walk(HistoryQuery{}, nullptr, CancellationToken{});
+    ASSERT_TRUE(snapshot);
+    ASSERT_EQ((*snapshot)->rowCount(), 2u);
+    const std::vector<ObjectId> oids{(*snapshot)->oids[0], (*snapshot)->oids[1]};
+
+    CancellationSource source;
+    source.cancel();
+
+    CommitMetaStore store(installation_.executable, paths_);
+    const std::vector<CommitMeta> metas = store.read(oids, source.token());
+
+    // Cancelled before the loop's first check (CatFileBatch::readCommits()
+    // checks per-oid, not once up front), so nothing is returned.
+    EXPECT_TRUE(metas.empty());
+}
+
+TEST_F(RealRepoTest, CommitMetaStoreRestartsAfterExplicitStop) {
+    commitFile("a.txt", "one\n", "first");
+    auto head = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(head);
+    const ObjectId oid = ObjectId::fromHex(head->out);
+
+    CommitMetaStore store(installation_.executable, paths_);
+    ASSERT_EQ(store.read({oid}, CancellationToken{}).size(), 1u);
+
+    store.stop();
+
+    // read() lazily respawns the child, same as CatFileBatch::read() itself.
+    const std::vector<CommitMeta> metas = store.read({oid}, CancellationToken{});
+    ASSERT_EQ(metas.size(), 1u);
+    EXPECT_EQ(metas[0].subject, "first");
 }
 
 TEST_F(RealRepoTest, ReadsRefsAndHead) {

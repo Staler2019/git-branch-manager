@@ -11,6 +11,7 @@ import '../ffi/json_codec.dart';
 import '../models/bisect_status.dart';
 import '../models/blame_result.dart';
 import '../models/clean_entry.dart';
+import '../models/commit_meta.dart';
 import '../models/file_history_entry.dart';
 import '../models/git_error.dart';
 import '../models/git_identity.dart';
@@ -52,7 +53,11 @@ enum ConflictResolution { takeOurs, takeTheirs, markResolved, writeResolved }
 /// requests can tell which one just arrived -- mirrors
 /// GBM_EVENT_WORKING_COPY_DIFF_READY's payload shape.
 class WorkingCopyDiffReply {
-  const WorkingCopyDiffReply({required this.path, required this.staged, required this.diff});
+  const WorkingCopyDiffReply({
+    required this.path,
+    required this.staged,
+    required this.diff,
+  });
 
   factory WorkingCopyDiffReply.fromJson(Map<String, dynamic> json) {
     return WorkingCopyDiffReply(
@@ -70,7 +75,11 @@ class WorkingCopyDiffReply {
 /// Reply to [RepoSessionController.requestWorkingTreeContent]: mirrors
 /// GBM_EVENT_WORKING_TREE_CONTENT_READY's payload shape.
 class WorkingTreeContentReply {
-  const WorkingTreeContentReply({required this.path, required this.content, required this.editable});
+  const WorkingTreeContentReply({
+    required this.path,
+    required this.content,
+    required this.editable,
+  });
 
   factory WorkingTreeContentReply.fromJson(Map<String, dynamic> json) {
     return WorkingTreeContentReply(
@@ -91,7 +100,10 @@ class StashDiffReply {
   const StashDiffReply({required this.index, required this.diff});
 
   factory StashDiffReply.fromJson(Map<String, dynamic> json) {
-    return StashDiffReply(index: json['index'] as int, diff: ParsedDiff.fromJson(json['diff'] as Map<String, dynamic>));
+    return StashDiffReply(
+      index: json['index'] as int,
+      diff: ParsedDiff.fromJson(json['diff'] as Map<String, dynamic>),
+    );
   }
 
   final int index;
@@ -128,6 +140,7 @@ class RepoSessionState {
     this.credentialPrompt,
     this.operationLog = const <OperationRecord>[],
     this.lastBlame,
+    this.commitMetaCache = const <String, CommitMeta>{},
     this.lastFileHistory = const <FileHistoryEntry>[],
     this.lastLineHistory = const <LineHistoryChunk>[],
     this.lastReflog = const <ReflogEntry>[],
@@ -160,30 +173,44 @@ class RepoSessionState {
   final StashDiffReply? lastStashDiff;
   final List<WorktreeInfo> worktrees;
   final List<RemoteInfo> remotes;
+
   /// The prompt text of a credential request currently awaiting
   /// [RepoSessionController.provideCredential]/[RepoSessionController.cancelCredential],
   /// or null if none is outstanding. Cleared by either of those calls, not
   /// by an event -- gbm_capi has no "prompt answered" event, since the
   /// answer is this side's own action.
   final String? credentialPrompt;
+
   /// Newest-last, capped at [_kMaxOperationLogEntries].
   final List<OperationRecord> operationLog;
   final BlameResult? lastBlame;
+
+  /// Batch-fetched commit metadata (author/subject/body), keyed by oid and
+  /// accumulated across every GBM_EVENT_COMMIT_META_READY reply rather than
+  /// replaced -- unlike [lastBlame]/[lastFileHistory], a viewport scroll
+  /// only ever asks for the newly-visible rows, so a later reply must add
+  /// to this cache, not overwrite the rows fetched by an earlier one. See
+  /// history_repository.dart's `commitMetaProvider`/`requestCommitMeta`.
+  final Map<String, CommitMeta> commitMetaCache;
   final List<FileHistoryEntry> lastFileHistory;
   final List<LineHistoryChunk> lastLineHistory;
+
   /// Newest-first -- see gbm_request_reflog()'s doc comment in gbm_capi.h.
   final List<ReflogEntry> lastReflog;
+
   /// Oldest-first, refreshed after every operation that can be undone --
   /// see Session::refreshUndoJournalCache()'s doc comment in Session.cpp for
   /// why this only ever changes right after GBM_EVENT_OPERATION_FINISHED /
   /// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED.
   final List<UndoEntry> undoJournal;
   final List<CleanEntry> lastCleanPreview;
+
   /// Oldest-first -- the order gbm_rebase_interactive_start()'s `todo`
   /// array is applied in, see RebasePlanner::plan()'s doc comment.
   final List<RebaseTodoEntry> lastRebasePlan;
   final List<SubmoduleInfo> submodules;
   final BisectStatus bisectStatus;
+
   /// Null until [RepoSessionController.refreshLfs] has run once -- see
   /// gbm_lfs_installation_json()'s doc comment in gbm_capi.h.
   final LfsInstallation? lfsInstallation;
@@ -191,17 +218,21 @@ class RepoSessionState {
   final List<LfsFileInfo> lfsFiles;
   final LocalIdentity localIdentity;
   final EffectiveIdentity effectiveIdentity;
+
   /// Filesystem check, refreshed by [RepoSessionController.refreshHasCommitGraph]
   /// and again after [RepoSessionController.writeCommitGraph] succeeds.
   final bool hasCommitGraph;
+
   /// Null until the first gbm_write_commit_graph() reply arrives this
   /// session.
   final bool? lastCommitGraphWriteSucceeded;
+
   /// Recovery choices (e.g. "Stash changes and checkout") from the most
   /// recently attempted [RepoSessionController.checkout] call, if it failed
   /// with any -- empty otherwise. See RepoSessionController.checkout()'s
   /// doc comment for how these map back to a retried checkout.
   final List<OperationChoice> checkoutChoices;
+
   /// Recovery choices (e.g. "Force delete") from the most recently
   /// attempted [RepoSessionController.deleteBranch] call, if it failed with
   /// any -- empty otherwise. Mirrors [checkoutChoices]; see
@@ -228,6 +259,7 @@ class RepoSessionState {
     bool clearCredentialPrompt = false,
     List<OperationRecord>? operationLog,
     BlameResult? lastBlame,
+    Map<String, CommitMeta>? commitMetaCache,
     List<FileHistoryEntry>? lastFileHistory,
     List<LineHistoryChunk>? lastLineHistory,
     List<ReflogEntry>? lastReflog,
@@ -255,14 +287,18 @@ class RepoSessionState {
       lastError: clearError ? null : (lastError ?? this.lastError),
       workingCopyStatus: workingCopyStatus ?? this.workingCopyStatus,
       lastDiff: lastDiff ?? this.lastDiff,
-      lastWorkingTreeContent: lastWorkingTreeContent ?? this.lastWorkingTreeContent,
+      lastWorkingTreeContent:
+          lastWorkingTreeContent ?? this.lastWorkingTreeContent,
       stashes: stashes ?? this.stashes,
       lastStashDiff: lastStashDiff ?? this.lastStashDiff,
       worktrees: worktrees ?? this.worktrees,
       remotes: remotes ?? this.remotes,
-      credentialPrompt: clearCredentialPrompt ? null : (credentialPrompt ?? this.credentialPrompt),
+      credentialPrompt: clearCredentialPrompt
+          ? null
+          : (credentialPrompt ?? this.credentialPrompt),
       operationLog: operationLog ?? this.operationLog,
       lastBlame: lastBlame ?? this.lastBlame,
+      commitMetaCache: commitMetaCache ?? this.commitMetaCache,
       lastFileHistory: lastFileHistory ?? this.lastFileHistory,
       lastLineHistory: lastLineHistory ?? this.lastLineHistory,
       lastReflog: lastReflog ?? this.lastReflog,
@@ -277,7 +313,8 @@ class RepoSessionState {
       localIdentity: localIdentity ?? this.localIdentity,
       effectiveIdentity: effectiveIdentity ?? this.effectiveIdentity,
       hasCommitGraph: hasCommitGraph ?? this.hasCommitGraph,
-      lastCommitGraphWriteSucceeded: lastCommitGraphWriteSucceeded ?? this.lastCommitGraphWriteSucceeded,
+      lastCommitGraphWriteSucceeded:
+          lastCommitGraphWriteSucceeded ?? this.lastCommitGraphWriteSucceeded,
       checkoutChoices: checkoutChoices ?? this.checkoutChoices,
       deleteBranchChoices: deleteBranchChoices ?? this.deleteBranchChoices,
     );
@@ -289,7 +326,8 @@ class RepoSessionState {
 /// (`workspaceScreen`'s route scope owns the provider lifetime -- see the
 /// routing table in the plan).
 class RepoSessionController extends StateNotifier<RepoSessionState> {
-  RepoSessionController(this._bindings, this._identity) : super(const RepoSessionState()) {
+  RepoSessionController(this._bindings, this._identity)
+    : super(const RepoSessionState()) {
     _open();
   }
 
@@ -354,19 +392,28 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
         _readRefs();
       case GbmEventType.graphUpdated:
         final Object? payload = decodeEventPayload(event.payload);
-        final bool complete = payload is Map<String, dynamic> ? payload['complete'] as bool? ?? false : false;
-        state = state.copyWith(graph: readGraphSnapshot(_bindings, _session), isRefreshing: !complete);
+        final bool complete = payload is Map<String, dynamic>
+            ? payload['complete'] as bool? ?? false
+            : false;
+        state = state.copyWith(
+          graph: readGraphSnapshot(_bindings, _session),
+          isRefreshing: !complete,
+        );
       case GbmEventType.errorOccurred:
         final Object? payload = decodeEventPayload(event.payload);
         state = state.copyWith(
           isRefreshing: false,
-          lastError: payload is Map<String, dynamic> ? GitError.fromJson(payload) : null,
+          lastError: payload is Map<String, dynamic>
+              ? GitError.fromJson(payload)
+              : null,
         );
       case GbmEventType.operationFinished:
         _readRepoState();
         _readUndoJournal();
         final Object? decoded = decodeEventPayload(event.payload);
-        final Map<String, dynamic>? payload = decoded is Map<String, dynamic> ? decoded : null;
+        final Map<String, dynamic>? payload = decoded is Map<String, dynamic>
+            ? decoded
+            : null;
         bool succeeded = true;
         List<OperationChoice> choices = const <OperationChoice>[];
         if (payload != null) {
@@ -391,12 +438,18 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
         final bool wasCheckout = _awaitingCheckoutOutcome;
         _awaitingCheckoutOutcome = false;
         if (wasCheckout) {
-          state = state.copyWith(checkoutChoices: succeeded ? const <OperationChoice>[] : choices);
+          state = state.copyWith(
+            checkoutChoices: succeeded ? const <OperationChoice>[] : choices,
+          );
         }
         final bool wasDeleteBranch = _awaitingDeleteBranchOutcome;
         _awaitingDeleteBranchOutcome = false;
         if (wasDeleteBranch) {
-          state = state.copyWith(deleteBranchChoices: succeeded ? const <OperationChoice>[] : choices);
+          state = state.copyWith(
+            deleteBranchChoices: succeeded
+                ? const <OperationChoice>[]
+                : choices,
+          );
         }
       case GbmEventType.workingCopyStatusUpdated:
         _readWorkingCopyStatus();
@@ -404,25 +457,35 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
         final Object? payload = decodeEventPayload(event.payload);
         if (payload is Map<String, dynamic> && payload['succeeded'] == false) {
           final Object? error = payload['error'];
-          state = state.copyWith(lastError: error is Map<String, dynamic> ? GitError.fromJson(error) : null);
+          state = state.copyWith(
+            lastError: error is Map<String, dynamic>
+                ? GitError.fromJson(error)
+                : null,
+          );
         }
         _readUndoJournal();
       case GbmEventType.workingCopyDiffReady:
         final Object? payload = decodeEventPayload(event.payload);
         if (payload is Map<String, dynamic>) {
-          state = state.copyWith(lastDiff: WorkingCopyDiffReply.fromJson(payload));
+          state = state.copyWith(
+            lastDiff: WorkingCopyDiffReply.fromJson(payload),
+          );
         }
       case GbmEventType.workingTreeContentReady:
         final Object? payload = decodeEventPayload(event.payload);
         if (payload is Map<String, dynamic>) {
-          state = state.copyWith(lastWorkingTreeContent: WorkingTreeContentReply.fromJson(payload));
+          state = state.copyWith(
+            lastWorkingTreeContent: WorkingTreeContentReply.fromJson(payload),
+          );
         }
       case GbmEventType.stashesUpdated:
         _readStashes();
       case GbmEventType.stashDiffReady:
         final Object? payload = decodeEventPayload(event.payload);
         if (payload is Map<String, dynamic>) {
-          state = state.copyWith(lastStashDiff: StashDiffReply.fromJson(payload));
+          state = state.copyWith(
+            lastStashDiff: StashDiffReply.fromJson(payload),
+          );
         }
       case GbmEventType.worktreesUpdated:
         _readWorktrees();
@@ -431,12 +494,17 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
       case GbmEventType.credentialRequested:
         final Object? payload = decodeEventPayload(event.payload);
         state = state.copyWith(
-          credentialPrompt: payload is Map<String, dynamic> ? payload['prompt'] as String? ?? '' : '',
+          credentialPrompt: payload is Map<String, dynamic>
+              ? payload['prompt'] as String? ?? ''
+              : '',
         );
       case GbmEventType.operationLogRecord:
         final Object? payload = decodeEventPayload(event.payload);
         if (payload is Map<String, dynamic>) {
-          final List<OperationRecord> updated = <OperationRecord>[...state.operationLog, OperationRecord.fromJson(payload)];
+          final List<OperationRecord> updated = <OperationRecord>[
+            ...state.operationLog,
+            OperationRecord.fromJson(payload),
+          ];
           state = state.copyWith(
             operationLog: updated.length > _kMaxOperationLogEntries
                 ? updated.sublist(updated.length - _kMaxOperationLogEntries)
@@ -448,15 +516,32 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
         if (payload is Map<String, dynamic>) {
           state = state.copyWith(lastBlame: BlameResult.fromJson(payload));
         }
+      case GbmEventType.commitMetaReady:
+        final Object? payload = decodeEventPayload(event.payload);
+        if (payload is List<dynamic>) {
+          final List<CommitMeta> metas = CommitMeta.listFromJson(payload);
+          if (metas.isNotEmpty) {
+            state = state.copyWith(
+              commitMetaCache: <String, CommitMeta>{
+                ...state.commitMetaCache,
+                for (final CommitMeta meta in metas) meta.oid: meta,
+              },
+            );
+          }
+        }
       case GbmEventType.fileHistoryReady:
         final Object? payload = decodeEventPayload(event.payload);
         if (payload is List<dynamic>) {
-          state = state.copyWith(lastFileHistory: FileHistoryEntry.listFromJson(payload));
+          state = state.copyWith(
+            lastFileHistory: FileHistoryEntry.listFromJson(payload),
+          );
         }
       case GbmEventType.lineHistoryReady:
         final Object? payload = decodeEventPayload(event.payload);
         if (payload is List<dynamic>) {
-          state = state.copyWith(lastLineHistory: LineHistoryChunk.listFromJson(payload));
+          state = state.copyWith(
+            lastLineHistory: LineHistoryChunk.listFromJson(payload),
+          );
         }
       case GbmEventType.reflogReady:
         final Object? payload = decodeEventPayload(event.payload);
@@ -466,7 +551,9 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
       case GbmEventType.rebasePlanReady:
         final Object? payload = decodeEventPayload(event.payload);
         if (payload is List<dynamic>) {
-          state = state.copyWith(lastRebasePlan: RebaseTodoEntry.listFromJson(payload));
+          state = state.copyWith(
+            lastRebasePlan: RebaseTodoEntry.listFromJson(payload),
+          );
         }
       case GbmEventType.submodulesUpdated:
         _readSubmodules();
@@ -477,7 +564,9 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
       case GbmEventType.cleanPreviewReady:
         final Object? payload = decodeEventPayload(event.payload);
         if (payload is List<dynamic>) {
-          state = state.copyWith(lastCleanPreview: CleanEntry.listFromJson(payload));
+          state = state.copyWith(
+            lastCleanPreview: CleanEntry.listFromJson(payload),
+          );
         }
       case GbmEventType.localIdentityUpdated:
         _readLocalIdentity();
@@ -485,7 +574,9 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
         _readEffectiveIdentity();
       case GbmEventType.commitGraphWriteFinished:
         final Object? payload = decodeEventPayload(event.payload);
-        final bool succeeded = payload is Map<String, dynamic> ? payload['succeeded'] as bool? ?? false : false;
+        final bool succeeded = payload is Map<String, dynamic>
+            ? payload['succeeded'] as bool? ?? false
+            : false;
         state = state.copyWith(
           lastCommitGraphWriteSucceeded: succeeded,
           hasCommitGraph: succeeded ? true : state.hasCommitGraph,
@@ -497,7 +588,11 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     if (_bindings.repoStateJson(_session) == 0) {
       final String json = readLastResultJson(_bindings);
       if (json.isNotEmpty) {
-        state = state.copyWith(repoState: model.RepoState.fromJson(jsonDecode(json) as Map<String, dynamic>));
+        state = state.copyWith(
+          repoState: model.RepoState.fromJson(
+            jsonDecode(json) as Map<String, dynamic>,
+          ),
+        );
       }
     }
   }
@@ -506,7 +601,9 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     if (_bindings.refsJson(_session) == 0) {
       final String json = readLastResultJson(_bindings);
       if (json.isNotEmpty) {
-        state = state.copyWith(refs: RefSnapshot.fromJson(jsonDecode(json) as Map<String, dynamic>));
+        state = state.copyWith(
+          refs: RefSnapshot.fromJson(jsonDecode(json) as Map<String, dynamic>),
+        );
       }
     }
   }
@@ -515,7 +612,11 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     if (_bindings.workingCopyStatusJson(_session) == 0) {
       final String json = readLastResultJson(_bindings);
       if (json.isNotEmpty) {
-        state = state.copyWith(workingCopyStatus: WorkingCopyStatus.fromJson(jsonDecode(json) as Map<String, dynamic>));
+        state = state.copyWith(
+          workingCopyStatus: WorkingCopyStatus.fromJson(
+            jsonDecode(json) as Map<String, dynamic>,
+          ),
+        );
       }
     }
   }
@@ -524,7 +625,9 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     if (_bindings.stashesJson(_session) == 0) {
       final String json = readLastResultJson(_bindings);
       if (json.isNotEmpty) {
-        state = state.copyWith(stashes: StashEntry.listFromJson(jsonDecode(json) as List<dynamic>));
+        state = state.copyWith(
+          stashes: StashEntry.listFromJson(jsonDecode(json) as List<dynamic>),
+        );
       }
     }
   }
@@ -533,7 +636,11 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     if (_bindings.worktreesJson(_session) == 0) {
       final String json = readLastResultJson(_bindings);
       if (json.isNotEmpty) {
-        state = state.copyWith(worktrees: WorktreeInfo.listFromJson(jsonDecode(json) as List<dynamic>));
+        state = state.copyWith(
+          worktrees: WorktreeInfo.listFromJson(
+            jsonDecode(json) as List<dynamic>,
+          ),
+        );
       }
     }
   }
@@ -542,7 +649,9 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     if (_bindings.remotesJson(_session) == 0) {
       final String json = readLastResultJson(_bindings);
       if (json.isNotEmpty) {
-        state = state.copyWith(remotes: RemoteInfo.listFromJson(jsonDecode(json) as List<dynamic>));
+        state = state.copyWith(
+          remotes: RemoteInfo.listFromJson(jsonDecode(json) as List<dynamic>),
+        );
       }
     }
   }
@@ -551,7 +660,11 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     if (_bindings.submodulesJson(_session) == 0) {
       final String json = readLastResultJson(_bindings);
       if (json.isNotEmpty) {
-        state = state.copyWith(submodules: SubmoduleInfo.listFromJson(jsonDecode(json) as List<dynamic>));
+        state = state.copyWith(
+          submodules: SubmoduleInfo.listFromJson(
+            jsonDecode(json) as List<dynamic>,
+          ),
+        );
       }
     }
   }
@@ -560,7 +673,11 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     if (_bindings.bisectStatusJson(_session) == 0) {
       final String json = readLastResultJson(_bindings);
       if (json.isNotEmpty) {
-        state = state.copyWith(bisectStatus: BisectStatus.fromJson(jsonDecode(json) as Map<String, dynamic>));
+        state = state.copyWith(
+          bisectStatus: BisectStatus.fromJson(
+            jsonDecode(json) as Map<String, dynamic>,
+          ),
+        );
       }
     }
   }
@@ -574,19 +691,27 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     if (_bindings.lfsInstallationJson(_session) == 0) {
       final String json = readLastResultJson(_bindings);
       if (json.isNotEmpty) {
-        state = state.copyWith(lfsInstallation: LfsInstallation.fromJson(jsonDecode(json) as Map<String, dynamic>));
+        state = state.copyWith(
+          lfsInstallation: LfsInstallation.fromJson(
+            jsonDecode(json) as Map<String, dynamic>,
+          ),
+        );
       }
     }
     if (_bindings.lfsPatternsJson(_session) == 0) {
       final String json = readLastResultJson(_bindings);
       if (json.isNotEmpty) {
-        state = state.copyWith(lfsPatterns: (jsonDecode(json) as List<dynamic>).cast<String>());
+        state = state.copyWith(
+          lfsPatterns: (jsonDecode(json) as List<dynamic>).cast<String>(),
+        );
       }
     }
     if (_bindings.lfsFilesJson(_session) == 0) {
       final String json = readLastResultJson(_bindings);
       if (json.isNotEmpty) {
-        state = state.copyWith(lfsFiles: LfsFileInfo.listFromJson(jsonDecode(json) as List<dynamic>));
+        state = state.copyWith(
+          lfsFiles: LfsFileInfo.listFromJson(jsonDecode(json) as List<dynamic>),
+        );
       }
     }
   }
@@ -595,7 +720,11 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     if (_bindings.localIdentityJson(_session) == 0) {
       final String json = readLastResultJson(_bindings);
       if (json.isNotEmpty) {
-        state = state.copyWith(localIdentity: LocalIdentity.fromJson(jsonDecode(json) as Map<String, dynamic>));
+        state = state.copyWith(
+          localIdentity: LocalIdentity.fromJson(
+            jsonDecode(json) as Map<String, dynamic>,
+          ),
+        );
       }
     }
   }
@@ -605,7 +734,9 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
       final String json = readLastResultJson(_bindings);
       if (json.isNotEmpty) {
         state = state.copyWith(
-          effectiveIdentity: EffectiveIdentity.fromJson(jsonDecode(json) as Map<String, dynamic>),
+          effectiveIdentity: EffectiveIdentity.fromJson(
+            jsonDecode(json) as Map<String, dynamic>,
+          ),
         );
       }
     }
@@ -641,14 +772,20 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     if (_bindings.undoJournalJson(_session) == 0) {
       final String json = readLastResultJson(_bindings);
       if (json.isNotEmpty) {
-        state = state.copyWith(undoJournal: UndoEntry.listFromJson(jsonDecode(json) as List<dynamic>));
+        state = state.copyWith(
+          undoJournal: UndoEntry.listFromJson(
+            jsonDecode(json) as List<dynamic>,
+          ),
+        );
       }
     }
   }
 
   GitError? _decodeLastError() {
     final String json = readLastResultJson(_bindings);
-    return json.isEmpty ? null : GitError.fromJson(jsonDecode(json) as Map<String, dynamic>);
+    return json.isEmpty
+        ? null
+        : GitError.fromJson(jsonDecode(json) as Map<String, dynamic>);
   }
 
   /// Requests a refs + history refresh -- see gbm_history_refresh()'s doc
@@ -774,7 +911,11 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
 
   /// `git branch -m <from> <to>` (`-M` when [force]). Async, refreshes refs
   /// on success.
-  void renameBranch({required String from, required String to, bool force = false}) {
+  void renameBranch({
+    required String from,
+    required String to,
+    bool force = false,
+  }) {
     if (_session == nullptr) return;
     final Pointer<Utf8> fromPtr = from.toNativeUtf8();
     final Pointer<Utf8> toPtr = to.toNativeUtf8();
@@ -811,7 +952,14 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     try {
       _withNativeStringArray(
         names,
-        (array, count) => _bindings.branchDelete(_session, array, count, force ? 1 : 0, isRemote ? 1 : 0, remoteNamePtr),
+        (array, count) => _bindings.branchDelete(
+          _session,
+          array,
+          count,
+          force ? 1 : 0,
+          isRemote ? 1 : 0,
+          remoteNamePtr,
+        ),
       );
     } finally {
       malloc.free(remoteNamePtr);
@@ -865,12 +1013,23 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   /// conflicting merge is reported through [state].lastError like any other
   /// outcome (error.code == conflict), not thrown -- the working copy is
   /// always refreshed so conflicted paths show up, history only on success.
-  void mergeBranch(String target, MergeMode mode, {String message = '', bool stashFirst = false}) {
+  void mergeBranch(
+    String target,
+    MergeMode mode, {
+    String message = '',
+    bool stashFirst = false,
+  }) {
     if (_session == nullptr) return;
     final Pointer<Utf8> targetPtr = target.toNativeUtf8();
     final Pointer<Utf8> messagePtr = message.toNativeUtf8();
     try {
-      _bindings.mergeBranch(_session, targetPtr, mode.index, messagePtr, stashFirst ? 1 : 0);
+      _bindings.mergeBranch(
+        _session,
+        targetPtr,
+        mode.index,
+        messagePtr,
+        stashFirst ? 1 : 0,
+      );
     } finally {
       malloc.free(targetPtr);
       malloc.free(messagePtr);
@@ -887,11 +1046,23 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   /// applied in. See gbm_cherry_pick()'s doc comment in gbm_capi.h: stops at
   /// the first conflict, leaving the rest queued for [cherryPickContinue]/
   /// [cherryPickSkip]/[cherryPickAbort].
-  void cherryPick(List<String> commitHexes, {int mainline = 0, bool noCommit = false, bool stashFirst = false}) {
+  void cherryPick(
+    List<String> commitHexes, {
+    int mainline = 0,
+    bool noCommit = false,
+    bool stashFirst = false,
+  }) {
     if (_session == nullptr) return;
     _withNativeStringArray(
       commitHexes,
-      (array, count) => _bindings.cherryPick(_session, array, count, mainline, noCommit ? 1 : 0, stashFirst ? 1 : 0),
+      (array, count) => _bindings.cherryPick(
+        _session,
+        array,
+        count,
+        mainline,
+        noCommit ? 1 : 0,
+        stashFirst ? 1 : 0,
+      ),
     );
   }
 
@@ -912,11 +1083,21 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
 
   /// `git revert`. Same `commitHexes` convention as [cherryPick]. No
   /// continue/skip/abort entry point -- see gbm_revert()'s doc comment.
-  void revert(List<String> commitHexes, {bool noCommit = false, bool stashFirst = false}) {
+  void revert(
+    List<String> commitHexes, {
+    bool noCommit = false,
+    bool stashFirst = false,
+  }) {
     if (_session == nullptr) return;
     _withNativeStringArray(
       commitHexes,
-      (array, count) => _bindings.revert(_session, array, count, noCommit ? 1 : 0, stashFirst ? 1 : 0),
+      (array, count) => _bindings.revert(
+        _session,
+        array,
+        count,
+        noCommit ? 1 : 0,
+        stashFirst ? 1 : 0,
+      ),
     );
   }
 
@@ -977,7 +1158,9 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
       malloc.free(contentPtr);
     }
     final String json = readLastResultJson(_bindings);
-    return json.isEmpty ? ParsedConflictFile.empty : ParsedConflictFile.fromJson(jsonDecode(json) as Map<String, dynamic>);
+    return json.isEmpty
+        ? ParsedConflictFile.empty
+        : ParsedConflictFile.fromJson(jsonDecode(json) as Map<String, dynamic>);
   }
 
   /// Re-reads `git status`. See gbm_working_copy_refresh()'s doc comment in
@@ -1005,14 +1188,20 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   /// and (on success) a working-copy refresh, both reflected in [state].
   void stageFiles(List<String> paths) {
     if (_session == nullptr) return;
-    _withNativeStringArray(paths, (array, count) => _bindings.stageFiles(_session, array, count));
+    _withNativeStringArray(
+      paths,
+      (array, count) => _bindings.stageFiles(_session, array, count),
+    );
   }
 
   /// `git restore --staged -- <paths>`. Same event/refresh contract as
   /// [stageFiles].
   void unstageFiles(List<String> paths) {
     if (_session == nullptr) return;
-    _withNativeStringArray(paths, (array, count) => _bindings.unstageFiles(_session, array, count));
+    _withNativeStringArray(
+      paths,
+      (array, count) => _bindings.unstageFiles(_session, array, count),
+    );
   }
 
   /// Stages a single hunk (0-based `hunkIndex`, in the order the most recent
@@ -1055,7 +1244,13 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
       for (int i = 0; i < lineIndices.length; i++) {
         indices[i] = lineIndices[i];
       }
-      _bindings.stageLines(_session, pathPtr, hunkIndex, indices, lineIndices.length);
+      _bindings.stageLines(
+        _session,
+        pathPtr,
+        hunkIndex,
+        indices,
+        lineIndices.length,
+      );
     } finally {
       malloc.free(pathPtr);
       malloc.free(indices);
@@ -1073,7 +1268,13 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
       for (int i = 0; i < lineIndices.length; i++) {
         indices[i] = lineIndices[i];
       }
-      _bindings.unstageLines(_session, pathPtr, hunkIndex, indices, lineIndices.length);
+      _bindings.unstageLines(
+        _session,
+        pathPtr,
+        hunkIndex,
+        indices,
+        lineIndices.length,
+      );
     } finally {
       malloc.free(pathPtr);
       malloc.free(indices);
@@ -1088,7 +1289,12 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     if (_session == nullptr) return;
     final Pointer<Utf8> messagePtr = message.toNativeUtf8();
     try {
-      _bindings.commitChanges(_session, messagePtr, amend ? 1 : 0, signOff ? 1 : 0);
+      _bindings.commitChanges(
+        _session,
+        messagePtr,
+        amend ? 1 : 0,
+        signOff ? 1 : 0,
+      );
     } finally {
       malloc.free(messagePtr);
     }
@@ -1104,14 +1310,25 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   /// [stageFiles]; empty stashes every changed path. Async: fires
   /// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success refreshes
   /// both the working copy and the stash list.
-  void saveStash(String message, {bool includeUntracked = false, bool keepIndex = false, List<String> paths = const <String>[]}) {
+  void saveStash(
+    String message, {
+    bool includeUntracked = false,
+    bool keepIndex = false,
+    List<String> paths = const <String>[],
+  }) {
     if (_session == nullptr) return;
     final Pointer<Utf8> messagePtr = message.toNativeUtf8();
     try {
       _withNativeStringArray(
         paths,
-        (array, count) =>
-            _bindings.stashSave(_session, messagePtr, includeUntracked ? 1 : 0, keepIndex ? 1 : 0, array, count),
+        (array, count) => _bindings.stashSave(
+          _session,
+          messagePtr,
+          includeUntracked ? 1 : 0,
+          keepIndex ? 1 : 0,
+          array,
+          count,
+        ),
       );
     } finally {
       malloc.free(messagePtr);
@@ -1154,13 +1371,24 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   /// `git tag`. `target` empty means HEAD; `message` non-empty makes it
   /// annotated. Async: fires GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and
   /// on success refreshes history (refs).
-  void createTag(String name, {String target = '', String message = '', bool force = false}) {
+  void createTag(
+    String name, {
+    String target = '',
+    String message = '',
+    bool force = false,
+  }) {
     if (_session == nullptr) return;
     final Pointer<Utf8> namePtr = name.toNativeUtf8();
     final Pointer<Utf8> targetPtr = target.toNativeUtf8();
     final Pointer<Utf8> messagePtr = message.toNativeUtf8();
     try {
-      _bindings.tagCreate(_session, namePtr, targetPtr, messagePtr, force ? 1 : 0);
+      _bindings.tagCreate(
+        _session,
+        namePtr,
+        targetPtr,
+        messagePtr,
+        force ? 1 : 0,
+      );
     } finally {
       malloc.free(namePtr);
       malloc.free(targetPtr);
@@ -1171,7 +1399,11 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   /// `git tag -d`, optionally followed by a remote delete when
   /// `alsoRemote` is set (routed through the same credential prompt as
   /// [fetchRemote] -- see [RepoSessionState.credentialPrompt]).
-  void deleteTag(String name, {bool alsoRemote = false, String remoteName = ''}) {
+  void deleteTag(
+    String name, {
+    bool alsoRemote = false,
+    String remoteName = '',
+  }) {
     if (_session == nullptr) return;
     final Pointer<Utf8> namePtr = name.toNativeUtf8();
     final Pointer<Utf8> remotePtr = remoteName.toNativeUtf8();
@@ -1281,7 +1513,11 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   /// gbm_remote_fetch()'s doc comment in gbm_capi.h. Async: fires
   /// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success also
   /// refreshes history.
-  void fetchRemote({String remoteName = '', bool prune = false, bool tags = false}) {
+  void fetchRemote({
+    String remoteName = '',
+    bool prune = false,
+    bool tags = false,
+  }) {
     if (_session == nullptr) return;
     final Pointer<Utf8> remotePtr = remoteName.toNativeUtf8();
     try {
@@ -1295,12 +1531,23 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   /// empty uses the branch's configured upstream. See gbm_pull()'s doc
   /// comment: the working copy is always refreshed, history only on
   /// success.
-  void pullChanges({String remoteName = '', String branch = '', bool rebase = false, bool stashFirst = false}) {
+  void pullChanges({
+    String remoteName = '',
+    String branch = '',
+    bool rebase = false,
+    bool stashFirst = false,
+  }) {
     if (_session == nullptr) return;
     final Pointer<Utf8> remotePtr = remoteName.toNativeUtf8();
     final Pointer<Utf8> branchPtr = branch.toNativeUtf8();
     try {
-      _bindings.pull(_session, remotePtr, branchPtr, rebase ? 1 : 0, stashFirst ? 1 : 0);
+      _bindings.pull(
+        _session,
+        remotePtr,
+        branchPtr,
+        rebase ? 1 : 0,
+        stashFirst ? 1 : 0,
+      );
     } finally {
       malloc.free(remotePtr);
       malloc.free(branchPtr);
@@ -1321,7 +1568,14 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     final Pointer<Utf8> remotePtr = remoteName.toNativeUtf8();
     final Pointer<Utf8> branchPtr = branch.toNativeUtf8();
     try {
-      _bindings.push(_session, remotePtr, branchPtr, setUpstream ? 1 : 0, pushTags ? 1 : 0, forceWithLease ? 1 : 0);
+      _bindings.push(
+        _session,
+        remotePtr,
+        branchPtr,
+        setUpstream ? 1 : 0,
+        pushTags ? 1 : 0,
+        forceWithLease ? 1 : 0,
+      );
     } finally {
       malloc.free(remotePtr);
       malloc.free(branchPtr);
@@ -1364,16 +1618,41 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   /// GBM_EVENT_BLAME_READY into [RepoSessionState.lastBlame]. A newer call
   /// supersedes an older still-queued one (see gbm_request_blame()'s doc
   /// comment in gbm_capi.h).
-  void requestBlame(String path, {String revision = '', int startLine = 0, int endLine = 0}) {
+  void requestBlame(
+    String path, {
+    String revision = '',
+    int startLine = 0,
+    int endLine = 0,
+  }) {
     if (_session == nullptr) return;
     final Pointer<Utf8> pathPtr = path.toNativeUtf8();
     final Pointer<Utf8> revisionPtr = revision.toNativeUtf8();
     try {
-      _bindings.requestBlame(_session, pathPtr, revisionPtr, startLine, endLine);
+      _bindings.requestBlame(
+        _session,
+        pathPtr,
+        revisionPtr,
+        startLine,
+        endLine,
+      );
     } finally {
       malloc.free(pathPtr);
       malloc.free(revisionPtr);
     }
+  }
+
+  /// Batch commit metadata for `oids` (e.g. a commit list's visible range).
+  /// Async: fires GBM_EVENT_COMMIT_META_READY, merged into
+  /// [RepoSessionState.commitMetaCache] rather than replacing it -- see that
+  /// field's doc comment. Prefer history_repository.dart's
+  /// `requestCommitMeta`, which dedupes against oids already cached before
+  /// calling this.
+  void requestCommitMeta(List<String> oids) {
+    if (_session == nullptr || oids.isEmpty) return;
+    _withNativeStringArray(
+      oids,
+      (array, count) => _bindings.requestCommitMeta(_session, array, count),
+    );
   }
 
   /// `git log --follow` for one file. `startRevision` empty starts from
@@ -1394,12 +1673,23 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   /// `git log -L startLine,endLine:path`. `startRevision` empty starts from
   /// HEAD. Async: fires GBM_EVENT_LINE_HISTORY_READY into
   /// [RepoSessionState.lastLineHistory].
-  void requestLineHistory(String path, int startLine, int endLine, {String startRevision = ''}) {
+  void requestLineHistory(
+    String path,
+    int startLine,
+    int endLine, {
+    String startRevision = '',
+  }) {
     if (_session == nullptr) return;
     final Pointer<Utf8> pathPtr = path.toNativeUtf8();
     final Pointer<Utf8> startRevisionPtr = startRevision.toNativeUtf8();
     try {
-      _bindings.requestLineHistory(_session, pathPtr, startLine, endLine, startRevisionPtr);
+      _bindings.requestLineHistory(
+        _session,
+        pathPtr,
+        startLine,
+        endLine,
+        startRevisionPtr,
+      );
     } finally {
       malloc.free(pathPtr);
       malloc.free(startRevisionPtr);
@@ -1434,13 +1724,23 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   /// restricted to these paths. Async: fires
   /// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success refreshes
   /// the working copy.
-  void restorePaths(List<String> paths, {bool staged = false, String source = ''}) {
+  void restorePaths(
+    List<String> paths, {
+    bool staged = false,
+    String source = '',
+  }) {
     if (_session == nullptr) return;
     final Pointer<Utf8> sourcePtr = source.toNativeUtf8();
     try {
       _withNativeStringArray(
         paths,
-        (array, count) => _bindings.restorePaths(_session, array, count, staged ? 1 : 0, sourcePtr),
+        (array, count) => _bindings.restorePaths(
+          _session,
+          array,
+          count,
+          staged ? 1 : 0,
+          sourcePtr,
+        ),
       );
     } finally {
       malloc.free(sourcePtr);
@@ -1457,9 +1757,20 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   /// `git clean -fd[x]`. `paths` empty means the whole work tree. Async:
   /// fires GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success
   /// refreshes the working copy.
-  void cleanUntracked({List<String> paths = const <String>[], bool includeIgnored = false}) {
+  void cleanUntracked({
+    List<String> paths = const <String>[],
+    bool includeIgnored = false,
+  }) {
     if (_session == nullptr) return;
-    _withNativeStringArray(paths, (array, count) => _bindings.cleanUntracked(_session, array, count, includeIgnored ? 1 : 0));
+    _withNativeStringArray(
+      paths,
+      (array, count) => _bindings.cleanUntracked(
+        _session,
+        array,
+        count,
+        includeIgnored ? 1 : 0,
+      ),
+    );
   }
 
   /// Builds the todo list a plain `git rebase -i <upstream>` would start
@@ -1526,7 +1837,11 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
 
   /// Plain, non-interactive `git rebase`: replays every commit unchanged.
   /// Same event/refresh contract as [startInteractiveRebase].
-  void startRebase(String upstream, {String onto = '', bool stashFirst = false}) {
+  void startRebase(
+    String upstream, {
+    String onto = '',
+    bool stashFirst = false,
+  }) {
     if (_session == nullptr) return;
     final Pointer<Utf8> upstreamPtr = upstream.toNativeUtf8();
     final Pointer<Utf8> ontoPtr = onto.toNativeUtf8();
@@ -1581,9 +1896,16 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
 
   /// `git submodule init [--] <paths...>`. `paths` empty means every
   /// submodule.
-  void initSubmodules({List<String> paths = const <String>[], bool recursive = false}) {
+  void initSubmodules({
+    List<String> paths = const <String>[],
+    bool recursive = false,
+  }) {
     if (_session == nullptr) return;
-    _withNativeStringArray(paths, (array, count) => _bindings.submoduleInit(_session, array, count, recursive ? 1 : 0));
+    _withNativeStringArray(
+      paths,
+      (array, count) =>
+          _bindings.submoduleInit(_session, array, count, recursive ? 1 : 0),
+    );
   }
 
   /// `git submodule update [--init] [--recursive] [--remote] [--] <paths...>`.
@@ -1597,21 +1919,41 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     if (_session == nullptr) return;
     _withNativeStringArray(
       paths,
-      (array, count) =>
-          _bindings.submoduleUpdate(_session, array, count, recursive ? 1 : 0, init ? 1 : 0, remote ? 1 : 0),
+      (array, count) => _bindings.submoduleUpdate(
+        _session,
+        array,
+        count,
+        recursive ? 1 : 0,
+        init ? 1 : 0,
+        remote ? 1 : 0,
+      ),
     );
   }
 
   /// `git submodule sync [--recursive] [--] <paths...>`.
-  void syncSubmodules({List<String> paths = const <String>[], bool recursive = false}) {
+  void syncSubmodules({
+    List<String> paths = const <String>[],
+    bool recursive = false,
+  }) {
     if (_session == nullptr) return;
-    _withNativeStringArray(paths, (array, count) => _bindings.submoduleSync(_session, array, count, recursive ? 1 : 0));
+    _withNativeStringArray(
+      paths,
+      (array, count) =>
+          _bindings.submoduleSync(_session, array, count, recursive ? 1 : 0),
+    );
   }
 
   /// `git submodule deinit [-f] [--] <paths...>`.
-  void deinitSubmodules({List<String> paths = const <String>[], bool force = false}) {
+  void deinitSubmodules({
+    List<String> paths = const <String>[],
+    bool force = false,
+  }) {
     if (_session == nullptr) return;
-    _withNativeStringArray(paths, (array, count) => _bindings.submoduleDeinit(_session, array, count, force ? 1 : 0));
+    _withNativeStringArray(
+      paths,
+      (array, count) =>
+          _bindings.submoduleDeinit(_session, array, count, force ? 1 : 0),
+    );
   }
 
   /// Async: see gbm_bisect_refresh()'s doc comment in gbm_capi.h.
@@ -1672,7 +2014,10 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   /// `git bisect skip [<refs...>]`. Empty `refs` skips HEAD.
   void skipBisect({List<String> refs = const <String>[]}) {
     if (_session == nullptr) return;
-    _withNativeStringArray(refs, (array, count) => _bindings.bisectSkip(_session, array, count));
+    _withNativeStringArray(
+      refs,
+      (array, count) => _bindings.bisectSkip(_session, array, count),
+    );
   }
 
   /// `git bisect reset [<target>]`. `target` empty returns to whatever
@@ -1763,7 +2108,8 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     try {
       _withNativeStringArray(
         commitHexes,
-        (array, count) => _bindings.patchExport(_session, array, count, outputDirPtr),
+        (array, count) =>
+            _bindings.patchExport(_session, array, count, outputDirPtr),
       );
     } finally {
       malloc.free(outputDirPtr);
@@ -1776,11 +2122,21 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   /// also stages the result. Async: fires
   /// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success refreshes
   /// the working copy.
-  void applyPatchFiles(List<String> patchFiles, {bool threeWay = false, bool updateIndex = false}) {
+  void applyPatchFiles(
+    List<String> patchFiles, {
+    bool threeWay = false,
+    bool updateIndex = false,
+  }) {
     if (_session == nullptr) return;
     _withNativeStringArray(
       patchFiles,
-      (array, count) => _bindings.patchApplyFiles(_session, array, count, threeWay ? 1 : 0, updateIndex ? 1 : 0),
+      (array, count) => _bindings.patchApplyFiles(
+        _session,
+        array,
+        count,
+        threeWay ? 1 : 0,
+        updateIndex ? 1 : 0,
+      ),
     );
   }
 
@@ -1791,7 +2147,11 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   /// [continueImport]/[skipImport]/[abortImport].
   void importPatches(List<String> patchFiles, {bool threeWay = false}) {
     if (_session == nullptr) return;
-    _withNativeStringArray(patchFiles, (array, count) => _bindings.patchImport(_session, array, count, threeWay ? 1 : 0));
+    _withNativeStringArray(
+      patchFiles,
+      (array, count) =>
+          _bindings.patchImport(_session, array, count, threeWay ? 1 : 0),
+    );
   }
 
   void continueImport() {
@@ -1849,7 +2209,9 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   /// [RepoSessionState.hasCommitGraph] immediately.
   void refreshHasCommitGraph() {
     if (_session == nullptr) return;
-    state = state.copyWith(hasCommitGraph: _bindings.hasCommitGraph(_session) != 0);
+    state = state.copyWith(
+      hasCommitGraph: _bindings.hasCommitGraph(_session) != 0,
+    );
   }
 
   /// `git commit-graph write --reachable [--changed-paths] [--split]`.
@@ -1862,7 +2224,10 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
 
   /// Marshals `paths` into a native `const char* const*` for the lifetime of
   /// `body`, then frees every string and the array itself.
-  void _withNativeStringArray(List<String> paths, void Function(Pointer<Pointer<Utf8>> array, int count) body) {
+  void _withNativeStringArray(
+    List<String> paths,
+    void Function(Pointer<Pointer<Utf8>> array, int count) body,
+  ) {
     final Pointer<Pointer<Utf8>> array = malloc<Pointer<Utf8>>(paths.length);
     try {
       for (int i = 0; i < paths.length; i++) {
@@ -1889,8 +2254,17 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   }
 }
 
-final StateNotifierProviderFamily<RepoSessionController, RepoSessionState, RepoIdentity> repoSessionProvider =
-    StateNotifierProvider.family<RepoSessionController, RepoSessionState, RepoIdentity>((ref, identity) {
+final StateNotifierProviderFamily<
+  RepoSessionController,
+  RepoSessionState,
+  RepoIdentity
+>
+repoSessionProvider =
+    StateNotifierProvider.family<
+      RepoSessionController,
+      RepoSessionState,
+      RepoIdentity
+    >((ref, identity) {
       final GbmBindings bindings = ref.watch(gbmBindingsProvider);
       return RepoSessionController(bindings, identity);
     });

@@ -43,6 +43,7 @@ abstract final class GbmEventType {
   static const int effectiveIdentityUpdated = 23;
   static const int commitGraphWriteFinished = 24;
   static const int workingTreeContentReady = 25;
+  static const int commitMetaReady = 26;
 }
 
 /// `void (*)(GbmSessionHandle, int32_t, const uint8_t*, int32_t, void*)`.
@@ -61,21 +62,38 @@ typedef FreeEventPayloadDart = void Function(Pointer<Uint8> payload);
 typedef _LastResultJsonLenNative = Int32 Function();
 typedef LastResultJsonLenDart = int Function();
 
-typedef _LastResultJsonCopyNative = Void Function(Pointer<Uint8> out, Int32 outLen);
+typedef _LastResultJsonCopyNative =
+    Void Function(Pointer<Uint8> out, Int32 outLen);
 typedef LastResultJsonCopyDart = void Function(Pointer<Uint8> out, int outLen);
 
 typedef _SessionOpenNative =
-    Pointer<Void> Function(Pointer<Utf8> workDir, Pointer<Utf8> gitDir, Pointer<Utf8> commonDir);
+    Pointer<Void> Function(
+      Pointer<Utf8> workDir,
+      Pointer<Utf8> gitDir,
+      Pointer<Utf8> commonDir,
+    );
 typedef SessionOpenDart =
-    Pointer<Void> Function(Pointer<Utf8> workDir, Pointer<Utf8> gitDir, Pointer<Utf8> commonDir);
+    Pointer<Void> Function(
+      Pointer<Utf8> workDir,
+      Pointer<Utf8> gitDir,
+      Pointer<Utf8> commonDir,
+    );
 
 typedef _SessionCloseNative = Void Function(Pointer<Void> session);
 typedef SessionCloseDart = void Function(Pointer<Void> session);
 
 typedef _RegisterCallbackNative =
-    Void Function(Pointer<Void> session, Pointer<NativeFunction<GbmEventCallbackNative>> callback, Pointer<Void> userData);
+    Void Function(
+      Pointer<Void> session,
+      Pointer<NativeFunction<GbmEventCallbackNative>> callback,
+      Pointer<Void> userData,
+    );
 typedef RegisterCallbackDart =
-    void Function(Pointer<Void> session, Pointer<NativeFunction<GbmEventCallbackNative>> callback, Pointer<Void> userData);
+    void Function(
+      Pointer<Void> session,
+      Pointer<NativeFunction<GbmEventCallbackNative>> callback,
+      Pointer<Void> userData,
+    );
 
 typedef _RepoStateJsonNative = Int32 Function(Pointer<Void> session);
 typedef RepoStateJsonDart = int Function(Pointer<Void> session);
@@ -86,17 +104,49 @@ typedef HistoryRefreshDart = void Function(Pointer<Void> session);
 typedef _RefsJsonNative = Int32 Function(Pointer<Void> session);
 typedef RefsJsonDart = int Function(Pointer<Void> session);
 
-typedef _GraphRowsNative = Pointer<Uint8> Function(Pointer<Void> session, Pointer<Int32> rowCount, Pointer<Int32> rowStride);
-typedef GraphRowsDart = Pointer<Uint8> Function(Pointer<Void> session, Pointer<Int32> rowCount, Pointer<Int32> rowStride);
+typedef _GraphRowsNative =
+    Pointer<Uint8> Function(
+      Pointer<Void> session,
+      Pointer<Int32> rowCount,
+      Pointer<Int32> rowStride,
+    );
+typedef GraphRowsDart =
+    Pointer<Uint8> Function(
+      Pointer<Void> session,
+      Pointer<Int32> rowCount,
+      Pointer<Int32> rowStride,
+    );
 
-typedef _GraphOidsNative = Pointer<Uint8> Function(Pointer<Void> session, Pointer<Int32> oidCount, Pointer<Int32> oidStride);
-typedef GraphOidsDart = Pointer<Uint8> Function(Pointer<Void> session, Pointer<Int32> oidCount, Pointer<Int32> oidStride);
+typedef _GraphOidsNative =
+    Pointer<Uint8> Function(
+      Pointer<Void> session,
+      Pointer<Int32> oidCount,
+      Pointer<Int32> oidStride,
+    );
+typedef GraphOidsDart =
+    Pointer<Uint8> Function(
+      Pointer<Void> session,
+      Pointer<Int32> oidCount,
+      Pointer<Int32> oidStride,
+    );
 
-typedef _GraphParentsNative = Pointer<Uint32> Function(Pointer<Void> session, Pointer<Int32> parentCount);
-typedef GraphParentsDart = Pointer<Uint32> Function(Pointer<Void> session, Pointer<Int32> parentCount);
+typedef _GraphParentsNative =
+    Pointer<Uint32> Function(Pointer<Void> session, Pointer<Int32> parentCount);
+typedef GraphParentsDart =
+    Pointer<Uint32> Function(Pointer<Void> session, Pointer<Int32> parentCount);
 
-typedef _GraphEdgesNative = Pointer<Uint8> Function(Pointer<Void> session, Pointer<Int32> edgeCount, Pointer<Int32> edgeStride);
-typedef GraphEdgesDart = Pointer<Uint8> Function(Pointer<Void> session, Pointer<Int32> edgeCount, Pointer<Int32> edgeStride);
+typedef _GraphEdgesNative =
+    Pointer<Uint8> Function(
+      Pointer<Void> session,
+      Pointer<Int32> edgeCount,
+      Pointer<Int32> edgeStride,
+    );
+typedef GraphEdgesDart =
+    Pointer<Uint8> Function(
+      Pointer<Void> session,
+      Pointer<Int32> edgeCount,
+      Pointer<Int32> edgeStride,
+    );
 
 typedef _GraphIntQueryNative = Int32 Function(Pointer<Void> session);
 typedef GraphIntQueryDart = int Function(Pointer<Void> session);
@@ -146,8 +196,20 @@ typedef BranchCreateDart =
       Pointer<Utf8> upstream,
     );
 
-typedef _BranchRenameNative = Void Function(Pointer<Void> session, Pointer<Utf8> from, Pointer<Utf8> to, Int32 force);
-typedef BranchRenameDart = void Function(Pointer<Void> session, Pointer<Utf8> from, Pointer<Utf8> to, int force);
+typedef _BranchRenameNative =
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> from,
+      Pointer<Utf8> to,
+      Int32 force,
+    );
+typedef BranchRenameDart =
+    void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> from,
+      Pointer<Utf8> to,
+      int force,
+    );
 
 typedef _BranchDeleteNative =
     Void Function(
@@ -168,13 +230,27 @@ typedef BranchDeleteDart =
       Pointer<Utf8> remoteName,
     );
 
-typedef _ResetToNative = Void Function(Pointer<Void> session, Pointer<Utf8> target, Int32 mode);
-typedef ResetToDart = void Function(Pointer<Void> session, Pointer<Utf8> target, int mode);
+typedef _ResetToNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> target, Int32 mode);
+typedef ResetToDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> target, int mode);
 
 typedef _MergeBranchNative =
-    Void Function(Pointer<Void> session, Pointer<Utf8> target, Int32 mode, Pointer<Utf8> message, Int32 stashFirst);
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> target,
+      Int32 mode,
+      Pointer<Utf8> message,
+      Int32 stashFirst,
+    );
 typedef MergeBranchDart =
-    void Function(Pointer<Void> session, Pointer<Utf8> target, int mode, Pointer<Utf8> message, int stashFirst);
+    void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> target,
+      int mode,
+      Pointer<Utf8> message,
+      int stashFirst,
+    );
 
 typedef _MergeAbortNative = Void Function(Pointer<Void> session);
 typedef MergeAbortDart = void Function(Pointer<Void> session);
@@ -216,7 +292,13 @@ typedef _RevertNative =
       Int32 stashFirst,
     );
 typedef RevertDart =
-    void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> commitHexes, int commitCount, int noCommit, int stashFirst);
+    void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> commitHexes,
+      int commitCount,
+      int noCommit,
+      int stashFirst,
+    );
 
 typedef _ResolveConflictNative =
     Void Function(
@@ -237,8 +319,10 @@ typedef ResolveConflictDart =
       Pointer<Utf8> resolvedContent,
     );
 
-typedef _RequestWorkingTreeContentNative = Void Function(Pointer<Void> session, Pointer<Utf8> path);
-typedef RequestWorkingTreeContentDart = void Function(Pointer<Void> session, Pointer<Utf8> path);
+typedef _RequestWorkingTreeContentNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> path);
+typedef RequestWorkingTreeContentDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> path);
 
 typedef _ParseConflictMarkersNative = Int32 Function(Pointer<Utf8> content);
 typedef ParseConflictMarkersDart = int Function(Pointer<Utf8> content);
@@ -249,23 +333,56 @@ typedef WorkingCopyRefreshDart = void Function(Pointer<Void> session);
 typedef _WorkingCopyStatusJsonNative = Int32 Function(Pointer<Void> session);
 typedef WorkingCopyStatusJsonDart = int Function(Pointer<Void> session);
 
-typedef _WorkingCopyDiffNative = Void Function(Pointer<Void> session, Pointer<Utf8> path, Int32 staged);
-typedef WorkingCopyDiffDart = void Function(Pointer<Void> session, Pointer<Utf8> path, int staged);
+typedef _WorkingCopyDiffNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> path, Int32 staged);
+typedef WorkingCopyDiffDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> path, int staged);
 
 typedef _StageFilesNative =
-    Void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> paths, Int32 pathCount);
-typedef StageFilesDart = void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> paths, int pathCount);
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> paths,
+      Int32 pathCount,
+    );
+typedef StageFilesDart =
+    void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> paths,
+      int pathCount,
+    );
 
 typedef _UnstageFilesNative =
-    Void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> paths, Int32 pathCount);
-typedef UnstageFilesDart = void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> paths, int pathCount);
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> paths,
+      Int32 pathCount,
+    );
+typedef UnstageFilesDart =
+    void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> paths,
+      int pathCount,
+    );
 
 typedef _CommitChangesNative =
-    Void Function(Pointer<Void> session, Pointer<Utf8> message, Int32 amend, Int32 signOff);
-typedef CommitChangesDart = void Function(Pointer<Void> session, Pointer<Utf8> message, int amend, int signOff);
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> message,
+      Int32 amend,
+      Int32 signOff,
+    );
+typedef CommitChangesDart =
+    void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> message,
+      int amend,
+      int signOff,
+    );
 
-typedef _StageHunkNative = Void Function(Pointer<Void> session, Pointer<Utf8> path, Int32 hunkIndex);
-typedef StageHunkDart = void Function(Pointer<Void> session, Pointer<Utf8> path, int hunkIndex);
+typedef _StageHunkNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> path, Int32 hunkIndex);
+typedef StageHunkDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> path, int hunkIndex);
 
 typedef _StageLinesNative =
     Void Function(
@@ -309,30 +426,67 @@ typedef StashSaveDart =
       int pathCount,
     );
 
-typedef _StashApplyNative = Void Function(Pointer<Void> session, Int32 index, Int32 pop);
-typedef StashApplyDart = void Function(Pointer<Void> session, int index, int pop);
+typedef _StashApplyNative =
+    Void Function(Pointer<Void> session, Int32 index, Int32 pop);
+typedef StashApplyDart =
+    void Function(Pointer<Void> session, int index, int pop);
 
 typedef _StashDropNative = Void Function(Pointer<Void> session, Int32 index);
 typedef StashDropDart = void Function(Pointer<Void> session, int index);
 
-typedef _StashBranchNative = Void Function(Pointer<Void> session, Int32 index, Pointer<Utf8> branchName);
-typedef StashBranchDart = void Function(Pointer<Void> session, int index, Pointer<Utf8> branchName);
+typedef _StashBranchNative =
+    Void Function(Pointer<Void> session, Int32 index, Pointer<Utf8> branchName);
+typedef StashBranchDart =
+    void Function(Pointer<Void> session, int index, Pointer<Utf8> branchName);
 
-typedef _StashRequestDiffNative = Void Function(Pointer<Void> session, Int32 index);
+typedef _StashRequestDiffNative =
+    Void Function(Pointer<Void> session, Int32 index);
 typedef StashRequestDiffDart = void Function(Pointer<Void> session, int index);
 
 typedef _TagCreateNative =
-    Void Function(Pointer<Void> session, Pointer<Utf8> name, Pointer<Utf8> target, Pointer<Utf8> message, Int32 force);
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> name,
+      Pointer<Utf8> target,
+      Pointer<Utf8> message,
+      Int32 force,
+    );
 typedef TagCreateDart =
-    void Function(Pointer<Void> session, Pointer<Utf8> name, Pointer<Utf8> target, Pointer<Utf8> message, int force);
+    void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> name,
+      Pointer<Utf8> target,
+      Pointer<Utf8> message,
+      int force,
+    );
 
 typedef _TagDeleteNative =
-    Void Function(Pointer<Void> session, Pointer<Utf8> name, Int32 alsoRemote, Pointer<Utf8> remoteName);
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> name,
+      Int32 alsoRemote,
+      Pointer<Utf8> remoteName,
+    );
 typedef TagDeleteDart =
-    void Function(Pointer<Void> session, Pointer<Utf8> name, int alsoRemote, Pointer<Utf8> remoteName);
+    void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> name,
+      int alsoRemote,
+      Pointer<Utf8> remoteName,
+    );
 
-typedef _TagPushNative = Void Function(Pointer<Void> session, Pointer<Utf8> remoteName, Pointer<Utf8> name);
-typedef TagPushDart = void Function(Pointer<Void> session, Pointer<Utf8> remoteName, Pointer<Utf8> name);
+typedef _TagPushNative =
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> remoteName,
+      Pointer<Utf8> name,
+    );
+typedef TagPushDart =
+    void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> remoteName,
+      Pointer<Utf8> name,
+    );
 
 typedef _WorktreeRefreshNative = Void Function(Pointer<Void> session);
 typedef WorktreeRefreshDart = void Function(Pointer<Void> session);
@@ -361,17 +515,31 @@ typedef WorktreeAddDart =
       int force,
     );
 
-typedef _WorktreeRemoveNative = Void Function(Pointer<Void> session, Pointer<Utf8> path, Int32 force);
-typedef WorktreeRemoveDart = void Function(Pointer<Void> session, Pointer<Utf8> path, int force);
+typedef _WorktreeRemoveNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> path, Int32 force);
+typedef WorktreeRemoveDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> path, int force);
 
 typedef _WorktreePruneNative = Void Function(Pointer<Void> session);
 typedef WorktreePruneDart = void Function(Pointer<Void> session);
 
-typedef _WorktreeLockNative = Void Function(Pointer<Void> session, Pointer<Utf8> path, Pointer<Utf8> reason);
-typedef WorktreeLockDart = void Function(Pointer<Void> session, Pointer<Utf8> path, Pointer<Utf8> reason);
+typedef _WorktreeLockNative =
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> path,
+      Pointer<Utf8> reason,
+    );
+typedef WorktreeLockDart =
+    void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> path,
+      Pointer<Utf8> reason,
+    );
 
-typedef _WorktreeUnlockNative = Void Function(Pointer<Void> session, Pointer<Utf8> path);
-typedef WorktreeUnlockDart = void Function(Pointer<Void> session, Pointer<Utf8> path);
+typedef _WorktreeUnlockNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> path);
+typedef WorktreeUnlockDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> path);
 
 typedef _RemoteRefreshNative = Void Function(Pointer<Void> session);
 typedef RemoteRefreshDart = void Function(Pointer<Void> session);
@@ -379,13 +547,37 @@ typedef RemoteRefreshDart = void Function(Pointer<Void> session);
 typedef _RemotesJsonNative = Int32 Function(Pointer<Void> session);
 typedef RemotesJsonDart = int Function(Pointer<Void> session);
 
-typedef _RemoteFetchNative = Void Function(Pointer<Void> session, Pointer<Utf8> remoteName, Int32 prune, Int32 tags);
-typedef RemoteFetchDart = void Function(Pointer<Void> session, Pointer<Utf8> remoteName, int prune, int tags);
+typedef _RemoteFetchNative =
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> remoteName,
+      Int32 prune,
+      Int32 tags,
+    );
+typedef RemoteFetchDart =
+    void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> remoteName,
+      int prune,
+      int tags,
+    );
 
 typedef _PullNative =
-    Void Function(Pointer<Void> session, Pointer<Utf8> remoteName, Pointer<Utf8> branch, Int32 rebase, Int32 stashFirst);
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> remoteName,
+      Pointer<Utf8> branch,
+      Int32 rebase,
+      Int32 stashFirst,
+    );
 typedef PullDart =
-    void Function(Pointer<Void> session, Pointer<Utf8> remoteName, Pointer<Utf8> branch, int rebase, int stashFirst);
+    void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> remoteName,
+      Pointer<Utf8> branch,
+      int rebase,
+      int stashFirst,
+    );
 
 typedef _PushNative =
     Void Function(
@@ -406,20 +598,56 @@ typedef PushDart =
       int forceWithLease,
     );
 
-typedef _ProvideCredentialNative = Void Function(Pointer<Void> session, Pointer<Utf8> secret);
-typedef ProvideCredentialDart = void Function(Pointer<Void> session, Pointer<Utf8> secret);
+typedef _ProvideCredentialNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> secret);
+typedef ProvideCredentialDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> secret);
 
 typedef _CancelCredentialNative = Void Function(Pointer<Void> session);
 typedef CancelCredentialDart = void Function(Pointer<Void> session);
 
 typedef _RequestBlameNative =
-    Void Function(Pointer<Void> session, Pointer<Utf8> path, Pointer<Utf8> revision, Int32 startLine, Int32 endLine);
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> path,
+      Pointer<Utf8> revision,
+      Int32 startLine,
+      Int32 endLine,
+    );
 typedef RequestBlameDart =
-    void Function(Pointer<Void> session, Pointer<Utf8> path, Pointer<Utf8> revision, int startLine, int endLine);
+    void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> path,
+      Pointer<Utf8> revision,
+      int startLine,
+      int endLine,
+    );
 
-typedef _RequestFileHistoryNative = Void Function(Pointer<Void> session, Pointer<Utf8> path, Pointer<Utf8> startRevision);
+typedef _RequestCommitMetaNative =
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> oids,
+      Int32 oidCount,
+    );
+typedef RequestCommitMetaDart =
+    void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> oids,
+      int oidCount,
+    );
+
+typedef _RequestFileHistoryNative =
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> path,
+      Pointer<Utf8> startRevision,
+    );
 typedef RequestFileHistoryDart =
-    void Function(Pointer<Void> session, Pointer<Utf8> path, Pointer<Utf8> startRevision);
+    void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> path,
+      Pointer<Utf8> startRevision,
+    );
 
 typedef _RequestLineHistoryNative =
     Void Function(
@@ -438,8 +666,10 @@ typedef RequestLineHistoryDart =
       Pointer<Utf8> startRevision,
     );
 
-typedef _RequestReflogNative = Void Function(Pointer<Void> session, Pointer<Utf8> ref);
-typedef RequestReflogDart = void Function(Pointer<Void> session, Pointer<Utf8> ref);
+typedef _RequestReflogNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> ref);
+typedef RequestReflogDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> ref);
 
 typedef _UndoJournalJsonNative = Int32 Function(Pointer<Void> session);
 typedef UndoJournalJsonDart = int Function(Pointer<Void> session);
@@ -448,20 +678,46 @@ typedef _UndoLastNative = Void Function(Pointer<Void> session);
 typedef UndoLastDart = void Function(Pointer<Void> session);
 
 typedef _RestorePathsNative =
-    Void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> paths, Int32 pathCount, Int32 staged, Pointer<Utf8> source);
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> paths,
+      Int32 pathCount,
+      Int32 staged,
+      Pointer<Utf8> source,
+    );
 typedef RestorePathsDart =
-    void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> paths, int pathCount, int staged, Pointer<Utf8> source);
+    void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> paths,
+      int pathCount,
+      int staged,
+      Pointer<Utf8> source,
+    );
 
-typedef _CleanPreviewNative = Void Function(Pointer<Void> session, Int32 includeIgnored);
-typedef CleanPreviewDart = void Function(Pointer<Void> session, int includeIgnored);
+typedef _CleanPreviewNative =
+    Void Function(Pointer<Void> session, Int32 includeIgnored);
+typedef CleanPreviewDart =
+    void Function(Pointer<Void> session, int includeIgnored);
 
 typedef _CleanUntrackedNative =
-    Void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> paths, Int32 pathCount, Int32 includeIgnored);
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> paths,
+      Int32 pathCount,
+      Int32 includeIgnored,
+    );
 typedef CleanUntrackedDart =
-    void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> paths, int pathCount, int includeIgnored);
+    void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> paths,
+      int pathCount,
+      int includeIgnored,
+    );
 
-typedef _RequestRebasePlanNative = Void Function(Pointer<Void> session, Pointer<Utf8> upstream);
-typedef RequestRebasePlanDart = void Function(Pointer<Void> session, Pointer<Utf8> upstream);
+typedef _RequestRebasePlanNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> upstream);
+typedef RequestRebasePlanDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> upstream);
 
 typedef _RebaseInteractiveStartNative =
     Void Function(
@@ -487,9 +743,19 @@ typedef RebaseInteractiveStartDart =
     );
 
 typedef _RebaseStartNative =
-    Void Function(Pointer<Void> session, Pointer<Utf8> upstream, Pointer<Utf8> onto, Int32 stashFirst);
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> upstream,
+      Pointer<Utf8> onto,
+      Int32 stashFirst,
+    );
 typedef RebaseStartDart =
-    void Function(Pointer<Void> session, Pointer<Utf8> upstream, Pointer<Utf8> onto, int stashFirst);
+    void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> upstream,
+      Pointer<Utf8> onto,
+      int stashFirst,
+    );
 
 typedef _RebaseContinueNative = Void Function(Pointer<Void> session);
 typedef RebaseContinueDart = void Function(Pointer<Void> session);
@@ -507,14 +773,34 @@ typedef _SubmodulesJsonNative = Int32 Function(Pointer<Void> session);
 typedef SubmodulesJsonDart = int Function(Pointer<Void> session);
 
 typedef _SubmoduleAddNative =
-    Void Function(Pointer<Void> session, Pointer<Utf8> url, Pointer<Utf8> path, Pointer<Utf8> branch);
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> url,
+      Pointer<Utf8> path,
+      Pointer<Utf8> branch,
+    );
 typedef SubmoduleAddDart =
-    void Function(Pointer<Void> session, Pointer<Utf8> url, Pointer<Utf8> path, Pointer<Utf8> branch);
+    void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> url,
+      Pointer<Utf8> path,
+      Pointer<Utf8> branch,
+    );
 
 typedef _SubmoduleInitNative =
-    Void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> paths, Int32 pathCount, Int32 recursive);
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> paths,
+      Int32 pathCount,
+      Int32 recursive,
+    );
 typedef SubmoduleInitDart =
-    void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> paths, int pathCount, int recursive);
+    void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> paths,
+      int pathCount,
+      int recursive,
+    );
 
 typedef _SubmoduleUpdateNative =
     Void Function(
@@ -536,14 +822,34 @@ typedef SubmoduleUpdateDart =
     );
 
 typedef _SubmoduleSyncNative =
-    Void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> paths, Int32 pathCount, Int32 recursive);
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> paths,
+      Int32 pathCount,
+      Int32 recursive,
+    );
 typedef SubmoduleSyncDart =
-    void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> paths, int pathCount, int recursive);
+    void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> paths,
+      int pathCount,
+      int recursive,
+    );
 
 typedef _SubmoduleDeinitNative =
-    Void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> paths, Int32 pathCount, Int32 force);
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> paths,
+      Int32 pathCount,
+      Int32 force,
+    );
 typedef SubmoduleDeinitDart =
-    void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> paths, int pathCount, int force);
+    void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> paths,
+      int pathCount,
+      int force,
+    );
 
 typedef _BisectRefreshNative = Void Function(Pointer<Void> session);
 typedef BisectRefreshDart = void Function(Pointer<Void> session);
@@ -572,14 +878,28 @@ typedef BisectStartDart =
       int noCheckout,
     );
 
-typedef _BisectMarkNative = Void Function(Pointer<Void> session, Int32 good, Pointer<Utf8> ref);
-typedef BisectMarkDart = void Function(Pointer<Void> session, int good, Pointer<Utf8> ref);
+typedef _BisectMarkNative =
+    Void Function(Pointer<Void> session, Int32 good, Pointer<Utf8> ref);
+typedef BisectMarkDart =
+    void Function(Pointer<Void> session, int good, Pointer<Utf8> ref);
 
-typedef _BisectSkipNative = Void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> refs, Int32 refCount);
-typedef BisectSkipDart = void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> refs, int refCount);
+typedef _BisectSkipNative =
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> refs,
+      Int32 refCount,
+    );
+typedef BisectSkipDart =
+    void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> refs,
+      int refCount,
+    );
 
-typedef _BisectResetNative = Void Function(Pointer<Void> session, Pointer<Utf8> target);
-typedef BisectResetDart = void Function(Pointer<Void> session, Pointer<Utf8> target);
+typedef _BisectResetNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> target);
+typedef BisectResetDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> target);
 
 typedef _LfsRefreshNative = Void Function(Pointer<Void> session);
 typedef LfsRefreshDart = void Function(Pointer<Void> session);
@@ -596,25 +916,43 @@ typedef LfsFilesJsonDart = int Function(Pointer<Void> session);
 typedef _LfsInstallNative = Void Function(Pointer<Void> session);
 typedef LfsInstallDart = void Function(Pointer<Void> session);
 
-typedef _LfsTrackNative = Void Function(Pointer<Void> session, Pointer<Utf8> pattern);
-typedef LfsTrackDart = void Function(Pointer<Void> session, Pointer<Utf8> pattern);
+typedef _LfsTrackNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> pattern);
+typedef LfsTrackDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> pattern);
 
-typedef _LfsUntrackNative = Void Function(Pointer<Void> session, Pointer<Utf8> pattern);
-typedef LfsUntrackDart = void Function(Pointer<Void> session, Pointer<Utf8> pattern);
+typedef _LfsUntrackNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> pattern);
+typedef LfsUntrackDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> pattern);
 
-typedef _LfsPullNative = Void Function(Pointer<Void> session, Pointer<Utf8> remoteName);
-typedef LfsPullDart = void Function(Pointer<Void> session, Pointer<Utf8> remoteName);
+typedef _LfsPullNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> remoteName);
+typedef LfsPullDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> remoteName);
 
-typedef _LfsFetchNative = Void Function(Pointer<Void> session, Pointer<Utf8> remoteName);
-typedef LfsFetchDart = void Function(Pointer<Void> session, Pointer<Utf8> remoteName);
+typedef _LfsFetchNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> remoteName);
+typedef LfsFetchDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> remoteName);
 
 typedef _LfsPruneNative = Void Function(Pointer<Void> session, Int32 dryRun);
 typedef LfsPruneDart = void Function(Pointer<Void> session, int dryRun);
 
 typedef _PatchExportNative =
-    Void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> commitHexes, Int32 commitCount, Pointer<Utf8> outputDir);
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> commitHexes,
+      Int32 commitCount,
+      Pointer<Utf8> outputDir,
+    );
 typedef PatchExportDart =
-    void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> commitHexes, int commitCount, Pointer<Utf8> outputDir);
+    void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> commitHexes,
+      int commitCount,
+      Pointer<Utf8> outputDir,
+    );
 
 typedef _PatchApplyFilesNative =
     Void Function(
@@ -634,9 +972,19 @@ typedef PatchApplyFilesDart =
     );
 
 typedef _PatchImportNative =
-    Void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> patchFiles, Int32 fileCount, Int32 threeWay);
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> patchFiles,
+      Int32 fileCount,
+      Int32 threeWay,
+    );
 typedef PatchImportDart =
-    void Function(Pointer<Void> session, Pointer<Pointer<Utf8>> patchFiles, int fileCount, int threeWay);
+    void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> patchFiles,
+      int fileCount,
+      int threeWay,
+    );
 
 typedef _PatchImportContinueNative = Void Function(Pointer<Void> session);
 typedef PatchImportContinueDart = void Function(Pointer<Void> session);
@@ -659,8 +1007,18 @@ typedef EffectiveIdentityRefreshDart = void Function(Pointer<Void> session);
 typedef _EffectiveIdentityJsonNative = Int32 Function(Pointer<Void> session);
 typedef EffectiveIdentityJsonDart = int Function(Pointer<Void> session);
 
-typedef _SetLocalIdentityNative = Void Function(Pointer<Void> session, Pointer<Utf8> name, Pointer<Utf8> email);
-typedef SetLocalIdentityDart = void Function(Pointer<Void> session, Pointer<Utf8> name, Pointer<Utf8> email);
+typedef _SetLocalIdentityNative =
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> name,
+      Pointer<Utf8> email,
+    );
+typedef SetLocalIdentityDart =
+    void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> name,
+      Pointer<Utf8> email,
+    );
 
 typedef _ClearLocalIdentityNative = Void Function(Pointer<Void> session);
 typedef ClearLocalIdentityDart = void Function(Pointer<Void> session);
@@ -678,9 +1036,19 @@ typedef _DiscoveryCloseNative = Void Function(Pointer<Void> discovery);
 typedef DiscoveryCloseDart = void Function(Pointer<Void> discovery);
 
 typedef _DiscoveryAddBaseFolderNative =
-    Int64 Function(Pointer<Void> discovery, Pointer<Utf8> path, Int32 maxDepth, Int32 followLinks);
+    Int64 Function(
+      Pointer<Void> discovery,
+      Pointer<Utf8> path,
+      Int32 maxDepth,
+      Int32 followLinks,
+    );
 typedef DiscoveryAddBaseFolderDart =
-    int Function(Pointer<Void> discovery, Pointer<Utf8> path, int maxDepth, int followLinks);
+    int Function(
+      Pointer<Void> discovery,
+      Pointer<Utf8> path,
+      int maxDepth,
+      int followLinks,
+    );
 
 typedef _DiscoveryScanAllNative = Int32 Function(Pointer<Void> discovery);
 typedef DiscoveryScanAllDart = int Function(Pointer<Void> discovery);
@@ -688,15 +1056,19 @@ typedef DiscoveryScanAllDart = int Function(Pointer<Void> discovery);
 typedef _DiscoveryListReposJsonNative = Int32 Function(Pointer<Void> discovery);
 typedef DiscoveryListReposJsonDart = int Function(Pointer<Void> discovery);
 
-typedef _DiscoveryBaseFoldersJsonNative = Int32 Function(Pointer<Void> discovery);
+typedef _DiscoveryBaseFoldersJsonNative =
+    Int32 Function(Pointer<Void> discovery);
 typedef DiscoveryBaseFoldersJsonDart = int Function(Pointer<Void> discovery);
 
-typedef _DiscoveryRemoveBaseFolderNative = Int32 Function(Pointer<Void> discovery, Int64 baseFolderId);
-typedef DiscoveryRemoveBaseFolderDart = int Function(Pointer<Void> discovery, int baseFolderId);
+typedef _DiscoveryRemoveBaseFolderNative =
+    Int32 Function(Pointer<Void> discovery, Int64 baseFolderId);
+typedef DiscoveryRemoveBaseFolderDart =
+    int Function(Pointer<Void> discovery, int baseFolderId);
 
 typedef _DiscoverySetBaseFolderEnabledNative =
     Int32 Function(Pointer<Void> discovery, Int64 baseFolderId, Int32 enabled);
-typedef DiscoverySetBaseFolderEnabledDart = int Function(Pointer<Void> discovery, int baseFolderId, int enabled);
+typedef DiscoverySetBaseFolderEnabledDart =
+    int Function(Pointer<Void> discovery, int baseFolderId, int enabled);
 
 /// Thin, allocation-free wrapper around the `gbm_capi` symbol table. One
 /// instance per isolate is enough; construct it once via [GbmBindings.open]
@@ -707,214 +1079,478 @@ class GbmBindings {
   factory GbmBindings.open() => GbmBindings(openGbmCapiLibrary());
 
   GbmBindings(DynamicLibrary library)
-    : freeEventPayload = library.lookupFunction<_FreeEventPayloadNative, FreeEventPayloadDart>(
-        'gbm_free_event_payload',
+    : freeEventPayload = library
+          .lookupFunction<_FreeEventPayloadNative, FreeEventPayloadDart>(
+            'gbm_free_event_payload',
+          ),
+      lastResultJsonLen = library
+          .lookupFunction<_LastResultJsonLenNative, LastResultJsonLenDart>(
+            'gbm_last_result_json_len',
+          ),
+      lastResultJsonCopy = library
+          .lookupFunction<_LastResultJsonCopyNative, LastResultJsonCopyDart>(
+            'gbm_last_result_json_copy',
+          ),
+      sessionOpen = library.lookupFunction<_SessionOpenNative, SessionOpenDart>(
+        'gbm_session_open',
       ),
-      lastResultJsonLen = library.lookupFunction<_LastResultJsonLenNative, LastResultJsonLenDart>(
-        'gbm_last_result_json_len',
+      sessionClose = library
+          .lookupFunction<_SessionCloseNative, SessionCloseDart>(
+            'gbm_session_close',
+          ),
+      registerCallback = library
+          .lookupFunction<_RegisterCallbackNative, RegisterCallbackDart>(
+            'gbm_register_callback',
+          ),
+      repoStateJson = library
+          .lookupFunction<_RepoStateJsonNative, RepoStateJsonDart>(
+            'gbm_repo_state_json',
+          ),
+      historyRefresh = library
+          .lookupFunction<_HistoryRefreshNative, HistoryRefreshDart>(
+            'gbm_history_refresh',
+          ),
+      refsJson = library.lookupFunction<_RefsJsonNative, RefsJsonDart>(
+        'gbm_refs_json',
       ),
-      lastResultJsonCopy = library.lookupFunction<_LastResultJsonCopyNative, LastResultJsonCopyDart>(
-        'gbm_last_result_json_copy',
+      graphSnapshotRows = library
+          .lookupFunction<_GraphRowsNative, GraphRowsDart>(
+            'gbm_graph_snapshot_rows',
+          ),
+      graphSnapshotOids = library
+          .lookupFunction<_GraphOidsNative, GraphOidsDart>(
+            'gbm_graph_snapshot_oids',
+          ),
+      graphSnapshotParents = library
+          .lookupFunction<_GraphParentsNative, GraphParentsDart>(
+            'gbm_graph_snapshot_parents',
+          ),
+      graphSnapshotEdges = library
+          .lookupFunction<_GraphEdgesNative, GraphEdgesDart>(
+            'gbm_graph_snapshot_edges',
+          ),
+      graphSnapshotLaneCount = library
+          .lookupFunction<_GraphIntQueryNative, GraphIntQueryDart>(
+            'gbm_graph_snapshot_lane_count',
+          ),
+      graphSnapshotComplete = library
+          .lookupFunction<_GraphIntQueryNative, GraphIntQueryDart>(
+            'gbm_graph_snapshot_complete',
+          ),
+      graphSnapshotTruncated = library
+          .lookupFunction<_GraphIntQueryNative, GraphIntQueryDart>(
+            'gbm_graph_snapshot_truncated',
+          ),
+      graphSnapshotRelease = library
+          .lookupFunction<_GraphReleaseNative, GraphReleaseDart>(
+            'gbm_graph_snapshot_release',
+          ),
+      branchCheckout = library
+          .lookupFunction<_BranchCheckoutNative, BranchCheckoutDart>(
+            'gbm_branch_checkout',
+          ),
+      branchCreate = library
+          .lookupFunction<_BranchCreateNative, BranchCreateDart>(
+            'gbm_branch_create',
+          ),
+      branchRename = library
+          .lookupFunction<_BranchRenameNative, BranchRenameDart>(
+            'gbm_branch_rename',
+          ),
+      branchDelete = library
+          .lookupFunction<_BranchDeleteNative, BranchDeleteDart>(
+            'gbm_branch_delete',
+          ),
+      resetTo = library.lookupFunction<_ResetToNative, ResetToDart>(
+        'gbm_reset_to',
       ),
-      sessionOpen = library.lookupFunction<_SessionOpenNative, SessionOpenDart>('gbm_session_open'),
-      sessionClose = library.lookupFunction<_SessionCloseNative, SessionCloseDart>('gbm_session_close'),
-      registerCallback = library.lookupFunction<_RegisterCallbackNative, RegisterCallbackDart>(
-        'gbm_register_callback',
+      mergeBranch = library.lookupFunction<_MergeBranchNative, MergeBranchDart>(
+        'gbm_merge_branch',
       ),
-      repoStateJson = library.lookupFunction<_RepoStateJsonNative, RepoStateJsonDart>('gbm_repo_state_json'),
-      historyRefresh = library.lookupFunction<_HistoryRefreshNative, HistoryRefreshDart>('gbm_history_refresh'),
-      refsJson = library.lookupFunction<_RefsJsonNative, RefsJsonDart>('gbm_refs_json'),
-      graphSnapshotRows = library.lookupFunction<_GraphRowsNative, GraphRowsDart>('gbm_graph_snapshot_rows'),
-      graphSnapshotOids = library.lookupFunction<_GraphOidsNative, GraphOidsDart>('gbm_graph_snapshot_oids'),
-      graphSnapshotParents = library.lookupFunction<_GraphParentsNative, GraphParentsDart>(
-        'gbm_graph_snapshot_parents',
+      mergeAbort = library.lookupFunction<_MergeAbortNative, MergeAbortDart>(
+        'gbm_merge_abort',
       ),
-      graphSnapshotEdges = library.lookupFunction<_GraphEdgesNative, GraphEdgesDart>('gbm_graph_snapshot_edges'),
-      graphSnapshotLaneCount = library.lookupFunction<_GraphIntQueryNative, GraphIntQueryDart>(
-        'gbm_graph_snapshot_lane_count',
+      cherryPick = library.lookupFunction<_CherryPickNative, CherryPickDart>(
+        'gbm_cherry_pick',
       ),
-      graphSnapshotComplete = library.lookupFunction<_GraphIntQueryNative, GraphIntQueryDart>(
-        'gbm_graph_snapshot_complete',
-      ),
-      graphSnapshotTruncated = library.lookupFunction<_GraphIntQueryNative, GraphIntQueryDart>(
-        'gbm_graph_snapshot_truncated',
-      ),
-      graphSnapshotRelease = library.lookupFunction<_GraphReleaseNative, GraphReleaseDart>(
-        'gbm_graph_snapshot_release',
-      ),
-      branchCheckout = library.lookupFunction<_BranchCheckoutNative, BranchCheckoutDart>('gbm_branch_checkout'),
-      branchCreate = library.lookupFunction<_BranchCreateNative, BranchCreateDart>('gbm_branch_create'),
-      branchRename = library.lookupFunction<_BranchRenameNative, BranchRenameDart>('gbm_branch_rename'),
-      branchDelete = library.lookupFunction<_BranchDeleteNative, BranchDeleteDart>('gbm_branch_delete'),
-      resetTo = library.lookupFunction<_ResetToNative, ResetToDart>('gbm_reset_to'),
-      mergeBranch = library.lookupFunction<_MergeBranchNative, MergeBranchDart>('gbm_merge_branch'),
-      mergeAbort = library.lookupFunction<_MergeAbortNative, MergeAbortDart>('gbm_merge_abort'),
-      cherryPick = library.lookupFunction<_CherryPickNative, CherryPickDart>('gbm_cherry_pick'),
-      cherryPickContinue = library.lookupFunction<_CherryPickContinueNative, CherryPickContinueDart>(
-        'gbm_cherry_pick_continue',
-      ),
-      cherryPickSkip = library.lookupFunction<_CherryPickSkipNative, CherryPickSkipDart>('gbm_cherry_pick_skip'),
-      cherryPickAbort = library.lookupFunction<_CherryPickAbortNative, CherryPickAbortDart>('gbm_cherry_pick_abort'),
+      cherryPickContinue = library
+          .lookupFunction<_CherryPickContinueNative, CherryPickContinueDart>(
+            'gbm_cherry_pick_continue',
+          ),
+      cherryPickSkip = library
+          .lookupFunction<_CherryPickSkipNative, CherryPickSkipDart>(
+            'gbm_cherry_pick_skip',
+          ),
+      cherryPickAbort = library
+          .lookupFunction<_CherryPickAbortNative, CherryPickAbortDart>(
+            'gbm_cherry_pick_abort',
+          ),
       revert = library.lookupFunction<_RevertNative, RevertDart>('gbm_revert'),
-      resolveConflict = library.lookupFunction<_ResolveConflictNative, ResolveConflictDart>('gbm_resolve_conflict'),
-      requestWorkingTreeContent = library.lookupFunction<_RequestWorkingTreeContentNative, RequestWorkingTreeContentDart>(
-        'gbm_request_working_tree_content',
-      ),
-      parseConflictMarkers = library.lookupFunction<_ParseConflictMarkersNative, ParseConflictMarkersDart>(
-        'gbm_parse_conflict_markers',
-      ),
-      workingCopyRefresh = library.lookupFunction<_WorkingCopyRefreshNative, WorkingCopyRefreshDart>(
-        'gbm_working_copy_refresh',
-      ),
+      resolveConflict = library
+          .lookupFunction<_ResolveConflictNative, ResolveConflictDart>(
+            'gbm_resolve_conflict',
+          ),
+      requestWorkingTreeContent = library
+          .lookupFunction<
+            _RequestWorkingTreeContentNative,
+            RequestWorkingTreeContentDart
+          >('gbm_request_working_tree_content'),
+      parseConflictMarkers = library
+          .lookupFunction<
+            _ParseConflictMarkersNative,
+            ParseConflictMarkersDart
+          >('gbm_parse_conflict_markers'),
+      workingCopyRefresh = library
+          .lookupFunction<_WorkingCopyRefreshNative, WorkingCopyRefreshDart>(
+            'gbm_working_copy_refresh',
+          ),
       workingCopyStatusJson = library
-          .lookupFunction<_WorkingCopyStatusJsonNative, WorkingCopyStatusJsonDart>('gbm_working_copy_status_json'),
-      workingCopyDiff = library.lookupFunction<_WorkingCopyDiffNative, WorkingCopyDiffDart>(
-        'gbm_working_copy_diff',
+          .lookupFunction<
+            _WorkingCopyStatusJsonNative,
+            WorkingCopyStatusJsonDart
+          >('gbm_working_copy_status_json'),
+      workingCopyDiff = library
+          .lookupFunction<_WorkingCopyDiffNative, WorkingCopyDiffDart>(
+            'gbm_working_copy_diff',
+          ),
+      stageFiles = library.lookupFunction<_StageFilesNative, StageFilesDart>(
+        'gbm_stage_files',
       ),
-      stageFiles = library.lookupFunction<_StageFilesNative, StageFilesDart>('gbm_stage_files'),
-      unstageFiles = library.lookupFunction<_UnstageFilesNative, UnstageFilesDart>('gbm_unstage_files'),
-      stageHunk = library.lookupFunction<_StageHunkNative, StageHunkDart>('gbm_stage_hunk'),
-      unstageHunk = library.lookupFunction<_StageHunkNative, StageHunkDart>('gbm_unstage_hunk'),
-      stageLines = library.lookupFunction<_StageLinesNative, StageLinesDart>('gbm_stage_lines'),
-      unstageLines = library.lookupFunction<_StageLinesNative, StageLinesDart>('gbm_unstage_lines'),
-      commitChanges = library.lookupFunction<_CommitChangesNative, CommitChangesDart>('gbm_commit_changes'),
-      stashRefresh = library.lookupFunction<_StashRefreshNative, StashRefreshDart>('gbm_stash_refresh'),
-      stashesJson = library.lookupFunction<_StashesJsonNative, StashesJsonDart>('gbm_stashes_json'),
-      stashSave = library.lookupFunction<_StashSaveNative, StashSaveDart>('gbm_stash_save'),
-      stashApply = library.lookupFunction<_StashApplyNative, StashApplyDart>('gbm_stash_apply'),
-      stashDrop = library.lookupFunction<_StashDropNative, StashDropDart>('gbm_stash_drop'),
-      stashBranch = library.lookupFunction<_StashBranchNative, StashBranchDart>('gbm_stash_branch'),
-      stashRequestDiff = library.lookupFunction<_StashRequestDiffNative, StashRequestDiffDart>(
-        'gbm_stash_request_diff',
+      unstageFiles = library
+          .lookupFunction<_UnstageFilesNative, UnstageFilesDart>(
+            'gbm_unstage_files',
+          ),
+      stageHunk = library.lookupFunction<_StageHunkNative, StageHunkDart>(
+        'gbm_stage_hunk',
       ),
-      tagCreate = library.lookupFunction<_TagCreateNative, TagCreateDart>('gbm_tag_create'),
-      tagDelete = library.lookupFunction<_TagDeleteNative, TagDeleteDart>('gbm_tag_delete'),
-      tagPush = library.lookupFunction<_TagPushNative, TagPushDart>('gbm_tag_push'),
-      worktreeRefresh = library.lookupFunction<_WorktreeRefreshNative, WorktreeRefreshDart>('gbm_worktree_refresh'),
-      worktreesJson = library.lookupFunction<_WorktreesJsonNative, WorktreesJsonDart>('gbm_worktrees_json'),
-      worktreeAdd = library.lookupFunction<_WorktreeAddNative, WorktreeAddDart>('gbm_worktree_add'),
-      worktreeRemove = library.lookupFunction<_WorktreeRemoveNative, WorktreeRemoveDart>('gbm_worktree_remove'),
-      worktreePrune = library.lookupFunction<_WorktreePruneNative, WorktreePruneDart>('gbm_worktree_prune'),
-      worktreeLock = library.lookupFunction<_WorktreeLockNative, WorktreeLockDart>('gbm_worktree_lock'),
-      worktreeUnlock = library.lookupFunction<_WorktreeUnlockNative, WorktreeUnlockDart>('gbm_worktree_unlock'),
-      remoteRefresh = library.lookupFunction<_RemoteRefreshNative, RemoteRefreshDart>('gbm_remote_refresh'),
-      remotesJson = library.lookupFunction<_RemotesJsonNative, RemotesJsonDart>('gbm_remotes_json'),
-      remoteFetch = library.lookupFunction<_RemoteFetchNative, RemoteFetchDart>('gbm_remote_fetch'),
+      unstageHunk = library.lookupFunction<_StageHunkNative, StageHunkDart>(
+        'gbm_unstage_hunk',
+      ),
+      stageLines = library.lookupFunction<_StageLinesNative, StageLinesDart>(
+        'gbm_stage_lines',
+      ),
+      unstageLines = library.lookupFunction<_StageLinesNative, StageLinesDart>(
+        'gbm_unstage_lines',
+      ),
+      commitChanges = library
+          .lookupFunction<_CommitChangesNative, CommitChangesDart>(
+            'gbm_commit_changes',
+          ),
+      stashRefresh = library
+          .lookupFunction<_StashRefreshNative, StashRefreshDart>(
+            'gbm_stash_refresh',
+          ),
+      stashesJson = library.lookupFunction<_StashesJsonNative, StashesJsonDart>(
+        'gbm_stashes_json',
+      ),
+      stashSave = library.lookupFunction<_StashSaveNative, StashSaveDart>(
+        'gbm_stash_save',
+      ),
+      stashApply = library.lookupFunction<_StashApplyNative, StashApplyDart>(
+        'gbm_stash_apply',
+      ),
+      stashDrop = library.lookupFunction<_StashDropNative, StashDropDart>(
+        'gbm_stash_drop',
+      ),
+      stashBranch = library.lookupFunction<_StashBranchNative, StashBranchDart>(
+        'gbm_stash_branch',
+      ),
+      stashRequestDiff = library
+          .lookupFunction<_StashRequestDiffNative, StashRequestDiffDart>(
+            'gbm_stash_request_diff',
+          ),
+      tagCreate = library.lookupFunction<_TagCreateNative, TagCreateDart>(
+        'gbm_tag_create',
+      ),
+      tagDelete = library.lookupFunction<_TagDeleteNative, TagDeleteDart>(
+        'gbm_tag_delete',
+      ),
+      tagPush = library.lookupFunction<_TagPushNative, TagPushDart>(
+        'gbm_tag_push',
+      ),
+      worktreeRefresh = library
+          .lookupFunction<_WorktreeRefreshNative, WorktreeRefreshDart>(
+            'gbm_worktree_refresh',
+          ),
+      worktreesJson = library
+          .lookupFunction<_WorktreesJsonNative, WorktreesJsonDart>(
+            'gbm_worktrees_json',
+          ),
+      worktreeAdd = library.lookupFunction<_WorktreeAddNative, WorktreeAddDart>(
+        'gbm_worktree_add',
+      ),
+      worktreeRemove = library
+          .lookupFunction<_WorktreeRemoveNative, WorktreeRemoveDart>(
+            'gbm_worktree_remove',
+          ),
+      worktreePrune = library
+          .lookupFunction<_WorktreePruneNative, WorktreePruneDart>(
+            'gbm_worktree_prune',
+          ),
+      worktreeLock = library
+          .lookupFunction<_WorktreeLockNative, WorktreeLockDart>(
+            'gbm_worktree_lock',
+          ),
+      worktreeUnlock = library
+          .lookupFunction<_WorktreeUnlockNative, WorktreeUnlockDart>(
+            'gbm_worktree_unlock',
+          ),
+      remoteRefresh = library
+          .lookupFunction<_RemoteRefreshNative, RemoteRefreshDart>(
+            'gbm_remote_refresh',
+          ),
+      remotesJson = library.lookupFunction<_RemotesJsonNative, RemotesJsonDart>(
+        'gbm_remotes_json',
+      ),
+      remoteFetch = library.lookupFunction<_RemoteFetchNative, RemoteFetchDart>(
+        'gbm_remote_fetch',
+      ),
       pull = library.lookupFunction<_PullNative, PullDart>('gbm_pull'),
       push = library.lookupFunction<_PushNative, PushDart>('gbm_push'),
-      provideCredential = library.lookupFunction<_ProvideCredentialNative, ProvideCredentialDart>(
-        'gbm_provide_credential',
+      provideCredential = library
+          .lookupFunction<_ProvideCredentialNative, ProvideCredentialDart>(
+            'gbm_provide_credential',
+          ),
+      cancelCredential = library
+          .lookupFunction<_CancelCredentialNative, CancelCredentialDart>(
+            'gbm_cancel_credential',
+          ),
+      requestBlame = library
+          .lookupFunction<_RequestBlameNative, RequestBlameDart>(
+            'gbm_request_blame',
+          ),
+      requestCommitMeta = library
+          .lookupFunction<_RequestCommitMetaNative, RequestCommitMetaDart>(
+            'gbm_request_commit_meta',
+          ),
+      requestFileHistory = library
+          .lookupFunction<_RequestFileHistoryNative, RequestFileHistoryDart>(
+            'gbm_request_file_history',
+          ),
+      requestLineHistory = library
+          .lookupFunction<_RequestLineHistoryNative, RequestLineHistoryDart>(
+            'gbm_request_line_history',
+          ),
+      requestReflog = library
+          .lookupFunction<_RequestReflogNative, RequestReflogDart>(
+            'gbm_request_reflog',
+          ),
+      undoJournalJson = library
+          .lookupFunction<_UndoJournalJsonNative, UndoJournalJsonDart>(
+            'gbm_undo_journal_json',
+          ),
+      undoLast = library.lookupFunction<_UndoLastNative, UndoLastDart>(
+        'gbm_undo_last',
       ),
-      cancelCredential = library.lookupFunction<_CancelCredentialNative, CancelCredentialDart>(
-        'gbm_cancel_credential',
-      ),
-      requestBlame = library.lookupFunction<_RequestBlameNative, RequestBlameDart>('gbm_request_blame'),
-      requestFileHistory = library.lookupFunction<_RequestFileHistoryNative, RequestFileHistoryDart>(
-        'gbm_request_file_history',
-      ),
-      requestLineHistory = library.lookupFunction<_RequestLineHistoryNative, RequestLineHistoryDart>(
-        'gbm_request_line_history',
-      ),
-      requestReflog = library.lookupFunction<_RequestReflogNative, RequestReflogDart>('gbm_request_reflog'),
-      undoJournalJson = library.lookupFunction<_UndoJournalJsonNative, UndoJournalJsonDart>('gbm_undo_journal_json'),
-      undoLast = library.lookupFunction<_UndoLastNative, UndoLastDart>('gbm_undo_last'),
-      restorePaths = library.lookupFunction<_RestorePathsNative, RestorePathsDart>('gbm_restore_paths'),
-      cleanPreview = library.lookupFunction<_CleanPreviewNative, CleanPreviewDart>('gbm_clean_preview'),
-      cleanUntracked = library.lookupFunction<_CleanUntrackedNative, CleanUntrackedDart>('gbm_clean_untracked'),
-      requestRebasePlan = library.lookupFunction<_RequestRebasePlanNative, RequestRebasePlanDart>(
-        'gbm_request_rebase_plan',
-      ),
+      restorePaths = library
+          .lookupFunction<_RestorePathsNative, RestorePathsDart>(
+            'gbm_restore_paths',
+          ),
+      cleanPreview = library
+          .lookupFunction<_CleanPreviewNative, CleanPreviewDart>(
+            'gbm_clean_preview',
+          ),
+      cleanUntracked = library
+          .lookupFunction<_CleanUntrackedNative, CleanUntrackedDart>(
+            'gbm_clean_untracked',
+          ),
+      requestRebasePlan = library
+          .lookupFunction<_RequestRebasePlanNative, RequestRebasePlanDart>(
+            'gbm_request_rebase_plan',
+          ),
       rebaseInteractiveStart = library
-          .lookupFunction<_RebaseInteractiveStartNative, RebaseInteractiveStartDart>('gbm_rebase_interactive_start'),
-      rebaseStart = library.lookupFunction<_RebaseStartNative, RebaseStartDart>('gbm_rebase_start'),
-      rebaseContinue = library.lookupFunction<_RebaseContinueNative, RebaseContinueDart>('gbm_rebase_continue'),
-      rebaseSkip = library.lookupFunction<_RebaseSkipNative, RebaseSkipDart>('gbm_rebase_skip'),
-      rebaseAbort = library.lookupFunction<_RebaseAbortNative, RebaseAbortDart>('gbm_rebase_abort'),
-      submoduleRefresh = library.lookupFunction<_SubmoduleRefreshNative, SubmoduleRefreshDart>(
-        'gbm_submodule_refresh',
+          .lookupFunction<
+            _RebaseInteractiveStartNative,
+            RebaseInteractiveStartDart
+          >('gbm_rebase_interactive_start'),
+      rebaseStart = library.lookupFunction<_RebaseStartNative, RebaseStartDart>(
+        'gbm_rebase_start',
       ),
-      submodulesJson = library.lookupFunction<_SubmodulesJsonNative, SubmodulesJsonDart>('gbm_submodules_json'),
-      submoduleAdd = library.lookupFunction<_SubmoduleAddNative, SubmoduleAddDart>('gbm_submodule_add'),
-      submoduleInit = library.lookupFunction<_SubmoduleInitNative, SubmoduleInitDart>('gbm_submodule_init'),
-      submoduleUpdate = library.lookupFunction<_SubmoduleUpdateNative, SubmoduleUpdateDart>('gbm_submodule_update'),
-      submoduleSync = library.lookupFunction<_SubmoduleSyncNative, SubmoduleSyncDart>('gbm_submodule_sync'),
-      submoduleDeinit = library.lookupFunction<_SubmoduleDeinitNative, SubmoduleDeinitDart>('gbm_submodule_deinit'),
-      bisectRefresh = library.lookupFunction<_BisectRefreshNative, BisectRefreshDart>('gbm_bisect_refresh'),
-      bisectStatusJson = library.lookupFunction<_BisectStatusJsonNative, BisectStatusJsonDart>(
-        'gbm_bisect_status_json',
+      rebaseContinue = library
+          .lookupFunction<_RebaseContinueNative, RebaseContinueDart>(
+            'gbm_rebase_continue',
+          ),
+      rebaseSkip = library.lookupFunction<_RebaseSkipNative, RebaseSkipDart>(
+        'gbm_rebase_skip',
       ),
-      bisectStart = library.lookupFunction<_BisectStartNative, BisectStartDart>('gbm_bisect_start'),
-      bisectMark = library.lookupFunction<_BisectMarkNative, BisectMarkDart>('gbm_bisect_mark'),
-      bisectSkip = library.lookupFunction<_BisectSkipNative, BisectSkipDart>('gbm_bisect_skip'),
-      bisectReset = library.lookupFunction<_BisectResetNative, BisectResetDart>('gbm_bisect_reset'),
-      lfsRefresh = library.lookupFunction<_LfsRefreshNative, LfsRefreshDart>('gbm_lfs_refresh'),
-      lfsInstallationJson = library.lookupFunction<_LfsInstallationJsonNative, LfsInstallationJsonDart>(
-        'gbm_lfs_installation_json',
+      rebaseAbort = library.lookupFunction<_RebaseAbortNative, RebaseAbortDart>(
+        'gbm_rebase_abort',
       ),
-      lfsPatternsJson = library.lookupFunction<_LfsPatternsJsonNative, LfsPatternsJsonDart>('gbm_lfs_patterns_json'),
-      lfsFilesJson = library.lookupFunction<_LfsFilesJsonNative, LfsFilesJsonDart>('gbm_lfs_files_json'),
-      lfsInstall = library.lookupFunction<_LfsInstallNative, LfsInstallDart>('gbm_lfs_install'),
-      lfsTrack = library.lookupFunction<_LfsTrackNative, LfsTrackDart>('gbm_lfs_track'),
-      lfsUntrack = library.lookupFunction<_LfsUntrackNative, LfsUntrackDart>('gbm_lfs_untrack'),
-      lfsPull = library.lookupFunction<_LfsPullNative, LfsPullDart>('gbm_lfs_pull'),
-      lfsFetch = library.lookupFunction<_LfsFetchNative, LfsFetchDart>('gbm_lfs_fetch'),
-      lfsPrune = library.lookupFunction<_LfsPruneNative, LfsPruneDart>('gbm_lfs_prune'),
-      patchExport = library.lookupFunction<_PatchExportNative, PatchExportDart>('gbm_patch_export'),
-      patchApplyFiles = library.lookupFunction<_PatchApplyFilesNative, PatchApplyFilesDart>('gbm_patch_apply_files'),
-      patchImport = library.lookupFunction<_PatchImportNative, PatchImportDart>('gbm_patch_import'),
-      patchImportContinue = library.lookupFunction<_PatchImportContinueNative, PatchImportContinueDart>(
-        'gbm_patch_import_continue',
+      submoduleRefresh = library
+          .lookupFunction<_SubmoduleRefreshNative, SubmoduleRefreshDart>(
+            'gbm_submodule_refresh',
+          ),
+      submodulesJson = library
+          .lookupFunction<_SubmodulesJsonNative, SubmodulesJsonDart>(
+            'gbm_submodules_json',
+          ),
+      submoduleAdd = library
+          .lookupFunction<_SubmoduleAddNative, SubmoduleAddDart>(
+            'gbm_submodule_add',
+          ),
+      submoduleInit = library
+          .lookupFunction<_SubmoduleInitNative, SubmoduleInitDart>(
+            'gbm_submodule_init',
+          ),
+      submoduleUpdate = library
+          .lookupFunction<_SubmoduleUpdateNative, SubmoduleUpdateDart>(
+            'gbm_submodule_update',
+          ),
+      submoduleSync = library
+          .lookupFunction<_SubmoduleSyncNative, SubmoduleSyncDart>(
+            'gbm_submodule_sync',
+          ),
+      submoduleDeinit = library
+          .lookupFunction<_SubmoduleDeinitNative, SubmoduleDeinitDart>(
+            'gbm_submodule_deinit',
+          ),
+      bisectRefresh = library
+          .lookupFunction<_BisectRefreshNative, BisectRefreshDart>(
+            'gbm_bisect_refresh',
+          ),
+      bisectStatusJson = library
+          .lookupFunction<_BisectStatusJsonNative, BisectStatusJsonDart>(
+            'gbm_bisect_status_json',
+          ),
+      bisectStart = library.lookupFunction<_BisectStartNative, BisectStartDart>(
+        'gbm_bisect_start',
       ),
-      patchImportSkip = library.lookupFunction<_PatchImportSkipNative, PatchImportSkipDart>(
-        'gbm_patch_import_skip',
+      bisectMark = library.lookupFunction<_BisectMarkNative, BisectMarkDart>(
+        'gbm_bisect_mark',
       ),
-      patchImportAbort = library.lookupFunction<_PatchImportAbortNative, PatchImportAbortDart>(
-        'gbm_patch_import_abort',
+      bisectSkip = library.lookupFunction<_BisectSkipNative, BisectSkipDart>(
+        'gbm_bisect_skip',
       ),
-      localIdentityRefresh = library.lookupFunction<_LocalIdentityRefreshNative, LocalIdentityRefreshDart>(
-        'gbm_local_identity_refresh',
+      bisectReset = library.lookupFunction<_BisectResetNative, BisectResetDart>(
+        'gbm_bisect_reset',
       ),
-      localIdentityJson = library.lookupFunction<_LocalIdentityJsonNative, LocalIdentityJsonDart>(
-        'gbm_local_identity_json',
+      lfsRefresh = library.lookupFunction<_LfsRefreshNative, LfsRefreshDart>(
+        'gbm_lfs_refresh',
       ),
+      lfsInstallationJson = library
+          .lookupFunction<_LfsInstallationJsonNative, LfsInstallationJsonDart>(
+            'gbm_lfs_installation_json',
+          ),
+      lfsPatternsJson = library
+          .lookupFunction<_LfsPatternsJsonNative, LfsPatternsJsonDart>(
+            'gbm_lfs_patterns_json',
+          ),
+      lfsFilesJson = library
+          .lookupFunction<_LfsFilesJsonNative, LfsFilesJsonDart>(
+            'gbm_lfs_files_json',
+          ),
+      lfsInstall = library.lookupFunction<_LfsInstallNative, LfsInstallDart>(
+        'gbm_lfs_install',
+      ),
+      lfsTrack = library.lookupFunction<_LfsTrackNative, LfsTrackDart>(
+        'gbm_lfs_track',
+      ),
+      lfsUntrack = library.lookupFunction<_LfsUntrackNative, LfsUntrackDart>(
+        'gbm_lfs_untrack',
+      ),
+      lfsPull = library.lookupFunction<_LfsPullNative, LfsPullDart>(
+        'gbm_lfs_pull',
+      ),
+      lfsFetch = library.lookupFunction<_LfsFetchNative, LfsFetchDart>(
+        'gbm_lfs_fetch',
+      ),
+      lfsPrune = library.lookupFunction<_LfsPruneNative, LfsPruneDart>(
+        'gbm_lfs_prune',
+      ),
+      patchExport = library.lookupFunction<_PatchExportNative, PatchExportDart>(
+        'gbm_patch_export',
+      ),
+      patchApplyFiles = library
+          .lookupFunction<_PatchApplyFilesNative, PatchApplyFilesDart>(
+            'gbm_patch_apply_files',
+          ),
+      patchImport = library.lookupFunction<_PatchImportNative, PatchImportDart>(
+        'gbm_patch_import',
+      ),
+      patchImportContinue = library
+          .lookupFunction<_PatchImportContinueNative, PatchImportContinueDart>(
+            'gbm_patch_import_continue',
+          ),
+      patchImportSkip = library
+          .lookupFunction<_PatchImportSkipNative, PatchImportSkipDart>(
+            'gbm_patch_import_skip',
+          ),
+      patchImportAbort = library
+          .lookupFunction<_PatchImportAbortNative, PatchImportAbortDart>(
+            'gbm_patch_import_abort',
+          ),
+      localIdentityRefresh = library
+          .lookupFunction<
+            _LocalIdentityRefreshNative,
+            LocalIdentityRefreshDart
+          >('gbm_local_identity_refresh'),
+      localIdentityJson = library
+          .lookupFunction<_LocalIdentityJsonNative, LocalIdentityJsonDart>(
+            'gbm_local_identity_json',
+          ),
       effectiveIdentityRefresh = library
-          .lookupFunction<_EffectiveIdentityRefreshNative, EffectiveIdentityRefreshDart>(
-            'gbm_effective_identity_refresh',
+          .lookupFunction<
+            _EffectiveIdentityRefreshNative,
+            EffectiveIdentityRefreshDart
+          >('gbm_effective_identity_refresh'),
+      effectiveIdentityJson = library
+          .lookupFunction<
+            _EffectiveIdentityJsonNative,
+            EffectiveIdentityJsonDart
+          >('gbm_effective_identity_json'),
+      setLocalIdentity = library
+          .lookupFunction<_SetLocalIdentityNative, SetLocalIdentityDart>(
+            'gbm_set_local_identity',
           ),
-      effectiveIdentityJson = library.lookupFunction<_EffectiveIdentityJsonNative, EffectiveIdentityJsonDart>(
-        'gbm_effective_identity_json',
-      ),
-      setLocalIdentity = library.lookupFunction<_SetLocalIdentityNative, SetLocalIdentityDart>(
-        'gbm_set_local_identity',
-      ),
-      clearLocalIdentity = library.lookupFunction<_ClearLocalIdentityNative, ClearLocalIdentityDart>(
-        'gbm_clear_local_identity',
-      ),
-      hasCommitGraph = library.lookupFunction<_HasCommitGraphNative, HasCommitGraphDart>('gbm_has_commit_graph'),
-      writeCommitGraph = library.lookupFunction<_WriteCommitGraphNative, WriteCommitGraphDart>(
-        'gbm_write_commit_graph',
-      ),
-      discoveryOpen = library.lookupFunction<_DiscoveryOpenNative, DiscoveryOpenDart>('gbm_discovery_open'),
-      discoveryClose = library.lookupFunction<_DiscoveryCloseNative, DiscoveryCloseDart>('gbm_discovery_close'),
+      clearLocalIdentity = library
+          .lookupFunction<_ClearLocalIdentityNative, ClearLocalIdentityDart>(
+            'gbm_clear_local_identity',
+          ),
+      hasCommitGraph = library
+          .lookupFunction<_HasCommitGraphNative, HasCommitGraphDart>(
+            'gbm_has_commit_graph',
+          ),
+      writeCommitGraph = library
+          .lookupFunction<_WriteCommitGraphNative, WriteCommitGraphDart>(
+            'gbm_write_commit_graph',
+          ),
+      discoveryOpen = library
+          .lookupFunction<_DiscoveryOpenNative, DiscoveryOpenDart>(
+            'gbm_discovery_open',
+          ),
+      discoveryClose = library
+          .lookupFunction<_DiscoveryCloseNative, DiscoveryCloseDart>(
+            'gbm_discovery_close',
+          ),
       discoveryAddBaseFolder = library
-          .lookupFunction<_DiscoveryAddBaseFolderNative, DiscoveryAddBaseFolderDart>('gbm_discovery_add_base_folder'),
-      discoveryScanAll = library.lookupFunction<_DiscoveryScanAllNative, DiscoveryScanAllDart>(
-        'gbm_discovery_scan_all',
-      ),
+          .lookupFunction<
+            _DiscoveryAddBaseFolderNative,
+            DiscoveryAddBaseFolderDart
+          >('gbm_discovery_add_base_folder'),
+      discoveryScanAll = library
+          .lookupFunction<_DiscoveryScanAllNative, DiscoveryScanAllDart>(
+            'gbm_discovery_scan_all',
+          ),
       discoveryListReposJson = library
-          .lookupFunction<_DiscoveryListReposJsonNative, DiscoveryListReposJsonDart>('gbm_discovery_list_repos_json'),
+          .lookupFunction<
+            _DiscoveryListReposJsonNative,
+            DiscoveryListReposJsonDart
+          >('gbm_discovery_list_repos_json'),
       discoveryBaseFoldersJson = library
-          .lookupFunction<_DiscoveryBaseFoldersJsonNative, DiscoveryBaseFoldersJsonDart>(
-            'gbm_discovery_base_folders_json',
-          ),
+          .lookupFunction<
+            _DiscoveryBaseFoldersJsonNative,
+            DiscoveryBaseFoldersJsonDart
+          >('gbm_discovery_base_folders_json'),
       discoveryRemoveBaseFolder = library
-          .lookupFunction<_DiscoveryRemoveBaseFolderNative, DiscoveryRemoveBaseFolderDart>(
-            'gbm_discovery_remove_base_folder',
-          ),
+          .lookupFunction<
+            _DiscoveryRemoveBaseFolderNative,
+            DiscoveryRemoveBaseFolderDart
+          >('gbm_discovery_remove_base_folder'),
       discoverySetBaseFolderEnabled = library
-          .lookupFunction<_DiscoverySetBaseFolderEnabledNative, DiscoverySetBaseFolderEnabledDart>(
-            'gbm_discovery_set_base_folder_enabled',
-          );
+          .lookupFunction<
+            _DiscoverySetBaseFolderEnabledNative,
+            DiscoverySetBaseFolderEnabledDart
+          >('gbm_discovery_set_base_folder_enabled');
 
   final FreeEventPayloadDart freeEventPayload;
   final LastResultJsonLenDart lastResultJsonLen;
@@ -983,6 +1619,7 @@ class GbmBindings {
   final ProvideCredentialDart provideCredential;
   final CancelCredentialDart cancelCredential;
   final RequestBlameDart requestBlame;
+  final RequestCommitMetaDart requestCommitMeta;
   final RequestFileHistoryDart requestFileHistory;
   final RequestLineHistoryDart requestLineHistory;
   final RequestReflogDart requestReflog;

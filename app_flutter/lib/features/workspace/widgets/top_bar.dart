@@ -3,11 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../data/models/repo_state.dart' as model;
 import '../../../theme/gbm_theme.dart';
-import '../../../theme/theme_mode_provider.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
-import '../../../widgets/gbm_icon_button.dart';
 import '../../../widgets/lucide_icon.dart';
+import '../../../widgets/theme_switcher_buttons.dart';
 
 class TopBar extends ConsumerWidget {
   const TopBar({
@@ -28,7 +27,6 @@ class TopBar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final GbmColors colors = context.gbmColors;
-    final GbmThemeVariant activeVariant = ref.watch(themeVariantProvider);
     return Container(
       height: 44,
       padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space3),
@@ -84,44 +82,9 @@ class TopBar extends ConsumerWidget {
             color: colors.borderSubtle,
             margin: const EdgeInsets.symmetric(horizontal: 4),
           ),
-          for (final _ThemeSwatch swatch in _themeSwatches)
-            GbmIconButton(
-              icon: Icon(swatch.icon, size: 16),
-              tooltip: swatch.label,
-              active: activeVariant == swatch.variant,
-              onPressed: () => ref
-                  .read(themeVariantProvider.notifier)
-                  .setVariant(swatch.variant),
-            ),
+          const ThemeSwitcherButtons(),
         ],
       ),
     );
   }
 }
-
-class _ThemeSwatch {
-  const _ThemeSwatch(this.variant, this.label, this.icon);
-  final GbmThemeVariant variant;
-  final String label;
-  final IconData icon;
-}
-
-/// The design doc's three top-bar theme swatches, in the same order as
-/// [GbmThemeVariant]'s declaration.
-const List<_ThemeSwatch> _themeSwatches = <_ThemeSwatch>[
-  _ThemeSwatch(
-    GbmThemeVariant.darkTechnical,
-    'Dark technical',
-    Icons.dark_mode_outlined,
-  ),
-  _ThemeSwatch(
-    GbmThemeVariant.lightIde,
-    'Light IDE',
-    Icons.light_mode_outlined,
-  ),
-  _ThemeSwatch(
-    GbmThemeVariant.neutralProfessional,
-    'Neutral professional',
-    Icons.contrast,
-  ),
-];

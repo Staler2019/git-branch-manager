@@ -12,6 +12,7 @@ import '../../widgets/gbm_banner.dart';
 import '../../widgets/gbm_button.dart';
 import '../../widgets/gbm_panel.dart';
 import '../../widgets/lucide_icon.dart';
+import '../../widgets/theme_switcher_buttons.dart';
 import 'widgets/repo_list_tile.dart';
 
 /// The dashboard: a multi-base-folder repository list, backed by the same
@@ -48,6 +49,8 @@ class _RepoListScreenState extends ConsumerState<RepoListScreen> {
       appBar: AppBar(
         title: const Text('git-branch-manager'),
         actions: <Widget>[
+          const ThemeSwitcherButtons(),
+          const SizedBox(width: GbmSpacing.space2),
           IconButton(
             icon: LucideIcon('archive', size: 18, color: colors.textSecondary),
             tooltip: 'Manage base folders',

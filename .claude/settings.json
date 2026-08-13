@@ -3,6 +3,7 @@
     "ENABLE_LSP_TOOL": "1"
   },
   "enabledPlugins": {
-    "clangd-lsp@claude-plugins-official": true
+    "clangd-lsp@claude-plugins-official": true,
+    "dart-flutter@dart-flutter": true
   }
 }

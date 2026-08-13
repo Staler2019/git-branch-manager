@@ -94,6 +94,16 @@ std::string toJson(const CommitMeta& meta) {
     return out;
 }
 
+std::string toJson(const std::vector<CommitMeta>& metas) {
+    std::string out = "[";
+    for (std::size_t i = 0; i < metas.size(); ++i) {
+        if (i != 0) out += ',';
+        out += toJson(metas[i]);
+    }
+    out += ']';
+    return out;
+}
+
 namespace {
 
 std::string operationChoiceJson(const OperationChoice& choice) {

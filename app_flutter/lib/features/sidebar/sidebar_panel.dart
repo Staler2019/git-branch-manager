@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../data/models/ref_snapshot.dart';
 import '../../data/repositories/branch_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
+import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/prompt_text_dialog.dart';
@@ -32,7 +34,8 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
 
   bool _isBulkSelectable(RefInfo branch) => !branch.isHead;
 
-  bool _isGoneAndBulkSelectable(RefInfo branch) => branch.isGone && !branch.isHead && branch.worktreePath.isEmpty;
+  bool _isGoneAndBulkSelectable(RefInfo branch) =>
+      branch.isGone && !branch.isHead && branch.worktreePath.isEmpty;
 
   void _pruneSelection(List<RefInfo> branches) {
     final Set<String> names = branches.map((b) => b.shortName).toSet();
@@ -40,9 +43,43 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
   }
 
   Future<void> _createBranch() async {
-    final String? name = await promptText(context, title: 'New Branch', label: 'Branch name');
+    final String? name = await promptText(
+      context,
+      title: 'New Branch',
+      label: 'Branch name',
+    );
     if (name == null || !mounted) return;
-    ref.read(repoSessionProvider(widget.identity).notifier).createBranch(name: name);
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .createBranch(name: name);
+  }
+
+  /// Right-click "New branch from here" (design's `ctxItemsFor('branch')`)
+  /// -- same prompt as [_createBranch], but rooted at [branch] instead of
+  /// the default (HEAD) via `createBranch`'s `startPoint`.
+  Future<void> _createBranchFrom(RefInfo branch) async {
+    final String? name = await promptText(
+      context,
+      title: 'New Branch from ${branch.shortName}',
+      label: 'Branch name',
+    );
+    if (name == null || !mounted) return;
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .createBranch(name: name, startPoint: branch.shortName);
+  }
+
+  /// Right-click "Merge into current branch". Opens the same merge dialog
+  /// the tab row's "Merge…" button uses (route.dart doesn't take a
+  /// preselected source branch, so this doesn't pre-fill [branch] --
+  /// still a real, working destination, just not a shortcut past the
+  /// picker). `Uri.encodeComponent(widget.identity.workDir)` is
+  /// `workspace_screen.dart`'s `repoIdForRoute` inlined rather than
+  /// imported, to avoid a sidebar -> workspace -> sidebar import cycle.
+  void _openMergeDialog() {
+    context.push(
+      RoutePaths.mergeDialogFor(Uri.encodeComponent(widget.identity.workDir)),
+    );
   }
 
   Future<void> _renameBranch(RefInfo branch) async {
@@ -53,16 +90,22 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
       initialValue: branch.shortName,
     );
     if (newName == null || newName == branch.shortName || !mounted) return;
-    ref.read(repoSessionProvider(widget.identity).notifier).renameBranch(from: branch.shortName, to: newName);
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .renameBranch(from: branch.shortName, to: newName);
   }
 
   void _deleteSingle(RefInfo branch) {
-    ref.read(repoSessionProvider(widget.identity).notifier).deleteBranch(names: <String>[branch.shortName]);
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .deleteBranch(names: <String>[branch.shortName]);
   }
 
   void _deleteSelected() {
     if (_selected.isEmpty) return;
-    ref.read(repoSessionProvider(widget.identity).notifier).deleteBranch(names: _selected.toList(growable: false));
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .deleteBranch(names: _selected.toList(growable: false));
     setState(_selected.clear);
   }
 
@@ -76,12 +119,20 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
 
     return Container(
       width: 240,
-      decoration: BoxDecoration(color: colors.surfacePanel, border: Border(right: BorderSide(color: colors.borderSubtle))),
+      decoration: BoxDecoration(
+        color: colors.surfacePanel,
+        border: Border(right: BorderSide(color: colors.borderSubtle)),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           Padding(
-            padding: const EdgeInsets.fromLTRB(GbmSpacing.space3, GbmSpacing.space3, GbmSpacing.space1, GbmSpacing.space1),
+            padding: const EdgeInsets.fromLTRB(
+              GbmSpacing.space3,
+              GbmSpacing.space3,
+              GbmSpacing.space1,
+              GbmSpacing.space1,
+            ),
             child: Row(
               children: <Widget>[
                 Expanded(
@@ -98,14 +149,27 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                 Tooltip(
                   message: 'Select all branches with a gone upstream',
                   child: IconButton(
-                    icon: Icon(Icons.playlist_add_check, size: 16, color: anyGoneSelectable ? colors.textSecondary : colors.textTertiary),
+                    icon: Icon(
+                      Icons.playlist_add_check,
+                      size: 16,
+                      color: anyGoneSelectable
+                          ? colors.textSecondary
+                          : colors.textTertiary,
+                    ),
                     padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                    constraints: const BoxConstraints(
+                      minWidth: 28,
+                      minHeight: 28,
+                    ),
                     onPressed: anyGoneSelectable
                         ? () => setState(() {
                             _selected
                               ..clear()
-                              ..addAll(branches.where(_isGoneAndBulkSelectable).map((b) => b.shortName));
+                              ..addAll(
+                                branches
+                                    .where(_isGoneAndBulkSelectable)
+                                    .map((b) => b.shortName),
+                              );
                           })
                         : null,
                   ),
@@ -113,9 +177,16 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                 Tooltip(
                   message: 'New branch…',
                   child: IconButton(
-                    icon: Icon(Icons.add, size: 16, color: colors.textSecondary),
+                    icon: Icon(
+                      Icons.add,
+                      size: 16,
+                      color: colors.textSecondary,
+                    ),
                     padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                    constraints: const BoxConstraints(
+                      minWidth: 28,
+                      minHeight: 28,
+                    ),
                     onPressed: _createBranch,
                   ),
                 ),
@@ -124,37 +195,69 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
           ),
           if (_selected.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space3, vertical: GbmSpacing.space1),
+              padding: const EdgeInsets.symmetric(
+                horizontal: GbmSpacing.space3,
+                vertical: GbmSpacing.space1,
+              ),
               child: Row(
                 children: <Widget>[
                   Expanded(
                     child: Text(
                       '${_selected.length} selected',
-                      style: TextStyle(fontSize: GbmTypography.textXs, color: colors.textSecondary),
+                      style: TextStyle(
+                        fontSize: GbmTypography.textXs,
+                        color: colors.textSecondary,
+                      ),
                     ),
                   ),
                   TextButton(
                     onPressed: () => setState(_selected.clear),
-                    child: Text('Clear', style: TextStyle(fontSize: GbmTypography.textXs, color: colors.textSecondary)),
+                    child: Text(
+                      'Clear',
+                      style: TextStyle(
+                        fontSize: GbmTypography.textXs,
+                        color: colors.textSecondary,
+                      ),
+                    ),
                   ),
                   TextButton(
                     onPressed: _deleteSelected,
-                    child: Text('Delete', style: TextStyle(fontSize: GbmTypography.textXs, color: colors.danger)),
+                    child: Text(
+                      'Delete',
+                      style: TextStyle(
+                        fontSize: GbmTypography.textXs,
+                        color: colors.danger,
+                      ),
+                    ),
                   ),
                 ],
               ),
             ),
           Expanded(
             child: branches.isEmpty
-                ? Center(child: Text('No branches', style: TextStyle(color: colors.textTertiary, fontSize: GbmTypography.textSm)))
+                ? Center(
+                    child: Text(
+                      'No branches',
+                      style: TextStyle(
+                        color: colors.textTertiary,
+                        fontSize: GbmTypography.textSm,
+                      ),
+                    ),
+                  )
                 : ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space1),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: GbmSpacing.space1,
+                    ),
                     itemCount: branches.length,
                     itemBuilder: (context, index) {
                       final RefInfo branch = branches[index];
                       return BranchTreeItem(
                         ref: branch,
-                        onCheckout: () => checkoutBranch(ref, widget.identity, branch.shortName),
+                        onCheckout: () => checkoutBranch(
+                          ref,
+                          widget.identity,
+                          branch.shortName,
+                        ),
                         selected: _selected.contains(branch.shortName),
                         onSelectedChanged: _isBulkSelectable(branch)
                             ? (value) => setState(() {
@@ -166,7 +269,11 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                               })
                             : null,
                         onRename: () => _renameBranch(branch),
-                        onDelete: branch.isHead ? null : () => _deleteSingle(branch),
+                        onDelete: branch.isHead
+                            ? null
+                            : () => _deleteSingle(branch),
+                        onNewBranchFromHere: () => _createBranchFrom(branch),
+                        onMerge: branch.isHead ? null : _openMergeDialog,
                       );
                     },
                   ),

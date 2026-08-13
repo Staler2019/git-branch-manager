@@ -37,6 +37,7 @@ std::string toJson(const GitError& error);
 std::string toJson(const RepoState& state);
 std::string toJson(const Signature& signature);
 std::string toJson(const CommitMeta& meta);
+std::string toJson(const std::vector<CommitMeta>& metas);
 std::string toJson(const OperationOutcome& outcome);
 std::string toJson(const RepoRecord& record);
 std::string toJson(const std::vector<RepoRecord>& records);

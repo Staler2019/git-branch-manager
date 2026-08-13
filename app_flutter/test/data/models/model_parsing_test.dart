@@ -9,6 +9,7 @@ import 'package:gbm_flutter/data/models/base_folder_record.dart';
 import 'package:gbm_flutter/data/models/bisect_status.dart';
 import 'package:gbm_flutter/data/models/blame_result.dart';
 import 'package:gbm_flutter/data/models/clean_entry.dart';
+import 'package:gbm_flutter/data/models/commit_meta.dart';
 import 'package:gbm_flutter/data/models/file_history_entry.dart';
 import 'package:gbm_flutter/data/models/git_error.dart';
 import 'package:gbm_flutter/data/models/git_identity.dart';
@@ -122,7 +123,14 @@ void main() {
 
   test('GraphRow decodes RowMeta flag bits', () {
     // flags = parentCount(2) | IsMerge(0x08) | IsHead(0x20) = 0x2A
-    const GraphRow row = GraphRow(parentOffset: 0, edgeOffset: 0, commitTime: 0, lane: 0, color: 0, flags: 0x2A);
+    const GraphRow row = GraphRow(
+      parentOffset: 0,
+      edgeOffset: 0,
+      commitTime: 0,
+      lane: 0,
+      color: 0,
+      flags: 0x2A,
+    );
 
     expect(row.parentCount, 2);
     expect(row.isMerge, isTrue);
@@ -133,7 +141,16 @@ void main() {
 
   test('GraphSnapshotView.parentsOf skips boundary parents', () {
     const GraphSnapshotView view = GraphSnapshotView(
-      rows: <GraphRow>[GraphRow(parentOffset: 0, edgeOffset: 0, commitTime: 0, lane: 0, color: 0, flags: 2)],
+      rows: <GraphRow>[
+        GraphRow(
+          parentOffset: 0,
+          edgeOffset: 0,
+          commitTime: 0,
+          lane: 0,
+          color: 0,
+          flags: 2,
+        ),
+      ],
       oidsHex: <String>['aa', 'bb'],
       parentPool: <int>[1, kRowBoundary],
       laneCount: 1,
@@ -192,7 +209,9 @@ void main() {
   });
 
   test('StashEntry.listFromJson decodes an array', () {
-    final List<dynamic> json = jsonDecode('[{"index":0,"message":"WIP","oid":"aa","timestamp":123}]');
+    final List<dynamic> json = jsonDecode(
+      '[{"index":0,"message":"WIP","oid":"aa","timestamp":123}]',
+    );
     final List<StashEntry> stashes = StashEntry.listFromJson(json);
 
     expect(stashes, hasLength(1));
@@ -246,6 +265,42 @@ void main() {
     expect(result.truncated, isFalse);
   });
 
+  test('CommitMeta.fromJson decodes author/committer/subject/body', () {
+    final Map<String, dynamic> json = jsonDecode(
+      '{"oid":"aa","tree":"bb","parents":["cc","dd"],'
+      '"author":{"name":"A","email":"a@x","when":1,"tzOffsetMinutes":0},'
+      '"committer":{"name":"C","email":"c@x","when":2,"tzOffsetMinutes":0},'
+      '"subject":"init","body":"body text","signed":true}',
+    );
+    final CommitMeta meta = CommitMeta.fromJson(json);
+
+    expect(meta.oid, 'aa');
+    expect(meta.parents, <String>['cc', 'dd']);
+    expect(meta.author.name, 'A');
+    expect(meta.committer.name, 'C');
+    expect(meta.subject, 'init');
+    expect(meta.body, 'body text');
+    expect(meta.signedCommit, isTrue);
+  });
+
+  test('CommitMeta.listFromJson decodes a batch reply in request order', () {
+    final List<dynamic> json = jsonDecode(
+      '[{"oid":"aa","tree":"tt","parents":[],'
+      '"author":{"name":"A","email":"a@x","when":1,"tzOffsetMinutes":0},'
+      '"committer":{"name":"A","email":"a@x","when":1,"tzOffsetMinutes":0},'
+      '"subject":"first","body":"","signed":false},'
+      '{"oid":"bb","tree":"tt","parents":["aa"],'
+      '"author":{"name":"B","email":"b@x","when":2,"tzOffsetMinutes":0},'
+      '"committer":{"name":"B","email":"b@x","when":2,"tzOffsetMinutes":0},'
+      '"subject":"second","body":"","signed":false}]',
+    );
+    final List<CommitMeta> metas = CommitMeta.listFromJson(json);
+
+    expect(metas, hasLength(2));
+    expect(metas[0].oid, 'aa');
+    expect(metas[1].oid, 'bb');
+  });
+
   test('FileHistoryEntry.listFromJson decodes an array', () {
     final List<dynamic> json = jsonDecode(
       '[{"oid":"aa","author":{"name":"A","email":"a@x","when":1,"tzOffsetMinutes":0},'
@@ -292,7 +347,9 @@ void main() {
   });
 
   test('CleanEntry.listFromJson decodes an array', () {
-    final List<dynamic> json = jsonDecode('[{"path":"build/","isDirectory":true}]');
+    final List<dynamic> json = jsonDecode(
+      '[{"path":"build/","isDirectory":true}]',
+    );
     final List<CleanEntry> entries = CleanEntry.listFromJson(json);
 
     expect(entries, hasLength(1));
@@ -300,7 +357,9 @@ void main() {
   });
 
   test('RebaseTodoEntry.listFromJson decodes the action ordinal', () {
-    final List<dynamic> json = jsonDecode('[{"action":1,"oid":"aa","shortOid":"a","subject":"Fix bug"}]');
+    final List<dynamic> json = jsonDecode(
+      '[{"action":1,"oid":"aa","shortOid":"a","subject":"Fix bug"}]',
+    );
     final List<RebaseTodoEntry> entries = RebaseTodoEntry.listFromJson(json);
 
     expect(entries, hasLength(1));
@@ -328,25 +387,35 @@ void main() {
     expect(status.goodOids, <String>['aa']);
   });
 
-  test('LfsInstallation.fromJson and LfsFileInfo.listFromJson decode their fields', () {
-    final LfsInstallation installation = LfsInstallation.fromJson(
-      jsonDecode('{"available":true,"version":"git-lfs/3.4.1"}'),
-    );
-    expect(installation.available, isTrue);
+  test(
+    'LfsInstallation.fromJson and LfsFileInfo.listFromJson decode their fields',
+    () {
+      final LfsInstallation installation = LfsInstallation.fromJson(
+        jsonDecode('{"available":true,"version":"git-lfs/3.4.1"}'),
+      );
+      expect(installation.available, isTrue);
 
-    final List<LfsFileInfo> files = LfsFileInfo.listFromJson(
-      jsonDecode('[{"path":"a.psd","oid":"aa","downloadedLocally":false}]'),
-    );
-    expect(files.single.downloadedLocally, isFalse);
-  });
+      final List<LfsFileInfo> files = LfsFileInfo.listFromJson(
+        jsonDecode('[{"path":"a.psd","oid":"aa","downloadedLocally":false}]'),
+      );
+      expect(files.single.downloadedLocally, isFalse);
+    },
+  );
 
-  test('LocalIdentity.fromJson and EffectiveIdentity.fromJson decode their fields', () {
-    final LocalIdentity local = LocalIdentity.fromJson(
-      jsonDecode('{"name":"Repo Override","email":"a@b.c","overridden":true}'),
-    );
-    expect(local.overridden, isTrue);
+  test(
+    'LocalIdentity.fromJson and EffectiveIdentity.fromJson decode their fields',
+    () {
+      final LocalIdentity local = LocalIdentity.fromJson(
+        jsonDecode(
+          '{"name":"Repo Override","email":"a@b.c","overridden":true}',
+        ),
+      );
+      expect(local.overridden, isTrue);
 
-    final EffectiveIdentity effective = EffectiveIdentity.fromJson(jsonDecode('{"name":"Global User","email":"g@h.i"}'));
-    expect(effective.name, 'Global User');
-  });
+      final EffectiveIdentity effective = EffectiveIdentity.fromJson(
+        jsonDecode('{"name":"Global User","email":"g@h.i"}'),
+      );
+      expect(effective.name, 'Global User');
+    },
+  );
 }

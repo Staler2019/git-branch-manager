@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../data/models/ref_snapshot.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/ref_chip_colors.dart';
 import '../../../theme/tokens.dart';
+import '../../../widgets/gbm_menu.dart';
 import '../../../widgets/lucide_icon.dart';
 
 class BranchTreeItem extends StatelessWidget {
@@ -15,21 +17,34 @@ class BranchTreeItem extends StatelessWidget {
     this.onSelectedChanged,
     this.onRename,
     this.onDelete,
+    this.onNewBranchFromHere,
+    this.onMerge,
   });
 
   final RefInfo ref;
   final VoidCallback onCheckout;
   final bool selected;
+
   /// Null hides the selection checkbox entirely (HEAD can't be
   /// multi-selected for deletion -- see SidebarPanel's doc comment).
   final ValueChanged<bool>? onSelectedChanged;
   final VoidCallback? onRename;
   final VoidCallback? onDelete;
 
+  /// Right-click-only actions (design's `ctxItemsFor('branch')`) beyond
+  /// what the `more_vert` fallback menu already offers -- see this class's
+  /// `onSecondaryTapDown` wiring below.
+  final VoidCallback? onNewBranchFromHere;
+  final VoidCallback? onMerge;
+
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
-    final RefChipColors chip = refChipColorsFor(colors, ref.kind, isCurrent: ref.isHead);
+    final RefChipColors chip = refChipColorsFor(
+      colors,
+      ref.kind,
+      isCurrent: ref.isHead,
+    );
 
     final StringBuffer label = StringBuffer(ref.shortName);
     if (ref.isHead) label.write(', current branch');
@@ -59,25 +74,40 @@ class BranchTreeItem extends StatelessWidget {
                 materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
             ),
-          LucideIcon('git-branch', size: 13, color: chip.text == colors.textOnAccent ? colors.accent : chip.text),
+          LucideIcon(
+            'git-branch',
+            size: 13,
+            color: chip.text == colors.textOnAccent ? colors.accent : chip.text,
+          ),
           const SizedBox(width: GbmSpacing.space2),
           Expanded(
             child: Text(
               ref.shortName,
               style: TextStyle(
                 fontSize: GbmTypography.textSm,
-                fontWeight: ref.isHead ? GbmTypography.weightSemibold : GbmTypography.weightRegular,
+                fontWeight: ref.isHead
+                    ? GbmTypography.weightSemibold
+                    : GbmTypography.weightRegular,
                 color: colors.textPrimary,
               ),
               overflow: TextOverflow.ellipsis,
             ),
           ),
           if (ref.isGone)
-            Text('gone', style: TextStyle(fontSize: GbmTypography.textXs, color: colors.danger))
+            Text(
+              'gone',
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                color: colors.danger,
+              ),
+            )
           else if (ref.hasTrackingInfo && (ref.ahead > 0 || ref.behind > 0))
             Text(
               '${ref.ahead > 0 ? '↑${ref.ahead}' : ''}${ref.behind > 0 ? ' ↓${ref.behind}' : ''}',
-              style: TextStyle(fontSize: GbmTypography.textXs, color: colors.textTertiary),
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                color: colors.textTertiary,
+              ),
             ),
           if (onRename != null || onDelete != null)
             PopupMenuButton<VoidCallback>(
@@ -86,8 +116,16 @@ class BranchTreeItem extends StatelessWidget {
               padding: EdgeInsets.zero,
               onSelected: (action) => action(),
               itemBuilder: (context) => <PopupMenuEntry<VoidCallback>>[
-                if (onRename != null) PopupMenuItem<VoidCallback>(value: onRename!, child: const Text('Rename…')),
-                if (onDelete != null) PopupMenuItem<VoidCallback>(value: onDelete!, child: const Text('Delete…')),
+                if (onRename != null)
+                  PopupMenuItem<VoidCallback>(
+                    value: onRename!,
+                    child: const Text('Rename…'),
+                  ),
+                if (onDelete != null)
+                  PopupMenuItem<VoidCallback>(
+                    value: onDelete!,
+                    child: const Text('Delete…'),
+                  ),
               ],
             ),
         ],
@@ -101,11 +139,64 @@ class BranchTreeItem extends StatelessWidget {
     return Semantics(
       button: !ref.isHead,
       label: label.toString(),
-      child: InkWell(
-        onTap: ref.isHead ? null : onCheckout,
-        borderRadius: BorderRadius.circular(GbmSpacing.radiusSm),
-        child: maybeTooltip,
+      child: GestureDetector(
+        onSecondaryTapDown: (details) => _openContextMenu(context, details),
+        child: InkWell(
+          onTap: ref.isHead ? null : onCheckout,
+          borderRadius: BorderRadius.circular(GbmSpacing.radiusSm),
+          child: maybeTooltip,
+        ),
       ),
     );
+  }
+
+  /// `ctxItemsFor('branch')` from the design doc, scoped to what this app
+  /// already has a real destination for -- "Push" and "Rebase current onto
+  /// here" have no per-branch entry point today (Push has no
+  /// target-branch parameter surfaced anywhere in the UI yet; a targeted
+  /// rebase would need the same), so they are left off rather than wired
+  /// to something that silently does the wrong thing.
+  void _openContextMenu(BuildContext context, TapDownDetails details) {
+    showGbmContextMenu(context, details.globalPosition, <GbmMenuItem>[
+      if (!ref.isHead)
+        GbmMenuItem(
+          label: 'Checkout ${ref.shortName}',
+          icon: Icons.call_split,
+          onTap: onCheckout,
+        ),
+      if (onNewBranchFromHere != null)
+        GbmMenuItem(
+          label: 'New branch from here',
+          icon: Icons.add,
+          onTap: onNewBranchFromHere!,
+        ),
+      if (onRename != null)
+        GbmMenuItem(
+          label: 'Rename branch',
+          icon: Icons.edit_outlined,
+          onTap: onRename!,
+        ),
+      const GbmMenuItem.separator(),
+      if (onMerge != null)
+        GbmMenuItem(
+          label: 'Merge into current branch',
+          icon: Icons.call_merge,
+          onTap: onMerge!,
+        ),
+      GbmMenuItem(
+        label: 'Copy branch name',
+        icon: Icons.copy,
+        onTap: () => Clipboard.setData(ClipboardData(text: ref.shortName)),
+      ),
+      if (onDelete != null) ...<GbmMenuItem>[
+        const GbmMenuItem.separator(),
+        GbmMenuItem(
+          label: 'Delete branch',
+          icon: Icons.delete_outline,
+          danger: true,
+          onTap: onDelete!,
+        ),
+      ],
+    ]);
   }
 }

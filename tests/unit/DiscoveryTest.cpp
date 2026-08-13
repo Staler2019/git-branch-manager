@@ -18,6 +18,11 @@
 #include <thread>
 #include <vector>
 
+#ifndef _WIN32
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
+
 namespace gbm {
 namespace {
 
@@ -667,6 +672,54 @@ TEST_F(ScannerTest, IncrementalScanPrunesUnchangedSubtrees) {
     EXPECT_LT(second->directoriesScanned, first->directoriesScanned);
     EXPECT_EQ(db.repos()->size(), 1u) << "pruning must not lose known repositories";
 }
+
+#ifndef _WIN32
+TEST_F(ScannerTest, ReportsUnreadableDirectoriesInsteadOfPruningThemForever) {
+    // A directory the scanning user cannot list: `stat()` on it still succeeds
+    // (that only needs search permission on its *parent*), but opening it for
+    // iteration is denied. Before this test, that denial looked identical to an
+    // empty directory and got a permanent "0 children, no repo" signature,
+    // pruning the subtree on every later incremental scan even after
+    // permissions were fixed.
+    if (::geteuid() == 0) {
+        GTEST_SKIP() << "root ignores directory permission bits";
+    }
+
+    const auto blocked = makeDir("blocked");
+    makeNormalRepo("blocked/repo");
+    ASSERT_EQ(::chmod(blocked.c_str(), 0), 0);
+
+    RepoIndexDb db;
+    ASSERT_TRUE(db.openInMemory());
+    ASSERT_TRUE(db.addBaseFolder(root_.string(), 8, false));
+    auto folders = db.baseFolders();
+    ASSERT_TRUE(folders);
+
+    Scanner scanner(db);
+    CancellationSource source;
+    auto first = scanner.scan((*folders)[0], ScanMode::Full, source.token());
+    // Restore permissions before any assertion can early-return and skip
+    // cleanup, or TearDown's remove_all() would fail too.
+    ::chmod(blocked.c_str(), 0755);
+
+    ASSERT_TRUE(first) << first.error().message;
+    EXPECT_EQ(first->directoriesUnreadable, 1);
+    EXPECT_EQ(db.repos()->size(), 0u) << "the repo inside the blocked directory is unreachable";
+
+    // The denied directory must never have received a signature: with the old
+    // skip_permission_denied behaviour it would have looked identical to an
+    // empty, successfully-scanned directory and been pruned on every later
+    // *incremental* pass forever, even after permissions were fixed. Recovery
+    // in this app is Force Refresh (ScanMode::Full, which clears every stored
+    // signature and re-walks from scratch) rather than an automatic
+    // incremental heal, so that is what is exercised here.
+    folders = db.baseFolders();
+    auto second = scanner.scan((*folders)[0], ScanMode::Full, source.token());
+    ASSERT_TRUE(second) << second.error().message;
+    EXPECT_EQ(second->directoriesUnreadable, 0);
+    EXPECT_EQ(db.repos()->size(), 1u) << "the repo must be found once the directory is readable";
+}
+#endif
 
 TEST_F(ScannerTest, ReportsRepositoriesInBatchesAsTheyAreFound) {
     for (int i = 0; i < 45; ++i) {

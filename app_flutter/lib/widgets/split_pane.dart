@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -26,6 +27,7 @@ class GbmSplitPane extends ConsumerStatefulWidget {
     required this.spec,
     required this.storageId,
     this.onFlexChanged,
+    this.controller,
   });
 
   /// [Axis.horizontal] = panes side-by-side, vertical dividers, drag left-right.
@@ -47,8 +49,37 @@ class GbmSplitPane extends ConsumerStatefulWidget {
   /// For flex mode: [List<double>] with N weights matching [spec.flexRatio.length].
   final ValueChanged<List<double>>? onFlexChanged;
 
+  /// Optional external handle for programmatically opening/collapsing an
+  /// extent-mode pane -- e.g. a caller reacting to a button tap needs to
+  /// un-collapse a `collapsedByDefault: true` pane (like the log drawer)
+  /// that the user has never dragged open, since [_currentFlexes] is
+  /// otherwise private State the caller has no way to reach.
+  final GbmSplitPaneController? controller;
+
   @override
   ConsumerState<GbmSplitPane> createState() => _GbmSplitPaneState();
+}
+
+/// Attaches to a [GbmSplitPane] via its [GbmSplitPane.controller] param to
+/// let external code open/collapse an extent-mode pane -- see that field's
+/// doc comment for why this indirection exists instead of a plain callback.
+/// Mirrors the standard Flutter attach/detach controller idiom (as used by
+/// e.g. `ScrollController`, `TabController`).
+class GbmSplitPaneController {
+  _GbmSplitPaneState? _state;
+
+  void _attach(_GbmSplitPaneState state) => _state = state;
+
+  void _detach(_GbmSplitPaneState state) {
+    if (identical(_state, state)) {
+      _state = null;
+    }
+  }
+
+  /// Expands an extent-mode pane 0 to at least [GbmSplitterSpec.minExtent]
+  /// if it is currently collapsed/smaller than that. No-op in flex mode, if
+  /// already open, or if not currently attached to a mounted [GbmSplitPane].
+  void open() => _state?._openToMinimum();
 }
 
 class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
@@ -77,7 +108,13 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
       if (stored != null && stored.length == 1) {
         _currentFlexes = stored;
       } else {
-        _currentFlexes = <double>[widget.spec.defaultExtent!];
+        // collapsedByDefault: if no stored value and collapsedByDefault is true,
+        // start with extent 0; otherwise use defaultExtent
+        final double initialExtent =
+            (stored == null && widget.spec.collapsedByDefault)
+            ? 0.0
+            : widget.spec.defaultExtent!;
+        _currentFlexes = <double>[initialExtent];
       }
     } else {
       // Flex mode: stored should match flexRatio length or null
@@ -94,10 +131,22 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
       paneCount - 1,
       (i) => FocusNode(),
     );
+
+    widget.controller?._attach(this);
+  }
+
+  @override
+  void didUpdateWidget(GbmSplitPane oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller?._detach(this);
+      widget.controller?._attach(this);
+    }
   }
 
   @override
   void dispose() {
+    widget.controller?._detach(this);
     for (final Timer timer in _hoverTimers.values) {
       timer.cancel();
     }
@@ -105,6 +154,16 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
       node.dispose();
     }
     super.dispose();
+  }
+
+  /// See [GbmSplitPaneController.open].
+  void _openToMinimum() {
+    if (widget.spec.defaultExtent == null) return;
+    final double target = math.max(_currentFlexes[0], widget.spec.minExtent);
+    if (target == _currentFlexes[0]) return;
+    setState(() => _currentFlexes[0] = target);
+    widget.onFlexChanged?.call(_currentFlexes);
+    unawaited(_persistFlexes());
   }
 
   Future<void> _persistFlexes() async {
@@ -117,7 +176,11 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
     if (widget.spec.defaultExtent != null) {
       // Extent mode
       final double minExtent = widget.spec.minExtent;
-      final double newExtent = (_currentFlexes[0] + deltaPixels).clamp(
+      // For vertical axis with pane 0 at the bottom, invert delta: drag-down shrinks
+      final double adjustedDelta = widget.axis == Axis.vertical
+          ? -deltaPixels
+          : deltaPixels;
+      final double newExtent = (_currentFlexes[0] + adjustedDelta).clamp(
         minExtent,
         _availableExtent - minExtent,
       );
@@ -317,24 +380,24 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
 
         if (widget.spec.defaultExtent != null) {
           // Extent mode: two children, first is fixed, second fills
-          return Row(
-            children: <Widget>[
-              SizedBox(
-                width: widget.axis == Axis.horizontal
-                    ? _currentFlexes[0]
-                    : double.infinity,
-                height: widget.axis == Axis.vertical
-                    ? _currentFlexes[0]
-                    : double.infinity,
-                child: widget.children[0],
-              ),
-              if (widget.axis == Axis.horizontal)
-                _buildDivider(0)
-              else
-                SizedBox(height: 5, child: _buildDivider(0)),
-              Expanded(child: widget.children[1]),
-            ],
-          );
+          if (widget.axis == Axis.horizontal) {
+            return Row(
+              children: <Widget>[
+                SizedBox(width: _currentFlexes[0], child: widget.children[0]),
+                _buildDivider(0),
+                Expanded(child: widget.children[1]),
+              ],
+            );
+          } else {
+            // Vertical: render main content first, then divider, then fixed drawer
+            return Column(
+              children: <Widget>[
+                Expanded(child: widget.children[1]),
+                _buildDivider(0),
+                SizedBox(height: _currentFlexes[0], child: widget.children[0]),
+              ],
+            );
+          }
         } else {
           // Flex mode: N children with flex weights
           final double flexSum = _currentFlexes.reduce((a, b) => a + b);

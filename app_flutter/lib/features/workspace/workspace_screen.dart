@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../actions/gbm_action_id.dart';
 import '../../actions/gbm_menu_model.dart';
+import '../../data/models/ref_snapshot.dart';
 import '../../data/repositories/history_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
@@ -13,7 +14,10 @@ import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/gbm_banner.dart';
+import '../../widgets/split_pane.dart';
+import '../log_drawer/log_drawer.dart';
 import '../sidebar/sidebar_panel.dart';
+import '../status_bar/status_bar.dart';
 import 'widgets/menu_bar_row.dart';
 import 'widgets/platform_menu_bar_host.dart';
 import 'widgets/tab_row.dart';
@@ -51,6 +55,8 @@ class WorkspaceScreen extends ConsumerStatefulWidget {
 
 class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   bool _sidebarVisible = true;
+  int _lastSeenOperationLogIndex = 0;
+  final GbmSplitPaneController _logDrawerController = GbmSplitPaneController();
 
   @override
   Widget build(BuildContext context) {
@@ -118,6 +124,11 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       repoId,
     );
 
+    // Track whether log has unread entries (newest entry > lastSeen index)
+    final bool hasUnreadLog =
+        session.operationLog.isNotEmpty &&
+        (session.operationLog.length > _lastSeenOperationLogIndex);
+
     // Build the main scaffold content
     final Widget scaffoldContent = Scaffold(
       body: Column(
@@ -153,13 +164,48 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
           else if (session.lastError case final error?)
             GbmWarningBanner(message: error.message),
           Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+            child: GbmSplitPane(
+              axis: Axis.vertical,
+              spec: GbmLayout.splitterMainLog,
+              storageId: 'main.log',
+              controller: _logDrawerController,
               children: <Widget>[
-                if (_sidebarVisible) SidebarPanel(identity: identity),
-                Expanded(child: widget.child),
+                LogDrawer(records: session.operationLog),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    if (_sidebarVisible) SidebarPanel(identity: identity),
+                    Expanded(child: widget.child),
+                  ],
+                ),
               ],
             ),
+          ),
+          StatusBar(
+            currentBranch: session.refs.head.branchName.isNotEmpty
+                ? session.refs.head.branchName
+                : 'Detached',
+            ahead: _headTrackingRef(session)?.ahead ?? 0,
+            behind: _headTrackingRef(session)?.behind ?? 0,
+            commitCount: session.graph.rows.length,
+            lastScanDuration: const Duration(
+              milliseconds: 0,
+            ), // TODO: wire from session
+            graphLaneCapacity: session.graph.laneCount,
+            backgroundTasks: const [], // TODO: wire from session when available
+            hasUnreadLog: hasUnreadLog,
+            onOpenLog: () {
+              setState(() {
+                _lastSeenOperationLogIndex = session.operationLog.length;
+              });
+              // Un-collapse the log drawer if the user has never dragged it
+              // open -- otherwise the badge would clear with nothing visibly
+              // having happened. See GbmSplitPaneController's doc comment.
+              _logDrawerController.open();
+            },
+            onCancelTask: (_) {
+              // TODO: wire cancel operation when background task model is integrated
+            },
           ),
         ],
       ),
@@ -183,6 +229,16 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         .where((s) => s.isNotEmpty)
         .toList();
     return segments.isEmpty ? workDir : segments.last;
+  }
+
+  /// The [RefInfo] HEAD currently points to, or null if detached/unknown --
+  /// source of the status bar's ahead/behind counts.
+  RefInfo? _headTrackingRef(RepoSessionState session) {
+    if (session.refs.head.fullRef.isEmpty) return null;
+    for (final RefInfo ref in session.refs.refs) {
+      if (ref.fullName == session.refs.head.fullRef) return ref;
+    }
+    return null;
   }
 
   /// Builds the action handlers map, wiring every [GbmActionId] that has a

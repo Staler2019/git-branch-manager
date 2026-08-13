@@ -1,0 +1,247 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import '../../data/models/operation_record.dart';
+import '../../theme/gbm_theme.dart';
+import '../../theme/tokens.dart';
+
+enum _LogLevel { all, info, warning, error }
+
+/// The log drawer widget for displaying operation records. Self-contained with
+/// local filtering state. Supports filtering by level (all/info/warning/error),
+/// copying all entries, and (stubbed) save-as functionality.
+///
+/// Shows time, level icon, command, exit code, and duration. Entries are
+/// displayed newest-first. No external dependencies — takes record list as
+/// constructor param only.
+class LogDrawer extends StatefulWidget {
+  const LogDrawer({super.key, required this.records});
+
+  final List<OperationRecord> records;
+
+  @override
+  State<LogDrawer> createState() => _LogDrawerState();
+}
+
+class _LogDrawerState extends State<LogDrawer> {
+  _LogLevel _selectedLevel = _LogLevel.all;
+
+  List<OperationRecord> get _filteredRecords {
+    return widget.records.where((record) {
+      switch (_selectedLevel) {
+        case _LogLevel.all:
+          return true;
+        case _LogLevel.info:
+          return !record.failed;
+        case _LogLevel.warning:
+          return record.failed && !record.cancelled && !record.timedOut;
+        case _LogLevel.error:
+          return record.cancelled || record.timedOut || record.exitCode != 0;
+      }
+    }).toList();
+  }
+
+  Future<void> _copyAll() async {
+    final text = _filteredRecords
+        .map((r) => '${r.whenEpochMs} ${r.commandLine} (${r.durationMs}ms)')
+        .join('\n');
+    await Clipboard.setData(ClipboardData(text: text));
+
+    if (mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Copied to clipboard')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: colors.surfacePanel,
+        border: Border(top: BorderSide(color: colors.borderSubtle)),
+      ),
+      child: Column(
+        children: <Widget>[
+          // Header with filter controls
+          Container(
+            padding: const EdgeInsets.all(GbmSpacing.space3),
+            decoration: BoxDecoration(
+              border: Border(bottom: BorderSide(color: colors.borderSubtle)),
+            ),
+            child: Row(
+              children: <Widget>[
+                Text(
+                  'Filter:',
+                  style: TextStyle(
+                    fontSize: GbmTypography.textSm,
+                    color: colors.textSecondary,
+                  ),
+                ),
+                const SizedBox(width: GbmSpacing.space2),
+                for (final level in _LogLevel.values) ...<Widget>[
+                  TextButton(
+                    onPressed: () => setState(() => _selectedLevel = level),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: GbmSpacing.space2,
+                      ),
+                      backgroundColor: _selectedLevel == level
+                          ? colors.surfaceSelected
+                          : Colors.transparent,
+                    ),
+                    child: Text(
+                      level.name[0].toUpperCase() + level.name.substring(1),
+                      style: TextStyle(
+                        fontSize: GbmTypography.textXs,
+                        color: colors.textPrimary,
+                      ),
+                    ),
+                  ),
+                  if (level != _LogLevel.values.last)
+                    const SizedBox(width: GbmSpacing.space1),
+                ],
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: _filteredRecords.isEmpty ? null : _copyAll,
+                  icon: const Icon(Icons.copy, size: 14),
+                  label: Text(
+                    'Copy All',
+                    style: TextStyle(fontSize: GbmTypography.textXs),
+                  ),
+                ),
+                const SizedBox(width: GbmSpacing.space2),
+                TextButton.icon(
+                  onPressed: null, // TODO: Implement file picker for save-as
+                  icon: const Icon(Icons.save, size: 14),
+                  label: Text(
+                    'Save As',
+                    style: TextStyle(fontSize: GbmTypography.textXs),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Operation list
+          Expanded(
+            child: _filteredRecords.isEmpty
+                ? Center(
+                    child: Text(
+                      'No operations recorded yet',
+                      style: TextStyle(color: colors.textTertiary),
+                    ),
+                  )
+                : ListView.builder(
+                    reverse: true,
+                    itemCount: _filteredRecords.length,
+                    itemBuilder: (context, index) {
+                      final record =
+                          _filteredRecords[_filteredRecords.length - 1 - index];
+                      return _OperationRow(record: record);
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// HH:mm:ss in local time -- entries within one session span at most a few
+/// hours, so the date portion would just be visual noise.
+String _formatTime(int epochMs) {
+  final DateTime when = DateTime.fromMillisecondsSinceEpoch(epochMs);
+  String pad(int n) => n.toString().padLeft(2, '0');
+  return '${pad(when.hour)}:${pad(when.minute)}:${pad(when.second)}';
+}
+
+class _OperationRow extends StatelessWidget {
+  const _OperationRow({required this.record});
+
+  final OperationRecord record;
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    final Color statusColor = record.failed
+        ? colors.danger
+        : colors.textTertiary;
+    final IconData statusIcon = record.cancelled
+        ? Icons.stop_circle
+        : record.timedOut
+        ? Icons.schedule
+        : record.exitCode != 0
+        ? Icons.error
+        : Icons.check_circle;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: GbmSpacing.space3,
+        vertical: GbmSpacing.space1,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Icon(statusIcon, size: 14, color: statusColor),
+              const SizedBox(width: GbmSpacing.space2),
+              Text(
+                _formatTime(record.whenEpochMs),
+                style: TextStyle(
+                  fontSize: GbmTypography.textXs,
+                  fontFamily: GbmTypography.fontMono,
+                  color: colors.textTertiary,
+                ),
+              ),
+              const SizedBox(width: GbmSpacing.space2),
+              Expanded(
+                child: SelectableText(
+                  record.commandLine,
+                  style: TextStyle(
+                    fontSize: GbmTypography.textSm,
+                    fontFamily: GbmTypography.fontMono,
+                    color: colors.textPrimary,
+                  ),
+                ),
+              ),
+              const SizedBox(width: GbmSpacing.space2),
+              Text(
+                '${record.durationMs}ms',
+                style: TextStyle(
+                  fontSize: GbmTypography.textXs,
+                  color: colors.textTertiary,
+                ),
+              ),
+              if (record.failed && record.exitCode != 0) ...<Widget>[
+                const SizedBox(width: GbmSpacing.space1),
+                Text(
+                  'exit ${record.exitCode}',
+                  style: TextStyle(
+                    fontSize: GbmTypography.textXs,
+                    color: statusColor,
+                  ),
+                ),
+              ],
+            ],
+          ),
+          if (record.failed && record.stderrText.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: GbmSpacing.space1),
+              child: SelectableText(
+                record.stderrText,
+                style: TextStyle(
+                  fontSize: GbmTypography.textXs,
+                  fontFamily: GbmTypography.fontMono,
+                  color: colors.diffDelText,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}

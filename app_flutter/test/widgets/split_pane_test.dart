@@ -293,5 +293,283 @@ void main() {
       final pane0Size = tester.getSize(find.byKey(const Key('pane-0')));
       expect(pane0Size.width, closeTo(350.0, 1.0));
     });
+
+    // Test 8: Vertical extent mode renders panes in correct order
+    testWidgets('vertical extent mode: renders main content above drawer', (
+      tester,
+    ) async {
+      await _pumpSplitPane(
+        tester,
+        axis: Axis.vertical,
+        spec: GbmLayout.splitterMainLog,
+        storageId: 'test.vertical.extent',
+      );
+
+      // Both panes should be present
+      expect(find.byKey(const Key('pane-0')), findsOneWidget);
+      expect(find.byKey(const Key('pane-1')), findsOneWidget);
+
+      // Verify pane-1 (main content) is above pane-0 (drawer):
+      // pane-1's dy should be less than pane-0's dy
+      final Offset pane1Offset = tester.getTopLeft(
+        find.byKey(const Key('pane-1')),
+      );
+      final Offset pane0Offset = tester.getTopLeft(
+        find.byKey(const Key('pane-0')),
+      );
+      expect(pane1Offset.dy, lessThan(pane0Offset.dy));
+
+      // Verify pane-0 height is 0 (defaultExtent for splitterMainLog)
+      final Size pane0Size = tester.getSize(find.byKey(const Key('pane-0')));
+      expect(pane0Size.height, closeTo(0.0, 1.0));
+    });
+
+    // Test 9: collapsedByDefault starts with extent 0
+    testWidgets('collapsedByDefault: initial extent is 0', (tester) async {
+      // Use a synthetic spec with defaultExtent 200 but collapsedByDefault true
+      const GbmSplitterSpec syntheticSpec = GbmSplitterSpec.extent(
+        defaultExtent: 200,
+        minExtent: 90,
+        collapsedByDefault: true,
+      );
+
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final ProviderContainer container = ProviderContainer(
+        overrides: <Override>[
+          sharedPreferencesProvider.overrideWithValue(prefs),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+            home: Scaffold(
+              body: Center(
+                child: SizedBox(
+                  width: 600,
+                  height: 400,
+                  child: GbmSplitPane(
+                    axis: Axis.horizontal,
+                    spec: syntheticSpec,
+                    storageId: 'test.collapsed.default',
+                    children: <Widget>[
+                      Container(
+                        key: const Key('pane-0'),
+                        color: Colors.red,
+                        child: const Text('Pane 0'),
+                      ),
+                      Container(
+                        key: const Key('pane-1'),
+                        color: Colors.blue,
+                        child: const Text('Pane 1'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      // Verify pane-0 width is 0 (collapsed by default, not 200)
+      final pane0Size = tester.getSize(find.byKey(const Key('pane-0')));
+      expect(pane0Size.width, closeTo(0.0, 1.0));
+    });
+
+    // Test 10: Vertical extent mode drag-down shrinks drawer (inverted delta)
+    testWidgets('vertical extent mode: drag-down shrinks pane-0', (
+      tester,
+    ) async {
+      final List<List<double>> capturedFlexes = <List<double>>[];
+      // Start with a non-zero extent
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setString('panelLayout.test.vertical.drag', '[100.0]');
+
+      final ProviderContainer container = ProviderContainer(
+        overrides: <Override>[
+          sharedPreferencesProvider.overrideWithValue(prefs),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+            home: Scaffold(
+              body: Center(
+                child: SizedBox(
+                  width: 600,
+                  height: 400,
+                  child: GbmSplitPane(
+                    axis: Axis.vertical,
+                    spec: GbmLayout.splitterMainLog,
+                    storageId: 'test.vertical.drag',
+                    onFlexChanged: (flex) => capturedFlexes.add(flex.toList()),
+                    children: <Widget>[
+                      Container(
+                        key: const Key('pane-0'),
+                        color: Colors.red,
+                        child: const Text('Pane 0'),
+                      ),
+                      Container(
+                        key: const Key('pane-1'),
+                        color: Colors.blue,
+                        child: const Text('Pane 1'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final dividerFinder = find.byKey(const Key('gbm-split-divider-0'));
+
+      // Drag DOWN by 30 pixels (should SHRINK the drawer)
+      await tester.drag(dividerFinder, const Offset(0, 30));
+      await tester.pumpAndSettle();
+
+      expect(capturedFlexes.isNotEmpty, true);
+      // Initial was 100, drag-down should shrink it, so final should be < 100
+      expect(capturedFlexes.last[0], lessThan(100.0));
+    });
+
+    // Test 11: GbmSplitPaneController.open() expands a collapsed pane
+    testWidgets(
+      'controller.open() expands a collapsed extent-mode pane to minExtent',
+      (tester) async {
+        final GbmSplitPaneController controller = GbmSplitPaneController();
+
+        SharedPreferences.setMockInitialValues(<String, Object>{});
+        final SharedPreferences prefs = await SharedPreferences.getInstance();
+        final ProviderContainer container = ProviderContainer(
+          overrides: <Override>[
+            sharedPreferencesProvider.overrideWithValue(prefs),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp(
+              theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+              home: Scaffold(
+                body: Center(
+                  child: SizedBox(
+                    width: 600,
+                    height: 400,
+                    child: GbmSplitPane(
+                      axis: Axis.vertical,
+                      spec: GbmLayout.splitterMainLog,
+                      storageId: 'test.controller.open',
+                      controller: controller,
+                      children: <Widget>[
+                        Container(
+                          key: const Key('pane-0'),
+                          color: Colors.red,
+                          child: const Text('Pane 0'),
+                        ),
+                        Container(
+                          key: const Key('pane-1'),
+                          color: Colors.blue,
+                          child: const Text('Pane 1'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+
+        // Starts collapsed (splitterMainLog defaults to 0 + collapsedByDefault).
+        expect(
+          tester.getSize(find.byKey(const Key('pane-0'))).height,
+          closeTo(0.0, 1.0),
+        );
+
+        controller.open();
+        await tester.pump();
+
+        // Opens to at least minExtent (90 for splitterMainLog).
+        expect(
+          tester.getSize(find.byKey(const Key('pane-0'))).height,
+          greaterThanOrEqualTo(GbmLayout.splitterMainLog.minExtent - 1.0),
+        );
+      },
+    );
+
+    testWidgets('controller.open() is a no-op when already open', (
+      tester,
+    ) async {
+      final GbmSplitPaneController controller = GbmSplitPaneController();
+
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'panelLayout.test.controller.noop': '[150.0]',
+      });
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final ProviderContainer container = ProviderContainer(
+        overrides: <Override>[
+          sharedPreferencesProvider.overrideWithValue(prefs),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+            home: Scaffold(
+              body: Center(
+                child: SizedBox(
+                  width: 600,
+                  height: 400,
+                  child: GbmSplitPane(
+                    axis: Axis.vertical,
+                    spec: GbmLayout.splitterMainLog,
+                    storageId: 'test.controller.noop',
+                    controller: controller,
+                    children: <Widget>[
+                      Container(
+                        key: const Key('pane-0'),
+                        color: Colors.red,
+                        child: const Text('Pane 0'),
+                      ),
+                      Container(
+                        key: const Key('pane-1'),
+                        color: Colors.blue,
+                        child: const Text('Pane 1'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      controller.open();
+      await tester.pump();
+
+      // Already above minExtent (150 > 90) -- open() must not shrink it.
+      expect(
+        tester.getSize(find.byKey(const Key('pane-0'))).height,
+        closeTo(150.0, 1.0),
+      );
+    });
   });
 }

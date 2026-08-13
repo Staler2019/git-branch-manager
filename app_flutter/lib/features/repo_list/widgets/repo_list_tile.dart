@@ -93,7 +93,6 @@ class RepoListTile extends StatelessWidget {
         icon: Icons.folder_outlined,
         onTap: noop,
       ),
-      const GbmMenuItem.separator(),
       GbmMenuItem(
         label: 'Repository settings',
         icon: Icons.settings_outlined,

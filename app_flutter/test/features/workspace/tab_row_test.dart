@@ -39,6 +39,11 @@ Future<GoRouter> _pump(
         path: RoutePaths.mergeDialog,
         builder: (context, state) => const Scaffold(body: Text('merge-dialog')),
       ),
+      GoRoute(
+        path: RoutePaths.manageStashesDialog,
+        builder: (context, state) =>
+            const Scaffold(body: Text('manage-stashes-dialog')),
+      ),
     ],
   );
   await tester.pumpWidget(
@@ -85,5 +90,52 @@ void main() {
     await tester.tap(find.text('Merge…'));
     await tester.pumpAndSettle();
     expect(find.text('merge-dialog'), findsOneWidget);
+  });
+
+  testWidgets(
+    'More menu lists all 18 items via showGbmMenu (not Material PopupMenuButton chrome)',
+    (tester) async {
+      await _pump(tester, pendingChangeCount: 0);
+      await tester.tap(find.byTooltip('More'));
+      await tester.pumpAndSettle();
+
+      // Not a Material PopupMenuButton overlay -- see tab_row.dart's
+      // _MoreMenu doc comment on why this must go through showGbmMenu.
+      expect(find.byType(PopupMenuButton<String>), findsNothing);
+
+      for (final String label in const <String>[
+        'Stash Changes…',
+        'Manage Stashes…',
+        'Create Tag…',
+        'Manage Worktrees…',
+        'Remotes…',
+        'Operation Log…',
+        'Blame…',
+        'File History…',
+        'Line History…',
+        'Reflog…',
+        'Undo Last Operation…',
+        'Interactive Rebase…',
+        'Submodules…',
+        'Bisect…',
+        'Git LFS…',
+        'Patches…',
+        'Clean Untracked…',
+        'Preferences…',
+      ]) {
+        expect(find.text(label), findsOneWidget, reason: label);
+      }
+    },
+  );
+
+  testWidgets('More menu > Manage Stashes… pushes the manage-stashes route', (
+    tester,
+  ) async {
+    await _pump(tester, pendingChangeCount: 0);
+    await tester.tap(find.byTooltip('More'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Manage Stashes…'));
+    await tester.pumpAndSettle();
+    expect(find.text('manage-stashes-dialog'), findsOneWidget);
   });
 }

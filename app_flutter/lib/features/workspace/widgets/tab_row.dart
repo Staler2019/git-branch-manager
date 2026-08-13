@@ -5,6 +5,7 @@ import '../../../routing/route_paths.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_badge.dart';
+import '../../../widgets/gbm_menu.dart';
 
 /// The History/Working Copy tab switcher plus the always-visible
 /// Merge/Cherry-pick/Reset shortcuts. Presentational (no Riverpod/FFI
@@ -105,82 +106,123 @@ class _MoreMenu extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
-    return PopupMenuButton<String>(
-      tooltip: 'More',
-      icon: Icon(Icons.more_horiz, size: 18, color: colors.textSecondary),
-      onSelected: (route) => context.push(route),
-      itemBuilder: (context) => <PopupMenuEntry<String>>[
-        PopupMenuItem<String>(
-          value: RoutePaths.stashChangesDialogFor(repoId),
-          child: const Text('Stash Changes…'),
+    return Builder(
+      builder: (buttonContext) => IconButton(
+        tooltip: 'More',
+        icon: Icon(Icons.more_horiz, size: 18, color: colors.textSecondary),
+        onPressed: () => _open(buttonContext),
+      ),
+    );
+  }
+
+  /// Positions [showGbmMenu] below this button, mirroring
+  /// `menu_bar_row.dart`'s `_MenuBarButton._open` -- this is a menu-bar-style
+  /// menu anchored to a button, not a right-click context menu, so it goes
+  /// through `showGbmMenu` directly rather than `showGbmContextMenu` (whose
+  /// `validateGbmMenuItems` ≤8-item cap is scoped to spec page 05's 11
+  /// right-click groups only, not this button's 18 dialog shortcuts).
+  void _open(BuildContext buttonContext) {
+    final RenderBox button = buttonContext.findRenderObject()! as RenderBox;
+    final RenderBox overlay =
+        Overlay.of(buttonContext).context.findRenderObject()! as RenderBox;
+    final RelativeRect position = RelativeRect.fromRect(
+      Rect.fromPoints(
+        button.localToGlobal(Offset(0, button.size.height), ancestor: overlay),
+        button.localToGlobal(
+          button.size.bottomRight(Offset.zero),
+          ancestor: overlay,
         ),
-        PopupMenuItem<String>(
-          value: RoutePaths.manageStashesDialogFor(repoId),
-          child: const Text('Manage Stashes…'),
+      ),
+      Offset.zero & overlay.size,
+    );
+    showGbmMenu(
+      buttonContext,
+      position: position,
+      items: <GbmMenuItem>[
+        GbmMenuItem(
+          label: 'Stash Changes…',
+          onTap: () =>
+              buttonContext.push(RoutePaths.stashChangesDialogFor(repoId)),
         ),
-        PopupMenuItem<String>(
-          value: RoutePaths.createTagDialogFor(repoId),
-          child: const Text('Create Tag…'),
+        GbmMenuItem(
+          label: 'Manage Stashes…',
+          onTap: () =>
+              buttonContext.push(RoutePaths.manageStashesDialogFor(repoId)),
         ),
-        PopupMenuItem<String>(
-          value: RoutePaths.manageWorktreesDialogFor(repoId),
-          child: const Text('Manage Worktrees…'),
+        GbmMenuItem(
+          label: 'Create Tag…',
+          onTap: () =>
+              buttonContext.push(RoutePaths.createTagDialogFor(repoId)),
         ),
-        PopupMenuItem<String>(
-          value: RoutePaths.manageRemotesDialogFor(repoId),
-          child: const Text('Remotes…'),
+        GbmMenuItem(
+          label: 'Manage Worktrees…',
+          onTap: () =>
+              buttonContext.push(RoutePaths.manageWorktreesDialogFor(repoId)),
         ),
-        PopupMenuItem<String>(
-          value: RoutePaths.operationLogDialogFor(repoId),
-          child: const Text('Operation Log…'),
+        GbmMenuItem(
+          label: 'Remotes…',
+          onTap: () =>
+              buttonContext.push(RoutePaths.manageRemotesDialogFor(repoId)),
         ),
-        PopupMenuItem<String>(
-          value: RoutePaths.blameDialogFor(repoId),
-          child: const Text('Blame…'),
+        GbmMenuItem(
+          label: 'Operation Log…',
+          onTap: () =>
+              buttonContext.push(RoutePaths.operationLogDialogFor(repoId)),
         ),
-        PopupMenuItem<String>(
-          value: RoutePaths.fileHistoryDialogFor(repoId),
-          child: const Text('File History…'),
+        GbmMenuItem(
+          label: 'Blame…',
+          onTap: () => buttonContext.push(RoutePaths.blameDialogFor(repoId)),
         ),
-        PopupMenuItem<String>(
-          value: RoutePaths.lineHistoryDialogFor(repoId),
-          child: const Text('Line History…'),
+        GbmMenuItem(
+          label: 'File History…',
+          onTap: () =>
+              buttonContext.push(RoutePaths.fileHistoryDialogFor(repoId)),
         ),
-        PopupMenuItem<String>(
-          value: RoutePaths.reflogDialogFor(repoId),
-          child: const Text('Reflog…'),
+        GbmMenuItem(
+          label: 'Line History…',
+          onTap: () =>
+              buttonContext.push(RoutePaths.lineHistoryDialogFor(repoId)),
         ),
-        PopupMenuItem<String>(
-          value: RoutePaths.undoLastDialogFor(repoId),
-          child: const Text('Undo Last Operation…'),
+        GbmMenuItem(
+          label: 'Reflog…',
+          onTap: () => buttonContext.push(RoutePaths.reflogDialogFor(repoId)),
         ),
-        PopupMenuItem<String>(
-          value: RoutePaths.interactiveRebaseDialogFor(repoId),
-          child: const Text('Interactive Rebase…'),
+        GbmMenuItem(
+          label: 'Undo Last Operation…',
+          onTap: () => buttonContext.push(RoutePaths.undoLastDialogFor(repoId)),
         ),
-        PopupMenuItem<String>(
-          value: RoutePaths.manageSubmodulesDialogFor(repoId),
-          child: const Text('Submodules…'),
+        GbmMenuItem(
+          label: 'Interactive Rebase…',
+          onTap: () =>
+              buttonContext.push(RoutePaths.interactiveRebaseDialogFor(repoId)),
         ),
-        PopupMenuItem<String>(
-          value: RoutePaths.bisectDialogFor(repoId),
-          child: const Text('Bisect…'),
+        GbmMenuItem(
+          label: 'Submodules…',
+          onTap: () =>
+              buttonContext.push(RoutePaths.manageSubmodulesDialogFor(repoId)),
         ),
-        PopupMenuItem<String>(
-          value: RoutePaths.manageLfsDialogFor(repoId),
-          child: const Text('Git LFS…'),
+        GbmMenuItem(
+          label: 'Bisect…',
+          onTap: () => buttonContext.push(RoutePaths.bisectDialogFor(repoId)),
         ),
-        PopupMenuItem<String>(
-          value: RoutePaths.patchesDialogFor(repoId),
-          child: const Text('Patches…'),
+        GbmMenuItem(
+          label: 'Git LFS…',
+          onTap: () =>
+              buttonContext.push(RoutePaths.manageLfsDialogFor(repoId)),
         ),
-        PopupMenuItem<String>(
-          value: RoutePaths.cleanUntrackedDialogFor(repoId),
-          child: const Text('Clean Untracked…'),
+        GbmMenuItem(
+          label: 'Patches…',
+          onTap: () => buttonContext.push(RoutePaths.patchesDialogFor(repoId)),
         ),
-        PopupMenuItem<String>(
-          value: RoutePaths.preferencesDialogFor(repoId),
-          child: const Text('Preferences…'),
+        GbmMenuItem(
+          label: 'Clean Untracked…',
+          onTap: () =>
+              buttonContext.push(RoutePaths.cleanUntrackedDialogFor(repoId)),
+        ),
+        GbmMenuItem(
+          label: 'Preferences…',
+          onTap: () =>
+              buttonContext.push(RoutePaths.preferencesDialogFor(repoId)),
         ),
       ],
     );

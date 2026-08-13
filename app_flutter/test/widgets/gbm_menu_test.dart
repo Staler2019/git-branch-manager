@@ -37,6 +37,108 @@ Future<void> _openMenu(
 }
 
 void main() {
+  group('GbmMenuItem.submenu', () {
+    test('asserts on nested submenu (submenu child contains submenu)', () {
+      expect(
+        () => GbmMenuItem.submenu(
+          label: 'More',
+          children: <GbmMenuItem>[
+            GbmMenuItem.submenu(
+              label: 'Nested',
+              children: <GbmMenuItem>[GbmMenuItem(label: 'Item', onTap: () {})],
+            ),
+          ],
+        ),
+        throwsAssertionError,
+      );
+    });
+
+    test('creates submenu with valid single-level children', () {
+      expect(
+        () => GbmMenuItem.submenu(
+          label: 'More',
+          children: <GbmMenuItem>[
+            GbmMenuItem(label: 'Item', onTap: () {}),
+          ],
+        ),
+        returnsNormally,
+      );
+    });
+  });
+
+  group('Menu invariants', () {
+    test('asserts on >8 top-level non-separator items', () {
+      expect(
+        () {
+          final items = List<GbmMenuItem>.generate(
+            9,
+            (i) => GbmMenuItem(label: 'Item $i', onTap: () {}),
+          );
+          validateGbmMenuItems(items);
+        },
+        throwsAssertionError,
+      );
+    });
+
+    test('asserts when danger item is not last non-separator', () {
+      expect(
+        () {
+          validateGbmMenuItems(
+            <GbmMenuItem>[
+              GbmMenuItem(label: 'Checkout', onTap: () {}),
+              GbmMenuItem(label: 'Delete', danger: true, onTap: () {}),
+              GbmMenuItem(label: 'After danger', onTap: () {}),
+            ],
+          );
+        },
+        throwsAssertionError,
+      );
+    });
+
+    test('asserts when danger item has no separator before it', () {
+      expect(
+        () {
+          validateGbmMenuItems(
+            <GbmMenuItem>[
+              GbmMenuItem(label: 'Checkout', onTap: () {}),
+              GbmMenuItem(label: 'Delete', danger: true, onTap: () {}),
+            ],
+          );
+        },
+        throwsAssertionError,
+      );
+    });
+
+    test('allows valid menu with danger + separator', () {
+      expect(
+        () {
+          validateGbmMenuItems(
+            <GbmMenuItem>[
+              GbmMenuItem(label: 'Checkout', onTap: () {}),
+              const GbmMenuItem.separator(),
+              GbmMenuItem(label: 'Delete', danger: true, onTap: () {}),
+            ],
+          );
+        },
+        returnsNormally,
+      );
+    });
+
+    test('allows menu without danger item', () {
+      expect(
+        () {
+          validateGbmMenuItems(
+            <GbmMenuItem>[
+              GbmMenuItem(label: 'Checkout', onTap: () {}),
+              GbmMenuItem(label: 'Rename', onTap: () {}),
+            ],
+          );
+        },
+        returnsNormally,
+      );
+    });
+  });
+
   for (final GbmThemeVariant variant in GbmThemeVariant.values) {
     final GbmColors colors = tokensFor(variant);
 
@@ -75,5 +177,33 @@ void main() {
         expect(find.text('Checkout'), findsNothing);
       },
     );
+
+    testWidgets('submenu renders label at top level ($variant)', (
+      tester,
+    ) async {
+      await _openMenu(tester, variant, <GbmMenuItem>[
+        GbmMenuItem.submenu(
+          label: 'More actions',
+          children: <GbmMenuItem>[
+            GbmMenuItem(label: 'Nested item', onTap: () {}),
+          ],
+        ),
+      ]);
+      expect(find.text('More actions'), findsOneWidget);
+    });
+
+    testWidgets('submenu children do not render initially ($variant)', (
+      tester,
+    ) async {
+      await _openMenu(tester, variant, <GbmMenuItem>[
+        GbmMenuItem.submenu(
+          label: 'More actions',
+          children: <GbmMenuItem>[
+            GbmMenuItem(label: 'Nested item', onTap: () {}),
+          ],
+        ),
+      ]);
+      expect(find.text('Nested item'), findsNothing);
+    });
   }
 }

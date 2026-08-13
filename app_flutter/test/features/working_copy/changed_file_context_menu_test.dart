@@ -139,4 +139,66 @@ void main() {
     await tester.pumpAndSettle();
     expect(toggled, 1);
   });
+
+  testWidgets(
+    'the trailing "File actions" button offers Blame/File History/Line History/Discard changes',
+    (tester) async {
+      int blamed = 0;
+      int fileHistoried = 0;
+      int lineHistoried = 0;
+      int discarded = 0;
+      await _pump(
+        tester,
+        ChangedFileRow(
+          entry: _entry(),
+          checked: false,
+          selected: false,
+          onCheckToggle: () {},
+          onTap: () {},
+          onBlame: () => blamed++,
+          onFileHistory: () => fileHistoried++,
+          onLineHistory: () => lineHistoried++,
+          onDiscard: () => discarded++,
+        ),
+      );
+      await tester.tap(find.byTooltip('File actions'));
+      await tester.pumpAndSettle();
+
+      // Not a Material PopupMenuButton overlay -- see _FileActionsMenu's doc
+      // comment on why this must go through showGbmMenu.
+      expect(find.byType(PopupMenuButton<VoidCallback>), findsNothing);
+      expect(find.text('Blame…'), findsOneWidget);
+      expect(find.text('File History…'), findsOneWidget);
+      expect(find.text('Line History…'), findsOneWidget);
+      final Text discardLabel = tester.widget<Text>(
+        find.text('Discard changes'),
+      );
+      expect(
+        discardLabel.style?.color,
+        tokensFor(GbmThemeVariant.darkTechnical).danger,
+      );
+
+      await tester.tap(find.text('Blame…'));
+      await tester.pumpAndSettle();
+      expect(blamed, 1);
+
+      await tester.tap(find.byTooltip('File actions'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('File History…'));
+      await tester.pumpAndSettle();
+      expect(fileHistoried, 1);
+
+      await tester.tap(find.byTooltip('File actions'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Line History…'));
+      await tester.pumpAndSettle();
+      expect(lineHistoried, 1);
+
+      await tester.tap(find.byTooltip('File actions'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Discard changes'));
+      await tester.pumpAndSettle();
+      expect(discarded, 1);
+    },
+  );
 }

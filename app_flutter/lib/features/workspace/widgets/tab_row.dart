@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../../routing/route_paths.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
+import '../../../widgets/gbm_badge.dart';
 
 /// The History/Working Copy tab switcher plus the always-visible
 /// Merge/Cherry-pick/Reset shortcuts. Presentational (no Riverpod/FFI
@@ -228,21 +229,9 @@ class _Tab extends StatelessWidget {
             ),
             if (badgeCount > 0) ...<Widget>[
               const SizedBox(width: GbmSpacing.space1),
-              Container(
+              GbmBadge(
                 key: const Key('tab-row-pending-badge'),
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                decoration: BoxDecoration(
-                  color: colors.accentSubtle,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  '$badgeCount',
-                  style: TextStyle(
-                    fontSize: GbmTypography.textXs,
-                    fontWeight: GbmTypography.weightSemibold,
-                    color: colors.accent,
-                  ),
-                ),
+                label: '$badgeCount',
               ),
             ],
           ],

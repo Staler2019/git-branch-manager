@@ -147,6 +147,25 @@ protected:
         });
     }
 
+    /// Waits for GBM_EVENT_WORKING_COPY_OPERATION_FINISHED and returns whether
+    /// it reported success, printing the outcome JSON (including any git
+    /// error) on failure. Callers that expect the operation to succeed should
+    /// use this instead of waitForWorkingCopyOperationFinished() alone -- that
+    /// one only proves the event arrived, not that the underlying git command
+    /// did what was asked, so a real failure would otherwise only surface as
+    /// a confusing mismatch several lines later in an unrelated diff assertion.
+    bool waitForWorkingCopyOperationSucceeded() {
+        if (!waitForWorkingCopyOperationFinished()) return false;
+        const std::vector<std::string> outcomes =
+            log_.payloadsOfType(GBM_EVENT_WORKING_COPY_OPERATION_FINISHED);
+        if (outcomes.empty()) return false;
+        const bool succeeded = outcomes.back().find("\"succeeded\":true") != std::string::npos;
+        if (!succeeded) {
+            ADD_FAILURE() << "working copy operation did not succeed: " << outcomes.back();
+        }
+        return succeeded;
+    }
+
     std::filesystem::path repo_;
     GbmSessionHandle session_ = nullptr;
     EventLog log_;
@@ -278,7 +297,7 @@ TEST_F(WorkingCopyApiTest, StageHunkStagesOnlyThatHunkLeavingTheOtherUnstaged) {
     ASSERT_NE(beforeDiff.find("\"L29-changed\""), std::string::npos) << beforeDiff;
 
     gbm_stage_hunk(session_, "multi.txt", /*hunkIndex=*/0);
-    ASSERT_TRUE(waitForWorkingCopyOperationFinished());
+    ASSERT_TRUE(waitForWorkingCopyOperationSucceeded());
 
     const std::string stagedDiff = requestDiffJson("multi.txt", /*staged=*/true);
     EXPECT_NE(stagedDiff.find("\"L2-changed\""), std::string::npos) << stagedDiff;
@@ -296,12 +315,12 @@ TEST_F(WorkingCopyApiTest, UnstageHunkReversesAFullyStagedSingleHunkFile) {
     std::ofstream(repo_ / "single.txt") << "a\nb\nc\nd\n";
 
     gbm_stage_hunk(session_, "single.txt", /*hunkIndex=*/0);
-    ASSERT_TRUE(waitForWorkingCopyOperationFinished());
+    ASSERT_TRUE(waitForWorkingCopyOperationSucceeded());
     const std::string stagedDiff = requestDiffJson("single.txt", /*staged=*/true);
     ASSERT_NE(stagedDiff.find("\"d\""), std::string::npos) << stagedDiff;
 
     gbm_unstage_hunk(session_, "single.txt", /*hunkIndex=*/0);
-    ASSERT_TRUE(waitForWorkingCopyOperationFinished());
+    ASSERT_TRUE(waitForWorkingCopyOperationSucceeded());
 
     const std::string stagedAfter = requestDiffJson("single.txt", /*staged=*/true);
     EXPECT_EQ(stagedAfter.find("\"files\":[{"), std::string::npos) << stagedAfter;
@@ -323,7 +342,7 @@ TEST_F(WorkingCopyApiTest, StageLinesStagesOnlyTheSelectedAddedLines) {
 
     const int32_t lineIndices[] = {3};  // NEW1 only
     gbm_stage_lines(session_, "lines.txt", /*hunkIndex=*/0, lineIndices, 1);
-    ASSERT_TRUE(waitForWorkingCopyOperationFinished());
+    ASSERT_TRUE(waitForWorkingCopyOperationSucceeded());
 
     const std::string stagedDiff = requestDiffJson("lines.txt", /*staged=*/true);
     EXPECT_NE(stagedDiff.find("\"NEW1\""), std::string::npos) << stagedDiff;

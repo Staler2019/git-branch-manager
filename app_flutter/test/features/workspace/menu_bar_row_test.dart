@@ -5,7 +5,9 @@
 // passed in rather than reaching into a real session.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/actions/gbm_action_id.dart';
 import 'package:gbm_flutter/features/workspace/widgets/menu_bar_row.dart';
+import 'package:gbm_flutter/features/workspace/widgets/workspace_action_shortcuts.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
@@ -20,6 +22,14 @@ Future<GoRouter> _pump(
   required VoidCallback onPull,
   required VoidCallback onPush,
   bool sidebarVisible = true,
+
+  /// When provided, wraps MenuBarRow in a [WorkspaceActionShortcuts]
+  /// ancestor with these handlers -- needed for any item that isn't one of
+  /// the 5 named-callback params, since those dispatch via
+  /// `Actions.maybeInvoke(GbmActionIntent)` and do nothing without an
+  /// Actions ancestor to reach. Most tests in this file don't need this
+  /// (they only exercise the named-callback items, which work standalone).
+  Map<GbmActionId, VoidCallback?>? actionHandlers,
 }) async {
   final List<String> visited = <String>[];
   final GoRouter router = GoRouter(
@@ -29,15 +39,22 @@ Future<GoRouter> _pump(
         path: RoutePaths.history,
         builder: (context, state) {
           visited.add(state.uri.toString());
+          final Widget menuBar = MenuBarRow(
+            repoId: _repoId,
+            sidebarVisible: sidebarVisible,
+            onToggleSidebar: onToggleSidebar,
+            onFetch: onFetch,
+            onPull: onPull,
+            onPush: onPush,
+          );
           return Scaffold(
-            body: MenuBarRow(
-              repoId: _repoId,
-              sidebarVisible: sidebarVisible,
-              onToggleSidebar: onToggleSidebar,
-              onFetch: onFetch,
-              onPull: onPull,
-              onPush: onPush,
-            ),
+            body: actionHandlers == null
+                ? menuBar
+                : WorkspaceActionShortcuts(
+                    handlers: actionHandlers,
+                    isMacOS: false,
+                    child: menuBar,
+                  ),
           );
         },
       ),
@@ -73,7 +90,7 @@ GoRoute dialogRoute({
 
 void main() {
   testWidgets(
-    'opening the View menu shows History/Working Copy/Repository Settings/Preferences',
+    'opening the View menu shows History/Working copy, not Diff or dialog-opening items now owned by other menus',
     (tester) async {
       await _pump(
         tester,
@@ -85,27 +102,35 @@ void main() {
       await tester.tap(find.text('View'));
       await tester.pumpAndSettle();
       expect(find.text('History'), findsOneWidget);
-      expect(find.text('Working Copy'), findsOneWidget);
-      expect(find.text('Repository Settings'), findsOneWidget);
-      expect(find.text('Preferences…'), findsOneWidget);
+      expect(find.text('Working copy'), findsOneWidget);
       // Diff is deliberately not on the menu -- see MenuBarRow's doc comment.
       expect(find.text('Diff'), findsNothing);
+      // Repository settings and Preferences moved to their spec-correct
+      // menus (Repository, File respectively) once MenuBarRow started
+      // sourcing items from gbmMenus -- see spec page 04's MENUS table.
+      expect(find.text('Repository Settings'), findsNothing);
+      expect(find.text('Preferences…'), findsNothing);
     },
   );
 
-  testWidgets('View > Working Copy navigates to the working-copy route', (
+  testWidgets('View > Working copy navigates to the working-copy route', (
     tester,
   ) async {
-    await _pump(
+    late GoRouter router;
+    router = await _pump(
       tester,
       onToggleSidebar: () {},
       onFetch: () {},
       onPull: () {},
       onPush: () {},
+      actionHandlers: <GbmActionId, VoidCallback?>{
+        GbmActionId.viewWorkingCopy: () =>
+            router.go(RoutePaths.workingCopyFor(_repoId)),
+      },
     );
     await tester.tap(find.text('View'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Working Copy'));
+    await tester.tap(find.text('Working copy'));
     await tester.pumpAndSettle();
     expect(find.text('working-copy-page'), findsOneWidget);
   });
@@ -173,19 +198,24 @@ void main() {
     expect(label.style?.color, tokensFor(GbmThemeVariant.darkTechnical).danger);
   });
 
-  testWidgets('File > Preferences pushes the preferences dialog route', (
+  testWidgets('File > Preferences… pushes the preferences dialog route', (
     tester,
   ) async {
-    await _pump(
+    late GoRouter router;
+    router = await _pump(
       tester,
       onToggleSidebar: () {},
       onFetch: () {},
       onPull: () {},
       onPush: () {},
+      actionHandlers: <GbmActionId, VoidCallback?>{
+        GbmActionId.filePreferences: () =>
+            router.push(RoutePaths.preferencesDialogFor(_repoId)),
+      },
     );
     await tester.tap(find.text('File'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Preferences'));
+    await tester.tap(find.text('Preferences…'));
     await tester.pumpAndSettle();
     expect(find.text('preferences-dialog'), findsOneWidget);
   });

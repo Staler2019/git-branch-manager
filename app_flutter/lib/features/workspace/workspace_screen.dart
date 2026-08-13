@@ -1,7 +1,11 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../actions/gbm_action_id.dart';
+import '../../actions/gbm_menu_model.dart';
 import '../../data/repositories/history_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
@@ -11,8 +15,10 @@ import '../../theme/tokens.dart';
 import '../../widgets/gbm_banner.dart';
 import '../sidebar/sidebar_panel.dart';
 import 'widgets/menu_bar_row.dart';
+import 'widgets/platform_menu_bar_host.dart';
 import 'widgets/tab_row.dart';
 import 'widgets/top_bar.dart';
+import 'widgets/workspace_action_shortcuts.dart';
 
 /// The repository shell: menu bar + top bar + tab switcher + sidebar, with
 /// `child` (History or Working Copy, see routing/app_router.dart's
@@ -104,7 +110,16 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       );
     }
 
-    return Scaffold(
+    // Build the handlers map for actions and menu items
+    final Map<GbmActionId, VoidCallback?> actionHandlers = _buildActionHandlers(
+      context,
+      ref,
+      identity,
+      repoId,
+    );
+
+    // Build the main scaffold content
+    final Widget scaffoldContent = Scaffold(
       body: Column(
         children: <Widget>[
           MenuBarRow(
@@ -149,6 +164,17 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         ],
       ),
     );
+
+    // Wrap with action shortcuts for keyboard handling
+    return WorkspaceActionShortcuts(
+      isMacOS: Platform.isMacOS,
+      handlers: actionHandlers,
+      child: PlatformMenuBarHost(
+        menus: gbmMenus,
+        handlers: actionHandlers,
+        child: scaffoldContent,
+      ),
+    );
   }
 
   String _displayName(String workDir) {
@@ -157,6 +183,116 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         .where((s) => s.isNotEmpty)
         .toList();
     return segments.isEmpty ? workDir : segments.last;
+  }
+
+  /// Builds the action handlers map, wiring every [GbmActionId] that has a
+  /// real implementation to its handler. Ids without an implementation are
+  /// mapped to `null` (safe no-op when clicked or shortcut fired).
+  ///
+  /// Wired handlers (real implementations):
+  /// - viewHistory, viewWorkingCopy: navigation via GoRouter
+  /// - filePreferences, repositorySettings: preferences dialog
+  /// - branchMergeIntoCurrent: merge dialog
+  /// - branchRebaseOnto: interactive rebase dialog
+  /// - remoteManageRemotes: manage remotes dialog
+  /// - remoteFetchAllRemotes: fetch (same as repositoryFetch)
+  /// - helpKeyboardShortcuts: keyboard shortcuts dialog
+  /// - helpAbout: about dialog
+  ///
+  /// Unimplemented (mapped to null):
+  /// - fileNewRepository, fileOpenRepository, fileCloneRepository,
+  ///   fileSwitchRepository, fileAddLocalRepository: future milestone
+  /// - editUndo, editRedo, editCut, editCopy, editPaste, editFindInHistory,
+  ///   editFindInFiles, editFilterBranches: future milestone
+  /// - viewNextTab, viewGraphColumns, viewCommitDetail, viewStatusBar,
+  ///   viewLog, viewResetPanelSizes, viewTheme: future milestone
+  /// - repositoryCompare: future milestone
+  /// - branchNewBranch, branchCheckout, branchRenameCurrentBranch,
+  ///   branchStashChanges, branchDeleteBranch: future milestone
+  /// - remoteAddRemote, remotePruneRemoteBranches: future milestone
+  /// - helpDocumentation, helpReportAnIssue: future milestone
+  /// - fileExit: handled specially (not wired here, handled in MenuBarRow)
+  /// - repositoryFetch, repositoryPull, repositoryPush, viewToggleSidebar:
+  ///   handled via MenuBarRow callback params
+  Map<GbmActionId, VoidCallback?> _buildActionHandlers(
+    BuildContext context,
+    WidgetRef ref,
+    RepoIdentity identity,
+    String repoId,
+  ) {
+    return {
+      // File
+      GbmActionId.fileNewRepository: null,
+      GbmActionId.fileOpenRepository: null,
+      GbmActionId.fileCloneRepository: null,
+      GbmActionId.fileSwitchRepository: null,
+      GbmActionId.fileAddLocalRepository: null,
+      GbmActionId.fileCloseWindow: null,
+      GbmActionId.filePreferences: () =>
+          context.push(RoutePaths.preferencesDialogFor(repoId)),
+      GbmActionId.fileExit: null, // Handled specially in MenuBarRow
+      // Edit
+      GbmActionId.editUndo: null,
+      GbmActionId.editRedo: null,
+      GbmActionId.editCut: null,
+      GbmActionId.editCopy: null,
+      GbmActionId.editPaste: null,
+      GbmActionId.editFindInHistory: null,
+      GbmActionId.editFindInFiles: null,
+      GbmActionId.editFilterBranches: null,
+
+      // View
+      GbmActionId.viewHistory: () => context.go(RoutePaths.historyFor(repoId)),
+      GbmActionId.viewWorkingCopy: () =>
+          context.go(RoutePaths.workingCopyFor(repoId)),
+      GbmActionId.viewNextTab: null,
+      GbmActionId.viewFileListAsTree: null,
+      GbmActionId.viewGraphColumns: null,
+      GbmActionId.viewCommitDetail: null,
+      GbmActionId.viewToggleSidebar: null, // Handled via MenuBarRow param
+      GbmActionId.viewStatusBar: null,
+      GbmActionId.viewLog: null,
+      GbmActionId.viewResetPanelSizes: null,
+      GbmActionId.viewTheme: null,
+
+      // Repository
+      GbmActionId.repositoryFetch: null, // Handled via MenuBarRow param
+      GbmActionId.repositoryPull: null, // Handled via MenuBarRow param
+      GbmActionId.repositoryPush: null, // Handled via MenuBarRow param
+      GbmActionId.repositoryCompare: null,
+      GbmActionId.repositoryCommit: null,
+      GbmActionId.repositoryAmendLastCommit: null,
+      GbmActionId.repositoryStageAll: null,
+      GbmActionId.repositoryOpenInTerminal: null,
+      GbmActionId.repositorySettings: () =>
+          context.push(RoutePaths.preferencesDialogFor(repoId)),
+
+      // Branch
+      GbmActionId.branchNewBranch: null,
+      GbmActionId.branchCheckout: null,
+      GbmActionId.branchRenameCurrentBranch: null,
+      GbmActionId.branchMergeIntoCurrent: () =>
+          context.push(RoutePaths.mergeDialogFor(repoId)),
+      GbmActionId.branchRebaseOnto: () =>
+          context.push(RoutePaths.interactiveRebaseDialogFor(repoId)),
+      GbmActionId.branchStashChanges: null,
+      GbmActionId.branchDeleteBranch: null,
+
+      // Remote
+      GbmActionId.remoteAddRemote: null,
+      GbmActionId.remoteFetchAllRemotes: () =>
+          ref.read(repoSessionProvider(identity).notifier).fetchRemote(),
+      GbmActionId.remotePruneRemoteBranches: null,
+      GbmActionId.remoteManageRemotes: () =>
+          context.push(RoutePaths.manageRemotesDialogFor(repoId)),
+
+      // Help
+      GbmActionId.helpDocumentation: null,
+      GbmActionId.helpKeyboardShortcuts: () =>
+          context.push(RoutePaths.keyboardShortcutsDialog),
+      GbmActionId.helpReportAnIssue: null,
+      GbmActionId.helpAbout: () => context.push(RoutePaths.aboutDialog),
+    };
   }
 }
 

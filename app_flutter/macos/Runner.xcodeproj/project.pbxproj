@@ -213,6 +213,7 @@
 				33CC10EB2044A3C60003C045 /* Resources */,
 				33CC110E2044A8840003C045 /* Bundle Framework */,
 				3399D490228B24CF009A79C7 /* ShellScript */,
+				18DA026D8687FBE3BCCD4419 /* Build gbm_capi */,
 			);
 			buildRules = (
 			);
@@ -338,6 +339,25 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "\"$FLUTTER_ROOT\"/packages/flutter_tools/bin/macos_assemble.sh && touch Flutter/ephemeral/tripwire";
+		};
+		18DA026D8687FBE3BCCD4419 /* Build gbm_capi */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build gbm_capi";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n\nexport PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"\n\nif ! command -v cmake >/dev/null 2>&1; then\n  echo \"error: cmake not found on PATH -- install it (e.g. brew install cmake ninja) so this build phase can build gbm_capi.\" >&2\n  exit 1\nfi\n\nREPO_ROOT=\"$SRCROOT/../..\"\ncd \"$REPO_ROOT\"\n\ncmake --preset capi-only >/dev/null\ncmake --build --preset capi-only --target gbm_capi\n\nDEST_DIR=\"$TARGET_BUILD_DIR/$EXECUTABLE_FOLDER_PATH\"\nmkdir -p \"$DEST_DIR\"\ncp \"$REPO_ROOT/build/capi-only/src/capi/libgbm_capi.dylib\" \"$DEST_DIR/\"\necho \"Copied libgbm_capi.dylib -> $DEST_DIR/\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

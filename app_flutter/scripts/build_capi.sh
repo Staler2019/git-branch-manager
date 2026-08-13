@@ -6,15 +6,15 @@
 # test`. Run this once before the first `flutter run`, and again after any
 # src/capi or src/core change.
 #
-# Phase B (linux/CMakeLists.txt, windows/CMakeLists.txt) now makes `flutter
-# build` compile and bundle gbm_capi automatically on those two platforms --
-# this script is no longer required there for a packaged build, only for
-# `flutter run`/`flutter test`, which still resolve the library via
-# build/native/ (see native_library.dart). macOS has no Phase B yet (its
-# Xcode-based runner isn't CMake, and hooking a Run Script build phase into
-# a checked-in .pbxproj could not be verified in the environment this was
-# written in), so this script remains the only way to get gbm_capi in place
-# there, including for a packaged release build.
+# Phase B (linux/CMakeLists.txt, windows/CMakeLists.txt; macos/Runner.xcodeproj's
+# "Build gbm_capi" Run Script build phase) now makes `flutter build`/`flutter
+# run`/an IDE-driven Xcode build compile and bundle gbm_capi automatically on
+# all three desktop platforms -- this script is no longer required for a
+# packaged build on any of them. It is still the quickest way to get
+# gbm_capi into build/native/ for `flutter test` (which does not go through
+# any of the three Phase B builds), and remains a fine manual fallback
+# anywhere `flutter run`/`flutter test`'s working directory isn't the
+# `app_flutter/` project root (see native_library.dart's candidate #3).
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

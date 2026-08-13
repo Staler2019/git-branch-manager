@@ -9,10 +9,16 @@ import 'dart:io';
 ///     bundles it. On Linux and Windows this happens automatically: `flutter
 ///     build`/`flutter run` now compiles gbm_capi as part of the same CMake
 ///     invocation (see linux/CMakeLists.txt's and windows/CMakeLists.txt's
-///     Phase B block) and installs it here. macOS is still Phase A only --
-///     its Xcode-based runner has no CMake build to hook into the same way,
-///     so a packaged macOS release still needs a manual step (see
-///     scripts/build_capi.sh's doc comment).
+///     Phase B block) and installs it here. macOS gets there a different
+///     way -- its Xcode-based runner has no CMake build to hook a target
+///     dependency into, so `macos/Runner.xcodeproj`'s Runner target instead
+///     carries a "Build gbm_capi" Run Script build phase that shells out to
+///     `cmake --preset capi-only` and copies the result next to the
+///     executable. That phase runs for every build of the Runner target,
+///     whether triggered by `flutter run`/`flutter build`, Xcode directly,
+///     or an IDE (e.g. IntelliJ/Android Studio) driving either one -- so a
+///     packaged macOS build no longer needs scripts/build_capi.sh's manual
+///     step either.
 ///  3. `build/native/` under the current working directory -- where
 ///     `scripts/build_capi.sh`/`.ps1` copies it for `flutter run`/`flutter
 ///     test` on any platform (including Linux/Windows during day-to-day
@@ -25,7 +31,8 @@ import 'dart:io';
 DynamicLibrary openGbmCapiLibrary() {
   final String libraryName = _platformLibraryName();
   final List<String> candidates = <String>[
-    if (Platform.environment['GBM_CAPI_LIBRARY_PATH'] case final String path) path,
+    if (Platform.environment['GBM_CAPI_LIBRARY_PATH'] case final String path)
+      path,
     _join(File(Platform.resolvedExecutable).parent.path, libraryName),
     _join(_join(Directory.current.path, 'build'), _join('native', libraryName)),
   ];
@@ -47,7 +54,9 @@ String _platformLibraryName() {
   if (Platform.isLinux) return 'libgbm_capi.so';
   if (Platform.isMacOS) return 'libgbm_capi.dylib';
   if (Platform.isWindows) return 'gbm_capi.dll';
-  throw UnsupportedError('gbm_capi has no desktop build for ${Platform.operatingSystem}');
+  throw UnsupportedError(
+    'gbm_capi has no desktop build for ${Platform.operatingSystem}',
+  );
 }
 
 String _join(String a, String b) => '$a${Platform.pathSeparator}$b';

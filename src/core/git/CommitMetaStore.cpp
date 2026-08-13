@@ -8,7 +8,7 @@ CommitMetaStore::CommitMetaStore(std::filesystem::path gitExecutable, RepoPaths 
 CommitMetaStore::~CommitMetaStore() = default;
 
 std::vector<CommitMeta> CommitMetaStore::read(const std::vector<ObjectId>& oids,
-                                               CancellationToken token) {
+                                              CancellationToken token) {
     return batch_.readCommits(oids, token);
 }
 

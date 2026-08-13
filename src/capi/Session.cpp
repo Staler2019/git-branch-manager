@@ -76,8 +76,9 @@ GitResult<GitInstallation> sharedGitInstallation() {
         // macOS sandboxing) pin the exact executable rather than depend on
         // GitExecutable::detect()'s PATH/fallback search order.
         const char* overridePath = std::getenv("GBM_GIT_PATH");
-        cachedGitInstallation() = GitExecutable::detect(
-            overridePath != nullptr ? std::filesystem::path(overridePath) : std::filesystem::path{});
+        cachedGitInstallation() =
+            GitExecutable::detect(overridePath != nullptr ? std::filesystem::path(overridePath)
+                                                          : std::filesystem::path{});
         // Only a *successful* detection is cached. Detection failing once (git
         // not yet installed, a permission problem not yet fixed) must not lock
         // that failure in for the rest of the process's lifetime -- the app has

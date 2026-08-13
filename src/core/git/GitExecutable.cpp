@@ -173,8 +173,8 @@ GitResult<GitInstallation> GitExecutable::probe(const std::filesystem::path& can
         return fail(GitError::Code::Io, "Could not read permissions for " + candidate.string());
     }
     constexpr std::filesystem::perms kAnyExecute = std::filesystem::perms::owner_exec |
-                                                    std::filesystem::perms::group_exec |
-                                                    std::filesystem::perms::others_exec;
+                                                   std::filesystem::perms::group_exec |
+                                                   std::filesystem::perms::others_exec;
     if ((permissions & kAnyExecute) == std::filesystem::perms::none) {
         return fail(GitError::Code::Io, candidate.string() + " is not executable");
     }

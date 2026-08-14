@@ -424,6 +424,38 @@ std::string toJson(const ParsedDiff& diff) {
     return out;
 }
 
+std::string toJson(const ChangedFile& file) {
+    std::string out = "{";
+    out += "\"path\":";
+    jsonAppendEscaped(out, file.path);
+    out += ",\"oldPath\":";
+    jsonAppendEscaped(out, file.oldPath);
+    out += ",\"kind\":";
+    jsonAppendInt(out, static_cast<std::int64_t>(file.kind));
+    out += ",\"oldMode\":";
+    jsonAppendEscaped(out, file.oldMode);
+    out += ",\"newMode\":";
+    jsonAppendEscaped(out, file.newMode);
+    out += ",\"oldBlob\":";
+    jsonAppendEscaped(out, file.oldBlob);
+    out += ",\"newBlob\":";
+    jsonAppendEscaped(out, file.newBlob);
+    out += ",\"similarity\":";
+    jsonAppendInt(out, file.similarity);
+    out += '}';
+    return out;
+}
+
+std::string toJson(const std::vector<ChangedFile>& files) {
+    std::string out = "[";
+    for (std::size_t i = 0; i < files.size(); ++i) {
+        if (i != 0) out += ',';
+        out += toJson(files[i]);
+    }
+    out += "]";
+    return out;
+}
+
 std::string toJson(const StashEntry& entry) {
     std::string out = "{";
     out += "\"index\":";

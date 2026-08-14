@@ -9,6 +9,7 @@ add_library(gbm_capi SHARED
     Branches.cpp
     CallbackRegistry.cpp
     CherryPick.cpp
+    CommitFiles.cpp
     CommitMetaRequest.cpp
     Conflicts.cpp
     Discovery.cpp

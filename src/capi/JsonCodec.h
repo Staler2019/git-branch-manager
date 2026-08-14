@@ -11,6 +11,7 @@
 #include "core/git/BlameStore.h"
 #include "core/git/CommitMeta.h"
 #include "core/git/ConflictMarkerParser.h"
+#include "core/git/DiffService.h"
 #include "core/git/FileHistoryStore.h"
 #include "core/git/OperationRunner.h"
 #include "core/git/RefStore.h"
@@ -38,6 +39,8 @@ std::string toJson(const RepoState& state);
 std::string toJson(const Signature& signature);
 std::string toJson(const CommitMeta& meta);
 std::string toJson(const std::vector<CommitMeta>& metas);
+std::string toJson(const ChangedFile& file);
+std::string toJson(const std::vector<ChangedFile>& files);
 std::string toJson(const OperationOutcome& outcome);
 std::string toJson(const RepoRecord& record);
 std::string toJson(const std::vector<RepoRecord>& records);

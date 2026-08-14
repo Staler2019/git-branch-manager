@@ -253,6 +253,12 @@ public:
     /// Async: see gbm_request_commit_meta()'s doc comment.
     void requestCommitMeta(std::vector<std::string> oids);
 
+    /// Async: see gbm_request_commit_files()'s doc comment.
+    void requestCommitFiles(std::string oid);
+
+    /// Async: see gbm_request_commit_file_diff()'s doc comment.
+    void requestCommitFileDiff(std::string oid, std::string path);
+
     /// Async: see gbm_request_file_history()/gbm_request_line_history()'s
     /// doc comments.
     void requestFileHistory(std::string path, std::string startRevision);

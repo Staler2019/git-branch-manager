@@ -157,6 +157,12 @@ enum GbmEventType {
     /// is simply absent from the array rather than failing the whole batch
     /// -- see CommitMetaStore::read()'s doc comment.
     GBM_EVENT_COMMIT_META_READY = 26,
+    /// payload: {"oid": string, "files": ChangedFile JSON array}. Reply to
+    /// gbm_request_commit_files().
+    GBM_EVENT_COMMIT_FILES_READY = 27,
+    /// payload: {"oid": string, "path": string, "diff": ParsedDiff JSON}.
+    /// Reply to gbm_request_commit_file_diff().
+    GBM_EVENT_COMMIT_FILE_DIFF_READY = 28,
 };
 
 typedef void (*GbmEventCallback)(GbmSessionHandle session,
@@ -242,6 +248,16 @@ GBM_API const uint32_t* gbm_graph_snapshot_parents(GbmSessionHandle session, int
 GBM_API const uint8_t* gbm_graph_snapshot_edges(GbmSessionHandle session,
                                                 int32_t* edgeCount,
                                                 int32_t* edgeStride);
+
+/// Requests the changed-files list for a commit. Async: fires
+/// GBM_EVENT_COMMIT_FILES_READY with a ChangedFile JSON array, or
+/// GBM_EVENT_ERROR_OCCURRED on failure.
+GBM_API void gbm_request_commit_files(GbmSessionHandle session, const char* oid);
+
+/// Requests the full diff for a specific file in a commit. Async: fires
+/// GBM_EVENT_COMMIT_FILE_DIFF_READY with a ParsedDiff JSON payload, or
+/// GBM_EVENT_ERROR_OCCURRED on failure.
+GBM_API void gbm_request_commit_file_diff(GbmSessionHandle session, const char* oid, const char* path);
 
 GBM_API int32_t gbm_graph_snapshot_lane_count(GbmSessionHandle session);
 GBM_API int32_t gbm_graph_snapshot_complete(GbmSessionHandle session);

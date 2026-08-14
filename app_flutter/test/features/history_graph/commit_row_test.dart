@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/commit_meta.dart';
 import 'package:gbm_flutter/data/models/graph_snapshot.dart';
+import 'package:gbm_flutter/data/models/ref_snapshot.dart';
 import 'package:gbm_flutter/data/models/signature.dart';
 import 'package:gbm_flutter/features/history_graph/widgets/commit_row.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
@@ -169,6 +170,123 @@ void main() {
         await tester.tap(find.byType(CommitRow));
         expect(tapped, 'a' * 40);
       });
+
+      testWidgets('renders a chip for every ref pointing to this commit', (
+        tester,
+      ) async {
+        await pumpGbmWidget(
+          tester,
+          variant: variant,
+          child: CommitRow(
+            row: _row,
+            oidHex: 'a' * 40,
+            graph: GraphSnapshotView.empty,
+            rowIndex: 0,
+            maxLane: 0,
+            meta: _meta(),
+            refChips: <RefInfo>[
+              RefInfo(
+                fullName: 'refs/heads/main',
+                shortName: 'main',
+                kind: RefKind.localBranch,
+                target: 'a' * 40,
+                upstream: '',
+                ahead: 0,
+                behind: 0,
+                hasTrackingInfo: false,
+                isGone: false,
+                isHead: true,
+                isSymbolic: false,
+                worktreePath: '',
+              ),
+              RefInfo(
+                fullName: 'refs/tags/v1.0',
+                shortName: 'v1.0',
+                kind: RefKind.tag,
+                target: 'a' * 40,
+                upstream: '',
+                ahead: 0,
+                behind: 0,
+                hasTrackingInfo: false,
+                isGone: false,
+                isHead: false,
+                isSymbolic: false,
+                worktreePath: '',
+              ),
+            ],
+          ),
+        );
+
+        expect(find.text('main'), findsOneWidget);
+        expect(find.text('v1.0'), findsOneWidget);
+      });
+
+      testWidgets('renders no chips when nothing points to this commit', (
+        tester,
+      ) async {
+        await pumpGbmWidget(
+          tester,
+          variant: variant,
+          child: CommitRow(
+            row: _row,
+            oidHex: 'a' * 40,
+            graph: GraphSnapshotView.empty,
+            rowIndex: 0,
+            maxLane: 0,
+            meta: _meta(),
+          ),
+        );
+
+        expect(find.text('main'), findsNothing);
+      });
+
+      testWidgets('author is accent-colored and bold when isOwnCommit', (
+        tester,
+      ) async {
+        await pumpGbmWidget(
+          tester,
+          variant: variant,
+          child: CommitRow(
+            row: _row,
+            oidHex: 'a' * 40,
+            graph: GraphSnapshotView.empty,
+            rowIndex: 0,
+            maxLane: 0,
+            meta: _meta(author: 'Ada'),
+            isOwnCommit: true,
+          ),
+        );
+
+        final Text authorText = tester.widget<Text>(find.text('Ada'));
+        expect(authorText.style?.color, colors.accent);
+        expect(authorText.style?.fontWeight, GbmTypography.weightSemibold);
+      });
+
+      testWidgets(
+        'author uses the default color when not isOwnCommit -- a whole-row '
+        'tint is never applied, only the author text itself',
+        (tester) async {
+          await pumpGbmWidget(
+            tester,
+            variant: variant,
+            child: CommitRow(
+              row: _row,
+              oidHex: 'a' * 40,
+              graph: GraphSnapshotView.empty,
+              rowIndex: 0,
+              maxLane: 0,
+              meta: _meta(author: 'Ada'),
+            ),
+          );
+
+          final Text authorText = tester.widget<Text>(find.text('Ada'));
+          expect(authorText.style?.color, colors.textSecondary);
+          expect(
+            authorText.style?.fontWeight,
+            isNot(GbmTypography.weightSemibold),
+          );
+        },
+      );
     });
   }
 }

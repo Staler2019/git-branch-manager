@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 
 import '../../../data/models/commit_meta.dart';
 import '../../../data/models/graph_snapshot.dart';
+import '../../../data/models/ref_snapshot.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_row.dart';
+import '../../../widgets/gbm_tag_chip.dart';
 import 'graph_column_painter.dart';
+import 'graph_date_format.dart';
 
 const double kGraphLaneWidth = 18;
 const double kCommitRowHeight = GbmSpacing.rowHeightComfortable;
@@ -25,6 +28,8 @@ class CommitRow extends StatelessWidget {
     this.meta,
     this.selected = false,
     this.onTap,
+    this.refChips = const <RefInfo>[],
+    this.isOwnCommit = false,
   });
 
   final GraphRow row;
@@ -41,6 +46,15 @@ class CommitRow extends StatelessWidget {
   final bool selected;
   final VoidCallback? onTap;
 
+  /// All refs pointing at this commit (from `graph_ref_chips.dart`'s
+  /// `refChipsForCommit`), rendered as `GbmTagChip`s before the subject.
+  final List<RefInfo> refChips;
+
+  /// True when [meta]'s author email matches the effective git identity --
+  /// bolds and accent-colors the author text only (never the row
+  /// background, which would conflict with selection/hover states).
+  final bool isOwnCommit;
+
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
@@ -48,7 +62,8 @@ class CommitRow extends StatelessWidget {
       row.commitTime * 1000,
       isUtc: true,
     );
-    final String date = time.toIso8601String().split('T').first;
+    final String date = formatGraphDate(time, DateTime.now());
+    final String dateTooltip = formatGraphDateTooltip(time);
     final String subject = meta?.subject ?? '';
     final String author = meta?.author.name ?? '';
 
@@ -101,6 +116,21 @@ class CommitRow extends StatelessWidget {
               ),
             ),
             const SizedBox(width: GbmSpacing.space3),
+            if (refChips.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(right: GbmSpacing.space2),
+                child: Wrap(
+                  spacing: 4,
+                  children: <Widget>[
+                    for (final RefInfo ref in refChips)
+                      GbmTagChip(
+                        label: ref.shortName,
+                        kind: ref.kind,
+                        isCurrent: ref.isHead,
+                      ),
+                  ],
+                ),
+              ),
             Expanded(
               child: meta == null
                   ? _SkeletonBlock(width: 220, colors: colors)
@@ -122,7 +152,12 @@ class CommitRow extends StatelessWidget {
                       author,
                       style: TextStyle(
                         fontSize: GbmTypography.textXs,
-                        color: colors.textSecondary,
+                        color: isOwnCommit
+                            ? colors.accent
+                            : colors.textSecondary,
+                        fontWeight: isOwnCommit
+                            ? GbmTypography.weightSemibold
+                            : null,
                       ),
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -130,13 +165,16 @@ class CommitRow extends StatelessWidget {
             const SizedBox(width: GbmSpacing.space2),
             SizedBox(
               width: 80,
-              child: Text(
-                date,
-                style: TextStyle(
-                  fontSize: GbmTypography.textXs,
-                  color: colors.textTertiary,
+              child: Tooltip(
+                message: dateTooltip,
+                child: Text(
+                  date,
+                  style: TextStyle(
+                    fontSize: GbmTypography.textXs,
+                    color: colors.textTertiary,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
-                overflow: TextOverflow.ellipsis,
               ),
             ),
             const SizedBox(width: GbmSpacing.space3),

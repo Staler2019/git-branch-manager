@@ -3,11 +3,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/models/commit_meta.dart';
 import '../../data/models/graph_snapshot.dart';
+import '../../data/models/ref_snapshot.dart';
+import '../../data/repositories/branch_repository.dart';
 import '../../data/repositories/history_repository.dart';
 import '../../data/repositories/repo_identity.dart';
+import '../../data/repositories/repo_session_repository.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import 'widgets/commit_row.dart';
+import 'widgets/graph_ref_chips.dart';
 
 /// The Fork-style commit graph, rendered from the real packed
 /// `GraphSnapshot` buffer read over FFI (`gbm_graph_snapshot_rows`/`_oids`/
@@ -96,6 +100,12 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
     final String? selectedOid = ref.watch(
       selectedCommitProvider(widget.identity),
     );
+    final RefSnapshot refs = ref.watch(repoRefsProvider(widget.identity));
+    final String effectiveEmail = ref.watch(
+      repoSessionProvider(
+        widget.identity,
+      ).select((state) => state.effectiveIdentity.email),
+    );
     final GbmColors colors = context.gbmColors;
 
     if (graph.rows.isEmpty) {
@@ -123,14 +133,22 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
             final String oid = index < graph.oidsHex.length
                 ? graph.oidsHex[index]
                 : '';
+            final CommitMeta? meta = metaCache[oid];
             return CommitRow(
               row: row,
               oidHex: oid,
               graph: graph,
               rowIndex: index,
               maxLane: graph.laneCount,
-              meta: metaCache[oid],
+              meta: meta,
               selected: oid.isNotEmpty && oid == selectedOid,
+              refChips: oid.isEmpty
+                  ? const <RefInfo>[]
+                  : refChipsForCommit(refs, oid),
+              isOwnCommit:
+                  meta != null &&
+                  effectiveEmail.isNotEmpty &&
+                  meta.author.email == effectiveEmail,
               onTap: oid.isEmpty
                   ? null
                   : () {

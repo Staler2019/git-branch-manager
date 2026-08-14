@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../data/repositories/recents_repository.dart';
 import '../data/repositories/repo_identity.dart';
 import '../features/conflict_resolution/conflict_resolve_window.dart';
 import '../features/dialogs/about/about_dialog.dart';
@@ -46,7 +47,8 @@ import 'route_paths.dart';
 /// entry (M1's known limitation, see repo_list_screen.dart).
 String repoIdFor(String workDir) => Uri.encodeComponent(workDir);
 
-RepoIdentity repoIdentityFromRouteParam(String repoId) => RepoIdentity.forWorkDir(Uri.decodeComponent(repoId));
+RepoIdentity repoIdentityFromRouteParam(String repoId) =>
+    RepoIdentity.forWorkDir(Uri.decodeComponent(repoId));
 
 /// `/`, `/repo/:repoId/history`, `/repo/:repoId/working-copy`, plus the
 /// first four dialog routes (M3: about, keyboard shortcuts, manage base
@@ -59,11 +61,30 @@ RepoIdentity repoIdentityFromRouteParam(String repoId) => RepoIdentity.forWorkDi
 /// with `context.push()` on top of whatever screen is showing, rendered as
 /// a non-opaque overlay page (see dialog_route.dart), and popped back to it
 /// -- unlike history/working-copy, which replace the shell's main pane.
+///
+/// [initialLocation] is computed once here (cold start only) from
+/// [RecentsRepository] -- if a repo has been opened before, launch straight
+/// into it rather than the repo list, per the design spec. This is
+/// deliberately NOT a `redirect` on [RoutePaths.repoList]: a redirect would
+/// re-fire on every navigation back to `/`, permanently breaking
+/// `TopBar`'s "back to repo list" button the moment any repo has been
+/// opened once. `initialLocation` only applies at [GoRouter] construction,
+/// so `/` continues to mean "the actual repo list" for every explicit
+/// `context.go(RoutePaths.repoList)` afterward.
 final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
+  final List<RecentRepoEntry> recents = ref
+      .read(recentsRepositoryProvider)
+      .read();
+  final String initialLocation = recents.isEmpty
+      ? RoutePaths.repoList
+      : RoutePaths.workspaceFor(repoIdFor(recents.first.workDir));
   return GoRouter(
-    initialLocation: RoutePaths.repoList,
+    initialLocation: initialLocation,
     routes: <RouteBase>[
-      GoRoute(path: RoutePaths.repoList, builder: (context, state) => const RepoListScreen()),
+      GoRoute(
+        path: RoutePaths.repoList,
+        builder: (context, state) => const RepoListScreen(),
+      ),
       GoRoute(
         path: RoutePaths.workspace,
         redirect: (context, state) {
@@ -74,26 +95,36 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
       ShellRoute(
         builder: (context, state, child) {
           final String repoId = state.pathParameters['repoId']!;
-          return WorkspaceScreen(identity: repoIdentityFromRouteParam(repoId), child: child);
+          return WorkspaceScreen(
+            identity: repoIdentityFromRouteParam(repoId),
+            child: child,
+          );
         },
         routes: <RouteBase>[
           GoRoute(
             path: RoutePaths.history,
             builder: (context, state) {
-              final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+              final RepoIdentity identity = repoIdentityFromRouteParam(
+                state.pathParameters['repoId']!,
+              );
               return CommitGraphView(identity: identity);
             },
           ),
           GoRoute(
             path: RoutePaths.workingCopy,
             builder: (context, state) {
-              final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+              final RepoIdentity identity = repoIdentityFromRouteParam(
+                state.pathParameters['repoId']!,
+              );
               return WorkingCopyView(identity: identity);
             },
           ),
         ],
       ),
-      dialogRoute(path: RoutePaths.aboutDialog, builder: (context, state) => const AboutDialogContent()),
+      dialogRoute(
+        path: RoutePaths.aboutDialog,
+        builder: (context, state) => const AboutDialogContent(),
+      ),
       dialogRoute(
         path: RoutePaths.keyboardShortcutsDialog,
         builder: (context, state) => const KeyboardShortcutsDialogContent(),
@@ -109,175 +140,234 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
       dialogRoute(
         path: RoutePaths.resetBranchDialog,
         builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
           return ResetBranchDialogContent(identity: identity);
         },
       ),
       dialogRoute(
         path: RoutePaths.mergeDialog,
         builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
           return MergeDialogContent(identity: identity);
         },
       ),
       dialogRoute(
         path: RoutePaths.cherryPickDialog,
         builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
           return CherryPickDialogContent(identity: identity);
         },
       ),
       dialogRoute(
         path: RoutePaths.stashChangesDialog,
         builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
           return StashChangesDialogContent(identity: identity);
         },
       ),
       dialogRoute(
         path: RoutePaths.manageStashesDialog,
         builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
           return ManageStashesDialogContent(identity: identity);
         },
       ),
       dialogRoute(
         path: RoutePaths.manageWorktreesDialog,
         builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
           return ManageWorktreesDialogContent(identity: identity);
         },
       ),
       dialogRoute(
         path: RoutePaths.manageRemotesDialog,
         builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
           return ManageRemotesDialogContent(identity: identity);
         },
       ),
       dialogRoute(
         path: RoutePaths.createTagDialog,
         builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
           return CreateTagDialogContent(identity: identity);
         },
       ),
       dialogRoute(
         path: RoutePaths.credentialDialog,
         builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
           return CredentialDialogContent(identity: identity);
         },
       ),
       dialogRoute(
         path: RoutePaths.operationLogDialog,
         builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
           return OperationLogDialogContent(identity: identity);
         },
       ),
       dialogRoute(
         path: RoutePaths.blameDialog,
         builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
-          return BlameDialogContent(identity: identity, initialPath: state.uri.queryParameters['path'] ?? '');
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
+          return BlameDialogContent(
+            identity: identity,
+            initialPath: state.uri.queryParameters['path'] ?? '',
+          );
         },
       ),
       dialogRoute(
         path: RoutePaths.fileHistoryDialog,
         builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
-          return FileHistoryDialogContent(identity: identity, initialPath: state.uri.queryParameters['path'] ?? '');
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
+          return FileHistoryDialogContent(
+            identity: identity,
+            initialPath: state.uri.queryParameters['path'] ?? '',
+          );
         },
       ),
       dialogRoute(
         path: RoutePaths.lineHistoryDialog,
         builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
-          return LineHistoryDialogContent(identity: identity, initialPath: state.uri.queryParameters['path'] ?? '');
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
+          return LineHistoryDialogContent(
+            identity: identity,
+            initialPath: state.uri.queryParameters['path'] ?? '',
+          );
         },
       ),
       dialogRoute(
         path: RoutePaths.reflogDialog,
         builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
           return ReflogDialogContent(identity: identity);
         },
       ),
       dialogRoute(
         path: RoutePaths.undoLastDialog,
         builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
           return UndoLastDialogContent(identity: identity);
         },
       ),
       dialogRoute(
         path: RoutePaths.interactiveRebaseDialog,
         builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
           return InteractiveRebaseDialogContent(identity: identity);
         },
       ),
       dialogRoute(
         path: RoutePaths.manageSubmodulesDialog,
         builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
           return ManageSubmodulesDialogContent(identity: identity);
         },
       ),
       dialogRoute(
         path: RoutePaths.bisectDialog,
         builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
           return BisectDialogContent(identity: identity);
         },
       ),
       dialogRoute(
         path: RoutePaths.manageLfsDialog,
         builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
           return ManageLfsDialogContent(identity: identity);
         },
       ),
       dialogRoute(
         path: RoutePaths.patchesDialog,
         builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
           return PatchesDialogContent(identity: identity);
         },
       ),
       dialogRoute(
         path: RoutePaths.cleanUntrackedDialog,
         builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
           return CleanUntrackedDialogContent(identity: identity);
         },
       ),
       dialogRoute(
         path: RoutePaths.preferencesDialog,
         builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
           return PreferencesDialogContent(identity: identity);
         },
       ),
       dialogRoute(
         path: RoutePaths.checkoutRecoveryDialog,
         builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
           return CheckoutRecoveryDialogContent(identity: identity);
         },
       ),
       dialogRoute(
         path: RoutePaths.deleteBranchRecoveryDialog,
         builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
           return DeleteBranchRecoveryDialogContent(identity: identity);
         },
       ),
       GoRoute(
         path: RoutePaths.conflicts,
         builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(state.pathParameters['repoId']!);
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
           return ConflictResolveWindow(identity: identity);
         },
       ),

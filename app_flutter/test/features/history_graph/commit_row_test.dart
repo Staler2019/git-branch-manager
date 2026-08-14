@@ -58,8 +58,8 @@ void main() {
           child: CommitRow(
             row: _row,
             oidHex: 'a' * 40,
-            previousLane: null,
-            nextLane: null,
+            graph: GraphSnapshotView.empty,
+            rowIndex: 0,
             maxLane: 0,
             meta: _meta(subject: 'Fix the bug', author: 'Ada'),
           ),
@@ -78,8 +78,8 @@ void main() {
             child: CommitRow(
               row: _row,
               oidHex: 'a' * 40,
-              previousLane: null,
-              nextLane: null,
+              graph: GraphSnapshotView.empty,
+              rowIndex: 0,
               maxLane: 0,
             ),
           );
@@ -104,8 +104,8 @@ void main() {
           child: CommitRow(
             row: _row,
             oidHex: 'a' * 40,
-            previousLane: null,
-            nextLane: null,
+            graph: GraphSnapshotView.empty,
+            rowIndex: 0,
             maxLane: 0,
             meta: _meta(),
             selected: true,
@@ -131,8 +131,8 @@ void main() {
           child: CommitRow(
             row: _row,
             oidHex: 'a' * 40,
-            previousLane: null,
-            nextLane: null,
+            graph: GraphSnapshotView.empty,
+            rowIndex: 0,
             maxLane: 0,
             meta: _meta(),
           ),
@@ -158,8 +158,8 @@ void main() {
           child: CommitRow(
             row: _row,
             oidHex: 'a' * 40,
-            previousLane: null,
-            nextLane: null,
+            graph: GraphSnapshotView.empty,
+            rowIndex: 0,
             maxLane: 0,
             meta: _meta(),
             onTap: () => tapped = 'a' * 40,

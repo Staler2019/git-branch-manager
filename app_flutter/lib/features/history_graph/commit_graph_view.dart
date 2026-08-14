@@ -126,10 +126,8 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
             return CommitRow(
               row: row,
               oidHex: oid,
-              previousLane: index > 0 ? graph.rows[index - 1].lane : null,
-              nextLane: index < graph.rows.length - 1
-                  ? graph.rows[index + 1].lane
-                  : null,
+              graph: graph,
+              rowIndex: index,
               maxLane: graph.laneCount,
               meta: metaCache[oid],
               selected: oid.isNotEmpty && oid == selectedOid,

@@ -19,8 +19,8 @@ class CommitRow extends StatelessWidget {
     super.key,
     required this.row,
     required this.oidHex,
-    required this.previousLane,
-    required this.nextLane,
+    required this.graph,
+    required this.rowIndex,
     required this.maxLane,
     this.meta,
     this.selected = false,
@@ -29,8 +29,8 @@ class CommitRow extends StatelessWidget {
 
   final GraphRow row;
   final String oidHex;
-  final int? previousLane;
-  final int? nextLane;
+  final GraphSnapshotView graph;
+  final int rowIndex;
   final int maxLane;
 
   /// Null while [history_repository.dart]'s `commitMetaProvider` has not
@@ -44,8 +44,6 @@ class CommitRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
-    final Color laneColor =
-        colors.graphLanes[row.color % colors.graphLanes.length];
     final DateTime time = DateTime.fromMillisecondsSinceEpoch(
       row.commitTime * 1000,
       isUtc: true,
@@ -73,10 +71,10 @@ class CommitRow extends StatelessWidget {
                 child: CustomPaint(
                   painter: GraphRowPainter(
                     row: row,
-                    previousLane: previousLane,
-                    nextLane: nextLane,
-                    color: laneColor,
+                    rowIndex: rowIndex,
+                    graph: graph,
                     laneWidth: kGraphLaneWidth,
+                    colors: context.gbmColors,
                   ),
                 ),
               ),

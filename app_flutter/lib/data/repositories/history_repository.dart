@@ -1,7 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/changed_file.dart';
 import '../models/commit_meta.dart';
 import '../models/graph_snapshot.dart';
+import '../models/parsed_diff.dart';
 import 'repo_identity.dart';
 import 'repo_session_repository.dart';
 
@@ -52,6 +54,39 @@ void requestCommitMeta(
       .toList(growable: false);
   if (missing.isEmpty) return;
   ref.read(repoSessionProvider(identity).notifier).requestCommitMeta(missing);
+}
+
+/// Changed files in a commit, selected out of [repoSessionProvider].
+final ProviderFamily<List<ChangedFile>, RepoIdentity> commitFilesProvider =
+    Provider.family<List<ChangedFile>, RepoIdentity>((ref, identity) {
+      return ref.watch(
+        repoSessionProvider(identity).select((state) => state.commitFiles),
+      );
+    });
+
+/// The selected commit's file diff, selected out of [repoSessionProvider].
+final ProviderFamily<ParsedDiff?, RepoIdentity> commitFileDiffProvider =
+    Provider.family<ParsedDiff?, RepoIdentity>((ref, identity) {
+      return ref.watch(
+        repoSessionProvider(
+          identity,
+        ).select((state) => state.selectedCommitFileDiff),
+      );
+    });
+
+void requestCommitFiles(WidgetRef ref, RepoIdentity identity, String oid) {
+  ref.read(repoSessionProvider(identity).notifier).requestCommitFiles(oid);
+}
+
+void requestCommitFileDiff(
+  WidgetRef ref,
+  RepoIdentity identity,
+  String oid,
+  String path,
+) {
+  ref
+      .read(repoSessionProvider(identity).notifier)
+      .requestCommitFileDiff(oid, path);
 }
 
 /// The currently-selected commit's oid in [CommitGraphView], per repository

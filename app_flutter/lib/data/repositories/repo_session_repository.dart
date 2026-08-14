@@ -10,6 +10,7 @@ import '../ffi/gbm_bindings.dart';
 import '../ffi/json_codec.dart';
 import '../models/bisect_status.dart';
 import '../models/blame_result.dart';
+import '../models/changed_file.dart';
 import '../models/clean_entry.dart';
 import '../models/commit_meta.dart';
 import '../models/file_history_entry.dart';
@@ -143,6 +144,8 @@ class RepoSessionState {
     this.lastBlame,
     this.commitMetaCache = const <String, CommitMeta>{},
     this.lastFileHistory = const <FileHistoryEntry>[],
+    this.commitFiles = const <ChangedFile>[],
+    this.selectedCommitFileDiff,
     this.lastLineHistory = const <LineHistoryChunk>[],
     this.lastReflog = const <ReflogEntry>[],
     this.undoJournal = const <UndoEntry>[],
@@ -194,6 +197,8 @@ class RepoSessionState {
   /// history_repository.dart's `commitMetaProvider`/`requestCommitMeta`.
   final Map<String, CommitMeta> commitMetaCache;
   final List<FileHistoryEntry> lastFileHistory;
+  final List<ChangedFile> commitFiles;
+  final ParsedDiff? selectedCommitFileDiff;
   final List<LineHistoryChunk> lastLineHistory;
 
   /// Newest-first -- see gbm_request_reflog()'s doc comment in gbm_capi.h.
@@ -262,6 +267,8 @@ class RepoSessionState {
     BlameResult? lastBlame,
     Map<String, CommitMeta>? commitMetaCache,
     List<FileHistoryEntry>? lastFileHistory,
+    List<ChangedFile>? commitFiles,
+    ParsedDiff? selectedCommitFileDiff,
     List<LineHistoryChunk>? lastLineHistory,
     List<ReflogEntry>? lastReflog,
     List<UndoEntry>? undoJournal,
@@ -301,6 +308,9 @@ class RepoSessionState {
       lastBlame: lastBlame ?? this.lastBlame,
       commitMetaCache: commitMetaCache ?? this.commitMetaCache,
       lastFileHistory: lastFileHistory ?? this.lastFileHistory,
+      commitFiles: commitFiles ?? this.commitFiles,
+      selectedCommitFileDiff:
+          selectedCommitFileDiff ?? this.selectedCommitFileDiff,
       lastLineHistory: lastLineHistory ?? this.lastLineHistory,
       lastReflog: lastReflog ?? this.lastReflog,
       undoJournal: undoJournal ?? this.undoJournal,
@@ -531,6 +541,27 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
                 ...state.commitMetaCache,
                 for (final CommitMeta meta in metas) meta.oid: meta,
               },
+            );
+          }
+        }
+      case GbmEventType.commitFilesReady:
+        final Object? payload = decodeEventPayload(event.payload);
+        if (payload is Map<String, dynamic>) {
+          final List<dynamic>? files = payload['files'] as List<dynamic>?;
+          if (files != null) {
+            state = state.copyWith(
+              commitFiles: ChangedFile.listFromJson(files),
+            );
+          }
+        }
+      case GbmEventType.commitFileDiffReady:
+        final Object? payload = decodeEventPayload(event.payload);
+        if (payload is Map<String, dynamic>) {
+          final Map<String, dynamic>? diff =
+              payload['diff'] as Map<String, dynamic>?;
+          if (diff != null) {
+            state = state.copyWith(
+              selectedCommitFileDiff: ParsedDiff.fromJson(diff),
             );
           }
         }
@@ -1658,6 +1689,32 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
       oids,
       (array, count) => _bindings.requestCommitMeta(_session, array, count),
     );
+  }
+
+  /// Async: fires GBM_EVENT_COMMIT_FILES_READY into
+  /// [RepoSessionState.commitFiles].
+  void requestCommitFiles(String oid) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> oidPtr = oid.toNativeUtf8();
+    try {
+      _bindings.requestCommitFiles(_session, oidPtr);
+    } finally {
+      malloc.free(oidPtr);
+    }
+  }
+
+  /// Async: fires GBM_EVENT_COMMIT_FILE_DIFF_READY into
+  /// [RepoSessionState.selectedCommitFileDiff].
+  void requestCommitFileDiff(String oid, String path) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> oidPtr = oid.toNativeUtf8();
+    final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+    try {
+      _bindings.requestCommitFileDiff(_session, oidPtr, pathPtr);
+    } finally {
+      malloc.free(oidPtr);
+      malloc.free(pathPtr);
+    }
   }
 
   /// `git log --follow` for one file. `startRevision` empty starts from

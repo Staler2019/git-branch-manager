@@ -44,6 +44,8 @@ abstract final class GbmEventType {
   static const int commitGraphWriteFinished = 24;
   static const int workingTreeContentReady = 25;
   static const int commitMetaReady = 26;
+  static const int commitFilesReady = 27;
+  static const int commitFileDiffReady = 28;
 }
 
 /// `void (*)(GbmSessionHandle, int32_t, const uint8_t*, int32_t, void*)`.
@@ -635,6 +637,16 @@ typedef RequestCommitMetaDart =
       Pointer<Pointer<Utf8>> oids,
       int oidCount,
     );
+
+typedef _RequestCommitFilesNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> oid);
+typedef RequestCommitFilesDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> oid);
+
+typedef _RequestCommitFileDiffNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> oid, Pointer<Utf8> path);
+typedef RequestCommitFileDiffDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> oid, Pointer<Utf8> path);
 
 typedef _RequestFileHistoryNative =
     Void Function(
@@ -1323,6 +1335,15 @@ class GbmBindings {
           .lookupFunction<_RequestCommitMetaNative, RequestCommitMetaDart>(
             'gbm_request_commit_meta',
           ),
+      requestCommitFiles = library
+          .lookupFunction<_RequestCommitFilesNative, RequestCommitFilesDart>(
+            'gbm_request_commit_files',
+          ),
+      requestCommitFileDiff = library
+          .lookupFunction<
+            _RequestCommitFileDiffNative,
+            RequestCommitFileDiffDart
+          >('gbm_request_commit_file_diff'),
       requestFileHistory = library
           .lookupFunction<_RequestFileHistoryNative, RequestFileHistoryDart>(
             'gbm_request_file_history',
@@ -1620,6 +1641,8 @@ class GbmBindings {
   final CancelCredentialDart cancelCredential;
   final RequestBlameDart requestBlame;
   final RequestCommitMetaDart requestCommitMeta;
+  final RequestCommitFilesDart requestCommitFiles;
+  final RequestCommitFileDiffDart requestCommitFileDiff;
   final RequestFileHistoryDart requestFileHistory;
   final RequestLineHistoryDart requestLineHistory;
   final RequestReflogDart requestReflog;

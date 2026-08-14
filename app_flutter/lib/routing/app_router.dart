@@ -32,6 +32,7 @@ import '../features/dialogs/undo_last/undo_last_dialog.dart';
 import '../features/history_graph/commit_graph_view.dart';
 import '../features/operation_log/operation_log_dialog.dart';
 import '../features/repo_list/repo_list_screen.dart';
+import '../features/repo_switcher/repo_switcher_dialog.dart';
 import '../features/working_copy/working_copy_view.dart';
 import '../features/workspace/workspace_screen.dart';
 import 'dialog_route.dart';
@@ -100,6 +101,10 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
       dialogRoute(
         path: RoutePaths.manageBaseFoldersDialog,
         builder: (context, state) => const ManageBaseFoldersDialogContent(),
+      ),
+      dialogRoute(
+        path: RoutePaths.repoSwitcherDialog,
+        builder: (context, state) => const RepoSwitcherDialog(),
       ),
       dialogRoute(
         path: RoutePaths.resetBranchDialog,

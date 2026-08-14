@@ -33,6 +33,7 @@ import '../models/undo_entry.dart';
 import '../models/working_copy_status.dart';
 import '../models/worktree_info.dart';
 import 'gbm_bindings_provider.dart';
+import 'recents_repository.dart';
 import 'repo_identity.dart';
 
 /// Mirrors `gbm::ResetMode` (src/core/git/ops/ResetOps.h) -- ordinal order
@@ -326,13 +327,14 @@ class RepoSessionState {
 /// (`workspaceScreen`'s route scope owns the provider lifetime -- see the
 /// routing table in the plan).
 class RepoSessionController extends StateNotifier<RepoSessionState> {
-  RepoSessionController(this._bindings, this._identity)
+  RepoSessionController(this._bindings, this._identity, this._recents)
     : super(const RepoSessionState()) {
     _open();
   }
 
   final GbmBindings _bindings;
   final RepoIdentity _identity;
+  final RecentsRepository _recents;
   Pointer<Void> _session = nullptr;
   GbmSessionEvents? _events;
   StreamSubscription<GbmEvent>? _subscription;
@@ -384,6 +386,9 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     _readRepoState();
     refreshHistory();
     refreshWorkingCopy();
+
+    // Record this repo as recently opened (fire-and-forget)
+    unawaited(_recents.recordOpen(_identity.workDir));
   }
 
   void _onEvent(GbmEvent event) {
@@ -2266,5 +2271,6 @@ repoSessionProvider =
       RepoIdentity
     >((ref, identity) {
       final GbmBindings bindings = ref.watch(gbmBindingsProvider);
-      return RepoSessionController(bindings, identity);
+      final RecentsRepository recents = ref.watch(recentsRepositoryProvider);
+      return RepoSessionController(bindings, identity, recents);
     });

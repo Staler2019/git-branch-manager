@@ -14,6 +14,7 @@ abstract final class RoutePaths {
   static const String aboutDialog = '/dialogs/about';
   static const String keyboardShortcutsDialog = '/dialogs/keyboard-shortcuts';
   static const String manageBaseFoldersDialog = '/dialogs/manage-base-folders';
+  static const String repoSwitcherDialog = '/dialogs/switch-repository';
 
   /// Repo-scoped, per the plan's `/repo/:repoId/dialogs/<name>` design.
   static const String resetBranchDialog = '/repo/:repoId/dialogs/reset-branch';

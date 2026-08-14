@@ -171,13 +171,25 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
               controller: _logDrawerController,
               children: <Widget>[
                 LogDrawer(records: session.operationLog),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: <Widget>[
-                    if (_sidebarVisible) SidebarPanel(identity: identity),
-                    Expanded(child: widget.child),
-                  ],
-                ),
+                if (_sidebarVisible)
+                  GbmSplitPane(
+                    axis: Axis.horizontal,
+                    spec: GbmLayout.splitterMainSidebar,
+                    storageId: 'main.sidebar',
+                    children: <Widget>[
+                      SidebarPanel(identity: identity),
+                      widget.child,
+                    ],
+                  )
+                else
+                  // Not wrapped in Expanded -- the enclosing vertical
+                  // GbmSplitPane already wraps children[1] in one
+                  // internally (extent mode's Column branch); nesting a
+                  // second Expanded directly around it throws Flutter's
+                  // "Incorrect use of ParentDataWidget" error, since two
+                  // ParentDataWidgets of the same type can't stack without
+                  // an intervening Flex.
+                  widget.child,
               ],
             ),
           ),
@@ -281,7 +293,8 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       GbmActionId.fileNewRepository: null,
       GbmActionId.fileOpenRepository: null,
       GbmActionId.fileCloneRepository: null,
-      GbmActionId.fileSwitchRepository: null,
+      GbmActionId.fileSwitchRepository: () =>
+          context.push(RoutePaths.repoSwitcherDialog),
       GbmActionId.fileAddLocalRepository: null,
       GbmActionId.fileCloseWindow: null,
       GbmActionId.filePreferences: () =>
@@ -295,8 +308,8 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       GbmActionId.editPaste: null,
       GbmActionId.editFindInHistory: null,
       GbmActionId.editFindInFiles: null,
-      GbmActionId.editFilterBranches: null,
-
+      GbmActionId.editFilterBranches:
+          null, // TODO: Wire search field focus in sidebar
       // View
       GbmActionId.viewHistory: () => context.go(RoutePaths.historyFor(repoId)),
       GbmActionId.viewWorkingCopy: () =>

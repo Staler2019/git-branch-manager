@@ -8,12 +8,12 @@ import 'repo_session_repository.dart';
 /// `features/sidebar` widgets rebuild only when refs actually change, not on
 /// every graph or repo-state update. See the plan's Riverpod-layering note:
 /// `data/repositories/*` owns FFI state, feature providers derive from it.
-final ProviderFamily<RefSnapshot, RepoIdentity> repoRefsProvider = Provider.family<RefSnapshot, RepoIdentity>((
-  ref,
-  identity,
-) {
-  return ref.watch(repoSessionProvider(identity).select((state) => state.refs));
-});
+final ProviderFamily<RefSnapshot, RepoIdentity> repoRefsProvider =
+    Provider.family<RefSnapshot, RepoIdentity>((ref, identity) {
+      return ref.watch(
+        repoSessionProvider(identity).select((state) => state.refs),
+      );
+    });
 
 /// `git switch`/`git checkout`, delegating to the owning session's
 /// controller. Not itself a provider -- called from widget event handlers
@@ -27,5 +27,9 @@ void checkoutBranch(
 }) {
   ref
       .read(repoSessionProvider(identity).notifier)
-      .checkout(target: target, createBranch: createBranch, newBranchName: newBranchName);
+      .checkout(
+        target: target,
+        createBranch: createBranch,
+        newBranchName: newBranchName,
+      );
 }

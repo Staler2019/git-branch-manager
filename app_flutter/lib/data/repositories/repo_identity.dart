@@ -3,7 +3,11 @@
 /// empty means "same as gitDir" (a normal, non-worktree checkout), matching
 /// `RepoPaths`'s own default (src/core/git/RepoPaths.h).
 class RepoIdentity {
-  const RepoIdentity({required this.workDir, required this.gitDir, this.commonDir = ''});
+  const RepoIdentity({
+    required this.workDir,
+    required this.gitDir,
+    this.commonDir = '',
+  });
 
   factory RepoIdentity.forWorkDir(String workDir) =>
       RepoIdentity(workDir: workDir, gitDir: '$workDir/.git');

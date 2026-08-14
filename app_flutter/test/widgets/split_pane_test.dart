@@ -571,5 +571,75 @@ void main() {
         closeTo(150.0, 1.0),
       );
     });
+
+    // Regression test for a real bug caught in review: workspace_screen.dart
+    // nests a vertical GbmSplitPane (main.log) whose children[1] toggles
+    // between a horizontal GbmSplitPane (main.sidebar) and a bare widget,
+    // depending on sidebar visibility. Since GbmSplitPane's extent-mode
+    // Column branch already wraps children[1] in Expanded internally,
+    // wrapping the "bare widget" branch in a second Expanded throws
+    // Flutter's "Incorrect use of ParentDataWidget" error (two
+    // ParentDataWidgets of the same type stacked with no intervening Flex).
+    // Both branches -- with and without the nested inner GbmSplitPane --
+    // must render without throwing.
+    testWidgets(
+      'a plain child alongside a nested GbmSplitPane renders without a '
+      'ParentDataWidget error (regression)',
+      (tester) async {
+        Future<void> pumpOuter({required bool showInner}) async {
+          SharedPreferences.setMockInitialValues(<String, Object>{});
+          final SharedPreferences prefs = await SharedPreferences.getInstance();
+          final ProviderContainer container = ProviderContainer(
+            overrides: <Override>[
+              sharedPreferencesProvider.overrideWithValue(prefs),
+            ],
+          );
+          addTearDown(container.dispose);
+
+          await tester.pumpWidget(
+            UncontrolledProviderScope(
+              container: container,
+              child: MaterialApp(
+                theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+                home: Scaffold(
+                  body: SizedBox(
+                    width: 600,
+                    height: 400,
+                    child: GbmSplitPane(
+                      axis: Axis.vertical,
+                      spec: GbmLayout.splitterMainLog,
+                      storageId: 'test.regression.outer',
+                      children: <Widget>[
+                        const Text('drawer'),
+                        if (showInner)
+                          GbmSplitPane(
+                            axis: Axis.horizontal,
+                            spec: GbmLayout.splitterMainSidebar,
+                            storageId: 'test.regression.inner',
+                            children: const <Widget>[
+                              Text('sidebar'),
+                              Text('main content'),
+                            ],
+                          )
+                        else
+                          const Text('main content only'),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
+
+        await pumpOuter(showInner: true);
+        expect(tester.takeException(), isNull);
+        expect(find.text('sidebar'), findsOneWidget);
+
+        await pumpOuter(showInner: false);
+        expect(tester.takeException(), isNull);
+        expect(find.text('main content only'), findsOneWidget);
+      },
+    );
   });
 }

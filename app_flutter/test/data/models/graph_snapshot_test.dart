@@ -1,9 +1,7 @@
-import 'dart:ffi';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:git_branch_manager/data/ffi/gbm_bindings.dart';
-import 'package:git_branch_manager/data/models/graph_snapshot.dart';
+import 'package:gbm_flutter/data/models/graph_snapshot.dart';
 
 void main() {
   group('GraphEdge decoding', () {
@@ -33,10 +31,12 @@ void main() {
       expect(edge.color, 5);
       expect(edge.kind, EdgeKind.mergeParent);
     });
+  });
 
-    test('edgesSpanning includes edges that span queried row', () {
+  group('GraphSnapshotView.edgesSpanning', () {
+    test('includes edges that span queried row', () {
       final edges = <GraphEdge>[
-        GraphEdge(
+        const GraphEdge(
           childRow: 5,
           parentRow: 10,
           lane: 0,
@@ -44,7 +44,7 @@ void main() {
           color: 0,
           kind: EdgeKind.firstParent,
         ),
-        GraphEdge(
+        const GraphEdge(
           childRow: 15,
           parentRow: 20,
           lane: 1,
@@ -71,9 +71,9 @@ void main() {
       expect(view.edgesSpanning(25), isEmpty);
     });
 
-    test('edgesSpanning excludes edges outside queried row', () {
+    test('excludes edges outside queried row', () {
       final edges = <GraphEdge>[
-        GraphEdge(
+        const GraphEdge(
           childRow: 5,
           parentRow: 10,
           lane: 0,
@@ -95,6 +95,39 @@ void main() {
       expect(view.edgesSpanning(4), isEmpty);
       expect(view.edgesSpanning(11), isEmpty);
       expect(view.edgesSpanning(7), hasLength(1));
+    });
+
+    test('a boundary-parent (shallow-clone stub) edge spans only its child row '
+        'and the row directly after it, not every row to the end of the graph '
+        '-- mirrors gbm::Edge::spans()\'s "end = childRow + 1" special case '
+        '(src/core/graph/GraphSnapshot.h) for kRowBoundary', () {
+      final edges = <GraphEdge>[
+        const GraphEdge(
+          childRow: 5,
+          parentRow: kRowBoundary,
+          lane: 0,
+          childLane: 0,
+          color: 0,
+          kind: EdgeKind.firstParent,
+        ),
+      ];
+      final view = GraphSnapshotView(
+        rows: const <GraphRow>[],
+        oidsHex: const <String>[],
+        parentPool: const <int>[],
+        laneCount: 0,
+        complete: false,
+        truncated: false,
+        edges: edges,
+      );
+
+      expect(view.edgesSpanning(5), hasLength(1));
+      expect(view.edgesSpanning(6), hasLength(1));
+      expect(view.edgesSpanning(4), isEmpty);
+      // The bug this regresses: treating kRowBoundary as "spans every row
+      // from childRow onward" instead of a two-row stub.
+      expect(view.edgesSpanning(7), isEmpty);
+      expect(view.edgesSpanning(1000), isEmpty);
     });
   });
 }

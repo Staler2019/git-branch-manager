@@ -117,14 +117,18 @@ class GraphSnapshotView {
     ];
   }
 
-  /// Edges that span `rowIndex`, i.e. where childRow <= rowIndex <= parentRow
-  /// (or parentRow == kRowBoundary and rowIndex == childRow).
+  /// Edges that span `rowIndex` -- mirrors `gbm::Edge::spans()`
+  /// (src/core/graph/GraphSnapshot.h): a boundary parent ([kRowBoundary])
+  /// draws as a short two-row stub (`childRow`..`childRow + 1`), not as
+  /// spanning every row through the end of the graph.
   List<GraphEdge> edgesSpanning(int rowIndex) {
     return <GraphEdge>[
       for (final GraphEdge edge in edges)
         if (edge.childRow <= rowIndex &&
-            (rowIndex <= edge.parentRow ||
-                (edge.parentRow == kRowBoundary && rowIndex == edge.childRow)))
+            rowIndex <=
+                (edge.parentRow == kRowBoundary
+                    ? edge.childRow + 1
+                    : edge.parentRow))
           edge,
     ];
   }

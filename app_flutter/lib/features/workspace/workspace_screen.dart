@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../actions/gbm_action_id.dart';
 import '../../actions/gbm_menu_model.dart';
 import '../../data/models/ref_snapshot.dart';
+import '../../data/repositories/file_list_view_mode_repository.dart';
 import '../../data/repositories/history_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
@@ -366,7 +367,13 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       GbmActionId.viewWorkingCopy: () =>
           context.go(RoutePaths.workingCopyFor(repoId)),
       GbmActionId.viewNextTab: null,
-      GbmActionId.viewFileListAsTree: null,
+      GbmActionId.viewFileListAsTree: () async {
+        final currentMode = ref.read(fileListViewModeProvider);
+        final newMode = currentMode == FileListViewMode.list
+            ? FileListViewMode.tree
+            : FileListViewMode.list;
+        await ref.read(fileListViewModeProvider.notifier).setMode(newMode);
+      },
       GbmActionId.viewGraphColumns: () => _showGraphColumnsDialog(context),
       GbmActionId.viewCommitDetail: null,
       GbmActionId.viewToggleSidebar: null, // Handled via MenuBarRow param

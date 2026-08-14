@@ -6,10 +6,10 @@ import 'package:gbm_flutter/actions/gbm_shortcuts.dart';
 void main() {
   group('gbmActionShortcuts', () {
     test(
-      'macOS shortcuts has exactly 34 entries with meta=true, control=false',
+      'macOS shortcuts has exactly 35 entries with meta=true, control=false',
       () {
         final shortcuts = gbmActionShortcuts(true);
-        expect(shortcuts.length, 34);
+        expect(shortcuts.length, 35);
         for (final shortcut in shortcuts.values) {
           expect(shortcut.meta, isTrue, reason: 'macOS should use meta=true');
           expect(
@@ -22,10 +22,10 @@ void main() {
     );
 
     test(
-      'non-macOS shortcuts has exactly 34 entries with meta=false, control=true',
+      'non-macOS shortcuts has exactly 35 entries with meta=false, control=true',
       () {
         final shortcuts = gbmActionShortcuts(false);
-        expect(shortcuts.length, 34);
+        expect(shortcuts.length, 35);
         for (final shortcut in shortcuts.values) {
           expect(
             shortcut.meta,

@@ -85,8 +85,9 @@ class GbmMenuModel {
 
 /// The complete menu structure for the application.
 ///
-/// This follows the design spec page 04's MENUS table exactly: 7 menus,
-/// 51 items total, in the specified order, with labels verbatim from the
+/// This follows the design spec page 04's MENUS table (7 menus, 51 spec items)
+/// plus context-menu-only actions (repositoryStageSelectedLines): 7 menus,
+/// 52 items total, in the specified order, with labels verbatim from the
 /// spec (sentence case, ellipsis where the spec's own copy has one). No
 /// separators are included -- the spec's own MENUS data has none.
 ///
@@ -184,7 +185,7 @@ const List<GbmMenuModel> gbmMenus = <GbmMenuModel>[
     ],
   ),
 
-  // Repository (9 items)
+  // Repository (10 items)
   GbmMenuModel(
     title: 'Repository',
     items: <GbmMenuItemModel>[
@@ -203,6 +204,10 @@ const List<GbmMenuModel> gbmMenus = <GbmMenuModel>[
         label: 'Open in terminal',
       ),
       GbmMenuItemModel(id: GbmActionId.repositorySettings, label: 'Settings…'),
+      GbmMenuItemModel(
+        id: GbmActionId.repositoryStageSelectedLines,
+        label: 'Stage selected lines',
+      ),
     ],
   ),
 

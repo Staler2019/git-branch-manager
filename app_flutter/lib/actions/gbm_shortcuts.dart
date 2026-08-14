@@ -64,7 +64,7 @@ class GbmKeyboardShortcut {
 
 /// Returns a map of GbmActionId to GbmKeyboardShortcut keyboard shortcuts.
 ///
-/// Exactly 34 of the 51 action IDs have keyboard shortcuts. The remaining 17
+/// Exactly 35 of the 52 action IDs have keyboard shortcuts. The remaining 17
 /// are either intentionally unbound (per spec) or handled specially (e.g., fileExit).
 ///
 /// The [isMacOS] parameter controls whether shortcuts use `meta` (macOS) or
@@ -201,6 +201,11 @@ Map<GbmActionId, GbmKeyboardShortcut> gbmActionShortcuts(bool isMacOS) {
     ),
     GbmActionId.branchRebaseOnto: _makeShortcut(
       LogicalKeyboardKey.keyR,
+      isMacOS,
+      shift: true,
+    ),
+    GbmActionId.repositoryStageSelectedLines: _makeShortcut(
+      LogicalKeyboardKey.enter,
       isMacOS,
       shift: true,
     ),

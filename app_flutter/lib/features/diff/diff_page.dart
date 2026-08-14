@@ -27,6 +27,7 @@ class DiffPage extends StatefulWidget {
     this.staged = false,
     this.onStageHunk,
     this.onStageLines,
+    this.scrollController,
   });
 
   final ParsedDiff diff;
@@ -34,6 +35,10 @@ class DiffPage extends StatefulWidget {
   final void Function(int fileIndex, int hunkIndex)? onStageHunk;
   final void Function(int fileIndex, int hunkIndex, List<int> lineIndices)?
   onStageLines;
+
+  /// Optional scroll controller for the diff ListView.
+  /// If provided, allows external code to save/restore scroll position.
+  final ScrollController? scrollController;
 
   @override
   State<DiffPage> createState() => _DiffPageState();
@@ -72,6 +77,7 @@ class _DiffPageState extends State<DiffPage> {
     // be their own selection island.
     return SelectionArea(
       child: ListView(
+        controller: widget.scrollController,
         children: <Widget>[
           for (
             int fileIndex = 0;
@@ -227,6 +233,11 @@ class _DiffHunkSection extends StatelessWidget {
             onSelectedChanged: onStageLines == null
                 ? null
                 : () => onToggleLine(lineIndex),
+            staged: staged,
+            onStageLine: onStageLines == null
+                ? null
+                : () => onStageLines!(<int>[lineIndex]),
+            onStageHunk: onStageHunk,
           ),
       ],
     );

@@ -59,19 +59,27 @@ class RepoSwitcherDialog extends ConsumerWidget {
                   final RecentRepoEntry recent = recents[index];
                   final String name =
                       repoNames[recent.workDir] ?? recent.workDir;
-                  return ListTile(
-                    title: Text(
-                      name,
-                      style: TextStyle(color: colors.textPrimary),
-                    ),
-                    subtitle: Text(
-                      recent.workDir,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: colors.textTertiary),
-                    ),
-                    onTap: () => context.go(
-                      RoutePaths.workspaceFor(repoIdFor(recent.workDir)),
+                  // A nested transparent Material is required here: this
+                  // ListTile's nearest Material ancestor is GbmDialogShell's
+                  // (also transparent), but the dialog's opaque background
+                  // Container sits between the two, which would otherwise
+                  // hide this ListTile's hover/tap ink splashes.
+                  return Material(
+                    type: MaterialType.transparency,
+                    child: ListTile(
+                      title: Text(
+                        name,
+                        style: TextStyle(color: colors.textPrimary),
+                      ),
+                      subtitle: Text(
+                        recent.workDir,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: colors.textTertiary),
+                      ),
+                      onTap: () => context.go(
+                        RoutePaths.workspaceFor(repoIdFor(recent.workDir)),
+                      ),
                     ),
                   );
                 },

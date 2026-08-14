@@ -8,8 +8,9 @@ import 'package:gbm_flutter/data/models/commit_meta.dart';
 import 'package:gbm_flutter/data/models/graph_snapshot.dart';
 import 'package:gbm_flutter/data/models/signature.dart';
 import 'package:gbm_flutter/features/history_graph/widgets/commit_row.dart';
-import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
+
+import '../../support/pump_app.dart';
 
 const GraphRow _row = GraphRow(
   parentOffset: 0,
@@ -43,19 +44,6 @@ CommitMeta _meta({String subject = 'Fix the bug', String author = 'Ada'}) {
   );
 }
 
-Future<void> _pump(
-  WidgetTester tester,
-  GbmThemeVariant variant,
-  Widget child,
-) async {
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildGbmTheme(variant),
-      home: Scaffold(body: child),
-    ),
-  );
-}
-
 void main() {
   for (final GbmThemeVariant variant in GbmThemeVariant.values) {
     final GbmColors colors = tokensFor(variant);
@@ -64,10 +52,10 @@ void main() {
       testWidgets('renders subject and author once meta is available', (
         tester,
       ) async {
-        await _pump(
+        await pumpGbmWidget(
           tester,
-          variant,
-          CommitRow(
+          variant: variant,
+          child: CommitRow(
             row: _row,
             oidHex: 'a' * 40,
             previousLane: null,
@@ -84,10 +72,10 @@ void main() {
       testWidgets(
         'shows a skeleton placeholder instead of blank text while meta is loading',
         (tester) async {
-          await _pump(
+          await pumpGbmWidget(
             tester,
-            variant,
-            CommitRow(
+            variant: variant,
+            child: CommitRow(
               row: _row,
               oidHex: 'a' * 40,
               previousLane: null,
@@ -110,10 +98,10 @@ void main() {
       );
 
       testWidgets('selected uses surfaceSelected background', (tester) async {
-        await _pump(
+        await pumpGbmWidget(
           tester,
-          variant,
-          CommitRow(
+          variant: variant,
+          child: CommitRow(
             row: _row,
             oidHex: 'a' * 40,
             previousLane: null,
@@ -137,10 +125,10 @@ void main() {
       });
 
       testWidgets('unselected has no background', (tester) async {
-        await _pump(
+        await pumpGbmWidget(
           tester,
-          variant,
-          CommitRow(
+          variant: variant,
+          child: CommitRow(
             row: _row,
             oidHex: 'a' * 40,
             previousLane: null,
@@ -164,10 +152,10 @@ void main() {
 
       testWidgets('tapping the row invokes onTap', (tester) async {
         String? tapped;
-        await _pump(
+        await pumpGbmWidget(
           tester,
-          variant,
-          CommitRow(
+          variant: variant,
+          child: CommitRow(
             row: _row,
             oidHex: 'a' * 40,
             previousLane: null,

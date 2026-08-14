@@ -7,8 +7,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/features/working_copy/widgets/changed_file_row.dart';
-import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
+
+import '../../support/pump_app.dart';
 
 WorkingCopyEntry _entry({String path = 'src/main.dart'}) {
   return WorkingCopyEntry(
@@ -40,14 +41,8 @@ Future<void> _rightClick(WidgetTester tester, Finder finder) async {
   await tester.pumpAndSettle();
 }
 
-Future<void> _pump(WidgetTester tester, Widget child) async {
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
-      home: Scaffold(body: child),
-    ),
-  );
-}
+Future<void> _pump(WidgetTester tester, Widget child) =>
+    pumpGbmWidget(tester, child: child);
 
 void main() {
   testWidgets('an unchecked (unstaged) file offers "Stage file"', (

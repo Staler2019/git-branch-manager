@@ -57,9 +57,7 @@ void main() {
       expect(
         () => GbmMenuItem.submenu(
           label: 'More',
-          children: <GbmMenuItem>[
-            GbmMenuItem(label: 'Item', onTap: () {}),
-          ],
+          children: <GbmMenuItem>[GbmMenuItem(label: 'Item', onTap: () {})],
         ),
         returnsNormally,
       );
@@ -68,74 +66,51 @@ void main() {
 
   group('Menu invariants', () {
     test('asserts on >8 top-level non-separator items', () {
-      expect(
-        () {
-          final items = List<GbmMenuItem>.generate(
-            9,
-            (i) => GbmMenuItem(label: 'Item $i', onTap: () {}),
-          );
-          validateGbmMenuItems(items);
-        },
-        throwsAssertionError,
-      );
+      expect(() {
+        final items = List<GbmMenuItem>.generate(
+          9,
+          (i) => GbmMenuItem(label: 'Item $i', onTap: () {}),
+        );
+        validateGbmMenuItems(items);
+      }, throwsAssertionError);
     });
 
     test('asserts when danger item is not last non-separator', () {
-      expect(
-        () {
-          validateGbmMenuItems(
-            <GbmMenuItem>[
-              GbmMenuItem(label: 'Checkout', onTap: () {}),
-              GbmMenuItem(label: 'Delete', danger: true, onTap: () {}),
-              GbmMenuItem(label: 'After danger', onTap: () {}),
-            ],
-          );
-        },
-        throwsAssertionError,
-      );
+      expect(() {
+        validateGbmMenuItems(<GbmMenuItem>[
+          GbmMenuItem(label: 'Checkout', onTap: () {}),
+          GbmMenuItem(label: 'Delete', danger: true, onTap: () {}),
+          GbmMenuItem(label: 'After danger', onTap: () {}),
+        ]);
+      }, throwsAssertionError);
     });
 
     test('asserts when danger item has no separator before it', () {
-      expect(
-        () {
-          validateGbmMenuItems(
-            <GbmMenuItem>[
-              GbmMenuItem(label: 'Checkout', onTap: () {}),
-              GbmMenuItem(label: 'Delete', danger: true, onTap: () {}),
-            ],
-          );
-        },
-        throwsAssertionError,
-      );
+      expect(() {
+        validateGbmMenuItems(<GbmMenuItem>[
+          GbmMenuItem(label: 'Checkout', onTap: () {}),
+          GbmMenuItem(label: 'Delete', danger: true, onTap: () {}),
+        ]);
+      }, throwsAssertionError);
     });
 
     test('allows valid menu with danger + separator', () {
-      expect(
-        () {
-          validateGbmMenuItems(
-            <GbmMenuItem>[
-              GbmMenuItem(label: 'Checkout', onTap: () {}),
-              const GbmMenuItem.separator(),
-              GbmMenuItem(label: 'Delete', danger: true, onTap: () {}),
-            ],
-          );
-        },
-        returnsNormally,
-      );
+      expect(() {
+        validateGbmMenuItems(<GbmMenuItem>[
+          GbmMenuItem(label: 'Checkout', onTap: () {}),
+          const GbmMenuItem.separator(),
+          GbmMenuItem(label: 'Delete', danger: true, onTap: () {}),
+        ]);
+      }, returnsNormally);
     });
 
     test('allows menu without danger item', () {
-      expect(
-        () {
-          validateGbmMenuItems(
-            <GbmMenuItem>[
-              GbmMenuItem(label: 'Checkout', onTap: () {}),
-              GbmMenuItem(label: 'Rename', onTap: () {}),
-            ],
-          );
-        },
-        returnsNormally,
-      );
+      expect(() {
+        validateGbmMenuItems(<GbmMenuItem>[
+          GbmMenuItem(label: 'Checkout', onTap: () {}),
+          GbmMenuItem(label: 'Rename', onTap: () {}),
+        ]);
+      }, returnsNormally);
     });
   });
 

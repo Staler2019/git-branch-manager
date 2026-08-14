@@ -6,15 +6,30 @@ import 'package:gbm_flutter/features/diff/side_by_side_diff.dart';
 // pairHunkForSideBySide's doc comment in side_by_side_diff.dart for why this
 // Dart port exists and needs to stay in lockstep with the core original.
 
-DiffLine context(String text) => DiffLine(kind: DiffLineKind.context, oldLine: 1, newLine: 1, text: text);
-DiffLine removed(String text) => DiffLine(kind: DiffLineKind.removed, oldLine: 1, newLine: 0, text: text);
-DiffLine added(String text) => DiffLine(kind: DiffLineKind.added, oldLine: 0, newLine: 1, text: text);
+DiffLine context(String text) =>
+    DiffLine(kind: DiffLineKind.context, oldLine: 1, newLine: 1, text: text);
+DiffLine removed(String text) =>
+    DiffLine(kind: DiffLineKind.removed, oldLine: 1, newLine: 0, text: text);
+DiffLine added(String text) =>
+    DiffLine(kind: DiffLineKind.added, oldLine: 0, newLine: 1, text: text);
 
-DiffHunk hunkOf(List<DiffLine> lines) => DiffHunk(oldStart: 1, oldCount: 1, newStart: 1, newCount: 1, heading: '', lines: lines);
+DiffHunk hunkOf(List<DiffLine> lines) => DiffHunk(
+  oldStart: 1,
+  oldCount: 1,
+  newStart: 1,
+  newCount: 1,
+  heading: '',
+  lines: lines,
+);
 
 void main() {
   test('context lines pass straight across unchanged', () {
-    final DiffHunk hunk = hunkOf(<DiffLine>[context('one'), removed('two'), added('TWO'), context('three')]);
+    final DiffHunk hunk = hunkOf(<DiffLine>[
+      context('one'),
+      removed('two'),
+      added('TWO'),
+      context('three'),
+    ]);
     final List<SideBySideRow> rows = pairHunkForSideBySide(hunk);
 
     expect(rows.length, 3);
@@ -25,7 +40,12 @@ void main() {
   });
 
   test('pairs an equal-length replace line by line', () {
-    final DiffHunk hunk = hunkOf(<DiffLine>[removed('old1'), removed('old2'), added('new1'), added('new2')]);
+    final DiffHunk hunk = hunkOf(<DiffLine>[
+      removed('old1'),
+      removed('old2'),
+      added('new1'),
+      added('new2'),
+    ]);
     final List<SideBySideRow> rows = pairHunkForSideBySide(hunk);
 
     expect(rows.length, 2);
@@ -36,7 +56,11 @@ void main() {
   });
 
   test('a pure addition leaves the left side blank', () {
-    final DiffHunk hunk = hunkOf(<DiffLine>[context('keep'), added('added1'), added('added2')]);
+    final DiffHunk hunk = hunkOf(<DiffLine>[
+      context('keep'),
+      added('added1'),
+      added('added2'),
+    ]);
     final List<SideBySideRow> rows = pairHunkForSideBySide(hunk);
 
     expect(rows.length, 3);
@@ -47,7 +71,11 @@ void main() {
   });
 
   test('a pure deletion leaves the right side blank', () {
-    final DiffHunk hunk = hunkOf(<DiffLine>[context('keep'), removed('removed1'), removed('removed2')]);
+    final DiffHunk hunk = hunkOf(<DiffLine>[
+      context('keep'),
+      removed('removed1'),
+      removed('removed2'),
+    ]);
     final List<SideBySideRow> rows = pairHunkForSideBySide(hunk);
 
     expect(rows.length, 3);
@@ -58,7 +86,12 @@ void main() {
   });
 
   test('an unequal replace pads the shorter side rather than misaligning', () {
-    final DiffHunk hunk = hunkOf(<DiffLine>[removed('old1'), removed('old2'), removed('old3'), added('new1')]);
+    final DiffHunk hunk = hunkOf(<DiffLine>[
+      removed('old1'),
+      removed('old2'),
+      removed('old3'),
+      added('new1'),
+    ]);
     final List<SideBySideRow> rows = pairHunkForSideBySide(hunk);
 
     expect(rows.length, 3);

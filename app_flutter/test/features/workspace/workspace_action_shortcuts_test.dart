@@ -13,9 +13,7 @@ void main() {
           home: Scaffold(
             body: WorkspaceActionShortcuts(
               isMacOS: false,
-              handlers: {
-                GbmActionId.viewToggleSidebar: () => callCount++,
-              },
+              handlers: {GbmActionId.viewToggleSidebar: () => callCount++},
               child: const SizedBox(),
             ),
           ),
@@ -39,9 +37,7 @@ void main() {
           home: Scaffold(
             body: WorkspaceActionShortcuts(
               isMacOS: true,
-              handlers: {
-                GbmActionId.viewToggleSidebar: () => callCount++,
-              },
+              handlers: {GbmActionId.viewToggleSidebar: () => callCount++},
               child: const SizedBox(),
             ),
           ),
@@ -58,17 +54,16 @@ void main() {
       expect(callCount, 1);
     });
 
-    testWidgets('does not fire when wrong modifier is used on macOS',
-        (tester) async {
+    testWidgets('does not fire when wrong modifier is used on macOS', (
+      tester,
+    ) async {
       int callCount = 0;
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
             body: WorkspaceActionShortcuts(
               isMacOS: true,
-              handlers: {
-                GbmActionId.viewToggleSidebar: () => callCount++,
-              },
+              handlers: {GbmActionId.viewToggleSidebar: () => callCount++},
               child: const SizedBox(),
             ),
           ),
@@ -91,9 +86,7 @@ void main() {
           home: Scaffold(
             body: WorkspaceActionShortcuts(
               isMacOS: false,
-              handlers: {
-                GbmActionId.viewToggleSidebar: null,
-              },
+              handlers: {GbmActionId.viewToggleSidebar: null},
               child: const SizedBox(),
             ),
           ),
@@ -142,9 +135,7 @@ void main() {
           home: Scaffold(
             body: WorkspaceActionShortcuts(
               isMacOS: false,
-              handlers: {
-                GbmActionId.branchNewBranch: () => callCount++,
-              },
+              handlers: {GbmActionId.branchNewBranch: () => callCount++},
               child: const SizedBox(),
             ),
           ),

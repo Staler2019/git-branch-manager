@@ -128,11 +128,17 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     final GbmColors colors = context.gbmColors;
     final List<RefInfo> branches = refs.localBranches;
     _pruneSelection(branches);
-    final bool anyGoneSelectable = branches.any(_isGoneAndBulkSelectable);
 
+    // Compute filtered branches first, since we need it for both the enable
+    // check AND the selection source of the "select all gone" button.
+    // This ensures the button only selects branches that are currently
+    // visible on screen, respecting the active filter.
     final List<RefInfo> filteredBranches = filterBranches(
       branches,
       _filterQuery,
+    );
+    final bool anyGoneSelectable = filteredBranches.any(
+      _isGoneAndBulkSelectable,
     );
     final List<BranchTreeNode> branchTree = buildBranchTree(
       filteredBranches,
@@ -195,7 +201,7 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                             _selected
                               ..clear()
                               ..addAll(
-                                branches
+                                filteredBranches
                                     .where(_isGoneAndBulkSelectable)
                                     .map((b) => b.shortName),
                               );

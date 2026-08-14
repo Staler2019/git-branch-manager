@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../data/models/commit_meta.dart';
 import '../../../data/models/graph_snapshot.dart';
 import '../../../data/models/ref_snapshot.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
+import '../../../widgets/gbm_menu.dart';
 import '../../../widgets/gbm_row.dart';
 import '../../../widgets/gbm_tag_chip.dart';
 import 'graph_column_painter.dart';
@@ -17,6 +19,11 @@ const double kCommitRowHeight = GbmSpacing.rowHeightComfortable;
 /// commit-list row order. Wrapped in [GbmRow] (Commit 1) for the shared
 /// hover/selected background instead of a bare [SizedBox], so a commit list
 /// looks and behaves like every other list in the app (sidebar, repo list).
+///
+/// Right-click context menu (05-E) actions: checkout, cherry-pick, copy SHA,
+/// revert, create branch. Callers supply callbacks for actions with real
+/// destinations; omitted actions (merge-into-current, compare items) have no
+/// backing capability at this row level.
 class CommitRow extends StatelessWidget {
   const CommitRow({
     super.key,
@@ -30,6 +37,10 @@ class CommitRow extends StatelessWidget {
     this.onTap,
     this.refChips = const <RefInfo>[],
     this.isOwnCommit = false,
+    this.onCheckout,
+    this.onCherryPick,
+    this.onRevert,
+    this.onCreateBranchHere,
   });
 
   final GraphRow row;
@@ -55,6 +66,13 @@ class CommitRow extends StatelessWidget {
   /// background, which would conflict with selection/hover states).
   final bool isOwnCommit;
 
+  /// Right-click context menu callbacks for 05-E commit menu. Null when no
+  /// backing capability exists for that action at this row level.
+  final VoidCallback? onCheckout;
+  final VoidCallback? onCherryPick;
+  final VoidCallback? onRevert;
+  final VoidCallback? onCreateBranchHere;
+
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
@@ -72,116 +90,161 @@ class CommitRow extends StatelessWidget {
           '${row.isHead ? 'HEAD, ' : ''}commit ${oidHex.isEmpty ? '' : oidHex.substring(0, 8)}, '
           '${subject.isEmpty ? '' : '$subject, '}$date, '
           '${row.parentCount} parent${row.parentCount == 1 ? '' : 's'}${row.isMerge ? ', merge' : ''}',
-      child: GbmRow(
-        height: kCommitRowHeight,
-        selected: selected,
-        onTap: onTap,
-        padding: EdgeInsets.zero,
-        child: Row(
-          children: <Widget>[
-            SizedBox(
-              width: kGraphLaneWidth * (maxLane + 1),
-              height: kCommitRowHeight,
-              child: ExcludeSemantics(
-                child: CustomPaint(
-                  painter: GraphRowPainter(
-                    row: row,
-                    rowIndex: rowIndex,
-                    graph: graph,
-                    laneWidth: kGraphLaneWidth,
-                    colors: context.gbmColors,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: GbmSpacing.space2),
-            if (row.isHead)
-              Padding(
-                padding: const EdgeInsets.only(right: GbmSpacing.space2),
-                child: Text(
-                  'HEAD',
-                  style: TextStyle(
-                    fontSize: GbmTypography.textXs,
-                    fontWeight: GbmTypography.weightSemibold,
-                    color: colors.accent,
-                  ),
-                ),
-              ),
-            Text(
-              oidHex.isEmpty ? '' : oidHex.substring(0, 8),
-              style: TextStyle(
-                fontFamily: GbmTypography.fontMono,
-                fontSize: GbmTypography.textXs,
-                color: colors.textTertiary,
-              ),
-            ),
-            const SizedBox(width: GbmSpacing.space3),
-            if (refChips.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(right: GbmSpacing.space2),
-                child: Wrap(
-                  spacing: 4,
-                  children: <Widget>[
-                    for (final RefInfo ref in refChips)
-                      GbmTagChip(
-                        label: ref.shortName,
-                        kind: ref.kind,
-                        isCurrent: ref.isHead,
-                      ),
-                  ],
-                ),
-              ),
-            Expanded(
-              child: meta == null
-                  ? _SkeletonBlock(width: 220, colors: colors)
-                  : Text(
-                      subject,
-                      style: TextStyle(
-                        fontSize: GbmTypography.textSm,
-                        color: colors.textPrimary,
-                      ),
-                      overflow: TextOverflow.ellipsis,
+      child: GestureDetector(
+        onSecondaryTapDown: oidHex.isEmpty
+            ? null
+            : (details) => _openContextMenu(context, details),
+        child: GbmRow(
+          height: kCommitRowHeight,
+          selected: selected,
+          onTap: onTap,
+          padding: EdgeInsets.zero,
+          child: Row(
+            children: <Widget>[
+              SizedBox(
+                width: kGraphLaneWidth * (maxLane + 1),
+                height: kCommitRowHeight,
+                child: ExcludeSemantics(
+                  child: CustomPaint(
+                    painter: GraphRowPainter(
+                      row: row,
+                      rowIndex: rowIndex,
+                      graph: graph,
+                      laneWidth: kGraphLaneWidth,
+                      colors: context.gbmColors,
                     ),
-            ),
-            const SizedBox(width: GbmSpacing.space3),
-            SizedBox(
-              width: 110,
-              child: meta == null
-                  ? _SkeletonBlock(width: 80, colors: colors)
-                  : Text(
-                      author,
-                      style: TextStyle(
-                        fontSize: GbmTypography.textXs,
-                        color: isOwnCommit
-                            ? colors.accent
-                            : colors.textSecondary,
-                        fontWeight: isOwnCommit
-                            ? GbmTypography.weightSemibold
-                            : null,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-            ),
-            const SizedBox(width: GbmSpacing.space2),
-            SizedBox(
-              width: 80,
-              child: Tooltip(
-                message: dateTooltip,
-                child: Text(
-                  date,
-                  style: TextStyle(
-                    fontSize: GbmTypography.textXs,
-                    color: colors.textTertiary,
                   ),
-                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-            ),
-            const SizedBox(width: GbmSpacing.space3),
-          ],
+              const SizedBox(width: GbmSpacing.space2),
+              if (row.isHead)
+                Padding(
+                  padding: const EdgeInsets.only(right: GbmSpacing.space2),
+                  child: Text(
+                    'HEAD',
+                    style: TextStyle(
+                      fontSize: GbmTypography.textXs,
+                      fontWeight: GbmTypography.weightSemibold,
+                      color: colors.accent,
+                    ),
+                  ),
+                ),
+              Text(
+                oidHex.isEmpty ? '' : oidHex.substring(0, 8),
+                style: TextStyle(
+                  fontFamily: GbmTypography.fontMono,
+                  fontSize: GbmTypography.textXs,
+                  color: colors.textTertiary,
+                ),
+              ),
+              const SizedBox(width: GbmSpacing.space3),
+              if (refChips.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(right: GbmSpacing.space2),
+                  child: Wrap(
+                    spacing: 4,
+                    children: <Widget>[
+                      for (final RefInfo ref in refChips)
+                        GbmTagChip(
+                          label: ref.shortName,
+                          kind: ref.kind,
+                          isCurrent: ref.isHead,
+                        ),
+                    ],
+                  ),
+                ),
+              Expanded(
+                child: meta == null
+                    ? _SkeletonBlock(width: 220, colors: colors)
+                    : Text(
+                        subject,
+                        style: TextStyle(
+                          fontSize: GbmTypography.textSm,
+                          color: colors.textPrimary,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+              ),
+              const SizedBox(width: GbmSpacing.space3),
+              SizedBox(
+                width: 110,
+                child: meta == null
+                    ? _SkeletonBlock(width: 80, colors: colors)
+                    : Text(
+                        author,
+                        style: TextStyle(
+                          fontSize: GbmTypography.textXs,
+                          color: isOwnCommit
+                              ? colors.accent
+                              : colors.textSecondary,
+                          fontWeight: isOwnCommit
+                              ? GbmTypography.weightSemibold
+                              : null,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+              ),
+              const SizedBox(width: GbmSpacing.space2),
+              SizedBox(
+                width: 80,
+                child: Tooltip(
+                  message: dateTooltip,
+                  child: Text(
+                    date,
+                    style: TextStyle(
+                      fontSize: GbmTypography.textXs,
+                      color: colors.textTertiary,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+              const SizedBox(width: GbmSpacing.space3),
+            ],
+          ),
         ),
       ),
     );
+  }
+
+  /// 05-E (commit row) context menu items. Includes only items with a real
+  /// backing capability: checkout (detached), cherry-pick, copy SHA, revert,
+  /// create branch. Omits merge-into-current (mergeBranch takes branch names,
+  /// not oids), compare items (M6), rebase/reset (destructive, not wired).
+  List<GbmMenuItem> _buildMenuItems() {
+    return <GbmMenuItem>[
+      if (onCheckout != null)
+        GbmMenuItem(
+          label: 'Checkout this commit',
+          icon: Icons.call_split,
+          onTap: onCheckout!,
+        ),
+      if (onCherryPick != null)
+        GbmMenuItem(
+          label: 'Cherry-pick',
+          icon: Icons.copy,
+          onTap: onCherryPick!,
+        ),
+      if (onCreateBranchHere != null)
+        GbmMenuItem(
+          label: 'Create branch here…',
+          icon: Icons.add,
+          onTap: onCreateBranchHere!,
+        ),
+      GbmMenuItem(
+        label: 'Copy SHA',
+        icon: Icons.copy,
+        onTap: () => Clipboard.setData(ClipboardData(text: oidHex)),
+      ),
+      if (onRevert != null) ...<GbmMenuItem>[
+        const GbmMenuItem.separator(),
+        GbmMenuItem(label: 'Revert commit', icon: Icons.undo, onTap: onRevert!),
+      ],
+    ];
+  }
+
+  void _openContextMenu(BuildContext context, TapDownDetails details) {
+    showGbmContextMenu(context, details.globalPosition, _buildMenuItems());
   }
 }
 

@@ -15,6 +15,7 @@ import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/gbm_banner.dart';
 import '../../widgets/split_pane.dart';
+import '../history_graph/widgets/graph_columns_selector.dart';
 import '../log_drawer/log_drawer.dart';
 import '../sidebar/sidebar_panel.dart';
 import '../status_bar/status_bar.dart';
@@ -63,6 +64,37 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   void dispose() {
     _branchFilterFocusNode.dispose();
     super.dispose();
+  }
+
+  void _showGraphColumnsDialog(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (BuildContext context) => Dialog(
+        child: Padding(
+          padding: const EdgeInsets.all(GbmSpacing.space3),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                'Graph Columns',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: GbmSpacing.space2),
+              const GraphColumnsSelector(),
+              const SizedBox(height: GbmSpacing.space3),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Done'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -335,7 +367,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
           context.go(RoutePaths.workingCopyFor(repoId)),
       GbmActionId.viewNextTab: null,
       GbmActionId.viewFileListAsTree: null,
-      GbmActionId.viewGraphColumns: null,
+      GbmActionId.viewGraphColumns: () => _showGraphColumnsDialog(context),
       GbmActionId.viewCommitDetail: null,
       GbmActionId.viewToggleSidebar: null, // Handled via MenuBarRow param
       GbmActionId.viewStatusBar: null,

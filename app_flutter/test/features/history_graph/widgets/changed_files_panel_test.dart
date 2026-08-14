@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/changed_file.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
@@ -80,5 +81,97 @@ void main() {
     await tester.pump();
 
     expect(tapped, 'a.dart');
+  });
+
+  testWidgets('right-click opens context menu with file actions', (
+    tester,
+  ) async {
+    await pumpGbmWidget(
+      tester,
+      child: ChangedFilesPanelCore(
+        hasSelectedCommit: true,
+        files: <ChangedFile>[_file('a.dart')],
+        selectedPath: null,
+        onFileTap: (_) {},
+        onFileHistory: (_) {},
+        onBlame: (_) {},
+      ),
+    );
+
+    await tester.tap(find.text('a.dart'), buttons: kSecondaryMouseButton);
+    await tester.pumpAndSettle();
+
+    expect(find.text('View diff in this commit'), findsOneWidget);
+    expect(find.text('File history'), findsOneWidget);
+    expect(find.text('Blame at this commit'), findsOneWidget);
+    expect(find.text('Copy path'), findsOneWidget);
+  });
+
+  testWidgets('file history callback invoked on context menu tap', (
+    tester,
+  ) async {
+    String? historyPath;
+    await pumpGbmWidget(
+      tester,
+      child: ChangedFilesPanelCore(
+        hasSelectedCommit: true,
+        files: <ChangedFile>[_file('a.dart')],
+        selectedPath: null,
+        onFileTap: (_) {},
+        onFileHistory: (path) => historyPath = path,
+      ),
+    );
+
+    await tester.tap(find.text('a.dart'), buttons: kSecondaryMouseButton);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('File history'));
+    await tester.pumpAndSettle();
+
+    expect(historyPath, 'a.dart');
+  });
+
+  testWidgets('blame callback invoked on context menu tap', (tester) async {
+    String? blamePath;
+    await pumpGbmWidget(
+      tester,
+      child: ChangedFilesPanelCore(
+        hasSelectedCommit: true,
+        files: <ChangedFile>[_file('src/main.dart')],
+        selectedPath: null,
+        onFileTap: (_) {},
+        onBlame: (path) => blamePath = path,
+      ),
+    );
+
+    await tester.tap(
+      find.text('src/main.dart'),
+      buttons: kSecondaryMouseButton,
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Blame at this commit'));
+    await tester.pumpAndSettle();
+
+    expect(blamePath, 'src/main.dart');
+  });
+
+  testWidgets('context menu omits unavailable actions', (tester) async {
+    await pumpGbmWidget(
+      tester,
+      child: ChangedFilesPanelCore(
+        hasSelectedCommit: true,
+        files: <ChangedFile>[_file('a.dart')],
+        selectedPath: null,
+        onFileTap: (_) {},
+        // No onFileHistory or onBlame
+      ),
+    );
+
+    await tester.tap(find.text('a.dart'), buttons: kSecondaryMouseButton);
+    await tester.pumpAndSettle();
+
+    expect(find.text('File history'), findsNothing);
+    expect(find.text('Blame at this commit'), findsNothing);
   });
 }

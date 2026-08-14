@@ -10,6 +10,7 @@ import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
+import '../../widgets/prompt_text_dialog.dart';
 import 'widgets/commit_row.dart';
 import 'widgets/graph_ref_chips.dart';
 
@@ -84,6 +85,23 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
     final List<String> oids = _visibleOids(viewportHeight);
     if (oids.isEmpty) return;
     requestCommitMeta(ref, widget.identity, oids);
+  }
+
+  Future<void> _createBranchFromCommit(
+    BuildContext context,
+    WidgetRef ref,
+    RepoIdentity identity,
+    String commitOid,
+  ) async {
+    final String? name = await promptText(
+      context,
+      title: 'New Branch from Commit',
+      label: 'Branch name',
+    );
+    if (name == null || !mounted) return;
+    ref
+        .read(repoSessionProvider(identity).notifier)
+        .createBranch(name: name, startPoint: commitOid);
   }
 
   @override
@@ -170,6 +188,29 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
                           null;
                       requestCommitFiles(ref, widget.identity, oid);
                     },
+              onCheckout: oid.isEmpty
+                  ? null
+                  : () => ref
+                        .read(repoSessionProvider(widget.identity).notifier)
+                        .checkout(target: oid, detach: true),
+              onCherryPick: oid.isEmpty
+                  ? null
+                  : () => ref
+                        .read(repoSessionProvider(widget.identity).notifier)
+                        .cherryPick([oid]),
+              onRevert: oid.isEmpty
+                  ? null
+                  : () => ref
+                        .read(repoSessionProvider(widget.identity).notifier)
+                        .revert([oid]),
+              onCreateBranchHere: oid.isEmpty
+                  ? null
+                  : () => _createBranchFromCommit(
+                      context,
+                      ref,
+                      widget.identity,
+                      oid,
+                    ),
             );
           },
         );

@@ -57,6 +57,13 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   bool _sidebarVisible = true;
   int _lastSeenOperationLogIndex = 0;
   final GbmSplitPaneController _logDrawerController = GbmSplitPaneController();
+  final FocusNode _branchFilterFocusNode = FocusNode();
+
+  @override
+  void dispose() {
+    _branchFilterFocusNode.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -177,7 +184,10 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
                     spec: GbmLayout.splitterMainSidebar,
                     storageId: 'main.sidebar',
                     children: <Widget>[
-                      SidebarPanel(identity: identity),
+                      SidebarPanel(
+                        identity: identity,
+                        filterFocusNode: _branchFilterFocusNode,
+                      ),
                       widget.child,
                     ],
                   )
@@ -266,12 +276,14 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   /// - remoteFetchAllRemotes: fetch (same as repositoryFetch)
   /// - helpKeyboardShortcuts: keyboard shortcuts dialog
   /// - helpAbout: about dialog
+  /// - editFilterBranches: reveals the sidebar (if hidden) and focuses
+  ///   SidebarPanel's filter field
   ///
   /// Unimplemented (mapped to null):
   /// - fileNewRepository, fileOpenRepository, fileCloneRepository,
   ///   fileSwitchRepository, fileAddLocalRepository: future milestone
   /// - editUndo, editRedo, editCut, editCopy, editPaste, editFindInHistory,
-  ///   editFindInFiles, editFilterBranches: future milestone
+  ///   editFindInFiles: future milestone
   /// - viewNextTab, viewGraphColumns, viewCommitDetail, viewStatusBar,
   ///   viewLog, viewResetPanelSizes, viewTheme: future milestone
   /// - repositoryCompare: future milestone
@@ -308,8 +320,15 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       GbmActionId.editPaste: null,
       GbmActionId.editFindInHistory: null,
       GbmActionId.editFindInFiles: null,
-      GbmActionId.editFilterBranches:
-          null, // TODO: Wire search field focus in sidebar
+      GbmActionId.editFilterBranches: () {
+        // Reveal the sidebar first if hidden -- there is nothing to focus
+        // otherwise (mirrors onOpenLog's un-collapse-then-reveal pattern
+        // above for the log drawer).
+        if (!_sidebarVisible) {
+          setState(() => _sidebarVisible = true);
+        }
+        _branchFilterFocusNode.requestFocus();
+      },
       // View
       GbmActionId.viewHistory: () => context.go(RoutePaths.historyFor(repoId)),
       GbmActionId.viewWorkingCopy: () =>

@@ -108,6 +108,25 @@ List<BranchTreeNode> buildBranchTree(
   return result.toList(growable: false);
 }
 
+/// Filters [branches] to those whose [RefInfo.shortName] contains [query]
+/// as a case-insensitive substring (Cmd/Ctrl+Shift+E "Filter branches", see
+/// gbm_action_id.dart's `editFilterBranches`). Matching is flat against the
+/// full slash-delimited name (e.g. 'docs' matches 'chore/docs'), independent
+/// of [buildBranchTree]'s folder grouping -- callers building a filtered
+/// tree should pass the filtered list into [buildBranchTree] afterward.
+///
+/// A blank (empty or whitespace-only) [query] returns [branches] unchanged.
+List<RefInfo> filterBranches(List<RefInfo> branches, String query) {
+  final String trimmed = query.trim();
+  if (trimmed.isEmpty) {
+    return branches;
+  }
+  final String needle = trimmed.toLowerCase();
+  return branches
+      .where((ref) => ref.shortName.toLowerCase().contains(needle))
+      .toList(growable: false);
+}
+
 /// Internal representation of a folder node being built.
 class _FolderNode extends BranchTreeNode {
   _FolderNode({

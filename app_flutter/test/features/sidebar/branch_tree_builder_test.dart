@@ -179,4 +179,77 @@ void main() {
       expect(() => tree.add(tree[0]), throwsUnsupportedError);
     });
   });
+
+  group('filterBranches', () {
+    final main = RefInfo(
+      fullName: 'refs/heads/main',
+      shortName: 'main',
+      kind: RefKind.localBranch,
+      target: 'abc123',
+      upstream: '',
+      ahead: 0,
+      behind: 0,
+      hasTrackingInfo: false,
+      isGone: false,
+      isHead: true,
+      isSymbolic: true,
+      worktreePath: '',
+    );
+
+    final featureAuth = RefInfo(
+      fullName: 'refs/heads/feature/auth',
+      shortName: 'feature/auth',
+      kind: RefKind.localBranch,
+      target: 'f1',
+      upstream: '',
+      ahead: 0,
+      behind: 0,
+      hasTrackingInfo: false,
+      isGone: false,
+      isHead: false,
+      isSymbolic: true,
+      worktreePath: '',
+    );
+
+    final choreDocs = RefInfo(
+      fullName: 'refs/heads/chore/docs',
+      shortName: 'chore/docs',
+      kind: RefKind.localBranch,
+      target: 'c1',
+      upstream: '',
+      ahead: 0,
+      behind: 0,
+      hasTrackingInfo: false,
+      isGone: false,
+      isHead: false,
+      isSymbolic: true,
+      worktreePath: '',
+    );
+
+    final branches = [main, featureAuth, choreDocs];
+
+    test('returns all branches unchanged for an empty query', () {
+      expect(filterBranches(branches, ''), branches);
+    });
+
+    test('returns all branches unchanged for a whitespace-only query', () {
+      expect(filterBranches(branches, '   '), branches);
+    });
+
+    test('matches by case-insensitive substring of shortName', () {
+      expect(filterBranches(branches, 'FEAT'), [featureAuth]);
+    });
+
+    test('matches a slash-delimited segment anywhere in shortName', () {
+      expect(filterBranches(branches, 'docs'), [choreDocs]);
+    });
+
+    test('returns an empty list when nothing matches', () {
+      expect(filterBranches(branches, 'nonexistent'), isEmpty);
+    });
+
+    test('trims surrounding whitespace before matching', () {
+      expect(filterBranches(branches, '  main  '), [main]);
+    });
+  });
 }

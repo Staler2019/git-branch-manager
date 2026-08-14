@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/base_folder_record.dart';
 import 'package:gbm_flutter/data/models/bisect_status.dart';
 import 'package:gbm_flutter/data/models/blame_result.dart';
+import 'package:gbm_flutter/data/models/changed_file.dart';
 import 'package:gbm_flutter/data/models/clean_entry.dart';
 import 'package:gbm_flutter/data/models/commit_meta.dart';
 import 'package:gbm_flutter/data/models/file_history_entry.dart';
@@ -177,6 +178,39 @@ void main() {
     expect(status.isClean, isFalse);
     expect(status.staged.map((e) => e.path), <String>['a.txt']);
     expect(status.untrackedFiles.map((e) => e.path), <String>['b.txt']);
+  });
+
+  test('ChangedFile.fromJson decodes every field', () {
+    final Map<String, dynamic> json = jsonDecode(
+      '{"path":"b.txt","oldPath":"a.txt","kind":3,"oldMode":"100644",'
+      '"newMode":"100644","oldBlob":"aaa","newBlob":"bbb","similarity":92}',
+    );
+    final ChangedFile file = ChangedFile.fromJson(json);
+
+    expect(file.path, 'b.txt');
+    expect(file.oldPath, 'a.txt');
+    expect(file.kind, FileChangeKind.renamed);
+    expect(file.oldMode, '100644');
+    expect(file.newMode, '100644');
+    expect(file.oldBlob, 'aaa');
+    expect(file.newBlob, 'bbb');
+    expect(file.similarity, 92);
+  });
+
+  test('ChangedFile.listFromJson decodes an array in order', () {
+    final List<dynamic> json = jsonDecode(
+      '[{"path":"a.txt","oldPath":"","kind":1,"oldMode":"","newMode":"100644",'
+      '"oldBlob":"","newBlob":"aaa","similarity":0},'
+      '{"path":"b.txt","oldPath":"","kind":2,"oldMode":"100644","newMode":"",'
+      '"oldBlob":"bbb","newBlob":"","similarity":0}]',
+    );
+    final List<ChangedFile> files = ChangedFile.listFromJson(json);
+
+    expect(files.map((f) => f.path), <String>['a.txt', 'b.txt']);
+    expect(files.map((f) => f.kind), <FileChangeKind>[
+      FileChangeKind.added,
+      FileChangeKind.deleted,
+    ]);
   });
 
   test('ParsedDiff.fromJson decodes nested files/hunks/lines', () {

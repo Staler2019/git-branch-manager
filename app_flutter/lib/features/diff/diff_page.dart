@@ -21,12 +21,19 @@ import 'widgets/diff_line.dart';
 /// a text-selection-driven context menu, since Flutter's `SelectionArea`
 /// (used here for copy -- see below) already owns click-drag selection.
 class DiffPage extends StatefulWidget {
-  const DiffPage({super.key, required this.diff, this.staged = false, this.onStageHunk, this.onStageLines});
+  const DiffPage({
+    super.key,
+    required this.diff,
+    this.staged = false,
+    this.onStageHunk,
+    this.onStageLines,
+  });
 
   final ParsedDiff diff;
   final bool staged;
   final void Function(int fileIndex, int hunkIndex)? onStageHunk;
-  final void Function(int fileIndex, int hunkIndex, List<int> lineIndices)? onStageLines;
+  final void Function(int fileIndex, int hunkIndex, List<int> lineIndices)?
+  onStageLines;
 
   @override
   State<DiffPage> createState() => _DiffPageState();
@@ -53,7 +60,9 @@ class _DiffPageState extends State<DiffPage> {
     final GbmColors colors = context.gbmColors;
 
     if (widget.diff.files.isEmpty) {
-      return Center(child: Text('No changes', style: TextStyle(color: colors.textTertiary)));
+      return Center(
+        child: Text('No changes', style: TextStyle(color: colors.textTertiary)),
+      );
     }
 
     // SelectionArea, not per-line SelectableText: a diff is read by
@@ -64,18 +73,29 @@ class _DiffPageState extends State<DiffPage> {
     return SelectionArea(
       child: ListView(
         children: <Widget>[
-          for (int fileIndex = 0; fileIndex < widget.diff.files.length; fileIndex++)
+          for (
+            int fileIndex = 0;
+            fileIndex < widget.diff.files.length;
+            fileIndex++
+          )
             _DiffFileSection(
               file: widget.diff.files[fileIndex],
               staged: widget.staged,
-              onStageHunk: widget.onStageHunk == null ? null : (hunkIndex) => widget.onStageHunk!(fileIndex, hunkIndex),
+              onStageHunk: widget.onStageHunk == null
+                  ? null
+                  : (hunkIndex) => widget.onStageHunk!(fileIndex, hunkIndex),
               onStageLines: widget.onStageLines == null
                   ? null
-                  : (hunkIndex, lineIndices) => widget.onStageLines!(fileIndex, hunkIndex, lineIndices),
-              selectedLinesFor: (hunkIndex) => _selectedLines['$fileIndex:$hunkIndex'] ?? const <int>{},
+                  : (hunkIndex, lineIndices) =>
+                        widget.onStageLines!(fileIndex, hunkIndex, lineIndices),
+              selectedLinesFor: (hunkIndex) =>
+                  _selectedLines['$fileIndex:$hunkIndex'] ?? const <int>{},
               onToggleLine: (hunkIndex, lineIndex) => setState(() {
                 final String key = '$fileIndex:$hunkIndex';
-                final Set<int> selected = _selectedLines.putIfAbsent(key, () => <int>{});
+                final Set<int> selected = _selectedLines.putIfAbsent(
+                  key,
+                  () => <int>{},
+                );
                 if (!selected.add(lineIndex)) selected.remove(lineIndex);
               }),
             ),
@@ -109,7 +129,13 @@ class _DiffFileSection extends StatelessWidget {
     if (file.binary) {
       return Padding(
         padding: const EdgeInsets.all(GbmSpacing.space3),
-        child: Text('${file.displayPath} (binary file)', style: TextStyle(color: colors.textTertiary, fontSize: GbmTypography.textSm)),
+        child: Text(
+          '${file.displayPath} (binary file)',
+          style: TextStyle(
+            color: colors.textTertiary,
+            fontSize: GbmTypography.textSm,
+          ),
+        ),
       );
     }
 
@@ -120,8 +146,12 @@ class _DiffFileSection extends StatelessWidget {
           _DiffHunkSection(
             hunk: file.hunks[hunkIndex],
             staged: staged,
-            onStageHunk: onStageHunk == null ? null : () => onStageHunk!(hunkIndex),
-            onStageLines: onStageLines == null ? null : (lineIndices) => onStageLines!(hunkIndex, lineIndices),
+            onStageHunk: onStageHunk == null
+                ? null
+                : () => onStageHunk!(hunkIndex),
+            onStageLines: onStageLines == null
+                ? null
+                : (lineIndices) => onStageLines!(hunkIndex, lineIndices),
             selectedLines: selectedLinesFor(hunkIndex),
             onToggleLine: (lineIndex) => onToggleLine(hunkIndex, lineIndex),
           ),
@@ -155,23 +185,36 @@ class _DiffHunkSection extends StatelessWidget {
       children: <Widget>[
         Container(
           color: colors.surfaceSunken,
-          padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space3, vertical: 2),
+          padding: const EdgeInsets.symmetric(
+            horizontal: GbmSpacing.space3,
+            vertical: 2,
+          ),
           child: Row(
             children: <Widget>[
               Expanded(
                 child: Text(
                   '@@ -${hunk.oldStart},${hunk.oldCount} +${hunk.newStart},${hunk.newCount} @@ ${hunk.heading}',
-                  style: TextStyle(fontFamily: GbmTypography.fontMono, fontSize: GbmTypography.textXs, color: colors.textTertiary),
+                  style: TextStyle(
+                    fontFamily: GbmTypography.fontMono,
+                    fontSize: GbmTypography.textXs,
+                    color: colors.textTertiary,
+                  ),
                 ),
               ),
               if (selectedLines.isNotEmpty && onStageLines != null)
                 GbmButton(
-                  label: '${staged ? 'Unstage' : 'Stage'} ${selectedLines.length} Line${selectedLines.length == 1 ? '' : 's'}',
-                  onPressed: () => onStageLines!(selectedLines.toList(growable: false)..sort()),
+                  label:
+                      '${staged ? 'Unstage' : 'Stage'} ${selectedLines.length} Line${selectedLines.length == 1 ? '' : 's'}',
+                  onPressed: () => onStageLines!(
+                    selectedLines.toList(growable: false)..sort(),
+                  ),
                 ),
               if (onStageHunk != null) ...<Widget>[
                 const SizedBox(width: GbmSpacing.space1),
-                GbmButton(label: staged ? 'Unstage Hunk' : 'Stage Hunk', onPressed: onStageHunk),
+                GbmButton(
+                  label: staged ? 'Unstage Hunk' : 'Stage Hunk',
+                  onPressed: onStageHunk,
+                ),
               ],
             ],
           ),
@@ -181,7 +224,9 @@ class _DiffHunkSection extends StatelessWidget {
             line: hunk.lines[lineIndex],
             selectable: onStageLines != null,
             selected: selectedLines.contains(lineIndex),
-            onSelectedChanged: onStageLines == null ? null : () => onToggleLine(lineIndex),
+            onSelectedChanged: onStageLines == null
+                ? null
+                : () => onToggleLine(lineIndex),
           ),
       ],
     );

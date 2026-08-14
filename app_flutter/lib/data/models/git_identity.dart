@@ -1,9 +1,17 @@
 /// Mirrors `gbm::LocalIdentity` (src/core/git/ops/ConfigOps.h) as serialized
 /// by `capi::toJson(const LocalIdentity&)`.
 class LocalIdentity {
-  const LocalIdentity({required this.name, required this.email, required this.overridden});
+  const LocalIdentity({
+    required this.name,
+    required this.email,
+    required this.overridden,
+  });
 
-  static const LocalIdentity empty = LocalIdentity(name: '', email: '', overridden: false);
+  static const LocalIdentity empty = LocalIdentity(
+    name: '',
+    email: '',
+    overridden: false,
+  );
 
   factory LocalIdentity.fromJson(Map<String, dynamic> json) {
     return LocalIdentity(
@@ -26,7 +34,10 @@ class EffectiveIdentity {
   static const EffectiveIdentity empty = EffectiveIdentity(name: '', email: '');
 
   factory EffectiveIdentity.fromJson(Map<String, dynamic> json) {
-    return EffectiveIdentity(name: json['name'] as String, email: json['email'] as String);
+    return EffectiveIdentity(
+      name: json['name'] as String,
+      email: json['email'] as String,
+    );
   }
 
   final String name;

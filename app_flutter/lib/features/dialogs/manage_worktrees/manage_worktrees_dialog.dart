@@ -19,10 +19,12 @@ class ManageWorktreesDialogContent extends ConsumerStatefulWidget {
   final RepoIdentity identity;
 
   @override
-  ConsumerState<ManageWorktreesDialogContent> createState() => _ManageWorktreesDialogContentState();
+  ConsumerState<ManageWorktreesDialogContent> createState() =>
+      _ManageWorktreesDialogContentState();
 }
 
-class _ManageWorktreesDialogContentState extends ConsumerState<ManageWorktreesDialogContent> {
+class _ManageWorktreesDialogContentState
+    extends ConsumerState<ManageWorktreesDialogContent> {
   bool _addExpanded = false;
   final TextEditingController _pathController = TextEditingController();
   final TextEditingController _branchController = TextEditingController();
@@ -30,7 +32,11 @@ class _ManageWorktreesDialogContentState extends ConsumerState<ManageWorktreesDi
   @override
   void initState() {
     super.initState();
-    Future.microtask(() => ref.read(repoSessionProvider(widget.identity).notifier).refreshWorktrees());
+    Future.microtask(
+      () => ref
+          .read(repoSessionProvider(widget.identity).notifier)
+          .refreshWorktrees(),
+    );
   }
 
   @override
@@ -53,7 +59,9 @@ class _ManageWorktreesDialogContentState extends ConsumerState<ManageWorktreesDi
       actions: <Widget>[
         GbmButton(
           label: 'Prune',
-          onPressed: () => ref.read(repoSessionProvider(widget.identity).notifier).pruneWorktrees(),
+          onPressed: () => ref
+              .read(repoSessionProvider(widget.identity).notifier)
+              .pruneWorktrees(),
         ),
         const SizedBox(width: GbmSpacing.space2),
         GbmButton(
@@ -61,7 +69,11 @@ class _ManageWorktreesDialogContentState extends ConsumerState<ManageWorktreesDi
           onPressed: () => setState(() => _addExpanded = !_addExpanded),
         ),
         const SizedBox(width: GbmSpacing.space2),
-        GbmButton(label: 'Close', kind: GbmButtonKind.primary, onPressed: () => context.pop()),
+        GbmButton(
+          label: 'Close',
+          kind: GbmButtonKind.primary,
+          onPressed: () => context.pop(),
+        ),
       ],
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -70,13 +82,18 @@ class _ManageWorktreesDialogContentState extends ConsumerState<ManageWorktreesDi
           if (_addExpanded) ...<Widget>[
             TextField(
               controller: _pathController,
-              decoration: const InputDecoration(hintText: 'New worktree path', isDense: true, border: OutlineInputBorder()),
+              decoration: const InputDecoration(
+                hintText: 'New worktree path',
+                isDense: true,
+                border: OutlineInputBorder(),
+              ),
             ),
             const SizedBox(height: GbmSpacing.space2),
             TextField(
               controller: _branchController,
               decoration: const InputDecoration(
-                hintText: 'New branch name (leave empty to check out an existing branch)',
+                hintText:
+                    'New branch name (leave empty to check out an existing branch)',
                 isDense: true,
                 border: OutlineInputBorder(),
               ),
@@ -92,7 +109,11 @@ class _ManageWorktreesDialogContentState extends ConsumerState<ManageWorktreesDi
                   if (path.isEmpty) return;
                   ref
                       .read(repoSessionProvider(widget.identity).notifier)
-                      .addWorktree(path, createBranch: true, newBranchName: _branchController.text.trim());
+                      .addWorktree(
+                        path,
+                        createBranch: true,
+                        newBranchName: _branchController.text.trim(),
+                      );
                   setState(() {
                     _addExpanded = false;
                     _pathController.clear();
@@ -106,7 +127,12 @@ class _ManageWorktreesDialogContentState extends ConsumerState<ManageWorktreesDi
           SizedBox(
             height: 280,
             child: worktrees.isEmpty
-                ? Center(child: Text('No worktrees', style: TextStyle(color: colors.textTertiary)))
+                ? Center(
+                    child: Text(
+                      'No worktrees',
+                      style: TextStyle(color: colors.textTertiary),
+                    ),
+                  )
                 : ListView(
                     children: <Widget>[
                       for (final worktree in worktrees)
@@ -115,12 +141,20 @@ class _ManageWorktreesDialogContentState extends ConsumerState<ManageWorktreesDi
                           onRemove: worktree.isMain
                               ? null
                               : () => ref
-                                    .read(repoSessionProvider(widget.identity).notifier)
+                                    .read(
+                                      repoSessionProvider(
+                                        widget.identity,
+                                      ).notifier,
+                                    )
                                     .removeWorktree(worktree.path),
                           onToggleLock: worktree.isMain
                               ? null
                               : () {
-                                  final notifier = ref.read(repoSessionProvider(widget.identity).notifier);
+                                  final notifier = ref.read(
+                                    repoSessionProvider(
+                                      widget.identity,
+                                    ).notifier,
+                                  );
                                   if (worktree.isLocked) {
                                     notifier.unlockWorktree(worktree.path);
                                   } else {
@@ -138,7 +172,11 @@ class _ManageWorktreesDialogContentState extends ConsumerState<ManageWorktreesDi
 }
 
 class _WorktreeRow extends StatelessWidget {
-  const _WorktreeRow({required this.worktree, required this.onRemove, required this.onToggleLock});
+  const _WorktreeRow({
+    required this.worktree,
+    required this.onRemove,
+    required this.onToggleLock,
+  });
 
   final WorktreeInfo worktree;
   final VoidCallback? onRemove;
@@ -148,7 +186,10 @@ class _WorktreeRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space1, vertical: GbmSpacing.space2),
+      padding: const EdgeInsets.symmetric(
+        horizontal: GbmSpacing.space1,
+        vertical: GbmSpacing.space2,
+      ),
       child: Row(
         children: <Widget>[
           Expanded(
@@ -159,22 +200,43 @@ class _WorktreeRow extends StatelessWidget {
                   children: <Widget>[
                     Text(
                       worktree.path,
-                      style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textPrimary, fontWeight: GbmTypography.weightMedium),
+                      style: TextStyle(
+                        fontSize: GbmTypography.textSm,
+                        color: colors.textPrimary,
+                        fontWeight: GbmTypography.weightMedium,
+                      ),
                       overflow: TextOverflow.ellipsis,
                     ),
                     if (worktree.isMain) ...<Widget>[
                       const SizedBox(width: GbmSpacing.space1),
-                      Text('(main)', style: TextStyle(fontSize: GbmTypography.textXs, color: colors.textTertiary)),
+                      Text(
+                        '(main)',
+                        style: TextStyle(
+                          fontSize: GbmTypography.textXs,
+                          color: colors.textTertiary,
+                        ),
+                      ),
                     ],
                     if (worktree.isLocked) ...<Widget>[
                       const SizedBox(width: GbmSpacing.space1),
-                      Text('🔒', style: TextStyle(fontSize: GbmTypography.textXs, color: colors.textTertiary)),
+                      Text(
+                        '🔒',
+                        style: TextStyle(
+                          fontSize: GbmTypography.textXs,
+                          color: colors.textTertiary,
+                        ),
+                      ),
                     ],
                   ],
                 ),
                 Text(
-                  worktree.isDetached ? 'detached @ ${worktree.headOid}' : worktree.branch,
-                  style: TextStyle(fontSize: GbmTypography.textXs, color: colors.textTertiary),
+                  worktree.isDetached
+                      ? 'detached @ ${worktree.headOid}'
+                      : worktree.branch,
+                  style: TextStyle(
+                    fontSize: GbmTypography.textXs,
+                    color: colors.textTertiary,
+                  ),
                 ),
               ],
             ),
@@ -182,12 +244,24 @@ class _WorktreeRow extends StatelessWidget {
           if (onToggleLock != null)
             TextButton(
               onPressed: onToggleLock,
-              child: Text(worktree.isLocked ? 'Unlock' : 'Lock', style: TextStyle(fontSize: GbmTypography.textXs, color: colors.textSecondary)),
+              child: Text(
+                worktree.isLocked ? 'Unlock' : 'Lock',
+                style: TextStyle(
+                  fontSize: GbmTypography.textXs,
+                  color: colors.textSecondary,
+                ),
+              ),
             ),
           if (onRemove != null)
             TextButton(
               onPressed: onRemove,
-              child: Text('Remove', style: TextStyle(fontSize: GbmTypography.textXs, color: colors.danger)),
+              child: Text(
+                'Remove',
+                style: TextStyle(
+                  fontSize: GbmTypography.textXs,
+                  color: colors.danger,
+                ),
+              ),
             ),
         ],
       ),

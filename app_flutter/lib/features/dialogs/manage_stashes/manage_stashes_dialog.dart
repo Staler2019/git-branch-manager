@@ -19,33 +19,48 @@ class ManageStashesDialogContent extends ConsumerStatefulWidget {
   final RepoIdentity identity;
 
   @override
-  ConsumerState<ManageStashesDialogContent> createState() => _ManageStashesDialogContentState();
+  ConsumerState<ManageStashesDialogContent> createState() =>
+      _ManageStashesDialogContentState();
 }
 
-class _ManageStashesDialogContentState extends ConsumerState<ManageStashesDialogContent> {
+class _ManageStashesDialogContentState
+    extends ConsumerState<ManageStashesDialogContent> {
   int? _selectedIndex;
 
   @override
   void initState() {
     super.initState();
-    Future.microtask(() => ref.read(repoSessionProvider(widget.identity).notifier).refreshStashes());
+    Future.microtask(
+      () => ref
+          .read(repoSessionProvider(widget.identity).notifier)
+          .refreshStashes(),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
-    final RepoSessionState session = ref.watch(repoSessionProvider(widget.identity));
+    final RepoSessionState session = ref.watch(
+      repoSessionProvider(widget.identity),
+    );
     final List<StashEntry> stashes = session.stashes;
     final StashDiffReply? diff = session.lastStashDiff;
 
     return GbmDialogShell(
       title: 'Manage Stashes',
       width: 720,
-      actions: <Widget>[GbmButton(label: 'Close', onPressed: () => context.pop())],
+      actions: <Widget>[
+        GbmButton(label: 'Close', onPressed: () => context.pop()),
+      ],
       child: SizedBox(
         height: 360,
         child: stashes.isEmpty
-            ? Center(child: Text('No stashes', style: TextStyle(color: colors.textTertiary)))
+            ? Center(
+                child: Text(
+                  'No stashes',
+                  style: TextStyle(color: colors.textTertiary),
+                ),
+              )
             : Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
@@ -59,15 +74,29 @@ class _ManageStashesDialogContentState extends ConsumerState<ManageStashesDialog
                             selected: entry.index == _selectedIndex,
                             onTap: () {
                               setState(() => _selectedIndex = entry.index);
-                              ref.read(repoSessionProvider(widget.identity).notifier).requestStashDiff(entry.index);
+                              ref
+                                  .read(
+                                    repoSessionProvider(
+                                      widget.identity,
+                                    ).notifier,
+                                  )
+                                  .requestStashDiff(entry.index);
                             },
-                            onApply: () =>
-                                ref.read(repoSessionProvider(widget.identity).notifier).applyStash(entry.index),
+                            onApply: () => ref
+                                .read(
+                                  repoSessionProvider(widget.identity).notifier,
+                                )
+                                .applyStash(entry.index),
                             onPop: () => ref
-                                .read(repoSessionProvider(widget.identity).notifier)
+                                .read(
+                                  repoSessionProvider(widget.identity).notifier,
+                                )
                                 .applyStash(entry.index, pop: true),
-                            onDrop: () =>
-                                ref.read(repoSessionProvider(widget.identity).notifier).dropStash(entry.index),
+                            onDrop: () => ref
+                                .read(
+                                  repoSessionProvider(widget.identity).notifier,
+                                )
+                                .dropStash(entry.index),
                           ),
                       ],
                     ),
@@ -75,7 +104,12 @@ class _ManageStashesDialogContentState extends ConsumerState<ManageStashesDialog
                   VerticalDivider(width: 1, color: colors.borderSubtle),
                   Expanded(
                     child: _selectedIndex == null
-                        ? Center(child: Text('Select a stash', style: TextStyle(color: colors.textTertiary)))
+                        ? Center(
+                            child: Text(
+                              'Select a stash',
+                              style: TextStyle(color: colors.textTertiary),
+                            ),
+                          )
                         : (diff != null && diff.index == _selectedIndex)
                         ? DiffPage(diff: diff.diff)
                         : const Center(child: CircularProgressIndicator()),
@@ -112,13 +146,20 @@ class _StashRow extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space3, vertical: GbmSpacing.space2),
+          padding: const EdgeInsets.symmetric(
+            horizontal: GbmSpacing.space3,
+            vertical: GbmSpacing.space2,
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               Text(
                 'stash@{${entry.index}}: ${entry.message}',
-                style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textPrimary, fontWeight: GbmTypography.weightMedium),
+                style: TextStyle(
+                  fontSize: GbmTypography.textSm,
+                  color: colors.textPrimary,
+                  fontWeight: GbmTypography.weightMedium,
+                ),
                 overflow: TextOverflow.ellipsis,
               ),
               const SizedBox(height: GbmSpacing.space1),
@@ -154,7 +195,10 @@ class _MiniButton extends StatelessWidget {
         minimumSize: const Size(0, 24),
         foregroundColor: colors.textSecondary,
       ),
-      child: Text(label, style: const TextStyle(fontSize: GbmTypography.textXs)),
+      child: Text(
+        label,
+        style: const TextStyle(fontSize: GbmTypography.textXs),
+      ),
     );
   }
 }

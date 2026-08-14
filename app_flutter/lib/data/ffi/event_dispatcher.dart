@@ -30,11 +30,18 @@ class GbmSessionEvents {
   final GbmBindings _bindings;
   final Pointer<Void> _session;
   late final NativeCallable<GbmEventCallbackNative> _callable;
-  final StreamController<GbmEvent> _controller = StreamController<GbmEvent>.broadcast();
+  final StreamController<GbmEvent> _controller =
+      StreamController<GbmEvent>.broadcast();
 
   Stream<GbmEvent> get events => _controller.stream;
 
-  void _onEvent(Pointer<Void> session, int eventType, Pointer<Uint8> payload, int payloadLen, Pointer<Void> userData) {
+  void _onEvent(
+    Pointer<Void> session,
+    int eventType,
+    Pointer<Uint8> payload,
+    int payloadLen,
+    Pointer<Void> userData,
+  ) {
     Uint8List? bytes;
     if (payload != nullptr) {
       // Copied out before freeing: payload.asTypedList() is a *view* over

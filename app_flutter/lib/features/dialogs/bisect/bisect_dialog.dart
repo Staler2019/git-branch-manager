@@ -18,7 +18,8 @@ class BisectDialogContent extends ConsumerStatefulWidget {
   final RepoIdentity identity;
 
   @override
-  ConsumerState<BisectDialogContent> createState() => _BisectDialogContentState();
+  ConsumerState<BisectDialogContent> createState() =>
+      _BisectDialogContentState();
 }
 
 class _BisectDialogContentState extends ConsumerState<BisectDialogContent> {
@@ -28,7 +29,11 @@ class _BisectDialogContentState extends ConsumerState<BisectDialogContent> {
   @override
   void initState() {
     super.initState();
-    Future.microtask(() => ref.read(repoSessionProvider(widget.identity).notifier).refreshBisectStatus());
+    Future.microtask(
+      () => ref
+          .read(repoSessionProvider(widget.identity).notifier)
+          .refreshBisectStatus(),
+    );
   }
 
   @override
@@ -40,8 +45,14 @@ class _BisectDialogContentState extends ConsumerState<BisectDialogContent> {
 
   @override
   Widget build(BuildContext context) {
-    final BisectStatus status = ref.watch(repoSessionProvider(widget.identity).select((state) => state.bisectStatus));
-    final RepoSessionController notifier = ref.read(repoSessionProvider(widget.identity).notifier);
+    final BisectStatus status = ref.watch(
+      repoSessionProvider(
+        widget.identity,
+      ).select((state) => state.bisectStatus),
+    );
+    final RepoSessionController notifier = ref.read(
+      repoSessionProvider(widget.identity).notifier,
+    );
 
     final Widget body = status.active
         ? _ActiveBisect(status: status, notifier: notifier)
@@ -62,14 +73,20 @@ class _BisectDialogContentState extends ConsumerState<BisectDialogContent> {
     return GbmDialogShell(
       title: 'Bisect',
       width: 560,
-      actions: <Widget>[GbmButton(label: 'Close', onPressed: () => context.pop())],
+      actions: <Widget>[
+        GbmButton(label: 'Close', onPressed: () => context.pop()),
+      ],
       child: body,
     );
   }
 }
 
 class _StartBisectForm extends StatelessWidget {
-  const _StartBisectForm({required this.badRefController, required this.goodRefsController, required this.onStart});
+  const _StartBisectForm({
+    required this.badRefController,
+    required this.goodRefsController,
+    required this.onStart,
+  });
 
   final TextEditingController badRefController;
   final TextEditingController goodRefsController;
@@ -82,22 +99,49 @@ class _StartBisectForm extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        Text('Bad commit', style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textSecondary)),
+        Text(
+          'Bad commit',
+          style: TextStyle(
+            fontSize: GbmTypography.textSm,
+            color: colors.textSecondary,
+          ),
+        ),
         const SizedBox(height: GbmSpacing.space1),
         TextField(
           controller: badRefController,
-          decoration: const InputDecoration(hintText: 'HEAD', isDense: true, border: OutlineInputBorder()),
+          decoration: const InputDecoration(
+            hintText: 'HEAD',
+            isDense: true,
+            border: OutlineInputBorder(),
+          ),
         ),
         const SizedBox(height: GbmSpacing.space3),
-        Text('Good commit(s), one per line', style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textSecondary)),
+        Text(
+          'Good commit(s), one per line',
+          style: TextStyle(
+            fontSize: GbmTypography.textSm,
+            color: colors.textSecondary,
+          ),
+        ),
         const SizedBox(height: GbmSpacing.space1),
         TextField(
           controller: goodRefsController,
           maxLines: 3,
-          decoration: const InputDecoration(hintText: 'v1.0.0', isDense: true, border: OutlineInputBorder()),
+          decoration: const InputDecoration(
+            hintText: 'v1.0.0',
+            isDense: true,
+            border: OutlineInputBorder(),
+          ),
         ),
         const SizedBox(height: GbmSpacing.space3),
-        Align(alignment: Alignment.centerRight, child: GbmButton(label: 'Start Bisect', kind: GbmButtonKind.primary, onPressed: onStart)),
+        Align(
+          alignment: Alignment.centerRight,
+          child: GbmButton(
+            label: 'Start Bisect',
+            kind: GbmButtonKind.primary,
+            onPressed: onStart,
+          ),
+        ),
       ],
     );
   }
@@ -116,17 +160,36 @@ class _ActiveBisect extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        _StatusRow(label: 'Currently testing', value: status.currentOid, colors: colors),
+        _StatusRow(
+          label: 'Currently testing',
+          value: status.currentOid,
+          colors: colors,
+        ),
         _StatusRow(label: 'Bad', value: status.badOid, colors: colors),
-        _StatusRow(label: 'Good (${status.goodOids.length})', value: status.goodOids.join(', '), colors: colors),
+        _StatusRow(
+          label: 'Good (${status.goodOids.length})',
+          value: status.goodOids.join(', '),
+          colors: colors,
+        ),
         if (status.skippedOids.isNotEmpty)
-          _StatusRow(label: 'Skipped (${status.skippedOids.length})', value: status.skippedOids.join(', '), colors: colors),
+          _StatusRow(
+            label: 'Skipped (${status.skippedOids.length})',
+            value: status.skippedOids.join(', '),
+            colors: colors,
+          ),
         const SizedBox(height: GbmSpacing.space3),
         Row(
           children: <Widget>[
-            GbmButton(label: 'Mark Good', kind: GbmButtonKind.primary, onPressed: () => notifier.markBisect(good: true)),
+            GbmButton(
+              label: 'Mark Good',
+              kind: GbmButtonKind.primary,
+              onPressed: () => notifier.markBisect(good: true),
+            ),
             const SizedBox(width: GbmSpacing.space2),
-            GbmButton(label: 'Mark Bad', onPressed: () => notifier.markBisect(good: false)),
+            GbmButton(
+              label: 'Mark Bad',
+              onPressed: () => notifier.markBisect(good: false),
+            ),
             const SizedBox(width: GbmSpacing.space2),
             GbmButton(label: 'Skip', onPressed: () => notifier.skipBisect()),
             const Spacer(),
@@ -135,14 +198,24 @@ class _ActiveBisect extends StatelessWidget {
         ),
         if (status.logText.isNotEmpty) ...<Widget>[
           const SizedBox(height: GbmSpacing.space3),
-          Text('Log', style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textSecondary)),
+          Text(
+            'Log',
+            style: TextStyle(
+              fontSize: GbmTypography.textSm,
+              color: colors.textSecondary,
+            ),
+          ),
           const SizedBox(height: GbmSpacing.space1),
           SizedBox(
             height: 120,
             child: SingleChildScrollView(
               child: SelectableText(
                 status.logText,
-                style: TextStyle(fontFamily: 'monospace', fontSize: GbmTypography.textXs, color: colors.textTertiary),
+                style: TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: GbmTypography.textXs,
+                  color: colors.textTertiary,
+                ),
               ),
             ),
           ),
@@ -153,7 +226,11 @@ class _ActiveBisect extends StatelessWidget {
 }
 
 class _StatusRow extends StatelessWidget {
-  const _StatusRow({required this.label, required this.value, required this.colors});
+  const _StatusRow({
+    required this.label,
+    required this.value,
+    required this.colors,
+  });
 
   final String label;
   final String value;
@@ -165,11 +242,24 @@ class _StatusRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         children: <Widget>[
-          SizedBox(width: 140, child: Text(label, style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textSecondary))),
+          SizedBox(
+            width: 140,
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: GbmTypography.textSm,
+                color: colors.textSecondary,
+              ),
+            ),
+          ),
           Expanded(
             child: Text(
               value.isEmpty ? '—' : value,
-              style: TextStyle(fontFamily: 'monospace', fontSize: GbmTypography.textSm, color: colors.textPrimary),
+              style: TextStyle(
+                fontFamily: 'monospace',
+                fontSize: GbmTypography.textSm,
+                color: colors.textPrimary,
+              ),
               overflow: TextOverflow.ellipsis,
             ),
           ),

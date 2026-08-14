@@ -21,12 +21,14 @@ class FileHistoryEntry {
     );
   }
 
-  static List<FileHistoryEntry> listFromJson(List<dynamic> json) =>
-      json.map((e) => FileHistoryEntry.fromJson(e as Map<String, dynamic>)).toList(growable: false);
+  static List<FileHistoryEntry> listFromJson(List<dynamic> json) => json
+      .map((e) => FileHistoryEntry.fromJson(e as Map<String, dynamic>))
+      .toList(growable: false);
 
   final String oid;
   final Signature author;
   final String subject;
+
   /// Raw `--name-status` code: A, M, D, or R###/C### for a rename/copy.
   final String status;
   final String renamedFrom;

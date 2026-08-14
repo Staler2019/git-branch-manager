@@ -1,7 +1,12 @@
 /// Mirrors `gbm::StashEntry` (src/core/git/ops/StashOps.h) as serialized by
 /// `capi::toJson(const StashEntry&)`.
 class StashEntry {
-  const StashEntry({required this.index, required this.message, required this.oid, required this.timestamp});
+  const StashEntry({
+    required this.index,
+    required this.message,
+    required this.oid,
+    required this.timestamp,
+  });
 
   factory StashEntry.fromJson(Map<String, dynamic> json) {
     return StashEntry(
@@ -12,8 +17,9 @@ class StashEntry {
     );
   }
 
-  static List<StashEntry> listFromJson(List<dynamic> json) =>
-      json.map((e) => StashEntry.fromJson(e as Map<String, dynamic>)).toList(growable: false);
+  static List<StashEntry> listFromJson(List<dynamic> json) => json
+      .map((e) => StashEntry.fromJson(e as Map<String, dynamic>))
+      .toList(growable: false);
 
   final int index;
   final String message;

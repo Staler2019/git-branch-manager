@@ -15,7 +15,9 @@ class OperationOutcome {
     final Object? error = json['error'];
     return OperationOutcome(
       succeeded: json['succeeded'] as bool,
-      error: error == null ? null : GitError.fromJson(error as Map<String, dynamic>),
+      error: error == null
+          ? null
+          : GitError.fromJson(error as Map<String, dynamic>),
       choices: OperationChoice.listFromJson(json['choices'] as List<dynamic>),
       summary: json['summary'] as String,
     );
@@ -23,6 +25,7 @@ class OperationOutcome {
 
   final bool succeeded;
   final GitError? error;
+
   /// Populated when the failure is recoverable by choosing one of these
   /// (e.g. "Stash changes and checkout"). Empty otherwise.
   final List<OperationChoice> choices;

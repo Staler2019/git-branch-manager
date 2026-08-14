@@ -23,7 +23,9 @@ class SideBySideDiffView extends StatelessWidget {
     final GbmColors colors = context.gbmColors;
 
     if (diff.files.isEmpty) {
-      return Center(child: Text('No changes', style: TextStyle(color: colors.textTertiary)));
+      return Center(
+        child: Text('No changes', style: TextStyle(color: colors.textTertiary)),
+      );
     }
 
     return ListView(
@@ -46,7 +48,13 @@ class _SideBySideFileSection extends StatelessWidget {
     if (file.binary) {
       return Padding(
         padding: const EdgeInsets.all(GbmSpacing.space3),
-        child: Text('${file.displayPath} (binary file)', style: TextStyle(color: colors.textTertiary, fontSize: GbmTypography.textSm)),
+        child: Text(
+          '${file.displayPath} (binary file)',
+          style: TextStyle(
+            color: colors.textTertiary,
+            fontSize: GbmTypography.textSm,
+          ),
+        ),
       );
     }
 
@@ -74,10 +82,17 @@ class _SideBySideHunkSection extends StatelessWidget {
       children: <Widget>[
         Container(
           color: colors.surfaceSunken,
-          padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space3, vertical: 2),
+          padding: const EdgeInsets.symmetric(
+            horizontal: GbmSpacing.space3,
+            vertical: 2,
+          ),
           child: Text(
             '@@ -${hunk.oldStart},${hunk.oldCount} +${hunk.newStart},${hunk.newCount} @@ ${hunk.heading}',
-            style: TextStyle(fontFamily: GbmTypography.fontMono, fontSize: GbmTypography.textXs, color: colors.textTertiary),
+            style: TextStyle(
+              fontFamily: GbmTypography.fontMono,
+              fontSize: GbmTypography.textXs,
+              color: colors.textTertiary,
+            ),
           ),
         ),
         for (final row in rows)
@@ -123,13 +138,18 @@ class _SideBySideCell extends StatelessWidget {
       DiffLineKind.noNewlineMarker => 'no newline at end of file',
       DiffLineKind.context => 'unchanged',
     };
-    final int lineNumber = line.kind == DiffLineKind.removed ? line.oldLine : line.newLine;
+    final int lineNumber = line.kind == DiffLineKind.removed
+        ? line.oldLine
+        : line.newLine;
 
     return Semantics(
       label: '$kindLabel line ${line.text}',
       child: Container(
         color: background,
-        padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2, vertical: 1),
+        padding: const EdgeInsets.symmetric(
+          horizontal: GbmSpacing.space2,
+          vertical: 1,
+        ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
@@ -138,14 +158,23 @@ class _SideBySideCell extends StatelessWidget {
               child: Text(
                 lineNumber == 0 ? '' : '$lineNumber',
                 textAlign: TextAlign.right,
-                style: TextStyle(fontFamily: GbmTypography.fontMono, fontSize: GbmTypography.textXs, color: colors.textTertiary),
+                style: TextStyle(
+                  fontFamily: GbmTypography.fontMono,
+                  fontSize: GbmTypography.textXs,
+                  color: colors.textTertiary,
+                ),
               ),
             ),
             const SizedBox(width: GbmSpacing.space2),
             Expanded(
               child: Text(
                 line.text,
-                style: TextStyle(fontFamily: GbmTypography.fontMono, fontSize: GbmTypography.textSm, color: textColor, height: 1.6),
+                style: TextStyle(
+                  fontFamily: GbmTypography.fontMono,
+                  fontSize: GbmTypography.textSm,
+                  color: textColor,
+                  height: 1.6,
+                ),
               ),
             ),
           ],

@@ -48,7 +48,8 @@ class ConflictResolveWindow extends ConsumerStatefulWidget {
   final RepoIdentity identity;
 
   @override
-  ConsumerState<ConflictResolveWindow> createState() => _ConflictResolveWindowState();
+  ConsumerState<ConflictResolveWindow> createState() =>
+      _ConflictResolveWindowState();
 }
 
 class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
@@ -82,13 +83,18 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
       _resultController = null;
       _resultSeeded = false;
     });
-    ref.read(repoSessionProvider(widget.identity).notifier).requestWorkingTreeContent(path);
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .requestWorkingTreeContent(path);
     wc.requestWorkingCopyDiff(ref, widget.identity, path);
   }
 
   void _applyParsedContentIfNeeded(RepoSessionState session) {
     final WorkingTreeContentReply? reply = session.lastWorkingTreeContent;
-    if (reply == null || reply.path != _selectedPath || _parsedForPath == reply.path) return;
+    if (reply == null ||
+        reply.path != _selectedPath ||
+        _parsedForPath == reply.path)
+      return;
     if (!reply.editable) {
       setState(() => _parsedForPath = reply.path);
       return;
@@ -99,15 +105,22 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
     setState(() {
       _parsedForPath = reply.path;
       _parsed = parsed;
-      _resolutions = List<ConflictRegionChoice>.filled(parsed.regionCount, ConflictRegionChoice.unresolved);
+      _resolutions = List<ConflictRegionChoice>.filled(
+        parsed.regionCount,
+        ConflictRegionChoice.unresolved,
+      );
     });
   }
 
-  bool get _allResolved => _resolutions.isNotEmpty && _resolutions.every((r) => r != ConflictRegionChoice.unresolved);
+  bool get _allResolved =>
+      _resolutions.isNotEmpty &&
+      _resolutions.every((r) => r != ConflictRegionChoice.unresolved);
 
   void _setRegionChoice(int regionIndex, ConflictRegionChoice choice) {
     setState(() {
-      final List<ConflictRegionChoice> updated = List<ConflictRegionChoice>.of(_resolutions);
+      final List<ConflictRegionChoice> updated = List<ConflictRegionChoice>.of(
+        _resolutions,
+      );
       updated[regionIndex] = choice;
       _resolutions = updated;
       if (!_allResolved) {
@@ -118,11 +131,15 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
     });
   }
 
-  void _resetRegion(int regionIndex) => _setRegionChoice(regionIndex, ConflictRegionChoice.unresolved);
+  void _resetRegion(int regionIndex) =>
+      _setRegionChoice(regionIndex, ConflictRegionChoice.unresolved);
 
   void _ensureResultSeeded() {
     if (_resultSeeded || _parsed == null) return;
-    final String? assembled = assembleConflictResolution(_parsed!, _resolutions);
+    final String? assembled = assembleConflictResolution(
+      _parsed!,
+      _resolutions,
+    );
     if (assembled == null) return;
     _resultController = TextEditingController(text: assembled);
     _resultSeeded = true;
@@ -134,43 +151,63 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
     if (path == null || controller == null) return;
     ref
         .read(repoSessionProvider(widget.identity).notifier)
-        .resolveConflict(path, ConflictResolution.writeResolved, resolvedContent: controller.text);
+        .resolveConflict(
+          path,
+          ConflictResolution.writeResolved,
+          resolvedContent: controller.text,
+        );
   }
 
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
-    final RepoSessionState session = ref.watch(repoSessionProvider(widget.identity));
+    final RepoSessionState session = ref.watch(
+      repoSessionProvider(widget.identity),
+    );
     final String repoId = Uri.encodeComponent(widget.identity.workDir);
 
     if (!session.isOpen) {
       return Scaffold(
-        appBar: AppBar(leading: BackButton(onPressed: () => context.go(RoutePaths.repoList))),
+        appBar: AppBar(
+          leading: BackButton(onPressed: () => context.go(RoutePaths.repoList)),
+        ),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
 
-    final List<WorkingCopyEntry> conflicted = session.workingCopyStatus.conflicted;
+    final List<WorkingCopyEntry> conflicted =
+        session.workingCopyStatus.conflicted;
     _batch.merge(conflicted);
     _applyParsedContentIfNeeded(session);
     if (_allResolved) _ensureResultSeeded();
 
     return Scaffold(
       appBar: AppBar(
-        leading: BackButton(onPressed: () => context.go(RoutePaths.workingCopyFor(repoId))),
+        leading: BackButton(
+          onPressed: () => context.go(RoutePaths.workingCopyFor(repoId)),
+        ),
         title: const Text('Resolve Conflicts'),
       ),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          if (session.repoState case final state? when state.isMerging || state.isCherryPicking || state.isReverting)
+          if (session.repoState case final state?
+              when state.isMerging ||
+                  state.isCherryPicking ||
+                  state.isReverting)
             _SequencerBanner(identity: widget.identity, state: state),
           if (session.lastError case final error?)
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(GbmSpacing.space2),
               color: colors.diffDelBg,
-              child: Text(error.message, style: TextStyle(color: colors.diffDelText, fontSize: GbmTypography.textSm)),
+              child: Text(
+                error.message,
+                style: TextStyle(
+                  color: colors.diffDelText,
+                  fontSize: GbmTypography.textSm,
+                ),
+              ),
             ),
           Expanded(
             child: _batch.entries.isEmpty
@@ -178,12 +215,16 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: <Widget>[
-                        Text('No conflicts remaining.', style: TextStyle(color: colors.textSecondary)),
+                        Text(
+                          'No conflicts remaining.',
+                          style: TextStyle(color: colors.textSecondary),
+                        ),
                         const SizedBox(height: GbmSpacing.space3),
                         GbmButton(
                           label: 'Go to Working Copy',
                           kind: GbmButtonKind.primary,
-                          onPressed: () => context.go(RoutePaths.workingCopyFor(repoId)),
+                          onPressed: () =>
+                              context.go(RoutePaths.workingCopyFor(repoId)),
                         ),
                       ],
                     ),
@@ -197,10 +238,16 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: <Widget>[
                             Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space3, vertical: GbmSpacing.space1),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: GbmSpacing.space3,
+                                vertical: GbmSpacing.space1,
+                              ),
                               child: Text(
                                 '${_batch.resolvedCount} of ${_batch.entries.length} resolved',
-                                style: TextStyle(fontSize: GbmTypography.textXs, color: colors.textTertiary),
+                                style: TextStyle(
+                                  fontSize: GbmTypography.textXs,
+                                  color: colors.textTertiary,
+                                ),
                               ),
                             ),
                             Expanded(
@@ -214,30 +261,54 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
                                       onTakeOurs: () {
                                         final WorkingCopyEntry? wc = conflicted
                                             .cast<WorkingCopyEntry?>()
-                                            .firstWhere((e) => e?.path == entry.path, orElse: () => null);
+                                            .firstWhere(
+                                              (e) => e?.path == entry.path,
+                                              orElse: () => null,
+                                            );
                                         ref
-                                            .read(repoSessionProvider(widget.identity).notifier)
+                                            .read(
+                                              repoSessionProvider(
+                                                widget.identity,
+                                              ).notifier,
+                                            )
                                             .resolveConflict(
                                               entry.path,
                                               ConflictResolution.takeOurs,
-                                              oursBlobMissing: wc?.oursBlob.isEmpty ?? false,
+                                              oursBlobMissing:
+                                                  wc?.oursBlob.isEmpty ?? false,
                                             );
                                       },
                                       onTakeTheirs: () {
                                         final WorkingCopyEntry? wc = conflicted
                                             .cast<WorkingCopyEntry?>()
-                                            .firstWhere((e) => e?.path == entry.path, orElse: () => null);
+                                            .firstWhere(
+                                              (e) => e?.path == entry.path,
+                                              orElse: () => null,
+                                            );
                                         ref
-                                            .read(repoSessionProvider(widget.identity).notifier)
+                                            .read(
+                                              repoSessionProvider(
+                                                widget.identity,
+                                              ).notifier,
+                                            )
                                             .resolveConflict(
                                               entry.path,
                                               ConflictResolution.takeTheirs,
-                                              theirsBlobMissing: wc?.theirsBlob.isEmpty ?? false,
+                                              theirsBlobMissing:
+                                                  wc?.theirsBlob.isEmpty ??
+                                                  false,
                                             );
                                       },
                                       onMarkResolved: () => ref
-                                          .read(repoSessionProvider(widget.identity).notifier)
-                                          .resolveConflict(entry.path, ConflictResolution.markResolved),
+                                          .read(
+                                            repoSessionProvider(
+                                              widget.identity,
+                                            ).notifier,
+                                          )
+                                          .resolveConflict(
+                                            entry.path,
+                                            ConflictResolution.markResolved,
+                                          ),
                                     ),
                                 ],
                               ),
@@ -248,7 +319,12 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
                       VerticalDivider(width: 1, color: colors.borderSubtle),
                       Expanded(
                         child: _selectedPath == null
-                            ? Center(child: Text('Select a file', style: TextStyle(color: colors.textTertiary)))
+                            ? Center(
+                                child: Text(
+                                  'Select a file',
+                                  style: TextStyle(color: colors.textTertiary),
+                                ),
+                              )
                             : _buildEditor(context),
                       ),
                     ],
@@ -290,7 +366,10 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
             children: <Widget>[
               Text(
                 '${parsed.regionCount} region${parsed.regionCount == 1 ? '' : 's'}',
-                style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textSecondary),
+                style: TextStyle(
+                  fontSize: GbmTypography.textSm,
+                  color: colors.textSecondary,
+                ),
               ),
               const Spacer(),
               if (anyHasBase)
@@ -299,10 +378,17 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
                   children: <Widget>[
                     Checkbox(
                       value: _showAncestor,
-                      onChanged: (value) => setState(() => _showAncestor = value ?? false),
+                      onChanged: (value) =>
+                          setState(() => _showAncestor = value ?? false),
                       visualDensity: VisualDensity.compact,
                     ),
-                    Text('Show ancestor', style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textSecondary)),
+                    Text(
+                      'Show ancestor',
+                      style: TextStyle(
+                        fontSize: GbmTypography.textSm,
+                        color: colors.textSecondary,
+                      ),
+                    ),
                   ],
                 ),
             ],
@@ -317,22 +403,40 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
         if (_allResolved && _resultController != null)
           Container(
             padding: const EdgeInsets.all(GbmSpacing.space2),
-            decoration: BoxDecoration(border: Border(top: BorderSide(color: colors.borderSubtle))),
+            decoration: BoxDecoration(
+              border: Border(top: BorderSide(color: colors.borderSubtle)),
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                Text('Result (editable)', style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textSecondary)),
+                Text(
+                  'Result (editable)',
+                  style: TextStyle(
+                    fontSize: GbmTypography.textSm,
+                    color: colors.textSecondary,
+                  ),
+                ),
                 const SizedBox(height: GbmSpacing.space1),
                 TextField(
                   controller: _resultController,
                   maxLines: 8,
-                  style: TextStyle(fontFamily: GbmTypography.fontMono, fontSize: GbmTypography.textSm),
-                  decoration: const InputDecoration(isDense: true, border: OutlineInputBorder()),
+                  style: TextStyle(
+                    fontFamily: GbmTypography.fontMono,
+                    fontSize: GbmTypography.textSm,
+                  ),
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    border: OutlineInputBorder(),
+                  ),
                 ),
                 const SizedBox(height: GbmSpacing.space2),
                 Align(
                   alignment: Alignment.centerRight,
-                  child: GbmButton(label: 'Save', kind: GbmButtonKind.primary, onPressed: _save),
+                  child: GbmButton(
+                    label: 'Save',
+                    kind: GbmButtonKind.primary,
+                    onPressed: _save,
+                  ),
                 ),
               ],
             ),
@@ -361,8 +465,10 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
           segment: segment,
           choice: _resolutions[thisRegion],
           showAncestor: _showAncestor,
-          onTakeOurs: () => _setRegionChoice(thisRegion, ConflictRegionChoice.ours),
-          onTakeTheirs: () => _setRegionChoice(thisRegion, ConflictRegionChoice.theirs),
+          onTakeOurs: () =>
+              _setRegionChoice(thisRegion, ConflictRegionChoice.ours),
+          onTakeTheirs: () =>
+              _setRegionChoice(thisRegion, ConflictRegionChoice.theirs),
           onReset: () => _resetRegion(thisRegion),
         ),
       );
@@ -388,13 +494,28 @@ class _SequencerBanner extends ConsumerWidget {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space3, vertical: GbmSpacing.space2),
+      padding: const EdgeInsets.symmetric(
+        horizontal: GbmSpacing.space3,
+        vertical: GbmSpacing.space2,
+      ),
       color: colors.surfacePanelRaised,
       child: Row(
         children: <Widget>[
-          Expanded(child: Text(label, style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textPrimary))),
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: GbmTypography.textSm,
+                color: colors.textPrimary,
+              ),
+            ),
+          ),
           if (state.isMerging)
-            GbmButton(label: 'Abort Merge', onPressed: () => ref.read(repoSessionProvider(identity).notifier).mergeAbort()),
+            GbmButton(
+              label: 'Abort Merge',
+              onPressed: () =>
+                  ref.read(repoSessionProvider(identity).notifier).mergeAbort(),
+            ),
         ],
       ),
     );
@@ -427,7 +548,10 @@ class _ConflictRailRow extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space3, vertical: GbmSpacing.space2),
+          padding: const EdgeInsets.symmetric(
+            horizontal: GbmSpacing.space3,
+            vertical: GbmSpacing.space2,
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
@@ -446,7 +570,9 @@ class _ConflictRailRow extends StatelessWidget {
                         fontSize: GbmTypography.textSm,
                         color: colors.textPrimary,
                         fontWeight: GbmTypography.weightMedium,
-                        decoration: resolved ? TextDecoration.lineThrough : null,
+                        decoration: resolved
+                            ? TextDecoration.lineThrough
+                            : null,
                       ),
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -460,7 +586,10 @@ class _ConflictRailRow extends StatelessWidget {
                   children: <Widget>[
                     _MiniButton(label: 'Take Ours', onPressed: onTakeOurs),
                     _MiniButton(label: 'Take Theirs', onPressed: onTakeTheirs),
-                    _MiniButton(label: 'Mark Resolved', onPressed: onMarkResolved),
+                    _MiniButton(
+                      label: 'Mark Resolved',
+                      onPressed: onMarkResolved,
+                    ),
                   ],
                 ),
               ],
@@ -488,7 +617,10 @@ class _MiniButton extends StatelessWidget {
         minimumSize: const Size(0, 24),
         foregroundColor: colors.textSecondary,
       ),
-      child: Text(label, style: const TextStyle(fontSize: GbmTypography.textXs)),
+      child: Text(
+        label,
+        style: const TextStyle(fontSize: GbmTypography.textXs),
+      ),
     );
   }
 }
@@ -506,7 +638,11 @@ class _ContextBlock extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 1),
       child: Text(
         text,
-        style: TextStyle(fontFamily: GbmTypography.fontMono, fontSize: GbmTypography.textSm, color: colors.textTertiary),
+        style: TextStyle(
+          fontFamily: GbmTypography.fontMono,
+          fontSize: GbmTypography.textSm,
+          color: colors.textTertiary,
+        ),
       ),
     );
   }
@@ -546,7 +682,11 @@ class _RegionEditor extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.symmetric(vertical: GbmSpacing.space1),
       decoration: BoxDecoration(
-        border: Border.all(color: resolved ? colors.borderSubtle : colors.danger.withValues(alpha: 0.5)),
+        border: Border.all(
+          color: resolved
+              ? colors.borderSubtle
+              : colors.danger.withValues(alpha: 0.5),
+        ),
         borderRadius: BorderRadius.circular(GbmSpacing.radiusSm),
       ),
       child: Column(
@@ -554,30 +694,55 @@ class _RegionEditor extends StatelessWidget {
         children: <Widget>[
           Container(
             color: colors.surfaceSunken,
-            padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2, vertical: 2),
+            padding: const EdgeInsets.symmetric(
+              horizontal: GbmSpacing.space2,
+              vertical: 2,
+            ),
             child: Row(
               children: <Widget>[
                 Text(
                   'Region ${index + 1} of $total',
-                  style: TextStyle(fontSize: GbmTypography.textXs, fontWeight: GbmTypography.weightSemibold, color: colors.textSecondary),
+                  style: TextStyle(
+                    fontSize: GbmTypography.textXs,
+                    fontWeight: GbmTypography.weightSemibold,
+                    color: colors.textSecondary,
+                  ),
                 ),
                 const SizedBox(width: GbmSpacing.space2),
                 Text(
-                  resolved ? (choice == ConflictRegionChoice.ours ? 'Using ours' : 'Using theirs') : 'Unresolved',
-                  style: TextStyle(fontSize: GbmTypography.textXs, color: resolved ? colors.diffAddText : colors.danger),
+                  resolved
+                      ? (choice == ConflictRegionChoice.ours
+                            ? 'Using ours'
+                            : 'Using theirs')
+                      : 'Unresolved',
+                  style: TextStyle(
+                    fontSize: GbmTypography.textXs,
+                    color: resolved ? colors.diffAddText : colors.danger,
+                  ),
                 ),
                 const Spacer(),
                 if (resolved)
                   TextButton(
                     onPressed: onReset,
-                    style: TextButton.styleFrom(minimumSize: const Size(0, 24), foregroundColor: colors.textSecondary),
-                    child: const Text('Reset', style: TextStyle(fontSize: GbmTypography.textXs)),
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size(0, 24),
+                      foregroundColor: colors.textSecondary,
+                    ),
+                    child: const Text(
+                      'Reset',
+                      style: TextStyle(fontSize: GbmTypography.textXs),
+                    ),
                   ),
               ],
             ),
           ),
           if (showAncestor && segment.hasBase)
-            _SidePane(label: 'Ancestor', lines: segment.base, background: colors.surfaceSunken, onTake: null),
+            _SidePane(
+              label: 'Ancestor',
+              lines: segment.base,
+              background: colors.surfaceSunken,
+              onTake: null,
+            ),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
@@ -585,7 +750,9 @@ class _RegionEditor extends StatelessWidget {
                 child: _SidePane(
                   label: 'Ours',
                   lines: segment.ours,
-                  background: choice == ConflictRegionChoice.ours ? colors.diffAddBg : null,
+                  background: choice == ConflictRegionChoice.ours
+                      ? colors.diffAddBg
+                      : null,
                   onTake: onTakeOurs,
                 ),
               ),
@@ -594,7 +761,9 @@ class _RegionEditor extends StatelessWidget {
                 child: _SidePane(
                   label: 'Theirs',
                   lines: segment.theirs,
-                  background: choice == ConflictRegionChoice.theirs ? colors.diffAddBg : null,
+                  background: choice == ConflictRegionChoice.theirs
+                      ? colors.diffAddBg
+                      : null,
                   onTake: onTakeTheirs,
                 ),
               ),
@@ -607,7 +776,12 @@ class _RegionEditor extends StatelessWidget {
 }
 
 class _SidePane extends StatelessWidget {
-  const _SidePane({required this.label, required this.lines, required this.background, required this.onTake});
+  const _SidePane({
+    required this.label,
+    required this.lines,
+    required this.background,
+    required this.onTake,
+  });
 
   final String label;
   final List<String> lines;
@@ -625,13 +799,27 @@ class _SidePane extends StatelessWidget {
         children: <Widget>[
           Row(
             children: <Widget>[
-              Text(label, style: TextStyle(fontSize: GbmTypography.textXs, fontWeight: GbmTypography.weightMedium, color: colors.textTertiary)),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: GbmTypography.textXs,
+                  fontWeight: GbmTypography.weightMedium,
+                  color: colors.textTertiary,
+                ),
+              ),
               if (onTake != null) ...<Widget>[
                 const Spacer(),
                 TextButton(
                   onPressed: onTake,
-                  style: TextButton.styleFrom(minimumSize: const Size(0, 20), padding: EdgeInsets.zero, foregroundColor: colors.accent),
-                  child: Text('Take $label', style: const TextStyle(fontSize: GbmTypography.textXs)),
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(0, 20),
+                    padding: EdgeInsets.zero,
+                    foregroundColor: colors.accent,
+                  ),
+                  child: Text(
+                    'Take $label',
+                    style: const TextStyle(fontSize: GbmTypography.textXs),
+                  ),
                 ),
               ],
             ],

@@ -31,7 +31,9 @@ List<SideBySideRow> pairHunkForSideBySide(DiffHunk hunk) {
   final List<DiffLine> addedRun = <DiffLine>[];
 
   void flushRun() {
-    final int n = removedRun.length > addedRun.length ? removedRun.length : addedRun.length;
+    final int n = removedRun.length > addedRun.length
+        ? removedRun.length
+        : addedRun.length;
     for (int i = 0; i < n; i++) {
       rows.add(
         SideBySideRow(

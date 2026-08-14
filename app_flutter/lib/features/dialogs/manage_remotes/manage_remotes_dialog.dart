@@ -22,14 +22,20 @@ class ManageRemotesDialogContent extends ConsumerStatefulWidget {
   final RepoIdentity identity;
 
   @override
-  ConsumerState<ManageRemotesDialogContent> createState() => _ManageRemotesDialogContentState();
+  ConsumerState<ManageRemotesDialogContent> createState() =>
+      _ManageRemotesDialogContentState();
 }
 
-class _ManageRemotesDialogContentState extends ConsumerState<ManageRemotesDialogContent> {
+class _ManageRemotesDialogContentState
+    extends ConsumerState<ManageRemotesDialogContent> {
   @override
   void initState() {
     super.initState();
-    Future.microtask(() => ref.read(repoSessionProvider(widget.identity).notifier).refreshRemotes());
+    Future.microtask(
+      () => ref
+          .read(repoSessionProvider(widget.identity).notifier)
+          .refreshRemotes(),
+    );
   }
 
   @override
@@ -42,14 +48,22 @@ class _ManageRemotesDialogContentState extends ConsumerState<ManageRemotesDialog
     return GbmDialogShell(
       title: 'Remotes',
       width: 640,
-      actions: <Widget>[GbmButton(label: 'Close', onPressed: () => context.pop())],
+      actions: <Widget>[
+        GbmButton(label: 'Close', onPressed: () => context.pop()),
+      ],
       child: SizedBox(
         height: 280,
         child: remotes.isEmpty
-            ? Center(child: Text('No remotes configured', style: TextStyle(color: colors.textTertiary)))
+            ? Center(
+                child: Text(
+                  'No remotes configured',
+                  style: TextStyle(color: colors.textTertiary),
+                ),
+              )
             : ListView(
                 children: <Widget>[
-                  for (final remote in remotes) _RemoteRow(identity: widget.identity, remote: remote),
+                  for (final remote in remotes)
+                    _RemoteRow(identity: widget.identity, remote: remote),
                 ],
               ),
       ),
@@ -74,22 +88,60 @@ class _RemoteRow extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Text(remote.name, style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textPrimary, fontWeight: GbmTypography.weightMedium)),
-                Text(remote.fetchUrl, style: TextStyle(fontSize: GbmTypography.textXs, color: colors.textTertiary), overflow: TextOverflow.ellipsis),
+                Text(
+                  remote.name,
+                  style: TextStyle(
+                    fontSize: GbmTypography.textSm,
+                    color: colors.textPrimary,
+                    fontWeight: GbmTypography.weightMedium,
+                  ),
+                ),
+                Text(
+                  remote.fetchUrl,
+                  style: TextStyle(
+                    fontSize: GbmTypography.textXs,
+                    color: colors.textTertiary,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
               ],
             ),
           ),
           TextButton(
-            onPressed: () => ref.read(repoSessionProvider(identity).notifier).fetchRemote(remoteName: remote.name, prune: true),
-            child: Text('Fetch', style: TextStyle(fontSize: GbmTypography.textXs, color: colors.textSecondary)),
+            onPressed: () => ref
+                .read(repoSessionProvider(identity).notifier)
+                .fetchRemote(remoteName: remote.name, prune: true),
+            child: Text(
+              'Fetch',
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                color: colors.textSecondary,
+              ),
+            ),
           ),
           TextButton(
-            onPressed: () => ref.read(repoSessionProvider(identity).notifier).pullChanges(remoteName: remote.name),
-            child: Text('Pull', style: TextStyle(fontSize: GbmTypography.textXs, color: colors.textSecondary)),
+            onPressed: () => ref
+                .read(repoSessionProvider(identity).notifier)
+                .pullChanges(remoteName: remote.name),
+            child: Text(
+              'Pull',
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                color: colors.textSecondary,
+              ),
+            ),
           ),
           TextButton(
-            onPressed: () => ref.read(repoSessionProvider(identity).notifier).pushChanges(remoteName: remote.name),
-            child: Text('Push', style: TextStyle(fontSize: GbmTypography.textXs, color: colors.textSecondary)),
+            onPressed: () => ref
+                .read(repoSessionProvider(identity).notifier)
+                .pushChanges(remoteName: remote.name),
+            child: Text(
+              'Push',
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                color: colors.textSecondary,
+              ),
+            ),
           ),
         ],
       ),

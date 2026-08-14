@@ -8,7 +8,12 @@ import '../theme/tokens.dart';
 /// `.gbm-tag`/`.gbm-tag-branch`/`.gbm-tag-branch.current`/`.gbm-tag-tag`
 /// (docs/design/tokens-reference.md's components.css).
 class GbmTagChip extends StatelessWidget {
-  const GbmTagChip({super.key, required this.label, required this.kind, this.isCurrent = false});
+  const GbmTagChip({
+    super.key,
+    required this.label,
+    required this.kind,
+    this.isCurrent = false,
+  });
 
   final String label;
   final RefKind kind;
@@ -16,7 +21,11 @@ class GbmTagChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final RefChipColors chip = refChipColorsFor(context.gbmColors, kind, isCurrent: isCurrent);
+    final RefChipColors chip = refChipColorsFor(
+      context.gbmColors,
+      kind,
+      isCurrent: isCurrent,
+    );
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(

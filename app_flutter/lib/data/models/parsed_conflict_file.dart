@@ -8,7 +8,10 @@ enum ConflictSegmentKind {
   final int value;
 
   static ConflictSegmentKind fromValue(int value) =>
-      ConflictSegmentKind.values.firstWhere((k) => k.value == value, orElse: () => ConflictSegmentKind.text);
+      ConflictSegmentKind.values.firstWhere(
+        (k) => k.value == value,
+        orElse: () => ConflictSegmentKind.text,
+      );
 }
 
 /// Mirrors `gbm::ConflictSegment`. One stretch of a conflict-marked file:
@@ -51,7 +54,11 @@ class ConflictSegment {
 /// Mirrors `gbm::ParsedConflictFile` as serialized by
 /// `capi::toJson(const ParsedConflictFile&)`.
 class ParsedConflictFile {
-  const ParsedConflictFile({required this.segments, required this.regionCount, required this.wellFormed});
+  const ParsedConflictFile({
+    required this.segments,
+    required this.regionCount,
+    required this.wellFormed,
+  });
 
   factory ParsedConflictFile.fromJson(Map<String, dynamic> json) {
     return ParsedConflictFile(
@@ -63,7 +70,11 @@ class ParsedConflictFile {
     );
   }
 
-  static const ParsedConflictFile empty = ParsedConflictFile(segments: <ConflictSegment>[], regionCount: 0, wellFormed: true);
+  static const ParsedConflictFile empty = ParsedConflictFile(
+    segments: <ConflictSegment>[],
+    regionCount: 0,
+    wellFormed: true,
+  );
 
   final List<ConflictSegment> segments;
   final int regionCount;
@@ -71,5 +82,7 @@ class ParsedConflictFile {
 
   /// The [ConflictSegmentKind.region] segments only, in file order --
   /// index-aligned with a caller's per-region resolution list.
-  List<ConflictSegment> get regions => segments.where((s) => s.kind == ConflictSegmentKind.region).toList(growable: false);
+  List<ConflictSegment> get regions => segments
+      .where((s) => s.kind == ConflictSegmentKind.region)
+      .toList(growable: false);
 }

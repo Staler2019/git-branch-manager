@@ -17,10 +17,12 @@ class CreateTagDialogContent extends ConsumerStatefulWidget {
   final RepoIdentity identity;
 
   @override
-  ConsumerState<CreateTagDialogContent> createState() => _CreateTagDialogContentState();
+  ConsumerState<CreateTagDialogContent> createState() =>
+      _CreateTagDialogContentState();
 }
 
-class _CreateTagDialogContentState extends ConsumerState<CreateTagDialogContent> {
+class _CreateTagDialogContentState
+    extends ConsumerState<CreateTagDialogContent> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _targetController = TextEditingController();
   final TextEditingController _messageController = TextEditingController();
@@ -66,27 +68,57 @@ class _CreateTagDialogContentState extends ConsumerState<CreateTagDialogContent>
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Text('Tag name', style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textSecondary)),
+          Text(
+            'Tag name',
+            style: TextStyle(
+              fontSize: GbmTypography.textSm,
+              color: colors.textSecondary,
+            ),
+          ),
           const SizedBox(height: GbmSpacing.space1),
           TextField(
             controller: _nameController,
             onChanged: (_) => setState(() {}),
-            decoration: const InputDecoration(hintText: 'v1.0.0', isDense: true, border: OutlineInputBorder()),
+            decoration: const InputDecoration(
+              hintText: 'v1.0.0',
+              isDense: true,
+              border: OutlineInputBorder(),
+            ),
           ),
           const SizedBox(height: GbmSpacing.space3),
-          Text('Target (empty means HEAD)', style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textSecondary)),
+          Text(
+            'Target (empty means HEAD)',
+            style: TextStyle(
+              fontSize: GbmTypography.textSm,
+              color: colors.textSecondary,
+            ),
+          ),
           const SizedBox(height: GbmSpacing.space1),
           TextField(
             controller: _targetController,
-            decoration: const InputDecoration(hintText: 'HEAD', isDense: true, border: OutlineInputBorder()),
+            decoration: const InputDecoration(
+              hintText: 'HEAD',
+              isDense: true,
+              border: OutlineInputBorder(),
+            ),
           ),
           const SizedBox(height: GbmSpacing.space3),
-          Text('Message (non-empty makes it annotated)', style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textSecondary)),
+          Text(
+            'Message (non-empty makes it annotated)',
+            style: TextStyle(
+              fontSize: GbmTypography.textSm,
+              color: colors.textSecondary,
+            ),
+          ),
           const SizedBox(height: GbmSpacing.space1),
           TextField(
             controller: _messageController,
             maxLines: 2,
-            decoration: const InputDecoration(hintText: 'Release notes…', isDense: true, border: OutlineInputBorder()),
+            decoration: const InputDecoration(
+              hintText: 'Release notes…',
+              isDense: true,
+              border: OutlineInputBorder(),
+            ),
           ),
           const SizedBox(height: GbmSpacing.space2),
           CheckboxListTile(
@@ -94,7 +126,13 @@ class _CreateTagDialogContentState extends ConsumerState<CreateTagDialogContent>
             dense: true,
             contentPadding: EdgeInsets.zero,
             controlAffinity: ListTileControlAffinity.leading,
-            title: Text('Replace an existing tag with this name', style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textPrimary)),
+            title: Text(
+              'Replace an existing tag with this name',
+              style: TextStyle(
+                fontSize: GbmTypography.textSm,
+                color: colors.textPrimary,
+              ),
+            ),
             onChanged: (value) => setState(() => _force = value ?? false),
           ),
         ],

@@ -16,16 +16,22 @@ import '../../../widgets/gbm_dialog_shell.dart';
 /// until a later milestone); an empty value leaves the field for manual
 /// entry.
 class CherryPickDialogContent extends ConsumerStatefulWidget {
-  const CherryPickDialogContent({super.key, required this.identity, this.initialCommitHex = ''});
+  const CherryPickDialogContent({
+    super.key,
+    required this.identity,
+    this.initialCommitHex = '',
+  });
 
   final RepoIdentity identity;
   final String initialCommitHex;
 
   @override
-  ConsumerState<CherryPickDialogContent> createState() => _CherryPickDialogContentState();
+  ConsumerState<CherryPickDialogContent> createState() =>
+      _CherryPickDialogContentState();
 }
 
-class _CherryPickDialogContentState extends ConsumerState<CherryPickDialogContent> {
+class _CherryPickDialogContentState
+    extends ConsumerState<CherryPickDialogContent> {
   late final TextEditingController _commitsController;
   bool _noCommit = false;
   bool _stashFirst = false;
@@ -65,7 +71,11 @@ class _CherryPickDialogContentState extends ConsumerState<CherryPickDialogConten
               : () {
                   ref
                       .read(repoSessionProvider(widget.identity).notifier)
-                      .cherryPick(_commitHexes, noCommit: _noCommit, stashFirst: _stashFirst);
+                      .cherryPick(
+                        _commitHexes,
+                        noCommit: _noCommit,
+                        stashFirst: _stashFirst,
+                      );
                   context.pop();
                 },
         ),
@@ -76,13 +86,20 @@ class _CherryPickDialogContentState extends ConsumerState<CherryPickDialogConten
         children: <Widget>[
           Text(
             'Commit hashes (oldest first, space or newline separated)',
-            style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textSecondary),
+            style: TextStyle(
+              fontSize: GbmTypography.textSm,
+              color: colors.textSecondary,
+            ),
           ),
           const SizedBox(height: GbmSpacing.space1),
           TextField(
             controller: _commitsController,
             maxLines: 3,
-            decoration: const InputDecoration(hintText: 'abc1234 def5678…', isDense: true, border: OutlineInputBorder()),
+            decoration: const InputDecoration(
+              hintText: 'abc1234 def5678…',
+              isDense: true,
+              border: OutlineInputBorder(),
+            ),
           ),
           const SizedBox(height: GbmSpacing.space2),
           CheckboxListTile(
@@ -90,7 +107,13 @@ class _CherryPickDialogContentState extends ConsumerState<CherryPickDialogConten
             dense: true,
             contentPadding: EdgeInsets.zero,
             controlAffinity: ListTileControlAffinity.leading,
-            title: Text('Do not commit (stage only)', style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textPrimary)),
+            title: Text(
+              'Do not commit (stage only)',
+              style: TextStyle(
+                fontSize: GbmTypography.textSm,
+                color: colors.textPrimary,
+              ),
+            ),
             onChanged: (value) => setState(() => _noCommit = value ?? false),
           ),
           CheckboxListTile(
@@ -98,7 +121,13 @@ class _CherryPickDialogContentState extends ConsumerState<CherryPickDialogConten
             dense: true,
             contentPadding: EdgeInsets.zero,
             controlAffinity: ListTileControlAffinity.leading,
-            title: Text('Stash uncommitted changes first', style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textPrimary)),
+            title: Text(
+              'Stash uncommitted changes first',
+              style: TextStyle(
+                fontSize: GbmTypography.textSm,
+                color: colors.textPrimary,
+              ),
+            ),
             onChanged: (value) => setState(() => _stashFirst = value ?? false),
           ),
         ],

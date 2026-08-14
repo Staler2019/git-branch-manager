@@ -9,9 +9,16 @@ import '../../../theme/tokens.dart';
 /// [DiffLine], with old/new line numbers in a fixed-width gutter like every
 /// git diff viewer.
 class DiffLineView extends StatelessWidget {
-  const DiffLineView({super.key, required this.line, this.selectable = false, this.selected = false, this.onSelectedChanged});
+  const DiffLineView({
+    super.key,
+    required this.line,
+    this.selectable = false,
+    this.selected = false,
+    this.onSelectedChanged,
+  });
 
   final DiffLine line;
+
   /// Whether this line can be checked for line-level staging -- only added/
   /// removed lines are ever selectable (context and no-newline-marker lines
   /// always pass through a rebuilt patch regardless, see
@@ -24,7 +31,11 @@ class DiffLineView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
-    final (Color? background, Color textColor, String marker) = switch (line.kind) {
+    final (
+      Color? background,
+      Color textColor,
+      String marker,
+    ) = switch (line.kind) {
       DiffLineKind.added => (colors.diffAddBg, colors.diffAddText, '+'),
       DiffLineKind.removed => (colors.diffDelBg, colors.diffDelText, '-'),
       DiffLineKind.noNewlineMarker => (null, colors.textTertiary, ' '),
@@ -39,13 +50,18 @@ class DiffLineView extends StatelessWidget {
     };
 
     final bool showCheckbox =
-        selectable && onSelectedChanged != null && (line.kind == DiffLineKind.added || line.kind == DiffLineKind.removed);
+        selectable &&
+        onSelectedChanged != null &&
+        (line.kind == DiffLineKind.added || line.kind == DiffLineKind.removed);
 
     return Semantics(
       label: '$kindLabel line ${line.text}',
       child: Container(
         color: background,
-        padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space3, vertical: 1),
+        padding: const EdgeInsets.symmetric(
+          horizontal: GbmSpacing.space3,
+          vertical: 1,
+        ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
@@ -53,7 +69,8 @@ class DiffLineView extends StatelessWidget {
               width: 18,
               child: showCheckbox
                   ? Semantics(
-                      label: '${selected ? 'Unselect' : 'Select'} line for partial staging',
+                      label:
+                          '${selected ? 'Unselect' : 'Select'} line for partial staging',
                       child: Checkbox(
                         value: selected,
                         onChanged: (_) => onSelectedChanged!(),
@@ -63,16 +80,34 @@ class DiffLineView extends StatelessWidget {
                     )
                   : null,
             ),
-            SizedBox(width: 36, child: _lineNumberText(line.oldLine, colors.textTertiary)),
-            SizedBox(width: 36, child: _lineNumberText(line.newLine, colors.textTertiary)),
+            SizedBox(
+              width: 36,
+              child: _lineNumberText(line.oldLine, colors.textTertiary),
+            ),
+            SizedBox(
+              width: 36,
+              child: _lineNumberText(line.newLine, colors.textTertiary),
+            ),
             SizedBox(
               width: 14,
-              child: Text(marker, style: TextStyle(fontFamily: GbmTypography.fontMono, fontSize: GbmTypography.textSm, color: textColor)),
+              child: Text(
+                marker,
+                style: TextStyle(
+                  fontFamily: GbmTypography.fontMono,
+                  fontSize: GbmTypography.textSm,
+                  color: textColor,
+                ),
+              ),
             ),
             Expanded(
               child: Text(
                 line.text,
-                style: TextStyle(fontFamily: GbmTypography.fontMono, fontSize: GbmTypography.textSm, color: textColor, height: 1.6),
+                style: TextStyle(
+                  fontFamily: GbmTypography.fontMono,
+                  fontSize: GbmTypography.textSm,
+                  color: textColor,
+                  height: 1.6,
+                ),
               ),
             ),
           ],
@@ -85,7 +120,11 @@ class DiffLineView extends StatelessWidget {
     return Text(
       lineNumber == 0 ? '' : '$lineNumber',
       textAlign: TextAlign.right,
-      style: TextStyle(fontFamily: GbmTypography.fontMono, fontSize: GbmTypography.textXs, color: color),
+      style: TextStyle(
+        fontFamily: GbmTypography.fontMono,
+        fontSize: GbmTypography.textXs,
+        color: color,
+      ),
     );
   }
 }

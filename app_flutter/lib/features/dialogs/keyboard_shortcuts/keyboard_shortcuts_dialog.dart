@@ -32,16 +32,38 @@ class KeyboardShortcutsDialogContent extends StatelessWidget {
           children: <Widget>[
             for (final (action, keys) in _kShortcuts)
               Padding(
-                padding: const EdgeInsets.symmetric(vertical: GbmSpacing.space1),
+                padding: const EdgeInsets.symmetric(
+                  vertical: GbmSpacing.space1,
+                ),
                 child: Row(
                   children: <Widget>[
-                    Expanded(child: Text(action, style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textPrimary))),
+                    Expanded(
+                      child: Text(
+                        action,
+                        style: TextStyle(
+                          fontSize: GbmTypography.textSm,
+                          color: colors.textPrimary,
+                        ),
+                      ),
+                    ),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2, vertical: 2),
-                      decoration: BoxDecoration(color: colors.surfaceSunken, borderRadius: BorderRadius.circular(GbmSpacing.radiusSm)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: GbmSpacing.space2,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: colors.surfaceSunken,
+                        borderRadius: BorderRadius.circular(
+                          GbmSpacing.radiusSm,
+                        ),
+                      ),
                       child: Text(
                         keys,
-                        style: TextStyle(fontFamily: GbmTypography.fontMono, fontSize: GbmTypography.textXs, color: colors.textSecondary),
+                        style: TextStyle(
+                          fontFamily: GbmTypography.fontMono,
+                          fontSize: GbmTypography.textXs,
+                          color: colors.textSecondary,
+                        ),
                       ),
                     ),
                   ],

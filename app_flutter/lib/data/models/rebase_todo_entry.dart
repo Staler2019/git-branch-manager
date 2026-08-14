@@ -7,7 +7,12 @@ enum RebaseTodoAction { pick, edit, squash, fixup, drop }
 /// Mirrors `gbm::RebaseTodoEntry` as serialized by
 /// `capi::toJson(const RebaseTodoEntry&)`.
 class RebaseTodoEntry {
-  const RebaseTodoEntry({required this.action, required this.oid, required this.shortOid, required this.subject});
+  const RebaseTodoEntry({
+    required this.action,
+    required this.oid,
+    required this.shortOid,
+    required this.subject,
+  });
 
   factory RebaseTodoEntry.fromJson(Map<String, dynamic> json) {
     return RebaseTodoEntry(
@@ -18,11 +23,16 @@ class RebaseTodoEntry {
     );
   }
 
-  static List<RebaseTodoEntry> listFromJson(List<dynamic> json) =>
-      json.map((e) => RebaseTodoEntry.fromJson(e as Map<String, dynamic>)).toList(growable: false);
+  static List<RebaseTodoEntry> listFromJson(List<dynamic> json) => json
+      .map((e) => RebaseTodoEntry.fromJson(e as Map<String, dynamic>))
+      .toList(growable: false);
 
-  RebaseTodoEntry copyWith({RebaseTodoAction? action}) =>
-      RebaseTodoEntry(action: action ?? this.action, oid: oid, shortOid: shortOid, subject: subject);
+  RebaseTodoEntry copyWith({RebaseTodoAction? action}) => RebaseTodoEntry(
+    action: action ?? this.action,
+    oid: oid,
+    shortOid: shortOid,
+    subject: subject,
+  );
 
   final RebaseTodoAction action;
   final String oid;

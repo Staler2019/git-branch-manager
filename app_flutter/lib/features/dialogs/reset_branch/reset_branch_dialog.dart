@@ -18,18 +18,24 @@ class ResetBranchDialogContent extends ConsumerStatefulWidget {
   final RepoIdentity identity;
 
   @override
-  ConsumerState<ResetBranchDialogContent> createState() => _ResetBranchDialogContentState();
+  ConsumerState<ResetBranchDialogContent> createState() =>
+      _ResetBranchDialogContentState();
 }
 
-class _ResetBranchDialogContentState extends ConsumerState<ResetBranchDialogContent> {
+class _ResetBranchDialogContentState
+    extends ConsumerState<ResetBranchDialogContent> {
   late final TextEditingController _targetController;
   ResetMode _mode = ResetMode.mixed;
 
   @override
   void initState() {
     super.initState();
-    final RepoSessionState session = ref.read(repoSessionProvider(widget.identity));
-    _targetController = TextEditingController(text: session.refs.head.branchName);
+    final RepoSessionState session = ref.read(
+      repoSessionProvider(widget.identity),
+    );
+    _targetController = TextEditingController(
+      text: session.refs.head.branchName,
+    );
   }
 
   @override
@@ -51,7 +57,9 @@ class _ResetBranchDialogContentState extends ConsumerState<ResetBranchDialogCont
           label: 'Reset',
           kind: GbmButtonKind.primary,
           onPressed: () {
-            ref.read(repoSessionProvider(widget.identity).notifier).resetTo(_targetController.text.trim(), _mode);
+            ref
+                .read(repoSessionProvider(widget.identity).notifier)
+                .resetTo(_targetController.text.trim(), _mode);
             context.pop();
           },
         ),
@@ -60,11 +68,21 @@ class _ResetBranchDialogContentState extends ConsumerState<ResetBranchDialogCont
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Text('Reset to', style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textSecondary)),
+          Text(
+            'Reset to',
+            style: TextStyle(
+              fontSize: GbmTypography.textSm,
+              color: colors.textSecondary,
+            ),
+          ),
           const SizedBox(height: GbmSpacing.space1),
           TextField(
             controller: _targetController,
-            decoration: const InputDecoration(hintText: 'Branch, tag, or commit', isDense: true, border: OutlineInputBorder()),
+            decoration: const InputDecoration(
+              hintText: 'Branch, tag, or commit',
+              isDense: true,
+              border: OutlineInputBorder(),
+            ),
           ),
           const SizedBox(height: GbmSpacing.space3),
           RadioGroup<ResetMode>(
@@ -72,12 +90,23 @@ class _ResetBranchDialogContentState extends ConsumerState<ResetBranchDialogCont
             onChanged: (mode) => setState(() => _mode = mode ?? _mode),
             child: const Column(
               children: <Widget>[
-                _ModeOption(mode: ResetMode.soft, label: 'Soft', description: 'Move HEAD only; keep the index and work tree as they are.'),
-                _ModeOption(mode: ResetMode.mixed, label: 'Mixed', description: 'Move HEAD and reset the index; keep the work tree.'),
+                _ModeOption(
+                  mode: ResetMode.soft,
+                  label: 'Soft',
+                  description:
+                      'Move HEAD only; keep the index and work tree as they are.',
+                ),
+                _ModeOption(
+                  mode: ResetMode.mixed,
+                  label: 'Mixed',
+                  description:
+                      'Move HEAD and reset the index; keep the work tree.',
+                ),
                 _ModeOption(
                   mode: ResetMode.hard,
                   label: 'Hard',
-                  description: 'Move HEAD and overwrite the index and work tree -- discards uncommitted changes.',
+                  description:
+                      'Move HEAD and overwrite the index and work tree -- discards uncommitted changes.',
                 ),
               ],
             ),
@@ -90,7 +119,11 @@ class _ResetBranchDialogContentState extends ConsumerState<ResetBranchDialogCont
 }
 
 class _ModeOption extends StatelessWidget {
-  const _ModeOption({required this.mode, required this.label, required this.description});
+  const _ModeOption({
+    required this.mode,
+    required this.label,
+    required this.description,
+  });
 
   final ResetMode mode;
   final String label;
@@ -103,8 +136,20 @@ class _ModeOption extends StatelessWidget {
       value: mode,
       dense: true,
       contentPadding: EdgeInsets.zero,
-      title: Text(label, style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textPrimary)),
-      subtitle: Text(description, style: TextStyle(fontSize: GbmTypography.textXs, color: colors.textTertiary)),
+      title: Text(
+        label,
+        style: TextStyle(
+          fontSize: GbmTypography.textSm,
+          color: colors.textPrimary,
+        ),
+      ),
+      subtitle: Text(
+        description,
+        style: TextStyle(
+          fontSize: GbmTypography.textXs,
+          color: colors.textTertiary,
+        ),
+      ),
     );
   }
 }

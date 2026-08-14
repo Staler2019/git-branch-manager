@@ -25,13 +25,17 @@ class ManageBaseFoldersDialogContent extends ConsumerWidget {
       child: discovery.baseFolders.isEmpty
           ? Padding(
               padding: const EdgeInsets.symmetric(vertical: GbmSpacing.space4),
-              child: Text('No base folders yet.', style: TextStyle(color: colors.textTertiary)),
+              child: Text(
+                'No base folders yet.',
+                style: TextStyle(color: colors.textTertiary),
+              ),
             )
           : SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
-                  for (final folder in discovery.baseFolders) _BaseFolderRow(folder: folder),
+                  for (final folder in discovery.baseFolders)
+                    _BaseFolderRow(folder: folder),
                   const SizedBox(height: GbmSpacing.space2),
                 ],
               ),
@@ -54,20 +58,27 @@ class _BaseFolderRow extends ConsumerWidget {
         children: <Widget>[
           Checkbox(
             value: folder.enabled,
-            onChanged: (value) => ref.read(discoveryProvider.notifier).setBaseFolderEnabled(folder.id, value ?? true),
+            onChanged: (value) => ref
+                .read(discoveryProvider.notifier)
+                .setBaseFolderEnabled(folder.id, value ?? true),
             visualDensity: VisualDensity.compact,
           ),
           Expanded(
             child: Text(
               folder.path,
-              style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textPrimary),
+              style: TextStyle(
+                fontSize: GbmTypography.textSm,
+                color: colors.textPrimary,
+              ),
               overflow: TextOverflow.ellipsis,
             ),
           ),
           IconButton(
             icon: Icon(Icons.delete_outline, size: 18, color: colors.danger),
             tooltip: 'Remove',
-            onPressed: () => ref.read(discoveryProvider.notifier).removeBaseFolder(folder.id),
+            onPressed: () => ref
+                .read(discoveryProvider.notifier)
+                .removeBaseFolder(folder.id),
           ),
         ],
       ),

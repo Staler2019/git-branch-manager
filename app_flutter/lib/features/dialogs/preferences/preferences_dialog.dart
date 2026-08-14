@@ -28,10 +28,12 @@ class PreferencesDialogContent extends ConsumerStatefulWidget {
   final RepoIdentity identity;
 
   @override
-  ConsumerState<PreferencesDialogContent> createState() => _PreferencesDialogContentState();
+  ConsumerState<PreferencesDialogContent> createState() =>
+      _PreferencesDialogContentState();
 }
 
-class _PreferencesDialogContentState extends ConsumerState<PreferencesDialogContent> {
+class _PreferencesDialogContentState
+    extends ConsumerState<PreferencesDialogContent> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   bool _editedSinceLoad = false;
@@ -40,7 +42,9 @@ class _PreferencesDialogContentState extends ConsumerState<PreferencesDialogCont
   void initState() {
     super.initState();
     Future.microtask(() {
-      final RepoSessionController notifier = ref.read(repoSessionProvider(widget.identity).notifier);
+      final RepoSessionController notifier = ref.read(
+        repoSessionProvider(widget.identity).notifier,
+      );
       notifier.refreshLocalIdentity();
       notifier.refreshEffectiveIdentity();
       notifier.refreshHasCommitGraph();
@@ -63,35 +67,64 @@ class _PreferencesDialogContentState extends ConsumerState<PreferencesDialogCont
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
-    final RepoSessionState session = ref.watch(repoSessionProvider(widget.identity));
-    final RepoSessionController notifier = ref.read(repoSessionProvider(widget.identity).notifier);
+    final RepoSessionState session = ref.watch(
+      repoSessionProvider(widget.identity),
+    );
+    final RepoSessionController notifier = ref.read(
+      repoSessionProvider(widget.identity).notifier,
+    );
     _syncControllersFrom(session.localIdentity);
 
     return GbmDialogShell(
       title: 'Preferences',
       width: 560,
-      actions: <Widget>[GbmButton(label: 'Close', kind: GbmButtonKind.primary, onPressed: () => context.pop())],
+      actions: <Widget>[
+        GbmButton(
+          label: 'Close',
+          kind: GbmButtonKind.primary,
+          onPressed: () => context.pop(),
+        ),
+      ],
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Text('GIT IDENTITY', style: TextStyle(fontSize: GbmTypography.textXs, fontWeight: GbmTypography.weightSemibold, color: colors.textTertiary, letterSpacing: 0.5)),
+          Text(
+            'GIT IDENTITY',
+            style: TextStyle(
+              fontSize: GbmTypography.textXs,
+              fontWeight: GbmTypography.weightSemibold,
+              color: colors.textTertiary,
+              letterSpacing: 0.5,
+            ),
+          ),
           const SizedBox(height: GbmSpacing.space2),
           Text(
             'Effective for new commits here: ${session.effectiveIdentity.name} <${session.effectiveIdentity.email}>',
-            style: TextStyle(fontSize: GbmTypography.textXs, color: colors.textTertiary),
+            style: TextStyle(
+              fontSize: GbmTypography.textXs,
+              color: colors.textTertiary,
+            ),
           ),
           const SizedBox(height: GbmSpacing.space2),
           TextField(
             controller: _nameController,
             onChanged: (_) => setState(() => _editedSinceLoad = true),
-            decoration: const InputDecoration(labelText: 'Name (this repository only)', isDense: true, border: OutlineInputBorder()),
+            decoration: const InputDecoration(
+              labelText: 'Name (this repository only)',
+              isDense: true,
+              border: OutlineInputBorder(),
+            ),
           ),
           const SizedBox(height: GbmSpacing.space2),
           TextField(
             controller: _emailController,
             onChanged: (_) => setState(() => _editedSinceLoad = true),
-            decoration: const InputDecoration(labelText: 'Email (this repository only)', isDense: true, border: OutlineInputBorder()),
+            decoration: const InputDecoration(
+              labelText: 'Email (this repository only)',
+              isDense: true,
+              border: OutlineInputBorder(),
+            ),
           ),
           const SizedBox(height: GbmSpacing.space2),
           Row(
@@ -99,10 +132,15 @@ class _PreferencesDialogContentState extends ConsumerState<PreferencesDialogCont
               GbmButton(
                 label: 'Apply Override',
                 kind: GbmButtonKind.primary,
-                onPressed: _nameController.text.trim().isEmpty || _emailController.text.trim().isEmpty
+                onPressed:
+                    _nameController.text.trim().isEmpty ||
+                        _emailController.text.trim().isEmpty
                     ? null
                     : () {
-                        notifier.setLocalIdentity(_nameController.text.trim(), _emailController.text.trim());
+                        notifier.setLocalIdentity(
+                          _nameController.text.trim(),
+                          _emailController.text.trim(),
+                        );
                         setState(() => _editedSinceLoad = false);
                       },
               ),
@@ -119,7 +157,15 @@ class _PreferencesDialogContentState extends ConsumerState<PreferencesDialogCont
             ],
           ),
           const Divider(height: GbmSpacing.space4 * 2),
-          Text('PERFORMANCE', style: TextStyle(fontSize: GbmTypography.textXs, fontWeight: GbmTypography.weightSemibold, color: colors.textTertiary, letterSpacing: 0.5)),
+          Text(
+            'PERFORMANCE',
+            style: TextStyle(
+              fontSize: GbmTypography.textXs,
+              fontWeight: GbmTypography.weightSemibold,
+              color: colors.textTertiary,
+              letterSpacing: 0.5,
+            ),
+          ),
           const SizedBox(height: GbmSpacing.space2),
           Row(
             children: <Widget>[
@@ -128,18 +174,29 @@ class _PreferencesDialogContentState extends ConsumerState<PreferencesDialogCont
                   session.hasCommitGraph
                       ? 'This repository already has a commit-graph.'
                       : 'A commit-graph can speed up history loading for large repositories.',
-                  style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textSecondary),
+                  style: TextStyle(
+                    fontSize: GbmTypography.textSm,
+                    color: colors.textSecondary,
+                  ),
                 ),
               ),
-              GbmButton(label: 'Optimize Now', onPressed: () => notifier.writeCommitGraph()),
+              GbmButton(
+                label: 'Optimize Now',
+                onPressed: () => notifier.writeCommitGraph(),
+              ),
             ],
           ),
           if (session.lastCommitGraphWriteSucceeded case final succeeded?)
             Padding(
               padding: const EdgeInsets.only(top: GbmSpacing.space1),
               child: Text(
-                succeeded ? 'Commit-graph written.' : 'Writing the commit-graph failed.',
-                style: TextStyle(fontSize: GbmTypography.textXs, color: succeeded ? colors.success : colors.danger),
+                succeeded
+                    ? 'Commit-graph written.'
+                    : 'Writing the commit-graph failed.',
+                style: TextStyle(
+                  fontSize: GbmTypography.textXs,
+                  color: succeeded ? colors.success : colors.danger,
+                ),
               ),
             ),
         ],

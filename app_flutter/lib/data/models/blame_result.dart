@@ -44,7 +44,9 @@ class BlameResult {
 
   factory BlameResult.fromJson(Map<String, dynamic> json) {
     return BlameResult(
-      lines: (json['lines'] as List<dynamic>).map((e) => BlameLine.fromJson(e as Map<String, dynamic>)).toList(growable: false),
+      lines: (json['lines'] as List<dynamic>)
+          .map((e) => BlameLine.fromJson(e as Map<String, dynamic>))
+          .toList(growable: false),
       truncated: json['truncated'] as bool,
     );
   }

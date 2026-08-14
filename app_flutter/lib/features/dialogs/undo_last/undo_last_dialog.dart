@@ -24,7 +24,9 @@ class UndoLastDialogContent extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final GbmColors colors = context.gbmColors;
-    final List<UndoEntry> journal = ref.watch(repoSessionProvider(identity).select((state) => state.undoJournal));
+    final List<UndoEntry> journal = ref.watch(
+      repoSessionProvider(identity).select((state) => state.undoJournal),
+    );
     final UndoEntry? last = journal.isEmpty ? null : journal.last;
 
     return GbmDialogShell(
@@ -47,12 +49,21 @@ class UndoLastDialogContent extends ConsumerWidget {
         height: 96,
         child: Center(
           child: last == null
-              ? Text('Nothing to undo yet', style: TextStyle(color: colors.textTertiary))
+              ? Text(
+                  'Nothing to undo yet',
+                  style: TextStyle(color: colors.textTertiary),
+                )
               : Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    Text('Undo this operation?', style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textSecondary)),
+                    Text(
+                      'Undo this operation?',
+                      style: TextStyle(
+                        fontSize: GbmTypography.textSm,
+                        color: colors.textSecondary,
+                      ),
+                    ),
                     const SizedBox(height: GbmSpacing.space2),
                     Text(
                       last.description,
@@ -66,7 +77,10 @@ class UndoLastDialogContent extends ConsumerWidget {
                       const SizedBox(height: GbmSpacing.space1),
                       Text(
                         'Will restore ${last.branchBefore} @ ${last.headBefore.length > 7 ? last.headBefore.substring(0, 7) : last.headBefore}',
-                        style: TextStyle(fontSize: GbmTypography.textXs, color: colors.textTertiary),
+                        style: TextStyle(
+                          fontSize: GbmTypography.textXs,
+                          color: colors.textTertiary,
+                        ),
                       ),
                     ],
                   ],

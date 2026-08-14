@@ -30,7 +30,7 @@ import '../features/dialogs/reflog/reflog_dialog.dart';
 import '../features/dialogs/reset_branch/reset_branch_dialog.dart';
 import '../features/dialogs/stash_changes/stash_changes_dialog.dart';
 import '../features/dialogs/undo_last/undo_last_dialog.dart';
-import '../features/history_graph/commit_graph_view.dart';
+import '../features/history_graph/history_page.dart';
 import '../features/operation_log/operation_log_dialog.dart';
 import '../features/repo_list/repo_list_screen.dart';
 import '../features/repo_switcher/repo_switcher_dialog.dart';
@@ -107,7 +107,7 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
               final RepoIdentity identity = repoIdentityFromRouteParam(
                 state.pathParameters['repoId']!,
               );
-              return CommitGraphView(identity: identity);
+              return HistoryPage(identity: identity);
             },
           ),
           GoRoute(

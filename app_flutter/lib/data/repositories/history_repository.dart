@@ -95,3 +95,10 @@ void requestCommitFileDiff(
 /// leaks into another.
 final StateProviderFamily<String?, RepoIdentity> selectedCommitProvider =
     StateProvider.family<String?, RepoIdentity>((ref, identity) => null);
+
+/// The currently-selected file path within the selected commit's changed files.
+/// Null means show commit metadata; non-null means show the diff for that file.
+final StateProviderFamily<String?, RepoIdentity>
+selectedCommitFilePathProvider = StateProvider.family<String?, RepoIdentity>(
+  (ref, identity) => null,
+);

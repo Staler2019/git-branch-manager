@@ -133,15 +133,25 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
               selected: oid.isNotEmpty && oid == selectedOid,
               onTap: oid.isEmpty
                   ? null
-                  : () =>
-                        ref
-                                .read(
-                                  selectedCommitProvider(
-                                    widget.identity,
-                                  ).notifier,
-                                )
-                                .state =
-                            oid,
+                  : () {
+                      ref
+                              .read(
+                                selectedCommitProvider(
+                                  widget.identity,
+                                ).notifier,
+                              )
+                              .state =
+                          oid;
+                      ref
+                              .read(
+                                selectedCommitFilePathProvider(
+                                  widget.identity,
+                                ).notifier,
+                              )
+                              .state =
+                          null;
+                      requestCommitFiles(ref, widget.identity, oid);
+                    },
             );
           },
         );

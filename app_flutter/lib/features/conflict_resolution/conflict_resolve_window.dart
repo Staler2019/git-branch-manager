@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -48,9 +51,14 @@ import 'conflict_resolve_logic.dart';
 /// is also in-memory-only for this window's lifetime, not persisted to disk
 /// across a full app restart the way Qt's `ConflictBatchStore` is.
 class ConflictResolveWindow extends ConsumerStatefulWidget {
-  const ConflictResolveWindow({super.key, required this.identity});
+  const ConflictResolveWindow({
+    super.key,
+    required this.identity,
+    this.isMacOS,
+  });
 
   final RepoIdentity identity;
+  final bool? isMacOS;
 
   @override
   ConsumerState<ConflictResolveWindow> createState() =>
@@ -72,6 +80,11 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
   TextEditingController? _resultController;
   bool _resultSeeded = false;
 
+  // Global undo history: track which region was modified on each removal.
+  // Used by Ctrl/Cmd+Z to undo the most recent removal across all regions.
+  // Each entry is a regionIndex; popping from the end gives us LIFO semantics.
+  final List<int> _discardHistory = <int>[];
+
   @override
   void dispose() {
     _resultController?.dispose();
@@ -87,6 +100,7 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
       _resultController?.dispose();
       _resultController = null;
       _resultSeeded = false;
+      _discardHistory.clear();
     });
     ref
         .read(repoSessionProvider(widget.identity).notifier)
@@ -150,6 +164,7 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
       _resultController?.dispose();
       _resultController = null;
       _resultSeeded = false;
+      _discardHistory.add(regionIndex);
     });
   }
 
@@ -160,6 +175,7 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
       _resultController?.dispose();
       _resultController = null;
       _resultSeeded = false;
+      _discardHistory.removeWhere((r) => r == regionIndex);
     });
   }
 
@@ -192,6 +208,23 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
         );
   }
 
+  void _undoLastDiscard() {
+    if (_lineOrder == null || _discardHistory.isEmpty) return;
+    final int regionIndex = _discardHistory.removeLast();
+    setState(() {
+      try {
+        _lineOrder = _lineOrder!.undoLastRemoval(regionIndex);
+        _resultController?.dispose();
+        _resultController = null;
+        _resultSeeded = false;
+      } on StateError {
+        // If the region's undo stack is empty (e.g., if it was reset after
+        // the discard), ignore the error and just remove the history entry.
+        // This should not happen in normal usage, but we guard defensively.
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
@@ -215,154 +248,159 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
     _applyParsedContentIfNeeded(session);
     if (_allResolved) _ensureResultSeeded();
 
-    return Scaffold(
-      appBar: AppBar(
-        leading: BackButton(
-          onPressed: () => context.go(RoutePaths.workingCopyFor(repoId)),
+    return _ConflictResolveWindowShortcuts(
+      isMacOS: widget.isMacOS ?? Platform.isMacOS,
+      onUndoDiscard: _undoLastDiscard,
+      child: Scaffold(
+        appBar: AppBar(
+          leading: BackButton(
+            onPressed: () => context.go(RoutePaths.workingCopyFor(repoId)),
+          ),
+          title: const Text('Resolve Conflicts'),
         ),
-        title: const Text('Resolve Conflicts'),
-      ),
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          if (session.repoState case final state?
-              when state.isMerging ||
-                  state.isCherryPicking ||
-                  state.isReverting ||
-                  state.isRebasing)
-            SequencerBanner(identity: widget.identity, state: state),
-          if (session.lastError case final error?)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(GbmSpacing.space2),
-              color: colors.diffDelBg,
-              child: Text(
-                error.message,
-                style: TextStyle(
-                  color: colors.diffDelText,
-                  fontSize: GbmTypography.textSm,
+        body: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            if (session.repoState case final state?
+                when state.isMerging ||
+                    state.isCherryPicking ||
+                    state.isReverting ||
+                    state.isRebasing)
+              SequencerBanner(identity: widget.identity, state: state),
+            if (session.lastError case final error?)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(GbmSpacing.space2),
+                color: colors.diffDelBg,
+                child: Text(
+                  error.message,
+                  style: TextStyle(
+                    color: colors.diffDelText,
+                    fontSize: GbmTypography.textSm,
+                  ),
                 ),
               ),
-            ),
-          Expanded(
-            child: _batch.entries.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        Text(
-                          'No conflicts remaining.',
-                          style: TextStyle(color: colors.textSecondary),
-                        ),
-                        const SizedBox(height: GbmSpacing.space3),
-                        GbmButton(
-                          label: 'Go to Working Copy',
-                          kind: GbmButtonKind.primary,
-                          onPressed: () =>
-                              context.go(RoutePaths.workingCopyFor(repoId)),
-                        ),
-                      ],
-                    ),
-                  )
-                : GbmSplitPane(
-                    axis: Axis.horizontal,
-                    spec: GbmLayout.splitterCwFiles,
-                    storageId: 'cw.files',
-                    children: <Widget>[
-                      // Left rail: file list
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
+            Expanded(
+              child: _batch.entries.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         children: <Widget>[
-                          Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: GbmSpacing.space3,
-                              vertical: GbmSpacing.space1,
-                            ),
-                            child: Text(
-                              '${_batch.resolvedCount} of ${_batch.entries.length} resolved',
-                              style: TextStyle(
-                                fontSize: GbmTypography.textXs,
-                                color: colors.textTertiary,
-                              ),
-                            ),
+                          Text(
+                            'No conflicts remaining.',
+                            style: TextStyle(color: colors.textSecondary),
                           ),
-                          Expanded(
-                            child: ListView(
-                              children: <Widget>[
-                                for (final entry in _batch.entries)
-                                  _ConflictRailRow(
-                                    entry: entry,
-                                    selected: entry.path == _selectedPath,
-                                    onTap: () => _selectPath(entry.path),
-                                    onTakeOurs: () {
-                                      final WorkingCopyEntry? wc = conflicted
-                                          .cast<WorkingCopyEntry?>()
-                                          .firstWhere(
-                                            (e) => e?.path == entry.path,
-                                            orElse: () => null,
-                                          );
-                                      ref
-                                          .read(
-                                            repoSessionProvider(
-                                              widget.identity,
-                                            ).notifier,
-                                          )
-                                          .resolveConflict(
-                                            entry.path,
-                                            ConflictResolution.takeOurs,
-                                            oursBlobMissing:
-                                                wc?.oursBlob.isEmpty ?? false,
-                                          );
-                                    },
-                                    onTakeTheirs: () {
-                                      final WorkingCopyEntry? wc = conflicted
-                                          .cast<WorkingCopyEntry?>()
-                                          .firstWhere(
-                                            (e) => e?.path == entry.path,
-                                            orElse: () => null,
-                                          );
-                                      ref
-                                          .read(
-                                            repoSessionProvider(
-                                              widget.identity,
-                                            ).notifier,
-                                          )
-                                          .resolveConflict(
-                                            entry.path,
-                                            ConflictResolution.takeTheirs,
-                                            theirsBlobMissing:
-                                                wc?.theirsBlob.isEmpty ?? false,
-                                          );
-                                    },
-                                    onMarkResolved: () => ref
-                                        .read(
-                                          repoSessionProvider(
-                                            widget.identity,
-                                          ).notifier,
-                                        )
-                                        .resolveConflict(
-                                          entry.path,
-                                          ConflictResolution.markResolved,
-                                        ),
-                                  ),
-                              ],
-                            ),
+                          const SizedBox(height: GbmSpacing.space3),
+                          GbmButton(
+                            label: 'Go to Working Copy',
+                            kind: GbmButtonKind.primary,
+                            onPressed: () =>
+                                context.go(RoutePaths.workingCopyFor(repoId)),
                           ),
                         ],
                       ),
-                      // Right: editor with three-pane layout
-                      _selectedPath == null
-                          ? Center(
-                              child: Text(
-                                'Select a file',
-                                style: TextStyle(color: colors.textTertiary),
+                    )
+                  : GbmSplitPane(
+                      axis: Axis.horizontal,
+                      spec: GbmLayout.splitterCwFiles,
+                      storageId: 'cw.files',
+                      children: <Widget>[
+                        // Left rail: file list
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: <Widget>[
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: GbmSpacing.space3,
+                                vertical: GbmSpacing.space1,
                               ),
-                            )
-                          : _buildEditor(context),
-                    ],
-                  ),
-          ),
-        ],
+                              child: Text(
+                                '${_batch.resolvedCount} of ${_batch.entries.length} resolved',
+                                style: TextStyle(
+                                  fontSize: GbmTypography.textXs,
+                                  color: colors.textTertiary,
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              child: ListView(
+                                children: <Widget>[
+                                  for (final entry in _batch.entries)
+                                    _ConflictRailRow(
+                                      entry: entry,
+                                      selected: entry.path == _selectedPath,
+                                      onTap: () => _selectPath(entry.path),
+                                      onTakeOurs: () {
+                                        final WorkingCopyEntry? wc = conflicted
+                                            .cast<WorkingCopyEntry?>()
+                                            .firstWhere(
+                                              (e) => e?.path == entry.path,
+                                              orElse: () => null,
+                                            );
+                                        ref
+                                            .read(
+                                              repoSessionProvider(
+                                                widget.identity,
+                                              ).notifier,
+                                            )
+                                            .resolveConflict(
+                                              entry.path,
+                                              ConflictResolution.takeOurs,
+                                              oursBlobMissing:
+                                                  wc?.oursBlob.isEmpty ?? false,
+                                            );
+                                      },
+                                      onTakeTheirs: () {
+                                        final WorkingCopyEntry? wc = conflicted
+                                            .cast<WorkingCopyEntry?>()
+                                            .firstWhere(
+                                              (e) => e?.path == entry.path,
+                                              orElse: () => null,
+                                            );
+                                        ref
+                                            .read(
+                                              repoSessionProvider(
+                                                widget.identity,
+                                              ).notifier,
+                                            )
+                                            .resolveConflict(
+                                              entry.path,
+                                              ConflictResolution.takeTheirs,
+                                              theirsBlobMissing:
+                                                  wc?.theirsBlob.isEmpty ??
+                                                  false,
+                                            );
+                                      },
+                                      onMarkResolved: () => ref
+                                          .read(
+                                            repoSessionProvider(
+                                              widget.identity,
+                                            ).notifier,
+                                          )
+                                          .resolveConflict(
+                                            entry.path,
+                                            ConflictResolution.markResolved,
+                                          ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        // Right: editor with three-pane layout
+                        _selectedPath == null
+                            ? Center(
+                                child: Text(
+                                  'Select a file',
+                                  style: TextStyle(color: colors.textTertiary),
+                                ),
+                              )
+                            : _buildEditor(context),
+                      ],
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -544,6 +582,7 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
 
       blocks.add(
         _ResultPane(
+          key: ValueKey<int>(thisRegion),
           index: thisRegion,
           total: parsed.regionCount,
           orderedLines: orderedLines,
@@ -747,6 +786,7 @@ class _MiniButton extends StatelessWidget {
 
 class _ResultPane extends StatefulWidget {
   const _ResultPane({
+    super.key,
     required this.index,
     required this.total,
     required this.orderedLines,
@@ -769,6 +809,13 @@ class _ResultPane extends StatefulWidget {
 
 class _ResultPaneState extends State<_ResultPane> {
   bool _dragOver = false;
+  late final GlobalKey _paneKey;
+
+  @override
+  void initState() {
+    super.initState();
+    _paneKey = GlobalKey();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -793,6 +840,7 @@ class _ResultPaneState extends State<_ResultPane> {
       },
       builder: (context, candidateData, rejectedData) {
         return Container(
+          key: _paneKey,
           margin: const EdgeInsets.symmetric(vertical: GbmSpacing.space1),
           decoration: BoxDecoration(
             border: Border.all(
@@ -887,6 +935,9 @@ class _ResultPaneState extends State<_ResultPane> {
                                 position: i,
                                 entry: widget.orderedLines[i],
                                 onDelete: () => widget.onDelete(i),
+                                onOutOfBoundsDrag: () => widget.onDelete(i),
+                                regionIndex: widget.index,
+                                paneKey: _paneKey,
                               ),
                           ],
                         ),
@@ -907,11 +958,17 @@ class _ResultLine extends StatelessWidget {
     required this.position,
     required this.entry,
     required this.onDelete,
+    required this.onOutOfBoundsDrag,
+    required this.regionIndex,
+    required this.paneKey,
   });
 
   final int position;
   final ConflictLineEntry entry;
   final VoidCallback onDelete;
+  final VoidCallback onOutOfBoundsDrag;
+  final int regionIndex;
+  final GlobalKey paneKey;
 
   @override
   Widget build(BuildContext context) {
@@ -943,43 +1000,80 @@ class _ResultLine extends StatelessWidget {
         ? circledDigits[position]
         : '${position + 1}';
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: GbmSpacing.space1),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          SizedBox(
-            width: 20,
-            child: Center(
-              child: Text(
-                badgeText,
-                style: TextStyle(
-                  fontSize: GbmTypography.textXs,
-                  color: colors.accent,
-                  fontWeight: GbmTypography.weightMedium,
+    return Draggable<_ResultLineDragData>(
+      data: _ResultLineDragData(
+        regionIndex: regionIndex,
+        linePosition: position,
+      ),
+      affinity: Axis.horizontal,
+      onDragEnd: (details) {
+        // Check if the drag endpoint is outside the pane bounds.
+        // If so, trigger deletion. Otherwise, it's a no-op.
+        final RenderBox? paneBox =
+            paneKey.currentContext?.findRenderObject() as RenderBox?;
+        if (paneBox != null) {
+          final Offset globalPos = details.offset;
+          final Offset localPos = paneBox.globalToLocal(globalPos);
+          final Size paneSize = paneBox.size;
+          final bool isOutOfBounds =
+              localPos.dx < 0 ||
+              localPos.dx > paneSize.width ||
+              localPos.dy < 0 ||
+              localPos.dy > paneSize.height;
+          if (isOutOfBounds) {
+            onOutOfBoundsDrag();
+          }
+        }
+      },
+      feedback: Material(
+        color: Colors.transparent,
+        child: Text(
+          badgeText,
+          style: TextStyle(
+            fontSize: GbmTypography.textXs,
+            color: colors.accent,
+            fontWeight: GbmTypography.weightMedium,
+          ),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: GbmSpacing.space1),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            SizedBox(
+              width: 20,
+              child: Center(
+                child: Text(
+                  badgeText,
+                  style: TextStyle(
+                    fontSize: GbmTypography.textXs,
+                    color: colors.accent,
+                    fontWeight: GbmTypography.weightMedium,
+                  ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(width: GbmSpacing.space1),
-          Expanded(
-            child: Text(
-              entry.lineContent,
-              style: TextStyle(
-                fontFamily: GbmTypography.fontMono,
-                fontSize: GbmTypography.textSm,
-                color: colors.textPrimary,
+            const SizedBox(width: GbmSpacing.space1),
+            Expanded(
+              child: Text(
+                entry.lineContent,
+                style: TextStyle(
+                  fontFamily: GbmTypography.fontMono,
+                  fontSize: GbmTypography.textSm,
+                  color: colors.textPrimary,
+                ),
               ),
             ),
-          ),
-          IconButton(
-            icon: Icon(Icons.close, size: 16, color: colors.textSecondary),
-            onPressed: onDelete,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
-            tooltip: 'Delete line',
-          ),
-        ],
+            IconButton(
+              icon: Icon(Icons.close, size: 16, color: colors.textSecondary),
+              onPressed: onDelete,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              tooltip: 'Delete line',
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1008,6 +1102,50 @@ class _ContextBlock extends StatelessWidget {
   }
 }
 
+/// Intent for undoing the last discard in the conflict resolve window.
+/// This is local to the window and not tied to app-wide undo.
+class _UndoDiscardIntent extends Intent {
+  const _UndoDiscardIntent();
+}
+
+/// Keyboard shortcuts + actions wrapper for the conflict resolve window.
+/// Handles Ctrl/Cmd+Z to undo the last discard. This is window-local and
+/// not tied to the app-wide edit undo action.
+class _ConflictResolveWindowShortcuts extends StatelessWidget {
+  const _ConflictResolveWindowShortcuts({
+    required this.child,
+    required this.isMacOS,
+    required this.onUndoDiscard,
+  });
+
+  final Widget child;
+  final bool isMacOS;
+  final VoidCallback onUndoDiscard;
+
+  @override
+  Widget build(BuildContext context) {
+    final shortcuts = <ShortcutActivator, Intent>{
+      SingleActivator(
+        LogicalKeyboardKey.keyZ,
+        control: !isMacOS,
+        meta: isMacOS,
+      ): const _UndoDiscardIntent(),
+    };
+
+    return Shortcuts(
+      shortcuts: shortcuts,
+      child: Actions(
+        actions: <Type, Action<Intent>>{
+          _UndoDiscardIntent: CallbackAction<_UndoDiscardIntent>(
+            onInvoke: (_) => onUndoDiscard(),
+          ),
+        },
+        child: Focus(autofocus: true, child: child),
+      ),
+    );
+  }
+}
+
 /// Drag data for a whole-hunk drag-and-drop operation.
 class _ConflictHunkDragData {
   _ConflictHunkDragData({
@@ -1019,6 +1157,14 @@ class _ConflictHunkDragData {
   final int regionIndex;
   final ConflictLineSource source;
   final List<String> lines;
+}
+
+/// Drag data for a result line drag-and-drop operation.
+class _ResultLineDragData {
+  _ResultLineDragData({required this.regionIndex, required this.linePosition});
+
+  final int regionIndex;
+  final int linePosition;
 }
 
 /// One `<<<<<<</=======/>>>>>>>` region: ancestor (optional)/ours/theirs

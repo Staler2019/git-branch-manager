@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:ffi/ffi.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/ffi/gbm_bindings.dart';
@@ -329,6 +330,180 @@ void main() {
       expect(find.text('Resolved'), findsOneWidget);
       expect(find.text('Unresolved'), findsNothing);
     });
+
+    testWidgets('drag result line out of pane discards it', (tester) async {
+      final parsed = ParsedConflictFile(
+        segments: <ConflictSegment>[
+          _regionSegment(
+            ours: <String>['result-line1', 'result-line2'],
+            theirs: <String>['theirs-line1'],
+          ),
+        ],
+        regionCount: 1,
+        wellFormed: true,
+      );
+
+      await _pumpWindow(tester, identity, _sessionWith(_conflictEntry), parsed);
+      await _selectConflictFile(tester);
+
+      // Take ours to populate result
+      await tester.tap(_perRegionTakeButton('Ours'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('①'), findsOneWidget);
+      expect(find.text('②'), findsOneWidget);
+
+      // Drag the badge (①) out to the left. The badge is unique to the result column.
+      await tester.drag(find.text('①'), const Offset(-250, 0));
+      await tester.pumpAndSettle();
+
+      // The first line should be gone; badges prove deletion worked (① renumbered, ② gone)
+      expect(find.text('①'), findsOneWidget);
+      expect(find.text('②'), findsNothing);
+    });
+
+    testWidgets('drag result line small offset within pane is no-op', (
+      tester,
+    ) async {
+      final parsed = ParsedConflictFile(
+        segments: <ConflictSegment>[
+          _regionSegment(
+            ours: <String>['keep-line1'],
+            theirs: <String>['theirs-line1'],
+          ),
+        ],
+        regionCount: 1,
+        wellFormed: true,
+      );
+
+      await _pumpWindow(tester, identity, _sessionWith(_conflictEntry), parsed);
+      await _selectConflictFile(tester);
+
+      // Take ours to populate result
+      await tester.tap(_perRegionTakeButton('Ours'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('①'), findsOneWidget);
+
+      // Drag the badge by a small offset (stays within pane)
+      await tester.drag(find.text('①'), const Offset(20, 10));
+      await tester.pumpAndSettle();
+
+      // Line should still be there (no-op); badge proves no deletion occurred
+      expect(find.text('①'), findsOneWidget);
+    });
+
+    testWidgets('Ctrl+Z undo after deleting line via close button', (
+      tester,
+    ) async {
+      final parsed = ParsedConflictFile(
+        segments: <ConflictSegment>[
+          _regionSegment(
+            ours: <String>['line-to-delete'],
+            theirs: <String>['theirs-line'],
+          ),
+        ],
+        regionCount: 1,
+        wellFormed: true,
+      );
+
+      await _pumpWindow(tester, identity, _sessionWith(_conflictEntry), parsed);
+      await _selectConflictFile(tester);
+
+      // Take ours
+      await tester.tap(_perRegionTakeButton('Ours'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('①'), findsOneWidget);
+
+      // Delete via close button
+      await tester.tap(find.byIcon(Icons.close));
+      await tester.pumpAndSettle();
+
+      // Badge proves deletion worked
+      expect(find.text('①'), findsNothing);
+
+      // Send Ctrl+Z
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.keyZ);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.keyZ);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pumpAndSettle();
+
+      // Line should be restored; badge proves undo worked
+      expect(find.text('①'), findsOneWidget);
+    });
+
+    testWidgets('Ctrl+Z undo is no-op when nothing discarded', (tester) async {
+      final parsed = ParsedConflictFile(
+        segments: <ConflictSegment>[
+          _regionSegment(
+            ours: <String>['ours-line'],
+            theirs: <String>['theirs-line'],
+          ),
+        ],
+        regionCount: 1,
+        wellFormed: true,
+      );
+
+      await _pumpWindow(tester, identity, _sessionWith(_conflictEntry), parsed);
+      await _selectConflictFile(tester);
+
+      // Nothing deleted yet
+      expect(find.text('①'), findsNothing);
+
+      // Send Ctrl+Z (should do nothing, no error)
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.keyZ);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.keyZ);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pumpAndSettle();
+
+      // Still nothing (no-op)
+      expect(find.text('①'), findsNothing);
+    });
+
+    testWidgets('Ctrl+Z undo after drag-out discard', (tester) async {
+      final parsed = ParsedConflictFile(
+        segments: <ConflictSegment>[
+          _regionSegment(
+            ours: <String>['drag-line1', 'drag-line2'],
+            theirs: <String>['theirs-line'],
+          ),
+        ],
+        regionCount: 1,
+        wellFormed: true,
+      );
+
+      await _pumpWindow(tester, identity, _sessionWith(_conflictEntry), parsed);
+      await _selectConflictFile(tester);
+
+      // Take ours
+      await tester.tap(_perRegionTakeButton('Ours'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('①'), findsOneWidget);
+      expect(find.text('②'), findsOneWidget);
+
+      // Drag first badge out of pane
+      await tester.drag(find.text('①'), const Offset(-250, 0));
+      await tester.pumpAndSettle();
+
+      // Badges prove deletion worked (① renumbered, ② gone)
+      expect(find.text('①'), findsOneWidget);
+      expect(find.text('②'), findsNothing);
+
+      // Undo the drag discard
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.keyZ);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.keyZ);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pumpAndSettle();
+
+      // Badges prove undo worked (both badges restored)
+      expect(find.text('①'), findsOneWidget);
+      expect(find.text('②'), findsOneWidget);
+    });
   });
 }
 
@@ -386,7 +561,8 @@ Future<void> _pumpWindow(
     routes: <RouteBase>[
       GoRoute(
         path: RoutePaths.conflicts,
-        builder: (context, state) => ConflictResolveWindow(identity: identity),
+        builder: (context, state) =>
+            ConflictResolveWindow(identity: identity, isMacOS: false),
       ),
       GoRoute(
         path: RoutePaths.repoList,

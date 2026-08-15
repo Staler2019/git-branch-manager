@@ -77,6 +77,15 @@ bool waitForWorkingCopyOperationFinished(EventLog& log) {
     });
 }
 
+bool waitForOperationFinished(EventLog& log) {
+    return log.waitFor([](const auto& events) {
+        for (const auto& [type, payload] : events) {
+            if (type == GBM_EVENT_OPERATION_FINISHED) return true;
+        }
+        return false;
+    });
+}
+
 class RemoteApiTest : public ::testing::Test {
 protected:
     static void SetUpTestSuite() {
@@ -234,6 +243,46 @@ TEST_F(RemoteApiTest, PushUploadsLocalCommitsToTheRemote) {
     // not necessarily "main" -- see the FetchBringsInNewRemoteCommits doc
     // comment above for the same distinction.
     EXPECT_EQ(runIn(remote_, {"cat-file", "-e", "refs/heads/main:new-file.txt"}), 0);
+}
+
+TEST_F(RemoteApiTest, PrunePreviewListsARemoteTrackingBranchDeletedOnTheRemote) {
+    // A remote-tracking ref for a branch that no longer exists on the
+    // remote -- delete it there directly (bypassing gbm_push, which has no
+    // "delete a remote branch" affordance) so origin/gone is genuinely
+    // stale from repo_'s point of view.
+    ASSERT_EQ(runIn(remote_, {"branch", "gone"}), 0);
+    gbm_remote_fetch(session_, "origin", /*prune=*/0, /*tags=*/0);
+    ASSERT_TRUE(waitForWorkingCopyOperationFinished(log_));
+    ASSERT_EQ(runGit({"rev-parse", "--verify", "origin/gone"}), 0);
+    ASSERT_EQ(runIn(remote_, {"branch", "-D", "gone"}), 0);
+
+    gbm_request_remote_prune_preview(session_, "origin");
+    ASSERT_TRUE(log_.waitFor(
+        [](const auto& events) { return anyEventOfType(events, GBM_EVENT_REMOTE_PRUNE_PREVIEW_READY); }));
+
+    const std::string payload = log_.lastPayloadOfType(GBM_EVENT_REMOTE_PRUNE_PREVIEW_READY);
+    EXPECT_NE(payload.find("\"remote\":\"origin\""), std::string::npos) << payload;
+    EXPECT_NE(payload.find("origin/gone"), std::string::npos) << payload;
+    // The dry-run preview must not have actually removed the stale ref.
+    EXPECT_EQ(runGit({"rev-parse", "--verify", "origin/gone"}), 0);
+}
+
+TEST_F(RemoteApiTest, PruneDeletesExactlyTheSelectedRemoteTrackingRef) {
+    ASSERT_EQ(runIn(remote_, {"branch", "gone"}), 0);
+    gbm_remote_fetch(session_, "origin", /*prune=*/0, /*tags=*/0);
+    ASSERT_TRUE(waitForWorkingCopyOperationFinished(log_));
+    ASSERT_EQ(runGit({"rev-parse", "--verify", "origin/gone"}), 0);
+    ASSERT_EQ(runGit({"rev-parse", "--verify", "origin/main"}), 0);
+
+    const char* refs[] = {"origin/gone"};
+    gbm_remote_prune(session_, "origin", refs, 1);
+    ASSERT_TRUE(waitForOperationFinished(log_));
+
+    const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_OPERATION_FINISHED);
+    EXPECT_NE(outcome.find("\"succeeded\":true"), std::string::npos) << outcome;
+    EXPECT_NE(runGit({"rev-parse", "--verify", "origin/gone"}), 0);
+    // Untouched: gbm_remote_prune only deletes the refs it is given.
+    EXPECT_EQ(runGit({"rev-parse", "--verify", "origin/main"}), 0);
 }
 
 }  // namespace

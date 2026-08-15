@@ -163,6 +163,29 @@ enum GbmEventType {
     /// payload: {"oid": string, "path": string, "diff": ParsedDiff JSON}.
     /// Reply to gbm_request_commit_file_diff().
     GBM_EVENT_COMMIT_FILE_DIFF_READY = 28,
+
+    /// payload: {"left": string, "right": string, "threeDot": bool,
+    /// "mergeBase": string, "commits": CompareCommitEntry JSON array,
+    /// "files": DiffFile JSON array}. Reply to gbm_request_compare_refs().
+    /// "mergeBase" is "" when the two refs share no common ancestor -- that
+    /// is a valid result to display (unrelated histories), not an error.
+    /// left/right/threeDot are echoed back from the request so a caller
+    /// with several Compare tabs open at once (each its own ref pair) can
+    /// match this reply to the tab that asked for it -- see
+    /// Session::requestCompareRefs()'s doc comment.
+    GBM_EVENT_COMPARE_READY = 29,
+    /// payload: {"left": string, "right": string, "threeDot": bool, "path":
+    /// string, "diff": ParsedDiff JSON}. Reply to
+    /// gbm_request_compare_file_diff(), same echo-the-request reasoning as
+    /// GBM_EVENT_COMPARE_READY above.
+    GBM_EVENT_COMPARE_FILE_DIFF_READY = 30,
+    /// payload: {"remote": string, "refs": RemotePrunePreviewEntry JSON
+    /// array}. Reply to gbm_request_remote_prune_preview(). The real
+    /// deletion (gbm_remote_prune()) reports through the existing
+    /// GBM_EVENT_OPERATION_FINISHED instead of a dedicated event -- it is
+    /// an Operation like fetch/pull/push/branch-delete, not a new kind of
+    /// reply.
+    GBM_EVENT_REMOTE_PRUNE_PREVIEW_READY = 31,
 };
 
 typedef void (*GbmEventCallback)(GbmSessionHandle session,
@@ -258,6 +281,34 @@ GBM_API void gbm_request_commit_files(GbmSessionHandle session, const char* oid)
 /// GBM_EVENT_COMMIT_FILE_DIFF_READY with a ParsedDiff JSON payload, or
 /// GBM_EVENT_ERROR_OCCURRED on failure.
 GBM_API void gbm_request_commit_file_diff(GbmSessionHandle session, const char* oid, const char* path);
+
+// --- Compare (M6) ----------------------------------------------------------
+// Two-ref comparison queries backing the Compare tab (spec page 12): unlike
+// gbm_remotes_json() (one published "current" snapshot), a Compare tab's
+// inputs are two user-chosen refs and the UI allows several tabs open at
+// once with different ref pairs -- so these follow the same
+// echo-the-request-params-back pattern as gbm_request_commit_file_diff()
+// above, not the single-published-state pattern. Both are read-only.
+
+/// Requests merge-base + the commit lists unique to each side + the
+/// changed-file summary for two refs, in one round trip (opening a Compare
+/// tab always wants all three). `threeDot` non-zero: `left...right`
+/// (symmetric difference off the merge base). Zero: `left..right` (only
+/// what right has that left doesn't). Async: fires GBM_EVENT_COMPARE_READY,
+/// or GBM_EVENT_ERROR_OCCURRED on failure (e.g. either ref empty).
+GBM_API void gbm_request_compare_refs(GbmSessionHandle session,
+                                      const char* leftRef,
+                                      const char* rightRef,
+                                      int32_t threeDot);
+
+/// Requests one file's full diff between two refs. Async: fires
+/// GBM_EVENT_COMPARE_FILE_DIFF_READY, or GBM_EVENT_ERROR_OCCURRED on
+/// failure.
+GBM_API void gbm_request_compare_file_diff(GbmSessionHandle session,
+                                           const char* leftRef,
+                                           const char* rightRef,
+                                           int32_t threeDot,
+                                           const char* path);
 
 GBM_API int32_t gbm_graph_snapshot_lane_count(GbmSessionHandle session);
 GBM_API int32_t gbm_graph_snapshot_complete(GbmSessionHandle session);
@@ -644,6 +695,26 @@ GBM_API void gbm_push(GbmSessionHandle session,
                       int32_t setUpstream,
                       int32_t pushTags,
                       int32_t forceWithLease);
+
+/// `git remote prune <remoteName> --dry-run`: what a real prune (below)
+/// would remove, without removing anything. Async: fires
+/// GBM_EVENT_REMOTE_PRUNE_PREVIEW_READY, or GBM_EVENT_ERROR_OCCURRED on
+/// failure (e.g. `remoteName` empty).
+GBM_API void gbm_request_remote_prune_preview(GbmSessionHandle session, const char* remoteName);
+
+/// Deletes exactly the remote-tracking refs in `refs` (typically a
+/// user-edited subset of a prior gbm_request_remote_prune_preview() reply)
+/// via `git branch --delete --remotes`, not `git remote prune`: the plain
+/// command has no "delete only these" mode. Each entry is the short name a
+/// preview reply returned, e.g. "origin/feature/old-branch". Async: fires
+/// GBM_EVENT_OPERATION_FINISHED (same channel as branch delete, not
+/// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED -- nothing here touches the
+/// working tree or index, only remote-tracking refs), and on success also
+/// triggers the same refresh gbm_history_refresh() would.
+GBM_API void gbm_remote_prune(GbmSessionHandle session,
+                              const char* remoteName,
+                              const char* const* refs,
+                              int32_t refCount);
 
 // --- Credential prompts (askpass) -------------------------------------
 // Answers or dismisses whichever prompt GBM_EVENT_CREDENTIAL_REQUESTED most

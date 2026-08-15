@@ -11,6 +11,7 @@ add_library(gbm_capi SHARED
     CherryPick.cpp
     CommitFiles.cpp
     CommitMetaRequest.cpp
+    Compare.cpp
     Conflicts.cpp
     Discovery.cpp
     FileHistory.cpp

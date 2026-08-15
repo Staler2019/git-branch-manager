@@ -20,6 +20,7 @@
 #include "core/git/UnifiedDiffParser.h"
 #include "core/git/WorkingCopyStatus.h"
 #include "core/git/ops/BisectOps.h"
+#include "core/git/ops/CompareOps.h"
 #include "core/git/ops/ConfigOps.h"
 #include "core/git/ops/LfsOps.h"
 #include "core/git/ops/RebaseOps.h"
@@ -55,6 +56,11 @@ std::string toJson(const WorktreeInfo& worktree);
 std::string toJson(const std::vector<WorktreeInfo>& worktrees);
 std::string toJson(const RemoteInfo& remote);
 std::string toJson(const std::vector<RemoteInfo>& remotes);
+std::string toJson(const RemotePrunePreviewEntry& entry);
+std::string toJson(const std::vector<RemotePrunePreviewEntry>& entries);
+std::string toJson(const std::vector<DiffFile>& files);
+std::string toJson(const CompareCommitEntry& entry);
+std::string toJson(const std::vector<CompareCommitEntry>& entries);
 std::string toJson(const OperationRecord& record);
 std::string toJson(const BlameResult& result);
 std::string toJson(const FileHistoryEntry& entry);

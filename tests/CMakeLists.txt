@@ -118,6 +118,7 @@ if(GBM_BUILD_CAPI)
         capi/CherryPickRevertApiTest.cpp
         capi/CommitFilesApiTest.cpp
         capi/CommitMetaApiTest.cpp
+        capi/CompareApiTest.cpp
         capi/ConflictMarkerApiTest.cpp
         capi/DiscoveryApiTest.cpp
         capi/FileHistoryApiTest.cpp

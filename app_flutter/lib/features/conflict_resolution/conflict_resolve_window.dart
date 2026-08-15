@@ -12,6 +12,8 @@ import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/gbm_button.dart';
+import '../../widgets/split_pane.dart';
+import 'conflict_line_order.dart';
 import 'conflict_resolve_logic.dart';
 
 /// The Dart analog of `ConflictResolveWindow` + `ConflictResolvePanel`
@@ -23,10 +25,13 @@ import 'conflict_resolve_logic.dart';
 /// dialog state.
 ///
 /// A conflicted path with parseable `<<<<<<</=======/>>>>>>>` regions gets
-/// the rich per-region editor (see [_RegionEditor]): ours/theirs/ancestor
-/// panes per region, take-ours/take-theirs/reset, and a final editable
-/// result once every region has a choice -- see gbm_parse_conflict_markers()
-/// and gbm_request_working_tree_content() in gbm_capi.h. A path with no
+/// the three-column editor (LEFT [_SidePane] "ours", MIDDLE [_ResultPane],
+/// RIGHT [_SidePane] "theirs", laid out with [GbmSplitPane]): per-region
+/// take-ours/take-theirs appends each line into the region's
+/// [ConflictLineOrderState] with a numbered badge marking application
+/// order, per-line delete, reset, and a final editable result once every
+/// region has at least one line -- see gbm_parse_conflict_markers() and
+/// gbm_request_working_tree_content() in gbm_capi.h. A path with no
 /// parseable regions (binary, or markers the parser gave up on) falls back
 /// to the plain Take Ours/Take Theirs/Mark Resolved actions on the rail
 /// row, same as before this editor existed.
@@ -62,7 +67,7 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
   // previously selected file) to the newly selected one.
   String? _parsedForPath;
   ParsedConflictFile? _parsed;
-  List<ConflictRegionChoice> _resolutions = <ConflictRegionChoice>[];
+  ConflictLineOrderState? _lineOrder;
   bool _showAncestor = false;
   TextEditingController? _resultController;
   bool _resultSeeded = false;
@@ -78,7 +83,7 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
       _selectedPath = path;
       _parsedForPath = null;
       _parsed = null;
-      _resolutions = <ConflictRegionChoice>[];
+      _lineOrder = null;
       _resultController?.dispose();
       _resultController = null;
       _resultSeeded = false;
@@ -105,43 +110,68 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
     setState(() {
       _parsedForPath = reply.path;
       _parsed = parsed;
-      _resolutions = List<ConflictRegionChoice>.filled(
-        parsed.regionCount,
-        ConflictRegionChoice.unresolved,
-      );
+      _lineOrder = ConflictLineOrderState.initial(parsed.regionCount);
     });
   }
 
-  bool get _allResolved =>
-      _resolutions.isNotEmpty &&
-      _resolutions.every((r) => r != ConflictRegionChoice.unresolved);
-
-  void _setRegionChoice(int regionIndex, ConflictRegionChoice choice) {
-    setState(() {
-      final List<ConflictRegionChoice> updated = List<ConflictRegionChoice>.of(
-        _resolutions,
-      );
-      updated[regionIndex] = choice;
-      _resolutions = updated;
-      if (!_allResolved) {
-        _resultController?.dispose();
-        _resultController = null;
-        _resultSeeded = false;
+  bool get _allResolved {
+    if (_lineOrder == null) return false;
+    for (int i = 0; i < _lineOrder!.regionCount; i++) {
+      final region = _lineOrder!.regions[i];
+      if (region.orderedLines.isEmpty && !region.manuallyEdited) {
+        return false;
       }
+    }
+    return true;
+  }
+
+  void _appendLines(int regionIndex, ConflictLineSource source, List<String> lines) {
+    if (_lineOrder == null) return;
+    setState(() {
+      ConflictLineOrderState updated = _lineOrder!;
+      for (final line in lines) {
+        updated = updated.appendLine(regionIndex, source, line);
+      }
+      _lineOrder = updated;
+      _resultController?.dispose();
+      _resultController = null;
+      _resultSeeded = false;
     });
   }
 
-  void _resetRegion(int regionIndex) =>
-      _setRegionChoice(regionIndex, ConflictRegionChoice.unresolved);
+  void _removeLine(int regionIndex, int linePosition) {
+    if (_lineOrder == null) return;
+    setState(() {
+      _lineOrder = _lineOrder!.removeAt(regionIndex, linePosition);
+      _resultController?.dispose();
+      _resultController = null;
+      _resultSeeded = false;
+    });
+  }
+
+  void _resetRegion(int regionIndex) {
+    if (_lineOrder == null) return;
+    setState(() {
+      _lineOrder = _lineOrder!.resetRegion(regionIndex);
+      _resultController?.dispose();
+      _resultController = null;
+      _resultSeeded = false;
+    });
+  }
 
   void _ensureResultSeeded() {
-    if (_resultSeeded || _parsed == null) return;
-    final String? assembled = assembleConflictResolution(
-      _parsed!,
-      _resolutions,
-    );
-    if (assembled == null) return;
-    _resultController = TextEditingController(text: assembled);
+    if (_resultSeeded || _parsed == null || _lineOrder == null) return;
+    final StringBuffer buffer = StringBuffer();
+    int regionIndex = 0;
+    for (final segment in _parsed!.segments) {
+      if (segment.kind == ConflictSegmentKind.text) {
+        buffer.write(segment.lines.join());
+      } else {
+        buffer.write(_lineOrder!.assembledResult(regionIndex));
+        regionIndex++;
+      }
+    }
+    _resultController = TextEditingController(text: buffer.toString());
     _resultSeeded = true;
   }
 
@@ -230,77 +260,44 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
                       ],
                     ),
                   )
-                : Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                : GbmSplitPane(
+                    axis: Axis.horizontal,
+                    spec: GbmLayout.splitterCwFiles,
+                    storageId: 'cw.files',
                     children: <Widget>[
-                      SizedBox(
-                        width: 280,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: <Widget>[
-                            Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: GbmSpacing.space3,
-                                vertical: GbmSpacing.space1,
-                              ),
-                              child: Text(
-                                '${_batch.resolvedCount} of ${_batch.entries.length} resolved',
-                                style: TextStyle(
-                                  fontSize: GbmTypography.textXs,
-                                  color: colors.textTertiary,
-                                ),
+                      // Left rail: file list
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: <Widget>[
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: GbmSpacing.space3,
+                              vertical: GbmSpacing.space1,
+                            ),
+                            child: Text(
+                              '${_batch.resolvedCount} of ${_batch.entries.length} resolved',
+                              style: TextStyle(
+                                fontSize: GbmTypography.textXs,
+                                color: colors.textTertiary,
                               ),
                             ),
-                            Expanded(
-                              child: ListView(
-                                children: <Widget>[
-                                  for (final entry in _batch.entries)
-                                    _ConflictRailRow(
-                                      entry: entry,
-                                      selected: entry.path == _selectedPath,
-                                      onTap: () => _selectPath(entry.path),
-                                      onTakeOurs: () {
-                                        final WorkingCopyEntry? wc = conflicted
-                                            .cast<WorkingCopyEntry?>()
-                                            .firstWhere(
-                                              (e) => e?.path == entry.path,
-                                              orElse: () => null,
-                                            );
-                                        ref
-                                            .read(
-                                              repoSessionProvider(
-                                                widget.identity,
-                                              ).notifier,
-                                            )
-                                            .resolveConflict(
-                                              entry.path,
-                                              ConflictResolution.takeOurs,
-                                              oursBlobMissing:
-                                                  wc?.oursBlob.isEmpty ?? false,
-                                            );
-                                      },
-                                      onTakeTheirs: () {
-                                        final WorkingCopyEntry? wc = conflicted
-                                            .cast<WorkingCopyEntry?>()
-                                            .firstWhere(
-                                              (e) => e?.path == entry.path,
-                                              orElse: () => null,
-                                            );
-                                        ref
-                                            .read(
-                                              repoSessionProvider(
-                                                widget.identity,
-                                              ).notifier,
-                                            )
-                                            .resolveConflict(
-                                              entry.path,
-                                              ConflictResolution.takeTheirs,
-                                              theirsBlobMissing:
-                                                  wc?.theirsBlob.isEmpty ??
-                                                  false,
-                                            );
-                                      },
-                                      onMarkResolved: () => ref
+                          ),
+                          Expanded(
+                            child: ListView(
+                              children: <Widget>[
+                                for (final entry in _batch.entries)
+                                  _ConflictRailRow(
+                                    entry: entry,
+                                    selected: entry.path == _selectedPath,
+                                    onTap: () => _selectPath(entry.path),
+                                    onTakeOurs: () {
+                                      final WorkingCopyEntry? wc = conflicted
+                                          .cast<WorkingCopyEntry?>()
+                                          .firstWhere(
+                                            (e) => e?.path == entry.path,
+                                            orElse: () => null,
+                                          );
+                                      ref
                                           .read(
                                             repoSessionProvider(
                                               widget.identity,
@@ -308,26 +305,57 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
                                           )
                                           .resolveConflict(
                                             entry.path,
-                                            ConflictResolution.markResolved,
-                                          ),
-                                    ),
-                                ],
-                              ),
+                                            ConflictResolution.takeOurs,
+                                            oursBlobMissing:
+                                                wc?.oursBlob.isEmpty ?? false,
+                                          );
+                                    },
+                                    onTakeTheirs: () {
+                                      final WorkingCopyEntry? wc = conflicted
+                                          .cast<WorkingCopyEntry?>()
+                                          .firstWhere(
+                                            (e) => e?.path == entry.path,
+                                            orElse: () => null,
+                                          );
+                                      ref
+                                          .read(
+                                            repoSessionProvider(
+                                              widget.identity,
+                                            ).notifier,
+                                          )
+                                          .resolveConflict(
+                                            entry.path,
+                                            ConflictResolution.takeTheirs,
+                                            theirsBlobMissing:
+                                                wc?.theirsBlob.isEmpty ??
+                                                false,
+                                          );
+                                    },
+                                    onMarkResolved: () => ref
+                                        .read(
+                                          repoSessionProvider(
+                                            widget.identity,
+                                          ).notifier,
+                                        )
+                                        .resolveConflict(
+                                          entry.path,
+                                          ConflictResolution.markResolved,
+                                        ),
+                                  ),
+                              ],
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
-                      VerticalDivider(width: 1, color: colors.borderSubtle),
-                      Expanded(
-                        child: _selectedPath == null
-                            ? Center(
-                                child: Text(
-                                  'Select a file',
-                                  style: TextStyle(color: colors.textTertiary),
-                                ),
-                              )
-                            : _buildEditor(context),
-                      ),
+                      // Right: editor with three-pane layout
+                      _selectedPath == null
+                          ? Center(
+                              child: Text(
+                                'Select a file',
+                                style: TextStyle(color: colors.textTertiary),
+                              ),
+                            )
+                          : _buildEditor(context),
                     ],
                   ),
           ),
@@ -343,7 +371,7 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
     if (_parsedForPath != _selectedPath) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (parsed == null || parsed.regionCount == 0) {
+    if (parsed == null || parsed.regionCount == 0 || _lineOrder == null) {
       // Not editable (binary/non-UTF8), or no parseable regions -- fall
       // back to the rail row's whole-file Take Ours/Take Theirs/Mark
       // Resolved actions; nothing more to show here.
@@ -396,9 +424,27 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
           ),
         ),
         Expanded(
-          child: ListView(
-            padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
-            children: _buildSegmentBlocks(parsed),
+          child: GbmSplitPane(
+            axis: Axis.horizontal,
+            spec: GbmLayout.splitterCwPanes,
+            storageId: 'cw.panes',
+            children: <Widget>[
+              // LEFT: Ours column
+              ListView(
+                padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
+                children: _buildOursSideBlocks(parsed),
+              ),
+              // MIDDLE: Result column with badges
+              ListView(
+                padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
+                children: _buildResultBlocks(parsed),
+              ),
+              // RIGHT: Theirs column
+              ListView(
+                padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
+                children: _buildTheirsSideBlocks(parsed),
+              ),
+            ],
           ),
         ),
         if (_allResolved && _resultController != null)
@@ -446,11 +492,8 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
     );
   }
 
-  /// Walks `parsed.segments` once, pairing each region with its fixed index
-  /// into `_resolutions` -- a plain imperative loop rather than a
-  /// declarative `for` inside the widget list, so that index is captured
-  /// once per region rather than mutated from inside a callback.
-  List<Widget> _buildSegmentBlocks(ParsedConflictFile parsed) {
+  /// Builds the LEFT column showing ours side with Take Ours buttons per region
+  List<Widget> _buildOursSideBlocks(ParsedConflictFile parsed) {
     final List<Widget> blocks = <Widget>[];
     int regionIndex = 0;
     for (final ConflictSegment segment in parsed.segments) {
@@ -460,17 +503,59 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
       }
       final int thisRegion = regionIndex++;
       blocks.add(
-        _RegionEditor(
+        _SidePane(
+          label: 'Ours',
+          lines: segment.ours,
+          background: null,
+          onTake: () => _appendLines(thisRegion, ConflictLineSource.ours, segment.ours),
+        ),
+      );
+    }
+    return blocks;
+  }
+
+  /// Builds the MIDDLE column showing assembled result with numbered badges and delete buttons
+  List<Widget> _buildResultBlocks(ParsedConflictFile parsed) {
+    if (_lineOrder == null) return [];
+    final List<Widget> blocks = <Widget>[];
+    int regionIndex = 0;
+    for (final ConflictSegment segment in parsed.segments) {
+      if (segment.kind == ConflictSegmentKind.text) {
+        blocks.add(_ContextBlock(text: segment.lines.join()));
+        continue;
+      }
+      final int thisRegion = regionIndex++;
+      final List<ConflictLineEntry> orderedLines = _lineOrder!.getOrderedLines(thisRegion);
+
+      blocks.add(
+        _ResultPane(
           index: thisRegion,
           total: parsed.regionCount,
-          segment: segment,
-          choice: _resolutions[thisRegion],
-          showAncestor: _showAncestor,
-          onTakeOurs: () =>
-              _setRegionChoice(thisRegion, ConflictRegionChoice.ours),
-          onTakeTheirs: () =>
-              _setRegionChoice(thisRegion, ConflictRegionChoice.theirs),
+          orderedLines: orderedLines,
+          onDelete: (position) => _removeLine(thisRegion, position),
           onReset: () => _resetRegion(thisRegion),
+        ),
+      );
+    }
+    return blocks;
+  }
+
+  /// Builds the RIGHT column showing theirs side with Take Theirs buttons per region
+  List<Widget> _buildTheirsSideBlocks(ParsedConflictFile parsed) {
+    final List<Widget> blocks = <Widget>[];
+    int regionIndex = 0;
+    for (final ConflictSegment segment in parsed.segments) {
+      if (segment.kind == ConflictSegmentKind.text) {
+        blocks.add(_ContextBlock(text: segment.lines.join()));
+        continue;
+      }
+      final int thisRegion = regionIndex++;
+      blocks.add(
+        _SidePane(
+          label: 'Theirs',
+          lines: segment.theirs,
+          background: null,
+          onTake: () => _appendLines(thisRegion, ConflictLineSource.theirs, segment.theirs),
         ),
       );
     }
@@ -633,59 +718,25 @@ class _MiniButton extends StatelessWidget {
   }
 }
 
-class _ContextBlock extends StatelessWidget {
-  const _ContextBlock({required this.text});
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final GbmColors colors = context.gbmColors;
-    if (text.trim().isEmpty) return const SizedBox(height: GbmSpacing.space1);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 1),
-      child: Text(
-        text,
-        style: TextStyle(
-          fontFamily: GbmTypography.fontMono,
-          fontSize: GbmTypography.textSm,
-          color: colors.textTertiary,
-        ),
-      ),
-    );
-  }
-}
-
-/// One `<<<<<<</=======/>>>>>>>` region: ancestor (optional)/ours/theirs
-/// mini-panes with Take Ours/Take Theirs, plus a live result preview and a
-/// one-click Reset once resolved -- see the class doc comment on
-/// [ConflictResolveWindow] for what this deliberately does not replicate
-/// from the Qt original (drag/click composition, keyboard shortcuts).
-class _RegionEditor extends StatelessWidget {
-  const _RegionEditor({
+class _ResultPane extends StatelessWidget {
+  const _ResultPane({
     required this.index,
     required this.total,
-    required this.segment,
-    required this.choice,
-    required this.showAncestor,
-    required this.onTakeOurs,
-    required this.onTakeTheirs,
+    required this.orderedLines,
+    required this.onDelete,
     required this.onReset,
   });
 
   final int index;
   final int total;
-  final ConflictSegment segment;
-  final ConflictRegionChoice choice;
-  final bool showAncestor;
-  final VoidCallback onTakeOurs;
-  final VoidCallback onTakeTheirs;
+  final List<ConflictLineEntry> orderedLines;
+  final Function(int) onDelete;
   final VoidCallback onReset;
 
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
-    final bool resolved = choice != ConflictRegionChoice.unresolved;
+    final bool resolved = orderedLines.isNotEmpty;
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: GbmSpacing.space1),
@@ -718,11 +769,7 @@ class _RegionEditor extends StatelessWidget {
                 ),
                 const SizedBox(width: GbmSpacing.space2),
                 Text(
-                  resolved
-                      ? (choice == ConflictRegionChoice.ours
-                            ? 'Using ours'
-                            : 'Using theirs')
-                      : 'Unresolved',
+                  resolved ? 'Resolved' : 'Unresolved',
                   style: TextStyle(
                     fontSize: GbmTypography.textXs,
                     color: resolved ? colors.diffAddText : colors.danger,
@@ -744,38 +791,42 @@ class _RegionEditor extends StatelessWidget {
               ],
             ),
           ),
-          if (showAncestor && segment.hasBase)
-            _SidePane(
-              label: 'Ancestor',
-              lines: segment.base,
-              background: colors.surfaceSunken,
-              onTake: null,
+          Padding(
+            padding: const EdgeInsets.all(GbmSpacing.space1),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  'Result',
+                  style: TextStyle(
+                    fontSize: GbmTypography.textXs,
+                    fontWeight: GbmTypography.weightMedium,
+                    color: colors.textTertiary,
+                  ),
+                ),
+                if (orderedLines.isEmpty)
+                  Text(
+                    '(nothing)',
+                    style: TextStyle(
+                      fontFamily: GbmTypography.fontMono,
+                      fontSize: GbmTypography.textSm,
+                      color: colors.textTertiary,
+                    ),
+                  )
+                else
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      for (int i = 0; i < orderedLines.length; i++)
+                        _ResultLine(
+                          position: i,
+                          entry: orderedLines[i],
+                          onDelete: () => onDelete(i),
+                        ),
+                    ],
+                  ),
+              ],
             ),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Expanded(
-                child: _SidePane(
-                  label: 'Ours',
-                  lines: segment.ours,
-                  background: choice == ConflictRegionChoice.ours
-                      ? colors.diffAddBg
-                      : null,
-                  onTake: onTakeOurs,
-                ),
-              ),
-              VerticalDivider(width: 1, color: colors.borderSubtle),
-              Expanded(
-                child: _SidePane(
-                  label: 'Theirs',
-                  lines: segment.theirs,
-                  background: choice == ConflictRegionChoice.theirs
-                      ? colors.diffAddBg
-                      : null,
-                  onTake: onTakeTheirs,
-                ),
-              ),
-            ],
           ),
         ],
       ),
@@ -783,6 +834,99 @@ class _RegionEditor extends StatelessWidget {
   }
 }
 
+class _ResultLine extends StatelessWidget {
+  const _ResultLine({
+    required this.position,
+    required this.entry,
+    required this.onDelete,
+  });
+
+  final int position;
+  final ConflictLineEntry entry;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    // Use circled digit Unicode characters for badges
+    final List<String> circledDigits = [
+      '①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩',
+      '⑪', '⑫', '⑬', '⑭', '⑮', '⑯', '⑰', '⑱', '⑲', '⑳',
+    ];
+    final String badgeText = position < circledDigits.length
+        ? circledDigits[position]
+        : '${position + 1}';
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: GbmSpacing.space1),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          SizedBox(
+            width: 20,
+            child: Center(
+              child: Text(
+                badgeText,
+                style: TextStyle(
+                  fontSize: GbmTypography.textXs,
+                  color: colors.accent,
+                  fontWeight: GbmTypography.weightMedium,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: GbmSpacing.space1),
+          Expanded(
+            child: Text(
+              entry.lineContent,
+              style: TextStyle(
+                fontFamily: GbmTypography.fontMono,
+                fontSize: GbmTypography.textSm,
+                color: colors.textPrimary,
+              ),
+            ),
+          ),
+          IconButton(
+            icon: Icon(Icons.close, size: 16, color: colors.textSecondary),
+            onPressed: onDelete,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+            tooltip: 'Delete line',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ContextBlock extends StatelessWidget {
+  const _ContextBlock({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    if (text.trim().isEmpty) return const SizedBox(height: GbmSpacing.space1);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 1),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontFamily: GbmTypography.fontMono,
+          fontSize: GbmTypography.textSm,
+          color: colors.textTertiary,
+        ),
+      ),
+    );
+  }
+}
+
+/// One `<<<<<<</=======/>>>>>>>` region: ancestor (optional)/ours/theirs
+/// mini-panes with Take Ours/Take Theirs, plus a live result preview and a
+/// one-click Reset once resolved -- see the class doc comment on
+/// [ConflictResolveWindow] for what this deliberately does not replicate
+/// from the Qt original (drag/click composition, keyboard shortcuts).
 class _SidePane extends StatelessWidget {
   const _SidePane({
     required this.label,

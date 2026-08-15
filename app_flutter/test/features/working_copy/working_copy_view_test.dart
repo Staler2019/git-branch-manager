@@ -1,8 +1,15 @@
+import 'dart:ffi';
+
+import 'package:ffi/ffi.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/ffi/gbm_bindings.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
+import 'package:gbm_flutter/data/repositories/recents_repository.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
+import 'package:gbm_flutter/data/repositories/repo_session_repository.dart'
+    show RepoSessionController, RepoSessionState, repoSessionProvider;
 import 'package:gbm_flutter/data/repositories/working_copy_draft_repository.dart'
     show workingCopyDraftProvider;
 import 'package:gbm_flutter/data/repositories/working_copy_repository.dart'
@@ -63,6 +70,10 @@ void main() {
           child: WorkingCopyView(identity: identity),
         ),
         overrides: [
+          repoSessionProvider(identity).overrideWith(
+            (ref) =>
+                _FakeRepoSessionController(identity, const RepoSessionState()),
+          ),
           wc
               .repoWorkingCopyStatusProvider(identity)
               .overrideWithValue(
@@ -88,6 +99,10 @@ void main() {
           child: WorkingCopyView(identity: identity),
         ),
         overrides: [
+          repoSessionProvider(identity).overrideWith(
+            (ref) =>
+                _FakeRepoSessionController(identity, const RepoSessionState()),
+          ),
           wc
               .repoWorkingCopyStatusProvider(identity)
               .overrideWithValue(WorkingCopyStatus(entries: [stagedEntry])),
@@ -110,6 +125,10 @@ void main() {
           child: WorkingCopyView(identity: identity),
         ),
         overrides: [
+          repoSessionProvider(identity).overrideWith(
+            (ref) =>
+                _FakeRepoSessionController(identity, const RepoSessionState()),
+          ),
           wc
               .repoWorkingCopyStatusProvider(identity)
               .overrideWithValue(WorkingCopyStatus(entries: [])),
@@ -148,6 +167,10 @@ void main() {
           child: WorkingCopyView(identity: identity),
         ),
         overrides: [
+          repoSessionProvider(identity).overrideWith(
+            (ref) =>
+                _FakeRepoSessionController(identity, const RepoSessionState()),
+          ),
           wc
               .repoWorkingCopyStatusProvider(identity)
               .overrideWithValue(
@@ -172,6 +195,10 @@ void main() {
           child: WorkingCopyView(identity: identity),
         ),
         overrides: [
+          repoSessionProvider(identity).overrideWith(
+            (ref) =>
+                _FakeRepoSessionController(identity, const RepoSessionState()),
+          ),
           wc
               .repoWorkingCopyStatusProvider(identity)
               .overrideWithValue(WorkingCopyStatus(entries: [stagedEntry])),
@@ -224,4 +251,55 @@ void main() {
       expect(find.text('my description'), findsOneWidget);
     });
   });
+}
+
+/// Fake controller for testing that just holds a static state.
+///
+/// [RepoSessionController]'s constructor unconditionally opens a real FFI
+/// session, so it needs a fake [GbmBindings] whose `sessionOpen` returns
+/// `nullptr`: `RepoSessionController._open()` treats a null session as
+/// "open failed" and returns immediately, before touching anything else on
+/// `_bindings` or `_recents` (same pattern as `sidebar_panel_test.dart`'s
+/// `_FakeGbmBindings`/`_FakeRecentsRepository`).
+class _FakeRepoSessionController extends RepoSessionController {
+  _FakeRepoSessionController(RepoIdentity identity, RepoSessionState initialState)
+    : super(_FakeGbmBindings(), identity, _FakeRecentsRepository()) {
+    state = initialState;
+  }
+
+  /// Dummy methods called by the view but not tested here.
+  @override
+  void resolveConflict(
+    String path,
+    dynamic resolution, {
+    bool oursBlobMissing = false,
+    bool theirsBlobMissing = false,
+    String? resolvedContent,
+  }) {}
+
+  @override
+  void restorePaths(List<String> paths, {String source = '', bool staged = false}) {}
+
+  @override
+  void requestWorkingTreeContent(String path) {}
+}
+
+class _FakeGbmBindings implements GbmBindings {
+  @override
+  SessionOpenDart get sessionOpen =>
+      (Pointer<Utf8> workDir, Pointer<Utf8> gitDir, Pointer<Utf8> commonDir) =>
+          nullptr;
+
+  @override
+  LastResultJsonLenDart get lastResultJsonLen => () => 0;
+
+  @override
+  Never noSuchMethod(Invocation invocation) =>
+      throw UnsupportedError('Not implemented for testing');
+}
+
+class _FakeRecentsRepository implements RecentsRepository {
+  @override
+  Never noSuchMethod(Invocation invocation) =>
+      throw UnsupportedError('Not implemented for testing');
 }

@@ -1,6 +1,6 @@
 // Verifies RepoListTile's right-click menu against the design doc's
 // `ctxItemsFor('repo')`: full item set, danger styling on "Remove from
-// list", and that "Repository settings" pushes the real preferences route
+// list", and that "Repository settings" pushes the repository-settings route
 // (the two items with no backing implementation -- "Open in file manager",
 // "Remove from list" -- are asserted present-but-inert, per this widget's
 // doc comment).
@@ -52,8 +52,8 @@ Future<void> _pump(WidgetTester tester, {required VoidCallback onTap}) async {
         ),
       ),
       GoRoute(
-        path: RoutePaths.preferencesDialog,
-        builder: (context, state) => const Text('preferences-dialog'),
+        path: RoutePaths.repositorySettingsDialog,
+        builder: (context, state) => const Text('repository-settings-dialog'),
       ),
     ],
   );
@@ -92,13 +92,13 @@ void main() {
   });
 
   testWidgets(
-    'tapping Repository settings pushes the preferences dialog route',
+    'tapping Repository settings pushes the repository settings route',
     (tester) async {
       await _pump(tester, onTap: () {});
       await _rightClick(tester, find.byType(RepoListTile));
       await tester.tap(find.text('Repository settings'));
       await tester.pumpAndSettle();
-      expect(find.text('preferences-dialog'), findsOneWidget);
+      expect(find.text('repository-settings-dialog'), findsOneWidget);
     },
   );
 }

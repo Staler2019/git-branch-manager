@@ -46,16 +46,15 @@ class _TerminalCandidate {
 /// -- so a repository path containing spaces, quotes or shell metacharacters
 /// cannot turn into a command injection.
 class DesktopLauncher {
-  const DesktopLauncher({ProcessStarter? start, String? operatingSystem})
-    : _start = start ?? _startDetached,
-      _operatingSystem = operatingSystem;
+  const DesktopLauncher({ProcessStarter? start, this.operatingSystem})
+    : _start = start ?? _startDetached;
 
   final ProcessStarter _start;
 
-  /// Overridden in tests; defaults to [Platform.operatingSystem].
-  final String? _operatingSystem;
+  /// Overridden in tests; null means [Platform.operatingSystem].
+  final String? operatingSystem;
 
-  String get _os => _operatingSystem ?? Platform.operatingSystem;
+  String get _os => operatingSystem ?? Platform.operatingSystem;
 
   static Future<bool> _startDetached(
     String executable,

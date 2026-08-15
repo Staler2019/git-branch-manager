@@ -234,8 +234,10 @@ void main() {
       onPull: () {},
       onPush: () {},
       actionHandlers: <GbmActionId, VoidCallback?>{
+        // App-level route now: Preferences holds application settings, and
+        // per-repository ones moved to RoutePaths.repositorySettingsDialog.
         GbmActionId.filePreferences: () =>
-            router.push(RoutePaths.preferencesDialogFor(_repoId)),
+            router.push(RoutePaths.preferencesDialog),
       },
     );
     await tester.tap(find.text('File'));

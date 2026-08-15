@@ -287,6 +287,11 @@ class _TestRecentsRepository implements RecentsRepository {
   Future<void> recordOpen(String workDir) async {
     // No-op for testing
   }
+
+  @override
+  Future<void> clear() async {
+    _entries.clear();
+  }
 }
 
 /// Minimal DiscoveryController implementation for testing.

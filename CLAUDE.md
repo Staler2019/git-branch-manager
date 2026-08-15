@@ -289,10 +289,15 @@ so the next reader doesn't re-derive it:
   `gbmActionShortcuts`.
 
 Toolchain note: this repo needs Flutter with Dart ≥ 3.12.2 (`pubspec.yaml`'s
-`sdk: ^3.12.2`) — Flutter 3.44.x ships it. At the time of that pass
-`flutter analyze` reported one pre-existing lint
-(`conflict_resolve_window.dart:170`, `curly_braces_in_flow_control_structures`)
-and `flutter test` was 631 passed / 21 skipped.
+`sdk: ^3.12.2`) — Flutter 3.44.x ships it. After that pass `flutter analyze`
+is clean (exit 0) and `flutter test` is 631 passed / 21 skipped.
+
+**`flutter analyze` must stay at zero issues.** CI's Flutter UI job runs it
+with no tolerance flags, and the command exits non-zero on *info*-level
+lints too — so an "only an info" diagnostic still fails the build. That job
+also sits behind `needs: capi-build`, so it does not run at all while any
+capi job is red; a green capi run can therefore surface Flutter problems
+that were previously invisible rather than absent.
 
 ### Known gaps (flagged, not fixed this round)
 

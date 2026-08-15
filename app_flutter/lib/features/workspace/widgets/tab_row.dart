@@ -6,6 +6,7 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_badge.dart';
 import '../../../widgets/gbm_menu.dart';
+import 'workspace_tab.dart';
 
 /// The History/Working Copy tab switcher plus the always-visible
 /// Merge/Cherry-pick/Reset shortcuts. Presentational (no Riverpod/FFI
@@ -32,7 +33,11 @@ class TabRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
     final String location = GoRouterState.of(context).uri.toString();
-    final bool onWorkingCopy = location.endsWith('/working-copy');
+    final List<WorkspaceTab> tabs = defaultWorkspaceTabs(
+      repoId,
+      pendingChangeCount: pendingChangeCount,
+    );
+    final int activeIndex = activeWorkspaceTabIndex(tabs, location);
 
     return Container(
       height: 36,
@@ -43,18 +48,15 @@ class TabRow extends StatelessWidget {
       ),
       child: Row(
         children: <Widget>[
-          _Tab(
-            label: 'History',
-            active: !onWorkingCopy,
-            onTap: () => context.go(RoutePaths.historyFor(repoId)),
-          ),
-          const SizedBox(width: GbmSpacing.space4),
-          _Tab(
-            label: 'Working Copy',
-            active: onWorkingCopy,
-            badgeCount: pendingChangeCount,
-            onTap: () => context.go(RoutePaths.workingCopyFor(repoId)),
-          ),
+          for (final (int index, WorkspaceTab tab) in tabs.indexed) ...<Widget>[
+            if (index > 0) const SizedBox(width: GbmSpacing.space4),
+            _Tab(
+              label: tab.label,
+              active: index == activeIndex,
+              badgeCount: tab.badgeCount,
+              onTap: () => context.go(tab.route),
+            ),
+          ],
           const Spacer(),
           TextButton(
             onPressed: () => context.push(RoutePaths.mergeDialogFor(repoId)),

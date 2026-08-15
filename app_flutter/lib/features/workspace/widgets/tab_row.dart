@@ -1,12 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../data/repositories/compare_tabs_repository.dart';
 import '../../../routing/route_paths.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_badge.dart';
 import '../../../widgets/gbm_menu.dart';
 import 'workspace_tab.dart';
+
+/// Builds the [WorkspaceTab] a [CompareTabSpec] renders as in the tab strip
+/// -- closable, unlike the two fixed tabs (see [WorkspaceTab.closable]'s
+/// doc comment).
+WorkspaceTab compareWorkspaceTab(CompareTabSpec spec, String repoId) {
+  return WorkspaceTab(
+    kind: WorkspaceTabKind.compare,
+    label: '${spec.left} vs ${spec.right ?? 'Working Copy'}',
+    route: RoutePaths.compareFor(repoId, spec.id),
+    closable: true,
+  );
+}
 
 /// The History/Working Copy tab switcher plus the always-visible
 /// Merge/Cherry-pick/Reset shortcuts. Presentational (no Riverpod/FFI
@@ -24,19 +37,37 @@ class TabRow extends StatelessWidget {
     super.key,
     required this.repoId,
     required this.pendingChangeCount,
+    this.compareTabs = const <CompareTabSpec>[],
+    this.onCloseCompareTab,
   });
 
   final String repoId;
   final int pendingChangeCount;
 
+  /// Open Compare tabs (compare_tabs_repository.dart), rendered after the
+  /// two fixed tabs -- empty by default so existing callers/tests that only
+  /// care about History/Working Copy are unaffected.
+  final List<CompareTabSpec> compareTabs;
+  final ValueChanged<String>? onCloseCompareTab;
+
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
     final String location = GoRouterState.of(context).uri.toString();
-    final List<WorkspaceTab> tabs = defaultWorkspaceTabs(
-      repoId,
-      pendingChangeCount: pendingChangeCount,
-    );
+    final List<WorkspaceTab> tabs = <WorkspaceTab>[
+      ...defaultWorkspaceTabs(repoId, pendingChangeCount: pendingChangeCount),
+      for (final CompareTabSpec spec in compareTabs)
+        compareWorkspaceTab(spec, repoId),
+    ];
+    // Fixed tabs (History, Working Copy) have no backing spec -- only
+    // entries from `compareTabs` do, in the same order they were appended
+    // above, so this pads the front with two nulls to keep `tabs`/`tabIds`
+    // index-aligned without re-deriving which tab is which from its route.
+    final List<String?> tabIds = <String?>[
+      null,
+      null,
+      for (final CompareTabSpec spec in compareTabs) spec.id,
+    ];
     final int activeIndex = activeWorkspaceTabIndex(tabs, location);
 
     return Container(
@@ -48,16 +79,33 @@ class TabRow extends StatelessWidget {
       ),
       child: Row(
         children: <Widget>[
-          for (final (int index, WorkspaceTab tab) in tabs.indexed) ...<Widget>[
-            if (index > 0) const SizedBox(width: GbmSpacing.space4),
-            _Tab(
-              label: tab.label,
-              active: index == activeIndex,
-              badgeCount: tab.badgeCount,
-              onTap: () => context.go(tab.route),
+          // Scrollable, unlike the trailing action buttons below: dynamic
+          // Compare tabs (each carrying a "left vs right" label) can push
+          // the fixed row width past what History/Working Copy/Merge/
+          // Cherry-pick/Reset/More alone ever needed, and those trailing
+          // actions must stay reachable rather than get squeezed off-screen.
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: <Widget>[
+                  for (final (int index, WorkspaceTab tab)
+                      in tabs.indexed) ...<Widget>[
+                    if (index > 0) const SizedBox(width: GbmSpacing.space4),
+                    _Tab(
+                      label: tab.label,
+                      active: index == activeIndex,
+                      badgeCount: tab.badgeCount,
+                      onTap: () => context.go(tab.route),
+                      onClose: !tab.closable || onCloseCompareTab == null
+                          ? null
+                          : () => onCloseCompareTab!(tabIds[index]!),
+                    ),
+                  ],
+                ],
+              ),
             ),
-          ],
-          const Spacer(),
+          ),
           TextButton(
             onPressed: () => context.push(RoutePaths.mergeDialogFor(repoId)),
             child: Text(
@@ -237,12 +285,16 @@ class _Tab extends StatelessWidget {
     required this.active,
     required this.onTap,
     this.badgeCount = 0,
+    this.onClose,
   });
 
   final String label;
   final bool active;
   final VoidCallback onTap;
   final int badgeCount;
+
+  /// Non-null only for closable tabs (Compare) -- see [WorkspaceTab.closable].
+  final VoidCallback? onClose;
 
   @override
   Widget build(BuildContext context) {
@@ -276,6 +328,13 @@ class _Tab extends StatelessWidget {
               GbmBadge(
                 key: const Key('tab-row-pending-badge'),
                 label: '$badgeCount',
+              ),
+            ],
+            if (onClose != null) ...<Widget>[
+              const SizedBox(width: GbmSpacing.space1),
+              InkWell(
+                onTap: onClose,
+                child: Icon(Icons.close, size: 14, color: colors.textTertiary),
               ),
             ],
           ],

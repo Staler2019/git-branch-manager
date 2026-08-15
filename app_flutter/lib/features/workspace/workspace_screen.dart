@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../actions/gbm_action_id.dart';
 import '../../actions/gbm_menu_model.dart';
 import '../../data/models/ref_snapshot.dart';
+import '../../data/repositories/compare_tabs_repository.dart';
 import '../../data/repositories/file_list_view_mode_repository.dart';
 import '../../data/repositories/history_repository.dart';
 import '../../data/repositories/repo_identity.dart';
@@ -205,6 +206,9 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
           TabRow(
             repoId: repoId,
             pendingChangeCount: session.workingCopyStatus.entries.length,
+            compareTabs: ref.watch(compareTabsProvider(identity)),
+            onCloseCompareTab: (String tabId) =>
+                _closeCompareTab(context, ref, identity, repoId, tabId),
           ),
           if (session.conflictActive)
             ConflictBanner(
@@ -327,6 +331,8 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   /// - helpAbout: about dialog
   /// - editFilterBranches: reveals the sidebar (if hidden) and focuses
   ///   SidebarPanel's filter field
+  /// - repositoryCompare: opens a new closable Compare tab (M6), defaulting
+  ///   to current-branch-vs-Working-Copy, and navigates to it
   ///
   /// Unimplemented (mapped to null):
   /// - fileNewRepository, fileOpenRepository, fileCloneRepository,
@@ -335,7 +341,6 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   ///   editFindInFiles: future milestone
   /// - viewNextTab, viewGraphColumns, viewCommitDetail, viewStatusBar,
   ///   viewLog, viewResetPanelSizes, viewTheme: future milestone
-  /// - repositoryCompare: future milestone
   /// - branchNewBranch, branchCheckout, branchRenameCurrentBranch,
   ///   branchStashChanges, branchDeleteBranch: future milestone
   /// - remoteAddRemote, remotePruneRemoteBranches: future milestone
@@ -403,7 +408,8 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       GbmActionId.repositoryFetch: null, // Handled via MenuBarRow param
       GbmActionId.repositoryPull: null, // Handled via MenuBarRow param
       GbmActionId.repositoryPush: null, // Handled via MenuBarRow param
-      GbmActionId.repositoryCompare: null,
+      GbmActionId.repositoryCompare: () =>
+          _openCompareTab(context, ref, identity, repoId, session),
       GbmActionId.repositoryCommit: null,
       GbmActionId.repositoryAmendLastCommit: null,
       GbmActionId.repositoryStageAll: null,
@@ -495,6 +501,43 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       // rebase
       repoSessionNotifier.continueRebase();
     }
+  }
+
+  /// Opens a new Compare tab defaulting to the current branch vs Working
+  /// Copy -- immediately useful (shows uncommitted changes against HEAD's
+  /// branch) without forcing a ref choice before the tab even opens; either
+  /// side can be changed from the pickers once it's open.
+  void _openCompareTab(
+    BuildContext context,
+    WidgetRef ref,
+    RepoIdentity identity,
+    String repoId,
+    RepoSessionState session,
+  ) {
+    final String left = session.refs.head.branchName.isNotEmpty
+        ? session.refs.head.branchName
+        : 'HEAD';
+    final String tabId = ref
+        .read(compareTabsProvider(identity).notifier)
+        .open(left: left);
+    context.go(RoutePaths.compareFor(repoId, tabId));
+  }
+
+  /// Navigates away first when closing the currently active Compare tab, so
+  /// GoRouter never renders ComparePage for a tabId that's about to stop
+  /// existing in compareTabsProvider.
+  void _closeCompareTab(
+    BuildContext context,
+    WidgetRef ref,
+    RepoIdentity identity,
+    String repoId,
+    String tabId,
+  ) {
+    final String currentLocation = GoRouterState.of(context).uri.toString();
+    if (currentLocation == RoutePaths.compareFor(repoId, tabId)) {
+      context.go(RoutePaths.historyFor(repoId));
+    }
+    ref.read(compareTabsProvider(identity).notifier).close(tabId);
   }
 }
 

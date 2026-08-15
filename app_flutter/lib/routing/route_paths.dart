@@ -57,6 +57,14 @@ abstract final class RoutePaths {
   /// comment for why.
   static const String conflicts = '/repo/:repoId/conflicts';
 
+  /// A ShellRoute child (main-pane content), like [history]/[workingCopy] --
+  /// unlike [conflicts], a Compare tab is one of several tabs in the normal
+  /// workspace tab strip, not a standalone window. `:tabId` selects which
+  /// open `CompareTabSpec` (data/repositories/compare_tabs_repository.dart)
+  /// to render; the ref pair/threeDot itself lives in that provider, not the
+  /// URL.
+  static const String compare = '/repo/:repoId/compare/:tabId';
+
   static String workspaceFor(String repoId) => historyFor(repoId);
   static String historyFor(String repoId) => '/repo/$repoId/history';
   static String workingCopyFor(String repoId) => '/repo/$repoId/working-copy';
@@ -114,4 +122,6 @@ abstract final class RoutePaths {
   static String deleteBranchRecoveryDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/delete-branch-recovery';
   static String conflictsFor(String repoId) => '/repo/$repoId/conflicts';
+  static String compareFor(String repoId, String tabId) =>
+      '/repo/$repoId/compare/$tabId';
 }

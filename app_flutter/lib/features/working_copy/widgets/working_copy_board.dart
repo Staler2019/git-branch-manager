@@ -61,11 +61,18 @@ class WorkingCopyBoard extends StatefulWidget {
   final Function(String path, bool fromStaged)? onFileActivated;
 
   /// Optional widget builder to wrap file rows (e.g., for context menus).
-  /// Receives context, entry, fromStaged flag, and the built row child.
+  /// Receives context, entry, fromStaged flag, the current selection in that
+  /// column, and the built row child.
+  ///
+  /// The selection is handed out because it lives in this widget's private
+  /// State, and context menu 05-F needs it: right-clicking inside a
+  /// multi-selection has to act on the whole batch ("Stage 3 files"), which
+  /// the wrapper cannot know otherwise.
   final Widget Function(
     BuildContext,
     WorkingCopyEntry,
     bool fromStaged,
+    Set<String> selectedPaths,
     Widget,
   )?
   rowWrapper;
@@ -508,7 +515,13 @@ class _WorkingCopyBoardState extends State<WorkingCopyBoard> {
 
     // If rowWrapper is provided, use it to wrap the row (e.g., for context menus)
     if (widget.rowWrapper != null) {
-      return widget.rowWrapper!(context, entry, fromStaged, draggableChild);
+      return widget.rowWrapper!(
+        context,
+        entry,
+        fromStaged,
+        fromStaged ? _stagedSelection.selected : _unstagedSelection.selected,
+        draggableChild,
+      );
     }
 
     return draggableChild;

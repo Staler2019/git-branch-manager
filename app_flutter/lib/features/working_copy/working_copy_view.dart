@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -14,11 +15,13 @@ import '../../data/repositories/repo_session_repository.dart'
         repoSessionProvider;
 import '../../data/repositories/working_copy_draft_repository.dart';
 import '../../data/repositories/working_copy_repository.dart' as wc;
+import '../../data/services/desktop_launcher.dart';
 import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/gbm_badge.dart' show GbmBadge, GbmBadgeKind;
 import '../../widgets/gbm_button.dart';
+import '../../widgets/gbm_menu.dart';
 import '../../widgets/split_pane.dart';
 import '../diff/diff_page.dart';
 import '../diff/side_by_side_diff_view.dart';
@@ -347,7 +350,7 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
       onUnstageRequested: (paths) {
         wc.unstageFiles(ref, widget.identity, paths);
       },
-      rowWrapper: (context, entry, fromStaged, child) {
+      rowWrapper: (context, entry, fromStaged, selectedPaths, child) {
         final String repoId = repoIdForRoute(widget.identity);
         return GestureDetector(
           onSecondaryTapDown: (details) {
@@ -355,6 +358,7 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
               context,
               entry: entry,
               fromStaged: fromStaged,
+              selectedPaths: selectedPaths,
               position: details.globalPosition,
               repoId: repoId,
             );
@@ -541,74 +545,103 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     ref.read(workingCopyDraftProvider(widget.identity).notifier).reset();
   }
 
-  /// Opens the context menu for a file.
+  /// Context menu 05-F for a working-copy file.
+  ///
+  /// Previously opened a Material `SimpleDialog` titled "File options" -- a
+  /// modal in the middle of the screen where the spec calls for a right-click
+  /// menu at the cursor, and the one place in the app that bypassed
+  /// `showGbmContextMenu` and so picked up none of the design system's menu
+  /// styling.
+  ///
+  /// Spec 05-F: "有多選時全部動作改為複數並帶數量，例如 Stage 3 files" -- when
+  /// the right-clicked row is part of a multi-selection, the actions apply to
+  /// the whole batch and say how many files that is.
   void _openContextMenu(
     BuildContext context, {
     required WorkingCopyEntry entry,
     required bool fromStaged,
+    required Set<String> selectedPaths,
     required Offset position,
     required String repoId,
   }) {
-    // Delegate to ChangedFileRow's context menu logic.
-    // For now, we replicate the basic menu since we're not using ChangedFileRow directly.
-    showDialog(
-      context: context,
-      builder: (BuildContext dialogContext) {
-        return SimpleDialog(
-          title: const Text('File options'),
-          children: <Widget>[
-            if (!fromStaged)
-              SimpleDialogOption(
-                onPressed: () {
-                  Navigator.pop(dialogContext);
-                  _discardFile(entry);
-                },
-                child: const Text('Discard changes'),
-              ),
-            SimpleDialogOption(
-              onPressed: () {
-                Navigator.pop(dialogContext);
-                context.push(
-                  RoutePaths.blameDialogFor(repoId, path: entry.path),
-                );
-              },
-              child: const Text('Blame…'),
-            ),
-            SimpleDialogOption(
-              onPressed: () {
-                Navigator.pop(dialogContext);
-                context.push(
-                  RoutePaths.fileHistoryDialogFor(repoId, path: entry.path),
-                );
-              },
-              child: const Text('File History…'),
-            ),
-            SimpleDialogOption(
-              onPressed: () {
-                Navigator.pop(dialogContext);
-                context.push(
-                  RoutePaths.lineHistoryDialogFor(repoId, path: entry.path),
-                );
-              },
-              child: const Text('Line History…'),
-            ),
-          ],
-        );
-      },
-    );
+    // A right-click on a row outside the current selection acts on that row
+    // alone, matching every other list in the app; right-clicking inside the
+    // selection keeps the batch.
+    final List<String> targets = selectedPaths.contains(entry.path)
+        ? selectedPaths.toList(growable: false)
+        : <String>[entry.path];
+    final int count = targets.length;
+    final String suffix = count == 1 ? '' : ' $count files';
+
+    showGbmContextMenu(context, position, <GbmMenuItem>[
+      GbmMenuItem(
+        label: fromStaged ? 'Unstage$suffix' : 'Stage$suffix',
+        icon: fromStaged ? Icons.remove : Icons.add,
+        onTap: () => fromStaged
+            ? wc.unstageFiles(ref, widget.identity, targets)
+            : wc.stageFiles(ref, widget.identity, targets),
+      ),
+      GbmMenuItem(
+        label: 'Copy path',
+        icon: Icons.copy,
+        onTap: () =>
+            Clipboard.setData(ClipboardData(text: targets.join('\n'))),
+      ),
+      GbmMenuItem(
+        label: 'Open terminal here',
+        icon: Icons.terminal,
+        onTap: () => ref
+            .read(desktopLauncherProvider)
+            .openTerminal(widget.identity.workDir),
+      ),
+      // Single-file views: these inspect one path, so they are offered only
+      // when exactly one file is targeted rather than silently picking one.
+      if (count == 1) ...<GbmMenuItem>[
+        GbmMenuItem(
+          label: 'Blame…',
+          icon: Icons.person_outline,
+          onTap: () =>
+              context.push(RoutePaths.blameDialogFor(repoId, path: entry.path)),
+        ),
+        GbmMenuItem(
+          label: 'File History…',
+          icon: Icons.history,
+          onTap: () => context.push(
+            RoutePaths.fileHistoryDialogFor(repoId, path: entry.path),
+          ),
+        ),
+        GbmMenuItem(
+          label: 'Line History…',
+          icon: Icons.timeline,
+          onTap: () => context.push(
+            RoutePaths.lineHistoryDialogFor(repoId, path: entry.path),
+          ),
+        ),
+      ],
+      if (!fromStaged) ...<GbmMenuItem>[
+        const GbmMenuItem.separator(),
+        GbmMenuItem(
+          label: 'Discard changes${count == 1 ? '' : ' in $count files'}…',
+          icon: Icons.delete_outline,
+          danger: true,
+          onTap: () => _discardFiles(targets),
+        ),
+      ],
+    ]);
   }
 
-  /// Opens the discard confirmation for a file.
+  /// Opens the discard confirmation for [paths].
   ///
   /// Previously called `restorePaths` directly, destroying uncommitted work
   /// with no confirmation at all -- spec page 06 requires a dialog that
   /// lists the files and states the change cannot be undone, so the
   /// destructive call now lives behind `DiscardChangesDialogContent`.
-  void _discardFile(WorkingCopyEntry entry) {
+  void _discardFiles(List<String> paths) {
+    if (paths.isEmpty) return;
     context.push(
       RoutePaths.discardChangesDialogFor(
         Uri.encodeComponent(widget.identity.workDir),
-        paths: <String>[entry.path],
+        paths: paths,
       ),
     );
   }

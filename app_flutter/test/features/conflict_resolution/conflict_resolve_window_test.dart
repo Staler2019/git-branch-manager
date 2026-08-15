@@ -766,6 +766,69 @@ void main() {
       },
     );
 
+    testWidgets(
+      'editor picks up fresh conflict markers when the selected path '
+      'resolves then re-conflicts on the same path (e.g. Abort + a new '
+      'merge)',
+      (tester) async {
+        final parsed = ParsedConflictFile(
+          segments: <ConflictSegment>[
+            _regionSegment(
+              ours: <String>['first-ours'],
+              theirs: <String>['first-theirs'],
+            ),
+          ],
+          regionCount: 1,
+          wellFormed: true,
+        );
+
+        final container = await _pumpWindow(
+          tester,
+          identity,
+          _sessionWith(_conflictEntry),
+          parsed,
+        );
+        await _selectConflictFile(tester);
+        final controller =
+            container.read(repoSessionProvider(identity).notifier)
+                as _FakeRepoSessionController;
+
+        // Resolve the first occurrence.
+        await tester.tap(_perRegionTakeButton('Ours'));
+        await tester.pumpAndSettle();
+        expect(find.text('Resolved'), findsOneWidget);
+
+        // Abort: the file drops out of conflicted.
+        controller.state = controller.state.copyWith(
+          workingCopyStatus: WorkingCopyStatus.empty,
+        );
+        await tester.pumpAndSettle();
+
+        // A fresh merge conflicts the SAME path again, with different
+        // markers than the first occurrence.
+        controller.parsedFile = ParsedConflictFile(
+          segments: <ConflictSegment>[
+            _regionSegment(
+              ours: <String>['second-ours'],
+              theirs: <String>['second-theirs'],
+            ),
+          ],
+          regionCount: 1,
+          wellFormed: true,
+        );
+        controller.state = controller.state.copyWith(
+          workingCopyStatus: WorkingCopyStatus(entries: [_conflictEntry]),
+        );
+        await tester.pumpAndSettle();
+
+        // The editor must reflect the new occurrence, not stay stuck
+        // showing the first one as already resolved.
+        expect(find.text('second-ours'), findsOneWidget);
+        expect(find.text('Unresolved'), findsOneWidget);
+        expect(find.text('Resolved'), findsNothing);
+      },
+    );
+
     testWidgets('Previous/Next buttons disabled when 0 or 1 regions', (
       tester,
     ) async {
@@ -1107,7 +1170,12 @@ class _FakeRepoSessionController extends RepoSessionController {
     state = initialState;
   }
 
-  final ParsedConflictFile _parsedFile;
+  ParsedConflictFile _parsedFile;
+
+  /// Lets a test simulate a fresh conflict occurrence on an already-seen
+  /// path (e.g. Abort followed by a new merge) supplying different markers
+  /// than the ones parsed the first time.
+  set parsedFile(ParsedConflictFile value) => _parsedFile = value;
 
   // Recording fields for action invocations
   final List<({String path, dynamic resolution})> resolveConflictCalls = [];
@@ -1131,8 +1199,21 @@ class _FakeRepoSessionController extends RepoSessionController {
     resolveConflictCalls.add((path: path, resolution: resolution));
   }
 
+  // Real requestWorkingTreeContent() is async and always publishes a fresh
+  // WorkingTreeContentReply object once the read completes -- this fake
+  // must do the same (not a no-op) so tests can distinguish "content
+  // already applied for this selection" from "content just arrived",
+  // matching _applyParsedContentIfNeeded's identity guard in the window.
   @override
-  void requestWorkingTreeContent(String path) {}
+  void requestWorkingTreeContent(String path) {
+    state = state.copyWith(
+      lastWorkingTreeContent: WorkingTreeContentReply(
+        path: path,
+        editable: true,
+        content: state.lastWorkingTreeContent?.content ?? '',
+      ),
+    );
+  }
 
   @override
   void restorePaths(

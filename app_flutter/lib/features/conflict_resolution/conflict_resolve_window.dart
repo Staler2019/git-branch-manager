@@ -76,6 +76,14 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
   // previously selected file) to the newly selected one.
   String? _parsedForPath;
   ParsedConflictFile? _parsed;
+  // The lastWorkingTreeContent reply already in RepoSessionState at the
+  // moment _selectPath() fired for the current selection -- e.g. from a
+  // *previous* occurrence of this same path's conflict (Abort, then a new
+  // merge re-conflicts it). Session state is long-lived and outlives any
+  // one selection, so without this, _applyParsedContentIfNeeded's
+  // path-match check alone would re-apply that leftover reply -- same
+  // path, wrong (stale) content -- before the freshly requested one lands.
+  WorkingTreeContentReply? _staleReplyAtSelection;
   ConflictLineOrderState? _lineOrder;
   bool _showAncestor = false;
   TextEditingController? _resultController;
@@ -101,11 +109,15 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
   }
 
   void _selectPath(String path) {
+    final WorkingTreeContentReply? staleReply = ref
+        .read(repoSessionProvider(widget.identity))
+        .lastWorkingTreeContent;
     setState(() {
       _selectedPath = path;
       _parsedForPath = null;
       _parsed = null;
       _lineOrder = null;
+      _staleReplyAtSelection = staleReply;
       _resultController?.dispose();
       _resultController = null;
       _resultSeeded = false;
@@ -125,6 +137,7 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
     final WorkingTreeContentReply? reply = session.lastWorkingTreeContent;
     if (reply == null ||
         reply.path != _selectedPath ||
+        identical(reply, _staleReplyAtSelection) ||
         _parsedForPath == reply.path)
       return;
     if (!reply.editable) {
@@ -405,6 +418,30 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
       (previous, next) {
         if (next != null && previous == null) {
           _showOriginalOperationMessageDialog(next);
+        }
+      },
+    );
+
+    // Detects the *currently selected* file re-entering conflict after
+    // having dropped out of it -- e.g. Abort, then a new merge/rebase/
+    // cherry-pick conflicts the same path again. Nothing else re-triggers
+    // _selectPath() while the selection itself doesn't change, so without
+    // this the editor pane would keep showing the previous occurrence's
+    // (already fully resolved) state instead of the file's brand-new
+    // conflict markers. ref.listen doesn't fire on initial subscription, so
+    // there's no spurious re-select on first mount.
+    ref.listen(
+      repoSessionProvider(
+        widget.identity,
+      ).select((s) => s.workingCopyStatus.conflicted),
+      (previous, next) {
+        final String? path = _selectedPath;
+        if (path == null) return;
+        final bool wasConflicted =
+            previous?.any((entry) => entry.path == path) ?? false;
+        final bool isConflictedNow = next.any((entry) => entry.path == path);
+        if (!wasConflicted && isConflictedNow) {
+          _selectPath(path);
         }
       },
     );

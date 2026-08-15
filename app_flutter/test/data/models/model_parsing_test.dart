@@ -11,6 +11,7 @@ import 'package:gbm_flutter/data/models/blame_result.dart';
 import 'package:gbm_flutter/data/models/changed_file.dart';
 import 'package:gbm_flutter/data/models/clean_entry.dart';
 import 'package:gbm_flutter/data/models/commit_meta.dart';
+import 'package:gbm_flutter/data/models/compare_commit_entry.dart';
 import 'package:gbm_flutter/data/models/file_history_entry.dart';
 import 'package:gbm_flutter/data/models/git_error.dart';
 import 'package:gbm_flutter/data/models/git_identity.dart';
@@ -25,6 +26,7 @@ import 'package:gbm_flutter/data/models/rebase_todo_entry.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
 import 'package:gbm_flutter/data/models/reflog_entry.dart';
 import 'package:gbm_flutter/data/models/remote_info.dart';
+import 'package:gbm_flutter/data/models/remote_prune_preview_entry.dart';
 import 'package:gbm_flutter/data/models/repo_record.dart';
 import 'package:gbm_flutter/data/models/repo_state.dart' as model;
 import 'package:gbm_flutter/data/models/stash_entry.dart';
@@ -435,6 +437,34 @@ void main() {
       expect(files.single.downloadedLocally, isFalse);
     },
   );
+
+  test('CompareCommitEntry.listFromJson decodes an array', () {
+    final List<dynamic> json = jsonDecode(
+      '[{"oid":"aa","onRightOnly":true,"authorName":"A","authorDate":1000,'
+      '"subject":"Feature commit"}]',
+    );
+    final List<CompareCommitEntry> entries = CompareCommitEntry.listFromJson(
+      json,
+    );
+
+    expect(entries, hasLength(1));
+    expect(entries.single.oid, 'aa');
+    expect(entries.single.onRightOnly, isTrue);
+    expect(entries.single.authorName, 'A');
+    expect(entries.single.authorDate, 1000);
+    expect(entries.single.subject, 'Feature commit');
+  });
+
+  test('RemotePrunePreviewEntry.listFromJson decodes an array', () {
+    final List<dynamic> json = jsonDecode(
+      '[{"ref":"origin/feature/old-branch"}]',
+    );
+    final List<RemotePrunePreviewEntry> entries =
+        RemotePrunePreviewEntry.listFromJson(json);
+
+    expect(entries, hasLength(1));
+    expect(entries.single.ref, 'origin/feature/old-branch');
+  });
 
   test(
     'LocalIdentity.fromJson and EffectiveIdentity.fromJson decode their fields',

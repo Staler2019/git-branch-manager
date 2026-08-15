@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../data/models/repo_state.dart' as model;
+import '../../data/models/working_copy_status.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/gbm_badge.dart';
@@ -32,6 +34,9 @@ class StatusBar extends StatefulWidget {
     required this.hasUnreadLog,
     required this.onOpenLog,
     required this.onCancelTask,
+    this.repoState,
+    this.workingCopyStatus,
+    this.conflictActive = false,
   });
 
   final String currentBranch;
@@ -44,6 +49,9 @@ class StatusBar extends StatefulWidget {
   final bool hasUnreadLog;
   final VoidCallback onOpenLog;
   final ValueChanged<String> onCancelTask;
+  final model.RepoState? repoState;
+  final WorkingCopyStatus? workingCopyStatus;
+  final bool conflictActive;
 
   @override
   State<StatusBar> createState() => _StatusBarState();
@@ -87,12 +95,55 @@ class _StatusBarState extends State<StatusBar> {
     super.dispose();
   }
 
+  String _getOperationName() {
+    final repoState = widget.repoState;
+    if (repoState == null) return '';
+
+    if (repoState.isMerging) return 'MERGE';
+    if (repoState.isCherryPicking) return 'CHERRY-PICK';
+    if (repoState.isReverting) return 'REVERT';
+    if (repoState.isRebasing) return 'REBASE';
+
+    return '';
+  }
+
+  String _buildConflictLabel() {
+    final repoState = widget.repoState;
+    final workingCopyStatus = widget.workingCopyStatus;
+
+    if (repoState == null || workingCopyStatus == null) {
+      return '';
+    }
+
+    final operationName = _getOperationName();
+    final conflictCount = workingCopyStatus.conflicted.length;
+    final conflictLabel = '$conflictCount conflicted';
+
+    // For rebase operations, include step/total
+    if (operationName == 'REBASE' &&
+        repoState.rebaseStep > 0 &&
+        repoState.rebaseTotal > 0) {
+      return '$operationName ${repoState.rebaseStep}/${repoState.rebaseTotal} · $conflictLabel';
+    }
+
+    // For other operations, show operation name and conflict count
+    if (operationName.isNotEmpty) {
+      return '$operationName · $conflictLabel';
+    }
+
+    // Edge case: conflict active but no operation name (e.g., git apply --3way)
+    // Show just the conflict count
+    return conflictLabel;
+  }
+
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
     final List<BackgroundTask> visibleTasks = _completedTask != null
         ? [_completedTask!]
         : widget.backgroundTasks;
+
+    final conflictLabel = _buildConflictLabel();
 
     return Container(
       height: 32,
@@ -101,57 +152,76 @@ class _StatusBarState extends State<StatusBar> {
         vertical: GbmSpacing.space1,
       ),
       decoration: BoxDecoration(
-        color: colors.surfacePanel,
+        color: widget.conflictActive
+            ? colors.danger.withValues(alpha: 0.15)
+            : colors.surfacePanel,
         border: Border(top: BorderSide(color: colors.borderSubtle)),
       ),
       child: Row(
         children: <Widget>[
-          // Zone 1: Repo status (with flex to avoid overflow)
+          // Zone 1: Repo status or conflict status
           Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Text(
-                    widget.currentBranch,
-                    style: TextStyle(
-                      fontSize: GbmTypography.textSm,
-                      fontWeight: GbmTypography.weightMedium,
-                      color: colors.textPrimary,
+            child: widget.conflictActive
+                ? SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        Text(
+                          conflictLabel,
+                          style: TextStyle(
+                            fontSize: GbmTypography.textSm,
+                            fontWeight: GbmTypography.weightMedium,
+                            color: colors.danger,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        Text(
+                          widget.currentBranch,
+                          style: TextStyle(
+                            fontSize: GbmTypography.textSm,
+                            fontWeight: GbmTypography.weightMedium,
+                            color: colors.textPrimary,
+                          ),
+                        ),
+                        if (widget.ahead > 0) ...<Widget>[
+                          const SizedBox(width: GbmSpacing.space2),
+                          Text(
+                            '${widget.ahead}↑',
+                            style: TextStyle(
+                              fontSize: GbmTypography.textXs,
+                              color: colors.textTertiary,
+                            ),
+                          ),
+                        ],
+                        if (widget.behind > 0) ...<Widget>[
+                          const SizedBox(width: GbmSpacing.space2),
+                          Text(
+                            '${widget.behind}↓',
+                            style: TextStyle(
+                              fontSize: GbmTypography.textXs,
+                              color: colors.textTertiary,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(width: GbmSpacing.space2),
+                        Text(
+                          '${widget.commitCount}c',
+                          style: TextStyle(
+                            fontSize: GbmTypography.textXs,
+                            color: colors.textTertiary,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  if (widget.ahead > 0) ...<Widget>[
-                    const SizedBox(width: GbmSpacing.space2),
-                    Text(
-                      '${widget.ahead}↑',
-                      style: TextStyle(
-                        fontSize: GbmTypography.textXs,
-                        color: colors.textTertiary,
-                      ),
-                    ),
-                  ],
-                  if (widget.behind > 0) ...<Widget>[
-                    const SizedBox(width: GbmSpacing.space2),
-                    Text(
-                      '${widget.behind}↓',
-                      style: TextStyle(
-                        fontSize: GbmTypography.textXs,
-                        color: colors.textTertiary,
-                      ),
-                    ),
-                  ],
-                  const SizedBox(width: GbmSpacing.space2),
-                  Text(
-                    '${widget.commitCount}c',
-                    style: TextStyle(
-                      fontSize: GbmTypography.textXs,
-                      color: colors.textTertiary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
           ),
 
           // Zone 2: Progress (if any task is running or lingering)

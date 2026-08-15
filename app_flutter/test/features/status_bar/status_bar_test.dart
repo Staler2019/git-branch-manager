@@ -1,10 +1,36 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/repo_state.dart';
+import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/features/status_bar/background_task.dart';
 import 'package:gbm_flutter/features/status_bar/status_bar.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
 import 'package:gbm_flutter/widgets/gbm_badge.dart';
+
+WorkingCopyStatus _createConflictedStatus(List<String> conflictedPaths) {
+  final entries = conflictedPaths
+      .map(
+        (path) => WorkingCopyEntry(
+          path: path,
+          oldPath: '',
+          untracked: false,
+          staged: false,
+          indexStatus: FileChangeKind.modified,
+          hasUnstagedChange: false,
+          worktreeStatus: FileChangeKind.modified,
+          conflict: ConflictKind.bothModified,
+          ancestorBlob: '',
+          oursBlob: '',
+          theirsBlob: '',
+          similarity: 0,
+          isSubmodule: false,
+          isConflicted: true,
+        ),
+      )
+      .toList(growable: false);
+  return WorkingCopyStatus(entries: entries);
+}
 
 void main() {
   group('StatusBar', () {
@@ -308,6 +334,299 @@ void main() {
       await tester.pump();
 
       expect(logOpened, isTrue);
+    });
+
+    testWidgets('displays rebase conflict status with danger background', (
+      tester,
+    ) async {
+      final repoState = RepoState(
+        flags: RepoStateFlags.rebaseMerge,
+        isClean: false,
+        isSequencerOperation: true,
+        rebaseStep: 3,
+        rebaseTotal: 8,
+        rebaseOntoLabel: 'main',
+        indexLocked: false,
+        indexLockAgeSeconds: null,
+        describe: 'rebasing',
+      );
+      final workingCopyStatus = _createConflictedStatus([
+        'file1.dart',
+        'file2.dart',
+      ]);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: Scaffold(
+            body: StatusBar(
+              currentBranch: 'main',
+              ahead: 2,
+              behind: 0,
+              commitCount: 42,
+              lastScanDuration: const Duration(milliseconds: 150),
+              graphLaneCapacity: 8,
+              backgroundTasks: const [],
+              hasUnreadLog: false,
+              onOpenLog: () {},
+              onCancelTask: (_) {},
+              repoState: repoState,
+              workingCopyStatus: workingCopyStatus,
+              conflictActive: true,
+            ),
+          ),
+        ),
+      );
+
+      await tester.pump();
+
+      // Should have danger background (check for danger color)
+      final colors = buildGbmTheme(
+        GbmThemeVariant.darkTechnical,
+      ).extension<GbmColors>()!;
+      final container = find
+          .descendant(
+            of: find.byType(StatusBar),
+            matching: find.byType(Container),
+          )
+          .first;
+      final containerWidget = tester.widget<Container>(container);
+      final decoration = containerWidget.decoration as BoxDecoration?;
+      expect(
+        decoration?.color,
+        colors.danger.withValues(alpha: 0.15),
+        reason: 'Background should be danger color when conflict is active',
+      );
+
+      // Should show full conflict label with step/total
+      expect(find.text('REBASE 3/8 · 2 conflicted'), findsOneWidget);
+    });
+
+    testWidgets('displays merge conflict status with operation name only', (
+      tester,
+    ) async {
+      final repoState = RepoState(
+        flags: RepoStateFlags.merge,
+        isClean: false,
+        isSequencerOperation: true,
+        rebaseStep: 0,
+        rebaseTotal: 0,
+        rebaseOntoLabel: '',
+        indexLocked: false,
+        indexLockAgeSeconds: null,
+        describe: 'merging',
+      );
+      final workingCopyStatus = _createConflictedStatus(['conflict.txt']);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: Scaffold(
+            body: StatusBar(
+              currentBranch: 'main',
+              ahead: 0,
+              behind: 0,
+              commitCount: 10,
+              lastScanDuration: const Duration(milliseconds: 100),
+              graphLaneCapacity: 6,
+              backgroundTasks: const [],
+              hasUnreadLog: false,
+              onOpenLog: () {},
+              onCancelTask: (_) {},
+              repoState: repoState,
+              workingCopyStatus: workingCopyStatus,
+              conflictActive: true,
+            ),
+          ),
+        ),
+      );
+
+      await tester.pump();
+
+      // Should show full conflict label (operation + conflict count, no step/total)
+      expect(find.text('MERGE · 1 conflicted'), findsOneWidget);
+    });
+
+    testWidgets('displays cherry-pick conflict status', (tester) async {
+      final repoState = RepoState(
+        flags: RepoStateFlags.cherryPick,
+        isClean: false,
+        isSequencerOperation: true,
+        rebaseStep: 0,
+        rebaseTotal: 0,
+        rebaseOntoLabel: '',
+        indexLocked: false,
+        indexLockAgeSeconds: null,
+        describe: 'cherry-picking',
+      );
+      final workingCopyStatus = _createConflictedStatus([
+        'a.txt',
+        'b.txt',
+        'c.txt',
+      ]);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: Scaffold(
+            body: StatusBar(
+              currentBranch: 'main',
+              ahead: 0,
+              behind: 0,
+              commitCount: 10,
+              lastScanDuration: const Duration(milliseconds: 100),
+              graphLaneCapacity: 6,
+              backgroundTasks: const [],
+              hasUnreadLog: false,
+              onOpenLog: () {},
+              onCancelTask: (_) {},
+              repoState: repoState,
+              workingCopyStatus: workingCopyStatus,
+              conflictActive: true,
+            ),
+          ),
+        ),
+      );
+
+      await tester.pump();
+
+      // Should show full conflict label
+      expect(find.text('CHERRY-PICK · 3 conflicted'), findsOneWidget);
+    });
+
+    testWidgets('displays revert conflict status', (tester) async {
+      final repoState = RepoState(
+        flags: RepoStateFlags.revert,
+        isClean: false,
+        isSequencerOperation: true,
+        rebaseStep: 0,
+        rebaseTotal: 0,
+        rebaseOntoLabel: '',
+        indexLocked: false,
+        indexLockAgeSeconds: null,
+        describe: 'reverting',
+      );
+      final workingCopyStatus = _createConflictedStatus(['x.dart']);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: Scaffold(
+            body: StatusBar(
+              currentBranch: 'main',
+              ahead: 0,
+              behind: 0,
+              commitCount: 10,
+              lastScanDuration: const Duration(milliseconds: 100),
+              graphLaneCapacity: 6,
+              backgroundTasks: const [],
+              hasUnreadLog: false,
+              onOpenLog: () {},
+              onCancelTask: (_) {},
+              repoState: repoState,
+              workingCopyStatus: workingCopyStatus,
+              conflictActive: true,
+            ),
+          ),
+        ),
+      );
+
+      await tester.pump();
+
+      // Should show full conflict label
+      expect(find.text('REVERT · 1 conflicted'), findsOneWidget);
+    });
+
+    testWidgets('normal status bar when no conflict', (tester) async {
+      final repoState = RepoState(
+        flags: 0,
+        isClean: true,
+        isSequencerOperation: false,
+        rebaseStep: 0,
+        rebaseTotal: 0,
+        rebaseOntoLabel: '',
+        indexLocked: false,
+        indexLockAgeSeconds: null,
+        describe: 'normal',
+      );
+      final workingCopyStatus = const WorkingCopyStatus(entries: []);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: Scaffold(
+            body: StatusBar(
+              currentBranch: 'main',
+              ahead: 0,
+              behind: 0,
+              commitCount: 10,
+              lastScanDuration: const Duration(milliseconds: 100),
+              graphLaneCapacity: 6,
+              backgroundTasks: const [],
+              hasUnreadLog: false,
+              onOpenLog: () {},
+              onCancelTask: (_) {},
+              repoState: repoState,
+              workingCopyStatus: workingCopyStatus,
+              conflictActive: false,
+            ),
+          ),
+        ),
+      );
+
+      await tester.pump();
+
+      // Should show normal branch status
+      expect(find.text('main'), findsWidgets);
+      // Should NOT show conflict status labels
+      expect(find.textContaining('conflicted'), findsNothing);
+    });
+
+    testWidgets('shows just conflict count when no operation name', (
+      tester,
+    ) async {
+      // Edge case: conflict active but no operation name
+      // (e.g., git apply --3way case)
+      final repoState = RepoState(
+        flags: 0, // No operation flags set
+        isClean: false,
+        isSequencerOperation: false, // Not a sequencer operation
+        rebaseStep: 0,
+        rebaseTotal: 0,
+        rebaseOntoLabel: '',
+        indexLocked: false,
+        indexLockAgeSeconds: null,
+        describe: 'normal',
+      );
+      final workingCopyStatus = _createConflictedStatus(['conflict.txt']);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: Scaffold(
+            body: StatusBar(
+              currentBranch: 'main',
+              ahead: 0,
+              behind: 0,
+              commitCount: 10,
+              lastScanDuration: const Duration(milliseconds: 100),
+              graphLaneCapacity: 6,
+              backgroundTasks: const [],
+              hasUnreadLog: false,
+              onOpenLog: () {},
+              onCancelTask: (_) {},
+              repoState: repoState,
+              workingCopyStatus: workingCopyStatus,
+              conflictActive: true,
+            ),
+          ),
+        ),
+      );
+
+      await tester.pump();
+
+      // Should show just the conflict count when no operation name
+      expect(find.text('1 conflicted'), findsOneWidget);
     });
   });
 }

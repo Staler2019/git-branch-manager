@@ -298,7 +298,9 @@ GBM_API void gbm_request_commit_files(GbmSessionHandle session, const char* oid)
 /// Requests the full diff for a specific file in a commit. Async: fires
 /// GBM_EVENT_COMMIT_FILE_DIFF_READY with a ParsedDiff JSON payload, or
 /// GBM_EVENT_ERROR_OCCURRED on failure.
-GBM_API void gbm_request_commit_file_diff(GbmSessionHandle session, const char* oid, const char* path);
+GBM_API void gbm_request_commit_file_diff(GbmSessionHandle session,
+                                          const char* oid,
+                                          const char* path);
 
 // --- Compare (M6) ----------------------------------------------------------
 // Two-ref comparison queries backing the Compare tab (spec page 12): unlike

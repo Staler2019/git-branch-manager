@@ -844,35 +844,33 @@ void Session::requestCommitFileDiff(std::string oid, std::string path) {
 }
 
 void Session::requestCompareRefs(std::string leftRef, std::string rightRef, bool threeDot) {
-    sharedReadPool().postFront([this,
-                                leftRef = std::move(leftRef),
-                                rightRef = std::move(rightRef),
-                                threeDot]() {
-        CompareRequest request;
-        request.leftRef = leftRef;
-        request.rightRef = rightRef;
-        request.threeDot = threeDot;
-        const GitResult<CompareResult> result =
-            compareStore_->compare(std::move(request), CancellationToken{});
-        if (!result) {
-            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-            return;
-        }
-        std::string payload = "{\"left\":";
-        jsonAppendEscaped(payload, leftRef);
-        payload += ",\"right\":";
-        jsonAppendEscaped(payload, rightRef);
-        payload += ",\"threeDot\":";
-        jsonAppendBool(payload, threeDot);
-        payload += ",\"mergeBase\":";
-        jsonAppendEscaped(payload, result->mergeBase.hex());
-        payload += ",\"commits\":";
-        payload += toJson(result->commits);
-        payload += ",\"files\":";
-        payload += toJson(result->files);
-        payload += '}';
-        callbacks_.emit(GBM_EVENT_COMPARE_READY, payload);
-    });
+    sharedReadPool().postFront(
+        [this, leftRef = std::move(leftRef), rightRef = std::move(rightRef), threeDot]() {
+            CompareRequest request;
+            request.leftRef = leftRef;
+            request.rightRef = rightRef;
+            request.threeDot = threeDot;
+            const GitResult<CompareResult> result =
+                compareStore_->compare(std::move(request), CancellationToken{});
+            if (!result) {
+                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                return;
+            }
+            std::string payload = "{\"left\":";
+            jsonAppendEscaped(payload, leftRef);
+            payload += ",\"right\":";
+            jsonAppendEscaped(payload, rightRef);
+            payload += ",\"threeDot\":";
+            jsonAppendBool(payload, threeDot);
+            payload += ",\"mergeBase\":";
+            jsonAppendEscaped(payload, result->mergeBase.hex());
+            payload += ",\"commits\":";
+            payload += toJson(result->commits);
+            payload += ",\"files\":";
+            payload += toJson(result->files);
+            payload += '}';
+            callbacks_.emit(GBM_EVENT_COMPARE_READY, payload);
+        });
 }
 
 void Session::requestCompareFileDiff(std::string leftRef,

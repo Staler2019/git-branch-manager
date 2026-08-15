@@ -40,7 +40,7 @@ public:
     /// makePruneRemoteOperation() below for why that means the write side
     /// takes an explicit ref list rather than "prune everything stale".
     GitResult<std::vector<RemotePrunePreviewEntry>> prunePreview(std::string remoteName,
-                                                                  CancellationToken token);
+                                                                 CancellationToken token);
 
 private:
     IProcessRunner& runner_;

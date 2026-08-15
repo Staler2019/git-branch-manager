@@ -61,11 +61,11 @@ GitResult<ObjectId> readMergeBase(IProcessRunner& runner,
 /// never produces a '<' (left-only) entry, because two-dot excludes anything
 /// reachable from the left ref from the walk in the first place.
 GitResult<std::vector<CompareCommitEntry>> readCommits(IProcessRunner& runner,
-                                                        const RepoPaths& paths,
-                                                        const std::string& left,
-                                                        const std::string& right,
-                                                        bool threeDot,
-                                                        CancellationToken token) {
+                                                       const RepoPaths& paths,
+                                                       const std::string& left,
+                                                       const std::string& right,
+                                                       bool threeDot,
+                                                       CancellationToken token) {
     GitCommand command(paths.commandDir(),
                        {"log",
                         "--left-right",
@@ -104,8 +104,9 @@ GitResult<std::vector<CompareCommitEntry>> readCommits(IProcessRunner& runner,
                         const std::size_t t3 = rest.find('\t');
                         const std::string_view dateField =
                             rest.substr(0, t3 == std::string_view::npos ? rest.size() : t3);
-                        std::from_chars(
-                            dateField.data(), dateField.data() + dateField.size(), entry.authorDate);
+                        std::from_chars(dateField.data(),
+                                        dateField.data() + dateField.size(),
+                                        entry.authorDate);
                         if (t3 != std::string_view::npos) {
                             entry.subject = std::string(rest.substr(t3 + 1));
                         }
@@ -256,7 +257,8 @@ GitResult<std::vector<DiffFile>> readFiles(IProcessRunner& runner,
             std::uint32_t added = 0;
             std::uint32_t removed = 0;
             std::from_chars(addedField.data(), addedField.data() + addedField.size(), added);
-            std::from_chars(removedField.data(), removedField.data() + removedField.size(), removed);
+            std::from_chars(
+                removedField.data(), removedField.data() + removedField.size(), removed);
             file.addedLines = added;
             file.removedLines = removed;
         }
@@ -301,14 +303,16 @@ GitResult<CompareResult> CompareStore::compare(CompareRequest request, Cancellat
 }
 
 GitResult<ParsedDiff> CompareStore::compareFileDiff(CompareFileDiffRequest request,
-                                                     CancellationToken token) {
+                                                    CancellationToken token) {
     if (request.leftRef.empty() || request.rightRef.empty() || request.path.empty()) {
         return fail(GitError::Code::InvalidArgument, "Compare file diff needs two refs and a path");
     }
 
-    GitCommand command(
-        paths_.commandDir(),
-        {"diff", rangeExpr(request.leftRef, request.rightRef, request.threeDot), "--", request.path});
+    GitCommand command(paths_.commandDir(),
+                       {"diff",
+                        rangeExpr(request.leftRef, request.rightRef, request.threeDot),
+                        "--",
+                        request.path});
     command.timeout = std::chrono::seconds(60);
 
     auto result = runner_.run(command, token);

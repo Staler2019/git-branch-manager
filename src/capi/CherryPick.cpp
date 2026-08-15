@@ -43,7 +43,8 @@ GBM_API void gbm_cherry_pick_continue(GbmSessionHandle session) {
 }
 
 GBM_API void gbm_cherry_pick_continue_with_message(GbmSessionHandle session, const char* message) {
-    toSession(session)->continueCherryPickWithMessage(message != nullptr ? std::string(message) : "");
+    toSession(session)->continueCherryPickWithMessage(message != nullptr ? std::string(message)
+                                                                         : "");
 }
 
 GBM_API void gbm_cherry_pick_skip(GbmSessionHandle session) {

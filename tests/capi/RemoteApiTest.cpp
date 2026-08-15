@@ -250,7 +250,14 @@ TEST_F(RemoteApiTest, PrunePreviewListsARemoteTrackingBranchDeletedOnTheRemote) 
     // remote -- delete it there directly (bypassing gbm_push, which has no
     // "delete a remote branch" affordance) so origin/gone is genuinely
     // stale from repo_'s point of view.
-    ASSERT_EQ(runIn(remote_, {"branch", "gone"}), 0);
+    //
+    // Started from "main" explicitly, not from the bare remote's HEAD: that
+    // symref is fixed at `git init --bare` time to whatever
+    // init.defaultBranch says (plain git: "master"), while the only ref this
+    // fixture ever pushes is "main". A bare `git branch gone` therefore
+    // resolves HEAD to a nonexistent refs/heads/master and exits 128 -- the
+    // same trap the FetchBringsInNewRemoteCommits comment above calls out.
+    ASSERT_EQ(runIn(remote_, {"branch", "gone", "main"}), 0);
     gbm_remote_fetch(session_, "origin", /*prune=*/0, /*tags=*/0);
     ASSERT_TRUE(waitForWorkingCopyOperationFinished(log_));
     ASSERT_EQ(runGit({"rev-parse", "--verify", "origin/gone"}), 0);
@@ -268,7 +275,8 @@ TEST_F(RemoteApiTest, PrunePreviewListsARemoteTrackingBranchDeletedOnTheRemote) 
 }
 
 TEST_F(RemoteApiTest, PruneDeletesExactlyTheSelectedRemoteTrackingRef) {
-    ASSERT_EQ(runIn(remote_, {"branch", "gone"}), 0);
+    // Explicit start point -- see the note in the preview test above.
+    ASSERT_EQ(runIn(remote_, {"branch", "gone", "main"}), 0);
     gbm_remote_fetch(session_, "origin", /*prune=*/0, /*tags=*/0);
     ASSERT_TRUE(waitForWorkingCopyOperationFinished(log_));
     ASSERT_EQ(runGit({"rev-parse", "--verify", "origin/gone"}), 0);

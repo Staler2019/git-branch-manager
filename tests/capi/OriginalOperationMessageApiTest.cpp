@@ -44,6 +44,19 @@ struct EventLog {
         }
         return last;
     }
+
+    /// Drops everything recorded so far, so a subsequent wait can only be
+    /// satisfied by events from the operation issued after this call.
+    ///
+    /// Without it, "wait until N events of type T exist" counts events from
+    /// earlier operations too: an operation that happens to emit two
+    /// OPERATION_FINISHED (its own plus one from a follow-up refresh) would
+    /// satisfy a `count >= 2` wait before the *second* operation had even
+    /// started, and the assertions after it would read pre-operation state.
+    void clear() {
+        std::lock_guard<std::mutex> lock(mutex);
+        events.clear();
+    }
 };
 
 void logCallback(GbmSessionHandle, int32_t eventType, const uint8_t* payload, int32_t payloadLen, void* userData) {
@@ -60,6 +73,34 @@ bool waitForOperationFinished(EventLog& log) {
     return log.waitFor([](const auto& events) {
         for (const auto& [type, payload] : events) {
             if (type == GBM_EVENT_OPERATION_FINISHED) return true;
+        }
+        return false;
+    });
+}
+
+/// Waits until the session has gone quiet again after an operation.
+///
+/// `Session::submitOperation` emits GBM_EVENT_OPERATION_FINISHED and only
+/// *then* calls refreshWorkingCopy() (and refreshHistory()), which post a
+/// `git status` onto the shared read pool. So OPERATION_FINISHED does not
+/// mean "no git process is running against this repository" -- it means the
+/// operation's own git process is done, while the session's follow-up reads
+/// are still starting up.
+///
+/// A test that shells out to raw git in that window races the refresh for
+/// `.git/index.lock` and fails with exit 128, which is exactly how
+/// `resolveConflictOnDisk`'s `git add` used to fail intermittently (roughly
+/// 1 run in 10 locally; on CI it showed up on the slower sanitizer jobs).
+/// GBM_EVENT_WORKING_COPY_STATUS_UPDATED is emitted at the very end of that
+/// refresh, so waiting for it is what makes the repository safe to touch
+/// directly again.
+///
+/// Real clients never need this: they mutate through the capi, whose
+/// operations are serialized on the session's own queue.
+bool waitForWorkingCopyStatusUpdated(EventLog& log) {
+    return log.waitFor([](const auto& events) {
+        for (const auto& [type, payload] : events) {
+            if (type == GBM_EVENT_WORKING_COPY_STATUS_UPDATED) return true;
         }
         return false;
     });
@@ -153,7 +194,14 @@ protected:
         return content;
     }
 
+    /// Resolves the fixture's one conflicted file the way a user would --
+    /// with raw git, behind the session's back.
+    ///
+    /// Waits for the session's post-operation refresh to finish first; see
+    /// [waitForWorkingCopyStatusUpdated] for why `git add` otherwise loses a
+    /// race for `.git/index.lock`.
     void resolveConflictOnDisk() {
+        ASSERT_TRUE(waitForWorkingCopyStatusUpdated(log_));
         std::ofstream(repo_ / "f.txt", std::ios::trunc) << "resolved\n";
         ASSERT_EQ(runGit({"add", "f.txt"}), 0);
     }
@@ -190,14 +238,15 @@ TEST_F(OriginalOperationMessageApiTest, CherryPickContinueWithMessageUsesTheEdit
     ASSERT_TRUE(waitForOperationFinished(log_));
 
     resolveConflictOnDisk();
+    // Cleared so the wait below can only be satisfied by the continue's own
+    // OPERATION_FINISHED -- counting to two across the whole log would also
+    // accept a second event belonging to the cherry-pick above.
+    log_.clear();
     gbm_cherry_pick_continue_with_message(session_, "Custom cherry-pick message");
-    ASSERT_TRUE(log_.waitFor([](const auto& events) {
-        int count = 0;
-        for (const auto& [type, payload] : events) {
-            if (type == GBM_EVENT_OPERATION_FINISHED) ++count;
-        }
-        return count >= 2;
-    }));
+    ASSERT_TRUE(waitForOperationFinished(log_));
+    // HEAD is written by the continue's git process, which has exited by the
+    // time the event fires; the extra wait keeps the read off the refresh.
+    ASSERT_TRUE(waitForWorkingCopyStatusUpdated(log_));
 
     EXPECT_EQ(headCommitMessage(), "Custom cherry-pick message");
 }
@@ -209,14 +258,11 @@ TEST_F(OriginalOperationMessageApiTest, RebaseContinueWithMessageUsesTheEditedMe
     ASSERT_TRUE(waitForOperationFinished(log_));
 
     resolveConflictOnDisk();
+    // See the cherry-pick test above for why the log is cleared first.
+    log_.clear();
     gbm_rebase_continue_with_message(session_, "Custom rebase message");
-    ASSERT_TRUE(log_.waitFor([](const auto& events) {
-        int count = 0;
-        for (const auto& [type, payload] : events) {
-            if (type == GBM_EVENT_OPERATION_FINISHED) ++count;
-        }
-        return count >= 2;
-    }));
+    ASSERT_TRUE(waitForOperationFinished(log_));
+    ASSERT_TRUE(waitForWorkingCopyStatusUpdated(log_));
 
     EXPECT_EQ(headCommitMessage(), "Custom rebase message");
 }

@@ -93,6 +93,58 @@ void main() {
         ),
       );
       expect(skipButton.onPressed, isNull);
+
+      // Merge has no backend "continue" (a plain commit finishes a merge;
+      // see gbm_capi.h -- there is no gbm_merge_continue()).
+      final continueButton = tester.widget<TextButton>(
+        find.ancestor(
+          of: find.text('Continue'),
+          matching: find.byType(TextButton),
+        ),
+      );
+      expect(continueButton.onPressed, isNull);
+    });
+
+    testWidgets('cherry-pick: Abort and Continue enabled, Skip enabled', (
+      tester,
+    ) async {
+      int abortCount = 0;
+      int skipCount = 0;
+      int continueCount = 0;
+      final session = RepoSessionState(
+        repoState: RepoState(
+          flags: RepoStateFlags.cherryPick,
+          isClean: false,
+          isSequencerOperation: true,
+          rebaseStep: 0,
+          rebaseTotal: 0,
+          rebaseOntoLabel: '',
+          indexLocked: false,
+          indexLockAgeSeconds: null,
+          describe: 'cherry-picking',
+        ),
+        workingCopyStatus: _conflictedStatus(1),
+      );
+
+      await _pump(
+        tester,
+        session: session,
+        onAbort: () => abortCount++,
+        onSkip: () => skipCount++,
+        onContinue: () => continueCount++,
+      );
+
+      expect(
+        find.text('Cherry-pick in progress: 1 file conflicted'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Abort'));
+      expect(abortCount, 1);
+      await tester.tap(find.text('Skip'));
+      expect(skipCount, 1);
+      await tester.tap(find.text('Continue'));
+      expect(continueCount, 1);
     });
 
     testWidgets('rebase: shows step/total, Skip and Continue both work', (
@@ -133,7 +185,7 @@ void main() {
       expect(continueCount, 1);
     });
 
-    testWidgets('revert: Abort and Skip both disabled, Continue enabled', (
+    testWidgets('revert: Abort, Skip, and Continue all disabled', (
       tester,
     ) async {
       final session = RepoSessionState(
@@ -173,7 +225,9 @@ void main() {
       );
       expect(abortButton.onPressed, isNull);
       expect(skipButton.onPressed, isNull);
-      expect(continueButton.onPressed, isNotNull);
+      // Revert has no backend continue either -- see RevertOps.h: "Continue/
+      // skip/abort for an in-progress revert have no UI entry point yet".
+      expect(continueButton.onPressed, isNull);
     });
 
     testWidgets(

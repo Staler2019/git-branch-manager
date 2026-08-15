@@ -560,6 +560,18 @@ class ConflictBanner extends StatelessWidget {
   /// Whether revert operation is active (has no skip/continue/abort).
   bool _isRevertOnly() => session.repoState?.isReverting ?? false;
 
+  /// Whether Continue has a valid backend action for the current operation.
+  /// Cherry-pick and rebase have real `_continue()` capi calls
+  /// (`gbm_cherry_pick_continue`/`gbm_rebase_continue`). Merge has none --
+  /// real git finishes a merge with a plain commit, there is no
+  /// `gbm_merge_continue()`. Revert has none either, by design -- see
+  /// RevertOps.h: "Continue/skip/abort for an in-progress revert have no UI
+  /// entry point yet". Routing either of those into `continueRebase()`
+  /// would call `git rebase --continue` while not mid-rebase.
+  bool _canContinue() =>
+      (session.repoState?.isCherryPicking ?? false) ||
+      (session.repoState?.isRebasing ?? false);
+
   /// Formats the status text with operation type and progress.
   String _getStatusText() {
     final String? opLabel = _getOperationLabel();
@@ -658,14 +670,21 @@ class ConflictBanner extends StatelessWidget {
           const SizedBox(width: GbmSpacing.space2),
           // Continue button
           if (_hasSequencerOperation())
-            TextButton(
-              onPressed: onContinue,
-              child: Text(
-                'Continue',
-                style: TextStyle(
-                  fontSize: GbmTypography.textSm,
-                  color: colors.diffDelText,
-                  fontWeight: GbmTypography.weightSemibold,
+            Tooltip(
+              message: _canContinue()
+                  ? ''
+                  : 'Continue not available for '
+                        '${isRevert ? 'revert' : 'merge'} yet -- resolve via '
+                        'Resolve…',
+              child: TextButton(
+                onPressed: _canContinue() ? onContinue : null,
+                child: Text(
+                  'Continue',
+                  style: TextStyle(
+                    fontSize: GbmTypography.textSm,
+                    color: colors.diffDelText,
+                    fontWeight: GbmTypography.weightSemibold,
+                  ),
                 ),
               ),
             )

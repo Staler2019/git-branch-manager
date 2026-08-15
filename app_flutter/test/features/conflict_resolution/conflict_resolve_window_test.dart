@@ -2,6 +2,7 @@ import 'dart:ffi';
 import 'dart:ui' as ui;
 
 import 'package:ffi/ffi.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -65,9 +66,7 @@ void main() {
       gitDir: '/test/repo/.git',
     );
 
-    testWidgets('renders three-column layout with split panes', (
-      tester,
-    ) async {
+    testWidgets('renders three-column layout with split panes', (tester) async {
       final parsed = ParsedConflictFile(
         segments: <ConflictSegment>[
           _regionSegment(
@@ -115,43 +114,37 @@ void main() {
       expect(find.text('Resolved'), findsOneWidget);
     });
 
-    testWidgets(
-      'per-line delete button removes a line and renumbers badges',
-      (tester) async {
-        final parsed = ParsedConflictFile(
-          segments: <ConflictSegment>[
-            _regionSegment(
-              ours: <String>['ours-line1', 'ours-line2'],
-              theirs: <String>['theirs-line1'],
-            ),
-          ],
-          regionCount: 1,
-          wellFormed: true,
-        );
+    testWidgets('per-line delete button removes a line and renumbers badges', (
+      tester,
+    ) async {
+      final parsed = ParsedConflictFile(
+        segments: <ConflictSegment>[
+          _regionSegment(
+            ours: <String>['ours-line1', 'ours-line2'],
+            theirs: <String>['theirs-line1'],
+          ),
+        ],
+        regionCount: 1,
+        wellFormed: true,
+      );
 
-        await _pumpWindow(
-          tester,
-          identity,
-          _sessionWith(_conflictEntry),
-          parsed,
-        );
-        await _selectConflictFile(tester);
+      await _pumpWindow(tester, identity, _sessionWith(_conflictEntry), parsed);
+      await _selectConflictFile(tester);
 
-        await tester.tap(_perRegionTakeButton('Ours'));
-        await tester.pumpAndSettle();
+      await tester.tap(_perRegionTakeButton('Ours'));
+      await tester.pumpAndSettle();
 
-        expect(find.text('①'), findsOneWidget);
-        expect(find.text('②'), findsOneWidget);
+      expect(find.text('①'), findsOneWidget);
+      expect(find.text('②'), findsOneWidget);
 
-        // Delete the first result line (position 0, badge ①).
-        await tester.tap(find.byIcon(Icons.close).first);
-        await tester.pumpAndSettle();
+      // Delete the first result line (position 0, badge ①).
+      await tester.tap(find.byIcon(Icons.close).first);
+      await tester.pumpAndSettle();
 
-        // The remaining line renumbers down to ①; ② is gone.
-        expect(find.text('①'), findsOneWidget);
-        expect(find.text('②'), findsNothing);
-      },
-    );
+      // The remaining line renumbers down to ①; ② is gone.
+      expect(find.text('①'), findsOneWidget);
+      expect(find.text('②'), findsNothing);
+    });
 
     testWidgets('Reset clears a region back to empty/unresolved', (
       tester,
@@ -181,6 +174,160 @@ void main() {
 
       expect(find.text('①'), findsNothing);
       expect(find.text('Unresolved'), findsOneWidget);
+    });
+
+    testWidgets('hover-fade button shows arrow icon on hover', (tester) async {
+      final parsed = ParsedConflictFile(
+        segments: <ConflictSegment>[
+          _regionSegment(
+            ours: <String>['ours-line1'],
+            theirs: <String>['theirs-line1'],
+          ),
+        ],
+        regionCount: 1,
+        wellFormed: true,
+      );
+
+      await _pumpWindow(tester, identity, _sessionWith(_conflictEntry), parsed);
+      await _selectConflictFile(tester);
+
+      // Find the AnimatedOpacity inside the Ours pane's take button
+      final oursButtonFinder = _perRegionTakeButton('Ours');
+      final animatedOpacityFinder = find.ancestor(
+        of: oursButtonFinder,
+        matching: find.byType(AnimatedOpacity),
+      );
+
+      // Before hover: opacity should be ~0
+      var animatedOpacity = tester.firstWidget<AnimatedOpacity>(
+        animatedOpacityFinder,
+      );
+      expect(animatedOpacity.opacity, 0);
+
+      // Create a mouse gesture and move it over the hunk block
+      final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      addTearDown(gesture.removePointer);
+      await gesture.addPointer(location: Offset.zero);
+      await tester.pump();
+
+      // Move mouse to center of the Ours label (hunk header region)
+      final oursLabelFinder = find.text('Ours');
+      await gesture.moveTo(tester.getCenter(oursLabelFinder));
+      await tester.pumpAndSettle();
+
+      // After hover: opacity should be ~1
+      animatedOpacity = tester.firstWidget<AnimatedOpacity>(
+        animatedOpacityFinder,
+      );
+      expect(animatedOpacity.opacity, 1);
+    });
+
+    testWidgets('arrow icons are displayed in take buttons', (tester) async {
+      final parsed = ParsedConflictFile(
+        segments: <ConflictSegment>[
+          _regionSegment(
+            ours: <String>['ours-line1'],
+            theirs: <String>['theirs-line1'],
+          ),
+        ],
+        regionCount: 1,
+        wellFormed: true,
+      );
+
+      await _pumpWindow(tester, identity, _sessionWith(_conflictEntry), parsed);
+      await _selectConflictFile(tester);
+
+      // Ours side should have arrow_forward icon
+      final oursPane = find.ancestor(
+        of: find.text('Ours'),
+        matching: find.byType(Container),
+      );
+      expect(
+        find.descendant(
+          of: oursPane,
+          matching: find.byIcon(Icons.arrow_forward),
+        ),
+        findsOneWidget,
+      );
+
+      // Theirs side should have arrow_back icon
+      final theirsPane = find.ancestor(
+        of: find.text('Theirs'),
+        matching: find.byType(Container),
+      );
+      expect(
+        find.descendant(
+          of: theirsPane,
+          matching: find.byIcon(Icons.arrow_back),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('single-line click appends only that line', (tester) async {
+      final parsed = ParsedConflictFile(
+        segments: <ConflictSegment>[
+          _regionSegment(
+            ours: <String>['line-a', 'line-b'],
+            theirs: <String>['line-c'],
+          ),
+        ],
+        regionCount: 1,
+        wellFormed: true,
+      );
+
+      await _pumpWindow(tester, identity, _sessionWith(_conflictEntry), parsed);
+      await _selectConflictFile(tester);
+
+      expect(find.text('Unresolved'), findsOneWidget);
+
+      // Tap on line-b (second line in ours pane)
+      final lineBText = find.text('line-b');
+      await tester.tap(lineBText);
+      await tester.pumpAndSettle();
+
+      // Only ① badge should be present (one line added, not all)
+      expect(find.text('①'), findsOneWidget);
+      // ② should not exist (that would mean both lines were added)
+      expect(find.text('②'), findsNothing);
+
+      // line-a should still be visible only in ours pane (not copied to result)
+      expect(find.text('line-a'), findsOneWidget);
+    });
+
+    testWidgets('drag-and-drop whole hunk to result pane', (tester) async {
+      final parsed = ParsedConflictFile(
+        segments: <ConflictSegment>[
+          _regionSegment(
+            ours: <String>['drag-line1', 'drag-line2'],
+            theirs: <String>['theirs-line'],
+          ),
+        ],
+        regionCount: 1,
+        wellFormed: true,
+      );
+
+      await _pumpWindow(tester, identity, _sessionWith(_conflictEntry), parsed);
+      await _selectConflictFile(tester);
+
+      // Before drag: region should be unresolved
+      expect(find.text('Unresolved'), findsOneWidget);
+
+      // Drag from the "Take Ours" button (which is inside Draggable)
+      // to a point to the right (toward the result pane)
+      final takeOursButton = _perRegionTakeButton('Ours');
+
+      // Drag to the right by 250 logical pixels (should land in the result pane area)
+      await tester.drag(takeOursButton, const Offset(250, 0));
+      await tester.pumpAndSettle();
+
+      // Both lines should now be in result with badges ① and ②
+      expect(find.text('①'), findsOneWidget);
+      expect(find.text('②'), findsOneWidget);
+
+      // Region should now be resolved (both lines added)
+      expect(find.text('Resolved'), findsOneWidget);
+      expect(find.text('Unresolved'), findsNothing);
     });
   });
 }
@@ -316,7 +463,8 @@ class _FakeGbmBindings implements GbmBindings {
           nullptr;
 
   @override
-  LastResultJsonLenDart get lastResultJsonLen => () => 0;
+  LastResultJsonLenDart get lastResultJsonLen =>
+      () => 0;
 
   @override
   Never noSuchMethod(Invocation invocation) =>

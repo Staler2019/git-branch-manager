@@ -125,7 +125,11 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
     return true;
   }
 
-  void _appendLines(int regionIndex, ConflictLineSource source, List<String> lines) {
+  void _appendLines(
+    int regionIndex,
+    ConflictLineSource source,
+    List<String> lines,
+  ) {
     if (_lineOrder == null) return;
     setState(() {
       ConflictLineOrderState updated = _lineOrder!;
@@ -327,8 +331,7 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
                                             entry.path,
                                             ConflictResolution.takeTheirs,
                                             theirsBlobMissing:
-                                                wc?.theirsBlob.isEmpty ??
-                                                false,
+                                                wc?.theirsBlob.isEmpty ?? false,
                                           );
                                     },
                                     onMarkResolved: () => ref
@@ -431,17 +434,23 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
             children: <Widget>[
               // LEFT: Ours column
               ListView(
-                padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: GbmSpacing.space2,
+                ),
                 children: _buildOursSideBlocks(parsed),
               ),
               // MIDDLE: Result column with badges
               ListView(
-                padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: GbmSpacing.space2,
+                ),
                 children: _buildResultBlocks(parsed),
               ),
               // RIGHT: Theirs column
               ListView(
-                padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: GbmSpacing.space2,
+                ),
                 children: _buildTheirsSideBlocks(parsed),
               ),
             ],
@@ -507,7 +516,11 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
           label: 'Ours',
           lines: segment.ours,
           background: null,
-          onTake: () => _appendLines(thisRegion, ConflictLineSource.ours, segment.ours),
+          onTake: () =>
+              _appendLines(thisRegion, ConflictLineSource.ours, segment.ours),
+          regionIndex: thisRegion,
+          source: ConflictLineSource.ours,
+          onApplyLines: _appendLines,
         ),
       );
     }
@@ -525,7 +538,9 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
         continue;
       }
       final int thisRegion = regionIndex++;
-      final List<ConflictLineEntry> orderedLines = _lineOrder!.getOrderedLines(thisRegion);
+      final List<ConflictLineEntry> orderedLines = _lineOrder!.getOrderedLines(
+        thisRegion,
+      );
 
       blocks.add(
         _ResultPane(
@@ -534,6 +549,7 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
           orderedLines: orderedLines,
           onDelete: (position) => _removeLine(thisRegion, position),
           onReset: () => _resetRegion(thisRegion),
+          onAcceptDrop: _appendLines,
         ),
       );
     }
@@ -555,7 +571,14 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
           label: 'Theirs',
           lines: segment.theirs,
           background: null,
-          onTake: () => _appendLines(thisRegion, ConflictLineSource.theirs, segment.theirs),
+          onTake: () => _appendLines(
+            thisRegion,
+            ConflictLineSource.theirs,
+            segment.theirs,
+          ),
+          regionIndex: thisRegion,
+          source: ConflictLineSource.theirs,
+          onApplyLines: _appendLines,
         ),
       );
     }
@@ -567,7 +590,11 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
 /// Abort callback, so it can be widget-tested directly (see
 /// sequencer_banner_test.dart), matching [ConflictBanner]'s split.
 class SequencerBanner extends ConsumerWidget {
-  const SequencerBanner({super.key, required this.identity, required this.state});
+  const SequencerBanner({
+    super.key,
+    required this.identity,
+    required this.state,
+  });
 
   final RepoIdentity identity;
   final RepoState state;
@@ -718,13 +745,14 @@ class _MiniButton extends StatelessWidget {
   }
 }
 
-class _ResultPane extends StatelessWidget {
+class _ResultPane extends StatefulWidget {
   const _ResultPane({
     required this.index,
     required this.total,
     required this.orderedLines,
     required this.onDelete,
     required this.onReset,
+    required this.onAcceptDrop,
   });
 
   final int index;
@@ -732,104 +760,144 @@ class _ResultPane extends StatelessWidget {
   final List<ConflictLineEntry> orderedLines;
   final Function(int) onDelete;
   final VoidCallback onReset;
+  final Function(int regionIndex, ConflictLineSource source, List<String> lines)
+  onAcceptDrop;
+
+  @override
+  State<_ResultPane> createState() => _ResultPaneState();
+}
+
+class _ResultPaneState extends State<_ResultPane> {
+  bool _dragOver = false;
 
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
-    final bool resolved = orderedLines.isNotEmpty;
+    final bool resolved = widget.orderedLines.isNotEmpty;
 
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: GbmSpacing.space1),
-      decoration: BoxDecoration(
-        border: Border.all(
-          color: resolved
-              ? colors.borderSubtle
-              : colors.danger.withValues(alpha: 0.5),
-        ),
-        borderRadius: BorderRadius.circular(GbmSpacing.radiusSm),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          Container(
-            color: colors.surfaceSunken,
-            padding: const EdgeInsets.symmetric(
-              horizontal: GbmSpacing.space2,
-              vertical: 2,
+    return DragTarget<_ConflictHunkDragData>(
+      onWillAcceptWithDetails: (details) {
+        // Only accept drops for this region
+        return details.data.regionIndex == widget.index;
+      },
+      onLeave: (_) {
+        setState(() => _dragOver = false);
+      },
+      onAcceptWithDetails: (details) {
+        setState(() => _dragOver = false);
+        widget.onAcceptDrop(
+          details.data.regionIndex,
+          details.data.source,
+          details.data.lines,
+        );
+      },
+      builder: (context, candidateData, rejectedData) {
+        return Container(
+          margin: const EdgeInsets.symmetric(vertical: GbmSpacing.space1),
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: _dragOver
+                  ? colors.accent
+                  : (resolved
+                        ? colors.borderSubtle
+                        : colors.danger.withValues(alpha: 0.5)),
             ),
-            child: Row(
-              children: <Widget>[
-                Text(
-                  'Region ${index + 1} of $total',
-                  style: TextStyle(
-                    fontSize: GbmTypography.textXs,
-                    fontWeight: GbmTypography.weightSemibold,
-                    color: colors.textSecondary,
-                  ),
-                ),
-                const SizedBox(width: GbmSpacing.space2),
-                Text(
-                  resolved ? 'Resolved' : 'Unresolved',
-                  style: TextStyle(
-                    fontSize: GbmTypography.textXs,
-                    color: resolved ? colors.diffAddText : colors.danger,
-                  ),
-                ),
-                const Spacer(),
-                if (resolved)
-                  TextButton(
-                    onPressed: onReset,
-                    style: TextButton.styleFrom(
-                      minimumSize: const Size(0, 24),
-                      foregroundColor: colors.textSecondary,
-                    ),
-                    child: const Text(
-                      'Reset',
-                      style: TextStyle(fontSize: GbmTypography.textXs),
-                    ),
-                  ),
-              ],
-            ),
+            borderRadius: BorderRadius.circular(GbmSpacing.radiusSm),
           ),
-          Padding(
-            padding: const EdgeInsets.all(GbmSpacing.space1),
+          child: MouseRegion(
+            onEnter: (_) {
+              if (candidateData.isNotEmpty) {
+                setState(() => _dragOver = true);
+              }
+            },
+            onExit: (_) {
+              setState(() => _dragOver = false);
+            },
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                Text(
-                  'Result',
-                  style: TextStyle(
-                    fontSize: GbmTypography.textXs,
-                    fontWeight: GbmTypography.weightMedium,
-                    color: colors.textTertiary,
+                Container(
+                  color: colors.surfaceSunken,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: GbmSpacing.space2,
+                    vertical: 2,
                   ),
-                ),
-                if (orderedLines.isEmpty)
-                  Text(
-                    '(nothing)',
-                    style: TextStyle(
-                      fontFamily: GbmTypography.fontMono,
-                      fontSize: GbmTypography.textSm,
-                      color: colors.textTertiary,
-                    ),
-                  )
-                else
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  child: Row(
                     children: <Widget>[
-                      for (int i = 0; i < orderedLines.length; i++)
-                        _ResultLine(
-                          position: i,
-                          entry: orderedLines[i],
-                          onDelete: () => onDelete(i),
+                      Text(
+                        'Region ${widget.index + 1} of ${widget.total}',
+                        style: TextStyle(
+                          fontSize: GbmTypography.textXs,
+                          fontWeight: GbmTypography.weightSemibold,
+                          color: colors.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(width: GbmSpacing.space2),
+                      Text(
+                        resolved ? 'Resolved' : 'Unresolved',
+                        style: TextStyle(
+                          fontSize: GbmTypography.textXs,
+                          color: resolved ? colors.diffAddText : colors.danger,
+                        ),
+                      ),
+                      const Spacer(),
+                      if (resolved)
+                        TextButton(
+                          onPressed: widget.onReset,
+                          style: TextButton.styleFrom(
+                            minimumSize: const Size(0, 24),
+                            foregroundColor: colors.textSecondary,
+                          ),
+                          child: const Text(
+                            'Reset',
+                            style: TextStyle(fontSize: GbmTypography.textXs),
+                          ),
                         ),
                     ],
                   ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(GbmSpacing.space1),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        'Result',
+                        style: TextStyle(
+                          fontSize: GbmTypography.textXs,
+                          fontWeight: GbmTypography.weightMedium,
+                          color: colors.textTertiary,
+                        ),
+                      ),
+                      if (widget.orderedLines.isEmpty)
+                        Text(
+                          '(nothing)',
+                          style: TextStyle(
+                            fontFamily: GbmTypography.fontMono,
+                            fontSize: GbmTypography.textSm,
+                            color: colors.textTertiary,
+                          ),
+                        )
+                      else
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            for (int i = 0; i < widget.orderedLines.length; i++)
+                              _ResultLine(
+                                position: i,
+                                entry: widget.orderedLines[i],
+                                onDelete: () => widget.onDelete(i),
+                              ),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -850,8 +918,26 @@ class _ResultLine extends StatelessWidget {
     final GbmColors colors = context.gbmColors;
     // Use circled digit Unicode characters for badges
     final List<String> circledDigits = [
-      '①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩',
-      '⑪', '⑫', '⑬', '⑭', '⑮', '⑯', '⑰', '⑱', '⑲', '⑳',
+      '①',
+      '②',
+      '③',
+      '④',
+      '⑤',
+      '⑥',
+      '⑦',
+      '⑧',
+      '⑨',
+      '⑩',
+      '⑪',
+      '⑫',
+      '⑬',
+      '⑭',
+      '⑮',
+      '⑯',
+      '⑰',
+      '⑱',
+      '⑲',
+      '⑳',
     ];
     final String badgeText = position < circledDigits.length
         ? circledDigits[position]
@@ -922,69 +1008,156 @@ class _ContextBlock extends StatelessWidget {
   }
 }
 
+/// Drag data for a whole-hunk drag-and-drop operation.
+class _ConflictHunkDragData {
+  _ConflictHunkDragData({
+    required this.regionIndex,
+    required this.source,
+    required this.lines,
+  });
+
+  final int regionIndex;
+  final ConflictLineSource source;
+  final List<String> lines;
+}
+
 /// One `<<<<<<</=======/>>>>>>>` region: ancestor (optional)/ours/theirs
 /// mini-panes with Take Ours/Take Theirs, plus a live result preview and a
 /// one-click Reset once resolved -- see the class doc comment on
 /// [ConflictResolveWindow] for what this deliberately does not replicate
 /// from the Qt original (drag/click composition, keyboard shortcuts).
-class _SidePane extends StatelessWidget {
+class _SidePane extends StatefulWidget {
   const _SidePane({
     required this.label,
     required this.lines,
     required this.background,
     required this.onTake,
+    required this.regionIndex,
+    required this.source,
+    required this.onApplyLines,
   });
 
   final String label;
   final List<String> lines;
   final Color? background;
   final VoidCallback? onTake;
+  final int regionIndex;
+  final ConflictLineSource source;
+  final Function(int regionIndex, ConflictLineSource source, List<String> lines)
+  onApplyLines;
+
+  @override
+  State<_SidePane> createState() => _SidePaneState();
+}
+
+class _SidePaneState extends State<_SidePane> {
+  bool _hovered = false;
 
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
-    return Container(
-      color: background,
-      padding: const EdgeInsets.all(GbmSpacing.space1),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Row(
-            children: <Widget>[
+    final bool isOurs = widget.label == 'Ours';
+    final arrowIcon = isOurs ? Icons.arrow_forward : Icons.arrow_back;
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: Container(
+        color: widget.background,
+        padding: const EdgeInsets.all(GbmSpacing.space1),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                Text(
+                  widget.label,
+                  style: TextStyle(
+                    fontSize: GbmTypography.textXs,
+                    fontWeight: GbmTypography.weightMedium,
+                    color: colors.textTertiary,
+                  ),
+                ),
+                if (widget.onTake != null) ...<Widget>[
+                  const Spacer(),
+                  Draggable<_ConflictHunkDragData>(
+                    data: _ConflictHunkDragData(
+                      regionIndex: widget.regionIndex,
+                      source: widget.source,
+                      lines: widget.lines,
+                    ),
+                    affinity: Axis.horizontal,
+                    feedback: Material(
+                      color: Colors.transparent,
+                      child: Text(
+                        'Take ${widget.lines.length} ${widget.lines.length == 1 ? 'line' : 'lines'}',
+                        style: TextStyle(
+                          fontSize: GbmTypography.textXs,
+                          color: colors.accent,
+                        ),
+                      ),
+                    ),
+                    child: AnimatedOpacity(
+                      opacity: _hovered ? 1 : 0,
+                      duration: const Duration(milliseconds: 180),
+                      child: TextButton.icon(
+                        onPressed: widget.onTake,
+                        icon: Icon(arrowIcon, size: 16),
+                        label: Text(
+                          'Take ${widget.label}',
+                          style: const TextStyle(
+                            fontSize: GbmTypography.textXs,
+                          ),
+                        ),
+                        style: TextButton.styleFrom(
+                          minimumSize: const Size(0, 20),
+                          padding: EdgeInsets.zero,
+                          foregroundColor: colors.accent,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            if (widget.lines.isEmpty)
               Text(
-                label,
+                '(nothing)',
                 style: TextStyle(
-                  fontSize: GbmTypography.textXs,
-                  fontWeight: GbmTypography.weightMedium,
+                  fontFamily: GbmTypography.fontMono,
+                  fontSize: GbmTypography.textSm,
                   color: colors.textTertiary,
                 ),
+              )
+            else
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  for (final line in widget.lines)
+                    InkWell(
+                      onTap: () => widget.onApplyLines(
+                        widget.regionIndex,
+                        widget.source,
+                        [line],
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          vertical: GbmSpacing.space1,
+                        ),
+                        child: Text(
+                          line,
+                          style: TextStyle(
+                            fontFamily: GbmTypography.fontMono,
+                            fontSize: GbmTypography.textSm,
+                            color: colors.textPrimary,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
               ),
-              if (onTake != null) ...<Widget>[
-                const Spacer(),
-                TextButton(
-                  onPressed: onTake,
-                  style: TextButton.styleFrom(
-                    minimumSize: const Size(0, 20),
-                    padding: EdgeInsets.zero,
-                    foregroundColor: colors.accent,
-                  ),
-                  child: Text(
-                    'Take $label',
-                    style: const TextStyle(fontSize: GbmTypography.textXs),
-                  ),
-                ),
-              ],
-            ],
-          ),
-          Text(
-            lines.isEmpty ? '(nothing)' : lines.join(),
-            style: TextStyle(
-              fontFamily: GbmTypography.fontMono,
-              fontSize: GbmTypography.textSm,
-              color: lines.isEmpty ? colors.textTertiary : colors.textPrimary,
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

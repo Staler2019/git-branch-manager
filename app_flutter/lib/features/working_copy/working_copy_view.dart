@@ -174,53 +174,65 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     final conflicted = status.conflicted;
     final String repoId = repoIdForRoute(widget.identity);
 
-    return Container(
-      decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: colors.borderSubtle)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          // Header
-          Container(
-            height: GbmSpacing.rowHeightCompact,
-            color: colors.surfacePanelRaised,
-            padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  child: Text(
-                    'CONFLICTED',
-                    style: TextStyle(
-                      fontSize: GbmTypography.textXs,
-                      color: colors.textSecondary,
-                      fontWeight: FontWeight.bold,
+    // This section sits as a bare child of the outer Column in build(),
+    // which gives it unbounded height -- the Expanded ListView below needs
+    // a bounded (not necessarily tight) max height from somewhere to
+    // resolve its flex, or RenderFlex throws during layout instead of the
+    // conflicted-file list ever painting. Capped at a fixed height rather
+    // than shrink-wrapped so an unusually large conflict count scrolls
+    // internally instead of pushing the file board/commit box off-screen.
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxHeight: 200),
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border(bottom: BorderSide(color: colors.borderSubtle)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            // Header
+            Container(
+              height: GbmSpacing.rowHeightCompact,
+              color: colors.surfacePanelRaised,
+              padding: const EdgeInsets.symmetric(
+                horizontal: GbmSpacing.space2,
+              ),
+              child: Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Text(
+                      'CONFLICTED',
+                      style: TextStyle(
+                        fontSize: GbmTypography.textXs,
+                        color: colors.textSecondary,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
-                ),
-                GbmBadge(
-                  label: '${conflicted.length}',
-                  kind: GbmBadgeKind.removed,
-                ),
-              ],
+                  GbmBadge(
+                    label: '${conflicted.length}',
+                    kind: GbmBadgeKind.removed,
+                  ),
+                ],
+              ),
             ),
-          ),
-          // Conflicted files list
-          Expanded(
-            child: ListView.builder(
-              itemCount: conflicted.length,
-              itemBuilder: (context, index) {
-                final entry = conflicted[index];
-                return _buildConflictedFileRow(
-                  context,
-                  entry: entry,
-                  repoId: repoId,
-                );
-              },
+            // Conflicted files list
+            Expanded(
+              child: ListView.builder(
+                itemCount: conflicted.length,
+                itemBuilder: (context, index) {
+                  final entry = conflicted[index];
+                  return _buildConflictedFileRow(
+                    context,
+                    entry: entry,
+                    repoId: repoId,
+                  );
+                },
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

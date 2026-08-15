@@ -90,6 +90,60 @@ void main() {
       expect(find.text('pubspec.yaml'), findsOneWidget);
     });
 
+    testWidgets(
+      'renders the conflicted section without a layout exception',
+      (tester) async {
+        final conflictedEntry = const WorkingCopyEntry(
+          path: 'lib/conflicted.dart',
+          oldPath: '',
+          untracked: false,
+          staged: false,
+          indexStatus: FileChangeKind.modified,
+          hasUnstagedChange: false,
+          worktreeStatus: FileChangeKind.modified,
+          conflict: ConflictKind.bothModified,
+          ancestorBlob: '',
+          oursBlob: '',
+          theirsBlob: '',
+          similarity: 0,
+          isSubmodule: false,
+          isConflicted: true,
+        );
+
+        await pumpGbmWidget(
+          tester,
+          child: SizedBox(
+            width: 800,
+            height: 600,
+            child: WorkingCopyView(identity: identity),
+          ),
+          overrides: [
+            repoSessionProvider(identity).overrideWith(
+              (ref) => _FakeRepoSessionController(
+                identity,
+                const RepoSessionState(),
+              ),
+            ),
+            wc
+                .repoWorkingCopyStatusProvider(identity)
+                .overrideWithValue(
+                  WorkingCopyStatus(entries: [conflictedEntry]),
+                ),
+            wc.repoLastDiffProvider(identity).overrideWithValue(null),
+          ],
+        );
+
+        // The conflicted-section Column (header + Expanded(ListView)) sits
+        // in a MainAxisSize.min Column with no bounded-height wrapper --
+        // without one, RenderFlex gets unbounded height constraints from
+        // its unconstrained-height ancestor and the framework throws
+        // during layout/paint instead of the file list actually rendering.
+        expect(tester.takeException(), isNull);
+        expect(find.text('CONFLICTED'), findsOneWidget);
+        expect(find.text('lib/conflicted.dart'), findsOneWidget);
+      },
+    );
+
     testWidgets('commit message box is visible', (tester) async {
       await pumpGbmWidget(
         tester,

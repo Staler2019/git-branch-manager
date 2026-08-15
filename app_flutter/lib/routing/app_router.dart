@@ -27,6 +27,7 @@ import '../features/dialogs/manage_worktrees/manage_worktrees_dialog.dart';
 import '../features/dialogs/merge/merge_dialog.dart';
 import '../features/dialogs/patches/patches_dialog.dart';
 import '../features/dialogs/preferences/preferences_dialog.dart';
+import '../features/dialogs/prune_remote_branches/prune_remote_branches_dialog.dart';
 import '../features/dialogs/reflog/reflog_dialog.dart';
 import '../features/dialogs/reset_branch/reset_branch_dialog.dart';
 import '../features/dialogs/stash_changes/stash_changes_dialog.dart';
@@ -373,6 +374,15 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
             state.pathParameters['repoId']!,
           );
           return DeleteBranchRecoveryDialogContent(identity: identity);
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.pruneRemoteBranchesDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
+          return PruneRemoteBranchesDialogContent(identity: identity);
         },
       ),
       GoRoute(

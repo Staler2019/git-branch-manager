@@ -326,6 +326,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   /// - branchMergeIntoCurrent: merge dialog
   /// - branchRebaseOnto: interactive rebase dialog
   /// - remoteManageRemotes: manage remotes dialog
+  /// - remotePruneRemoteBranches: prune remote branches dialog (M6)
   /// - remoteFetchAllRemotes: fetch (same as repositoryFetch)
   /// - helpKeyboardShortcuts: keyboard shortcuts dialog
   /// - helpAbout: about dialog
@@ -343,7 +344,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   ///   viewLog, viewResetPanelSizes, viewTheme: future milestone
   /// - branchNewBranch, branchCheckout, branchRenameCurrentBranch,
   ///   branchStashChanges, branchDeleteBranch: future milestone
-  /// - remoteAddRemote, remotePruneRemoteBranches: future milestone
+  /// - remoteAddRemote: future milestone
   /// - helpDocumentation, helpReportAnIssue: future milestone
   /// - fileExit: handled specially (not wired here, handled in MenuBarRow)
   /// - repositoryFetch, repositoryPull, repositoryPush, viewToggleSidebar:
@@ -434,7 +435,8 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
           ? null
           : () =>
                 ref.read(repoSessionProvider(identity).notifier).fetchRemote(),
-      GbmActionId.remotePruneRemoteBranches: null,
+      GbmActionId.remotePruneRemoteBranches: () =>
+          context.push(RoutePaths.pruneRemoteBranchesDialogFor(repoId)),
       GbmActionId.remoteManageRemotes: () =>
           context.push(RoutePaths.manageRemotesDialogFor(repoId)),
 

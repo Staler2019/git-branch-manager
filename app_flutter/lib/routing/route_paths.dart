@@ -51,6 +51,8 @@ abstract final class RoutePaths {
       '/repo/:repoId/dialogs/checkout-recovery';
   static const String deleteBranchRecoveryDialog =
       '/repo/:repoId/dialogs/delete-branch-recovery';
+  static const String pruneRemoteBranchesDialog =
+      '/repo/:repoId/dialogs/prune-remote-branches';
 
   /// Standalone top-level route, not a `/dialogs/<name>` overlay -- see
   /// `features/conflict_resolution/conflict_resolve_window.dart`'s doc
@@ -121,6 +123,8 @@ abstract final class RoutePaths {
       '/repo/$repoId/dialogs/checkout-recovery';
   static String deleteBranchRecoveryDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/delete-branch-recovery';
+  static String pruneRemoteBranchesDialogFor(String repoId) =>
+      '/repo/$repoId/dialogs/prune-remote-branches';
   static String conflictsFor(String repoId) => '/repo/$repoId/conflicts';
   static String compareFor(String repoId, String tabId) =>
       '/repo/$repoId/compare/$tabId';

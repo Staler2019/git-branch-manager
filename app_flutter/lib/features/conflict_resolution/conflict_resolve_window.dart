@@ -237,6 +237,37 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
     });
   }
 
+  /// Applies the ours hunk of the currently-focused region (or the first
+  /// unresolved if nothing focused yet).
+  void _handleTakeOursHunk() {
+    final int? target = _focusedRegionIndex ?? _nextRegionIndex(1);
+    if (target == null) return;
+    final ConflictSegment? segment = _regionSegmentAt(target);
+    if (segment == null) return;
+    _appendLines(target, ConflictLineSource.ours, segment.ours);
+    setState(() => _focusedRegionIndex = target);
+  }
+
+  /// Applies the theirs hunk of the currently-focused region (or the first
+  /// unresolved if nothing focused yet).
+  void _handleTakeTheirsHunk() {
+    final int? target = _focusedRegionIndex ?? _nextRegionIndex(1);
+    if (target == null) return;
+    final ConflictSegment? segment = _regionSegmentAt(target);
+    if (segment == null) return;
+    _appendLines(target, ConflictLineSource.theirs, segment.theirs);
+    setState(() => _focusedRegionIndex = target);
+  }
+
+  /// Moves focus to the next conflict region.
+  void _handleNextConflict() {
+    final int? nextIndex = _nextRegionIndex(1);
+    if (nextIndex != null) {
+      setState(() => _focusedRegionIndex = nextIndex);
+      _scrollToRegion(nextIndex);
+    }
+  }
+
   /// Returns a GlobalKey for a region, creating it if needed.
   GlobalKey _regionKey(Map<int, GlobalKey> store, int index) =>
       store.putIfAbsent(index, GlobalKey.new);
@@ -291,6 +322,19 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
     }
   }
 
+  /// Returns the ConflictSegment for a given region index.
+  /// Returns null if _parsed is null or the region index is out of bounds.
+  ConflictSegment? _regionSegmentAt(int regionIndex) {
+    if (_parsed == null) return null;
+    int regionIndexCounter = 0;
+    for (final segment in _parsed!.segments) {
+      if (segment.kind != ConflictSegmentKind.region) continue;
+      if (regionIndexCounter == regionIndex) return segment;
+      regionIndexCounter++;
+    }
+    return null;
+  }
+
   /// Dispatches abort based on the operation type (merge/cherry-pick/rebase).
   void _handleAbort(RepoSessionState session) {
     final notifier = ref.read(repoSessionProvider(widget.identity).notifier);
@@ -343,6 +387,9 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
     return _ConflictResolveWindowShortcuts(
       isMacOS: widget.isMacOS ?? Platform.isMacOS,
       onUndoDiscard: _undoLastDiscard,
+      onTakeOursHunk: _handleTakeOursHunk,
+      onTakeTheirsHunk: _handleTakeTheirsHunk,
+      onNextConflict: _handleNextConflict,
       child: Scaffold(
         appBar: AppBar(
           leading: BackButton(
@@ -512,13 +559,7 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
                   _scrollToRegion(nextIndex);
                 }
               },
-              onNext: () {
-                final nextIndex = _nextRegionIndex(1);
-                if (nextIndex != null) {
-                  setState(() => _focusedRegionIndex = nextIndex);
-                  _scrollToRegion(nextIndex);
-                }
-              },
+              onNext: _handleNextConflict,
               hasSequencerOperation:
                   session.repoState != null &&
                   (session.repoState!.isMerging ||
@@ -1325,19 +1366,41 @@ class _UndoDiscardIntent extends Intent {
   const _UndoDiscardIntent();
 }
 
+/// Intent for applying the ours hunk to the focused conflict region.
+class _TakeOursHunkIntent extends Intent {
+  const _TakeOursHunkIntent();
+}
+
+/// Intent for applying the theirs hunk to the focused conflict region.
+class _TakeTheirsHunkIntent extends Intent {
+  const _TakeTheirsHunkIntent();
+}
+
+/// Intent for moving focus to the next conflict region.
+class _NextConflictIntent extends Intent {
+  const _NextConflictIntent();
+}
+
 /// Keyboard shortcuts + actions wrapper for the conflict resolve window.
-/// Handles Ctrl/Cmd+Z to undo the last discard. This is window-local and
-/// not tied to the app-wide edit undo action.
+/// Handles Ctrl/Cmd+Z to undo the last discard, and Alt+Left/Right/Down for
+/// taking hunks and navigating regions. This is window-local and not tied
+/// to the app-wide edit undo or menu action systems.
 class _ConflictResolveWindowShortcuts extends StatelessWidget {
   const _ConflictResolveWindowShortcuts({
     required this.child,
     required this.isMacOS,
     required this.onUndoDiscard,
+    required this.onTakeOursHunk,
+    required this.onTakeTheirsHunk,
+    required this.onNextConflict,
   });
 
   final Widget child;
   final bool isMacOS;
   final VoidCallback onUndoDiscard;
+  final VoidCallback onTakeOursHunk;
+  final VoidCallback onTakeTheirsHunk;
+  final VoidCallback onNextConflict;
 
   @override
   Widget build(BuildContext context) {
@@ -1347,6 +1410,12 @@ class _ConflictResolveWindowShortcuts extends StatelessWidget {
         control: !isMacOS,
         meta: isMacOS,
       ): const _UndoDiscardIntent(),
+      SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true):
+          const _TakeOursHunkIntent(),
+      SingleActivator(LogicalKeyboardKey.arrowRight, alt: true):
+          const _TakeTheirsHunkIntent(),
+      SingleActivator(LogicalKeyboardKey.arrowDown, alt: true):
+          const _NextConflictIntent(),
     };
 
     return Shortcuts(
@@ -1355,6 +1424,15 @@ class _ConflictResolveWindowShortcuts extends StatelessWidget {
         actions: <Type, Action<Intent>>{
           _UndoDiscardIntent: CallbackAction<_UndoDiscardIntent>(
             onInvoke: (_) => onUndoDiscard(),
+          ),
+          _TakeOursHunkIntent: CallbackAction<_TakeOursHunkIntent>(
+            onInvoke: (_) => onTakeOursHunk(),
+          ),
+          _TakeTheirsHunkIntent: CallbackAction<_TakeTheirsHunkIntent>(
+            onInvoke: (_) => onTakeTheirsHunk(),
+          ),
+          _NextConflictIntent: CallbackAction<_NextConflictIntent>(
+            onInvoke: (_) => onNextConflict(),
           ),
         },
         child: Focus(autofocus: true, child: child),

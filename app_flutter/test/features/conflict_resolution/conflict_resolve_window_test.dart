@@ -805,6 +805,177 @@ void main() {
       // Test passed if no errors were thrown
       expect(find.text('Resolve Conflicts'), findsOneWidget);
     });
+
+    testWidgets('Alt+Left applies ours hunk to focused region', (tester) async {
+      final parsed = ParsedConflictFile(
+        segments: <ConflictSegment>[
+          _regionSegment(
+            ours: <String>['ours-line1', 'ours-line2'],
+            theirs: <String>['theirs-line1'],
+          ),
+        ],
+        regionCount: 1,
+        wellFormed: true,
+      );
+
+      await _pumpWindow(tester, identity, _sessionWith(_conflictEntry), parsed);
+      await _selectConflictFile(tester);
+
+      expect(find.text('Unresolved'), findsOneWidget);
+
+      // Send Alt+Left
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowLeft);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowLeft);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+      await tester.pumpAndSettle();
+
+      // Should have applied the ours hunk (both lines)
+      expect(find.text('①'), findsOneWidget);
+      expect(find.text('②'), findsOneWidget);
+      expect(find.text('Resolved'), findsOneWidget);
+    });
+
+    testWidgets('Alt+Right applies theirs hunk to focused region', (
+      tester,
+    ) async {
+      final parsed = ParsedConflictFile(
+        segments: <ConflictSegment>[
+          _regionSegment(
+            ours: <String>['ours-line1'],
+            theirs: <String>['theirs-line1', 'theirs-line2'],
+          ),
+        ],
+        regionCount: 1,
+        wellFormed: true,
+      );
+
+      await _pumpWindow(tester, identity, _sessionWith(_conflictEntry), parsed);
+      await _selectConflictFile(tester);
+
+      expect(find.text('Unresolved'), findsOneWidget);
+
+      // Send Alt+Right
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.altRight);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowRight);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowRight);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.altRight);
+      await tester.pumpAndSettle();
+
+      // Should have applied the theirs hunk (both lines)
+      expect(find.text('①'), findsOneWidget);
+      expect(find.text('②'), findsOneWidget);
+      expect(find.text('Resolved'), findsOneWidget);
+    });
+
+    testWidgets('Alt+Down moves focus to next region', (tester) async {
+      final parsed = ParsedConflictFile(
+        segments: <ConflictSegment>[
+          _regionSegment(
+            ours: <String>['region1-ours-unique'],
+            theirs: <String>['region1-theirs-unique'],
+          ),
+          _regionSegment(
+            ours: <String>['region2-ours-unique'],
+            theirs: <String>['region2-theirs-unique'],
+          ),
+        ],
+        regionCount: 2,
+        wellFormed: true,
+      );
+
+      await _pumpWindow(tester, identity, _sessionWith(_conflictEntry), parsed);
+      await _selectConflictFile(tester);
+
+      // Initially both regions should be unresolved
+      expect(find.text('Unresolved'), findsWidgets);
+
+      // Press Alt+Down to move to first region (should target first unresolved)
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowDown);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowDown);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+      await tester.pumpAndSettle();
+
+      // Now press Alt+Left to apply ours to the first region
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowLeft);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowLeft);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+      await tester.pumpAndSettle();
+
+      // First region should now be resolved (showing ① badge)
+      expect(find.text('①'), findsOneWidget);
+      expect(find.text('Resolved'), findsOneWidget);
+
+      // Now press Alt+Down again to move to second region
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowDown);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowDown);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+      await tester.pumpAndSettle();
+
+      // Apply ours to second region
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowLeft);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowLeft);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+      await tester.pumpAndSettle();
+
+      // Now both regions should show "Resolved"
+      expect(find.text('Resolved'), findsWidgets);
+      // Both regions should have badges (each region has its own ① since badges
+      // are per-region, but we can verify multiple badges exist)
+      expect(find.text('①'), findsWidgets);
+    });
+
+    testWidgets('Alt+Left/Right/Down is no-op when no file selected', (
+      tester,
+    ) async {
+      final parsed = ParsedConflictFile(
+        segments: <ConflictSegment>[
+          _regionSegment(
+            ours: <String>['ours-line'],
+            theirs: <String>['theirs-line'],
+          ),
+        ],
+        regionCount: 1,
+        wellFormed: true,
+      );
+
+      await _pumpWindow(tester, identity, _sessionWith(_conflictEntry), parsed);
+      // Do NOT select a file
+
+      // Send Alt+Left (should do nothing, no error)
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowLeft);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowLeft);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+      await tester.pumpAndSettle();
+
+      // No badges should appear
+      expect(find.text('①'), findsNothing);
+
+      // Send Alt+Right (should do nothing, no error)
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.altRight);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowRight);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowRight);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.altRight);
+      await tester.pumpAndSettle();
+
+      // Still no badges
+      expect(find.text('①'), findsNothing);
+
+      // Send Alt+Down (should do nothing, no error)
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowDown);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowDown);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+      await tester.pumpAndSettle();
+
+      // Test passed if no errors were thrown
+      expect(find.text('Select a file'), findsOneWidget);
+    });
   });
 }
 

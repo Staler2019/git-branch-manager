@@ -246,6 +246,23 @@ class RepoSessionState {
   /// back to a retried delete.
   final List<OperationChoice> deleteBranchChoices;
 
+  /// Single source of truth for "is this repo in a conflict state" --
+  /// every conflict-aware surface (banner, toolbar, branch switching,
+  /// working copy's Conflicted section, commit box, status bar) must read
+  /// this rather than re-deriving its own check, or they will drift.
+  ///
+  /// Mirrors `RepoState::isSequencerOperation()`'s own justification
+  /// (src/core/git/RepoState.h) for why this is an OR of two independent
+  /// signals, not just one: `isSequencerOperation` deliberately excludes a
+  /// plain `Merge` flag, and a `git apply --3way` conflict leaves no
+  /// sequencer state file at all -- so `workingCopyStatus.conflicted` is
+  /// the only signal that catches those cases, while `isSequencerOperation`
+  /// catches an interrupted rebase/cherry-pick/revert before any per-file
+  /// conflict has necessarily been scanned yet.
+  bool get conflictActive =>
+      (repoState?.isSequencerOperation ?? false) ||
+      workingCopyStatus.conflicted.isNotEmpty;
+
   RepoSessionState copyWith({
     bool? isOpen,
     model.RepoState? repoState,

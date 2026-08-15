@@ -6,12 +6,18 @@ import '../../data/models/working_copy_status.dart';
 import '../../data/repositories/file_list_view_mode_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart'
-    show RepoSessionController, WorkingCopyDiffReply, repoSessionProvider;
+    show
+        ConflictResolution,
+        RepoSessionController,
+        RepoSessionState,
+        WorkingCopyDiffReply,
+        repoSessionProvider;
 import '../../data/repositories/working_copy_draft_repository.dart';
 import '../../data/repositories/working_copy_repository.dart' as wc;
 import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
+import '../../widgets/gbm_badge.dart' show GbmBadge, GbmBadgeKind;
 import '../../widgets/gbm_button.dart';
 import '../../widgets/split_pane.dart';
 import '../diff/diff_page.dart';
@@ -83,6 +89,7 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
 
   @override
   Widget build(BuildContext context) {
+    final session = ref.watch(repoSessionProvider(widget.identity));
     final WorkingCopyStatus status = ref.watch(
       wc.repoWorkingCopyStatusProvider(widget.identity),
     );
@@ -121,6 +128,9 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
+        // Conflicted section (only if there are conflicted files)
+        if (status.conflicted.isNotEmpty)
+          _buildConflictedSection(context, status: status, session: session),
         // File board + diff pane (top)
         Expanded(
           flex: 5,
@@ -147,9 +157,144 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
           decoration: BoxDecoration(
             border: Border(top: BorderSide(color: colors.borderSubtle)),
           ),
-          child: _buildCommitBox(context, status: status),
+          child: _buildCommitBox(context, status: status, session: session),
         ),
       ],
+    );
+  }
+
+  /// Builds the conflicted files section (pinned at the top).
+  /// Only rendered when there are conflicted files.
+  Widget _buildConflictedSection(
+    BuildContext context, {
+    required WorkingCopyStatus status,
+    required RepoSessionState session,
+  }) {
+    final GbmColors colors = context.gbmColors;
+    final conflicted = status.conflicted;
+    final String repoId = repoIdForRoute(widget.identity);
+
+    return Container(
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: colors.borderSubtle)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          // Header
+          Container(
+            height: GbmSpacing.rowHeightCompact,
+            color: colors.surfacePanelRaised,
+            padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
+            child: Row(
+              children: <Widget>[
+                Expanded(
+                  child: Text(
+                    'CONFLICTED',
+                    style: TextStyle(
+                      fontSize: GbmTypography.textXs,
+                      color: colors.textSecondary,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                GbmBadge(
+                  label: '${conflicted.length}',
+                  kind: GbmBadgeKind.removed,
+                ),
+              ],
+            ),
+          ),
+          // Conflicted files list
+          Expanded(
+            child: ListView.builder(
+              itemCount: conflicted.length,
+              itemBuilder: (context, index) {
+                final entry = conflicted[index];
+                return _buildConflictedFileRow(
+                  context,
+                  entry: entry,
+                  repoId: repoId,
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Builds a single conflicted file row.
+  Widget _buildConflictedFileRow(
+    BuildContext context, {
+    required WorkingCopyEntry entry,
+    required String repoId,
+  }) {
+    final GbmColors colors = context.gbmColors;
+    final RepoSessionController notifier = ref.read(
+      repoSessionProvider(widget.identity).notifier,
+    );
+
+    return Container(
+      height: GbmSpacing.rowHeightCompact,
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: colors.borderSubtle)),
+      ),
+      child: InkWell(
+        onDoubleTap: () {
+          context.go(RoutePaths.conflictsFor(repoId));
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  entry.path,
+                  style: TextStyle(
+                    fontSize: GbmTypography.textSm,
+                    color: colors.textPrimary,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: GbmSpacing.space2),
+              _MiniButton(
+                label: 'Take Ours',
+                onPressed: () {
+                  notifier.resolveConflict(
+                    entry.path,
+                    ConflictResolution.takeOurs,
+                    oursBlobMissing: entry.oursBlob.isEmpty,
+                  );
+                },
+              ),
+              const SizedBox(width: GbmSpacing.space1),
+              _MiniButton(
+                label: 'Take Theirs',
+                onPressed: () {
+                  notifier.resolveConflict(
+                    entry.path,
+                    ConflictResolution.takeTheirs,
+                    theirsBlobMissing: entry.theirsBlob.isEmpty,
+                  );
+                },
+              ),
+              const SizedBox(width: GbmSpacing.space1),
+              _MiniButton(
+                label: 'Mark Resolved',
+                onPressed: () {
+                  notifier.resolveConflict(
+                    entry.path,
+                    ConflictResolution.markResolved,
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -303,9 +448,12 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
   Widget _buildCommitBox(
     BuildContext context, {
     required WorkingCopyStatus status,
+    required RepoSessionState session,
   }) {
     final bool canCommit =
-        status.staged.isNotEmpty && _summaryController.text.trim().isNotEmpty;
+        status.staged.isNotEmpty &&
+        _summaryController.text.trim().isNotEmpty &&
+        !session.conflictActive;
 
     return Padding(
       padding: const EdgeInsets.all(GbmSpacing.space3),
@@ -442,6 +590,43 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
   void _discardFile(WorkingCopyEntry entry) {
     ref.read(repoSessionProvider(widget.identity).notifier).restorePaths(
       <String>[entry.path],
+    );
+  }
+}
+
+/// Compact button widget for conflict resolution actions.
+class _MiniButton extends StatelessWidget {
+  const _MiniButton({required this.label, required this.onPressed});
+
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onPressed,
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: GbmSpacing.space2,
+            vertical: GbmSpacing.space1,
+          ),
+          decoration: BoxDecoration(
+            border: Border.all(color: colors.borderDefault),
+            borderRadius: const BorderRadius.all(Radius.circular(4)),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: GbmTypography.textXs,
+              color: colors.textPrimary,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

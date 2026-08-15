@@ -8,6 +8,7 @@ target_link_libraries(gbm_test_support PUBLIC gbm_core PRIVATE gbm_warnings)
 # --- core unit + integration tests -------------------------------------
 add_executable(gbm_core_tests
     unit/BranchOpsTest.cpp
+    unit/CompareOpsTest.cpp
     unit/ConflictBatchTest.cpp
     unit/ConflictMarkerParserTest.cpp
     unit/CoreBasicsTest.cpp
@@ -18,6 +19,7 @@ add_executable(gbm_core_tests
     unit/MaintenanceOpsTest.cpp
     unit/PreparedCommitMessageTest.cpp
     unit/ProcessRunnerTest.cpp
+    unit/RemoteOpsTest.cpp
     unit/RepoStateTest.cpp
     unit/SideBySideDiffTest.cpp
     unit/TextTraitsTest.cpp

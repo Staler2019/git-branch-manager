@@ -176,6 +176,48 @@ private:
     PushRequest request_;
 };
 
+class PruneRemoteOperation final : public Operation {
+public:
+    explicit PruneRemoteOperation(PruneRemoteRequest request) : request_(std::move(request)) {}
+
+    std::string describe() const override {
+        return request_.remoteName.empty() ? "Prune remote-tracking branches"
+                                           : "Prune " + request_.remoteName;
+    }
+
+    OperationOutcome run(IProcessRunner& runner,
+                         const RepoPaths& paths,
+                         CancellationToken token) override {
+        OperationOutcome outcome;
+        if (request_.refs.empty()) {
+            outcome.succeeded = true;
+            outcome.summary = "Nothing to prune";
+            return outcome;
+        }
+
+        std::vector<std::string> args{"branch", "--delete", "--remotes"};
+        for (const std::string& ref : request_.refs) {
+            args.push_back(ref);
+        }
+
+        GitCommand command(paths.commandDir(), std::move(args));
+        command.timeout = std::chrono::seconds(60);
+        auto result = runner.run(command, token);
+        if (!result) {
+            outcome.error = std::move(result).error();
+            outcome.summary = outcome.error->message;
+            return outcome;
+        }
+        outcome.succeeded = true;
+        outcome.summary = "Pruned " + std::to_string(request_.refs.size()) +
+                          (request_.refs.size() == 1 ? " ref" : " refs");
+        return outcome;
+    }
+
+private:
+    PruneRemoteRequest request_;
+};
+
 }  // namespace
 
 RemoteStore::RemoteStore(IProcessRunner& runner, RepoPaths paths)
@@ -223,6 +265,46 @@ GitResult<std::vector<RemoteInfo>> RemoteStore::list(CancellationToken token) {
     return remotes;
 }
 
+GitResult<std::vector<RemotePrunePreviewEntry>> RemoteStore::prunePreview(std::string remoteName,
+                                                                          CancellationToken token) {
+    if (remoteName.empty()) {
+        return fail(GitError::Code::InvalidArgument, "No remote selected");
+    }
+
+    GitCommand command(paths_.commandDir(), {"remote", "prune", remoteName, "--dry-run"});
+    command.timeout = std::chrono::seconds(30);
+
+    auto result = runner_.run(command, token);
+    if (!result) {
+        return fail(std::move(result).error());
+    }
+
+    constexpr std::string_view kMarker = "[would prune] ";
+    std::vector<RemotePrunePreviewEntry> entries;
+    std::size_t start = 0;
+    const std::string& out = result->out;
+    while (start <= out.size()) {
+        const std::size_t at = out.find('\n', start);
+        const std::string_view line(out.data() + start,
+                                    (at == std::string::npos ? out.size() : at) - start);
+        const std::size_t markerPos = line.find(kMarker);
+        if (markerPos != std::string_view::npos) {
+            std::string_view ref = line.substr(markerPos + kMarker.size());
+            while (!ref.empty() && (ref.back() == '\r' || ref.back() == ' ')) {
+                ref.remove_suffix(1);
+            }
+            if (!ref.empty()) {
+                entries.push_back({std::string(ref)});
+            }
+        }
+        if (at == std::string::npos) {
+            break;
+        }
+        start = at + 1;
+    }
+    return entries;
+}
+
 std::unique_ptr<Operation> makeFetchOperation(FetchRequest request) {
     return std::make_unique<FetchOperation>(std::move(request));
 }
@@ -233,6 +315,10 @@ std::unique_ptr<Operation> makePullOperation(PullRequest request) {
 
 std::unique_ptr<Operation> makePushOperation(PushRequest request) {
     return std::make_unique<PushOperation>(std::move(request));
+}
+
+std::unique_ptr<Operation> makePruneRemoteOperation(PruneRemoteRequest request) {
+    return std::make_unique<PruneRemoteOperation>(std::move(request));
 }
 
 }  // namespace gbm

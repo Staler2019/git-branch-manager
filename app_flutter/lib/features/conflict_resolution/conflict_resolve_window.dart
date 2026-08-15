@@ -85,6 +85,14 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
   // Each entry is a regionIndex; popping from the end gives us LIFO semantics.
   final List<int> _discardHistory = <int>[];
 
+  // Region navigation: track the currently focused region for Previous/Next buttons
+  int? _focusedRegionIndex;
+
+  // GlobalKey stores for region navigation via Previous/Next buttons
+  final Map<int, GlobalKey> _leftRegionKeys = <int, GlobalKey>{};
+  final Map<int, GlobalKey> _resultRegionKeys = <int, GlobalKey>{};
+  final Map<int, GlobalKey> _rightRegionKeys = <int, GlobalKey>{};
+
   @override
   void dispose() {
     _resultController?.dispose();
@@ -101,6 +109,10 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
       _resultController = null;
       _resultSeeded = false;
       _discardHistory.clear();
+      _focusedRegionIndex = null;
+      _leftRegionKeys.clear();
+      _resultRegionKeys.clear();
+      _rightRegionKeys.clear();
     });
     ref
         .read(repoSessionProvider(widget.identity).notifier)
@@ -223,6 +235,86 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
         // This should not happen in normal usage, but we guard defensively.
       }
     });
+  }
+
+  /// Returns a GlobalKey for a region, creating it if needed.
+  GlobalKey _regionKey(Map<int, GlobalKey> store, int index) =>
+      store.putIfAbsent(index, GlobalKey.new);
+
+  /// Computes the next or previous region index to focus on.
+  /// Prefers unresolved regions, wraps around, and cycles through all if all are resolved.
+  int? _nextRegionIndex(int direction) {
+    if (_lineOrder == null) return null;
+    final int regionCount = _lineOrder!.regionCount;
+    if (regionCount == 0) return null;
+
+    bool isUnresolved(int i) {
+      final region = _lineOrder!.regions[i];
+      return region.orderedLines.isEmpty && !region.manuallyEdited;
+    }
+
+    final List<int> unresolvedIndices = <int>[
+      for (int i = 0; i < regionCount; i++)
+        if (isUnresolved(i)) i,
+    ];
+
+    final List<int> pool = unresolvedIndices.isNotEmpty
+        ? unresolvedIndices
+        : List<int>.generate(regionCount, (i) => i);
+
+    final int? current = _focusedRegionIndex;
+    if (current == null) return pool.first;
+
+    if (direction > 0) {
+      return pool.firstWhere((i) => i > current, orElse: () => pool.first);
+    }
+
+    final List<int> before = pool.where((i) => i < current).toList();
+    return before.isNotEmpty ? before.last : pool.last;
+  }
+
+  /// Scrolls all three region columns to a given region index.
+  void _scrollToRegion(int index) {
+    for (final store in [
+      _leftRegionKeys,
+      _resultRegionKeys,
+      _rightRegionKeys,
+    ]) {
+      final BuildContext? ctx = store[index]?.currentContext;
+      if (ctx != null) {
+        Scrollable.ensureVisible(
+          ctx,
+          duration: const Duration(milliseconds: 200),
+          alignment: 0.1,
+        );
+      }
+    }
+  }
+
+  /// Dispatches abort based on the operation type (merge/cherry-pick/rebase).
+  void _handleAbort(RepoSessionState session) {
+    final notifier = ref.read(repoSessionProvider(widget.identity).notifier);
+
+    if (session.repoState?.isMerging ?? false) {
+      notifier.mergeAbort();
+    } else if (session.repoState?.isCherryPicking ?? false) {
+      notifier.cherryPickAbort();
+    } else {
+      // rebase (covers both rebaseApply and rebaseMerge)
+      notifier.abortRebase();
+    }
+  }
+
+  /// Dispatches continue based on the operation type (cherry-pick/rebase).
+  void _handleContinue(RepoSessionState session) {
+    final notifier = ref.read(repoSessionProvider(widget.identity).notifier);
+
+    if (session.repoState?.isCherryPicking ?? false) {
+      notifier.cherryPickContinue();
+    } else {
+      // rebase
+      notifier.continueRebase();
+    }
   }
 
   @override
@@ -399,6 +491,47 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
                       ],
                     ),
             ),
+            // Bottom action bar
+            _ConflictActionBar(
+              identity: widget.identity,
+              selectedPath: _selectedPath,
+              lineOrder: _lineOrder,
+              focusedRegionIndex: _focusedRegionIndex,
+              onMarkResolved: _selectedPath != null
+                  ? () => ref
+                        .read(repoSessionProvider(widget.identity).notifier)
+                        .resolveConflict(
+                          _selectedPath!,
+                          ConflictResolution.markResolved,
+                        )
+                  : null,
+              onPrevious: () {
+                final nextIndex = _nextRegionIndex(-1);
+                if (nextIndex != null) {
+                  setState(() => _focusedRegionIndex = nextIndex);
+                  _scrollToRegion(nextIndex);
+                }
+              },
+              onNext: () {
+                final nextIndex = _nextRegionIndex(1);
+                if (nextIndex != null) {
+                  setState(() => _focusedRegionIndex = nextIndex);
+                  _scrollToRegion(nextIndex);
+                }
+              },
+              hasSequencerOperation:
+                  session.repoState != null &&
+                  (session.repoState!.isMerging ||
+                      session.repoState!.isCherryPicking ||
+                      session.repoState!.isReverting ||
+                      session.repoState!.isRebasing),
+              isRevert: session.repoState?.isReverting ?? false,
+              canContinue:
+                  (session.repoState?.isCherryPicking ?? false) ||
+                  (session.repoState?.isRebasing ?? false),
+              onAbort: () => _handleAbort(session),
+              onContinue: () => _handleContinue(session),
+            ),
           ],
         ),
       ),
@@ -551,6 +684,7 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
       final int thisRegion = regionIndex++;
       blocks.add(
         _SidePane(
+          key: _regionKey(_leftRegionKeys, thisRegion),
           label: 'Ours',
           lines: segment.ours,
           background: null,
@@ -582,7 +716,7 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
 
       blocks.add(
         _ResultPane(
-          key: ValueKey<int>(thisRegion),
+          key: _regionKey(_resultRegionKeys, thisRegion),
           index: thisRegion,
           total: parsed.regionCount,
           orderedLines: orderedLines,
@@ -607,6 +741,7 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
       final int thisRegion = regionIndex++;
       blocks.add(
         _SidePane(
+          key: _regionKey(_rightRegionKeys, thisRegion),
           label: 'Theirs',
           lines: segment.theirs,
           background: null,
@@ -658,24 +793,106 @@ class SequencerBanner extends ConsumerWidget {
         vertical: GbmSpacing.space2,
       ),
       color: colors.surfacePanelRaised,
-      child: Row(
-        children: <Widget>[
-          Expanded(
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: GbmTypography.textSm,
-                color: colors.textPrimary,
-              ),
-            ),
-          ),
-          if (state.isMerging)
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: GbmTypography.textSm,
+          color: colors.textPrimary,
+        ),
+      ),
+    );
+  }
+}
+
+/// Presentational action bar with Previous, Next, Mark Resolved, Abort, Continue buttons.
+/// Takes all state and callbacks as plain parameters so it can be tested directly.
+class _ConflictActionBar extends StatelessWidget {
+  const _ConflictActionBar({
+    required this.identity,
+    required this.selectedPath,
+    required this.lineOrder,
+    required this.focusedRegionIndex,
+    required this.onMarkResolved,
+    required this.onPrevious,
+    required this.onNext,
+    required this.hasSequencerOperation,
+    required this.isRevert,
+    required this.canContinue,
+    required this.onAbort,
+    required this.onContinue,
+  });
+
+  final RepoIdentity identity;
+  final String? selectedPath;
+  final ConflictLineOrderState? lineOrder;
+  final int? focusedRegionIndex;
+  final VoidCallback? onMarkResolved;
+  final VoidCallback onPrevious;
+  final VoidCallback onNext;
+  final bool hasSequencerOperation;
+  final bool isRevert;
+  final bool canContinue;
+  final VoidCallback onAbort;
+  final VoidCallback onContinue;
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    final bool hasMultipleRegions =
+        lineOrder != null && lineOrder!.regionCount > 1;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(
+        horizontal: GbmSpacing.space3,
+        vertical: GbmSpacing.space2,
+      ),
+      color: colors.surfacePanelRaised,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            // Previous button
             GbmButton(
-              label: 'Abort Merge',
-              onPressed: () =>
-                  ref.read(repoSessionProvider(identity).notifier).mergeAbort(),
+              label: 'Previous',
+              onPressed: hasMultipleRegions ? onPrevious : null,
             ),
-        ],
+            const SizedBox(width: GbmSpacing.space1),
+            // Next button
+            GbmButton(
+              label: 'Next',
+              onPressed: hasMultipleRegions ? onNext : null,
+            ),
+            const SizedBox(width: GbmSpacing.space2),
+            // Mark Resolved button
+            GbmButton(label: 'Mark Resolved', onPressed: onMarkResolved),
+            const SizedBox(width: GbmSpacing.space4),
+            // Abort button
+            if (hasSequencerOperation) ...<Widget>[
+              Tooltip(
+                message: isRevert
+                    ? 'Revert has no abort (use Resolve manual actions)'
+                    : '',
+                child: GbmButton(
+                  label: 'Abort',
+                  onPressed: isRevert ? null : onAbort,
+                ),
+              ),
+              const SizedBox(width: GbmSpacing.space1),
+              // Continue button
+              Tooltip(
+                message: canContinue
+                    ? ''
+                    : 'Continue not available for merge/revert yet -- use Mark Resolved on each file instead',
+                child: GbmButton(
+                  label: 'Continue',
+                  onPressed: canContinue ? onContinue : null,
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -1174,6 +1391,7 @@ class _ResultLineDragData {
 /// from the Qt original (drag/click composition, keyboard shortcuts).
 class _SidePane extends StatefulWidget {
   const _SidePane({
+    super.key,
     required this.label,
     required this.lines,
     required this.background,

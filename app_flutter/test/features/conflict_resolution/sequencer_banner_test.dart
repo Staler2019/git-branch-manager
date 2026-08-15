@@ -45,11 +45,13 @@ Future<void> _pump(WidgetTester tester, RepoState state) {
 
 void main() {
   group('SequencerBanner', () {
-    testWidgets('merge: shows label and Abort Merge button', (tester) async {
+    testWidgets('merge: shows label, no Abort button (moved to bottom bar)', (
+      tester,
+    ) async {
       await _pump(tester, _stateWith(flags: RepoStateFlags.merge));
 
       expect(find.text('Merge in progress'), findsOneWidget);
-      expect(find.text('Abort Merge'), findsOneWidget);
+      expect(find.text('Abort Merge'), findsNothing);
     });
 
     testWidgets('cherry-pick: shows label, no Abort button', (tester) async {

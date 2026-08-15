@@ -162,6 +162,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       ref,
       identity,
       repoId,
+      session,
     );
 
     // Track whether log has unread entries (newest entry > lastSeen index)
@@ -178,12 +179,21 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
             sidebarVisible: _sidebarVisible,
             onToggleSidebar: () =>
                 setState(() => _sidebarVisible = !_sidebarVisible),
-            onFetch: () =>
-                ref.read(repoSessionProvider(identity).notifier).fetchRemote(),
-            onPull: () =>
-                ref.read(repoSessionProvider(identity).notifier).pullChanges(),
-            onPush: () =>
-                ref.read(repoSessionProvider(identity).notifier).pushChanges(),
+            onFetch: session.conflictActive
+                ? null
+                : () => ref
+                      .read(repoSessionProvider(identity).notifier)
+                      .fetchRemote(),
+            onPull: session.conflictActive
+                ? null
+                : () => ref
+                      .read(repoSessionProvider(identity).notifier)
+                      .pullChanges(),
+            onPush: session.conflictActive
+                ? null
+                : () => ref
+                      .read(repoSessionProvider(identity).notifier)
+                      .pushChanges(),
           ),
           TopBar(
             repoName: _displayName(identity.workDir),
@@ -196,10 +206,13 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
             repoId: repoId,
             pendingChangeCount: session.workingCopyStatus.entries.length,
           ),
-          if (session.workingCopyStatus.conflicted.isNotEmpty)
-            _ConflictBanner(
+          if (session.conflictActive)
+            ConflictBanner(
               repoId: repoId,
-              count: session.workingCopyStatus.conflicted.length,
+              session: session,
+              onAbort: () => _handleConflictAbort(ref, identity, session),
+              onSkip: () => _handleConflictSkip(ref, identity, session),
+              onContinue: () => _handleConflictContinue(ref, identity, session),
             )
           else if (session.lastError case final error?)
             GbmWarningBanner(message: error.message),
@@ -249,6 +262,9 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
             graphLaneCapacity: session.graph.laneCount,
             backgroundTasks: const [], // TODO: wire from session when available
             hasUnreadLog: hasUnreadLog,
+            repoState: session.repoState,
+            workingCopyStatus: session.workingCopyStatus,
+            conflictActive: session.conflictActive,
             onOpenLog: () {
               setState(() {
                 _lastSeenOperationLogIndex = session.operationLog.length;
@@ -332,6 +348,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     WidgetRef ref,
     RepoIdentity identity,
     String repoId,
+    RepoSessionState session,
   ) {
     return {
       // File
@@ -407,8 +424,10 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
 
       // Remote
       GbmActionId.remoteAddRemote: null,
-      GbmActionId.remoteFetchAllRemotes: () =>
-          ref.read(repoSessionProvider(identity).notifier).fetchRemote(),
+      GbmActionId.remoteFetchAllRemotes: session.conflictActive
+          ? null
+          : () =>
+                ref.read(repoSessionProvider(identity).notifier).fetchRemote(),
       GbmActionId.remotePruneRemoteBranches: null,
       GbmActionId.remoteManageRemotes: () =>
           context.push(RoutePaths.manageRemotesDialogFor(repoId)),
@@ -421,6 +440,62 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       GbmActionId.helpAbout: () => context.push(RoutePaths.aboutDialog),
     };
   }
+
+  void _handleConflictAbort(
+    WidgetRef ref,
+    RepoIdentity identity,
+    RepoSessionState session,
+  ) {
+    final repoSessionNotifier = ref.read(
+      repoSessionProvider(identity).notifier,
+    );
+
+    // Abort based on the operation type
+    if (session.repoState?.isMerging ?? false) {
+      repoSessionNotifier.mergeAbort();
+    } else if (session.repoState?.isCherryPicking ?? false) {
+      repoSessionNotifier.cherryPickAbort();
+    } else {
+      // rebase -- covers both rebaseApply and rebaseMerge
+      repoSessionNotifier.abortRebase();
+    }
+  }
+
+  void _handleConflictSkip(
+    WidgetRef ref,
+    RepoIdentity identity,
+    RepoSessionState session,
+  ) {
+    final repoSessionNotifier = ref.read(
+      repoSessionProvider(identity).notifier,
+    );
+
+    // Skip only applies to rebase and cherry-pick
+    if (session.repoState?.isCherryPicking ?? false) {
+      repoSessionNotifier.cherryPickSkip();
+    } else {
+      // rebase
+      repoSessionNotifier.skipRebase();
+    }
+  }
+
+  void _handleConflictContinue(
+    WidgetRef ref,
+    RepoIdentity identity,
+    RepoSessionState session,
+  ) {
+    final repoSessionNotifier = ref.read(
+      repoSessionProvider(identity).notifier,
+    );
+
+    // Continue based on the operation type
+    if (session.repoState?.isCherryPicking ?? false) {
+      repoSessionNotifier.cherryPickContinue();
+    } else {
+      // rebase
+      repoSessionNotifier.continueRebase();
+    }
+  }
 }
 
 /// Resolves the `:repoId` route segment for `identity` -- the inverse of
@@ -430,15 +505,96 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
 String repoIdForRoute(RepoIdentity identity) =>
     Uri.encodeComponent(identity.workDir);
 
-class _ConflictBanner extends StatelessWidget {
-  const _ConflictBanner({required this.repoId, required this.count});
+/// Presentational -- no Riverpod dependency, takes [session] and the three
+/// sequencer callbacks as plain data so it can be widget-tested directly
+/// (see conflict_banner_test.dart), matching StatusBar/BranchTreeItem.
+class ConflictBanner extends StatelessWidget {
+  const ConflictBanner({
+    super.key,
+    required this.repoId,
+    required this.session,
+    required this.onAbort,
+    required this.onSkip,
+    required this.onContinue,
+  });
 
   final String repoId;
-  final int count;
+  final RepoSessionState session;
+  final VoidCallback onAbort;
+  final VoidCallback onSkip;
+  final VoidCallback onContinue;
+
+  /// Determines the operation type (merge/rebase/cherry-pick/revert or null).
+  /// Priority order: rebase > cherry-pick > revert > merge.
+  String? _getOperationLabel() {
+    if (session.repoState == null) return null;
+
+    // Check for rebase first (can be rebaseMerge or rebaseApply)
+    if (session.repoState!.isRebasing) {
+      return 'Rebase';
+    }
+    if (session.repoState?.isCherryPicking ?? false) {
+      return 'Cherry-pick';
+    }
+    if (session.repoState?.isReverting ?? false) {
+      return 'Revert';
+    }
+    if (session.repoState?.isMerging ?? false) {
+      return 'Merge';
+    }
+
+    return null;
+  }
+
+  /// Whether skip/continue/abort buttons should be shown.
+  bool _hasSequencerOperation() {
+    if (session.repoState == null) return false;
+    final state = session.repoState!;
+
+    return (state.isMerging ||
+        state.isCherryPicking ||
+        state.isReverting ||
+        state.isRebasing);
+  }
+
+  /// Whether revert operation is active (has no skip/continue/abort).
+  bool _isRevertOnly() => session.repoState?.isReverting ?? false;
+
+  /// Formats the status text with operation type and progress.
+  String _getStatusText() {
+    final String? opLabel = _getOperationLabel();
+    final int count = session.workingCopyStatus.conflicted.length;
+
+    if (opLabel == null) {
+      // No sequencer operation, just show file count
+      if (count == 0) return '';
+      return '$count file${count == 1 ? '' : 's'} conflicted';
+    }
+
+    // Format: "Merge in progress: 2 files conflicted"
+    // or: "Rebase (3/8): 1 file conflicted"
+    final StringBuffer buffer = StringBuffer(opLabel);
+    buffer.write(' in progress');
+
+    if (opLabel == 'Rebase' && session.repoState!.rebaseTotal > 0) {
+      buffer.write(
+        ' (${session.repoState!.rebaseStep}/${session.repoState!.rebaseTotal})',
+      );
+    }
+
+    if (count > 0) {
+      buffer.write(': $count file${count == 1 ? '' : 's'} conflicted');
+    }
+
+    return buffer.toString();
+  }
 
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
+    final String statusText = _getStatusText();
+    final bool isRevert = _isRevertOnly();
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(
@@ -451,26 +607,80 @@ class _ConflictBanner extends StatelessWidget {
       ),
       child: Row(
         children: <Widget>[
-          Expanded(
-            child: Text(
-              '$count file${count == 1 ? '' : 's'} conflicted',
-              style: TextStyle(
-                fontSize: GbmTypography.textSm,
-                color: colors.diffDelText,
+          if (statusText.isNotEmpty)
+            Expanded(
+              child: Text(
+                statusText,
+                style: TextStyle(
+                  fontSize: GbmTypography.textSm,
+                  color: colors.diffDelText,
+                ),
               ),
             ),
-          ),
-          TextButton(
-            onPressed: () => context.go(RoutePaths.conflictsFor(repoId)),
-            child: Text(
-              'Resolve…',
-              style: TextStyle(
-                fontSize: GbmTypography.textSm,
-                color: colors.diffDelText,
-                fontWeight: GbmTypography.weightSemibold,
+          if (!_hasSequencerOperation()) Expanded(child: SizedBox.shrink()),
+          // Abort button
+          if (_hasSequencerOperation())
+            Tooltip(
+              message: isRevert ? 'Revert has no abort (use Resolve…)' : '',
+              child: TextButton(
+                onPressed: isRevert ? null : onAbort,
+                child: Text(
+                  'Abort',
+                  style: TextStyle(
+                    fontSize: GbmTypography.textSm,
+                    color: colors.diffDelText,
+                    fontWeight: GbmTypography.weightSemibold,
+                  ),
+                ),
               ),
             ),
-          ),
+          const SizedBox(width: GbmSpacing.space2),
+          // Skip button
+          if (_hasSequencerOperation())
+            Tooltip(
+              message: isRevert || session.repoState?.isMerging == true
+                  ? 'Skip not available for ${isRevert ? 'revert' : 'merge'}'
+                  : '',
+              child: TextButton(
+                onPressed: (isRevert || session.repoState?.isMerging == true)
+                    ? null
+                    : onSkip,
+                child: Text(
+                  'Skip',
+                  style: TextStyle(
+                    fontSize: GbmTypography.textSm,
+                    color: colors.diffDelText,
+                    fontWeight: GbmTypography.weightSemibold,
+                  ),
+                ),
+              ),
+            ),
+          const SizedBox(width: GbmSpacing.space2),
+          // Continue button
+          if (_hasSequencerOperation())
+            TextButton(
+              onPressed: onContinue,
+              child: Text(
+                'Continue',
+                style: TextStyle(
+                  fontSize: GbmTypography.textSm,
+                  color: colors.diffDelText,
+                  fontWeight: GbmTypography.weightSemibold,
+                ),
+              ),
+            )
+          else
+            TextButton(
+              onPressed: () => context.go(RoutePaths.conflictsFor(repoId)),
+              child: Text(
+                'Resolve…',
+                style: TextStyle(
+                  fontSize: GbmTypography.textSm,
+                  color: colors.diffDelText,
+                  fontWeight: GbmTypography.weightSemibold,
+                ),
+              ),
+            ),
         ],
       ),
     );

@@ -25,3 +25,7 @@ GBM_API void gbm_request_compare_file_diff(GbmSessionHandle session,
                                                threeDot != 0,
                                                path != nullptr ? std::string(path) : "");
 }
+
+GBM_API void gbm_request_compare_with_working_copy(GbmSessionHandle session, const char* ref) {
+    toSession(session)->requestCompareWithWorkingCopy(ref != nullptr ? std::string(ref) : "");
+}

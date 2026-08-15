@@ -894,6 +894,28 @@ void Session::requestCompareFileDiff(std::string leftRef,
     });
 }
 
+void Session::requestCompareWithWorkingCopy(std::string ref) {
+    sharedReadPool().postFront([this, ref = std::move(ref)]() {
+        const GitResult<ObjectId> resolved = refStore_->resolveRevision(ref, CancellationToken{});
+        if (!resolved) {
+            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(resolved.error()));
+            return;
+        }
+        const GitResult<DiffService::ParsedDiffPtr> result =
+            diffs_->commitVsWorkingTree(*resolved, DiffOptions{}, CancellationToken{});
+        if (!result) {
+            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+            return;
+        }
+        std::string payload = "{\"ref\":";
+        jsonAppendEscaped(payload, ref);
+        payload += ",\"diff\":";
+        payload += toJson(*result.value());
+        payload += '}';
+        callbacks_.emit(GBM_EVENT_COMPARE_WITH_WORKING_COPY_READY, payload);
+    });
+}
+
 void Session::requestFileHistory(std::string path, std::string startRevision) {
     sharedReadPool().postFront(
         [this, path = std::move(path), startRevision = std::move(startRevision)]() {

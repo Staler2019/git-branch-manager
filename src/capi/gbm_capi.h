@@ -186,6 +186,16 @@ enum GbmEventType {
     /// an Operation like fetch/pull/push/branch-delete, not a new kind of
     /// reply.
     GBM_EVENT_REMOTE_PRUNE_PREVIEW_READY = 31,
+    /// payload: {"ref": string, "diff": ParsedDiff JSON}. Reply to
+    /// gbm_request_compare_with_working_copy() -- the "compare a ref with
+    /// Working Copy" side of the Compare tab, backed by
+    /// DiffService::commitVsWorkingTree(). "ref" is echoed back from the
+    /// request for the same multi-tab matching reason as
+    /// GBM_EVENT_COMPARE_READY. Unlike that event, there is no
+    /// "threeDot"/"mergeBase" to echo -- a working-tree diff has only one
+    /// commit on either side, so two-dot/three-dot and merge-base have no
+    /// meaning here.
+    GBM_EVENT_COMPARE_WITH_WORKING_COPY_READY = 32,
 };
 
 typedef void (*GbmEventCallback)(GbmSessionHandle session,
@@ -309,6 +319,14 @@ GBM_API void gbm_request_compare_file_diff(GbmSessionHandle session,
                                            const char* rightRef,
                                            int32_t threeDot,
                                            const char* path);
+
+/// Requests the diff between `ref` and the live working tree (uncommitted
+/// changes included) -- the "compare a ref with Working Copy" side of the
+/// Compare tab. `ref` may be any revision expression git accepts (branch,
+/// tag, oid, HEAD~N, ...); it is resolved to a commit internally. Async:
+/// fires GBM_EVENT_COMPARE_WITH_WORKING_COPY_READY, or
+/// GBM_EVENT_ERROR_OCCURRED on failure (e.g. `ref` does not resolve).
+GBM_API void gbm_request_compare_with_working_copy(GbmSessionHandle session, const char* ref);
 
 GBM_API int32_t gbm_graph_snapshot_lane_count(GbmSessionHandle session);
 GBM_API int32_t gbm_graph_snapshot_complete(GbmSessionHandle session);

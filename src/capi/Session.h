@@ -278,6 +278,9 @@ public:
                                 bool threeDot,
                                 std::string path);
 
+    /// Async: see gbm_request_compare_with_working_copy()'s doc comment.
+    void requestCompareWithWorkingCopy(std::string ref);
+
     /// Async: see gbm_request_file_history()/gbm_request_line_history()'s
     /// doc comments.
     void requestFileHistory(std::string path, std::string startRevision);

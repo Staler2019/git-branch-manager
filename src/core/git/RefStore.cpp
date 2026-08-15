@@ -349,4 +349,21 @@ GitResult<std::vector<ObjectId>> RefStore::resolveRange(const std::string& range
     return oids;
 }
 
+GitResult<ObjectId> RefStore::resolveRevision(const std::string& revision, CancellationToken token) {
+    GBM_ASSERT_NOT_UI_THREAD();
+
+    GitCommand command(paths_.commandDir(), {"rev-parse", "--verify", "--quiet", revision + "^{commit}"});
+    command.timeout = std::chrono::seconds(15);
+    auto result = runner_.run(command, token);
+    if (!result || result->out.empty()) {
+        return fail(GitError::Code::InvalidArgument, "Unknown revision: " + revision);
+    }
+
+    ObjectId oid;
+    if (!oid.parseHex(result->out)) {
+        return fail(GitError::Code::InvalidArgument, "Unknown revision: " + revision);
+    }
+    return oid;
+}
+
 }  // namespace gbm

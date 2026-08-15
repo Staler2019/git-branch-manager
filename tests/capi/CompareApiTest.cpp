@@ -169,5 +169,27 @@ TEST_F(CompareApiTest, CompareRefsReportsAnErrorWhenARefIsEmpty) {
     ASSERT_TRUE(log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_ERROR_OCCURRED); }));
 }
 
+// SetUp() leaves the work tree checked out on "main", with shared.txt
+// containing "base\n" and no uncommitted changes yet -- these two tests each
+// dirty it themselves so the two-side diff has something to report.
+
+TEST_F(CompareApiTest, CompareWithWorkingCopyReportsTheDiffAgainstTheLiveWorkTree) {
+    std::ofstream(repo_ / "shared.txt") << "uncommitted change\n";
+
+    gbm_request_compare_with_working_copy(session_, "main");
+    ASSERT_TRUE(log_.waitFor([](const auto& events) {
+        return anyEventOfType(events, GBM_EVENT_COMPARE_WITH_WORKING_COPY_READY);
+    }));
+
+    const std::string payload = log_.lastPayloadOfType(GBM_EVENT_COMPARE_WITH_WORKING_COPY_READY);
+    EXPECT_NE(payload.find("\"ref\":\"main\""), std::string::npos) << payload;
+    EXPECT_NE(payload.find("uncommitted change"), std::string::npos) << payload;
+}
+
+TEST_F(CompareApiTest, CompareWithWorkingCopyReportsAnErrorWhenTheRefDoesNotResolve) {
+    gbm_request_compare_with_working_copy(session_, "does-not-exist-anywhere");
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_ERROR_OCCURRED); }));
+}
+
 }  // namespace
 }  // namespace gbm::capi

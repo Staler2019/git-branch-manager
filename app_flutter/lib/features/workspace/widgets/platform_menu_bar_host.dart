@@ -4,20 +4,23 @@ import 'package:flutter/material.dart';
 
 import '../../../actions/gbm_action_id.dart';
 import '../../../actions/gbm_menu_model.dart';
+import '../../../actions/gbm_shortcuts.dart';
 
-/// Placeholder for a macOS [PlatformMenuBar] integration (future milestone).
+/// Puts the application menus in the macOS system menu bar, and gets out of
+/// the way everywhere else.
 ///
-/// Currently returns [child] unwrapped on all platforms. On macOS, this would
-/// build a real [PlatformMenuBar] from [menus], using system-provided menu
-/// items (via [PlatformProvidedMenuItemType].quit and .about) for those roles.
-/// On other platforms, this is a no-op passthrough.
+/// Spec page 01: "三平台統一樣式，只有 menu bar 位置與標題列跟隨系統" -- on
+/// macOS the menus belong in the system bar at the top of the screen, while
+/// Windows and Linux draw their own row below the title bar. That in-window
+/// row is `MenuBarRow`; this widget is the macOS half, and on other platforms
+/// it is a passthrough so the two never both render.
 ///
-/// The [handlers] map provides click handlers for menu items. Currently unused
-/// since [PlatformMenuBar] support is deferred; this parameter is kept for
-/// future implementation compatibility.
+/// [PlatformMenuBar] renders no Flutter widgets of its own -- it hands the
+/// menu structure to the embedder -- so wrapping [child] with it is
+/// invisible on any platform whose embedder ignores it.
 ///
-/// For testability, [isMacOSOverride] can be passed to force platform behavior;
-/// if null (the default), [Platform.isMacOS] is used.
+/// For testability, [isMacOSOverride] forces platform behaviour; if null
+/// (the default), [Platform.isMacOS] is used.
 class PlatformMenuBarHost extends StatelessWidget {
   const PlatformMenuBarHost({
     super.key,
@@ -30,21 +33,92 @@ class PlatformMenuBarHost extends StatelessWidget {
   /// The widget to wrap.
   final Widget child;
 
-  /// The menu structure built from [gbmMenus] (currently unused).
+  /// The menu structure, normally [gbmMenus].
   final List<GbmMenuModel> menus;
 
-  /// Map of [GbmActionId] to click handler callbacks (currently unused).
+  /// Click handlers per action. A null handler (or a missing key) makes the
+  /// system menu item inert, which is how macOS renders a disabled item.
   final Map<GbmActionId, VoidCallback?> handlers;
 
   /// Override for platform detection. If null, [Platform.isMacOS] is used.
-  /// Used for testing.
   final bool? isMacOSOverride;
+
+  bool get _isMacOS => isMacOSOverride ?? Platform.isMacOS;
+
+  /// The actions macOS supplies itself, and which must therefore not be
+  /// duplicated as ordinary items: Quit lives in the application menu, and
+  /// About is the system's own panel.
+  static const Set<GbmActionId> _systemProvided = <GbmActionId>{
+    GbmActionId.fileExit,
+    GbmActionId.helpAbout,
+  };
 
   @override
   Widget build(BuildContext context) {
-    // TODO(desktop): Implement PlatformMenuBar integration
-    // This is a placeholder that returns child unwrapped. On macOS, this
-    // should build a real PlatformMenuBar with system-provided quit/about items.
-    return child;
+    if (!_isMacOS) return child;
+
+    final Map<GbmActionId, GbmKeyboardShortcut> shortcuts = gbmActionShortcuts(
+      true,
+    );
+
+    return PlatformMenuBar(
+      menus: <PlatformMenuItem>[
+        for (final GbmMenuModel menu in menus)
+          PlatformMenu(
+            label: menu.title,
+            menus: <PlatformMenuItem>[
+              for (final GbmMenuItemModel item in menu.items)
+                if (!_systemProvided.contains(item.id))
+                  PlatformMenuItem(
+                    label: item.label,
+                    shortcut: _activatorFor(shortcuts[item.id]),
+                    onSelected: handlers[item.id],
+                  ),
+              // Both system-provided roles are appended to the menu they
+              // belong to, so Quit still sits under File and About under
+              // Help even though macOS owns their behaviour.
+              //
+              // `hasMenu` is not optional: PlatformProvidedMenuItem throws
+              // when the *running* platform has no such menu, and
+              // isMacOSOverride only decides whether this widget builds at
+              // all -- it does not change defaultTargetPlatform. Without the
+              // guard, forcing the macOS branch anywhere else (a widget
+              // test, a desktop embedder reporting another platform) throws
+              // while building.
+              if (menu.items.any((i) => i.id == GbmActionId.fileExit) &&
+                  PlatformProvidedMenuItem.hasMenu(
+                    PlatformProvidedMenuItemType.quit,
+                  ))
+                const PlatformProvidedMenuItem(
+                  type: PlatformProvidedMenuItemType.quit,
+                ),
+              if (menu.items.any((i) => i.id == GbmActionId.helpAbout) &&
+                  PlatformProvidedMenuItem.hasMenu(
+                    PlatformProvidedMenuItemType.about,
+                  ))
+                const PlatformProvidedMenuItem(
+                  type: PlatformProvidedMenuItemType.about,
+                ),
+            ],
+          ),
+      ],
+      child: child,
+    );
+  }
+
+  /// Translates a [GbmKeyboardShortcut] into the activator the embedder
+  /// wants. Returns null for an unbound action, which simply shows no key
+  /// equivalent next to the item.
+  static MenuSerializableShortcut? _activatorFor(
+    GbmKeyboardShortcut? shortcut,
+  ) {
+    if (shortcut == null) return null;
+    return SingleActivator(
+      shortcut.trigger,
+      control: shortcut.control,
+      meta: shortcut.meta,
+      shift: shortcut.shift,
+      alt: shortcut.alt,
+    );
   }
 }

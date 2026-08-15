@@ -9,6 +9,7 @@ import '../../actions/gbm_menu_model.dart';
 import '../../data/models/ref_snapshot.dart';
 import '../../data/models/repo_state.dart';
 import '../../data/models/working_copy_status.dart';
+import '../../data/repositories/app_preferences_repository.dart';
 import '../../data/repositories/chrome_visibility_repository.dart';
 import '../../data/repositories/compare_tabs_repository.dart';
 import '../../data/repositories/file_list_view_mode_repository.dart';
@@ -209,27 +210,30 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     final Widget scaffoldContent = Scaffold(
       body: Column(
         children: <Widget>[
-          MenuBarRow(
-            repoId: repoId,
-            sidebarVisible: _sidebarVisible,
-            onToggleSidebar: () =>
-                setState(() => _sidebarVisible = !_sidebarVisible),
-            onFetch: session.conflictActive
-                ? null
-                : () => ref
-                      .read(repoSessionProvider(identity).notifier)
-                      .fetchRemote(),
-            onPull: session.conflictActive
-                ? null
-                : () => ref
-                      .read(repoSessionProvider(identity).notifier)
-                      .pullChanges(),
-            onPush: session.conflictActive
-                ? null
-                : () => ref
-                      .read(repoSessionProvider(identity).notifier)
-                      .pushChanges(),
-          ),
+          // Spec page 01: "只有 menu bar 位置與標題列跟隨系統" -- on macOS the
+          // menus live in the system bar (PlatformMenuBarHost below wraps
+          // this whole scaffold), so drawing this in-window row there too
+          // would show the same menus twice.
+          if (!Platform.isMacOS)
+            MenuBarRow(
+              repoId: repoId,
+              sidebarVisible: _sidebarVisible,
+              onToggleSidebar: () =>
+                  setState(() => _sidebarVisible = !_sidebarVisible),
+              onFetch: session.conflictActive
+                  ? null
+                  : () => ref
+                        .read(repoSessionProvider(identity).notifier)
+                        .fetchRemote(),
+              onPull: session.conflictActive
+                  ? null
+                  : () => ref
+                        .read(repoSessionProvider(identity).notifier)
+                        .pullChanges(),
+              onPush: session.conflictActive
+                  ? null
+                  : () => _push(context, ref, identity, repoId, session),
+            ),
           TopBar(
             repoName: _displayName(identity.workDir),
             repoState: session.repoState,
@@ -633,6 +637,43 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     // there is no separate cancel entry point in the capi, and the already
     // loaded rows are kept (spec page 10: "取消保留已載入的部分，不清空畫面").
     ref.read(repoSessionProvider(widget.identity).notifier).refreshHistory();
+  }
+
+  /// Push, routed through the force-push confirmation when the branch has
+  /// diverged from its upstream.
+  ///
+  /// Diverged means ahead *and* behind: a plain push would be rejected as
+  /// non-fast-forward, so the only way through is a force push, and spec
+  /// page 06 requires stating how many remote commits that would overwrite
+  /// first. Ahead-only pushes go straight out — there is nothing to
+  /// overwrite and nothing to confirm.
+  ///
+  /// The confirmation is skipped when the user has turned it off
+  /// ([AppPreferences.confirmForcePush], spec page 06: "可在 Preferences 關閉
+  /// 此確認"), in which case the force push runs directly.
+  void _push(
+    BuildContext context,
+    WidgetRef ref,
+    RepoIdentity identity,
+    String repoId,
+    RepoSessionState session,
+  ) {
+    final RefInfo? head = _headTrackingRef(session);
+    final bool diverged =
+        head != null && head.ahead > 0 && head.behind > 0;
+
+    if (!diverged) {
+      ref.read(repoSessionProvider(identity).notifier).pushChanges();
+      return;
+    }
+
+    if (ref.read(appPreferencesProvider).confirmForcePush) {
+      context.push(RoutePaths.forcePushDialogFor(repoId));
+    } else {
+      ref
+          .read(repoSessionProvider(identity).notifier)
+          .pushChanges(forceWithLease: true);
+    }
   }
 
   /// Dispatches a Flutter text-editing intent at the currently focused

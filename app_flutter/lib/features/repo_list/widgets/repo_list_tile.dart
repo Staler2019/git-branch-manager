@@ -9,10 +9,23 @@ import '../../../widgets/gbm_menu.dart';
 import '../../../widgets/lucide_icon.dart';
 
 class RepoListTile extends StatelessWidget {
-  const RepoListTile({super.key, required this.repo, required this.onTap});
+  const RepoListTile({
+    super.key,
+    required this.repo,
+    required this.onTap,
+    this.onOpenInFileManager,
+  });
 
   final RepoRecord repo;
   final VoidCallback onTap;
+
+  /// Reveals the repository in the OS file manager (context menu 05-A).
+  ///
+  /// Injected rather than reading `desktopLauncherProvider` here, so this
+  /// tile stays presentational and keeps being widget-testable against a
+  /// bare `GoRouter` with no `ProviderScope` -- the same split
+  /// `MenuBarRow`/`TopBar`/`TabRow` follow. Null renders the item disabled.
+  final VoidCallback? onOpenInFileManager;
 
   @override
   Widget build(BuildContext context) {
@@ -81,7 +94,6 @@ class RepoListTile extends StatelessWidget {
   /// state the design mockup's own JS gives many of its items, rather than
   /// silently doing nothing dangerous-sounding or something unintended.
   void _openContextMenu(BuildContext context, TapDownDetails details) {
-    void noop() {}
     showGbmContextMenu(context, details.globalPosition, <GbmMenuItem>[
       GbmMenuItem(
         label: 'Open',
@@ -91,7 +103,7 @@ class RepoListTile extends StatelessWidget {
       GbmMenuItem(
         label: 'Open in file manager',
         icon: Icons.folder_outlined,
-        onTap: noop,
+        onTap: onOpenInFileManager,
       ),
       GbmMenuItem(
         label: 'Repository settings',
@@ -103,11 +115,16 @@ class RepoListTile extends StatelessWidget {
         ),
       ),
       const GbmMenuItem.separator(),
-      GbmMenuItem(
+      const GbmMenuItem(
         label: 'Remove from list',
         icon: Icons.delete_outline,
         danger: true,
-        onTap: noop,
+        // Explicitly disabled rather than a silent no-op: `gbm_discovery`
+        // can only remove a whole base folder, never one repository found
+        // inside it, so there is nothing for this to call. Rendering it
+        // disabled says that; a no-op looked like a working destructive
+        // action that quietly did nothing.
+        onTap: null,
       ),
     ]);
   }

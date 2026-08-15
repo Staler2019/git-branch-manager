@@ -52,6 +52,18 @@ class ChangedFilesPanel extends ConsumerWidget {
           : (String path) => context.push(
               RoutePaths.blameDialogFor(identity.workDir, path: path),
             ),
+      // 05-K → More actions → "Restore file to this state". Needs the
+      // commit's oid as well as the path, which is why it is bound here
+      // rather than inside the presentational half.
+      onRestoreToThisState: selectedCommitOid == null
+          ? null
+          : (String path) => context.push(
+              RoutePaths.restoreFileDialogFor(
+                Uri.encodeComponent(identity.workDir),
+                path: path,
+                oid: selectedCommitOid,
+              ),
+            ),
     );
   }
 }
@@ -70,6 +82,7 @@ class ChangedFilesPanelCore extends StatelessWidget {
     required this.onFileTap,
     this.onFileHistory,
     this.onBlame,
+    this.onRestoreToThisState,
   });
 
   final bool hasSelectedCommit;
@@ -78,6 +91,11 @@ class ChangedFilesPanelCore extends StatelessWidget {
   final ValueChanged<String>? onFileTap;
   final ValueChanged<String>? onFileHistory;
   final ValueChanged<String>? onBlame;
+
+  /// 05-K's second-level "Restore file to this state". Null hides the entry
+  /// (no commit selected), rather than showing a restore that has no source
+  /// revision to restore from.
+  final ValueChanged<String>? onRestoreToThisState;
 
   @override
   Widget build(BuildContext context) {
@@ -119,9 +137,10 @@ class ChangedFilesPanelCore extends StatelessWidget {
     );
   }
 
-  /// 05-K (commit file) context menu items. Includes: view diff (via onFileTap),
-  /// file history, blame, and copy path. Omits open-file-at-revision (no backend),
-  /// open-terminal (not wired), and restore/save/export items (destructive, M6).
+  /// 05-K (commit file) context menu items: view diff (via onFileTap), file
+  /// history, blame, copy path, and the second-level "Restore file to this
+  /// state". Still omits open-file-at-revision and save-this-revision, which
+  /// have no backing capi entry point.
   List<GbmMenuItem> _buildMenuItems(String path) {
     return <GbmMenuItem>[
       GbmMenuItem(
@@ -146,6 +165,17 @@ class ChangedFilesPanelCore extends StatelessWidget {
         icon: Icons.copy,
         onTap: () => Clipboard.setData(ClipboardData(text: path)),
       ),
+      if (onRestoreToThisState case final ValueChanged<String> restore)
+        GbmMenuItem.submenu(
+          label: 'More actions',
+          children: <GbmMenuItem>[
+            GbmMenuItem(
+              label: 'Restore file to this state',
+              icon: Icons.restore,
+              onTap: () => restore(path),
+            ),
+          ],
+        ),
     ];
   }
 

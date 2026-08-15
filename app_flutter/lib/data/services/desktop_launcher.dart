@@ -123,6 +123,24 @@ class DesktopLauncher {
     return false;
   }
 
+  /// Reveals [path] in the OS file manager. Backs the "Open in file manager"
+  /// / "Show in file manager" entries in context menus 05-A and 05-F, which
+  /// were previously bound to a no-op.
+  ///
+  /// Explorer's `/select,` and Finder's `-R` reveal the item *within* its
+  /// parent folder, which is what "show in" means for a file; Linux has no
+  /// portable reveal, so `xdg-open` opens the path itself.
+  Future<bool> openInFileManager(String path) async {
+    switch (_os) {
+      case 'windows':
+        return _start('explorer.exe', <String>['/select,$path']);
+      case 'macos':
+        return _start('open', <String>['-R', path]);
+      default:
+        return _start('xdg-open', <String>[path]);
+    }
+  }
+
   /// Hands [url] to the OS default browser. Backs Help → Documentation and
   /// Help → Report an issue, whose URLs are compile-time constants (see
   /// `GbmUrls`), never user input.

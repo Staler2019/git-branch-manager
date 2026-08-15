@@ -7,19 +7,28 @@ import 'package:go_router/go_router.dart';
 import '../../actions/gbm_action_id.dart';
 import '../../actions/gbm_menu_model.dart';
 import '../../data/models/ref_snapshot.dart';
+import '../../data/models/repo_state.dart';
+import '../../data/models/working_copy_status.dart';
+import '../../data/repositories/chrome_visibility_repository.dart';
 import '../../data/repositories/compare_tabs_repository.dart';
 import '../../data/repositories/file_list_view_mode_repository.dart';
 import '../../data/repositories/history_repository.dart';
+import '../../data/repositories/panel_layout_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
+import '../../data/services/desktop_launcher.dart';
 import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
+import '../../theme/theme_mode_provider.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/gbm_banner.dart';
+import '../../widgets/prompt_text_dialog.dart';
 import '../../widgets/split_pane.dart';
+import '../history_graph/commit_search.dart';
 import '../history_graph/widgets/graph_columns_selector.dart';
 import '../log_drawer/log_drawer.dart';
 import '../sidebar/sidebar_panel.dart';
+import '../status_bar/background_task.dart';
 import '../status_bar/status_bar.dart';
 import 'widgets/menu_bar_row.dart';
 import 'widgets/platform_menu_bar_host.dart';
@@ -61,6 +70,13 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   int _lastSeenOperationLogIndex = 0;
   final GbmSplitPaneController _logDrawerController = GbmSplitPaneController();
   final FocusNode _branchFilterFocusNode = FocusNode();
+
+  /// Wall-clock time the last history scan took, for the status bar's
+  /// "掃描耗時" figure (spec page 02 item 11). Measured here rather than
+  /// reported by the core, which does not time its own scan -- so it is the
+  /// UI-observed duration, which is what the number claims to be.
+  DateTime? _scanStartedAt;
+  Duration? _lastScanDuration;
 
   @override
   void dispose() {
@@ -104,6 +120,24 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     final RepoIdentity identity = widget.identity;
     final RepoSessionState session = ref.watch(repoSessionProvider(identity));
     final String repoId = repoIdForRoute(identity);
+    final ChromeVisibility chrome = ref.watch(chromeVisibilityProvider);
+
+    // Times the history scan for the status bar's elapsed figure. Recorded
+    // on the false -> true edge and closed on true -> false, so a rebuild
+    // in the middle of a scan does not restart the clock.
+    ref.listen<bool>(
+      repoSessionProvider(identity).select((state) => state.isRefreshing),
+      (bool? previous, bool next) {
+        if (next && previous != true) {
+          _scanStartedAt = DateTime.now();
+        } else if (!next && previous == true && _scanStartedAt != null) {
+          setState(() {
+            _lastScanDuration = DateTime.now().difference(_scanStartedAt!);
+            _scanStartedAt = null;
+          });
+        }
+      },
+    );
 
     // Pushed automatically -- a credential prompt is not something the user
     // chose to open, unlike every other dialog route. See
@@ -271,35 +305,32 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
               ],
             ),
           ),
-          StatusBar(
-            currentBranch: session.refs.head.branchName.isNotEmpty
-                ? session.refs.head.branchName
-                : 'Detached',
-            ahead: _headTrackingRef(session)?.ahead ?? 0,
-            behind: _headTrackingRef(session)?.behind ?? 0,
-            commitCount: session.graph.rows.length,
-            lastScanDuration: const Duration(
-              milliseconds: 0,
-            ), // TODO: wire from session
-            graphLaneCapacity: session.graph.laneCount,
-            backgroundTasks: const [], // TODO: wire from session when available
-            hasUnreadLog: hasUnreadLog,
-            repoState: session.repoState,
-            workingCopyStatus: session.workingCopyStatus,
-            conflictActive: session.conflictActive,
-            onOpenLog: () {
-              setState(() {
-                _lastSeenOperationLogIndex = session.operationLog.length;
-              });
-              // Un-collapse the log drawer if the user has never dragged it
-              // open -- otherwise the badge would clear with nothing visibly
-              // having happened. See GbmSplitPaneController's doc comment.
-              _logDrawerController.open();
-            },
-            onCancelTask: (_) {
-              // TODO: wire cancel operation when background task model is integrated
-            },
-          ),
+          if (chrome.statusBarVisible)
+            StatusBar(
+              currentBranch: session.refs.head.branchName.isNotEmpty
+                  ? session.refs.head.branchName
+                  : 'Detached',
+              ahead: _headTrackingRef(session)?.ahead ?? 0,
+              behind: _headTrackingRef(session)?.behind ?? 0,
+              commitCount: session.graph.rows.length,
+              lastScanDuration: _lastScanDuration ?? Duration.zero,
+              graphLaneCapacity: session.graph.laneCount,
+              backgroundTasks: _backgroundTasks(session),
+              hasUnreadLog: hasUnreadLog,
+              repoState: session.repoState,
+              workingCopyStatus: session.workingCopyStatus,
+              conflictActive: session.conflictActive,
+              onOpenLog: () {
+                setState(() {
+                  _lastSeenOperationLogIndex = session.operationLog.length;
+                });
+                // Un-collapse the log drawer if the user has never dragged it
+                // open -- otherwise the badge would clear with nothing visibly
+                // having happened. See GbmSplitPaneController's doc comment.
+                _logDrawerController.open();
+              },
+              onCancelTask: _cancelTask,
+            ),
         ],
       ),
     );
@@ -353,20 +384,17 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   /// - repositoryCompare: opens a new closable Compare tab (M6), defaulting
   ///   to current-branch-vs-Working-Copy, and navigates to it
   ///
-  /// Unimplemented (mapped to null):
-  /// - fileNewRepository, fileOpenRepository, fileCloneRepository,
-  ///   fileSwitchRepository, fileAddLocalRepository: future milestone
-  /// - editUndo, editRedo, editCut, editCopy, editPaste, editFindInHistory,
-  ///   editFindInFiles: future milestone
-  /// - viewNextTab, viewGraphColumns, viewCommitDetail, viewStatusBar,
-  ///   viewLog, viewResetPanelSizes, viewTheme: future milestone
-  /// - branchNewBranch, branchCheckout, branchRenameCurrentBranch,
-  ///   branchStashChanges, branchDeleteBranch: future milestone
-  /// - remoteAddRemote: future milestone
-  /// - helpDocumentation, helpReportAnIssue: future milestone
-  /// - fileExit: handled specially (not wired here, handled in MenuBarRow)
+  /// Every id in [gbmMenus] now resolves to a handler except the four routed
+  /// elsewhere and the two that are legitimately state-dependent:
+  /// - fileExit: handled in MenuBarRow (SystemNavigator.pop)
   /// - repositoryFetch, repositoryPull, repositoryPush, viewToggleSidebar:
   ///   handled via MenuBarRow callback params
+  /// - repositoryStageAll: null while nothing is unstaged
+  /// - branchRenameCurrentBranch: null on a detached HEAD
+  ///
+  /// A null handler renders the menu item disabled, which is the point --
+  /// previously ~30 ids were null purely because nothing had been wired yet,
+  /// so items that looked enabled did nothing when clicked.
   Map<GbmActionId, VoidCallback?> _buildActionHandlers(
     BuildContext context,
     WidgetRef ref,
@@ -376,24 +404,51 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   ) {
     return {
       // File
-      GbmActionId.fileNewRepository: null,
-      GbmActionId.fileOpenRepository: null,
-      GbmActionId.fileCloneRepository: null,
+      // New/Open/Clone/Add-local all land on the repo list, which owns the
+      // base-folder quick-add field and the discovery scan -- this app has
+      // no native folder picker dependency (see pubspec.yaml), so the repo
+      // list's own path field is the one real entry point rather than a
+      // second, worse copy of it here.
+      GbmActionId.fileNewRepository: () => context.go(RoutePaths.repoList),
+      GbmActionId.fileOpenRepository: () => context.go(RoutePaths.repoList),
+      GbmActionId.fileCloneRepository: () => context.go(RoutePaths.repoList),
       GbmActionId.fileSwitchRepository: () =>
           context.push(RoutePaths.repoSwitcherDialog),
-      GbmActionId.fileAddLocalRepository: null,
-      GbmActionId.fileCloseWindow: null,
+      GbmActionId.fileAddLocalRepository: () => context.go(RoutePaths.repoList),
+      // Closes this workspace back to the repo list. Not SystemNavigator.pop
+      // -- that is Exit, and the two must stay distinguishable.
+      GbmActionId.fileCloseWindow: () => context.go(RoutePaths.repoList),
       GbmActionId.filePreferences: () =>
-          context.push(RoutePaths.preferencesDialogFor(repoId)),
+          context.push(RoutePaths.preferencesDialog),
       GbmActionId.fileExit: null, // Handled specially in MenuBarRow
       // Edit
-      GbmActionId.editUndo: null,
-      GbmActionId.editRedo: null,
-      GbmActionId.editCut: null,
-      GbmActionId.editCopy: null,
-      GbmActionId.editPaste: null,
-      GbmActionId.editFindInHistory: null,
-      GbmActionId.editFindInFiles: null,
+      // The five clipboard/history verbs dispatch Flutter's own text-editing
+      // intents, so they act on whichever field has focus (commit message,
+      // filter box, conflict editor) instead of needing a per-field wiring.
+      // Unfocused, `maybeInvoke` finds no action and does nothing, which is
+      // the correct behaviour for "Copy" with no text selected.
+      GbmActionId.editUndo: () => _invokeTextIntent(const UndoTextIntent(
+        SelectionChangedCause.keyboard,
+      )),
+      GbmActionId.editRedo: () => _invokeTextIntent(const RedoTextIntent(
+        SelectionChangedCause.keyboard,
+      )),
+      GbmActionId.editCut: () => _invokeTextIntent(
+        const CopySelectionTextIntent.cut(SelectionChangedCause.keyboard),
+      ),
+      GbmActionId.editCopy: () =>
+          _invokeTextIntent(CopySelectionTextIntent.copy),
+      GbmActionId.editPaste: () => _invokeTextIntent(
+        const PasteTextIntent(SelectionChangedCause.keyboard),
+      ),
+      // Both searches live on the History view: commit search filters the
+      // commit list, and "find in files" is the same field scoped to paths.
+      // Navigating there first means the shortcut works from Working Copy
+      // too, rather than silently focusing a field that is not on screen.
+      GbmActionId.editFindInHistory: () => _focusHistorySearch(context, ref,
+          identity, repoId),
+      GbmActionId.editFindInFiles: () => _focusHistorySearch(context, ref,
+          identity, repoId),
       GbmActionId.editFilterBranches: () {
         // Reveal the sidebar first if hidden -- there is nothing to focus
         // otherwise (mirrors onOpenLog's un-collapse-then-reveal pattern
@@ -416,12 +471,33 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         await ref.read(fileListViewModeProvider.notifier).setMode(newMode);
       },
       GbmActionId.viewGraphColumns: () => _showGraphColumnsDialog(context),
-      GbmActionId.viewCommitDetail: null,
+      GbmActionId.viewCommitDetail: () =>
+          ref.read(chromeVisibilityProvider.notifier).toggleCommitDetail(),
       GbmActionId.viewToggleSidebar: null, // Handled via MenuBarRow param
-      GbmActionId.viewStatusBar: null,
-      GbmActionId.viewLog: null,
-      GbmActionId.viewResetPanelSizes: null,
-      GbmActionId.viewTheme: null,
+      GbmActionId.viewStatusBar: () =>
+          ref.read(chromeVisibilityProvider.notifier).toggleStatusBar(),
+      // Same un-collapse-then-reveal as the status bar's own log button, so
+      // the menu item and the status bar agree on what "open the log" means.
+      GbmActionId.viewLog: () {
+        setState(() {
+          _lastSeenOperationLogIndex = session.operationLog.length;
+        });
+        _logDrawerController.open();
+      },
+      GbmActionId.viewResetPanelSizes: () async {
+        await ref.read(panelLayoutRepositoryProvider).clear();
+        ref.read(panelLayoutGenerationProvider.notifier).state++;
+      },
+      // A submenu parent -- MenuBarRow builds the three variant items from
+      // this id; invoking the parent itself cycles to the next variant, so
+      // the keyboard path is not a dead end.
+      GbmActionId.viewTheme: () {
+        final GbmThemeVariant current = ref.read(themeVariantProvider);
+        const List<GbmThemeVariant> order = GbmThemeVariant.values;
+        final GbmThemeVariant next =
+            order[(order.indexOf(current) + 1) % order.length];
+        ref.read(themeVariantProvider.notifier).setVariant(next);
+      },
 
       // Repository
       GbmActionId.repositoryFetch: null, // Handled via MenuBarRow param
@@ -429,26 +505,51 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       GbmActionId.repositoryPush: null, // Handled via MenuBarRow param
       GbmActionId.repositoryCompare: () =>
           _openCompareTab(context, ref, identity, repoId, session),
-      GbmActionId.repositoryCommit: null,
-      GbmActionId.repositoryAmendLastCommit: null,
-      GbmActionId.repositoryStageAll: null,
-      GbmActionId.repositoryOpenInTerminal: null,
+      // Commit/Amend/Stage-all all act on the Working Copy view, so they
+      // navigate there first -- firing Ctrl/Cmd+Enter from History would
+      // otherwise commit a draft the user cannot see.
+      GbmActionId.repositoryCommit: () =>
+          context.go(RoutePaths.workingCopyFor(repoId)),
+      GbmActionId.repositoryAmendLastCommit: () =>
+          context.go(RoutePaths.workingCopyFor(repoId)),
+      GbmActionId.repositoryStageAll: session.workingCopyStatus.unstaged.isEmpty
+          ? null
+          : () => ref
+                .read(repoSessionProvider(identity).notifier)
+                .stageFiles(<String>[
+                  for (final WorkingCopyEntry e
+                      in session.workingCopyStatus.unstaged)
+                    e.path,
+                ]),
+      GbmActionId.repositoryOpenInTerminal: () =>
+          _openInTerminal(ref, identity),
       GbmActionId.repositorySettings: () =>
-          context.push(RoutePaths.preferencesDialogFor(repoId)),
+          context.push(RoutePaths.repositorySettingsDialogFor(repoId)),
 
       // Branch
-      GbmActionId.branchNewBranch: null,
-      GbmActionId.branchCheckout: null,
-      GbmActionId.branchRenameCurrentBranch: null,
+      GbmActionId.branchNewBranch: () =>
+          context.push(RoutePaths.newBranchDialogFor(repoId)),
+      GbmActionId.branchCheckout: () =>
+          context.push(RoutePaths.checkoutDialogFor(repoId)),
+      GbmActionId.branchRenameCurrentBranch:
+          session.refs.head.branchName.isEmpty
+          ? null // Detached HEAD: there is no branch to rename.
+          : () => _renameCurrentBranch(context, ref, identity, session),
       GbmActionId.branchMergeIntoCurrent: () =>
           context.push(RoutePaths.mergeDialogFor(repoId)),
+      // Branch → Rebase onto… is the plain rebase (spec page 06's Rebase
+      // row), not the todo-plan editor -- that one is reached from the
+      // interactive-rebase dialog's own entry point.
       GbmActionId.branchRebaseOnto: () =>
-          context.push(RoutePaths.interactiveRebaseDialogFor(repoId)),
-      GbmActionId.branchStashChanges: null,
-      GbmActionId.branchDeleteBranch: null,
+          context.push(RoutePaths.rebaseOntoDialogFor(repoId)),
+      GbmActionId.branchStashChanges: () =>
+          context.push(RoutePaths.stashChangesDialogFor(repoId)),
+      GbmActionId.branchDeleteBranch: () =>
+          context.push(RoutePaths.deleteBranchDialogFor(repoId)),
 
       // Remote
-      GbmActionId.remoteAddRemote: null,
+      GbmActionId.remoteAddRemote: () =>
+          context.push(RoutePaths.manageRemotesDialogFor(repoId)),
       GbmActionId.remoteFetchAllRemotes: session.conflictActive
           ? null
           : () =>
@@ -459,12 +560,143 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
           context.push(RoutePaths.manageRemotesDialogFor(repoId)),
 
       // Help
-      GbmActionId.helpDocumentation: null,
+      GbmActionId.helpDocumentation: () => ref
+          .read(desktopLauncherProvider)
+          .openUrl(GbmUrls.documentation),
       GbmActionId.helpKeyboardShortcuts: () =>
           context.push(RoutePaths.keyboardShortcutsDialog),
-      GbmActionId.helpReportAnIssue: null,
+      GbmActionId.helpReportAnIssue: () =>
+          ref.read(desktopLauncherProvider).openUrl(GbmUrls.reportAnIssue),
       GbmActionId.helpAbout: () => context.push(RoutePaths.aboutDialog),
     };
+  }
+
+  /// The tasks the status bar's progress area shows (spec page 10 item 2).
+  ///
+  /// Derived from session state rather than tracked separately, so a task
+  /// cannot linger on screen after the operation that owns it has finished.
+  /// Only the operations this layer can actually observe appear here: the
+  /// history scan (`isRefreshing`) and an in-flight sequencer operation,
+  /// whose step counts `RepoState` already carries. Transfer counts for
+  /// fetch/pull/push ("12,480 / 31,206" in the spec's own example) need
+  /// per-object progress the capi does not surface yet, so those are
+  /// reported as indeterminate (`total: 0`) instead of with an invented
+  /// denominator.
+  List<BackgroundTask> _backgroundTasks(RepoSessionState session) {
+    final List<BackgroundTask> tasks = <BackgroundTask>[];
+
+    if (session.isRefreshing) {
+      tasks.add(
+        BackgroundTask(
+          id: 'history-scan',
+          label: 'Reading history',
+          current: session.graph.rows.length,
+          total: session.graph.complete ? session.graph.rows.length : 0,
+          cancellable: true,
+        ),
+      );
+    }
+
+    final RepoState? state = session.repoState;
+    if (state != null && state.isSequencerOperation) {
+      // Non-cancellable by construction: spec page 10's TASKS table marks
+      // Checkout/Merge/Rebase "不可取消" because interrupting them midway is
+      // more dangerous than letting them finish.
+      final String label = state.isRebasing
+          ? 'Rebasing'
+          : state.isCherryPicking
+          ? 'Cherry-picking'
+          : state.isReverting
+          ? 'Reverting'
+          : 'Merging';
+      tasks.add(
+        BackgroundTask(
+          id: 'sequencer',
+          label: label,
+          current: state.rebaseStep,
+          total: state.rebaseTotal,
+          cancellable: false,
+        ),
+      );
+    }
+
+    return tasks;
+  }
+
+  /// Cancels a running task by id. Only the history scan is cancellable
+  /// today (see [_backgroundTasks]); the sequencer entry is built with
+  /// `cancellable: false`, so the status bar never offers Cancel for it and
+  /// this is never called with its id.
+  void _cancelTask(String id) {
+    if (id != 'history-scan') return;
+    // Re-requesting the current snapshot is what stops the incremental scan:
+    // there is no separate cancel entry point in the capi, and the already
+    // loaded rows are kept (spec page 10: "取消保留已載入的部分，不清空畫面").
+    ref.read(repoSessionProvider(widget.identity).notifier).refreshHistory();
+  }
+
+  /// Dispatches a Flutter text-editing intent at the currently focused
+  /// widget, which is how Edit → Undo/Redo/Cut/Copy/Paste reach whichever
+  /// field has focus. Silently does nothing when no editable widget is
+  /// focused -- the correct outcome for "Copy" with nothing selected.
+  void _invokeTextIntent(Intent intent) {
+    final BuildContext? focused = primaryFocus?.context;
+    if (focused == null) return;
+    Actions.maybeInvoke(focused, intent);
+  }
+
+  /// Navigates to History (the only view the commit filter exists on) and
+  /// puts the caret in its search field.
+  void _focusHistorySearch(
+    BuildContext context,
+    WidgetRef ref,
+    RepoIdentity identity,
+    String repoId,
+  ) {
+    context.go(RoutePaths.historyFor(repoId));
+    // After the frame that builds HistoryPage -- the field does not exist
+    // yet at the moment `go` is called, so focusing now would be a no-op.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        ref.read(historySearchFocusNodeProvider(identity)).requestFocus();
+      }
+    });
+  }
+
+  /// Repository → Open in terminal (Ctrl/Cmd+`). Failure is reported into
+  /// the operation log rather than a dialog, per spec page 10's rule that
+  /// only user-initiated failures needing a decision open a window.
+  Future<void> _openInTerminal(WidgetRef ref, RepoIdentity identity) async {
+    final bool started = await ref
+        .read(desktopLauncherProvider)
+        .openTerminal(identity.workDir);
+    if (!started && mounted) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text('No terminal emulator was found.')),
+      );
+    }
+  }
+
+  /// Branch → Rename current branch…. Uses the same `promptText` field the
+  /// sidebar's own rename uses, so the two entry points behave identically.
+  Future<void> _renameCurrentBranch(
+    BuildContext context,
+    WidgetRef ref,
+    RepoIdentity identity,
+    RepoSessionState session,
+  ) async {
+    final String current = session.refs.head.branchName;
+    if (current.isEmpty) return;
+    final String? newName = await promptText(
+      context,
+      title: 'Rename Branch',
+      label: 'New name',
+      initialValue: current,
+    );
+    if (newName == null || newName == current || !mounted) return;
+    ref
+        .read(repoSessionProvider(identity).notifier)
+        .renameBranch(from: current, to: newName);
   }
 
   void _handleConflictAbort(

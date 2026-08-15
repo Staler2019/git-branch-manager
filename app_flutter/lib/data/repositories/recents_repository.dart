@@ -81,6 +81,11 @@ class RecentsRepository {
 
     await _prefs.setString(_kRecentsKey, jsonEncode(entries));
   }
+
+  /// Forgets every recorded manual open. Backs Preferences → Repository
+  /// sources → Clear list (spec page 11 item 7: "清空只影響清單，不會刪除
+  /// 磁碟上的 repo") -- only this key is removed; nothing on disk is touched.
+  Future<void> clear() => _prefs.remove(_kRecentsKey);
 }
 
 final Provider<RecentsRepository> recentsRepositoryProvider =

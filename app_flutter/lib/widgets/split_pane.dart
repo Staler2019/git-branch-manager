@@ -370,8 +370,35 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
     }
   }
 
+  /// The size this pane starts at with nothing persisted: the spec default,
+  /// or 0 for a `collapsedByDefault` drawer (the log panel, which spec page
+  /// 09 lists with `def: '收合'`).
+  List<double> _specDefaultFlexes() {
+    if (widget.spec.defaultExtent != null) {
+      return <double>[
+        widget.spec.collapsedByDefault ? 0.0 : widget.spec.defaultExtent!,
+      ];
+    }
+    return widget.spec.flexRatio!.toList();
+  }
+
+  /// Snaps back to [_specDefaultFlexes]. Deliberately does not re-persist:
+  /// [PanelLayoutRepository.clear] has already removed the stored keys, and
+  /// writing the defaults back would make "never resized" indistinguishable
+  /// from "resized to exactly the default" on the next start.
+  void _resetToSpecDefault() {
+    setState(() => _currentFlexes = _specDefaultFlexes());
+    widget.onFlexChanged?.call(_currentFlexes);
+  }
+
   @override
   Widget build(BuildContext context) {
+    // View → Reset panel sizes (Ctrl/Cmd+0). See panelLayoutGenerationProvider
+    // for why this is a counter rather than a re-read of storage.
+    ref.listen<int>(panelLayoutGenerationProvider, (int? previous, int next) {
+      if (previous != null && previous != next) _resetToSpecDefault();
+    });
+
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         _availableExtent = widget.axis == Axis.horizontal

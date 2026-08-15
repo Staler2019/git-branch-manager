@@ -16,6 +16,12 @@ abstract final class RoutePaths {
   static const String manageBaseFoldersDialog = '/dialogs/manage-base-folders';
   static const String repoSwitcherDialog = '/dialogs/switch-repository';
 
+  /// App-level, not repo-scoped: spec page 11 is explicit that Preferences
+  /// holds "應用層級設定" and that per-repository settings live behind
+  /// Repository → Settings… instead ([repositorySettingsDialog]). It also
+  /// has to open from the repo list, where there is no `:repoId` to scope to.
+  static const String preferencesDialog = '/dialogs/preferences';
+
   /// Repo-scoped, per the plan's `/repo/:repoId/dialogs/<name>` design.
   static const String resetBranchDialog = '/repo/:repoId/dialogs/reset-branch';
   static const String mergeDialog = '/repo/:repoId/dialogs/merge';
@@ -46,13 +52,27 @@ abstract final class RoutePaths {
   static const String patchesDialog = '/repo/:repoId/dialogs/patches';
   static const String cleanUntrackedDialog =
       '/repo/:repoId/dialogs/clean-untracked';
-  static const String preferencesDialog = '/repo/:repoId/dialogs/preferences';
   static const String checkoutRecoveryDialog =
       '/repo/:repoId/dialogs/checkout-recovery';
   static const String deleteBranchRecoveryDialog =
       '/repo/:repoId/dialogs/delete-branch-recovery';
   static const String pruneRemoteBranchesDialog =
       '/repo/:repoId/dialogs/prune-remote-branches';
+
+  /// Spec page 06's remaining dialogs, added alongside the ones above.
+  static const String repositorySettingsDialog =
+      '/repo/:repoId/dialogs/repository-settings';
+  static const String newBranchDialog = '/repo/:repoId/dialogs/new-branch';
+  static const String checkoutDialog = '/repo/:repoId/dialogs/checkout';
+  static const String deleteBranchDialog =
+      '/repo/:repoId/dialogs/delete-branch';
+  static const String rebaseOntoDialog = '/repo/:repoId/dialogs/rebase-onto';
+  static const String forcePushDialog = '/repo/:repoId/dialogs/force-push';
+  static const String deleteRemoteBranchDialog =
+      '/repo/:repoId/dialogs/delete-remote-branch';
+  static const String restoreFileDialog = '/repo/:repoId/dialogs/restore-file';
+  static const String discardChangesDialog =
+      '/repo/:repoId/dialogs/discard-changes';
 
   /// Standalone top-level route, not a `/dialogs/<name>` overlay -- see
   /// `features/conflict_resolution/conflict_resolve_window.dart`'s doc
@@ -117,14 +137,66 @@ abstract final class RoutePaths {
       '/repo/$repoId/dialogs/patches';
   static String cleanUntrackedDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/clean-untracked';
-  static String preferencesDialogFor(String repoId) =>
-      '/repo/$repoId/dialogs/preferences';
   static String checkoutRecoveryDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/checkout-recovery';
   static String deleteBranchRecoveryDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/delete-branch-recovery';
   static String pruneRemoteBranchesDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/prune-remote-branches';
+  static String repositorySettingsDialogFor(String repoId) =>
+      '/repo/$repoId/dialogs/repository-settings';
+  static String newBranchDialogFor(String repoId, {String startPoint = ''}) =>
+      Uri(
+        path: '/repo/$repoId/dialogs/new-branch',
+        queryParameters: startPoint.isEmpty
+            ? null
+            : <String, String>{'startPoint': startPoint},
+      ).toString();
+  static String checkoutDialogFor(String repoId) =>
+      '/repo/$repoId/dialogs/checkout';
+  static String deleteBranchDialogFor(String repoId, {String branch = ''}) =>
+      Uri(
+        path: '/repo/$repoId/dialogs/delete-branch',
+        queryParameters: branch.isEmpty
+            ? null
+            : <String, String>{'branch': branch},
+      ).toString();
+  static String rebaseOntoDialogFor(String repoId) =>
+      '/repo/$repoId/dialogs/rebase-onto';
+  static String forcePushDialogFor(String repoId) =>
+      '/repo/$repoId/dialogs/force-push';
+  static String deleteRemoteBranchDialogFor(
+    String repoId, {
+    required String remote,
+    required String branch,
+  }) => Uri(
+    path: '/repo/$repoId/dialogs/delete-remote-branch',
+    queryParameters: <String, String>{'remote': remote, 'branch': branch},
+  ).toString();
+  static String restoreFileDialogFor(
+    String repoId, {
+    required String path,
+    required String oid,
+  }) => Uri(
+    path: '/repo/$repoId/dialogs/restore-file',
+    queryParameters: <String, String>{'path': path, 'oid': oid},
+  ).toString();
+
+  /// `path` repeats once per selected file, so a multi-file discard
+  /// round-trips through the URL without inventing a delimiter that a real
+  /// path could contain.
+  static String discardChangesDialogFor(
+    String repoId, {
+    required List<String> paths,
+  }) => Uri(
+    path: '/repo/$repoId/dialogs/discard-changes',
+    queryParameters: <String, List<String>>{'path': paths},
+  ).toString();
+
+  /// App-level; takes no repoId. Kept next to the repo-scoped helpers so the
+  /// asymmetry with [repositorySettingsDialogFor] is visible at the call site.
+  static String preferencesDialogPath() => preferencesDialog;
+
   static String conflictsFor(String repoId) => '/repo/$repoId/conflicts';
   static String compareFor(String repoId, String tabId) =>
       '/repo/$repoId/compare/$tabId';

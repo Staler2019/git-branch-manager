@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../data/models/operation_record.dart';
 import '../../theme/gbm_theme.dart';
@@ -9,7 +12,7 @@ enum _LogLevel { all, info, warning, error }
 
 /// The log drawer widget for displaying operation records. Self-contained with
 /// local filtering state. Supports filtering by level (all/info/warning/error),
-/// copying all entries, and (stubbed) save-as functionality.
+/// copying all entries, and saving them to a plain-text file.
 ///
 /// Shows time, level icon, command, exit code, and duration. Entries are
 /// displayed newest-first. No external dependencies — takes record list as
@@ -41,16 +44,70 @@ class _LogDrawerState extends State<LogDrawer> {
     }).toList();
   }
 
+  /// One plain-text line per record, shared by Copy all and Save as… so the
+  /// two exports cannot drift apart.
+  ///
+  /// Carries every field spec page 10 item 4 lists for a log row: ISO-8601
+  /// timestamp, level, the git command verbatim, its exit code, and how long
+  /// it took. Nothing here reaches into credentials or file contents -- the
+  /// `LOGRULES` "不記什麼" row is satisfied upstream, by what
+  /// `OperationRecord` chooses to carry at all.
+  static String _formatRecord(OperationRecord r) {
+    final String when = DateTime.fromMillisecondsSinceEpoch(
+      r.whenEpochMs,
+    ).toIso8601String();
+    final String level = r.cancelled
+        ? 'CANCELLED'
+        : r.timedOut
+        ? 'TIMEOUT'
+        : r.failed
+        ? 'ERROR'
+        : 'INFO';
+    return '$when  $level  ${r.commandLine}  '
+        '(exit ${r.exitCode}, ${r.durationMs}ms)';
+  }
+
+  String get _exportText => _filteredRecords.map(_formatRecord).join('\n');
+
   Future<void> _copyAll() async {
-    final text = _filteredRecords
-        .map((r) => '${r.whenEpochMs} ${r.commandLine} (${r.durationMs}ms)')
-        .join('\n');
-    await Clipboard.setData(ClipboardData(text: text));
+    await Clipboard.setData(ClipboardData(text: _exportText));
 
     if (mounted) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Copied to clipboard')));
+    }
+  }
+
+  /// Spec page 10's `LOGRULES` export row: "Save as…（純文字）".
+  ///
+  /// Writes into the platform documents directory under a timestamped name
+  /// rather than opening a native save panel: this app has no file-picker
+  /// dependency (see pubspec.yaml), and a log that reliably lands somewhere
+  /// findable — with the full path shown afterwards so it can be attached to
+  /// a bug report — beats a button that stays disabled.
+  Future<void> _saveAs() async {
+    final ScaffoldMessengerState? messenger = ScaffoldMessenger.maybeOf(
+      context,
+    );
+    try {
+      final Directory dir = await getApplicationDocumentsDirectory();
+      // Colons are illegal in Windows filenames, so the ISO timestamp is
+      // flattened rather than used verbatim.
+      final String stamp = DateTime.now()
+          .toIso8601String()
+          .replaceAll(':', '-')
+          .split('.')
+          .first;
+      final File file = File('${dir.path}/gbm-log-$stamp.txt');
+      await file.writeAsString(_exportText);
+      messenger?.showSnackBar(
+        SnackBar(content: Text('Log saved to ${file.path}')),
+      );
+    } on FileSystemException catch (e) {
+      messenger?.showSnackBar(
+        SnackBar(content: Text('Could not save the log: ${e.message}')),
+      );
     }
   }
 
@@ -114,7 +171,7 @@ class _LogDrawerState extends State<LogDrawer> {
                 ),
                 const SizedBox(width: GbmSpacing.space2),
                 TextButton.icon(
-                  onPressed: null, // TODO: Implement file picker for save-as
+                  onPressed: _filteredRecords.isEmpty ? null : _saveAs,
                   icon: const Icon(Icons.save, size: 14),
                   label: Text(
                     'Save As',

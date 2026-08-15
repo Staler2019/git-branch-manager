@@ -39,7 +39,33 @@ class PanelLayoutRepository {
       jsonEncode(flex),
     );
   }
+
+  /// Forgets every persisted splitter size, so each [GbmSplitPane] falls back
+  /// to its spec default. Backs View → Reset panel sizes (Ctrl/Cmd+0, spec
+  /// page 04). Only keys under this repository's own prefix are touched --
+  /// theme, file-list mode and recents live in the same SharedPreferences
+  /// instance and must survive a layout reset.
+  Future<void> clear() async {
+    final List<String> keys = _prefs
+        .getKeys()
+        .where((String k) => k.startsWith(_kPanelLayoutKeyPrefix))
+        .toList(growable: false);
+    for (final String key in keys) {
+      await _prefs.remove(key);
+    }
+  }
 }
+
+/// Bumped by View → Reset panel sizes. Every mounted [GbmSplitPane] listens
+/// to this and snaps back to its spec default when it changes.
+///
+/// A generation counter rather than a `clear()`-and-rebuild: split panes read
+/// their stored size once in `initState` (so a drag is not fought by a
+/// rebuild on every frame), which means clearing storage alone would not be
+/// visible until the next app start.
+final StateProvider<int> panelLayoutGenerationProvider = StateProvider<int>(
+  (ref) => 0,
+);
 
 final Provider<PanelLayoutRepository> panelLayoutRepositoryProvider =
     Provider<PanelLayoutRepository>((ref) {

@@ -598,10 +598,18 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     );
   }
 
-  /// Discards changes to a file.
+  /// Opens the discard confirmation for a file.
+  ///
+  /// Previously called `restorePaths` directly, destroying uncommitted work
+  /// with no confirmation at all -- spec page 06 requires a dialog that
+  /// lists the files and states the change cannot be undone, so the
+  /// destructive call now lives behind `DiscardChangesDialogContent`.
   void _discardFile(WorkingCopyEntry entry) {
-    ref.read(repoSessionProvider(widget.identity).notifier).restorePaths(
-      <String>[entry.path],
+    context.push(
+      RoutePaths.discardChangesDialogFor(
+        Uri.encodeComponent(widget.identity.workDir),
+        paths: <String>[entry.path],
+      ),
     );
   }
 }

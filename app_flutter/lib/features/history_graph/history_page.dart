@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/repositories/chrome_visibility_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/split_pane.dart';
@@ -18,21 +19,35 @@ class HistoryPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final bool showDetail = ref.watch(
+      chromeVisibilityProvider.select((ChromeVisibility c) =>
+          c.commitDetailVisible),
+    );
+
+    // Left pane: commit graph + changed files (vertical split)
+    final Widget listPane = GbmSplitPane(
+      axis: Axis.vertical,
+      spec: GbmLayout.splitterMainFiles,
+      storageId: 'main.files',
+      children: [
+        CommitGraphView(identity: identity),
+        ChangedFilesPanel(identity: identity),
+      ],
+    );
+
+    // View → Commit detail (Ctrl/Cmd+D) collapses the right pane entirely
+    // rather than shrinking it: the split pane is dropped, so the list gets
+    // the full width instead of leaving a zero-width pane and its divider
+    // behind. The splitter's own stored ratio is untouched, so re-showing
+    // the panel restores the width the user last dragged it to.
+    if (!showDetail) return listPane;
+
     return GbmSplitPane(
       axis: Axis.horizontal,
       spec: GbmLayout.splitterMainDetail,
       storageId: 'main.detail',
       children: [
-        // Left pane: commit graph + changed files (vertical split)
-        GbmSplitPane(
-          axis: Axis.vertical,
-          spec: GbmLayout.splitterMainFiles,
-          storageId: 'main.files',
-          children: [
-            CommitGraphView(identity: identity),
-            ChangedFilesPanel(identity: identity),
-          ],
-        ),
+        listPane,
         // Right pane: commit detail / file diff
         CommitDetailPanel(identity: identity),
       ],

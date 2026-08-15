@@ -37,6 +37,7 @@ class CommitRow extends StatelessWidget {
     this.onTap,
     this.refChips = const <RefInfo>[],
     this.isOwnCommit = false,
+    this.showGraph = true,
     this.onCheckout,
     this.onCherryPick,
     this.onRevert,
@@ -65,6 +66,16 @@ class CommitRow extends StatelessWidget {
   /// bolds and accent-colors the author text only (never the row
   /// background, which would conflict with selection/hover states).
   final bool isOwnCommit;
+
+  /// Whether to draw the lane column on the left.
+  ///
+  /// False while the commit list is filtered (Edit → Find in history): the
+  /// edges in [graph] connect rows of the *unfiltered* history, so painting
+  /// them beside a filtered subset would draw lines between commits that are
+  /// not actually parent and child. Spec page 02 item 6 describes the lanes
+  /// as a faithful picture of the DAG, so under a filter the honest thing is
+  /// to omit the graph rather than draw one that lies.
+  final bool showGraph;
 
   /// Right-click context menu callbacks for 05-E commit menu. Null when no
   /// backing capability exists for that action at this row level.
@@ -101,21 +112,26 @@ class CommitRow extends StatelessWidget {
           padding: EdgeInsets.zero,
           child: Row(
             children: <Widget>[
-              SizedBox(
-                width: kGraphLaneWidth * (maxLane + 1),
-                height: kCommitRowHeight,
-                child: ExcludeSemantics(
-                  child: CustomPaint(
-                    painter: GraphRowPainter(
-                      row: row,
-                      rowIndex: rowIndex,
-                      graph: graph,
-                      laneWidth: kGraphLaneWidth,
-                      colors: context.gbmColors,
+              if (showGraph)
+                SizedBox(
+                  width: kGraphLaneWidth * (maxLane + 1),
+                  height: kCommitRowHeight,
+                  child: ExcludeSemantics(
+                    child: CustomPaint(
+                      painter: GraphRowPainter(
+                        row: row,
+                        rowIndex: rowIndex,
+                        graph: graph,
+                        laneWidth: kGraphLaneWidth,
+                        colors: context.gbmColors,
+                      ),
                     ),
                   ),
-                ),
-              ),
+                )
+              else
+                // Keeps the subject column aligned with the unfiltered list,
+                // so results do not jump horizontally as the query changes.
+                const SizedBox(width: GbmSpacing.space3),
               const SizedBox(width: GbmSpacing.space2),
               if (row.isHead)
                 Padding(

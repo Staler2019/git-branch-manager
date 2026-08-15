@@ -125,19 +125,11 @@ class MenuBarRow extends StatelessWidget {
     BuildContext context,
     GbmMenuItemModel itemModel,
   ) {
-    // Separators are passed through as-is
-    if (itemModel.isSubmenuParent) {
-      // Submenu parents (viewGraphColumns, viewTheme) are rendered as
-      // non-interactive items for now (submenu support is future work).
-      // They have no onTap (appears as disabled/inert).
-      return GbmMenuItem(
-        label: itemModel.label,
-        danger: itemModel.isDanger,
-        onTap: null,
-      );
-    }
-
-    // Resolve the handler for this item
+    // Submenu parents (viewGraphColumns, viewTheme) are still clickable:
+    // both resolve to a real handler (a columns picker dialog, and cycling
+    // the theme variant), so rendering them inert made two working actions
+    // look broken. The nested submenu itself is a separate affordance; the
+    // parent stays the one-click path to the same thing.
     final VoidCallback? handler = _resolveHandler(context, itemModel.id);
 
     return GbmMenuItem(

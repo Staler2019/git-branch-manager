@@ -8,13 +8,18 @@ import '../features/conflict_resolution/conflict_resolve_window.dart';
 import '../features/dialogs/about/about_dialog.dart';
 import '../features/dialogs/bisect/bisect_dialog.dart';
 import '../features/dialogs/blame/blame_dialog.dart';
+import '../features/dialogs/checkout/checkout_dialog.dart';
 import '../features/dialogs/checkout_recovery/checkout_recovery_dialog.dart';
 import '../features/dialogs/cherry_pick/cherry_pick_dialog.dart';
 import '../features/dialogs/clean_untracked/clean_untracked_dialog.dart';
 import '../features/dialogs/create_tag/create_tag_dialog.dart';
 import '../features/dialogs/credential/credential_dialog.dart';
+import '../features/dialogs/delete_branch/delete_branch_dialog.dart';
 import '../features/dialogs/delete_branch_recovery/delete_branch_recovery_dialog.dart';
+import '../features/dialogs/delete_remote_branch/delete_remote_branch_dialog.dart';
+import '../features/dialogs/discard_changes/discard_changes_dialog.dart';
 import '../features/dialogs/file_history/file_history_dialog.dart';
+import '../features/dialogs/force_push/force_push_dialog.dart';
 import '../features/dialogs/interactive_rebase/interactive_rebase_dialog.dart';
 import '../features/dialogs/keyboard_shortcuts/keyboard_shortcuts_dialog.dart';
 import '../features/dialogs/line_history/line_history_dialog.dart';
@@ -25,11 +30,15 @@ import '../features/dialogs/manage_stashes/manage_stashes_dialog.dart';
 import '../features/dialogs/manage_submodules/manage_submodules_dialog.dart';
 import '../features/dialogs/manage_worktrees/manage_worktrees_dialog.dart';
 import '../features/dialogs/merge/merge_dialog.dart';
+import '../features/dialogs/new_branch/new_branch_dialog.dart';
 import '../features/dialogs/patches/patches_dialog.dart';
 import '../features/dialogs/preferences/preferences_dialog.dart';
 import '../features/dialogs/prune_remote_branches/prune_remote_branches_dialog.dart';
+import '../features/dialogs/rebase_onto/rebase_onto_dialog.dart';
 import '../features/dialogs/reflog/reflog_dialog.dart';
+import '../features/dialogs/repository_settings/repository_settings_dialog.dart';
 import '../features/dialogs/reset_branch/reset_branch_dialog.dart';
+import '../features/dialogs/restore_file/restore_file_dialog.dart';
 import '../features/dialogs/stash_changes/stash_changes_dialog.dart';
 import '../features/dialogs/undo_last/undo_last_dialog.dart';
 import '../features/history_graph/history_page.dart';
@@ -349,13 +358,113 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
           return CleanUntrackedDialogContent(identity: identity);
         },
       ),
+      // App-level: no `:repoId` to resolve. See RoutePaths.preferencesDialog.
       dialogRoute(
         path: RoutePaths.preferencesDialog,
+        builder: (context, state) => const PreferencesDialogContent(),
+      ),
+      dialogRoute(
+        path: RoutePaths.repositorySettingsDialog,
         builder: (context, state) {
           final RepoIdentity identity = repoIdentityFromRouteParam(
             state.pathParameters['repoId']!,
           );
-          return PreferencesDialogContent(identity: identity);
+          return RepositorySettingsDialogContent(identity: identity);
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.newBranchDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
+          final String startPoint =
+              state.uri.queryParameters['startPoint'] ?? '';
+          return NewBranchDialogContent(
+            identity: identity,
+            initialStartPoint: startPoint.isEmpty ? null : startPoint,
+          );
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.checkoutDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
+          return CheckoutDialogContent(identity: identity);
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.deleteBranchDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
+          final String branch = state.uri.queryParameters['branch'] ?? '';
+          return DeleteBranchDialogContent(
+            identity: identity,
+            branchName: branch.isEmpty ? null : branch,
+          );
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.rebaseOntoDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
+          return RebaseOntoDialogContent(identity: identity);
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.forcePushDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
+          return ForcePushDialogContent(identity: identity);
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.deleteRemoteBranchDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
+          return DeleteRemoteBranchDialogContent(
+            identity: identity,
+            remote: state.uri.queryParameters['remote'] ?? '',
+            branch: state.uri.queryParameters['branch'] ?? '',
+          );
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.restoreFileDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
+          return RestoreFileDialogContent(
+            identity: identity,
+            path: state.uri.queryParameters['path'] ?? '',
+            oid: state.uri.queryParameters['oid'] ?? '',
+          );
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.discardChangesDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
+          // queryParametersAll, not queryParameters: the latter collapses a
+          // repeated key to its last value, which would silently discard all
+          // but one file of a multi-file selection.
+          return DiscardChangesDialogContent(
+            identity: identity,
+            paths: state.uri.queryParametersAll['path'] ?? const <String>[],
+          );
         },
       ),
       dialogRoute(

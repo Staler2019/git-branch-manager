@@ -57,6 +57,47 @@ class GbmKeyboardShortcut {
       shift.hashCode ^
       alt.hashCode;
 
+  /// Human-readable form for the Keyboard shortcuts dialog and the
+  /// Preferences → Shortcuts list, e.g. `⌘⇧P` on macOS, `Ctrl+Shift+P`
+  /// elsewhere.
+  ///
+  /// Modifier order follows each platform's own convention: macOS renders
+  /// symbols with no separator in the Control-Option-Shift-Command order the
+  /// Apple HIG specifies, and everything else spells the modifiers out
+  /// joined by `+`. Derived from the shortcut's own fields rather than
+  /// stored as a second copy of the label, so a rebinding cannot leave the
+  /// displayed text stale.
+  String get displayLabel {
+    final String key = _triggerLabel(trigger);
+    if (meta) {
+      return <String>[
+        if (alt) '⌥',
+        if (shift) '⇧',
+        '⌘',
+        key,
+      ].join();
+    }
+    return <String>[
+      if (control) 'Ctrl',
+      if (alt) 'Alt',
+      if (shift) 'Shift',
+      key,
+    ].join('+');
+  }
+
+  /// [LogicalKeyboardKey.keyLabel] is already right for letters and digits;
+  /// only the keys whose label is empty or unidiomatic are special-cased.
+  static String _triggerLabel(LogicalKeyboardKey key) {
+    if (key == LogicalKeyboardKey.comma) return ',';
+    if (key == LogicalKeyboardKey.slash) return '/';
+    if (key == LogicalKeyboardKey.backquote) return '`';
+    if (key == LogicalKeyboardKey.enter) return 'Enter';
+    if (key == LogicalKeyboardKey.tab) return 'Tab';
+    if (key == LogicalKeyboardKey.escape) return 'Esc';
+    final String label = key.keyLabel;
+    return label.isEmpty ? key.debugName ?? '?' : label;
+  }
+
   @override
   String toString() =>
       'GbmKeyboardShortcut(trigger: $trigger, meta: $meta, control: $control, shift: $shift, alt: $alt)';

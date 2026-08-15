@@ -97,7 +97,9 @@ class RepoListTile extends StatelessWidget {
         label: 'Repository settings',
         icon: Icons.settings_outlined,
         onTap: () => context.push(
-          RoutePaths.preferencesDialogFor(Uri.encodeComponent(repo.workDir)),
+          RoutePaths.repositorySettingsDialogFor(
+            Uri.encodeComponent(repo.workDir),
+          ),
         ),
       ),
       const GbmMenuItem.separator(),

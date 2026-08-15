@@ -270,9 +270,14 @@ class _MoreMenu extends StatelessWidget {
               buttonContext.push(RoutePaths.cleanUntrackedDialogFor(repoId)),
         ),
         GbmMenuItem(
+          label: 'Repository Settings…',
+          onTap: () => buttonContext.push(
+            RoutePaths.repositorySettingsDialogFor(repoId),
+          ),
+        ),
+        GbmMenuItem(
           label: 'Preferences…',
-          onTap: () =>
-              buttonContext.push(RoutePaths.preferencesDialogFor(repoId)),
+          onTap: () => buttonContext.push(RoutePaths.preferencesDialog),
         ),
       ],
     );

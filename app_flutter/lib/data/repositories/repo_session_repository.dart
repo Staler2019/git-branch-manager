@@ -211,6 +211,31 @@ class RemotePrunePreview {
   final List<RemotePrunePreviewEntry> refs;
 }
 
+/// Reply to [RepoSessionController.requestCompareWithWorkingCopy]: mirrors
+/// GBM_EVENT_COMPARE_WITH_WORKING_COPY_READY's payload shape -- the "compare
+/// a ref with Working Copy" side of the Compare tab, distinct from
+/// [CompareResult] because a working-tree diff has no second ref, no
+/// threeDot toggle and no merge base.
+class CompareWithWorkingCopyResult {
+  const CompareWithWorkingCopyResult({required this.ref, required this.diff});
+
+  factory CompareWithWorkingCopyResult.fromJson(Map<String, dynamic> json) {
+    return CompareWithWorkingCopyResult(
+      ref: json['ref'] as String,
+      diff: ParsedDiff.fromJson(json['diff'] as Map<String, dynamic>),
+    );
+  }
+
+  /// Composite lookup key into
+  /// [RepoSessionState.compareWithWorkingCopyResults] -- just `ref`, since a
+  /// Compare tab comparing against Working Copy has only one other side
+  /// (unlike [CompareResult.key], which also needs `right`/`threeDot`).
+  static String key(String ref) => ref;
+
+  final String ref;
+  final ParsedDiff diff;
+}
+
 /// Caps how many [OperationRecord]s [RepoSessionState.operationLog] keeps,
 /// mirroring OperationRunner's own undo-journal cap (`kMaxUndoEntries` in
 /// OperationRunner.cpp) -- a live panel fed one record per `git` invocation
@@ -264,6 +289,8 @@ class RepoSessionState {
     this.compareResults = const <String, CompareResult>{},
     this.compareFileDiffResults = const <String, CompareFileDiffResult>{},
     this.lastRemotePrunePreview,
+    this.compareWithWorkingCopyResults =
+        const <String, CompareWithWorkingCopyResult>{},
   });
 
   final bool isOpen;
@@ -366,6 +393,13 @@ class RepoSessionState {
   /// dialog can be open at a time.
   final RemotePrunePreview? lastRemotePrunePreview;
 
+  /// Every GBM_EVENT_COMPARE_WITH_WORKING_COPY_READY reply received this
+  /// session, keyed by [CompareWithWorkingCopyResult.key]. Same
+  /// accumulate-not-replace reasoning as [compareResults] -- several
+  /// Compare tabs can each have Working Copy as one side, comparing against
+  /// a different ref.
+  final Map<String, CompareWithWorkingCopyResult> compareWithWorkingCopyResults;
+
   /// Single source of truth for "is this repo in a conflict state" --
   /// every conflict-aware surface (banner, toolbar, branch switching,
   /// working copy's Conflicted section, commit box, status bar) must read
@@ -425,6 +459,7 @@ class RepoSessionState {
     Map<String, CompareResult>? compareResults,
     Map<String, CompareFileDiffResult>? compareFileDiffResults,
     RemotePrunePreview? lastRemotePrunePreview,
+    Map<String, CompareWithWorkingCopyResult>? compareWithWorkingCopyResults,
   }) {
     return RepoSessionState(
       isOpen: isOpen ?? this.isOpen,
@@ -473,6 +508,8 @@ class RepoSessionState {
           compareFileDiffResults ?? this.compareFileDiffResults,
       lastRemotePrunePreview:
           lastRemotePrunePreview ?? this.lastRemotePrunePreview,
+      compareWithWorkingCopyResults:
+          compareWithWorkingCopyResults ?? this.compareWithWorkingCopyResults,
     );
   }
 }
@@ -745,6 +782,18 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
         if (payload is Map<String, dynamic>) {
           state = state.copyWith(
             lastRemotePrunePreview: RemotePrunePreview.fromJson(payload),
+          );
+        }
+      case GbmEventType.compareWithWorkingCopyReady:
+        final Object? payload = decodeEventPayload(event.payload);
+        if (payload is Map<String, dynamic>) {
+          final CompareWithWorkingCopyResult result =
+              CompareWithWorkingCopyResult.fromJson(payload);
+          state = state.copyWith(
+            compareWithWorkingCopyResults: <String, CompareWithWorkingCopyResult>{
+              ...state.compareWithWorkingCopyResults,
+              CompareWithWorkingCopyResult.key(result.ref): result,
+            },
           );
         }
       case GbmEventType.fileHistoryReady:
@@ -1952,6 +2001,25 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
       malloc.free(leftPtr);
       malloc.free(rightPtr);
       malloc.free(pathPtr);
+    }
+  }
+
+  /// The diff between `ref` and the live working tree (uncommitted changes
+  /// included) -- the "compare a ref with Working Copy" side of the
+  /// Compare tab, distinct from [requestCompareRefs]/[requestCompareFileDiff]
+  /// because a working-tree diff has no second ref, no threeDot toggle and
+  /// no merge base. `ref` may be any revision expression git accepts
+  /// (branch, tag, oid, HEAD~N, ...). Async: fires
+  /// GBM_EVENT_COMPARE_WITH_WORKING_COPY_READY into
+  /// [RepoSessionState.compareWithWorkingCopyResults], keyed by
+  /// [CompareWithWorkingCopyResult.key].
+  void requestCompareWithWorkingCopy(String ref) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> refPtr = ref.toNativeUtf8();
+    try {
+      _bindings.requestCompareWithWorkingCopy(_session, refPtr);
+    } finally {
+      malloc.free(refPtr);
     }
   }
 

@@ -94,4 +94,26 @@ void main() {
       expect(preview.refs.single.ref, 'origin/feature/old-branch');
     });
   });
+
+  group('CompareWithWorkingCopyResult', () {
+    test('fromJson decodes the echoed ref plus the diff', () {
+      final Map<String, dynamic> json = jsonDecode(
+        '{"ref":"main","diff":{"files":[],"truncated":false,"inputBytes":0}}',
+      );
+
+      final CompareWithWorkingCopyResult result =
+          CompareWithWorkingCopyResult.fromJson(json);
+
+      expect(result.ref, 'main');
+      expect(result.diff.inputBytes, 0);
+    });
+
+    test('key() is just the ref -- only one working copy per tab', () {
+      final String a = CompareWithWorkingCopyResult.key('main');
+      final String b = CompareWithWorkingCopyResult.key('feature');
+
+      expect(a, isNot(b));
+      expect(CompareWithWorkingCopyResult.key('main'), a);
+    });
+  });
 }

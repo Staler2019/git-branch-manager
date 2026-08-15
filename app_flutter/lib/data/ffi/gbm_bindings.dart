@@ -49,6 +49,7 @@ abstract final class GbmEventType {
   static const int compareReady = 29;
   static const int compareFileDiffReady = 30;
   static const int remotePrunePreviewReady = 31;
+  static const int compareWithWorkingCopyReady = 32;
 }
 
 /// `void (*)(GbmSessionHandle, int32_t, const uint8_t*, int32_t, void*)`.
@@ -687,6 +688,11 @@ typedef _RequestRemotePrunePreviewNative =
     Void Function(Pointer<Void> session, Pointer<Utf8> remoteName);
 typedef RequestRemotePrunePreviewDart =
     void Function(Pointer<Void> session, Pointer<Utf8> remoteName);
+
+typedef _RequestCompareWithWorkingCopyNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> ref);
+typedef RequestCompareWithWorkingCopyDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> ref);
 
 typedef _RemotePruneNative =
     Void Function(
@@ -1416,6 +1422,11 @@ class GbmBindings {
       remotePrune = library.lookupFunction<_RemotePruneNative, RemotePruneDart>(
         'gbm_remote_prune',
       ),
+      requestCompareWithWorkingCopy = library
+          .lookupFunction<
+            _RequestCompareWithWorkingCopyNative,
+            RequestCompareWithWorkingCopyDart
+          >('gbm_request_compare_with_working_copy'),
       requestFileHistory = library
           .lookupFunction<_RequestFileHistoryNative, RequestFileHistoryDart>(
             'gbm_request_file_history',
@@ -1719,6 +1730,7 @@ class GbmBindings {
   final RequestCompareFileDiffDart requestCompareFileDiff;
   final RequestRemotePrunePreviewDart requestRemotePrunePreview;
   final RemotePruneDart remotePrune;
+  final RequestCompareWithWorkingCopyDart requestCompareWithWorkingCopy;
   final RequestFileHistoryDart requestFileHistory;
   final RequestLineHistoryDart requestLineHistory;
   final RequestReflogDart requestReflog;

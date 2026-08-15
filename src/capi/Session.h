@@ -183,11 +183,17 @@ public:
     void skipCherryPick();
     void abortCherryPick();
 
+    /// Async: see gbm_cherry_pick_continue_with_message()'s doc comment.
+    void continueCherryPickWithMessage(std::string message);
+
     /// Async: see gbm_revert()'s doc comment.
     void revertCommit(RevertRequest request);
 
     /// Async: see gbm_resolve_conflict()'s doc comment.
     void resolveConflict(ResolveConflictRequest request);
+
+    /// Async: see gbm_request_original_operation_message()'s doc comment.
+    void requestOriginalOperationMessage();
 
     /// Async: see gbm_request_working_tree_content()'s doc comment.
     void requestWorkingTreeContent(std::string path);
@@ -322,6 +328,9 @@ public:
     void continueRebase();
     void skipRebase();
     void abortRebase();
+
+    /// Async: see gbm_rebase_continue_with_message()'s doc comment.
+    void continueRebaseWithMessage(std::string message);
 
     /// Async: see gbm_submodule_refresh()'s doc comment.
     void refreshSubmodules();

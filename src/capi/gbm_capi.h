@@ -196,6 +196,14 @@ enum GbmEventType {
     /// commit on either side, so two-dot/three-dot and merge-base have no
     /// meaning here.
     GBM_EVENT_COMPARE_WITH_WORKING_COPY_READY = 32,
+    /// payload: {"message": string}. Reply to
+    /// gbm_request_original_operation_message(). "message" is git's own
+    /// proposed commit message for the merge/cherry-pick/revert/rebase
+    /// currently stopped on conflicts (subject, body, and any "# Conflicts:"
+    /// listing, verbatim -- comment lines are not stripped, since whether to
+    /// render them differently is a UI concern). Empty when no operation is
+    /// in progress or git prepared no message at all -- not an error.
+    GBM_EVENT_ORIGINAL_OPERATION_MESSAGE_READY = 33,
 };
 
 typedef void (*GbmEventCallback)(GbmSessionHandle session,
@@ -434,6 +442,16 @@ GBM_API void gbm_cherry_pick_continue(GbmSessionHandle session);
 GBM_API void gbm_cherry_pick_skip(GbmSessionHandle session);
 GBM_API void gbm_cherry_pick_abort(GbmSessionHandle session);
 
+/// Same as gbm_cherry_pick_continue(), except `message` (a caller-edited
+/// commit message, typically pre-filled from
+/// GBM_EVENT_ORIGINAL_OPERATION_MESSAGE_READY) overwrites MERGE_MSG before
+/// continuing, so it becomes the resulting commit's message instead of
+/// git's own proposal. A separate function rather than a parameter added to
+/// gbm_cherry_pick_continue() -- see that function's callers, which have no
+/// message to pass and should not need one. Async: fires
+/// GBM_EVENT_OPERATION_FINISHED, same as gbm_cherry_pick_continue().
+GBM_API void gbm_cherry_pick_continue_with_message(GbmSessionHandle session, const char* message);
+
 // --- Revert ------------------------------------------------------------
 // Mirrors RepositorySession::revertCommit -- see src/core/git/ops/RevertOps.h.
 
@@ -466,6 +484,13 @@ GBM_API void gbm_resolve_conflict(GbmSessionHandle session,
                                   int32_t oursBlobMissing,
                                   int32_t theirsBlobMissing,
                                   const char* resolvedContent);
+
+/// Reads git's own proposed commit message for the merge/cherry-pick/
+/// revert/rebase currently stopped on conflicts, so the conflict resolution
+/// window's Continue step can show it as an editable pre-fill -- see
+/// gbm_cherry_pick_continue_with_message()/gbm_rebase_continue_with_message().
+/// Async: fires GBM_EVENT_ORIGINAL_OPERATION_MESSAGE_READY.
+GBM_API void gbm_request_original_operation_message(GbmSessionHandle session);
 
 /// Reads a conflicted path's raw on-disk content (conflict markers and all)
 /// for the resolve editor -- a conflicted path has no stage 0, so it cannot
@@ -885,6 +910,14 @@ GBM_API void gbm_rebase_start(GbmSessionHandle session,
 GBM_API void gbm_rebase_continue(GbmSessionHandle session);
 GBM_API void gbm_rebase_skip(GbmSessionHandle session);
 GBM_API void gbm_rebase_abort(GbmSessionHandle session);
+
+/// Same as gbm_rebase_continue(), except `message` overwrites
+/// rebase-merge/message before continuing, so it becomes the resulting
+/// commit's message instead of git's own proposal -- same
+/// separate-function-not-added-parameter reasoning as
+/// gbm_cherry_pick_continue_with_message(). Async: fires
+/// GBM_EVENT_OPERATION_FINISHED, same as gbm_rebase_continue().
+GBM_API void gbm_rebase_continue_with_message(GbmSessionHandle session, const char* message);
 
 // --- Submodules ----------------------------------------------------------
 // Mirrors RepositorySession's "M5: submodules" section -- see

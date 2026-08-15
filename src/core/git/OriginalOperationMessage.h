@@ -28,4 +28,20 @@ namespace gbm {
 /// readPreparedCommitMessage's not-an-error convention for the same case.
 std::string readOriginalOperationMessage(const RepoPaths& paths);
 
+/// Overwrites the message file git reads when `cherry-pick --continue` next
+/// runs, so the caller's edited text -- not git's own proposal -- becomes
+/// the resulting commit's message. The write side of
+/// readOriginalOperationMessage() above, backing M6 commit 9's editable
+/// Continue step. Verified empirically: a conflicted cherry-pick (and
+/// revert) reads MERGE_MSG specifically at continue time.
+void writeCherryPickContinueMessage(const RepoPaths& paths, const std::string& message);
+
+/// Same idea, but for a conflicted rebase: verified empirically that
+/// `rebase --continue` reads rebase-merge/message, not MERGE_MSG -- writing
+/// only the latter does not change the resulting commit's message. Pair
+/// this with GIT_EDITOR=true on the continue command itself (already set by
+/// RebaseControlOperation) so git accepts the seeded file without prompting
+/// for an edit.
+void writeRebaseContinueMessage(const RepoPaths& paths, const std::string& message);
+
 }  // namespace gbm

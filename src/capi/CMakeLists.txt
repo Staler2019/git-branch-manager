@@ -22,6 +22,7 @@ add_library(gbm_capi SHARED
     JsonCodec.cpp
     Lfs.cpp
     Merge.cpp
+    OriginalOperationMessage.cpp
     Patch.cpp
     Rebase.cpp
     Reflog.cpp

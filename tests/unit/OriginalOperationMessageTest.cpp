@@ -110,5 +110,33 @@ TEST_F(OriginalOperationMessage, ReturnsEmptyStringWhenNoOperationIsInProgress) 
     EXPECT_EQ(readOriginalOperationMessage(paths()), "");
 }
 
+TEST_F(OriginalOperationMessage, WriteCherryPickContinueMessageOverwritesMergeMsg) {
+    writeFile(root_ / "MERGE_MSG", "original proposal\n\n# Conflicts:\n#\tf.txt\n");
+
+    writeCherryPickContinueMessage(paths(), "edited message");
+
+    EXPECT_EQ(readOriginalOperationMessage(paths()), "edited message");
+}
+
+TEST_F(OriginalOperationMessage, WriteCherryPickContinueMessageCreatesMergeMsgWhenAbsent) {
+    writeCherryPickContinueMessage(paths(), "fresh message");
+
+    EXPECT_EQ(readOriginalOperationMessage(paths()), "fresh message");
+}
+
+TEST_F(OriginalOperationMessage, WriteRebaseContinueMessageOverwritesRebaseMergeMessage) {
+    writeFile(root_ / "rebase-merge" / "message", "original proposal\n\n# Conflicts:\n#\tf.txt\n");
+
+    writeRebaseContinueMessage(paths(), "edited rebase message");
+
+    EXPECT_EQ(readOriginalOperationMessage(paths()), "edited rebase message");
+}
+
+TEST_F(OriginalOperationMessage, WriteRebaseContinueMessageCreatesRebaseMergeDirWhenAbsent) {
+    writeRebaseContinueMessage(paths(), "fresh rebase message");
+
+    EXPECT_EQ(readOriginalOperationMessage(paths()), "fresh rebase message");
+}
+
 }  // namespace
 }  // namespace gbm

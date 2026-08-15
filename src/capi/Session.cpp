@@ -4,6 +4,7 @@
 #include "capi/JsonWriter.h"
 #include "core/base/FsUtil.h"
 #include "core/git/AskpassHelper.h"
+#include "core/git/OriginalOperationMessage.h"
 #include "core/git/TextTraits.h"
 #include "core/git/ops/CheckoutOp.h"
 #include "core/workers/ThreadPool.h"
@@ -447,6 +448,11 @@ void Session::continueCherryPick() {
     submitOperation(makeCherryPickContinueOperation(), /*refreshHistoryOnSuccess=*/true);
 }
 
+void Session::continueCherryPickWithMessage(std::string message) {
+    writeCherryPickContinueMessage(paths_, message);
+    continueCherryPick();
+}
+
 void Session::skipCherryPick() {
     submitOperation(makeCherryPickSkipOperation(), /*refreshHistoryOnSuccess=*/true);
 }
@@ -462,6 +468,16 @@ void Session::revertCommit(RevertRequest request) {
 void Session::resolveConflict(ResolveConflictRequest request) {
     submitWorkingCopyOperation(makeResolveConflictOperation(std::move(request)),
                                [this]() { refreshWorkingCopy(); });
+}
+
+void Session::requestOriginalOperationMessage() {
+    sharedReadPool().postFront([this]() {
+        const std::string message = readOriginalOperationMessage(paths_);
+        std::string payload = "{\"message\":";
+        jsonAppendEscaped(payload, message);
+        payload += '}';
+        callbacks_.emit(GBM_EVENT_ORIGINAL_OPERATION_MESSAGE_READY, payload);
+    });
 }
 
 void Session::requestWorkingTreeContent(std::string path) {
@@ -1044,6 +1060,11 @@ void Session::startRebase(RebaseRequest request) {
 
 void Session::continueRebase() {
     submitOperation(makeRebaseContinueOperation(), /*refreshHistoryOnSuccess=*/true);
+}
+
+void Session::continueRebaseWithMessage(std::string message) {
+    writeRebaseContinueMessage(paths_, message);
+    continueRebase();
 }
 
 void Session::skipRebase() {

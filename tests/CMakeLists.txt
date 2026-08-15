@@ -128,6 +128,7 @@ if(GBM_BUILD_CAPI)
         capi/LfsApiTest.cpp
         capi/MergeApiTest.cpp
         capi/OperationLogApiTest.cpp
+        capi/OriginalOperationMessageApiTest.cpp
         capi/PatchApiTest.cpp
         capi/RebaseApiTest.cpp
         capi/ReflogApiTest.cpp

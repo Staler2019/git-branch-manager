@@ -17,6 +17,7 @@ add_executable(gbm_core_tests
     unit/GitIntegrationTest.cpp
     unit/GraphBuilderTest.cpp
     unit/MaintenanceOpsTest.cpp
+    unit/OriginalOperationMessageTest.cpp
     unit/PreparedCommitMessageTest.cpp
     unit/ProcessRunnerTest.cpp
     unit/RemoteOpsTest.cpp

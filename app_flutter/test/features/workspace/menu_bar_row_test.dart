@@ -246,4 +246,47 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('preferences-dialog'), findsOneWidget);
   });
+
+  // Submenu parents used to be rendered with `onTap: null` unconditionally,
+  // which made two items with real handlers (a columns picker, and cycling
+  // the theme variant) look broken.
+  testWidgets('View > Graph columns is clickable, not inert', (tester) async {
+    int invoked = 0;
+    await _pump(
+      tester,
+      onToggleSidebar: () {},
+      onFetch: () {},
+      onPull: () {},
+      onPush: () {},
+      actionHandlers: <GbmActionId, VoidCallback?>{
+        GbmActionId.viewGraphColumns: () => invoked++,
+      },
+    );
+    await tester.tap(find.text('View'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Graph columns'));
+    await tester.pumpAndSettle();
+
+    expect(invoked, 1);
+  });
+
+  testWidgets('View > Theme is clickable, not inert', (tester) async {
+    int invoked = 0;
+    await _pump(
+      tester,
+      onToggleSidebar: () {},
+      onFetch: () {},
+      onPull: () {},
+      onPush: () {},
+      actionHandlers: <GbmActionId, VoidCallback?>{
+        GbmActionId.viewTheme: () => invoked++,
+      },
+    );
+    await tester.tap(find.text('View'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Theme'));
+    await tester.pumpAndSettle();
+
+    expect(invoked, 1);
+  });
 }

@@ -395,6 +395,8 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   ///   handled via MenuBarRow callback params
   /// - repositoryStageAll: null while nothing is unstaged
   /// - branchRenameCurrentBranch: null on a detached HEAD
+  /// - the Branch menu and Commit/Amend: null mid-conflict, per spec page
+  ///   07's STATES table
   ///
   /// A null handler renders the menu item disabled, which is the point --
   /// previously ~30 ids were null purely because nothing had been wired yet,
@@ -511,11 +513,15 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
           _openCompareTab(context, ref, identity, repoId, session),
       // Commit/Amend/Stage-all all act on the Working Copy view, so they
       // navigate there first -- firing Ctrl/Cmd+Enter from History would
-      // otherwise commit a draft the user cannot see.
-      GbmActionId.repositoryCommit: () =>
-          context.go(RoutePaths.workingCopyFor(repoId)),
-      GbmActionId.repositoryAmendLastCommit: () =>
-          context.go(RoutePaths.workingCopyFor(repoId)),
+      // otherwise commit a draft the user cannot see. Both are disabled
+      // mid-conflict (spec page 07: "Commit：停用，直到全部標記 resolved 才由
+      // Continue 代為 commit"), matching the Commit button in that view.
+      GbmActionId.repositoryCommit: session.conflictActive
+          ? null
+          : () => context.go(RoutePaths.workingCopyFor(repoId)),
+      GbmActionId.repositoryAmendLastCommit: session.conflictActive
+          ? null
+          : () => context.go(RoutePaths.workingCopyFor(repoId)),
       GbmActionId.repositoryStageAll: session.workingCopyStatus.unstaged.isEmpty
           ? null
           : () => ref
@@ -531,25 +537,37 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
           context.push(RoutePaths.repositorySettingsDialogFor(repoId)),
 
       // Branch
-      GbmActionId.branchNewBranch: () =>
-          context.push(RoutePaths.newBranchDialogFor(repoId)),
-      GbmActionId.branchCheckout: () =>
-          context.push(RoutePaths.checkoutDialogFor(repoId)),
+      //
+      // Everything that moves HEAD or starts a second sequencer operation is
+      // disabled mid-conflict, per spec page 07's STATES table ("切分支：停用,
+      // 需先 Continue 或 Abort"). The banner's Abort/Skip/Continue stay the
+      // only way forward, matching how Fetch/Pull/Push are already gated.
+      GbmActionId.branchNewBranch: session.conflictActive
+          ? null
+          : () => context.push(RoutePaths.newBranchDialogFor(repoId)),
+      GbmActionId.branchCheckout: session.conflictActive
+          ? null
+          : () => context.push(RoutePaths.checkoutDialogFor(repoId)),
       GbmActionId.branchRenameCurrentBranch:
-          session.refs.head.branchName.isEmpty
+          session.refs.head.branchName.isEmpty || session.conflictActive
           ? null // Detached HEAD: there is no branch to rename.
           : () => _renameCurrentBranch(context, ref, identity, session),
-      GbmActionId.branchMergeIntoCurrent: () =>
-          context.push(RoutePaths.mergeDialogFor(repoId)),
+      GbmActionId.branchMergeIntoCurrent: session.conflictActive
+          ? null
+          : () => context.push(RoutePaths.mergeDialogFor(repoId)),
       // Branch → Rebase onto… is the plain rebase (spec page 06's Rebase
       // row), not the todo-plan editor -- that one is reached from the
       // interactive-rebase dialog's own entry point.
-      GbmActionId.branchRebaseOnto: () =>
-          context.push(RoutePaths.rebaseOntoDialogFor(repoId)),
-      GbmActionId.branchStashChanges: () =>
-          context.push(RoutePaths.stashChangesDialogFor(repoId)),
-      GbmActionId.branchDeleteBranch: () =>
-          context.push(RoutePaths.deleteBranchDialogFor(repoId)),
+      GbmActionId.branchRebaseOnto: session.conflictActive
+          ? null
+          : () => context.push(RoutePaths.rebaseOntoDialogFor(repoId)),
+      // Stashing mid-conflict would hide the very files being resolved.
+      GbmActionId.branchStashChanges: session.conflictActive
+          ? null
+          : () => context.push(RoutePaths.stashChangesDialogFor(repoId)),
+      GbmActionId.branchDeleteBranch: session.conflictActive
+          ? null
+          : () => context.push(RoutePaths.deleteBranchDialogFor(repoId)),
 
       // Remote
       GbmActionId.remoteAddRemote: () =>

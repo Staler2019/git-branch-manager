@@ -50,6 +50,7 @@ abstract final class GbmEventType {
   static const int compareFileDiffReady = 30;
   static const int remotePrunePreviewReady = 31;
   static const int compareWithWorkingCopyReady = 32;
+  static const int originalOperationMessageReady = 33;
 }
 
 /// `void (*)(GbmSessionHandle, int32_t, const uint8_t*, int32_t, void*)`.
@@ -282,6 +283,16 @@ typedef CherryPickDart =
 
 typedef _CherryPickContinueNative = Void Function(Pointer<Void> session);
 typedef CherryPickContinueDart = void Function(Pointer<Void> session);
+
+typedef _CherryPickContinueWithMessageNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> message);
+typedef CherryPickContinueWithMessageDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> message);
+
+typedef _RequestOriginalOperationMessageNative =
+    Void Function(Pointer<Void> session);
+typedef RequestOriginalOperationMessageDart =
+    void Function(Pointer<Void> session);
 
 typedef _CherryPickSkipNative = Void Function(Pointer<Void> session);
 typedef CherryPickSkipDart = void Function(Pointer<Void> session);
@@ -833,6 +844,11 @@ typedef RebaseStartDart =
 typedef _RebaseContinueNative = Void Function(Pointer<Void> session);
 typedef RebaseContinueDart = void Function(Pointer<Void> session);
 
+typedef _RebaseContinueWithMessageNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> message);
+typedef RebaseContinueWithMessageDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> message);
+
 typedef _RebaseSkipNative = Void Function(Pointer<Void> session);
 typedef RebaseSkipDart = void Function(Pointer<Void> session);
 
@@ -1250,6 +1266,16 @@ class GbmBindings {
           .lookupFunction<_CherryPickContinueNative, CherryPickContinueDart>(
             'gbm_cherry_pick_continue',
           ),
+      cherryPickContinueWithMessage = library
+          .lookupFunction<
+            _CherryPickContinueWithMessageNative,
+            CherryPickContinueWithMessageDart
+          >('gbm_cherry_pick_continue_with_message'),
+      requestOriginalOperationMessage = library
+          .lookupFunction<
+            _RequestOriginalOperationMessageNative,
+            RequestOriginalOperationMessageDart
+          >('gbm_request_original_operation_message'),
       cherryPickSkip = library
           .lookupFunction<_CherryPickSkipNative, CherryPickSkipDart>(
             'gbm_cherry_pick_skip',
@@ -1474,6 +1500,11 @@ class GbmBindings {
           .lookupFunction<_RebaseContinueNative, RebaseContinueDart>(
             'gbm_rebase_continue',
           ),
+      rebaseContinueWithMessage = library
+          .lookupFunction<
+            _RebaseContinueWithMessageNative,
+            RebaseContinueWithMessageDart
+          >('gbm_rebase_continue_with_message'),
       rebaseSkip = library.lookupFunction<_RebaseSkipNative, RebaseSkipDart>(
         'gbm_rebase_skip',
       ),
@@ -1682,6 +1713,8 @@ class GbmBindings {
   final MergeAbortDart mergeAbort;
   final CherryPickDart cherryPick;
   final CherryPickContinueDart cherryPickContinue;
+  final CherryPickContinueWithMessageDart cherryPickContinueWithMessage;
+  final RequestOriginalOperationMessageDart requestOriginalOperationMessage;
   final CherryPickSkipDart cherryPickSkip;
   final CherryPickAbortDart cherryPickAbort;
   final RevertDart revert;
@@ -1743,6 +1776,7 @@ class GbmBindings {
   final RebaseInteractiveStartDart rebaseInteractiveStart;
   final RebaseStartDart rebaseStart;
   final RebaseContinueDart rebaseContinue;
+  final RebaseContinueWithMessageDart rebaseContinueWithMessage;
   final RebaseSkipDart rebaseSkip;
   final RebaseAbortDart rebaseAbort;
   final SubmoduleRefreshDart submoduleRefresh;

@@ -576,7 +576,7 @@ void main() {
     });
 
     testWidgets(
-      'cherry-pick: Abort dispatches cherryPickAbort, Continue dispatches cherryPickContinue',
+      'cherry-pick: Abort dispatches cherryPickAbort, Continue opens the MSGS dialog and dispatches cherryPickContinueWithMessage',
       (tester) async {
         final parsed = ParsedConflictFile(
           segments: <ConflictSegment>[
@@ -604,12 +604,27 @@ void main() {
 
         await tester.tap(find.text('Continue'));
         await tester.pumpAndSettle();
-        expect(controller.cherryPickContinueCalled, isTrue);
+
+        // MSGS dialog opened, pre-filled from requestOriginalOperationMessage().
+        expect(find.byType(AlertDialog), findsOneWidget);
+        expect(find.text('Cherry-pick message'), findsOneWidget);
+        expect(find.text('Original summary'), findsOneWidget);
+
+        await tester.tap(
+          find.descendant(
+            of: find.byType(AlertDialog),
+            matching: find.text('Continue'),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(controller.cherryPickContinueWithMessageCalled, isTrue);
+        expect(controller.lastContinueMessage, contains('Original summary'));
       },
     );
 
     testWidgets(
-      'rebase: Abort dispatches abortRebase, Continue dispatches continueRebase',
+      'rebase: Abort dispatches abortRebase, Continue opens the MSGS dialog and dispatches continueRebaseWithMessage',
       (tester) async {
         final parsed = ParsedConflictFile(
           segments: <ConflictSegment>[
@@ -637,7 +652,19 @@ void main() {
 
         await tester.tap(find.text('Continue'));
         await tester.pumpAndSettle();
-        expect(controller.continueRebaseCalled, isTrue);
+
+        expect(find.byType(AlertDialog), findsOneWidget);
+        expect(find.text('Rebase message'), findsOneWidget);
+
+        await tester.tap(
+          find.descendant(
+            of: find.byType(AlertDialog),
+            matching: find.text('Continue'),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(controller.continueRebaseWithMessageCalled, isTrue);
       },
     );
 
@@ -1089,6 +1116,9 @@ class _FakeRepoSessionController extends RepoSessionController {
   bool cherryPickContinueCalled = false;
   bool continueRebaseCalled = false;
   bool abortRebaseCalled = false;
+  bool cherryPickContinueWithMessageCalled = false;
+  bool continueRebaseWithMessageCalled = false;
+  String? lastContinueMessage;
 
   @override
   void resolveConflict(
@@ -1137,6 +1167,28 @@ class _FakeRepoSessionController extends RepoSessionController {
   @override
   void abortRebase() {
     abortRebaseCalled = true;
+  }
+
+  @override
+  void requestOriginalOperationMessage() {
+    // Simulates the async gbm_request_original_operation_message() round
+    // trip completing synchronously -- the window's ref.listen picks up
+    // the null -> non-null transition and opens the MSGS dialog.
+    state = state.copyWith(
+      originalOperationMessage: 'Original summary\n\nOriginal body',
+    );
+  }
+
+  @override
+  void cherryPickContinueWithMessage(String message) {
+    cherryPickContinueWithMessageCalled = true;
+    lastContinueMessage = message;
+  }
+
+  @override
+  void continueRebaseWithMessage(String message) {
+    continueRebaseWithMessageCalled = true;
+    lastContinueMessage = message;
   }
 }
 

@@ -291,6 +291,7 @@ class RepoSessionState {
     this.lastRemotePrunePreview,
     this.compareWithWorkingCopyResults =
         const <String, CompareWithWorkingCopyResult>{},
+    this.originalOperationMessage,
   });
 
   final bool isOpen;
@@ -400,6 +401,15 @@ class RepoSessionState {
   /// a different ref.
   final Map<String, CompareWithWorkingCopyResult> compareWithWorkingCopyResults;
 
+  /// Git's own proposed commit message (MERGE_MSG / rebase-merge/message)
+  /// for the commit currently stopped on in a conflicted cherry-pick or
+  /// rebase -- the MSGS-table default the conflict resolve window's message
+  /// step pre-fills with. Null until
+  /// [RepoSessionController.requestOriginalOperationMessage]'s reply
+  /// arrives; that call also nulls this first, so a null value while a
+  /// request is in flight can't be mistaken for a stale previous reply.
+  final String? originalOperationMessage;
+
   /// Single source of truth for "is this repo in a conflict state" --
   /// every conflict-aware surface (banner, toolbar, branch switching,
   /// working copy's Conflicted section, commit box, status bar) must read
@@ -460,6 +470,8 @@ class RepoSessionState {
     Map<String, CompareFileDiffResult>? compareFileDiffResults,
     RemotePrunePreview? lastRemotePrunePreview,
     Map<String, CompareWithWorkingCopyResult>? compareWithWorkingCopyResults,
+    String? originalOperationMessage,
+    bool clearOriginalOperationMessage = false,
   }) {
     return RepoSessionState(
       isOpen: isOpen ?? this.isOpen,
@@ -510,6 +522,9 @@ class RepoSessionState {
           lastRemotePrunePreview ?? this.lastRemotePrunePreview,
       compareWithWorkingCopyResults:
           compareWithWorkingCopyResults ?? this.compareWithWorkingCopyResults,
+      originalOperationMessage: clearOriginalOperationMessage
+          ? null
+          : (originalOperationMessage ?? this.originalOperationMessage),
     );
   }
 }
@@ -794,6 +809,13 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
               ...state.compareWithWorkingCopyResults,
               CompareWithWorkingCopyResult.key(result.ref): result,
             },
+          );
+        }
+      case GbmEventType.originalOperationMessageReady:
+        final Object? payload = decodeEventPayload(event.payload);
+        if (payload is Map<String, dynamic>) {
+          state = state.copyWith(
+            originalOperationMessage: payload['message'] as String? ?? '',
           );
         }
       case GbmEventType.fileHistoryReady:
@@ -1336,6 +1358,31 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   void cherryPickContinue() {
     if (_session == nullptr) return;
     _bindings.cherryPickContinue(_session);
+  }
+
+  /// Same as [cherryPickContinue], except `message` overwrites MERGE_MSG
+  /// first -- see gbm_cherry_pick_continue_with_message()'s doc comment in
+  /// gbm_capi.h. `message` typically comes from the conflict resolve
+  /// window's MSGS-table step, pre-filled from
+  /// [requestOriginalOperationMessage]'s reply and edited by the user.
+  void cherryPickContinueWithMessage(String message) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> messagePtr = message.toNativeUtf8();
+    try {
+      _bindings.cherryPickContinueWithMessage(_session, messagePtr);
+    } finally {
+      malloc.free(messagePtr);
+    }
+  }
+
+  /// Async: fires GBM_EVENT_ORIGINAL_OPERATION_MESSAGE_READY into
+  /// [RepoSessionState.originalOperationMessage]. Nulls that field first so
+  /// a still-in-flight request can't be mistaken for a stale previous
+  /// reply -- see the field's doc comment.
+  void requestOriginalOperationMessage() {
+    if (_session == nullptr) return;
+    state = state.copyWith(clearOriginalOperationMessage: true);
+    _bindings.requestOriginalOperationMessage(_session);
   }
 
   void cherryPickSkip() {
@@ -2259,6 +2306,19 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   void continueRebase() {
     if (_session == nullptr) return;
     _bindings.rebaseContinue(_session);
+  }
+
+  /// Same as [continueRebase], except `message` overwrites
+  /// rebase-merge/message first -- see
+  /// gbm_rebase_continue_with_message()'s doc comment in gbm_capi.h.
+  void continueRebaseWithMessage(String message) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> messagePtr = message.toNativeUtf8();
+    try {
+      _bindings.rebaseContinueWithMessage(_session, messagePtr);
+    } finally {
+      malloc.free(messagePtr);
+    }
   }
 
   void skipRebase() {

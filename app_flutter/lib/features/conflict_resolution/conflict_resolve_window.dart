@@ -18,6 +18,7 @@ import '../../widgets/gbm_button.dart';
 import '../../widgets/split_pane.dart';
 import 'conflict_line_order.dart';
 import 'conflict_resolve_logic.dart';
+import 'original_operation_message_dialog.dart';
 
 /// The Dart analog of `ConflictResolveWindow` + `ConflictResolvePanel`
 /// (src/app/views/ConflictResolveWindow.cpp, ConflictResolvePanel.cpp).
@@ -349,16 +350,42 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
     }
   }
 
-  /// Dispatches continue based on the operation type (cherry-pick/rebase).
-  void _handleContinue(RepoSessionState session) {
-    final notifier = ref.read(repoSessionProvider(widget.identity).notifier);
+  /// Continue no longer fires the sequencer step directly -- it first
+  /// fetches git's own proposed commit message (MERGE_MSG/
+  /// rebase-merge/message) so the MSGS-table step can pre-fill an editable
+  /// dialog with it. The actual cherry-pick/rebase continue call happens in
+  /// [_showOriginalOperationMessageDialog] once the user confirms (or is
+  /// skipped entirely if they cancel).
+  void _handleContinue() {
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .requestOriginalOperationMessage();
+  }
 
-    if (session.repoState?.isCherryPicking ?? false) {
-      notifier.cherryPickContinue();
-    } else {
-      // rebase
-      notifier.continueRebase();
-    }
+  /// Fired by the `originalOperationMessage` null -> non-null [ref.listen]
+  /// transition in [build] -- same "not something the user chose to open"
+  /// auto-dialog pattern as WorkspaceScreen's credentialPrompt/
+  /// checkoutChoices listeners. Dispatches the edited message to
+  /// cherry-pick or rebase continue based on which operation is active;
+  /// cancelling the dialog leaves the sequencer untouched.
+  void _showOriginalOperationMessageDialog(String initialMessage) {
+    final notifier = ref.read(repoSessionProvider(widget.identity).notifier);
+    final RepoSessionState session = ref.read(
+      repoSessionProvider(widget.identity),
+    );
+    final bool isCherryPick = session.repoState?.isCherryPicking ?? false;
+    promptOriginalOperationMessage(
+      context,
+      title: isCherryPick ? 'Cherry-pick message' : 'Rebase message',
+      initialMessage: initialMessage,
+    ).then((message) {
+      if (message == null) return;
+      if (isCherryPick) {
+        notifier.cherryPickContinueWithMessage(message);
+      } else {
+        notifier.continueRebaseWithMessage(message);
+      }
+    });
   }
 
   @override
@@ -368,6 +395,19 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
       repoSessionProvider(widget.identity),
     );
     final String repoId = Uri.encodeComponent(widget.identity.workDir);
+
+    // Auto-shows the MSGS-table dialog once requestOriginalOperationMessage()'s
+    // reply lands -- see _handleContinue()'s doc comment.
+    ref.listen(
+      repoSessionProvider(
+        widget.identity,
+      ).select((s) => s.originalOperationMessage),
+      (previous, next) {
+        if (next != null && previous == null) {
+          _showOriginalOperationMessageDialog(next);
+        }
+      },
+    );
 
     if (!session.isOpen) {
       return Scaffold(
@@ -571,7 +611,7 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
                   (session.repoState?.isCherryPicking ?? false) ||
                   (session.repoState?.isRebasing ?? false),
               onAbort: () => _handleAbort(session),
-              onContinue: () => _handleContinue(session),
+              onContinue: _handleContinue,
             ),
           ],
         ),

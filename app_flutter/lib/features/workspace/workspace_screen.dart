@@ -218,11 +218,25 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
               onSkip: () => _handleConflictSkip(ref, identity, session),
               onContinue: () => _handleConflictContinue(ref, identity, session),
             ),
-          // Independent of conflictActive -- a Skip/Continue tapped from
-          // ConflictBanner above (git refusing because conflicts are still
-          // unresolved, for example) must stay visible instead of being
-          // swallowed by conflictActive still being true.
-          if (session.lastError case final error?)
+          // Independent of conflictActive -- an error unrelated to the
+          // conflict itself (auth failure, lock held, ...) must stay
+          // visible instead of being swallowed by conflictActive still
+          // being true. codeName == 'Conflict' is excluded here
+          // specifically: MergeOps.cpp/RebaseOps.cpp/CherryPickOps.cpp/
+          // RevertOps.cpp all classify "operation stopped because of a
+          // conflict" (both the initial stop, and typically a premature
+          // Continue/Skip while conflicts remain unresolved) under that one
+          // GitError::Code, worded as "The operation stopped with
+          // conflicts" -- content ConflictBanner's own status line ("Merge
+          // in progress: N files conflicted") already states, and which
+          // otherwise lingers indefinitely after the fact (no success path
+          // clears lastError, only refreshHistory() does) and would
+          // reappear the moment conflictActive later flips false. The
+          // detailed reason for a rejected Continue/Skip is available
+          // inside ConflictResolveWindow (via Resolve…), which renders
+          // session.lastError unfiltered.
+          if (session.lastError case final error?
+              when error.codeName != 'Conflict')
             GbmWarningBanner(message: error.message),
           Expanded(
             child: GbmSplitPane(

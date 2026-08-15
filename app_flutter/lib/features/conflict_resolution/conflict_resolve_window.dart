@@ -194,8 +194,9 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
           if (session.repoState case final state?
               when state.isMerging ||
                   state.isCherryPicking ||
-                  state.isReverting)
-            _SequencerBanner(identity: widget.identity, state: state),
+                  state.isReverting ||
+                  state.isRebasing)
+            SequencerBanner(identity: widget.identity, state: state),
           if (session.lastError case final error?)
             Container(
               width: double.infinity,
@@ -477,8 +478,11 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
   }
 }
 
-class _SequencerBanner extends ConsumerWidget {
-  const _SequencerBanner({required this.identity, required this.state});
+/// Presentational -- no Riverpod dependency beyond `ref.read` inside the
+/// Abort callback, so it can be widget-tested directly (see
+/// sequencer_banner_test.dart), matching [ConflictBanner]'s split.
+class SequencerBanner extends ConsumerWidget {
+  const SequencerBanner({super.key, required this.identity, required this.state});
 
   final RepoIdentity identity;
   final RepoState state;
@@ -490,6 +494,10 @@ class _SequencerBanner extends ConsumerWidget {
         ? 'Merge in progress'
         : state.isCherryPicking
         ? 'Cherry-pick in progress'
+        : state.isRebasing
+        ? state.rebaseTotal > 0
+              ? 'Rebase in progress (${state.rebaseStep}/${state.rebaseTotal})'
+              : 'Rebase in progress'
         : 'Revert in progress';
 
     return Container(

@@ -404,6 +404,7 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                                   widget.identity,
                                   tag.shortName,
                                 ),
+                                conflictActive: session.conflictActive,
                               ),
                             );
                           }),
@@ -447,6 +448,9 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
   }
 
   Widget _buildTreeNode(BranchTreeNode node, BuildContext context) {
+    final RepoSessionState session = ref.watch(
+      repoSessionProvider(widget.identity),
+    );
     if (node is BranchTreeLeaf) {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space1),
@@ -468,6 +472,7 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
           onDelete: node.ref.isHead ? null : () => _deleteSingle(node.ref),
           onNewBranchFromHere: () => _createBranchFrom(node.ref),
           onMerge: node.ref.isHead ? null : _openMergeDialog,
+          conflictActive: session.conflictActive,
         ),
       );
     } else if (node is BranchTreeFolder) {

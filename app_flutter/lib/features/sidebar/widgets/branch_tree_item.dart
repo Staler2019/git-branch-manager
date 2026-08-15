@@ -19,11 +19,13 @@ class BranchTreeItem extends StatelessWidget {
     this.onDelete,
     this.onNewBranchFromHere,
     this.onMerge,
+    this.conflictActive = false,
   });
 
   final RefInfo ref;
   final VoidCallback onCheckout;
   final bool selected;
+  final bool conflictActive;
 
   /// Null hides the selection checkbox entirely (HEAD can't be
   /// multi-selected for deletion -- see SidebarPanel's doc comment).
@@ -147,7 +149,7 @@ class BranchTreeItem extends StatelessWidget {
       child: GestureDetector(
         onSecondaryTapDown: (details) => _openContextMenu(context, details),
         child: InkWell(
-          onTap: ref.isHead ? null : onCheckout,
+          onTap: (ref.isHead || conflictActive) ? null : onCheckout,
           borderRadius: BorderRadius.circular(GbmSpacing.radiusSm),
           child: maybeTooltip,
         ),
@@ -168,7 +170,7 @@ class BranchTreeItem extends StatelessWidget {
         GbmMenuItem(
           label: 'Checkout ${ref.shortName}',
           icon: Icons.call_split,
-          onTap: onCheckout,
+          onTap: conflictActive ? null : onCheckout,
         ),
       if (onNewBranchFromHere != null)
         GbmMenuItem(

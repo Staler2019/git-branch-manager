@@ -45,9 +45,9 @@ class MenuBarRow extends StatelessWidget {
   final String repoId;
   final bool sidebarVisible;
   final VoidCallback onToggleSidebar;
-  final VoidCallback onFetch;
-  final VoidCallback onPull;
-  final VoidCallback onPush;
+  final VoidCallback? onFetch;
+  final VoidCallback? onPull;
+  final VoidCallback? onPush;
 
   @override
   Widget build(BuildContext context) {

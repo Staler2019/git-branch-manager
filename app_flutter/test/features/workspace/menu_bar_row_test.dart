@@ -18,9 +18,9 @@ const String _repoId = 'repo1';
 Future<GoRouter> _pump(
   WidgetTester tester, {
   required VoidCallback onToggleSidebar,
-  required VoidCallback onFetch,
-  required VoidCallback onPull,
-  required VoidCallback onPush,
+  required VoidCallback? onFetch,
+  required VoidCallback? onPull,
+  required VoidCallback? onPush,
   bool sidebarVisible = true,
 
   /// When provided, wraps MenuBarRow in a [WorkspaceActionShortcuts]
@@ -183,6 +183,31 @@ void main() {
     await tester.pumpAndSettle();
     expect(pushes, 1);
   });
+
+  testWidgets(
+    'Repository menu Fetch/Pull/Push do not execute when callback is null',
+    (tester) async {
+      int fetches = 0;
+      await _pump(
+        tester,
+        onToggleSidebar: () {},
+        onFetch: null,
+        onPull: null,
+        onPush: null,
+      );
+
+      // Try to open Repository menu and tap Fetch
+      await tester.tap(find.text('Repository'));
+      await tester.pumpAndSettle();
+      // Menu item should still be visible and tappable
+      expect(find.text('Fetch'), findsOneWidget);
+      // Tapping it should close the menu but not execute anything
+      await tester.tap(find.text('Fetch'));
+      await tester.pumpAndSettle();
+      // No error should occur, and fetches count should stay at 0
+      expect(fetches, 0);
+    },
+  );
 
   testWidgets('Branch menu marks Delete branch… as danger', (tester) async {
     await _pump(

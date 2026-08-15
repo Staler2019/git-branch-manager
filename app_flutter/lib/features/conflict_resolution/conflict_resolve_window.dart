@@ -166,8 +166,9 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
     if (reply == null ||
         reply.path != _selectedPath ||
         identical(reply, _staleReplyAtSelection) ||
-        _parsedForPath == reply.path)
+        _parsedForPath == reply.path) {
       return;
+    }
     if (!reply.editable) {
       setState(() => _parsedForPath = reply.path);
       return;

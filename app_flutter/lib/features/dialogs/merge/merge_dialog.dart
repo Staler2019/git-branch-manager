@@ -42,7 +42,9 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
-    final RepoSessionState session = ref.watch(repoSessionProvider(widget.identity));
+    final RepoSessionState session = ref.watch(
+      repoSessionProvider(widget.identity),
+    );
     final String currentBranch = session.refs.head.branchName;
     final List<RefInfo> candidates = session.refs.localBranches
         .where((b) => b.shortName != currentBranch)
@@ -77,15 +79,26 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
         children: <Widget>[
           Text(
             'Merge into $currentBranch',
-            style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textSecondary),
+            style: TextStyle(
+              fontSize: GbmTypography.textSm,
+              color: colors.textSecondary,
+            ),
           ),
           const SizedBox(height: GbmSpacing.space1),
           DropdownButtonFormField<String>(
             initialValue: _target,
             isExpanded: true,
-            decoration: const InputDecoration(hintText: 'Branch to merge from', isDense: true, border: OutlineInputBorder()),
+            decoration: const InputDecoration(
+              hintText: 'Branch to merge from',
+              isDense: true,
+              border: OutlineInputBorder(),
+            ),
             items: <DropdownMenuItem<String>>[
-              for (final branch in candidates) DropdownMenuItem(value: branch.shortName, child: Text(branch.shortName)),
+              for (final branch in candidates)
+                DropdownMenuItem(
+                  value: branch.shortName,
+                  child: Text(branch.shortName),
+                ),
             ],
             onChanged: (value) => setState(() => _target = value),
           ),
@@ -98,14 +111,21 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
                 _ModeOption(
                   mode: MergeMode.fastForwardOnly,
                   label: 'Fast-forward only',
-                  description: 'Fail unless the current branch can be fast-forwarded.',
+                  description:
+                      'Fail unless the current branch can be fast-forwarded.',
                 ),
                 _ModeOption(
                   mode: MergeMode.noFastForward,
                   label: 'No fast-forward',
-                  description: 'Always create a merge commit, even if a fast-forward is possible.',
+                  description:
+                      'Always create a merge commit, even if a fast-forward is possible.',
                 ),
-                _ModeOption(mode: MergeMode.squash, label: 'Squash', description: 'Combine changes without recording a merge commit.'),
+                _ModeOption(
+                  mode: MergeMode.squash,
+                  label: 'Squash',
+                  description:
+                      'Combine changes without recording a merge commit.',
+                ),
               ],
             ),
           ),
@@ -114,7 +134,11 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
             controller: _messageController,
             enabled: _mode != MergeMode.squash,
             maxLines: 2,
-            decoration: const InputDecoration(hintText: 'Merge commit message (optional)', isDense: true, border: OutlineInputBorder()),
+            decoration: const InputDecoration(
+              hintText: 'Merge commit message (optional)',
+              isDense: true,
+              border: OutlineInputBorder(),
+            ),
           ),
           const SizedBox(height: GbmSpacing.space2),
           CheckboxListTile(
@@ -122,7 +146,13 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
             dense: true,
             contentPadding: EdgeInsets.zero,
             controlAffinity: ListTileControlAffinity.leading,
-            title: Text('Stash uncommitted changes first', style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textPrimary)),
+            title: Text(
+              'Stash uncommitted changes first',
+              style: TextStyle(
+                fontSize: GbmTypography.textSm,
+                color: colors.textPrimary,
+              ),
+            ),
             onChanged: (value) => setState(() => _stashFirst = value ?? false),
           ),
         ],
@@ -132,7 +162,11 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
 }
 
 class _ModeOption extends StatelessWidget {
-  const _ModeOption({required this.mode, required this.label, required this.description});
+  const _ModeOption({
+    required this.mode,
+    required this.label,
+    required this.description,
+  });
 
   final MergeMode mode;
   final String label;
@@ -145,8 +179,20 @@ class _ModeOption extends StatelessWidget {
       value: mode,
       dense: true,
       contentPadding: EdgeInsets.zero,
-      title: Text(label, style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textPrimary)),
-      subtitle: Text(description, style: TextStyle(fontSize: GbmTypography.textXs, color: colors.textTertiary)),
+      title: Text(
+        label,
+        style: TextStyle(
+          fontSize: GbmTypography.textSm,
+          color: colors.textPrimary,
+        ),
+      ),
+      subtitle: Text(
+        description,
+        style: TextStyle(
+          fontSize: GbmTypography.textXs,
+          color: colors.textTertiary,
+        ),
+      ),
     );
   }
 }

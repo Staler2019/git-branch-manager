@@ -53,4 +53,6 @@ class RepoState {
   bool get isMerging => flags & RepoStateFlags.merge != 0;
   bool get isCherryPicking => flags & RepoStateFlags.cherryPick != 0;
   bool get isReverting => flags & RepoStateFlags.revert != 0;
+  bool get isRebasing =>
+      flags & (RepoStateFlags.rebaseMerge | RepoStateFlags.rebaseApply) != 0;
 }

@@ -23,10 +23,12 @@ class CredentialDialogContent extends ConsumerStatefulWidget {
   final RepoIdentity identity;
 
   @override
-  ConsumerState<CredentialDialogContent> createState() => _CredentialDialogContentState();
+  ConsumerState<CredentialDialogContent> createState() =>
+      _CredentialDialogContentState();
 }
 
-class _CredentialDialogContentState extends ConsumerState<CredentialDialogContent> {
+class _CredentialDialogContentState
+    extends ConsumerState<CredentialDialogContent> {
   final TextEditingController _secretController = TextEditingController();
   bool _resolved = false;
 
@@ -36,7 +38,9 @@ class _CredentialDialogContentState extends ConsumerState<CredentialDialogConten
     // treat that the same as Cancel, so the blocked git subprocess does not
     // hang until GBM_ASKPASS's own timeout.
     if (!_resolved) {
-      ref.read(repoSessionProvider(widget.identity).notifier).cancelCredential();
+      ref
+          .read(repoSessionProvider(widget.identity).notifier)
+          .cancelCredential();
     }
     _secretController.dispose();
     super.dispose();
@@ -45,7 +49,13 @@ class _CredentialDialogContentState extends ConsumerState<CredentialDialogConten
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
-    final String prompt = ref.watch(repoSessionProvider(widget.identity).select((state) => state.credentialPrompt)) ?? '';
+    final String prompt =
+        ref.watch(
+          repoSessionProvider(
+            widget.identity,
+          ).select((state) => state.credentialPrompt),
+        ) ??
+        '';
     final bool obscure = prompt.toLowerCase().contains('password');
 
     return GbmDialogShell(
@@ -55,7 +65,9 @@ class _CredentialDialogContentState extends ConsumerState<CredentialDialogConten
           label: 'Cancel',
           onPressed: () {
             _resolved = true;
-            ref.read(repoSessionProvider(widget.identity).notifier).cancelCredential();
+            ref
+                .read(repoSessionProvider(widget.identity).notifier)
+                .cancelCredential();
             context.pop();
           },
         ),
@@ -65,7 +77,9 @@ class _CredentialDialogContentState extends ConsumerState<CredentialDialogConten
           kind: GbmButtonKind.primary,
           onPressed: () {
             _resolved = true;
-            ref.read(repoSessionProvider(widget.identity).notifier).provideCredential(_secretController.text);
+            ref
+                .read(repoSessionProvider(widget.identity).notifier)
+                .provideCredential(_secretController.text);
             context.pop();
           },
         ),
@@ -76,7 +90,13 @@ class _CredentialDialogContentState extends ConsumerState<CredentialDialogConten
         children: <Widget>[
           Semantics(
             liveRegion: true,
-            child: Text(prompt, style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textSecondary)),
+            child: Text(
+              prompt,
+              style: TextStyle(
+                fontSize: GbmTypography.textSm,
+                color: colors.textSecondary,
+              ),
+            ),
           ),
           const SizedBox(height: GbmSpacing.space2),
           TextField(
@@ -85,7 +105,9 @@ class _CredentialDialogContentState extends ConsumerState<CredentialDialogConten
             autofocus: true,
             onSubmitted: (_) {
               _resolved = true;
-              ref.read(repoSessionProvider(widget.identity).notifier).provideCredential(_secretController.text);
+              ref
+                  .read(repoSessionProvider(widget.identity).notifier)
+                  .provideCredential(_secretController.text);
               context.pop();
             },
             decoration: InputDecoration(

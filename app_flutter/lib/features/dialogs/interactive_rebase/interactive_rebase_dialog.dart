@@ -19,10 +19,12 @@ class InteractiveRebaseDialogContent extends ConsumerStatefulWidget {
   final RepoIdentity identity;
 
   @override
-  ConsumerState<InteractiveRebaseDialogContent> createState() => _InteractiveRebaseDialogContentState();
+  ConsumerState<InteractiveRebaseDialogContent> createState() =>
+      _InteractiveRebaseDialogContentState();
 }
 
-class _InteractiveRebaseDialogContentState extends ConsumerState<InteractiveRebaseDialogContent> {
+class _InteractiveRebaseDialogContentState
+    extends ConsumerState<InteractiveRebaseDialogContent> {
   final TextEditingController _upstreamController = TextEditingController();
   List<RebaseTodoEntry>? _editedTodo;
 
@@ -36,23 +38,32 @@ class _InteractiveRebaseDialogContentState extends ConsumerState<InteractiveReba
     final String upstream = _upstreamController.text.trim();
     if (upstream.isEmpty) return;
     setState(() => _editedTodo = null);
-    ref.read(repoSessionProvider(widget.identity).notifier).requestRebasePlan(upstream);
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .requestRebasePlan(upstream);
   }
 
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
     final List<RebaseTodoEntry> plan = ref.watch(
-      repoSessionProvider(widget.identity).select((state) => state.lastRebasePlan),
+      repoSessionProvider(
+        widget.identity,
+      ).select((state) => state.lastRebasePlan),
     );
-    final RepoSessionController notifier = ref.read(repoSessionProvider(widget.identity).notifier);
+    final RepoSessionController notifier = ref.read(
+      repoSessionProvider(widget.identity).notifier,
+    );
     final List<RebaseTodoEntry> todo = _editedTodo ?? plan;
 
     return GbmDialogShell(
       title: 'Interactive Rebase',
       width: 720,
       actions: <Widget>[
-        GbmButton(label: 'Continue', onPressed: () => notifier.continueRebase()),
+        GbmButton(
+          label: 'Continue',
+          onPressed: () => notifier.continueRebase(),
+        ),
         const SizedBox(width: GbmSpacing.space2),
         GbmButton(label: 'Skip', onPressed: () => notifier.skipRebase()),
         const SizedBox(width: GbmSpacing.space2),
@@ -95,7 +106,12 @@ class _InteractiveRebaseDialogContentState extends ConsumerState<InteractiveReba
             const SizedBox(height: GbmSpacing.space2),
             Expanded(
               child: todo.isEmpty
-                  ? Center(child: Text('Enter an upstream and press Load Plan', style: TextStyle(color: colors.textTertiary)))
+                  ? Center(
+                      child: Text(
+                        'Enter an upstream and press Load Plan',
+                        style: TextStyle(color: colors.textTertiary),
+                      ),
+                    )
                   : ReorderableListView.builder(
                       // Desktop's default drag-handle affordance sits at the
                       // trailing edge of each row -- with the action dropdown
@@ -108,8 +124,11 @@ class _InteractiveRebaseDialogContentState extends ConsumerState<InteractiveReba
                         index: index,
                         entry: todo[index],
                         onActionChanged: (action) {
-                          final List<RebaseTodoEntry> updated = List<RebaseTodoEntry>.of(todo);
-                          updated[index] = updated[index].copyWith(action: action);
+                          final List<RebaseTodoEntry> updated =
+                              List<RebaseTodoEntry>.of(todo);
+                          updated[index] = updated[index].copyWith(
+                            action: action,
+                          );
                           setState(() => _editedTodo = updated);
                         },
                       ),
@@ -117,8 +136,11 @@ class _InteractiveRebaseDialogContentState extends ConsumerState<InteractiveReba
                       // in -- see RebaseOps.h's doc comment -- so reordering
                       // here is a real edit to the plan, not just display.
                       onReorderItem: (oldIndex, newIndex) {
-                        final List<RebaseTodoEntry> updated = List<RebaseTodoEntry>.of(todo);
-                        final RebaseTodoEntry moved = updated.removeAt(oldIndex);
+                        final List<RebaseTodoEntry> updated =
+                            List<RebaseTodoEntry>.of(todo);
+                        final RebaseTodoEntry moved = updated.removeAt(
+                          oldIndex,
+                        );
                         updated.insert(newIndex, moved);
                         setState(() => _editedTodo = updated);
                       },
@@ -132,7 +154,12 @@ class _InteractiveRebaseDialogContentState extends ConsumerState<InteractiveReba
 }
 
 class _TodoRow extends StatelessWidget {
-  const _TodoRow({super.key, required this.index, required this.entry, required this.onActionChanged});
+  const _TodoRow({
+    super.key,
+    required this.index,
+    required this.entry,
+    required this.onActionChanged,
+  });
 
   final int index;
   final RebaseTodoEntry entry;
@@ -149,7 +176,11 @@ class _TodoRow extends StatelessWidget {
             index: index,
             child: Semantics(
               label: 'Drag to reorder ${entry.subject}',
-              child: Icon(Icons.drag_handle, size: 16, color: colors.textTertiary),
+              child: Icon(
+                Icons.drag_handle,
+                size: 16,
+                color: colors.textTertiary,
+              ),
             ),
           ),
           const SizedBox(width: GbmSpacing.space1),
@@ -161,7 +192,10 @@ class _TodoRow extends StatelessWidget {
               isExpanded: true,
               items: <DropdownMenuItem<RebaseTodoAction>>[
                 for (final action in RebaseTodoAction.values)
-                  DropdownMenuItem<RebaseTodoAction>(value: action, child: Text(_actionLabel(action))),
+                  DropdownMenuItem<RebaseTodoAction>(
+                    value: action,
+                    child: Text(_actionLabel(action)),
+                  ),
               ],
               onChanged: (action) {
                 if (action != null) onActionChanged(action);
@@ -172,8 +206,17 @@ class _TodoRow extends StatelessWidget {
           SizedBox(
             width: 64,
             child: Text(
-              entry.shortOid.isEmpty ? entry.oid.substring(0, entry.oid.length > 7 ? 7 : entry.oid.length) : entry.shortOid,
-              style: TextStyle(fontFamily: 'monospace', fontSize: GbmTypography.textXs, color: colors.textTertiary),
+              entry.shortOid.isEmpty
+                  ? entry.oid.substring(
+                      0,
+                      entry.oid.length > 7 ? 7 : entry.oid.length,
+                    )
+                  : entry.shortOid,
+              style: TextStyle(
+                fontFamily: 'monospace',
+                fontSize: GbmTypography.textXs,
+                color: colors.textTertiary,
+              ),
             ),
           ),
           Expanded(
@@ -183,8 +226,12 @@ class _TodoRow extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontSize: GbmTypography.textSm,
-                color: entry.action == RebaseTodoAction.drop ? colors.textTertiary : colors.textPrimary,
-                decoration: entry.action == RebaseTodoAction.drop ? TextDecoration.lineThrough : null,
+                color: entry.action == RebaseTodoAction.drop
+                    ? colors.textTertiary
+                    : colors.textPrimary,
+                decoration: entry.action == RebaseTodoAction.drop
+                    ? TextDecoration.lineThrough
+                    : null,
               ),
             ),
           ),

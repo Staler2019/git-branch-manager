@@ -112,6 +112,13 @@ public:
     GitResult<std::vector<ObjectId>> resolveRange(const std::string& range,
                                                   CancellationToken token);
 
+    /// Resolves any single revision expression (branch, tag, short/long oid,
+    /// HEAD~N, ...) to the commit it points to. `^{commit}` peels annotated
+    /// tags to the commit they target, matching what every consumer of a
+    /// resolved revision (e.g. a working-tree diff) actually wants. Fails
+    /// with InvalidArgument if `revision` does not resolve.
+    GitResult<ObjectId> resolveRevision(const std::string& revision, CancellationToken token);
+
 private:
     IProcessRunner& runner_;
     RepoPaths paths_;

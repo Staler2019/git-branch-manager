@@ -16,14 +16,26 @@ class GbmWarningBanner extends StatelessWidget {
     final GbmColors colors = context.gbmColors;
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space4, vertical: GbmSpacing.space2),
-      decoration: BoxDecoration(color: colors.diffDelBg, border: Border(bottom: BorderSide(color: colors.borderSubtle))),
+      padding: const EdgeInsets.symmetric(
+        horizontal: GbmSpacing.space4,
+        vertical: GbmSpacing.space2,
+      ),
+      decoration: BoxDecoration(
+        color: colors.diffDelBg,
+        border: Border(bottom: BorderSide(color: colors.borderSubtle)),
+      ),
       child: Row(
         children: <Widget>[
           LucideIcon('alert-triangle', size: 14, color: colors.diffDelText),
           const SizedBox(width: GbmSpacing.space2),
           Expanded(
-            child: Text(message, style: TextStyle(fontSize: GbmTypography.textSm, color: colors.diffDelText)),
+            child: Text(
+              message,
+              style: TextStyle(
+                fontSize: GbmTypography.textSm,
+                color: colors.diffDelText,
+              ),
+            ),
           ),
         ],
       ),

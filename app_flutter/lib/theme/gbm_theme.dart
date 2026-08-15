@@ -8,7 +8,9 @@ import 'tokens.dart';
 /// theming types.
 ThemeData buildGbmTheme(GbmThemeVariant variant) {
   final GbmColors colors = tokensFor(variant);
-  final Brightness brightness = variant == GbmThemeVariant.darkTechnical ? Brightness.dark : Brightness.light;
+  final Brightness brightness = variant == GbmThemeVariant.darkTechnical
+      ? Brightness.dark
+      : Brightness.light;
 
   final ColorScheme colorScheme = ColorScheme(
     brightness: brightness,

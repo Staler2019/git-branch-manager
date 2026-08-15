@@ -75,6 +75,12 @@ public:
 
     std::filesystem::path rebaseMergeDir() const { return gitDir_ / "rebase-merge"; }
 
+    /// The proposed commit message for the commit currently stopped on
+    /// during an interactive/merge-backend rebase conflict. Git mirrors the
+    /// same content into mergeMsgFile() too, but this is the more specific
+    /// source -- see OriginalOperationMessage.h.
+    std::filesystem::path rebaseMergeMessageFile() const { return rebaseMergeDir() / "message"; }
+
     std::filesystem::path rebaseApplyDir() const { return gitDir_ / "rebase-apply"; }
 
     std::filesystem::path sequencerDir() const { return gitDir_ / "sequencer"; }

@@ -17,10 +17,12 @@ class StashChangesDialogContent extends ConsumerStatefulWidget {
   final RepoIdentity identity;
 
   @override
-  ConsumerState<StashChangesDialogContent> createState() => _StashChangesDialogContentState();
+  ConsumerState<StashChangesDialogContent> createState() =>
+      _StashChangesDialogContentState();
 }
 
-class _StashChangesDialogContentState extends ConsumerState<StashChangesDialogContent> {
+class _StashChangesDialogContentState
+    extends ConsumerState<StashChangesDialogContent> {
   final TextEditingController _messageController = TextEditingController();
   bool _includeUntracked = false;
   bool _keepIndex = false;
@@ -46,7 +48,11 @@ class _StashChangesDialogContentState extends ConsumerState<StashChangesDialogCo
           onPressed: () {
             ref
                 .read(repoSessionProvider(widget.identity).notifier)
-                .saveStash(_messageController.text.trim(), includeUntracked: _includeUntracked, keepIndex: _keepIndex);
+                .saveStash(
+                  _messageController.text.trim(),
+                  includeUntracked: _includeUntracked,
+                  keepIndex: _keepIndex,
+                );
             context.pop();
           },
         ),
@@ -55,11 +61,21 @@ class _StashChangesDialogContentState extends ConsumerState<StashChangesDialogCo
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Text('Message (optional)', style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textSecondary)),
+          Text(
+            'Message (optional)',
+            style: TextStyle(
+              fontSize: GbmTypography.textSm,
+              color: colors.textSecondary,
+            ),
+          ),
           const SizedBox(height: GbmSpacing.space1),
           TextField(
             controller: _messageController,
-            decoration: const InputDecoration(hintText: 'WIP on main…', isDense: true, border: OutlineInputBorder()),
+            decoration: const InputDecoration(
+              hintText: 'WIP on main…',
+              isDense: true,
+              border: OutlineInputBorder(),
+            ),
           ),
           const SizedBox(height: GbmSpacing.space2),
           CheckboxListTile(
@@ -67,15 +83,28 @@ class _StashChangesDialogContentState extends ConsumerState<StashChangesDialogCo
             dense: true,
             contentPadding: EdgeInsets.zero,
             controlAffinity: ListTileControlAffinity.leading,
-            title: Text('Include untracked files', style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textPrimary)),
-            onChanged: (value) => setState(() => _includeUntracked = value ?? false),
+            title: Text(
+              'Include untracked files',
+              style: TextStyle(
+                fontSize: GbmTypography.textSm,
+                color: colors.textPrimary,
+              ),
+            ),
+            onChanged: (value) =>
+                setState(() => _includeUntracked = value ?? false),
           ),
           CheckboxListTile(
             value: _keepIndex,
             dense: true,
             contentPadding: EdgeInsets.zero,
             controlAffinity: ListTileControlAffinity.leading,
-            title: Text('Keep staged changes in the index', style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textPrimary)),
+            title: Text(
+              'Keep staged changes in the index',
+              style: TextStyle(
+                fontSize: GbmTypography.textSm,
+                color: colors.textPrimary,
+              ),
+            ),
             onChanged: (value) => setState(() => _keepIndex = value ?? false),
           ),
         ],

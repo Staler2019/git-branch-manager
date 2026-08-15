@@ -22,7 +22,9 @@ class OperationLogDialogContent extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final GbmColors colors = context.gbmColors;
-    final List<OperationRecord> log = ref.watch(repoSessionProvider(identity).select((state) => state.operationLog));
+    final List<OperationRecord> log = ref.watch(
+      repoSessionProvider(identity).select((state) => state.operationLog),
+    );
 
     return GbmDialogShell(
       title: 'Operation Log',
@@ -32,24 +34,40 @@ class OperationLogDialogContent extends ConsumerWidget {
           label: 'Copy All',
           onPressed: log.isEmpty
               ? null
-              : () => Clipboard.setData(ClipboardData(text: log.map((r) => r.commandLine).join('\n'))),
+              : () => Clipboard.setData(
+                  ClipboardData(text: log.map((r) => r.commandLine).join('\n')),
+                ),
         ),
         const SizedBox(width: GbmSpacing.space2),
         GbmButton(
           label: 'Clear',
-          onPressed: log.isEmpty ? null : () => ref.read(repoSessionProvider(identity).notifier).clearOperationLog(),
+          onPressed: log.isEmpty
+              ? null
+              : () => ref
+                    .read(repoSessionProvider(identity).notifier)
+                    .clearOperationLog(),
         ),
         const SizedBox(width: GbmSpacing.space2),
-        GbmButton(label: 'Close', kind: GbmButtonKind.primary, onPressed: () => context.pop()),
+        GbmButton(
+          label: 'Close',
+          kind: GbmButtonKind.primary,
+          onPressed: () => context.pop(),
+        ),
       ],
       child: SizedBox(
         height: 420,
         child: log.isEmpty
-            ? Center(child: Text('No operations recorded yet', style: TextStyle(color: colors.textTertiary)))
+            ? Center(
+                child: Text(
+                  'No operations recorded yet',
+                  style: TextStyle(color: colors.textTertiary),
+                ),
+              )
             : ListView.builder(
                 reverse: true,
                 itemCount: log.length,
-                itemBuilder: (context, index) => _OperationRow(record: log[log.length - 1 - index]),
+                itemBuilder: (context, index) =>
+                    _OperationRow(record: log[log.length - 1 - index]),
               ),
       ),
     );
@@ -64,7 +82,9 @@ class _OperationRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
-    final Color statusColor = record.failed ? colors.danger : colors.textTertiary;
+    final Color statusColor = record.failed
+        ? colors.danger
+        : colors.textTertiary;
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: GbmSpacing.space1),
@@ -76,17 +96,30 @@ class _OperationRow extends StatelessWidget {
               Expanded(
                 child: SelectableText(
                   record.commandLine,
-                  style: TextStyle(fontSize: GbmTypography.textSm, fontFamily: 'monospace', color: colors.textPrimary),
+                  style: TextStyle(
+                    fontSize: GbmTypography.textSm,
+                    fontFamily: 'monospace',
+                    color: colors.textPrimary,
+                  ),
                 ),
               ),
               const SizedBox(width: GbmSpacing.space2),
               Text(
                 '${record.durationMs}ms',
-                style: TextStyle(fontSize: GbmTypography.textXs, color: colors.textTertiary),
+                style: TextStyle(
+                  fontSize: GbmTypography.textXs,
+                  color: colors.textTertiary,
+                ),
               ),
               if (record.failed) ...<Widget>[
                 const SizedBox(width: GbmSpacing.space1),
-                Text('exit ${record.exitCode}', style: TextStyle(fontSize: GbmTypography.textXs, color: statusColor)),
+                Text(
+                  'exit ${record.exitCode}',
+                  style: TextStyle(
+                    fontSize: GbmTypography.textXs,
+                    color: statusColor,
+                  ),
+                ),
               ],
             ],
           ),
@@ -95,7 +128,11 @@ class _OperationRow extends StatelessWidget {
               padding: const EdgeInsets.only(top: GbmSpacing.space1),
               child: SelectableText(
                 record.stderrText,
-                style: TextStyle(fontSize: GbmTypography.textXs, fontFamily: 'monospace', color: colors.diffDelText),
+                style: TextStyle(
+                  fontSize: GbmTypography.textXs,
+                  fontFamily: 'monospace',
+                  color: colors.diffDelText,
+                ),
               ),
             ),
         ],

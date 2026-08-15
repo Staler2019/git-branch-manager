@@ -11,26 +11,50 @@ import 'tokens.dart';
 /// use `warning`; everything else (remote branches, stashes, ...) uses
 /// `textTertiary` on a transparent/panel-raised background.
 class RefChipColors {
-  const RefChipColors({required this.fill, required this.text, required this.border});
+  const RefChipColors({
+    required this.fill,
+    required this.text,
+    required this.border,
+  });
 
   final Color fill;
   final Color text;
   final Color border;
 }
 
-RefChipColors refChipColorsFor(GbmColors colors, RefKind kind, {bool isCurrent = false}) {
+RefChipColors refChipColorsFor(
+  GbmColors colors,
+  RefKind kind, {
+  bool isCurrent = false,
+}) {
   switch (kind) {
     case RefKind.localBranch:
       if (isCurrent) {
-        return RefChipColors(fill: colors.accent, text: colors.textOnAccent, border: colors.accent);
+        return RefChipColors(
+          fill: colors.accent,
+          text: colors.textOnAccent,
+          border: colors.accent,
+        );
       }
-      return RefChipColors(fill: colors.refChipFill, text: colors.refChipText, border: colors.refChipFill);
+      return RefChipColors(
+        fill: colors.refChipFill,
+        text: colors.refChipText,
+        border: colors.refChipFill,
+      );
     case RefKind.tag:
-      return RefChipColors(fill: Colors.transparent, text: colors.warning, border: colors.borderDefault);
+      return RefChipColors(
+        fill: Colors.transparent,
+        text: colors.warning,
+        border: colors.borderDefault,
+      );
     case RefKind.remoteBranch:
     case RefKind.note:
     case RefKind.stash:
     case RefKind.other:
-      return RefChipColors(fill: colors.surfacePanelRaised, text: colors.textTertiary, border: colors.borderDefault);
+      return RefChipColors(
+        fill: colors.surfacePanelRaised,
+        text: colors.textTertiary,
+        border: colors.borderDefault,
+      );
   }
 }

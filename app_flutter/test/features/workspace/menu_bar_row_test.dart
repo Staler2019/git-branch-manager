@@ -5,7 +5,9 @@
 // passed in rather than reaching into a real session.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/actions/gbm_action_id.dart';
 import 'package:gbm_flutter/features/workspace/widgets/menu_bar_row.dart';
+import 'package:gbm_flutter/features/workspace/widgets/workspace_action_shortcuts.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
@@ -16,10 +18,18 @@ const String _repoId = 'repo1';
 Future<GoRouter> _pump(
   WidgetTester tester, {
   required VoidCallback onToggleSidebar,
-  required VoidCallback onFetch,
-  required VoidCallback onPull,
-  required VoidCallback onPush,
+  required VoidCallback? onFetch,
+  required VoidCallback? onPull,
+  required VoidCallback? onPush,
   bool sidebarVisible = true,
+
+  /// When provided, wraps MenuBarRow in a [WorkspaceActionShortcuts]
+  /// ancestor with these handlers -- needed for any item that isn't one of
+  /// the 5 named-callback params, since those dispatch via
+  /// `Actions.maybeInvoke(GbmActionIntent)` and do nothing without an
+  /// Actions ancestor to reach. Most tests in this file don't need this
+  /// (they only exercise the named-callback items, which work standalone).
+  Map<GbmActionId, VoidCallback?>? actionHandlers,
 }) async {
   final List<String> visited = <String>[];
   final GoRouter router = GoRouter(
@@ -29,15 +39,22 @@ Future<GoRouter> _pump(
         path: RoutePaths.history,
         builder: (context, state) {
           visited.add(state.uri.toString());
+          final Widget menuBar = MenuBarRow(
+            repoId: _repoId,
+            sidebarVisible: sidebarVisible,
+            onToggleSidebar: onToggleSidebar,
+            onFetch: onFetch,
+            onPull: onPull,
+            onPush: onPush,
+          );
           return Scaffold(
-            body: MenuBarRow(
-              repoId: _repoId,
-              sidebarVisible: sidebarVisible,
-              onToggleSidebar: onToggleSidebar,
-              onFetch: onFetch,
-              onPull: onPull,
-              onPush: onPush,
-            ),
+            body: actionHandlers == null
+                ? menuBar
+                : WorkspaceActionShortcuts(
+                    handlers: actionHandlers,
+                    isMacOS: false,
+                    child: menuBar,
+                  ),
           );
         },
       ),
@@ -73,7 +90,7 @@ GoRoute dialogRoute({
 
 void main() {
   testWidgets(
-    'opening the View menu shows History/Working Copy/Repository Settings/Preferences',
+    'opening the View menu shows History/Working copy, not Diff or dialog-opening items now owned by other menus',
     (tester) async {
       await _pump(
         tester,
@@ -85,27 +102,35 @@ void main() {
       await tester.tap(find.text('View'));
       await tester.pumpAndSettle();
       expect(find.text('History'), findsOneWidget);
-      expect(find.text('Working Copy'), findsOneWidget);
-      expect(find.text('Repository Settings'), findsOneWidget);
-      expect(find.text('Preferences…'), findsOneWidget);
+      expect(find.text('Working copy'), findsOneWidget);
       // Diff is deliberately not on the menu -- see MenuBarRow's doc comment.
       expect(find.text('Diff'), findsNothing);
+      // Repository settings and Preferences moved to their spec-correct
+      // menus (Repository, File respectively) once MenuBarRow started
+      // sourcing items from gbmMenus -- see spec page 04's MENUS table.
+      expect(find.text('Repository Settings'), findsNothing);
+      expect(find.text('Preferences…'), findsNothing);
     },
   );
 
-  testWidgets('View > Working Copy navigates to the working-copy route', (
+  testWidgets('View > Working copy navigates to the working-copy route', (
     tester,
   ) async {
-    await _pump(
+    late GoRouter router;
+    router = await _pump(
       tester,
       onToggleSidebar: () {},
       onFetch: () {},
       onPull: () {},
       onPush: () {},
+      actionHandlers: <GbmActionId, VoidCallback?>{
+        GbmActionId.viewWorkingCopy: () =>
+            router.go(RoutePaths.workingCopyFor(_repoId)),
+      },
     );
     await tester.tap(find.text('View'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Working Copy'));
+    await tester.tap(find.text('Working copy'));
     await tester.pumpAndSettle();
     expect(find.text('working-copy-page'), findsOneWidget);
   });
@@ -159,6 +184,31 @@ void main() {
     expect(pushes, 1);
   });
 
+  testWidgets(
+    'Repository menu Fetch/Pull/Push do not execute when callback is null',
+    (tester) async {
+      int fetches = 0;
+      await _pump(
+        tester,
+        onToggleSidebar: () {},
+        onFetch: null,
+        onPull: null,
+        onPush: null,
+      );
+
+      // Try to open Repository menu and tap Fetch
+      await tester.tap(find.text('Repository'));
+      await tester.pumpAndSettle();
+      // Menu item should still be visible and tappable
+      expect(find.text('Fetch'), findsOneWidget);
+      // Tapping it should close the menu but not execute anything
+      await tester.tap(find.text('Fetch'));
+      await tester.pumpAndSettle();
+      // No error should occur, and fetches count should stay at 0
+      expect(fetches, 0);
+    },
+  );
+
   testWidgets('Branch menu marks Delete branch… as danger', (tester) async {
     await _pump(
       tester,
@@ -173,20 +223,70 @@ void main() {
     expect(label.style?.color, tokensFor(GbmThemeVariant.darkTechnical).danger);
   });
 
-  testWidgets('File > Preferences pushes the preferences dialog route', (
+  testWidgets('File > Preferences… pushes the preferences dialog route', (
     tester,
   ) async {
+    late GoRouter router;
+    router = await _pump(
+      tester,
+      onToggleSidebar: () {},
+      onFetch: () {},
+      onPull: () {},
+      onPush: () {},
+      actionHandlers: <GbmActionId, VoidCallback?>{
+        // App-level route now: Preferences holds application settings, and
+        // per-repository ones moved to RoutePaths.repositorySettingsDialog.
+        GbmActionId.filePreferences: () =>
+            router.push(RoutePaths.preferencesDialog),
+      },
+    );
+    await tester.tap(find.text('File'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Preferences…'));
+    await tester.pumpAndSettle();
+    expect(find.text('preferences-dialog'), findsOneWidget);
+  });
+
+  // Submenu parents used to be rendered with `onTap: null` unconditionally,
+  // which made two items with real handlers (a columns picker, and cycling
+  // the theme variant) look broken.
+  testWidgets('View > Graph columns is clickable, not inert', (tester) async {
+    int invoked = 0;
     await _pump(
       tester,
       onToggleSidebar: () {},
       onFetch: () {},
       onPull: () {},
       onPush: () {},
+      actionHandlers: <GbmActionId, VoidCallback?>{
+        GbmActionId.viewGraphColumns: () => invoked++,
+      },
     );
-    await tester.tap(find.text('File'));
+    await tester.tap(find.text('View'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Preferences'));
+    await tester.tap(find.text('Graph columns'));
     await tester.pumpAndSettle();
-    expect(find.text('preferences-dialog'), findsOneWidget);
+
+    expect(invoked, 1);
+  });
+
+  testWidgets('View > Theme is clickable, not inert', (tester) async {
+    int invoked = 0;
+    await _pump(
+      tester,
+      onToggleSidebar: () {},
+      onFetch: () {},
+      onPull: () {},
+      onPush: () {},
+      actionHandlers: <GbmActionId, VoidCallback?>{
+        GbmActionId.viewTheme: () => invoked++,
+      },
+    );
+    await tester.tap(find.text('View'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Theme'));
+    await tester.pumpAndSettle();
+
+    expect(invoked, 1);
   });
 }

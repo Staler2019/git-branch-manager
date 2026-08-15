@@ -424,6 +424,55 @@ std::string toJson(const ParsedDiff& diff) {
     return out;
 }
 
+/// The M6 Compare-tab file summary (CompareOps.h's CompareStore::compare())
+/// reuses UnifiedDiffParser.h's DiffFile directly rather than introducing a
+/// parallel type -- this is the array-of-DiffFile counterpart to
+/// toJson(ParsedDiff) above, for a summary that has files but no wrapping
+/// ParsedDiff (no truncated/inputBytes: those describe a single unified
+/// diff blob, which compareFiles's two `git diff` invocations never
+/// produce).
+std::string toJson(const std::vector<DiffFile>& files) {
+    std::string out = "[";
+    for (std::size_t i = 0; i < files.size(); ++i) {
+        if (i != 0) out += ',';
+        out += diffFileJson(files[i]);
+    }
+    out += ']';
+    return out;
+}
+
+std::string toJson(const ChangedFile& file) {
+    std::string out = "{";
+    out += "\"path\":";
+    jsonAppendEscaped(out, file.path);
+    out += ",\"oldPath\":";
+    jsonAppendEscaped(out, file.oldPath);
+    out += ",\"kind\":";
+    jsonAppendInt(out, static_cast<std::int64_t>(file.kind));
+    out += ",\"oldMode\":";
+    jsonAppendEscaped(out, file.oldMode);
+    out += ",\"newMode\":";
+    jsonAppendEscaped(out, file.newMode);
+    out += ",\"oldBlob\":";
+    jsonAppendEscaped(out, file.oldBlob);
+    out += ",\"newBlob\":";
+    jsonAppendEscaped(out, file.newBlob);
+    out += ",\"similarity\":";
+    jsonAppendInt(out, file.similarity);
+    out += '}';
+    return out;
+}
+
+std::string toJson(const std::vector<ChangedFile>& files) {
+    std::string out = "[";
+    for (std::size_t i = 0; i < files.size(); ++i) {
+        if (i != 0) out += ',';
+        out += toJson(files[i]);
+    }
+    out += "]";
+    return out;
+}
+
 std::string toJson(const StashEntry& entry) {
     std::string out = "{";
     out += "\"index\":";
@@ -501,6 +550,48 @@ std::string toJson(const std::vector<RemoteInfo>& remotes) {
     for (std::size_t i = 0; i < remotes.size(); ++i) {
         if (i != 0) out += ',';
         out += toJson(remotes[i]);
+    }
+    out += ']';
+    return out;
+}
+
+std::string toJson(const RemotePrunePreviewEntry& entry) {
+    std::string out = "{\"ref\":";
+    jsonAppendEscaped(out, entry.ref);
+    out += '}';
+    return out;
+}
+
+std::string toJson(const std::vector<RemotePrunePreviewEntry>& entries) {
+    std::string out = "[";
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        if (i != 0) out += ',';
+        out += toJson(entries[i]);
+    }
+    out += ']';
+    return out;
+}
+
+std::string toJson(const CompareCommitEntry& entry) {
+    std::string out = "{\"oid\":";
+    jsonAppendEscaped(out, entry.oid.hex());
+    out += ",\"onRightOnly\":";
+    jsonAppendBool(out, entry.onRightOnly);
+    out += ",\"authorName\":";
+    jsonAppendEscaped(out, entry.authorName);
+    out += ",\"authorDate\":";
+    jsonAppendInt(out, entry.authorDate);
+    out += ",\"subject\":";
+    jsonAppendEscaped(out, entry.subject);
+    out += '}';
+    return out;
+}
+
+std::string toJson(const std::vector<CompareCommitEntry>& entries) {
+    std::string out = "[";
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        if (i != 0) out += ',';
+        out += toJson(entries[i]);
     }
     out += ']';
     return out;

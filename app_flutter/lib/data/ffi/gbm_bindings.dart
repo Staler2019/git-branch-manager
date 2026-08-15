@@ -44,6 +44,13 @@ abstract final class GbmEventType {
   static const int commitGraphWriteFinished = 24;
   static const int workingTreeContentReady = 25;
   static const int commitMetaReady = 26;
+  static const int commitFilesReady = 27;
+  static const int commitFileDiffReady = 28;
+  static const int compareReady = 29;
+  static const int compareFileDiffReady = 30;
+  static const int remotePrunePreviewReady = 31;
+  static const int compareWithWorkingCopyReady = 32;
+  static const int originalOperationMessageReady = 33;
 }
 
 /// `void (*)(GbmSessionHandle, int32_t, const uint8_t*, int32_t, void*)`.
@@ -276,6 +283,16 @@ typedef CherryPickDart =
 
 typedef _CherryPickContinueNative = Void Function(Pointer<Void> session);
 typedef CherryPickContinueDart = void Function(Pointer<Void> session);
+
+typedef _CherryPickContinueWithMessageNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> message);
+typedef CherryPickContinueWithMessageDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> message);
+
+typedef _RequestOriginalOperationMessageNative =
+    Void Function(Pointer<Void> session);
+typedef RequestOriginalOperationMessageDart =
+    void Function(Pointer<Void> session);
 
 typedef _CherryPickSkipNative = Void Function(Pointer<Void> session);
 typedef CherryPickSkipDart = void Function(Pointer<Void> session);
@@ -636,6 +653,73 @@ typedef RequestCommitMetaDart =
       int oidCount,
     );
 
+typedef _RequestCommitFilesNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> oid);
+typedef RequestCommitFilesDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> oid);
+
+typedef _RequestCommitFileDiffNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> oid, Pointer<Utf8> path);
+typedef RequestCommitFileDiffDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> oid, Pointer<Utf8> path);
+
+typedef _RequestCompareRefsNative =
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> leftRef,
+      Pointer<Utf8> rightRef,
+      Int32 threeDot,
+    );
+typedef RequestCompareRefsDart =
+    void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> leftRef,
+      Pointer<Utf8> rightRef,
+      int threeDot,
+    );
+
+typedef _RequestCompareFileDiffNative =
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> leftRef,
+      Pointer<Utf8> rightRef,
+      Int32 threeDot,
+      Pointer<Utf8> path,
+    );
+typedef RequestCompareFileDiffDart =
+    void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> leftRef,
+      Pointer<Utf8> rightRef,
+      int threeDot,
+      Pointer<Utf8> path,
+    );
+
+typedef _RequestRemotePrunePreviewNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> remoteName);
+typedef RequestRemotePrunePreviewDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> remoteName);
+
+typedef _RequestCompareWithWorkingCopyNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> ref);
+typedef RequestCompareWithWorkingCopyDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> ref);
+
+typedef _RemotePruneNative =
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> remoteName,
+      Pointer<Pointer<Utf8>> refs,
+      Int32 refCount,
+    );
+typedef RemotePruneDart =
+    void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> remoteName,
+      Pointer<Pointer<Utf8>> refs,
+      int refCount,
+    );
+
 typedef _RequestFileHistoryNative =
     Void Function(
       Pointer<Void> session,
@@ -759,6 +843,11 @@ typedef RebaseStartDart =
 
 typedef _RebaseContinueNative = Void Function(Pointer<Void> session);
 typedef RebaseContinueDart = void Function(Pointer<Void> session);
+
+typedef _RebaseContinueWithMessageNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> message);
+typedef RebaseContinueWithMessageDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> message);
 
 typedef _RebaseSkipNative = Void Function(Pointer<Void> session);
 typedef RebaseSkipDart = void Function(Pointer<Void> session);
@@ -1177,6 +1266,16 @@ class GbmBindings {
           .lookupFunction<_CherryPickContinueNative, CherryPickContinueDart>(
             'gbm_cherry_pick_continue',
           ),
+      cherryPickContinueWithMessage = library
+          .lookupFunction<
+            _CherryPickContinueWithMessageNative,
+            CherryPickContinueWithMessageDart
+          >('gbm_cherry_pick_continue_with_message'),
+      requestOriginalOperationMessage = library
+          .lookupFunction<
+            _RequestOriginalOperationMessageNative,
+            RequestOriginalOperationMessageDart
+          >('gbm_request_original_operation_message'),
       cherryPickSkip = library
           .lookupFunction<_CherryPickSkipNative, CherryPickSkipDart>(
             'gbm_cherry_pick_skip',
@@ -1323,6 +1422,37 @@ class GbmBindings {
           .lookupFunction<_RequestCommitMetaNative, RequestCommitMetaDart>(
             'gbm_request_commit_meta',
           ),
+      requestCommitFiles = library
+          .lookupFunction<_RequestCommitFilesNative, RequestCommitFilesDart>(
+            'gbm_request_commit_files',
+          ),
+      requestCommitFileDiff = library
+          .lookupFunction<
+            _RequestCommitFileDiffNative,
+            RequestCommitFileDiffDart
+          >('gbm_request_commit_file_diff'),
+      requestCompareRefs = library
+          .lookupFunction<_RequestCompareRefsNative, RequestCompareRefsDart>(
+            'gbm_request_compare_refs',
+          ),
+      requestCompareFileDiff = library
+          .lookupFunction<
+            _RequestCompareFileDiffNative,
+            RequestCompareFileDiffDart
+          >('gbm_request_compare_file_diff'),
+      requestRemotePrunePreview = library
+          .lookupFunction<
+            _RequestRemotePrunePreviewNative,
+            RequestRemotePrunePreviewDart
+          >('gbm_request_remote_prune_preview'),
+      remotePrune = library.lookupFunction<_RemotePruneNative, RemotePruneDart>(
+        'gbm_remote_prune',
+      ),
+      requestCompareWithWorkingCopy = library
+          .lookupFunction<
+            _RequestCompareWithWorkingCopyNative,
+            RequestCompareWithWorkingCopyDart
+          >('gbm_request_compare_with_working_copy'),
       requestFileHistory = library
           .lookupFunction<_RequestFileHistoryNative, RequestFileHistoryDart>(
             'gbm_request_file_history',
@@ -1370,6 +1500,11 @@ class GbmBindings {
           .lookupFunction<_RebaseContinueNative, RebaseContinueDart>(
             'gbm_rebase_continue',
           ),
+      rebaseContinueWithMessage = library
+          .lookupFunction<
+            _RebaseContinueWithMessageNative,
+            RebaseContinueWithMessageDart
+          >('gbm_rebase_continue_with_message'),
       rebaseSkip = library.lookupFunction<_RebaseSkipNative, RebaseSkipDart>(
         'gbm_rebase_skip',
       ),
@@ -1578,6 +1713,8 @@ class GbmBindings {
   final MergeAbortDart mergeAbort;
   final CherryPickDart cherryPick;
   final CherryPickContinueDart cherryPickContinue;
+  final CherryPickContinueWithMessageDart cherryPickContinueWithMessage;
+  final RequestOriginalOperationMessageDart requestOriginalOperationMessage;
   final CherryPickSkipDart cherryPickSkip;
   final CherryPickAbortDart cherryPickAbort;
   final RevertDart revert;
@@ -1620,6 +1757,13 @@ class GbmBindings {
   final CancelCredentialDart cancelCredential;
   final RequestBlameDart requestBlame;
   final RequestCommitMetaDart requestCommitMeta;
+  final RequestCommitFilesDart requestCommitFiles;
+  final RequestCommitFileDiffDart requestCommitFileDiff;
+  final RequestCompareRefsDart requestCompareRefs;
+  final RequestCompareFileDiffDart requestCompareFileDiff;
+  final RequestRemotePrunePreviewDart requestRemotePrunePreview;
+  final RemotePruneDart remotePrune;
+  final RequestCompareWithWorkingCopyDart requestCompareWithWorkingCopy;
   final RequestFileHistoryDart requestFileHistory;
   final RequestLineHistoryDart requestLineHistory;
   final RequestReflogDart requestReflog;
@@ -1632,6 +1776,7 @@ class GbmBindings {
   final RebaseInteractiveStartDart rebaseInteractiveStart;
   final RebaseStartDart rebaseStart;
   final RebaseContinueDart rebaseContinue;
+  final RebaseContinueWithMessageDart rebaseContinueWithMessage;
   final RebaseSkipDart rebaseSkip;
   final RebaseAbortDart rebaseAbort;
   final SubmoduleRefreshDart submoduleRefresh;

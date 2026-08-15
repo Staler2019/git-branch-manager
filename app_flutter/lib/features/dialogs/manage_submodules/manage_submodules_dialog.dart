@@ -19,10 +19,12 @@ class ManageSubmodulesDialogContent extends ConsumerStatefulWidget {
   final RepoIdentity identity;
 
   @override
-  ConsumerState<ManageSubmodulesDialogContent> createState() => _ManageSubmodulesDialogContentState();
+  ConsumerState<ManageSubmodulesDialogContent> createState() =>
+      _ManageSubmodulesDialogContentState();
 }
 
-class _ManageSubmodulesDialogContentState extends ConsumerState<ManageSubmodulesDialogContent> {
+class _ManageSubmodulesDialogContentState
+    extends ConsumerState<ManageSubmodulesDialogContent> {
   bool _addExpanded = false;
   final TextEditingController _urlController = TextEditingController();
   final TextEditingController _pathController = TextEditingController();
@@ -31,7 +33,11 @@ class _ManageSubmodulesDialogContentState extends ConsumerState<ManageSubmodules
   @override
   void initState() {
     super.initState();
-    Future.microtask(() => ref.read(repoSessionProvider(widget.identity).notifier).refreshSubmodules());
+    Future.microtask(
+      () => ref
+          .read(repoSessionProvider(widget.identity).notifier)
+          .refreshSubmodules(),
+    );
   }
 
   @override
@@ -48,20 +54,29 @@ class _ManageSubmodulesDialogContentState extends ConsumerState<ManageSubmodules
     final List<SubmoduleInfo> submodules = ref.watch(
       repoSessionProvider(widget.identity).select((state) => state.submodules),
     );
-    final RepoSessionController notifier = ref.read(repoSessionProvider(widget.identity).notifier);
+    final RepoSessionController notifier = ref.read(
+      repoSessionProvider(widget.identity).notifier,
+    );
 
     return GbmDialogShell(
       title: 'Manage Submodules',
       width: 680,
       actions: <Widget>[
-        GbmButton(label: 'Update All', onPressed: () => notifier.updateSubmodules(init: true)),
+        GbmButton(
+          label: 'Update All',
+          onPressed: () => notifier.updateSubmodules(init: true),
+        ),
         const SizedBox(width: GbmSpacing.space2),
         GbmButton(
           label: _addExpanded ? 'Cancel Add' : 'Add…',
           onPressed: () => setState(() => _addExpanded = !_addExpanded),
         ),
         const SizedBox(width: GbmSpacing.space2),
-        GbmButton(label: 'Close', kind: GbmButtonKind.primary, onPressed: () => context.pop()),
+        GbmButton(
+          label: 'Close',
+          kind: GbmButtonKind.primary,
+          onPressed: () => context.pop(),
+        ),
       ],
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -70,7 +85,11 @@ class _ManageSubmodulesDialogContentState extends ConsumerState<ManageSubmodules
           if (_addExpanded) ...<Widget>[
             TextField(
               controller: _urlController,
-              decoration: const InputDecoration(hintText: 'Repository URL', isDense: true, border: OutlineInputBorder()),
+              decoration: const InputDecoration(
+                hintText: 'Repository URL',
+                isDense: true,
+                border: OutlineInputBorder(),
+              ),
             ),
             const SizedBox(height: GbmSpacing.space2),
             TextField(
@@ -84,7 +103,11 @@ class _ManageSubmodulesDialogContentState extends ConsumerState<ManageSubmodules
             const SizedBox(height: GbmSpacing.space2),
             TextField(
               controller: _branchController,
-              decoration: const InputDecoration(hintText: 'Branch (optional)', isDense: true, border: OutlineInputBorder()),
+              decoration: const InputDecoration(
+                hintText: 'Branch (optional)',
+                isDense: true,
+                border: OutlineInputBorder(),
+              ),
             ),
             const SizedBox(height: GbmSpacing.space2),
             Align(
@@ -95,7 +118,11 @@ class _ManageSubmodulesDialogContentState extends ConsumerState<ManageSubmodules
                 onPressed: () {
                   final String url = _urlController.text.trim();
                   if (url.isEmpty) return;
-                  notifier.addSubmodule(url, path: _pathController.text.trim(), branch: _branchController.text.trim());
+                  notifier.addSubmodule(
+                    url,
+                    path: _pathController.text.trim(),
+                    branch: _branchController.text.trim(),
+                  );
                   setState(() {
                     _addExpanded = false;
                     _urlController.clear();
@@ -110,15 +137,27 @@ class _ManageSubmodulesDialogContentState extends ConsumerState<ManageSubmodules
           SizedBox(
             height: 300,
             child: submodules.isEmpty
-                ? Center(child: Text('No submodules', style: TextStyle(color: colors.textTertiary)))
+                ? Center(
+                    child: Text(
+                      'No submodules',
+                      style: TextStyle(color: colors.textTertiary),
+                    ),
+                  )
                 : ListView(
                     children: <Widget>[
                       for (final submodule in submodules)
                         _SubmoduleRow(
                           submodule: submodule,
-                          onUpdate: () => notifier.updateSubmodules(paths: <String>[submodule.path], init: true),
-                          onSync: () => notifier.syncSubmodules(paths: <String>[submodule.path]),
-                          onDeinit: () => notifier.deinitSubmodules(paths: <String>[submodule.path]),
+                          onUpdate: () => notifier.updateSubmodules(
+                            paths: <String>[submodule.path],
+                            init: true,
+                          ),
+                          onSync: () => notifier.syncSubmodules(
+                            paths: <String>[submodule.path],
+                          ),
+                          onDeinit: () => notifier.deinitSubmodules(
+                            paths: <String>[submodule.path],
+                          ),
                         ),
                     ],
                   ),
@@ -130,7 +169,12 @@ class _ManageSubmodulesDialogContentState extends ConsumerState<ManageSubmodules
 }
 
 class _SubmoduleRow extends StatelessWidget {
-  const _SubmoduleRow({required this.submodule, required this.onUpdate, required this.onSync, required this.onDeinit});
+  const _SubmoduleRow({
+    required this.submodule,
+    required this.onUpdate,
+    required this.onSync,
+    required this.onDeinit,
+  });
 
   final SubmoduleInfo submodule;
   final VoidCallback onUpdate;
@@ -141,7 +185,10 @@ class _SubmoduleRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space1, vertical: GbmSpacing.space2),
+      padding: const EdgeInsets.symmetric(
+        horizontal: GbmSpacing.space1,
+        vertical: GbmSpacing.space2,
+      ),
       child: Row(
         children: <Widget>[
           Expanded(
@@ -152,31 +199,63 @@ class _SubmoduleRow extends StatelessWidget {
                   children: <Widget>[
                     Text(
                       submodule.path,
-                      style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textPrimary, fontWeight: GbmTypography.weightMedium),
+                      style: TextStyle(
+                        fontSize: GbmTypography.textSm,
+                        color: colors.textPrimary,
+                        fontWeight: GbmTypography.weightMedium,
+                      ),
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(width: GbmSpacing.space1),
                     Text(
                       '(${_stateLabel(submodule.state)})',
-                      style: TextStyle(fontSize: GbmTypography.textXs, color: _stateColor(submodule.state, colors)),
+                      style: TextStyle(
+                        fontSize: GbmTypography.textXs,
+                        color: _stateColor(submodule.state, colors),
+                      ),
                     ),
                   ],
                 ),
-                Text(submodule.url, style: TextStyle(fontSize: GbmTypography.textXs, color: colors.textTertiary), overflow: TextOverflow.ellipsis),
+                Text(
+                  submodule.url,
+                  style: TextStyle(
+                    fontSize: GbmTypography.textXs,
+                    color: colors.textTertiary,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
               ],
             ),
           ),
           TextButton(
             onPressed: onUpdate,
-            child: Text('Update', style: TextStyle(fontSize: GbmTypography.textXs, color: colors.textSecondary)),
+            child: Text(
+              'Update',
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                color: colors.textSecondary,
+              ),
+            ),
           ),
           TextButton(
             onPressed: onSync,
-            child: Text('Sync', style: TextStyle(fontSize: GbmTypography.textXs, color: colors.textSecondary)),
+            child: Text(
+              'Sync',
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                color: colors.textSecondary,
+              ),
+            ),
           ),
           TextButton(
             onPressed: onDeinit,
-            child: Text('Deinit', style: TextStyle(fontSize: GbmTypography.textXs, color: colors.danger)),
+            child: Text(
+              'Deinit',
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                color: colors.danger,
+              ),
+            ),
           ),
         ],
       ),

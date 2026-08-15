@@ -19,14 +19,21 @@ class PatchesDialogContent extends ConsumerStatefulWidget {
   final RepoIdentity identity;
 
   @override
-  ConsumerState<PatchesDialogContent> createState() => _PatchesDialogContentState();
+  ConsumerState<PatchesDialogContent> createState() =>
+      _PatchesDialogContentState();
 }
 
-class _PatchesDialogContentState extends ConsumerState<PatchesDialogContent> with SingleTickerProviderStateMixin {
-  late final TabController _tabController = TabController(length: 3, vsync: this);
+class _PatchesDialogContentState extends ConsumerState<PatchesDialogContent>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabController = TabController(
+    length: 3,
+    vsync: this,
+  );
 
-  final TextEditingController _exportCommitsController = TextEditingController();
-  final TextEditingController _exportOutputDirController = TextEditingController();
+  final TextEditingController _exportCommitsController =
+      TextEditingController();
+  final TextEditingController _exportOutputDirController =
+      TextEditingController();
 
   final TextEditingController _applyFilesController = TextEditingController();
   bool _applyThreeWay = false;
@@ -45,18 +52,25 @@ class _PatchesDialogContentState extends ConsumerState<PatchesDialogContent> wit
     super.dispose();
   }
 
-  List<String> _lines(String text) =>
-      text.split('\n').map((line) => line.trim()).where((line) => line.isNotEmpty).toList();
+  List<String> _lines(String text) => text
+      .split('\n')
+      .map((line) => line.trim())
+      .where((line) => line.isNotEmpty)
+      .toList();
 
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
-    final RepoSessionController notifier = ref.read(repoSessionProvider(widget.identity).notifier);
+    final RepoSessionController notifier = ref.read(
+      repoSessionProvider(widget.identity).notifier,
+    );
 
     return GbmDialogShell(
       title: 'Patches',
       width: 640,
-      actions: <Widget>[GbmButton(label: 'Close', onPressed: () => context.pop())],
+      actions: <Widget>[
+        GbmButton(label: 'Close', onPressed: () => context.pop()),
+      ],
       child: SizedBox(
         height: 420,
         child: Column(
@@ -66,7 +80,11 @@ class _PatchesDialogContentState extends ConsumerState<PatchesDialogContent> wit
               controller: _tabController,
               labelColor: colors.textPrimary,
               unselectedLabelColor: colors.textTertiary,
-              tabs: const <Widget>[Tab(text: 'Export'), Tab(text: 'Apply'), Tab(text: 'Import')],
+              tabs: const <Widget>[
+                Tab(text: 'Export'),
+                Tab(text: 'Apply'),
+                Tab(text: 'Import'),
+              ],
             ),
             const SizedBox(height: GbmSpacing.space3),
             Expanded(
@@ -77,8 +95,11 @@ class _PatchesDialogContentState extends ConsumerState<PatchesDialogContent> wit
                     commitsController: _exportCommitsController,
                     outputDirController: _exportOutputDirController,
                     onExport: () {
-                      final List<String> commits = _lines(_exportCommitsController.text);
-                      final String outputDir = _exportOutputDirController.text.trim();
+                      final List<String> commits = _lines(
+                        _exportCommitsController.text,
+                      );
+                      final String outputDir = _exportOutputDirController.text
+                          .trim();
                       if (commits.isEmpty || outputDir.isEmpty) return;
                       notifier.exportPatches(commits, outputDir);
                     },
@@ -87,20 +108,31 @@ class _PatchesDialogContentState extends ConsumerState<PatchesDialogContent> wit
                     filesController: _applyFilesController,
                     threeWay: _applyThreeWay,
                     updateIndex: _applyUpdateIndex,
-                    onThreeWayChanged: (value) => setState(() => _applyThreeWay = value),
-                    onUpdateIndexChanged: (value) => setState(() => _applyUpdateIndex = value),
+                    onThreeWayChanged: (value) =>
+                        setState(() => _applyThreeWay = value),
+                    onUpdateIndexChanged: (value) =>
+                        setState(() => _applyUpdateIndex = value),
                     onApply: () {
-                      final List<String> files = _lines(_applyFilesController.text);
+                      final List<String> files = _lines(
+                        _applyFilesController.text,
+                      );
                       if (files.isEmpty) return;
-                      notifier.applyPatchFiles(files, threeWay: _applyThreeWay, updateIndex: _applyUpdateIndex);
+                      notifier.applyPatchFiles(
+                        files,
+                        threeWay: _applyThreeWay,
+                        updateIndex: _applyUpdateIndex,
+                      );
                     },
                   ),
                   _ImportTab(
                     filesController: _importFilesController,
                     threeWay: _importThreeWay,
-                    onThreeWayChanged: (value) => setState(() => _importThreeWay = value),
+                    onThreeWayChanged: (value) =>
+                        setState(() => _importThreeWay = value),
                     onImport: () {
-                      final List<String> files = _lines(_importFilesController.text);
+                      final List<String> files = _lines(
+                        _importFilesController.text,
+                      );
                       if (files.isEmpty) return;
                       notifier.importPatches(files, threeWay: _importThreeWay);
                     },
@@ -119,7 +151,11 @@ class _PatchesDialogContentState extends ConsumerState<PatchesDialogContent> wit
 }
 
 class _ExportTab extends StatelessWidget {
-  const _ExportTab({required this.commitsController, required this.outputDirController, required this.onExport});
+  const _ExportTab({
+    required this.commitsController,
+    required this.outputDirController,
+    required this.onExport,
+  });
 
   final TextEditingController commitsController;
   final TextEditingController outputDirController;
@@ -131,7 +167,13 @@ class _ExportTab extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        Text('Commits (one hex per line, oldest first)', style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textSecondary)),
+        Text(
+          'Commits (one hex per line, oldest first)',
+          style: TextStyle(
+            fontSize: GbmTypography.textSm,
+            color: colors.textSecondary,
+          ),
+        ),
         const SizedBox(height: GbmSpacing.space1),
         Expanded(
           child: TextField(
@@ -145,10 +187,21 @@ class _ExportTab extends StatelessWidget {
         const SizedBox(height: GbmSpacing.space2),
         TextField(
           controller: outputDirController,
-          decoration: const InputDecoration(hintText: 'Output directory', isDense: true, border: OutlineInputBorder()),
+          decoration: const InputDecoration(
+            hintText: 'Output directory',
+            isDense: true,
+            border: OutlineInputBorder(),
+          ),
         ),
         const SizedBox(height: GbmSpacing.space2),
-        Align(alignment: Alignment.centerRight, child: GbmButton(label: 'Export', kind: GbmButtonKind.primary, onPressed: onExport)),
+        Align(
+          alignment: Alignment.centerRight,
+          child: GbmButton(
+            label: 'Export',
+            kind: GbmButtonKind.primary,
+            onPressed: onExport,
+          ),
+        ),
       ],
     );
   }
@@ -177,7 +230,13 @@ class _ApplyTab extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        Text('Patch files (one path per line)', style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textSecondary)),
+        Text(
+          'Patch files (one path per line)',
+          style: TextStyle(
+            fontSize: GbmTypography.textSm,
+            color: colors.textSecondary,
+          ),
+        ),
         const SizedBox(height: GbmSpacing.space1),
         Expanded(
           child: TextField(
@@ -193,7 +252,13 @@ class _ApplyTab extends StatelessWidget {
           dense: true,
           contentPadding: EdgeInsets.zero,
           controlAffinity: ListTileControlAffinity.leading,
-          title: Text('Fall back to a 3-way merge if the patch does not apply cleanly', style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textPrimary)),
+          title: Text(
+            'Fall back to a 3-way merge if the patch does not apply cleanly',
+            style: TextStyle(
+              fontSize: GbmTypography.textSm,
+              color: colors.textPrimary,
+            ),
+          ),
           onChanged: (value) => onThreeWayChanged(value ?? false),
         ),
         CheckboxListTile(
@@ -201,10 +266,23 @@ class _ApplyTab extends StatelessWidget {
           dense: true,
           contentPadding: EdgeInsets.zero,
           controlAffinity: ListTileControlAffinity.leading,
-          title: Text('Also stage the result', style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textPrimary)),
+          title: Text(
+            'Also stage the result',
+            style: TextStyle(
+              fontSize: GbmTypography.textSm,
+              color: colors.textPrimary,
+            ),
+          ),
           onChanged: (value) => onUpdateIndexChanged(value ?? false),
         ),
-        Align(alignment: Alignment.centerRight, child: GbmButton(label: 'Apply', kind: GbmButtonKind.primary, onPressed: onApply)),
+        Align(
+          alignment: Alignment.centerRight,
+          child: GbmButton(
+            label: 'Apply',
+            kind: GbmButtonKind.primary,
+            onPressed: onApply,
+          ),
+        ),
       ],
     );
   }
@@ -235,7 +313,13 @@ class _ImportTab extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        Text('Patch files (one path per line, format-patch style)', style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textSecondary)),
+        Text(
+          'Patch files (one path per line, format-patch style)',
+          style: TextStyle(
+            fontSize: GbmTypography.textSm,
+            color: colors.textSecondary,
+          ),
+        ),
         const SizedBox(height: GbmSpacing.space1),
         Expanded(
           child: TextField(
@@ -251,12 +335,22 @@ class _ImportTab extends StatelessWidget {
           dense: true,
           contentPadding: EdgeInsets.zero,
           controlAffinity: ListTileControlAffinity.leading,
-          title: Text('Fall back to a 3-way merge if a patch does not apply cleanly', style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textPrimary)),
+          title: Text(
+            'Fall back to a 3-way merge if a patch does not apply cleanly',
+            style: TextStyle(
+              fontSize: GbmTypography.textSm,
+              color: colors.textPrimary,
+            ),
+          ),
           onChanged: (value) => onThreeWayChanged(value ?? false),
         ),
         Row(
           children: <Widget>[
-            GbmButton(label: 'Import', kind: GbmButtonKind.primary, onPressed: onImport),
+            GbmButton(
+              label: 'Import',
+              kind: GbmButtonKind.primary,
+              onPressed: onImport,
+            ),
             const Spacer(),
             GbmButton(label: 'Continue', onPressed: onContinue),
             const SizedBox(width: GbmSpacing.space1),

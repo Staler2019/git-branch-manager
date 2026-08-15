@@ -9,7 +9,9 @@ add_library(gbm_capi SHARED
     Branches.cpp
     CallbackRegistry.cpp
     CherryPick.cpp
+    CommitFiles.cpp
     CommitMetaRequest.cpp
+    Compare.cpp
     Conflicts.cpp
     Discovery.cpp
     FileHistory.cpp
@@ -20,6 +22,7 @@ add_library(gbm_capi SHARED
     JsonCodec.cpp
     Lfs.cpp
     Merge.cpp
+    OriginalOperationMessage.cpp
     Patch.cpp
     Rebase.cpp
     Reflog.cpp

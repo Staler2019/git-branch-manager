@@ -19,12 +19,14 @@ class UndoEntry {
     );
   }
 
-  static List<UndoEntry> listFromJson(List<dynamic> json) =>
-      json.map((e) => UndoEntry.fromJson(e as Map<String, dynamic>)).toList(growable: false);
+  static List<UndoEntry> listFromJson(List<dynamic> json) => json
+      .map((e) => UndoEntry.fromJson(e as Map<String, dynamic>))
+      .toList(growable: false);
 
   final int id;
   final String description;
   final String headBefore;
+
   /// Empty when HEAD was detached at the time this entry was recorded.
   final String branchBefore;
   final int timestamp;

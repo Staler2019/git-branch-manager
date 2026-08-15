@@ -3,6 +3,7 @@
 #include "core/base/ObjectId.h"
 #include "core/git/ops/RebaseOps.h"
 
+#include <string>
 #include <vector>
 
 using namespace gbm;
@@ -48,6 +49,10 @@ GBM_API void gbm_rebase_start(GbmSessionHandle session,
 
 GBM_API void gbm_rebase_continue(GbmSessionHandle session) {
     toSession(session)->continueRebase();
+}
+
+GBM_API void gbm_rebase_continue_with_message(GbmSessionHandle session, const char* message) {
+    toSession(session)->continueRebaseWithMessage(message != nullptr ? std::string(message) : "");
 }
 
 GBM_API void gbm_rebase_skip(GbmSessionHandle session) {

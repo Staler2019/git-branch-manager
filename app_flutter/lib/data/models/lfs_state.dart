@@ -3,10 +3,16 @@
 class LfsInstallation {
   const LfsInstallation({required this.available, required this.version});
 
-  static const LfsInstallation unknown = LfsInstallation(available: false, version: '');
+  static const LfsInstallation unknown = LfsInstallation(
+    available: false,
+    version: '',
+  );
 
   factory LfsInstallation.fromJson(Map<String, dynamic> json) {
-    return LfsInstallation(available: json['available'] as bool, version: json['version'] as String);
+    return LfsInstallation(
+      available: json['available'] as bool,
+      version: json['version'] as String,
+    );
   }
 
   final bool available;
@@ -16,7 +22,11 @@ class LfsInstallation {
 /// Mirrors `gbm::LfsFileInfo` as serialized by
 /// `capi::toJson(const LfsFileInfo&)`.
 class LfsFileInfo {
-  const LfsFileInfo({required this.path, required this.oid, required this.downloadedLocally});
+  const LfsFileInfo({
+    required this.path,
+    required this.oid,
+    required this.downloadedLocally,
+  });
 
   factory LfsFileInfo.fromJson(Map<String, dynamic> json) {
     return LfsFileInfo(
@@ -26,8 +36,9 @@ class LfsFileInfo {
     );
   }
 
-  static List<LfsFileInfo> listFromJson(List<dynamic> json) =>
-      json.map((e) => LfsFileInfo.fromJson(e as Map<String, dynamic>)).toList(growable: false);
+  static List<LfsFileInfo> listFromJson(List<dynamic> json) => json
+      .map((e) => LfsFileInfo.fromJson(e as Map<String, dynamic>))
+      .toList(growable: false);
 
   final String path;
   final String oid;

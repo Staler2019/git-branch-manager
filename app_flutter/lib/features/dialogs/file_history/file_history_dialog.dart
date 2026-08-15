@@ -14,17 +14,25 @@ import '../../../widgets/gbm_dialog_shell.dart';
 /// FileHistoryDialog.cpp): the commits that touched one file, newest first.
 /// Routed as `/repo/:repoId/dialogs/file-history?path=<path>`.
 class FileHistoryDialogContent extends ConsumerStatefulWidget {
-  const FileHistoryDialogContent({super.key, required this.identity, this.initialPath = ''});
+  const FileHistoryDialogContent({
+    super.key,
+    required this.identity,
+    this.initialPath = '',
+  });
 
   final RepoIdentity identity;
   final String initialPath;
 
   @override
-  ConsumerState<FileHistoryDialogContent> createState() => _FileHistoryDialogContentState();
+  ConsumerState<FileHistoryDialogContent> createState() =>
+      _FileHistoryDialogContentState();
 }
 
-class _FileHistoryDialogContentState extends ConsumerState<FileHistoryDialogContent> {
-  late final TextEditingController _pathController = TextEditingController(text: widget.initialPath);
+class _FileHistoryDialogContentState
+    extends ConsumerState<FileHistoryDialogContent> {
+  late final TextEditingController _pathController = TextEditingController(
+    text: widget.initialPath,
+  );
 
   @override
   void initState() {
@@ -43,20 +51,26 @@ class _FileHistoryDialogContentState extends ConsumerState<FileHistoryDialogCont
   void _load() {
     final String path = _pathController.text.trim();
     if (path.isEmpty) return;
-    ref.read(repoSessionProvider(widget.identity).notifier).requestFileHistory(path);
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .requestFileHistory(path);
   }
 
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
     final List<FileHistoryEntry> entries = ref.watch(
-      repoSessionProvider(widget.identity).select((state) => state.lastFileHistory),
+      repoSessionProvider(
+        widget.identity,
+      ).select((state) => state.lastFileHistory),
     );
 
     return GbmDialogShell(
       title: 'File History',
       width: 640,
-      actions: <Widget>[GbmButton(label: 'Close', onPressed: () => context.pop())],
+      actions: <Widget>[
+        GbmButton(label: 'Close', onPressed: () => context.pop()),
+      ],
       child: SizedBox(
         height: 420,
         child: Column(
@@ -82,11 +96,18 @@ class _FileHistoryDialogContentState extends ConsumerState<FileHistoryDialogCont
             const SizedBox(height: GbmSpacing.space2),
             Expanded(
               child: entries.isEmpty
-                  ? Center(child: Text('Enter a path and press Load', style: TextStyle(color: colors.textTertiary)))
+                  ? Center(
+                      child: Text(
+                        'Enter a path and press Load',
+                        style: TextStyle(color: colors.textTertiary),
+                      ),
+                    )
                   : ListView.separated(
                       itemCount: entries.length,
-                      separatorBuilder: (context, index) => Divider(height: 1, color: colors.borderSubtle),
-                      itemBuilder: (context, index) => _FileHistoryRow(entry: entries[index]),
+                      separatorBuilder: (context, index) =>
+                          Divider(height: 1, color: colors.borderSubtle),
+                      itemBuilder: (context, index) =>
+                          _FileHistoryRow(entry: entries[index]),
                     ),
             ),
           ],
@@ -113,20 +134,33 @@ class _FileHistoryRow extends StatelessWidget {
             width: 64,
             child: Text(
               entry.oid.length > 7 ? entry.oid.substring(0, 7) : entry.oid,
-              style: TextStyle(fontFamily: 'monospace', fontSize: GbmTypography.textXs, color: colors.textTertiary),
+              style: TextStyle(
+                fontFamily: 'monospace',
+                fontSize: GbmTypography.textXs,
+                color: colors.textTertiary,
+              ),
             ),
           ),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Text(entry.subject, style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textPrimary)),
+                Text(
+                  entry.subject,
+                  style: TextStyle(
+                    fontSize: GbmTypography.textSm,
+                    color: colors.textPrimary,
+                  ),
+                ),
                 const SizedBox(height: 2),
                 Text(
                   entry.renamedFrom.isEmpty
                       ? '${entry.status} · ${entry.author.name}'
                       : '${entry.status} (from ${entry.renamedFrom}) · ${entry.author.name}',
-                  style: TextStyle(fontSize: GbmTypography.textXs, color: colors.textTertiary),
+                  style: TextStyle(
+                    fontSize: GbmTypography.textXs,
+                    color: colors.textTertiary,
+                  ),
                 ),
               ],
             ),

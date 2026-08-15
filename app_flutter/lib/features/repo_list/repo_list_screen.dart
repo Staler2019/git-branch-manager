@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../data/models/repo_record.dart';
 import '../../data/repositories/discovery_repository.dart';
+import '../../data/services/desktop_launcher.dart';
 import '../../routing/app_router.dart';
 import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
@@ -133,6 +134,9 @@ class _RepoListScreenState extends ConsumerState<RepoListScreen> {
                         onTap: () => context.go(
                           RoutePaths.workspaceFor(repoIdFor(repo.workDir)),
                         ),
+                        onOpenInFileManager: () => ref
+                            .read(desktopLauncherProvider)
+                            .openInFileManager(repo.workDir),
                       );
                     },
                   ),

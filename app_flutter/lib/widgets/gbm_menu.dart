@@ -11,6 +11,16 @@ import '../theme/tokens.dart';
 /// context menus) constructs these as flat literal lists mixing items and
 /// separators, which reads more like the design doc's own `{ sep: true }`
 /// shape than a `switch` over item/separator subtypes would.
+///
+/// A submenu item (created via [GbmMenuItem.submenu]) declares [children]
+/// nested one level only — recursive submenus are forbidden and asserted at
+/// construction time. NOTE: the flyout itself is not yet implemented —
+/// [_GbmMenuRow] currently renders a submenu trigger's label only and its
+/// `onTap` is always null, so tapping one just closes the menu. Until the
+/// flyout renders, callers should treat [GbmMenuItem.submenu] as
+/// display-only (see `menu_bar_row.dart`'s View > Graph columns / Theme,
+/// which deliberately leave these non-interactive rather than pretend they
+/// work).
 class GbmMenuItem {
   const GbmMenuItem({
     required this.label,
@@ -18,7 +28,9 @@ class GbmMenuItem {
     this.shortcut,
     this.danger = false,
     required this.onTap,
-  }) : separator = false;
+    this.children = const <GbmMenuItem>[],
+  }) : separator = false,
+       _isSubmenuTrigger = false;
 
   const GbmMenuItem.separator()
     : label = '',
@@ -26,14 +38,78 @@ class GbmMenuItem {
       shortcut = null,
       danger = false,
       onTap = null,
-      separator = true;
+      separator = true,
+      children = const <GbmMenuItem>[],
+      _isSubmenuTrigger = false;
+
+  /// Creates a submenu-triggering item that will render a flyout with
+  /// [children] on hover/tap. In debug mode, asserts that [children] do not
+  /// themselves contain submenu items (one level of nesting only).
+  GbmMenuItem.submenu({required this.label, this.icon, required this.children})
+    : separator = false,
+      _isSubmenuTrigger = true,
+      shortcut = null,
+      danger = false,
+      onTap = null {
+    assert(_noNestedSubmenus(children));
+  }
+
+  static bool _noNestedSubmenus(List<GbmMenuItem> items) {
+    for (final item in items) {
+      if (item._isSubmenuTrigger) {
+        return false;
+      }
+    }
+    return true;
+  }
 
   final String label;
   final IconData? icon;
   final String? shortcut;
   final bool danger;
   final bool separator;
+  final bool _isSubmenuTrigger;
   final VoidCallback? onTap;
+  final List<GbmMenuItem> children;
+
+  bool get isSubmenuTrigger => _isSubmenuTrigger;
+}
+
+/// Validates menu invariants: (a) at most 8 non-separator top-level items,
+/// (b) if any item has [danger: true], it must be the last non-separator item
+/// with exactly one separator immediately before it.
+///
+/// Only called from [showGbmContextMenu], not [showGbmMenu] directly --
+/// rule (a) is spec page 05's own stated scope ("共 11 種右鍵目標...最上層
+/// 一律扁平、最多 8 項"), specific to right-click context menus. Spec page
+/// 04's menu-bar dropdowns are a different surface with no such cap (View
+/// legitimately has 11 items, Repository 9, per the MENUS table) and must
+/// not be run through this check.
+void validateGbmMenuItems(List<GbmMenuItem> items) {
+  final nonSeparatorItems = items.where((item) => !item.separator).toList();
+
+  assert(
+    nonSeparatorItems.length <= 8,
+    'Menu has ${nonSeparatorItems.length} non-separator items; max is 8',
+  );
+
+  final dangerItem = nonSeparatorItems.cast<GbmMenuItem?>().firstWhere(
+    (item) => item?.danger ?? false,
+    orElse: () => null,
+  );
+
+  if (dangerItem != null) {
+    assert(
+      nonSeparatorItems.last == dangerItem,
+      'Danger item must be the last non-separator item',
+    );
+
+    final dangerIndex = items.indexOf(dangerItem);
+    assert(
+      dangerIndex > 0 && items[dangerIndex - 1].separator,
+      'Danger item must be immediately preceded by a separator',
+    );
+  }
 }
 
 /// `.gbm-menu`/`.gbm-menu-item`/`.gbm-menu-shortcut`/`.gbm-menu-sep`
@@ -76,6 +152,7 @@ Future<void> showGbmContextMenu(
   Offset globalPosition,
   List<GbmMenuItem> items,
 ) {
+  validateGbmMenuItems(items);
   final RenderBox overlay =
       Overlay.of(context).context.findRenderObject()! as RenderBox;
   final RelativeRect position = RelativeRect.fromRect(
@@ -100,7 +177,7 @@ class _GbmMenuPanel extends StatelessWidget {
         color: colors.surfaceOverlay,
         border: Border.all(color: colors.borderDefault),
         borderRadius: BorderRadius.circular(GbmSpacing.radiusMd),
-        boxShadow: GbmEffects.shadowLg(_variantOf(colors)),
+        boxShadow: GbmEffects.shadowLg(_variantOf(context)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -121,12 +198,10 @@ class _GbmMenuPanel extends StatelessWidget {
     );
   }
 
-  /// [GbmEffects.shadowLg] needs the variant only to pick a shadow alpha
-  /// (deeper on dark) -- there is no reverse lookup from [GbmColors] back
-  /// to [GbmThemeVariant], so this infers it the same way the app has no
-  /// other place that needs to: a dark `surfaceApp` means the dark variant.
-  GbmThemeVariant _variantOf(GbmColors colors) =>
-      colors.surfaceApp.computeLuminance() < 0.5
+  /// Read the theme variant from [Theme.of(context).brightness] to pick
+  /// the correct shadow alpha for [GbmEffects.shadowLg].
+  GbmThemeVariant _variantOf(BuildContext context) =>
+      Theme.of(context).brightness == Brightness.dark
       ? GbmThemeVariant.darkTechnical
       : GbmThemeVariant.lightIde;
 }

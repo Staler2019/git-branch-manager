@@ -7,8 +7,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
 import 'package:gbm_flutter/features/sidebar/widgets/branch_tree_item.dart';
-import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
+
+import '../../support/pump_app.dart';
 
 RefInfo _branch({String name = 'feature/x', bool isHead = false}) {
   return RefInfo(
@@ -38,14 +39,8 @@ Future<void> _rightClick(WidgetTester tester, Finder finder) async {
   await tester.pumpAndSettle();
 }
 
-Future<void> _pump(WidgetTester tester, Widget child) async {
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
-      home: Scaffold(body: child),
-    ),
-  );
-}
+Future<void> _pump(WidgetTester tester, Widget child) =>
+    pumpGbmWidget(tester, child: child);
 
 void main() {
   testWidgets(

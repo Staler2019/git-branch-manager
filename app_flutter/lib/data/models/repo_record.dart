@@ -10,7 +10,10 @@ enum RepoKind {
   final int value;
 
   static RepoKind fromValue(int value) {
-    return RepoKind.values.firstWhere((kind) => kind.value == value, orElse: () => RepoKind.normal);
+    return RepoKind.values.firstWhere(
+      (kind) => kind.value == value,
+      orElse: () => RepoKind.normal,
+    );
   }
 }
 
@@ -47,8 +50,9 @@ class RepoRecord {
     );
   }
 
-  static List<RepoRecord> listFromJson(List<dynamic> json) =>
-      json.map((entry) => RepoRecord.fromJson(entry as Map<String, dynamic>)).toList(growable: false);
+  static List<RepoRecord> listFromJson(List<dynamic> json) => json
+      .map((entry) => RepoRecord.fromJson(entry as Map<String, dynamic>))
+      .toList(growable: false);
 
   final int id;
   final int baseFolderId;

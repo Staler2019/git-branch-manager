@@ -18,12 +18,21 @@ class AboutDialogContent extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Text('A fast Git client for very large repositories.', style: TextStyle(fontSize: GbmTypography.textBase, color: colors.textPrimary)),
+          Text(
+            'A fast Git client for very large repositories.',
+            style: TextStyle(
+              fontSize: GbmTypography.textBase,
+              color: colors.textPrimary,
+            ),
+          ),
           const SizedBox(height: GbmSpacing.space3),
           Text(
             'Flutter UI (Riverpod + go_router), talking to the existing C++ core '
             'through the gbm_capi FFI bridge -- see docs/ARCHITECTURE.md.',
-            style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textSecondary),
+            style: TextStyle(
+              fontSize: GbmTypography.textSm,
+              color: colors.textSecondary,
+            ),
           ),
           const SizedBox(height: GbmSpacing.space4),
         ],

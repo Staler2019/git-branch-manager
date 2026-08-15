@@ -13,7 +13,10 @@ enum FileChangeKind {
   final int value;
 
   static FileChangeKind fromValue(int value) =>
-      FileChangeKind.values.firstWhere((k) => k.value == value, orElse: () => FileChangeKind.modified);
+      FileChangeKind.values.firstWhere(
+        (k) => k.value == value,
+        orElse: () => FileChangeKind.modified,
+      );
 }
 
 /// Mirrors `gbm::ConflictKind` (src/core/git/WorkingCopyStatus.h).
@@ -31,8 +34,10 @@ enum ConflictKind {
 
   final int value;
 
-  static ConflictKind fromValue(int value) =>
-      ConflictKind.values.firstWhere((k) => k.value == value, orElse: () => ConflictKind.none);
+  static ConflictKind fromValue(int value) => ConflictKind.values.firstWhere(
+    (k) => k.value == value,
+    orElse: () => ConflictKind.none,
+  );
 }
 
 /// Mirrors `gbm::WorkingCopyEntry` as serialized by
@@ -103,13 +108,19 @@ class WorkingCopyStatus {
     );
   }
 
-  static const WorkingCopyStatus empty = WorkingCopyStatus(entries: <WorkingCopyEntry>[]);
+  static const WorkingCopyStatus empty = WorkingCopyStatus(
+    entries: <WorkingCopyEntry>[],
+  );
 
   final List<WorkingCopyEntry> entries;
 
   bool get isClean => entries.isEmpty;
-  List<WorkingCopyEntry> get staged => entries.where((e) => e.staged).toList(growable: false);
-  List<WorkingCopyEntry> get unstaged => entries.where((e) => e.hasUnstagedChange).toList(growable: false);
-  List<WorkingCopyEntry> get untrackedFiles => entries.where((e) => e.untracked).toList(growable: false);
-  List<WorkingCopyEntry> get conflicted => entries.where((e) => e.isConflicted).toList(growable: false);
+  List<WorkingCopyEntry> get staged =>
+      entries.where((e) => e.staged).toList(growable: false);
+  List<WorkingCopyEntry> get unstaged =>
+      entries.where((e) => e.hasUnstagedChange).toList(growable: false);
+  List<WorkingCopyEntry> get untrackedFiles =>
+      entries.where((e) => e.untracked).toList(growable: false);
+  List<WorkingCopyEntry> get conflicted =>
+      entries.where((e) => e.isConflicted).toList(growable: false);
 }

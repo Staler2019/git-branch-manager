@@ -19,11 +19,13 @@ class BranchTreeItem extends StatelessWidget {
     this.onDelete,
     this.onNewBranchFromHere,
     this.onMerge,
+    this.conflictActive = false,
   });
 
   final RefInfo ref;
   final VoidCallback onCheckout;
   final bool selected;
+  final bool conflictActive;
 
   /// Null hides the selection checkbox entirely (HEAD can't be
   /// multi-selected for deletion -- see SidebarPanel's doc comment).
@@ -110,23 +112,28 @@ class BranchTreeItem extends StatelessWidget {
               ),
             ),
           if (onRename != null || onDelete != null)
-            PopupMenuButton<VoidCallback>(
-              tooltip: 'Branch actions',
-              icon: Icon(Icons.more_vert, size: 16, color: colors.textTertiary),
-              padding: EdgeInsets.zero,
-              onSelected: (action) => action(),
-              itemBuilder: (context) => <PopupMenuEntry<VoidCallback>>[
-                if (onRename != null)
-                  PopupMenuItem<VoidCallback>(
-                    value: onRename!,
-                    child: const Text('Rename…'),
-                  ),
-                if (onDelete != null)
-                  PopupMenuItem<VoidCallback>(
-                    value: onDelete!,
-                    child: const Text('Delete…'),
-                  ),
-              ],
+            Builder(
+              builder: (buttonContext) => IconButton(
+                tooltip: 'Branch actions',
+                icon: Icon(
+                  Icons.more_vert,
+                  size: 16,
+                  color: colors.textTertiary,
+                ),
+                iconSize: 16,
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                padding: EdgeInsets.zero,
+                onPressed: () {
+                  final RenderBox renderBox =
+                      buttonContext.findRenderObject()! as RenderBox;
+                  final Offset globalPos = renderBox.localToGlobal(Offset.zero);
+                  showGbmContextMenu(
+                    buttonContext,
+                    globalPos,
+                    _buildMenuItems(),
+                  );
+                },
+              ),
             ),
         ],
       ),
@@ -142,7 +149,7 @@ class BranchTreeItem extends StatelessWidget {
       child: GestureDetector(
         onSecondaryTapDown: (details) => _openContextMenu(context, details),
         child: InkWell(
-          onTap: ref.isHead ? null : onCheckout,
+          onTap: (ref.isHead || conflictActive) ? null : onCheckout,
           borderRadius: BorderRadius.circular(GbmSpacing.radiusSm),
           child: maybeTooltip,
         ),
@@ -150,19 +157,20 @@ class BranchTreeItem extends StatelessWidget {
     );
   }
 
-  /// `ctxItemsFor('branch')` from the design doc, scoped to what this app
-  /// already has a real destination for -- "Push" and "Rebase current onto
-  /// here" have no per-branch entry point today (Push has no
-  /// target-branch parameter surfaced anywhere in the UI yet; a targeted
-  /// rebase would need the same), so they are left off rather than wired
-  /// to something that silently does the wrong thing.
-  void _openContextMenu(BuildContext context, TapDownDetails details) {
-    showGbmContextMenu(context, details.globalPosition, <GbmMenuItem>[
+  /// `ctxItemsFor('branch')` from gbm_context_menus.dart's 05-B (Local
+  /// branch), scoped to what this app already has a real destination for.
+  /// "Rebase current onto here" and "Compare with…" are omitted (no
+  /// per-branch entry point exists yet -- a targeted rebase/compare would
+  /// need the same UI as its repository-level peer, not yet surfaced),
+  /// so they are left off rather than wired to something that silently does
+  /// the wrong thing.
+  List<GbmMenuItem> _buildMenuItems() {
+    return <GbmMenuItem>[
       if (!ref.isHead)
         GbmMenuItem(
           label: 'Checkout ${ref.shortName}',
           icon: Icons.call_split,
-          onTap: onCheckout,
+          onTap: conflictActive ? null : onCheckout,
         ),
       if (onNewBranchFromHere != null)
         GbmMenuItem(
@@ -176,7 +184,6 @@ class BranchTreeItem extends StatelessWidget {
           icon: Icons.edit_outlined,
           onTap: onRename!,
         ),
-      const GbmMenuItem.separator(),
       if (onMerge != null)
         GbmMenuItem(
           label: 'Merge into current branch',
@@ -197,6 +204,10 @@ class BranchTreeItem extends StatelessWidget {
           onTap: onDelete!,
         ),
       ],
-    ]);
+    ];
+  }
+
+  void _openContextMenu(BuildContext context, TapDownDetails details) {
+    showGbmContextMenu(context, details.globalPosition, _buildMenuItems());
   }
 }

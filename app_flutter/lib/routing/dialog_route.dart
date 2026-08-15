@@ -7,7 +7,10 @@ import 'package:go_router/go_router.dart';
 /// ad hoc `showDialog()` calls, so every dialog stays deep-linkable and gets
 /// consistent Esc/back dismissal -- this is the pattern M3 sets out to
 /// validate for the ~30 remaining Qt dialogs (see docs/FEATURES.md).
-GoRoute dialogRoute({required String path, required Widget Function(BuildContext, GoRouterState) builder}) {
+GoRoute dialogRoute({
+  required String path,
+  required Widget Function(BuildContext, GoRouterState) builder,
+}) {
   return GoRoute(
     path: path,
     pageBuilder: (context, state) => CustomTransitionPage<void>(

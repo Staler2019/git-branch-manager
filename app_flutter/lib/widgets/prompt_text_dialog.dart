@@ -16,7 +16,9 @@ Future<String?> promptText(
   required String label,
   String initialValue = '',
 }) {
-  final TextEditingController controller = TextEditingController(text: initialValue);
+  final TextEditingController controller = TextEditingController(
+    text: initialValue,
+  );
   return showDialog<String>(
     context: context,
     builder: (dialogContext) {
@@ -26,15 +28,26 @@ Future<String?> promptText(
         content: TextField(
           controller: controller,
           autofocus: true,
-          decoration: InputDecoration(labelText: label, isDense: true, border: const OutlineInputBorder()),
+          decoration: InputDecoration(
+            labelText: label,
+            isDense: true,
+            border: const OutlineInputBorder(),
+          ),
           onSubmitted: (value) => Navigator.of(dialogContext).pop(value.trim()),
         ),
         actions: <Widget>[
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: Text('Cancel', style: TextStyle(color: colors.textSecondary)),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: colors.textSecondary),
+            ),
           ),
-          TextButton(onPressed: () => Navigator.of(dialogContext).pop(controller.text.trim()), child: const Text('OK')),
+          TextButton(
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(controller.text.trim()),
+            child: const Text('OK'),
+          ),
         ],
       );
     },

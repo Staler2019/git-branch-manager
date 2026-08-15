@@ -70,7 +70,8 @@ class DiscoveryController extends StateNotifier<DiscoveryState> {
 
   Future<void> _open() async {
     final Directory supportDir = await getApplicationSupportDirectory();
-    final String dbPath = '${supportDir.path}${Platform.pathSeparator}discovery.sqlite3';
+    final String dbPath =
+        '${supportDir.path}${Platform.pathSeparator}discovery.sqlite3';
     final Pointer<Utf8> pathPtr = dbPath.toNativeUtf8();
     try {
       _discovery = _bindings.discoveryOpen(pathPtr);
@@ -90,7 +91,9 @@ class DiscoveryController extends StateNotifier<DiscoveryState> {
   void _listRepos() {
     if (_bindings.discoveryListReposJson(_discovery) == 0) {
       final String json = readLastResultJson(_bindings);
-      final List<dynamic> decoded = json.isEmpty ? const <dynamic>[] : jsonDecode(json) as List<dynamic>;
+      final List<dynamic> decoded = json.isEmpty
+          ? const <dynamic>[]
+          : jsonDecode(json) as List<dynamic>;
       state = state.copyWith(repos: RepoRecord.listFromJson(decoded));
     }
   }
@@ -98,14 +101,20 @@ class DiscoveryController extends StateNotifier<DiscoveryState> {
   void _listBaseFolders() {
     if (_bindings.discoveryBaseFoldersJson(_discovery) == 0) {
       final String json = readLastResultJson(_bindings);
-      final List<dynamic> decoded = json.isEmpty ? const <dynamic>[] : jsonDecode(json) as List<dynamic>;
-      state = state.copyWith(baseFolders: BaseFolderRecord.listFromJson(decoded));
+      final List<dynamic> decoded = json.isEmpty
+          ? const <dynamic>[]
+          : jsonDecode(json) as List<dynamic>;
+      state = state.copyWith(
+        baseFolders: BaseFolderRecord.listFromJson(decoded),
+      );
     }
   }
 
   GitError? _decodeLastError() {
     final String json = readLastResultJson(_bindings);
-    return json.isEmpty ? null : GitError.fromJson(jsonDecode(json) as Map<String, dynamic>);
+    return json.isEmpty
+        ? null
+        : GitError.fromJson(jsonDecode(json) as Map<String, dynamic>);
   }
 
   /// Registers `path` as a base folder and scans it immediately. See the
@@ -146,7 +155,11 @@ class DiscoveryController extends StateNotifier<DiscoveryState> {
   /// gbm_discovery_set_base_folder_enabled()'s doc comment in gbm_capi.h.
   void setBaseFolderEnabled(int baseFolderId, bool enabled) {
     if (_discovery == nullptr) return;
-    final int result = _bindings.discoverySetBaseFolderEnabled(_discovery, baseFolderId, enabled ? 1 : 0);
+    final int result = _bindings.discoverySetBaseFolderEnabled(
+      _discovery,
+      baseFolderId,
+      enabled ? 1 : 0,
+    );
     if (result != 0) {
       state = state.copyWith(lastError: _decodeLastError());
       return;
@@ -158,7 +171,10 @@ class DiscoveryController extends StateNotifier<DiscoveryState> {
   /// the list (see gbm_discovery_remove_base_folder()'s doc comment).
   void removeBaseFolder(int baseFolderId) {
     if (_discovery == nullptr) return;
-    final int result = _bindings.discoveryRemoveBaseFolder(_discovery, baseFolderId);
+    final int result = _bindings.discoveryRemoveBaseFolder(
+      _discovery,
+      baseFolderId,
+    );
     if (result != 0) {
       state = state.copyWith(lastError: _decodeLastError());
       return;
@@ -176,7 +192,9 @@ class DiscoveryController extends StateNotifier<DiscoveryState> {
   }
 }
 
-final StateNotifierProvider<DiscoveryController, DiscoveryState> discoveryProvider =
-    StateNotifierProvider<DiscoveryController, DiscoveryState>((ref) {
-      return DiscoveryController(ref.watch(gbmBindingsProvider));
-    });
+final StateNotifierProvider<DiscoveryController, DiscoveryState>
+discoveryProvider = StateNotifierProvider<DiscoveryController, DiscoveryState>((
+  ref,
+) {
+  return DiscoveryController(ref.watch(gbmBindingsProvider));
+});

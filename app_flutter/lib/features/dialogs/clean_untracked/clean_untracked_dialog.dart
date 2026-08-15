@@ -20,10 +20,12 @@ class CleanUntrackedDialogContent extends ConsumerStatefulWidget {
   final RepoIdentity identity;
 
   @override
-  ConsumerState<CleanUntrackedDialogContent> createState() => _CleanUntrackedDialogContentState();
+  ConsumerState<CleanUntrackedDialogContent> createState() =>
+      _CleanUntrackedDialogContentState();
 }
 
-class _CleanUntrackedDialogContentState extends ConsumerState<CleanUntrackedDialogContent> {
+class _CleanUntrackedDialogContentState
+    extends ConsumerState<CleanUntrackedDialogContent> {
   bool _includeIgnored = false;
 
   @override
@@ -33,16 +35,22 @@ class _CleanUntrackedDialogContentState extends ConsumerState<CleanUntrackedDial
   }
 
   void _preview() {
-    ref.read(repoSessionProvider(widget.identity).notifier).requestCleanPreview(includeIgnored: _includeIgnored);
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .requestCleanPreview(includeIgnored: _includeIgnored);
   }
 
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
     final List<CleanEntry> preview = ref.watch(
-      repoSessionProvider(widget.identity).select((state) => state.lastCleanPreview),
+      repoSessionProvider(
+        widget.identity,
+      ).select((state) => state.lastCleanPreview),
     );
-    final RepoSessionController notifier = ref.read(repoSessionProvider(widget.identity).notifier);
+    final RepoSessionController notifier = ref.read(
+      repoSessionProvider(widget.identity).notifier,
+    );
 
     return GbmDialogShell(
       title: 'Clean Untracked Files',
@@ -51,7 +59,8 @@ class _CleanUntrackedDialogContentState extends ConsumerState<CleanUntrackedDial
         GbmButton(label: 'Cancel', onPressed: () => context.pop()),
         const SizedBox(width: GbmSpacing.space2),
         GbmButton(
-          label: 'Delete ${preview.length} item${preview.length == 1 ? '' : 's'}',
+          label:
+              'Delete ${preview.length} item${preview.length == 1 ? '' : 's'}',
           kind: GbmButtonKind.primary,
           onPressed: preview.isEmpty
               ? null
@@ -71,7 +80,13 @@ class _CleanUntrackedDialogContentState extends ConsumerState<CleanUntrackedDial
               dense: true,
               contentPadding: EdgeInsets.zero,
               controlAffinity: ListTileControlAffinity.leading,
-              title: Text('Also remove ignored files', style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textPrimary)),
+              title: Text(
+                'Also remove ignored files',
+                style: TextStyle(
+                  fontSize: GbmTypography.textSm,
+                  color: colors.textPrimary,
+                ),
+              ),
               onChanged: (value) {
                 setState(() => _includeIgnored = value ?? false);
                 _preview();
@@ -80,7 +95,12 @@ class _CleanUntrackedDialogContentState extends ConsumerState<CleanUntrackedDial
             const Divider(height: GbmSpacing.space2),
             Expanded(
               child: preview.isEmpty
-                  ? Center(child: Text('Nothing to clean', style: TextStyle(color: colors.textTertiary)))
+                  ? Center(
+                      child: Text(
+                        'Nothing to clean',
+                        style: TextStyle(color: colors.textTertiary),
+                      ),
+                    )
                   : ListView.builder(
                       itemCount: preview.length,
                       itemBuilder: (context, index) {
@@ -88,8 +108,20 @@ class _CleanUntrackedDialogContentState extends ConsumerState<CleanUntrackedDial
                         return ListTile(
                           dense: true,
                           contentPadding: EdgeInsets.zero,
-                          leading: Icon(entry.isDirectory ? Icons.folder_outlined : Icons.insert_drive_file_outlined, size: 16, color: colors.textTertiary),
-                          title: Text(entry.path, style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textPrimary)),
+                          leading: Icon(
+                            entry.isDirectory
+                                ? Icons.folder_outlined
+                                : Icons.insert_drive_file_outlined,
+                            size: 16,
+                            color: colors.textTertiary,
+                          ),
+                          title: Text(
+                            entry.path,
+                            style: TextStyle(
+                              fontSize: GbmTypography.textSm,
+                              color: colors.textPrimary,
+                            ),
+                          ),
                         );
                       },
                     ),

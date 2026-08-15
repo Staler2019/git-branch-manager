@@ -5,8 +5,26 @@
 #include "core/base/Error.h"
 #include "core/git/ops/RemoteOps.h"
 
+#include <string>
+#include <vector>
+
 using namespace gbm;
 using namespace gbm::capi;
+
+namespace {
+
+std::vector<std::string> toStringVector(const char* const* items, int32_t count) {
+    std::vector<std::string> out;
+    out.reserve(static_cast<std::size_t>(count > 0 ? count : 0));
+    for (int32_t i = 0; i < count; ++i) {
+        if (items[i] != nullptr) {
+            out.emplace_back(items[i]);
+        }
+    }
+    return out;
+}
+
+}  // namespace
 
 GBM_API void gbm_remote_refresh(GbmSessionHandle session) {
     toSession(session)->refreshRemotes();
@@ -60,6 +78,20 @@ GBM_API void gbm_push(GbmSessionHandle session,
     request.pushTags = pushTags != 0;
     request.force = forceWithLease != 0 ? PushForceMode::ForceWithLease : PushForceMode::None;
     toSession(session)->pushChanges(std::move(request));
+}
+
+GBM_API void gbm_request_remote_prune_preview(GbmSessionHandle session, const char* remoteName) {
+    toSession(session)->requestRemotePrunePreview(remoteName != nullptr ? remoteName : "");
+}
+
+GBM_API void gbm_remote_prune(GbmSessionHandle session,
+                              const char* remoteName,
+                              const char* const* refs,
+                              int32_t refCount) {
+    PruneRemoteRequest request;
+    request.remoteName = remoteName != nullptr ? remoteName : "";
+    request.refs = toStringVector(refs, refCount);
+    toSession(session)->pruneRemote(std::move(request));
 }
 
 GBM_API void gbm_provide_credential(GbmSessionHandle session, const char* secret) {

@@ -9,6 +9,36 @@ import '../ffi/gbm_bindings.dart';
 /// `gbm::kRowBoundary` (src/core/graph/GraphSnapshot.h).
 const int kRowBoundary = 0xFFFFFFFF;
 
+/// Mirrors `gbm::EdgeKind` (src/core/graph/GraphSnapshot.h).
+enum EdgeKind {
+  firstParent(0),
+  mergeParent(1),
+  octopus(2);
+
+  const EdgeKind(this.value);
+  final int value;
+}
+
+/// One decoded `gbm::Edge` (src/core/graph/GraphSnapshot.h) -- the exact
+/// 16-byte layout `gbm_graph_snapshot_edges()` exposes.
+class GraphEdge {
+  const GraphEdge({
+    required this.childRow,
+    required this.parentRow,
+    required this.lane,
+    required this.childLane,
+    required this.color,
+    required this.kind,
+  });
+
+  final int childRow;
+  final int parentRow;
+  final int lane;
+  final int childLane;
+  final int color;
+  final EdgeKind kind;
+}
+
 /// One decoded `gbm::RowMeta` (src/core/graph/GraphSnapshot.h) -- the exact
 /// 16-byte layout `gbm_graph_snapshot_rows()` exposes, read field-by-field
 /// rather than reinterpreted as a struct since Dart has no packed-struct FFI
@@ -55,6 +85,7 @@ class GraphSnapshotView {
     required this.laneCount,
     required this.complete,
     required this.truncated,
+    this.edges = const <GraphEdge>[],
   });
 
   static const GraphSnapshotView empty = GraphSnapshotView(
@@ -64,6 +95,7 @@ class GraphSnapshotView {
     laneCount: 0,
     complete: false,
     truncated: false,
+    edges: <GraphEdge>[],
   );
 
   final List<GraphRow> rows;
@@ -72,6 +104,7 @@ class GraphSnapshotView {
   final int laneCount;
   final bool complete;
   final bool truncated;
+  final List<GraphEdge> edges;
 
   /// Parent commit hashes of `rows[rowIndex]`, in row order. A parent
   /// outside the walk ([kRowBoundary]) is omitted.
@@ -79,7 +112,24 @@ class GraphSnapshotView {
     final GraphRow row = rows[rowIndex];
     return <String>[
       for (int i = 0; i < row.parentCount; i++)
-        if (parentPool[row.parentOffset + i] != kRowBoundary) oidsHex[parentPool[row.parentOffset + i]],
+        if (parentPool[row.parentOffset + i] != kRowBoundary)
+          oidsHex[parentPool[row.parentOffset + i]],
+    ];
+  }
+
+  /// Edges that span `rowIndex` -- mirrors `gbm::Edge::spans()`
+  /// (src/core/graph/GraphSnapshot.h): a boundary parent ([kRowBoundary])
+  /// draws as a short two-row stub (`childRow`..`childRow + 1`), not as
+  /// spanning every row through the end of the graph.
+  List<GraphEdge> edgesSpanning(int rowIndex) {
+    return <GraphEdge>[
+      for (final GraphEdge edge in edges)
+        if (edge.childRow <= rowIndex &&
+            rowIndex <=
+                (edge.parentRow == kRowBoundary
+                    ? edge.childRow + 1
+                    : edge.parentRow))
+          edge,
     ];
   }
 }
@@ -89,18 +139,27 @@ class GraphSnapshotView {
 /// before returning. Returns [GraphSnapshotView.empty] if no snapshot has
 /// been published yet (i.e. before the first `gbm_history_refresh()`
 /// completes).
-GraphSnapshotView readGraphSnapshot(GbmBindings bindings, Pointer<Void> session) {
+GraphSnapshotView readGraphSnapshot(
+  GbmBindings bindings,
+  Pointer<Void> session,
+) {
   final Pointer<Int32> countOut = malloc<Int32>();
   final Pointer<Int32> strideOut = malloc<Int32>();
   try {
-    final Pointer<Uint8> rowsPtr = bindings.graphSnapshotRows(session, countOut, strideOut);
+    final Pointer<Uint8> rowsPtr = bindings.graphSnapshotRows(
+      session,
+      countOut,
+      strideOut,
+    );
     final int rowCount = countOut.value;
     if (rowsPtr == nullptr || rowCount == 0) {
       bindings.graphSnapshotRelease(session);
       return GraphSnapshotView.empty;
     }
     final int rowStride = strideOut.value;
-    final ByteData rowData = ByteData.sublistView(rowsPtr.asTypedList(rowCount * rowStride));
+    final ByteData rowData = ByteData.sublistView(
+      rowsPtr.asTypedList(rowCount * rowStride),
+    );
     final List<GraphRow> rows = List<GraphRow>.generate(rowCount, (int i) {
       final int base = i * rowStride;
       return GraphRow(
@@ -115,6 +174,7 @@ GraphSnapshotView readGraphSnapshot(GbmBindings bindings, Pointer<Void> session)
 
     final List<String> oidsHex = _readOids(bindings, session, rowCount);
     final List<int> parentPool = _readParents(bindings, session);
+    final List<GraphEdge> edges = _readEdges(bindings, session);
 
     final int laneCount = bindings.graphSnapshotLaneCount(session);
     final bool complete = bindings.graphSnapshotComplete(session) != 0;
@@ -129,6 +189,7 @@ GraphSnapshotView readGraphSnapshot(GbmBindings bindings, Pointer<Void> session)
       laneCount: laneCount,
       complete: complete,
       truncated: truncated,
+      edges: edges,
     );
   } finally {
     malloc.free(countOut);
@@ -136,11 +197,19 @@ GraphSnapshotView readGraphSnapshot(GbmBindings bindings, Pointer<Void> session)
   }
 }
 
-List<String> _readOids(GbmBindings bindings, Pointer<Void> session, int expectedCount) {
+List<String> _readOids(
+  GbmBindings bindings,
+  Pointer<Void> session,
+  int expectedCount,
+) {
   final Pointer<Int32> countOut = malloc<Int32>();
   final Pointer<Int32> strideOut = malloc<Int32>();
   try {
-    final Pointer<Uint8> oidsPtr = bindings.graphSnapshotOids(session, countOut, strideOut);
+    final Pointer<Uint8> oidsPtr = bindings.graphSnapshotOids(
+      session,
+      countOut,
+      strideOut,
+    );
     final int count = countOut.value;
     if (oidsPtr == nullptr || count == 0) {
       return List<String>.filled(expectedCount, '');
@@ -165,7 +234,10 @@ List<String> _readOids(GbmBindings bindings, Pointer<Void> session, int expected
 List<int> _readParents(GbmBindings bindings, Pointer<Void> session) {
   final Pointer<Int32> countOut = malloc<Int32>();
   try {
-    final Pointer<Uint32> parentsPtr = bindings.graphSnapshotParents(session, countOut);
+    final Pointer<Uint32> parentsPtr = bindings.graphSnapshotParents(
+      session,
+      countOut,
+    );
     final int count = countOut.value;
     if (parentsPtr == nullptr || count == 0) {
       return const <int>[];
@@ -173,5 +245,39 @@ List<int> _readParents(GbmBindings bindings, Pointer<Void> session) {
     return Uint32List.fromList(parentsPtr.asTypedList(count));
   } finally {
     malloc.free(countOut);
+  }
+}
+
+List<GraphEdge> _readEdges(GbmBindings bindings, Pointer<Void> session) {
+  final Pointer<Int32> countOut = malloc<Int32>();
+  final Pointer<Int32> strideOut = malloc<Int32>();
+  try {
+    final Pointer<Uint8> edgesPtr = bindings.graphSnapshotEdges(
+      session,
+      countOut,
+      strideOut,
+    );
+    final int count = countOut.value;
+    if (edgesPtr == nullptr || count == 0) {
+      return const <GraphEdge>[];
+    }
+    final int stride = strideOut.value;
+    final ByteData edgeData = ByteData.sublistView(
+      edgesPtr.asTypedList(count * stride),
+    );
+    return List<GraphEdge>.generate(count, (int i) {
+      final int base = i * stride;
+      return GraphEdge(
+        childRow: edgeData.getUint32(base, Endian.little),
+        parentRow: edgeData.getUint32(base + 4, Endian.little),
+        lane: edgeData.getUint16(base + 8, Endian.little),
+        childLane: edgeData.getUint16(base + 10, Endian.little),
+        color: edgeData.getUint8(base + 12),
+        kind: EdgeKind.values[edgeData.getUint8(base + 13)],
+      );
+    }, growable: false);
+  } finally {
+    malloc.free(countOut);
+    malloc.free(strideOut);
   }
 }

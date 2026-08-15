@@ -11,7 +11,10 @@ enum RefKind {
 
   final int value;
 
-  static RefKind fromValue(int value) => RefKind.values.firstWhere((k) => k.value == value, orElse: () => RefKind.other);
+  static RefKind fromValue(int value) => RefKind.values.firstWhere(
+    (k) => k.value == value,
+    orElse: () => RefKind.other,
+  );
 }
 
 /// Mirrors `gbm::RefInfo`.
@@ -72,12 +75,20 @@ enum HeadKind {
 
   final int value;
 
-  static HeadKind fromValue(int value) => HeadKind.values.firstWhere((k) => k.value == value, orElse: () => HeadKind.unborn);
+  static HeadKind fromValue(int value) => HeadKind.values.firstWhere(
+    (k) => k.value == value,
+    orElse: () => HeadKind.unborn,
+  );
 }
 
 /// Mirrors `gbm::HeadInfo`.
 class HeadInfo {
-  const HeadInfo({required this.kind, required this.branchName, required this.fullRef, required this.target});
+  const HeadInfo({
+    required this.kind,
+    required this.branchName,
+    required this.fullRef,
+    required this.target,
+  });
 
   factory HeadInfo.fromJson(Map<String, dynamic> json) {
     return HeadInfo(
@@ -97,7 +108,12 @@ class HeadInfo {
 /// Mirrors `gbm::RefSnapshot` as serialized by `capi::toJson(const
 /// RefSnapshot&)`.
 class RefSnapshot {
-  const RefSnapshot({required this.head, required this.refs, required this.refCountGuardTripped, required this.totalRefCount});
+  const RefSnapshot({
+    required this.head,
+    required this.refs,
+    required this.refCountGuardTripped,
+    required this.totalRefCount,
+  });
 
   factory RefSnapshot.fromJson(Map<String, dynamic> json) {
     return RefSnapshot(
@@ -111,7 +127,12 @@ class RefSnapshot {
   }
 
   static const RefSnapshot empty = RefSnapshot(
-    head: HeadInfo(kind: HeadKind.unborn, branchName: '', fullRef: '', target: ''),
+    head: HeadInfo(
+      kind: HeadKind.unborn,
+      branchName: '',
+      fullRef: '',
+      target: '',
+    ),
     refs: <RefInfo>[],
     refCountGuardTripped: false,
     totalRefCount: 0,
@@ -122,5 +143,14 @@ class RefSnapshot {
   final bool refCountGuardTripped;
   final int totalRefCount;
 
-  List<RefInfo> get localBranches => refs.where((r) => r.kind == RefKind.localBranch).toList(growable: false);
+  List<RefInfo> get localBranches =>
+      refs.where((r) => r.kind == RefKind.localBranch).toList(growable: false);
+
+  /// All remote branches (e.g., origin/main, origin/dev).
+  List<RefInfo> get remoteBranches =>
+      refs.where((r) => r.kind == RefKind.remoteBranch).toList(growable: false);
+
+  /// All tags (e.g., v1.0.0, release-2024).
+  List<RefInfo> get tags =>
+      refs.where((r) => r.kind == RefKind.tag).toList(growable: false);
 }

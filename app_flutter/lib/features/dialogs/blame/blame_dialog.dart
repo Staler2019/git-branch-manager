@@ -16,7 +16,11 @@ import '../../../widgets/gbm_dialog_shell.dart';
 /// the `path` query parameter) is pre-filled and loaded automatically when
 /// opened from a file row, but can also be typed in directly.
 class BlameDialogContent extends ConsumerStatefulWidget {
-  const BlameDialogContent({super.key, required this.identity, this.initialPath = ''});
+  const BlameDialogContent({
+    super.key,
+    required this.identity,
+    this.initialPath = '',
+  });
 
   final RepoIdentity identity;
   final String initialPath;
@@ -26,7 +30,9 @@ class BlameDialogContent extends ConsumerStatefulWidget {
 }
 
 class _BlameDialogContentState extends ConsumerState<BlameDialogContent> {
-  late final TextEditingController _pathController = TextEditingController(text: widget.initialPath);
+  late final TextEditingController _pathController = TextEditingController(
+    text: widget.initialPath,
+  );
 
   @override
   void initState() {
@@ -51,12 +57,16 @@ class _BlameDialogContentState extends ConsumerState<BlameDialogContent> {
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
-    final BlameResult? blame = ref.watch(repoSessionProvider(widget.identity).select((state) => state.lastBlame));
+    final BlameResult? blame = ref.watch(
+      repoSessionProvider(widget.identity).select((state) => state.lastBlame),
+    );
 
     return GbmDialogShell(
       title: 'Blame',
       width: 760,
-      actions: <Widget>[GbmButton(label: 'Close', onPressed: () => context.pop())],
+      actions: <Widget>[
+        GbmButton(label: 'Close', onPressed: () => context.pop()),
+      ],
       child: SizedBox(
         height: 440,
         child: Column(
@@ -82,19 +92,29 @@ class _BlameDialogContentState extends ConsumerState<BlameDialogContent> {
             const SizedBox(height: GbmSpacing.space2),
             Expanded(
               child: blame == null
-                  ? Center(child: Text('Enter a path and press Load', style: TextStyle(color: colors.textTertiary)))
+                  ? Center(
+                      child: Text(
+                        'Enter a path and press Load',
+                        style: TextStyle(color: colors.textTertiary),
+                      ),
+                    )
                   : ListView.builder(
                       itemCount: blame.lines.length,
                       itemBuilder: (context, index) {
                         final BlameLine line = blame.lines[index];
                         return Container(
-                          padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2, vertical: 1),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: GbmSpacing.space2,
+                            vertical: 1,
+                          ),
                           child: Row(
                             children: <Widget>[
                               SizedBox(
                                 width: 70,
                                 child: Text(
-                                  line.commitOid.length > 7 ? line.commitOid.substring(0, 7) : line.commitOid,
+                                  line.commitOid.length > 7
+                                      ? line.commitOid.substring(0, 7)
+                                      : line.commitOid,
                                   style: TextStyle(
                                     fontFamily: 'monospace',
                                     fontSize: GbmTypography.textXs,
@@ -107,7 +127,10 @@ class _BlameDialogContentState extends ConsumerState<BlameDialogContent> {
                                 child: Text(
                                   line.authorName,
                                   overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(fontSize: GbmTypography.textXs, color: colors.textSecondary),
+                                  style: TextStyle(
+                                    fontSize: GbmTypography.textXs,
+                                    color: colors.textSecondary,
+                                  ),
                                 ),
                               ),
                               SizedBox(
@@ -142,7 +165,13 @@ class _BlameDialogContentState extends ConsumerState<BlameDialogContent> {
             if (blame?.truncated ?? false)
               Padding(
                 padding: const EdgeInsets.only(top: GbmSpacing.space1),
-                child: Text('Result truncated', style: TextStyle(fontSize: GbmTypography.textXs, color: colors.textTertiary)),
+                child: Text(
+                  'Result truncated',
+                  style: TextStyle(
+                    fontSize: GbmTypography.textXs,
+                    color: colors.textTertiary,
+                  ),
+                ),
               ),
           ],
         ),

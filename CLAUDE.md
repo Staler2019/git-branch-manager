@@ -30,26 +30,37 @@ src/core/   headless C++20, no Qt/Dart (docs/ARCHITECTURE.md)
   /working-copy                    WorkingCopyView
 /repo/:repoId/conflicts            ConflictResolveWindow (standalone window, not a dialog overlay)
 
-/dialogs/about                            \  app-wide (not repo-scoped: discovery isn't
-/dialogs/keyboard-shortcuts                > tied to any one open repository, see
-/dialogs/manage-base-folders              /  gbm_capi.h's Discovery section)
+/dialogs/about                            \  app-wide (not repo-scoped: discovery
+/dialogs/keyboard-shortcuts                > and app settings aren't tied to any
+/dialogs/manage-base-folders               > one open repository, see gbm_capi.h's
+/dialogs/switch-repository                 > Discovery section, and spec page 11)
+/dialogs/preferences                      /
 
-/repo/:repoId/dialogs/<name>       24 repo-scoped dialogs: reset-branch, merge,
+/repo/:repoId/dialogs/<name>       33 repo-scoped dialogs: reset-branch, merge,
                                     cherry-pick, stash-changes, manage-stashes,
                                     manage-worktrees, manage-remotes, create-tag,
                                     credential, operation-log, blame, file-history,
                                     line-history, reflog, undo-last,
                                     interactive-rebase, manage-submodules, bisect,
                                     manage-lfs, patches, clean-untracked,
-                                    preferences, checkout-recovery,
-                                    delete-branch-recovery
+                                    checkout-recovery, delete-branch-recovery,
+                                    prune-remote-branches, repository-settings,
+                                    new-branch, checkout, delete-branch,
+                                    rebase-onto, force-push, delete-remote-branch,
+                                    restore-file, discard-changes
 ```
 
 Dialog routes are top-level (pushed over whatever's underneath), not
-`ShellRoute` children — see `dialog_route.dart`. Verified exhaustively (not
-sampled): all 27 `RoutePaths.*Dialog` path constants are registered in
-`app_router.dart`, and all 24 `*DialogFor(repoId)` builders are called from
-some site under `lib/features/`. No orphaned routes.
+`ShellRoute` children — see `dialog_route.dart`.
+
+**Preferences vs Repository settings.** These are two different dialogs and
+the split is deliberate (spec pages 11 and 06): `/dialogs/preferences` is
+application-level (six sections: General / Repository sources / Git /
+Appearance / Shortcuts / Advanced) and opens with no repository at all, while
+`/repo/:repoId/dialogs/repository-settings` is per-repository (four tabs:
+General / Remotes / Identity / Performance). They were previously one
+repo-scoped dialog that both `filePreferences` and `repositorySettings`
+opened, so Ctrl/Cmd+, landed on Git identity.
 
 ### Feature directory layout
 
@@ -246,11 +257,61 @@ deliberately rather than let the number imply more work happened than did:
    branches" at 3–4 steps. Reading `sidebar_panel.dart` showed it's 2 steps
    (select-all-gone icon → Delete), with no intermediate confirmation dialog.
 
+### Spec conformance pass
+
+A later pass re-read the source spec (`Flutter Desktop Spec.dc.html`, the
+same claude.ai design project `f6b7d1fd-…` that `docs/design/tokens-reference.md`
+is drawn from) page by page and closed the gaps it found. What that changed,
+so the next reader doesn't re-derive it:
+
+- **~30 of 52 menu actions were wired to `null`** — the menus rendered, but
+  clicking did nothing. All now resolve to a handler except the four routed
+  through `MenuBarRow` params and those legitimately state-dependent
+  (disabled with no unstaged files, on a detached HEAD, or mid-conflict per
+  spec page 07).
+- **History had no commit search** (spec page 02 item 3). Added
+  `features/history_graph/commit_search.dart` + a filter field. The lane
+  column is hidden while filtering, because `graph.edges` connect adjacent
+  rows of the *unfiltered* snapshot. Known limitation documented there:
+  message/author matching only sees commits whose `CommitMeta` has loaded;
+  hash-prefix matching covers the whole snapshot.
+- **Nine spec page 06 dialogs did not exist** — new-branch, checkout,
+  delete-branch, rebase-onto, force-push, delete-remote-branch, restore-file,
+  discard-changes, repository-settings.
+- **Discard had no confirmation at all**: `WorkingCopyView._discardFile`
+  called `restorePaths` straight from the context menu. It now goes through
+  the discard-changes dialog.
+- **`PlatformMenuBarHost` was a passthrough stub**; it now builds a real
+  macOS `PlatformMenuBar`, and `MenuBarRow` is suppressed there so the menus
+  don't render twice (spec page 01).
+- The Keyboard shortcuts dialog was seven hardcoded strings matching neither
+  the menu labels nor the real bindings; it now derives from `gbmMenus` +
+  `gbmActionShortcuts`.
+
+Toolchain note: this repo needs Flutter with Dart ≥ 3.12.2 (`pubspec.yaml`'s
+`sdk: ^3.12.2`) — Flutter 3.44.x ships it. After that pass `flutter analyze`
+is clean (exit 0) and `flutter test` is 631 passed / 21 skipped.
+
+**`flutter analyze` must stay at zero issues.** CI's Flutter UI job runs it
+with no tolerance flags, and the command exits non-zero on *info*-level
+lints too — so an "only an info" diagnostic still fails the build. That job
+also sits behind `needs: capi-build`, so it does not run at all while any
+capi job is red; a green capi run can therefore surface Flutter problems
+that were previously invisible rather than absent.
+
 ### Known gaps (flagged, not fixed this round)
 
 - **B (−1 pt)**: route/entry-point reachability was audited exhaustively;
   whether each dialog's *internal* functionality is complete once opened was
   not re-verified per dialog.
+- Some spec behaviour has no backing capi entry point and is therefore
+  absent rather than faked: per-object transfer counts for fetch/pull/push
+  (spec page 10's "12,480 / 31,206" progress figures, reported as
+  indeterminate instead), removing a single repository from the discovered
+  list (05-A's "Remove from list", rendered disabled), and
+  open-file-at-revision / save-this-revision in 05-K. Settings whose effect
+  this layer cannot yet honour are likewise not offered in Preferences —
+  see `AppPreferences`' doc comment.
 - **D (−2 pt)**: History and Working Copy are still a tab switch, not a
   combined view. This matches an industry-standard pattern (Fork, GitKraken,
   Sourcetree all do the same) and isn't treated as a defect — but it's one

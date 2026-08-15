@@ -6,10 +6,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/commit_meta.dart';
 import 'package:gbm_flutter/data/models/graph_snapshot.dart';
+import 'package:gbm_flutter/data/models/ref_snapshot.dart';
 import 'package:gbm_flutter/data/models/signature.dart';
 import 'package:gbm_flutter/features/history_graph/widgets/commit_row.dart';
-import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
+
+import '../../support/pump_app.dart';
 
 const GraphRow _row = GraphRow(
   parentOffset: 0,
@@ -43,19 +45,6 @@ CommitMeta _meta({String subject = 'Fix the bug', String author = 'Ada'}) {
   );
 }
 
-Future<void> _pump(
-  WidgetTester tester,
-  GbmThemeVariant variant,
-  Widget child,
-) async {
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildGbmTheme(variant),
-      home: Scaffold(body: child),
-    ),
-  );
-}
-
 void main() {
   for (final GbmThemeVariant variant in GbmThemeVariant.values) {
     final GbmColors colors = tokensFor(variant);
@@ -64,14 +53,14 @@ void main() {
       testWidgets('renders subject and author once meta is available', (
         tester,
       ) async {
-        await _pump(
+        await pumpGbmWidget(
           tester,
-          variant,
-          CommitRow(
+          variant: variant,
+          child: CommitRow(
             row: _row,
             oidHex: 'a' * 40,
-            previousLane: null,
-            nextLane: null,
+            graph: GraphSnapshotView.empty,
+            rowIndex: 0,
             maxLane: 0,
             meta: _meta(subject: 'Fix the bug', author: 'Ada'),
           ),
@@ -84,14 +73,14 @@ void main() {
       testWidgets(
         'shows a skeleton placeholder instead of blank text while meta is loading',
         (tester) async {
-          await _pump(
+          await pumpGbmWidget(
             tester,
-            variant,
-            CommitRow(
+            variant: variant,
+            child: CommitRow(
               row: _row,
               oidHex: 'a' * 40,
-              previousLane: null,
-              nextLane: null,
+              graph: GraphSnapshotView.empty,
+              rowIndex: 0,
               maxLane: 0,
             ),
           );
@@ -110,14 +99,14 @@ void main() {
       );
 
       testWidgets('selected uses surfaceSelected background', (tester) async {
-        await _pump(
+        await pumpGbmWidget(
           tester,
-          variant,
-          CommitRow(
+          variant: variant,
+          child: CommitRow(
             row: _row,
             oidHex: 'a' * 40,
-            previousLane: null,
-            nextLane: null,
+            graph: GraphSnapshotView.empty,
+            rowIndex: 0,
             maxLane: 0,
             meta: _meta(),
             selected: true,
@@ -137,14 +126,14 @@ void main() {
       });
 
       testWidgets('unselected has no background', (tester) async {
-        await _pump(
+        await pumpGbmWidget(
           tester,
-          variant,
-          CommitRow(
+          variant: variant,
+          child: CommitRow(
             row: _row,
             oidHex: 'a' * 40,
-            previousLane: null,
-            nextLane: null,
+            graph: GraphSnapshotView.empty,
+            rowIndex: 0,
             maxLane: 0,
             meta: _meta(),
           ),
@@ -164,14 +153,14 @@ void main() {
 
       testWidgets('tapping the row invokes onTap', (tester) async {
         String? tapped;
-        await _pump(
+        await pumpGbmWidget(
           tester,
-          variant,
-          CommitRow(
+          variant: variant,
+          child: CommitRow(
             row: _row,
             oidHex: 'a' * 40,
-            previousLane: null,
-            nextLane: null,
+            graph: GraphSnapshotView.empty,
+            rowIndex: 0,
             maxLane: 0,
             meta: _meta(),
             onTap: () => tapped = 'a' * 40,
@@ -181,6 +170,123 @@ void main() {
         await tester.tap(find.byType(CommitRow));
         expect(tapped, 'a' * 40);
       });
+
+      testWidgets('renders a chip for every ref pointing to this commit', (
+        tester,
+      ) async {
+        await pumpGbmWidget(
+          tester,
+          variant: variant,
+          child: CommitRow(
+            row: _row,
+            oidHex: 'a' * 40,
+            graph: GraphSnapshotView.empty,
+            rowIndex: 0,
+            maxLane: 0,
+            meta: _meta(),
+            refChips: <RefInfo>[
+              RefInfo(
+                fullName: 'refs/heads/main',
+                shortName: 'main',
+                kind: RefKind.localBranch,
+                target: 'a' * 40,
+                upstream: '',
+                ahead: 0,
+                behind: 0,
+                hasTrackingInfo: false,
+                isGone: false,
+                isHead: true,
+                isSymbolic: false,
+                worktreePath: '',
+              ),
+              RefInfo(
+                fullName: 'refs/tags/v1.0',
+                shortName: 'v1.0',
+                kind: RefKind.tag,
+                target: 'a' * 40,
+                upstream: '',
+                ahead: 0,
+                behind: 0,
+                hasTrackingInfo: false,
+                isGone: false,
+                isHead: false,
+                isSymbolic: false,
+                worktreePath: '',
+              ),
+            ],
+          ),
+        );
+
+        expect(find.text('main'), findsOneWidget);
+        expect(find.text('v1.0'), findsOneWidget);
+      });
+
+      testWidgets('renders no chips when nothing points to this commit', (
+        tester,
+      ) async {
+        await pumpGbmWidget(
+          tester,
+          variant: variant,
+          child: CommitRow(
+            row: _row,
+            oidHex: 'a' * 40,
+            graph: GraphSnapshotView.empty,
+            rowIndex: 0,
+            maxLane: 0,
+            meta: _meta(),
+          ),
+        );
+
+        expect(find.text('main'), findsNothing);
+      });
+
+      testWidgets('author is accent-colored and bold when isOwnCommit', (
+        tester,
+      ) async {
+        await pumpGbmWidget(
+          tester,
+          variant: variant,
+          child: CommitRow(
+            row: _row,
+            oidHex: 'a' * 40,
+            graph: GraphSnapshotView.empty,
+            rowIndex: 0,
+            maxLane: 0,
+            meta: _meta(author: 'Ada'),
+            isOwnCommit: true,
+          ),
+        );
+
+        final Text authorText = tester.widget<Text>(find.text('Ada'));
+        expect(authorText.style?.color, colors.accent);
+        expect(authorText.style?.fontWeight, GbmTypography.weightSemibold);
+      });
+
+      testWidgets(
+        'author uses the default color when not isOwnCommit -- a whole-row '
+        'tint is never applied, only the author text itself',
+        (tester) async {
+          await pumpGbmWidget(
+            tester,
+            variant: variant,
+            child: CommitRow(
+              row: _row,
+              oidHex: 'a' * 40,
+              graph: GraphSnapshotView.empty,
+              rowIndex: 0,
+              maxLane: 0,
+              meta: _meta(author: 'Ada'),
+            ),
+          );
+
+          final Text authorText = tester.widget<Text>(find.text('Ada'));
+          expect(authorText.style?.color, colors.textSecondary);
+          expect(
+            authorText.style?.fontWeight,
+            isNot(GbmTypography.weightSemibold),
+          );
+        },
+      );
     });
   }
 }

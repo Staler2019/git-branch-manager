@@ -93,40 +93,11 @@ class ChangedFileRow extends StatelessWidget {
                     onFileHistory != null ||
                     onLineHistory != null ||
                     onDiscard != null)
-                  PopupMenuButton<VoidCallback>(
-                    tooltip: 'File actions',
-                    padding: EdgeInsets.zero,
-                    icon: Icon(
-                      Icons.more_vert,
-                      size: 16,
-                      color: colors.textTertiary,
-                    ),
-                    onSelected: (action) => action(),
-                    itemBuilder: (context) => <PopupMenuEntry<VoidCallback>>[
-                      if (onBlame != null)
-                        PopupMenuItem<VoidCallback>(
-                          value: onBlame,
-                          child: const Text('Blame…'),
-                        ),
-                      if (onFileHistory != null)
-                        PopupMenuItem<VoidCallback>(
-                          value: onFileHistory,
-                          child: const Text('File History…'),
-                        ),
-                      if (onLineHistory != null)
-                        PopupMenuItem<VoidCallback>(
-                          value: onLineHistory,
-                          child: const Text('Line History…'),
-                        ),
-                      if (onDiscard != null)
-                        PopupMenuItem<VoidCallback>(
-                          value: onDiscard,
-                          child: Text(
-                            'Discard Changes',
-                            style: TextStyle(color: colors.danger),
-                          ),
-                        ),
-                    ],
+                  _FileActionsMenu(
+                    onBlame: onBlame,
+                    onFileHistory: onFileHistory,
+                    onLineHistory: onLineHistory,
+                    onDiscard: onDiscard,
                   ),
               ],
             ),
@@ -136,10 +107,16 @@ class ChangedFileRow extends StatelessWidget {
     );
   }
 
-  /// `ctxItemsFor('unstaged-file'|'staged-file')` from the design doc,
-  /// scoped to what this row already has real callbacks for -- "Open file"
-  /// has no launcher wired anywhere in this app yet, so it's left off
-  /// rather than pointed at nothing.
+  /// `ctxItemsFor('unstaged-file'|'staged-file')` from gbm_context_menus.dart's
+  /// 05-F (File in working copy), scoped to what this row already has real
+  /// callbacks for. "Open file" has no launcher wired anywhere in this app yet,
+  /// and no OS-reveal launcher or per-file terminal launcher are wired (per
+  /// repo_list_tile's documented omissions), so those are left off rather than
+  /// pointed at nothing. Blame/File History/Line History are real, useful
+  /// features specific to this app and stay in the separate [_FileActionsMenu]
+  /// trailing button; folding them into a right-click "More actions" submenu
+  /// is deferred until `GbmMenuItem.submenu`'s flyout actually renders its
+  /// children (currently data-only -- see gbm_menu.dart's doc comment).
   void _openContextMenu(BuildContext context, TapDownDetails details) {
     showGbmContextMenu(context, details.globalPosition, <GbmMenuItem>[
       GbmMenuItem(
@@ -211,5 +188,69 @@ class ChangedFileRow extends StatelessWidget {
       FileChangeKind.deleted => colors.danger,
       _ => colors.textTertiary,
     };
+  }
+}
+
+/// The trailing "more" button offering Blame/File History/Line
+/// History/Discard for a [ChangedFileRow] -- a button-anchored flat
+/// [showGbmMenu], mirroring `tab_row.dart`'s `_MoreMenu._open` rather than
+/// Material's `PopupMenuButton` (see that widget's doc comment for why).
+class _FileActionsMenu extends StatelessWidget {
+  const _FileActionsMenu({
+    this.onBlame,
+    this.onFileHistory,
+    this.onLineHistory,
+    this.onDiscard,
+  });
+
+  final VoidCallback? onBlame;
+  final VoidCallback? onFileHistory;
+  final VoidCallback? onLineHistory;
+  final VoidCallback? onDiscard;
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    return Builder(
+      builder: (buttonContext) => IconButton(
+        tooltip: 'File actions',
+        padding: EdgeInsets.zero,
+        icon: Icon(Icons.more_vert, size: 16, color: colors.textTertiary),
+        onPressed: () => _open(buttonContext),
+      ),
+    );
+  }
+
+  void _open(BuildContext buttonContext) {
+    final RenderBox button = buttonContext.findRenderObject()! as RenderBox;
+    final RenderBox overlay =
+        Overlay.of(buttonContext).context.findRenderObject()! as RenderBox;
+    final RelativeRect position = RelativeRect.fromRect(
+      Rect.fromPoints(
+        button.localToGlobal(Offset(0, button.size.height), ancestor: overlay),
+        button.localToGlobal(
+          button.size.bottomRight(Offset.zero),
+          ancestor: overlay,
+        ),
+      ),
+      Offset.zero & overlay.size,
+    );
+    showGbmMenu(
+      buttonContext,
+      position: position,
+      items: <GbmMenuItem>[
+        if (onBlame != null) GbmMenuItem(label: 'Blame…', onTap: onBlame!),
+        if (onFileHistory != null)
+          GbmMenuItem(label: 'File History…', onTap: onFileHistory!),
+        if (onLineHistory != null)
+          GbmMenuItem(label: 'Line History…', onTap: onLineHistory!),
+        if (onDiscard != null)
+          GbmMenuItem(
+            label: 'Discard changes',
+            danger: true,
+            onTap: onDiscard!,
+          ),
+      ],
+    );
   }
 }

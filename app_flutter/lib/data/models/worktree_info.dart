@@ -29,8 +29,9 @@ class WorktreeInfo {
     );
   }
 
-  static List<WorktreeInfo> listFromJson(List<dynamic> json) =>
-      json.map((e) => WorktreeInfo.fromJson(e as Map<String, dynamic>)).toList(growable: false);
+  static List<WorktreeInfo> listFromJson(List<dynamic> json) => json
+      .map((e) => WorktreeInfo.fromJson(e as Map<String, dynamic>))
+      .toList(growable: false);
 
   final String path;
   final String headOid;

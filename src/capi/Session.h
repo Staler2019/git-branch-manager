@@ -35,6 +35,7 @@
 #include "core/git/ops/CheckoutOp.h"
 #include "core/git/ops/CherryPickOps.h"
 #include "core/git/ops/CommitOps.h"
+#include "core/git/ops/CompareOps.h"
 #include "core/git/ops/ConfigOps.h"
 #include "core/git/ops/ConflictOps.h"
 #include "core/git/ops/LfsOps.h"
@@ -182,11 +183,17 @@ public:
     void skipCherryPick();
     void abortCherryPick();
 
+    /// Async: see gbm_cherry_pick_continue_with_message()'s doc comment.
+    void continueCherryPickWithMessage(std::string message);
+
     /// Async: see gbm_revert()'s doc comment.
     void revertCommit(RevertRequest request);
 
     /// Async: see gbm_resolve_conflict()'s doc comment.
     void resolveConflict(ResolveConflictRequest request);
+
+    /// Async: see gbm_request_original_operation_message()'s doc comment.
+    void requestOriginalOperationMessage();
 
     /// Async: see gbm_request_working_tree_content()'s doc comment.
     void requestWorkingTreeContent(std::string path);
@@ -242,6 +249,12 @@ public:
     void pullChanges(PullRequest request);
     void pushChanges(PushRequest request);
 
+    /// Async: see gbm_request_remote_prune_preview()'s doc comment.
+    void requestRemotePrunePreview(std::string remoteName);
+
+    /// Async: see gbm_remote_prune()'s doc comment.
+    void pruneRemote(PruneRemoteRequest request);
+
     /// Async: see gbm_provide_credential()/gbm_cancel_credential()'s doc
     /// comments. A no-op if no prompt is currently outstanding.
     void provideCredential(std::string secret);
@@ -252,6 +265,27 @@ public:
 
     /// Async: see gbm_request_commit_meta()'s doc comment.
     void requestCommitMeta(std::vector<std::string> oids);
+
+    /// Async: see gbm_request_commit_files()'s doc comment.
+    void requestCommitFiles(std::string oid);
+
+    /// Async: see gbm_request_commit_file_diff()'s doc comment.
+    void requestCommitFileDiff(std::string oid, std::string path);
+
+    /// Async: see gbm_request_compare_refs()'s doc comment. left/right/
+    /// threeDot are echoed back in the event payload so a caller with
+    /// several Compare tabs open at once (each its own ref pair) can match
+    /// the reply to the tab that asked for it.
+    void requestCompareRefs(std::string leftRef, std::string rightRef, bool threeDot);
+
+    /// Async: see gbm_request_compare_file_diff()'s doc comment.
+    void requestCompareFileDiff(std::string leftRef,
+                                std::string rightRef,
+                                bool threeDot,
+                                std::string path);
+
+    /// Async: see gbm_request_compare_with_working_copy()'s doc comment.
+    void requestCompareWithWorkingCopy(std::string ref);
 
     /// Async: see gbm_request_file_history()/gbm_request_line_history()'s
     /// doc comments.
@@ -294,6 +328,9 @@ public:
     void continueRebase();
     void skipRebase();
     void abortRebase();
+
+    /// Async: see gbm_rebase_continue_with_message()'s doc comment.
+    void continueRebaseWithMessage(std::string message);
 
     /// Async: see gbm_submodule_refresh()'s doc comment.
     void refreshSubmodules();
@@ -480,6 +517,7 @@ private:
     std::unique_ptr<StashStore> stashStore_;
     std::unique_ptr<WorktreeStore> worktreeStore_;
     std::unique_ptr<RemoteStore> remoteStore_;
+    std::unique_ptr<CompareStore> compareStore_;
     std::unique_ptr<BlameStore> blameStore_;
     std::unique_ptr<CommitMetaStore> commitMetaStore_;
     std::unique_ptr<FileHistoryStore> fileHistoryStore_;

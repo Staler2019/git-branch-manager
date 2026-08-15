@@ -25,8 +25,9 @@ class SubmoduleInfo {
     );
   }
 
-  static List<SubmoduleInfo> listFromJson(List<dynamic> json) =>
-      json.map((e) => SubmoduleInfo.fromJson(e as Map<String, dynamic>)).toList(growable: false);
+  static List<SubmoduleInfo> listFromJson(List<dynamic> json) => json
+      .map((e) => SubmoduleInfo.fromJson(e as Map<String, dynamic>))
+      .toList(growable: false);
 
   final String name;
   final String path;

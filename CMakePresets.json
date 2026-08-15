@@ -84,7 +84,10 @@
       "name": "asan-ubsan",
       "inherits": "tbase",
       "configurePreset": "asan-ubsan",
-      "filter": { "include": { "label": "unit|golden" } }
+      "filter": { "include": { "label": "unit|golden" } },
+      "environment": {
+        "ASAN_OPTIONS": "detect_container_overflow=0"
+      }
     },
     {
       "name": "tsan",

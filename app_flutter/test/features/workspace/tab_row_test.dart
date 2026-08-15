@@ -5,6 +5,7 @@
 // change-count badge only when there is something to show.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/repositories/compare_tabs_repository.dart';
 import 'package:gbm_flutter/features/workspace/widgets/tab_row.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
@@ -17,6 +18,8 @@ Future<GoRouter> _pump(
   WidgetTester tester, {
   required int pendingChangeCount,
   String initialLocation = '',
+  List<CompareTabSpec> compareTabs = const <CompareTabSpec>[],
+  ValueChanged<String>? onCloseCompareTab,
 }) async {
   final GoRouter router = GoRouter(
     initialLocation: initialLocation.isEmpty
@@ -26,18 +29,44 @@ Future<GoRouter> _pump(
       GoRoute(
         path: RoutePaths.history,
         builder: (context, state) => Scaffold(
-          body: TabRow(repoId: _repoId, pendingChangeCount: pendingChangeCount),
+          body: TabRow(
+            repoId: _repoId,
+            pendingChangeCount: pendingChangeCount,
+            compareTabs: compareTabs,
+            onCloseCompareTab: onCloseCompareTab,
+          ),
         ),
       ),
       GoRoute(
         path: RoutePaths.workingCopy,
         builder: (context, state) => Scaffold(
-          body: TabRow(repoId: _repoId, pendingChangeCount: pendingChangeCount),
+          body: TabRow(
+            repoId: _repoId,
+            pendingChangeCount: pendingChangeCount,
+            compareTabs: compareTabs,
+            onCloseCompareTab: onCloseCompareTab,
+          ),
+        ),
+      ),
+      GoRoute(
+        path: RoutePaths.compare,
+        builder: (context, state) => Scaffold(
+          body: TabRow(
+            repoId: _repoId,
+            pendingChangeCount: pendingChangeCount,
+            compareTabs: compareTabs,
+            onCloseCompareTab: onCloseCompareTab,
+          ),
         ),
       ),
       GoRoute(
         path: RoutePaths.mergeDialog,
         builder: (context, state) => const Scaffold(body: Text('merge-dialog')),
+      ),
+      GoRoute(
+        path: RoutePaths.manageStashesDialog,
+        builder: (context, state) =>
+            const Scaffold(body: Text('manage-stashes-dialog')),
       ),
     ],
   );
@@ -86,4 +115,114 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('merge-dialog'), findsOneWidget);
   });
+
+  testWidgets(
+    'More menu lists all 18 items via showGbmMenu (not Material PopupMenuButton chrome)',
+    (tester) async {
+      await _pump(tester, pendingChangeCount: 0);
+      await tester.tap(find.byTooltip('More'));
+      await tester.pumpAndSettle();
+
+      // Not a Material PopupMenuButton overlay -- see tab_row.dart's
+      // _MoreMenu doc comment on why this must go through showGbmMenu.
+      expect(find.byType(PopupMenuButton<String>), findsNothing);
+
+      for (final String label in const <String>[
+        'Stash Changes…',
+        'Manage Stashes…',
+        'Create Tag…',
+        'Manage Worktrees…',
+        'Remotes…',
+        'Operation Log…',
+        'Blame…',
+        'File History…',
+        'Line History…',
+        'Reflog…',
+        'Undo Last Operation…',
+        'Interactive Rebase…',
+        'Submodules…',
+        'Bisect…',
+        'Git LFS…',
+        'Patches…',
+        'Clean Untracked…',
+        'Preferences…',
+      ]) {
+        expect(find.text(label), findsOneWidget, reason: label);
+      }
+    },
+  );
+
+  testWidgets('More menu > Manage Stashes… pushes the manage-stashes route', (
+    tester,
+  ) async {
+    await _pump(tester, pendingChangeCount: 0);
+    await tester.tap(find.byTooltip('More'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Manage Stashes…'));
+    await tester.pumpAndSettle();
+    expect(find.text('manage-stashes-dialog'), findsOneWidget);
+  });
+
+  testWidgets('renders an open Compare tab after the two fixed tabs', (
+    tester,
+  ) async {
+    await _pump(
+      tester,
+      pendingChangeCount: 0,
+      compareTabs: const <CompareTabSpec>[
+        CompareTabSpec(id: 'compare-0', left: 'main', right: 'feature'),
+      ],
+    );
+    expect(find.text('main vs feature'), findsOneWidget);
+  });
+
+  testWidgets('tapping a Compare tab navigates to its route', (tester) async {
+    final GoRouter router = await _pump(
+      tester,
+      pendingChangeCount: 0,
+      compareTabs: const <CompareTabSpec>[
+        CompareTabSpec(id: 'compare-0', left: 'main', right: 'feature'),
+      ],
+    );
+    await tester.ensureVisible(find.text('main vs feature'));
+    await tester.tap(find.text('main vs feature'));
+    await tester.pumpAndSettle();
+    expect(
+      router.routerDelegate.currentConfiguration.uri.toString(),
+      RoutePaths.compareFor(_repoId, 'compare-0'),
+    );
+  });
+
+  testWidgets('tapping a Compare tab close icon calls onCloseCompareTab '
+      'with its id', (tester) async {
+    String? closedId;
+    await _pump(
+      tester,
+      pendingChangeCount: 0,
+      compareTabs: const <CompareTabSpec>[
+        CompareTabSpec(id: 'compare-0', left: 'main', right: 'feature'),
+      ],
+      onCloseCompareTab: (String id) => closedId = id,
+    );
+    await tester.ensureVisible(find.byIcon(Icons.close));
+    await tester.tap(find.byIcon(Icons.close));
+    expect(closedId, 'compare-0');
+  });
+
+  testWidgets(
+    'History/Working Copy tabs have no close icon even with Compare tabs '
+    'open',
+    (tester) async {
+      await _pump(
+        tester,
+        pendingChangeCount: 0,
+        compareTabs: const <CompareTabSpec>[
+          CompareTabSpec(id: 'compare-0', left: 'main', right: 'feature'),
+        ],
+        onCloseCompareTab: (_) {},
+      );
+      // Exactly one close icon: the Compare tab's, not History/Working Copy.
+      expect(find.byIcon(Icons.close), findsOneWidget);
+    },
+  );
 }

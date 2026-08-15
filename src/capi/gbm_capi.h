@@ -157,6 +157,53 @@ enum GbmEventType {
     /// is simply absent from the array rather than failing the whole batch
     /// -- see CommitMetaStore::read()'s doc comment.
     GBM_EVENT_COMMIT_META_READY = 26,
+    /// payload: {"oid": string, "files": ChangedFile JSON array}. Reply to
+    /// gbm_request_commit_files().
+    GBM_EVENT_COMMIT_FILES_READY = 27,
+    /// payload: {"oid": string, "path": string, "diff": ParsedDiff JSON}.
+    /// Reply to gbm_request_commit_file_diff().
+    GBM_EVENT_COMMIT_FILE_DIFF_READY = 28,
+
+    /// payload: {"left": string, "right": string, "threeDot": bool,
+    /// "mergeBase": string, "commits": CompareCommitEntry JSON array,
+    /// "files": DiffFile JSON array}. Reply to gbm_request_compare_refs().
+    /// "mergeBase" is "" when the two refs share no common ancestor -- that
+    /// is a valid result to display (unrelated histories), not an error.
+    /// left/right/threeDot are echoed back from the request so a caller
+    /// with several Compare tabs open at once (each its own ref pair) can
+    /// match this reply to the tab that asked for it -- see
+    /// Session::requestCompareRefs()'s doc comment.
+    GBM_EVENT_COMPARE_READY = 29,
+    /// payload: {"left": string, "right": string, "threeDot": bool, "path":
+    /// string, "diff": ParsedDiff JSON}. Reply to
+    /// gbm_request_compare_file_diff(), same echo-the-request reasoning as
+    /// GBM_EVENT_COMPARE_READY above.
+    GBM_EVENT_COMPARE_FILE_DIFF_READY = 30,
+    /// payload: {"remote": string, "refs": RemotePrunePreviewEntry JSON
+    /// array}. Reply to gbm_request_remote_prune_preview(). The real
+    /// deletion (gbm_remote_prune()) reports through the existing
+    /// GBM_EVENT_OPERATION_FINISHED instead of a dedicated event -- it is
+    /// an Operation like fetch/pull/push/branch-delete, not a new kind of
+    /// reply.
+    GBM_EVENT_REMOTE_PRUNE_PREVIEW_READY = 31,
+    /// payload: {"ref": string, "diff": ParsedDiff JSON}. Reply to
+    /// gbm_request_compare_with_working_copy() -- the "compare a ref with
+    /// Working Copy" side of the Compare tab, backed by
+    /// DiffService::commitVsWorkingTree(). "ref" is echoed back from the
+    /// request for the same multi-tab matching reason as
+    /// GBM_EVENT_COMPARE_READY. Unlike that event, there is no
+    /// "threeDot"/"mergeBase" to echo -- a working-tree diff has only one
+    /// commit on either side, so two-dot/three-dot and merge-base have no
+    /// meaning here.
+    GBM_EVENT_COMPARE_WITH_WORKING_COPY_READY = 32,
+    /// payload: {"message": string}. Reply to
+    /// gbm_request_original_operation_message(). "message" is git's own
+    /// proposed commit message for the merge/cherry-pick/revert/rebase
+    /// currently stopped on conflicts (subject, body, and any "# Conflicts:"
+    /// listing, verbatim -- comment lines are not stripped, since whether to
+    /// render them differently is a UI concern). Empty when no operation is
+    /// in progress or git prepared no message at all -- not an error.
+    GBM_EVENT_ORIGINAL_OPERATION_MESSAGE_READY = 33,
 };
 
 typedef void (*GbmEventCallback)(GbmSessionHandle session,
@@ -242,6 +289,54 @@ GBM_API const uint32_t* gbm_graph_snapshot_parents(GbmSessionHandle session, int
 GBM_API const uint8_t* gbm_graph_snapshot_edges(GbmSessionHandle session,
                                                 int32_t* edgeCount,
                                                 int32_t* edgeStride);
+
+/// Requests the changed-files list for a commit. Async: fires
+/// GBM_EVENT_COMMIT_FILES_READY with a ChangedFile JSON array, or
+/// GBM_EVENT_ERROR_OCCURRED on failure.
+GBM_API void gbm_request_commit_files(GbmSessionHandle session, const char* oid);
+
+/// Requests the full diff for a specific file in a commit. Async: fires
+/// GBM_EVENT_COMMIT_FILE_DIFF_READY with a ParsedDiff JSON payload, or
+/// GBM_EVENT_ERROR_OCCURRED on failure.
+GBM_API void gbm_request_commit_file_diff(GbmSessionHandle session,
+                                          const char* oid,
+                                          const char* path);
+
+// --- Compare (M6) ----------------------------------------------------------
+// Two-ref comparison queries backing the Compare tab (spec page 12): unlike
+// gbm_remotes_json() (one published "current" snapshot), a Compare tab's
+// inputs are two user-chosen refs and the UI allows several tabs open at
+// once with different ref pairs -- so these follow the same
+// echo-the-request-params-back pattern as gbm_request_commit_file_diff()
+// above, not the single-published-state pattern. Both are read-only.
+
+/// Requests merge-base + the commit lists unique to each side + the
+/// changed-file summary for two refs, in one round trip (opening a Compare
+/// tab always wants all three). `threeDot` non-zero: `left...right`
+/// (symmetric difference off the merge base). Zero: `left..right` (only
+/// what right has that left doesn't). Async: fires GBM_EVENT_COMPARE_READY,
+/// or GBM_EVENT_ERROR_OCCURRED on failure (e.g. either ref empty).
+GBM_API void gbm_request_compare_refs(GbmSessionHandle session,
+                                      const char* leftRef,
+                                      const char* rightRef,
+                                      int32_t threeDot);
+
+/// Requests one file's full diff between two refs. Async: fires
+/// GBM_EVENT_COMPARE_FILE_DIFF_READY, or GBM_EVENT_ERROR_OCCURRED on
+/// failure.
+GBM_API void gbm_request_compare_file_diff(GbmSessionHandle session,
+                                           const char* leftRef,
+                                           const char* rightRef,
+                                           int32_t threeDot,
+                                           const char* path);
+
+/// Requests the diff between `ref` and the live working tree (uncommitted
+/// changes included) -- the "compare a ref with Working Copy" side of the
+/// Compare tab. `ref` may be any revision expression git accepts (branch,
+/// tag, oid, HEAD~N, ...); it is resolved to a commit internally. Async:
+/// fires GBM_EVENT_COMPARE_WITH_WORKING_COPY_READY, or
+/// GBM_EVENT_ERROR_OCCURRED on failure (e.g. `ref` does not resolve).
+GBM_API void gbm_request_compare_with_working_copy(GbmSessionHandle session, const char* ref);
 
 GBM_API int32_t gbm_graph_snapshot_lane_count(GbmSessionHandle session);
 GBM_API int32_t gbm_graph_snapshot_complete(GbmSessionHandle session);
@@ -349,6 +444,16 @@ GBM_API void gbm_cherry_pick_continue(GbmSessionHandle session);
 GBM_API void gbm_cherry_pick_skip(GbmSessionHandle session);
 GBM_API void gbm_cherry_pick_abort(GbmSessionHandle session);
 
+/// Same as gbm_cherry_pick_continue(), except `message` (a caller-edited
+/// commit message, typically pre-filled from
+/// GBM_EVENT_ORIGINAL_OPERATION_MESSAGE_READY) overwrites MERGE_MSG before
+/// continuing, so it becomes the resulting commit's message instead of
+/// git's own proposal. A separate function rather than a parameter added to
+/// gbm_cherry_pick_continue() -- see that function's callers, which have no
+/// message to pass and should not need one. Async: fires
+/// GBM_EVENT_OPERATION_FINISHED, same as gbm_cherry_pick_continue().
+GBM_API void gbm_cherry_pick_continue_with_message(GbmSessionHandle session, const char* message);
+
 // --- Revert ------------------------------------------------------------
 // Mirrors RepositorySession::revertCommit -- see src/core/git/ops/RevertOps.h.
 
@@ -381,6 +486,13 @@ GBM_API void gbm_resolve_conflict(GbmSessionHandle session,
                                   int32_t oursBlobMissing,
                                   int32_t theirsBlobMissing,
                                   const char* resolvedContent);
+
+/// Reads git's own proposed commit message for the merge/cherry-pick/
+/// revert/rebase currently stopped on conflicts, so the conflict resolution
+/// window's Continue step can show it as an editable pre-fill -- see
+/// gbm_cherry_pick_continue_with_message()/gbm_rebase_continue_with_message().
+/// Async: fires GBM_EVENT_ORIGINAL_OPERATION_MESSAGE_READY.
+GBM_API void gbm_request_original_operation_message(GbmSessionHandle session);
 
 /// Reads a conflicted path's raw on-disk content (conflict markers and all)
 /// for the resolve editor -- a conflicted path has no stage 0, so it cannot
@@ -629,6 +741,26 @@ GBM_API void gbm_push(GbmSessionHandle session,
                       int32_t pushTags,
                       int32_t forceWithLease);
 
+/// `git remote prune <remoteName> --dry-run`: what a real prune (below)
+/// would remove, without removing anything. Async: fires
+/// GBM_EVENT_REMOTE_PRUNE_PREVIEW_READY, or GBM_EVENT_ERROR_OCCURRED on
+/// failure (e.g. `remoteName` empty).
+GBM_API void gbm_request_remote_prune_preview(GbmSessionHandle session, const char* remoteName);
+
+/// Deletes exactly the remote-tracking refs in `refs` (typically a
+/// user-edited subset of a prior gbm_request_remote_prune_preview() reply)
+/// via `git branch --delete --remotes`, not `git remote prune`: the plain
+/// command has no "delete only these" mode. Each entry is the short name a
+/// preview reply returned, e.g. "origin/feature/old-branch". Async: fires
+/// GBM_EVENT_OPERATION_FINISHED (same channel as branch delete, not
+/// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED -- nothing here touches the
+/// working tree or index, only remote-tracking refs), and on success also
+/// triggers the same refresh gbm_history_refresh() would.
+GBM_API void gbm_remote_prune(GbmSessionHandle session,
+                              const char* remoteName,
+                              const char* const* refs,
+                              int32_t refCount);
+
 // --- Credential prompts (askpass) -------------------------------------
 // Answers or dismisses whichever prompt GBM_EVENT_CREDENTIAL_REQUESTED most
 // recently announced. A no-op if none is currently outstanding.
@@ -780,6 +912,14 @@ GBM_API void gbm_rebase_start(GbmSessionHandle session,
 GBM_API void gbm_rebase_continue(GbmSessionHandle session);
 GBM_API void gbm_rebase_skip(GbmSessionHandle session);
 GBM_API void gbm_rebase_abort(GbmSessionHandle session);
+
+/// Same as gbm_rebase_continue(), except `message` overwrites
+/// rebase-merge/message before continuing, so it becomes the resulting
+/// commit's message instead of git's own proposal -- same
+/// separate-function-not-added-parameter reasoning as
+/// gbm_cherry_pick_continue_with_message(). Async: fires
+/// GBM_EVENT_OPERATION_FINISHED, same as gbm_rebase_continue().
+GBM_API void gbm_rebase_continue_with_message(GbmSessionHandle session, const char* message);
 
 // --- Submodules ----------------------------------------------------------
 // Mirrors RepositorySession's "M5: submodules" section -- see

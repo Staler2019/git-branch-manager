@@ -29,13 +29,21 @@ class LineHistoryDialogContent extends ConsumerStatefulWidget {
   final int initialEndLine;
 
   @override
-  ConsumerState<LineHistoryDialogContent> createState() => _LineHistoryDialogContentState();
+  ConsumerState<LineHistoryDialogContent> createState() =>
+      _LineHistoryDialogContentState();
 }
 
-class _LineHistoryDialogContentState extends ConsumerState<LineHistoryDialogContent> {
-  late final TextEditingController _pathController = TextEditingController(text: widget.initialPath);
-  late final TextEditingController _startController = TextEditingController(text: '${widget.initialStartLine}');
-  late final TextEditingController _endController = TextEditingController(text: '${widget.initialEndLine}');
+class _LineHistoryDialogContentState
+    extends ConsumerState<LineHistoryDialogContent> {
+  late final TextEditingController _pathController = TextEditingController(
+    text: widget.initialPath,
+  );
+  late final TextEditingController _startController = TextEditingController(
+    text: '${widget.initialStartLine}',
+  );
+  late final TextEditingController _endController = TextEditingController(
+    text: '${widget.initialEndLine}',
+  );
   int? _selectedIndex;
 
   @override
@@ -60,20 +68,26 @@ class _LineHistoryDialogContentState extends ConsumerState<LineHistoryDialogCont
     final int? endLine = int.tryParse(_endController.text.trim());
     if (path.isEmpty || startLine == null || endLine == null) return;
     setState(() => _selectedIndex = null);
-    ref.read(repoSessionProvider(widget.identity).notifier).requestLineHistory(path, startLine, endLine);
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .requestLineHistory(path, startLine, endLine);
   }
 
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
     final List<LineHistoryChunk> chunks = ref.watch(
-      repoSessionProvider(widget.identity).select((state) => state.lastLineHistory),
+      repoSessionProvider(
+        widget.identity,
+      ).select((state) => state.lastLineHistory),
     );
 
     return GbmDialogShell(
       title: 'Line History',
       width: 760,
-      actions: <Widget>[GbmButton(label: 'Close', onPressed: () => context.pop())],
+      actions: <Widget>[
+        GbmButton(label: 'Close', onPressed: () => context.pop()),
+      ],
       child: SizedBox(
         height: 460,
         child: Column(
@@ -97,7 +111,11 @@ class _LineHistoryDialogContentState extends ConsumerState<LineHistoryDialogCont
                   child: TextField(
                     controller: _startController,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(hintText: 'Start', isDense: true, border: OutlineInputBorder()),
+                    decoration: const InputDecoration(
+                      hintText: 'Start',
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                    ),
                   ),
                 ),
                 const SizedBox(width: GbmSpacing.space2),
@@ -105,7 +123,11 @@ class _LineHistoryDialogContentState extends ConsumerState<LineHistoryDialogCont
                   child: TextField(
                     controller: _endController,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(hintText: 'End', isDense: true, border: OutlineInputBorder()),
+                    decoration: const InputDecoration(
+                      hintText: 'End',
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                    ),
                   ),
                 ),
                 const SizedBox(width: GbmSpacing.space2),
@@ -116,7 +138,10 @@ class _LineHistoryDialogContentState extends ConsumerState<LineHistoryDialogCont
             Expanded(
               child: chunks.isEmpty
                   ? Center(
-                      child: Text('Enter a path and line range, then press Load', style: TextStyle(color: colors.textTertiary)),
+                      child: Text(
+                        'Enter a path and line range, then press Load',
+                        style: TextStyle(color: colors.textTertiary),
+                      ),
                     )
                   : Row(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -130,7 +155,8 @@ class _LineHistoryDialogContentState extends ConsumerState<LineHistoryDialogCont
                               return _LineHistoryRow(
                                 chunk: chunk,
                                 selected: index == _selectedIndex,
-                                onTap: () => setState(() => _selectedIndex = index),
+                                onTap: () =>
+                                    setState(() => _selectedIndex = index),
                               );
                             },
                           ),
@@ -138,9 +164,18 @@ class _LineHistoryDialogContentState extends ConsumerState<LineHistoryDialogCont
                         VerticalDivider(width: 1, color: colors.borderSubtle),
                         Expanded(
                           child: _selectedIndex == null
-                              ? Center(child: Text('Select a commit', style: TextStyle(color: colors.textTertiary)))
+                              ? Center(
+                                  child: Text(
+                                    'Select a commit',
+                                    style: TextStyle(
+                                      color: colors.textTertiary,
+                                    ),
+                                  ),
+                                )
                               : SingleChildScrollView(
-                                  padding: const EdgeInsets.all(GbmSpacing.space2),
+                                  padding: const EdgeInsets.all(
+                                    GbmSpacing.space2,
+                                  ),
                                   child: SelectableText(
                                     chunks[_selectedIndex!].diffText,
                                     style: TextStyle(
@@ -162,7 +197,11 @@ class _LineHistoryDialogContentState extends ConsumerState<LineHistoryDialogCont
 }
 
 class _LineHistoryRow extends StatelessWidget {
-  const _LineHistoryRow({required this.chunk, required this.selected, required this.onTap});
+  const _LineHistoryRow({
+    required this.chunk,
+    required this.selected,
+    required this.onTap,
+  });
 
   final LineHistoryChunk chunk;
   final bool selected;
@@ -176,7 +215,10 @@ class _LineHistoryRow extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space3, vertical: GbmSpacing.space2),
+          padding: const EdgeInsets.symmetric(
+            horizontal: GbmSpacing.space3,
+            vertical: GbmSpacing.space2,
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
@@ -184,12 +226,19 @@ class _LineHistoryRow extends StatelessWidget {
                 chunk.subject,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textPrimary),
+                style: TextStyle(
+                  fontSize: GbmTypography.textSm,
+                  color: colors.textPrimary,
+                ),
               ),
               const SizedBox(height: 2),
               Text(
                 '${chunk.oid.length > 7 ? chunk.oid.substring(0, 7) : chunk.oid} · ${chunk.author.name}',
-                style: TextStyle(fontFamily: 'monospace', fontSize: GbmTypography.textXs, color: colors.textTertiary),
+                style: TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: GbmTypography.textXs,
+                  color: colors.textTertiary,
+                ),
               ),
             ],
           ),

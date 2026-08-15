@@ -20,6 +20,7 @@ add_library(gbm_core STATIC
     git/GitExecutable.cpp
     git/HistoryProvider.cpp
     git/OperationRunner.cpp
+    git/OriginalOperationMessage.cpp
     git/PreparedCommitMessage.cpp
     git/ProcessRunner.cpp
     git/RefStore.cpp
@@ -34,6 +35,7 @@ add_library(gbm_core STATIC
     git/ops/CheckoutOp.cpp
     git/ops/CherryPickOps.cpp
     git/ops/CommitOps.cpp
+    git/ops/CompareOps.cpp
     git/ops/ConfigOps.cpp
     git/ops/ConflictOps.cpp
     git/ops/LfsOps.cpp

@@ -11,13 +11,20 @@ enum DiffLineKind {
 
   final int value;
 
-  static DiffLineKind fromValue(int value) =>
-      DiffLineKind.values.firstWhere((k) => k.value == value, orElse: () => DiffLineKind.context);
+  static DiffLineKind fromValue(int value) => DiffLineKind.values.firstWhere(
+    (k) => k.value == value,
+    orElse: () => DiffLineKind.context,
+  );
 }
 
 /// Mirrors `gbm::DiffLine`.
 class DiffLine {
-  const DiffLine({required this.kind, required this.oldLine, required this.newLine, required this.text});
+  const DiffLine({
+    required this.kind,
+    required this.oldLine,
+    required this.newLine,
+    required this.text,
+  });
 
   factory DiffLine.fromJson(Map<String, dynamic> json) {
     return DiffLine(
@@ -122,7 +129,11 @@ class DiffFile {
 /// Mirrors `gbm::ParsedDiff` as serialized by `capi::toJson(const
 /// ParsedDiff&)`.
 class ParsedDiff {
-  const ParsedDiff({required this.files, required this.truncated, required this.inputBytes});
+  const ParsedDiff({
+    required this.files,
+    required this.truncated,
+    required this.inputBytes,
+  });
 
   factory ParsedDiff.fromJson(Map<String, dynamic> json) {
     return ParsedDiff(
@@ -134,7 +145,11 @@ class ParsedDiff {
     );
   }
 
-  static const ParsedDiff empty = ParsedDiff(files: <DiffFile>[], truncated: false, inputBytes: 0);
+  static const ParsedDiff empty = ParsedDiff(
+    files: <DiffFile>[],
+    truncated: false,
+    inputBytes: 0,
+  );
 
   final List<DiffFile> files;
   final bool truncated;

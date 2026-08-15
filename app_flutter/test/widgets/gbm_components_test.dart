@@ -4,25 +4,23 @@
 // hardcoded so a token change doesn't silently desync these assertions.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
 import 'package:gbm_flutter/widgets/gbm_badge.dart';
 import 'package:gbm_flutter/widgets/gbm_button.dart';
 import 'package:gbm_flutter/widgets/gbm_icon_button.dart';
 import 'package:gbm_flutter/widgets/gbm_row.dart';
 
+import '../support/pump_app.dart';
+
 Future<void> _pump(
   WidgetTester tester,
   GbmThemeVariant variant,
   Widget child,
-) async {
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildGbmTheme(variant),
-      home: Scaffold(body: Center(child: child)),
-    ),
-  );
-}
+) => pumpGbmWidget(
+  tester,
+  variant: variant,
+  child: Center(child: child),
+);
 
 void main() {
   for (final GbmThemeVariant variant in GbmThemeVariant.values) {

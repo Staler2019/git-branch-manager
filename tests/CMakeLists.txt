@@ -8,6 +8,7 @@ target_link_libraries(gbm_test_support PUBLIC gbm_core PRIVATE gbm_warnings)
 # --- core unit + integration tests -------------------------------------
 add_executable(gbm_core_tests
     unit/BranchOpsTest.cpp
+    unit/CompareOpsTest.cpp
     unit/ConflictBatchTest.cpp
     unit/ConflictMarkerParserTest.cpp
     unit/CoreBasicsTest.cpp
@@ -16,8 +17,10 @@ add_executable(gbm_core_tests
     unit/GitIntegrationTest.cpp
     unit/GraphBuilderTest.cpp
     unit/MaintenanceOpsTest.cpp
+    unit/OriginalOperationMessageTest.cpp
     unit/PreparedCommitMessageTest.cpp
     unit/ProcessRunnerTest.cpp
+    unit/RemoteOpsTest.cpp
     unit/RepoStateTest.cpp
     unit/SideBySideDiffTest.cpp
     unit/TextTraitsTest.cpp
@@ -114,7 +117,9 @@ if(GBM_BUILD_CAPI)
         capi/BranchApiTest.cpp
         capi/CallbackRegistryTest.cpp
         capi/CherryPickRevertApiTest.cpp
+        capi/CommitFilesApiTest.cpp
         capi/CommitMetaApiTest.cpp
+        capi/CompareApiTest.cpp
         capi/ConflictMarkerApiTest.cpp
         capi/DiscoveryApiTest.cpp
         capi/FileHistoryApiTest.cpp
@@ -123,6 +128,7 @@ if(GBM_BUILD_CAPI)
         capi/LfsApiTest.cpp
         capi/MergeApiTest.cpp
         capi/OperationLogApiTest.cpp
+        capi/OriginalOperationMessageApiTest.cpp
         capi/PatchApiTest.cpp
         capi/RebaseApiTest.cpp
         capi/ReflogApiTest.cpp

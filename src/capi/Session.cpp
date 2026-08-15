@@ -4,6 +4,7 @@
 #include "capi/JsonWriter.h"
 #include "core/base/FsUtil.h"
 #include "core/git/AskpassHelper.h"
+#include "core/git/OriginalOperationMessage.h"
 #include "core/git/TextTraits.h"
 #include "core/git/ops/CheckoutOp.h"
 #include "core/workers/ThreadPool.h"
@@ -139,6 +140,7 @@ Session::Session(GitInstallation installation,
       stashStore_(std::make_unique<StashStore>(*runner_, paths_)),
       worktreeStore_(std::make_unique<WorktreeStore>(*runner_, paths_)),
       remoteStore_(std::make_unique<RemoteStore>(*runner_, paths_)),
+      compareStore_(std::make_unique<CompareStore>(*runner_, paths_)),
       blameStore_(std::make_unique<BlameStore>(*runner_, paths_)),
       commitMetaStore_(std::make_unique<CommitMetaStore>(installation_.executable, paths_)),
       fileHistoryStore_(std::make_unique<FileHistoryStore>(*runner_, paths_)),
@@ -446,6 +448,11 @@ void Session::continueCherryPick() {
     submitOperation(makeCherryPickContinueOperation(), /*refreshHistoryOnSuccess=*/true);
 }
 
+void Session::continueCherryPickWithMessage(std::string message) {
+    writeCherryPickContinueMessage(paths_, message);
+    continueCherryPick();
+}
+
 void Session::skipCherryPick() {
     submitOperation(makeCherryPickSkipOperation(), /*refreshHistoryOnSuccess=*/true);
 }
@@ -461,6 +468,16 @@ void Session::revertCommit(RevertRequest request) {
 void Session::resolveConflict(ResolveConflictRequest request) {
     submitWorkingCopyOperation(makeResolveConflictOperation(std::move(request)),
                                [this]() { refreshWorkingCopy(); });
+}
+
+void Session::requestOriginalOperationMessage() {
+    sharedReadPool().postFront([this]() {
+        const std::string message = readOriginalOperationMessage(paths_);
+        std::string payload = "{\"message\":";
+        jsonAppendEscaped(payload, message);
+        payload += '}';
+        callbacks_.emit(GBM_EVENT_ORIGINAL_OPERATION_MESSAGE_READY, payload);
+    });
 }
 
 void Session::requestWorkingTreeContent(std::string path) {
@@ -691,6 +708,32 @@ void Session::pushChanges(PushRequest request) {
         [this]() { endAskpass(); });
 }
 
+void Session::requestRemotePrunePreview(std::string remoteName) {
+    sharedReadPool().postFront([this, remoteName = std::move(remoteName)]() {
+        const GitResult<std::vector<RemotePrunePreviewEntry>> result =
+            remoteStore_->prunePreview(remoteName, CancellationToken{});
+        if (!result) {
+            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+            return;
+        }
+        std::string payload = "{\"remote\":";
+        jsonAppendEscaped(payload, remoteName);
+        payload += ",\"refs\":";
+        payload += toJson(result.value());
+        payload += '}';
+        callbacks_.emit(GBM_EVENT_REMOTE_PRUNE_PREVIEW_READY, payload);
+    });
+}
+
+void Session::pruneRemote(PruneRemoteRequest request) {
+    // Not submitWorkingCopyOperation: pruning remote-tracking refs never
+    // touches the working tree or index, only refs -- same shape as
+    // deleteBranch(), which is why this reports through the plain
+    // GBM_EVENT_OPERATION_FINISHED channel below (submitOperation), not
+    // GBM_EVENT_WORKING_COPY_OPERATION_FINISHED.
+    submitOperation(makePruneRemoteOperation(std::move(request)), /*refreshHistoryOnSuccess=*/true);
+}
+
 void Session::provideCredential(std::string secret) {
     askpass_.answer(secret);
 }
@@ -759,6 +802,131 @@ void Session::requestCommitMeta(std::vector<std::string> oids) {
         }
         const std::vector<CommitMeta> result = commitMetaStore_->read(parsed, CancellationToken{});
         callbacks_.emit(GBM_EVENT_COMMIT_META_READY, toJson(result));
+    });
+}
+
+void Session::requestCommitFiles(std::string oid) {
+    sharedReadPool().postFront([this, oid = std::move(oid)]() {
+        const ObjectId commitOid = ObjectId::fromHex(oid);
+        const GitResult<DiffService::ChangedFilesPtr> result =
+            diffs_->changedFiles(commitOid, DiffOptions{}, CancellationToken{});
+        if (!result) {
+            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+            return;
+        }
+        std::string payload = "{\"oid\":";
+        jsonAppendEscaped(payload, oid);
+        payload += ",\"files\":";
+        payload += toJson(*result.value());
+        payload += '}';
+        callbacks_.emit(GBM_EVENT_COMMIT_FILES_READY, payload);
+    });
+}
+
+void Session::requestCommitFileDiff(std::string oid, std::string path) {
+    sharedReadPool().postFront([this, oid = std::move(oid), path = std::move(path)]() {
+        const ObjectId commitOid = ObjectId::fromHex(oid);
+        const GitResult<DiffService::ParsedDiffPtr> result =
+            diffs_->commitFileDiff(commitOid, path, DiffOptions{}, CancellationToken{});
+        if (!result) {
+            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+            return;
+        }
+        std::string payload = "{\"oid\":";
+        jsonAppendEscaped(payload, oid);
+        payload += ",\"path\":";
+        jsonAppendEscaped(payload, path);
+        payload += ",\"diff\":";
+        payload += toJson(*result.value());
+        payload += '}';
+        callbacks_.emit(GBM_EVENT_COMMIT_FILE_DIFF_READY, payload);
+    });
+}
+
+void Session::requestCompareRefs(std::string leftRef, std::string rightRef, bool threeDot) {
+    sharedReadPool().postFront(
+        [this, leftRef = std::move(leftRef), rightRef = std::move(rightRef), threeDot]() {
+            CompareRequest request;
+            request.leftRef = leftRef;
+            request.rightRef = rightRef;
+            request.threeDot = threeDot;
+            const GitResult<CompareResult> result =
+                compareStore_->compare(std::move(request), CancellationToken{});
+            if (!result) {
+                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                return;
+            }
+            std::string payload = "{\"left\":";
+            jsonAppendEscaped(payload, leftRef);
+            payload += ",\"right\":";
+            jsonAppendEscaped(payload, rightRef);
+            payload += ",\"threeDot\":";
+            jsonAppendBool(payload, threeDot);
+            payload += ",\"mergeBase\":";
+            jsonAppendEscaped(payload, result->mergeBase.hex());
+            payload += ",\"commits\":";
+            payload += toJson(result->commits);
+            payload += ",\"files\":";
+            payload += toJson(result->files);
+            payload += '}';
+            callbacks_.emit(GBM_EVENT_COMPARE_READY, payload);
+        });
+}
+
+void Session::requestCompareFileDiff(std::string leftRef,
+                                     std::string rightRef,
+                                     bool threeDot,
+                                     std::string path) {
+    sharedReadPool().postFront([this,
+                                leftRef = std::move(leftRef),
+                                rightRef = std::move(rightRef),
+                                threeDot,
+                                path = std::move(path)]() {
+        CompareFileDiffRequest request;
+        request.leftRef = leftRef;
+        request.rightRef = rightRef;
+        request.threeDot = threeDot;
+        request.path = path;
+        const GitResult<ParsedDiff> result =
+            compareStore_->compareFileDiff(std::move(request), CancellationToken{});
+        if (!result) {
+            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+            return;
+        }
+        std::string payload = "{\"left\":";
+        jsonAppendEscaped(payload, leftRef);
+        payload += ",\"right\":";
+        jsonAppendEscaped(payload, rightRef);
+        payload += ",\"threeDot\":";
+        jsonAppendBool(payload, threeDot);
+        payload += ",\"path\":";
+        jsonAppendEscaped(payload, path);
+        payload += ",\"diff\":";
+        payload += toJson(result.value());
+        payload += '}';
+        callbacks_.emit(GBM_EVENT_COMPARE_FILE_DIFF_READY, payload);
+    });
+}
+
+void Session::requestCompareWithWorkingCopy(std::string ref) {
+    sharedReadPool().postFront([this, ref = std::move(ref)]() {
+        const GitResult<ObjectId> resolved = refStore_->resolveRevision(ref, CancellationToken{});
+        if (!resolved) {
+            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(resolved.error()));
+            return;
+        }
+        const GitResult<DiffService::ParsedDiffPtr> result =
+            diffs_->commitVsWorkingTree(*resolved, DiffOptions{}, CancellationToken{});
+        if (!result) {
+            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+            return;
+        }
+        std::string payload = "{\"ref\":";
+        jsonAppendEscaped(payload, ref);
+        payload += ",\"diff\":";
+        payload += toJson(*result.value());
+        payload += '}';
+        callbacks_.emit(GBM_EVENT_COMPARE_WITH_WORKING_COPY_READY, payload);
     });
 }
 
@@ -890,6 +1058,11 @@ void Session::startRebase(RebaseRequest request) {
 
 void Session::continueRebase() {
     submitOperation(makeRebaseContinueOperation(), /*refreshHistoryOnSuccess=*/true);
+}
+
+void Session::continueRebaseWithMessage(std::string message) {
+    writeRebaseContinueMessage(paths_, message);
+    continueRebase();
 }
 
 void Session::skipRebase() {

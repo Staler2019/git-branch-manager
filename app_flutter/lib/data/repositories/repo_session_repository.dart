@@ -10,8 +10,10 @@ import '../ffi/gbm_bindings.dart';
 import '../ffi/json_codec.dart';
 import '../models/bisect_status.dart';
 import '../models/blame_result.dart';
+import '../models/changed_file.dart';
 import '../models/clean_entry.dart';
 import '../models/commit_meta.dart';
+import '../models/compare_commit_entry.dart';
 import '../models/file_history_entry.dart';
 import '../models/git_error.dart';
 import '../models/git_identity.dart';
@@ -26,6 +28,7 @@ import '../models/rebase_todo_entry.dart';
 import '../models/ref_snapshot.dart';
 import '../models/reflog_entry.dart';
 import '../models/remote_info.dart';
+import '../models/remote_prune_preview_entry.dart';
 import '../models/repo_state.dart' as model;
 import '../models/stash_entry.dart';
 import '../models/submodule_info.dart';
@@ -33,6 +36,7 @@ import '../models/undo_entry.dart';
 import '../models/working_copy_status.dart';
 import '../models/worktree_info.dart';
 import 'gbm_bindings_provider.dart';
+import 'recents_repository.dart';
 import 'repo_identity.dart';
 
 /// Mirrors `gbm::ResetMode` (src/core/git/ops/ResetOps.h) -- ordinal order
@@ -110,6 +114,128 @@ class StashDiffReply {
   final ParsedDiff diff;
 }
 
+/// Reply to [RepoSessionController.requestCompareRefs]: mirrors
+/// GBM_EVENT_COMPARE_READY's payload shape. left/right/threeDot are echoed
+/// back from the request, since several Compare tabs can be open at once
+/// with different ref pairs -- see [key] for how a tab matches a reply back
+/// to itself in [RepoSessionState.compareResults].
+class CompareResult {
+  const CompareResult({
+    required this.left,
+    required this.right,
+    required this.threeDot,
+    required this.mergeBase,
+    required this.commits,
+    required this.files,
+  });
+
+  factory CompareResult.fromJson(Map<String, dynamic> json) {
+    return CompareResult(
+      left: json['left'] as String,
+      right: json['right'] as String,
+      threeDot: json['threeDot'] as bool,
+      mergeBase: json['mergeBase'] as String,
+      commits: CompareCommitEntry.listFromJson(
+        json['commits'] as List<dynamic>,
+      ),
+      files: (json['files'] as List<dynamic>)
+          .map((e) => DiffFile.fromJson(e as Map<String, dynamic>))
+          .toList(growable: false),
+    );
+  }
+
+  /// Composite lookup key into [RepoSessionState.compareResults] -- the same
+  /// left/right/threeDot triple a Compare tab requested with.
+  static String key(String left, String right, bool threeDot) =>
+      '$left::$right::$threeDot';
+
+  final String left;
+  final String right;
+  final bool threeDot;
+
+  /// Empty when the two refs share no common ancestor -- a valid result
+  /// (unrelated histories) to display, not an error.
+  final String mergeBase;
+  final List<CompareCommitEntry> commits;
+  final List<DiffFile> files;
+}
+
+/// Reply to [RepoSessionController.requestCompareFileDiff]: mirrors
+/// GBM_EVENT_COMPARE_FILE_DIFF_READY's payload shape. Same echo-the-request
+/// reasoning as [CompareResult].
+class CompareFileDiffResult {
+  const CompareFileDiffResult({
+    required this.left,
+    required this.right,
+    required this.threeDot,
+    required this.path,
+    required this.diff,
+  });
+
+  factory CompareFileDiffResult.fromJson(Map<String, dynamic> json) {
+    return CompareFileDiffResult(
+      left: json['left'] as String,
+      right: json['right'] as String,
+      threeDot: json['threeDot'] as bool,
+      path: json['path'] as String,
+      diff: ParsedDiff.fromJson(json['diff'] as Map<String, dynamic>),
+    );
+  }
+
+  /// Composite lookup key into [RepoSessionState.compareFileDiffResults].
+  static String key(String left, String right, bool threeDot, String path) =>
+      '$left::$right::$threeDot::$path';
+
+  final String left;
+  final String right;
+  final bool threeDot;
+  final String path;
+  final ParsedDiff diff;
+}
+
+/// Reply to [RepoSessionController.requestRemotePrunePreview]: mirrors
+/// GBM_EVENT_REMOTE_PRUNE_PREVIEW_READY's payload shape.
+class RemotePrunePreview {
+  const RemotePrunePreview({required this.remote, required this.refs});
+
+  factory RemotePrunePreview.fromJson(Map<String, dynamic> json) {
+    return RemotePrunePreview(
+      remote: json['remote'] as String,
+      refs: RemotePrunePreviewEntry.listFromJson(
+        json['refs'] as List<dynamic>,
+      ),
+    );
+  }
+
+  final String remote;
+  final List<RemotePrunePreviewEntry> refs;
+}
+
+/// Reply to [RepoSessionController.requestCompareWithWorkingCopy]: mirrors
+/// GBM_EVENT_COMPARE_WITH_WORKING_COPY_READY's payload shape -- the "compare
+/// a ref with Working Copy" side of the Compare tab, distinct from
+/// [CompareResult] because a working-tree diff has no second ref, no
+/// threeDot toggle and no merge base.
+class CompareWithWorkingCopyResult {
+  const CompareWithWorkingCopyResult({required this.ref, required this.diff});
+
+  factory CompareWithWorkingCopyResult.fromJson(Map<String, dynamic> json) {
+    return CompareWithWorkingCopyResult(
+      ref: json['ref'] as String,
+      diff: ParsedDiff.fromJson(json['diff'] as Map<String, dynamic>),
+    );
+  }
+
+  /// Composite lookup key into
+  /// [RepoSessionState.compareWithWorkingCopyResults] -- just `ref`, since a
+  /// Compare tab comparing against Working Copy has only one other side
+  /// (unlike [CompareResult.key], which also needs `right`/`threeDot`).
+  static String key(String ref) => ref;
+
+  final String ref;
+  final ParsedDiff diff;
+}
+
 /// Caps how many [OperationRecord]s [RepoSessionState.operationLog] keeps,
 /// mirroring OperationRunner's own undo-journal cap (`kMaxUndoEntries` in
 /// OperationRunner.cpp) -- a live panel fed one record per `git` invocation
@@ -142,6 +268,8 @@ class RepoSessionState {
     this.lastBlame,
     this.commitMetaCache = const <String, CommitMeta>{},
     this.lastFileHistory = const <FileHistoryEntry>[],
+    this.commitFiles = const <ChangedFile>[],
+    this.selectedCommitFileDiff,
     this.lastLineHistory = const <LineHistoryChunk>[],
     this.lastReflog = const <ReflogEntry>[],
     this.undoJournal = const <UndoEntry>[],
@@ -158,6 +286,12 @@ class RepoSessionState {
     this.lastCommitGraphWriteSucceeded,
     this.checkoutChoices = const <OperationChoice>[],
     this.deleteBranchChoices = const <OperationChoice>[],
+    this.compareResults = const <String, CompareResult>{},
+    this.compareFileDiffResults = const <String, CompareFileDiffResult>{},
+    this.lastRemotePrunePreview,
+    this.compareWithWorkingCopyResults =
+        const <String, CompareWithWorkingCopyResult>{},
+    this.originalOperationMessage,
   });
 
   final bool isOpen;
@@ -193,6 +327,8 @@ class RepoSessionState {
   /// history_repository.dart's `commitMetaProvider`/`requestCommitMeta`.
   final Map<String, CommitMeta> commitMetaCache;
   final List<FileHistoryEntry> lastFileHistory;
+  final List<ChangedFile> commitFiles;
+  final ParsedDiff? selectedCommitFileDiff;
   final List<LineHistoryChunk> lastLineHistory;
 
   /// Newest-first -- see gbm_request_reflog()'s doc comment in gbm_capi.h.
@@ -240,6 +376,57 @@ class RepoSessionState {
   /// back to a retried delete.
   final List<OperationChoice> deleteBranchChoices;
 
+  /// Every GBM_EVENT_COMPARE_READY reply received this session, keyed by
+  /// [CompareResult.key] and accumulated across replies (like
+  /// [commitMetaCache]) rather than replaced -- several Compare tabs can be
+  /// open at once, each awaiting its own left/right/threeDot query, and a
+  /// later-resolving tab's reply must not clobber an earlier tab's still
+  /// on-screen result.
+  final Map<String, CompareResult> compareResults;
+
+  /// Every GBM_EVENT_COMPARE_FILE_DIFF_READY reply received this session,
+  /// keyed by [CompareFileDiffResult.key]. Same accumulate-not-replace
+  /// reasoning as [compareResults].
+  final Map<String, CompareFileDiffResult> compareFileDiffResults;
+
+  /// The most recent GBM_EVENT_REMOTE_PRUNE_PREVIEW_READY reply -- a single
+  /// "latest" field is enough here, unlike [compareResults]: only one Prune
+  /// dialog can be open at a time.
+  final RemotePrunePreview? lastRemotePrunePreview;
+
+  /// Every GBM_EVENT_COMPARE_WITH_WORKING_COPY_READY reply received this
+  /// session, keyed by [CompareWithWorkingCopyResult.key]. Same
+  /// accumulate-not-replace reasoning as [compareResults] -- several
+  /// Compare tabs can each have Working Copy as one side, comparing against
+  /// a different ref.
+  final Map<String, CompareWithWorkingCopyResult> compareWithWorkingCopyResults;
+
+  /// Git's own proposed commit message (MERGE_MSG / rebase-merge/message)
+  /// for the commit currently stopped on in a conflicted cherry-pick or
+  /// rebase -- the MSGS-table default the conflict resolve window's message
+  /// step pre-fills with. Null until
+  /// [RepoSessionController.requestOriginalOperationMessage]'s reply
+  /// arrives; that call also nulls this first, so a null value while a
+  /// request is in flight can't be mistaken for a stale previous reply.
+  final String? originalOperationMessage;
+
+  /// Single source of truth for "is this repo in a conflict state" --
+  /// every conflict-aware surface (banner, toolbar, branch switching,
+  /// working copy's Conflicted section, commit box, status bar) must read
+  /// this rather than re-deriving its own check, or they will drift.
+  ///
+  /// Mirrors `RepoState::isSequencerOperation()`'s own justification
+  /// (src/core/git/RepoState.h) for why this is an OR of two independent
+  /// signals, not just one: `isSequencerOperation` deliberately excludes a
+  /// plain `Merge` flag, and a `git apply --3way` conflict leaves no
+  /// sequencer state file at all -- so `workingCopyStatus.conflicted` is
+  /// the only signal that catches those cases, while `isSequencerOperation`
+  /// catches an interrupted rebase/cherry-pick/revert before any per-file
+  /// conflict has necessarily been scanned yet.
+  bool get conflictActive =>
+      (repoState?.isSequencerOperation ?? false) ||
+      workingCopyStatus.conflicted.isNotEmpty;
+
   RepoSessionState copyWith({
     bool? isOpen,
     model.RepoState? repoState,
@@ -261,6 +448,8 @@ class RepoSessionState {
     BlameResult? lastBlame,
     Map<String, CommitMeta>? commitMetaCache,
     List<FileHistoryEntry>? lastFileHistory,
+    List<ChangedFile>? commitFiles,
+    ParsedDiff? selectedCommitFileDiff,
     List<LineHistoryChunk>? lastLineHistory,
     List<ReflogEntry>? lastReflog,
     List<UndoEntry>? undoJournal,
@@ -277,6 +466,12 @@ class RepoSessionState {
     bool? lastCommitGraphWriteSucceeded,
     List<OperationChoice>? checkoutChoices,
     List<OperationChoice>? deleteBranchChoices,
+    Map<String, CompareResult>? compareResults,
+    Map<String, CompareFileDiffResult>? compareFileDiffResults,
+    RemotePrunePreview? lastRemotePrunePreview,
+    Map<String, CompareWithWorkingCopyResult>? compareWithWorkingCopyResults,
+    String? originalOperationMessage,
+    bool clearOriginalOperationMessage = false,
   }) {
     return RepoSessionState(
       isOpen: isOpen ?? this.isOpen,
@@ -300,6 +495,9 @@ class RepoSessionState {
       lastBlame: lastBlame ?? this.lastBlame,
       commitMetaCache: commitMetaCache ?? this.commitMetaCache,
       lastFileHistory: lastFileHistory ?? this.lastFileHistory,
+      commitFiles: commitFiles ?? this.commitFiles,
+      selectedCommitFileDiff:
+          selectedCommitFileDiff ?? this.selectedCommitFileDiff,
       lastLineHistory: lastLineHistory ?? this.lastLineHistory,
       lastReflog: lastReflog ?? this.lastReflog,
       undoJournal: undoJournal ?? this.undoJournal,
@@ -317,6 +515,16 @@ class RepoSessionState {
           lastCommitGraphWriteSucceeded ?? this.lastCommitGraphWriteSucceeded,
       checkoutChoices: checkoutChoices ?? this.checkoutChoices,
       deleteBranchChoices: deleteBranchChoices ?? this.deleteBranchChoices,
+      compareResults: compareResults ?? this.compareResults,
+      compareFileDiffResults:
+          compareFileDiffResults ?? this.compareFileDiffResults,
+      lastRemotePrunePreview:
+          lastRemotePrunePreview ?? this.lastRemotePrunePreview,
+      compareWithWorkingCopyResults:
+          compareWithWorkingCopyResults ?? this.compareWithWorkingCopyResults,
+      originalOperationMessage: clearOriginalOperationMessage
+          ? null
+          : (originalOperationMessage ?? this.originalOperationMessage),
     );
   }
 }
@@ -326,13 +534,14 @@ class RepoSessionState {
 /// (`workspaceScreen`'s route scope owns the provider lifetime -- see the
 /// routing table in the plan).
 class RepoSessionController extends StateNotifier<RepoSessionState> {
-  RepoSessionController(this._bindings, this._identity)
+  RepoSessionController(this._bindings, this._identity, this._recents)
     : super(const RepoSessionState()) {
     _open();
   }
 
   final GbmBindings _bindings;
   final RepoIdentity _identity;
+  final RecentsRepository _recents;
   Pointer<Void> _session = nullptr;
   GbmSessionEvents? _events;
   StreamSubscription<GbmEvent>? _subscription;
@@ -384,6 +593,9 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     _readRepoState();
     refreshHistory();
     refreshWorkingCopy();
+
+    // Record this repo as recently opened (fire-and-forget)
+    unawaited(_recents.recordOpen(_identity.workDir));
   }
 
   void _onEvent(GbmEvent event) {
@@ -528,6 +740,83 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
               },
             );
           }
+        }
+      case GbmEventType.commitFilesReady:
+        final Object? payload = decodeEventPayload(event.payload);
+        if (payload is Map<String, dynamic>) {
+          final List<dynamic>? files = payload['files'] as List<dynamic>?;
+          if (files != null) {
+            state = state.copyWith(
+              commitFiles: ChangedFile.listFromJson(files),
+            );
+          }
+        }
+      case GbmEventType.commitFileDiffReady:
+        final Object? payload = decodeEventPayload(event.payload);
+        if (payload is Map<String, dynamic>) {
+          final Map<String, dynamic>? diff =
+              payload['diff'] as Map<String, dynamic>?;
+          if (diff != null) {
+            state = state.copyWith(
+              selectedCommitFileDiff: ParsedDiff.fromJson(diff),
+            );
+          }
+        }
+      case GbmEventType.compareReady:
+        final Object? payload = decodeEventPayload(event.payload);
+        if (payload is Map<String, dynamic>) {
+          final CompareResult result = CompareResult.fromJson(payload);
+          state = state.copyWith(
+            compareResults: <String, CompareResult>{
+              ...state.compareResults,
+              CompareResult.key(result.left, result.right, result.threeDot):
+                  result,
+            },
+          );
+        }
+      case GbmEventType.compareFileDiffReady:
+        final Object? payload = decodeEventPayload(event.payload);
+        if (payload is Map<String, dynamic>) {
+          final CompareFileDiffResult result = CompareFileDiffResult.fromJson(
+            payload,
+          );
+          state = state.copyWith(
+            compareFileDiffResults: <String, CompareFileDiffResult>{
+              ...state.compareFileDiffResults,
+              CompareFileDiffResult.key(
+                result.left,
+                result.right,
+                result.threeDot,
+                result.path,
+              ): result,
+            },
+          );
+        }
+      case GbmEventType.remotePrunePreviewReady:
+        final Object? payload = decodeEventPayload(event.payload);
+        if (payload is Map<String, dynamic>) {
+          state = state.copyWith(
+            lastRemotePrunePreview: RemotePrunePreview.fromJson(payload),
+          );
+        }
+      case GbmEventType.compareWithWorkingCopyReady:
+        final Object? payload = decodeEventPayload(event.payload);
+        if (payload is Map<String, dynamic>) {
+          final CompareWithWorkingCopyResult result =
+              CompareWithWorkingCopyResult.fromJson(payload);
+          state = state.copyWith(
+            compareWithWorkingCopyResults: <String, CompareWithWorkingCopyResult>{
+              ...state.compareWithWorkingCopyResults,
+              CompareWithWorkingCopyResult.key(result.ref): result,
+            },
+          );
+        }
+      case GbmEventType.originalOperationMessageReady:
+        final Object? payload = decodeEventPayload(event.payload);
+        if (payload is Map<String, dynamic>) {
+          state = state.copyWith(
+            originalOperationMessage: payload['message'] as String? ?? '',
+          );
         }
       case GbmEventType.fileHistoryReady:
         final Object? payload = decodeEventPayload(event.payload);
@@ -1069,6 +1358,31 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   void cherryPickContinue() {
     if (_session == nullptr) return;
     _bindings.cherryPickContinue(_session);
+  }
+
+  /// Same as [cherryPickContinue], except `message` overwrites MERGE_MSG
+  /// first -- see gbm_cherry_pick_continue_with_message()'s doc comment in
+  /// gbm_capi.h. `message` typically comes from the conflict resolve
+  /// window's MSGS-table step, pre-filled from
+  /// [requestOriginalOperationMessage]'s reply and edited by the user.
+  void cherryPickContinueWithMessage(String message) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> messagePtr = message.toNativeUtf8();
+    try {
+      _bindings.cherryPickContinueWithMessage(_session, messagePtr);
+    } finally {
+      malloc.free(messagePtr);
+    }
+  }
+
+  /// Async: fires GBM_EVENT_ORIGINAL_OPERATION_MESSAGE_READY into
+  /// [RepoSessionState.originalOperationMessage]. Nulls that field first so
+  /// a still-in-flight request can't be mistaken for a stale previous
+  /// reply -- see the field's doc comment.
+  void requestOriginalOperationMessage() {
+    if (_session == nullptr) return;
+    state = state.copyWith(clearOriginalOperationMessage: true);
+    _bindings.requestOriginalOperationMessage(_session);
   }
 
   void cherryPickSkip() {
@@ -1655,6 +1969,142 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     );
   }
 
+  /// Async: fires GBM_EVENT_COMMIT_FILES_READY into
+  /// [RepoSessionState.commitFiles].
+  void requestCommitFiles(String oid) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> oidPtr = oid.toNativeUtf8();
+    try {
+      _bindings.requestCommitFiles(_session, oidPtr);
+    } finally {
+      malloc.free(oidPtr);
+    }
+  }
+
+  /// Async: fires GBM_EVENT_COMMIT_FILE_DIFF_READY into
+  /// [RepoSessionState.selectedCommitFileDiff].
+  void requestCommitFileDiff(String oid, String path) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> oidPtr = oid.toNativeUtf8();
+    final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+    try {
+      _bindings.requestCommitFileDiff(_session, oidPtr, pathPtr);
+    } finally {
+      malloc.free(oidPtr);
+      malloc.free(pathPtr);
+    }
+  }
+
+  /// Merge-base + the commit lists unique to each side + the changed-file
+  /// summary for two refs, in one round trip. `threeDot` true: `left...right`
+  /// (symmetric difference off the merge base, GitHub's PR-diff semantics).
+  /// False: `left..right` (only what right has that left doesn't). Async:
+  /// fires GBM_EVENT_COMPARE_READY into [RepoSessionState.compareResults],
+  /// keyed by [CompareResult.key].
+  void requestCompareRefs(
+    String leftRef,
+    String rightRef, {
+    bool threeDot = true,
+  }) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> leftPtr = leftRef.toNativeUtf8();
+    final Pointer<Utf8> rightPtr = rightRef.toNativeUtf8();
+    try {
+      _bindings.requestCompareRefs(
+        _session,
+        leftPtr,
+        rightPtr,
+        threeDot ? 1 : 0,
+      );
+    } finally {
+      malloc.free(leftPtr);
+      malloc.free(rightPtr);
+    }
+  }
+
+  /// One file's full diff between two refs. Async: fires
+  /// GBM_EVENT_COMPARE_FILE_DIFF_READY into
+  /// [RepoSessionState.compareFileDiffResults], keyed by
+  /// [CompareFileDiffResult.key].
+  void requestCompareFileDiff(
+    String leftRef,
+    String rightRef,
+    String path, {
+    bool threeDot = true,
+  }) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> leftPtr = leftRef.toNativeUtf8();
+    final Pointer<Utf8> rightPtr = rightRef.toNativeUtf8();
+    final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+    try {
+      _bindings.requestCompareFileDiff(
+        _session,
+        leftPtr,
+        rightPtr,
+        threeDot ? 1 : 0,
+        pathPtr,
+      );
+    } finally {
+      malloc.free(leftPtr);
+      malloc.free(rightPtr);
+      malloc.free(pathPtr);
+    }
+  }
+
+  /// The diff between `ref` and the live working tree (uncommitted changes
+  /// included) -- the "compare a ref with Working Copy" side of the
+  /// Compare tab, distinct from [requestCompareRefs]/[requestCompareFileDiff]
+  /// because a working-tree diff has no second ref, no threeDot toggle and
+  /// no merge base. `ref` may be any revision expression git accepts
+  /// (branch, tag, oid, HEAD~N, ...). Async: fires
+  /// GBM_EVENT_COMPARE_WITH_WORKING_COPY_READY into
+  /// [RepoSessionState.compareWithWorkingCopyResults], keyed by
+  /// [CompareWithWorkingCopyResult.key].
+  void requestCompareWithWorkingCopy(String ref) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> refPtr = ref.toNativeUtf8();
+    try {
+      _bindings.requestCompareWithWorkingCopy(_session, refPtr);
+    } finally {
+      malloc.free(refPtr);
+    }
+  }
+
+  /// `git remote prune <remoteName> --dry-run`: what [pruneRemote] would
+  /// remove, without removing anything. Async: fires
+  /// GBM_EVENT_REMOTE_PRUNE_PREVIEW_READY into
+  /// [RepoSessionState.lastRemotePrunePreview].
+  void requestRemotePrunePreview(String remoteName) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> remotePtr = remoteName.toNativeUtf8();
+    try {
+      _bindings.requestRemotePrunePreview(_session, remotePtr);
+    } finally {
+      malloc.free(remotePtr);
+    }
+  }
+
+  /// Deletes exactly the remote-tracking refs in `refs` (typically a
+  /// user-edited subset of a prior [requestRemotePrunePreview] reply) via
+  /// `git branch --delete --remotes`. Async: fires
+  /// GBM_EVENT_OPERATION_FINISHED (same channel as [deleteBranch], not
+  /// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED -- pruning remote-tracking
+  /// refs never touches the working tree or index), and on success also
+  /// refreshes history.
+  void pruneRemote(String remoteName, List<String> refs) {
+    if (_session == nullptr || refs.isEmpty) return;
+    final Pointer<Utf8> remotePtr = remoteName.toNativeUtf8();
+    try {
+      _withNativeStringArray(
+        refs,
+        (array, count) =>
+            _bindings.remotePrune(_session, remotePtr, array, count),
+      );
+    } finally {
+      malloc.free(remotePtr);
+    }
+  }
+
   /// `git log --follow` for one file. `startRevision` empty starts from
   /// HEAD. Async: fires GBM_EVENT_FILE_HISTORY_READY into
   /// [RepoSessionState.lastFileHistory].
@@ -1856,6 +2306,19 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   void continueRebase() {
     if (_session == nullptr) return;
     _bindings.rebaseContinue(_session);
+  }
+
+  /// Same as [continueRebase], except `message` overwrites
+  /// rebase-merge/message first -- see
+  /// gbm_rebase_continue_with_message()'s doc comment in gbm_capi.h.
+  void continueRebaseWithMessage(String message) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> messagePtr = message.toNativeUtf8();
+    try {
+      _bindings.rebaseContinueWithMessage(_session, messagePtr);
+    } finally {
+      malloc.free(messagePtr);
+    }
   }
 
   void skipRebase() {
@@ -2266,5 +2729,6 @@ repoSessionProvider =
       RepoIdentity
     >((ref, identity) {
       final GbmBindings bindings = ref.watch(gbmBindingsProvider);
-      return RepoSessionController(bindings, identity);
+      final RecentsRepository recents = ref.watch(recentsRepositoryProvider);
+      return RepoSessionController(bindings, identity, recents);
     });

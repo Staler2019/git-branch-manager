@@ -21,7 +21,10 @@ enum ConflictRegionChoice { unresolved, ours, theirs, custom }
 /// Returns null if `resolutions.length != parsed.regionCount`, or any entry
 /// is still [ConflictRegionChoice.unresolved] -- callers gate "Save" on
 /// every region having a choice.
-String? assembleConflictResolution(ParsedConflictFile parsed, List<ConflictRegionChoice> resolutions) {
+String? assembleConflictResolution(
+  ParsedConflictFile parsed,
+  List<ConflictRegionChoice> resolutions,
+) {
   if (resolutions.length != parsed.regionCount) return null;
   if (resolutions.any((r) => r == ConflictRegionChoice.unresolved)) return null;
 
@@ -61,7 +64,8 @@ class ConflictBatchEntry {
   final String path;
   final ConflictFileState state;
 
-  ConflictBatchEntry copyWith({ConflictFileState? state}) => ConflictBatchEntry(path: path, state: state ?? this.state);
+  ConflictBatchEntry copyWith({ConflictFileState? state}) =>
+      ConflictBatchEntry(path: path, state: state ?? this.state);
 }
 
 /// Dart port of `gbm::ConflictBatch` (src/core/git/ConflictBatch.h) -- pure
@@ -81,7 +85,8 @@ class ConflictBatch {
 
   final List<ConflictBatchEntry> _entries;
 
-  List<ConflictBatchEntry> get entries => List<ConflictBatchEntry>.unmodifiable(_entries);
+  List<ConflictBatchEntry> get entries =>
+      List<ConflictBatchEntry>.unmodifiable(_entries);
 
   /// Merges in one working-copy-status scan's conflicted paths: every
   /// already-tracked path has its state re-derived fresh from whether it's
@@ -93,19 +98,28 @@ class ConflictBatch {
     for (int i = 0; i < _entries.length; i++) {
       final ConflictBatchEntry entry = _entries[i];
       _entries[i] = entry.copyWith(
-        state: stillConflicted.contains(entry.path) ? ConflictFileState.unresolved : ConflictFileState.resolved,
+        state: stillConflicted.contains(entry.path)
+            ? ConflictFileState.unresolved
+            : ConflictFileState.resolved,
       );
     }
 
     final Set<String> alreadyTracked = _entries.map((e) => e.path).toSet();
     for (final WorkingCopyEntry candidate in conflicted) {
       if (alreadyTracked.contains(candidate.path)) continue;
-      _entries.add(ConflictBatchEntry(path: candidate.path, state: ConflictFileState.unresolved));
+      _entries.add(
+        ConflictBatchEntry(
+          path: candidate.path,
+          state: ConflictFileState.unresolved,
+        ),
+      );
       alreadyTracked.add(candidate.path);
     }
   }
 
-  int get resolvedCount => _entries.where((e) => e.state == ConflictFileState.resolved).length;
+  int get resolvedCount =>
+      _entries.where((e) => e.state == ConflictFileState.resolved).length;
 
-  bool get allResolved => _entries.isNotEmpty && resolvedCount == _entries.length;
+  bool get allResolved =>
+      _entries.isNotEmpty && resolvedCount == _entries.length;
 }

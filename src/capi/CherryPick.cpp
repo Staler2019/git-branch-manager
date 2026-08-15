@@ -3,6 +3,7 @@
 #include "core/base/ObjectId.h"
 #include "core/git/ops/CherryPickOps.h"
 
+#include <string>
 #include <vector>
 
 using namespace gbm;
@@ -39,6 +40,11 @@ GBM_API void gbm_cherry_pick(GbmSessionHandle session,
 
 GBM_API void gbm_cherry_pick_continue(GbmSessionHandle session) {
     toSession(session)->continueCherryPick();
+}
+
+GBM_API void gbm_cherry_pick_continue_with_message(GbmSessionHandle session, const char* message) {
+    toSession(session)->continueCherryPickWithMessage(message != nullptr ? std::string(message)
+                                                                         : "");
 }
 
 GBM_API void gbm_cherry_pick_skip(GbmSessionHandle session) {

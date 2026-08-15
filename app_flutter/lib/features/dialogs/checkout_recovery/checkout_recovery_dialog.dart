@@ -25,16 +25,20 @@ class CheckoutRecoveryDialogContent extends ConsumerStatefulWidget {
   final RepoIdentity identity;
 
   @override
-  ConsumerState<CheckoutRecoveryDialogContent> createState() => _CheckoutRecoveryDialogContentState();
+  ConsumerState<CheckoutRecoveryDialogContent> createState() =>
+      _CheckoutRecoveryDialogContentState();
 }
 
-class _CheckoutRecoveryDialogContentState extends ConsumerState<CheckoutRecoveryDialogContent> {
+class _CheckoutRecoveryDialogContentState
+    extends ConsumerState<CheckoutRecoveryDialogContent> {
   bool _resolved = false;
 
   @override
   void dispose() {
     if (!_resolved) {
-      ref.read(repoSessionProvider(widget.identity).notifier).dismissCheckoutChoices();
+      ref
+          .read(repoSessionProvider(widget.identity).notifier)
+          .dismissCheckoutChoices();
     }
     super.dispose();
   }
@@ -43,7 +47,9 @@ class _CheckoutRecoveryDialogContentState extends ConsumerState<CheckoutRecovery
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
     final List<OperationChoice> choices = ref.watch(
-      repoSessionProvider(widget.identity).select((state) => state.checkoutChoices),
+      repoSessionProvider(
+        widget.identity,
+      ).select((state) => state.checkoutChoices),
     );
 
     return GbmDialogShell(
@@ -53,18 +59,26 @@ class _CheckoutRecoveryDialogContentState extends ConsumerState<CheckoutRecovery
           label: 'Cancel',
           onPressed: () {
             _resolved = true;
-            ref.read(repoSessionProvider(widget.identity).notifier).dismissCheckoutChoices();
+            ref
+                .read(repoSessionProvider(widget.identity).notifier)
+                .dismissCheckoutChoices();
             context.pop();
           },
         ),
-        for (final choice in choices.where((c) => c.kind != OperationChoiceKind.abort)) ...<Widget>[
+        for (final choice in choices.where(
+          (c) => c.kind != OperationChoiceKind.abort,
+        )) ...<Widget>[
           const SizedBox(width: GbmSpacing.space2),
           GbmButton(
             label: choice.label,
-            kind: choice.destructive ? GbmButtonKind.secondary : GbmButtonKind.primary,
+            kind: choice.destructive
+                ? GbmButtonKind.secondary
+                : GbmButtonKind.primary,
             onPressed: () {
               _resolved = true;
-              ref.read(repoSessionProvider(widget.identity).notifier).retryCheckoutWithChoice(choice.kind);
+              ref
+                  .read(repoSessionProvider(widget.identity).notifier)
+                  .retryCheckoutWithChoice(choice.kind);
               context.pop();
             },
           ),
@@ -76,7 +90,10 @@ class _CheckoutRecoveryDialogContentState extends ConsumerState<CheckoutRecovery
         children: <Widget>[
           Text(
             'This checkout needs uncommitted changes out of the way first.',
-            style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textSecondary),
+            style: TextStyle(
+              fontSize: GbmTypography.textSm,
+              color: colors.textSecondary,
+            ),
           ),
           const SizedBox(height: GbmSpacing.space3),
           for (final choice in choices)
@@ -90,11 +107,19 @@ class _CheckoutRecoveryDialogContentState extends ConsumerState<CheckoutRecovery
                     style: TextStyle(
                       fontSize: GbmTypography.textSm,
                       fontWeight: GbmTypography.weightMedium,
-                      color: choice.destructive ? colors.danger : colors.textPrimary,
+                      color: choice.destructive
+                          ? colors.danger
+                          : colors.textPrimary,
                     ),
                   ),
                   if (choice.explanation.isNotEmpty)
-                    Text(choice.explanation, style: TextStyle(fontSize: GbmTypography.textXs, color: colors.textTertiary)),
+                    Text(
+                      choice.explanation,
+                      style: TextStyle(
+                        fontSize: GbmTypography.textXs,
+                        color: colors.textTertiary,
+                      ),
+                    ),
                 ],
               ),
             ),

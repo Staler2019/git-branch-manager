@@ -19,7 +19,8 @@ class ReflogDialogContent extends ConsumerStatefulWidget {
   final RepoIdentity identity;
 
   @override
-  ConsumerState<ReflogDialogContent> createState() => _ReflogDialogContentState();
+  ConsumerState<ReflogDialogContent> createState() =>
+      _ReflogDialogContentState();
 }
 
 class _ReflogDialogContentState extends ConsumerState<ReflogDialogContent> {
@@ -28,7 +29,11 @@ class _ReflogDialogContentState extends ConsumerState<ReflogDialogContent> {
   @override
   void initState() {
     super.initState();
-    Future.microtask(() => ref.read(repoSessionProvider(widget.identity).notifier).requestReflog());
+    Future.microtask(
+      () => ref
+          .read(repoSessionProvider(widget.identity).notifier)
+          .requestReflog(),
+    );
   }
 
   @override
@@ -38,18 +43,24 @@ class _ReflogDialogContentState extends ConsumerState<ReflogDialogContent> {
   }
 
   void _load() {
-    ref.read(repoSessionProvider(widget.identity).notifier).requestReflog(ref: _refController.text.trim());
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .requestReflog(ref: _refController.text.trim());
   }
 
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
-    final List<ReflogEntry> entries = ref.watch(repoSessionProvider(widget.identity).select((state) => state.lastReflog));
+    final List<ReflogEntry> entries = ref.watch(
+      repoSessionProvider(widget.identity).select((state) => state.lastReflog),
+    );
 
     return GbmDialogShell(
       title: 'Reflog',
       width: 680,
-      actions: <Widget>[GbmButton(label: 'Close', onPressed: () => context.pop())],
+      actions: <Widget>[
+        GbmButton(label: 'Close', onPressed: () => context.pop()),
+      ],
       child: SizedBox(
         height: 420,
         child: Column(
@@ -61,7 +72,11 @@ class _ReflogDialogContentState extends ConsumerState<ReflogDialogContent> {
                   child: TextField(
                     controller: _refController,
                     onSubmitted: (_) => _load(),
-                    decoration: const InputDecoration(hintText: 'HEAD', isDense: true, border: OutlineInputBorder()),
+                    decoration: const InputDecoration(
+                      hintText: 'HEAD',
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                    ),
                   ),
                 ),
                 const SizedBox(width: GbmSpacing.space2),
@@ -71,11 +86,18 @@ class _ReflogDialogContentState extends ConsumerState<ReflogDialogContent> {
             const SizedBox(height: GbmSpacing.space2),
             Expanded(
               child: entries.isEmpty
-                  ? Center(child: Text('No reflog entries', style: TextStyle(color: colors.textTertiary)))
+                  ? Center(
+                      child: Text(
+                        'No reflog entries',
+                        style: TextStyle(color: colors.textTertiary),
+                      ),
+                    )
                   : ListView.separated(
                       itemCount: entries.length,
-                      separatorBuilder: (context, index) => Divider(height: 1, color: colors.borderSubtle),
-                      itemBuilder: (context, index) => _ReflogRow(entry: entries[index]),
+                      separatorBuilder: (context, index) =>
+                          Divider(height: 1, color: colors.borderSubtle),
+                      itemBuilder: (context, index) =>
+                          _ReflogRow(entry: entries[index]),
                     ),
             ),
           ],
@@ -102,23 +124,43 @@ class _ReflogRow extends StatelessWidget {
             width: 48,
             child: Text(
               '@{${entry.index}}',
-              style: TextStyle(fontFamily: 'monospace', fontSize: GbmTypography.textXs, color: colors.textTertiary),
+              style: TextStyle(
+                fontFamily: 'monospace',
+                fontSize: GbmTypography.textXs,
+                color: colors.textTertiary,
+              ),
             ),
           ),
           SizedBox(
             width: 64,
             child: Text(
               entry.oid.length > 7 ? entry.oid.substring(0, 7) : entry.oid,
-              style: TextStyle(fontFamily: 'monospace', fontSize: GbmTypography.textXs, color: colors.textTertiary),
+              style: TextStyle(
+                fontFamily: 'monospace',
+                fontSize: GbmTypography.textXs,
+                color: colors.textTertiary,
+              ),
             ),
           ),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Text(entry.message, style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textPrimary)),
+                Text(
+                  entry.message,
+                  style: TextStyle(
+                    fontSize: GbmTypography.textSm,
+                    color: colors.textPrimary,
+                  ),
+                ),
                 const SizedBox(height: 2),
-                Text(entry.who.name, style: TextStyle(fontSize: GbmTypography.textXs, color: colors.textTertiary)),
+                Text(
+                  entry.who.name,
+                  style: TextStyle(
+                    fontSize: GbmTypography.textXs,
+                    color: colors.textTertiary,
+                  ),
+                ),
               ],
             ),
           ),

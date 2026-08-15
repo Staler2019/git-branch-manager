@@ -233,7 +233,14 @@ const GbmColors _neutralProfessional = GbmColors(
   danger: _red500,
   dangerHover: _red600,
   warning: _amber500,
-  graphLanes: <Color>[_accent500, Color(0xFF7358D1), Color(0xFF1A8A4A), Color(0xFFC97A17), Color(0xFFD33D3D), Color(0xFF0E9AA7)],
+  graphLanes: <Color>[
+    _accent500,
+    Color(0xFF7358D1),
+    Color(0xFF1A8A4A),
+    Color(0xFFC97A17),
+    Color(0xFFD33D3D),
+    Color(0xFF0E9AA7),
+  ],
   diffAddBg: Color(0xFFE6F6EC),
   diffAddText: Color(0xFF136C37),
   diffDelBg: Color(0xFFFBEAEA),
@@ -397,15 +404,144 @@ abstract final class GbmEffects {
   static const Curve easeStandard = Cubic(0.2, 0.8, 0.2, 1);
 
   static List<BoxShadow> shadowSm(GbmThemeVariant variant) => <BoxShadow>[
-    BoxShadow(color: const Color(0xFF000000).withValues(alpha: variant == GbmThemeVariant.darkTechnical ? 0.4 : 0.08), blurRadius: 2, offset: const Offset(0, 1)),
+    BoxShadow(
+      color: const Color(0xFF000000).withValues(
+        alpha: variant == GbmThemeVariant.darkTechnical ? 0.4 : 0.08,
+      ),
+      blurRadius: 2,
+      offset: const Offset(0, 1),
+    ),
   ];
 
   static List<BoxShadow> shadowMd(GbmThemeVariant variant) => <BoxShadow>[
-    BoxShadow(color: const Color(0xFF000000).withValues(alpha: variant == GbmThemeVariant.darkTechnical ? 0.5 : 0.12), blurRadius: 12, offset: const Offset(0, 4)),
+    BoxShadow(
+      color: const Color(0xFF000000).withValues(
+        alpha: variant == GbmThemeVariant.darkTechnical ? 0.5 : 0.12,
+      ),
+      blurRadius: 12,
+      offset: const Offset(0, 4),
+    ),
   ];
 
   static List<BoxShadow> shadowLg(GbmThemeVariant variant) => <BoxShadow>[
-    BoxShadow(color: const Color(0xFF000000).withValues(alpha: variant == GbmThemeVariant.darkTechnical ? 0.6 : 0.18), blurRadius: 32, offset: const Offset(0, 12)),
+    BoxShadow(
+      color: const Color(0xFF000000).withValues(
+        alpha: variant == GbmThemeVariant.darkTechnical ? 0.6 : 0.18,
+      ),
+      blurRadius: 32,
+      offset: const Offset(0, 12),
+    ),
   ];
 }
 
+/// A single splitter's persisted-layout spec, from spec page 09's SPLITTERS
+/// table. Splitters are proportion-based (`flexRatio`) or single-pane
+/// absolute-width (`defaultExtent`) depending on how many panes they
+/// divide -- never both, so exactly one is non-null per instance.
+class GbmSplitterSpec {
+  const GbmSplitterSpec.extent({
+    required this.defaultExtent,
+    required this.minExtent,
+    this.collapsedByDefault = false,
+  }) : flexRatio = null;
+
+  const GbmSplitterSpec.flex({
+    required this.flexRatio,
+    required this.minExtent,
+    this.collapsedByDefault = false,
+  }) : defaultExtent = null;
+
+  /// Single-pane default width/height in logical pixels (e.g. sidebar).
+  /// Null for multi-pane splitters, which use [flexRatio] instead.
+  final double? defaultExtent;
+
+  /// Relative flex weights for a multi-pane splitter (e.g. `[62, 38]` for a
+  /// 62/38 split), stored as proportions rather than absolute pixels so the
+  /// panes resize together when the window resizes. Null for single-pane
+  /// splitters, which use [defaultExtent] instead.
+  final List<double>? flexRatio;
+
+  /// Minimum extent any one pane may be dragged to before it snaps and
+  /// refuses to shrink further.
+  final double minExtent;
+
+  /// `main.log` starts collapsed (height 0) until the user opens it.
+  final bool collapsedByDefault;
+}
+
+/// Structural chrome sizes and splitter defaults from the design spec
+/// (`Flutter Desktop Spec.dc.html`, pages 02/03/06/09). Colors and type
+/// live in [GbmColors]/[GbmTypography]; this holds the pixel dimensions
+/// that were previously scattered as inline literals across widgets, so a
+/// future spec revision has one edit site instead of many.
+abstract final class GbmLayout {
+  static const double menuBarHeight = 32;
+  static const double topBarHeight = 44;
+  static const double tabRowHeight = 36;
+
+  static const double sidebarDefaultWidth = 250;
+  static const double sidebarMinWidth = 180;
+
+  static const double workingCopyLeftColumnWidth = 280;
+
+  static const double dialogDefaultWidth = 480;
+  static const double dialogMaxHeight = 560;
+
+  static const double menuMinWidth = 220;
+
+  static const double graphLaneWidth = 18;
+
+  static const double diffGutterWidth = 36;
+  static const double diffMarkerWidth = 14;
+
+  /// Sidebar <-> central area.
+  static const GbmSplitterSpec splitterMainSidebar = GbmSplitterSpec.extent(
+    defaultExtent: sidebarDefaultWidth,
+    minExtent: sidebarMinWidth,
+  );
+
+  /// Commit list <-> commit detail.
+  static const GbmSplitterSpec splitterMainDetail = GbmSplitterSpec.flex(
+    flexRatio: <double>[62, 38],
+    minExtent: 160,
+  );
+
+  /// Central area <-> Changed files (History tab only).
+  static const GbmSplitterSpec splitterMainFiles = GbmSplitterSpec.extent(
+    defaultExtent: 186,
+    minExtent: 140,
+  );
+
+  /// Unstaged <-> Staged columns.
+  static const GbmSplitterSpec splitterWcColumns = GbmSplitterSpec.flex(
+    flexRatio: <double>[1, 1],
+    minExtent: 200,
+  );
+
+  /// File columns <-> diff pane.
+  static const GbmSplitterSpec splitterWcDiff = GbmSplitterSpec.flex(
+    flexRatio: <double>[46, 54],
+    minExtent: 150,
+  );
+
+  /// Main content <-> log drawer. Collapsed by default so it takes no
+  /// space until the user opens it.
+  static const GbmSplitterSpec splitterMainLog = GbmSplitterSpec.extent(
+    defaultExtent: 0,
+    minExtent: 90,
+    collapsedByDefault: true,
+  );
+
+  /// Conflict window: file list <-> three-pane area.
+  static const GbmSplitterSpec splitterCwFiles = GbmSplitterSpec.extent(
+    defaultExtent: 158,
+    minExtent: 120,
+  );
+
+  /// Conflict window: left (ours) <-> result <-> right (theirs). The
+  /// middle (result) column is always widest.
+  static const GbmSplitterSpec splitterCwPanes = GbmSplitterSpec.flex(
+    flexRatio: <double>[1, 1.12, 1],
+    minExtent: 220,
+  );
+}

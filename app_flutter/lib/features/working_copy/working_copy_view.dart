@@ -1,24 +1,44 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../data/models/working_copy_status.dart';
+import '../../data/repositories/file_list_view_mode_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart'
-    show RepoSessionController, WorkingCopyDiffReply, repoSessionProvider;
+    show
+        ConflictResolution,
+        RepoSessionController,
+        RepoSessionState,
+        WorkingCopyDiffReply,
+        repoSessionProvider;
+import '../../data/repositories/working_copy_draft_repository.dart';
 import '../../data/repositories/working_copy_repository.dart' as wc;
+import '../../data/services/desktop_launcher.dart';
 import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
+import '../../widgets/gbm_badge.dart' show GbmBadge, GbmBadgeKind;
 import '../../widgets/gbm_button.dart';
+import '../../widgets/gbm_menu.dart';
+import '../../widgets/split_pane.dart';
 import '../diff/diff_page.dart';
 import '../diff/side_by_side_diff_view.dart';
 import '../workspace/workspace_screen.dart' show repoIdForRoute;
-import 'widgets/changed_file_row.dart';
+import 'widgets/commit_message_box.dart';
+import 'widgets/working_copy_board.dart';
 
 /// Changed-file list (staged/unstaged/untracked) + diff pane + commit box.
 /// The Dart analog of `WorkingCopyView` (src/app/views/pages/
 /// WorkingCopyView.cpp). Route `/repo/:repoId/working-copy`.
+///
+/// State architecture:
+/// - File selection: local Widget state (re-initializes on widget rebuild, not persisted)
+/// - Commit message draft: [workingCopyDraftProvider] (survives tab switches)
+/// - Diff scroll position: [workingCopyDraftProvider] (survives tab switches)
+/// - Display mode (List/Tree): [fileListViewModeProvider] (global, all views)
+/// - Tree-mode expanded folders: local Widget state (per-view)
 class WorkingCopyView extends ConsumerStatefulWidget {
   const WorkingCopyView({super.key, required this.identity});
 
@@ -34,193 +54,631 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
   // Side-by-side is read-only here, mirroring Qt's own WorkingCopyView --
   // see side_by_side_diff_view.dart's doc comment.
   bool _sideBySide = false;
-  final TextEditingController _messageController = TextEditingController();
+  late TextEditingController _summaryController;
+  late TextEditingController _descriptionController;
+  late ScrollController _diffScrollController;
+  late Set<String> _expandedFolders;
+
+  @override
+  void initState() {
+    super.initState();
+    final draft = ref.read(workingCopyDraftProvider(widget.identity));
+    _summaryController = TextEditingController(text: draft.summary);
+    _descriptionController = TextEditingController(text: draft.description);
+    _diffScrollController = ScrollController(
+      initialScrollOffset: draft.diffScrollOffset,
+    )..addListener(_onDiffScroll);
+    _expandedFolders = <String>{};
+  }
 
   @override
   void dispose() {
-    _messageController.dispose();
+    _summaryController.dispose();
+    _descriptionController.dispose();
+    _diffScrollController.dispose();
     super.dispose();
+  }
+
+  /// Persists the diff pane's scroll offset into [workingCopyDraftProvider]
+  /// on every scroll event, so it survives the [ShellRoute] rebuild that
+  /// happens when switching to the History tab and back -- without this,
+  /// [initState] would always re-seed [_diffScrollController] from a
+  /// diffScrollOffset that was never actually updated past its 0.0 default.
+  void _onDiffScroll() {
+    ref
+        .read(workingCopyDraftProvider(widget.identity).notifier)
+        .updateDiffScrollOffset(_diffScrollController.offset);
   }
 
   @override
   Widget build(BuildContext context) {
-    final WorkingCopyStatus status = ref.watch(wc.repoWorkingCopyStatusProvider(widget.identity));
-    final WorkingCopyDiffReply? diffReply = ref.watch(wc.repoLastDiffProvider(widget.identity));
+    final session = ref.watch(repoSessionProvider(widget.identity));
+    final WorkingCopyStatus status = ref.watch(
+      wc.repoWorkingCopyStatusProvider(widget.identity),
+    );
+    final WorkingCopyDiffReply? diffReply = ref.watch(
+      wc.repoLastDiffProvider(widget.identity),
+    );
+    final FileListViewMode viewMode = ref.watch(fileListViewModeProvider);
     final GbmColors colors = context.gbmColors;
+
+    // Combine unstaged + untracked (filtered) into a single list
+    final unstagedAndUntracked = <WorkingCopyEntry>[
+      ...status.unstaged,
+      ...status.untrackedFiles.where((e) => !e.hasUnstagedChange),
+    ];
 
     // A hunk/line stage or unstage action only refreshes the working-copy
     // status (see Session::stageHunk() et al.'s doc comments) -- the diff
     // pane itself is stale until re-requested, so re-fetch it for whatever
     // is currently selected whenever status changes (covers ordinary
     // whole-file stage/unstage too, which has the same staleness).
-    ref.listen(wc.repoWorkingCopyStatusProvider(widget.identity), (previous, next) {
+    ref.listen(wc.repoWorkingCopyStatusProvider(widget.identity), (
+      previous,
+      next,
+    ) {
       final String? path = _selectedPath;
       if (path != null) {
-        wc.requestWorkingCopyDiff(ref, widget.identity, path, staged: _selectedStaged);
+        wc.requestWorkingCopyDiff(
+          ref,
+          widget.identity,
+          path,
+          staged: _selectedStaged,
+        );
       }
     });
 
-    return Row(
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        SizedBox(
-          width: 280,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+        // Conflicted section (only if there are conflicted files)
+        if (status.conflicted.isNotEmpty)
+          _buildConflictedSection(context, status: status, session: session),
+        // File board + diff pane (top)
+        Expanded(
+          flex: 5,
+          child: GbmSplitPane(
+            axis: Axis.vertical,
+            spec: GbmLayout.splitterWcDiff,
+            storageId: 'wc.diff',
             children: <Widget>[
-              Expanded(
-                child: status.isClean
-                    ? Center(child: Text('No changes', style: TextStyle(color: colors.textTertiary)))
-                    : ListView(
-                        children: <Widget>[
-                          if (status.staged.isNotEmpty) _sectionHeader(context, 'STAGED'),
-                          for (final entry in status.staged) _rowFor(entry, staged: true),
-                          if (status.unstaged.isNotEmpty) _sectionHeader(context, 'UNSTAGED'),
-                          for (final entry in status.unstaged) _rowFor(entry, staged: false),
-                          if (status.untrackedFiles.isNotEmpty) _sectionHeader(context, 'UNTRACKED'),
-                          for (final entry in status.untrackedFiles.where((e) => !e.hasUnstagedChange))
-                            _rowFor(entry, staged: false),
-                        ],
-                      ),
+              // File board (staged/unstaged columns)
+              _buildFileBoard(
+                context,
+                status: status,
+                unstagedAndUntracked: unstagedAndUntracked,
+                viewMode: viewMode,
               ),
-              _CommitBox(
-                enabled: status.staged.isNotEmpty,
-                controller: _messageController,
-                onCommit: () {
-                  final String message = _messageController.text.trim();
-                  if (message.isEmpty) return;
-                  wc.commitChanges(ref, widget.identity, message);
-                  _messageController.clear();
-                },
-              ),
+              // Diff pane
+              _buildDiffPane(context, status: status, diffReply: diffReply),
             ],
           ),
         ),
-        VerticalDivider(width: 1, color: colors.borderSubtle),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              if (_selectedPath != null)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: <Widget>[
-                      Checkbox(
-                        value: _sideBySide,
-                        onChanged: (value) => setState(() => _sideBySide = value ?? false),
-                        visualDensity: VisualDensity.compact,
-                      ),
-                      Text('Side by side', style: TextStyle(fontSize: GbmTypography.textSm, color: colors.textSecondary)),
-                    ],
-                  ),
-                ),
-              Expanded(
-                child: _selectedPath == null
-                    ? Center(child: Text('Select a file', style: TextStyle(color: colors.textTertiary)))
-                    : (diffReply != null && diffReply.path == _selectedPath && diffReply.staged == _selectedStaged)
-                    ? (_sideBySide
-                          ? SideBySideDiffView(diff: diffReply.diff)
-                          : DiffPage(
-                              diff: diffReply.diff,
-                              staged: _selectedStaged,
-                              onStageHunk: (_, hunkIndex) {
-                                final RepoSessionController notifier = ref.read(
-                                  repoSessionProvider(widget.identity).notifier,
-                                );
-                                if (_selectedStaged) {
-                                  notifier.unstageHunk(_selectedPath!, hunkIndex);
-                                } else {
-                                  notifier.stageHunk(_selectedPath!, hunkIndex);
-                                }
-                              },
-                              onStageLines: (_, hunkIndex, lineIndices) {
-                                final RepoSessionController notifier = ref.read(
-                                  repoSessionProvider(widget.identity).notifier,
-                                );
-                                if (_selectedStaged) {
-                                  notifier.unstageLines(_selectedPath!, hunkIndex, lineIndices);
-                                } else {
-                                  notifier.stageLines(_selectedPath!, hunkIndex, lineIndices);
-                                }
-                              },
-                            ))
-                    : const Center(child: CircularProgressIndicator()),
-              ),
-            ],
+        // Commit message box (bottom)
+        Container(
+          height: 200,
+          decoration: BoxDecoration(
+            border: Border(top: BorderSide(color: colors.borderSubtle)),
           ),
+          child: _buildCommitBox(context, status: status, session: session),
         ),
       ],
     );
   }
 
-  Widget _sectionHeader(BuildContext context, String label) {
+  /// Builds the conflicted files section (pinned at the top).
+  /// Only rendered when there are conflicted files.
+  Widget _buildConflictedSection(
+    BuildContext context, {
+    required WorkingCopyStatus status,
+    required RepoSessionState session,
+  }) {
     final GbmColors colors = context.gbmColors;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(GbmSpacing.space3, GbmSpacing.space2, GbmSpacing.space3, GbmSpacing.space1),
-      child: Text(
-        label,
-        style: TextStyle(fontSize: GbmTypography.textXs, fontWeight: GbmTypography.weightSemibold, color: colors.textTertiary, letterSpacing: 0.5),
+    final conflicted = status.conflicted;
+    final String repoId = repoIdForRoute(widget.identity);
+
+    // This section sits as a bare child of the outer Column in build(),
+    // which gives it unbounded height -- the Expanded ListView below needs
+    // a bounded (not necessarily tight) max height from somewhere to
+    // resolve its flex, or RenderFlex throws during layout instead of the
+    // conflicted-file list ever painting. Capped at a fixed height rather
+    // than shrink-wrapped so an unusually large conflict count scrolls
+    // internally instead of pushing the file board/commit box off-screen.
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxHeight: 200),
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border(bottom: BorderSide(color: colors.borderSubtle)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            // Header
+            Container(
+              height: GbmSpacing.rowHeightCompact,
+              color: colors.surfacePanelRaised,
+              padding: const EdgeInsets.symmetric(
+                horizontal: GbmSpacing.space2,
+              ),
+              child: Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Text(
+                      'CONFLICTED',
+                      style: TextStyle(
+                        fontSize: GbmTypography.textXs,
+                        color: colors.textSecondary,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  GbmBadge(
+                    label: '${conflicted.length}',
+                    kind: GbmBadgeKind.removed,
+                  ),
+                ],
+              ),
+            ),
+            // Conflicted files list
+            Expanded(
+              child: ListView.builder(
+                itemCount: conflicted.length,
+                itemBuilder: (context, index) {
+                  final entry = conflicted[index];
+                  return _buildConflictedFileRow(
+                    context,
+                    entry: entry,
+                    repoId: repoId,
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _rowFor(WorkingCopyEntry entry, {required bool staged}) {
-    final String repoId = repoIdForRoute(widget.identity);
-    return ChangedFileRow(
-      entry: entry,
-      checked: staged,
-      selected: _selectedPath == entry.path && _selectedStaged == staged,
-      onCheckToggle: () {
-        if (staged) {
-          wc.unstageFiles(ref, widget.identity, <String>[entry.path]);
-        } else {
-          wc.stageFiles(ref, widget.identity, <String>[entry.path]);
-        }
-      },
-      onTap: () {
+  /// Builds a single conflicted file row.
+  Widget _buildConflictedFileRow(
+    BuildContext context, {
+    required WorkingCopyEntry entry,
+    required String repoId,
+  }) {
+    final GbmColors colors = context.gbmColors;
+    final RepoSessionController notifier = ref.read(
+      repoSessionProvider(widget.identity).notifier,
+    );
+
+    return Container(
+      height: GbmSpacing.rowHeightCompact,
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: colors.borderSubtle)),
+      ),
+      child: InkWell(
+        onDoubleTap: () {
+          context.go(RoutePaths.conflictsFor(repoId));
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  entry.path,
+                  style: TextStyle(
+                    fontSize: GbmTypography.textSm,
+                    color: colors.textPrimary,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: GbmSpacing.space2),
+              _MiniButton(
+                label: 'Take Ours',
+                onPressed: () {
+                  notifier.resolveConflict(
+                    entry.path,
+                    ConflictResolution.takeOurs,
+                    oursBlobMissing: entry.oursBlob.isEmpty,
+                  );
+                },
+              ),
+              const SizedBox(width: GbmSpacing.space1),
+              _MiniButton(
+                label: 'Take Theirs',
+                onPressed: () {
+                  notifier.resolveConflict(
+                    entry.path,
+                    ConflictResolution.takeTheirs,
+                    theirsBlobMissing: entry.theirsBlob.isEmpty,
+                  );
+                },
+              ),
+              const SizedBox(width: GbmSpacing.space1),
+              _MiniButton(
+                label: 'Mark Resolved',
+                onPressed: () {
+                  notifier.resolveConflict(
+                    entry.path,
+                    ConflictResolution.markResolved,
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Builds the file board (two-column staged/unstaged).
+  Widget _buildFileBoard(
+    BuildContext context, {
+    required WorkingCopyStatus status,
+    required List<WorkingCopyEntry> unstagedAndUntracked,
+    required FileListViewMode viewMode,
+  }) {
+    if (status.isClean) {
+      final GbmColors colors = context.gbmColors;
+      return Center(
+        child: Text('No changes', style: TextStyle(color: colors.textTertiary)),
+      );
+    }
+
+    return WorkingCopyBoard(
+      unstagedEntries: unstagedAndUntracked,
+      stagedEntries: status.staged,
+      mode: viewMode,
+      expandedFolders: _expandedFolders,
+      onFileActivated: (path, fromStaged) {
         setState(() {
-          _selectedPath = entry.path;
-          _selectedStaged = staged;
+          _selectedPath = path;
+          _selectedStaged = fromStaged;
         });
-        wc.requestWorkingCopyDiff(ref, widget.identity, entry.path, staged: staged);
+        wc.requestWorkingCopyDiff(
+          ref,
+          widget.identity,
+          path,
+          staged: fromStaged,
+        );
       },
-      onBlame: () => context.push(RoutePaths.blameDialogFor(repoId, path: entry.path)),
-      onFileHistory: () => context.push(RoutePaths.fileHistoryDialogFor(repoId, path: entry.path)),
-      onLineHistory: () => context.push(RoutePaths.lineHistoryDialogFor(repoId, path: entry.path)),
-      onDiscard: staged
-          ? null
-          : () => ref.read(repoSessionProvider(widget.identity).notifier).restorePaths(<String>[entry.path]),
+      onStageRequested: (paths) {
+        wc.stageFiles(ref, widget.identity, paths);
+      },
+      onUnstageRequested: (paths) {
+        wc.unstageFiles(ref, widget.identity, paths);
+      },
+      rowWrapper: (context, entry, fromStaged, selectedPaths, child) {
+        final String repoId = repoIdForRoute(widget.identity);
+        return GestureDetector(
+          onSecondaryTapDown: (details) {
+            _openContextMenu(
+              context,
+              entry: entry,
+              fromStaged: fromStaged,
+              selectedPaths: selectedPaths,
+              position: details.globalPosition,
+              repoId: repoId,
+            );
+          },
+          child: child,
+        );
+      },
+    );
+  }
+
+  /// Builds the diff pane with scroll position preservation.
+  Widget _buildDiffPane(
+    BuildContext context, {
+    required WorkingCopyStatus status,
+    required WorkingCopyDiffReply? diffReply,
+  }) {
+    final GbmColors colors = context.gbmColors;
+
+    if (_selectedPath == null) {
+      return Center(
+        child: Text(
+          'Select a file',
+          style: TextStyle(color: colors.textTertiary),
+        ),
+      );
+    }
+
+    if (diffReply == null ||
+        diffReply.path != _selectedPath ||
+        diffReply.staged != _selectedStaged) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        // Side-by-side toggle
+        if (_selectedPath != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: <Widget>[
+                Checkbox(
+                  value: _sideBySide,
+                  onChanged: (value) =>
+                      setState(() => _sideBySide = value ?? false),
+                  visualDensity: VisualDensity.compact,
+                ),
+                Text(
+                  'Side by side',
+                  style: TextStyle(
+                    fontSize: GbmTypography.textSm,
+                    color: colors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        // Diff view
+        Expanded(
+          child: _sideBySide
+              ? SideBySideDiffView(diff: diffReply.diff)
+              : DiffPage(
+                  diff: diffReply.diff,
+                  staged: _selectedStaged,
+                  scrollController: _diffScrollController,
+                  onStageHunk: (_, hunkIndex) {
+                    final RepoSessionController notifier = ref.read(
+                      repoSessionProvider(widget.identity).notifier,
+                    );
+                    if (_selectedStaged) {
+                      notifier.unstageHunk(_selectedPath!, hunkIndex);
+                    } else {
+                      notifier.stageHunk(_selectedPath!, hunkIndex);
+                    }
+                  },
+                  onStageLines: (_, hunkIndex, lineIndices) {
+                    final RepoSessionController notifier = ref.read(
+                      repoSessionProvider(widget.identity).notifier,
+                    );
+                    if (_selectedStaged) {
+                      notifier.unstageLines(
+                        _selectedPath!,
+                        hunkIndex,
+                        lineIndices,
+                      );
+                    } else {
+                      notifier.stageLines(
+                        _selectedPath!,
+                        hunkIndex,
+                        lineIndices,
+                      );
+                    }
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
+  /// Builds the commit message box.
+  Widget _buildCommitBox(
+    BuildContext context, {
+    required WorkingCopyStatus status,
+    required RepoSessionState session,
+  }) {
+    final bool canCommit =
+        status.staged.isNotEmpty &&
+        _summaryController.text.trim().isNotEmpty &&
+        !session.conflictActive;
+
+    return Padding(
+      padding: const EdgeInsets.all(GbmSpacing.space3),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Expanded(
+            child: CommitMessageBox(
+              summaryController: _summaryController,
+              descriptionController: _descriptionController,
+              onSummaryChanged: (text) {
+                ref
+                    .read(workingCopyDraftProvider(widget.identity).notifier)
+                    .updateSummary(text);
+              },
+              onDescriptionChanged: (text) {
+                ref
+                    .read(workingCopyDraftProvider(widget.identity).notifier)
+                    .updateDescription(text);
+              },
+            ),
+          ),
+          const SizedBox(height: GbmSpacing.space2),
+          Row(
+            children: <Widget>[
+              GbmButton(
+                label: 'Commit',
+                kind: GbmButtonKind.primary,
+                onPressed: canCommit ? () => _onCommit() : null,
+              ),
+              const SizedBox(width: GbmSpacing.space2),
+              GbmButton(
+                label: 'Amend',
+                kind: GbmButtonKind.secondary,
+                onPressed: canCommit ? () => _onAmend() : null,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Commits changes with the current message.
+  void _onCommit() {
+    final message = _summaryController.text.trim();
+    final description = _descriptionController.text.trim();
+    final fullMessage = description.isEmpty
+        ? message
+        : '$message\n\n$description';
+
+    wc.commitChanges(ref, widget.identity, fullMessage);
+
+    // Reset draft immediately (success confirmation arrives async)
+    _summaryController.clear();
+    _descriptionController.clear();
+    ref.read(workingCopyDraftProvider(widget.identity).notifier).reset();
+  }
+
+  /// Amends the last commit with the current message.
+  void _onAmend() {
+    final message = _summaryController.text.trim();
+    final description = _descriptionController.text.trim();
+    final fullMessage = description.isEmpty
+        ? message
+        : '$message\n\n$description';
+
+    wc.commitChanges(ref, widget.identity, fullMessage, amend: true);
+
+    // Reset draft immediately (success confirmation arrives async)
+    _summaryController.clear();
+    _descriptionController.clear();
+    ref.read(workingCopyDraftProvider(widget.identity).notifier).reset();
+  }
+
+  /// Context menu 05-F for a working-copy file.
+  ///
+  /// Previously opened a Material `SimpleDialog` titled "File options" -- a
+  /// modal in the middle of the screen where the spec calls for a right-click
+  /// menu at the cursor, and the one place in the app that bypassed
+  /// `showGbmContextMenu` and so picked up none of the design system's menu
+  /// styling.
+  ///
+  /// Spec 05-F: "有多選時全部動作改為複數並帶數量，例如 Stage 3 files" -- when
+  /// the right-clicked row is part of a multi-selection, the actions apply to
+  /// the whole batch and say how many files that is.
+  void _openContextMenu(
+    BuildContext context, {
+    required WorkingCopyEntry entry,
+    required bool fromStaged,
+    required Set<String> selectedPaths,
+    required Offset position,
+    required String repoId,
+  }) {
+    // A right-click on a row outside the current selection acts on that row
+    // alone, matching every other list in the app; right-clicking inside the
+    // selection keeps the batch.
+    final List<String> targets = selectedPaths.contains(entry.path)
+        ? selectedPaths.toList(growable: false)
+        : <String>[entry.path];
+    final int count = targets.length;
+    final String suffix = count == 1 ? '' : ' $count files';
+
+    showGbmContextMenu(context, position, <GbmMenuItem>[
+      GbmMenuItem(
+        label: fromStaged ? 'Unstage$suffix' : 'Stage$suffix',
+        icon: fromStaged ? Icons.remove : Icons.add,
+        onTap: () => fromStaged
+            ? wc.unstageFiles(ref, widget.identity, targets)
+            : wc.stageFiles(ref, widget.identity, targets),
+      ),
+      GbmMenuItem(
+        label: 'Copy path',
+        icon: Icons.copy,
+        onTap: () =>
+            Clipboard.setData(ClipboardData(text: targets.join('\n'))),
+      ),
+      GbmMenuItem(
+        label: 'Open terminal here',
+        icon: Icons.terminal,
+        onTap: () => ref
+            .read(desktopLauncherProvider)
+            .openTerminal(widget.identity.workDir),
+      ),
+      // Single-file views: these inspect one path, so they are offered only
+      // when exactly one file is targeted rather than silently picking one.
+      if (count == 1) ...<GbmMenuItem>[
+        GbmMenuItem(
+          label: 'Blame…',
+          icon: Icons.person_outline,
+          onTap: () =>
+              context.push(RoutePaths.blameDialogFor(repoId, path: entry.path)),
+        ),
+        GbmMenuItem(
+          label: 'File History…',
+          icon: Icons.history,
+          onTap: () => context.push(
+            RoutePaths.fileHistoryDialogFor(repoId, path: entry.path),
+          ),
+        ),
+        GbmMenuItem(
+          label: 'Line History…',
+          icon: Icons.timeline,
+          onTap: () => context.push(
+            RoutePaths.lineHistoryDialogFor(repoId, path: entry.path),
+          ),
+        ),
+      ],
+      if (!fromStaged) ...<GbmMenuItem>[
+        const GbmMenuItem.separator(),
+        GbmMenuItem(
+          label: 'Discard changes${count == 1 ? '' : ' in $count files'}…',
+          icon: Icons.delete_outline,
+          danger: true,
+          onTap: () => _discardFiles(targets),
+        ),
+      ],
+    ]);
+  }
+
+  /// Opens the discard confirmation for [paths].
+  ///
+  /// Previously called `restorePaths` directly, destroying uncommitted work
+  /// with no confirmation at all -- spec page 06 requires a dialog that
+  /// lists the files and states the change cannot be undone, so the
+  /// destructive call now lives behind `DiscardChangesDialogContent`.
+  void _discardFiles(List<String> paths) {
+    if (paths.isEmpty) return;
+    context.push(
+      RoutePaths.discardChangesDialogFor(
+        Uri.encodeComponent(widget.identity.workDir),
+        paths: paths,
+      ),
     );
   }
 }
 
-class _CommitBox extends StatelessWidget {
-  const _CommitBox({required this.enabled, required this.controller, required this.onCommit});
+/// Compact button widget for conflict resolution actions.
+class _MiniButton extends StatelessWidget {
+  const _MiniButton({required this.label, required this.onPressed});
 
-  final bool enabled;
-  final TextEditingController controller;
-  final VoidCallback onCommit;
+  final String label;
+  final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
-    return Container(
-      padding: const EdgeInsets.all(GbmSpacing.space3),
-      decoration: BoxDecoration(border: Border(top: BorderSide(color: colors.borderSubtle))),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          TextField(
-            controller: controller,
-            enabled: enabled,
-            maxLines: 3,
-            decoration: const InputDecoration(hintText: 'Commit message', isDense: true, border: OutlineInputBorder()),
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onPressed,
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: GbmSpacing.space2,
+            vertical: GbmSpacing.space1,
           ),
-          const SizedBox(height: GbmSpacing.space2),
-          GbmButton(label: 'Commit', kind: GbmButtonKind.primary, onPressed: enabled ? onCommit : null),
-        ],
+          decoration: BoxDecoration(
+            border: Border.all(color: colors.borderDefault),
+            borderRadius: const BorderRadius.all(Radius.circular(4)),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: GbmTypography.textXs,
+              color: colors.textPrimary,
+            ),
+          ),
+        ),
       ),
     );
   }

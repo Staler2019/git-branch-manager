@@ -70,6 +70,16 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
   final ConflictBatch _batch = ConflictBatch();
   String? _selectedPath;
 
+  // git's own record of *which* conflict this is: the ours/theirs/ancestor
+  // blob oids of the selected path's WorkingCopyEntry, captured at
+  // selection time. A conflict re-occurring on the same path (Abort, then
+  // a new merge/rebase/cherry-pick) produces different blobs -- checked
+  // fresh against the live entry on every session update in [build], not
+  // by diffing successive workingCopyStatus snapshots. Unchanged blobs
+  // mean the file is simply still mid-resolution and not yet saved, so
+  // in-progress local edits are left alone.
+  String? _selectedConflictSignature;
+
   // Per-file editor state -- reset in _selectPath() whenever the selection
   // changes. _parsedForPath guards against applying a stale
   // lastWorkingTreeContent reply (e.g. one still in flight from the
@@ -108,12 +118,30 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
     super.dispose();
   }
 
+  /// Signature of the given path's conflict per git's own record (the
+  /// conflicted [WorkingCopyEntry]'s blob oids), or null if `path` isn't
+  /// currently conflicted at all.
+  String? _conflictSignatureFor(List<WorkingCopyEntry> conflicted, String path) {
+    final WorkingCopyEntry? entry = conflicted
+        .cast<WorkingCopyEntry?>()
+        .firstWhere((e) => e?.path == path, orElse: () => null);
+    if (entry == null) return null;
+    return '${entry.ancestorBlob}|${entry.oursBlob}|${entry.theirsBlob}';
+  }
+
   void _selectPath(String path) {
-    final WorkingTreeContentReply? staleReply = ref
-        .read(repoSessionProvider(widget.identity))
-        .lastWorkingTreeContent;
+    final RepoSessionState currentSession = ref.read(
+      repoSessionProvider(widget.identity),
+    );
+    final WorkingTreeContentReply? staleReply =
+        currentSession.lastWorkingTreeContent;
+    final String? signature = _conflictSignatureFor(
+      currentSession.workingCopyStatus.conflicted,
+      path,
+    );
     setState(() {
       _selectedPath = path;
+      _selectedConflictSignature = signature;
       _parsedForPath = null;
       _parsed = null;
       _lineOrder = null;
@@ -422,25 +450,26 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
       },
     );
 
-    // Detects the *currently selected* file re-entering conflict after
-    // having dropped out of it -- e.g. Abort, then a new merge/rebase/
-    // cherry-pick conflicts the same path again. Nothing else re-triggers
-    // _selectPath() while the selection itself doesn't change, so without
-    // this the editor pane would keep showing the previous occurrence's
-    // (already fully resolved) state instead of the file's brand-new
-    // conflict markers. ref.listen doesn't fire on initial subscription, so
-    // there's no spurious re-select on first mount.
+    // Detects the *currently selected* file's conflict being a genuinely
+    // new occurrence per git's own record -- e.g. Abort, then a new merge/
+    // rebase/cherry-pick conflicts the same path again with different
+    // content. Judged fresh against the live conflicted entry's blob oids
+    // on every session update (not by diffing this snapshot against the
+    // last one): if the oids no longer match what was loaded at selection
+    // time, git considers this a different conflict than what's on screen,
+    // so re-select to refetch/reparse. Unchanged oids mean the file is
+    // simply still mid-resolution and not yet saved -- in-progress local
+    // edits are left alone. Nothing else re-triggers _selectPath() while
+    // the selection itself doesn't change.
     ref.listen(
       repoSessionProvider(
         widget.identity,
       ).select((s) => s.workingCopyStatus.conflicted),
-      (previous, next) {
+      (_, next) {
         final String? path = _selectedPath;
         if (path == null) return;
-        final bool wasConflicted =
-            previous?.any((entry) => entry.path == path) ?? false;
-        final bool isConflictedNow = next.any((entry) => entry.path == path);
-        if (!wasConflicted && isConflictedNow) {
+        final String? signature = _conflictSignatureFor(next, path);
+        if (signature != null && signature != _selectedConflictSignature) {
           _selectPath(path);
         }
       },

@@ -74,6 +74,27 @@ final WorkingCopyEntry _conflictEntry = const WorkingCopyEntry(
   isConflicted: true,
 );
 
+/// Same path as [_conflictEntry] but different ours/theirs blob oids --
+/// simulates a *different* conflict occurring on the same path (e.g. Abort
+/// followed by a new merge/rebase/cherry-pick), which is what git's own
+/// record actually changes between occurrences.
+final WorkingCopyEntry _conflictEntryReoccurred = const WorkingCopyEntry(
+  path: 'conflict.txt',
+  oldPath: '',
+  untracked: false,
+  staged: false,
+  indexStatus: FileChangeKind.modified,
+  hasUnstagedChange: true,
+  worktreeStatus: FileChangeKind.modified,
+  conflict: ConflictKind.bothModified,
+  ancestorBlob: '',
+  oursBlob: 'ours-hash-2',
+  theirsBlob: 'theirs-hash-2',
+  similarity: 0,
+  isSubmodule: false,
+  isConflicted: true,
+);
+
 void main() {
   group('ConflictResolveWindow', () {
     final identity = RepoIdentity(
@@ -817,7 +838,9 @@ void main() {
           wellFormed: true,
         );
         controller.state = controller.state.copyWith(
-          workingCopyStatus: WorkingCopyStatus(entries: [_conflictEntry]),
+          workingCopyStatus: WorkingCopyStatus(
+            entries: [_conflictEntryReoccurred],
+          ),
         );
         await tester.pumpAndSettle();
 
@@ -826,6 +849,54 @@ void main() {
         expect(find.text('second-ours'), findsOneWidget);
         expect(find.text('Unresolved'), findsOneWidget);
         expect(find.text('Resolved'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      "an unrelated workingCopyStatus refresh doesn't discard in-progress "
+      'unsaved edits when the selected path is still the same conflict '
+      '(blob oids unchanged)',
+      (tester) async {
+        final parsed = ParsedConflictFile(
+          segments: <ConflictSegment>[
+            _regionSegment(
+              ours: <String>['ours-line1'],
+              theirs: <String>['theirs-line1'],
+            ),
+          ],
+          regionCount: 1,
+          wellFormed: true,
+        );
+
+        final container = await _pumpWindow(
+          tester,
+          identity,
+          _sessionWith(_conflictEntry),
+          parsed,
+        );
+        await _selectConflictFile(tester);
+        final controller =
+            container.read(repoSessionProvider(identity).notifier)
+                as _FakeRepoSessionController;
+
+        // Resolve locally but do NOT save/mark resolved yet -- git still
+        // reports the path as conflicted at this point.
+        await tester.tap(_perRegionTakeButton('Ours'));
+        await tester.pumpAndSettle();
+        expect(find.text('Resolved'), findsOneWidget);
+
+        // A workingCopyStatus refresh lands (e.g. an unrelated file
+        // changed elsewhere in the working copy) with a brand-new List
+        // object, but the selected path's own blob oids are unchanged --
+        // same occurrence, simply not yet saved.
+        controller.state = controller.state.copyWith(
+          workingCopyStatus: WorkingCopyStatus(entries: [_conflictEntry]),
+        );
+        await tester.pumpAndSettle();
+
+        // The in-progress edit must survive: still Resolved, badge intact.
+        expect(find.text('Resolved'), findsOneWidget);
+        expect(find.text('①'), findsOneWidget);
       },
     );
 

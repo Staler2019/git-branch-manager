@@ -217,8 +217,12 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
               onAbort: () => _handleConflictAbort(ref, identity, session),
               onSkip: () => _handleConflictSkip(ref, identity, session),
               onContinue: () => _handleConflictContinue(ref, identity, session),
-            )
-          else if (session.lastError case final error?)
+            ),
+          // Independent of conflictActive -- a Skip/Continue tapped from
+          // ConflictBanner above (git refusing because conflicts are still
+          // unresolved, for example) must stay visible instead of being
+          // swallowed by conflictActive still being true.
+          if (session.lastError case final error?)
             GbmWarningBanner(message: error.message),
           Expanded(
             child: GbmSplitPane(
@@ -674,7 +678,6 @@ class ConflictBanner extends StatelessWidget {
                 ),
               ),
             ),
-          if (!_hasSequencerOperation()) Expanded(child: SizedBox.shrink()),
           // Abort button
           if (_hasSequencerOperation())
             Tooltip(
@@ -732,8 +735,14 @@ class ConflictBanner extends StatelessWidget {
                   ),
                 ),
               ),
-            )
-          else
+            ),
+          const SizedBox(width: GbmSpacing.space2),
+          // Resolve… button -- the actual route into ConflictResolveWindow's
+          // three-pane editor. Independent of _hasSequencerOperation() so
+          // it's reachable during a real rebase/cherry-pick/merge/revert
+          // conflict, not just the git-apply --3way edge case that has no
+          // sequencer state; only Abort/Skip/Continue are sequencer-gated.
+          if (session.workingCopyStatus.conflicted.isNotEmpty)
             TextButton(
               onPressed: () => context.go(RoutePaths.conflictsFor(repoId)),
               child: Text(

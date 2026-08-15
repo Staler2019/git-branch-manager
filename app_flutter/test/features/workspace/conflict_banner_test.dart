@@ -103,6 +103,11 @@ void main() {
         ),
       );
       expect(continueButton.onPressed, isNull);
+
+      // Resolve… must stay reachable during a real conflict, not just the
+      // no-sequencer-state edge case -- this is the actual route into
+      // ConflictResolveWindow's three-pane editor.
+      expect(find.text('Resolve…'), findsOneWidget);
     });
 
     testWidgets('cherry-pick: Abort and Continue enabled, Skip enabled', (
@@ -145,6 +150,8 @@ void main() {
       expect(skipCount, 1);
       await tester.tap(find.text('Continue'));
       expect(continueCount, 1);
+
+      expect(find.text('Resolve…'), findsOneWidget);
     });
 
     testWidgets('rebase: shows step/total, Skip and Continue both work', (
@@ -183,6 +190,8 @@ void main() {
       expect(skipCount, 1);
       await tester.tap(find.text('Continue'));
       expect(continueCount, 1);
+
+      expect(find.text('Resolve…'), findsOneWidget);
     });
 
     testWidgets('revert: Abort, Skip, and Continue all disabled', (
@@ -228,6 +237,9 @@ void main() {
       // Revert has no backend continue either -- see RevertOps.h: "Continue/
       // skip/abort for an in-progress revert have no UI entry point yet".
       expect(continueButton.onPressed, isNull);
+
+      // Revert's only path to actually resolve anything is the window.
+      expect(find.text('Resolve…'), findsOneWidget);
     });
 
     testWidgets(
@@ -266,6 +278,8 @@ void main() {
       await _pump(tester, session: session);
 
       expect(find.text('Merge in progress'), findsOneWidget);
+      // Nothing to resolve yet -- no conflicted files, so no Resolve… link.
+      expect(find.text('Resolve…'), findsNothing);
     });
   });
 }

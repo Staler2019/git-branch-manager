@@ -108,6 +108,69 @@ List<BranchTreeNode> buildBranchTree(
   return result.toList(growable: false);
 }
 
+/// Splits a remote branch's [RefInfo.fullName]
+/// (`refs/remotes/<remote>/<branch>`) into its remote name and the branch
+/// name as it exists on the remote (no remote prefix) -- the inverse of what
+/// [mergeLocalAndRemoteBranches] does to a remote-only leaf's `shortName`
+/// for tree grouping. Used wherever an action needs the remote name back
+/// (checkout-as-new-local, prune this ref, delete on remote).
+(String remote, String branch) remoteBranchParts(String fullName) {
+  const String prefix = 'refs/remotes/';
+  final String rest = fullName.startsWith(prefix)
+      ? fullName.substring(prefix.length)
+      : fullName;
+  final int slash = rest.indexOf('/');
+  if (slash < 0) return (rest, '');
+  return (rest.substring(0, slash), rest.substring(slash + 1));
+}
+
+/// Merges [localBranches] with the subset of [remoteBranches] that has no
+/// local branch tracking it ("remote-only", Flutter Desktop Spec's
+/// `BRANCH_STATES` "Remote only（未 checkout）") into one flat list ready for
+/// [buildBranchTree] -- spec page 02 items 4/12: "Local 與 remote 不再分兩
+/// 段，同一條分支只出現一次". A local branch's [RefInfo.upstream] is git's
+/// `%(upstream)` output, the tracked ref's *full* name
+/// (`refs/remotes/origin/main`, confirmed against real `git for-each-ref`
+/// output, not `%(upstream:short)`), so it's matched directly against a
+/// remote branch's [RefInfo.fullName]. A matched remote branch is dropped --
+/// the local leaf already represents it. An unmatched one is kept with its
+/// `shortName` rewritten to drop the leading `<remote>/` segment (recover it
+/// with [remoteBranchParts] on `fullName`) so it groups into the same folder
+/// a same-named local branch would, since [buildBranchTree] groups by
+/// `shortName.split('/')`. Symbolic remote refs (`origin/HEAD`) are excluded
+/// -- not a real branch to show or check out.
+List<RefInfo> mergeLocalAndRemoteBranches(
+  List<RefInfo> localBranches,
+  List<RefInfo> remoteBranches,
+) {
+  final Set<String> trackedUpstreams = localBranches
+      .map((b) => b.upstream)
+      .where((u) => u.isNotEmpty)
+      .toSet();
+
+  final List<RefInfo> remoteOnly = remoteBranches
+      .where((r) => !r.isSymbolic && !trackedUpstreams.contains(r.fullName))
+      .map(
+        (r) => RefInfo(
+          fullName: r.fullName,
+          shortName: remoteBranchParts(r.fullName).$2,
+          kind: r.kind,
+          target: r.target,
+          upstream: r.upstream,
+          ahead: r.ahead,
+          behind: r.behind,
+          hasTrackingInfo: r.hasTrackingInfo,
+          isGone: r.isGone,
+          isHead: r.isHead,
+          isSymbolic: r.isSymbolic,
+          worktreePath: r.worktreePath,
+        ),
+      )
+      .toList(growable: false);
+
+  return <RefInfo>[...localBranches, ...remoteOnly];
+}
+
 /// Filters [branches] to those whose [RefInfo.shortName] contains [query]
 /// as a case-insensitive substring (Cmd/Ctrl+Shift+E "Filter branches", see
 /// gbm_action_id.dart's `editFilterBranches`). Matching is flat against the

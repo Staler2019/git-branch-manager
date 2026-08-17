@@ -62,9 +62,7 @@ void main() {
         '"diff":{"files":[],"truncated":false,"inputBytes":0}}',
       );
 
-      final CompareFileDiffResult result = CompareFileDiffResult.fromJson(
-        json,
-      );
+      final CompareFileDiffResult result = CompareFileDiffResult.fromJson(json);
 
       expect(result.left, 'main');
       expect(result.right, 'feature');
@@ -74,8 +72,18 @@ void main() {
     });
 
     test('key() includes the path so two files in one pair stay distinct', () {
-      final String a = CompareFileDiffResult.key('main', 'feature', true, 'a.txt');
-      final String b = CompareFileDiffResult.key('main', 'feature', true, 'b.txt');
+      final String a = CompareFileDiffResult.key(
+        'main',
+        'feature',
+        true,
+        'a.txt',
+      );
+      final String b = CompareFileDiffResult.key(
+        'main',
+        'feature',
+        true,
+        'b.txt',
+      );
 
       expect(a, isNot(b));
     });

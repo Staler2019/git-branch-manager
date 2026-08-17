@@ -51,7 +51,10 @@ class ChromeVisibility {
   final bool statusBarVisible;
   final bool commitDetailVisible;
 
-  ChromeVisibility copyWith({bool? statusBarVisible, bool? commitDetailVisible}) {
+  ChromeVisibility copyWith({
+    bool? statusBarVisible,
+    bool? commitDetailVisible,
+  }) {
     return ChromeVisibility(
       statusBarVisible: statusBarVisible ?? this.statusBarVisible,
       commitDetailVisible: commitDetailVisible ?? this.commitDetailVisible,

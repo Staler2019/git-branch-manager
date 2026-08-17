@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../actions/gbm_action_availability.dart';
+import '../../actions/gbm_action_id.dart';
 import '../../data/models/ref_snapshot.dart';
 import '../../data/models/stash_entry.dart';
 import '../../data/repositories/branch_repository.dart';
@@ -19,10 +21,15 @@ import 'widgets/branch_tree_item.dart';
 /// create/rename/delete and the multi-select "gone" bulk-delete flow (see
 /// docs/FEATURES.md's "Branch sync hygiene" entry). The Dart analog of
 /// `SidebarPanel`/`RefTreeModel` (src/app/views/SidebarPanel.cpp,
-/// src/app/models/RefTreeModel.cpp) -- local branches only; remote
-/// branches/tags/stashes/worktrees have their own manage-* dialogs (see
-/// workspace_screen.dart's "⋯" menu) rather than a sidebar tree, unlike the
-/// Qt original.
+/// src/app/models/RefTreeModel.cpp). Tags/stashes/worktrees still have
+/// their own manage-* dialogs (see workspace_screen.dart's "⋯" menu) rather
+/// than a sidebar tree -- but branches do not: local and remote-only
+/// branches are merged into one tree via `branch_tree_builder.dart`'s
+/// `mergeLocalAndRemoteBranches`, matching Flutter Desktop Spec page 02
+/// items 4/12 ("Local 與 remote 不再分兩段，同一條分支只出現一次"). This
+/// used to say "local branches only... unlike the Qt original" -- that was
+/// the pre-merge state; the Qt original's single-tree design is what this
+/// now (re)implements.
 class SidebarPanel extends ConsumerStatefulWidget {
   const SidebarPanel({
     super.key,
@@ -130,6 +137,59 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     setState(_selected.clear);
   }
 
+  /// 05-C "Checkout as new local…" / double-tap on a remote-only row --
+  /// [remoteRef.fullName] is an unambiguous git ref
+  /// (`refs/remotes/origin/...`), unlike its already-prefix-stripped
+  /// `shortName`, so it's used as the checkout target; the stripped
+  /// `shortName` becomes the new local branch's name.
+  void _checkoutRemoteAsNewLocal(RefInfo remoteRef) {
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .checkout(
+          target: remoteRef.fullName,
+          createBranch: true,
+          newBranchName: remoteRef.shortName,
+        );
+  }
+
+  /// 05-C "Prune this ref" -- removes just this one remote-tracking ref
+  /// locally (`git branch --delete --remotes`), independent of whether the
+  /// branch is still live on the actual remote.
+  void _pruneRemoteRef(RefInfo remoteRef) {
+    final (String remoteName, String _) = remoteBranchParts(remoteRef.fullName);
+    ref.read(repoSessionProvider(widget.identity).notifier).pruneRemote(
+      remoteName,
+      <String>[remoteRef.fullName],
+    );
+  }
+
+  /// 05-C "Prune this ref" for a *gone* row -- [goneRef] is the local
+  /// branch itself (`refs/heads/...`), so the ref to prune is its vanished
+  /// upstream (`goneRef.upstream`, e.g. `refs/remotes/origin/feature`), not
+  /// [goneRef.fullName]. This clears the stale remote-tracking ref and
+  /// leaves the local branch untouched -- see BRANCH_STATES's note: "真正
+  /// 移除 remote-tracking ref 要執行 Prune".
+  void _pruneGoneUpstream(RefInfo goneRef) {
+    final (String remoteName, String _) = remoteBranchParts(goneRef.upstream);
+    ref.read(repoSessionProvider(widget.identity).notifier).pruneRemote(
+      remoteName,
+      <String>[goneRef.upstream],
+    );
+  }
+
+  /// 05-C "Delete on remote…" -- opens the existing dialog
+  /// (`deleteRemoteBranchDialogFor`), previously unreachable from any UI.
+  void _openDeleteRemoteBranchDialog(RefInfo remoteRef) {
+    final (String remoteName, String _) = remoteBranchParts(remoteRef.fullName);
+    context.push(
+      RoutePaths.deleteRemoteBranchDialogFor(
+        Uri.encodeComponent(widget.identity.workDir),
+        remote: remoteName,
+        branch: remoteRef.shortName,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final RefSnapshot refs = ref.watch(repoRefsProvider(widget.identity));
@@ -137,7 +197,10 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
       repoSessionProvider(widget.identity),
     );
     final GbmColors colors = context.gbmColors;
-    final List<RefInfo> branches = refs.localBranches;
+    final List<RefInfo> branches = mergeLocalAndRemoteBranches(
+      refs.localBranches,
+      refs.remoteBranches,
+    );
     _pruneSelection(branches);
 
     // Compute filtered branches first, since we need it for both the enable
@@ -423,7 +486,13 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                                   widget.identity,
                                   tag.shortName,
                                 ),
-                                conflictActive: session.conflictActive,
+                                // Sourced from isActionEnabled(), not
+                                // session.conflictActive directly -- single
+                                // source of truth for checkout availability.
+                                conflictActive: !isActionEnabled(
+                                  GbmActionId.branchCheckout,
+                                  session,
+                                ),
                               ),
                             );
                           }),
@@ -471,14 +540,23 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
       repoSessionProvider(widget.identity),
     );
     if (node is BranchTreeLeaf) {
+      final bool isRemoteOnly = node.ref.kind == RefKind.remoteBranch;
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space1),
         child: BranchTreeItem(
           ref: node.ref,
-          onCheckout: () =>
-              checkoutBranch(ref, widget.identity, node.ref.shortName),
-          selected: _selected.contains(node.ref.shortName),
-          onSelectedChanged: _isBulkSelectable(node.ref)
+          onCheckout: isRemoteOnly
+              ? () => _checkoutRemoteAsNewLocal(node.ref)
+              : () => checkoutBranch(ref, widget.identity, node.ref.shortName),
+          selected: isRemoteOnly
+              ? false
+              : _selected.contains(node.ref.shortName),
+          // None of the local-branch-only actions below apply to a
+          // remote-only leaf -- there is no local branch to select for bulk
+          // delete, rename, branch-from, or merge.
+          onSelectedChanged: isRemoteOnly
+              ? null
+              : _isBulkSelectable(node.ref)
               ? (value) => setState(() {
                   if (value) {
                     _selected.add(node.ref.shortName);
@@ -487,11 +565,25 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                   }
                 })
               : null,
-          onRename: () => _renameBranch(node.ref),
-          onDelete: node.ref.isHead ? null : () => _deleteSingle(node.ref),
-          onNewBranchFromHere: () => _createBranchFrom(node.ref),
-          onMerge: node.ref.isHead ? null : _openMergeDialog,
-          conflictActive: session.conflictActive,
+          onRename: isRemoteOnly ? null : () => _renameBranch(node.ref),
+          onDelete: isRemoteOnly || node.ref.isHead
+              ? null
+              : () => _deleteSingle(node.ref),
+          onNewBranchFromHere: isRemoteOnly
+              ? null
+              : () => _createBranchFrom(node.ref),
+          onMerge: isRemoteOnly || node.ref.isHead ? null : _openMergeDialog,
+          onPruneRef: isRemoteOnly
+              ? () => _pruneRemoteRef(node.ref)
+              : node.ref.isGone && node.ref.upstream.isNotEmpty
+              ? () => _pruneGoneUpstream(node.ref)
+              : null,
+          onDeleteOnRemote: isRemoteOnly
+              ? () => _openDeleteRemoteBranchDialog(node.ref)
+              : null,
+          // Sourced from isActionEnabled(), not session.conflictActive
+          // directly -- single source of truth for checkout availability.
+          conflictActive: !isActionEnabled(GbmActionId.branchCheckout, session),
         ),
       );
     } else if (node is BranchTreeFolder) {

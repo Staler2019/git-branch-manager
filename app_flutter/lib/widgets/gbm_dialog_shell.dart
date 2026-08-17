@@ -88,8 +88,17 @@ class GbmDialogShell extends StatelessWidget {
               if (actions.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.all(GbmSpacing.space4),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
+                  // OverflowBar renders exactly like the plain end-aligned
+                  // Row this replaced when actions fit (spacing: 0, so no
+                  // gap beyond what callers already insert as SizedBox
+                  // children) -- it only switches to a vertical column,
+                  // avoiding a RenderFlex overflow, once a long action
+                  // label (e.g. CheckoutRecoveryDialogContent's "Stash
+                  // changes and checkout") no longer fits [width].
+                  child: OverflowBar(
+                    alignment: MainAxisAlignment.end,
+                    overflowAlignment: OverflowBarAlignment.end,
+                    overflowSpacing: GbmSpacing.space2,
                     children: actions,
                   ),
                 )

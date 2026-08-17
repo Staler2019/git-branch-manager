@@ -201,9 +201,7 @@ class RemotePrunePreview {
   factory RemotePrunePreview.fromJson(Map<String, dynamic> json) {
     return RemotePrunePreview(
       remote: json['remote'] as String,
-      refs: RemotePrunePreviewEntry.listFromJson(
-        json['refs'] as List<dynamic>,
-      ),
+      refs: RemotePrunePreviewEntry.listFromJson(json['refs'] as List<dynamic>),
     );
   }
 
@@ -241,6 +239,15 @@ class CompareWithWorkingCopyResult {
 /// OperationRunner.cpp) -- a live panel fed one record per `git` invocation
 /// needs a bound too, or a long session slowly grows an unbounded list.
 const int _kMaxOperationLogEntries = 500;
+
+/// Caps how many entries [RepoSessionState.commitMetaCache] keeps. Unlike
+/// [_kMaxOperationLogEntries], there is no core-side precedent to mirror --
+/// this cache has no cap at all today, so a long session that scrolls
+/// through a very large repo's entire history grows it without bound. 5000
+/// is generous enough that normal browsing (a viewport's worth of rows plus
+/// scrollback) never hits it, while still bounding worst-case memory for a
+/// session that never closes.
+const int _kMaxCommitMetaCacheEntries = 5000;
 
 /// Everything the workspace shell (`features/workspace`), sidebar
 /// (`features/sidebar`) and history graph (`features/history_graph`) read
@@ -527,6 +534,25 @@ class RepoSessionState {
           : (originalOperationMessage ?? this.originalOperationMessage),
     );
   }
+
+  /// Merges [metas] into [commitMetaCache] keyed by oid -- see that field's
+  /// doc comment for why a reply must add to the cache rather than replace
+  /// it -- then caps the result at [_kMaxCommitMetaCacheEntries] by
+  /// dropping the oldest entries in insertion order, mirroring
+  /// [operationLog]'s [_kMaxOperationLogEntries] cap.
+  RepoSessionState withCommitMeta(List<CommitMeta> metas) {
+    final Map<String, CommitMeta> merged = <String, CommitMeta>{
+      ...commitMetaCache,
+      for (final CommitMeta meta in metas) meta.oid: meta,
+    };
+    final Map<String, CommitMeta> capped =
+        merged.length <= _kMaxCommitMetaCacheEntries
+        ? merged
+        : Map<String, CommitMeta>.fromEntries(
+            merged.entries.skip(merged.length - _kMaxCommitMetaCacheEntries),
+          );
+    return copyWith(commitMetaCache: capped);
+  }
 }
 
 /// Owns one `gbm_capi` session handle end to end: opens it, subscribes to
@@ -733,12 +759,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
         if (payload is List<dynamic>) {
           final List<CommitMeta> metas = CommitMeta.listFromJson(payload);
           if (metas.isNotEmpty) {
-            state = state.copyWith(
-              commitMetaCache: <String, CommitMeta>{
-                ...state.commitMetaCache,
-                for (final CommitMeta meta in metas) meta.oid: meta,
-              },
-            );
+            state = state.withCommitMeta(metas);
           }
         }
       case GbmEventType.commitFilesReady:
@@ -805,10 +826,11 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
           final CompareWithWorkingCopyResult result =
               CompareWithWorkingCopyResult.fromJson(payload);
           state = state.copyWith(
-            compareWithWorkingCopyResults: <String, CompareWithWorkingCopyResult>{
-              ...state.compareWithWorkingCopyResults,
-              CompareWithWorkingCopyResult.key(result.ref): result,
-            },
+            compareWithWorkingCopyResults:
+                <String, CompareWithWorkingCopyResult>{
+                  ...state.compareWithWorkingCopyResults,
+                  CompareWithWorkingCopyResult.key(result.ref): result,
+                },
           );
         }
       case GbmEventType.originalOperationMessageReady:

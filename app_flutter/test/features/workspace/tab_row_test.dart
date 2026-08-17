@@ -20,6 +20,7 @@ Future<GoRouter> _pump(
   String initialLocation = '',
   List<CompareTabSpec> compareTabs = const <CompareTabSpec>[],
   ValueChanged<String>? onCloseCompareTab,
+  bool conflictActive = false,
 }) async {
   final GoRouter router = GoRouter(
     initialLocation: initialLocation.isEmpty
@@ -34,6 +35,7 @@ Future<GoRouter> _pump(
             pendingChangeCount: pendingChangeCount,
             compareTabs: compareTabs,
             onCloseCompareTab: onCloseCompareTab,
+            conflictActive: conflictActive,
           ),
         ),
       ),
@@ -45,6 +47,7 @@ Future<GoRouter> _pump(
             pendingChangeCount: pendingChangeCount,
             compareTabs: compareTabs,
             onCloseCompareTab: onCloseCompareTab,
+            conflictActive: conflictActive,
           ),
         ),
       ),
@@ -56,12 +59,23 @@ Future<GoRouter> _pump(
             pendingChangeCount: pendingChangeCount,
             compareTabs: compareTabs,
             onCloseCompareTab: onCloseCompareTab,
+            conflictActive: conflictActive,
           ),
         ),
       ),
       GoRoute(
         path: RoutePaths.mergeDialog,
         builder: (context, state) => const Scaffold(body: Text('merge-dialog')),
+      ),
+      GoRoute(
+        path: RoutePaths.cherryPickDialog,
+        builder: (context, state) =>
+            const Scaffold(body: Text('cherry-pick-dialog')),
+      ),
+      GoRoute(
+        path: RoutePaths.resetBranchDialog,
+        builder: (context, state) =>
+            const Scaffold(body: Text('reset-branch-dialog')),
       ),
       GoRoute(
         path: RoutePaths.manageStashesDialog,
@@ -114,6 +128,89 @@ void main() {
     await tester.tap(find.text('Merge…'));
     await tester.pumpAndSettle();
     expect(find.text('merge-dialog'), findsOneWidget);
+  });
+
+  testWidgets('Cherry-pick button pushes the cherry-pick dialog route', (
+    tester,
+  ) async {
+    await _pump(tester, pendingChangeCount: 0);
+    await tester.tap(find.text('Cherry-pick…'));
+    await tester.pumpAndSettle();
+    expect(find.text('cherry-pick-dialog'), findsOneWidget);
+  });
+
+  testWidgets('Reset button pushes the reset-branch dialog route', (
+    tester,
+  ) async {
+    await _pump(tester, pendingChangeCount: 0);
+    await tester.tap(find.text('Reset…'));
+    await tester.pumpAndSettle();
+    expect(find.text('reset-branch-dialog'), findsOneWidget);
+  });
+
+  group('conflictActive gates Merge/Cherry-pick/Reset', () {
+    testWidgets('Merge/Cherry-pick/Reset render as disabled TextButtons '
+        '(onPressed null) while conflictActive is true', (tester) async {
+      await _pump(tester, pendingChangeCount: 0, conflictActive: true);
+
+      for (final String label in const <String>[
+        'Merge…',
+        'Cherry-pick…',
+        'Reset…',
+      ]) {
+        final TextButton button = tester.widget<TextButton>(
+          find.ancestor(
+            of: find.text(label),
+            matching: find.byType(TextButton),
+          ),
+        );
+        expect(button.onPressed, isNull, reason: label);
+      }
+    });
+
+    testWidgets(
+      'tapping Merge/Cherry-pick/Reset while conflictActive is true does '
+      'not navigate',
+      (tester) async {
+        final GoRouter router = await _pump(
+          tester,
+          pendingChangeCount: 0,
+          conflictActive: true,
+        );
+        final String startLocation = router
+            .routerDelegate
+            .currentConfiguration
+            .uri
+            .toString();
+
+        for (final String label in const <String>[
+          'Merge…',
+          'Cherry-pick…',
+          'Reset…',
+        ]) {
+          await tester.tap(find.text(label));
+          await tester.pumpAndSettle();
+        }
+
+        expect(
+          router.routerDelegate.currentConfiguration.uri.toString(),
+          startLocation,
+        );
+      },
+    );
+
+    testWidgets('Merge/Cherry-pick/Reset are enabled again once conflictActive '
+        'flips back to false', (tester) async {
+      await _pump(tester, pendingChangeCount: 0);
+
+      final TextButton button = tester.widget<TextButton>(
+        find.ancestor(
+          of: find.text('Merge…'),
+          matching: find.byType(TextButton),
+        ),
+      );
+      expect(button.onPressed, isNotNull);
+    });
   });
 
   testWidgets(

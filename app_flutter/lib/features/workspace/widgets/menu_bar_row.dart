@@ -40,6 +40,7 @@ class MenuBarRow extends StatelessWidget {
     required this.onFetch,
     required this.onPull,
     required this.onPush,
+    this.actionHandlers = const <GbmActionId, VoidCallback?>{},
   });
 
   final String repoId;
@@ -48,6 +49,16 @@ class MenuBarRow extends StatelessWidget {
   final VoidCallback? onFetch;
   final VoidCallback? onPull;
   final VoidCallback? onPush;
+
+  /// The same handler map `WorkspaceScreen` hands to
+  /// [WorkspaceActionShortcuts]/`PlatformMenuBarHost` -- used here purely
+  /// to derive each [GbmMenuItem.enabled] (see its doc comment: a visual
+  /// signal only, dispatch still goes through [_resolveHandler] unchanged).
+  /// Defaults to empty so this widget stays constructible with plain
+  /// callbacks and no Riverpod dependency for presentational tests (see
+  /// this class's doc comment) -- every non-[fileExit] item then renders
+  /// disabled, which is fine since none of those tests assert on color.
+  final Map<GbmActionId, VoidCallback?> actionHandlers;
 
   @override
   Widget build(BuildContext context) {
@@ -135,8 +146,39 @@ class MenuBarRow extends StatelessWidget {
     return GbmMenuItem(
       label: itemModel.label,
       danger: itemModel.isDanger,
+      enabled: _resolveEnabled(itemModel.id),
       onTap: handler,
     );
+  }
+
+  /// Resolves whether [id]'s row should render enabled -- mirrors
+  /// [_resolveHandler]'s same five-id special-casing rather than reading
+  /// [actionHandlers] uniformly for all ids, so the visual state is correct
+  /// even when a caller (e.g. the presentational widget tests this class's
+  /// own doc comment describes) passes named callbacks but no
+  /// [actionHandlers] map at all.
+  bool _resolveEnabled(GbmActionId id) {
+    switch (id) {
+      case GbmActionId.repositoryFetch:
+        return onFetch != null;
+      case GbmActionId.repositoryPull:
+        return onPull != null;
+      case GbmActionId.repositoryPush:
+        return onPush != null;
+      case GbmActionId.viewToggleSidebar:
+        // No state-dependent gate -- onToggleSidebar is a required
+        // non-null param, so this is always enabled (see
+        // gbm_action_availability.dart).
+        return true;
+      case GbmActionId.fileExit:
+        // Dispatched directly via SystemNavigator.pop in _resolveHandler,
+        // not through actionHandlers (whose entry for fileExit is
+        // hardcoded null in _buildActionHandlers -- "Handled specially in
+        // MenuBarRow"), so its enabled state can't be read from the map.
+        return true;
+      default:
+        return actionHandlers[id] != null;
+    }
   }
 
   /// Resolves the tap handler for a given [GbmActionId].

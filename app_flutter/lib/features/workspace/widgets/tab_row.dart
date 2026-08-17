@@ -39,6 +39,7 @@ class TabRow extends StatelessWidget {
     required this.pendingChangeCount,
     this.compareTabs = const <CompareTabSpec>[],
     this.onCloseCompareTab,
+    this.conflictActive = false,
   });
 
   final String repoId;
@@ -49,6 +50,17 @@ class TabRow extends StatelessWidget {
   /// care about History/Working Copy are unaffected.
   final List<CompareTabSpec> compareTabs;
   final ValueChanged<String>? onCloseCompareTab;
+
+  /// Gates Merge…/Cherry-pick…/Reset… the same way `isActionEnabled()`
+  /// gates every other conflict-sensitive action (see CLAUDE.md's "Action
+  /// availability state machine") -- the caller passes
+  /// `!isActionEnabled(GbmActionId.branchMergeIntoCurrent, session)` rather
+  /// than this widget re-deriving `session.conflictActive` itself, since
+  /// TabRow stays presentational/Riverpod-free like MenuBarRow. Merge is the
+  /// only one of the three with its own [GbmActionId] today; Cherry-pick and
+  /// Reset share its gate because all three would start a second sequencer
+  /// operation mid-conflict, the same class of action spec page 07 disables.
+  final bool conflictActive;
 
   @override
   Widget build(BuildContext context) {
@@ -107,7 +119,9 @@ class TabRow extends StatelessWidget {
             ),
           ),
           TextButton(
-            onPressed: () => context.push(RoutePaths.mergeDialogFor(repoId)),
+            onPressed: conflictActive
+                ? null
+                : () => context.push(RoutePaths.mergeDialogFor(repoId)),
             child: Text(
               'Merge…',
               style: TextStyle(
@@ -117,8 +131,9 @@ class TabRow extends StatelessWidget {
             ),
           ),
           TextButton(
-            onPressed: () =>
-                context.push(RoutePaths.cherryPickDialogFor(repoId)),
+            onPressed: conflictActive
+                ? null
+                : () => context.push(RoutePaths.cherryPickDialogFor(repoId)),
             child: Text(
               'Cherry-pick…',
               style: TextStyle(
@@ -128,8 +143,9 @@ class TabRow extends StatelessWidget {
             ),
           ),
           TextButton(
-            onPressed: () =>
-                context.push(RoutePaths.resetBranchDialogFor(repoId)),
+            onPressed: conflictActive
+                ? null
+                : () => context.push(RoutePaths.resetBranchDialogFor(repoId)),
             child: Text(
               'Reset…',
               style: TextStyle(

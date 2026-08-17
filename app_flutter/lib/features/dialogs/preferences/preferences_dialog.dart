@@ -406,8 +406,7 @@ class _RepositorySourcesSectionState
         .length;
     final int slowestScanMs = discovery.baseFolders.fold<int>(
       0,
-      (int acc, BaseFolderRecord f) =>
-          f.lastScanMs > acc ? f.lastScanMs : acc,
+      (int acc, BaseFolderRecord f) => f.lastScanMs > acc ? f.lastScanMs : acc,
     );
 
     return Column(
@@ -577,8 +576,9 @@ class _BaseFolderRow extends ConsumerWidget {
           IconButton(
             icon: Icon(Icons.delete_outline, size: 18, color: colors.danger),
             tooltip: 'Remove',
-            onPressed: () =>
-                ref.read(discoveryProvider.notifier).removeBaseFolder(folder.id),
+            onPressed: () => ref
+                .read(discoveryProvider.notifier)
+                .removeBaseFolder(folder.id),
           ),
         ],
       ),
@@ -624,8 +624,7 @@ class _GitSection extends ConsumerWidget {
         const _SectionHeading('COMMIT MESSAGES'),
         _SettingSwitch(
           title: 'Add "(cherry picked from commit …)" when cherry-picking',
-          subtitle:
-              'Appended as a trailing line to the original commit body.',
+          subtitle: 'Appended as a trailing line to the original commit body.',
           value: prefs.cherryPickAddsSourceLine,
           onChanged: (bool v) => notifier.update(
             (AppPreferences p) => p.copyWith(cherryPickAddsSourceLine: v),
@@ -819,8 +818,9 @@ class _AdvancedSection extends ConsumerWidget {
           label: 'Keep in memory',
           suffix: 'entries',
           value: prefs.logMemoryLimit,
-          onChanged: (int v) =>
-              notifier.update((AppPreferences p) => p.copyWith(logMemoryLimit: v)),
+          onChanged: (int v) => notifier.update(
+            (AppPreferences p) => p.copyWith(logMemoryLimit: v),
+          ),
         ),
         const SizedBox(height: GbmSpacing.space2),
         _NumberField(

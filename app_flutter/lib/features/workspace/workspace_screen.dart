@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../actions/gbm_action_availability.dart';
 import '../../actions/gbm_action_id.dart';
 import '../../actions/gbm_menu_model.dart';
 import '../../data/models/ref_snapshot.dart';
@@ -58,10 +59,23 @@ class WorkspaceScreen extends ConsumerStatefulWidget {
     super.key,
     required this.identity,
     required this.child,
+    this.isMacOS,
   });
 
   final RepoIdentity identity;
   final Widget child;
+
+  /// Platform override for the in-window vs system menu bar branch (spec
+  /// page 01: menus live in the system bar on macOS, in-window elsewhere)
+  /// and for [WorkspaceActionShortcuts]' Cmd/Ctrl binding. `null` (the
+  /// default) falls back to [Platform.isMacOS] -- production behavior is
+  /// unchanged -- but a non-null value lets a test force either branch
+  /// regardless of the host running the test (`dart:io`'s
+  /// `Platform.isMacOS` is not affected by
+  /// `debugDefaultTargetPlatformOverride`, so it can't be forced any other
+  /// way). Same nullable-override shape as [PlatformMenuBarHost]'s
+  /// `isMacOSOverride`.
+  final bool? isMacOS;
 
   @override
   ConsumerState<WorkspaceScreen> createState() => _WorkspaceScreenState();
@@ -124,6 +138,12 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     final RepoSessionState session = ref.watch(repoSessionProvider(identity));
     final String repoId = repoIdForRoute(identity);
     final ChromeVisibility chrome = ref.watch(chromeVisibilityProvider);
+    // Resolved once per build so every branch below (in-window menu bar
+    // visibility, WorkspaceActionShortcuts' Cmd/Ctrl binding,
+    // PlatformMenuBarHost's own platform check) agrees -- see
+    // widget.isMacOS's doc comment for why this can't just be
+    // Platform.isMacOS directly.
+    final bool isMacOS = widget.isMacOS ?? Platform.isMacOS;
 
     // Times the history scan for the status bar's elapsed figure. Recorded
     // on the false -> true edge and closed on true -> false, so a rebuild
@@ -216,25 +236,30 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
           // menus live in the system bar (PlatformMenuBarHost below wraps
           // this whole scaffold), so drawing this in-window row there too
           // would show the same menus twice.
-          if (!Platform.isMacOS)
+          //
+          // onFetch/onPull/onPush/onToggleSidebar are read back out of
+          // actionHandlers (computed once, above) rather than recomputed
+          // here -- the same callback instance is what
+          // WorkspaceActionShortcuts (keyboard) and PlatformMenuBarHost
+          // (macOS system menu) dispatch through, so a keyboard shortcut
+          // and a menu click for the same action can no longer disagree.
+          // See _buildActionHandlers' doc comment for the bug this fixes.
+          if (!isMacOS)
             MenuBarRow(
               repoId: repoId,
               sidebarVisible: _sidebarVisible,
-              onToggleSidebar: () =>
-                  setState(() => _sidebarVisible = !_sidebarVisible),
-              onFetch: session.conflictActive
-                  ? null
-                  : () => ref
-                        .read(repoSessionProvider(identity).notifier)
-                        .fetchRemote(),
-              onPull: session.conflictActive
-                  ? null
-                  : () => ref
-                        .read(repoSessionProvider(identity).notifier)
-                        .pullChanges(),
-              onPush: session.conflictActive
-                  ? null
-                  : () => _push(context, ref, identity, repoId, session),
+              // Always non-null: viewToggleSidebar has no state-dependent
+              // gate (see gbm_action_availability.dart), so
+              // _buildActionHandlers always populates it.
+              onToggleSidebar: actionHandlers[GbmActionId.viewToggleSidebar]!,
+              onFetch: actionHandlers[GbmActionId.repositoryFetch],
+              onPull: actionHandlers[GbmActionId.repositoryPull],
+              onPush: actionHandlers[GbmActionId.repositoryPush],
+              // Purely visual (GbmMenuItem.enabled) -- see MenuBarRow's doc
+              // comment. Same map as WorkspaceActionShortcuts/
+              // PlatformMenuBarHost below, so the in-window menu's grey
+              // state agrees with what those two paths will actually do.
+              actionHandlers: actionHandlers,
             ),
           TopBar(
             repoName: _displayName(identity.workDir),
@@ -249,6 +274,15 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
             compareTabs: ref.watch(compareTabsProvider(identity)),
             onCloseCompareTab: (String tabId) =>
                 _closeCompareTab(context, ref, identity, repoId, tabId),
+            // Sourced from isActionEnabled(), not session.conflictActive
+            // directly -- single source of truth, same pattern as
+            // BranchTreeItem/CommitGraphView. Cherry-pick/Reset have no
+            // GbmActionId of their own yet, so they share Merge's gate --
+            // see TabRow.conflictActive's doc comment.
+            conflictActive: !isActionEnabled(
+              GbmActionId.branchMergeIntoCurrent,
+              session,
+            ),
           ),
           if (session.conflictActive)
             ConflictBanner(
@@ -344,11 +378,12 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
 
     // Wrap with action shortcuts for keyboard handling
     return WorkspaceActionShortcuts(
-      isMacOS: Platform.isMacOS,
+      isMacOS: isMacOS,
       handlers: actionHandlers,
       child: PlatformMenuBarHost(
         menus: gbmMenus,
         handlers: actionHandlers,
+        isMacOSOverride: isMacOS,
         child: scaffoldContent,
       ),
     );
@@ -376,6 +411,24 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   /// real implementation to its handler. Ids without an implementation are
   /// mapped to `null` (safe no-op when clicked or shortcut fired).
   ///
+  /// This map is the single source every dispatch path reads from --
+  /// [WorkspaceActionShortcuts] (keyboard), [PlatformMenuBarHost] (macOS
+  /// system menu, via `onSelected: handlers[item.id]`), and
+  /// [MenuBarRow]'s own `Actions.maybeInvoke` fallback for ids it doesn't
+  /// special-case. It used to be a false single source: `repositoryFetch`,
+  /// `repositoryPull`, `repositoryPush` and `viewToggleSidebar` were
+  /// hardcoded to `null` here on the theory that "MenuBarRow handles it
+  /// via a named param" -- true only for the in-window menu-click path,
+  /// because [MenuBarRow]'s own `_resolveHandler` special-cases those four
+  /// ids and reads `onFetch`/`onPull`/`onPush`/`onToggleSidebar` directly,
+  /// bypassing this map entirely. The keyboard and system-menu paths read
+  /// this map with no such special-casing, got `null`, and silently
+  /// no-op'd -- Ctrl/Cmd+Shift+F, +Shift+P, +P, +B all did nothing (see
+  /// `test/integration/workspace_intent_dispatch_parity_test.dart`). Fixed
+  /// by giving these four real callbacks here too, then reading them back
+  /// out of this same map for `MenuBarRow`'s params (see the `build()`
+  /// call site) instead of computing them a second time.
+  ///
   /// Wired handlers (real implementations):
   /// - viewHistory, viewWorkingCopy: navigation via GoRouter
   /// - filePreferences, repositorySettings: preferences dialog
@@ -391,15 +444,15 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   /// - repositoryCompare: opens a new closable Compare tab (M6), defaulting
   ///   to current-branch-vs-Working-Copy, and navigates to it
   ///
-  /// Every id in [gbmMenus] now resolves to a handler except the four routed
-  /// elsewhere and the two that are legitimately state-dependent:
+  /// Every id in [gbmMenus] now resolves to a handler except the ones
+  /// routed elsewhere or legitimately state-dependent:
   /// - fileExit: handled in MenuBarRow (SystemNavigator.pop)
   /// - repositoryFetch, repositoryPull, repositoryPush, viewToggleSidebar:
-  ///   handled via MenuBarRow callback params
-  /// - repositoryStageAll: null while nothing is unstaged
-  /// - branchRenameCurrentBranch: null on a detached HEAD
-  /// - the Branch menu and Commit/Amend: null mid-conflict, per spec page
-  ///   07's STATES table
+  ///   real handlers here, also read back out for MenuBarRow's params (see
+  ///   above) -- not "handled elsewhere" any more, just shared
+  /// - every id [isActionEnabled] gates (see gbm_action_availability.dart
+  ///   for the full state-machine rules: spec page 07's conflict gate,
+  ///   plus detached-HEAD and empty-unstaged-list): `null` when disabled
   ///
   /// A null handler renders the menu item disabled, which is the point --
   /// previously ~30 ids were null purely because nothing had been wired yet,
@@ -455,12 +508,12 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       // filter box, conflict editor) instead of needing a per-field wiring.
       // Unfocused, `maybeInvoke` finds no action and does nothing, which is
       // the correct behaviour for "Copy" with no text selected.
-      GbmActionId.editUndo: () => _invokeTextIntent(const UndoTextIntent(
-        SelectionChangedCause.keyboard,
-      )),
-      GbmActionId.editRedo: () => _invokeTextIntent(const RedoTextIntent(
-        SelectionChangedCause.keyboard,
-      )),
+      GbmActionId.editUndo: () => _invokeTextIntent(
+        const UndoTextIntent(SelectionChangedCause.keyboard),
+      ),
+      GbmActionId.editRedo: () => _invokeTextIntent(
+        const RedoTextIntent(SelectionChangedCause.keyboard),
+      ),
       GbmActionId.editCut: () => _invokeTextIntent(
         const CopySelectionTextIntent.cut(SelectionChangedCause.keyboard),
       ),
@@ -473,10 +526,10 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       // commit list, and "find in files" is the same field scoped to paths.
       // Navigating there first means the shortcut works from Working Copy
       // too, rather than silently focusing a field that is not on screen.
-      GbmActionId.editFindInHistory: () => _focusHistorySearch(context, ref,
-          identity, repoId),
-      GbmActionId.editFindInFiles: () => _focusHistorySearch(context, ref,
-          identity, repoId),
+      GbmActionId.editFindInHistory: () =>
+          _focusHistorySearch(context, ref, identity, repoId),
+      GbmActionId.editFindInFiles: () =>
+          _focusHistorySearch(context, ref, identity, repoId),
       GbmActionId.editFilterBranches: () {
         // Reveal the sidebar first if hidden -- there is nothing to focus
         // otherwise (mirrors onOpenLog's un-collapse-then-reveal pattern
@@ -501,7 +554,11 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       GbmActionId.viewGraphColumns: () => _showGraphColumnsDialog(context),
       GbmActionId.viewCommitDetail: () =>
           ref.read(chromeVisibilityProvider.notifier).toggleCommitDetail(),
-      GbmActionId.viewToggleSidebar: null, // Handled via MenuBarRow param
+      // No state-dependent gate (see gbm_action_availability.dart) --
+      // always a real callback, read back out for MenuBarRow's own
+      // onToggleSidebar param (see the build() call site).
+      GbmActionId.viewToggleSidebar: () =>
+          setState(() => _sidebarVisible = !_sidebarVisible),
       GbmActionId.viewStatusBar: () =>
           ref.read(chromeVisibilityProvider.notifier).toggleStatusBar(),
       // Same un-collapse-then-reveal as the status bar's own log button, so
@@ -528,31 +585,50 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       },
 
       // Repository
-      GbmActionId.repositoryFetch: null, // Handled via MenuBarRow param
-      GbmActionId.repositoryPull: null, // Handled via MenuBarRow param
-      GbmActionId.repositoryPush: null, // Handled via MenuBarRow param
+      //
+      // Fetch/Pull/Push are real callbacks here (not delegated elsewhere
+      // any more, see this method's doc comment) so the keyboard shortcut
+      // and macOS system menu item actually reach them; MenuBarRow reads
+      // the same instances back out for its toolbar/menu params.
+      GbmActionId.repositoryFetch:
+          isActionEnabled(GbmActionId.repositoryFetch, session)
+          ? () => ref.read(repoSessionProvider(identity).notifier).fetchRemote()
+          : null,
+      GbmActionId.repositoryPull:
+          isActionEnabled(GbmActionId.repositoryPull, session)
+          ? () => ref.read(repoSessionProvider(identity).notifier).pullChanges()
+          : null,
+      GbmActionId.repositoryPush:
+          isActionEnabled(GbmActionId.repositoryPush, session)
+          ? () => _push(context, ref, identity, repoId, session)
+          : null,
       GbmActionId.repositoryCompare: () =>
           _openCompareTab(context, ref, identity, repoId, session),
       // Commit/Amend/Stage-all all act on the Working Copy view, so they
       // navigate there first -- firing Ctrl/Cmd+Enter from History would
-      // otherwise commit a draft the user cannot see. Both are disabled
-      // mid-conflict (spec page 07: "Commit：停用，直到全部標記 resolved 才由
-      // Continue 代為 commit"), matching the Commit button in that view.
-      GbmActionId.repositoryCommit: session.conflictActive
-          ? null
-          : () => context.go(RoutePaths.workingCopyFor(repoId)),
-      GbmActionId.repositoryAmendLastCommit: session.conflictActive
-          ? null
-          : () => context.go(RoutePaths.workingCopyFor(repoId)),
-      GbmActionId.repositoryStageAll: session.workingCopyStatus.unstaged.isEmpty
-          ? null
-          : () => ref
+      // otherwise commit a draft the user cannot see. Commit/Amend are
+      // disabled mid-conflict (spec page 07: "Commit：停用，直到全部標記
+      // resolved 才由 Continue 代為 commit"), matching the Commit button in
+      // that view; Stage-all is disabled independently, while nothing is
+      // unstaged (see gbm_action_availability.dart).
+      GbmActionId.repositoryCommit:
+          isActionEnabled(GbmActionId.repositoryCommit, session)
+          ? () => context.go(RoutePaths.workingCopyFor(repoId))
+          : null,
+      GbmActionId.repositoryAmendLastCommit:
+          isActionEnabled(GbmActionId.repositoryAmendLastCommit, session)
+          ? () => context.go(RoutePaths.workingCopyFor(repoId))
+          : null,
+      GbmActionId.repositoryStageAll:
+          isActionEnabled(GbmActionId.repositoryStageAll, session)
+          ? () => ref
                 .read(repoSessionProvider(identity).notifier)
                 .stageFiles(<String>[
                   for (final WorkingCopyEntry e
                       in session.workingCopyStatus.unstaged)
                     e.path,
-                ]),
+                ])
+          : null,
       GbmActionId.repositoryOpenInTerminal: () =>
           _openInTerminal(ref, identity),
       GbmActionId.repositorySettings: () =>
@@ -564,49 +640,57 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       // disabled mid-conflict, per spec page 07's STATES table ("切分支：停用,
       // 需先 Continue 或 Abort"). The banner's Abort/Skip/Continue stay the
       // only way forward, matching how Fetch/Pull/Push are already gated.
-      GbmActionId.branchNewBranch: session.conflictActive
-          ? null
-          : () => context.push(RoutePaths.newBranchDialogFor(repoId)),
-      GbmActionId.branchCheckout: session.conflictActive
-          ? null
-          : () => context.push(RoutePaths.checkoutDialogFor(repoId)),
+      // All gated via isActionEnabled() -- gbm_action_availability.dart is
+      // the single source of truth for these rules.
+      GbmActionId.branchNewBranch:
+          isActionEnabled(GbmActionId.branchNewBranch, session)
+          ? () => context.push(RoutePaths.newBranchDialogFor(repoId))
+          : null,
+      GbmActionId.branchCheckout:
+          isActionEnabled(GbmActionId.branchCheckout, session)
+          ? () => context.push(RoutePaths.checkoutDialogFor(repoId))
+          : null,
+      // Detached HEAD (no branch name) or mid-conflict: nothing to rename.
       GbmActionId.branchRenameCurrentBranch:
-          session.refs.head.branchName.isEmpty || session.conflictActive
-          ? null // Detached HEAD: there is no branch to rename.
-          : () => _renameCurrentBranch(context, ref, identity, session),
-      GbmActionId.branchMergeIntoCurrent: session.conflictActive
-          ? null
-          : () => context.push(RoutePaths.mergeDialogFor(repoId)),
+          isActionEnabled(GbmActionId.branchRenameCurrentBranch, session)
+          ? () => _renameCurrentBranch(context, ref, identity, session)
+          : null,
+      GbmActionId.branchMergeIntoCurrent:
+          isActionEnabled(GbmActionId.branchMergeIntoCurrent, session)
+          ? () => context.push(RoutePaths.mergeDialogFor(repoId))
+          : null,
       // Branch → Rebase onto… is the plain rebase (spec page 06's Rebase
       // row), not the todo-plan editor -- that one is reached from the
       // interactive-rebase dialog's own entry point.
-      GbmActionId.branchRebaseOnto: session.conflictActive
-          ? null
-          : () => context.push(RoutePaths.rebaseOntoDialogFor(repoId)),
+      GbmActionId.branchRebaseOnto:
+          isActionEnabled(GbmActionId.branchRebaseOnto, session)
+          ? () => context.push(RoutePaths.rebaseOntoDialogFor(repoId))
+          : null,
       // Stashing mid-conflict would hide the very files being resolved.
-      GbmActionId.branchStashChanges: session.conflictActive
-          ? null
-          : () => context.push(RoutePaths.stashChangesDialogFor(repoId)),
-      GbmActionId.branchDeleteBranch: session.conflictActive
-          ? null
-          : () => context.push(RoutePaths.deleteBranchDialogFor(repoId)),
+      GbmActionId.branchStashChanges:
+          isActionEnabled(GbmActionId.branchStashChanges, session)
+          ? () => context.push(RoutePaths.stashChangesDialogFor(repoId))
+          : null,
+      GbmActionId.branchDeleteBranch:
+          isActionEnabled(GbmActionId.branchDeleteBranch, session)
+          ? () => context.push(RoutePaths.deleteBranchDialogFor(repoId))
+          : null,
 
       // Remote
       GbmActionId.remoteAddRemote: () =>
           context.push(RoutePaths.manageRemotesDialogFor(repoId)),
-      GbmActionId.remoteFetchAllRemotes: session.conflictActive
-          ? null
-          : () =>
-                ref.read(repoSessionProvider(identity).notifier).fetchRemote(),
+      GbmActionId.remoteFetchAllRemotes:
+          isActionEnabled(GbmActionId.remoteFetchAllRemotes, session)
+          ? () => ref.read(repoSessionProvider(identity).notifier).fetchRemote()
+          : null,
       GbmActionId.remotePruneRemoteBranches: () =>
           context.push(RoutePaths.pruneRemoteBranchesDialogFor(repoId)),
       GbmActionId.remoteManageRemotes: () =>
           context.push(RoutePaths.manageRemotesDialogFor(repoId)),
 
       // Help
-      GbmActionId.helpDocumentation: () => ref
-          .read(desktopLauncherProvider)
-          .openUrl(GbmUrls.documentation),
+      GbmActionId.helpDocumentation: () =>
+          ref.read(desktopLauncherProvider).openUrl(GbmUrls.documentation),
       GbmActionId.helpKeyboardShortcuts: () =>
           context.push(RoutePaths.keyboardShortcutsDialog),
       GbmActionId.helpReportAnIssue: () =>
@@ -699,8 +783,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     RepoSessionState session,
   ) {
     final RefInfo? head = _headTrackingRef(session);
-    final bool diverged =
-        head != null && head.ahead > 0 && head.behind > 0;
+    final bool diverged = head != null && head.ahead > 0 && head.behind > 0;
 
     if (!diverged) {
       ref.read(repoSessionProvider(identity).notifier).pushChanges();

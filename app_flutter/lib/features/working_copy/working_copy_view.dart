@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../actions/gbm_action_availability.dart';
+import '../../actions/gbm_action_id.dart';
 import '../../data/models/working_copy_status.dart';
 import '../../data/repositories/file_list_view_mode_repository.dart';
 import '../../data/repositories/repo_identity.dart';
@@ -469,7 +471,7 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     final bool canCommit =
         status.staged.isNotEmpty &&
         _summaryController.text.trim().isNotEmpty &&
-        !session.conflictActive;
+        isActionEnabled(GbmActionId.repositoryCommit, session);
 
     return Padding(
       padding: const EdgeInsets.all(GbmSpacing.space3),
@@ -584,8 +586,7 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
       GbmMenuItem(
         label: 'Copy path',
         icon: Icons.copy,
-        onTap: () =>
-            Clipboard.setData(ClipboardData(text: targets.join('\n'))),
+        onTap: () => Clipboard.setData(ClipboardData(text: targets.join('\n'))),
       ),
       GbmMenuItem(
         label: 'Open terminal here',

@@ -85,7 +85,10 @@ void main() {
     });
 
     test('matches author name and email', () {
-      expect(commitMatchesQuery(query: 'j. chen', oid: 'x', meta: meta), isTrue);
+      expect(
+        commitMatchesQuery(query: 'j. chen', oid: 'x', meta: meta),
+        isTrue,
+      );
       expect(
         commitMatchesQuery(query: 'example.com', oid: 'x', meta: meta),
         isTrue,

@@ -18,15 +18,27 @@ import '../theme/tokens.dart';
 /// [_GbmMenuRow] currently renders a submenu trigger's label only and its
 /// `onTap` is always null, so tapping one just closes the menu. Until the
 /// flyout renders, callers should treat [GbmMenuItem.submenu] as
-/// display-only (see `menu_bar_row.dart`'s View > Graph columns / Theme,
-/// which deliberately leave these non-interactive rather than pretend they
-/// work).
+/// display-only. `menu_bar_row.dart`'s View > Graph columns / Theme are
+/// visually submenu-shaped in the design doc but are built with the plain
+/// constructor (a real `onTap`, not `.submenu()`), since the parent itself
+/// already resolves to a working action (a columns picker dialog, cycling
+/// the theme) — [GbmMenuItem.submenu] is for a future item whose only
+/// affordance is its flyout.
+///
+/// [enabled] (default `true`) is a purely visual signal — [_GbmMenuRow]
+/// renders a disabled item with a fixed dim foreground and no hover
+/// highlight, mirroring `repo_switcher_popover.dart`'s `_FooterAction`. It
+/// does not gate [onTap]: dispatch is unchanged either way, so a caller
+/// that never sets [enabled] keeps exactly its old click behavior, and a
+/// caller mapping it from real action availability (`menu_bar_row.dart`)
+/// gets a menu that visually matches what clicking it will do.
 class GbmMenuItem {
   const GbmMenuItem({
     required this.label,
     this.icon,
     this.shortcut,
     this.danger = false,
+    this.enabled = true,
     required this.onTap,
     this.children = const <GbmMenuItem>[],
   }) : separator = false,
@@ -37,6 +49,7 @@ class GbmMenuItem {
       icon = null,
       shortcut = null,
       danger = false,
+      enabled = true,
       onTap = null,
       separator = true,
       children = const <GbmMenuItem>[],
@@ -50,6 +63,7 @@ class GbmMenuItem {
       _isSubmenuTrigger = true,
       shortcut = null,
       danger = false,
+      enabled = true,
       onTap = null {
     assert(_noNestedSubmenus(children));
   }
@@ -67,6 +81,7 @@ class GbmMenuItem {
   final IconData? icon;
   final String? shortcut;
   final bool danger;
+  final bool enabled;
   final bool separator;
   final bool _isSubmenuTrigger;
   final VoidCallback? onTap;
@@ -197,7 +212,6 @@ class _GbmMenuPanel extends StatelessWidget {
       ),
     );
   }
-
 }
 
 class _GbmMenuRow extends StatefulWidget {
@@ -217,12 +231,19 @@ class _GbmMenuRowState extends State<_GbmMenuRow> {
     final GbmColors colors = context.gbmColors;
     final GbmMenuItem item = widget.item;
     final Color hoverBackground = item.danger ? colors.danger : colors.accent;
-    final Color foreground = _hovered
-        ? colors.textOnAccent
-        : (item.danger ? colors.danger : colors.textPrimary);
+    // Disabled: fixed dim foreground regardless of hover, no hover
+    // highlight -- mirrors repo_switcher_popover.dart's _FooterAction.
+    // Dispatch itself is untouched (see GbmMenuItem.enabled's doc comment):
+    // this only changes what the row looks like, not whether tapping it
+    // still calls item.onTap.
+    final Color foreground = !item.enabled
+        ? colors.textTertiary
+        : (_hovered
+              ? colors.textOnAccent
+              : (item.danger ? colors.danger : colors.textPrimary));
 
     return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
+      onEnter: (_) => setState(() => _hovered = item.enabled),
       onExit: (_) => setState(() => _hovered = false),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,

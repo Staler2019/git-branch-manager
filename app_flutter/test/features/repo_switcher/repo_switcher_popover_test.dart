@@ -64,7 +64,10 @@ Future<GoRouter> _pump(
   final GoRouter router = GoRouter(
     initialLocation: '/',
     routes: <RouteBase>[
-      GoRoute(path: '/', builder: (context, state) => Scaffold(body: child)),
+      GoRoute(
+        path: '/',
+        builder: (context, state) => Scaffold(body: child),
+      ),
       GoRoute(
         path: RoutePaths.history,
         builder: (context, state) => Scaffold(
@@ -86,7 +89,9 @@ Future<GoRouter> _pump(
           recentsRepository ?? _TestRecentsRepository(recents.toList()),
         ),
         gbmBindingsProvider.overrideWithValue(_FakeGbmBindings()),
-        discoveryProvider.overrideWith((ref) => _TestDiscoveryController(repos)),
+        discoveryProvider.overrideWith(
+          (ref) => _TestDiscoveryController(repos),
+        ),
       ],
       child: MaterialApp.router(
         theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
@@ -112,10 +117,11 @@ void main() {
         ],
       );
 
-      expect(
-        entries.map((RepoSwitcherEntry e) => e.name),
-        <String>['test-repo-2', 'alpha', 'zeta'],
-      );
+      expect(entries.map((RepoSwitcherEntry e) => e.name), <String>[
+        'test-repo-2',
+        'alpha',
+        'zeta',
+      ]);
     });
 
     test('a repo in both sources appears once and counts as scanned', () {
@@ -134,7 +140,10 @@ void main() {
     test('a recent no scan ever found is manual, named after its folder', () {
       final List<RepoSwitcherEntry> entries = buildRepoSwitcherEntries(
         recents: <RecentRepoEntry>[
-          const RecentRepoEntry(workDir: '/tmp/spike-lfs/', lastOpenedEpochMs: 1),
+          const RecentRepoEntry(
+            workDir: '/tmp/spike-lfs/',
+            lastOpenedEpochMs: 1,
+          ),
         ],
         discovered: const <RepoRecord>[],
       );
@@ -164,10 +173,7 @@ void main() {
     });
 
     test('matches name and path, case-insensitively', () {
-      expect(
-        filterRepoSwitcherEntries(entries, 'ALPH').single.name,
-        'alpha',
-      );
+      expect(filterRepoSwitcherEntries(entries, 'ALPH').single.name, 'alpha');
       expect(filterRepoSwitcherEntries(entries, '/b/').single.name, 'beta');
       expect(filterRepoSwitcherEntries(entries, 'gamma'), isEmpty);
     });
@@ -260,11 +266,7 @@ void main() {
           const RecentRepoEntry(workDir: '/tmp/spike', lastOpenedEpochMs: 1),
         ],
       );
-      await _pump(
-        tester,
-        const RepoSwitcherList(),
-        recentsRepository: recents,
-      );
+      await _pump(tester, const RepoSwitcherList(), recentsRepository: recents);
 
       expect(find.text('spike'), findsOneWidget);
       await _rightClick(tester, find.text('spike'));
@@ -453,10 +455,7 @@ class _TestRecentsRepository implements RecentsRepository {
 
   @override
   Future<void> recordOpen(String workDir) async {
-    _entries.insert(
-      0,
-      RecentRepoEntry(workDir: workDir, lastOpenedEpochMs: 0),
-    );
+    _entries.insert(0, RecentRepoEntry(workDir: workDir, lastOpenedEpochMs: 0));
   }
 
   @override

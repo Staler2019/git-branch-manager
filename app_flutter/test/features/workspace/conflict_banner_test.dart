@@ -87,10 +87,7 @@ void main() {
       expect(abortCount, 1);
 
       final skipButton = tester.widget<TextButton>(
-        find.ancestor(
-          of: find.text('Skip'),
-          matching: find.byType(TextButton),
-        ),
+        find.ancestor(of: find.text('Skip'), matching: find.byType(TextButton)),
       );
       expect(skipButton.onPressed, isNull);
 
@@ -221,10 +218,7 @@ void main() {
         ),
       );
       final skipButton = tester.widget<TextButton>(
-        find.ancestor(
-          of: find.text('Skip'),
-          matching: find.byType(TextButton),
-        ),
+        find.ancestor(of: find.text('Skip'), matching: find.byType(TextButton)),
       );
       final continueButton = tester.widget<TextButton>(
         find.ancestor(
@@ -245,7 +239,9 @@ void main() {
     testWidgets(
       'no sequencer op (e.g. git apply --3way): only count and Resolve… shown',
       (tester) async {
-        final session = RepoSessionState(workingCopyStatus: _conflictedStatus(5));
+        final session = RepoSessionState(
+          workingCopyStatus: _conflictedStatus(5),
+        );
 
         await _pump(tester, session: session);
 

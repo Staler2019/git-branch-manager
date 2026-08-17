@@ -90,11 +90,7 @@ List<int> matchingRowIndices({
   final List<int> matches = <int>[];
   for (int i = 0; i < graph.rows.length; i++) {
     final String oid = i < graph.oidsHex.length ? graph.oidsHex[i] : '';
-    if (commitMatchesQuery(
-      query: query,
-      oid: oid,
-      meta: metaCache[oid],
-    )) {
+    if (commitMatchesQuery(query: query, oid: oid, meta: metaCache[oid])) {
       matches.add(i);
     }
   }

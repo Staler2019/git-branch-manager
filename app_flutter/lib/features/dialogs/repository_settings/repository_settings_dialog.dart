@@ -190,7 +190,9 @@ class _TabStrip<T> extends StatelessWidget {
                 decoration: BoxDecoration(
                   border: Border(
                     bottom: BorderSide(
-                      color: tab == current ? colors.accent : Colors.transparent,
+                      color: tab == current
+                          ? colors.accent
+                          : Colors.transparent,
                       width: 2,
                     ),
                   ),

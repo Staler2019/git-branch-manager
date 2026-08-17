@@ -207,7 +207,8 @@ class _NewBranchDialogContentState
               hint: 'Branch, tag or commit',
               options: <String>[
                 for (final RefInfo b in session.refs.localBranches) b.shortName,
-                for (final RefInfo b in session.refs.remoteBranches) b.shortName,
+                for (final RefInfo b in session.refs.remoteBranches)
+                  b.shortName,
               ],
               value: _startRef,
               onChanged: (String? value) => setState(() => _startRef = value),

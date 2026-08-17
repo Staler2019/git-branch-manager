@@ -1,22 +1,17 @@
-import 'dart:ffi';
 import 'dart:ui' as ui;
 
-import 'package:ffi/ffi.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gbm_flutter/data/ffi/gbm_bindings.dart';
 import 'package:gbm_flutter/data/models/parsed_conflict_file.dart';
 import 'package:gbm_flutter/data/models/repo_state.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
-import 'package:gbm_flutter/data/repositories/recents_repository.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart'
     show
         ConflictResolution,
-        RepoSessionController,
         RepoSessionState,
         WorkingTreeContentReply,
         repoSessionProvider;
@@ -28,6 +23,8 @@ import 'package:gbm_flutter/theme/tokens.dart';
 import 'package:gbm_flutter/widgets/split_pane.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../support/fake_repo_session.dart';
 
 // Fixture builders mirroring conflict_resolve_logic_test.dart's pattern:
 // hand-build a ParsedConflictFile directly rather than round-tripping through
@@ -584,7 +581,7 @@ void main() {
       await _selectConflictFile(tester);
       final controller =
           container.read(repoSessionProvider(identity).notifier)
-              as _FakeRepoSessionController;
+              as FakeRepoSessionController;
 
       await tester.tap(find.text('Abort'));
       await tester.pumpAndSettle();
@@ -617,7 +614,7 @@ void main() {
         await _selectConflictFile(tester);
         final controller =
             container.read(repoSessionProvider(identity).notifier)
-                as _FakeRepoSessionController;
+                as FakeRepoSessionController;
 
         await tester.tap(find.text('Abort'));
         await tester.pumpAndSettle();
@@ -665,7 +662,7 @@ void main() {
         await _selectConflictFile(tester);
         final controller =
             container.read(repoSessionProvider(identity).notifier)
-                as _FakeRepoSessionController;
+                as FakeRepoSessionController;
 
         await tester.tap(find.text('Abort'));
         await tester.pumpAndSettle();
@@ -708,7 +705,7 @@ void main() {
       await _selectConflictFile(tester);
       final controller =
           container.read(repoSessionProvider(identity).notifier)
-              as _FakeRepoSessionController;
+              as FakeRepoSessionController;
 
       // Both buttons are shown (a sequencer op is active) but disabled.
       expect(find.text('Abort'), findsWidgets);
@@ -770,7 +767,7 @@ void main() {
         await _selectConflictFile(tester);
         final controller =
             container.read(repoSessionProvider(identity).notifier)
-                as _FakeRepoSessionController;
+                as FakeRepoSessionController;
 
         await tester.tap(find.text('Mark Resolved').last);
         await tester.pumpAndSettle();
@@ -787,70 +784,67 @@ void main() {
       },
     );
 
-    testWidgets(
-      'editor picks up fresh conflict markers when the selected path '
-      'resolves then re-conflicts on the same path (e.g. Abort + a new '
-      'merge)',
-      (tester) async {
-        final parsed = ParsedConflictFile(
-          segments: <ConflictSegment>[
-            _regionSegment(
-              ours: <String>['first-ours'],
-              theirs: <String>['first-theirs'],
-            ),
-          ],
-          regionCount: 1,
-          wellFormed: true,
-        );
-
-        final container = await _pumpWindow(
-          tester,
-          identity,
-          _sessionWith(_conflictEntry),
-          parsed,
-        );
-        await _selectConflictFile(tester);
-        final controller =
-            container.read(repoSessionProvider(identity).notifier)
-                as _FakeRepoSessionController;
-
-        // Resolve the first occurrence.
-        await tester.tap(_perRegionTakeButton('Ours'));
-        await tester.pumpAndSettle();
-        expect(find.text('Resolved'), findsOneWidget);
-
-        // Abort: the file drops out of conflicted.
-        controller.state = controller.state.copyWith(
-          workingCopyStatus: WorkingCopyStatus.empty,
-        );
-        await tester.pumpAndSettle();
-
-        // A fresh merge conflicts the SAME path again, with different
-        // markers than the first occurrence.
-        controller.parsedFile = ParsedConflictFile(
-          segments: <ConflictSegment>[
-            _regionSegment(
-              ours: <String>['second-ours'],
-              theirs: <String>['second-theirs'],
-            ),
-          ],
-          regionCount: 1,
-          wellFormed: true,
-        );
-        controller.state = controller.state.copyWith(
-          workingCopyStatus: WorkingCopyStatus(
-            entries: [_conflictEntryReoccurred],
+    testWidgets('editor picks up fresh conflict markers when the selected path '
+        'resolves then re-conflicts on the same path (e.g. Abort + a new '
+        'merge)', (tester) async {
+      final parsed = ParsedConflictFile(
+        segments: <ConflictSegment>[
+          _regionSegment(
+            ours: <String>['first-ours'],
+            theirs: <String>['first-theirs'],
           ),
-        );
-        await tester.pumpAndSettle();
+        ],
+        regionCount: 1,
+        wellFormed: true,
+      );
 
-        // The editor must reflect the new occurrence, not stay stuck
-        // showing the first one as already resolved.
-        expect(find.text('second-ours'), findsOneWidget);
-        expect(find.text('Unresolved'), findsOneWidget);
-        expect(find.text('Resolved'), findsNothing);
-      },
-    );
+      final container = await _pumpWindow(
+        tester,
+        identity,
+        _sessionWith(_conflictEntry),
+        parsed,
+      );
+      await _selectConflictFile(tester);
+      final controller =
+          container.read(repoSessionProvider(identity).notifier)
+              as FakeRepoSessionController;
+
+      // Resolve the first occurrence.
+      await tester.tap(_perRegionTakeButton('Ours'));
+      await tester.pumpAndSettle();
+      expect(find.text('Resolved'), findsOneWidget);
+
+      // Abort: the file drops out of conflicted.
+      controller.state = controller.state.copyWith(
+        workingCopyStatus: WorkingCopyStatus.empty,
+      );
+      await tester.pumpAndSettle();
+
+      // A fresh merge conflicts the SAME path again, with different
+      // markers than the first occurrence.
+      controller.parsedFile = ParsedConflictFile(
+        segments: <ConflictSegment>[
+          _regionSegment(
+            ours: <String>['second-ours'],
+            theirs: <String>['second-theirs'],
+          ),
+        ],
+        regionCount: 1,
+        wellFormed: true,
+      );
+      controller.state = controller.state.copyWith(
+        workingCopyStatus: WorkingCopyStatus(
+          entries: [_conflictEntryReoccurred],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // The editor must reflect the new occurrence, not stay stuck
+      // showing the first one as already resolved.
+      expect(find.text('second-ours'), findsOneWidget);
+      expect(find.text('Unresolved'), findsOneWidget);
+      expect(find.text('Resolved'), findsNothing);
+    });
 
     testWidgets(
       "an unrelated workingCopyStatus refresh doesn't discard in-progress "
@@ -877,7 +871,7 @@ void main() {
         await _selectConflictFile(tester);
         final controller =
             container.read(repoSessionProvider(identity).notifier)
-                as _FakeRepoSessionController;
+                as FakeRepoSessionController;
 
         // Resolve locally but do NOT save/mark resolved yet -- git still
         // reports the path as conflicted at this point.
@@ -1212,7 +1206,11 @@ Future<ProviderContainer> _pumpWindow(
     overrides: [
       sharedPreferencesProvider.overrideWithValue(prefs),
       repoSessionProvider(identity).overrideWith(
-        (ref) => _FakeRepoSessionController(identity, sessionState, parsedFile),
+        (ref) => FakeRepoSessionController(
+          identity,
+          sessionState,
+          parsedFile: parsedFile,
+        ),
       ),
     ],
   );
@@ -1230,137 +1228,4 @@ Future<ProviderContainer> _pumpWindow(
 
   await tester.pumpAndSettle();
   return container;
-}
-
-class _FakeRepoSessionController extends RepoSessionController {
-  _FakeRepoSessionController(
-    RepoIdentity identity,
-    RepoSessionState initialState,
-    this._parsedFile,
-  ) : super(_FakeGbmBindings(), identity, _FakeRecentsRepository()) {
-    state = initialState;
-  }
-
-  ParsedConflictFile _parsedFile;
-
-  /// Lets a test simulate a fresh conflict occurrence on an already-seen
-  /// path (e.g. Abort followed by a new merge) supplying different markers
-  /// than the ones parsed the first time.
-  set parsedFile(ParsedConflictFile value) => _parsedFile = value;
-
-  // Recording fields for action invocations
-  final List<({String path, dynamic resolution})> resolveConflictCalls = [];
-  bool mergeAbortCalled = false;
-  bool cherryPickAbortCalled = false;
-  bool cherryPickContinueCalled = false;
-  bool continueRebaseCalled = false;
-  bool abortRebaseCalled = false;
-  bool cherryPickContinueWithMessageCalled = false;
-  bool continueRebaseWithMessageCalled = false;
-  String? lastContinueMessage;
-
-  @override
-  void resolveConflict(
-    String path,
-    dynamic resolution, {
-    bool oursBlobMissing = false,
-    bool theirsBlobMissing = false,
-    String? resolvedContent,
-  }) {
-    resolveConflictCalls.add((path: path, resolution: resolution));
-  }
-
-  // Real requestWorkingTreeContent() is async and always publishes a fresh
-  // WorkingTreeContentReply object once the read completes -- this fake
-  // must do the same (not a no-op) so tests can distinguish "content
-  // already applied for this selection" from "content just arrived",
-  // matching _applyParsedContentIfNeeded's identity guard in the window.
-  @override
-  void requestWorkingTreeContent(String path) {
-    state = state.copyWith(
-      lastWorkingTreeContent: WorkingTreeContentReply(
-        path: path,
-        editable: true,
-        content: state.lastWorkingTreeContent?.content ?? '',
-      ),
-    );
-  }
-
-  @override
-  void restorePaths(
-    List<String> paths, {
-    String source = '',
-    bool staged = false,
-  }) {}
-
-  @override
-  ParsedConflictFile parseConflictMarkers(String content) => _parsedFile;
-
-  @override
-  void mergeAbort() {
-    mergeAbortCalled = true;
-  }
-
-  @override
-  void cherryPickAbort() {
-    cherryPickAbortCalled = true;
-  }
-
-  @override
-  void cherryPickContinue() {
-    cherryPickContinueCalled = true;
-  }
-
-  @override
-  void continueRebase() {
-    continueRebaseCalled = true;
-  }
-
-  @override
-  void abortRebase() {
-    abortRebaseCalled = true;
-  }
-
-  @override
-  void requestOriginalOperationMessage() {
-    // Simulates the async gbm_request_original_operation_message() round
-    // trip completing synchronously -- the window's ref.listen picks up
-    // the null -> non-null transition and opens the MSGS dialog.
-    state = state.copyWith(
-      originalOperationMessage: 'Original summary\n\nOriginal body',
-    );
-  }
-
-  @override
-  void cherryPickContinueWithMessage(String message) {
-    cherryPickContinueWithMessageCalled = true;
-    lastContinueMessage = message;
-  }
-
-  @override
-  void continueRebaseWithMessage(String message) {
-    continueRebaseWithMessageCalled = true;
-    lastContinueMessage = message;
-  }
-}
-
-class _FakeGbmBindings implements GbmBindings {
-  @override
-  SessionOpenDart get sessionOpen =>
-      (Pointer<Utf8> workDir, Pointer<Utf8> gitDir, Pointer<Utf8> commonDir) =>
-          nullptr;
-
-  @override
-  LastResultJsonLenDart get lastResultJsonLen =>
-      () => 0;
-
-  @override
-  Never noSuchMethod(Invocation invocation) =>
-      throw UnsupportedError('Not implemented for testing');
-}
-
-class _FakeRecentsRepository implements RecentsRepository {
-  @override
-  Never noSuchMethod(Invocation invocation) =>
-      throw UnsupportedError('Not implemented for testing');
 }

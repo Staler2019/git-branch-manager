@@ -116,7 +116,8 @@ class AppPreferencesRepository {
           _prefs.getInt('${_kPrefix}autoFetchMinutes') ??
           defaults.autoFetchMinutes,
       autoFetchPrune:
-          _prefs.getBool('${_kPrefix}autoFetchPrune') ?? defaults.autoFetchPrune,
+          _prefs.getBool('${_kPrefix}autoFetchPrune') ??
+          defaults.autoFetchPrune,
       recordManualOpens:
           _prefs.getBool('${_kPrefix}recordManualOpens') ??
           defaults.recordManualOpens,
@@ -193,5 +194,7 @@ class AppPreferencesNotifier extends StateNotifier<AppPreferences> {
 final StateNotifierProvider<AppPreferencesNotifier, AppPreferences>
 appPreferencesProvider =
     StateNotifierProvider<AppPreferencesNotifier, AppPreferences>((ref) {
-      return AppPreferencesNotifier(ref.watch(appPreferencesRepositoryProvider));
+      return AppPreferencesNotifier(
+        ref.watch(appPreferencesRepositoryProvider),
+      );
     });

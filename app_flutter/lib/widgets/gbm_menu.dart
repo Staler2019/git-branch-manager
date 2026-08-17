@@ -177,7 +177,7 @@ class _GbmMenuPanel extends StatelessWidget {
         color: colors.surfaceOverlay,
         border: Border.all(color: colors.borderDefault),
         borderRadius: BorderRadius.circular(GbmSpacing.radiusMd),
-        boxShadow: GbmEffects.shadowLg(_variantOf(context)),
+        boxShadow: GbmEffects.shadowLg(context.gbmThemeVariant),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -198,12 +198,6 @@ class _GbmMenuPanel extends StatelessWidget {
     );
   }
 
-  /// Read the theme variant from [Theme.of(context).brightness] to pick
-  /// the correct shadow alpha for [GbmEffects.shadowLg].
-  GbmThemeVariant _variantOf(BuildContext context) =>
-      Theme.of(context).brightness == Brightness.dark
-      ? GbmThemeVariant.darkTechnical
-      : GbmThemeVariant.lightIde;
 }
 
 class _GbmMenuRow extends StatefulWidget {

@@ -36,10 +36,14 @@ class TopBar extends ConsumerWidget {
       ),
       child: Row(
         children: <Widget>[
+          // Closes this repository rather than "going back to the list":
+          // there is no repository list to go back to any more (switching is
+          // the sidebar's popover, see repo_switcher_popover.dart), so this
+          // lands on the welcome screen with nothing open.
           IconButton(
             onPressed: onBack,
             icon: const Icon(Icons.arrow_back, size: 18),
-            tooltip: 'Repositories',
+            tooltip: 'Close repository',
           ),
           Text(
             repoName,

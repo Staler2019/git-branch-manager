@@ -367,6 +367,25 @@ class _RepositorySourcesSection extends ConsumerStatefulWidget {
 
 class _RepositorySourcesSectionState
     extends ConsumerState<_RepositorySourcesSection> {
+  final TextEditingController _pathController = TextEditingController();
+
+  @override
+  void dispose() {
+    _pathController.dispose();
+    super.dispose();
+  }
+
+  /// Spec page 11 item 3's "Add folder…". A plain path field rather than a
+  /// native folder picker -- this app has no file-dialog plugin (see
+  /// pubspec.yaml), which is the one M1 limitation this control carries over
+  /// from the repository-list screen it used to live on.
+  void _addAndScan() {
+    final String path = _pathController.text.trim();
+    if (path.isEmpty) return;
+    ref.read(discoveryProvider.notifier).addBaseFolderAndScan(path);
+    _pathController.clear();
+  }
+
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
@@ -397,7 +416,8 @@ class _RepositorySourcesSectionState
         const _SectionHeading('BASE FOLDERS'),
         if (discovery.baseFolders.isEmpty)
           Text(
-            'No base folders yet. Add one from the repository list screen.',
+            'No base folders yet. Add one below and everything under it is '
+            'scanned for repositories.',
             style: TextStyle(
               fontSize: GbmTypography.textSm,
               color: colors.textTertiary,
@@ -406,6 +426,32 @@ class _RepositorySourcesSectionState
         else
           for (final BaseFolderRecord folder in discovery.baseFolders)
             _BaseFolderRow(folder: folder),
+        const SizedBox(height: GbmSpacing.space2),
+        Row(
+          children: <Widget>[
+            Expanded(
+              child: TextField(
+                controller: _pathController,
+                style: TextStyle(
+                  fontSize: GbmTypography.textSm,
+                  color: colors.textPrimary,
+                ),
+                decoration: const InputDecoration(
+                  hintText: 'Folder to scan, e.g. /home/you/code',
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                ),
+                onSubmitted: (_) => _addAndScan(),
+              ),
+            ),
+            const SizedBox(width: GbmSpacing.space2),
+            GbmButton(
+              label: 'Add folder…',
+              kind: GbmButtonKind.primary,
+              onPressed: discovery.isScanning ? null : _addAndScan,
+            ),
+          ],
+        ),
         const SizedBox(height: GbmSpacing.space2),
         Text(
           '${discovery.repos.length} repositories across $enabledFolders '

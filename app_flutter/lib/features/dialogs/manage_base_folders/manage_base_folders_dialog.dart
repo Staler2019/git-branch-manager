@@ -9,9 +9,10 @@ import '../../../widgets/gbm_dialog_shell.dart';
 
 /// The Dart analog of `ManageBaseFoldersDialog`
 /// (src/app/dialogs/ManageBaseFoldersDialog.cpp). Routed as
-/// `/dialogs/manage-base-folders`. Adding a folder is still done via the
-/// quick-add field on the repo list screen (see repo_list_screen.dart);
-/// this dialog is where existing folders are enabled/disabled or removed.
+/// `/dialogs/manage-base-folders`. A compact enable/disable/remove view of
+/// the same base folders Preferences → Repository sources holds (spec page
+/// 11 item 2), which is also where a folder is added -- this dialog has no
+/// add field of its own.
 class ManageBaseFoldersDialogContent extends ConsumerWidget {
   const ManageBaseFoldersDialogContent({super.key});
 

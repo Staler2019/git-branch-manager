@@ -43,8 +43,7 @@ import '../features/dialogs/stash_changes/stash_changes_dialog.dart';
 import '../features/dialogs/undo_last/undo_last_dialog.dart';
 import '../features/history_graph/history_page.dart';
 import '../features/operation_log/operation_log_dialog.dart';
-import '../features/repo_list/repo_list_screen.dart';
-import '../features/repo_switcher/repo_switcher_dialog.dart';
+import '../features/welcome/welcome_screen.dart';
 import '../features/working_copy/working_copy_view.dart';
 import '../features/workspace/workspace_screen.dart';
 import 'dialog_route.dart';
@@ -53,9 +52,9 @@ import 'route_paths.dart';
 /// `repoId` in the route is the URL-encoded working-directory path -- simple
 /// and sufficient while a "repository" is identified by nothing more than
 /// its work tree (see [RepoIdentity]); a real opaque id (matching
-/// `RepoRecord.id` from the discovery database) can replace this once
-/// `features/repo_list` reads from `discoveryProvider` instead of manual
-/// entry (M1's known limitation, see repo_list_screen.dart).
+/// `RepoRecord.id` from the discovery database) could replace this, at the
+/// cost of a lookup for repositories opened by path that discovery has
+/// never scanned.
 String repoIdFor(String workDir) => Uri.encodeComponent(workDir);
 
 RepoIdentity repoIdentityFromRouteParam(String repoId) =>
@@ -73,28 +72,33 @@ RepoIdentity repoIdentityFromRouteParam(String repoId) =>
 /// a non-opaque overlay page (see dialog_route.dart), and popped back to it
 /// -- unlike history/working-copy, which replace the shell's main pane.
 ///
-/// [initialLocation] is computed once here (cold start only) from
-/// [RecentsRepository] -- if a repo has been opened before, launch straight
-/// into it rather than the repo list, per the design spec. This is
-/// deliberately NOT a `redirect` on [RoutePaths.repoList]: a redirect would
-/// re-fire on every navigation back to `/`, permanently breaking
-/// `TopBar`'s "back to repo list" button the moment any repo has been
-/// opened once. `initialLocation` only applies at [GoRouter] construction,
-/// so `/` continues to mean "the actual repo list" for every explicit
-/// `context.go(RoutePaths.repoList)` afterward.
+/// The app's default page is a repository workspace, not a list of
+/// repositories: the spec's window *is* a repository (pages 01-03), with
+/// switching handled by the sidebar's popover rather than by navigating to a
+/// dashboard. [initialLocation] is therefore computed once here (cold start
+/// only) from [RecentsRepository] -- the most recently opened repository --
+/// and [RoutePaths.welcome] is only reached when there is none to open, or
+/// via File → Close window.
+///
+/// This is deliberately NOT a `redirect` on [RoutePaths.welcome]: a redirect
+/// would re-fire on every navigation back to `/`, permanently breaking the
+/// way out of a workspace the moment any repo has been opened once.
+/// `initialLocation` only applies at [GoRouter] construction, so `/`
+/// continues to mean the welcome screen for every explicit
+/// `context.go(RoutePaths.welcome)` afterward.
 final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
   final List<RecentRepoEntry> recents = ref
       .read(recentsRepositoryProvider)
       .read();
   final String initialLocation = recents.isEmpty
-      ? RoutePaths.repoList
+      ? RoutePaths.welcome
       : RoutePaths.workspaceFor(repoIdFor(recents.first.workDir));
   return GoRouter(
     initialLocation: initialLocation,
     routes: <RouteBase>[
       GoRoute(
-        path: RoutePaths.repoList,
-        builder: (context, state) => const RepoListScreen(),
+        path: RoutePaths.welcome,
+        builder: (context, state) => const WelcomeScreen(),
       ),
       GoRoute(
         path: RoutePaths.workspace,
@@ -155,10 +159,6 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
       dialogRoute(
         path: RoutePaths.manageBaseFoldersDialog,
         builder: (context, state) => const ManageBaseFoldersDialogContent(),
-      ),
-      dialogRoute(
-        path: RoutePaths.repoSwitcherDialog,
-        builder: (context, state) => const RepoSwitcherDialog(),
       ),
       dialogRoute(
         path: RoutePaths.resetBranchDialog,

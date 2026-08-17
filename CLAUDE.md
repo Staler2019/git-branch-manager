@@ -472,6 +472,24 @@ that were previously invisible rather than absent.
   32 have a real entry point, `deleteRemoteBranchDialogFor` currently does
   not. Round 1's "zero orphaned routes" finding above is a snapshot of that
   round, not a standing guarantee; re-audit before relying on it.
+  **Re-investigated and re-scoped, still not fixed**: the natural entry
+  point is context menu 05-C ("Delete on remote…" on a remote-only branch
+  row), but `sidebar_panel.dart` only renders `refs.localBranches` — its own
+  doc comment says local branches only, remote branches get a manage-\*
+  dialog instead, "unlike the Qt original" the 05-C spec was written
+  against. The source design (`Flutter Desktop Spec (standalone).html`,
+  page 02 items 4/12) is explicit that this divergence should be reversed:
+  Branches is meant to be *one* merged tree (local ∪ remote, matched by
+  `RefInfo.upstream` against a remote ref's `fullName`, deduped so a synced
+  branch appears once) with icon/dim/badge distinguishing synced /
+  ahead-behind / local-only / remote-only / gone (`BRANCH_STATES` in the
+  spec file). Building that — plus wiring 05-C's real-capability subset
+  (checkout-as-new-local via `checkout(createBranch: true, ...)`, prune-ref
+  via `pruneRemote`, delete-on-remote via the existing dialog; omitting
+  "Fetch this branch", no capi for a single-ref fetch) — is a real feature,
+  not a one-line call site. Deliberately deferred to its own round rather
+  than folded into this one; `gbm_context_menus.dart`'s other 8 unwired
+  targets are a separate, larger gap this doesn't touch either.
 - Some spec behaviour has no backing capi entry point and is therefore
   absent rather than faked: per-object transfer counts for fetch/pull/push
   (spec page 10's "12,480 / 31,206" progress figures, reported as
@@ -484,28 +502,28 @@ that were previously invisible rather than absent.
   and open-file-at-revision / save-this-revision in 05-K. Settings whose effect
   this layer cannot yet honour are likewise not offered in Preferences —
   see `AppPreferences`' doc comment.
-- **`TabRow`'s Merge…/Cherry-pick…/Reset… buttons bypass the action
-  availability state machine**: unlike the menu bar (gated via
-  `isActionEnabled`, see "Action availability state machine" above),
-  `tab_row.dart`'s three `TextButton`s call `context.push(...)`
-  unconditionally — no `conflictActive` check anywhere. Confirmed this
-  isn't caught downstream either: `MergeDialogContent`
-  (`lib/features/dialogs/merge/merge_dialog.dart`) only disables its own
-  "Merge" button when no target branch is selected; it never reads
-  `session.conflictActive` and will happily dispatch `mergeBranch` mid-
-  conflict if opened this way. This is a fourth dispatch surface (menu
-  click / keyboard / macOS system menu / this tab row) that the "only one
-  place to change an action's availability" rule above doesn't yet cover.
-  Not fixed here — out of the scope that introduced `isActionEnabled`; an
-  unconfirmed lead for whoever picks it up. Cherry-pick's and Reset's own
-  dialogs were not independently checked for the same gap.
-- **`dart format --set-exit-if-changed .` is not CI-enforced**: running it
-  across the full tree reformats ~27 pre-existing files this branch never
-  touched (`.github/workflows/ci.yml` has no `dart format` step — only
-  `clang-format` for the C++ core), so that drift predates this branch and
-  isn't a regression introduced by it. Left unformatted rather than
-  committed, to keep this branch's diff scoped to its own changes; whoever
-  next runs a repo-wide `dart format` should expect a large, unrelated diff.
+- ~~**`TabRow`'s Merge…/Cherry-pick…/Reset… buttons bypass the action
+  availability state machine**~~ — **Fixed**: `TabRow` gained a
+  `conflictActive` param (stays presentational/Riverpod-free, same as
+  `BranchTreeItem`/`CommitGraphView`'s param of the same name);
+  `WorkspaceScreen` computes it via
+  `!isActionEnabled(GbmActionId.branchMergeIntoCurrent, session)` and wires
+  it in. Cherry-pick and Reset still have no `GbmActionId` of their own, so
+  they share Merge's gate rather than going ungated — all three would start
+  a second sequencer operation mid-conflict, the same class spec page 07
+  disables. Covered by `tab_row_test.dart` (widget tier) and the new
+  `test/integration/workspace_tab_row_conflict_gate_test.dart` (integration
+  tier, mirrors `workspace_conflict_transition_test.dart`'s pattern —
+  clean/conflict/round-trip). `MergeDialogContent` itself still does not
+  independently read `session.conflictActive` (only disables "Merge" when
+  no target branch is selected) — not a live gap now that the dispatch
+  path leading to it is gated, but worth knowing if a future direct-link
+  entry point to that dialog is added.
+- ~~**`dart format --set-exit-if-changed .` is not CI-enforced**~~ —
+  **Fixed**: the pre-existing 27-file drift was formatted in one
+  standalone commit, then `flutter-ci` gained a
+  `dart format --output=none --set-exit-if-changed .` step between
+  `flutter pub get` and `flutter analyze`.
 - **D (−2 pt)**: History and Working Copy are still a tab switch, not a
   combined view. This matches an industry-standard pattern (Fork, GitKraken,
   Sourcetree all do the same) and isn't treated as a defect — but it's one
@@ -520,8 +538,11 @@ that were previously invisible rather than absent.
   system-following `ThemeMode` (see `theme_mode_provider.dart`'s doc
   comment), and `commitMetaCache`'s `copyWith` already defaults to
   `this.commitMetaCache`, so omitting the parameter preserves rather than
-  resets the cache. The remaining four (skeleton-width layout jank in
-  `commit_row.dart`, unbounded `commitMetaCache` growth, a missing widget
-  test for sidebar-toggle state) were **not** independently verified —
-  they're unconfirmed leads for whoever picks them up next, not accepted
-  facts.
+  resets the cache. Of the remaining three: ~~unbounded `commitMetaCache`
+  growth~~ is **fixed** — `RepoSessionState.withCommitMeta()` now caps it
+  at `_kMaxCommitMetaCacheEntries` (5000), evicting oldest-inserted entries
+  once over, mirroring `operationLog`'s `_kMaxOperationLogEntries` pattern;
+  see `test/data/repositories/repo_session_commit_meta_cache_test.dart`.
+  Skeleton-width layout jank in `commit_row.dart` and a missing widget test
+  for sidebar-toggle state were **not** independently verified — still
+  unconfirmed leads for whoever picks them up next, not accepted facts.

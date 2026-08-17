@@ -497,6 +497,28 @@ that were previously invisible rather than absent.
   around it with a shorter fixture label. Not independently verified against
   every dialog that uses long action labels — an unconfirmed lead for
   whoever picks it up.
+- **`TabRow`'s Merge…/Cherry-pick…/Reset… buttons bypass the action
+  availability state machine**: unlike the menu bar (gated via
+  `isActionEnabled`, see "Action availability state machine" above),
+  `tab_row.dart`'s three `TextButton`s call `context.push(...)`
+  unconditionally — no `conflictActive` check anywhere. Confirmed this
+  isn't caught downstream either: `MergeDialogContent`
+  (`lib/features/dialogs/merge/merge_dialog.dart`) only disables its own
+  "Merge" button when no target branch is selected; it never reads
+  `session.conflictActive` and will happily dispatch `mergeBranch` mid-
+  conflict if opened this way. This is a fourth dispatch surface (menu
+  click / keyboard / macOS system menu / this tab row) that the "only one
+  place to change an action's availability" rule above doesn't yet cover.
+  Not fixed here — out of the scope that introduced `isActionEnabled`; an
+  unconfirmed lead for whoever picks it up. Cherry-pick's and Reset's own
+  dialogs were not independently checked for the same gap.
+- **`dart format --set-exit-if-changed .` is not CI-enforced**: running it
+  across the full tree reformats ~27 pre-existing files this branch never
+  touched (`.github/workflows/ci.yml` has no `dart format` step — only
+  `clang-format` for the C++ core), so that drift predates this branch and
+  isn't a regression introduced by it. Left unformatted rather than
+  committed, to keep this branch's diff scoped to its own changes; whoever
+  next runs a repo-wide `dart format` should expect a large, unrelated diff.
 - **D (−2 pt)**: History and Working Copy are still a tab switch, not a
   combined view. This matches an industry-standard pattern (Fork, GitKraken,
   Sourcetree all do the same) and isn't treated as a defect — but it's one

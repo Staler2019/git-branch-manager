@@ -168,14 +168,14 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
       children: <Widget>[
         _CommitSearchField(
           controller: _searchController,
-          focusNode: ref.watch(
-            historySearchFocusNodeProvider(widget.identity),
-          ),
+          focusNode: ref.watch(historySearchFocusNodeProvider(widget.identity)),
           matchCount: visibleRows.length,
           totalCount: graph.rows.length,
-          onChanged: (String value) => ref
-              .read(commitSearchQueryProvider(widget.identity).notifier)
-              .state = value,
+          onChanged: (String value) =>
+              ref
+                      .read(commitSearchQueryProvider(widget.identity).notifier)
+                      .state =
+                  value,
         ),
         Expanded(
           child: visibleRows.isEmpty
@@ -188,8 +188,15 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
                     ),
                   ),
                 )
-              : _buildList(graph, visibleRows, query, metaCache, selectedOid,
-                  refs, effectiveEmail),
+              : _buildList(
+                  graph,
+                  visibleRows,
+                  query,
+                  metaCache,
+                  selectedOid,
+                  refs,
+                  effectiveEmail,
+                ),
         ),
       ],
     );
@@ -332,8 +339,7 @@ class _CommitSearchField extends StatelessWidget {
           Expanded(
             child: Shortcuts(
               shortcuts: <ShortcutActivator, Intent>{
-                LogicalKeySet(LogicalKeyboardKey.escape):
-                    const DismissIntent(),
+                LogicalKeySet(LogicalKeyboardKey.escape): const DismissIntent(),
               },
               child: Actions(
                 actions: <Type, Action<Intent>>{

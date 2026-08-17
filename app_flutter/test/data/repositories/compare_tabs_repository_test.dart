@@ -75,7 +75,12 @@ void main() {
       final String target = notifier.open(left: 'main');
       final String other = notifier.open(left: 'develop');
 
-      notifier.updateRefs(target, left: 'main', right: 'feature', threeDot: false);
+      notifier.updateRefs(
+        target,
+        left: 'main',
+        right: 'feature',
+        threeDot: false,
+      );
 
       final CompareTabSpec updated = notifier.state.firstWhere(
         (t) => t.id == target,
@@ -89,16 +94,19 @@ void main() {
       expect(untouched.rightIsWorkingCopy, isTrue);
     });
 
-    test('updateScrollOffset() stores the offset for the matching tab only', () {
-      final CompareTabsNotifier notifier = CompareTabsNotifier();
-      final String target = notifier.open(left: 'main');
+    test(
+      'updateScrollOffset() stores the offset for the matching tab only',
+      () {
+        final CompareTabsNotifier notifier = CompareTabsNotifier();
+        final String target = notifier.open(left: 'main');
 
-      notifier.updateScrollOffset(target, 240.5);
+        notifier.updateScrollOffset(target, 240.5);
 
-      expect(
-        notifier.state.firstWhere((t) => t.id == target).scrollOffset,
-        240.5,
-      );
-    });
+        expect(
+          notifier.state.firstWhere((t) => t.id == target).scrollOffset,
+          240.5,
+        );
+      },
+    );
   });
 }

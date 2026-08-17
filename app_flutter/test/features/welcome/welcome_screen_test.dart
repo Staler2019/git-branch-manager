@@ -65,7 +65,9 @@ Future<GoRouter> _pump(
         sharedPreferencesProvider.overrideWithValue(prefs),
         recentsRepositoryProvider.overrideWithValue(RecentsRepository(prefs)),
         gbmBindingsProvider.overrideWithValue(_FakeGbmBindings()),
-        discoveryProvider.overrideWith((ref) => _TestDiscoveryController(repos)),
+        discoveryProvider.overrideWith(
+          (ref) => _TestDiscoveryController(repos),
+        ),
       ],
       child: MaterialApp.router(
         theme: buildGbmTheme(GbmThemeVariant.darkTechnical),

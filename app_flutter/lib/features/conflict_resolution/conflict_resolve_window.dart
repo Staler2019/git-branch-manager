@@ -121,7 +121,10 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
   /// Signature of the given path's conflict per git's own record (the
   /// conflicted [WorkingCopyEntry]'s blob oids), or null if `path` isn't
   /// currently conflicted at all.
-  String? _conflictSignatureFor(List<WorkingCopyEntry> conflicted, String path) {
+  String? _conflictSignatureFor(
+    List<WorkingCopyEntry> conflicted,
+    String path,
+  ) {
     final WorkingCopyEntry? entry = conflicted
         .cast<WorkingCopyEntry?>()
         .firstWhere((e) => e?.path == path, orElse: () => null);

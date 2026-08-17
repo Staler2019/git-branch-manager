@@ -68,10 +68,7 @@ void main() {
       );
       expect(continueButton.onPressed, isNotNull);
 
-      await tester.enterText(
-        find.widgetWithText(TextField, 'Summary'),
-        '',
-      );
+      await tester.enterText(find.widgetWithText(TextField, 'Summary'), '');
       await tester.pump();
 
       final TextButton disabledButton = tester.widget<TextButton>(

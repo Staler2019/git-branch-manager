@@ -75,9 +75,9 @@ class _ForcePushDialogContentState
             if (_dontAskAgain) {
               await ref
                   .read(appPreferencesProvider.notifier)
-                  .update((AppPreferences p) => p.copyWith(
-                        confirmForcePush: false,
-                      ));
+                  .update(
+                    (AppPreferences p) => p.copyWith(confirmForcePush: false),
+                  );
             }
             if (!context.mounted) return;
             ref

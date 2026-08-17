@@ -181,7 +181,8 @@ class _CheckoutDialogContentState extends ConsumerState<CheckoutDialogContent> {
                       // to run in order, so derive the header from the
                       // previous entry rather than from mutable state.
                       final bool isFirstOfGroup =
-                          index == 0 || targets[index - 1].group != target.group;
+                          index == 0 ||
+                          targets[index - 1].group != target.group;
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: <Widget>[

@@ -51,10 +51,11 @@ void main() {
 
       expect(await launcher.openTerminal(r'C:\dev\repo'), isTrue);
       expect(starter.attempted, <String>['wt.exe', 'powershell.exe']);
-      expect(
-        starter.args.last,
-        <String>['-NoExit', '-Command', 'cd "C:\\dev\\repo"'],
-      );
+      expect(starter.args.last, <String>[
+        '-NoExit',
+        '-Command',
+        'cd "C:\\dev\\repo"',
+      ]);
     });
 
     test('macOS opens Terminal.app', () async {

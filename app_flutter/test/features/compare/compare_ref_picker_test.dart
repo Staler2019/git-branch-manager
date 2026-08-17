@@ -47,7 +47,10 @@ const List<CompareRefOption> _options = <CompareRefOption>[
     label: 'stash@{0}: WIP',
     value: 'stash@{0}',
   ),
-  CompareRefOption(kind: CompareRefOptionKind.workingCopy, label: 'Working Copy'),
+  CompareRefOption(
+    kind: CompareRefOptionKind.workingCopy,
+    label: 'Working Copy',
+  ),
 ];
 
 void main() {

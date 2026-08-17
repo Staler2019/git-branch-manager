@@ -70,12 +70,7 @@ class GbmKeyboardShortcut {
   String get displayLabel {
     final String key = _triggerLabel(trigger);
     if (meta) {
-      return <String>[
-        if (alt) '⌥',
-        if (shift) '⇧',
-        '⌘',
-        key,
-      ].join();
+      return <String>[if (alt) '⌥', if (shift) '⇧', '⌘', key].join();
     }
     return <String>[
       if (control) 'Ctrl',

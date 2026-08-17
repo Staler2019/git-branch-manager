@@ -201,9 +201,7 @@ class RemotePrunePreview {
   factory RemotePrunePreview.fromJson(Map<String, dynamic> json) {
     return RemotePrunePreview(
       remote: json['remote'] as String,
-      refs: RemotePrunePreviewEntry.listFromJson(
-        json['refs'] as List<dynamic>,
-      ),
+      refs: RemotePrunePreviewEntry.listFromJson(json['refs'] as List<dynamic>),
     );
   }
 
@@ -805,10 +803,11 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
           final CompareWithWorkingCopyResult result =
               CompareWithWorkingCopyResult.fromJson(payload);
           state = state.copyWith(
-            compareWithWorkingCopyResults: <String, CompareWithWorkingCopyResult>{
-              ...state.compareWithWorkingCopyResults,
-              CompareWithWorkingCopyResult.key(result.ref): result,
-            },
+            compareWithWorkingCopyResults:
+                <String, CompareWithWorkingCopyResult>{
+                  ...state.compareWithWorkingCopyResults,
+                  CompareWithWorkingCopyResult.key(result.ref): result,
+                },
           );
         }
       case GbmEventType.originalOperationMessageReady:

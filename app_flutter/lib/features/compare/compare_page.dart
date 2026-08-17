@@ -167,9 +167,10 @@ class _ComparePageState extends ConsumerState<ComparePage> {
       ),
     );
     if (confirmed ?? false) {
-      ref
-          .read(repoSessionProvider(widget.identity).notifier)
-          .restorePaths(<String>[path], source: source);
+      ref.read(repoSessionProvider(widget.identity).notifier).restorePaths(
+        <String>[path],
+        source: source,
+      );
     }
   }
 
@@ -285,12 +286,7 @@ class _ComparePageState extends ConsumerState<ComparePage> {
   void _updateRefs(CompareTabSpec spec, {required String left, String? right}) {
     ref
         .read(compareTabsProvider(widget.identity).notifier)
-        .updateRefs(
-          spec.id,
-          left: left,
-          right: right,
-          threeDot: spec.threeDot,
-        );
+        .updateRefs(spec.id, left: left, right: right, threeDot: spec.threeDot);
   }
 
   Widget _buildMergeBaseLine(BuildContext context, CompareTabSpec spec) {
@@ -316,7 +312,10 @@ class _ComparePageState extends ConsumerState<ComparePage> {
       ),
       child: Text(
         text,
-        style: TextStyle(fontSize: GbmTypography.textXs, color: colors.textTertiary),
+        style: TextStyle(
+          fontSize: GbmTypography.textXs,
+          color: colors.textTertiary,
+        ),
       ),
     );
   }
@@ -328,7 +327,8 @@ class _ComparePageState extends ConsumerState<ComparePage> {
   ) {
     if (spec.rightIsWorkingCopy) {
       final CompareWithWorkingCopyResult? result =
-          session.compareWithWorkingCopyResults[CompareWithWorkingCopyResult.key(
+          session
+              .compareWithWorkingCopyResults[CompareWithWorkingCopyResult.key(
             spec.left,
           )];
       if (result == null) {
@@ -345,11 +345,8 @@ class _ComparePageState extends ConsumerState<ComparePage> {
               files: result.diff.files,
               selectedPath: _selectedPath,
               onSelect: (String path) => setState(() => _selectedPath = path),
-              onCheckout: (String path) => _confirmCheckout(
-                context,
-                path: path,
-                source: spec.left,
-              ),
+              onCheckout: (String path) =>
+                  _confirmCheckout(context, path: path, source: spec.left),
             ),
           ),
           const VerticalDivider(width: 1),

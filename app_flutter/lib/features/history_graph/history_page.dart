@@ -20,8 +20,9 @@ class HistoryPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final bool showDetail = ref.watch(
-      chromeVisibilityProvider.select((ChromeVisibility c) =>
-          c.commitDetailVisible),
+      chromeVisibilityProvider.select(
+        (ChromeVisibility c) => c.commitDetailVisible,
+      ),
     );
 
     // Left pane: commit graph + changed files (vertical split)

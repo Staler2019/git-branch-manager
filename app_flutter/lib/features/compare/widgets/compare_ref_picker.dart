@@ -16,11 +16,7 @@ enum CompareRefOptionKind { branch, tag, stash, workingCopy, revision }
 /// tree" (see compare_tabs_repository.dart).
 @immutable
 class CompareRefOption {
-  const CompareRefOption({
-    required this.kind,
-    required this.label,
-    this.value,
-  });
+  const CompareRefOption({required this.kind, required this.label, this.value});
 
   final CompareRefOptionKind kind;
   final String label;
@@ -84,8 +80,8 @@ class CompareRefPicker extends StatelessWidget {
         );
       },
       onSelected: (CompareRefOption option) => onChanged(option.value),
-      fieldViewBuilder:
-          (context, controller, focusNode, onFieldSubmitted) => TextField(
+      fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) =>
+          TextField(
             controller: controller,
             focusNode: focusNode,
             style: TextStyle(

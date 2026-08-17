@@ -9,9 +9,7 @@ class RemotePrunePreviewEntry {
 
   static List<RemotePrunePreviewEntry> listFromJson(List<dynamic> json) {
     return json
-        .map(
-          (e) => RemotePrunePreviewEntry.fromJson(e as Map<String, dynamic>),
-        )
+        .map((e) => RemotePrunePreviewEntry.fromJson(e as Map<String, dynamic>))
         .toList(growable: false);
   }
 

@@ -441,10 +441,7 @@ class _RepoSwitcherListState extends ConsumerState<RepoSwitcherList> {
         .read();
     final DiscoveryState discovery = ref.watch(discoveryProvider);
     final List<RepoSwitcherEntry> entries = filterRepoSwitcherEntries(
-      buildRepoSwitcherEntries(
-        recents: recents,
-        discovered: discovery.repos,
-      ),
+      buildRepoSwitcherEntries(recents: recents, discovered: discovery.repos),
       _query,
     );
 
@@ -532,10 +529,9 @@ class _RepoSwitcherListState extends ConsumerState<RepoSwitcherList> {
                   onOpenInFileManager: () => ref
                       .read(desktopLauncherProvider)
                       .openInFileManager(entry.workDir),
-                  onOpenInTerminal: () =>
-                      ref.read(desktopLauncherProvider).openTerminal(
-                        entry.workDir,
-                      ),
+                  onOpenInTerminal: () => ref
+                      .read(desktopLauncherProvider)
+                      .openTerminal(entry.workDir),
                   onRemoveFromList: entry.isManual
                       ? () => _removeFromList(entry)
                       : null,
@@ -554,10 +550,8 @@ class _RepoSwitcherListState extends ConsumerState<RepoSwitcherList> {
         _FooterAction(
           label: 'Open repository…',
           shortcut: _shortcutLabel('O'),
-          onTap: () => promptOpenRepository(
-            context,
-            onDismiss: widget.onDismiss,
-          ),
+          onTap: () =>
+              promptOpenRepository(context, onDismiss: widget.onDismiss),
         ),
         _FooterAction(
           label: 'Clone repository…',
@@ -573,7 +567,9 @@ class _RepoSwitcherListState extends ConsumerState<RepoSwitcherList> {
   }
 
   String _shortcutLabel(String key) =>
-      Theme.of(context).platform == TargetPlatform.macOS ? '⌘$key' : 'Ctrl+$key';
+      Theme.of(context).platform == TargetPlatform.macOS
+      ? '⌘$key'
+      : 'Ctrl+$key';
 }
 
 /// One repository row, with the 05-A context menu on right-click ("右鍵切換
@@ -686,7 +682,11 @@ class RepoSwitcherRow extends StatelessWidget {
   /// does not have until it is switched to.
   void _openContextMenu(BuildContext context, TapDownDetails details) {
     showGbmContextMenu(context, details.globalPosition, <GbmMenuItem>[
-      GbmMenuItem(label: 'Open', icon: Icons.folder_open_outlined, onTap: onTap),
+      GbmMenuItem(
+        label: 'Open',
+        icon: Icons.folder_open_outlined,
+        onTap: onTap,
+      ),
       GbmMenuItem(
         label: 'Open in file manager',
         icon: Icons.folder_outlined,

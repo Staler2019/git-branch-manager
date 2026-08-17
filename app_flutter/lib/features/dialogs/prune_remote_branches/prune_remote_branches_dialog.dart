@@ -97,7 +97,8 @@ class _PruneRemoteBranchesDialogContentState
         GbmButton(label: 'Cancel', onPressed: () => context.pop()),
         const SizedBox(width: GbmSpacing.space2),
         GbmButton(
-          label: 'Prune ${_selectedRefs.length} Branch'
+          label:
+              'Prune ${_selectedRefs.length} Branch'
               '${_selectedRefs.length == 1 ? '' : 'es'}',
           kind: GbmButtonKind.primary,
           onPressed: _selectedRefs.isEmpty || _selectedRemote == null

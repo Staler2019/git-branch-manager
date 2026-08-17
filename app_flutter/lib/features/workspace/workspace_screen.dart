@@ -58,10 +58,23 @@ class WorkspaceScreen extends ConsumerStatefulWidget {
     super.key,
     required this.identity,
     required this.child,
+    this.isMacOS,
   });
 
   final RepoIdentity identity;
   final Widget child;
+
+  /// Platform override for the in-window vs system menu bar branch (spec
+  /// page 01: menus live in the system bar on macOS, in-window elsewhere)
+  /// and for [WorkspaceActionShortcuts]' Cmd/Ctrl binding. `null` (the
+  /// default) falls back to [Platform.isMacOS] -- production behavior is
+  /// unchanged -- but a non-null value lets a test force either branch
+  /// regardless of the host running the test (`dart:io`'s
+  /// `Platform.isMacOS` is not affected by
+  /// `debugDefaultTargetPlatformOverride`, so it can't be forced any other
+  /// way). Same nullable-override shape as [PlatformMenuBarHost]'s
+  /// `isMacOSOverride`.
+  final bool? isMacOS;
 
   @override
   ConsumerState<WorkspaceScreen> createState() => _WorkspaceScreenState();
@@ -124,6 +137,12 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     final RepoSessionState session = ref.watch(repoSessionProvider(identity));
     final String repoId = repoIdForRoute(identity);
     final ChromeVisibility chrome = ref.watch(chromeVisibilityProvider);
+    // Resolved once per build so every branch below (in-window menu bar
+    // visibility, WorkspaceActionShortcuts' Cmd/Ctrl binding,
+    // PlatformMenuBarHost's own platform check) agrees -- see
+    // widget.isMacOS's doc comment for why this can't just be
+    // Platform.isMacOS directly.
+    final bool isMacOS = widget.isMacOS ?? Platform.isMacOS;
 
     // Times the history scan for the status bar's elapsed figure. Recorded
     // on the false -> true edge and closed on true -> false, so a rebuild
@@ -216,7 +235,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
           // menus live in the system bar (PlatformMenuBarHost below wraps
           // this whole scaffold), so drawing this in-window row there too
           // would show the same menus twice.
-          if (!Platform.isMacOS)
+          if (!isMacOS)
             MenuBarRow(
               repoId: repoId,
               sidebarVisible: _sidebarVisible,
@@ -344,11 +363,12 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
 
     // Wrap with action shortcuts for keyboard handling
     return WorkspaceActionShortcuts(
-      isMacOS: Platform.isMacOS,
+      isMacOS: isMacOS,
       handlers: actionHandlers,
       child: PlatformMenuBarHost(
         menus: gbmMenus,
         handlers: actionHandlers,
+        isMacOSOverride: isMacOS,
         child: scaffoldContent,
       ),
     );
@@ -455,12 +475,12 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       // filter box, conflict editor) instead of needing a per-field wiring.
       // Unfocused, `maybeInvoke` finds no action and does nothing, which is
       // the correct behaviour for "Copy" with no text selected.
-      GbmActionId.editUndo: () => _invokeTextIntent(const UndoTextIntent(
-        SelectionChangedCause.keyboard,
-      )),
-      GbmActionId.editRedo: () => _invokeTextIntent(const RedoTextIntent(
-        SelectionChangedCause.keyboard,
-      )),
+      GbmActionId.editUndo: () => _invokeTextIntent(
+        const UndoTextIntent(SelectionChangedCause.keyboard),
+      ),
+      GbmActionId.editRedo: () => _invokeTextIntent(
+        const RedoTextIntent(SelectionChangedCause.keyboard),
+      ),
       GbmActionId.editCut: () => _invokeTextIntent(
         const CopySelectionTextIntent.cut(SelectionChangedCause.keyboard),
       ),
@@ -473,10 +493,10 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       // commit list, and "find in files" is the same field scoped to paths.
       // Navigating there first means the shortcut works from Working Copy
       // too, rather than silently focusing a field that is not on screen.
-      GbmActionId.editFindInHistory: () => _focusHistorySearch(context, ref,
-          identity, repoId),
-      GbmActionId.editFindInFiles: () => _focusHistorySearch(context, ref,
-          identity, repoId),
+      GbmActionId.editFindInHistory: () =>
+          _focusHistorySearch(context, ref, identity, repoId),
+      GbmActionId.editFindInFiles: () =>
+          _focusHistorySearch(context, ref, identity, repoId),
       GbmActionId.editFilterBranches: () {
         // Reveal the sidebar first if hidden -- there is nothing to focus
         // otherwise (mirrors onOpenLog's un-collapse-then-reveal pattern
@@ -546,13 +566,13 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
           : () => context.go(RoutePaths.workingCopyFor(repoId)),
       GbmActionId.repositoryStageAll: session.workingCopyStatus.unstaged.isEmpty
           ? null
-          : () => ref
-                .read(repoSessionProvider(identity).notifier)
-                .stageFiles(<String>[
-                  for (final WorkingCopyEntry e
-                      in session.workingCopyStatus.unstaged)
-                    e.path,
-                ]),
+          : () => ref.read(repoSessionProvider(identity).notifier).stageFiles(
+              <String>[
+                for (final WorkingCopyEntry e
+                    in session.workingCopyStatus.unstaged)
+                  e.path,
+              ],
+            ),
       GbmActionId.repositoryOpenInTerminal: () =>
           _openInTerminal(ref, identity),
       GbmActionId.repositorySettings: () =>
@@ -604,9 +624,8 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
           context.push(RoutePaths.manageRemotesDialogFor(repoId)),
 
       // Help
-      GbmActionId.helpDocumentation: () => ref
-          .read(desktopLauncherProvider)
-          .openUrl(GbmUrls.documentation),
+      GbmActionId.helpDocumentation: () =>
+          ref.read(desktopLauncherProvider).openUrl(GbmUrls.documentation),
       GbmActionId.helpKeyboardShortcuts: () =>
           context.push(RoutePaths.keyboardShortcutsDialog),
       GbmActionId.helpReportAnIssue: () =>
@@ -699,8 +718,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     RepoSessionState session,
   ) {
     final RefInfo? head = _headTrackingRef(session);
-    final bool diverged =
-        head != null && head.ahead > 0 && head.behind > 0;
+    final bool diverged = head != null && head.ahead > 0 && head.behind > 0;
 
     if (!diverged) {
       ref.read(repoSessionProvider(identity).notifier).pushChanges();

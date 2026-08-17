@@ -494,7 +494,10 @@ that were previously invisible rather than absent.
   `branch_context_menu_test.dart` (widget tier) and
   `sidebar_panel_remote_branch_test.dart` (drives the real
   `repoSessionProvider`/`GoRouter` seam via `FakeRepoSessionController`, not
-  just `BranchTreeItem` in isolation). Discovered along the way: a
+  just `BranchTreeItem` in isolation — including a round-trip test that
+  `emit()`s a conflicted state, asserts double-tap checkout no-ops, then
+  `emit()`s clean and asserts it fires, per the "Rule" at the end of
+  "Action availability state machine" above). Discovered along the way: a
   remote-only row's `InkWell.onDoubleTap` and its inner "more" `IconButton`'s
   tap recognizer sit in the same gesture arena, so a single click on that
   button has a real ~300ms hesitation before the menu opens

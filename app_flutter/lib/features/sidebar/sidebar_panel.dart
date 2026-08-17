@@ -163,6 +163,20 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     );
   }
 
+  /// 05-C "Prune this ref" for a *gone* row -- [goneRef] is the local
+  /// branch itself (`refs/heads/...`), so the ref to prune is its vanished
+  /// upstream (`goneRef.upstream`, e.g. `refs/remotes/origin/feature`), not
+  /// [goneRef.fullName]. This clears the stale remote-tracking ref and
+  /// leaves the local branch untouched -- see BRANCH_STATES's note: "真正
+  /// 移除 remote-tracking ref 要執行 Prune".
+  void _pruneGoneUpstream(RefInfo goneRef) {
+    final (String remoteName, String _) = remoteBranchParts(goneRef.upstream);
+    ref.read(repoSessionProvider(widget.identity).notifier).pruneRemote(
+      remoteName,
+      <String>[goneRef.upstream],
+    );
+  }
+
   /// 05-C "Delete on remote…" -- opens the existing dialog
   /// (`deleteRemoteBranchDialogFor`), previously unreachable from any UI.
   void _openDeleteRemoteBranchDialog(RefInfo remoteRef) {
@@ -559,7 +573,11 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
               ? null
               : () => _createBranchFrom(node.ref),
           onMerge: isRemoteOnly || node.ref.isHead ? null : _openMergeDialog,
-          onPruneRef: isRemoteOnly ? () => _pruneRemoteRef(node.ref) : null,
+          onPruneRef: isRemoteOnly
+              ? () => _pruneRemoteRef(node.ref)
+              : node.ref.isGone && node.ref.upstream.isNotEmpty
+              ? () => _pruneGoneUpstream(node.ref)
+              : null,
           onDeleteOnRemote: isRemoteOnly
               ? () => _openDeleteRemoteBranchDialog(node.ref)
               : null,

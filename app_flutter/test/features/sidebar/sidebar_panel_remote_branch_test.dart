@@ -79,6 +79,25 @@ final RefInfo _remoteOnlyRelease = RefInfo(
   worktreePath: '',
 );
 
+// A gone local branch: upstream vanished from the remote entirely --
+// BRANCH_STATES's "Remote 已刪除" state. Note there is no matching
+// RefInfo(kind: remoteBranch) in this snapshot's refs -- the remote-tracking
+// ref really is gone, not merely unlisted.
+final RefInfo _goneFeature = RefInfo(
+  fullName: 'refs/heads/feature',
+  shortName: 'feature',
+  kind: RefKind.localBranch,
+  target: 'c' * 40,
+  upstream: 'refs/remotes/origin/feature',
+  ahead: 0,
+  behind: 0,
+  hasTrackingInfo: true,
+  isGone: true,
+  isHead: false,
+  isSymbolic: false,
+  worktreePath: '',
+);
+
 final RefSnapshot _testRefSnapshot = RefSnapshot(
   head: HeadInfo(
     kind: HeadKind.branch,
@@ -86,9 +105,9 @@ final RefSnapshot _testRefSnapshot = RefSnapshot(
     fullRef: 'refs/heads/main',
     target: 'a' * 40,
   ),
-  refs: <RefInfo>[_localMain, _remoteMain, _remoteOnlyRelease],
+  refs: <RefInfo>[_localMain, _remoteMain, _remoteOnlyRelease, _goneFeature],
   refCountGuardTripped: false,
-  totalRefCount: 3,
+  totalRefCount: 4,
 );
 
 const WorkingCopyEntry _conflictEntry = WorkingCopyEntry(
@@ -316,6 +335,75 @@ void main() {
           (c) => c.name == 'checkout',
         );
         expect(checkout.args['target'], 'refs/remotes/origin/release');
+      },
+    );
+  });
+
+  group('SidebarPanel gone-row menu wiring (BRANCH_STATES 05-C subset)', () {
+    testWidgets(
+      'Prune this ref prunes the vanished upstream, not the local branch '
+      'itself',
+      (tester) async {
+        final _Harness harness = await _pump(tester);
+
+        final Finder goneItem = find.ancestor(
+          of: find.text('feature'),
+          matching: find.byType(BranchTreeItem),
+        );
+        final Finder moreButton = find.descendant(
+          of: goneItem,
+          matching: find.byTooltip('Branch actions'),
+        );
+        // Unlike the remote-only row, a gone row has no onDoubleTap
+        // (it's a real local branch, single-tap already checks it out) --
+        // so this "more" button has no gesture-arena conflict and needs no
+        // kDoubleTapTimeout wait, unlike _openRemoteRowMenu above.
+        await tester.tap(moreButton);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Prune this ref'));
+        await tester.pumpAndSettle();
+
+        final FakeCommand prune = harness.fake.commandLog.singleWhere(
+          (c) => c.name == 'pruneRemote',
+        );
+        expect(prune.args['remoteName'], 'origin');
+        expect(prune.args['refs'], <String>['refs/remotes/origin/feature']);
+      },
+    );
+
+    testWidgets(
+      'Checkout as new local… and Delete on remote… stay disabled -- no '
+      'command reaches the session when tapped',
+      (tester) async {
+        final _Harness harness = await _pump(tester);
+
+        final Finder goneItem = find.ancestor(
+          of: find.text('feature'),
+          matching: find.byType(BranchTreeItem),
+        );
+        final Finder moreButton = find.descendant(
+          of: goneItem,
+          matching: find.byTooltip('Branch actions'),
+        );
+        await tester.tap(moreButton);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Checkout as new local…'));
+        await tester.pumpAndSettle();
+
+        await tester.tap(moreButton);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Delete on remote…'));
+        await tester.pumpAndSettle();
+
+        expect(
+          harness.fake.commandLog.any((c) => c.name == 'checkout'),
+          isFalse,
+        );
+        // Delete on remote… doesn't dispatch a session command at all --
+        // it navigates to deleteRemoteBranchDialogFor -- so the commandLog
+        // check above can't catch a regression that re-wires it for gone
+        // rows; this is the assertion that actually would.
+        expect(find.textContaining('delete-remote-branch:'), findsNothing);
       },
     );
   });

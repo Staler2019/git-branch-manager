@@ -484,19 +484,6 @@ that were previously invisible rather than absent.
   and open-file-at-revision / save-this-revision in 05-K. Settings whose effect
   this layer cannot yet honour are likewise not offered in Preferences —
   see `AppPreferences`' doc comment.
-- **`GbmDialogShell`'s action row has no overflow handling**: `gbm_dialog_shell.dart`'s
-  actions `Row` (`mainAxisAlignment: end`, no `Flexible`/`Wrap`) sits inside
-  the shell's ~448px-wide `ConstrainedBox`, so a dialog with "Cancel" plus a
-  primary action whose label is long enough (found while writing
-  `test/integration/workspace_interrupt_overlay_test.dart`, using
-  `CheckoutRecoveryDialogContent`'s real `OperationChoice.label` text)
-  overflows `RenderFlex` — a genuine, real-usage-reachable layout bug, not a
-  test artifact. Affects every dialog built on `GbmDialogShell` with a long
-  action label, not just checkout/delete-branch recovery, so it's flagged
-  here rather than patched inside that test's scope; the test itself works
-  around it with a shorter fixture label. Not independently verified against
-  every dialog that uses long action labels — an unconfirmed lead for
-  whoever picks it up.
 - **`TabRow`'s Merge…/Cherry-pick…/Reset… buttons bypass the action
   availability state machine**: unlike the menu bar (gated via
   `isActionEnabled`, see "Action availability state machine" above),

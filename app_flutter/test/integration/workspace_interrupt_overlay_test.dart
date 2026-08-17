@@ -58,15 +58,13 @@ final List<RouteBase> _interruptDialogRoutes = <RouteBase>[
   ),
 ];
 
-// Kept short deliberately -- GbmDialogShell's action row (gbm_dialog_shell
-// .dart:91) has no overflow handling, and a long label alongside "Cancel"
-// inside its fixed ~448px width does overflow (a real, pre-existing layout
-// gap, not something this test batch is scoped to fix; see CLAUDE.md's
-// Known gaps note).
+// The real production label (repo_session_repository.dart) -- previously
+// shortened to 'Stash & checkout' to dodge a GbmDialogShell action-row
+// overflow bug (see gbm_dialog_shell_test.dart), now fixed via OverflowBar.
 const List<OperationChoice> _checkoutChoices = <OperationChoice>[
   OperationChoice(
     kind: OperationChoiceKind.stashAndRetry,
-    label: 'Stash & checkout',
+    label: 'Stash changes and checkout',
     explanation: '',
     destructive: false,
   ),
@@ -196,7 +194,7 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.byType(CheckoutRecoveryDialogContent), findsOneWidget);
 
-        await _tapActionButton(tester, 'Stash & checkout');
+        await _tapActionButton(tester, 'Stash changes and checkout');
 
         expect(
           pumped.controller.commandLog.any(

@@ -28,6 +28,7 @@ src/core/   headless C++20, no Qt/Dart (docs/ARCHITECTURE.md)
 /repo/:repoId  (ShellRoute: WorkspaceScreen = menu bar + top bar + tab row + sidebar)
   /history                         CommitGraphView
   /working-copy                    WorkingCopyView
+  /compare/:tabId                  ComparePage (one ShellRoute child per open Compare tab)
 /repo/:repoId/conflicts            ConflictResolveWindow (standalone window, not a dialog overlay)
 
 /dialogs/about                            \  app-wide (not repo-scoped: discovery
@@ -105,7 +106,11 @@ lib/
     diff/            DiffPage, side-by-side diff
     conflict_resolution/  ConflictResolveWindow (standalone window, not a dialog)
     operation_log/   OperationLogDialog
-    dialogs/         The 24 repo-scoped dialog contents listed above, plus the 3 app-wide ones
+    compare/         ComparePage
+    status_bar/      StatusBar, BackgroundTask
+    log_drawer/      LogDrawer
+    context_menus/   Shared GbmContextMenuItemSpec builders (9 right-click targets)
+    dialogs/         The 33 repo-scoped dialog contents listed above, plus the 4 app-wide ones
 ```
 
 Presentational/container split: `MenuBarRow`, `TopBar`, `TabRow`
@@ -159,6 +164,24 @@ applies to the Flutter layer too).
 | `lastCommitGraphWriteSucceeded` | `bool?` | null until first write |
 | `checkoutChoices` | `List<OperationChoice>` | recovery choices from a failed checkout |
 | `deleteBranchChoices` | `List<OperationChoice>` | recovery choices from a failed branch delete |
+| `commitFiles` | `List<ChangedFile>` | changed-files list for the selected commit |
+| `selectedCommitFileDiff` | `ParsedDiff?` | diff for one file within the selected commit |
+| `compareResults` | `Map<String, CompareResult>` | Compare tab results, keyed by tab |
+| `compareFileDiffResults` | `Map<String, CompareFileDiffResult>` | per-file diff within a Compare tab |
+| `lastRemotePrunePreview` | `RemotePrunePreview?` | `git remote prune --dry-run` preview |
+| `compareWithWorkingCopyResults` | `Map<String, CompareWithWorkingCopyResult>` | Compare tab results against the working copy |
+| `originalOperationMessage` | `String?` | original commit message read mid-conflict (see `gbm_*_continue_with_message`) |
+
+Plus one derived getter, not a field — the single source of truth for conflict
+state, read by every conflict-aware surface and by
+`lib/actions/gbm_action_availability.dart` (see "Action availability state
+machine" below):
+
+```dart
+bool get conflictActive =>
+    (repoState?.isSequencerOperation ?? false) ||
+    workingCopyStatus.conflicted.isNotEmpty;
+```
 
 ### Lifecycle
 
@@ -178,29 +201,32 @@ e.g. a session can be `open`, not refreshing, mid-merge
 The provider is a Riverpod family keyed by `RepoIdentity`; disposal is
 automatic, not manually triggered by any view.
 
-### FFI events → state (`GbmEventType`, `gbm_bindings.dart`, values 0–26)
+### FFI events → state (`GbmEventType`, `gbm_bindings.dart`, values 0–33)
 
 | # | Event | # | Event |
 |---|---|---|---|
-| 0 | graphUpdated | 14 | fileHistoryReady |
-| 1 | refsUpdated | 15 | lineHistoryReady |
-| 2 | errorOccurred | 16 | reflogReady |
-| 3 | operationFinished | 17 | rebasePlanReady |
-| 4 | workingCopyStatusUpdated | 18 | submodulesUpdated |
-| 5 | workingCopyOperationFinished | 19 | bisectStatusUpdated |
-| 6 | workingCopyDiffReady | 20 | lfsUpdated |
-| 7 | stashesUpdated | 21 | cleanPreviewReady |
-| 8 | stashDiffReady | 22 | localIdentityUpdated |
-| 9 | worktreesUpdated | 23 | effectiveIdentityUpdated |
-| 10 | remotesUpdated | 24 | commitGraphWriteFinished |
-| 11 | credentialRequested | 25 | workingTreeContentReady |
-| 12 | operationLogRecord | 26 | commitMetaReady |
-| 13 | blameReady | | |
+| 0 | graphUpdated | 17 | rebasePlanReady |
+| 1 | refsUpdated | 18 | submodulesUpdated |
+| 2 | errorOccurred | 19 | bisectStatusUpdated |
+| 3 | operationFinished | 20 | lfsUpdated |
+| 4 | workingCopyStatusUpdated | 21 | cleanPreviewReady |
+| 5 | workingCopyOperationFinished | 22 | localIdentityUpdated |
+| 6 | workingCopyDiffReady | 23 | effectiveIdentityUpdated |
+| 7 | stashesUpdated | 24 | commitGraphWriteFinished |
+| 8 | stashDiffReady | 25 | workingTreeContentReady |
+| 9 | worktreesUpdated | 26 | commitMetaReady |
+| 10 | remotesUpdated | 27 | commitFilesReady |
+| 11 | credentialRequested | 28 | commitFileDiffReady |
+| 12 | operationLogRecord | 29 | compareReady |
+| 13 | blameReady | 30 | compareFileDiffReady |
+| 14 | fileHistoryReady | 31 | remotePrunePreviewReady |
+| 15 | lineHistoryReady | 32 | compareWithWorkingCopyReady |
+| 16 | reflogReady | 33 | originalOperationMessageReady |
 
 `event_dispatcher.dart` is a thin bridge only: a `NativeCallable.listener`
 copies each native event's payload bytes (avoiding dangling pointers), frees
 the native buffer, and pushes a `GbmEvent` onto a broadcast `Stream`. All
-per-event-type interpretation — which of the 27 event types updates which
+per-event-type interpretation — which of the 34 event types updates which
 `RepoSessionState` field — lives in `RepoSessionController._onEvent()` inside
 `repo_session_repository.dart`, one `copyWith()` per case.
 
@@ -320,6 +346,12 @@ that were previously invisible rather than absent.
 - **B (−1 pt)**: route/entry-point reachability was audited exhaustively;
   whether each dialog's *internal* functionality is complete once opened was
   not re-verified per dialog.
+- **Route audit has drifted since Round 1**: a later `deleteRemoteBranchDialog`
+  route (`route_paths.dart`) was registered in `app_router.dart` but never
+  given a call site under `lib/features/` — of the 33 repo-scoped dialogs,
+  32 have a real entry point, `deleteRemoteBranchDialogFor` currently does
+  not. Round 1's "zero orphaned routes" finding above is a snapshot of that
+  round, not a standing guarantee; re-audit before relying on it.
 - Some spec behaviour has no backing capi entry point and is therefore
   absent rather than faked: per-object transfer counts for fetch/pull/push
   (spec page 10's "12,480 / 31,206" progress figures, reported as

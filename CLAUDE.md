@@ -466,30 +466,46 @@ that were previously invisible rather than absent.
 - **B (−1 pt)**: route/entry-point reachability was audited exhaustively;
   whether each dialog's *internal* functionality is complete once opened was
   not re-verified per dialog.
-- **Route audit has drifted since Round 1**: a later `deleteRemoteBranchDialog`
+- ~~**Route audit has drifted since Round 1**: a later `deleteRemoteBranchDialog`
   route (`route_paths.dart`) was registered in `app_router.dart` but never
-  given a call site under `lib/features/` — of the 33 repo-scoped dialogs,
-  32 have a real entry point, `deleteRemoteBranchDialogFor` currently does
-  not. Round 1's "zero orphaned routes" finding above is a snapshot of that
-  round, not a standing guarantee; re-audit before relying on it.
-  **Re-investigated and re-scoped, still not fixed**: the natural entry
-  point is context menu 05-C ("Delete on remote…" on a remote-only branch
-  row), but `sidebar_panel.dart` only renders `refs.localBranches` — its own
-  doc comment says local branches only, remote branches get a manage-\*
-  dialog instead, "unlike the Qt original" the 05-C spec was written
-  against. The source design (`Flutter Desktop Spec (standalone).html`,
-  page 02 items 4/12) is explicit that this divergence should be reversed:
-  Branches is meant to be *one* merged tree (local ∪ remote, matched by
-  `RefInfo.upstream` against a remote ref's `fullName`, deduped so a synced
-  branch appears once) with icon/dim/badge distinguishing synced /
-  ahead-behind / local-only / remote-only / gone (`BRANCH_STATES` in the
-  spec file). Building that — plus wiring 05-C's real-capability subset
-  (checkout-as-new-local via `checkout(createBranch: true, ...)`, prune-ref
-  via `pruneRemote`, delete-on-remote via the existing dialog; omitting
-  "Fetch this branch", no capi for a single-ref fetch) — is a real feature,
-  not a one-line call site. Deliberately deferred to its own round rather
-  than folded into this one; `gbm_context_menus.dart`'s other 8 unwired
-  targets are a separate, larger gap this doesn't touch either.
+  given a call site under `lib/features/`~~ — **Fixed**: `sidebar_panel.dart`
+  now renders one merged branch tree instead of local branches only, per the
+  source design (`Flutter Desktop Spec (standalone).html`, page 02 items
+  4/12): `branch_tree_builder.dart` gained `mergeLocalAndRemoteBranches()`
+  (local ∪ the subset of remote branches with no local branch tracking them,
+  matched by a local branch's `RefInfo.upstream` — confirmed to be the
+  tracked ref's *full* name, not `%(upstream:short)` — against a remote
+  branch's `fullName`; a matched remote branch is dropped, an unmatched one
+  keeps its ref but has its `shortName` stripped of the `<remote>/` prefix so
+  it groups into the same folder a same-named local branch would) and
+  `remoteBranchParts()` (the inverse split, recovering remote name + branch
+  name from a remote ref's `fullName` for the actions below).
+  `BranchTreeItem` renders a remote-only row per `BRANCH_STATES`: cloud icon
+  (cloud-off for gone, new `assets/icons/cloud-off.svg`) at 0.62 opacity,
+  single tap inert, double tap checks out as a new local branch, and its
+  right-click menu swaps to the 05-C subset (Checkout as new local…/Copy
+  branch name/Prune this ref/Delete on remote…, "Fetch this branch" omitted
+  — `gbm_remote_fetch()` has no per-ref fetch capability). `sidebar_panel.dart`
+  wires the three real actions: `checkout(target: fullName, createBranch:
+  true, newBranchName: shortName)`, `pruneRemote(remoteName, [fullName])`,
+  and `context.push(RoutePaths.deleteRemoteBranchDialogFor(...))` — the
+  previously-orphaned route now has its call site. Covered by
+  `branch_tree_builder_test.dart`, `branch_tree_item_test.dart`,
+  `branch_context_menu_test.dart` (widget tier) and
+  `sidebar_panel_remote_branch_test.dart` (drives the real
+  `repoSessionProvider`/`GoRouter` seam via `FakeRepoSessionController`, not
+  just `BranchTreeItem` in isolation). Discovered along the way: a
+  remote-only row's `InkWell.onDoubleTap` and its inner "more" `IconButton`'s
+  tap recognizer sit in the same gesture arena, so a single click on that
+  button has a real ~300ms hesitation before the menu opens
+  (`kDoubleTapTimeout`) — a latency quirk, not fixed here (see
+  `sidebar_panel_remote_branch_test.dart`'s `_openRemoteRowMenu` doc
+  comment). Still not addressed: a "gone" row (a local branch whose upstream
+  vanished) still goes through the full 05-B local-branch menu instead of
+  spec's narrower gone-row subset (`branch_tree_item.dart`'s
+  `onPruneRef`/`onDeleteOnRemote` doc comment flags this); and
+  `gbm_context_menus.dart`'s other 8 unwired targets are a separate, larger
+  gap this doesn't touch.
 - Some spec behaviour has no backing capi entry point and is therefore
   absent rather than faked: per-object transfer counts for fetch/pull/push
   (spec page 10's "12,480 / 31,206" progress figures, reported as

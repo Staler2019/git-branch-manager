@@ -561,9 +561,20 @@ that were previously invisible rather than absent.
   entry point to that dialog is added.
 - ~~**`dart format --set-exit-if-changed .` is not CI-enforced**~~ —
   **Fixed**: the pre-existing 27-file drift was formatted in one
-  standalone commit, then `flutter-ci` gained a
-  `dart format --output=none --set-exit-if-changed .` step between
-  `flutter pub get` and `flutter analyze`.
+  standalone commit, then a dedicated `dart-format` job ("Dart format")
+  was added to `ci.yml`, mirroring the C++ side's standalone "Format and
+  layering" (`lint`) job rather than living as a step inside `flutter-ci`
+  ("Flutter UI") — a format failure now surfaces on its own check instead
+  of aborting `flutter-ci` before `flutter analyze`/`flutter test`/
+  `flutter build linux` get a chance to run, and it doesn't wait on
+  `capi-build` since formatting needs no native library. Caught along the
+  way: `dart format`'s output is not stable across Dart SDK versions —
+  `subosito/flutter-action@v2`'s `channel: stable` floats, so a local Dart
+  3.12.2 and a CI run on a newer stable (Dart 3.13.0 shipped a formatter
+  style change) can each accept the *other's* output as "needs
+  reformatting", flapping a file between two valid-but-different
+  formattings depending on who last touched it. No SDK version is pinned
+  here yet — worth revisiting if this recurs.
 - **D (−2 pt)**: History and Working Copy are still a tab switch, not a
   combined view. This matches an industry-standard pattern (Fork, GitKraken,
   Sourcetree all do the same) and isn't treated as a defect — but it's one

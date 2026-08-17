@@ -76,6 +76,14 @@ Future<PumpedWorkspace> pumpWorkspace(
   List<Override> overrides = const <Override>[],
   List<RouteBase> extraRoutes = const <RouteBase>[],
   List<RouteBase> topLevelRoutes = const <RouteBase>[],
+
+  /// Overrides the working-copy ShellRoute child's builder, normally a bare
+  /// empty [Scaffold]. A test that needs the real [WorkingCopyView] mounted
+  /// (e.g. to prove commit-draft state survives a History<->Working-Copy
+  /// round trip) can't add it via [extraRoutes]: `RoutePaths.workingCopy` is
+  /// already registered below, and go_router rejects a second [GoRoute] at
+  /// the same path. This swaps that one route's builder in place instead.
+  Widget Function(BuildContext, GoRouterState)? workingCopyBuilder,
   ui.Size surfaceSize = const ui.Size(1400, 900),
 }) async {
   tester.view.physicalSize = surfaceSize;
@@ -114,7 +122,9 @@ Future<PumpedWorkspace> pumpWorkspace(
           ),
           GoRoute(
             path: RoutePaths.workingCopy,
-            builder: (context, state) => const Scaffold(body: SizedBox()),
+            builder:
+                workingCopyBuilder ??
+                (context, state) => const Scaffold(body: SizedBox()),
           ),
           ...extraRoutes,
         ],

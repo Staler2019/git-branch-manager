@@ -252,4 +252,122 @@ void main() {
       expect(filterBranches(branches, '  main  '), [main]);
     });
   });
+
+  group('remoteBranchParts', () {
+    test('splits refs/remotes/<remote>/<branch> into remote and branch', () {
+      expect(remoteBranchParts('refs/remotes/origin/feature/auth'), (
+        'origin',
+        'feature/auth',
+      ));
+    });
+
+    test('splits a single-segment branch name too', () {
+      expect(remoteBranchParts('refs/remotes/origin/main'), ('origin', 'main'));
+    });
+  });
+
+  group('mergeLocalAndRemoteBranches', () {
+    RefInfo localBranch({required String shortName, String upstream = ''}) =>
+        RefInfo(
+          fullName: 'refs/heads/$shortName',
+          shortName: shortName,
+          kind: RefKind.localBranch,
+          target: 'local-$shortName',
+          upstream: upstream,
+          ahead: 0,
+          behind: 0,
+          hasTrackingInfo: upstream.isNotEmpty,
+          isGone: false,
+          isHead: false,
+          isSymbolic: false,
+          worktreePath: '',
+        );
+
+    RefInfo remoteBranch({
+      required String remote,
+      required String branch,
+      bool isSymbolic = false,
+    }) => RefInfo(
+      fullName: 'refs/remotes/$remote/$branch',
+      shortName: '$remote/$branch',
+      kind: RefKind.remoteBranch,
+      target: 'remote-$branch',
+      upstream: '',
+      ahead: 0,
+      behind: 0,
+      hasTrackingInfo: false,
+      isGone: false,
+      isHead: false,
+      isSymbolic: isSymbolic,
+      worktreePath: '',
+    );
+
+    test('drops a remote branch already tracked by a local branch (upstream '
+        'matches the remote ref\'s fullName)', () {
+      final local = localBranch(
+        shortName: 'main',
+        upstream: 'refs/remotes/origin/main',
+      );
+      final remote = remoteBranch(remote: 'origin', branch: 'main');
+
+      final merged = mergeLocalAndRemoteBranches([local], [remote]);
+
+      expect(merged, [local]);
+    });
+
+    test('keeps a remote branch with no local branch tracking it '
+        '("remote-only"), with its shortName stripped to the branch name', () {
+      final local = localBranch(shortName: 'main');
+      final remote = remoteBranch(remote: 'origin', branch: 'worktrees');
+
+      final merged = mergeLocalAndRemoteBranches([local], [remote]);
+
+      expect(merged.length, 2);
+      final RefInfo remoteOnly = merged.firstWhere(
+        (r) => r.kind == RefKind.remoteBranch,
+      );
+      expect(remoteOnly.shortName, 'worktrees');
+      expect(remoteOnly.fullName, 'refs/remotes/origin/worktrees');
+    });
+
+    test('excludes symbolic remote refs (e.g. origin/HEAD)', () {
+      final remote = remoteBranch(
+        remote: 'origin',
+        branch: 'HEAD',
+        isSymbolic: true,
+      );
+
+      final merged = mergeLocalAndRemoteBranches([], [remote]);
+
+      expect(merged, isEmpty);
+    });
+
+    test('a local-only branch (no upstream) is unaffected by unrelated '
+        'remote branches', () {
+      final local = localBranch(shortName: 'lfs-prune');
+      final remote = remoteBranch(remote: 'origin', branch: 'lane-overflow');
+
+      final merged = mergeLocalAndRemoteBranches([local], [remote]);
+
+      expect(merged.length, 2);
+      expect(merged, contains(local));
+    });
+
+    test('a stripped remote-only branch groups into the same folder as a '
+        'same-prefix local branch', () {
+      final local = localBranch(shortName: 'bugfix/rebase-conflict');
+      final remote = remoteBranch(
+        remote: 'origin',
+        branch: 'bugfix/lane-overflow',
+      );
+
+      final merged = mergeLocalAndRemoteBranches([local], [remote]);
+      final tree = buildBranchTree(merged, {'bugfix'});
+
+      expect(tree.length, 1);
+      final folder = tree[0] as BranchTreeFolder;
+      expect(folder.folderName, 'bugfix');
+      expect(folder.children.length, 2);
+    });
+  });
 }

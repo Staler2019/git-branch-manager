@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../actions/gbm_action_availability.dart';
+import '../../actions/gbm_action_id.dart';
 import '../../data/models/ref_snapshot.dart';
 import '../../data/models/stash_entry.dart';
 import '../../data/repositories/branch_repository.dart';
@@ -423,7 +425,13 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                                   widget.identity,
                                   tag.shortName,
                                 ),
-                                conflictActive: session.conflictActive,
+                                // Sourced from isActionEnabled(), not
+                                // session.conflictActive directly -- single
+                                // source of truth for checkout availability.
+                                conflictActive: !isActionEnabled(
+                                  GbmActionId.branchCheckout,
+                                  session,
+                                ),
                               ),
                             );
                           }),
@@ -491,7 +499,9 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
           onDelete: node.ref.isHead ? null : () => _deleteSingle(node.ref),
           onNewBranchFromHere: () => _createBranchFrom(node.ref),
           onMerge: node.ref.isHead ? null : _openMergeDialog,
-          conflictActive: session.conflictActive,
+          // Sourced from isActionEnabled(), not session.conflictActive
+          // directly -- single source of truth for checkout availability.
+          conflictActive: !isActionEnabled(GbmActionId.branchCheckout, session),
         ),
       );
     } else if (node is BranchTreeFolder) {

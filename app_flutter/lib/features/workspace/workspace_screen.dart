@@ -274,6 +274,15 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
             compareTabs: ref.watch(compareTabsProvider(identity)),
             onCloseCompareTab: (String tabId) =>
                 _closeCompareTab(context, ref, identity, repoId, tabId),
+            // Sourced from isActionEnabled(), not session.conflictActive
+            // directly -- single source of truth, same pattern as
+            // BranchTreeItem/CommitGraphView. Cherry-pick/Reset have no
+            // GbmActionId of their own yet, so they share Merge's gate --
+            // see TabRow.conflictActive's doc comment.
+            conflictActive: !isActionEnabled(
+              GbmActionId.branchMergeIntoCurrent,
+              session,
+            ),
           ),
           if (session.conflictActive)
             ConflictBanner(

@@ -279,7 +279,21 @@ class FakeRepoSessionController extends RepoSessionController {
     bool recurseSubmodules = false,
   }) {
     commandLog.add(
-      FakeCommand('checkout', <String, Object?>{'target': target}),
+      FakeCommand('checkout', <String, Object?>{
+        'target': target,
+        'createBranch': createBranch,
+        'newBranchName': newBranchName,
+      }),
+    );
+  }
+
+  @override
+  void pruneRemote(String remoteName, List<String> refs) {
+    commandLog.add(
+      FakeCommand('pruneRemote', <String, Object?>{
+        'remoteName': remoteName,
+        'refs': refs,
+      }),
     );
   }
 

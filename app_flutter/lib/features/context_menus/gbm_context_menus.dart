@@ -114,7 +114,9 @@ class GbmContextMenuGroupSpec {
 // All 11 Context Menu Groups (in spec order 05-A through 05-I)
 // ============================================================================
 
-/// 05-A: Repository (right-click repo-switcher row -- not yet wired)
+/// 05-A: Repository (right-click a row in the switcher popover -- EXISTS,
+/// see `RepoSwitcherRow._openContextMenu`; fetch/pull/push are left off
+/// there, since a repository in that list has no open session to act on)
 /// 7 top-level items.
 const GbmContextMenuGroupSpec _repo = GbmContextMenuGroupSpec(
   id: '05-A',

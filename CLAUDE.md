@@ -23,7 +23,7 @@ src/core/   headless C++20, no Qt/Dart (docs/ARCHITECTURE.md)
 (`app_flutter/lib/routing/route_paths.dart`, `app_router.dart`)
 
 ```
-/                                  RepoListScreen
+/                                  WelcomeScreen (only when no repo is open)
 /repo/:repoId                      redirect -> /repo/:repoId/history
 /repo/:repoId  (ShellRoute: WorkspaceScreen = menu bar + top bar + tab row + sidebar)
   /history                         CommitGraphView
@@ -33,8 +33,7 @@ src/core/   headless C++20, no Qt/Dart (docs/ARCHITECTURE.md)
 /dialogs/about                            \  app-wide (not repo-scoped: discovery
 /dialogs/keyboard-shortcuts                > and app settings aren't tied to any
 /dialogs/manage-base-folders               > one open repository, see gbm_capi.h's
-/dialogs/switch-repository                 > Discovery section, and spec page 11)
-/dialogs/preferences                      /
+/dialogs/preferences                      /  Discovery section, and spec page 11)
 
 /repo/:repoId/dialogs/<name>       33 repo-scoped dialogs: reset-branch, merge,
                                     cherry-pick, stash-changes, manage-stashes,
@@ -62,6 +61,22 @@ General / Remotes / Identity / Performance). They were previously one
 repo-scoped dialog that both `filePreferences` and `repositorySettings`
 opened, so Ctrl/Cmd+, landed on Git identity.
 
+**Where repository selection lives.** The spec has no repository-list page:
+the window *is* a repository (pages 01–03), so the app's default route is
+the last-opened repository's workspace and `/` is only the fallback for
+"nothing open yet". Selecting a repository is a popover anchored under a
+button at the top of the sidebar (spec page 02 item 15, Ctrl/Cmd+R,
+`features/repo_switcher/repo_switcher_popover.dart`) — searchable, recents
+first, `Open` / `Clone` pinned at the bottom, Esc closes without switching,
+right-click on a row is context menu 05-A. Configuring *where* repositories
+are discovered from — base folders, scan depth, the manually-opened list —
+is Preferences → Repository sources (spec page 11), not part of picking one.
+Before this split, `/` was a repository dashboard that also owned the
+base-folder quick-add, and Ctrl/Cmd+R opened a modal dialog listing recents;
+both are gone. `WelcomeScreen` embeds the same `RepoSwitcherList` the
+popover shows, because with no repository open there is no sidebar to hang a
+popover off.
+
 ### Feature directory layout
 
 ```
@@ -80,7 +95,8 @@ lib/
                       one of these before hand-rolling a Container; see the
                       "known gaps" note below for a case where that was missed.
   features/
-    repo_list/       RepoListScreen
+    welcome/         WelcomeScreen (route `/`, no repository open)
+    repo_switcher/   RepoSwitcherButton (sidebar top) + popover + RepoSwitcherList
     workspace/       WorkspaceScreen (shell) + widgets/ (MenuBarRow, TopBar,
                       TabRow — presentational, no Riverpod dependency)
     history_graph/   CommitGraphView, commit_row.dart
@@ -307,9 +323,13 @@ that were previously invisible rather than absent.
 - Some spec behaviour has no backing capi entry point and is therefore
   absent rather than faked: per-object transfer counts for fetch/pull/push
   (spec page 10's "12,480 / 31,206" progress figures, reported as
-  indeterminate instead), removing a single repository from the discovered
-  list (05-A's "Remove from list", rendered disabled), and
-  open-file-at-revision / save-this-revision in 05-K. Settings whose effect
+  indeterminate instead), `git init` / clone (File → New repository… and
+  Clone repository… are disabled, as is the switcher popover's Clone
+  footer — no entry point exists in `gbm_capi.h` or `src/core`), removing a
+  *scanned* repository from the switcher list (05-A's "Remove from list" is
+  live for manually-opened rows, which `RecentsRepository` owns, and
+  disabled for scanned ones, which would only come back on the next scan),
+  and open-file-at-revision / save-this-revision in 05-K. Settings whose effect
   this layer cannot yet honour are likewise not offered in Preferences —
   see `AppPreferences`' doc comment.
 - **D (−2 pt)**: History and Working Copy are still a tab switch, not a

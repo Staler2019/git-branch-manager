@@ -11,6 +11,7 @@ import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/prompt_text_dialog.dart';
+import '../repo_switcher/repo_switcher_popover.dart';
 import 'branch_tree_builder.dart';
 import 'widgets/branch_tree_item.dart';
 
@@ -23,9 +24,19 @@ import 'widgets/branch_tree_item.dart';
 /// workspace_screen.dart's "⋯" menu) rather than a sidebar tree, unlike the
 /// Qt original.
 class SidebarPanel extends ConsumerStatefulWidget {
-  const SidebarPanel({super.key, required this.identity, this.filterFocusNode});
+  const SidebarPanel({
+    super.key,
+    required this.identity,
+    this.filterFocusNode,
+    this.switcherController,
+  });
 
   final RepoIdentity identity;
+
+  /// Lets `WorkspaceScreen`'s `fileSwitchRepository` handler (Cmd/Ctrl+R)
+  /// open the repository popover hanging off the button at the top of this
+  /// panel -- see [RepoSwitcherController].
+  final RepoSwitcherController? switcherController;
 
   /// Focused by `WorkspaceScreen`'s `editFilterBranches` action handler
   /// (Cmd/Ctrl+Shift+E) to jump the caret into the filter field below. Owned
@@ -160,6 +171,14 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
+          // Spec page 02 item 15: the repository button sits at the very top
+          // of the sidebar, above the three per-repo sections -- the
+          // repository *list* itself lives in the popover it opens, not in
+          // this panel ("repository 清單已移出，改用 15 的切換彈窗").
+          RepoSwitcherButton(
+            currentWorkDir: widget.identity.workDir,
+            controller: widget.switcherController,
+          ),
           // BRANCHES section header
           Padding(
             padding: const EdgeInsets.fromLTRB(

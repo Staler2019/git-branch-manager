@@ -110,9 +110,8 @@ class ChangedFileRow extends StatelessWidget {
   /// `ctxItemsFor('unstaged-file'|'staged-file')` from gbm_context_menus.dart's
   /// 05-F (File in working copy), scoped to what this row already has real
   /// callbacks for. "Open file" has no launcher wired anywhere in this app yet,
-  /// and no OS-reveal launcher or per-file terminal launcher are wired (per
-  /// repo_list_tile's documented omissions), so those are left off rather than
-  /// pointed at nothing. Blame/File History/Line History are real, useful
+  /// and no per-file OS-reveal or terminal launcher is wired, so those are
+  /// left off rather than pointed at nothing. Blame/File History/Line History are real, useful
   /// features specific to this app and stay in the separate [_FileActionsMenu]
   /// trailing button; folding them into a right-click "More actions" submenu
   /// is deferred until `GbmMenuItem.submenu`'s flyout actually renders its

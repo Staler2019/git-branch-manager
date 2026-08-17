@@ -28,6 +28,7 @@ import '../../widgets/split_pane.dart';
 import '../history_graph/commit_search.dart';
 import '../history_graph/widgets/graph_columns_selector.dart';
 import '../log_drawer/log_drawer.dart';
+import '../repo_switcher/repo_switcher_popover.dart';
 import '../sidebar/sidebar_panel.dart';
 import '../status_bar/background_task.dart';
 import '../status_bar/status_bar.dart';
@@ -71,6 +72,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   int _lastSeenOperationLogIndex = 0;
   final GbmSplitPaneController _logDrawerController = GbmSplitPaneController();
   final FocusNode _branchFilterFocusNode = FocusNode();
+  final RepoSwitcherController _switcherController = RepoSwitcherController();
 
   /// Wall-clock time the last history scan took, for the status bar's
   /// "掃描耗時" figure (spec page 02 item 11). Measured here rather than
@@ -181,7 +183,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     if (!session.isOpen) {
       return Scaffold(
         appBar: AppBar(
-          leading: BackButton(onPressed: () => context.go(RoutePaths.repoList)),
+          leading: BackButton(onPressed: () => context.go(RoutePaths.welcome)),
         ),
         body: Center(
           child: Text(
@@ -239,7 +241,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
             repoState: session.repoState,
             isRefreshing: session.isRefreshing,
             onRefresh: () => refreshRepoHistory(ref, identity),
-            onBack: () => context.go(RoutePaths.repoList),
+            onBack: () => context.go(RoutePaths.welcome),
           ),
           TabRow(
             repoId: repoId,
@@ -293,6 +295,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
                       SidebarPanel(
                         identity: identity,
                         filterFocusNode: _branchFilterFocusNode,
+                        switcherController: _switcherController,
                       ),
                       widget.child,
                     ],
@@ -410,20 +413,39 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   ) {
     return {
       // File
-      // New/Open/Clone/Add-local all land on the repo list, which owns the
-      // base-folder quick-add field and the discovery scan -- this app has
-      // no native folder picker dependency (see pubspec.yaml), so the repo
-      // list's own path field is the one real entry point rather than a
-      // second, worse copy of it here.
-      GbmActionId.fileNewRepository: () => context.go(RoutePaths.repoList),
-      GbmActionId.fileOpenRepository: () => context.go(RoutePaths.repoList),
-      GbmActionId.fileCloneRepository: () => context.go(RoutePaths.repoList),
-      GbmActionId.fileSwitchRepository: () =>
-          context.push(RoutePaths.repoSwitcherDialog),
-      GbmActionId.fileAddLocalRepository: () => context.go(RoutePaths.repoList),
-      // Closes this workspace back to the repo list. Not SystemNavigator.pop
-      // -- that is Exit, and the two must stay distinguishable.
-      GbmActionId.fileCloseWindow: () => context.go(RoutePaths.repoList),
+      // Open and Add-local are the same act here -- point the app at an
+      // existing working directory -- and both go through the same path
+      // prompt the switcher popover's footer uses, since this app has no
+      // native folder-picker dependency (see pubspec.yaml). Opening one
+      // records it in the manually-opened list (spec page 11 item 6).
+      //
+      // New and Clone are disabled rather than routed somewhere plausible:
+      // neither `git init` nor clone exists anywhere below this layer (no
+      // entry point in gbm_capi.h, nothing in src/core), so there is
+      // nothing for them to call. They used to navigate to the repository
+      // list, which never created or cloned anything either.
+      GbmActionId.fileNewRepository: null,
+      GbmActionId.fileOpenRepository: () => promptOpenRepository(context),
+      GbmActionId.fileCloneRepository: null,
+      GbmActionId.fileSwitchRepository: () {
+        // Same reveal-then-act pattern as editFilterBranches below: the
+        // popover anchors to the sidebar's repository button, which is not
+        // in the tree at all while the sidebar is hidden -- so reveal it
+        // and open on the next frame, once the button has a rect.
+        if (!_sidebarVisible) {
+          setState(() => _sidebarVisible = true);
+          WidgetsBinding.instance.addPostFrameCallback(
+            (_) => _switcherController.open(),
+          );
+          return;
+        }
+        _switcherController.open();
+      },
+      GbmActionId.fileAddLocalRepository: () => promptOpenRepository(context),
+      // Closes this workspace back to the welcome screen. Not
+      // SystemNavigator.pop -- that is Exit, and the two must stay
+      // distinguishable.
+      GbmActionId.fileCloseWindow: () => context.go(RoutePaths.welcome),
       GbmActionId.filePreferences: () =>
           context.push(RoutePaths.preferencesDialog),
       GbmActionId.fileExit: null, // Handled specially in MenuBarRow

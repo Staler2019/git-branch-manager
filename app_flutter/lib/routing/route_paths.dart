@@ -3,7 +3,12 @@
 /// the full design (including routes not yet implemented: diff, conflicts,
 /// the ~26 remaining dialogs).
 abstract final class RoutePaths {
-  static const String repoList = '/';
+  /// Shown only when no repository is open -- the app's window is a
+  /// repository workspace (spec pages 01-03), so this is a fallback, not a
+  /// dashboard. Picking a repository is the switcher popover's job
+  /// (`repo_switcher_popover.dart`), and managing where repositories are
+  /// discovered from is Preferences → Repository sources'.
+  static const String welcome = '/';
   static const String workspace = '/repo/:repoId';
   static const String history = '/repo/:repoId/history';
   static const String workingCopy = '/repo/:repoId/working-copy';
@@ -14,7 +19,6 @@ abstract final class RoutePaths {
   static const String aboutDialog = '/dialogs/about';
   static const String keyboardShortcutsDialog = '/dialogs/keyboard-shortcuts';
   static const String manageBaseFoldersDialog = '/dialogs/manage-base-folders';
-  static const String repoSwitcherDialog = '/dialogs/switch-repository';
 
   /// App-level, not repo-scoped: spec page 11 is explicit that Preferences
   /// holds "應用層級設定" and that per-repository settings live behind

@@ -479,7 +479,7 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
     if (!session.isOpen) {
       return Scaffold(
         appBar: AppBar(
-          leading: BackButton(onPressed: () => context.go(RoutePaths.repoList)),
+          leading: BackButton(onPressed: () => context.go(RoutePaths.welcome)),
         ),
         body: const Center(child: CircularProgressIndicator()),
       );

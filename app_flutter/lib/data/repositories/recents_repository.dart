@@ -82,6 +82,17 @@ class RecentsRepository {
     await _prefs.setString(_kRecentsKey, jsonEncode(entries));
   }
 
+  /// Forgets one recorded open. Backs "Remove from list" on a manually
+  /// opened row of the repository switcher (spec page 11: "手動加入的可單獨
+  /// 移除") -- only this list is touched, nothing on disk.
+  Future<void> remove(String workDir) async {
+    final List<RecentRepoEntry> entries = read().toList();
+    final int before = entries.length;
+    entries.removeWhere((RecentRepoEntry e) => e.workDir == workDir);
+    if (entries.length == before) return;
+    await _prefs.setString(_kRecentsKey, jsonEncode(entries));
+  }
+
   /// Forgets every recorded manual open. Backs Preferences → Repository
   /// sources → Clear list (spec page 11 item 7: "清空只影響清單，不會刪除
   /// 磁碟上的 repo") -- only this key is removed; nothing on disk is touched.

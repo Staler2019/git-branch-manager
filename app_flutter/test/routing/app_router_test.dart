@@ -1,6 +1,6 @@
 // Verifies appRouterProvider's cold-start `initialLocation`: goes straight
 // into the most-recently-opened repo when RecentsRepository has an entry,
-// falls back to the repo list otherwise. Deliberately does NOT pump a
+// falls back to the welcome screen otherwise. Deliberately does NOT pump a
 // widget tree (the workspace route's screen needs real FFI bindings via
 // gbmBindingsProvider) -- inspecting the constructed GoRouter's own
 // routeInformationProvider is enough to verify initialLocation without
@@ -14,7 +14,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   test(
-    'initialLocation is the repo list when there are no recent repos',
+    'initialLocation is the welcome screen when there are no recent repos',
     () async {
       SharedPreferences.setMockInitialValues(<String, Object>{});
       final SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -29,7 +29,7 @@ void main() {
 
       expect(
         router.routeInformationProvider.value.uri.toString(),
-        RoutePaths.repoList,
+        RoutePaths.welcome,
       );
     },
   );
@@ -59,9 +59,9 @@ void main() {
     },
   );
 
-  test('explicitly navigating back to RoutePaths.repoList still shows the repo '
-      'list even when a recent repo exists (initialLocation is not a '
-      'redirect)', () async {
+  test('explicitly navigating back to RoutePaths.welcome still shows the '
+      'welcome screen even when a recent repo exists (initialLocation is not '
+      'a redirect)', () async {
     SharedPreferences.setMockInitialValues(<String, Object>{
       'recents.repos': '[{"workDir":"/tmp/repo-a","lastOpenedEpochMs":100}]',
     });
@@ -72,11 +72,11 @@ void main() {
     addTearDown(container.dispose);
 
     final router = container.read(appRouterProvider);
-    router.go(RoutePaths.repoList);
+    router.go(RoutePaths.welcome);
 
     expect(
       router.routeInformationProvider.value.uri.toString(),
-      RoutePaths.repoList,
+      RoutePaths.welcome,
     );
   });
 }

@@ -1198,7 +1198,7 @@ Future<ProviderContainer> _pumpWindow(
             ConflictResolveWindow(identity: identity, isMacOS: false),
       ),
       GoRoute(
-        path: RoutePaths.repoList,
+        path: RoutePaths.welcome,
         builder: (context, state) => const Scaffold(body: SizedBox()),
       ),
       GoRoute(

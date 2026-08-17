@@ -49,12 +49,13 @@ class BranchTreeItem extends StatelessWidget {
   final VoidCallback? onNewBranchFromHere;
   final VoidCallback? onMerge;
 
-  /// 05-C (remote-only / gone branch) actions -- see [_buildMenuItems]'s
-  /// branch on `ref.kind == RefKind.remoteBranch`. Non-null only for a
-  /// remote-only row; a "gone" row (a local branch whose upstream vanished)
-  /// still goes through the local-branch (05-B) menu above -- narrowing
-  /// *that* row's menu per spec is a separate, not-yet-addressed gap (see
-  /// CLAUDE.md).
+  /// 05-C actions -- see [_buildMenuItems]'s branches on
+  /// `ref.kind == RefKind.remoteBranch` and `ref.isGone`. [onPruneRef] is
+  /// wired for both a remote-only row and a gone row (pruning the vanished
+  /// remote-tracking ref either way); [onDeleteOnRemote] only for a
+  /// remote-only row -- a gone row's "Delete on remote…" is permanently
+  /// disabled (see [_buildGoneMenuItems]'s doc comment), so there is
+  /// nothing for a caller to wire there.
   final VoidCallback? onPruneRef;
   final VoidCallback? onDeleteOnRemote;
 
@@ -243,6 +244,49 @@ class BranchTreeItem extends StatelessWidget {
     ];
   }
 
+  /// 05-C, scoped to a "gone" row (a local branch whose upstream vanished).
+  /// The design doc's own target note for 05-C is explicit: "gone 的列只留
+  /// Prune 與 Copy，其餘停用" (a gone row keeps only Prune and Copy enabled;
+  /// the rest disabled). "Checkout as new local…" doesn't apply -- the
+  /// branch already exists locally -- and "Delete on remote…" doesn't
+  /// either -- the remote copy is already gone, that's what "gone" means.
+  /// Both stay visible but permanently disabled (`onTap: null`) rather than
+  /// omitted, matching the spec's own wording of "停用" (disabled) over
+  /// removal. "Prune this ref" is the row's real remove action -- it clears
+  /// the vanished remote-tracking ref itself (`git branch --delete
+  /// --remotes`), leaving the local branch untouched, per BRANCH_STATES's
+  /// note: "真正移除 remote-tracking ref 要執行 Prune". "Fetch this branch"
+  /// is omitted for the same capi reason as [_buildRemoteOnlyMenuItems].
+  List<GbmMenuItem> _buildGoneMenuItems() {
+    return <GbmMenuItem>[
+      const GbmMenuItem(
+        label: 'Checkout as new local…',
+        icon: Icons.call_split,
+        enabled: false,
+        onTap: null,
+      ),
+      GbmMenuItem(
+        label: 'Copy branch name',
+        icon: Icons.copy,
+        onTap: () => Clipboard.setData(ClipboardData(text: ref.shortName)),
+      ),
+      if (onPruneRef != null)
+        GbmMenuItem(
+          label: 'Prune this ref',
+          icon: Icons.cleaning_services_outlined,
+          onTap: onPruneRef!,
+        ),
+      const GbmMenuItem.separator(),
+      const GbmMenuItem(
+        label: 'Delete on remote…',
+        icon: Icons.delete_outline,
+        danger: true,
+        enabled: false,
+        onTap: null,
+      ),
+    ];
+  }
+
   /// `ctxItemsFor('branch')` from gbm_context_menus.dart's 05-B (Local
   /// branch), scoped to what this app already has a real destination for.
   /// "Rebase current onto here" and "Compare with…" are omitted (no
@@ -253,6 +297,9 @@ class BranchTreeItem extends StatelessWidget {
   List<GbmMenuItem> _buildMenuItems() {
     if (_isRemoteOnly) {
       return _buildRemoteOnlyMenuItems();
+    }
+    if (ref.isGone) {
+      return _buildGoneMenuItems();
     }
     return <GbmMenuItem>[
       if (!ref.isHead)

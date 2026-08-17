@@ -45,6 +45,23 @@ RefInfo _remoteOnlyBranch({String name = 'worktrees'}) {
   );
 }
 
+RefInfo _goneBranch({String name = 'feature/gone'}) {
+  return RefInfo(
+    fullName: 'refs/heads/$name',
+    shortName: name,
+    kind: RefKind.localBranch,
+    target: 'a' * 40,
+    upstream: 'refs/remotes/origin/$name',
+    ahead: 0,
+    behind: 0,
+    hasTrackingInfo: true,
+    isGone: true,
+    isHead: false,
+    isSymbolic: false,
+    worktreePath: '',
+  );
+}
+
 Future<void> _rightClick(WidgetTester tester, Finder finder) async {
   final TestGesture gesture = await tester.createGesture(
     kind: PointerDeviceKind.mouse,
@@ -252,5 +269,111 @@ void main() {
       await _rightClick(tester, find.byType(BranchTreeItem));
       expect(find.text('Copy branch name'), findsOneWidget);
     });
+  });
+
+  group('gone row (05-C subset, BRANCH_STATES: "gone 的列只留 Prune 與 Copy")', () {
+    testWidgets('shows the 05-C subset, not the 05-B local-branch menu', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        BranchTreeItem(
+          ref: _goneBranch(),
+          onCheckout: () {},
+          onRename: () {},
+          onDelete: () {},
+          onNewBranchFromHere: () {},
+          onMerge: () {},
+          onPruneRef: () {},
+        ),
+      );
+      await _rightClick(tester, find.byType(BranchTreeItem));
+
+      expect(find.text('Checkout as new local…'), findsOneWidget);
+      expect(find.text('Copy branch name'), findsOneWidget);
+      expect(find.text('Prune this ref'), findsOneWidget);
+      expect(find.text('Delete on remote…'), findsOneWidget);
+      expect(find.text('Rename branch'), findsNothing);
+      expect(find.text('Delete branch'), findsNothing);
+      expect(find.text('Merge into current branch'), findsNothing);
+      expect(find.text('New branch from here'), findsNothing);
+    });
+
+    testWidgets(
+      'tapping Checkout as new local… does nothing (disabled -- already local)',
+      (tester) async {
+        bool checkedOut = false;
+        await _pump(
+          tester,
+          BranchTreeItem(
+            ref: _goneBranch(),
+            onCheckout: () => checkedOut = true,
+            onPruneRef: () {},
+          ),
+        );
+        await _rightClick(tester, find.byType(BranchTreeItem));
+        await tester.tap(find.text('Checkout as new local…'));
+        await tester.pumpAndSettle();
+        expect(checkedOut, isFalse);
+      },
+    );
+
+    testWidgets(
+      'tapping Delete on remote… does nothing (disabled -- remote already gone)',
+      (tester) async {
+        await _pump(
+          tester,
+          BranchTreeItem(
+            ref: _goneBranch(),
+            onCheckout: () {},
+            onPruneRef: () {},
+          ),
+        );
+        await _rightClick(tester, find.byType(BranchTreeItem));
+        await tester.tap(find.text('Delete on remote…'));
+        await tester.pumpAndSettle();
+        // No crash and no callback exists to fire -- absence of a thrown
+        // error is the assertion, mirroring the remote-only conflictActive
+        // case above.
+        expect(find.text('Delete on remote…'), findsNothing);
+      },
+    );
+
+    testWidgets('tapping Prune this ref invokes onPruneRef', (tester) async {
+      bool pruned = false;
+      await _pump(
+        tester,
+        BranchTreeItem(
+          ref: _goneBranch(),
+          onCheckout: () {},
+          onPruneRef: () => pruned = true,
+        ),
+      );
+      await _rightClick(tester, find.byType(BranchTreeItem));
+      await tester.tap(find.text('Prune this ref'));
+      await tester.pumpAndSettle();
+      expect(pruned, isTrue);
+    });
+
+    testWidgets(
+      'Delete on remote… renders dimmed, not danger red -- disabled wins '
+      'over its danger styling (GbmMenuItem.enabled doc comment)',
+      (tester) async {
+        await _pump(
+          tester,
+          BranchTreeItem(
+            ref: _goneBranch(),
+            onCheckout: () {},
+            onPruneRef: () {},
+          ),
+        );
+        await _rightClick(tester, find.byType(BranchTreeItem));
+        final Text label = tester.widget<Text>(find.text('Delete on remote…'));
+        expect(
+          label.style?.color,
+          tokensFor(GbmThemeVariant.darkTechnical).textTertiary,
+        );
+      },
+    );
   });
 }

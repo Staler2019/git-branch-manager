@@ -132,11 +132,9 @@ void main() {
       );
 
       await launcher.openTerminal('/home/x/my repo; rm -rf /');
-      expect(
-        starter.args.single,
-        <String>['--working-directory=/home/x/my repo; rm -rf /'],
-        reason: 'arguments are passed as a list, never through a shell',
-      );
+      expect(starter.args.single, <String>[
+        '--working-directory=/home/x/my repo; rm -rf /',
+      ], reason: 'arguments are passed as a list, never through a shell');
     });
   });
 
@@ -177,11 +175,12 @@ void main() {
       );
 
       await launcher.openUrl('https://example.com');
-      expect(
-        starter.args.single,
-        <String>['/c', 'start', '', 'https://example.com'],
-        reason: 'without the title argument, start consumes the URL as one',
-      );
+      expect(starter.args.single, <String>[
+        '/c',
+        'start',
+        '',
+        'https://example.com',
+      ], reason: 'without the title argument, start consumes the URL as one');
     });
   });
 }

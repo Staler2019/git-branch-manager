@@ -44,12 +44,20 @@ class PumpedWorkspace {
 /// `app_router.dart`'s ShellRoute shape) with [initialState] as the
 /// starting [RepoSessionState].
 ///
-/// [extraRoutes] lets a specific test add the one or two dialog routes it
-/// actually exercises (e.g. the credential dialog for an interrupt-overlay
-/// test) without this shared harness having to replicate all 33
-/// repo-scoped dialogs from `app_router.dart` up front -- that full set
-/// would drift from the real router immediately and this harness is not
-/// trying to be a second source of truth for routing.
+/// [extraRoutes] lets a specific test add the one or two ShellRoute-child
+/// routes it actually exercises (e.g. the Compare tab route for a
+/// tab-switching test) without this shared harness having to replicate all
+/// of `app_router.dart`'s ShellRoute children up front.
+///
+/// [topLevelRoutes] is the equivalent for routes that, in the real router,
+/// are siblings of the ShellRoute rather than children of it -- every
+/// `dialogRoute(...)` entry (credential/checkout-recovery/
+/// delete-branch-recovery/...) and the standalone `conflicts` route that
+/// renders [ConflictResolveWindow] (see `app_router.dart`'s "Dialog routes
+/// are top-level" comment). Adding one of these to [extraRoutes] instead
+/// would nest it under [WorkspaceScreen] as if it were `child`, which is not
+/// how the real router resolves it and would let a test pass for the wrong
+/// reason.
 ///
 /// `gbmBindingsProvider` is overridden with the same [FakeGbmBindings] the
 /// controller uses, so any provider this harness forgot to override throws
@@ -67,6 +75,7 @@ Future<PumpedWorkspace> pumpWorkspace(
   bool isMacOS = false,
   List<Override> overrides = const <Override>[],
   List<RouteBase> extraRoutes = const <RouteBase>[],
+  List<RouteBase> topLevelRoutes = const <RouteBase>[],
   ui.Size surfaceSize = const ui.Size(1400, 900),
 }) async {
   tester.view.physicalSize = surfaceSize;
@@ -110,6 +119,7 @@ Future<PumpedWorkspace> pumpWorkspace(
           ...extraRoutes,
         ],
       ),
+      ...topLevelRoutes,
     ],
   );
 

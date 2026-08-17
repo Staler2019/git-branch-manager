@@ -503,12 +503,33 @@ that were previously invisible rather than absent.
   button has a real ~300ms hesitation before the menu opens
   (`kDoubleTapTimeout`) — a latency quirk, not fixed here (see
   `sidebar_panel_remote_branch_test.dart`'s `_openRemoteRowMenu` doc
-  comment). Still not addressed: a "gone" row (a local branch whose upstream
-  vanished) still goes through the full 05-B local-branch menu instead of
-  spec's narrower gone-row subset (`branch_tree_item.dart`'s
-  `onPruneRef`/`onDeleteOnRemote` doc comment flags this); and
-  `gbm_context_menus.dart`'s other 8 unwired targets are a separate, larger
-  gap this doesn't touch.
+  comment). ~~Still not addressed: a "gone" row (a local branch whose
+  upstream vanished) still goes through the full 05-B local-branch menu
+  instead of spec's narrower gone-row subset~~ — **Fixed**: `BranchTreeItem`
+  gained `_buildGoneMenuItems()`, routed to whenever `ref.isGone` (checked
+  after the `_isRemoteOnly` branch in `_buildMenuItems()`), per 05-C's own
+  target note: "gone 的列只留 Prune 與 Copy，其餘停用" (a gone row keeps only
+  Prune and Copy enabled; the rest disabled). "Checkout as new local…" and
+  "Delete on remote…" render but permanently disabled (`enabled: false`,
+  `onTap: null`) rather than omitted — matching the spec's "停用" wording,
+  and confirmed via `_GbmMenuRow` that `enabled: false` overrides `danger`
+  styling too (dimmed, not red). `SidebarPanel` gained `_pruneGoneUpstream()`
+  and wires it to `onPruneRef` for a gone row (guarded on
+  `ref.upstream.isNotEmpty`, defensive since `isGone` is only ever computed
+  for a branch with a configured upstream) — it prunes `ref.upstream` (the
+  vanished remote-tracking ref, e.g. `refs/remotes/origin/feature`), not
+  `ref.fullName` (the still-live local branch), per BRANCH_STATES's note:
+  "真正移除 remote-tracking ref 要執行 Prune". Covered by five new tests in
+  `branch_context_menu_test.dart`'s "gone row (05-C subset)" group (item set,
+  both disabled items no-op on tap, Prune dispatches, dimmed-not-red
+  styling) and two in `sidebar_panel_remote_branch_test.dart`'s "gone-row
+  menu wiring" group (`Prune this ref` reaches the real session with the
+  upstream ref; the two disabled items reach neither `commandLog` nor the
+  delete-remote-branch route — the latter assertion exists because that
+  action dispatches by navigation, not by session command, so a
+  `commandLog`-only check can't see a regression that re-wires it). And
+  `gbm_context_menus.dart`'s other 8 unwired targets remain a separate,
+  larger gap this doesn't touch.
 - Some spec behaviour has no backing capi entry point and is therefore
   absent rather than faked: per-object transfer counts for fetch/pull/push
   (spec page 10's "12,480 / 31,206" progress figures, reported as

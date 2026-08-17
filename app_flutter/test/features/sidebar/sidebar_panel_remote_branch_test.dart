@@ -11,6 +11,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
+import 'package:gbm_flutter/data/models/repo_state.dart';
+import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/data/repositories/branch_repository.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
@@ -89,6 +91,35 @@ final RefSnapshot _testRefSnapshot = RefSnapshot(
   totalRefCount: 3,
 );
 
+const WorkingCopyEntry _conflictEntry = WorkingCopyEntry(
+  path: 'conflict.txt',
+  oldPath: '',
+  untracked: false,
+  staged: false,
+  indexStatus: FileChangeKind.modified,
+  hasUnstagedChange: true,
+  worktreeStatus: FileChangeKind.modified,
+  conflict: ConflictKind.bothModified,
+  ancestorBlob: '',
+  oursBlob: 'ours-hash',
+  theirsBlob: 'theirs-hash',
+  similarity: 0,
+  isSubmodule: false,
+  isConflicted: true,
+);
+
+const RepoState _mergeState = RepoState(
+  flags: RepoStateFlags.merge,
+  isClean: false,
+  isSequencerOperation: true,
+  rebaseStep: 0,
+  rebaseTotal: 0,
+  rebaseOntoLabel: '',
+  indexLocked: false,
+  indexLockAgeSeconds: null,
+  describe: '',
+);
+
 class _Harness {
   _Harness({required this.fake});
   final FakeRepoSessionController fake;
@@ -148,8 +179,8 @@ Future<_Harness> _pump(WidgetTester tester) async {
   return _Harness(fake: fake);
 }
 
-/// Opens the 05-C menu for the remote-only "release" row and returns its
-/// finder. `BranchTreeItem`'s outer `InkWell.onDoubleTap` (set only for a
+/// Opens the 05-C menu for the remote-only "release" row.
+/// `BranchTreeItem`'s outer `InkWell.onDoubleTap` (set only for a
 /// remote-only row -- see that widget's doc comment) puts a
 /// `DoubleTapGestureRecognizer` in the same gesture arena as the inner
 /// "more" `IconButton`'s tap recognizer; the arena can't resolve the single
@@ -237,5 +268,55 @@ void main() {
 
       expect(find.text('delete-remote-branch:origin/release'), findsOneWidget);
     });
+
+    testWidgets(
+      'double-tap checkout is gated by conflictActive through the real '
+      'session seam, and re-enables once the conflict clears',
+      (tester) async {
+        final _Harness harness = await _pump(tester);
+
+        final Finder releaseRow = find.ancestor(
+          of: find.text('release'),
+          matching: find.byType(InkWell),
+        );
+
+        harness.fake.emit(
+          RepoSessionState(
+            isOpen: true,
+            refs: _testRefSnapshot,
+            repoState: _mergeState,
+            workingCopyStatus: const WorkingCopyStatus(
+              entries: [_conflictEntry],
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(releaseRow);
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.tap(releaseRow);
+        await tester.pumpAndSettle();
+
+        expect(
+          harness.fake.commandLog.any((c) => c.name == 'checkout'),
+          isFalse,
+        );
+
+        harness.fake.emit(
+          RepoSessionState(isOpen: true, refs: _testRefSnapshot),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(releaseRow);
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.tap(releaseRow);
+        await tester.pumpAndSettle();
+
+        final FakeCommand checkout = harness.fake.commandLog.singleWhere(
+          (c) => c.name == 'checkout',
+        );
+        expect(checkout.args['target'], 'refs/remotes/origin/release');
+      },
+    );
   });
 }

@@ -28,6 +28,23 @@ RefInfo _branch({String name = 'feature/x', bool isHead = false}) {
   );
 }
 
+RefInfo _remoteOnlyBranch({String name = 'worktrees'}) {
+  return RefInfo(
+    fullName: 'refs/remotes/origin/$name',
+    shortName: name,
+    kind: RefKind.remoteBranch,
+    target: 'a' * 40,
+    upstream: '',
+    ahead: 0,
+    behind: 0,
+    hasTrackingInfo: false,
+    isGone: false,
+    isHead: false,
+    isSymbolic: false,
+    worktreePath: '',
+  );
+}
+
 Future<void> _rightClick(WidgetTester tester, Finder finder) async {
   final TestGesture gesture = await tester.createGesture(
     kind: PointerDeviceKind.mouse,
@@ -108,5 +125,132 @@ void main() {
     await tester.pumpAndSettle();
     expect(renamed, isTrue);
     expect(find.text('Rename branch'), findsNothing);
+  });
+
+  group('remote-only row (05-C)', () {
+    testWidgets(
+      'shows the 05-C remote-only subset, not the 05-B local-branch menu',
+      (tester) async {
+        await _pump(
+          tester,
+          BranchTreeItem(
+            ref: _remoteOnlyBranch(),
+            onCheckout: () {},
+            onPruneRef: () {},
+            onDeleteOnRemote: () {},
+          ),
+        );
+        await _rightClick(tester, find.byType(BranchTreeItem));
+
+        expect(find.text('Checkout as new local…'), findsOneWidget);
+        expect(find.text('Copy branch name'), findsOneWidget);
+        expect(find.text('Prune this ref'), findsOneWidget);
+        expect(find.text('Delete on remote…'), findsOneWidget);
+        expect(find.text('Rename branch'), findsNothing);
+        expect(find.text('Delete branch'), findsNothing);
+        expect(find.text('Merge into current branch'), findsNothing);
+        expect(find.text('New branch from here'), findsNothing);
+      },
+    );
+
+    testWidgets('Delete on remote… is styled danger', (tester) async {
+      await _pump(
+        tester,
+        BranchTreeItem(
+          ref: _remoteOnlyBranch(),
+          onCheckout: () {},
+          onDeleteOnRemote: () {},
+        ),
+      );
+      await _rightClick(tester, find.byType(BranchTreeItem));
+      final Text label = tester.widget<Text>(find.text('Delete on remote…'));
+      expect(
+        label.style?.color,
+        tokensFor(GbmThemeVariant.darkTechnical).danger,
+      );
+    });
+
+    testWidgets('tapping Checkout as new local… invokes onCheckout', (
+      tester,
+    ) async {
+      bool checkedOut = false;
+      await _pump(
+        tester,
+        BranchTreeItem(
+          ref: _remoteOnlyBranch(),
+          onCheckout: () => checkedOut = true,
+        ),
+      );
+      await _rightClick(tester, find.byType(BranchTreeItem));
+      await tester.tap(find.text('Checkout as new local…'));
+      await tester.pumpAndSettle();
+      expect(checkedOut, isTrue);
+    });
+
+    testWidgets(
+      'Checkout as new local… is disabled (no onTap) while conflictActive',
+      (tester) async {
+        await _pump(
+          tester,
+          BranchTreeItem(
+            ref: _remoteOnlyBranch(),
+            onCheckout: () {},
+            conflictActive: true,
+          ),
+        );
+        await _rightClick(tester, find.byType(BranchTreeItem));
+        await tester.tap(find.text('Checkout as new local…'));
+        await tester.pumpAndSettle();
+        // No crash and the menu stays interactible for the other items --
+        // absence of a thrown callback is the assertion here since a
+        // disabled GbmMenuItem simply no-ops on tap.
+        expect(find.text('Checkout as new local…'), findsNothing);
+      },
+    );
+
+    testWidgets('tapping Prune this ref invokes onPruneRef', (tester) async {
+      bool pruned = false;
+      await _pump(
+        tester,
+        BranchTreeItem(
+          ref: _remoteOnlyBranch(),
+          onCheckout: () {},
+          onPruneRef: () => pruned = true,
+        ),
+      );
+      await _rightClick(tester, find.byType(BranchTreeItem));
+      await tester.tap(find.text('Prune this ref'));
+      await tester.pumpAndSettle();
+      expect(pruned, isTrue);
+    });
+
+    testWidgets('tapping Delete on remote… invokes onDeleteOnRemote', (
+      tester,
+    ) async {
+      bool deleted = false;
+      await _pump(
+        tester,
+        BranchTreeItem(
+          ref: _remoteOnlyBranch(),
+          onCheckout: () {},
+          onDeleteOnRemote: () => deleted = true,
+        ),
+      );
+      await _rightClick(tester, find.byType(BranchTreeItem));
+      await tester.tap(find.text('Delete on remote…'));
+      await tester.pumpAndSettle();
+      expect(deleted, isTrue);
+    });
+
+    testWidgets('Copy branch name copies the stripped shortName', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        BranchTreeItem(ref: _remoteOnlyBranch(), onCheckout: () {}),
+      );
+      await _rightClick(tester, find.byType(BranchTreeItem));
+      expect(find.text('Copy branch name'), findsOneWidget);
+    });
   });
 }

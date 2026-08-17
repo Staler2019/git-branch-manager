@@ -246,6 +246,126 @@ per-event-type interpretation — which of the 34 event types updates which
   branch isn't fully merged — `retryDeleteBranchWithChoice(kind)` /
   `dismissDeleteBranchChoices()`.
 
+### Intent / Action layer
+
+`lib/actions/` holds three pure-data files with no Riverpod/FFI dependency:
+`gbm_action_id.dart` (the `GbmActionId` enum, 52 values), `gbm_menu_model.dart`
+(the menu-bar/label/shortcut-string model `MenuBarRow` and the keyboard
+shortcuts dialog both read), and `gbm_shortcuts.dart`
+(`GbmActionId -> GbmKeyboardShortcut`, platform-aware Cmd/Ctrl binding).
+
+A `GbmActionId` is dispatched by three independent paths, which **must all
+read the same `Map<GbmActionId, VoidCallback?> actionHandlers`** — the one
+`WorkspaceScreen._buildActionHandlers()` builds once per build and hands to
+all three:
+
+1. **Keyboard** — `WorkspaceActionShortcuts` (`workspace_action_shortcuts.dart`)
+   wraps the shell in `Shortcuts` + `Actions`; a bound key press dispatches a
+   `GbmActionIntent(id)`, whose `CallbackAction` calls `handlers[id]?.call()`.
+2. **macOS system menu bar** — `PlatformMenuBarHost` builds a real
+   `PlatformMenuBar` from the same map; `PlatformMenuItem(onSelected:
+   handlers[item.id])` — a `null` value is what makes macOS grey the item
+   out natively.
+3. **In-window menu** — `MenuBarRow` (rendered instead of (2) on non-macOS,
+   spec page 01) resolves most ids via `Actions.maybeInvoke(context,
+   GbmActionIntent(id))`, which reaches the same `Actions` block as (1). Five
+   ids (`repositoryFetch`/`Pull`/`Push`, `viewToggleSidebar`, `fileExit`) are
+   special-cased to named constructor params instead, because their
+   real implementation predates the shared-map refactor and still lives
+   there — see `MenuBarRow._resolveHandler`'s doc comment.
+
+**A real, previously-shipped bug came directly from breaking this
+invariant**: `_buildActionHandlers()` once hardcoded `repositoryFetch`/
+`Pull`/`Push`/`viewToggleSidebar` to `null` in the map "because MenuBarRow
+handles them via its own params" — which made the in-window menu click work
+(path 3 bypasses the map for those ids) while the keyboard shortcut and the
+macOS menu item (paths 1–2, which both read the map directly) silently
+no-op'd. `test/integration/workspace_intent_dispatch_parity_test.dart`
+exists specifically to catch a regression of this shape. **Rule**: when
+wiring or changing what a `GbmActionId` does, change
+`_buildActionHandlers()` (or the policy function below it calls) — never
+add a fix that only touches `MenuBarRow`'s named params.
+
+### Action availability state machine
+
+`lib/actions/gbm_action_availability.dart`'s `isActionEnabled(GbmActionId,
+RepoSessionState)` is the single source of truth for which actions a
+state-dependent gate disables — every other call site (`workspace_screen.dart`'s
+`_buildActionHandlers()`, `sidebar_panel.dart`'s `BranchTreeItem.conflictActive`,
+`working_copy_view.dart`'s commit-box `canCommit`, `MenuBarRow`'s
+`GbmMenuItem.enabled` grey-out) reads through this function rather than
+re-deriving `session.conflictActive` locally.
+
+Twelve ids are gated straight off spec page 07's STATES table — disabled
+whenever `RepoSessionState.conflictActive` is true, because each would move
+HEAD, start a second sequencer operation, or commit while one is already in
+progress: `repositoryFetch`, `repositoryPull`, `repositoryPush`,
+`remoteFetchAllRemotes`, `repositoryCommit`, `repositoryAmendLastCommit`,
+`branchNewBranch`, `branchCheckout`, `branchMergeIntoCurrent`,
+`branchRebaseOnto`, `branchStashChanges`, `branchDeleteBranch`. The banner's
+Abort/Skip/Continue/Resolve… stay the only way forward until then.
+
+Two more gates are folded into the same function despite **not** being from
+spec page 07 — kept there anyway so every state-dependent availability
+decision in the app lives in exactly one place, not because they share the
+conflict/clean distinction the twelve above do:
+
+- `branchRenameCurrentBranch` — additionally requires
+  `refs.head.branchName.isNotEmpty` (a detached HEAD has no branch to rename).
+- `repositoryStageAll` — `workingCopyStatus.unstaged.isNotEmpty` only,
+  independent of `conflictActive` entirely (nothing to stage with an empty
+  unstaged list, regardless of conflict state).
+
+Every id the switch doesn't cover returns `true` — read that as "the state
+machine does not forbid this," not "this is implemented" (see
+`_buildActionHandlers()`'s own null entries for ids with no backing feature).
+
+### Testing tiers
+
+- **Unit** (`test/actions/gbm_action_availability_test.dart`, and pure-model
+  tests elsewhere) — no widgets, no Riverpod. Exercises `isActionEnabled()`
+  directly against every id + a representative `RepoSessionState`.
+- **Widget** (`test/features/**/*_test.dart`) — a single presentational
+  widget (`MenuBarRow`, `TabRow`, `BranchTreeItem`, ...) pumped with plain
+  callbacks/`ProviderContainer` overrides and a fake session, per-widget in
+  isolation. This is where most of the suite lives, and it cannot catch a
+  dispatch-path bug like the one above, because it never goes through
+  `WorkspaceScreen._buildActionHandlers()` — it feeds a handler map (or
+  named callback) directly to the widget under test.
+- **Integration** (`test/integration/`, run by the same `flutter test`, no
+  separate `integration_test/` device harness) — the real
+  `WorkspaceScreen` behind a `GoRouter`, driven by
+  `test/support/pump_workspace.dart`'s `pumpWorkspace()`. Exists
+  specifically to cross the seam widget tests can't: does a keyboard
+  shortcut/menu click/system-menu path really reach the controller, does a
+  state transition (conflict ↔ clean, an interrupt overlay opening) leave
+  every gated surface consistent with no residue, does navigating into
+  `ConflictResolveWindow` and back preserve the right content. Use
+  `pumpWorkspace`'s `extraRoutes` for a route that's a ShellRoute child in
+  the real router (Compare tab) and `topLevelRoutes` for one that's a
+  sibling of it (any `dialogRoute(...)`, `conflicts`) — mixing them up tests
+  the wrong route structure and can pass for the wrong reason.
+
+**Fake session seam** (`test/support/fake_repo_session.dart`):
+`FakeRepoSessionController extends RepoSessionController`, constructed with
+a `FakeGbmBindings` whose `sessionOpen()` returns `nullptr` — the real
+`_open()` sees that as "open failed" and returns before touching bindings or
+recents again, so every controller method the fake doesn't override hits its
+own `if (_session == nullptr) return;` guard and safely no-ops. Overridden
+methods do the opposite: they record the call into `commandLog` (or a
+bespoke field, for the handful of tests written before `commandLog` existed)
+instead of no-opping. `FakeGbmBindings`/`FakeRecentsRepository` throw via
+`noSuchMethod` on anything not explicitly implemented — a provider a test
+forgot to override fails loudly instead of quietly reaching a real
+`.dylib`/`.so`. Call `controller.emit(nextState)` to simulate an FFI event
+publishing a new `RepoSessionState`, exactly as `_onEvent()` would.
+
+**Rule**: a new state-dependent gate goes into `isActionEnabled()` (or, if
+it's not action-shaped, gets an equally-named single function) *and* gets an
+integration test asserting the gated surface actually changes when the
+state transitions — a widget test alone proves the widget renders `null`
+correctly, not that the real dispatch path ever produces that `null`.
+
 ## UX Goals
 
 Evaluated with the `product-design-harness` UX3 framework (User Flow led;
@@ -364,6 +484,19 @@ that were previously invisible rather than absent.
   and open-file-at-revision / save-this-revision in 05-K. Settings whose effect
   this layer cannot yet honour are likewise not offered in Preferences —
   see `AppPreferences`' doc comment.
+- **`GbmDialogShell`'s action row has no overflow handling**: `gbm_dialog_shell.dart`'s
+  actions `Row` (`mainAxisAlignment: end`, no `Flexible`/`Wrap`) sits inside
+  the shell's ~448px-wide `ConstrainedBox`, so a dialog with "Cancel" plus a
+  primary action whose label is long enough (found while writing
+  `test/integration/workspace_interrupt_overlay_test.dart`, using
+  `CheckoutRecoveryDialogContent`'s real `OperationChoice.label` text)
+  overflows `RenderFlex` — a genuine, real-usage-reachable layout bug, not a
+  test artifact. Affects every dialog built on `GbmDialogShell` with a long
+  action label, not just checkout/delete-branch recovery, so it's flagged
+  here rather than patched inside that test's scope; the test itself works
+  around it with a shorter fixture label. Not independently verified against
+  every dialog that uses long action labels — an unconfirmed lead for
+  whoever picks it up.
 - **D (−2 pt)**: History and Working Copy are still a tab switch, not a
   combined view. This matches an industry-standard pattern (Fork, GitKraken,
   Sourcetree all do the same) and isn't treated as a defect — but it's one

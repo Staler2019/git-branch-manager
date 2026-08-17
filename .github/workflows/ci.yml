@@ -76,6 +76,10 @@ jobs:
         with:
           channel: stable
 
+      - name: flutter pub get
+        working-directory: app_flutter
+        run: flutter pub get
+
       - name: dart format
         working-directory: app_flutter
         run: dart format --output=none --set-exit-if-changed .

@@ -255,6 +255,11 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
               onFetch: actionHandlers[GbmActionId.repositoryFetch],
               onPull: actionHandlers[GbmActionId.repositoryPull],
               onPush: actionHandlers[GbmActionId.repositoryPush],
+              // Purely visual (GbmMenuItem.enabled) -- see MenuBarRow's doc
+              // comment. Same map as WorkspaceActionShortcuts/
+              // PlatformMenuBarHost below, so the in-window menu's grey
+              // state agrees with what those two paths will actually do.
+              actionHandlers: actionHandlers,
             ),
           TopBar(
             repoName: _displayName(identity.workDir),

@@ -46,6 +46,13 @@ Future<GoRouter> _pump(
             onFetch: onFetch,
             onPull: onPull,
             onPush: onPush,
+            // Same map used for the WorkspaceActionShortcuts ancestor below
+            // -- also drives GbmMenuItem.enabled (purely visual, see its
+            // doc comment), so a test that cares about a specific item's
+            // enabled/danger color needs to list it here explicitly rather
+            // than get it for free.
+            actionHandlers:
+                actionHandlers ?? const <GbmActionId, VoidCallback?>{},
           );
           return Scaffold(
             body: actionHandlers == null
@@ -216,6 +223,12 @@ void main() {
       onFetch: () {},
       onPull: () {},
       onPush: () {},
+      // GbmMenuItem.enabled is now also gated by actionHandlers -- without
+      // a real handler here, Delete branch… would render disabled
+      // (textTertiary), masking the danger color this test asserts on.
+      actionHandlers: <GbmActionId, VoidCallback?>{
+        GbmActionId.branchDeleteBranch: () {},
+      },
     );
     await tester.tap(find.text('Branch'));
     await tester.pumpAndSettle();

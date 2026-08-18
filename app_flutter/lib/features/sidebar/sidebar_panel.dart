@@ -276,11 +276,27 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
         .deleteBranch(names: names);
   }
 
+  // Only offered when every leaf ref in the folder resolves to the same
+  // remote (see fetchableRefsInFolder's doc comment) -- there's no "default
+  // remote" to fall back to for a folder mixing refs from more than one,
+  // unlike a repository-level fetch.
+  void _fetchFolder(BranchTreeFolder folder) {
+    final (String remote, List<String> branches)? fetchable =
+        fetchableRefsInFolder(_collectFolderLeafRefs(folder.children));
+    if (fetchable == null) return;
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .fetchRemote(remoteName: fetchable.$1, refs: fetchable.$2);
+  }
+
   void _openFolderContextMenu(
     BuildContext context,
     TapDownDetails details,
     BranchTreeFolder folder,
   ) {
+    final (String, List<String>)? fetchable = fetchableRefsInFolder(
+      _collectFolderLeafRefs(folder.children),
+    );
     showGbmContextMenu(
       context,
       details.globalPosition,
@@ -290,6 +306,7 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
         onCopyPrefix: () =>
             Clipboard.setData(ClipboardData(text: '${folder.folderName}/')),
         onDeleteMerged: () => _deleteMergedInFolder(folder),
+        onFetchFolder: fetchable == null ? null : () => _fetchFolder(folder),
       ),
     );
   }

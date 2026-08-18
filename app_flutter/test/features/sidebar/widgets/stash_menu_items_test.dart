@@ -66,8 +66,11 @@ void main() {
       };
 
       expect(byLabel['Apply stash']!.onTap, isNull);
+      expect(byLabel['Apply stash']!.enabled, isFalse);
       expect(byLabel['Pop stash']!.onTap, isNull);
+      expect(byLabel['Pop stash']!.enabled, isFalse);
       expect(byLabel['Create branch from stash…']!.onTap, isNull);
+      expect(byLabel['Create branch from stash…']!.enabled, isFalse);
       // Unaffected by the same gate.
       expect(byLabel['View diff']!.onTap, isNotNull);
       expect(byLabel['Compare with…']!.onTap, isNotNull);

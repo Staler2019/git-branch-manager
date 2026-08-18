@@ -1849,15 +1849,32 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   /// gbm_remote_fetch()'s doc comment in gbm_capi.h. Async: fires
   /// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success also
   /// refreshes history.
+  /// [refs] restricts the fetch to those specific refs under [remoteName]
+  /// (e.g. one branch, or every branch under a folder prefix) instead of
+  /// everything the remote's default refspec would bring in -- empty
+  /// fetches everything, the original behavior. See gbm_remote_fetch()'s
+  /// doc comment: a non-empty [refs] with an empty [remoteName] is
+  /// rejected (no well-defined "these refs from every remote").
   void fetchRemote({
     String remoteName = '',
+    List<String> refs = const <String>[],
     bool prune = false,
     bool tags = false,
   }) {
     if (_session == nullptr) return;
     final Pointer<Utf8> remotePtr = remoteName.toNativeUtf8();
     try {
-      _bindings.remoteFetch(_session, remotePtr, prune ? 1 : 0, tags ? 1 : 0);
+      _withNativeStringArray(
+        refs,
+        (array, count) => _bindings.remoteFetch(
+          _session,
+          remotePtr,
+          array,
+          count,
+          prune ? 1 : 0,
+          tags ? 1 : 0,
+        ),
+      );
     } finally {
       malloc.free(remotePtr);
     }

@@ -223,11 +223,15 @@ class FakeRepoSessionController extends RepoSessionController {
   @override
   void fetchRemote({
     String remoteName = '',
+    List<String> refs = const <String>[],
     bool prune = false,
     bool tags = false,
   }) {
     commandLog.add(
-      FakeCommand('fetchRemote', <String, Object?>{'remoteName': remoteName}),
+      FakeCommand('fetchRemote', <String, Object?>{
+        'remoteName': remoteName,
+        'refs': refs,
+      }),
     );
   }
 

@@ -62,6 +62,7 @@ void main() {
       };
 
       expect(byLabel['Push tag']!.onTap, isNull);
+      expect(byLabel['Push tag']!.enabled, isFalse);
       expect(byLabel['Checkout tag (detached)']!.onTap, isNotNull);
       expect(byLabel['Compare with…']!.onTap, isNotNull);
       expect(byLabel['Copy tag name']!.onTap, isNotNull);
@@ -84,6 +85,7 @@ void main() {
       };
 
       expect(byLabel['Checkout tag (detached)']!.onTap, isNull);
+      expect(byLabel['Checkout tag (detached)']!.enabled, isFalse);
       expect(byLabel['Push tag']!.onTap, isNotNull);
     });
 

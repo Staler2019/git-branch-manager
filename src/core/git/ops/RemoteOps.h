@@ -49,6 +49,12 @@ private:
 
 struct FetchRequest {
     std::string remoteName;  ///< Empty fetches every remote (`--all`).
+    /// Specific refs to fetch from `remoteName` (e.g. one branch, or every
+    /// branch under a folder prefix) rather than every branch the remote's
+    /// default refspec would bring in. Empty fetches everything, the
+    /// existing behavior. Requires a non-empty `remoteName` -- there is no
+    /// well-defined "these refs from every remote".
+    std::vector<std::string> refs;
     bool prune = false;
     bool tags = false;
     /// Set by the app layer to a directory made with askpass::makeRequestDir();

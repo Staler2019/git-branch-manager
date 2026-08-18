@@ -245,3 +245,30 @@ int _compareTreeNodes(BranchTreeNode a, BranchTreeNode b) {
 
   return aName.compareTo(bName);
 }
+
+/// What 05-J's "Fetch branches in folder" needs to call
+/// `RepoSessionController.fetchRemote(remoteName:, refs:)`: the single
+/// remote every fetchable branch in [refs] tracks, and the branch names
+/// (as they exist on that remote, no prefix) to fetch. A local branch
+/// with no configured upstream contributes nothing (there is no remote
+/// ref for it to fetch). Returns null when there is nothing fetchable, or
+/// when the branches present track more than one distinct remote --
+/// `gbm_remote_fetch()` targets exactly one remote per call, and picking
+/// one over another silently would fetch less than the user asked for.
+(String remote, List<String> branches)? fetchableRefsInFolder(
+  List<RefInfo> refs,
+) {
+  final Map<String, List<String>> byRemote = <String, List<String>>{};
+  for (final RefInfo ref in refs) {
+    final String upstream = ref.kind == RefKind.remoteBranch
+        ? ref.fullName
+        : ref.upstream;
+    if (upstream.isEmpty) continue;
+    final (String remote, String branch) = remoteBranchParts(upstream);
+    if (remote.isEmpty || branch.isEmpty) continue;
+    (byRemote[remote] ??= <String>[]).add(branch);
+  }
+  if (byRemote.length != 1) return null;
+  final MapEntry<String, List<String>> only = byRemote.entries.single;
+  return (only.key, only.value);
+}

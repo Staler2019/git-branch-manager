@@ -30,11 +30,13 @@ List<GbmMenuItem> tagMenuItems({
     GbmMenuItem(
       label: 'Checkout tag (detached)',
       icon: Icons.call_split,
+      enabled: onCheckoutDetached != null,
       onTap: onCheckoutDetached,
     ),
     GbmMenuItem(
       label: 'Push tag',
       icon: Icons.cloud_upload_outlined,
+      enabled: onPush != null,
       onTap: onPush,
     ),
     GbmMenuItem(

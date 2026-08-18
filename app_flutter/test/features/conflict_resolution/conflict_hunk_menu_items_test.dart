@@ -73,6 +73,7 @@ void main() {
       };
 
       expect(byLabel['Discard from result']!.onTap, isNull);
+      expect(byLabel['Discard from result']!.enabled, isFalse);
       expect(byLabel['Take this side']!.onTap, isNotNull);
       expect(byLabel['Take this line only']!.onTap, isNotNull);
       expect(byLabel['Take both — this side first']!.onTap, isNotNull);

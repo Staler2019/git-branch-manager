@@ -12,17 +12,20 @@ import '../../../widgets/gbm_menu.dart';
 /// multi-select pluralization is documented as a deliberate divergence
 /// from a literal compound spec label rather than an unimplemented gap.
 ///
-/// [onFetchFolder] has no backing capi capability -- `gbm_remote_fetch()`
-/// takes a remote name, not a ref prefix, the same limitation 05-C's
-/// "Fetch this branch" already documents for a single ref -- so it always
-/// renders `enabled: false` rather than being wired to something that
-/// would silently do the wrong thing (or omitted, which would look like a
-/// rendering bug rather than a real absence).
+/// [onFetchFolder] is nullable: `gbm_remote_fetch()` now supports fetching
+/// specific refs (see FetchRequest.refs), but only from one remote per
+/// call, so the caller (SidebarPanel, via
+/// branch_tree_builder.dart's `fetchableRefsInFolder`) only wires this when
+/// every fetchable branch in the folder tracks the same single remote --
+/// `null` when there's nothing fetchable or the folder spans more than one
+/// remote, the same "no unambiguous target" treatment 05-D's "Push tag"
+/// gets for multiple remotes.
 List<GbmMenuItem> branchFolderMenuItems({
   required bool isExpanded,
   required VoidCallback onToggleExpand,
   required VoidCallback onCopyPrefix,
   required VoidCallback onDeleteMerged,
+  required VoidCallback? onFetchFolder,
 }) {
   return <GbmMenuItem>[
     GbmMenuItem(
@@ -30,11 +33,11 @@ List<GbmMenuItem> branchFolderMenuItems({
       icon: isExpanded ? Icons.unfold_less : Icons.unfold_more,
       onTap: onToggleExpand,
     ),
-    const GbmMenuItem(
+    GbmMenuItem(
       label: 'Fetch branches in folder',
       icon: Icons.cloud_download_outlined,
-      enabled: false,
-      onTap: null,
+      enabled: onFetchFolder != null,
+      onTap: onFetchFolder,
     ),
     GbmMenuItem(
       label: 'Copy folder prefix',

@@ -370,4 +370,110 @@ void main() {
       expect(folder.children.length, 2);
     });
   });
+
+  group('fetchableRefsInFolder', () {
+    RefInfo localWithUpstream({
+      required String shortName,
+      required String upstream,
+    }) => RefInfo(
+      fullName: 'refs/heads/$shortName',
+      shortName: shortName,
+      kind: RefKind.localBranch,
+      target: 'local-$shortName',
+      upstream: upstream,
+      ahead: 0,
+      behind: 0,
+      hasTrackingInfo: true,
+      isGone: false,
+      isHead: false,
+      isSymbolic: false,
+      worktreePath: '',
+    );
+
+    RefInfo localWithNoUpstream(String shortName) => RefInfo(
+      fullName: 'refs/heads/$shortName',
+      shortName: shortName,
+      kind: RefKind.localBranch,
+      target: 'local-$shortName',
+      upstream: '',
+      ahead: 0,
+      behind: 0,
+      hasTrackingInfo: false,
+      isGone: false,
+      isHead: false,
+      isSymbolic: false,
+      worktreePath: '',
+    );
+
+    RefInfo remoteOnly({required String remote, required String branch}) =>
+        RefInfo(
+          fullName: 'refs/remotes/$remote/$branch',
+          shortName: '$remote/$branch',
+          kind: RefKind.remoteBranch,
+          target: 'remote-$branch',
+          upstream: '',
+          ahead: 0,
+          behind: 0,
+          hasTrackingInfo: false,
+          isGone: false,
+          isHead: false,
+          isSymbolic: false,
+          worktreePath: '',
+        );
+
+    test('collects branch names from local branches tracking one remote', () {
+      final result = fetchableRefsInFolder([
+        localWithUpstream(
+          shortName: 'feature/a',
+          upstream: 'refs/remotes/origin/feature/a',
+        ),
+        localWithUpstream(
+          shortName: 'feature/b',
+          upstream: 'refs/remotes/origin/feature/b',
+        ),
+      ]);
+
+      expect(result, isNotNull);
+      expect(result!.$1, 'origin');
+      expect(result.$2, <String>['feature/a', 'feature/b']);
+    });
+
+    test('also collects from remote-only leaves via their own fullName', () {
+      final result = fetchableRefsInFolder([
+        remoteOnly(remote: 'origin', branch: 'feature/c'),
+      ]);
+
+      expect(result, isNotNull);
+      expect(result!.$1, 'origin');
+      expect(result.$2, <String>['feature/c']);
+    });
+
+    test('a local branch with no upstream contributes nothing', () {
+      final result = fetchableRefsInFolder([localWithNoUpstream('feature/d')]);
+
+      expect(result, isNull);
+    });
+
+    test(
+      'returns null when the folder\'s branches track more than one remote',
+      () {
+        final result = fetchableRefsInFolder([
+          localWithUpstream(
+            shortName: 'feature/a',
+            upstream: 'refs/remotes/origin/feature/a',
+          ),
+          localWithUpstream(
+            shortName: 'feature/b',
+            upstream: 'refs/remotes/upstream/feature/b',
+          ),
+        ]);
+
+        expect(result, isNull);
+      },
+    );
+
+    test('returns null for an empty ref list', () {
+      expect(fetchableRefsInFolder(const []), isNull);
+    });
+  });
 }

@@ -52,6 +52,7 @@ List<GbmMenuItem> conflictHunkMenuItems({
       label: 'Discard from result',
       icon: Icons.delete_outline,
       danger: true,
+      enabled: onDiscardFromResult != null,
       onTap: onDiscardFromResult,
     ),
   ];

@@ -25,16 +25,19 @@ List<GbmMenuItem> stashMenuItems({
     GbmMenuItem(
       label: 'Apply stash',
       icon: Icons.unarchive_outlined,
+      enabled: onApply != null,
       onTap: onApply,
     ),
     GbmMenuItem(
       label: 'Pop stash',
       icon: Icons.move_to_inbox_outlined,
+      enabled: onPop != null,
       onTap: onPop,
     ),
     GbmMenuItem(
       label: 'Create branch from stash…',
       icon: Icons.call_split,
+      enabled: onCreateBranch != null,
       onTap: onCreateBranch,
     ),
     GbmMenuItem(

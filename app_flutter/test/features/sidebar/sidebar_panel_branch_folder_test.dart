@@ -29,16 +29,17 @@ RefInfo _localBranch(
   String name, {
   bool isHead = false,
   String worktreePath = '',
+  String upstream = '',
 }) {
   return RefInfo(
     fullName: 'refs/heads/$name',
     shortName: name,
     kind: RefKind.localBranch,
     target: 'a' * 40,
-    upstream: '',
+    upstream: upstream,
     ahead: 0,
     behind: 0,
-    hasTrackingInfo: false,
+    hasTrackingInfo: upstream.isNotEmpty,
     isGone: false,
     isHead: isHead,
     isSymbolic: isHead,
@@ -64,12 +65,33 @@ final RefSnapshot _testRefs = RefSnapshot(
   totalRefCount: 5,
 );
 
+// Same shape, but every "release/*" branch tracks an "origin" upstream --
+// used by the enabled-fetch tests below, since fetchableRefsInFolder()
+// requires every leaf's upstream to resolve to the same single remote.
+final RefSnapshot _testRefsWithUpstream = RefSnapshot(
+  head: HeadInfo(
+    kind: HeadKind.branch,
+    branchName: 'main',
+    fullRef: 'refs/heads/main',
+    target: 'a' * 40,
+  ),
+  refs: <RefInfo>[
+    _localBranch('main', isHead: true),
+    _localBranch('release/v1', upstream: 'refs/remotes/origin/release/v1'),
+    _localBranch('release/v2', upstream: 'refs/remotes/origin/release/v2'),
+    _localBranch('feature/auth'),
+    _localBranch('feature/nested/deep'),
+  ],
+  refCountGuardTripped: false,
+  totalRefCount: 5,
+);
+
 class _Harness {
   _Harness({required this.fake});
   final FakeRepoSessionController fake;
 }
 
-Future<_Harness> _pump(WidgetTester tester) async {
+Future<_Harness> _pump(WidgetTester tester, {RefSnapshot? refs}) async {
   SharedPreferences.setMockInitialValues(<String, Object>{});
   final SharedPreferences prefs = await SharedPreferences.getInstance();
 
@@ -93,7 +115,7 @@ Future<_Harness> _pump(WidgetTester tester) async {
   final ProviderContainer container = ProviderContainer(
     overrides: <Override>[
       sharedPreferencesProvider.overrideWithValue(prefs),
-      repoRefsProvider(_testIdentity).overrideWithValue(_testRefs),
+      repoRefsProvider(_testIdentity).overrideWithValue(refs ?? _testRefs),
       repoSessionProvider(_testIdentity).overrideWith((ref) => fake),
     ],
   );
@@ -221,7 +243,8 @@ void main() {
     );
 
     testWidgets(
-      'Fetch branches in folder is disabled -- no per-ref fetch capability',
+      'Fetch branches in folder is disabled when the folder\'s branches '
+      'have no upstream -- no single unambiguous remote to fetch from',
       (tester) async {
         final _Harness h = await _pump(tester);
 
@@ -230,6 +253,24 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(h.fake.commandLog.any((c) => c.name == 'fetchRemote'), isFalse);
+      },
+    );
+
+    testWidgets(
+      'Fetch branches in folder reaches fetchRemote with the folder\'s '
+      'single remote and its branch names, when every leaf tracks it',
+      (tester) async {
+        final _Harness h = await _pump(tester, refs: _testRefsWithUpstream);
+
+        await _rightClick(tester, find.text('release'));
+        await tester.tap(find.text('Fetch branches in folder'));
+        await tester.pumpAndSettle();
+
+        final FakeCommand cmd = h.fake.commandLog.singleWhere(
+          (c) => c.name == 'fetchRemote',
+        );
+        expect(cmd.args['remoteName'], 'origin');
+        expect(cmd.args['refs'], <String>['release/v1', 'release/v2']);
       },
     );
   });

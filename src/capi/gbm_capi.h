@@ -707,12 +707,21 @@ GBM_API void gbm_remote_refresh(GbmSessionHandle session);
 /// gbm_remote_refresh() has not yet published one.
 GBM_API int32_t gbm_remotes_json(GbmSessionHandle session);
 
-/// `git fetch`. `remoteName` empty fetches every remote (`--all`). Async:
-/// fires GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success also
-/// triggers the same refresh gbm_history_refresh() would (a fetch can bring
-/// in new commits on remote-tracking refs).
+/// `git fetch`. `remoteName` empty fetches every remote (`--all`). `refs`
+/// (with `refCount` entries) restricts the fetch to those specific refs
+/// under `remoteName` (e.g. one branch, or every branch under a folder
+/// prefix) instead of everything the remote's default refspec would bring
+/// in -- `refCount` 0 fetches everything, the original behavior. A non-zero
+/// `refCount` with an empty `remoteName` is rejected (see
+/// GBM_EVENT_OPERATION_FINISHED's outcome): there is no well-defined "these
+/// refs from every remote". Async: fires
+/// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success also triggers
+/// the same refresh gbm_history_refresh() would (a fetch can bring in new
+/// commits on remote-tracking refs).
 GBM_API void gbm_remote_fetch(GbmSessionHandle session,
                               const char* remoteName,
+                              const char* const* refs,
+                              int32_t refCount,
                               int32_t prune,
                               int32_t tags);
 

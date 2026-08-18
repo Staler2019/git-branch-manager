@@ -2,8 +2,8 @@
 // needed. Verifies the item list matches gbm_context_menus.dart's 05-J
 // (Branch folder) spec, with the documented divergence for the toggle
 // item's state-dependent label (see the function's own doc comment), and
-// that "Fetch branches in folder" always renders disabled (no capi
-// backing).
+// that "Fetch branches in folder" goes through the nullable-callback gate
+// for the "no single unambiguous remote" case.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/features/context_menus/gbm_context_menus.dart';
 import 'package:gbm_flutter/features/sidebar/widgets/branch_folder_menu_items.dart';
@@ -23,6 +23,7 @@ void main() {
         onToggleExpand: () {},
         onCopyPrefix: () {},
         onDeleteMerged: () {},
+        onFetchFolder: () {},
       );
       final List<String> actualLabels = items
           .where((GbmMenuItem item) => !item.separator)
@@ -40,6 +41,7 @@ void main() {
         onToggleExpand: () {},
         onCopyPrefix: () {},
         onDeleteMerged: () {},
+        onFetchFolder: () {},
       );
       expect(items.first.label, 'Expand all');
     });
@@ -50,6 +52,7 @@ void main() {
         onToggleExpand: () {},
         onCopyPrefix: () {},
         onDeleteMerged: () {},
+        onFetchFolder: () {},
       );
       expect(items.first.label, 'Collapse all');
     });
@@ -62,6 +65,7 @@ void main() {
           onToggleExpand: () {},
           onCopyPrefix: () {},
           onDeleteMerged: () {},
+          onFetchFolder: () {},
         );
 
         expect(items.last.label, 'Delete merged branches…');
@@ -70,18 +74,37 @@ void main() {
       },
     );
 
-    test('Fetch branches in folder always renders disabled', () {
+    test('onFetchFolder: null renders Fetch branches in folder disabled, '
+        'matching the "no single unambiguous remote" case', () {
       final List<GbmMenuItem> items = branchFolderMenuItems(
         isExpanded: false,
         onToggleExpand: () {},
         onCopyPrefix: () {},
         onDeleteMerged: () {},
+        onFetchFolder: null,
       );
       final GbmMenuItem fetchItem = items.firstWhere(
         (GbmMenuItem i) => i.label == 'Fetch branches in folder',
       );
       expect(fetchItem.enabled, isFalse);
       expect(fetchItem.onTap, isNull);
+    });
+
+    test('onFetchFolder: a real callback renders it enabled and reachable', () {
+      bool fetched = false;
+      final List<GbmMenuItem> items = branchFolderMenuItems(
+        isExpanded: false,
+        onToggleExpand: () {},
+        onCopyPrefix: () {},
+        onDeleteMerged: () {},
+        onFetchFolder: () => fetched = true,
+      );
+      final GbmMenuItem fetchItem = items.firstWhere(
+        (GbmMenuItem i) => i.label == 'Fetch branches in folder',
+      );
+      expect(fetchItem.enabled, isTrue);
+      fetchItem.onTap!();
+      expect(fetched, isTrue);
     });
 
     test('each callback reaches its matching item, not a neighbor', () {
@@ -94,6 +117,7 @@ void main() {
         onToggleExpand: () => toggled = true,
         onCopyPrefix: () => copied = true,
         onDeleteMerged: () => deleted = true,
+        onFetchFolder: () {},
       );
 
       items.firstWhere((GbmMenuItem i) => i.label == 'Expand all').onTap!();

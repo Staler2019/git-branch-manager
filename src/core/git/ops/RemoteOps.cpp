@@ -21,6 +21,12 @@ public:
                          const RepoPaths& paths,
                          CancellationToken token) override {
         OperationOutcome outcome;
+        if (!request_.refs.empty() && request_.remoteName.empty()) {
+            outcome.error = GitError(GitError::Code::InvalidArgument,
+                                     "Fetching specific refs requires a remote name");
+            return outcome;
+        }
+
         std::vector<std::string> args{"fetch"};
         if (request_.prune) {
             args.emplace_back("--prune");
@@ -32,6 +38,9 @@ public:
             args.emplace_back("--all");
         } else {
             args.push_back(request_.remoteName);
+            for (const std::string& ref : request_.refs) {
+                args.push_back(ref);
+            }
         }
 
         GitCommand command(paths.commandDir(), std::move(args));

@@ -38,6 +38,7 @@ import 'widgets/platform_menu_bar_host.dart';
 import 'widgets/tab_row.dart';
 import 'widgets/top_bar.dart';
 import 'widgets/workspace_action_shortcuts.dart';
+import 'widgets/workspace_tab.dart';
 
 /// The repository shell: menu bar + top bar + tab switcher + sidebar, with
 /// `child` (History or Working Copy, see routing/app_router.dart's
@@ -543,7 +544,25 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       GbmActionId.viewHistory: () => context.go(RoutePaths.historyFor(repoId)),
       GbmActionId.viewWorkingCopy: () =>
           context.go(RoutePaths.workingCopyFor(repoId)),
-      GbmActionId.viewNextTab: null,
+      // Cycles History -> Working Copy -> each open Compare tab (in the
+      // order TabRow renders them) -> back to History. Built on the same
+      // `tabs`/`location` shape TabRow itself derives its active tab from
+      // (see tab_row.dart's build()), so the two never disagree about tab
+      // order.
+      GbmActionId.viewNextTab: () {
+        final List<WorkspaceTab> tabs = <WorkspaceTab>[
+          ...defaultWorkspaceTabs(
+            repoId,
+            pendingChangeCount: session.workingCopyStatus.entries.length,
+          ),
+          for (final CompareTabSpec spec in ref.read(
+            compareTabsProvider(identity),
+          ))
+            compareWorkspaceTab(spec, repoId),
+        ];
+        final String location = GoRouterState.of(context).uri.toString();
+        context.go(nextWorkspaceTabRoute(tabs, location));
+      },
       GbmActionId.viewFileListAsTree: () async {
         final currentMode = ref.read(fileListViewModeProvider);
         final newMode = currentMode == FileListViewMode.list

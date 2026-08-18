@@ -75,3 +75,19 @@ int activeWorkspaceTabIndex(List<WorkspaceTab> tabs, String location) {
   );
   return index == -1 ? 0 : index;
 }
+
+/// The route `GbmActionId.viewNextTab` (View > Next tab, Ctrl/Cmd+Tab)
+/// navigates to: whichever [WorkspaceTab] follows the one matching
+/// [location] in [tabs], wrapping from the last tab back to the first.
+/// Built on [activeWorkspaceTabIndex], so a [location] matching no tab
+/// (e.g. a dialog pushed on top) advances from the same index-0 fallback
+/// that helper already defines, rather than a separate special case here.
+/// [tabs] is never empty in practice (the two fixed tabs always exist,
+/// see [defaultWorkspaceTabs]) -- a single-tab list is handled by wrapping
+/// to itself rather than asserting, since nothing about "next tab" implies
+/// there must be more than one.
+String nextWorkspaceTabRoute(List<WorkspaceTab> tabs, String location) {
+  final int current = activeWorkspaceTabIndex(tabs, location);
+  final int next = (current + 1) % tabs.length;
+  return tabs[next].route;
+}

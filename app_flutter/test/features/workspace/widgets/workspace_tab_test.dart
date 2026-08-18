@@ -1,10 +1,13 @@
-// Pure-Dart unit tests for workspace_tab.dart's data model and the two
-// helper functions tab_row.dart is switched onto in this commit --
-// defaultWorkspaceTabs() (the fixed History/Working Copy pair) and
-// activeWorkspaceTabIndex() (the location -> active-tab lookup that
-// replaces tab_row.dart's old `location.endsWith('/working-copy')` check).
-// No widget pump needed: everything here is plain data/functions.
+// Pure-Dart unit tests for workspace_tab.dart's data model and its three
+// helper functions -- defaultWorkspaceTabs() (the fixed History/Working
+// Copy pair), activeWorkspaceTabIndex() (the location -> active-tab
+// lookup), and nextWorkspaceTabRoute() (View > Next tab / Ctrl+Tab's
+// wrap-around route lookup, backing workspace_screen.dart's
+// GbmActionId.viewNextTab handler). No widget pump needed: everything here
+// is plain data/functions.
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/repositories/compare_tabs_repository.dart';
+import 'package:gbm_flutter/features/workspace/widgets/tab_row.dart';
 import 'package:gbm_flutter/features/workspace/widgets/workspace_tab.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
 
@@ -96,6 +99,81 @@ void main() {
     test('falls back to index 0 (History) when location matches no tab route, '
         'mirroring the old !onWorkingCopy default', () {
       expect(activeWorkspaceTabIndex(tabs, '/repo/$_repoId/dialogs/merge'), 0);
+    });
+  });
+
+  group('nextWorkspaceTabRoute', () {
+    test('from History, returns Working Copy\'s route', () {
+      final List<WorkspaceTab> tabs = defaultWorkspaceTabs(
+        _repoId,
+        pendingChangeCount: 0,
+      );
+
+      expect(
+        nextWorkspaceTabRoute(tabs, RoutePaths.historyFor(_repoId)),
+        RoutePaths.workingCopyFor(_repoId),
+      );
+    });
+
+    test('from the last tab, wraps back around to the first tab\'s route', () {
+      final List<WorkspaceTab> tabs = defaultWorkspaceTabs(
+        _repoId,
+        pendingChangeCount: 0,
+      );
+
+      expect(
+        nextWorkspaceTabRoute(tabs, RoutePaths.workingCopyFor(_repoId)),
+        RoutePaths.historyFor(_repoId),
+      );
+    });
+
+    test('cycles through an open Compare tab between Working Copy and the '
+        'wrap back to History', () {
+      final CompareTabSpec compareSpec = const CompareTabSpec(
+        id: 'tab1',
+        left: 'HEAD',
+      );
+      final List<WorkspaceTab> tabs = <WorkspaceTab>[
+        ...defaultWorkspaceTabs(_repoId, pendingChangeCount: 0),
+        compareWorkspaceTab(compareSpec, _repoId),
+      ];
+
+      expect(
+        nextWorkspaceTabRoute(tabs, RoutePaths.workingCopyFor(_repoId)),
+        RoutePaths.compareFor(_repoId, 'tab1'),
+      );
+      expect(
+        nextWorkspaceTabRoute(tabs, RoutePaths.compareFor(_repoId, 'tab1')),
+        RoutePaths.historyFor(_repoId),
+      );
+    });
+
+    test('when location matches no tab route, falls back to index 0 first '
+        '(mirroring activeWorkspaceTabIndex) and advances to Working Copy', () {
+      final List<WorkspaceTab> tabs = defaultWorkspaceTabs(
+        _repoId,
+        pendingChangeCount: 0,
+      );
+
+      expect(
+        nextWorkspaceTabRoute(tabs, '/repo/$_repoId/dialogs/merge'),
+        RoutePaths.workingCopyFor(_repoId),
+      );
+    });
+
+    test('with only one tab, returns that same tab\'s route', () {
+      final List<WorkspaceTab> tabs = <WorkspaceTab>[
+        WorkspaceTab(
+          kind: WorkspaceTabKind.history,
+          label: 'History',
+          route: RoutePaths.historyFor(_repoId),
+        ),
+      ];
+
+      expect(
+        nextWorkspaceTabRoute(tabs, RoutePaths.historyFor(_repoId)),
+        RoutePaths.historyFor(_repoId),
+      );
     });
   });
 }

@@ -83,6 +83,10 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          # Kept in lockstep with ci.yml's pin (see its "every
+          # flutter-action use must pin flutter-version" lint step) so a
+          # release build never diverges from what CI already verified.
+          flutter-version: '3.44.9'
 
       - name: Set up MSVC environment
         if: runner.os == 'Windows'

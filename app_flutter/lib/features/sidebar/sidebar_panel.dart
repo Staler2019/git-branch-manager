@@ -7,15 +7,18 @@ import '../../actions/gbm_action_id.dart';
 import '../../data/models/ref_snapshot.dart';
 import '../../data/models/stash_entry.dart';
 import '../../data/repositories/branch_repository.dart';
+import '../../data/repositories/compare_tabs_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
 import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
+import '../../widgets/gbm_menu.dart';
 import '../../widgets/prompt_text_dialog.dart';
 import '../repo_switcher/repo_switcher_popover.dart';
 import 'branch_tree_builder.dart';
 import 'widgets/branch_tree_item.dart';
+import 'widgets/stash_menu_items.dart';
 
 /// Local branches for the open repository, with checkout-on-tap, plus
 /// create/rename/delete and the multi-select "gone" bulk-delete flow (see
@@ -127,6 +130,79 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     ref
         .read(repoSessionProvider(widget.identity).notifier)
         .deleteBranch(names: <String>[branch.shortName]);
+  }
+
+  void _applyStash(StashEntry stash) {
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .applyStash(stash.index);
+  }
+
+  void _popStash(StashEntry stash) {
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .applyStash(stash.index, pop: true);
+  }
+
+  Future<void> _createBranchFromStash(StashEntry stash) async {
+    final String? name = await promptText(
+      context,
+      title: 'New Branch from Stash',
+      label: 'Branch name',
+    );
+    if (name == null || !mounted) return;
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .branchFromStash(stash.index, name);
+  }
+
+  void _viewStashDiff(StashEntry stash) {
+    context.push(
+      RoutePaths.manageStashesDialogFor(
+        Uri.encodeComponent(widget.identity.workDir),
+        selectIndex: stash.index,
+      ),
+    );
+  }
+
+  // Uses the stash's own commit oid as the Compare tab's left ref -- a
+  // stash entry is a real commit (`git stash` creates one even though it
+  // never gets a branch), so this is the same `left: <ref string>`
+  // mechanism repositoryCompare already uses, not a new capability.
+  void _compareStash(StashEntry stash) {
+    final String repoId = Uri.encodeComponent(widget.identity.workDir);
+    final String tabId = ref
+        .read(compareTabsProvider(widget.identity).notifier)
+        .open(left: stash.oid);
+    context.go(RoutePaths.compareFor(repoId, tabId));
+  }
+
+  void _dropStash(StashEntry stash) {
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .dropStash(stash.index);
+  }
+
+  void _openStashContextMenu(
+    BuildContext context,
+    TapDownDetails details,
+    StashEntry stash,
+    bool conflictActive,
+  ) {
+    showGbmContextMenu(
+      context,
+      details.globalPosition,
+      stashMenuItems(
+        onApply: conflictActive ? null : () => _applyStash(stash),
+        onPop: conflictActive ? null : () => _popStash(stash),
+        onCreateBranch: conflictActive
+            ? null
+            : () => _createBranchFromStash(stash),
+        onViewDiff: () => _viewStashDiff(stash),
+        onCompare: () => _compareStash(stash),
+        onDrop: () => _dropStash(stash),
+      ),
+    );
   }
 
   void _deleteSelected() {
@@ -516,7 +592,21 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                             ),
                           ),
                           ...filteredStashes.map((stash) {
-                            return _buildStashRow(stash, colors);
+                            return _buildStashRow(
+                              stash,
+                              colors,
+                              // Sourced from isActionEnabled(), not
+                              // session.conflictActive directly -- same
+                              // pattern as every other conflict-sensitive
+                              // gate in this file. branchStashChanges is
+                              // the closest existing id (stash apply/pop
+                              // mutate the working tree/index the same way
+                              // creating a stash would).
+                              !isActionEnabled(
+                                GbmActionId.branchStashChanges,
+                                session,
+                              ),
+                            );
                           }),
                         ],
                       ],
@@ -641,7 +731,11 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     );
   }
 
-  Widget _buildStashRow(StashEntry stash, GbmColors colors) {
+  Widget _buildStashRow(
+    StashEntry stash,
+    GbmColors colors,
+    bool conflictActive,
+  ) {
     final now = DateTime.now();
     final stashTime = DateTime.fromMillisecondsSinceEpoch(stash.timestamp);
     final diff = now.difference(stashTime);
@@ -657,36 +751,49 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
       timeStr = '${diff.inDays}d ago';
     }
 
-    return Container(
-      height: GbmSpacing.rowHeightCompact,
-      padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
-      child: Row(
-        children: <Widget>[
-          const SizedBox(width: GbmSpacing.space2),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  stash.message,
-                  style: TextStyle(
-                    fontSize: GbmTypography.textSm,
-                    color: colors.textPrimary,
+    return GestureDetector(
+      onSecondaryTapDown: (TapDownDetails details) =>
+          _openStashContextMenu(context, details, stash, conflictActive),
+      child: Container(
+        // No fixed height, unlike a branch row -- this row shows two lines
+        // (message + relative time) rather than one, and rowHeightCompact
+        // (26px) is too short for both at GbmTypography's textSm/textXs
+        // sizes, overflowing the Column below by several pixels. Vertical
+        // padding gives it breathing room instead of pinning a height that
+        // would need recalibrating by hand every time either text style
+        // changes.
+        padding: const EdgeInsets.symmetric(
+          horizontal: GbmSpacing.space2,
+          vertical: GbmSpacing.space1,
+        ),
+        child: Row(
+          children: <Widget>[
+            const SizedBox(width: GbmSpacing.space2),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    stash.message,
+                    style: TextStyle(
+                      fontSize: GbmTypography.textSm,
+                      color: colors.textPrimary,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-                Text(
-                  timeStr,
-                  style: TextStyle(
-                    fontSize: GbmTypography.textXs,
-                    color: colors.textTertiary,
+                  Text(
+                    timeStr,
+                    style: TextStyle(
+                      fontSize: GbmTypography.textXs,
+                      color: colors.textTertiary,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

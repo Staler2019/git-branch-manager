@@ -14,9 +14,19 @@ import '../../diff/diff_page.dart';
 /// The Dart analog of `ManageStashesDialog` (src/app/dialogs/
 /// ManageStashesDialog.cpp). Routed as `/repo/:repoId/dialogs/manage-stashes`.
 class ManageStashesDialogContent extends ConsumerStatefulWidget {
-  const ManageStashesDialogContent({super.key, required this.identity});
+  const ManageStashesDialogContent({
+    super.key,
+    required this.identity,
+    this.initialSelectedIndex,
+  });
 
   final RepoIdentity identity;
+
+  /// Pre-selects a stash entry (and requests its diff) on open -- set by
+  /// the sidebar stash context menu's "View diff" item
+  /// (route_paths.dart's `manageStashesDialogFor(selectIndex:)`) so the
+  /// dialog doesn't open on the default "Select a stash" empty state.
+  final int? initialSelectedIndex;
 
   @override
   ConsumerState<ManageStashesDialogContent> createState() =>
@@ -25,16 +35,19 @@ class ManageStashesDialogContent extends ConsumerStatefulWidget {
 
 class _ManageStashesDialogContentState
     extends ConsumerState<ManageStashesDialogContent> {
-  int? _selectedIndex;
+  late int? _selectedIndex = widget.initialSelectedIndex;
 
   @override
   void initState() {
     super.initState();
-    Future.microtask(
-      () => ref
-          .read(repoSessionProvider(widget.identity).notifier)
-          .refreshStashes(),
-    );
+    Future.microtask(() {
+      ref.read(repoSessionProvider(widget.identity).notifier).refreshStashes();
+      if (widget.initialSelectedIndex != null) {
+        ref
+            .read(repoSessionProvider(widget.identity).notifier)
+            .requestStashDiff(widget.initialSelectedIndex!);
+      }
+    });
   }
 
   @override

@@ -309,6 +309,74 @@ class FakeRepoSessionController extends RepoSessionController {
   }
 
   @override
+  void applyStash(int index, {bool pop = false}) {
+    commandLog.add(
+      FakeCommand('applyStash', <String, Object?>{'index': index, 'pop': pop}),
+    );
+  }
+
+  @override
+  void dropStash(int index) {
+    commandLog.add(FakeCommand('dropStash', <String, Object?>{'index': index}));
+  }
+
+  @override
+  void branchFromStash(int index, String branchName) {
+    commandLog.add(
+      FakeCommand('branchFromStash', <String, Object?>{
+        'index': index,
+        'branchName': branchName,
+      }),
+    );
+  }
+
+  @override
+  void requestStashDiff(int index) {
+    commandLog.add(
+      FakeCommand('requestStashDiff', <String, Object?>{'index': index}),
+    );
+  }
+
+  @override
+  void createTag(
+    String name, {
+    String target = '',
+    String message = '',
+    bool force = false,
+  }) {
+    commandLog.add(
+      FakeCommand('createTag', <String, Object?>{
+        'name': name,
+        'target': target,
+      }),
+    );
+  }
+
+  @override
+  void deleteTag(
+    String name, {
+    bool alsoRemote = false,
+    String remoteName = '',
+  }) {
+    commandLog.add(
+      FakeCommand('deleteTag', <String, Object?>{
+        'name': name,
+        'alsoRemote': alsoRemote,
+      }),
+    );
+  }
+
+  @override
+  void pushTag(String remoteName, {String name = ''}) {
+    commandLog.add(
+      FakeCommand('pushTag', <String, Object?>{
+        'remoteName': remoteName,
+        'name': name,
+      }),
+    );
+  }
+
+  @override
   void provideCredential(String secret) {
     commandLog.add(const FakeCommand('provideCredential'));
   }

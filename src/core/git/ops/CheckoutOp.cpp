@@ -22,6 +22,8 @@ public:
         return "Switch to " + request_.target;
     }
 
+    std::string kind() const override { return "checkout"; }
+
     /// Never killed mid-flight: interrupting a checkout on a 500 MB work tree can
     /// leave a half-updated tree and a stale index.
     bool killableMidFlight() const override { return false; }

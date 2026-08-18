@@ -37,6 +37,11 @@ struct OperationOutcome {
     /// Populated when the failure is recoverable by choosing one of these.
     std::vector<OperationChoice> choices;
     std::string summary;
+    /// Stamped from the operation's Operation::kind() by OperationRunner just
+    /// before this outcome is handed to its onDone callback. Empty for any
+    /// operation that does not override kind() -- JsonCodec omits the "kind"
+    /// key entirely in that case rather than emitting an empty string.
+    std::string kind;
 };
 
 /// A single mutating git operation.
@@ -46,6 +51,16 @@ public:
 
     /// Human description, used in the undo journal and the progress dialog.
     virtual std::string describe() const = 0;
+
+    /// A stable, machine-readable slug identifying this operation's kind (e.g.
+    /// "checkout", "delete-branch"), or empty if the operation doesn't need
+    /// one. Unlike describe(), this is not for display -- it lets a caller on
+    /// the other side of the event bus (Dart's PendingOperationTracker) match
+    /// a GBM_EVENT_OPERATION_FINISHED outcome back to the request that
+    /// produced it, since OperationRunner's queue can hold more than one
+    /// operation at a time and completion events arrive one at a time in FIFO
+    /// order but with nothing else identifying which request they answer.
+    virtual std::string kind() const { return {}; }
 
     /// Whether killing the child process mid-flight is safe.
     ///

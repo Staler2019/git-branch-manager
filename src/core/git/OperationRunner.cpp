@@ -150,6 +150,11 @@ void OperationRunner::workerLoop() {
             }
         }
 
+        // Stamped here, on the single path every completion (normal, preflight-
+        // blocked, or cancelled) funnels through, so it's impossible for an
+        // outcome to reach onDone unstamped.
+        outcome.kind = queued.operation->kind();
+
         if (queued.onDone) {
             queued.onDone(std::move(outcome));
         }

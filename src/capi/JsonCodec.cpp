@@ -139,6 +139,14 @@ std::string toJson(const OperationOutcome& outcome) {
     }
     out += "],\"summary\":";
     jsonAppendEscaped(out, outcome.summary);
+    // Omitted entirely (not emitted as "") when the operation didn't stamp a
+    // kind -- keeps every unstamped outcome's JSON byte-identical to before
+    // this field existed, so existing assertions on the exact payload shape
+    // stay valid.
+    if (!outcome.kind.empty()) {
+        out += ",\"kind\":";
+        jsonAppendEscaped(out, outcome.kind);
+    }
     out += '}';
     return out;
 }

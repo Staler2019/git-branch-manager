@@ -177,6 +177,7 @@ void main() {
         await _rightClick(tester, find.byType(BranchTreeItem));
 
         expect(find.text('Checkout as new local…'), findsOneWidget);
+        expect(find.text('Fetch this branch'), findsOneWidget);
         expect(find.text('Copy branch name'), findsOneWidget);
         expect(find.text('Prune this ref'), findsOneWidget);
         expect(find.text('Delete on remote…'), findsOneWidget);
@@ -184,6 +185,38 @@ void main() {
         expect(find.text('Delete branch'), findsNothing);
         expect(find.text('Merge into current branch'), findsNothing);
         expect(find.text('New branch from here'), findsNothing);
+      },
+    );
+
+    testWidgets('tapping Fetch this branch invokes onFetchRef', (tester) async {
+      bool fetched = false;
+      await _pump(
+        tester,
+        BranchTreeItem(
+          ref: _remoteOnlyBranch(),
+          onCheckout: () {},
+          onFetchRef: () => fetched = true,
+        ),
+      );
+      await _rightClick(tester, find.byType(BranchTreeItem));
+      await tester.tap(find.text('Fetch this branch'));
+      await tester.pumpAndSettle();
+      expect(fetched, isTrue);
+    });
+
+    testWidgets(
+      'Fetch this branch is disabled (no onTap) when onFetchRef is null',
+      (tester) async {
+        await _pump(
+          tester,
+          BranchTreeItem(ref: _remoteOnlyBranch(), onCheckout: () {}),
+        );
+        await _rightClick(tester, find.byType(BranchTreeItem));
+        await tester.tap(find.text('Fetch this branch'));
+        await tester.pumpAndSettle();
+        // No crash and no callback exists to fire -- same pattern as the
+        // other disabled-item assertions in this file.
+        expect(find.text('Fetch this branch'), findsNothing);
       },
     );
 
@@ -307,6 +340,7 @@ void main() {
       await _rightClick(tester, find.byType(BranchTreeItem));
 
       expect(find.text('Checkout as new local…'), findsOneWidget);
+      expect(find.text('Fetch this branch'), findsOneWidget);
       expect(find.text('Copy branch name'), findsOneWidget);
       expect(find.text('Prune this ref'), findsOneWidget);
       expect(find.text('Delete on remote…'), findsOneWidget);
@@ -315,6 +349,25 @@ void main() {
       expect(find.text('Merge into current branch'), findsNothing);
       expect(find.text('New branch from here'), findsNothing);
     });
+
+    testWidgets(
+      'tapping Fetch this branch does nothing (disabled -- own upstream is '
+      'what vanished)',
+      (tester) async {
+        await _pump(
+          tester,
+          BranchTreeItem(
+            ref: _goneBranch(),
+            onCheckout: () {},
+            onPruneRef: () {},
+          ),
+        );
+        await _rightClick(tester, find.byType(BranchTreeItem));
+        await tester.tap(find.text('Fetch this branch'));
+        await tester.pumpAndSettle();
+        expect(find.text('Fetch this branch'), findsNothing);
+      },
+    );
 
     testWidgets(
       'tapping Checkout as new local… does nothing (disabled -- already local)',

@@ -381,6 +381,19 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     );
   }
 
+  /// 05-C "Fetch this branch" -- a remote-only row's own ref is already an
+  /// unambiguous single remote + branch (unlike 05-J's folder-wide fetch,
+  /// which needs fetchableRefsInFolder()'s "single remote across every
+  /// leaf" check), so this always fetches exactly the one branch.
+  void _fetchRemoteRef(RefInfo remoteRef) {
+    final (String remoteName, String branch) = remoteBranchParts(
+      remoteRef.fullName,
+    );
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .fetchRemote(remoteName: remoteName, refs: <String>[branch]);
+  }
+
   /// 05-C "Delete on remote…" -- opens the existing dialog
   /// (`deleteRemoteBranchDialogFor`), previously unreachable from any UI.
   void _openDeleteRemoteBranchDialog(RefInfo remoteRef) {
@@ -801,6 +814,7 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
           onDeleteOnRemote: isRemoteOnly
               ? () => _openDeleteRemoteBranchDialog(node.ref)
               : null,
+          onFetchRef: isRemoteOnly ? () => _fetchRemoteRef(node.ref) : null,
           // Sourced from isActionEnabled(), not session.conflictActive
           // directly -- single source of truth for checkout availability.
           conflictActive: !isActionEnabled(GbmActionId.branchCheckout, session),

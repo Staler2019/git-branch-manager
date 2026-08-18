@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:ffi';
 
 import 'package:ffi/ffi.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../ffi/event_dispatcher.dart';
@@ -36,6 +37,7 @@ import '../models/undo_entry.dart';
 import '../models/working_copy_status.dart';
 import '../models/worktree_info.dart';
 import 'gbm_bindings_provider.dart';
+import 'pending_operation_tracker.dart';
 import 'recents_repository.dart';
 import 'repo_identity.dart';
 
@@ -572,27 +574,28 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   GbmSessionEvents? _events;
   StreamSubscription<GbmEvent>? _subscription;
 
-  /// Remembers the most recently attempted [checkout] call, so a recovery
-  /// choice picked from [RepoSessionState.checkoutChoices] can resubmit the
-  /// same request with `stashFirst`/`force` set -- mirrors
-  /// `MainWindow::checkoutBranch()`'s own `[this, request]` retry closure in
-  /// the Qt app, just as a handful of remembered fields instead of a
-  /// captured request struct. `operations_` on the C++ side is a single
-  /// serial worker, so only one operation is ever actually in flight at a
-  /// time -- these do not need to be tagged with a request id to stay
-  /// correctly paired with the outcome that answers them.
-  bool _awaitingCheckoutOutcome = false;
-  String? _lastCheckoutTarget;
-  bool _lastCheckoutDetach = false;
-  bool _lastCheckoutCreateBranch = false;
-  String _lastCheckoutNewBranchName = '';
+  /// Attributes each GBM_EVENT_OPERATION_FINISHED outcome to the
+  /// checkout()/deleteBranch() call that produced it, keyed by the "kind"
+  /// the C++ side stamps on the outcome (OperationRunner::Operation::kind()).
+  /// This exists because `queue_` on the C++ side (OperationRunner.h) is a
+  /// `std::deque` that can hold more than one operation at a time -- FIFO
+  /// completion order is guaranteed, but *which* completion answers *which*
+  /// request is not implied by order alone once anything else on the shared
+  /// submitOperation channel (roughly thirty other methods: mergeBranch,
+  /// resetTo, cherryPick*, *Rebase, pruneRemote, *Bisect, *Import, ...) is
+  /// submitted in between. See [PendingOperationTracker]'s doc comment.
+  final PendingOperationTracker _pending = PendingOperationTracker();
 
-  /// Same remembered-request idea as the checkout fields above, for the
-  /// [deleteBranch] "not fully merged" -> "Force delete" recovery flow.
-  bool _awaitingDeleteBranchOutcome = false;
-  List<String> _lastDeleteBranchNames = const <String>[];
-  bool _lastDeleteBranchIsRemote = false;
-  String _lastDeleteBranchRemoteName = '';
+  /// The most recent *failed* checkout/deleteBranch request, kept around so
+  /// a recovery choice picked from [RepoSessionState.checkoutChoices] /
+  /// [RepoSessionState.deleteBranchChoices] can resubmit that exact request
+  /// with `stashFirst`/`force` set -- mirrors `MainWindow::checkoutBranch()`'s
+  /// own `[this, request]` retry closure in the Qt app. Populated when
+  /// [_handleOperationOutcome] pops a matching request off [_pending] and
+  /// the outcome failed; cleared on success or once a retry/dismiss consumes
+  /// it.
+  PendingCheckoutRequest? _lastFailedCheckoutRequest;
+  PendingDeleteBranchRequest? _lastFailedDeleteBranchRequest;
 
   void _open() {
     final Pointer<Utf8> workDir = _identity.workDir.toNativeUtf8();
@@ -652,43 +655,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
         final Map<String, dynamic>? payload = decoded is Map<String, dynamic>
             ? decoded
             : null;
-        bool succeeded = true;
-        List<OperationChoice> choices = const <OperationChoice>[];
-        if (payload != null) {
-          succeeded = payload['succeeded'] as bool? ?? true;
-          if (!succeeded) {
-            final Object? choicesJson = payload['choices'];
-            if (choicesJson is List<dynamic>) {
-              choices = OperationChoice.listFromJson(choicesJson);
-            }
-            // Not every failure carries a formal GitError -- BranchOps'
-            // "not fully merged" path (see refineSummaryFromRemoteRefs in
-            // core/git/ops/BranchOps.cpp) only sets `summary` + `choices`,
-            // deliberately preferring a friendlier message over a raw Git
-            // error. Falling back to `summary` here is the only way that
-            // message (or any other choices-only failure) reaches the UI.
-            final GitError? error = _errorFromOutcomePayload(payload);
-            if (error != null) {
-              state = state.copyWith(lastError: error);
-            }
-          }
-        }
-        final bool wasCheckout = _awaitingCheckoutOutcome;
-        _awaitingCheckoutOutcome = false;
-        if (wasCheckout) {
-          state = state.copyWith(
-            checkoutChoices: succeeded ? const <OperationChoice>[] : choices,
-          );
-        }
-        final bool wasDeleteBranch = _awaitingDeleteBranchOutcome;
-        _awaitingDeleteBranchOutcome = false;
-        if (wasDeleteBranch) {
-          state = state.copyWith(
-            deleteBranchChoices: succeeded
-                ? const <OperationChoice>[]
-                : choices,
-          );
-        }
+        _handleOperationOutcome(payload);
       case GbmEventType.workingCopyStatusUpdated:
         _readWorkingCopyStatus();
       case GbmEventType.workingCopyOperationFinished:
@@ -1074,6 +1041,104 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     );
   }
 
+  /// Derives `succeeded`/`choices` from a GBM_EVENT_OPERATION_FINISHED
+  /// payload and, when the payload's "kind" matches a request recorded in
+  /// [_pending] (see [PendingOperationTracker]'s doc comment for why
+  /// attribution has to go through "kind" rather than "whichever event
+  /// arrives next"), updates [RepoSessionState.checkoutChoices] /
+  /// [RepoSessionState.deleteBranchChoices] for that specific request. A
+  /// "kind" with no matching pending request (or no "kind" at all --
+  /// every operation other than checkout/deleteBranch) leaves those fields
+  /// untouched.
+  void _handleOperationOutcome(Map<String, dynamic>? payload) {
+    bool succeeded = true;
+    List<OperationChoice> choices = const <OperationChoice>[];
+    if (payload != null) {
+      succeeded = payload['succeeded'] as bool? ?? true;
+      if (!succeeded) {
+        final Object? choicesJson = payload['choices'];
+        if (choicesJson is List<dynamic>) {
+          choices = OperationChoice.listFromJson(choicesJson);
+        }
+        // Not every failure carries a formal GitError -- BranchOps'
+        // "not fully merged" path (see refineSummaryFromRemoteRefs in
+        // core/git/ops/BranchOps.cpp) only sets `summary` + `choices`,
+        // deliberately preferring a friendlier message over a raw Git
+        // error. Falling back to `summary` here is the only way that
+        // message (or any other choices-only failure) reaches the UI.
+        final GitError? error = _errorFromOutcomePayload(payload);
+        if (error != null) {
+          state = state.copyWith(lastError: error);
+        }
+      }
+    }
+
+    final PendingOperationKind? kind = PendingOperationKind.fromWireName(
+      payload?['kind'] as String? ?? '',
+    );
+    switch (kind) {
+      case PendingOperationKind.checkout:
+        final PendingCheckoutRequest? request = _pending.takeCheckout();
+        if (request == null) break;
+        _lastFailedCheckoutRequest = succeeded ? null : request;
+        state = state.copyWith(
+          checkoutChoices: succeeded ? const <OperationChoice>[] : choices,
+        );
+      case PendingOperationKind.deleteBranch:
+        final PendingDeleteBranchRequest? request = _pending.takeDeleteBranch();
+        if (request == null) break;
+        _lastFailedDeleteBranchRequest = succeeded ? null : request;
+        state = state.copyWith(
+          deleteBranchChoices: succeeded ? const <OperationChoice>[] : choices,
+        );
+      case null:
+        break;
+    }
+  }
+
+  /// Test-only entry point to [_handleOperationOutcome], for a reducer-level
+  /// regression test that can't drive the real GBM_EVENT_OPERATION_FINISHED
+  /// path (no native session in a widget/unit test). See
+  /// [debugRecordCheckout]/[debugRecordDeleteBranch] for arranging the
+  /// pending-request precondition this depends on.
+  @visibleForTesting
+  void debugHandleOperationOutcome(Map<String, dynamic> payload) =>
+      _handleOperationOutcome(payload);
+
+  /// Test-only: records a pending checkout request without going through
+  /// [checkout] itself. Needed because `FakeRepoSessionController`
+  /// (test/support/fake_repo_session.dart) overrides [checkout] to log the
+  /// call instead of reaching this class's implementation, so a test can't
+  /// arrange "a checkout is in flight" by calling the fake's [checkout].
+  @visibleForTesting
+  void debugRecordCheckout({
+    required String target,
+    bool detach = false,
+    bool createBranch = false,
+    String newBranchName = '',
+  }) => _pending.recordCheckout(
+    PendingCheckoutRequest(
+      target: target,
+      detach: detach,
+      createBranch: createBranch,
+      newBranchName: newBranchName,
+    ),
+  );
+
+  /// Test-only counterpart to [debugRecordCheckout], for deleteBranch.
+  @visibleForTesting
+  void debugRecordDeleteBranch({
+    required List<String> names,
+    bool isRemote = false,
+    String remoteName = '',
+  }) => _pending.recordDeleteBranch(
+    PendingDeleteBranchRequest(
+      names: names,
+      isRemote: isRemote,
+      remoteName: remoteName,
+    ),
+  );
+
   /// Synchronously re-reads the undo journal cache -- unlike the other
   /// `_read*` helpers this has no dedicated event; Session refreshes its
   /// cache as part of every operation's completion callback (see
@@ -1126,11 +1191,14 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     bool recurseSubmodules = false,
   }) {
     if (_session == nullptr) return;
-    _awaitingCheckoutOutcome = true;
-    _lastCheckoutTarget = target;
-    _lastCheckoutDetach = detach;
-    _lastCheckoutCreateBranch = createBranch;
-    _lastCheckoutNewBranchName = newBranchName;
+    _pending.recordCheckout(
+      PendingCheckoutRequest(
+        target: target,
+        detach: detach,
+        createBranch: createBranch,
+        newBranchName: newBranchName,
+      ),
+    );
     final Pointer<Utf8> targetPtr = target.toNativeUtf8();
     final Pointer<Utf8> newBranchPtr = newBranchName.toNativeUtf8();
     try {
@@ -1150,30 +1218,31 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     }
   }
 
-  /// Resubmits the most recently attempted [checkout] with the flag
-  /// [kind] implies (stash-and-retry -> `stashFirst`, force-discard ->
-  /// `force`); any other kind (Abort/Cancel) just dismisses
-  /// [RepoSessionState.checkoutChoices]. A no-op if no checkout has been
-  /// attempted yet this session.
+  /// Resubmits the checkout request that produced the current
+  /// [RepoSessionState.checkoutChoices] with the flag [kind] implies
+  /// (stash-and-retry -> `stashFirst`, force-discard -> `force`); any other
+  /// kind (Abort/Cancel) just dismisses the choices. A no-op if no failed
+  /// checkout is on record -- see [_lastFailedCheckoutRequest].
   void retryCheckoutWithChoice(OperationChoiceKind kind) {
-    final String? target = _lastCheckoutTarget;
+    final PendingCheckoutRequest? request = _lastFailedCheckoutRequest;
+    _lastFailedCheckoutRequest = null;
     state = state.copyWith(checkoutChoices: const <OperationChoice>[]);
-    if (target == null) return;
+    if (request == null) return;
     switch (kind) {
       case OperationChoiceKind.stashAndRetry:
         checkout(
-          target: target,
-          detach: _lastCheckoutDetach,
-          createBranch: _lastCheckoutCreateBranch,
-          newBranchName: _lastCheckoutNewBranchName,
+          target: request.target,
+          detach: request.detach,
+          createBranch: request.createBranch,
+          newBranchName: request.newBranchName,
           stashFirst: true,
         );
       case OperationChoiceKind.forceDiscard:
         checkout(
-          target: target,
-          detach: _lastCheckoutDetach,
-          createBranch: _lastCheckoutCreateBranch,
-          newBranchName: _lastCheckoutNewBranchName,
+          target: request.target,
+          detach: request.detach,
+          createBranch: request.createBranch,
+          newBranchName: request.newBranchName,
           force: true,
         );
       case OperationChoiceKind.abort:
@@ -1186,6 +1255,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   /// Dismisses [RepoSessionState.checkoutChoices] without retrying --
   /// the explicit Cancel action.
   void dismissCheckoutChoices() {
+    _lastFailedCheckoutRequest = null;
     state = state.copyWith(checkoutChoices: const <OperationChoice>[]);
   }
 
@@ -1255,10 +1325,13 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     String remoteName = '',
   }) {
     if (_session == nullptr || names.isEmpty) return;
-    _awaitingDeleteBranchOutcome = true;
-    _lastDeleteBranchNames = names;
-    _lastDeleteBranchIsRemote = isRemote;
-    _lastDeleteBranchRemoteName = remoteName;
+    _pending.recordDeleteBranch(
+      PendingDeleteBranchRequest(
+        names: names,
+        isRemote: isRemote,
+        remoteName: remoteName,
+      ),
+    );
     final Pointer<Utf8> remoteNamePtr = remoteName.toNativeUtf8();
     try {
       _withNativeStringArray(
@@ -1277,21 +1350,23 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     }
   }
 
-  /// Resubmits the most recently attempted [deleteBranch] with `force` set
-  /// when [kind] is [OperationChoiceKind.forceDiscard]; any other kind just
-  /// dismisses [RepoSessionState.deleteBranchChoices]. A no-op if no delete
-  /// has been attempted yet this session.
+  /// Resubmits the deleteBranch request that produced the current
+  /// [RepoSessionState.deleteBranchChoices] with `force` set when [kind] is
+  /// [OperationChoiceKind.forceDiscard]; any other kind just dismisses the
+  /// choices. A no-op if no failed delete is on record -- see
+  /// [_lastFailedDeleteBranchRequest].
   void retryDeleteBranchWithChoice(OperationChoiceKind kind) {
-    final List<String> names = _lastDeleteBranchNames;
+    final PendingDeleteBranchRequest? request = _lastFailedDeleteBranchRequest;
+    _lastFailedDeleteBranchRequest = null;
     state = state.copyWith(deleteBranchChoices: const <OperationChoice>[]);
-    if (names.isEmpty) return;
+    if (request == null) return;
     switch (kind) {
       case OperationChoiceKind.forceDiscard:
         deleteBranch(
-          names: names,
+          names: request.names,
           force: true,
-          isRemote: _lastDeleteBranchIsRemote,
-          remoteName: _lastDeleteBranchRemoteName,
+          isRemote: request.isRemote,
+          remoteName: request.remoteName,
         );
       case OperationChoiceKind.stashAndRetry:
       case OperationChoiceKind.abort:
@@ -1304,6 +1379,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   /// Dismisses [RepoSessionState.deleteBranchChoices] without retrying --
   /// the explicit Cancel action.
   void dismissDeleteBranchChoices() {
+    _lastFailedDeleteBranchRequest = null;
     state = state.copyWith(deleteBranchChoices: const <OperationChoice>[]);
   }
 
@@ -2779,6 +2855,9 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
       _bindings.sessionClose(_session);
       _session = nullptr;
     }
+    // No further GBM_EVENT_OPERATION_FINISHED events will arrive to consume
+    // whatever is still pending.
+    _pending.clear();
     super.dispose();
   }
 }

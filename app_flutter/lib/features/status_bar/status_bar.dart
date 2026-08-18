@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../actions/gbm_sequencer_operation.dart';
 import '../../data/models/repo_state.dart' as model;
 import '../../data/models/working_copy_status.dart';
 import '../../theme/gbm_theme.dart';
@@ -95,17 +96,8 @@ class _StatusBarState extends State<StatusBar> {
     super.dispose();
   }
 
-  String _getOperationName() {
-    final repoState = widget.repoState;
-    if (repoState == null) return '';
-
-    if (repoState.isMerging) return 'MERGE';
-    if (repoState.isCherryPicking) return 'CHERRY-PICK';
-    if (repoState.isReverting) return 'REVERT';
-    if (repoState.isRebasing) return 'REBASE';
-
-    return '';
-  }
+  String _getOperationName() =>
+      activeSequencerOperation(widget.repoState)?.label.toUpperCase() ?? '';
 
   String _buildConflictLabel() {
     final repoState = widget.repoState;

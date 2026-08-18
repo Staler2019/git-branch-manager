@@ -77,10 +77,18 @@ enum GbmErrorCode {
 // defined so far; later milestones extend this enum, never renumber it.
 
 enum GbmEventType {
-    GBM_EVENT_GRAPH_UPDATED = 0,       ///< payload: {"complete": bool}
-    GBM_EVENT_REFS_UPDATED = 1,        ///< no payload
-    GBM_EVENT_ERROR_OCCURRED = 2,      ///< payload: GitError JSON
-    GBM_EVENT_OPERATION_FINISHED = 3,  ///< payload: OperationOutcome JSON
+    GBM_EVENT_GRAPH_UPDATED = 0,   ///< payload: {"complete": bool}
+    GBM_EVENT_REFS_UPDATED = 1,    ///< no payload
+    GBM_EVENT_ERROR_OCCURRED = 2,  ///< payload: GitError JSON
+    /// payload: OperationOutcome JSON: {"succeeded": bool, "error": GitError
+    /// JSON | null, "choices": OperationChoice[], "summary": string,
+    /// "kind"?: string}. "kind" is present only for operations that stamp one
+    /// -- currently "checkout" (gbm_branch_checkout) and "delete-branch"
+    /// (gbm_branch_delete) -- so a caller juggling more than one in-flight
+    /// request on this shared channel can match an outcome back to the
+    /// request that produced it instead of assuming the next event to arrive
+    /// must be the answer.
+    GBM_EVENT_OPERATION_FINISHED = 3,
 
     /// no payload; read the new status with gbm_working_copy_status_json().
     GBM_EVENT_WORKING_COPY_STATUS_UPDATED = 4,

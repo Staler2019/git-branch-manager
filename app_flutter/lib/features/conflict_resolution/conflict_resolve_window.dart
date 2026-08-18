@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../actions/gbm_sequencer_operation.dart';
 import '../../data/models/parsed_conflict_file.dart';
 import '../../data/models/repo_state.dart';
 import '../../data/models/working_copy_status.dart';
@@ -387,13 +388,21 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
   void _handleAbort(RepoSessionState session) {
     final notifier = ref.read(repoSessionProvider(widget.identity).notifier);
 
-    if (session.repoState?.isMerging ?? false) {
-      notifier.mergeAbort();
-    } else if (session.repoState?.isCherryPicking ?? false) {
-      notifier.cherryPickAbort();
-    } else {
-      // rebase (covers both rebaseApply and rebaseMerge)
-      notifier.abortRebase();
+    switch (activeSequencerOperation(session.repoState)) {
+      case SequencerOperationKind.merge:
+        notifier.mergeAbort();
+      case SequencerOperationKind.cherryPick:
+        notifier.cherryPickAbort();
+      case SequencerOperationKind.rebase:
+        // Covers both rebaseApply and rebaseMerge.
+        notifier.abortRebase();
+      case SequencerOperationKind.revert:
+      case null:
+        // Revert has no abort and null means nothing is in progress to
+        // abort -- both unreachable through the UI (_ConflictActionBar
+        // disables Abort for revert). Exhaustive switch over the implicit
+        // "anything else -> abortRebase" this replaced.
+        break;
     }
   }
 
@@ -420,17 +429,28 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
     final RepoSessionState session = ref.read(
       repoSessionProvider(widget.identity),
     );
-    final bool isCherryPick = session.repoState?.isCherryPicking ?? false;
+    final SequencerOperationKind? kind = activeSequencerOperation(
+      session.repoState,
+    );
+    final bool isCherryPick = kind == SequencerOperationKind.cherryPick;
     promptOriginalOperationMessage(
       context,
       title: isCherryPick ? 'Cherry-pick message' : 'Rebase message',
       initialMessage: initialMessage,
     ).then((message) {
       if (message == null) return;
-      if (isCherryPick) {
-        notifier.cherryPickContinueWithMessage(message);
-      } else {
-        notifier.continueRebaseWithMessage(message);
+      switch (kind) {
+        case SequencerOperationKind.cherryPick:
+          notifier.cherryPickContinueWithMessage(message);
+        case SequencerOperationKind.rebase:
+          notifier.continueRebaseWithMessage(message);
+        case SequencerOperationKind.merge:
+        case SequencerOperationKind.revert:
+        case null:
+          // Continue is only reachable for cherry-pick/rebase
+          // (canContinue is false for merge/revert/no-op); unreachable
+          // through the UI.
+          break;
       }
     });
   }
@@ -513,10 +533,7 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
             if (session.repoState case final state?
-                when state.isMerging ||
-                    state.isCherryPicking ||
-                    state.isReverting ||
-                    state.isRebasing)
+                when activeSequencerOperation(state) != null)
               SequencerBanner(identity: widget.identity, state: state),
             if (session.lastError case final error?)
               Container(
@@ -673,15 +690,13 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
               },
               onNext: _handleNextConflict,
               hasSequencerOperation:
-                  session.repoState != null &&
-                  (session.repoState!.isMerging ||
-                      session.repoState!.isCherryPicking ||
-                      session.repoState!.isReverting ||
-                      session.repoState!.isRebasing),
-              isRevert: session.repoState?.isReverting ?? false,
+                  activeSequencerOperation(session.repoState) != null,
+              isRevert:
+                  activeSequencerOperation(session.repoState) ==
+                  SequencerOperationKind.revert,
               canContinue:
-                  (session.repoState?.isCherryPicking ?? false) ||
-                  (session.repoState?.isRebasing ?? false),
+                  activeSequencerOperation(session.repoState)?.canContinue ??
+                  false,
               onAbort: () => _handleAbort(session),
               onContinue: _handleContinue,
             ),
@@ -939,15 +954,20 @@ class SequencerBanner extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final GbmColors colors = context.gbmColors;
-    final String label = state.isMerging
-        ? 'Merge in progress'
-        : state.isCherryPicking
-        ? 'Cherry-pick in progress'
-        : state.isRebasing
-        ? state.rebaseTotal > 0
-              ? 'Rebase in progress (${state.rebaseStep}/${state.rebaseTotal})'
-              : 'Rebase in progress'
-        : 'Revert in progress';
+    // The null case (activeSequencerOperation returns null) is unreachable:
+    // this widget is only built when the build() call site's `when
+    // activeSequencerOperation(state) != null` guard already passed. Falls
+    // back to the revert wording anyway, matching this ladder's own
+    // previous unconditional-else behavior.
+    final String label = switch (activeSequencerOperation(state)) {
+      SequencerOperationKind.merge => 'Merge in progress',
+      SequencerOperationKind.cherryPick => 'Cherry-pick in progress',
+      SequencerOperationKind.rebase =>
+        state.rebaseTotal > 0
+            ? 'Rebase in progress (${state.rebaseStep}/${state.rebaseTotal})'
+            : 'Rebase in progress',
+      SequencerOperationKind.revert || null => 'Revert in progress',
+    };
 
     return Container(
       width: double.infinity,

@@ -127,6 +127,17 @@ protected:
         });
     }
 
+    /// The most recent GBM_EVENT_OPERATION_FINISHED payload, or empty if none
+    /// arrived. Used to assert on the OperationOutcome JSON's "kind" field.
+    std::string lastOperationFinishedPayload() {
+        std::lock_guard<std::mutex> lock(log_.mutex);
+        std::string payload;
+        for (const auto& [type, body] : log_.events) {
+            if (type == GBM_EVENT_OPERATION_FINISHED) payload = body;
+        }
+        return payload;
+    }
+
     std::filesystem::path repo_;
     GbmSessionHandle session_ = nullptr;
     EventLog log_;
@@ -135,6 +146,13 @@ protected:
 TEST_F(BranchApiTest, CreateBranchAddsALocalBranchWithoutMovingHead) {
     gbm_branch_create(session_, "feature-1", "", /*checkoutAfter=*/0, /*setUpstream=*/0, "");
     ASSERT_TRUE(waitForOperationFinished());
+
+    // CreateBranchOperation does not override Operation::kind(), so JsonCodec
+    // must omit the key entirely rather than emit "kind":"" -- this is the
+    // proof that stamping checkout/delete-branch below leaves every other
+    // outcome's JSON byte-identical to before.
+    EXPECT_EQ(lastOperationFinishedPayload().find("\"kind\""), std::string::npos)
+        << lastOperationFinishedPayload();
 
     const auto branches = localBranches();
     EXPECT_NE(std::find(branches.begin(), branches.end(), "feature-1"), branches.end());
@@ -178,6 +196,12 @@ TEST_F(BranchApiTest, DeleteBranchRemovesASingleLocalBranch) {
     const char* names[] = {"to-delete"};
     gbm_branch_delete(session_, names, 1, /*force=*/0, /*isRemote=*/0, "");
     ASSERT_TRUE(waitForOperationFinished());
+
+    // DeleteBranchOperation::kind() lets Dart's PendingOperationTracker
+    // attribute this outcome to the deleteBranch() call that produced it,
+    // instead of whichever operationFinished event happens to arrive next.
+    EXPECT_NE(lastOperationFinishedPayload().find("\"kind\":\"delete-branch\""), std::string::npos)
+        << lastOperationFinishedPayload();
 
     const auto branches = localBranches();
     EXPECT_EQ(std::find(branches.begin(), branches.end(), "to-delete"), branches.end());

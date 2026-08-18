@@ -237,6 +237,8 @@ public:
         return "Delete branch" + std::string(request_.names.size() > 1 ? "es " : " ") + joinNames();
     }
 
+    std::string kind() const override { return "delete-branch"; }
+
     OperationOutcome run(IProcessRunner& runner,
                          const RepoPaths& paths,
                          CancellationToken token) override {

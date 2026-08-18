@@ -185,6 +185,10 @@ TEST_F(CapiSessionTest, CheckoutCreatesAndSwitchesToNewBranch) {
         }
     }
     EXPECT_NE(outcomeJson.find("\"succeeded\":true"), std::string::npos) << outcomeJson;
+    // Lets Dart's PendingOperationTracker attribute this outcome to the
+    // checkout() call that produced it, rather than the next
+    // operationFinished event to arrive on the shared submitOperation channel.
+    EXPECT_NE(outcomeJson.find("\"kind\":\"checkout\""), std::string::npos) << outcomeJson;
 
     std::ifstream headFile(repo_ / ".git" / "HEAD");
     std::string head((std::istreambuf_iterator<char>(headFile)), std::istreambuf_iterator<char>());

@@ -562,13 +562,16 @@ that were previously invisible rather than absent.
 - ~~**`dart format --set-exit-if-changed .` is not CI-enforced**~~ —
   **Fixed**: the pre-existing 27-file drift was formatted in one
   standalone commit, then a dedicated `dart-format` job ("Dart format")
-  was added to `ci.yml`, mirroring the C++ side's standalone "Format and
-  layering" (`lint`) job rather than living as a step inside `flutter-ci`
+  was added alongside the C++ side's standalone "Format and layering"
+  (`lint`) job rather than living as a step inside `flutter-ci`
   ("Flutter UI") — a format failure now surfaces on its own check instead
   of aborting `flutter-ci` before `flutter analyze`/`flutter test`/
   `flutter build linux` get a chance to run, and it doesn't wait on
-  `capi-build` since formatting needs no native library. Caught along the
-  way: `dart format`'s output is not stable across Dart SDK versions —
+  `capi-build` since formatting needs no native library. Both jobs were
+  later split out of `ci.yml` into their own `cq.yml` workflow (same
+  `pull_request` trigger), since neither builds or tests anything — they
+  are pure static checks. Caught along the way: `dart format`'s output is
+  not stable across Dart SDK versions —
   `subosito/flutter-action@v2`'s `channel: stable` floats, so a local Dart
   3.12.2 and a CI run on a newer stable (Dart 3.13.0 shipped a formatter
   style change) can each accept the *other's* output as "needs

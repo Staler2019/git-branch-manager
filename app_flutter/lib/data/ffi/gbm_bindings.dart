@@ -1132,6 +1132,13 @@ typedef HasCommitGraphDart = int Function(Pointer<Void> session);
 typedef _WriteCommitGraphNative = Void Function(Pointer<Void> session);
 typedef WriteCommitGraphDart = void Function(Pointer<Void> session);
 
+typedef _RepoInitNative = Int32 Function(Pointer<Utf8> path);
+typedef RepoInitDart = int Function(Pointer<Utf8> path);
+
+typedef _RepoCloneNative =
+    Int32 Function(Pointer<Utf8> url, Pointer<Utf8> destPath);
+typedef RepoCloneDart = int Function(Pointer<Utf8> url, Pointer<Utf8> destPath);
+
 typedef _DiscoveryOpenNative = Pointer<Void> Function(Pointer<Utf8> dbPath);
 typedef DiscoveryOpenDart = Pointer<Void> Function(Pointer<Utf8> dbPath);
 
@@ -1670,6 +1677,12 @@ class GbmBindings {
           .lookupFunction<_WriteCommitGraphNative, WriteCommitGraphDart>(
             'gbm_write_commit_graph',
           ),
+      repoInit = library.lookupFunction<_RepoInitNative, RepoInitDart>(
+        'gbm_repo_init',
+      ),
+      repoClone = library.lookupFunction<_RepoCloneNative, RepoCloneDart>(
+        'gbm_repo_clone',
+      ),
       discoveryOpen = library
           .lookupFunction<_DiscoveryOpenNative, DiscoveryOpenDart>(
             'gbm_discovery_open',
@@ -1839,6 +1852,8 @@ class GbmBindings {
   final ClearLocalIdentityDart clearLocalIdentity;
   final HasCommitGraphDart hasCommitGraph;
   final WriteCommitGraphDart writeCommitGraph;
+  final RepoInitDart repoInit;
+  final RepoCloneDart repoClone;
   final DiscoveryOpenDart discoveryOpen;
   final DiscoveryCloseDart discoveryClose;
   final DiscoveryAddBaseFolderDart discoveryAddBaseFolder;

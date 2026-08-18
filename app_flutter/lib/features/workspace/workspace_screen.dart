@@ -471,16 +471,14 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       // existing working directory -- and both go through the same path
       // prompt the switcher popover's footer uses, since this app has no
       // native folder-picker dependency (see pubspec.yaml). Opening one
-      // records it in the manually-opened list (spec page 11 item 6).
-      //
-      // New and Clone are disabled rather than routed somewhere plausible:
-      // neither `git init` nor clone exists anywhere below this layer (no
-      // entry point in gbm_capi.h, nothing in src/core), so there is
-      // nothing for them to call. They used to navigate to the repository
-      // list, which never created or cloned anything either.
-      GbmActionId.fileNewRepository: null,
+      // records it in the manually-opened list (spec page 11 item 6). New
+      // and Clone share the same footer entry points too -- see
+      // promptNewRepository()/promptCloneRepository() in
+      // repo_switcher_popover.dart.
+      GbmActionId.fileNewRepository: () => promptNewRepository(context, ref),
       GbmActionId.fileOpenRepository: () => promptOpenRepository(context),
-      GbmActionId.fileCloneRepository: null,
+      GbmActionId.fileCloneRepository: () =>
+          promptCloneRepository(context, ref),
       GbmActionId.fileSwitchRepository: () {
         // Same reveal-then-act pattern as editFilterBranches below: the
         // popover anchors to the sidebar's repository button, which is not

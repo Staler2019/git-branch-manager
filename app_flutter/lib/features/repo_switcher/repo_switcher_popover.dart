@@ -10,19 +10,25 @@
 ///
 /// ahead/behind per row is not rendered: `RepoRecord` (src/core/cache/
 /// RepoIndexDb.h) stores only discovery metadata, and reading tracking
-/// counts for a repository would mean opening a session per row. Left out
-/// rather than faked, the same way `Clone repository…` below is rendered
-/// disabled instead of pretending to work.
+/// counts for a repository would mean opening a session per row -- left out
+/// rather than faked.
 library;
 
+import 'dart:convert';
+import 'dart:ffi' hide Size;
 import 'dart:math' as math;
 
+import 'package:ffi/ffi.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../data/ffi/gbm_bindings.dart';
+import '../../data/ffi/json_codec.dart';
+import '../../data/models/git_error.dart';
 import '../../data/models/repo_record.dart';
 import '../../data/repositories/discovery_repository.dart';
+import '../../data/repositories/gbm_bindings_provider.dart';
 import '../../data/repositories/recents_repository.dart';
 import '../../data/services/desktop_launcher.dart';
 import '../../routing/app_router.dart';
@@ -195,6 +201,162 @@ Future<void> promptOpenRepository(
   if (path == null) return;
   onDismiss?.call();
   router.go(RoutePaths.workspaceFor(repoIdFor(path)));
+}
+
+/// Runs `git init` on a path the user provides (via `gbm_repo_init()`), then
+/// opens it exactly like [promptOpenRepository] does -- a fresh repository
+/// has no session of its own to open until it exists on disk. Backs File →
+/// New repository…
+///
+/// Needs [ref] (unlike [promptOpenRepository]) because init runs before any
+/// session exists: there is no `RepoSessionController` yet to dispatch
+/// through, so this reaches `gbm_repo_init()` directly via
+/// `gbmBindingsProvider`.
+Future<void> promptNewRepository(
+  BuildContext context,
+  WidgetRef ref, {
+  VoidCallback? onDismiss,
+}) async {
+  final GoRouter router = GoRouter.of(context);
+  final String? path = await promptText(
+    context,
+    title: 'New Repository',
+    label: 'Path for the new repository',
+  );
+  if (path == null) return;
+
+  final GbmBindings bindings = ref.read(gbmBindingsProvider);
+  final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+  final int result;
+  try {
+    result = bindings.repoInit(pathPtr);
+  } finally {
+    malloc.free(pathPtr);
+  }
+  if (result != 0) {
+    if (context.mounted) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text(_decodeInitCloneErrorMessage(bindings))),
+      );
+    }
+    return;
+  }
+
+  onDismiss?.call();
+  router.go(RoutePaths.workspaceFor(repoIdFor(path)));
+}
+
+/// Runs `git clone <url> <destPath>` (via `gbm_repo_clone()`), then opens
+/// the result exactly like [promptOpenRepository] does. Backs both the
+/// switcher popover footer's `Clone repository…` and File → Clone
+/// repository….
+///
+/// Two fields (unlike New/Open's single path) need their own small dialog
+/// rather than [promptText] -- see `_promptClone` below, which follows
+/// `manage_remotes_dialog.dart`'s `_promptAddRemote()` pattern.
+Future<void> promptCloneRepository(
+  BuildContext context,
+  WidgetRef ref, {
+  VoidCallback? onDismiss,
+}) async {
+  final GoRouter router = GoRouter.of(context);
+  final ({String url, String destPath})? input = await _promptClone(context);
+  if (input == null) return;
+
+  final GbmBindings bindings = ref.read(gbmBindingsProvider);
+  final Pointer<Utf8> urlPtr = input.url.toNativeUtf8();
+  final Pointer<Utf8> destPtr = input.destPath.toNativeUtf8();
+  final int result;
+  try {
+    result = bindings.repoClone(urlPtr, destPtr);
+  } finally {
+    malloc.free(urlPtr);
+    malloc.free(destPtr);
+  }
+  if (result != 0) {
+    if (context.mounted) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text(_decodeInitCloneErrorMessage(bindings))),
+      );
+    }
+    return;
+  }
+
+  onDismiss?.call();
+  router.go(RoutePaths.workspaceFor(repoIdFor(input.destPath)));
+}
+
+String _decodeInitCloneErrorMessage(GbmBindings bindings) {
+  final String json = readLastResultJson(bindings);
+  if (json.isEmpty) return 'The operation failed.';
+  return GitError.fromJson(jsonDecode(json) as Map<String, dynamic>).message;
+}
+
+Future<({String url, String destPath})?> _promptClone(BuildContext context) {
+  final TextEditingController urlController = TextEditingController();
+  final TextEditingController destController = TextEditingController();
+  return showDialog<({String url, String destPath})>(
+    context: context,
+    builder: (dialogContext) {
+      final GbmColors colors = dialogContext.gbmColors;
+      ({String url, String destPath})? resultFromControllers() {
+        final String url = urlController.text.trim();
+        final String destPath = destController.text.trim();
+        return url.isEmpty || destPath.isEmpty
+            ? null
+            : (url: url, destPath: destPath);
+      }
+
+      // Same "only pop on a valid result" discipline as
+      // manage_remotes_dialog.dart's _promptAddRemote(): a required field
+      // left empty keeps the dialog open with what was already typed,
+      // rather than silently discarding it.
+      void submitIfValid() {
+        final ({String url, String destPath})? result = resultFromControllers();
+        if (result != null) {
+          Navigator.of(dialogContext).pop(result);
+        }
+      }
+
+      return AlertDialog(
+        title: const Text('Clone Repository'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            TextField(
+              controller: urlController,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Repository URL',
+                isDense: true,
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: GbmSpacing.space2),
+            TextField(
+              controller: destController,
+              decoration: const InputDecoration(
+                labelText: 'Destination path',
+                isDense: true,
+                border: OutlineInputBorder(),
+              ),
+              onSubmitted: (_) => submitIfValid(),
+            ),
+          ],
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: colors.textSecondary),
+            ),
+          ),
+          TextButton(onPressed: submitIfValid, child: const Text('Clone')),
+        ],
+      );
+    },
+  );
 }
 
 /// The sidebar's top row: which repository this window is showing, and the
@@ -556,11 +718,8 @@ class _RepoSwitcherListState extends ConsumerState<RepoSwitcherList> {
         _FooterAction(
           label: 'Clone repository…',
           shortcut: _shortcutLabel('Shift+N'),
-          // No clone exists anywhere below this layer -- gbm_capi.h exposes
-          // no clone entry point and neither does src/core -- so this is
-          // rendered disabled rather than wired to something that would
-          // silently do nothing.
-          onTap: null,
+          onTap: () =>
+              promptCloneRepository(context, ref, onDismiss: widget.onDismiss),
         ),
       ],
     );

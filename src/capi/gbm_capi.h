@@ -1174,6 +1174,28 @@ GBM_API int32_t gbm_has_commit_graph(GbmSessionHandle session);
 /// are unchanged -- see the doc comment on the mirrored Qt method).
 GBM_API void gbm_write_commit_graph(GbmSessionHandle session);
 
+// --- Repository creation (init / clone) -------------------------------------
+// Session-less, like Discovery below: these create the repository directory
+// itself, so they run before any GbmSessionHandle exists. On success, the
+// caller opens a normal session on the resulting working directory via
+// gbm_session_open() -- neither function opens or returns a session itself.
+
+/// Runs `git init <path>` synchronously (blocks the calling thread -- init
+/// is local and fast, so this is safe to call directly, unlike clone below).
+/// `path` is created if it doesn't already exist. Returns 0 on success, or a
+/// negative GbmErrorCode with the staging buffer populated with a GitError
+/// JSON.
+GBM_API int32_t gbm_repo_init(const char* path);
+
+/// Runs `git clone <url> <destPath>` synchronously (blocks the calling
+/// thread -- callers should run this off the UI isolate, e.g. via Dart's
+/// Isolate.run, the same caveat gbm_discovery_scan_all() carries, now
+/// extended to a network operation with no upper bound on how long it may
+/// run). Per-object transfer progress is not reported -- see
+/// InitCloneOps.h's doc comment. Returns 0 on success, or a negative
+/// GbmErrorCode with the staging buffer populated with a GitError JSON.
+GBM_API int32_t gbm_repo_clone(const char* url, const char* destPath);
+
 // --- Discovery -------------------------------------------------------------
 // A separate handle class from GbmSessionHandle: discovery scans base
 // folders and is not tied to any one open repository -- see

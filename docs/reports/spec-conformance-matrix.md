@@ -56,12 +56,12 @@ UI have drifted apart. Only 05-D/05-H/05-I/05-J have a dedicated
 | Group | Verdict | Evidence | Detail |
 |---|---|---|---|
 | 05-A Repository | 符合 (deliberate reduction) | `repo_switcher_popover.dart` context menu build | Omits Fetch/Pull/Push vs. the catalog's 7 items — documented in the catalog's own comment: a repo row in the switcher list has no open session to act on. Not a gap. |
-| 05-B Local branch | **缺少** | `branch_tree_item.dart` menu build | Renders: Checkout / New branch from here / Rename branch / Merge into current branch / Copy branch name / Delete branch (6 items). Missing vs. spec's 8: `Rebase current onto here`, `Compare with…`. Also wording: `Rename branch` vs. spec `Rename…`, `Merge into current branch` vs. spec `Merge into current`. Classification **(i)** — `gbm_rebase_start`/`gbm_request_compare_refs` already exist in capi. |
+| 05-B Local branch | **缺少** | `branch_tree_item.dart:321-387` `_buildMenuItems()` | Renders: Checkout / New branch from here / Rename branch / Merge into current branch / Copy branch name / Delete branch (6 items). Missing vs. spec's 8: `Rebase current onto here`, `Compare with…`. Also wording: `Rename branch` vs. spec `Rename…`, `Merge into current branch` vs. spec `Merge into current`. The file's own doc comment (lines 321-327) explains why: both omissions are deliberate, not oversights — "no per-branch entry point exists yet; a targeted rebase/compare would need the same UI as its repository-level peer, not yet surfaced." Classification **(i) with a prerequisite** — `gbm_rebase_start`/`gbm_request_compare_refs` exist in capi, but there's no per-branch rebase/compare UI to route to yet (same shape as the 05-E correction below: capi existing ≠ Dart-side wiring existing). |
 | 05-C Remote-only / gone branch | 符合 (verify) | `branch_tree_item.dart` | CLAUDE.md's "Known gaps" section documents this as fixed (`_buildGoneMenuItems()`), matching spec's 05-C note that a gone row keeps only Prune+Copy. The *catalog file's* doc comment still says "not yet wired" — that comment is stale, not the implementation; flagged for correction in Phase 5. |
 | 05-D Tag | 符合 | `tag_menu_items.dart` | Labels and order match spec exactly (5 items). Reference-quality implementation. |
 | 05-E Commit | **缺少** | `commit_row.dart:226-259` menu build | Renders: Checkout this commit / Cherry-pick / Create branch here… / Copy SHA / Revert commit (5 items, no submenu). Missing vs. spec's 7 top-level + "More actions" submenu of 5: `Merge into current`, `Compare with…`, and the ENTIRE submenu (`Rebase onto here`, `Reset branch to here…`, `Revert commit`, `Export as patch…`, `Compare with working copy`). Note spec keeps `Revert commit` inside the submenu; code promotes it to top level. **Classification correction**: `commit_row.dart`'s own doc comment (lines 226-229) gives the real reason for each omission, and it's not uniformly "(i) trivial wiring" as first assumed from capi existing alone — `Merge into current` is omitted because `mergeBranch` takes a branch **name**, not a commit oid (needs either an API change or a name-resolution step, not just a UI hookup); `Compare items` are explicitly deferred as "M6" (a planned milestone, not an oversight); `rebase/reset` are noted "destructive, not wired" — meaning the *Dart-side* plumbing, not just the menu item, doesn't exist yet, so capi having the C function is necessary but not sufficient. Revised classification: `Compare with…` stays **(i)** (capi + Dart service both proven elsewhere); `Merge into current` and `Rebase/Reset` are **(i) with extra work** (need a name-resolution step or Dart-side wiring first, not pure UI); nothing here is **(ii)**. This is exactly the kind of per-site nuance the audit plan flagged as necessary to check before trusting a grep-derived classification. |
-| 05-F Working copy file | **缺少 + 多出** | `changed_file_row.dart` menu build | Renders: View diff / Copy path / Discard changes / Blame… / File History… / Line History… (6 items). Spec wants: Stage / Open file / Show in file manager / Open terminal here / Copy path / Discard changes (6 items). Zero overlap on 4 of 6 labels — this isn't a small wording drift, it's a different menu. `Blame…`/`File History…`/`Line History…` are not in 05-F's spec definition at all (they belong conceptually to 05-K, the *history* commit-file menu, not the *working-copy* file menu). Classification **(i)** for Stage/Open file (`gbm_stage_files` exists, local file-open is a platform call); terminal/file-manager already proven wireable (repo switcher uses the same service). |
-| 05-G Diff line | **缺少** | `diff_line.dart` menu build | Renders: `<kind> line <text>` (a label, not an action) / Copy line (effectively 1 action). Missing vs. spec's 5: `Stage` (as "Stage N lines"), `Stage hunk`, `Unstage hunk`, `Discard N lines…`. Classification **(i)** — `gbm_stage_lines`/`gbm_stage_hunk`/`gbm_unstage_hunk` all exist in capi (confirmed via `src/capi/gbm_capi.h`); this menu is the least-wired of the 11. |
+| 05-F Working copy file | **缺少 (corrected)** | `changed_file_row.dart:119-146` `_openContextMenu()`/`_buildMenuItems()` | **This row was wrong in the first pass of this audit and has been corrected** — the original grep-derived finding conflated two *separate* menus in the same file: the real right-click context menu (`_openContextMenu`, lines 119-146) renders `Stage file`/`Unstage file` (dynamic ternary label, invisible to a `label: '...'` grep), `View diff`, `Copy path`, `Discard changes` (danger) — 4 items. `Blame…`/`File History…`/`Line History…` are NOT part of this menu at all; they belong to a completely separate trailing "more" `IconButton` (`_FileActionsMenu`, lines 197-255) next to the row, which the spec doesn't define and doesn't conflict with 05-F (different UI element, not a right-click menu). Corrected diff vs. spec's 6 (`Stage`/`Open file`/`Show in file manager`/`Open terminal here`/`Copy path`/`Discard changes`): missing `Open file`, `Show in file manager`, `Open terminal here`; extra `View diff` (harmless — arguably a reasonable addition, not spec-defined); wording `Stage file`/`Unstage file` vs. spec's plain `Stage`. Classification **(i)** for all three missing items — `gbm_stage_files` exists for Stage; terminal/file-manager launch is already proven wireable (the repo switcher's `openTerminal` service, per page-05's 05-A row). |
+| 05-G Diff line | **缺少 (corrected — much smaller gap than first reported)** | `diff_line.dart:140-163` `_showContextMenu()` | **Corrected**: the original finding read `<kind> line <text>` (which is actually the row's `Semantics` accessibility label, not a menu item) and missed that `_showContextMenu()` conditionally renders `Stage line`/`Unstage line` (ternary label, gated on `onStageLine != null` + added/removed line) AND `Stage hunk`/`Unstage hunk` (ternary label, gated on `onStageHunk != null`) — both of the previously-reported-missing hunk actions actually exist, gated the same nullable-callback way every other conflict-sensitive action in this codebase is. `Copy line` also exists. What's genuinely missing vs. spec's 5 items: **only** `Discard N lines…` (danger action — no callback/menu item for it at all), and the multi-line-select pluralization ("Stage N lines" dynamic count) noted separately in the page-03 SCOPES audit as not yet implemented. Classification **(i)** for Discard — `gbm_unstage_lines`/a restore-lines equivalent should cover it, needs one more check against the exact discard-lines capi shape before implementation. |
 | 05-H Stash entry | 符合 | `stash_menu_items.dart` | Labels and order match spec exactly (6 items). Reference-quality. |
 | 05-I Conflict hunk | 符合 | `conflict_hunk_menu_items.dart` | Labels and order match spec exactly (5 items). Reference-quality. |
 | 05-J Branch folder | 符合 | `branch_folder_menu_items.dart` | Matches spec's 4 items (aside from a possible deliberate omission — see pending device/widget-tier note in Phase 3). |
@@ -69,7 +69,17 @@ UI have drifted apart. Only 05-D/05-H/05-I/05-J have a dedicated
 
 **Net**: 4 of 11 groups (05-D/H/I/J) are reference-quality and can be
 used as the template for fixing the other 7. 05-A and 05-C's apparent
-"gaps" are deliberate, documented reductions — not gaps.
+"gaps" are deliberate, documented reductions — not gaps. **Correction
+note**: the first pass of this audit derived 05-F and 05-G's findings
+from a `label: '...'` grep, which is blind to menu items whose label is
+a ternary expression (`staged ? 'Unstage line' : 'Stage line'`) rather
+than a literal string — this under-counted both menus significantly (see
+the "corrected" markers in their rows above). 05-B, 05-E, and 05-K were
+already read in full in the first pass and needed no correction beyond
+adding the "why" context their own doc comments supplied. The lesson:
+grep is a fine way to generate a *candidate* list, but every render site
+needs a full read before its row is trusted — exactly the risk this
+audit's plan flagged going in.
 
 ---
 
@@ -328,13 +338,20 @@ COMPARES 1 and COMPARES 3's entry-point gaps at once.
 ## Cross-cutting synthesis
 
 Counting every row across all 12 pages plus the shortcuts/dialogs audits:
-roughly **78 items checked**, **~50 符合** (including 2 corrected after
-spot-check disproved an agent's initial claim), **~24 real gaps**
-(mostly classification (i) — capi/service already exists, only the
-Flutter-side wiring is missing), **2 (ii)** (need new capi: `Open file at
-this revision`, `Save this revision as…`), and a handful of spec-internal
+roughly **78 items checked**, **~52 符合** (including 2 corrected after
+spot-check disproved an agent's initial claim, and 05-G's gap shrinking
+from "5 items missing" to "1 item missing" after a full read replaced the
+grep-derived first pass), **~20 real gaps** (mostly classification (i) —
+capi/service already exists, only the Flutter-side wiring is missing, and
+several of those "(i)" gaps turned out to need a small prerequisite —
+name resolution, a not-yet-built per-branch UI — rather than being pure
+copy-paste wiring), **2 (ii)** (need new capi: `Open file at this
+revision`, `Save this revision as…`), and a handful of spec-internal
 inconsistencies (two shortcut-key collisions, one MENUS-table omission)
-that are not code defects.
+that are not code defects. Two rows (05-F, 05-G) were materially wrong in
+this report's first draft and were corrected in place once their full
+source was read instead of grepped — see the correction note in the
+Page 05 section for what happened and why.
 
 The gaps cluster into a small number of root causes rather than being 24
 independent problems:

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -18,6 +19,7 @@ import '../../widgets/gbm_menu.dart';
 import '../../widgets/prompt_text_dialog.dart';
 import '../repo_switcher/repo_switcher_popover.dart';
 import 'branch_tree_builder.dart';
+import 'widgets/branch_folder_menu_items.dart';
 import 'widgets/branch_tree_item.dart';
 import 'widgets/stash_menu_items.dart';
 
@@ -208,6 +210,88 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     ref
         .read(repoSessionProvider(widget.identity).notifier)
         .deleteTag(tag.shortName);
+  }
+
+  List<RefInfo> _collectFolderLeafRefs(List<BranchTreeNode> nodes) {
+    final List<RefInfo> refs = <RefInfo>[];
+    for (final BranchTreeNode node in nodes) {
+      if (node is BranchTreeLeaf) {
+        refs.add(node.ref);
+      } else if (node is BranchTreeFolder) {
+        refs.addAll(_collectFolderLeafRefs(node.children));
+      }
+    }
+    return refs;
+  }
+
+  Set<String> _collectFolderNames(List<BranchTreeNode> nodes) {
+    final Set<String> names = <String>{};
+    for (final BranchTreeNode node in nodes) {
+      if (node is BranchTreeFolder) {
+        names.add(node.folderName);
+        names.addAll(_collectFolderNames(node.children));
+      }
+    }
+    return names;
+  }
+
+  // "Expand all" opens this folder and every nested subfolder beneath it,
+  // not just this one level -- "Collapse all" only needs to close this
+  // one, since a closed ancestor already hides its descendants regardless
+  // of their own recorded expand state.
+  void _toggleFolderExpand(BranchTreeFolder folder) {
+    setState(() {
+      if (_expandedFolders.contains(folder.folderName)) {
+        _expandedFolders.remove(folder.folderName);
+      } else {
+        _expandedFolders
+          ..add(folder.folderName)
+          ..addAll(_collectFolderNames(folder.children));
+      }
+    });
+  }
+
+  // Reuses deleteBranch's existing safe-delete default (force: false,
+  // i.e. plain `git branch -d`) rather than a new "is this merged" capi
+  // capability: git itself refuses any branch here that isn't merged, and
+  // that refusal already surfaces through the existing delete-branch-
+  // recovery flow (checkoutChoices/deleteBranchChoices), the same path a
+  // single unmerged branch delete goes through today. Excludes HEAD and
+  // any branch checked out in a linked worktree, matching
+  // _isGoneAndBulkSelectable's exclusions for the same reason -- deleting
+  // either would fail loudly or move the current session's HEAD.
+  void _deleteMergedInFolder(BranchTreeFolder folder) {
+    final List<String> names = _collectFolderLeafRefs(folder.children)
+        .where(
+          (RefInfo ref) =>
+              ref.kind == RefKind.localBranch &&
+              !ref.isHead &&
+              ref.worktreePath.isEmpty,
+        )
+        .map((RefInfo ref) => ref.shortName)
+        .toList(growable: false);
+    if (names.isEmpty) return;
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .deleteBranch(names: names);
+  }
+
+  void _openFolderContextMenu(
+    BuildContext context,
+    TapDownDetails details,
+    BranchTreeFolder folder,
+  ) {
+    showGbmContextMenu(
+      context,
+      details.globalPosition,
+      branchFolderMenuItems(
+        isExpanded: _expandedFolders.contains(folder.folderName),
+        onToggleExpand: () => _toggleFolderExpand(folder),
+        onCopyPrefix: () =>
+            Clipboard.setData(ClipboardData(text: '${folder.folderName}/')),
+        onDeleteMerged: () => _deleteMergedInFolder(folder),
+      ),
+    );
   }
 
   void _openStashContextMenu(
@@ -711,6 +795,19 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     return const SizedBox.shrink();
   }
 
+  // Single-level toggle -- the chevron and clicking the folder name both
+  // use this, distinct from the context menu's "Expand all" (see
+  // _toggleFolderExpand's doc comment for why that one recurses).
+  void _toggleFolderExpandedSingleLevel(BranchTreeFolder folder) {
+    setState(() {
+      if (_expandedFolders.contains(folder.folderName)) {
+        _expandedFolders.remove(folder.folderName);
+      } else {
+        _expandedFolders.add(folder.folderName);
+      }
+    });
+  }
+
   Widget _buildFolderNode(BranchTreeFolder folder, BuildContext context) {
     final colors = context.gbmColors;
     final isExpanded = _expandedFolders.contains(folder.folderName);
@@ -718,37 +815,42 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        Container(
-          height: GbmSpacing.rowHeightCompact,
-          padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
-          child: Row(
-            children: <Widget>[
-              IconButton(
-                icon: Icon(
-                  isExpanded ? Icons.expand_more : Icons.chevron_right,
-                  size: 18,
-                  color: colors.textSecondary,
-                ),
-                onPressed: () => setState(() {
-                  if (isExpanded) {
-                    _expandedFolders.remove(folder.folderName);
-                  } else {
-                    _expandedFolders.add(folder.folderName);
-                  }
-                }),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-              ),
-              Expanded(
-                child: Text(
-                  folder.folderName,
-                  style: TextStyle(
-                    fontSize: GbmTypography.textSm,
+        GestureDetector(
+          onSecondaryTapDown: (TapDownDetails details) =>
+              _openFolderContextMenu(context, details, folder),
+          child: Container(
+            height: GbmSpacing.rowHeightCompact,
+            padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
+            child: Row(
+              children: <Widget>[
+                IconButton(
+                  icon: Icon(
+                    isExpanded ? Icons.expand_more : Icons.chevron_right,
+                    size: 18,
                     color: colors.textSecondary,
                   ),
+                  onPressed: () => _toggleFolderExpandedSingleLevel(folder),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 32,
+                    minHeight: 32,
+                  ),
                 ),
-              ),
-            ],
+                Expanded(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => _toggleFolderExpandedSingleLevel(folder),
+                    child: Text(
+                      folder.folderName,
+                      style: TextStyle(
+                        fontSize: GbmTypography.textSm,
+                        color: colors.textSecondary,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
         if (isExpanded)

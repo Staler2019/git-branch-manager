@@ -269,6 +269,21 @@ class FakeRepoSessionController extends RepoSessionController {
   }
 
   @override
+  void deleteBranch({
+    required List<String> names,
+    bool force = false,
+    bool isRemote = false,
+    String remoteName = '',
+  }) {
+    commandLog.add(
+      FakeCommand('deleteBranch', <String, Object?>{
+        'names': names,
+        'force': force,
+      }),
+    );
+  }
+
+  @override
   void checkout({
     required String target,
     bool detach = false,

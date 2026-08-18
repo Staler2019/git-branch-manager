@@ -597,6 +597,86 @@ that were previously invisible rather than absent.
   at `_kMaxCommitMetaCacheEntries` (5000), evicting oldest-inserted entries
   once over, mirroring `operationLog`'s `_kMaxOperationLogEntries` pattern;
   see `test/data/repositories/repo_session_commit_meta_cache_test.dart`.
-  Skeleton-width layout jank in `commit_row.dart` and a missing widget test
+  ~~Skeleton-width layout jank in `commit_row.dart` and a missing widget test
   for sidebar-toggle state were **not** independently verified — still
-  unconfirmed leads for whoever picks them up next, not accepted facts.
+  unconfirmed leads for whoever picks them up next, not accepted facts.~~ —
+  **Resolved** (2026-08 spec-conformance audit, see below): the skeleton-width
+  lead was checked directly against `commit_row.dart` and found to be no
+  defect (downgraded, not fixed — there was nothing to fix); the
+  sidebar-toggle lead was found to already have three passing widget tests
+  covering it. Both were stale entries in this list, not open work.
+
+### Spec conformance audit (2026-08)
+
+A full re-audit against `docs/claude-design-demo/Flutter Desktop Spec
+(standalone).html` — every page, not a diff — done on branch
+`docs/spec-conformance-audit`. Unlike the "Spec conformance pass" above
+(which closed gaps directly), this round's user-approved scope was
+**audit-only**: no `lib/` production code changed. Full detail lives in two
+generated reports (regenerate the spec extraction via
+`tools/extract_design_spec.py` if the source `.html` ever changes):
+
+- `docs/reports/spec-conformance-matrix.md` — page-by-page conformance
+  table, ~78 items checked against the 12 spec pages plus shortcuts/dialogs.
+- `docs/reports/code-review-2026-08.md` — architectural review (not diff
+  review) of `app_flutter/lib/`, 0 CRITICAL / 2 HIGH / 3 MEDIUM / 3 LOW.
+
+**Root cause of most drift (H1)**: `lib/features/context_menus/gbm_context_menus.dart`
+fully declares all 11 spec page-05 context-menu groups, labels matching the
+spec verbatim — but no file under `lib/` imports it, only `test/` does. Each
+render site hand-writes its own item list instead, so 5 of 11 have drifted:
+05-B (missing Rebase-onto-here/Compare-with…), 05-E (missing Merge-into-
+current/Compare-with…/the whole "More actions" submenu), 05-F (missing
+Stage/Open-file/Show-in-file-manager/Open-terminal-here), 05-G (missing
+Discard-N-lines…), 05-K (missing Compare-with-working-copy/Open-terminal-
+here plus 3 submenu items). 05-A/C/D/H/I/J conform (05-D/H/I/J via a
+dedicated `*_menu_items.dart` pure function each — the template to follow
+when this eventually gets fixed). Not fixed this round; tracked as skipped
+regression tests (below) so a future fix flips them green one at a time.
+
+**New defect found while writing test coverage, not from static reading
+(H2)**: `working_copy_view.dart`'s Commit/Amend buttons do not reactively
+enable while typing a commit summary — `_summaryController` has no listener
+wired to `setState`, so `canCommit` only recomputes on some *unrelated*
+rebuild (e.g. staging a file), not on the summary text itself changing. The
+gate logic (`canCommit`) is correct in isolation — confirmed by pre-seeding
+`workingCopyDraftProvider` before mount — the defect is specifically the
+missing "text changed → rebuild" wiring. Both new test suites below had to
+route around this (stage-after-type ordering, or a full tab-away-and-back)
+rather than a plain `enterText` + assert. Not fixed this round.
+
+**Other confirmed gaps**: `branchRenameCurrentBranch` has no keyboard
+shortcut bound despite F2 being unclaimed by anything else in spec's MENUS
+table (unlike two *other* absent bindings — Find-in-files, Stash-changes —
+which are absent because spec's own table double-assigns their key to
+something else; this one is a genuine omission). It compounds with the
+`Rename branch` dialog route itself being entirely missing from
+`route_paths.dart`. `lib/features/workspace/widgets/tab_row.dart`'s 18-item
+`_MoreMenu` overflow menu plus 3 standalone buttons (Merge/Cherry-pick/
+Reset) is, per this audit's user-confirmed scope rule ("beyond-spec
+functionality is fine only via context menu or menu bar"), the sole
+non-conforming entry surface in the app — every "extra" feature beyond the
+12 spec pages (stash management, worktrees, submodules, bisect, LFS,
+patches, reflog/undo, blame, file/line history, tags, remotes, operation
+log, repository settings) is reachable *only* through it, and 2 of its 18
+items (`Repository Settings…`, `Preferences…`) duplicate menu-bar entries
+that already exist. Two competing Log implementations also still coexist:
+`features/log_drawer/` (matches spec page 10's bottom-drawer design) and
+the separate `operationLogDialog` route (doesn't).
+
+New tests added this round: `test/features/context_menus/context_menu_parity_test.dart`
+asserts all 11 groups against `gbmContextMenuGroups` — the 6 conforming
+groups directly, the 5 drifted ones (`05-B/E/F/G/K`) with `skip: true`
+pointing back to the matrix's corresponding row, so clearing a skip is the
+signal a future fix landed.
+`test/integration/workspace_states_table_test.dart` locks in the 3
+previously-under-tested STATES-table rows (Working copy/Commit/Status bar)
+and is what surfaced H2. `test/actions/gbm_shortcuts_test.dart` gained one
+`skip: true` test for the F2 gap. `integration_test/` (new — see its own
+README.md) adds real-`gbm_capi`/real-temp-repo device-tier coverage for
+three flows (repo lifecycle, commit, merge-conflict resolution), run
+individually per platform (`-d macos`/`-d linux`/`-d windows`) rather than
+as a directory — running the whole directory in one `flutter test` command
+was found to be unreliable on macOS specifically (each app launch after the
+first fails to attach a debug connection), not a defect in the tests
+themselves.

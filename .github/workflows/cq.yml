@@ -1,0 +1,96 @@
+name: cq
+
+on:
+  pull_request:
+    branches: [main]
+
+# Without this the matrix queues for hours on a busy repository, and stale runs
+# keep burning minutes after a force-push.
+concurrency:
+  group: cq-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Format and layering
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: clang-format
+        uses: jidicula/clang-format-action@v4.13.0
+        with:
+          clang-format-version: '18'
+          check-path: 'src'
+
+      # The core/capi split is the load-bearing structural decision: core must
+      # stay free of any UI toolkit so the whole data layer is testable
+      # headless. A grep is crude but it cannot be argued with, and it fails
+      # fast. Historically this caught Qt specifically (src/app, since
+      # removed in favour of the Flutter UI in app_flutter/); the rule itself
+      # -- core never depends on whatever UI sits on top of it -- still holds.
+      - name: core must not depend on Qt
+        run: |
+          if grep -rEn '#include\s*[<"]Q' src/core; then
+            echo "::error::src/core must not include Qt headers - it is the headless, testable layer"
+            exit 1
+          fi
+          echo "core is Qt-free"
+
+      # subosito/flutter-action's `channel: stable` floats to whatever build
+      # is current that day. dart format's output is not stable across Dart
+      # SDK versions (CLAUDE.md's "Known gaps": a local Dart 3.12.2 and a CI
+      # run on a newer stable each accept the other's output as "needs
+      # reformatting", flapping a file between two valid formattings). Pin
+      # every flutter-action use to an explicit flutter-version so all three
+      # jobs run the same SDK the contributor formatted against.
+      - name: every flutter-action use must pin flutter-version
+        run: |
+          failed=0
+          for file in .github/workflows/*.yml; do
+            for lineno in $(grep -n '^\s*- uses: subosito/flutter-action@' "$file" | cut -d: -f1); do
+              # This step's `with:` block runs from `uses:` up to (but not
+              # including) the next step (a `- uses:`/`- name:` line at the
+              # same indentation) -- not a fixed line count, since the
+              # block's own length grows whenever someone adds a comment.
+              next_step=$(tail -n "+$((lineno + 1))" "$file" | grep -n '^\s*- \(uses\|name\):' | head -1 | cut -d: -f1)
+              if [ -n "$next_step" ]; then
+                end=$((lineno + next_step - 1))
+              else
+                end=$(wc -l < "$file")
+              fi
+              block=$(sed -n "${lineno},${end}p" "$file")
+              if ! printf '%s' "$block" | grep -q 'flutter-version:'; then
+                echo "::error file=$file,line=$lineno::subosito/flutter-action use has no flutter-version pin (channel: stable alone floats)"
+                failed=1
+              fi
+            done
+          done
+          if [ "$failed" -eq 1 ]; then
+            exit 1
+          fi
+          echo "every flutter-action use pins flutter-version"
+
+  dart-format:
+    name: Dart format
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          # Pinned rather than left to float on `stable` alone -- see the
+          # "every flutter-action use must pin flutter-version" lint step:
+          # `dart format`'s output is not stable across Dart SDK versions,
+          # so an unpinned channel flaps files between two valid
+          # formattings depending on which CI run last touched them.
+          flutter-version: '3.44.9'
+
+      - name: flutter pub get
+        working-directory: app_flutter
+        run: flutter pub get
+
+      - name: dart format
+        working-directory: app_flutter
+        run: dart format --output=none --set-exit-if-changed .

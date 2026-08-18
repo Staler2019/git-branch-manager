@@ -38,6 +38,7 @@ import 'widgets/platform_menu_bar_host.dart';
 import 'widgets/tab_row.dart';
 import 'widgets/top_bar.dart';
 import 'widgets/workspace_action_shortcuts.dart';
+import 'widgets/workspace_tab.dart';
 
 /// The repository shell: menu bar + top bar + tab switcher + sidebar, with
 /// `child` (History or Working Copy, see routing/app_router.dart's
@@ -470,16 +471,14 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       // existing working directory -- and both go through the same path
       // prompt the switcher popover's footer uses, since this app has no
       // native folder-picker dependency (see pubspec.yaml). Opening one
-      // records it in the manually-opened list (spec page 11 item 6).
-      //
-      // New and Clone are disabled rather than routed somewhere plausible:
-      // neither `git init` nor clone exists anywhere below this layer (no
-      // entry point in gbm_capi.h, nothing in src/core), so there is
-      // nothing for them to call. They used to navigate to the repository
-      // list, which never created or cloned anything either.
-      GbmActionId.fileNewRepository: null,
+      // records it in the manually-opened list (spec page 11 item 6). New
+      // and Clone share the same footer entry points too -- see
+      // promptNewRepository()/promptCloneRepository() in
+      // repo_switcher_popover.dart.
+      GbmActionId.fileNewRepository: () => promptNewRepository(context, ref),
       GbmActionId.fileOpenRepository: () => promptOpenRepository(context),
-      GbmActionId.fileCloneRepository: null,
+      GbmActionId.fileCloneRepository: () =>
+          promptCloneRepository(context, ref),
       GbmActionId.fileSwitchRepository: () {
         // Same reveal-then-act pattern as editFilterBranches below: the
         // popover anchors to the sidebar's repository button, which is not
@@ -543,7 +542,25 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       GbmActionId.viewHistory: () => context.go(RoutePaths.historyFor(repoId)),
       GbmActionId.viewWorkingCopy: () =>
           context.go(RoutePaths.workingCopyFor(repoId)),
-      GbmActionId.viewNextTab: null,
+      // Cycles History -> Working Copy -> each open Compare tab (in the
+      // order TabRow renders them) -> back to History. Built on the same
+      // `tabs`/`location` shape TabRow itself derives its active tab from
+      // (see tab_row.dart's build()), so the two never disagree about tab
+      // order.
+      GbmActionId.viewNextTab: () {
+        final List<WorkspaceTab> tabs = <WorkspaceTab>[
+          ...defaultWorkspaceTabs(
+            repoId,
+            pendingChangeCount: session.workingCopyStatus.entries.length,
+          ),
+          for (final CompareTabSpec spec in ref.read(
+            compareTabsProvider(identity),
+          ))
+            compareWorkspaceTab(spec, repoId),
+        ];
+        final String location = GoRouterState.of(context).uri.toString();
+        context.go(nextWorkspaceTabRoute(tabs, location));
+      },
       GbmActionId.viewFileListAsTree: () async {
         final currentMode = ref.read(fileListViewModeProvider);
         final newMode = currentMode == FileListViewMode.list

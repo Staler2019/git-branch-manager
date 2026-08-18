@@ -568,6 +568,8 @@ typedef _RemoteFetchNative =
     Void Function(
       Pointer<Void> session,
       Pointer<Utf8> remoteName,
+      Pointer<Pointer<Utf8>> refs,
+      Int32 refCount,
       Int32 prune,
       Int32 tags,
     );
@@ -575,6 +577,8 @@ typedef RemoteFetchDart =
     void Function(
       Pointer<Void> session,
       Pointer<Utf8> remoteName,
+      Pointer<Pointer<Utf8>> refs,
+      int refCount,
       int prune,
       int tags,
     );
@@ -719,6 +723,16 @@ typedef RemotePruneDart =
       Pointer<Pointer<Utf8>> refs,
       int refCount,
     );
+
+typedef _RemoteAddNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> name, Pointer<Utf8> url);
+typedef RemoteAddDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> name, Pointer<Utf8> url);
+
+typedef _RemoteRemoveNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> name);
+typedef RemoteRemoveDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> name);
 
 typedef _RequestFileHistoryNative =
     Void Function(
@@ -1118,6 +1132,13 @@ typedef HasCommitGraphDart = int Function(Pointer<Void> session);
 typedef _WriteCommitGraphNative = Void Function(Pointer<Void> session);
 typedef WriteCommitGraphDart = void Function(Pointer<Void> session);
 
+typedef _RepoInitNative = Int32 Function(Pointer<Utf8> path);
+typedef RepoInitDart = int Function(Pointer<Utf8> path);
+
+typedef _RepoCloneNative =
+    Int32 Function(Pointer<Utf8> url, Pointer<Utf8> destPath);
+typedef RepoCloneDart = int Function(Pointer<Utf8> url, Pointer<Utf8> destPath);
+
 typedef _DiscoveryOpenNative = Pointer<Void> Function(Pointer<Utf8> dbPath);
 typedef DiscoveryOpenDart = Pointer<Void> Function(Pointer<Utf8> dbPath);
 
@@ -1448,6 +1469,13 @@ class GbmBindings {
       remotePrune = library.lookupFunction<_RemotePruneNative, RemotePruneDart>(
         'gbm_remote_prune',
       ),
+      remoteAdd = library.lookupFunction<_RemoteAddNative, RemoteAddDart>(
+        'gbm_remote_add',
+      ),
+      remoteRemove = library
+          .lookupFunction<_RemoteRemoveNative, RemoteRemoveDart>(
+            'gbm_remote_remove',
+          ),
       requestCompareWithWorkingCopy = library
           .lookupFunction<
             _RequestCompareWithWorkingCopyNative,
@@ -1649,6 +1677,12 @@ class GbmBindings {
           .lookupFunction<_WriteCommitGraphNative, WriteCommitGraphDart>(
             'gbm_write_commit_graph',
           ),
+      repoInit = library.lookupFunction<_RepoInitNative, RepoInitDart>(
+        'gbm_repo_init',
+      ),
+      repoClone = library.lookupFunction<_RepoCloneNative, RepoCloneDart>(
+        'gbm_repo_clone',
+      ),
       discoveryOpen = library
           .lookupFunction<_DiscoveryOpenNative, DiscoveryOpenDart>(
             'gbm_discovery_open',
@@ -1763,6 +1797,8 @@ class GbmBindings {
   final RequestCompareFileDiffDart requestCompareFileDiff;
   final RequestRemotePrunePreviewDart requestRemotePrunePreview;
   final RemotePruneDart remotePrune;
+  final RemoteAddDart remoteAdd;
+  final RemoteRemoveDart remoteRemove;
   final RequestCompareWithWorkingCopyDart requestCompareWithWorkingCopy;
   final RequestFileHistoryDart requestFileHistory;
   final RequestLineHistoryDart requestLineHistory;
@@ -1816,6 +1852,8 @@ class GbmBindings {
   final ClearLocalIdentityDart clearLocalIdentity;
   final HasCommitGraphDart hasCommitGraph;
   final WriteCommitGraphDart writeCommitGraph;
+  final RepoInitDart repoInit;
+  final RepoCloneDart repoClone;
   final DiscoveryOpenDart discoveryOpen;
   final DiscoveryCloseDart discoveryClose;
   final DiscoveryAddBaseFolderDart discoveryAddBaseFolder;

@@ -101,8 +101,21 @@ abstract final class RoutePaths {
       '/repo/$repoId/dialogs/cherry-pick';
   static String stashChangesDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/stash-changes';
-  static String manageStashesDialogFor(String repoId) =>
-      '/repo/$repoId/dialogs/manage-stashes';
+
+  /// [selectIndex] pre-selects a stash entry (and its diff) on open --
+  /// used by the sidebar's stash context menu's "View diff" item so
+  /// clicking it doesn't land on ManageStashesDialogContent's default
+  /// "Select a stash" empty state.
+  static String manageStashesDialogFor(String repoId, {int? selectIndex}) {
+    if (selectIndex == null) {
+      return '/repo/$repoId/dialogs/manage-stashes';
+    }
+    return Uri(
+      path: '/repo/$repoId/dialogs/manage-stashes',
+      queryParameters: <String, String>{'index': '$selectIndex'},
+    ).toString();
+  }
+
   static String manageWorktreesDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/manage-worktrees';
   static String manageRemotesDialogFor(String repoId) =>

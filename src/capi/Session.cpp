@@ -734,6 +734,20 @@ void Session::pruneRemote(PruneRemoteRequest request) {
     submitOperation(makePruneRemoteOperation(std::move(request)), /*refreshHistoryOnSuccess=*/true);
 }
 
+void Session::addRemote(AddRemoteRequest request) {
+    // Not submitWorkingCopyOperation, same reasoning as pruneRemote():
+    // this only touches repo config, never the working tree or index.
+    submitOperation(makeAddRemoteOperation(std::move(request)),
+                    /*refreshHistoryOnSuccess=*/false,
+                    [this]() { refreshRemotes(); });
+}
+
+void Session::removeRemote(RemoveRemoteRequest request) {
+    submitOperation(makeRemoveRemoteOperation(std::move(request)),
+                    /*refreshHistoryOnSuccess=*/false,
+                    [this]() { refreshRemotes(); });
+}
+
 void Session::provideCredential(std::string secret) {
     askpass_.answer(secret);
 }

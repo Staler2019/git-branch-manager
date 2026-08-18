@@ -21,6 +21,12 @@ public:
                          const RepoPaths& paths,
                          CancellationToken token) override {
         OperationOutcome outcome;
+        if (!request_.refs.empty() && request_.remoteName.empty()) {
+            outcome.error = GitError(GitError::Code::InvalidArgument,
+                                     "Fetching specific refs requires a remote name");
+            return outcome;
+        }
+
         std::vector<std::string> args{"fetch"};
         if (request_.prune) {
             args.emplace_back("--prune");
@@ -32,6 +38,9 @@ public:
             args.emplace_back("--all");
         } else {
             args.push_back(request_.remoteName);
+            for (const std::string& ref : request_.refs) {
+                args.push_back(ref);
+            }
         }
 
         GitCommand command(paths.commandDir(), std::move(args));
@@ -218,6 +227,74 @@ private:
     PruneRemoteRequest request_;
 };
 
+class AddRemoteOperation final : public Operation {
+public:
+    explicit AddRemoteOperation(AddRemoteRequest request) : request_(std::move(request)) {}
+
+    std::string describe() const override { return "Add remote " + request_.name; }
+
+    OperationOutcome run(IProcessRunner& runner,
+                         const RepoPaths& paths,
+                         CancellationToken token) override {
+        OperationOutcome outcome;
+        if (request_.name.empty()) {
+            outcome.error = GitError(GitError::Code::InvalidArgument, "Remote name is required");
+            return outcome;
+        }
+        if (request_.url.empty()) {
+            outcome.error = GitError(GitError::Code::InvalidArgument, "Remote URL is required");
+            return outcome;
+        }
+
+        GitCommand command(paths.commandDir(), {"remote", "add", request_.name, request_.url});
+        command.timeout = std::chrono::seconds(30);
+        auto result = runner.run(command, token);
+        if (!result) {
+            outcome.error = std::move(result).error();
+            outcome.summary = outcome.error->message;
+            return outcome;
+        }
+        outcome.succeeded = true;
+        outcome.summary = describe();
+        return outcome;
+    }
+
+private:
+    AddRemoteRequest request_;
+};
+
+class RemoveRemoteOperation final : public Operation {
+public:
+    explicit RemoveRemoteOperation(RemoveRemoteRequest request) : request_(std::move(request)) {}
+
+    std::string describe() const override { return "Remove remote " + request_.name; }
+
+    OperationOutcome run(IProcessRunner& runner,
+                         const RepoPaths& paths,
+                         CancellationToken token) override {
+        OperationOutcome outcome;
+        if (request_.name.empty()) {
+            outcome.error = GitError(GitError::Code::InvalidArgument, "Remote name is required");
+            return outcome;
+        }
+
+        GitCommand command(paths.commandDir(), {"remote", "remove", request_.name});
+        command.timeout = std::chrono::seconds(30);
+        auto result = runner.run(command, token);
+        if (!result) {
+            outcome.error = std::move(result).error();
+            outcome.summary = outcome.error->message;
+            return outcome;
+        }
+        outcome.succeeded = true;
+        outcome.summary = describe();
+        return outcome;
+    }
+
+private:
+    RemoveRemoteRequest request_;
+};
+
 }  // namespace
 
 RemoteStore::RemoteStore(IProcessRunner& runner, RepoPaths paths)
@@ -319,6 +396,14 @@ std::unique_ptr<Operation> makePushOperation(PushRequest request) {
 
 std::unique_ptr<Operation> makePruneRemoteOperation(PruneRemoteRequest request) {
     return std::make_unique<PruneRemoteOperation>(std::move(request));
+}
+
+std::unique_ptr<Operation> makeAddRemoteOperation(AddRemoteRequest request) {
+    return std::make_unique<AddRemoteOperation>(std::move(request));
+}
+
+std::unique_ptr<Operation> makeRemoveRemoteOperation(RemoveRemoteRequest request) {
+    return std::make_unique<RemoveRemoteOperation>(std::move(request));
 }
 
 }  // namespace gbm

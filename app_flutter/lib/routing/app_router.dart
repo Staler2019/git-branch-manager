@@ -202,7 +202,12 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
           final RepoIdentity identity = repoIdentityFromRouteParam(
             state.pathParameters['repoId']!,
           );
-          return ManageStashesDialogContent(identity: identity);
+          return ManageStashesDialogContent(
+            identity: identity,
+            initialSelectedIndex: int.tryParse(
+              state.uri.queryParameters['index'] ?? '',
+            ),
+          );
         },
       ),
       dialogRoute(

@@ -1849,15 +1849,32 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   /// gbm_remote_fetch()'s doc comment in gbm_capi.h. Async: fires
   /// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success also
   /// refreshes history.
+  /// [refs] restricts the fetch to those specific refs under [remoteName]
+  /// (e.g. one branch, or every branch under a folder prefix) instead of
+  /// everything the remote's default refspec would bring in -- empty
+  /// fetches everything, the original behavior. See gbm_remote_fetch()'s
+  /// doc comment: a non-empty [refs] with an empty [remoteName] is
+  /// rejected (no well-defined "these refs from every remote").
   void fetchRemote({
     String remoteName = '',
+    List<String> refs = const <String>[],
     bool prune = false,
     bool tags = false,
   }) {
     if (_session == nullptr) return;
     final Pointer<Utf8> remotePtr = remoteName.toNativeUtf8();
     try {
-      _bindings.remoteFetch(_session, remotePtr, prune ? 1 : 0, tags ? 1 : 0);
+      _withNativeStringArray(
+        refs,
+        (array, count) => _bindings.remoteFetch(
+          _session,
+          remotePtr,
+          array,
+          count,
+          prune ? 1 : 0,
+          tags ? 1 : 0,
+        ),
+      );
     } finally {
       malloc.free(remotePtr);
     }
@@ -2124,6 +2141,33 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
       );
     } finally {
       malloc.free(remotePtr);
+    }
+  }
+
+  /// `git remote add`. Async: fires GBM_EVENT_OPERATION_FINISHED, and on
+  /// success also refreshes the remote list (same event
+  /// gbm_remote_refresh() would fire).
+  void addRemote(String name, String url) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> namePtr = name.toNativeUtf8();
+    final Pointer<Utf8> urlPtr = url.toNativeUtf8();
+    try {
+      _bindings.remoteAdd(_session, namePtr, urlPtr);
+    } finally {
+      malloc.free(namePtr);
+      malloc.free(urlPtr);
+    }
+  }
+
+  /// `git remote remove`. Async: fires GBM_EVENT_OPERATION_FINISHED, and on
+  /// success also refreshes the remote list.
+  void removeRemote(String name) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> namePtr = name.toNativeUtf8();
+    try {
+      _bindings.remoteRemove(_session, namePtr);
+    } finally {
+      malloc.free(namePtr);
     }
   }
 

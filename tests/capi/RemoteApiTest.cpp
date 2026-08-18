@@ -188,7 +188,7 @@ TEST_F(RemoteApiTest, FetchBringsInNewRemoteCommits) {
     ASSERT_EQ(runIn(other, {"push", "--quiet", "origin", "main"}), 0);
     std::filesystem::remove_all(other, ec);
 
-    gbm_remote_fetch(session_, "origin", /*prune=*/0, /*tags=*/0);
+    gbm_remote_fetch(session_, "origin", nullptr, 0, /*prune=*/0, /*tags=*/0);
     ASSERT_TRUE(waitForWorkingCopyOperationFinished(log_));
 
     const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_WORKING_COPY_OPERATION_FINISHED);
@@ -197,6 +197,39 @@ TEST_F(RemoteApiTest, FetchBringsInNewRemoteCommits) {
     EXPECT_EQ(runGit({"cat-file", "-e", "origin/main:from-other.txt"}), 0);
     // ...but a fetch never touches the work tree or local main.
     EXPECT_FALSE(std::filesystem::exists(repo_ / "from-other.txt"));
+}
+
+TEST_F(RemoteApiTest, FetchWithRefsBringsInOnlyTheNamedBranch) {
+    // Two new branches pushed to the bare remote. A successful push also
+    // updates the pushed branch's own local remote-tracking ref as a side
+    // effect (independent of any fetch) -- delete both right back off so
+    // the fetch below is really the one bringing them in, not the push.
+    ASSERT_EQ(runGit({"push", "--quiet", "origin", "main:refs/heads/wanted"}), 0);
+    ASSERT_EQ(runGit({"push", "--quiet", "origin", "main:refs/heads/unwanted"}), 0);
+    ASSERT_EQ(runGit({"update-ref", "-d", "refs/remotes/origin/wanted"}), 0);
+    ASSERT_EQ(runGit({"update-ref", "-d", "refs/remotes/origin/unwanted"}), 0);
+    ASSERT_NE(runGit({"rev-parse", "--verify", "origin/wanted"}), 0);
+    ASSERT_NE(runGit({"rev-parse", "--verify", "origin/unwanted"}), 0);
+
+    const char* refs[] = {"wanted"};
+    gbm_remote_fetch(session_, "origin", refs, 1, /*prune=*/0, /*tags=*/0);
+    ASSERT_TRUE(waitForWorkingCopyOperationFinished(log_));
+
+    const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_WORKING_COPY_OPERATION_FINISHED);
+    EXPECT_NE(outcome.find("\"succeeded\":true"), std::string::npos) << outcome;
+    EXPECT_EQ(runGit({"rev-parse", "--verify", "origin/wanted"}), 0);
+    // The other branch on the same remote is untouched -- gbm_remote_fetch
+    // with refs fetches exactly what it's given, not everything.
+    EXPECT_NE(runGit({"rev-parse", "--verify", "origin/unwanted"}), 0);
+}
+
+TEST_F(RemoteApiTest, FetchWithRefsButNoRemoteNameFailsCleanly) {
+    const char* refs[] = {"main"};
+    gbm_remote_fetch(session_, "", refs, 1, /*prune=*/0, /*tags=*/0);
+    ASSERT_TRUE(waitForWorkingCopyOperationFinished(log_));
+
+    const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_WORKING_COPY_OPERATION_FINISHED);
+    EXPECT_NE(outcome.find("\"succeeded\":false"), std::string::npos) << outcome;
 }
 
 TEST_F(RemoteApiTest, PullMergesRemoteCommitsIntoTheCurrentBranch) {
@@ -258,7 +291,7 @@ TEST_F(RemoteApiTest, PrunePreviewListsARemoteTrackingBranchDeletedOnTheRemote) 
     // resolves HEAD to a nonexistent refs/heads/master and exits 128 -- the
     // same trap the FetchBringsInNewRemoteCommits comment above calls out.
     ASSERT_EQ(runIn(remote_, {"branch", "gone", "main"}), 0);
-    gbm_remote_fetch(session_, "origin", /*prune=*/0, /*tags=*/0);
+    gbm_remote_fetch(session_, "origin", nullptr, 0, /*prune=*/0, /*tags=*/0);
     ASSERT_TRUE(waitForWorkingCopyOperationFinished(log_));
     ASSERT_EQ(runGit({"rev-parse", "--verify", "origin/gone"}), 0);
     ASSERT_EQ(runIn(remote_, {"branch", "-D", "gone"}), 0);
@@ -277,7 +310,7 @@ TEST_F(RemoteApiTest, PrunePreviewListsARemoteTrackingBranchDeletedOnTheRemote) 
 TEST_F(RemoteApiTest, PruneDeletesExactlyTheSelectedRemoteTrackingRef) {
     // Explicit start point -- see the note in the preview test above.
     ASSERT_EQ(runIn(remote_, {"branch", "gone", "main"}), 0);
-    gbm_remote_fetch(session_, "origin", /*prune=*/0, /*tags=*/0);
+    gbm_remote_fetch(session_, "origin", nullptr, 0, /*prune=*/0, /*tags=*/0);
     ASSERT_TRUE(waitForWorkingCopyOperationFinished(log_));
     ASSERT_EQ(runGit({"rev-parse", "--verify", "origin/gone"}), 0);
     ASSERT_EQ(runGit({"rev-parse", "--verify", "origin/main"}), 0);
@@ -291,6 +324,51 @@ TEST_F(RemoteApiTest, PruneDeletesExactlyTheSelectedRemoteTrackingRef) {
     EXPECT_NE(runGit({"rev-parse", "--verify", "origin/gone"}), 0);
     // Untouched: gbm_remote_prune only deletes the refs it is given.
     EXPECT_EQ(runGit({"rev-parse", "--verify", "origin/main"}), 0);
+}
+
+TEST_F(RemoteApiTest, AddRemoteAddsANewRemote) {
+    const std::filesystem::path upstream = remote_.parent_path() / "gbm-capi-remote-upstream";
+    std::error_code ec;
+    std::filesystem::remove_all(upstream, ec);
+    ASSERT_EQ(runIn(upstream.parent_path(), {"init", "--quiet", "--bare", upstream.string()}), 0);
+
+    gbm_remote_add(session_, "upstream", upstream.string().c_str());
+    ASSERT_TRUE(waitForOperationFinished(log_));
+
+    const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_OPERATION_FINISHED);
+    EXPECT_NE(outcome.find("\"succeeded\":true"), std::string::npos) << outcome;
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_REMOTES_UPDATED); }));
+    const std::string json = remotesJson();
+    EXPECT_NE(json.find("\"name\":\"upstream\""), std::string::npos) << json;
+
+    std::filesystem::remove_all(upstream, ec);
+}
+
+TEST_F(RemoteApiTest, AddRemoteFailsWhenNameAlreadyExists) {
+    gbm_remote_add(session_, "origin", remote_.string().c_str());
+    ASSERT_TRUE(waitForOperationFinished(log_));
+
+    const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_OPERATION_FINISHED);
+    EXPECT_NE(outcome.find("\"succeeded\":false"), std::string::npos) << outcome;
+}
+
+TEST_F(RemoteApiTest, RemoveRemoteRemovesIt) {
+    gbm_remote_remove(session_, "origin");
+    ASSERT_TRUE(waitForOperationFinished(log_));
+
+    const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_OPERATION_FINISHED);
+    EXPECT_NE(outcome.find("\"succeeded\":true"), std::string::npos) << outcome;
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_REMOTES_UPDATED); }));
+    const std::string json = remotesJson();
+    EXPECT_EQ(json.find("\"name\":\"origin\""), std::string::npos) << json;
+}
+
+TEST_F(RemoteApiTest, RemoveRemoteFailsWhenNoSuchRemote) {
+    gbm_remote_remove(session_, "does-not-exist");
+    ASSERT_TRUE(waitForOperationFinished(log_));
+
+    const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_OPERATION_FINISHED);
+    EXPECT_NE(outcome.find("\"succeeded\":false"), std::string::npos) << outcome;
 }
 
 }  // namespace

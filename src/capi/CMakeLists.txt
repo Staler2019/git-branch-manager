@@ -19,6 +19,7 @@ add_library(gbm_capi SHARED
     Handle.cpp
     History.cpp
     Identity.cpp
+    InitClone.cpp
     JsonCodec.cpp
     Lfs.cpp
     Merge.cpp

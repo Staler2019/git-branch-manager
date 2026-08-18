@@ -115,6 +115,209 @@ TEST(PruneRemoteOperation, DoesNothingWhenNoRefsAreSelected) {
     EXPECT_EQ(runner.invocationCount(), 0u);
 }
 
+TEST(FetchOperation, FetchesEveryRemoteWhenNoRemoteNameIsGiven) {
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response response;
+    response.exitCode = 0;
+    runner.whenArgsContain({"fetch", "--all"}, response);
+
+    FetchRequest request;
+    auto operation = makeFetchOperation(request);
+
+    OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
+
+    EXPECT_TRUE(outcome.succeeded);
+    EXPECT_EQ(runner.invokedArgs(0), (std::vector<std::string>{"fetch", "--all"}));
+}
+
+TEST(FetchOperation, FetchesJustTheGivenRemoteWhenRefsIsEmpty) {
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response response;
+    response.exitCode = 0;
+    runner.whenArgsContain({"fetch", "origin"}, response);
+
+    FetchRequest request;
+    request.remoteName = "origin";
+    auto operation = makeFetchOperation(request);
+
+    OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
+
+    EXPECT_TRUE(outcome.succeeded);
+    EXPECT_EQ(runner.invokedArgs(0), (std::vector<std::string>{"fetch", "origin"}));
+}
+
+TEST(FetchOperation, FetchesExactlyTheGivenRefsFromTheRemote) {
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response response;
+    response.exitCode = 0;
+    runner.whenArgsContain({"fetch", "origin", "feature/one", "feature/two"}, response);
+
+    FetchRequest request;
+    request.remoteName = "origin";
+    request.refs = {"feature/one", "feature/two"};
+    auto operation = makeFetchOperation(request);
+
+    OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
+
+    EXPECT_TRUE(outcome.succeeded);
+    ASSERT_EQ(runner.invocationCount(), 1u);
+    EXPECT_EQ(runner.invokedArgs(0),
+             (std::vector<std::string>{"fetch", "origin", "feature/one", "feature/two"}));
+}
+
+TEST(FetchOperation, PruneAndTagsStillApplyWithSpecificRefs) {
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response response;
+    response.exitCode = 0;
+    runner.whenArgsContain({"fetch", "--prune", "--tags", "origin", "feature/one"}, response);
+
+    FetchRequest request;
+    request.remoteName = "origin";
+    request.refs = {"feature/one"};
+    request.prune = true;
+    request.tags = true;
+    auto operation = makeFetchOperation(request);
+
+    OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
+
+    EXPECT_TRUE(outcome.succeeded);
+    EXPECT_EQ(runner.invokedArgs(0),
+             (std::vector<std::string>{"fetch", "--prune", "--tags", "origin", "feature/one"}));
+}
+
+TEST(FetchOperation, RejectsSpecificRefsWithoutARemoteNameWithoutRunningGit) {
+    FakeProcessRunner runner;
+    FetchRequest request;
+    request.refs = {"feature/one"};
+    auto operation = makeFetchOperation(request);
+
+    OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
+
+    EXPECT_FALSE(outcome.succeeded);
+    ASSERT_TRUE(outcome.error.has_value());
+    EXPECT_EQ(outcome.error->code, GitError::Code::InvalidArgument);
+    EXPECT_EQ(runner.invocationCount(), 0u);
+}
+
+TEST(AddRemoteOperation, RunsRemoteAddWithNameAndUrl) {
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response response;
+    response.exitCode = 0;
+    runner.whenArgsContain({"remote", "add", "origin", "git@github.com:example/repo.git"},
+                           response);
+
+    AddRemoteRequest request;
+    request.name = "origin";
+    request.url = "git@github.com:example/repo.git";
+    auto operation = makeAddRemoteOperation(request);
+
+    OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
+
+    EXPECT_TRUE(outcome.succeeded);
+    ASSERT_EQ(runner.invocationCount(), 1u);
+    EXPECT_EQ(runner.invokedArgs(0),
+             (std::vector<std::string>{"remote", "add", "origin",
+                                       "git@github.com:example/repo.git"}));
+}
+
+TEST(AddRemoteOperation, RejectsEmptyNameWithoutRunningGit) {
+    FakeProcessRunner runner;
+    AddRemoteRequest request;
+    request.name = "";
+    request.url = "git@github.com:example/repo.git";
+    auto operation = makeAddRemoteOperation(request);
+
+    OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
+
+    EXPECT_FALSE(outcome.succeeded);
+    ASSERT_TRUE(outcome.error.has_value());
+    EXPECT_EQ(outcome.error->code, GitError::Code::InvalidArgument);
+    EXPECT_EQ(runner.invocationCount(), 0u);
+}
+
+TEST(AddRemoteOperation, RejectsEmptyUrlWithoutRunningGit) {
+    FakeProcessRunner runner;
+    AddRemoteRequest request;
+    request.name = "origin";
+    request.url = "";
+    auto operation = makeAddRemoteOperation(request);
+
+    OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
+
+    EXPECT_FALSE(outcome.succeeded);
+    ASSERT_TRUE(outcome.error.has_value());
+    EXPECT_EQ(outcome.error->code, GitError::Code::InvalidArgument);
+    EXPECT_EQ(runner.invocationCount(), 0u);
+}
+
+TEST(AddRemoteOperation, ReportsGitErrorOnFailure) {
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response failure;
+    failure.exitCode = 1;
+    failure.err = "error: remote origin already exists.\n";
+    runner.whenArgsContain({"remote", "add", "origin", "git@github.com:example/repo.git"},
+                           failure);
+
+    AddRemoteRequest request;
+    request.name = "origin";
+    request.url = "git@github.com:example/repo.git";
+    auto operation = makeAddRemoteOperation(request);
+
+    OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
+
+    EXPECT_FALSE(outcome.succeeded);
+    ASSERT_TRUE(outcome.error.has_value());
+}
+
+TEST(RemoveRemoteOperation, RunsRemoteRemoveWithName) {
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response response;
+    response.exitCode = 0;
+    runner.whenArgsContain({"remote", "remove", "origin"}, response);
+
+    RemoveRemoteRequest request;
+    request.name = "origin";
+    auto operation = makeRemoveRemoteOperation(request);
+
+    OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
+
+    EXPECT_TRUE(outcome.succeeded);
+    ASSERT_EQ(runner.invocationCount(), 1u);
+    EXPECT_EQ(runner.invokedArgs(0),
+             (std::vector<std::string>{"remote", "remove", "origin"}));
+}
+
+TEST(RemoveRemoteOperation, RejectsEmptyNameWithoutRunningGit) {
+    FakeProcessRunner runner;
+    RemoveRemoteRequest request;
+    request.name = "";
+    auto operation = makeRemoveRemoteOperation(request);
+
+    OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
+
+    EXPECT_FALSE(outcome.succeeded);
+    ASSERT_TRUE(outcome.error.has_value());
+    EXPECT_EQ(outcome.error->code, GitError::Code::InvalidArgument);
+    EXPECT_EQ(runner.invocationCount(), 0u);
+}
+
+TEST(RemoveRemoteOperation, ReportsGitErrorOnFailure) {
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response failure;
+    failure.exitCode = 1;
+    failure.err = "error: No such remote: 'origin'\n";
+    runner.whenArgsContain({"remote", "remove", "origin"}, failure);
+
+    RemoveRemoteRequest request;
+    request.name = "origin";
+    auto operation = makeRemoveRemoteOperation(request);
+
+    OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
+
+    EXPECT_FALSE(outcome.succeeded);
+    ASSERT_TRUE(outcome.error.has_value());
+}
+
 TEST(PruneRemoteOperation, ReportsGitErrorOnFailure) {
     FakeProcessRunner runner;
     FakeProcessRunner::Response failure;

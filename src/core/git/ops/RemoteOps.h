@@ -49,6 +49,12 @@ private:
 
 struct FetchRequest {
     std::string remoteName;  ///< Empty fetches every remote (`--all`).
+    /// Specific refs to fetch from `remoteName` (e.g. one branch, or every
+    /// branch under a folder prefix) rather than every branch the remote's
+    /// default refspec would bring in. Empty fetches everything, the
+    /// existing behavior. Requires a non-empty `remoteName` -- there is no
+    /// well-defined "these refs from every remote".
+    std::vector<std::string> refs;
     bool prune = false;
     bool tags = false;
     /// Set by the app layer to a directory made with askpass::makeRequestDir();
@@ -89,6 +95,15 @@ struct PruneRemoteRequest {
     std::vector<std::string> refs;  ///< Exact set to delete -- see RemotePrunePreviewEntry.
 };
 
+struct AddRemoteRequest {
+    std::string name;
+    std::string url;
+};
+
+struct RemoveRemoteRequest {
+    std::string name;
+};
+
 /// `git fetch`. Zero timeout, like every network operation here: a slow link
 /// is not a hang, and cancellation is how the user actually stops it.
 std::unique_ptr<Operation> makeFetchOperation(FetchRequest request);
@@ -108,5 +123,14 @@ std::unique_ptr<Operation> makePushOperation(PushRequest request);
 /// command has no "delete only these" mode, so a dialog that lets the user
 /// deselect entries first can't be built on top of it.
 std::unique_ptr<Operation> makePruneRemoteOperation(PruneRemoteRequest request);
+
+/// `git remote add <name> <url>`. Rejects an empty name or URL before
+/// spawning git -- both produce a git error anyway, but the message this
+/// way names which field was missing rather than surfacing git's own
+/// usage text.
+std::unique_ptr<Operation> makeAddRemoteOperation(AddRemoteRequest request);
+
+/// `git remote remove <name>`.
+std::unique_ptr<Operation> makeRemoveRemoteOperation(RemoveRemoteRequest request);
 
 }  // namespace gbm

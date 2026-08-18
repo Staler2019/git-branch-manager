@@ -16,6 +16,7 @@ add_executable(gbm_core_tests
     unit/GitExecutableTest.cpp
     unit/GitIntegrationTest.cpp
     unit/GraphBuilderTest.cpp
+    unit/InitCloneOpsTest.cpp
     unit/MaintenanceOpsTest.cpp
     unit/OriginalOperationMessageTest.cpp
     unit/PreparedCommitMessageTest.cpp
@@ -124,6 +125,7 @@ if(GBM_BUILD_CAPI)
         capi/DiscoveryApiTest.cpp
         capi/FileHistoryApiTest.cpp
         capi/IdentityApiTest.cpp
+        capi/InitCloneApiTest.cpp
         capi/JsonCodecTest.cpp
         capi/LfsApiTest.cpp
         capi/MergeApiTest.cpp

@@ -43,10 +43,13 @@ GBM_API int32_t gbm_remotes_json(GbmSessionHandle session) {
 
 GBM_API void gbm_remote_fetch(GbmSessionHandle session,
                               const char* remoteName,
+                              const char* const* refs,
+                              int32_t refCount,
                               int32_t prune,
                               int32_t tags) {
     FetchRequest request;
     request.remoteName = remoteName != nullptr ? remoteName : "";
+    request.refs = toStringVector(refs, refCount);
     request.prune = prune != 0;
     request.tags = tags != 0;
     toSession(session)->fetchRemote(std::move(request));
@@ -92,6 +95,19 @@ GBM_API void gbm_remote_prune(GbmSessionHandle session,
     request.remoteName = remoteName != nullptr ? remoteName : "";
     request.refs = toStringVector(refs, refCount);
     toSession(session)->pruneRemote(std::move(request));
+}
+
+GBM_API void gbm_remote_add(GbmSessionHandle session, const char* name, const char* url) {
+    AddRemoteRequest request;
+    request.name = name != nullptr ? name : "";
+    request.url = url != nullptr ? url : "";
+    toSession(session)->addRemote(std::move(request));
+}
+
+GBM_API void gbm_remote_remove(GbmSessionHandle session, const char* name) {
+    RemoveRemoteRequest request;
+    request.name = name != nullptr ? name : "";
+    toSession(session)->removeRemote(std::move(request));
 }
 
 GBM_API void gbm_provide_credential(GbmSessionHandle session, const char* secret) {

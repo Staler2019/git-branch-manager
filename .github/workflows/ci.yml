@@ -37,6 +37,40 @@ jobs:
           fi
           echo "core is Qt-free"
 
+      # subosito/flutter-action's `channel: stable` floats to whatever build
+      # is current that day. dart format's output is not stable across Dart
+      # SDK versions (CLAUDE.md's "Known gaps": a local Dart 3.12.2 and a CI
+      # run on a newer stable each accept the other's output as "needs
+      # reformatting", flapping a file between two valid formattings). Pin
+      # every flutter-action use to an explicit flutter-version so all three
+      # jobs run the same SDK the contributor formatted against.
+      - name: every flutter-action use must pin flutter-version
+        run: |
+          failed=0
+          for file in .github/workflows/*.yml; do
+            for lineno in $(grep -n '^\s*- uses: subosito/flutter-action@' "$file" | cut -d: -f1); do
+              # This step's `with:` block runs from `uses:` up to (but not
+              # including) the next step (a `- uses:`/`- name:` line at the
+              # same indentation) -- not a fixed line count, since the
+              # block's own length grows whenever someone adds a comment.
+              next_step=$(tail -n "+$((lineno + 1))" "$file" | grep -n '^\s*- \(uses\|name\):' | head -1 | cut -d: -f1)
+              if [ -n "$next_step" ]; then
+                end=$((lineno + next_step - 1))
+              else
+                end=$(wc -l < "$file")
+              fi
+              block=$(sed -n "${lineno},${end}p" "$file")
+              if ! printf '%s' "$block" | grep -q 'flutter-version:'; then
+                echo "::error file=$file,line=$lineno::subosito/flutter-action use has no flutter-version pin (channel: stable alone floats)"
+                failed=1
+              fi
+            done
+          done
+          if [ "$failed" -eq 1 ]; then
+            exit 1
+          fi
+          echo "every flutter-action use pins flutter-version"
+
   conventional-commits:
     name: Commit messages
     runs-on: ubuntu-latest
@@ -75,6 +109,12 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          # Pinned rather than left to float on `stable` alone -- see the
+          # "every flutter-action use must pin flutter-version" lint step:
+          # `dart format`'s output is not stable across Dart SDK versions,
+          # so an unpinned channel flaps files between two valid
+          # formattings depending on which CI run last touched them.
+          flutter-version: '3.44.9'
 
       - name: flutter pub get
         working-directory: app_flutter
@@ -161,6 +201,12 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          # Pinned rather than left to float on `stable` alone -- see the
+          # "every flutter-action use must pin flutter-version" lint step:
+          # `dart format`'s output is not stable across Dart SDK versions,
+          # so an unpinned channel flaps files between two valid
+          # formattings depending on which CI run last touched them.
+          flutter-version: '3.44.9'
 
       - name: flutter pub get
         working-directory: app_flutter

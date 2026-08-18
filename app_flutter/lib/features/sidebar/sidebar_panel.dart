@@ -1,21 +1,27 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../actions/gbm_action_availability.dart';
 import '../../actions/gbm_action_id.dart';
 import '../../data/models/ref_snapshot.dart';
+import '../../data/models/remote_info.dart';
 import '../../data/models/stash_entry.dart';
 import '../../data/repositories/branch_repository.dart';
+import '../../data/repositories/compare_tabs_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
 import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
+import '../../widgets/gbm_menu.dart';
 import '../../widgets/prompt_text_dialog.dart';
 import '../repo_switcher/repo_switcher_popover.dart';
 import 'branch_tree_builder.dart';
+import 'widgets/branch_folder_menu_items.dart';
 import 'widgets/branch_tree_item.dart';
+import 'widgets/stash_menu_items.dart';
 
 /// Local branches for the open repository, with checkout-on-tap, plus
 /// create/rename/delete and the multi-select "gone" bulk-delete flow (see
@@ -129,6 +135,204 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
         .deleteBranch(names: <String>[branch.shortName]);
   }
 
+  void _applyStash(StashEntry stash) {
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .applyStash(stash.index);
+  }
+
+  void _popStash(StashEntry stash) {
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .applyStash(stash.index, pop: true);
+  }
+
+  Future<void> _createBranchFromStash(StashEntry stash) async {
+    final String? name = await promptText(
+      context,
+      title: 'New Branch from Stash',
+      label: 'Branch name',
+    );
+    if (name == null || !mounted) return;
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .branchFromStash(stash.index, name);
+  }
+
+  void _viewStashDiff(StashEntry stash) {
+    context.push(
+      RoutePaths.manageStashesDialogFor(
+        Uri.encodeComponent(widget.identity.workDir),
+        selectIndex: stash.index,
+      ),
+    );
+  }
+
+  // Uses the stash's own commit oid as the Compare tab's left ref -- a
+  // stash entry is a real commit (`git stash` creates one even though it
+  // never gets a branch), so this is the same `left: <ref string>`
+  // mechanism repositoryCompare already uses, not a new capability.
+  void _compareStash(StashEntry stash) {
+    final String repoId = Uri.encodeComponent(widget.identity.workDir);
+    final String tabId = ref
+        .read(compareTabsProvider(widget.identity).notifier)
+        .open(left: stash.oid);
+    context.go(RoutePaths.compareFor(repoId, tabId));
+  }
+
+  void _dropStash(StashEntry stash) {
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .dropStash(stash.index);
+  }
+
+  void _checkoutTagDetached(RefInfo tag) {
+    checkoutBranch(ref, widget.identity, tag.shortName, detach: true);
+  }
+
+  void _pushTag(RefInfo tag, RemoteInfo remote) {
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .pushTag(remote.name, name: tag.shortName);
+  }
+
+  // Same `left: <ref string>` mechanism as _compareStash -- a tag name is
+  // already a valid ref on its own.
+  void _compareTag(RefInfo tag) {
+    final String repoId = Uri.encodeComponent(widget.identity.workDir);
+    final String tabId = ref
+        .read(compareTabsProvider(widget.identity).notifier)
+        .open(left: tag.shortName);
+    context.go(RoutePaths.compareFor(repoId, tabId));
+  }
+
+  void _deleteTag(RefInfo tag) {
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .deleteTag(tag.shortName);
+  }
+
+  List<RefInfo> _collectFolderLeafRefs(List<BranchTreeNode> nodes) {
+    final List<RefInfo> refs = <RefInfo>[];
+    for (final BranchTreeNode node in nodes) {
+      if (node is BranchTreeLeaf) {
+        refs.add(node.ref);
+      } else if (node is BranchTreeFolder) {
+        refs.addAll(_collectFolderLeafRefs(node.children));
+      }
+    }
+    return refs;
+  }
+
+  Set<String> _collectFolderNames(List<BranchTreeNode> nodes) {
+    final Set<String> names = <String>{};
+    for (final BranchTreeNode node in nodes) {
+      if (node is BranchTreeFolder) {
+        names.add(node.folderName);
+        names.addAll(_collectFolderNames(node.children));
+      }
+    }
+    return names;
+  }
+
+  // "Expand all" opens this folder and every nested subfolder beneath it,
+  // not just this one level -- "Collapse all" only needs to close this
+  // one, since a closed ancestor already hides its descendants regardless
+  // of their own recorded expand state.
+  void _toggleFolderExpand(BranchTreeFolder folder) {
+    setState(() {
+      if (_expandedFolders.contains(folder.folderName)) {
+        _expandedFolders.remove(folder.folderName);
+      } else {
+        _expandedFolders
+          ..add(folder.folderName)
+          ..addAll(_collectFolderNames(folder.children));
+      }
+    });
+  }
+
+  // Reuses deleteBranch's existing safe-delete default (force: false,
+  // i.e. plain `git branch -d`) rather than a new "is this merged" capi
+  // capability: git itself refuses any branch here that isn't merged, and
+  // that refusal already surfaces through the existing delete-branch-
+  // recovery flow (checkoutChoices/deleteBranchChoices), the same path a
+  // single unmerged branch delete goes through today. Excludes HEAD and
+  // any branch checked out in a linked worktree, matching
+  // _isGoneAndBulkSelectable's exclusions for the same reason -- deleting
+  // either would fail loudly or move the current session's HEAD.
+  void _deleteMergedInFolder(BranchTreeFolder folder) {
+    final List<String> names = _collectFolderLeafRefs(folder.children)
+        .where(
+          (RefInfo ref) =>
+              ref.kind == RefKind.localBranch &&
+              !ref.isHead &&
+              ref.worktreePath.isEmpty,
+        )
+        .map((RefInfo ref) => ref.shortName)
+        .toList(growable: false);
+    if (names.isEmpty) return;
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .deleteBranch(names: names);
+  }
+
+  // Only offered when every leaf ref in the folder resolves to the same
+  // remote (see fetchableRefsInFolder's doc comment) -- there's no "default
+  // remote" to fall back to for a folder mixing refs from more than one,
+  // unlike a repository-level fetch.
+  void _fetchFolder(BranchTreeFolder folder) {
+    final (String remote, List<String> branches)? fetchable =
+        fetchableRefsInFolder(_collectFolderLeafRefs(folder.children));
+    if (fetchable == null) return;
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .fetchRemote(remoteName: fetchable.$1, refs: fetchable.$2);
+  }
+
+  void _openFolderContextMenu(
+    BuildContext context,
+    TapDownDetails details,
+    BranchTreeFolder folder,
+  ) {
+    final (String, List<String>)? fetchable = fetchableRefsInFolder(
+      _collectFolderLeafRefs(folder.children),
+    );
+    showGbmContextMenu(
+      context,
+      details.globalPosition,
+      branchFolderMenuItems(
+        isExpanded: _expandedFolders.contains(folder.folderName),
+        onToggleExpand: () => _toggleFolderExpand(folder),
+        onCopyPrefix: () =>
+            Clipboard.setData(ClipboardData(text: '${folder.folderName}/')),
+        onDeleteMerged: () => _deleteMergedInFolder(folder),
+        onFetchFolder: fetchable == null ? null : () => _fetchFolder(folder),
+      ),
+    );
+  }
+
+  void _openStashContextMenu(
+    BuildContext context,
+    TapDownDetails details,
+    StashEntry stash,
+    bool conflictActive,
+  ) {
+    showGbmContextMenu(
+      context,
+      details.globalPosition,
+      stashMenuItems(
+        onApply: conflictActive ? null : () => _applyStash(stash),
+        onPop: conflictActive ? null : () => _popStash(stash),
+        onCreateBranch: conflictActive
+            ? null
+            : () => _createBranchFromStash(stash),
+        onViewDiff: () => _viewStashDiff(stash),
+        onCompare: () => _compareStash(stash),
+        onDrop: () => _dropStash(stash),
+      ),
+    );
+  }
+
   void _deleteSelected() {
     if (_selected.isEmpty) return;
     ref
@@ -175,6 +379,19 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
       remoteName,
       <String>[goneRef.upstream],
     );
+  }
+
+  /// 05-C "Fetch this branch" -- a remote-only row's own ref is already an
+  /// unambiguous single remote + branch (unlike 05-J's folder-wide fetch,
+  /// which needs fetchableRefsInFolder()'s "single remote across every
+  /// leaf" check), so this always fetches exactly the one branch.
+  void _fetchRemoteRef(RefInfo remoteRef) {
+    final (String remoteName, String branch) = remoteBranchParts(
+      remoteRef.fullName,
+    );
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .fetchRemote(remoteName: remoteName, refs: <String>[branch]);
   }
 
   /// 05-C "Delete on remote…" -- opens the existing dialog
@@ -481,11 +698,13 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                               ),
                               child: BranchTreeItem(
                                 ref: tag,
-                                onCheckout: () => checkoutBranch(
-                                  ref,
-                                  widget.identity,
-                                  tag.shortName,
-                                ),
+                                onCheckout: () => _checkoutTagDetached(tag),
+                                onPushTag: session.remotes.length == 1
+                                    ? () =>
+                                          _pushTag(tag, session.remotes.single)
+                                    : null,
+                                onCompareRef: () => _compareTag(tag),
+                                onDeleteTag: () => _deleteTag(tag),
                                 // Sourced from isActionEnabled(), not
                                 // session.conflictActive directly -- single
                                 // source of truth for checkout availability.
@@ -516,7 +735,21 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                             ),
                           ),
                           ...filteredStashes.map((stash) {
-                            return _buildStashRow(stash, colors);
+                            return _buildStashRow(
+                              stash,
+                              colors,
+                              // Sourced from isActionEnabled(), not
+                              // session.conflictActive directly -- same
+                              // pattern as every other conflict-sensitive
+                              // gate in this file. branchStashChanges is
+                              // the closest existing id (stash apply/pop
+                              // mutate the working tree/index the same way
+                              // creating a stash would).
+                              !isActionEnabled(
+                                GbmActionId.branchStashChanges,
+                                session,
+                              ),
+                            );
                           }),
                         ],
                       ],
@@ -581,6 +814,7 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
           onDeleteOnRemote: isRemoteOnly
               ? () => _openDeleteRemoteBranchDialog(node.ref)
               : null,
+          onFetchRef: isRemoteOnly ? () => _fetchRemoteRef(node.ref) : null,
           // Sourced from isActionEnabled(), not session.conflictActive
           // directly -- single source of truth for checkout availability.
           conflictActive: !isActionEnabled(GbmActionId.branchCheckout, session),
@@ -592,6 +826,19 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     return const SizedBox.shrink();
   }
 
+  // Single-level toggle -- the chevron and clicking the folder name both
+  // use this, distinct from the context menu's "Expand all" (see
+  // _toggleFolderExpand's doc comment for why that one recurses).
+  void _toggleFolderExpandedSingleLevel(BranchTreeFolder folder) {
+    setState(() {
+      if (_expandedFolders.contains(folder.folderName)) {
+        _expandedFolders.remove(folder.folderName);
+      } else {
+        _expandedFolders.add(folder.folderName);
+      }
+    });
+  }
+
   Widget _buildFolderNode(BranchTreeFolder folder, BuildContext context) {
     final colors = context.gbmColors;
     final isExpanded = _expandedFolders.contains(folder.folderName);
@@ -599,37 +846,42 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        Container(
-          height: GbmSpacing.rowHeightCompact,
-          padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
-          child: Row(
-            children: <Widget>[
-              IconButton(
-                icon: Icon(
-                  isExpanded ? Icons.expand_more : Icons.chevron_right,
-                  size: 18,
-                  color: colors.textSecondary,
-                ),
-                onPressed: () => setState(() {
-                  if (isExpanded) {
-                    _expandedFolders.remove(folder.folderName);
-                  } else {
-                    _expandedFolders.add(folder.folderName);
-                  }
-                }),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-              ),
-              Expanded(
-                child: Text(
-                  folder.folderName,
-                  style: TextStyle(
-                    fontSize: GbmTypography.textSm,
+        GestureDetector(
+          onSecondaryTapDown: (TapDownDetails details) =>
+              _openFolderContextMenu(context, details, folder),
+          child: Container(
+            height: GbmSpacing.rowHeightCompact,
+            padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
+            child: Row(
+              children: <Widget>[
+                IconButton(
+                  icon: Icon(
+                    isExpanded ? Icons.expand_more : Icons.chevron_right,
+                    size: 18,
                     color: colors.textSecondary,
                   ),
+                  onPressed: () => _toggleFolderExpandedSingleLevel(folder),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 32,
+                    minHeight: 32,
+                  ),
                 ),
-              ),
-            ],
+                Expanded(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => _toggleFolderExpandedSingleLevel(folder),
+                    child: Text(
+                      folder.folderName,
+                      style: TextStyle(
+                        fontSize: GbmTypography.textSm,
+                        color: colors.textSecondary,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
         if (isExpanded)
@@ -641,7 +893,11 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     );
   }
 
-  Widget _buildStashRow(StashEntry stash, GbmColors colors) {
+  Widget _buildStashRow(
+    StashEntry stash,
+    GbmColors colors,
+    bool conflictActive,
+  ) {
     final now = DateTime.now();
     final stashTime = DateTime.fromMillisecondsSinceEpoch(stash.timestamp);
     final diff = now.difference(stashTime);
@@ -657,36 +913,49 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
       timeStr = '${diff.inDays}d ago';
     }
 
-    return Container(
-      height: GbmSpacing.rowHeightCompact,
-      padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
-      child: Row(
-        children: <Widget>[
-          const SizedBox(width: GbmSpacing.space2),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  stash.message,
-                  style: TextStyle(
-                    fontSize: GbmTypography.textSm,
-                    color: colors.textPrimary,
+    return GestureDetector(
+      onSecondaryTapDown: (TapDownDetails details) =>
+          _openStashContextMenu(context, details, stash, conflictActive),
+      child: Container(
+        // No fixed height, unlike a branch row -- this row shows two lines
+        // (message + relative time) rather than one, and rowHeightCompact
+        // (26px) is too short for both at GbmTypography's textSm/textXs
+        // sizes, overflowing the Column below by several pixels. Vertical
+        // padding gives it breathing room instead of pinning a height that
+        // would need recalibrating by hand every time either text style
+        // changes.
+        padding: const EdgeInsets.symmetric(
+          horizontal: GbmSpacing.space2,
+          vertical: GbmSpacing.space1,
+        ),
+        child: Row(
+          children: <Widget>[
+            const SizedBox(width: GbmSpacing.space2),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    stash.message,
+                    style: TextStyle(
+                      fontSize: GbmTypography.textSm,
+                      color: colors.textPrimary,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-                Text(
-                  timeStr,
-                  style: TextStyle(
-                    fontSize: GbmTypography.textXs,
-                    color: colors.textTertiary,
+                  Text(
+                    timeStr,
+                    style: TextStyle(
+                      fontSize: GbmTypography.textXs,
+                      color: colors.textTertiary,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

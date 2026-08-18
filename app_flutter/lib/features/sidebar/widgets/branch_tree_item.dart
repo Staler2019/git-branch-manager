@@ -7,6 +7,7 @@ import '../../../theme/ref_chip_colors.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_menu.dart';
 import '../../../widgets/lucide_icon.dart';
+import 'tag_menu_items.dart';
 
 class BranchTreeItem extends StatelessWidget {
   const BranchTreeItem({
@@ -21,6 +22,10 @@ class BranchTreeItem extends StatelessWidget {
     this.onMerge,
     this.onPruneRef,
     this.onDeleteOnRemote,
+    this.onFetchRef,
+    this.onPushTag,
+    this.onCompareRef,
+    this.onDeleteTag,
     this.conflictActive = false,
   });
 
@@ -55,14 +60,27 @@ class BranchTreeItem extends StatelessWidget {
   /// remote-tracking ref either way); [onDeleteOnRemote] only for a
   /// remote-only row -- a gone row's "Delete on remote…" is permanently
   /// disabled (see [_buildGoneMenuItems]'s doc comment), so there is
-  /// nothing for a caller to wire there.
+  /// nothing for a caller to wire there. [onFetchRef] is the same: wired
+  /// only for a remote-only row -- a gone row's own upstream is already
+  /// vanished, so "Fetch this branch" is permanently disabled there too.
   final VoidCallback? onPruneRef;
   final VoidCallback? onDeleteOnRemote;
+  final VoidCallback? onFetchRef;
+
+  /// 05-D actions -- see [_buildMenuItems]'s branch on
+  /// `ref.kind == RefKind.tag`. [onPushTag] is nullable; see
+  /// tag_menu_items.dart's `onPush` doc comment for why (no single
+  /// unambiguous remote to push to).
+  final VoidCallback? onPushTag;
+  final VoidCallback? onCompareRef;
+  final VoidCallback? onDeleteTag;
 
   /// Whether [ref] is a "remote-only" leaf -- see
   /// `branch_tree_builder.dart`'s `mergeLocalAndRemoteBranches` doc comment
   /// -- rather than a real local branch.
   bool get _isRemoteOnly => ref.kind == RefKind.remoteBranch;
+
+  bool get _isTag => ref.kind == RefKind.tag;
 
   @override
   Widget build(BuildContext context) {
@@ -209,17 +227,21 @@ class BranchTreeItem extends StatelessWidget {
   }
 
   /// 05-C (remote-only branch), scoped to what this app already has a real
-  /// destination for. Omits "Fetch this branch": `gbm_remote_fetch()` only
-  /// fetches an entire remote (no per-ref fetch in `gbm_capi.h`), and
-  /// approximating it with a whole-remote fetch would silently do more than
-  /// the label promises, so it's left off rather than wired to the wrong
-  /// thing -- same reasoning as `commit_row.dart`'s omitted menu items.
+  /// destination for. "Fetch this branch" is wired to [onFetchRef] --
+  /// `gbm_remote_fetch()` gained an optional per-ref list, so this fetches
+  /// just this one ref rather than approximating with a whole-remote fetch.
   List<GbmMenuItem> _buildRemoteOnlyMenuItems() {
     return <GbmMenuItem>[
       GbmMenuItem(
         label: 'Checkout as new local…',
         icon: Icons.call_split,
         onTap: conflictActive ? null : onCheckout,
+      ),
+      GbmMenuItem(
+        label: 'Fetch this branch',
+        icon: Icons.cloud_download_outlined,
+        enabled: onFetchRef != null,
+        onTap: onFetchRef,
       ),
       GbmMenuItem(
         label: 'Copy branch name',
@@ -256,12 +278,21 @@ class BranchTreeItem extends StatelessWidget {
   /// the vanished remote-tracking ref itself (`git branch --delete
   /// --remotes`), leaving the local branch untouched, per BRANCH_STATES's
   /// note: "真正移除 remote-tracking ref 要執行 Prune". "Fetch this branch"
-  /// is omitted for the same capi reason as [_buildRemoteOnlyMenuItems].
+  /// gets the same permanent-disabled treatment as "Checkout as new
+  /// local…" and "Delete on remote…" -- a gone row's own upstream is what
+  /// vanished, so there is nothing left to fetch until a Prune (or a fresh
+  /// push) clears or restores it, matching the spec's own "其餘停用".
   List<GbmMenuItem> _buildGoneMenuItems() {
     return <GbmMenuItem>[
       const GbmMenuItem(
         label: 'Checkout as new local…',
         icon: Icons.call_split,
+        enabled: false,
+        onTap: null,
+      ),
+      const GbmMenuItem(
+        label: 'Fetch this branch',
+        icon: Icons.cloud_download_outlined,
         enabled: false,
         onTap: null,
       ),
@@ -295,6 +326,18 @@ class BranchTreeItem extends StatelessWidget {
   /// so they are left off rather than wired to something that silently does
   /// the wrong thing.
   List<GbmMenuItem> _buildMenuItems() {
+    if (_isTag) {
+      return tagMenuItems(
+        tagName: ref.shortName,
+        onCheckoutDetached: conflictActive ? null : onCheckout,
+        onPush: onPushTag,
+        // Always wired by SidebarPanel for a tag row -- unlike onPushTag,
+        // neither has a "sometimes genuinely unavailable" case (see
+        // tag_menu_items.dart's doc comment).
+        onCompare: onCompareRef!,
+        onDelete: onDeleteTag!,
+      );
+    }
     if (_isRemoteOnly) {
       return _buildRemoteOnlyMenuItems();
     }

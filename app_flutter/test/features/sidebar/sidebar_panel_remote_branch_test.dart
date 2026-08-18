@@ -276,6 +276,23 @@ void main() {
       expect(prune.args['refs'], <String>['refs/remotes/origin/release']);
     });
 
+    testWidgets(
+      'Fetch this branch calls fetchRemote with the remote name and branch',
+      (tester) async {
+        final _Harness harness = await _pump(tester);
+
+        await _openRemoteRowMenu(tester);
+        await tester.tap(find.text('Fetch this branch'));
+        await tester.pumpAndSettle();
+
+        final FakeCommand fetch = harness.fake.commandLog.singleWhere(
+          (c) => c.name == 'fetchRemote',
+        );
+        expect(fetch.args['remoteName'], 'origin');
+        expect(fetch.args['refs'], <String>['release']);
+      },
+    );
+
     testWidgets('Delete on remote… navigates to deleteRemoteBranchDialogFor', (
       tester,
     ) async {
@@ -372,8 +389,8 @@ void main() {
     );
 
     testWidgets(
-      'Checkout as new local… and Delete on remote… stay disabled -- no '
-      'command reaches the session when tapped',
+      'Checkout as new local…, Fetch this branch, and Delete on remote… '
+      'stay disabled -- no command reaches the session when tapped',
       (tester) async {
         final _Harness harness = await _pump(tester);
 
@@ -392,11 +409,20 @@ void main() {
 
         await tester.tap(moreButton);
         await tester.pumpAndSettle();
+        await tester.tap(find.text('Fetch this branch'));
+        await tester.pumpAndSettle();
+
+        await tester.tap(moreButton);
+        await tester.pumpAndSettle();
         await tester.tap(find.text('Delete on remote…'));
         await tester.pumpAndSettle();
 
         expect(
           harness.fake.commandLog.any((c) => c.name == 'checkout'),
+          isFalse,
+        );
+        expect(
+          harness.fake.commandLog.any((c) => c.name == 'fetchRemote'),
           isFalse,
         );
         // Delete on remote… doesn't dispatch a session command at all --

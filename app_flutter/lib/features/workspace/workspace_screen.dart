@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../actions/gbm_action_availability.dart';
 import '../../actions/gbm_action_id.dart';
 import '../../actions/gbm_menu_model.dart';
+import '../../actions/gbm_sequencer_operation.dart';
 import '../../data/models/ref_snapshot.dart';
 import '../../data/models/repo_state.dart';
 import '../../data/models/working_copy_status.dart';
@@ -747,13 +748,19 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       // Non-cancellable by construction: spec page 10's TASKS table marks
       // Checkout/Merge/Rebase "不可取消" because interrupting them midway is
       // more dangerous than letting them finish.
-      final String label = state.isRebasing
-          ? 'Rebasing'
-          : state.isCherryPicking
-          ? 'Cherry-picking'
-          : state.isReverting
-          ? 'Reverting'
-          : 'Merging';
+      //
+      // Gate stays on RepoState.isSequencerOperation, not
+      // activeSequencerOperation() -- the two are deliberately different
+      // predicates (see gbm_sequencer_operation.dart's doc comment):
+      // isSequencerOperation includes the bare Sequencer flag (set for a
+      // multi-commit cherry-pick's `sequencer/todo` dir with no per-commit
+      // flag) and excludes merge, while activeSequencerOperation() only
+      // looks at the four per-kind flags and includes merge. A
+      // sequencer-flag-only state therefore passes this gate but has no
+      // corresponding SequencerOperationKind, hence the fallback label
+      // below -- 'Merging' is not exactly right for that case, but it is
+      // the same fallback this code already used before the dedup.
+      final String label = activeSequencerOperation(state)?.gerund ?? 'Merging';
       tasks.add(
         BackgroundTask(
           id: 'sequencer',
@@ -889,14 +896,24 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       repoSessionProvider(identity).notifier,
     );
 
-    // Abort based on the operation type
-    if (session.repoState?.isMerging ?? false) {
-      repoSessionNotifier.mergeAbort();
-    } else if (session.repoState?.isCherryPicking ?? false) {
-      repoSessionNotifier.cherryPickAbort();
-    } else {
-      // rebase -- covers both rebaseApply and rebaseMerge
-      repoSessionNotifier.abortRebase();
+    switch (activeSequencerOperation(session.repoState)) {
+      case SequencerOperationKind.merge:
+        repoSessionNotifier.mergeAbort();
+      case SequencerOperationKind.cherryPick:
+        repoSessionNotifier.cherryPickAbort();
+      case SequencerOperationKind.rebase:
+        // Covers both rebaseApply and rebaseMerge.
+        repoSessionNotifier.abortRebase();
+      case SequencerOperationKind.revert:
+      case null:
+        // Revert has no abort (SequencerOperationKind.canAbort is false for
+        // it) and null means nothing is in progress to abort -- both
+        // unreachable through the UI since ConflictBanner disables Abort in
+        // either case. Exhaustive switch over the implicit "anything else
+        // -> abortRebase" this replaced: that fallback would have
+        // mis-dispatched a revert's Abort to rebase's --abort had the
+        // button ever been reachable.
+        break;
     }
   }
 
@@ -909,12 +926,18 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       repoSessionProvider(identity).notifier,
     );
 
-    // Skip only applies to rebase and cherry-pick
-    if (session.repoState?.isCherryPicking ?? false) {
-      repoSessionNotifier.cherryPickSkip();
-    } else {
-      // rebase
-      repoSessionNotifier.skipRebase();
+    switch (activeSequencerOperation(session.repoState)) {
+      case SequencerOperationKind.cherryPick:
+        repoSessionNotifier.cherryPickSkip();
+      case SequencerOperationKind.rebase:
+        repoSessionNotifier.skipRebase();
+      case SequencerOperationKind.merge:
+      case SequencerOperationKind.revert:
+      case null:
+        // Neither has a skip (SequencerOperationKind.canSkip is false for
+        // both) -- unreachable through the UI, ConflictBanner disables Skip
+        // for merge/revert/no-op.
+        break;
     }
   }
 
@@ -927,12 +950,17 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       repoSessionProvider(identity).notifier,
     );
 
-    // Continue based on the operation type
-    if (session.repoState?.isCherryPicking ?? false) {
-      repoSessionNotifier.cherryPickContinue();
-    } else {
-      // rebase
-      repoSessionNotifier.continueRebase();
+    switch (activeSequencerOperation(session.repoState)) {
+      case SequencerOperationKind.cherryPick:
+        repoSessionNotifier.cherryPickContinue();
+      case SequencerOperationKind.rebase:
+        repoSessionNotifier.continueRebase();
+      case SequencerOperationKind.merge:
+      case SequencerOperationKind.revert:
+      case null:
+        // Neither has a continue (SequencerOperationKind.canContinue is
+        // false for both) -- unreachable through the UI.
+        break;
     }
   }
 
@@ -1000,60 +1028,19 @@ class ConflictBanner extends StatelessWidget {
   final VoidCallback onSkip;
   final VoidCallback onContinue;
 
-  /// Determines the operation type (merge/rebase/cherry-pick/revert or null).
-  /// Priority order: rebase > cherry-pick > revert > merge.
-  String? _getOperationLabel() {
-    if (session.repoState == null) return null;
-
-    // Check for rebase first (can be rebaseMerge or rebaseApply)
-    if (session.repoState!.isRebasing) {
-      return 'Rebase';
-    }
-    if (session.repoState?.isCherryPicking ?? false) {
-      return 'Cherry-pick';
-    }
-    if (session.repoState?.isReverting ?? false) {
-      return 'Revert';
-    }
-    if (session.repoState?.isMerging ?? false) {
-      return 'Merge';
-    }
-
-    return null;
-  }
-
-  /// Whether skip/continue/abort buttons should be shown.
-  bool _hasSequencerOperation() {
-    if (session.repoState == null) return false;
-    final state = session.repoState!;
-
-    return (state.isMerging ||
-        state.isCherryPicking ||
-        state.isReverting ||
-        state.isRebasing);
-  }
-
-  /// Whether revert operation is active (has no skip/continue/abort).
-  bool _isRevertOnly() => session.repoState?.isReverting ?? false;
-
-  /// Whether Continue has a valid backend action for the current operation.
-  /// Cherry-pick and rebase have real `_continue()` capi calls
-  /// (`gbm_cherry_pick_continue`/`gbm_rebase_continue`). Merge has none --
-  /// real git finishes a merge with a plain commit, there is no
-  /// `gbm_merge_continue()`. Revert has none either, by design -- see
-  /// RevertOps.h: "Continue/skip/abort for an in-progress revert have no UI
-  /// entry point yet". Routing either of those into `continueRebase()`
-  /// would call `git rebase --continue` while not mid-rebase.
-  bool _canContinue() =>
-      (session.repoState?.isCherryPicking ?? false) ||
-      (session.repoState?.isRebasing ?? false);
+  /// Which sequencer operation is active, if any -- single source of truth
+  /// (gbm_sequencer_operation.dart), used for the status label, the
+  /// Abort/Skip/Continue availability below, and the dispatchers in
+  /// [_WorkspaceScreenState].
+  SequencerOperationKind? get _kind =>
+      activeSequencerOperation(session.repoState);
 
   /// Formats the status text with operation type and progress.
   String _getStatusText() {
-    final String? opLabel = _getOperationLabel();
+    final SequencerOperationKind? kind = _kind;
     final int count = session.workingCopyStatus.conflicted.length;
 
-    if (opLabel == null) {
+    if (kind == null) {
       // No sequencer operation, just show file count
       if (count == 0) return '';
       return '$count file${count == 1 ? '' : 's'} conflicted';
@@ -1061,10 +1048,11 @@ class ConflictBanner extends StatelessWidget {
 
     // Format: "Merge in progress: 2 files conflicted"
     // or: "Rebase (3/8): 1 file conflicted"
-    final StringBuffer buffer = StringBuffer(opLabel);
+    final StringBuffer buffer = StringBuffer(kind.label);
     buffer.write(' in progress');
 
-    if (opLabel == 'Rebase' && session.repoState!.rebaseTotal > 0) {
+    if (kind == SequencerOperationKind.rebase &&
+        session.repoState!.rebaseTotal > 0) {
       buffer.write(
         ' (${session.repoState!.rebaseStep}/${session.repoState!.rebaseTotal})',
       );
@@ -1081,7 +1069,8 @@ class ConflictBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
     final String statusText = _getStatusText();
-    final bool isRevert = _isRevertOnly();
+    final SequencerOperationKind? kind = _kind;
+    final bool isRevert = kind == SequencerOperationKind.revert;
 
     return Container(
       width: double.infinity,
@@ -1106,11 +1095,13 @@ class ConflictBanner extends StatelessWidget {
               ),
             ),
           // Abort button
-          if (_hasSequencerOperation())
+          if (kind != null)
             Tooltip(
-              message: isRevert ? 'Revert has no abort (use Resolve…)' : '',
+              message: kind.canAbort
+                  ? ''
+                  : 'Revert has no abort (use Resolve…)',
               child: TextButton(
-                onPressed: isRevert ? null : onAbort,
+                onPressed: kind.canAbort ? onAbort : null,
                 child: Text(
                   'Abort',
                   style: TextStyle(
@@ -1123,15 +1114,13 @@ class ConflictBanner extends StatelessWidget {
             ),
           const SizedBox(width: GbmSpacing.space2),
           // Skip button
-          if (_hasSequencerOperation())
+          if (kind != null)
             Tooltip(
-              message: isRevert || session.repoState?.isMerging == true
-                  ? 'Skip not available for ${isRevert ? 'revert' : 'merge'}'
-                  : '',
+              message: kind.canSkip
+                  ? ''
+                  : 'Skip not available for ${isRevert ? 'revert' : 'merge'}',
               child: TextButton(
-                onPressed: (isRevert || session.repoState?.isMerging == true)
-                    ? null
-                    : onSkip,
+                onPressed: kind.canSkip ? onSkip : null,
                 child: Text(
                   'Skip',
                   style: TextStyle(
@@ -1144,15 +1133,15 @@ class ConflictBanner extends StatelessWidget {
             ),
           const SizedBox(width: GbmSpacing.space2),
           // Continue button
-          if (_hasSequencerOperation())
+          if (kind != null)
             Tooltip(
-              message: _canContinue()
+              message: kind.canContinue
                   ? ''
                   : 'Continue not available for '
                         '${isRevert ? 'revert' : 'merge'} yet -- resolve via '
                         'Resolve…',
               child: TextButton(
-                onPressed: _canContinue() ? onContinue : null,
+                onPressed: kind.canContinue ? onContinue : null,
                 child: Text(
                   'Continue',
                   style: TextStyle(
@@ -1165,10 +1154,10 @@ class ConflictBanner extends StatelessWidget {
             ),
           const SizedBox(width: GbmSpacing.space2),
           // Resolve… button -- the actual route into ConflictResolveWindow's
-          // three-pane editor. Independent of _hasSequencerOperation() so
-          // it's reachable during a real rebase/cherry-pick/merge/revert
-          // conflict, not just the git-apply --3way edge case that has no
-          // sequencer state; only Abort/Skip/Continue are sequencer-gated.
+          // three-pane editor. Independent of [kind] so it's reachable
+          // during a real rebase/cherry-pick/merge/revert conflict, not
+          // just the git-apply --3way edge case that has no sequencer
+          // state; only Abort/Skip/Continue are sequencer-gated.
           if (session.workingCopyStatus.conflicted.isNotEmpty)
             TextButton(
               onPressed: () => context.go(RoutePaths.conflictsFor(repoId)),

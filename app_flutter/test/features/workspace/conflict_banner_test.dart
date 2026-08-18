@@ -277,5 +277,54 @@ void main() {
       // Nothing to resolve yet -- no conflicted files, so no Resolve… link.
       expect(find.text('Resolve…'), findsNothing);
     });
+
+    testWidgets(
+      'rebase + cherry-pick flags both set: shows Rebase, not Cherry-pick '
+      '(SequencerOperationKind priority order)',
+      (tester) async {
+        // A conflicted `git rebase` using the merge backend can leave
+        // CHERRY_PICK_HEAD on disk mid-step, so isRebasing and
+        // isCherryPicking can both be true at once -- Rebase is the correct
+        // label and control set then, not Cherry-pick. See
+        // gbm_sequencer_operation.dart's doc comment.
+        int skipCount = 0;
+        int continueCount = 0;
+        final session = RepoSessionState(
+          repoState: RepoState(
+            flags: RepoStateFlags.rebaseMerge | RepoStateFlags.cherryPick,
+            isClean: false,
+            isSequencerOperation: true,
+            rebaseStep: 2,
+            rebaseTotal: 5,
+            rebaseOntoLabel: 'main',
+            indexLocked: false,
+            indexLockAgeSeconds: null,
+            describe: 'rebasing',
+          ),
+          workingCopyStatus: _conflictedStatus(1),
+        );
+
+        await _pump(
+          tester,
+          session: session,
+          onSkip: () => skipCount++,
+          onContinue: () => continueCount++,
+        );
+
+        expect(
+          find.text('Rebase in progress (2/5): 1 file conflicted'),
+          findsOneWidget,
+        );
+        expect(find.text('Cherry-pick in progress'), findsNothing);
+
+        // Skip/Continue are enabled for both rebase and cherry-pick, so this
+        // doesn't distinguish which was dispatched on its own -- the label
+        // assertion above is what proves the priority order.
+        await tester.tap(find.text('Skip'));
+        expect(skipCount, 1);
+        await tester.tap(find.text('Continue'));
+        expect(continueCount, 1);
+      },
+    );
   });
 }

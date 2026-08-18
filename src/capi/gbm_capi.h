@@ -77,9 +77,9 @@ enum GbmErrorCode {
 // defined so far; later milestones extend this enum, never renumber it.
 
 enum GbmEventType {
-    GBM_EVENT_GRAPH_UPDATED = 0,       ///< payload: {"complete": bool}
-    GBM_EVENT_REFS_UPDATED = 1,        ///< no payload
-    GBM_EVENT_ERROR_OCCURRED = 2,      ///< payload: GitError JSON
+    GBM_EVENT_GRAPH_UPDATED = 0,   ///< payload: {"complete": bool}
+    GBM_EVENT_REFS_UPDATED = 1,    ///< no payload
+    GBM_EVENT_ERROR_OCCURRED = 2,  ///< payload: GitError JSON
     /// payload: OperationOutcome JSON: {"succeeded": bool, "error": GitError
     /// JSON | null, "choices": OperationChoice[], "summary": string,
     /// "kind"?: string}. "kind" is present only for operations that stamp one

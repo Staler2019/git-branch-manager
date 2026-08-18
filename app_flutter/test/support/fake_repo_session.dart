@@ -313,6 +313,20 @@ class FakeRepoSessionController extends RepoSessionController {
   }
 
   @override
+  void addRemote(String name, String url) {
+    commandLog.add(
+      FakeCommand('addRemote', <String, Object?>{'name': name, 'url': url}),
+    );
+  }
+
+  @override
+  void removeRemote(String name) {
+    commandLog.add(
+      FakeCommand('removeRemote', <String, Object?>{'name': name}),
+    );
+  }
+
+  @override
   void renameBranch({
     required String from,
     required String to,

@@ -2127,6 +2127,33 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     }
   }
 
+  /// `git remote add`. Async: fires GBM_EVENT_OPERATION_FINISHED, and on
+  /// success also refreshes the remote list (same event
+  /// gbm_remote_refresh() would fire).
+  void addRemote(String name, String url) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> namePtr = name.toNativeUtf8();
+    final Pointer<Utf8> urlPtr = url.toNativeUtf8();
+    try {
+      _bindings.remoteAdd(_session, namePtr, urlPtr);
+    } finally {
+      malloc.free(namePtr);
+      malloc.free(urlPtr);
+    }
+  }
+
+  /// `git remote remove`. Async: fires GBM_EVENT_OPERATION_FINISHED, and on
+  /// success also refreshes the remote list.
+  void removeRemote(String name) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> namePtr = name.toNativeUtf8();
+    try {
+      _bindings.remoteRemove(_session, namePtr);
+    } finally {
+      malloc.free(namePtr);
+    }
+  }
+
   /// `git log --follow` for one file. `startRevision` empty starts from
   /// HEAD. Async: fires GBM_EVENT_FILE_HISTORY_READY into
   /// [RepoSessionState.lastFileHistory].

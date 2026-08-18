@@ -255,6 +255,10 @@ public:
     /// Async: see gbm_remote_prune()'s doc comment.
     void pruneRemote(PruneRemoteRequest request);
 
+    /// Async: see gbm_remote_add()/gbm_remote_remove()'s doc comments.
+    void addRemote(AddRemoteRequest request);
+    void removeRemote(RemoveRemoteRequest request);
+
     /// Async: see gbm_provide_credential()/gbm_cancel_credential()'s doc
     /// comments. A no-op if no prompt is currently outstanding.
     void provideCredential(std::string secret);

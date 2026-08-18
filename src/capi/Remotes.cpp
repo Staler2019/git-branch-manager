@@ -94,6 +94,19 @@ GBM_API void gbm_remote_prune(GbmSessionHandle session,
     toSession(session)->pruneRemote(std::move(request));
 }
 
+GBM_API void gbm_remote_add(GbmSessionHandle session, const char* name, const char* url) {
+    AddRemoteRequest request;
+    request.name = name != nullptr ? name : "";
+    request.url = url != nullptr ? url : "";
+    toSession(session)->addRemote(std::move(request));
+}
+
+GBM_API void gbm_remote_remove(GbmSessionHandle session, const char* name) {
+    RemoveRemoteRequest request;
+    request.name = name != nullptr ? name : "";
+    toSession(session)->removeRemote(std::move(request));
+}
+
 GBM_API void gbm_provide_credential(GbmSessionHandle session, const char* secret) {
     toSession(session)->provideCredential(secret != nullptr ? secret : "");
 }

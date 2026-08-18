@@ -720,6 +720,16 @@ typedef RemotePruneDart =
       int refCount,
     );
 
+typedef _RemoteAddNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> name, Pointer<Utf8> url);
+typedef RemoteAddDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> name, Pointer<Utf8> url);
+
+typedef _RemoteRemoveNative =
+    Void Function(Pointer<Void> session, Pointer<Utf8> name);
+typedef RemoteRemoveDart =
+    void Function(Pointer<Void> session, Pointer<Utf8> name);
+
 typedef _RequestFileHistoryNative =
     Void Function(
       Pointer<Void> session,
@@ -1448,6 +1458,13 @@ class GbmBindings {
       remotePrune = library.lookupFunction<_RemotePruneNative, RemotePruneDart>(
         'gbm_remote_prune',
       ),
+      remoteAdd = library.lookupFunction<_RemoteAddNative, RemoteAddDart>(
+        'gbm_remote_add',
+      ),
+      remoteRemove = library
+          .lookupFunction<_RemoteRemoveNative, RemoteRemoveDart>(
+            'gbm_remote_remove',
+          ),
       requestCompareWithWorkingCopy = library
           .lookupFunction<
             _RequestCompareWithWorkingCopyNative,
@@ -1763,6 +1780,8 @@ class GbmBindings {
   final RequestCompareFileDiffDart requestCompareFileDiff;
   final RequestRemotePrunePreviewDart requestRemotePrunePreview;
   final RemotePruneDart remotePrune;
+  final RemoteAddDart remoteAdd;
+  final RemoteRemoveDart remoteRemove;
   final RequestCompareWithWorkingCopyDart requestCompareWithWorkingCopy;
   final RequestFileHistoryDart requestFileHistory;
   final RequestLineHistoryDart requestLineHistory;

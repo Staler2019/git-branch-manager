@@ -293,5 +293,50 @@ TEST_F(RemoteApiTest, PruneDeletesExactlyTheSelectedRemoteTrackingRef) {
     EXPECT_EQ(runGit({"rev-parse", "--verify", "origin/main"}), 0);
 }
 
+TEST_F(RemoteApiTest, AddRemoteAddsANewRemote) {
+    const std::filesystem::path upstream = remote_.parent_path() / "gbm-capi-remote-upstream";
+    std::error_code ec;
+    std::filesystem::remove_all(upstream, ec);
+    ASSERT_EQ(runIn(upstream.parent_path(), {"init", "--quiet", "--bare", upstream.string()}), 0);
+
+    gbm_remote_add(session_, "upstream", upstream.string().c_str());
+    ASSERT_TRUE(waitForOperationFinished(log_));
+
+    const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_OPERATION_FINISHED);
+    EXPECT_NE(outcome.find("\"succeeded\":true"), std::string::npos) << outcome;
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_REMOTES_UPDATED); }));
+    const std::string json = remotesJson();
+    EXPECT_NE(json.find("\"name\":\"upstream\""), std::string::npos) << json;
+
+    std::filesystem::remove_all(upstream, ec);
+}
+
+TEST_F(RemoteApiTest, AddRemoteFailsWhenNameAlreadyExists) {
+    gbm_remote_add(session_, "origin", remote_.string().c_str());
+    ASSERT_TRUE(waitForOperationFinished(log_));
+
+    const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_OPERATION_FINISHED);
+    EXPECT_NE(outcome.find("\"succeeded\":false"), std::string::npos) << outcome;
+}
+
+TEST_F(RemoteApiTest, RemoveRemoteRemovesIt) {
+    gbm_remote_remove(session_, "origin");
+    ASSERT_TRUE(waitForOperationFinished(log_));
+
+    const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_OPERATION_FINISHED);
+    EXPECT_NE(outcome.find("\"succeeded\":true"), std::string::npos) << outcome;
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_REMOTES_UPDATED); }));
+    const std::string json = remotesJson();
+    EXPECT_EQ(json.find("\"name\":\"origin\""), std::string::npos) << json;
+}
+
+TEST_F(RemoteApiTest, RemoveRemoteFailsWhenNoSuchRemote) {
+    gbm_remote_remove(session_, "does-not-exist");
+    ASSERT_TRUE(waitForOperationFinished(log_));
+
+    const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_OPERATION_FINISHED);
+    EXPECT_NE(outcome.find("\"succeeded\":false"), std::string::npos) << outcome;
+}
+
 }  // namespace
 }  // namespace gbm::capi

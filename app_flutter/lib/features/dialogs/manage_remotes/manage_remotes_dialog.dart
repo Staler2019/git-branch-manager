@@ -12,10 +12,9 @@ import '../../../widgets/gbm_dialog_shell.dart';
 
 /// The Dart analog of the remote-sync half of `PushPullDialog`/repository
 /// settings (src/app/dialogs). Routed as
-/// `/repo/:repoId/dialogs/manage-remotes`. Only lists and syncs against
-/// remotes that already exist (`git remote add`/`remove` are not yet part
-/// of the capi surface -- see src/core/git/ops/RemoteOps.h, which only
-/// covers list/fetch/pull/push).
+/// `/repo/:repoId/dialogs/manage-remotes`. Lists, syncs, adds, and removes
+/// remotes -- see src/core/git/ops/RemoteOps.h's makeAddRemoteOperation()/
+/// makeRemoveRemoteOperation().
 class ManageRemotesDialogContent extends ConsumerStatefulWidget {
   const ManageRemotesDialogContent({super.key, required this.identity});
 
@@ -38,6 +37,14 @@ class _ManageRemotesDialogContentState
     );
   }
 
+  Future<void> _addRemote(BuildContext context) async {
+    final ({String name, String url})? result = await _promptAddRemote(context);
+    if (result == null || !mounted) return;
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .addRemote(result.name, result.url);
+  }
+
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
@@ -49,6 +56,7 @@ class _ManageRemotesDialogContentState
       title: 'Remotes',
       width: 640,
       actions: <Widget>[
+        GbmButton(label: 'Add remote…', onPressed: () => _addRemote(context)),
         GbmButton(label: 'Close', onPressed: () => context.pop()),
       ],
       child: SizedBox(
@@ -143,8 +151,89 @@ class _RemoteRow extends ConsumerWidget {
               ),
             ),
           ),
+          TextButton(
+            onPressed: () => ref
+                .read(repoSessionProvider(identity).notifier)
+                .removeRemote(remote.name),
+            child: Text(
+              'Remove',
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                color: colors.danger,
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
+}
+
+/// Prompts for both a name and a URL at once -- unlike every other
+/// branch/tag rename/create flow, adding a remote genuinely needs two
+/// values, so this doesn't fit promptText's single-field shape. Returns
+/// null if cancelled, or either field is left empty.
+Future<({String name, String url})?> _promptAddRemote(BuildContext context) {
+  final TextEditingController nameController = TextEditingController();
+  final TextEditingController urlController = TextEditingController();
+  return showDialog<({String name, String url})>(
+    context: context,
+    builder: (dialogContext) {
+      final GbmColors colors = dialogContext.gbmColors;
+      ({String name, String url})? resultFromControllers() {
+        final String name = nameController.text.trim();
+        final String url = urlController.text.trim();
+        return name.isEmpty || url.isEmpty ? null : (name: name, url: url);
+      }
+
+      // Only pops on a valid result -- leaving the dialog open (with
+      // whatever the user already typed still in place) is the signal
+      // that a required field is missing, rather than silently discarding
+      // the input by closing anyway.
+      void submitIfValid() {
+        final ({String name, String url})? result = resultFromControllers();
+        if (result != null) {
+          Navigator.of(dialogContext).pop(result);
+        }
+      }
+
+      return AlertDialog(
+        title: const Text('Add Remote'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            TextField(
+              controller: nameController,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Name',
+                isDense: true,
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: GbmSpacing.space2),
+            TextField(
+              controller: urlController,
+              decoration: const InputDecoration(
+                labelText: 'URL',
+                isDense: true,
+                border: OutlineInputBorder(),
+              ),
+              onSubmitted: (_) => submitIfValid(),
+            ),
+          ],
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: colors.textSecondary),
+            ),
+          ),
+          TextButton(onPressed: submitIfValid, child: const Text('Add')),
+        ],
+      );
+    },
+  );
 }

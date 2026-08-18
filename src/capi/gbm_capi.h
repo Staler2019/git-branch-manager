@@ -761,6 +761,17 @@ GBM_API void gbm_remote_prune(GbmSessionHandle session,
                               const char* const* refs,
                               int32_t refCount);
 
+/// `git remote add <name> <url>`. Async: fires GBM_EVENT_OPERATION_FINISHED
+/// (same channel as gbm_remote_prune() -- adding a remote touches only repo
+/// config, not the working tree or index), and on success also triggers the
+/// same refresh gbm_remote_refresh() would.
+GBM_API void gbm_remote_add(GbmSessionHandle session, const char* name, const char* url);
+
+/// `git remote remove <name>`. Async: fires GBM_EVENT_OPERATION_FINISHED,
+/// and on success also triggers the same refresh gbm_remote_refresh()
+/// would.
+GBM_API void gbm_remote_remove(GbmSessionHandle session, const char* name);
+
 // --- Credential prompts (askpass) -------------------------------------
 // Answers or dismisses whichever prompt GBM_EVENT_CREDENTIAL_REQUESTED most
 // recently announced. A no-op if none is currently outstanding.

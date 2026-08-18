@@ -48,6 +48,46 @@ rather than a fully independent hand-written list. Either way, the four
 existing `*_menu_items.dart` files are the template to follow — they're
 the only groups this audit found zero drift in.
 
+### H2. Commit/Amend buttons don't react live to typing — only to an unrelated rebuild
+
+**File**: `lib/features/working_copy/working_copy_view.dart:59,65-68,471-474`
+
+*Found while writing `test/integration/workspace_states_table_test.dart`'s
+"Commit" STATES row coverage, not from static reading alone — the test
+failure is the evidence.*
+
+`canCommit` (line 471-474) reads `_summaryController.text` directly, and
+`_summaryController` is a plain `late TextEditingController` seeded once
+in `initState` (line 65-68) from `ref.read(workingCopyDraftProvider(...))`
+— a one-time read, not a watch. `CommitMessageBox`'s `onSummaryChanged`
+callback (wired at line 487) writes typed text back into that same
+provider via `ref.read(...).updateSummary(text)` — again a write, not a
+watch. Nothing in `_WorkingCopyViewState` calls `setState` (or
+`ref.watch`s something that changes) in response to
+`_summaryController`'s own text changing (confirmed by grep — the only
+`setState`/`addListener` calls in the file are for the diff-scroll
+controller and the side-by-side toggle, unrelated to the summary field).
+
+**Failure scenario**: a user opens Working Copy, stages a file, types a
+commit summary, and the Commit button stays visibly disabled — because
+`_buildCommitBox`'s `canCommit` was computed during the *last* actual
+`build()` call, which happened before any character was typed, and
+nothing after that triggers `WorkingCopyView` to rebuild. The button only
+catches up whenever some *unrelated* rebuild fires (e.g. a background
+`repoSessionProvider` update, or navigating away and back). This audit's
+own test proves the underlying gate logic (`canCommit`) is correct in
+isolation — pre-seeding the draft provider *before* the widget mounts
+produces an enabled button immediately — the defect is specifically the
+missing "text changed -> rebuild" wire-up, not the enable/disable
+condition itself.
+
+**Recommendation**: give `_WorkingCopyViewState` a listener on
+`_summaryController` that calls `setState(() {})` (mirroring the pattern
+already used for `_diffScrollController` at line 72), or drive
+`_buildCommitBox` off `ref.watch(workingCopyDraftProvider(...)).summary`
+instead of the raw controller so Riverpod's own rebuild-on-change does
+the work. Either fix is small and localized to this one file.
+
 ---
 
 ## MEDIUM
@@ -190,7 +230,7 @@ own cap, not in isolation.
 | Severity | Count | Items |
 |---|---|---|
 | CRITICAL | 0 | — |
-| HIGH | 1 | H1 (dead catalog file, root cause of 7/11 context-menu drift) |
+| HIGH | 2 | H1 (dead catalog file, root cause of 7/11 context-menu drift), H2 (Commit/Amend don't react live to typing -- found while writing Phase 3's STATES-table test) |
 | MEDIUM | 3 | M1 (`_MoreMenu` unbounded growth + 2 duplicate entries), M2 (stale doc comment), M3 (label casing) |
 | LOW/INFO | 3 | L1–L3, all "checked, not a defect" or "spec-mismatch not code-defect" — recorded so CLAUDE.md's Known Gaps can be updated accurately in Phase 5 |
 

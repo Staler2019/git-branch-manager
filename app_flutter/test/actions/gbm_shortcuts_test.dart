@@ -90,5 +90,27 @@ void main() {
       expect(shortcutsMacOS.containsKey(GbmActionId.fileExit), isFalse);
       expect(shortcutsNonMacOS.containsKey(GbmActionId.fileExit), isFalse);
     });
+
+    test(
+      'branchRenameCurrentBranch is bound to F2, per spec DIALOGS\' Rename '
+      'branch entry (from 05-B -> Rename…) and CTX 05-B\'s own "Rename…" '
+      'key column',
+      () {
+        final shortcuts = gbmActionShortcuts(false);
+        final GbmKeyboardShortcut rename =
+            shortcuts[GbmActionId.branchRenameCurrentBranch]!;
+        expect(rename.trigger, LogicalKeyboardKey.f2);
+      },
+      // Real gap, tracked in docs/reports/spec-conformance-matrix.md
+      // (Page 04, shortcuts table): unlike editFindInFiles and
+      // branchStashChanges (both absent because spec's own MENUS table
+      // double-assigns their key to something else), F2 is not claimed
+      // by any other spec shortcut -- this is a genuine, unexplained
+      // omission, not a spec-internal collision. It also compounds with
+      // the "Rename branch" dialog route being entirely missing (same
+      // matrix page). Remove `skip: true` once F2 is wired to
+      // branchRenameCurrentBranch.
+      skip: true,
+    );
   });
 }

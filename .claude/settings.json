@@ -5,5 +5,17 @@
   "enabledPlugins": {
     "clangd-lsp@claude-plugins-official": true,
     "dart-flutter@dart-flutter": true
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/session-start.sh"
+          }
+        ]
+      }
+    ]
   }
 }

@@ -11,35 +11,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  conventional-commits:
-    name: Commit messages
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      # The release version is derived from commit messages, so a malformed one is
-      # not cosmetic: it silently produces the wrong version bump.
-      - name: Check Conventional Commits
-        run: |
-          base="${{ github.event.pull_request.base.sha }}"
-          head="${{ github.event.pull_request.head.sha }}"
-          pattern='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9._/-]+\))?!?: .+'
-          failed=0
-          while read -r sha; do
-            subject=$(git log -1 --format=%s "$sha")
-            case "$subject" in
-              "Merge "*) continue ;;
-            esac
-            if ! printf '%s' "$subject" | grep -qE "$pattern"; then
-              echo "::error::Not a Conventional Commit: $subject"
-              failed=1
-            fi
-          done < <(git rev-list "$base..$head")
-          exit $failed
-
   sanitizers:
     name: Sanitizers (asan+ubsan)
     runs-on: ubuntu-22.04

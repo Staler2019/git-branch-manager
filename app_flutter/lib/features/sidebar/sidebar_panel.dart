@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../actions/gbm_action_availability.dart';
 import '../../actions/gbm_action_id.dart';
 import '../../data/models/ref_snapshot.dart';
+import '../../data/models/remote_info.dart';
 import '../../data/models/stash_entry.dart';
 import '../../data/repositories/branch_repository.dart';
 import '../../data/repositories/compare_tabs_repository.dart';
@@ -181,6 +182,32 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     ref
         .read(repoSessionProvider(widget.identity).notifier)
         .dropStash(stash.index);
+  }
+
+  void _checkoutTagDetached(RefInfo tag) {
+    checkoutBranch(ref, widget.identity, tag.shortName, detach: true);
+  }
+
+  void _pushTag(RefInfo tag, RemoteInfo remote) {
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .pushTag(remote.name, name: tag.shortName);
+  }
+
+  // Same `left: <ref string>` mechanism as _compareStash -- a tag name is
+  // already a valid ref on its own.
+  void _compareTag(RefInfo tag) {
+    final String repoId = Uri.encodeComponent(widget.identity.workDir);
+    final String tabId = ref
+        .read(compareTabsProvider(widget.identity).notifier)
+        .open(left: tag.shortName);
+    context.go(RoutePaths.compareFor(repoId, tabId));
+  }
+
+  void _deleteTag(RefInfo tag) {
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .deleteTag(tag.shortName);
   }
 
   void _openStashContextMenu(
@@ -557,11 +584,13 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                               ),
                               child: BranchTreeItem(
                                 ref: tag,
-                                onCheckout: () => checkoutBranch(
-                                  ref,
-                                  widget.identity,
-                                  tag.shortName,
-                                ),
+                                onCheckout: () => _checkoutTagDetached(tag),
+                                onPushTag: session.remotes.length == 1
+                                    ? () =>
+                                          _pushTag(tag, session.remotes.single)
+                                    : null,
+                                onCompareRef: () => _compareTag(tag),
+                                onDeleteTag: () => _deleteTag(tag),
                                 // Sourced from isActionEnabled(), not
                                 // session.conflictActive directly -- single
                                 // source of truth for checkout availability.

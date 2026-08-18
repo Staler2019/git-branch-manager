@@ -62,6 +62,23 @@ RefInfo _goneBranch({String name = 'feature/gone'}) {
   );
 }
 
+RefInfo _tag({String name = 'v1.0.0'}) {
+  return RefInfo(
+    fullName: 'refs/tags/$name',
+    shortName: name,
+    kind: RefKind.tag,
+    target: 'a' * 40,
+    upstream: '',
+    ahead: 0,
+    behind: 0,
+    hasTrackingInfo: false,
+    isGone: false,
+    isHead: false,
+    isSymbolic: false,
+    worktreePath: '',
+  );
+}
+
 Future<void> _rightClick(WidgetTester tester, Finder finder) async {
   final TestGesture gesture = await tester.createGesture(
     kind: PointerDeviceKind.mouse,
@@ -375,5 +392,152 @@ void main() {
         );
       },
     );
+  });
+
+  group('tag row (05-D)', () {
+    testWidgets('shows the 05-D tag menu, not the 05-B local-branch menu', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        BranchTreeItem(
+          ref: _tag(),
+          onCheckout: () {},
+          onPushTag: () {},
+          onCompareRef: () {},
+          onDeleteTag: () {},
+        ),
+      );
+      await _rightClick(tester, find.byType(BranchTreeItem));
+
+      expect(find.text('Checkout tag (detached)'), findsOneWidget);
+      expect(find.text('Push tag'), findsOneWidget);
+      expect(find.text('Compare with…'), findsOneWidget);
+      expect(find.text('Copy tag name'), findsOneWidget);
+      expect(find.text('Delete tag…'), findsOneWidget);
+      expect(find.text('Rename branch'), findsNothing);
+      expect(find.text('Delete branch'), findsNothing);
+      expect(find.text('Merge into current branch'), findsNothing);
+    });
+
+    testWidgets('Delete tag… is styled danger', (tester) async {
+      await _pump(
+        tester,
+        BranchTreeItem(
+          ref: _tag(),
+          onCheckout: () {},
+          onCompareRef: () {},
+          onDeleteTag: () {},
+        ),
+      );
+      await _rightClick(tester, find.byType(BranchTreeItem));
+      final Text label = tester.widget<Text>(find.text('Delete tag…'));
+      expect(
+        label.style?.color,
+        tokensFor(GbmThemeVariant.darkTechnical).danger,
+      );
+    });
+
+    testWidgets('tapping Checkout tag (detached) invokes onCheckout', (
+      tester,
+    ) async {
+      bool checkedOut = false;
+      await _pump(
+        tester,
+        BranchTreeItem(
+          ref: _tag(),
+          onCheckout: () => checkedOut = true,
+          onCompareRef: () {},
+          onDeleteTag: () {},
+        ),
+      );
+      await _rightClick(tester, find.byType(BranchTreeItem));
+      await tester.tap(find.text('Checkout tag (detached)'));
+      await tester.pumpAndSettle();
+      expect(checkedOut, isTrue);
+    });
+
+    testWidgets(
+      'Checkout tag (detached) is disabled (no onTap) while conflictActive, '
+      'Push tag stays unaffected',
+      (tester) async {
+        await _pump(
+          tester,
+          BranchTreeItem(
+            ref: _tag(),
+            onCheckout: () {},
+            onPushTag: () {},
+            onCompareRef: () {},
+            onDeleteTag: () {},
+            conflictActive: true,
+          ),
+        );
+        await _rightClick(tester, find.byType(BranchTreeItem));
+
+        // Disabled -- absence of a thrown callback on tap is the
+        // assertion, same pattern as the 05-C conflictActive case above.
+        await tester.tap(find.text('Checkout tag (detached)'));
+        await tester.pumpAndSettle();
+        expect(find.text('Checkout tag (detached)'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'Push tag still reaches onPushTag while conflictActive -- unlike '
+      'Checkout, it never touches HEAD or the working tree',
+      (tester) async {
+        bool pushed = false;
+        await _pump(
+          tester,
+          BranchTreeItem(
+            ref: _tag(),
+            onCheckout: () {},
+            onPushTag: () => pushed = true,
+            onCompareRef: () {},
+            onDeleteTag: () {},
+            conflictActive: true,
+          ),
+        );
+        await _rightClick(tester, find.byType(BranchTreeItem));
+        await tester.tap(find.text('Push tag'));
+        await tester.pumpAndSettle();
+        expect(pushed, isTrue);
+      },
+    );
+
+    testWidgets('Push tag is disabled (no onTap) when onPushTag is null', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        BranchTreeItem(
+          ref: _tag(),
+          onCheckout: () {},
+          onCompareRef: () {},
+          onDeleteTag: () {},
+        ),
+      );
+      await _rightClick(tester, find.byType(BranchTreeItem));
+      await tester.tap(find.text('Push tag'));
+      await tester.pumpAndSettle();
+      expect(find.text('Push tag'), findsNothing);
+    });
+
+    testWidgets('tapping Delete tag… invokes onDeleteTag', (tester) async {
+      bool deleted = false;
+      await _pump(
+        tester,
+        BranchTreeItem(
+          ref: _tag(),
+          onCheckout: () {},
+          onCompareRef: () {},
+          onDeleteTag: () => deleted = true,
+        ),
+      );
+      await _rightClick(tester, find.byType(BranchTreeItem));
+      await tester.tap(find.text('Delete tag…'));
+      await tester.pumpAndSettle();
+      expect(deleted, isTrue);
+    });
   });
 }

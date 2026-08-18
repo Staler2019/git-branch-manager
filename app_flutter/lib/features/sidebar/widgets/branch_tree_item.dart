@@ -7,6 +7,7 @@ import '../../../theme/ref_chip_colors.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_menu.dart';
 import '../../../widgets/lucide_icon.dart';
+import 'tag_menu_items.dart';
 
 class BranchTreeItem extends StatelessWidget {
   const BranchTreeItem({
@@ -21,6 +22,9 @@ class BranchTreeItem extends StatelessWidget {
     this.onMerge,
     this.onPruneRef,
     this.onDeleteOnRemote,
+    this.onPushTag,
+    this.onCompareRef,
+    this.onDeleteTag,
     this.conflictActive = false,
   });
 
@@ -59,10 +63,20 @@ class BranchTreeItem extends StatelessWidget {
   final VoidCallback? onPruneRef;
   final VoidCallback? onDeleteOnRemote;
 
+  /// 05-D actions -- see [_buildMenuItems]'s branch on
+  /// `ref.kind == RefKind.tag`. [onPushTag] is nullable; see
+  /// tag_menu_items.dart's `onPush` doc comment for why (no single
+  /// unambiguous remote to push to).
+  final VoidCallback? onPushTag;
+  final VoidCallback? onCompareRef;
+  final VoidCallback? onDeleteTag;
+
   /// Whether [ref] is a "remote-only" leaf -- see
   /// `branch_tree_builder.dart`'s `mergeLocalAndRemoteBranches` doc comment
   /// -- rather than a real local branch.
   bool get _isRemoteOnly => ref.kind == RefKind.remoteBranch;
+
+  bool get _isTag => ref.kind == RefKind.tag;
 
   @override
   Widget build(BuildContext context) {
@@ -295,6 +309,18 @@ class BranchTreeItem extends StatelessWidget {
   /// so they are left off rather than wired to something that silently does
   /// the wrong thing.
   List<GbmMenuItem> _buildMenuItems() {
+    if (_isTag) {
+      return tagMenuItems(
+        tagName: ref.shortName,
+        onCheckoutDetached: conflictActive ? null : onCheckout,
+        onPush: onPushTag,
+        // Always wired by SidebarPanel for a tag row -- unlike onPushTag,
+        // neither has a "sometimes genuinely unavailable" case (see
+        // tag_menu_items.dart's doc comment).
+        onCompare: onCompareRef!,
+        onDelete: onDeleteTag!,
+      );
+    }
     if (_isRemoteOnly) {
       return _buildRemoteOnlyMenuItems();
     }

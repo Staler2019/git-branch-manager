@@ -24,6 +24,7 @@ void checkoutBranch(
   String target, {
   bool createBranch = false,
   String newBranchName = '',
+  bool detach = false,
 }) {
   ref
       .read(repoSessionProvider(identity).notifier)
@@ -31,5 +32,6 @@ void checkoutBranch(
         target: target,
         createBranch: createBranch,
         newBranchName: newBranchName,
+        detach: detach,
       );
 }

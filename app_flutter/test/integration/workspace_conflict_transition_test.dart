@@ -23,6 +23,8 @@ import 'package:gbm_flutter/data/models/repo_state.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
+import 'package:gbm_flutter/features/workspace/workspace_screen.dart'
+    show ConflictBanner;
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
 
@@ -113,6 +115,25 @@ RepoSessionState _conflictSession() => RepoSessionState(
   isOpen: true,
   refs: _refsWithFeatureBranch,
   repoState: _mergeState(),
+  workingCopyStatus: const WorkingCopyStatus(entries: [_conflictEntry]),
+);
+
+RepoState _revertState() => const RepoState(
+  flags: RepoStateFlags.revert,
+  isClean: false,
+  isSequencerOperation: true,
+  rebaseStep: 0,
+  rebaseTotal: 0,
+  rebaseOntoLabel: '',
+  indexLocked: false,
+  indexLockAgeSeconds: null,
+  describe: 'reverting',
+);
+
+RepoSessionState _revertSession() => RepoSessionState(
+  isOpen: true,
+  refs: _refsWithFeatureBranch,
+  repoState: _revertState(),
   workingCopyStatus: const WorkingCopyStatus(entries: [_conflictEntry]),
 );
 
@@ -246,6 +267,54 @@ void main() {
             (c) => c.name == 'checkout' && c.args['target'] == 'feature',
           ),
           isTrue,
+        );
+      },
+    );
+
+    testWidgets(
+      'revert: invoking the dispatchers behind ConflictBanner\'s disabled '
+      'Abort/Skip/Continue reaches no backend command',
+      (tester) async {
+        // ConflictBanner disables all three buttons for revert (see
+        // conflict_banner_test.dart's "revert: Abort, Skip, and Continue
+        // all disabled" case), so a real tap can never trigger
+        // WorkspaceScreen._handleConflictAbort/Skip/Continue for this
+        // state. Those dispatchers are private, but the closures they
+        // produce are exposed publicly through ConflictBanner.onAbort/
+        // onSkip/onContinue -- calling those fields directly reaches the
+        // real exhaustive switch without going through the disabled
+        // button, proving the revert branch is a genuine no-op rather
+        // than falling through to a rebase/cherry-pick backend call.
+        //
+        // This is a real regression lock, not a formality: before the
+        // dispatchers were rewritten as exhaustive switches (Commit 4 of
+        // the sequencer-kind consolidation), the implicit "anything that
+        // isn't merge/cherry-pick -> rebase" fallback meant this exact
+        // sequence would have logged 'abortRebase' on the fake.
+        final pumped = await pumpWorkspace(
+          tester,
+          identity: _identity,
+          initialState: _revertSession(),
+        );
+
+        final ConflictBanner banner = tester.widget<ConflictBanner>(
+          find.byType(ConflictBanner),
+        );
+
+        banner.onAbort();
+        banner.onSkip();
+        banner.onContinue();
+        await tester.pumpAndSettle();
+
+        expect(
+          pumped.controller.commandLog,
+          isEmpty,
+          reason:
+              'Revert has no backend abort/skip/continue entry point (see '
+              'RevertOps.h); the exhaustive switch in '
+              '_handleConflictAbort/Skip/Continue must no-op for '
+              'SequencerOperationKind.revert instead of mis-dispatching to '
+              'a rebase or cherry-pick command.',
         );
       },
     );

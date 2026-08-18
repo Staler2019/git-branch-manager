@@ -15,7 +15,9 @@ import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/gbm_button.dart';
+import '../../widgets/gbm_menu.dart';
 import '../../widgets/split_pane.dart';
+import 'conflict_hunk_menu_items.dart';
 import 'conflict_line_order.dart';
 import 'conflict_resolve_logic.dart';
 import 'original_operation_message_dialog.dart';
@@ -844,6 +846,11 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
           regionIndex: thisRegion,
           source: ConflictLineSource.ours,
           onApplyLines: _appendLines,
+          otherSource: ConflictLineSource.theirs,
+          otherSideLines: segment.theirs,
+          onReset: () => _resetRegion(thisRegion),
+          hasResult:
+              _lineOrder?.getOrderedLines(thisRegion).isNotEmpty ?? false,
         ),
       );
     }
@@ -904,6 +911,11 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
           regionIndex: thisRegion,
           source: ConflictLineSource.theirs,
           onApplyLines: _appendLines,
+          otherSource: ConflictLineSource.ours,
+          otherSideLines: segment.ours,
+          onReset: () => _resetRegion(thisRegion),
+          hasResult:
+              _lineOrder?.getOrderedLines(thisRegion).isNotEmpty ?? false,
         ),
       );
     }
@@ -1587,6 +1599,10 @@ class _SidePane extends StatefulWidget {
     required this.regionIndex,
     required this.source,
     required this.onApplyLines,
+    required this.otherSource,
+    required this.otherSideLines,
+    required this.onReset,
+    required this.hasResult,
   });
 
   final String label;
@@ -1598,12 +1614,57 @@ class _SidePane extends StatefulWidget {
   final Function(int regionIndex, ConflictLineSource source, List<String> lines)
   onApplyLines;
 
+  /// 05-I "Take both — this side first" needs the other side's lines to
+  /// append after this side's own -- this pane otherwise only knows about
+  /// [lines], its own side.
+  final ConflictLineSource otherSource;
+  final List<String> otherSideLines;
+
+  /// 05-I "Discard from result" -- the same whole-region reset
+  /// `_ResultPane`'s own "Reset" button calls, exposed here too so a
+  /// right-click on either side pane can reach it without navigating to
+  /// the result pane first.
+  final VoidCallback onReset;
+
+  /// Gates "Discard from result": true once this region has at least one
+  /// line in its result, mirroring `_ResultPane`'s own `if (resolved)`
+  /// guard on rendering its Reset button at all.
+  final bool hasResult;
+
   @override
   State<_SidePane> createState() => _SidePaneState();
 }
 
 class _SidePaneState extends State<_SidePane> {
   bool _hovered = false;
+
+  void _openHunkContextMenu(TapDownDetails details, String line) {
+    showGbmContextMenu(
+      context,
+      details.globalPosition,
+      conflictHunkMenuItems(
+        onTakeThisSide: () => widget.onApplyLines(
+          widget.regionIndex,
+          widget.source,
+          widget.lines,
+        ),
+        onTakeThisLineOnly: () => widget.onApplyLines(
+          widget.regionIndex,
+          widget.source,
+          <String>[line],
+        ),
+        onTakeBoth: () {
+          widget.onApplyLines(widget.regionIndex, widget.source, widget.lines);
+          widget.onApplyLines(
+            widget.regionIndex,
+            widget.otherSource,
+            widget.otherSideLines,
+          );
+        },
+        onDiscardFromResult: widget.hasResult ? widget.onReset : null,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1686,22 +1747,26 @@ class _SidePaneState extends State<_SidePane> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   for (final line in widget.lines)
-                    InkWell(
-                      onTap: () => widget.onApplyLines(
-                        widget.regionIndex,
-                        widget.source,
-                        [line],
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          vertical: GbmSpacing.space1,
+                    GestureDetector(
+                      onSecondaryTapDown: (TapDownDetails details) =>
+                          _openHunkContextMenu(details, line),
+                      child: InkWell(
+                        onTap: () => widget.onApplyLines(
+                          widget.regionIndex,
+                          widget.source,
+                          [line],
                         ),
-                        child: Text(
-                          line,
-                          style: TextStyle(
-                            fontFamily: GbmTypography.fontMono,
-                            fontSize: GbmTypography.textSm,
-                            color: colors.textPrimary,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            vertical: GbmSpacing.space1,
+                          ),
+                          child: Text(
+                            line,
+                            style: TextStyle(
+                              fontFamily: GbmTypography.fontMono,
+                              fontSize: GbmTypography.textSm,
+                              color: colors.textPrimary,
+                            ),
                           ),
                         ),
                       ),

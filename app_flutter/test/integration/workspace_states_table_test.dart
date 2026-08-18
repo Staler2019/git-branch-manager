@@ -157,9 +157,9 @@ Future<PumpedWorkspace> _pumpAtWorkingCopy(
 /// `WorkingCopyView` itself (see this file's own note below on why it does
 /// not, discovered while writing this test).
 Override _draftWithSummary(String summary) {
-  return workingCopyDraftProvider(_identity).overrideWith(
-    (ref) => WorkingCopyDraftController()..updateSummary(summary),
-  );
+  return workingCopyDraftProvider(
+    _identity,
+  ).overrideWith((ref) => WorkingCopyDraftController()..updateSummary(summary));
 }
 
 void main() {
@@ -168,13 +168,12 @@ void main() {
   ).extension<GbmColors>()!;
 
   group('spec page 07 STATES table -- "Working copy" row', () {
-    testWidgets(
-      'clean: no CONFLICTED section above unstaged/staged',
-      (tester) async {
-        await _pumpAtWorkingCopy(tester, _cleanSession());
-        expect(find.text('CONFLICTED'), findsNothing);
-      },
-    );
+    testWidgets('clean: no CONFLICTED section above unstaged/staged', (
+      tester,
+    ) async {
+      await _pumpAtWorkingCopy(tester, _cleanSession());
+      expect(find.text('CONFLICTED'), findsNothing);
+    });
 
     testWidgets(
       'conflict: a CONFLICTED section is pinned above unstaged/staged, '
@@ -243,7 +242,11 @@ void main() {
   group('spec page 07 STATES table -- "Status bar" row', () {
     testWidgets('clean: StatusBar renders the ordinary surfacePanel '
         'background, not the danger tint', (tester) async {
-      await pumpWorkspace(tester, identity: _identity, initialState: _cleanSession());
+      await pumpWorkspace(
+        tester,
+        identity: _identity,
+        initialState: _cleanSession(),
+      );
 
       final Container container = tester.widget<Container>(
         find
@@ -257,55 +260,47 @@ void main() {
       expect(decoration.color, colors.surfacePanel);
     });
 
-    testWidgets(
-      'conflict: StatusBar background switches to the danger tint '
-      '(colors.danger at 15% alpha, per status_bar.dart)',
-      (tester) async {
-        await pumpWorkspace(
-          tester,
-          identity: _identity,
-          initialState: _conflictSession(),
-        );
+    testWidgets('conflict: StatusBar background switches to the danger tint '
+        '(colors.danger at 15% alpha, per status_bar.dart)', (tester) async {
+      await pumpWorkspace(
+        tester,
+        identity: _identity,
+        initialState: _conflictSession(),
+      );
 
-        final Container container = tester.widget<Container>(
-          find
-              .descendant(
-                of: find.byType(StatusBar),
-                matching: find.byType(Container),
-              )
-              .first,
-        );
-        final BoxDecoration decoration =
-            container.decoration! as BoxDecoration;
-        expect(decoration.color, colors.danger.withValues(alpha: 0.15));
-      },
-    );
+      final Container container = tester.widget<Container>(
+        find
+            .descendant(
+              of: find.byType(StatusBar),
+              matching: find.byType(Container),
+            )
+            .first,
+      );
+      final BoxDecoration decoration = container.decoration! as BoxDecoration;
+      expect(decoration.color, colors.danger.withValues(alpha: 0.15));
+    });
 
-    testWidgets(
-      'conflict -> clean round trip: the danger tint clears with no '
-      'residue',
-      (tester) async {
-        final PumpedWorkspace pumped = await pumpWorkspace(
-          tester,
-          identity: _identity,
-          initialState: _conflictSession(),
-        );
+    testWidgets('conflict -> clean round trip: the danger tint clears with no '
+        'residue', (tester) async {
+      final PumpedWorkspace pumped = await pumpWorkspace(
+        tester,
+        identity: _identity,
+        initialState: _conflictSession(),
+      );
 
-        pumped.controller.emit(_cleanSession());
-        await tester.pumpAndSettle();
+      pumped.controller.emit(_cleanSession());
+      await tester.pumpAndSettle();
 
-        final Container container = tester.widget<Container>(
-          find
-              .descendant(
-                of: find.byType(StatusBar),
-                matching: find.byType(Container),
-              )
-              .first,
-        );
-        final BoxDecoration decoration =
-            container.decoration! as BoxDecoration;
-        expect(decoration.color, colors.surfacePanel);
-      },
-    );
+      final Container container = tester.widget<Container>(
+        find
+            .descendant(
+              of: find.byType(StatusBar),
+              matching: find.byType(Container),
+            )
+            .first,
+      );
+      final BoxDecoration decoration = container.decoration! as BoxDecoration;
+      expect(decoration.color, colors.surfacePanel);
+    });
   });
 }

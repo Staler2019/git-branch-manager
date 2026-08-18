@@ -70,7 +70,9 @@ Future<void> _pump(WidgetTester tester, Widget child) =>
 /// widget-pump test, only what `showGbmContextMenu`/`showGbmMenu` paint.
 List<String> _visibleMenuLabels(WidgetTester tester) {
   return tester
-      .widgetList<Text>(find.descendant(of: find.byType(Overlay), matching: find.byType(Text)))
+      .widgetList<Text>(
+        find.descendant(of: find.byType(Overlay), matching: find.byType(Text)),
+      )
       .map((Text t) => t.data)
       .whereType<String>()
       .toList();
@@ -433,9 +435,7 @@ void main() {
         );
         await _rightClick(tester, find.byType(DiffLineView));
 
-        for (final String label in _specLabels(
-          GbmContextMenuTarget.diffLine,
-        )) {
+        for (final String label in _specLabels(GbmContextMenuTarget.diffLine)) {
           expect(find.text(label), findsOneWidget, reason: 'missing: $label');
         }
       },
@@ -487,28 +487,23 @@ void main() {
 
   group('05-J Branch folder (conforms, aside from the documented '
       'toggle-label split)', () {
-    test(
-      'branchFolderMenuItems matches the full 05-J catalog aside from the '
-      'Expand-all/Collapse-all state-dependent split',
-      () {
-        final List<GbmMenuItem> items = branchFolderMenuItems(
-          isExpanded: false,
-          onToggleExpand: () {},
-          onCopyPrefix: () {},
-          onDeleteMerged: () {},
-          onFetchFolder: () {},
-        );
-        final List<String> actual = items
-            .where((GbmMenuItem i) => !i.separator)
-            .map((GbmMenuItem i) => i.label)
-            .toList();
-        final List<String> spec = _specLabels(
-          GbmContextMenuTarget.branchFolder,
-        );
-        expect(actual.sublist(1), spec.sublist(1));
-        expect(actual.first, 'Expand all');
-      },
-    );
+    test('branchFolderMenuItems matches the full 05-J catalog aside from the '
+        'Expand-all/Collapse-all state-dependent split', () {
+      final List<GbmMenuItem> items = branchFolderMenuItems(
+        isExpanded: false,
+        onToggleExpand: () {},
+        onCopyPrefix: () {},
+        onDeleteMerged: () {},
+        onFetchFolder: () {},
+      );
+      final List<String> actual = items
+          .where((GbmMenuItem i) => !i.separator)
+          .map((GbmMenuItem i) => i.label)
+          .toList();
+      final List<String> spec = _specLabels(GbmContextMenuTarget.branchFolder);
+      expect(actual.sublist(1), spec.sublist(1));
+      expect(actual.first, 'Expand all');
+    });
   });
 
   group('05-K Commit file (real gap -- see matrix)', () {

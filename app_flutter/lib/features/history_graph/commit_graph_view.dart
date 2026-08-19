@@ -240,7 +240,7 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
               showGraph: query.isEmpty,
               selected: oid.isNotEmpty && oid == selectedOid,
               refChips: oid.isEmpty
-                  ? const <RefInfo>[]
+                  ? const <RefChipData>[]
                   : refChipsForCommit(refs, oid),
               isOwnCommit:
                   meta != null &&

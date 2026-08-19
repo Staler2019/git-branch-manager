@@ -757,9 +757,9 @@ a separate capi-only issue.
 
 ### Tier 1 fixes (fix/tier-1-spec-conformance-gaps)
 
-Issues #51–#53, the page-05 context-menu batch. Eight sequential commits on
-one branch (six for the issues themselves, then the follow-up defect and its
-docs), same as Tier 0. **All three issues' premises turned out to be
+Issues #51–#53, the page-05 context-menu batch. Nine sequential commits on
+one branch (six for the issues themselves, then the follow-up defect, its
+docs, and the device-tier e2e), same as Tier 0. **All three issues' premises turned out to be
 wrong in ways that moved the work**, so read this before re-reading their
 issue text:
 
@@ -824,6 +824,22 @@ blast-radius difference). `FakeRepoSessionController` gained a
 `discardLines` override for it. The line-mode copy also changed from "will
 be removed from the working copy" to "will be reverted": a discarded `-`
 line is one the working copy deleted, so discarding it restores the line.
+
+**All three flows then got real device-tier coverage** rather than the
+hand-check the plan had budgeted for:
+`integration_test/context_menu_flows_test.dart` drives them against the real
+`gbm_capi` and a real temp repo — 05-G asserts the bytes on disk (only the
+selected line reverted, the neighbouring insertion untouched, `git status`
+still ` M`), 05-F asserts the absolute path handed to the OS, 05-K asserts
+the router really lands on `ComparePage` with `CommitGraphView` gone. Two
+things about the harness came out of writing it, both now in
+`integration_test/README.md`: `build/native/libgbm_capi.dylib` is a *copy*,
+so a stale one loads happily and a new capi entry point appears to be a Dart
+bug; and these tests share the machine's real `shared_preferences`, where a
+`panelLayout.*` splitter ratio the developer once dragged made History's
+Changed files panel overlap the commit graph by ~28px — enough that a
+correct `tester.tap` silently missed its hit test. `pumpRealAppOn` now
+clears those keys, so geometry depends only on the code under test.
 
 Also noted while running the C++ suite:
 `UndoApiTest.UndoRefusesAfterSwitchingBranches` is flaky (~2 in 5, a 10s

@@ -65,7 +65,8 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
   void initState() {
     super.initState();
     final draft = ref.read(workingCopyDraftProvider(widget.identity));
-    _summaryController = TextEditingController(text: draft.summary);
+    _summaryController = TextEditingController(text: draft.summary)
+      ..addListener(_onSummaryChanged);
     _descriptionController = TextEditingController(text: draft.description);
     _diffScrollController = ScrollController(
       initialScrollOffset: draft.diffScrollOffset,
@@ -90,6 +91,20 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     ref
         .read(workingCopyDraftProvider(widget.identity).notifier)
         .updateDiffScrollOffset(_diffScrollController.offset);
+  }
+
+  /// Triggers a rebuild on every keystroke in the summary field, mirroring
+  /// [_onDiffScroll]'s listener pattern. Without this, [_buildCommitBox]'s
+  /// `canCommit` (which reads `_summaryController.text.trim()` directly,
+  /// not a watched provider) only recomputes on some *unrelated* rebuild --
+  /// e.g. staging a file -- not when the summary text itself changes, so
+  /// the Commit/Amend buttons stay stale until something else happens to
+  /// force a rebuild (code-review-2026-08.md H2). No state to update here;
+  /// `onSummaryChanged` (wired separately, below) already persists the text
+  /// into [workingCopyDraftProvider] -- this listener exists purely to make
+  /// `canCommit` re-evaluate.
+  void _onSummaryChanged() {
+    setState(() {});
   }
 
   @override

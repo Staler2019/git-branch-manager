@@ -152,10 +152,14 @@ Future<PumpedWorkspace> _pumpAtWorkingCopy(
 /// [WorkingCopyView.initState] seeds its summary `TextEditingController`
 /// from `ref.read(workingCopyDraftProvider(identity))` once, at mount time
 /// -- pre-populating the draft via provider override tests the "Commit"
-/// STATES row's actual gate logic (`canCommit`) directly, without depending
-/// on whether a later `tester.enterText` reliably triggers a rebuild of
-/// `WorkingCopyView` itself (see this file's own note below on why it does
-/// not, discovered while writing this test).
+/// STATES row's actual gate logic (`canCommit`) directly, independent of
+/// whether typing into the field triggers a rebuild. That rebuild-trigger
+/// path is its own concern, now covered separately by the `tester.enterText`
+/// test below (code-review-2026-08.md H2, fixed by `_onSummaryChanged`'s
+/// listener on `_summaryController` in `working_copy_view.dart`) -- kept as
+/// two distinct tests rather than one, since a provider-seeded mount can't
+/// tell "gate logic is right" apart from "typing rebuilds it", and a
+/// regression in either should fail independently of the other.
 Override _draftWithSummary(String summary) {
   return workingCopyDraftProvider(
     _identity,
@@ -237,6 +241,45 @@ void main() {
         expect(amendButton.onPressed, isNull);
       },
     );
+
+    testWidgets('clean: typing into the summary field alone (no other rebuild '
+        'trigger) enables Commit -- regression lock for H2 '
+        '(code-review-2026-08.md): _summaryController previously had no '
+        'listener wired to WorkingCopyView\'s own setState, so canCommit '
+        'only recomputed on some unrelated rebuild (e.g. staging a file), '
+        'not on the summary text itself changing', (tester) async {
+      // A staged file is already present via _cleanSession(); no summary
+      // yet, so Commit must start disabled.
+      await _pumpAtWorkingCopy(tester, _cleanSession());
+
+      GbmButton commitButton = tester.widget<GbmButton>(
+        find.widgetWithText(GbmButton, 'Commit'),
+      );
+      expect(
+        commitButton.onPressed,
+        isNull,
+        reason: 'no summary yet -- Commit should start disabled',
+      );
+
+      final Finder summaryField = find.byWidgetPredicate(
+        (Widget widget) =>
+            widget is TextField &&
+            widget.decoration?.hintText == 'Commit summary',
+      );
+      await tester.enterText(summaryField, 'A real summary');
+      await tester.pump();
+
+      commitButton = tester.widget<GbmButton>(
+        find.widgetWithText(GbmButton, 'Commit'),
+      );
+      expect(
+        commitButton.onPressed,
+        isNotNull,
+        reason:
+            'typing alone must trigger a rebuild that re-evaluates '
+            'canCommit -- no staging/other action happened in between',
+      );
+    });
   });
 
   group('spec page 07 STATES table -- "Status bar" row', () {

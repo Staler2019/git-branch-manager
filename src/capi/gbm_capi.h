@@ -1257,5 +1257,5 @@ GBM_API int32_t gbm_discovery_set_base_folder_enabled(GbmDiscoveryHandle discove
 /// would otherwise wrongly prune a subtree a deeper scan should now visit.
 /// Returns 0 on success, or a negative GbmErrorCode.
 GBM_API int32_t gbm_discovery_set_base_folder_depth(GbmDiscoveryHandle discovery,
-                                                     int64_t baseFolderId,
-                                                     int32_t maxDepth);
+                                                    int64_t baseFolderId,
+                                                    int32_t maxDepth);

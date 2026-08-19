@@ -18,6 +18,7 @@ import '../features/dialogs/delete_branch/delete_branch_dialog.dart';
 import '../features/dialogs/delete_branch_recovery/delete_branch_recovery_dialog.dart';
 import '../features/dialogs/delete_remote_branch/delete_remote_branch_dialog.dart';
 import '../features/dialogs/discard_changes/discard_changes_dialog.dart';
+import '../features/dialogs/discard_changes/discard_changes_request.dart';
 import '../features/dialogs/file_history/file_history_dialog.dart';
 import '../features/dialogs/force_push/force_push_dialog.dart';
 import '../features/dialogs/interactive_rebase/interactive_rebase_dialog.dart';
@@ -463,12 +464,15 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
           final RepoIdentity identity = repoIdentityFromRouteParam(
             state.pathParameters['repoId']!,
           );
-          // queryParametersAll, not queryParameters: the latter collapses a
-          // repeated key to its last value, which would silently discard all
-          // but one file of a multi-file selection.
+          // Whole-file (05-F) vs line-level (05-G) discard, and the refusal
+          // of anything in between, all live in the request factory --
+          // see discard_changes_request.dart for why a half-parsed line
+          // selection must not degrade into a whole-file one here.
           return DiscardChangesDialogContent(
             identity: identity,
-            paths: state.uri.queryParametersAll['path'] ?? const <String>[],
+            request: DiscardChangesRequest.fromQuery(
+              state.uri.queryParametersAll,
+            ),
           );
         },
       ),

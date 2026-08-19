@@ -226,8 +226,11 @@ const GbmContextMenuGroupSpec _commit = GbmContextMenuGroupSpec(
 );
 
 /// 05-F: File (staged / unstaged) in working copy (right-click file row -- EXISTS)
-/// 6 top-level items. Note: multi-select label pluralization (e.g. "Stage 3 files")
-/// is NOT yet implemented; this defines the singular form.
+/// 6 top-level items. This defines the singular form; the render site
+/// (`working_copy_file_menu_items.dart`) pluralizes Stage and Discard with a
+/// count when a multi-selection is right-clicked, per spec's own mock
+/// ("Stage 3 files" / "Discard changes in 3 files…"), while leaving Open
+/// file and Show in file manager singular exactly as that mock does.
 const GbmContextMenuGroupSpec _workingCopyFile = GbmContextMenuGroupSpec(
   id: '05-F',
   target: GbmContextMenuTarget.workingCopyFile,
@@ -238,7 +241,7 @@ const GbmContextMenuGroupSpec _workingCopyFile = GbmContextMenuGroupSpec(
     GbmContextMenuItemSpec(label: 'Show in file manager'),
     GbmContextMenuItemSpec(label: 'Open terminal here'),
     GbmContextMenuItemSpec(label: 'Copy path'),
-    GbmContextMenuItemSpec(label: 'Discard changes', isDanger: true),
+    GbmContextMenuItemSpec(label: 'Discard changes…', isDanger: true),
   ],
 );
 
@@ -270,9 +273,13 @@ const GbmContextMenuGroupSpec _historyCommitFile = GbmContextMenuGroupSpec(
   ],
 );
 
-/// 05-G: Diff line / line selection (right-click inside diff pane -- not yet wired)
-/// 5 top-level items. First item's label becomes "Stage N lines" when multiple
-/// lines are drag-selected (not yet implemented; use singular form for now).
+/// 05-G: Diff line / line selection (right-click inside diff pane -- EXISTS)
+/// 5 top-level items. This defines the singular form; the render site
+/// (`diff/widgets/diff_line_menu_items.dart`) pluralizes the first and last
+/// items with a count when multiple lines are selected, per spec's own mock
+/// ("Stage 12 lines" / "Discard 12 lines…"). `Stage hunk` and `Unstage hunk`
+/// are both listed here because spec lists both: the render site draws both
+/// and disables whichever direction does not apply.
 const GbmContextMenuGroupSpec _diffLine = GbmContextMenuGroupSpec(
   id: '05-G',
   target: GbmContextMenuTarget.diffLine,
@@ -282,7 +289,7 @@ const GbmContextMenuGroupSpec _diffLine = GbmContextMenuGroupSpec(
     GbmContextMenuItemSpec(label: 'Stage hunk'),
     GbmContextMenuItemSpec(label: 'Unstage hunk'),
     GbmContextMenuItemSpec(label: 'Copy lines'),
-    GbmContextMenuItemSpec(label: 'Discard', isDanger: true),
+    GbmContextMenuItemSpec(label: 'Discard…', isDanger: true),
   ],
 );
 

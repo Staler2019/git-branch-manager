@@ -1357,6 +1357,9 @@ class GbmBindings {
       unstageLines = library.lookupFunction<_StageLinesNative, StageLinesDart>(
         'gbm_unstage_lines',
       ),
+      discardLines = library.lookupFunction<_StageLinesNative, StageLinesDart>(
+        'gbm_discard_lines',
+      ),
       commitChanges = library
           .lookupFunction<_CommitChangesNative, CommitChangesDart>(
             'gbm_commit_changes',
@@ -1774,6 +1777,11 @@ class GbmBindings {
   final StageHunkDart unstageHunk;
   final StageLinesDart stageLines;
   final StageLinesDart unstageLines;
+
+  /// Same signature as the two above, but rewrites the work tree instead of
+  /// the index -- `git apply --reverse` without `--cached`. Destructive; see
+  /// gbm_discard_lines()'s doc comment in gbm_capi.h.
+  final StageLinesDart discardLines;
   final CommitChangesDart commitChanges;
   final StashRefreshDart stashRefresh;
   final StashesJsonDart stashesJson;

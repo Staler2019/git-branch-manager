@@ -4,9 +4,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../data/models/changed_file.dart';
+import '../../../data/repositories/compare_tabs_repository.dart';
 import '../../../data/repositories/file_list_view_mode_repository.dart';
 import '../../../data/repositories/history_repository.dart';
 import '../../../data/repositories/repo_identity.dart';
+import '../../../data/services/desktop_launcher.dart';
 import '../../../routing/route_paths.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
@@ -57,6 +59,34 @@ class ChangedFilesPanel extends ConsumerWidget {
           : (String path) => context.push(
               RoutePaths.blameDialogFor(identity.workDir, path: path),
             ),
+      // 05-K → "Compare with working copy". Opens a Compare tab with the
+      // commit on the left and Working Copy on the right (a null `right` is
+      // what CompareTabSpec means by that), then navigates to it -- the
+      // same two steps `sidebar_panel.dart`'s _compareStash/_compareTag take,
+      // `context.go` included: a Compare tab is a ShellRoute child, so
+      // pushing would stack it over History instead of switching to it.
+      //
+      // The right-clicked path is not passed along: gbm_capi's compare is
+      // per-ref, not per-file, and the tab's own file list lands on the file
+      // one click later.
+      onCompareWithWorkingCopy: selectedCommitOid == null
+          ? null
+          : (String _) {
+              final String tabId = ref
+                  .read(compareTabsProvider(identity).notifier)
+                  .open(left: selectedCommitOid);
+              context.go(
+                RoutePaths.compareFor(
+                  Uri.encodeComponent(identity.workDir),
+                  tabId,
+                ),
+              );
+            },
+      // 05-K → "Open terminal here". The repository work dir, matching what
+      // 05-A and 05-F already open -- a historical commit's file has no
+      // directory of its own to open a terminal in.
+      onOpenTerminal: (String _) =>
+          ref.read(desktopLauncherProvider).openTerminal(identity.workDir),
       // 05-K → More actions → "Restore file to this state". Needs the
       // commit's oid as well as the path, which is why it is bound here
       // rather than inside the presentational half.
@@ -85,8 +115,10 @@ class ChangedFilesPanelCore extends StatelessWidget {
     required this.files,
     required this.selectedPath,
     required this.onFileTap,
+    this.onCompareWithWorkingCopy,
     this.onFileHistory,
     this.onBlame,
+    this.onOpenTerminal,
     this.onRestoreToThisState,
     this.viewMode = FileListViewMode.list,
   });
@@ -101,8 +133,17 @@ class ChangedFilesPanelCore extends StatelessWidget {
   /// keep their prior behavior unchanged.
   final FileListViewMode viewMode;
   final ValueChanged<String>? onFileTap;
+
+  /// 05-K's "Compare with working copy". Null with no commit selected --
+  /// there is no left-hand ref to compare against.
+  final ValueChanged<String>? onCompareWithWorkingCopy;
   final ValueChanged<String>? onFileHistory;
   final ValueChanged<String>? onBlame;
+
+  /// 05-K's "Open terminal here". Takes the path for signature symmetry with
+  /// the others even though it opens the repository work dir; see the
+  /// container half for why.
+  final ValueChanged<String>? onOpenTerminal;
 
   /// 05-K's second-level "Restore file to this state". Null hides the entry
   /// (no commit selected), rather than showing a restore that has no source
@@ -186,10 +227,16 @@ class ChangedFilesPanelCore extends StatelessWidget {
     );
   }
 
-  /// 05-K (commit file) context menu items: view diff (via onFileTap), file
-  /// history, blame, copy path, and the second-level "Restore file to this
-  /// state". Still omits open-file-at-revision and save-this-revision, which
-  /// have no backing capi entry point.
+  /// 05-K (commit file) context menu items, in spec order: view diff (via
+  /// onFileTap), compare with working copy, file history, blame, open
+  /// terminal here, copy path, and the second-level "Restore file to this
+  /// state".
+  ///
+  /// Still omits "Open file at this revision" and "Save this revision as…"
+  /// (top level) and "Restore and stage"/"Export as patch…" (submenu):
+  /// reading a blob at a revision has no capi entry point at all, and the
+  /// `GbmMenuItem.submenu` flyout does not render yet (see gbm_menu.dart),
+  /// so the two submenu items would be unreachable even if they existed.
   List<GbmMenuItem> _buildMenuItems(String path) {
     return <GbmMenuItem>[
       GbmMenuItem(
@@ -197,6 +244,12 @@ class ChangedFilesPanelCore extends StatelessWidget {
         icon: Icons.difference,
         onTap: onFileTap == null ? null : () => onFileTap!(path),
       ),
+      if (onCompareWithWorkingCopy != null)
+        GbmMenuItem(
+          label: 'Compare with working copy',
+          icon: Icons.compare_arrows,
+          onTap: () => onCompareWithWorkingCopy!(path),
+        ),
       if (onFileHistory != null)
         GbmMenuItem(
           label: 'File history',
@@ -208,6 +261,12 @@ class ChangedFilesPanelCore extends StatelessWidget {
           label: 'Blame at this commit',
           icon: Icons.person_outline,
           onTap: () => onBlame!(path),
+        ),
+      if (onOpenTerminal != null)
+        GbmMenuItem(
+          label: 'Open terminal here',
+          icon: Icons.terminal,
+          onTap: () => onOpenTerminal!(path),
         ),
       GbmMenuItem(
         label: 'Copy path',

@@ -166,6 +166,12 @@ public:
                       std::size_t hunkIndex,
                       std::vector<std::size_t> lineIndices);
 
+    /// Async: see gbm_discard_lines()'s doc comment in gbm_capi.h. Unlike
+    /// the four above, this one rewrites the work tree.
+    void discardLines(std::string path,
+                      std::size_t hunkIndex,
+                      std::vector<std::size_t> lineIndices);
+
     /// Async: see gbm_commit_changes()'s doc comment in gbm_capi.h.
     void commitChanges(CommitRequest request);
 

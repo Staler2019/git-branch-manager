@@ -586,6 +586,31 @@ GBM_API void gbm_unstage_lines(GbmSessionHandle session,
                                const int32_t* lineIndices,
                                int32_t lineIndexCount);
 
+/// Discards a subset of a hunk's added/removed lines from the *work tree*
+/// -- context menu 05-G's "Discard N lines…". Same arguments as
+/// gbm_stage_lines(), and `lineIndices`/`lineIndexCount` index into the
+/// hunk's `lines` array the same way (empty discards the whole hunk).
+///
+/// The difference from gbm_unstage_lines() is which of the two things git
+/// tracks gets rewritten: the three functions above all run `git apply
+/// --cached`, so only the index moves and the file on disk is untouched.
+/// This one drops `--cached`, so git rewrites the file itself and the index
+/// is left alone. It is destructive in the same way `git restore` is --
+/// the discarded content is not in the reflog, the stash, or anywhere else
+/// -- so the caller is expected to confirm first (spec page 06's Discard
+/// changes dialog).
+///
+/// Always resolved against the *unstaged* diff (work tree vs index); there
+/// is no `staged` variant, because discarding a staged change is unstaging,
+/// which gbm_unstage_lines() already does. Same event/refresh contract as
+/// gbm_stage_lines(). A hunk index that no longer matches fails cleanly
+/// with the work tree untouched, exactly as gbm_stage_hunk() does.
+GBM_API void gbm_discard_lines(GbmSessionHandle session,
+                               const char* path,
+                               int32_t hunkIndex,
+                               const int32_t* lineIndices,
+                               int32_t lineIndexCount);
+
 /// `git commit` / `git commit --amend`. `message` empty together with
 /// `amend` keeps the existing message (`--amend --no-edit`); empty otherwise
 /// is rejected before git runs. Async: fires

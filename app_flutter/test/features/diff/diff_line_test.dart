@@ -1,3 +1,12 @@
+// Render-site tests for DiffLineView's 05-G context menu. The item list's
+// own label/order contract lives in `diff_line_menu_items_test.dart`; what
+// this file checks is which of those items DiffLineView asks for given the
+// line kind and callbacks it was handed, and that tapping a live one
+// dispatches while a disabled one does not.
+//
+// Since 05-G was brought to spec, the menu no longer *hides* inapplicable
+// items -- spec's own list has both `Stage hunk` and `Unstage hunk`, so both
+// always render and the one that does not apply is disabled (dimmed, inert).
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -31,230 +40,161 @@ void main() {
           .setMockMethodCallHandler(SystemChannels.platform, null);
     });
 
-    testWidgets(
-      'shows Stage line and Stage hunk when unstaged with callbacks',
-      (tester) async {
-        final line = DiffLine(
-          kind: DiffLineKind.added,
-          oldLine: 0,
-          newLine: 42,
-          text: 'added line',
-        );
-
-        await tester.pumpWidget(
-          MaterialApp(
-            theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
-            home: Scaffold(
-              body: DiffLineView(
-                line: line,
-                staged: false,
-                onStageLine: () {},
-                onStageHunk: () {},
-              ),
-            ),
-          ),
-        );
-
-        await tester.tap(
-          find.byType(DiffLineView),
-          buttons: kSecondaryMouseButton,
-        );
-        await tester.pumpAndSettle();
-
-        expect(find.text('Stage line'), findsOneWidget);
-        expect(find.text('Stage hunk'), findsOneWidget);
-        expect(find.text('Copy line'), findsOneWidget);
-      },
-    );
-
-    testWidgets(
-      'shows Unstage line and Unstage hunk when staged with callbacks',
-      (tester) async {
-        final line = DiffLine(
-          kind: DiffLineKind.removed,
-          oldLine: 42,
-          newLine: 0,
-          text: 'removed line',
-        );
-
-        await tester.pumpWidget(
-          MaterialApp(
-            theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
-            home: Scaffold(
-              body: DiffLineView(
-                line: line,
-                staged: true,
-                onStageLine: () {},
-                onStageHunk: () {},
-              ),
-            ),
-          ),
-        );
-
-        await tester.tap(
-          find.byType(DiffLineView),
-          buttons: kSecondaryMouseButton,
-        );
-        await tester.pumpAndSettle();
-
-        expect(find.text('Unstage line'), findsOneWidget);
-        expect(find.text('Unstage hunk'), findsOneWidget);
-        expect(find.text('Copy line'), findsOneWidget);
-      },
-    );
-
-    testWidgets('hides line stage/unstage for context lines', (tester) async {
-      final line = DiffLine(
-        kind: DiffLineKind.context,
-        oldLine: 42,
-        newLine: 42,
-        text: 'context line',
-      );
-
+    Future<void> pumpLine(
+      WidgetTester tester, {
+      required DiffLine line,
+      bool staged = false,
+      VoidCallback? onStageLine,
+      VoidCallback? onStageHunk,
+      VoidCallback? onDiscardLine,
+      int selectionCount = 1,
+    }) async {
       await tester.pumpWidget(
         MaterialApp(
           theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
           home: Scaffold(
             body: DiffLineView(
               line: line,
-              staged: false,
-              onStageLine: () {},
-              onStageHunk: () {},
+              staged: staged,
+              onStageLine: onStageLine,
+              onStageHunk: onStageHunk,
+              onDiscardLine: onDiscardLine,
+              selectionCount: selectionCount,
             ),
           ),
         ),
       );
-
       await tester.tap(
         find.byType(DiffLineView),
         buttons: kSecondaryMouseButton,
       );
       await tester.pumpAndSettle();
+    }
 
-      expect(find.text('Stage line'), findsNothing);
-      expect(find.text('Unstage line'), findsNothing);
-      expect(find.text('Stage hunk'), findsOneWidget);
-      expect(find.text('Copy line'), findsOneWidget);
-    });
+    DiffLine added({String text = 'added line'}) =>
+        DiffLine(kind: DiffLineKind.added, oldLine: 0, newLine: 42, text: text);
 
-    testWidgets('shows only Copy line when no callbacks provided', (
+    testWidgets('an unstaged added line shows all five spec items', (
       tester,
     ) async {
-      final line = DiffLine(
-        kind: DiffLineKind.added,
-        oldLine: 0,
-        newLine: 42,
-        text: 'added line',
+      await pumpLine(
+        tester,
+        line: added(),
+        onStageLine: () {},
+        onStageHunk: () {},
+        onDiscardLine: () {},
       );
 
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
-          home: Scaffold(body: DiffLineView(line: line, staged: false)),
-        ),
-      );
-
-      await tester.tap(
-        find.byType(DiffLineView),
-        buttons: kSecondaryMouseButton,
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.text('Copy line'), findsOneWidget);
-      expect(find.text('Stage line'), findsNothing);
-      expect(find.text('Stage hunk'), findsNothing);
+      for (final String label in <String>[
+        'Stage',
+        'Stage hunk',
+        'Unstage hunk',
+        'Copy lines',
+        'Discard…',
+      ]) {
+        expect(find.text(label), findsOneWidget, reason: label);
+      }
     });
 
-    testWidgets('Copy line puts line text on clipboard', (tester) async {
-      final line = DiffLine(
-        kind: DiffLineKind.added,
-        oldLine: 0,
-        newLine: 42,
-        text: 'my added line',
-      );
-
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
-          home: Scaffold(body: DiffLineView(line: line, staged: false)),
+    testWidgets('a staged line reads Unstage and offers no Discard', (
+      tester,
+    ) async {
+      await pumpLine(
+        tester,
+        line: DiffLine(
+          kind: DiffLineKind.removed,
+          oldLine: 42,
+          newLine: 0,
+          text: 'removed line',
         ),
+        staged: true,
+        onStageLine: () {},
+        onStageHunk: () {},
       );
 
-      await tester.tap(
-        find.byType(DiffLineView),
-        buttons: kSecondaryMouseButton,
-      );
-      await tester.pumpAndSettle();
+      expect(find.text('Unstage'), findsOneWidget);
+      expect(find.text('Stage'), findsNothing);
+      expect(find.text('Unstage hunk'), findsOneWidget);
+      expect(find.text('Discard…'), findsNothing);
+    });
 
-      await tester.tap(find.text('Copy line'));
+    testWidgets('a multi-line selection puts the count in both labels', (
+      tester,
+    ) async {
+      await pumpLine(
+        tester,
+        line: added(),
+        onStageLine: () {},
+        onStageHunk: () {},
+        onDiscardLine: () {},
+        selectionCount: 12,
+      );
+
+      expect(find.text('Stage 12 lines'), findsOneWidget);
+      expect(find.text('Discard 12 lines…'), findsOneWidget);
+      expect(
+        find.text('Copy lines'),
+        findsOneWidget,
+        reason: 'spec\'s Copy label is plural regardless of the count',
+      );
+    });
+
+    testWidgets('a context line still renders Stage, but inert', (
+      tester,
+    ) async {
+      await pumpLine(
+        tester,
+        line: DiffLine(
+          kind: DiffLineKind.context,
+          oldLine: 42,
+          newLine: 42,
+          text: 'context line',
+        ),
+        onStageLine: () {},
+        onStageHunk: () {},
+        onDiscardLine: () {},
+      );
+
+      // Present (spec keeps the item) but nothing to stage on a context
+      // line, so it is disabled rather than omitted -- and, being a context
+      // line, there is nothing to discard either.
+      expect(find.text('Stage'), findsOneWidget);
+      expect(find.text('Discard…'), findsNothing);
+      expect(find.text('Stage hunk'), findsOneWidget);
+    });
+
+    testWidgets('Copy lines puts the line text on the clipboard', (
+      tester,
+    ) async {
+      await pumpLine(tester, line: added(text: 'my added line'));
+
+      await tester.tap(find.text('Copy lines'));
       await tester.pumpAndSettle();
 
       expect(clipboardText, equals('my added line'));
     });
 
-    testWidgets('tapping Stage line calls onStageLine', (tester) async {
-      final line = DiffLine(
-        kind: DiffLineKind.added,
-        oldLine: 0,
-        newLine: 42,
-        text: 'added line',
-      );
-
+    testWidgets('tapping Stage calls onStageLine', (tester) async {
       bool stageCalled = false;
-
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
-          home: Scaffold(
-            body: DiffLineView(
-              line: line,
-              staged: false,
-              onStageLine: () => stageCalled = true,
-            ),
-          ),
-        ),
+      await pumpLine(
+        tester,
+        line: added(),
+        onStageLine: () => stageCalled = true,
       );
 
-      await tester.tap(
-        find.byType(DiffLineView),
-        buttons: kSecondaryMouseButton,
-      );
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text('Stage line'));
+      await tester.tap(find.text('Stage'));
       await tester.pumpAndSettle();
 
       expect(stageCalled, isTrue);
     });
 
     testWidgets('tapping Stage hunk calls onStageHunk', (tester) async {
-      final line = DiffLine(
-        kind: DiffLineKind.added,
-        oldLine: 0,
-        newLine: 42,
-        text: 'added line',
-      );
-
       bool stageHunkCalled = false;
-
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
-          home: Scaffold(
-            body: DiffLineView(
-              line: line,
-              staged: false,
-              onStageHunk: () => stageHunkCalled = true,
-            ),
-          ),
-        ),
+      await pumpLine(
+        tester,
+        line: added(),
+        onStageHunk: () => stageHunkCalled = true,
       );
-
-      await tester.tap(
-        find.byType(DiffLineView),
-        buttons: kSecondaryMouseButton,
-      );
-      await tester.pumpAndSettle();
 
       await tester.tap(find.text('Stage hunk'));
       await tester.pumpAndSettle();
@@ -262,35 +202,56 @@ void main() {
       expect(stageHunkCalled, isTrue);
     });
 
+    testWidgets('tapping Discard… calls onDiscardLine', (tester) async {
+      bool discardCalled = false;
+      await pumpLine(
+        tester,
+        line: added(),
+        onDiscardLine: () => discardCalled = true,
+      );
+
+      await tester.tap(find.text('Discard…'));
+      await tester.pumpAndSettle();
+
+      expect(discardCalled, isTrue);
+    });
+
     testWidgets(
-      'hides line stage/unstage when onStageLine is null but onStageHunk is set',
+      'the inapplicable hunk direction renders but does not dispatch',
       (tester) async {
-        final line = DiffLine(
-          kind: DiffLineKind.added,
-          oldLine: 0,
-          newLine: 42,
-          text: 'added line',
+        bool hunkCalled = false;
+        await pumpLine(
+          tester,
+          line: added(),
+          onStageHunk: () => hunkCalled = true,
         );
 
-        await tester.pumpWidget(
-          MaterialApp(
-            theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
-            home: Scaffold(
-              body: DiffLineView(line: line, staged: false, onStageHunk: () {}),
-            ),
-          ),
-        );
-
-        await tester.tap(
-          find.byType(DiffLineView),
-          buttons: kSecondaryMouseButton,
-        );
+        await tester.tap(find.text('Unstage hunk'));
         await tester.pumpAndSettle();
 
-        expect(find.text('Stage line'), findsNothing);
-        expect(find.text('Stage hunk'), findsOneWidget);
-        expect(find.text('Copy line'), findsOneWidget);
+        expect(
+          hunkCalled,
+          isFalse,
+          reason:
+              'an unstaged diff has nothing to unstage; the item is '
+              'shown because spec lists it, with onTap null',
+        );
       },
     );
+
+    testWidgets('a read-only diff leaves both hunk items inert', (
+      tester,
+    ) async {
+      bool anyTapped = false;
+      await pumpLine(
+        tester,
+        line: added(),
+        onStageLine: () => anyTapped = true,
+      );
+
+      await tester.tap(find.text('Stage hunk'));
+      await tester.pumpAndSettle();
+      expect(anyTapped, isFalse);
+    });
   });
 }

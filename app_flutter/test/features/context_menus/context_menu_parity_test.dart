@@ -26,6 +26,7 @@ import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/features/conflict_resolution/conflict_hunk_menu_items.dart';
 import 'package:gbm_flutter/features/context_menus/gbm_context_menus.dart';
 import 'package:gbm_flutter/features/diff/widgets/diff_line.dart';
+import 'package:gbm_flutter/features/diff/widgets/diff_line_menu_items.dart';
 import 'package:gbm_flutter/features/history_graph/widgets/changed_files_panel.dart';
 import 'package:gbm_flutter/features/history_graph/widgets/commit_row.dart';
 import 'package:gbm_flutter/features/repo_switcher/repo_switcher_popover.dart';
@@ -33,7 +34,7 @@ import 'package:gbm_flutter/features/sidebar/widgets/branch_folder_menu_items.da
 import 'package:gbm_flutter/features/sidebar/widgets/branch_tree_item.dart';
 import 'package:gbm_flutter/features/sidebar/widgets/stash_menu_items.dart';
 import 'package:gbm_flutter/features/sidebar/widgets/tag_menu_items.dart';
-import 'package:gbm_flutter/features/working_copy/widgets/changed_file_row.dart';
+import 'package:gbm_flutter/features/working_copy/widgets/working_copy_file_menu_items.dart';
 import 'package:gbm_flutter/widgets/gbm_menu.dart';
 
 import '../../support/pump_app.dart';
@@ -126,25 +127,6 @@ RefInfo _goneBranch({String name = 'feature/gone'}) {
     isHead: false,
     isSymbolic: false,
     worktreePath: '',
-  );
-}
-
-WorkingCopyEntry _fileEntry({String path = 'src/main.dart'}) {
-  return WorkingCopyEntry(
-    path: path,
-    oldPath: '',
-    untracked: false,
-    staged: false,
-    indexStatus: FileChangeKind.modified,
-    hasUnstagedChange: true,
-    worktreeStatus: FileChangeKind.modified,
-    conflict: ConflictKind.none,
-    ancestorBlob: '',
-    oursBlob: '',
-    theirsBlob: '',
-    similarity: 0,
-    isSubmodule: false,
-    isConflicted: false,
   );
 }
 
@@ -383,72 +365,62 @@ void main() {
     );
   });
 
-  group('05-F Working copy file (real gap -- see matrix)', () {
-    testWidgets(
-      'ChangedFileRow matches the full 05-F catalog',
-      (tester) async {
-        await _pump(
-          tester,
-          ChangedFileRow(
-            entry: _fileEntry(),
-            checked: false,
-            selected: false,
-            onCheckToggle: () {},
-            onTap: () {},
-            onDiscard: () {},
-          ),
-        );
-        await _rightClick(tester, find.byType(ChangedFileRow));
-
-        for (final String label in _specLabels(
-          GbmContextMenuTarget.workingCopyFile,
-        )) {
-          expect(find.text(label), findsOneWidget, reason: 'missing: $label');
-        }
-      },
-      // Real gap, tracked in docs/reports/spec-conformance-matrix.md
-      // (Page 05, row 05-F): the right-click menu (see
-      // changed_file_context_menu_test.dart for its actual, correctly-
-      // documented behavior) is Stage/Unstage file, View diff, Copy
-      // path, Discard changes -- missing "Open file", "Show in file
-      // manager", "Open terminal here" from the spec's 6-item list,
-      // and the label reads "Stage file"/"Unstage file" rather than
-      // spec's plain "Stage". Remove `skip: true` once 05-F is brought
-      // to parity.
-      skip: true,
-    );
+  group('05-F Working copy file (conforms)', () {
+    test('workingCopyFileMenuItems matches the full 05-F catalog exactly', () {
+      final List<GbmMenuItem> items = workingCopyFileMenuItems(
+        count: 1,
+        fromStaged: false,
+        onStageToggle: () {},
+        onOpenFile: () {},
+        onShowInFileManager: () {},
+        onOpenTerminal: () {},
+        onCopyPath: () {},
+        onDiscard: () {},
+      );
+      final List<String> actual = items
+          .where((GbmMenuItem i) => !i.separator)
+          .map((GbmMenuItem i) => i.label)
+          .toList();
+      expect(actual, _specLabels(GbmContextMenuTarget.workingCopyFile));
+    });
   });
 
-  group('05-G Diff line (real gap, but small -- see matrix)', () {
-    testWidgets(
-      'DiffLineView matches the full 05-G catalog',
-      (tester) async {
-        await _pump(
-          tester,
-          DiffLineView(
-            line: _diffLine(),
-            selectable: true,
-            staged: false,
-            onStageLine: () {},
-            onStageHunk: () {},
-          ),
-        );
-        await _rightClick(tester, find.byType(DiffLineView));
+  group('05-G Diff line (conforms)', () {
+    test('diffLineMenuItems matches the full 05-G catalog exactly', () {
+      final List<GbmMenuItem> items = diffLineMenuItems(
+        count: 1,
+        staged: false,
+        onStageLines: () {},
+        onStageHunk: () {},
+        onCopyLines: () {},
+        onDiscardLines: () {},
+      );
+      final List<String> actual = items
+          .where((GbmMenuItem i) => !i.separator)
+          .map((GbmMenuItem i) => i.label)
+          .toList();
+      expect(actual, _specLabels(GbmContextMenuTarget.diffLine));
+    });
 
-        for (final String label in _specLabels(GbmContextMenuTarget.diffLine)) {
-          expect(find.text(label), findsOneWidget, reason: 'missing: $label');
-        }
-      },
-      // Real gap, tracked in docs/reports/spec-conformance-matrix.md
-      // (Page 05, row 05-G): unlike this audit's first-pass finding
-      // (which missed the ternary-labeled "Stage line"/"Stage hunk"
-      // items entirely), diff_line.dart already implements Stage
-      // line/Unstage line, Stage hunk/Unstage hunk, and Copy line --
-      // the ONLY missing item is "Discard N lines…" (danger action,
-      // no callback exists for it at all). Remove `skip: true` once
-      // that one item is added.
-      skip: true,
-    );
+    testWidgets('DiffLineView renders all five, both hunk directions '
+        'included', (tester) async {
+      await _pump(
+        tester,
+        DiffLineView(
+          line: _diffLine(),
+          selectable: true,
+          staged: false,
+          onStageLine: () {},
+          onStageHunk: () {},
+          onDiscardLine: () {},
+        ),
+      );
+      await _rightClick(tester, find.byType(DiffLineView));
+
+      for (final String label in _specLabels(GbmContextMenuTarget.diffLine)) {
+        expect(find.text(label), findsOneWidget, reason: 'missing: $label');
+      }
+    });
   });
 
   group('05-H Stash entry (conforms)', () {
@@ -539,18 +511,23 @@ void main() {
           expect(find.text(label), findsOneWidget, reason: 'missing: $label');
         }
       },
-      // Real gap, tracked in docs/reports/spec-conformance-matrix.md
-      // (Page 05, row 05-K): missing "Compare with working copy",
-      // "Open file at this revision", "Open terminal here" at the top
-      // level, and "Restore and stage"/"Save this revision as…"/
-      // "Export as patch…" from the "More actions" submenu.
-      // changed_files_panel.dart's own doc comment confirms "Open
-      // file at this revision" and "Save this revision as…" have no
-      // backing capi entry point yet (classification (ii) in the
-      // matrix, not a pure wiring gap). Remove `skip: true` once 05-K
-      // is brought to parity for the (i)-classified items, and note
-      // the (ii) items may need to stay omitted until capi grows a
-      // blob-read entry point.
+      // Partial gap, tracked in docs/reports/spec-conformance-matrix.md
+      // (Page 05, row 05-K). The two (i)-classified top-level items --
+      // "Compare with working copy" and "Open terminal here" -- were
+      // wired by #53 and are covered directly by
+      // `changed_files_panel_test.dart` (render + callback) and
+      // `test/integration/history_commit_file_menu_test.dart` (the
+      // container half really opening a Compare tab / reaching
+      // DesktopLauncher).
+      //
+      // What keeps this whole-catalog assertion skipped is the rest:
+      // "Open file at this revision" and "Save this revision as…" are
+      // (ii) -- gbm_capi.h has no blob-read entry point at all -- and
+      // "Restore and stage"/"Export as patch…" sit in the "More
+      // actions" submenu, whose flyout `gbm_menu.dart` does not render
+      // yet, so `tester.tap(find.text('More actions'))` below can never
+      // reveal them. Remove `skip: true` once both are addressed
+      // (Tier 4).
       skip: true,
     );
   });

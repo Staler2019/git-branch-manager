@@ -133,13 +133,44 @@ class DesktopLauncher {
   Future<bool> openInFileManager(String path) async {
     switch (_os) {
       case 'windows':
-        return _start('explorer.exe', <String>['/select,$path']);
+        return _start('explorer.exe', <String>['/select,${_windows(path)}']);
       case 'macos':
         return _start('open', <String>['-R', path]);
       default:
         return _start('xdg-open', <String>[path]);
     }
   }
+
+  /// Opens [path] with whatever application the OS has associated with it.
+  /// Backs 05-F's "Open file".
+  ///
+  /// Deliberately separate from [openUrl] despite the identical per-platform
+  /// command shape: that one takes a compile-time constant `https://` URL
+  /// ([GbmUrls]) and this one takes a work-tree path, so only this one needs
+  /// the Windows separator normalization below and only this one would be
+  /// the place to add a "file does not exist" guard if one is ever wanted.
+  Future<bool> openFile(String path) async {
+    switch (_os) {
+      case 'windows':
+        // Same empty-title argument as openUrl -- `start` would otherwise
+        // consume the path as the window title.
+        return _start('cmd', <String>['/c', 'start', '', _windows(path)]);
+      case 'macos':
+        return _start('open', <String>[path]);
+      default:
+        return _start('xdg-open', <String>[path]);
+    }
+  }
+
+  /// Rewrites `/` to `\` for the Windows shell utilities that are picky
+  /// about it. `explorer.exe /select,` in particular does not fail on a
+  /// forward-slash path -- it silently ignores the selection and opens
+  /// Documents instead, which reads as "the menu item is broken".
+  ///
+  /// Callers join a repository's work dir with a repo-relative path from
+  /// git, which always uses `/`, so a Windows path reaching here is
+  /// routinely mixed-separator.
+  static String _windows(String path) => path.replaceAll('/', r'\');
 
   /// Hands [url] to the OS default browser. Backs Help → Documentation and
   /// Help → Report an issue, whose URLs are compile-time constants (see

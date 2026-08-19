@@ -154,7 +154,10 @@ void main() {
         'Show in file manager',
         'Open terminal here',
         'Copy path',
-        'Discard changes',
+        // The ellipsis was dropped when this catalog was first transcribed;
+        // spec's own mock reads "Discard changes in 3 files…" and the item
+        // does open a confirmation dialog, so it belongs here.
+        'Discard changes…',
       ];
 
       expect(labels, expectedLabels);

@@ -634,6 +634,13 @@ dedicated `*_menu_items.dart` pure function each — the template to follow
 when this eventually gets fixed). Not fixed this round; tracked as skipped
 regression tests (below) so a future fix flips them green one at a time.
 
+**H1 update (Tier 1, see below)**: 05-F and 05-G now follow that template
+too (`working_copy_file_menu_items.dart`, `diff_line_menu_items.dart`), so
+six of eleven groups are catalog-checked with no `skip`, and 05-K's two
+wireable items landed. **05-B and 05-E are the only fully-drifted groups
+left.** Note the audit's own 05-F and 05-G rows were materially wrong —
+see the Tier 1 section for what they got wrong and why it moved the fix.
+
 ~~**New defect found while writing test coverage, not from static reading
 (H2)**: `working_copy_view.dart`'s Commit/Amend buttons do not reactively
 enable while typing a commit summary — `_summaryController` has no listener
@@ -747,3 +754,97 @@ actually linked. #49 assumed all five Preferences sub-items were pure
 Flutter-side wiring; two needed a real capi addition, which the user
 explicitly approved doing as part of this round rather than splitting into
 a separate capi-only issue.
+
+### Tier 1 fixes (fix/tier-1-spec-conformance-gaps)
+
+Issues #51–#53, the page-05 context-menu batch. Nine sequential commits on
+one branch (six for the issues themselves, then the follow-up defect, its
+docs, and the device-tier e2e), same as Tier 0. **All three issues' premises turned out to be
+wrong in ways that moved the work**, so read this before re-reading their
+issue text:
+
+- **#51's named render site was dead code.** `changed_file_row.dart`'s
+  `ChangedFileRow` was constructed by **nothing under `lib/`** — only by
+  `test/`. `WorkingCopyBoard` (`39d6303`) had replaced it and `5581538` had
+  moved the real 05-F menu into `working_copy_view.dart:576`, leaving the
+  widget orphaned. Consequences: the live menu already had `Open terminal
+  here` (so the gap was 2 items, not 3), and the parity test was pumping the
+  dead widget, so "just remove the skip" per the issue would have gone green
+  against code nobody runs. The orphan and its test file were deleted in
+  their own commit; `working_copy_file_menu_items.dart` is the extraction the
+  parity test now checks. **Deliberate reduction while doing it**:
+  `Blame…`/`File History…`/`Line History…` left this menu, because 6 spec
+  items + 3 beyond-spec extras is 9 and `showGbmContextMenu` asserts spec
+  page 05's own 8-item cap. `GbmMenuItem.submenu`'s flyout is not
+  implemented (`gbm_menu.dart`'s doc comment), so nesting them was not an
+  option. They stay reachable from `tab_row.dart`'s overflow menu, minus the
+  pre-filled path — a real, accepted convenience loss.
+- **#52 needed a new capi, and 05-G's drift was 4 items not 1.** Spec's own
+  05-G block lists `Stage 12 lines` / `Stage hunk` / `Unstage hunk` /
+  `Copy lines` / `Discard 12 lines…`; the code had `Stage line`, `Copy line`,
+  and ternaried between the two hunk directions. All four now match: both
+  hunk items always render, with the inapplicable one carrying `enabled:
+  false` **and** `onTap: null` (`enabled` alone is a visual signal — see
+  `gbm_menu.dart:28`). `gbm_discard_lines` is new: `gbm_stage_lines`/
+  `gbm_unstage_lines` are `git apply --cached` and only move the index, so
+  discarding work-tree lines needed `git apply --reverse` without
+  `--cached`. `StageOps.cpp`'s `applyPatchToIndex` was split into a
+  `cached`-parameterized `applyPatch` (the four existing callers pass true,
+  behavior unchanged). The patch is built with `unstaging: true` — that flag
+  means "will be reverse-applied, so check the new side", which is exactly
+  what a work-tree reverse apply does, and it also keeps a rename's header
+  pointed at the new path so the reversal discards content without undoing
+  the rename. Offered only on the unstaged side, always through the
+  discard-changes dialog's new line mode.
+- **#53 landed as scoped**, its 2 top-level items wired; the parity skip
+  stays per the issue, with regression coverage in a targeted
+  `test/integration/history_commit_file_menu_test.dart` instead — both new
+  items dispatch by navigation or by an injected service, so neither shows
+  up in `FakeRepoSessionController.commandLog` and a `commandLog`-only test
+  could not see them regress.
+
+**A seventh commit closes a defect the first six introduced**, found while
+writing coverage for the seam between them rather than by reading the diff:
+`discardLinesDialogFor`'s URL → `app_router.dart`'s inline `hunk`/`line`
+parsing → the dialog's line mode had no test at any tier (the menu end and
+the `gbm_discard_lines` end each did). That inline parsing cross-nulled its
+two outputs — `hunkIndex: lineIndices.isEmpty ? null : hunkIndex` and the
+mirror image — so a URL carrying line indices with a missing or unparsable
+`hunk` silently produced *whole-file* mode: the same danger button, asked
+to discard two lines, would have discarded the entire file. Parsing now
+lives in `features/dialogs/discard_changes/discard_changes_request.dart`
+(`DiscardChangesRequest.fromQuery`, plus `wholeFiles`/`lines`/`malformed`
+constructors), and anything that asked for line mode but cannot be honoured
+is `isMalformed` — the dialog then renders a `Close` button and no
+destructive one at all, rather than falling back. Covered by
+`discard_changes_request_test.dart` (8 malformed URL shapes) and
+`discard_changes_dialog_test.dart` (which of `discardLines` vs
+`restorePaths` actually fires — the assertion that matters, given the
+blast-radius difference). `FakeRepoSessionController` gained a
+`discardLines` override for it. The line-mode copy also changed from "will
+be removed from the working copy" to "will be reverted": a discarded `-`
+line is one the working copy deleted, so discarding it restores the line.
+
+**All three flows then got real device-tier coverage** rather than the
+hand-check the plan had budgeted for:
+`integration_test/context_menu_flows_test.dart` drives them against the real
+`gbm_capi` and a real temp repo — 05-G asserts the bytes on disk (only the
+selected line reverted, the neighbouring insertion untouched, `git status`
+still ` M`), 05-F asserts the absolute path handed to the OS, 05-K asserts
+the router really lands on `ComparePage` with `CommitGraphView` gone. Two
+things about the harness came out of writing it, both now in
+`integration_test/README.md`: `build/native/libgbm_capi.dylib` is a *copy*,
+so a stale one loads happily and a new capi entry point appears to be a Dart
+bug; and these tests share the machine's real `shared_preferences`, where a
+`panelLayout.*` splitter ratio the developer once dragged made History's
+Changed files panel overlap the commit graph by ~28px — enough that a
+correct `tester.tap` silently missed its hit test. `pumpRealAppOn` now
+clears those keys, so geometry depends only on the code under test.
+
+Also noted while running the C++ suite:
+`UndoApiTest.UndoRefusesAfterSwitchingBranches` is flaky (~2 in 5, a 10s
+`waitForRefreshesToSettle` timeout) independently of this branch —
+`MergeApiTest.ConflictingMergeReportsConflictThenResolveAndCommitFinishes`
+and `UndoApiTest.UndoLastOperationRevertsTheCommit` fail the same way under
+a loaded parallel `ctest` and pass on re-run. Not investigated here; worth
+knowing before blaming a future branch for it.

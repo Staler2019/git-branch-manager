@@ -358,6 +358,71 @@ TEST_F(WorkingCopyApiTest, StageLinesStagesOnlyTheSelectedAddedLines) {
     EXPECT_NE(unstagedDiff.find("\"kind\":1,\"oldLine\":0,\"newLine\":6,\"text\":\"NEW2\""), std::string::npos) << unstagedDiff;
 }
 
+TEST_F(WorkingCopyApiTest, DiscardLinesRemovesOnlyTheSelectedLinesFromTheWorkTree) {
+    std::string original;
+    for (int i = 1; i <= 7; ++i) original += "l" + std::to_string(i) + "\n";
+    std::ofstream(repo_ / "discard.txt") << original;
+    ASSERT_EQ(runGit({"add", "discard.txt"}), 0);
+    ASSERT_EQ(runGit({"commit", "--quiet", "-m", "Add discard.txt"}), 0);
+
+    // Same hunk shape as StageLinesStagesOnlyTheSelectedAddedLines: context
+    // l2,l3,l4 (indices 0-2), added NEW1,NEW2 (indices 3-4), context
+    // l5,l6,l7 (indices 5-7).
+    std::ofstream(repo_ / "discard.txt") << "l1\nl2\nl3\nl4\nNEW1\nNEW2\nl5\nl6\nl7\n";
+
+    const int32_t lineIndices[] = {3};  // NEW1 only
+    gbm_discard_lines(session_, "discard.txt", /*hunkIndex=*/0, lineIndices, 1);
+    ASSERT_TRUE(waitForWorkingCopyOperationSucceeded());
+
+    // Unlike gbm_unstage_lines, this touches the file on disk: NEW1 is gone
+    // from the work tree entirely, NEW2 is untouched.
+    std::ifstream in(repo_ / "discard.txt");
+    const std::string onDisk((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    EXPECT_EQ(onDisk, "l1\nl2\nl3\nl4\nNEW2\nl5\nl6\nl7\n");
+
+    // The index was never touched, so the remaining unstaged diff still has
+    // NEW2 as its one and only added line.
+    const std::string unstagedDiff = requestDiffJson("discard.txt", /*staged=*/false);
+    EXPECT_NE(unstagedDiff.find("\"addedLines\":1"), std::string::npos) << unstagedDiff;
+    EXPECT_NE(unstagedDiff.find("\"NEW2\""), std::string::npos) << unstagedDiff;
+    EXPECT_EQ(unstagedDiff.find("\"NEW1\""), std::string::npos) << unstagedDiff;
+}
+
+TEST_F(WorkingCopyApiTest, DiscardLinesWithNoSelectionDiscardsTheWholeHunk) {
+    std::ofstream(repo_ / "wholehunk.txt") << "a\nb\nc\n";
+    ASSERT_EQ(runGit({"add", "wholehunk.txt"}), 0);
+    ASSERT_EQ(runGit({"commit", "--quiet", "-m", "Add wholehunk.txt"}), 0);
+    std::ofstream(repo_ / "wholehunk.txt") << "a\nb\nc\nd\n";
+
+    gbm_discard_lines(session_, "wholehunk.txt", /*hunkIndex=*/0, nullptr, 0);
+    ASSERT_TRUE(waitForWorkingCopyOperationSucceeded());
+
+    std::ifstream in(repo_ / "wholehunk.txt");
+    const std::string onDisk((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    EXPECT_EQ(onDisk, "a\nb\nc\n");
+}
+
+TEST_F(WorkingCopyApiTest, DiscardLinesFailsCleanlyWhenTheHunkIndexNoLongerExists) {
+    std::ofstream(repo_ / "stale.txt") << "a\nb\nc\n";
+    ASSERT_EQ(runGit({"add", "stale.txt"}), 0);
+    ASSERT_EQ(runGit({"commit", "--quiet", "-m", "Add stale.txt"}), 0);
+    std::ofstream(repo_ / "stale.txt") << "a\nb\nc\nd\n";
+
+    const int32_t lineIndices[] = {0};
+    gbm_discard_lines(session_, "stale.txt", /*hunkIndex=*/5, lineIndices, 1);
+    ASSERT_TRUE(waitForWorkingCopyOperationFinished());
+
+    const std::vector<std::string> outcomes = log_.payloadsOfType(GBM_EVENT_WORKING_COPY_OPERATION_FINISHED);
+    ASSERT_FALSE(outcomes.empty());
+    EXPECT_NE(outcomes.back().find("\"succeeded\":false"), std::string::npos) << outcomes.back();
+
+    // The work tree must be exactly as it was -- a failed discard that had
+    // already half-applied would be unrecoverable.
+    std::ifstream in(repo_ / "stale.txt");
+    const std::string onDisk((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    EXPECT_EQ(onDisk, "a\nb\nc\nd\n");
+}
+
 TEST_F(WorkingCopyApiTest, StageHunkFailsCleanlyWhenTheHunkIndexNoLongerExists) {
     std::ofstream(repo_ / "onehunk.txt") << "a\nb\nc\n";
     ASSERT_EQ(runGit({"add", "onehunk.txt"}), 0);

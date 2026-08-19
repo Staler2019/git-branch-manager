@@ -757,8 +757,9 @@ a separate capi-only issue.
 
 ### Tier 1 fixes (fix/tier-1-spec-conformance-gaps)
 
-Issues #51–#53, the page-05 context-menu batch. Six sequential commits on
-one branch, same as Tier 0. **All three issues' premises turned out to be
+Issues #51–#53, the page-05 context-menu batch. Eight sequential commits on
+one branch (six for the issues themselves, then the follow-up defect and its
+docs), same as Tier 0. **All three issues' premises turned out to be
 wrong in ways that moved the work**, so read this before re-reading their
 issue text:
 
@@ -801,6 +802,28 @@ issue text:
   items dispatch by navigation or by an injected service, so neither shows
   up in `FakeRepoSessionController.commandLog` and a `commandLog`-only test
   could not see them regress.
+
+**A seventh commit closes a defect the first six introduced**, found while
+writing coverage for the seam between them rather than by reading the diff:
+`discardLinesDialogFor`'s URL → `app_router.dart`'s inline `hunk`/`line`
+parsing → the dialog's line mode had no test at any tier (the menu end and
+the `gbm_discard_lines` end each did). That inline parsing cross-nulled its
+two outputs — `hunkIndex: lineIndices.isEmpty ? null : hunkIndex` and the
+mirror image — so a URL carrying line indices with a missing or unparsable
+`hunk` silently produced *whole-file* mode: the same danger button, asked
+to discard two lines, would have discarded the entire file. Parsing now
+lives in `features/dialogs/discard_changes/discard_changes_request.dart`
+(`DiscardChangesRequest.fromQuery`, plus `wholeFiles`/`lines`/`malformed`
+constructors), and anything that asked for line mode but cannot be honoured
+is `isMalformed` — the dialog then renders a `Close` button and no
+destructive one at all, rather than falling back. Covered by
+`discard_changes_request_test.dart` (8 malformed URL shapes) and
+`discard_changes_dialog_test.dart` (which of `discardLines` vs
+`restorePaths` actually fires — the assertion that matters, given the
+blast-radius difference). `FakeRepoSessionController` gained a
+`discardLines` override for it. The line-mode copy also changed from "will
+be removed from the working copy" to "will be reverted": a discarded `-`
+line is one the working copy deleted, so discarding it restores the line.
 
 Also noted while running the C++ suite:
 `UndoApiTest.UndoRefusesAfterSwitchingBranches` is flaky (~2 in 5, a 10s

@@ -24,15 +24,33 @@ import '../../../widgets/gbm_dialog_shell.dart';
 ///
 /// Routed as `/repo/:repoId/dialogs/discard-changes?path=…` (repeatable
 /// `path` parameter, so a multi-selection round-trips through the URL).
+///
+/// Also serves context menu 05-G's line-level "Discard N lines…" -- spec
+/// page 06's entry for this dialog is "列出實際檔名與行數", so line counts
+/// were always in its remit. That mode is selected by [lineIndices] being
+/// non-empty, in which case [paths] holds exactly one file, [hunkIndex] says
+/// which hunk the indices are relative to, and the confirm button calls
+/// `discardLines` instead of `restorePaths`.
 class DiscardChangesDialogContent extends ConsumerWidget {
   const DiscardChangesDialogContent({
     super.key,
     required this.identity,
     required this.paths,
+    this.hunkIndex,
+    this.lineIndices = const <int>[],
   });
 
   final RepoIdentity identity;
   final List<String> paths;
+
+  /// The hunk [lineIndices] index into, or null in whole-file mode.
+  final int? hunkIndex;
+
+  /// Line indices within [hunkIndex]'s `lines` array. Empty means whole-file
+  /// mode; non-empty selects the line-level mode described above.
+  final List<int> lineIndices;
+
+  bool get _isLineMode => lineIndices.isNotEmpty && hunkIndex != null;
 
   /// Untracked files are not restorable from the index -- `git restore`
   /// leaves them alone. They are called out separately so the dialog does
@@ -56,24 +74,40 @@ class DiscardChangesDialogContent extends ConsumerWidget {
         if (!untracked.contains(p)) p,
     ];
 
+    final int lineCount = lineIndices.length;
     return GbmDialogShell(
-      title: paths.length == 1
-          ? 'Discard Changes'
-          : 'Discard Changes in ${paths.length} Files',
+      title: switch ((_isLineMode, paths.length)) {
+        (true, _) =>
+          lineCount == 1 ? 'Discard Line' : 'Discard $lineCount Lines',
+        (false, 1) => 'Discard Changes',
+        (false, final int n) => 'Discard Changes in $n Files',
+      },
       actions: <Widget>[
         GbmButton(label: 'Cancel', onPressed: () => context.pop()),
         const SizedBox(width: GbmSpacing.space2),
         GbmButton(
-          label: restorable.length == 1
-              ? 'Discard changes'
-              : 'Discard ${restorable.length} files',
+          label: switch ((_isLineMode, restorable.length)) {
+            (true, _) =>
+              lineCount == 1 ? 'Discard line' : 'Discard $lineCount lines',
+            (false, 1) => 'Discard changes',
+            (false, final int n) => 'Discard $n files',
+          },
           kind: GbmButtonKind.danger,
           onPressed: restorable.isEmpty
               ? null
               : () {
-                  ref
-                      .read(repoSessionProvider(identity).notifier)
-                      .restorePaths(restorable);
+                  final RepoSessionController controller = ref.read(
+                    repoSessionProvider(identity).notifier,
+                  );
+                  if (_isLineMode) {
+                    controller.discardLines(
+                      restorable.first,
+                      hunkIndex!,
+                      lineIndices,
+                    );
+                  } else {
+                    controller.restorePaths(restorable);
+                  }
                   context.pop();
                 },
         ),
@@ -83,8 +117,12 @@ class DiscardChangesDialogContent extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
-            'The uncommitted changes in these files will be replaced with '
-            'their staged contents:',
+            _isLineMode
+                ? 'These $lineCount line(s) will be removed from the working '
+                      'copy of this file. The rest of the file, and the '
+                      'staged contents, are left alone:'
+                : 'The uncommitted changes in these files will be replaced '
+                      'with their staged contents:',
             style: TextStyle(
               fontSize: GbmTypography.textSm,
               color: colors.textPrimary,

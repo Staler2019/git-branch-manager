@@ -273,9 +273,13 @@ const GbmContextMenuGroupSpec _historyCommitFile = GbmContextMenuGroupSpec(
   ],
 );
 
-/// 05-G: Diff line / line selection (right-click inside diff pane -- not yet wired)
-/// 5 top-level items. First item's label becomes "Stage N lines" when multiple
-/// lines are drag-selected (not yet implemented; use singular form for now).
+/// 05-G: Diff line / line selection (right-click inside diff pane -- EXISTS)
+/// 5 top-level items. This defines the singular form; the render site
+/// (`diff/widgets/diff_line_menu_items.dart`) pluralizes the first and last
+/// items with a count when multiple lines are selected, per spec's own mock
+/// ("Stage 12 lines" / "Discard 12 lines…"). `Stage hunk` and `Unstage hunk`
+/// are both listed here because spec lists both: the render site draws both
+/// and disables whichever direction does not apply.
 const GbmContextMenuGroupSpec _diffLine = GbmContextMenuGroupSpec(
   id: '05-G',
   target: GbmContextMenuTarget.diffLine,
@@ -285,7 +289,7 @@ const GbmContextMenuGroupSpec _diffLine = GbmContextMenuGroupSpec(
     GbmContextMenuItemSpec(label: 'Stage hunk'),
     GbmContextMenuItemSpec(label: 'Unstage hunk'),
     GbmContextMenuItemSpec(label: 'Copy lines'),
-    GbmContextMenuItemSpec(label: 'Discard', isDanger: true),
+    GbmContextMenuItemSpec(label: 'Discard…', isDanger: true),
   ],
 );
 

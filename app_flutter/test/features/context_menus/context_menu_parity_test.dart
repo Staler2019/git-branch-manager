@@ -26,6 +26,7 @@ import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/features/conflict_resolution/conflict_hunk_menu_items.dart';
 import 'package:gbm_flutter/features/context_menus/gbm_context_menus.dart';
 import 'package:gbm_flutter/features/diff/widgets/diff_line.dart';
+import 'package:gbm_flutter/features/diff/widgets/diff_line_menu_items.dart';
 import 'package:gbm_flutter/features/history_graph/widgets/changed_files_panel.dart';
 import 'package:gbm_flutter/features/history_graph/widgets/commit_row.dart';
 import 'package:gbm_flutter/features/repo_switcher/repo_switcher_popover.dart';
@@ -384,36 +385,42 @@ void main() {
     });
   });
 
-  group('05-G Diff line (real gap, but small -- see matrix)', () {
-    testWidgets(
-      'DiffLineView matches the full 05-G catalog',
-      (tester) async {
-        await _pump(
-          tester,
-          DiffLineView(
-            line: _diffLine(),
-            selectable: true,
-            staged: false,
-            onStageLine: () {},
-            onStageHunk: () {},
-          ),
-        );
-        await _rightClick(tester, find.byType(DiffLineView));
+  group('05-G Diff line (conforms)', () {
+    test('diffLineMenuItems matches the full 05-G catalog exactly', () {
+      final List<GbmMenuItem> items = diffLineMenuItems(
+        count: 1,
+        staged: false,
+        onStageLines: () {},
+        onStageHunk: () {},
+        onCopyLines: () {},
+        onDiscardLines: () {},
+      );
+      final List<String> actual = items
+          .where((GbmMenuItem i) => !i.separator)
+          .map((GbmMenuItem i) => i.label)
+          .toList();
+      expect(actual, _specLabels(GbmContextMenuTarget.diffLine));
+    });
 
-        for (final String label in _specLabels(GbmContextMenuTarget.diffLine)) {
-          expect(find.text(label), findsOneWidget, reason: 'missing: $label');
-        }
-      },
-      // Real gap, tracked in docs/reports/spec-conformance-matrix.md
-      // (Page 05, row 05-G): unlike this audit's first-pass finding
-      // (which missed the ternary-labeled "Stage line"/"Stage hunk"
-      // items entirely), diff_line.dart already implements Stage
-      // line/Unstage line, Stage hunk/Unstage hunk, and Copy line --
-      // the ONLY missing item is "Discard N lines…" (danger action,
-      // no callback exists for it at all). Remove `skip: true` once
-      // that one item is added.
-      skip: true,
-    );
+    testWidgets('DiffLineView renders all five, both hunk directions '
+        'included', (tester) async {
+      await _pump(
+        tester,
+        DiffLineView(
+          line: _diffLine(),
+          selectable: true,
+          staged: false,
+          onStageLine: () {},
+          onStageHunk: () {},
+          onDiscardLine: () {},
+        ),
+      );
+      await _rightClick(tester, find.byType(DiffLineView));
+
+      for (final String label in _specLabels(GbmContextMenuTarget.diffLine)) {
+        expect(find.text(label), findsOneWidget, reason: 'missing: $label');
+      }
+    });
   });
 
   group('05-H Stash entry (conforms)', () {

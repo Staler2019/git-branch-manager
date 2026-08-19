@@ -1737,6 +1737,34 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     }
   }
 
+  /// Discards a subset of a hunk's lines from the *work tree* -- context
+  /// menu 05-G's "Discard N lines…". Unlike [unstageLines], which moves the
+  /// index and leaves the file on disk alone, this rewrites the file and
+  /// leaves the index alone. Destructive and not recoverable from the
+  /// reflog or the stash, so callers route through the discard-changes
+  /// confirmation dialog rather than calling this straight from a menu.
+  /// Same event/refresh contract as [stageFiles].
+  void discardLines(String path, int hunkIndex, List<int> lineIndices) {
+    if (_session == nullptr || lineIndices.isEmpty) return;
+    final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+    final Pointer<Int32> indices = malloc<Int32>(lineIndices.length);
+    try {
+      for (int i = 0; i < lineIndices.length; i++) {
+        indices[i] = lineIndices[i];
+      }
+      _bindings.discardLines(
+        _session,
+        pathPtr,
+        hunkIndex,
+        indices,
+        lineIndices.length,
+      );
+    } finally {
+      malloc.free(pathPtr);
+      malloc.free(indices);
+    }
+  }
+
   /// `git commit` / `git commit --amend`. Async: fires
   /// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success also
   /// refreshes both the working copy and the history graph (the new commit

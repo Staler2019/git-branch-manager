@@ -470,6 +470,14 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
                       );
                     }
                   },
+                  // Only on the unstaged side: discarding rewrites the work
+                  // tree, which a staged-side line has nothing to do with.
+                  // Never calls discardLines straight -- spec page 06
+                  // requires the confirmation dialog first.
+                  onDiscardLines: _selectedStaged
+                      ? null
+                      : (_, hunkIndex, lineIndices) =>
+                            _discardLines(hunkIndex, lineIndices),
                 ),
         ),
       ],
@@ -640,6 +648,20 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
       RoutePaths.discardChangesDialogFor(
         Uri.encodeComponent(widget.identity.workDir),
         paths: paths,
+      ),
+    );
+  }
+
+  /// 05-G's "Discard N lines…" -- the same confirmation dialog as
+  /// [_discardFiles], in its line mode.
+  void _discardLines(int hunkIndex, List<int> lineIndices) {
+    if (_selectedPath == null || lineIndices.isEmpty) return;
+    context.push(
+      RoutePaths.discardLinesDialogFor(
+        Uri.encodeComponent(widget.identity.workDir),
+        path: _selectedPath!,
+        hunkIndex: hunkIndex,
+        lineIndices: lineIndices,
       ),
     );
   }

@@ -465,10 +465,24 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
           );
           // queryParametersAll, not queryParameters: the latter collapses a
           // repeated key to its last value, which would silently discard all
-          // but one file of a multi-file selection.
+          // but one file of a multi-file selection (or all but one line of a
+          // line-level discard).
+          final Map<String, List<String>> query = state.uri.queryParametersAll;
+          final int? hunkIndex = int.tryParse(
+            state.uri.queryParameters['hunk'] ?? '',
+          );
+          final List<int> lineIndices = <int>[
+            for (final String raw in query['line'] ?? const <String>[])
+              if (int.tryParse(raw) case final int index) index,
+          ];
           return DiscardChangesDialogContent(
             identity: identity,
-            paths: state.uri.queryParametersAll['path'] ?? const <String>[],
+            paths: query['path'] ?? const <String>[],
+            // 05-G's line-level discard, which needs both to be present --
+            // a hunk with no lines selected would discard the whole hunk,
+            // which is not something any menu offers yet.
+            hunkIndex: lineIndices.isEmpty ? null : hunkIndex,
+            lineIndices: hunkIndex == null ? const <int>[] : lineIndices,
           );
         },
       ),

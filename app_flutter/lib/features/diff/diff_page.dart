@@ -27,6 +27,7 @@ class DiffPage extends StatefulWidget {
     this.staged = false,
     this.onStageHunk,
     this.onStageLines,
+    this.onDiscardLines,
     this.scrollController,
   });
 
@@ -35,6 +36,13 @@ class DiffPage extends StatefulWidget {
   final void Function(int fileIndex, int hunkIndex)? onStageHunk;
   final void Function(int fileIndex, int hunkIndex, List<int> lineIndices)?
   onStageLines;
+
+  /// 05-G's "Discard N lines…" -- rewrites the work tree, so it is null
+  /// wherever [onStageLines] is (read-only diffs) and additionally null on
+  /// the staged side. Routed through a confirmation dialog by the caller,
+  /// never straight to `RepoSessionController.discardLines`.
+  final void Function(int fileIndex, int hunkIndex, List<int> lineIndices)?
+  onDiscardLines;
 
   /// Optional scroll controller for the diff ListView.
   /// If provided, allows external code to save/restore scroll position.
@@ -94,6 +102,13 @@ class _DiffPageState extends State<DiffPage> {
                   ? null
                   : (hunkIndex, lineIndices) =>
                         widget.onStageLines!(fileIndex, hunkIndex, lineIndices),
+              onDiscardLines: widget.onDiscardLines == null
+                  ? null
+                  : (hunkIndex, lineIndices) => widget.onDiscardLines!(
+                      fileIndex,
+                      hunkIndex,
+                      lineIndices,
+                    ),
               selectedLinesFor: (hunkIndex) =>
                   _selectedLines['$fileIndex:$hunkIndex'] ?? const <int>{},
               onToggleLine: (hunkIndex, lineIndex) => setState(() {
@@ -117,6 +132,7 @@ class _DiffFileSection extends StatelessWidget {
     required this.staged,
     required this.onStageHunk,
     required this.onStageLines,
+    required this.onDiscardLines,
     required this.selectedLinesFor,
     required this.onToggleLine,
   });
@@ -125,6 +141,7 @@ class _DiffFileSection extends StatelessWidget {
   final bool staged;
   final void Function(int hunkIndex)? onStageHunk;
   final void Function(int hunkIndex, List<int> lineIndices)? onStageLines;
+  final void Function(int hunkIndex, List<int> lineIndices)? onDiscardLines;
   final Set<int> Function(int hunkIndex) selectedLinesFor;
   final void Function(int hunkIndex, int lineIndex) onToggleLine;
 
@@ -158,6 +175,9 @@ class _DiffFileSection extends StatelessWidget {
             onStageLines: onStageLines == null
                 ? null
                 : (lineIndices) => onStageLines!(hunkIndex, lineIndices),
+            onDiscardLines: onDiscardLines == null
+                ? null
+                : (lineIndices) => onDiscardLines!(hunkIndex, lineIndices),
             selectedLines: selectedLinesFor(hunkIndex),
             onToggleLine: (lineIndex) => onToggleLine(hunkIndex, lineIndex),
           ),
@@ -172,6 +192,7 @@ class _DiffHunkSection extends StatelessWidget {
     required this.staged,
     required this.onStageHunk,
     required this.onStageLines,
+    required this.onDiscardLines,
     required this.selectedLines,
     required this.onToggleLine,
   });
@@ -180,8 +201,16 @@ class _DiffHunkSection extends StatelessWidget {
   final bool staged;
   final VoidCallback? onStageHunk;
   final void Function(List<int> lineIndices)? onStageLines;
+  final void Function(List<int> lineIndices)? onDiscardLines;
   final Set<int> selectedLines;
   final ValueChanged<int> onToggleLine;
+
+  /// The line indices a right-click on [lineIndex] should act on: the whole
+  /// checkbox selection when that line is part of it, otherwise just it.
+  List<int> _targetsFor(int lineIndex) {
+    if (!selectedLines.contains(lineIndex)) return <int>[lineIndex];
+    return selectedLines.toList(growable: false)..sort();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -234,10 +263,17 @@ class _DiffHunkSection extends StatelessWidget {
                 ? null
                 : () => onToggleLine(lineIndex),
             staged: staged,
+            // Right-clicking a checked line acts on the whole checked set;
+            // right-clicking outside it acts on that line alone -- the same
+            // rule 05-F uses for a multi-file selection.
+            selectionCount: _targetsFor(lineIndex).length,
             onStageLine: onStageLines == null
                 ? null
-                : () => onStageLines!(<int>[lineIndex]),
+                : () => onStageLines!(_targetsFor(lineIndex)),
             onStageHunk: onStageHunk,
+            onDiscardLine: onDiscardLines == null
+                ? null
+                : () => onDiscardLines!(_targetsFor(lineIndex)),
           ),
       ],
     );

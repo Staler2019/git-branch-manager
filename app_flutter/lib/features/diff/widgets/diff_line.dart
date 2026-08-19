@@ -5,6 +5,7 @@ import '../../../data/models/parsed_diff.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_menu.dart';
+import 'diff_line_menu_items.dart';
 
 /// `.gbm-diffline`/`.gbm-diffline-add`/`.gbm-diffline-del`/`.gbm-diffline-ctx`
 /// (docs/design/tokens-reference.md's components.css). One monospace row per
@@ -20,6 +21,8 @@ class DiffLineView extends StatelessWidget {
     this.staged = false,
     this.onStageLine,
     this.onStageHunk,
+    this.onDiscardLine,
+    this.selectionCount = 1,
   });
 
   final DiffLine line;
@@ -44,6 +47,17 @@ class DiffLineView extends StatelessWidget {
   /// Callback when user selects "Stage hunk" or "Unstage hunk" from the
   /// context menu.
   final VoidCallback? onStageHunk;
+
+  /// Callback when the user selects "Discard N lines…" (05-G's danger item).
+  /// Null in a read-only diff and on the staged side -- discarding rewrites
+  /// the work tree, which a staged-side line has nothing to do with.
+  final VoidCallback? onDiscardLine;
+
+  /// How many lines the Stage/Discard items act on. 1 unless this row is
+  /// part of a multi-line checkbox selection, in which case the parent hunk
+  /// passes the whole selection's size so the labels read "Stage 12 lines"
+  /// / "Discard 12 lines…" per spec 05-G.
+  final int selectionCount;
 
   @override
   Widget build(BuildContext context) {
@@ -137,29 +151,24 @@ class DiffLineView extends StatelessWidget {
     );
   }
 
+  /// Context menu 05-G. The item list itself lives in
+  /// `diff_line_menu_items.dart` so `context_menu_parity_test.dart` can check
+  /// it against the spec catalog without pumping a widget.
   void _showContextMenu(BuildContext context, TapDownDetails details) {
     final bool isAddedOrRemoved =
         line.kind == DiffLineKind.added || line.kind == DiffLineKind.removed;
-    final items = <GbmMenuItem>[
-      if (isAddedOrRemoved && onStageLine != null)
-        GbmMenuItem(
-          label: staged ? 'Unstage line' : 'Stage line',
-          icon: staged ? Icons.remove : Icons.add,
-          onTap: onStageLine,
-        ),
-      if (onStageHunk != null)
-        GbmMenuItem(
-          label: staged ? 'Unstage hunk' : 'Stage hunk',
-          onTap: onStageHunk,
-        ),
-      GbmMenuItem(
-        label: 'Copy line',
-        icon: Icons.copy,
-        onTap: () => Clipboard.setData(ClipboardData(text: line.text)),
+    showGbmContextMenu(
+      context,
+      details.globalPosition,
+      diffLineMenuItems(
+        count: selectionCount,
+        staged: staged,
+        onStageLines: isAddedOrRemoved ? onStageLine : null,
+        onStageHunk: onStageHunk,
+        onCopyLines: () => Clipboard.setData(ClipboardData(text: line.text)),
+        onDiscardLines: isAddedOrRemoved ? onDiscardLine : null,
       ),
-    ];
-
-    showGbmContextMenu(context, details.globalPosition, items);
+    );
   }
 
   Widget _lineNumberText(int lineNumber, Color color) {

@@ -210,6 +210,24 @@ abstract final class RoutePaths {
     queryParameters: <String, List<String>>{'path': paths},
   ).toString();
 
+  /// The line-level variant of [discardChangesDialogFor] (context menu
+  /// 05-G's "Discard N lines…"): the same dialog, the same route, plus the
+  /// one hunk and the line indices within it that `gbm_discard_lines` needs.
+  /// `line` repeats for the same reason `path` does above.
+  static String discardLinesDialogFor(
+    String repoId, {
+    required String path,
+    required int hunkIndex,
+    required List<int> lineIndices,
+  }) => Uri(
+    path: '/repo/$repoId/dialogs/discard-changes',
+    queryParameters: <String, dynamic>{
+      'path': <String>[path],
+      'hunk': '$hunkIndex',
+      'line': <String>[for (final int index in lineIndices) '$index'],
+    },
+  ).toString();
+
   /// App-level; takes no repoId. Kept next to the repo-scoped helpers so the
   /// asymmetry with [repositorySettingsDialogFor] is visible at the call site.
   static String preferencesDialogPath() => preferencesDialog;

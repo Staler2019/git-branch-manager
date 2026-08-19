@@ -65,10 +65,17 @@ String createTempGitRepo({String prefix = 'gbm_e2e_'}) {
 /// Uses the platform's real `shared_preferences` backend (there is no
 /// in-memory fake on a live device/desktop binding), scoped to this test's
 /// own temp value -- callers should not assume any other key is clean.
+/// [extraOverrides] is for the handful of seams a device-tier test must not
+/// leave real: `desktopLauncherProvider` in particular would otherwise
+/// spawn `open`/Finder/Terminal windows on the machine running the suite.
+/// Everything else -- FFI bindings, router, session -- stays real; keep this
+/// list as short as the test can tolerate, and say in the test why each
+/// entry is there.
 Future<SharedPreferences> pumpRealAppOn(
   WidgetTester tester,
-  String workDir,
-) async {
+  String workDir, {
+  List<Override> extraOverrides = const <Override>[],
+}) async {
   // The desktop test window otherwise defaults to a size narrow enough to
   // overflow ordinary rows (e.g. a commit row's ref-chip badges) -- a
   // window-size artifact of the test harness, not a real layout bug, so
@@ -79,6 +86,21 @@ Future<SharedPreferences> pumpRealAppOn(
   addTearDown(tester.view.resetDevicePixelRatio);
 
   final SharedPreferences prefs = await SharedPreferences.getInstance();
+
+  // Device-tier tests share the machine's real shared_preferences store, so
+  // whatever splitter ratios the developer last dragged in the actual app
+  // are still in there -- and `GbmSplitPane` restores them by `storageId`.
+  // A stored `panelLayout.main.files` was observed making History's Changed
+  // files panel and the commit graph overlap by ~28px, which is enough to
+  // put a row's centre under the neighbouring pane and make an otherwise
+  // correct `tester.tap` miss its hit test. Reset to the built-in defaults
+  // so a test's geometry depends only on the code under test.
+  for (final String key in prefs.getKeys().where(
+    (String k) => k.startsWith('panelLayout.'),
+  )) {
+    await prefs.remove(key);
+  }
+
   await prefs.setString(
     'recents.repos',
     jsonEncode(<Map<String, Object?>>[
@@ -88,7 +110,10 @@ Future<SharedPreferences> pumpRealAppOn(
 
   await tester.pumpWidget(
     ProviderScope(
-      overrides: <Override>[sharedPreferencesProvider.overrideWithValue(prefs)],
+      overrides: <Override>[
+        sharedPreferencesProvider.overrideWithValue(prefs),
+        ...extraOverrides,
+      ],
       child: const GbmApp(),
     ),
   );

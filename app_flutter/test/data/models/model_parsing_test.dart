@@ -234,7 +234,8 @@ void main() {
   test('BaseFolderRecord.listFromJson decodes an array', () {
     final List<dynamic> json = jsonDecode(
       '[{"id":1,"path":"/code","enabled":true,"maxDepth":3,"followLinks":false,'
-      '"lastScanStarted":0,"lastScanFinished":0,"lastScanDirs":0,"lastScanMs":0}]',
+      '"lastScanStarted":0,"lastScanFinished":0,"lastScanDirs":0,"lastScanMs":0,'
+      '"lastScanSkipped":2}]',
     );
     final List<BaseFolderRecord> folders = BaseFolderRecord.listFromJson(json);
 
@@ -242,6 +243,9 @@ void main() {
     expect(folders.single.path, '/code');
     expect(folders.single.enabled, isTrue);
     expect(folders.single.maxDepth, 3);
+    // Directories skipped past maxDepth on the last scan -- see
+    // gbm::BaseFolderRecord::lastScanSkipped's doc comment.
+    expect(folders.single.lastScanSkipped, 2);
   });
 
   test('StashEntry.listFromJson decodes an array', () {

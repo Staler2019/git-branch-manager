@@ -167,6 +167,24 @@ class DiscoveryController extends StateNotifier<DiscoveryState> {
     _listBaseFolders();
   }
 
+  /// Changes how many levels below the base folder are scanned. See
+  /// gbm_discovery_set_base_folder_depth()'s doc comment in gbm_capi.h --
+  /// this also clears the base folder's stored directory signatures, so the
+  /// next scan re-visits subtrees a shallower depth had pruned.
+  void setBaseFolderDepth(int baseFolderId, int maxDepth) {
+    if (_discovery == nullptr) return;
+    final int result = _bindings.discoverySetBaseFolderDepth(
+      _discovery,
+      baseFolderId,
+      maxDepth,
+    );
+    if (result != 0) {
+      state = state.copyWith(lastError: _decodeLastError());
+      return;
+    }
+    _listBaseFolders();
+  }
+
   /// Unregisters a base folder. Its already-discovered repositories stay in
   /// the list (see gbm_discovery_remove_base_folder()'s doc comment).
   void removeBaseFolder(int baseFolderId) {

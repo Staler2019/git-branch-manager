@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -53,6 +55,10 @@ class _BaseFolderRow extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final GbmColors colors = context.gbmColors;
+    // Same pure local filesystem check as preferences_dialog.dart's
+    // _BaseFolderRow -- see that copy's doc comment. A visual marker only;
+    // the folder's settings are kept and enable/remove still work normally.
+    final bool isOffline = !Directory(folder.path).existsSync();
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: GbmSpacing.space1),
       child: Row(
@@ -64,6 +70,19 @@ class _BaseFolderRow extends ConsumerWidget {
                 .setBaseFolderEnabled(folder.id, value ?? true),
             visualDensity: VisualDensity.compact,
           ),
+          if (isOffline) ...<Widget>[
+            Tooltip(
+              message:
+                  'This folder is not reachable right now — its settings '
+                  'are kept.',
+              child: Icon(
+                Icons.warning_amber_rounded,
+                size: 16,
+                color: colors.warning,
+              ),
+            ),
+            const SizedBox(width: GbmSpacing.space1),
+          ],
           Expanded(
             child: Text(
               folder.path,

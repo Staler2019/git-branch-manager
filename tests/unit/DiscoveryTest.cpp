@@ -401,6 +401,42 @@ TEST(RepoIndexDb, ChangingBaseFolderDepthClearsItsSignatures) {
     EXPECT_FALSE(*stored) << "the old signature must not survive a depth change";
 }
 
+TEST(RepoIndexDb, UpgradingFromSchemaTwoPreservesBaseFoldersAndAddsSkipColumn) {
+    // Unlike the schema 1 -> 2 step above, schema 3 only adds a column with a
+    // safe default -- an already-configured base folder must survive the
+    // upgrade instead of being cleared.
+    RepoIndexDb db;
+    ASSERT_TRUE(db.openInMemory());
+    ASSERT_TRUE(db.addBaseFolder("/work", 4, false));
+    ASSERT_EQ(db.baseFolders()->size(), 1u);
+
+    ASSERT_TRUE(db.forceSchemaVersionForTest(2));
+    ASSERT_TRUE(db.migrate());
+
+    auto folders = db.baseFolders();
+    ASSERT_TRUE(folders);
+    ASSERT_EQ(folders->size(), 1u);
+    EXPECT_EQ((*folders)[0].maxDepth, 4) << "schema 3 must not reset unrelated columns";
+    EXPECT_EQ((*folders)[0].lastScanSkipped, 0);
+}
+
+TEST(RepoIndexDb, FinishScanRecordsSkippedDirectoryCount) {
+    RepoIndexDb db;
+    ASSERT_TRUE(db.openInMemory());
+    auto folderId = db.addBaseFolder("/work", 2, false);
+    ASSERT_TRUE(folderId);
+    ASSERT_TRUE(db.beginScan(*folderId));
+
+    ASSERT_TRUE(db.finishScan(*folderId, /*dirsScanned=*/10, /*elapsedMs=*/5,
+                              /*dirsSkipped=*/3));
+
+    auto folders = db.baseFolders();
+    ASSERT_TRUE(folders);
+    ASSERT_EQ(folders->size(), 1u);
+    EXPECT_EQ((*folders)[0].lastScanDirs, 10);
+    EXPECT_EQ((*folders)[0].lastScanSkipped, 3);
+}
+
 TEST(RepoIndexDb, UpgradingFromSchemaOneClearsBaseFolders) {
     // Schema 2 lowered the default max_depth from 6 to 1. A base folder written
     // by a pre-upgrade build was configured under the old default, so the
@@ -569,6 +605,30 @@ TEST_F(ScannerTest, RespectsTheDepthLimit) {
     CancellationSource source;
     ASSERT_TRUE(scanner.scan((*folders)[0], ScanMode::Full, source.token()));
     EXPECT_EQ(db.repos()->size(), 0u) << "the repository lies past maxDepth";
+}
+
+TEST_F(ScannerTest, RecordsDirectoriesSkippedPastTheDepthLimit) {
+    // End-to-end check that Scanner::scan's ScanResult::directoriesSkipped
+    // reaches RepoIndexDb::finishScan and is persisted, not just that
+    // finishScan itself can store the number (see the RepoIndexDb-level
+    // FinishScanRecordsSkippedDirectoryCount test for that half).
+    makeNormalRepo("a/b/c/d/e/deep");
+
+    RepoIndexDb db;
+    ASSERT_TRUE(db.openInMemory());
+    ASSERT_TRUE(db.addBaseFolder(root_.string(), 2, false));
+    auto folders = db.baseFolders();
+    ASSERT_TRUE(folders);
+
+    Scanner scanner(db);
+    CancellationSource source;
+    ASSERT_TRUE(scanner.scan((*folders)[0], ScanMode::Full, source.token()));
+
+    auto rescanned = db.baseFolders();
+    ASSERT_TRUE(rescanned);
+    ASSERT_EQ(rescanned->size(), 1u);
+    EXPECT_GT((*rescanned)[0].lastScanSkipped, 0)
+        << "directories past maxDepth must be reported as skipped, not silently dropped";
 }
 
 TEST_F(ScannerTest, DepthOneFindsOnlyTheBaseFolderAndItsDirectChildren) {

@@ -483,4 +483,7 @@ class _TestDiscoveryController extends StateNotifier<DiscoveryState>
 
   @override
   void setBaseFolderEnabled(int baseFolderId, bool enabled) {}
+
+  @override
+  void setBaseFolderDepth(int baseFolderId, int maxDepth) {}
 }

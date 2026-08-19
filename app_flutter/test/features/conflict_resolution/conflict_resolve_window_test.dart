@@ -20,6 +20,8 @@ import 'package:gbm_flutter/routing/route_paths.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/theme_mode_provider.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
+import 'package:gbm_flutter/widgets/file_list_mode_toggle_button.dart';
+import 'package:gbm_flutter/widgets/file_tree_folder_row.dart';
 import 'package:gbm_flutter/widgets/split_pane.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -56,6 +58,27 @@ ConflictSegment _regionSegment({
 
 final WorkingCopyEntry _conflictEntry = const WorkingCopyEntry(
   path: 'conflict.txt',
+  oldPath: '',
+  untracked: false,
+  staged: false,
+  indexStatus: FileChangeKind.modified,
+  hasUnstagedChange: true,
+  worktreeStatus: FileChangeKind.modified,
+  conflict: ConflictKind.bothModified,
+  ancestorBlob: '',
+  oursBlob: 'ours-hash',
+  theirsBlob: 'theirs-hash',
+  similarity: 0,
+  isSubmodule: false,
+  isConflicted: true,
+);
+
+/// A conflicted entry at an arbitrary [path], for tests that need several
+/// distinct conflicted files (e.g. proving the rail groups them by folder
+/// in tree mode) rather than the single fixed `conflict.txt` [_conflictEntry]
+/// uses.
+WorkingCopyEntry _conflictAt(String path) => WorkingCopyEntry(
+  path: path,
   oldPath: '',
   untracked: false,
   staged: false,
@@ -1131,6 +1154,61 @@ void main() {
       // Test passed if no errors were thrown
       expect(find.text('Select a file'), findsOneWidget);
     });
+
+    testWidgets('shows the shared list/tree mode toggle button', (
+      tester,
+    ) async {
+      final parsed = ParsedConflictFile(
+        segments: <ConflictSegment>[
+          _regionSegment(ours: <String>['ours-line1'], theirs: <String>[]),
+        ],
+        regionCount: 1,
+        wellFormed: true,
+      );
+
+      await _pumpWindow(tester, identity, _sessionWith(_conflictEntry), parsed);
+
+      expect(find.byType(FileListModeToggleButton), findsOneWidget);
+    });
+
+    testWidgets(
+      'tree mode renders the conflicted-file rail via FileTreeFolderRow -- '
+      'spec page 03 item 10: the same List/Tree preference applies to the '
+      "Conflict window's file rail",
+      (tester) async {
+        final parsed = ParsedConflictFile(
+          segments: <ConflictSegment>[
+            _regionSegment(ours: <String>['ours-line1'], theirs: <String>[]),
+          ],
+          regionCount: 1,
+          wellFormed: true,
+        );
+        final RepoSessionState multiFileState = RepoSessionState(
+          isOpen: true,
+          workingCopyStatus: WorkingCopyStatus(
+            entries: <WorkingCopyEntry>[
+              _conflictAt('a.txt'),
+              _conflictAt('b/c.txt'),
+              _conflictAt('b/d.txt'),
+            ],
+          ),
+        );
+
+        await _pumpWindow(
+          tester,
+          identity,
+          multiFileState,
+          parsed,
+          initialPrefs: <String, Object>{'fileListViewMode': 'tree'},
+        );
+
+        // 'b' has two children (c.txt, d.txt) so it does not single-child
+        // collapse -- see file_tree.dart's _collapseIfSingleChild.
+        expect(find.byType(FileTreeFolderRow), findsOneWidget);
+        expect(find.text('b'), findsOneWidget);
+        expect(find.text('a.txt'), findsOneWidget);
+      },
+    );
   });
 }
 
@@ -1168,8 +1246,9 @@ Future<ProviderContainer> _pumpWindow(
   WidgetTester tester,
   RepoIdentity identity,
   RepoSessionState sessionState,
-  ParsedConflictFile parsedFile,
-) async {
+  ParsedConflictFile parsedFile, {
+  Map<String, Object> initialPrefs = const <String, Object>{},
+}) async {
   // The rail (158px) plus three panes (220px min each, splitterCwPanes) need
   // >=830 logical px -- wider than flutter_test's default surface, which
   // would otherwise overflow every Row in the three-column layout.
@@ -1178,7 +1257,7 @@ Future<ProviderContainer> _pumpWindow(
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
-  SharedPreferences.setMockInitialValues(<String, Object>{});
+  SharedPreferences.setMockInitialValues(initialPrefs);
   final SharedPreferences prefs = await SharedPreferences.getInstance();
 
   final GoRouter router = GoRouter(

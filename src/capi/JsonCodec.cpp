@@ -282,6 +282,8 @@ std::string toJson(const BaseFolderRecord& record) {
     jsonAppendInt(out, record.lastScanDirs);
     out += ",\"lastScanMs\":";
     jsonAppendInt(out, record.lastScanMs);
+    out += ",\"lastScanSkipped\":";
+    jsonAppendInt(out, record.lastScanSkipped);
     out += '}';
     return out;
 }

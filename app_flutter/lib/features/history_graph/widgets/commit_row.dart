@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 
 import '../../../data/models/commit_meta.dart';
 import '../../../data/models/graph_snapshot.dart';
-import '../../../data/models/ref_snapshot.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_menu.dart';
@@ -11,6 +10,7 @@ import '../../../widgets/gbm_row.dart';
 import '../../../widgets/gbm_tag_chip.dart';
 import 'graph_column_painter.dart';
 import 'graph_date_format.dart';
+import 'graph_ref_chips.dart';
 
 const double kGraphLaneWidth = 18;
 const double kCommitRowHeight = GbmSpacing.rowHeightComfortable;
@@ -35,7 +35,7 @@ class CommitRow extends StatelessWidget {
     this.meta,
     this.selected = false,
     this.onTap,
-    this.refChips = const <RefInfo>[],
+    this.refChips = const <RefChipData>[],
     this.isOwnCommit = false,
     this.showGraph = true,
     this.onCheckout,
@@ -58,9 +58,10 @@ class CommitRow extends StatelessWidget {
   final bool selected;
   final VoidCallback? onTap;
 
-  /// All refs pointing at this commit (from `graph_ref_chips.dart`'s
-  /// `refChipsForCommit`), rendered as `GbmTagChip`s before the subject.
-  final List<RefInfo> refChips;
+  /// Chip render data for this commit (from `graph_ref_chips.dart`'s
+  /// `refChipsForCommit`, already carrying the local/origin merge rule),
+  /// rendered as `GbmTagChip`s before the subject.
+  final List<RefChipData> refChips;
 
   /// True when [meta]'s author email matches the effective git identity --
   /// bolds and accent-colors the author text only (never the row
@@ -160,11 +161,13 @@ class CommitRow extends StatelessWidget {
                   child: Wrap(
                     spacing: 4,
                     children: <Widget>[
-                      for (final RefInfo ref in refChips)
+                      for (final RefChipData chip in refChips)
                         GbmTagChip(
-                          label: ref.shortName,
-                          kind: ref.kind,
-                          isCurrent: ref.isHead,
+                          label: chip.label,
+                          kind: chip.kind,
+                          isCurrent: chip.isCurrent,
+                          showCloudIcon: chip.showCloudIcon,
+                          isDashed: chip.isDashed,
                         ),
                     ],
                   ),

@@ -26,6 +26,10 @@ struct BaseFolderRecord {
     std::int64_t lastScanFinished = 0;
     std::int64_t lastScanDirs = 0;
     std::int64_t lastScanMs = 0;
+    /// Directories the last scan did not descend into because they lay past
+    /// `maxDepth`. Surfaced so the UI can report "N folders skipped (depth
+    /// limit)" instead of silently under-counting what was scanned.
+    std::int64_t lastScanSkipped = 0;
 };
 
 struct RepoRecord {
@@ -93,7 +97,12 @@ public:
     /// Schema 2 lowered the default `max_depth` from 6 to 1 (see `addBaseFolder`)
     /// and, on upgrade, clears every existing base folder rather than silently
     /// reinterpreting a folder the user already configured under the old default.
-    static constexpr int kSchemaVersion = 2;
+    ///
+    /// Schema 3 added `base_folder.last_scan_skipped`. Unlike schema 2, existing
+    /// base folders are preserved on upgrade -- a new column with a `DEFAULT 0`
+    /// is safe to add onto rows that already exist, there is no stale-default
+    /// reinterpretation risk the way there was for `max_depth`.
+    static constexpr int kSchemaVersion = 3;
 
     GitResult<void> open(const std::filesystem::path& path);
     GitResult<void> openInMemory();
@@ -121,7 +130,8 @@ public:
     GitResult<std::int64_t> beginScan(std::int64_t baseFolderId);
     GitResult<void> finishScan(std::int64_t baseFolderId,
                                std::int64_t dirsScanned,
-                               std::int64_t elapsedMs);
+                               std::int64_t elapsedMs,
+                               std::int64_t dirsSkipped = 0);
 
     // --- repositories ------------------------------------------------------
     GitResult<std::int64_t> upsertRepo(const RepoRecord& record);

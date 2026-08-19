@@ -128,3 +128,15 @@ GBM_API int32_t gbm_discovery_set_base_folder_enabled(GbmDiscoveryHandle discove
     }
     return 0;
 }
+
+GBM_API int32_t gbm_discovery_set_base_folder_depth(GbmDiscoveryHandle discovery,
+                                                    int64_t baseFolderId,
+                                                    int32_t maxDepth) {
+    DiscoveryState* state = toDiscovery(discovery);
+    const GitResult<void> result = state->db.setBaseFolderMaxDepth(baseFolderId, maxDepth);
+    if (!result) {
+        setStagingBuffer(toJson(result.error()));
+        return errorCodeOrdinal(result.error());
+    }
+    return 0;
+}

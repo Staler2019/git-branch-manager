@@ -109,6 +109,18 @@ TEST_F(DiscoveryApiTest, SetBaseFolderEnabledTogglesFlag) {
     EXPECT_NE(lastResultJson().find("\"enabled\":false"), std::string::npos);
 }
 
+TEST_F(DiscoveryApiTest, SetBaseFolderDepthUpdatesMaxDepth) {
+    discovery_ = gbm_discovery_open("");
+    ASSERT_NE(discovery_, nullptr);
+    const int64_t folderId = gbm_discovery_add_base_folder(discovery_, base_.string().c_str(), 3, 0);
+    ASSERT_GE(folderId, 0);
+
+    ASSERT_EQ(gbm_discovery_set_base_folder_depth(discovery_, folderId, 7), 0);
+
+    ASSERT_EQ(gbm_discovery_base_folders_json(discovery_), 0);
+    EXPECT_NE(lastResultJson().find("\"maxDepth\":7"), std::string::npos);
+}
+
 TEST_F(DiscoveryApiTest, RemoveBaseFolderDropsItFromTheList) {
     discovery_ = gbm_discovery_open("");
     ASSERT_NE(discovery_, nullptr);

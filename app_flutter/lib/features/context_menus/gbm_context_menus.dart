@@ -20,10 +20,12 @@ enum GbmContextMenuTarget {
   repository, // 05-A
   /// Right-click a local branch row in the sidebar.
   localBranch, // 05-B
-  /// Right-click a remote-only or "gone" branch row in the sidebar.
-  /// Not yet wired; will need to distinguish remote-only rows from gone.
-  /// Per spec note: for a "gone" row specifically, only "Prune this ref" and
-  /// "Copy branch name" stay enabled; others disabled.
+  /// Right-click a remote-only or "gone" branch row in the sidebar. Wired via
+  /// `branch_tree_item.dart`'s `_buildMenuItems()`, which distinguishes the
+  /// two cases itself: a remote-only row gets its own 05-C subset, and a
+  /// "gone" row goes through `_buildGoneMenuItems()`, which per the spec
+  /// note leaves only "Prune this ref" and "Copy branch name" enabled with
+  /// the rest disabled (not omitted).
   remoteOnlyOrGoneBranch, // 05-C
   /// Right-click a branch folder row (e.g., feature/, bugfix/) in the sidebar.
   /// Not yet wired.

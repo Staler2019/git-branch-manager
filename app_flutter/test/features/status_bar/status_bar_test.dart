@@ -178,6 +178,79 @@ void main() {
       expect(find.text('+2 more'), findsOneWidget);
     });
 
+    testWidgets('tapping "+N more" expands the folded tasks (spec page 10 '
+        'STATUSPARTS #2: "其餘作業摺疊成 +N task，點了展開清單")', (tester) async {
+      final tasks = [
+        BackgroundTask.fetch(
+          id: 'fetch-1',
+          label: 'Fetching',
+          current: 50,
+          total: 100,
+        ),
+        BackgroundTask.push(
+          id: 'push-1',
+          label: 'Pushing',
+          current: 0,
+          total: 1,
+        ),
+        BackgroundTask.checkout(
+          id: 'checkout-1',
+          label: 'Checking out',
+          current: 0,
+          total: 1,
+        ),
+      ];
+      String? cancelledId;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: Scaffold(
+            body: StatusBar(
+              currentBranch: 'main',
+              ahead: 0,
+              behind: 0,
+              commitCount: 10,
+              lastScanDuration: const Duration(milliseconds: 100),
+              graphLaneCapacity: 6,
+              backgroundTasks: tasks,
+              hasUnreadLog: false,
+              onOpenLog: () {},
+              onCancelTask: (id) => cancelledId = id,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // Before expanding: only the foreground task's label is visible,
+      // the two folded ones are not.
+      expect(find.text('Fetching'), findsOneWidget);
+      expect(find.text('Pushing'), findsNothing);
+      expect(find.text('Checking out'), findsNothing);
+
+      await tester.tap(find.text('+2 more'));
+      await tester.pumpAndSettle();
+
+      // After expanding: both folded tasks' labels are now visible.
+      expect(find.text('Pushing'), findsOneWidget);
+      expect(find.text('Checking out'), findsOneWidget);
+
+      // A cancellable folded task (push) has a live Cancel button that
+      // reaches the same onCancelTask callback the foreground task uses.
+      final Finder cancelButtons = find.widgetWithText(TextButton, 'Cancel');
+      expect(cancelButtons, findsNWidgets(2));
+      await tester.tap(cancelButtons.first);
+      expect(cancelledId, 'push-1');
+
+      // A non-cancellable folded task (checkout) has its Cancel button
+      // disabled, same rule as the foreground task's own Cancel button.
+      final TextButton checkoutCancel = tester.widget<TextButton>(
+        cancelButtons.last,
+      );
+      expect(checkoutCancel.onPressed, isNull);
+    });
+
     testWidgets('non-cancellable task Cancel button is disabled', (
       tester,
     ) async {

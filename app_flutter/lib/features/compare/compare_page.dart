@@ -7,11 +7,14 @@ import '../../data/models/parsed_diff.dart';
 import '../../data/models/ref_snapshot.dart';
 import '../../data/models/stash_entry.dart';
 import '../../data/repositories/compare_tabs_repository.dart';
+import '../../data/repositories/file_list_view_mode_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
 import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
+import '../../widgets/file_list_mode_switcher.dart';
+import '../../widgets/file_list_mode_toggle_button.dart';
 import '../../widgets/gbm_badge.dart';
 import '../diff/diff_page.dart';
 import 'widgets/compare_ref_picker.dart';
@@ -325,6 +328,10 @@ class _ComparePageState extends ConsumerState<ComparePage> {
     CompareTabSpec spec,
     RepoSessionState session,
   ) {
+    // Spec page 03 item 10: same List/Tree preference as Working Copy,
+    // History's Changed files, and the Conflict window's file rail.
+    final FileListViewMode viewMode = ref.watch(fileListViewModeProvider);
+
     if (spec.rightIsWorkingCopy) {
       final CompareWithWorkingCopyResult? result =
           session
@@ -344,6 +351,7 @@ class _ComparePageState extends ConsumerState<ComparePage> {
               onScrollEnd: _onScrollEnd,
               files: result.diff.files,
               selectedPath: _selectedPath,
+              viewMode: viewMode,
               onSelect: (String path) => setState(() => _selectedPath = path),
               onCheckout: (String path) =>
                   _confirmCheckout(context, path: path, source: spec.left),
@@ -374,6 +382,7 @@ class _ComparePageState extends ConsumerState<ComparePage> {
             onScrollEnd: _onScrollEnd,
             files: result.files,
             selectedPath: _selectedPath,
+            viewMode: viewMode,
             onSelect: (String path) {
               setState(() => _selectedPath = path);
               ref
@@ -462,6 +471,7 @@ class _RefCompareFileList extends StatelessWidget {
     required this.files,
     required this.selectedPath,
     required this.onSelect,
+    this.viewMode = FileListViewMode.list,
   });
 
   final ScrollController controller;
@@ -470,59 +480,127 @@ class _RefCompareFileList extends StatelessWidget {
   final String? selectedPath;
   final ValueChanged<String> onSelect;
 
+  /// List vs Tree display, from the shared [fileListViewModeProvider] --
+  /// see [_FileListPanelHeader]'s doc comment.
+  final FileListViewMode viewMode;
+
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
     if (files.isEmpty) {
-      return Center(
-        child: Text('No changes', style: TextStyle(color: colors.textTertiary)),
+      return Column(
+        children: <Widget>[
+          const _FileListPanelHeader(),
+          Expanded(
+            child: Center(
+              child: Text(
+                'No changes',
+                style: TextStyle(color: colors.textTertiary),
+              ),
+            ),
+          ),
+        ],
       );
     }
-    return NotificationListener<ScrollEndNotification>(
-      onNotification: (ScrollEndNotification notification) {
-        onScrollEnd();
-        return false;
-      },
-      child: ListView.builder(
-        controller: controller,
-        itemCount: files.length,
-        itemBuilder: (context, index) {
-          final DiffFile file = files[index];
-          final bool isSelected = file.displayPath == selectedPath;
-          return Container(
-            color: isSelected ? colors.surfaceSelected : null,
-            child: ListTile(
-              dense: true,
-              title: Text(
-                file.displayPath,
-                style: TextStyle(
-                  fontSize: GbmTypography.textSm,
-                  color: colors.textPrimary,
+    return Column(
+      children: <Widget>[
+        const _FileListPanelHeader(),
+        Expanded(
+          child: viewMode == FileListViewMode.list
+              ? NotificationListener<ScrollEndNotification>(
+                  onNotification: (ScrollEndNotification notification) {
+                    onScrollEnd();
+                    return false;
+                  },
+                  child: ListView.builder(
+                    controller: controller,
+                    itemCount: files.length,
+                    itemBuilder: (context, index) =>
+                        _buildFileRow(context, files[index]),
+                  ),
+                )
+              // Tree mode has no scroll-offset persistence: FileTreeList
+              // builds its own internal ListView with no controller seam.
+              : FileListModeSwitcher<DiffFile>(
+                  mode: viewMode,
+                  items: files,
+                  pathOf: (DiffFile file) => file.displayPath,
+                  leafBuilder: (BuildContext context, DiffFile file) =>
+                      _buildFileRow(context, file),
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFileRow(BuildContext context, DiffFile file) {
+    final GbmColors colors = context.gbmColors;
+    final bool isSelected = file.displayPath == selectedPath;
+    return Container(
+      color: isSelected ? colors.surfaceSelected : null,
+      child: ListTile(
+        dense: true,
+        title: Text(
+          file.displayPath,
+          style: TextStyle(
+            fontSize: GbmTypography.textSm,
+            color: colors.textPrimary,
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            if (file.addedLines > 0)
+              GbmBadge(label: '+${file.addedLines}', kind: GbmBadgeKind.added),
+            if (file.removedLines > 0) ...<Widget>[
+              const SizedBox(width: GbmSpacing.space1),
+              GbmBadge(
+                label: '-${file.removedLines}',
+                kind: GbmBadgeKind.removed,
               ),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  if (file.addedLines > 0)
-                    GbmBadge(
-                      label: '+${file.addedLines}',
-                      kind: GbmBadgeKind.added,
-                    ),
-                  if (file.removedLines > 0) ...<Widget>[
-                    const SizedBox(width: GbmSpacing.space1),
-                    GbmBadge(
-                      label: '-${file.removedLines}',
-                      kind: GbmBadgeKind.removed,
-                    ),
-                  ],
-                ],
+            ],
+          ],
+        ),
+        onTap: () => onSelect(file.displayPath),
+      ),
+    );
+  }
+}
+
+/// "FILES" label + the shared [FileListModeToggleButton], reused atop both
+/// [_RefCompareFileList] and [_WorkingCopyFileList] -- spec page 03 item 10:
+/// the same List/Tree preference applies to Working Copy, History's Changed
+/// files, Compare's Files, and the Conflict window's file rail.
+class _FileListPanelHeader extends StatelessWidget {
+  const _FileListPanelHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        GbmSpacing.space3,
+        GbmSpacing.space1,
+        GbmSpacing.space1,
+        GbmSpacing.space1,
+      ),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Text(
+              'FILES',
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                fontWeight: GbmTypography.weightSemibold,
+                color: colors.textTertiary,
+                letterSpacing: 0.5,
               ),
-              onTap: () => onSelect(file.displayPath),
             ),
-          );
-        },
+          ),
+          const FileListModeToggleButton(),
+        ],
       ),
     );
   }
@@ -541,6 +619,7 @@ class _WorkingCopyFileList extends StatelessWidget {
     required this.selectedPath,
     required this.onSelect,
     required this.onCheckout,
+    this.viewMode = FileListViewMode.list,
   });
 
   final ScrollController controller;
@@ -550,51 +629,85 @@ class _WorkingCopyFileList extends StatelessWidget {
   final ValueChanged<String> onSelect;
   final ValueChanged<String> onCheckout;
 
+  /// List vs Tree display, from the shared [fileListViewModeProvider] --
+  /// see [_FileListPanelHeader]'s doc comment.
+  final FileListViewMode viewMode;
+
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
     if (files.isEmpty) {
-      return Center(
-        child: Text('No changes', style: TextStyle(color: colors.textTertiary)),
+      return Column(
+        children: <Widget>[
+          const _FileListPanelHeader(),
+          Expanded(
+            child: Center(
+              child: Text(
+                'No changes',
+                style: TextStyle(color: colors.textTertiary),
+              ),
+            ),
+          ),
+        ],
       );
     }
-    return NotificationListener<ScrollEndNotification>(
-      onNotification: (ScrollEndNotification notification) {
-        onScrollEnd();
-        return false;
-      },
-      child: ListView.builder(
-        controller: controller,
-        itemCount: files.length,
-        itemBuilder: (context, index) {
-          final DiffFile file = files[index];
-          final bool isSelected = file.displayPath == selectedPath;
-          return Container(
-            color: isSelected ? colors.surfaceSelected : null,
-            child: ListTile(
-              dense: true,
-              title: Text(
-                file.displayPath,
-                style: TextStyle(
-                  fontSize: GbmTypography.textSm,
-                  color: colors.textPrimary,
+    return Column(
+      children: <Widget>[
+        const _FileListPanelHeader(),
+        Expanded(
+          child: viewMode == FileListViewMode.list
+              ? NotificationListener<ScrollEndNotification>(
+                  onNotification: (ScrollEndNotification notification) {
+                    onScrollEnd();
+                    return false;
+                  },
+                  child: ListView.builder(
+                    controller: controller,
+                    itemCount: files.length,
+                    itemBuilder: (context, index) =>
+                        _buildFileRow(context, files[index]),
+                  ),
+                )
+              // Tree mode has no scroll-offset persistence: FileTreeList
+              // builds its own internal ListView with no controller seam.
+              : FileListModeSwitcher<DiffFile>(
+                  mode: viewMode,
+                  items: files,
+                  pathOf: (DiffFile file) => file.displayPath,
+                  leafBuilder: (BuildContext context, DiffFile file) =>
+                      _buildFileRow(context, file),
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              trailing: IconButton(
-                tooltip: 'Checkout (overwrite working copy)',
-                icon: Icon(
-                  Icons.settings_backup_restore,
-                  size: 16,
-                  color: colors.textSecondary,
-                ),
-                onPressed: () => onCheckout(file.displayPath),
-              ),
-              onTap: () => onSelect(file.displayPath),
-            ),
-          );
-        },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFileRow(BuildContext context, DiffFile file) {
+    final GbmColors colors = context.gbmColors;
+    final bool isSelected = file.displayPath == selectedPath;
+    return Container(
+      color: isSelected ? colors.surfaceSelected : null,
+      child: ListTile(
+        dense: true,
+        title: Text(
+          file.displayPath,
+          style: TextStyle(
+            fontSize: GbmTypography.textSm,
+            color: colors.textPrimary,
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: IconButton(
+          tooltip: 'Checkout (overwrite working copy)',
+          icon: Icon(
+            Icons.settings_backup_restore,
+            size: 16,
+            color: colors.textSecondary,
+          ),
+          onPressed: () => onCheckout(file.displayPath),
+        ),
+        onTap: () => onSelect(file.displayPath),
       ),
     );
   }

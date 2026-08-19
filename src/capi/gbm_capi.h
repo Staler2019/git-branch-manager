@@ -1250,3 +1250,12 @@ GBM_API int32_t gbm_discovery_remove_base_folder(GbmDiscoveryHandle discovery,
 GBM_API int32_t gbm_discovery_set_base_folder_enabled(GbmDiscoveryHandle discovery,
                                                       int64_t baseFolderId,
                                                       int32_t enabled);
+
+/// Changes how many levels below a base folder are scanned. Also clears its
+/// stored directory signatures (see RepoIndexDb::setBaseFolderMaxDepth's doc
+/// comment) -- a signature recorded "nothing below here" under the old depth
+/// would otherwise wrongly prune a subtree a deeper scan should now visit.
+/// Returns 0 on success, or a negative GbmErrorCode.
+GBM_API int32_t gbm_discovery_set_base_folder_depth(GbmDiscoveryHandle discovery,
+                                                    int64_t baseFolderId,
+                                                    int32_t maxDepth);

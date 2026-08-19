@@ -9,7 +9,9 @@ import 'package:gbm_flutter/data/models/graph_snapshot.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
 import 'package:gbm_flutter/data/models/signature.dart';
 import 'package:gbm_flutter/features/history_graph/widgets/commit_row.dart';
+import 'package:gbm_flutter/features/history_graph/widgets/graph_ref_chips.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
+import 'package:gbm_flutter/widgets/gbm_tag_chip.dart';
 
 import '../../support/pump_app.dart';
 
@@ -184,35 +186,13 @@ void main() {
             rowIndex: 0,
             maxLane: 0,
             meta: _meta(),
-            refChips: <RefInfo>[
-              RefInfo(
-                fullName: 'refs/heads/main',
-                shortName: 'main',
+            refChips: const <RefChipData>[
+              RefChipData(
+                label: 'main',
                 kind: RefKind.localBranch,
-                target: 'a' * 40,
-                upstream: '',
-                ahead: 0,
-                behind: 0,
-                hasTrackingInfo: false,
-                isGone: false,
-                isHead: true,
-                isSymbolic: false,
-                worktreePath: '',
+                isCurrent: true,
               ),
-              RefInfo(
-                fullName: 'refs/tags/v1.0',
-                shortName: 'v1.0',
-                kind: RefKind.tag,
-                target: 'a' * 40,
-                upstream: '',
-                ahead: 0,
-                behind: 0,
-                hasTrackingInfo: false,
-                isGone: false,
-                isHead: false,
-                isSymbolic: false,
-                worktreePath: '',
-              ),
+              RefChipData(label: 'v1.0', kind: RefKind.tag),
             ],
           ),
         );
@@ -220,6 +200,55 @@ void main() {
         expect(find.text('main'), findsOneWidget);
         expect(find.text('v1.0'), findsOneWidget);
       });
+
+      testWidgets(
+        'forwards showCloudIcon/isDashed from RefChipData straight through '
+        'to GbmTagChip (graph_ref_chips_test.dart covers the merge/'
+        'divergence logic itself; this locks in the render-time wiring)',
+        (tester) async {
+          await pumpGbmWidget(
+            tester,
+            variant: variant,
+            child: CommitRow(
+              row: _row,
+              oidHex: 'a' * 40,
+              graph: GraphSnapshotView.empty,
+              rowIndex: 0,
+              maxLane: 0,
+              meta: _meta(),
+              refChips: const <RefChipData>[
+                RefChipData(
+                  label: 'main',
+                  kind: RefKind.localBranch,
+                  showCloudIcon: true,
+                ),
+                RefChipData(
+                  label: 'origin/main',
+                  kind: RefKind.remoteBranch,
+                  isDashed: true,
+                ),
+              ],
+            ),
+          );
+
+          final List<GbmTagChip> chips = tester
+              .widgetList<GbmTagChip>(find.byType(GbmTagChip))
+              .toList();
+          expect(chips, hasLength(2));
+
+          final GbmTagChip mainChip = chips.firstWhere(
+            (c) => c.label == 'main',
+          );
+          expect(mainChip.showCloudIcon, isTrue);
+          expect(mainChip.isDashed, isFalse);
+
+          final GbmTagChip originChip = chips.firstWhere(
+            (c) => c.label == 'origin/main',
+          );
+          expect(originChip.isDashed, isTrue);
+          expect(originChip.showCloudIcon, isFalse);
+        },
+      );
 
       testWidgets('renders no chips when nothing points to this commit', (
         tester,

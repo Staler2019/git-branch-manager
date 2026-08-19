@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -494,16 +496,25 @@ class _RepositorySourcesSectionState
         ],
         const SizedBox(height: GbmSpacing.space4),
         const _SectionHeading('MANUALLY OPENED'),
-        Text(
-          recents.isEmpty
-              ? 'Nothing recorded yet.'
-              : '${recents.length} recorded · most recent: '
-                    '${recents.first.workDir}',
-          style: TextStyle(
-            fontSize: GbmTypography.textSm,
-            color: colors.textSecondary,
-          ),
-        ),
+        if (recents.isEmpty)
+          Text(
+            'Nothing recorded yet.',
+            style: TextStyle(
+              fontSize: GbmTypography.textSm,
+              color: colors.textSecondary,
+            ),
+          )
+        else
+          for (final RecentRepoEntry entry in recents)
+            _RecentEntryRow(
+              entry: entry,
+              // Same non-notifier refresh pattern as Clear list below --
+              // RecentsRepository has no state of its own to watch.
+              onRemove: () async {
+                await ref.read(recentsRepositoryProvider).remove(entry.workDir);
+                if (mounted) setState(() {});
+              },
+            ),
         const SizedBox(height: GbmSpacing.space1),
         Text(
           'Clearing this list only forgets the entries — nothing on disk is '
@@ -531,6 +542,45 @@ class _RepositorySourcesSectionState
   }
 }
 
+/// One recorded manual open, with its own delete affordance -- spec page 11
+/// item 7's "手動加入的可單獨移除" (a manually-opened entry can be removed on
+/// its own, separate from the batch "Clear list" below).
+class _RecentEntryRow extends StatelessWidget {
+  const _RecentEntryRow({required this.entry, required this.onRemove});
+
+  final RecentRepoEntry entry;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Text(
+              entry.workDir,
+              style: TextStyle(
+                fontSize: GbmTypography.textSm,
+                color: colors.textPrimary,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          IconButton(
+            key: ValueKey<String>('recent-entry-remove-${entry.workDir}'),
+            icon: Icon(Icons.close, size: 16, color: colors.textTertiary),
+            tooltip: 'Remove from list',
+            visualDensity: VisualDensity.compact,
+            onPressed: onRemove,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _BaseFolderRow extends ConsumerWidget {
   const _BaseFolderRow({required this.folder});
 
@@ -539,9 +589,22 @@ class _BaseFolderRow extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final GbmColors colors = context.gbmColors;
+    // A pure local filesystem check -- no capi call, no persisted state.
+    // Re-evaluated on every rebuild, so it never goes stale the way a
+    // one-time-at-scan-time flag would if the folder disappeared afterwards.
+    // Settings are kept either way (see the class doc comment on
+    // DiscoveryController): this is a visual marker only, never a block.
+    final bool isOffline = !Directory(folder.path).existsSync();
+
+    final String scanSummary =
+        'depth ${folder.maxDepth} · ${folder.lastScanDirs} director(ies) '
+        'scanned'
+        '${folder.lastScanSkipped > 0 ? ' · ${folder.lastScanSkipped} skipped (depth limit)' : ''}';
+
     return Padding(
       padding: const EdgeInsets.only(bottom: GbmSpacing.space1),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: <Widget>[
           Checkbox(
             value: folder.enabled,
@@ -550,6 +613,19 @@ class _BaseFolderRow extends ConsumerWidget {
                 .read(discoveryProvider.notifier)
                 .setBaseFolderEnabled(folder.id, value ?? true),
           ),
+          if (isOffline) ...<Widget>[
+            Tooltip(
+              message:
+                  'This folder is not reachable right now — its settings '
+                  'are kept and nothing will be removed automatically.',
+              child: Icon(
+                Icons.warning_amber_rounded,
+                size: 16,
+                color: colors.warning,
+              ),
+            ),
+            const SizedBox(width: GbmSpacing.space1),
+          ],
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -563,8 +639,7 @@ class _BaseFolderRow extends ConsumerWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
                 Text(
-                  'depth ${folder.maxDepth} · ${folder.lastScanDirs} '
-                  'director(ies) scanned',
+                  scanSummary,
                   style: TextStyle(
                     fontSize: GbmTypography.textXs,
                     color: colors.textTertiary,
@@ -572,6 +647,13 @@ class _BaseFolderRow extends ConsumerWidget {
                 ),
               ],
             ),
+          ),
+          const SizedBox(width: GbmSpacing.space2),
+          _DepthField(
+            value: folder.maxDepth,
+            onChanged: (int depth) => ref
+                .read(discoveryProvider.notifier)
+                .setBaseFolderDepth(folder.id, depth),
           ),
           IconButton(
             icon: Icon(Icons.delete_outline, size: 18, color: colors.danger),
@@ -581,6 +663,64 @@ class _BaseFolderRow extends ConsumerWidget {
                 .removeBaseFolder(folder.id),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Compact inline editor for one base folder's scan depth -- a slimmed-down
+/// sibling of [_NumberField] (no label/border) sized to sit in a folder row
+/// next to the checkbox and delete button instead of stacked on its own
+/// line.
+class _DepthField extends StatefulWidget {
+  const _DepthField({required this.value, required this.onChanged});
+
+  final int value;
+  final ValueChanged<int> onChanged;
+
+  @override
+  State<_DepthField> createState() => _DepthFieldState();
+}
+
+class _DepthFieldState extends State<_DepthField> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.value.toString());
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 56,
+      child: TextField(
+        controller: _controller,
+        keyboardType: TextInputType.number,
+        textAlign: TextAlign.center,
+        decoration: const InputDecoration(
+          isDense: true,
+          border: OutlineInputBorder(),
+          contentPadding: EdgeInsets.symmetric(
+            horizontal: GbmSpacing.space1,
+            vertical: 6,
+          ),
+        ),
+        style: const TextStyle(fontSize: GbmTypography.textSm),
+        // Only a parseable non-negative value is committed -- a half-typed
+        // field must not momentarily send 0 (which would mean "this base
+        // folder is itself the only thing scanned") mid-keystroke.
+        onSubmitted: (String text) {
+          final int? parsed = int.tryParse(text.trim());
+          if (parsed != null && parsed >= 0) widget.onChanged(parsed);
+        },
       ),
     );
   }
@@ -616,9 +756,23 @@ class _GitSection extends ConsumerWidget {
           _GitignorePathField(
             initialValue: prefs.globalGitignorePath,
             onChanged: (String v) => notifier.update(
-              (AppPreferences p) => p.copyWith(globalGitignorePath: v),
+              (AppPreferences p) => p.copyWith(
+                globalGitignorePath: v,
+                globalGitignoreSource: 'manual',
+              ),
             ),
           ),
+          if (prefs.globalGitignoreSource == 'imported') ...<Widget>[
+            const SizedBox(height: GbmSpacing.space1),
+            Text(
+              'Imported from .gitconfig',
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                fontStyle: FontStyle.italic,
+                color: context.gbmColors.textTertiary,
+              ),
+            ),
+          ],
         ],
         const SizedBox(height: GbmSpacing.space4),
         const _SectionHeading('COMMIT MESSAGES'),

@@ -11,6 +11,7 @@ class BaseFolderRecord {
     required this.lastScanFinished,
     required this.lastScanDirs,
     required this.lastScanMs,
+    required this.lastScanSkipped,
   });
 
   factory BaseFolderRecord.fromJson(Map<String, dynamic> json) {
@@ -24,6 +25,7 @@ class BaseFolderRecord {
       lastScanFinished: json['lastScanFinished'] as int,
       lastScanDirs: json['lastScanDirs'] as int,
       lastScanMs: json['lastScanMs'] as int,
+      lastScanSkipped: json['lastScanSkipped'] as int,
     );
   }
 
@@ -40,4 +42,8 @@ class BaseFolderRecord {
   final int lastScanFinished;
   final int lastScanDirs;
   final int lastScanMs;
+
+  /// Directories the last scan did not descend into because they lay past
+  /// [maxDepth]. Zero until at least one scan has completed.
+  final int lastScanSkipped;
 }

@@ -1180,6 +1180,11 @@ typedef _DiscoverySetBaseFolderEnabledNative =
 typedef DiscoverySetBaseFolderEnabledDart =
     int Function(Pointer<Void> discovery, int baseFolderId, int enabled);
 
+typedef _DiscoverySetBaseFolderDepthNative =
+    Int32 Function(Pointer<Void> discovery, Int64 baseFolderId, Int32 maxDepth);
+typedef DiscoverySetBaseFolderDepthDart =
+    int Function(Pointer<Void> discovery, int baseFolderId, int maxDepth);
+
 /// Thin, allocation-free wrapper around the `gbm_capi` symbol table. One
 /// instance per isolate is enough; construct it once via [GbmBindings.open]
 /// and share it through a Riverpod provider.
@@ -1719,7 +1724,12 @@ class GbmBindings {
           .lookupFunction<
             _DiscoverySetBaseFolderEnabledNative,
             DiscoverySetBaseFolderEnabledDart
-          >('gbm_discovery_set_base_folder_enabled');
+          >('gbm_discovery_set_base_folder_enabled'),
+      discoverySetBaseFolderDepth = library
+          .lookupFunction<
+            _DiscoverySetBaseFolderDepthNative,
+            DiscoverySetBaseFolderDepthDart
+          >('gbm_discovery_set_base_folder_depth');
 
   final FreeEventPayloadDart freeEventPayload;
   final LastResultJsonLenDart lastResultJsonLen;
@@ -1862,4 +1872,5 @@ class GbmBindings {
   final DiscoveryBaseFoldersJsonDart discoveryBaseFoldersJson;
   final DiscoveryRemoveBaseFolderDart discoveryRemoveBaseFolder;
   final DiscoverySetBaseFolderEnabledDart discoverySetBaseFolderEnabled;
+  final DiscoverySetBaseFolderDepthDart discoverySetBaseFolderDepth;
 }

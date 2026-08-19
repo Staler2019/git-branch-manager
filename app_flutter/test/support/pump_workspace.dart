@@ -84,6 +84,13 @@ Future<PumpedWorkspace> pumpWorkspace(
   /// already registered below, and go_router rejects a second [GoRoute] at
   /// the same path. This swaps that one route's builder in place instead.
   Widget Function(BuildContext, GoRouterState)? workingCopyBuilder,
+
+  /// Same as [workingCopyBuilder], for the History ShellRoute child --
+  /// swaps in the real [HistoryPage] for a test that needs to navigate to
+  /// it and assert on its actual rendered content (e.g. that the shared
+  /// [fileListViewModeProvider] carries over across a History<->Working-Copy
+  /// round trip), rather than the bare empty [Scaffold] most tests get.
+  Widget Function(BuildContext, GoRouterState)? historyBuilder,
   ui.Size surfaceSize = const ui.Size(1400, 900),
 }) async {
   tester.view.physicalSize = surfaceSize;
@@ -118,7 +125,9 @@ Future<PumpedWorkspace> pumpWorkspace(
         routes: <RouteBase>[
           GoRoute(
             path: RoutePaths.history,
-            builder: (context, state) => const Scaffold(body: SizedBox()),
+            builder:
+                historyBuilder ??
+                (context, state) => const Scaffold(body: SizedBox()),
           ),
           GoRoute(
             path: RoutePaths.workingCopy,

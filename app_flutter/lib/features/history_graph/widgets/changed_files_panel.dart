@@ -4,11 +4,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../data/models/changed_file.dart';
+import '../../../data/repositories/file_list_view_mode_repository.dart';
 import '../../../data/repositories/history_repository.dart';
 import '../../../data/repositories/repo_identity.dart';
 import '../../../routing/route_paths.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
+import '../../../widgets/file_list_mode_switcher.dart';
+import '../../../widgets/file_list_mode_toggle_button.dart';
 import '../../../widgets/gbm_menu.dart';
 
 /// Container: watches the changed-files providers for [identity] and wires
@@ -28,10 +31,12 @@ class ChangedFilesPanel extends ConsumerWidget {
     final String? selectedCommitOid = ref.watch(
       selectedCommitProvider(identity),
     );
+    final FileListViewMode viewMode = ref.watch(fileListViewModeProvider);
 
     return ChangedFilesPanelCore(
       hasSelectedCommit: selectedCommitOid != null,
       files: files,
+      viewMode: viewMode,
       selectedPath: selectedPath,
       onFileTap: selectedCommitOid == null
           ? null
@@ -83,11 +88,18 @@ class ChangedFilesPanelCore extends StatelessWidget {
     this.onFileHistory,
     this.onBlame,
     this.onRestoreToThisState,
+    this.viewMode = FileListViewMode.list,
   });
 
   final bool hasSelectedCommit;
   final List<ChangedFile> files;
   final String? selectedPath;
+
+  /// List vs Tree display, from the shared [fileListViewModeProvider]
+  /// (spec page 03 item 10 -- "同一個設定套用到...History 的 Changed
+  /// files"). Defaults to list so existing callers/tests that don't pass it
+  /// keep their prior behavior unchanged.
+  final FileListViewMode viewMode;
   final ValueChanged<String>? onFileTap;
   final ValueChanged<String>? onFileHistory;
   final ValueChanged<String>? onBlame;
@@ -110,30 +122,67 @@ class ChangedFilesPanelCore extends StatelessWidget {
 
     final GbmColors colors = context.gbmColors;
 
-    return ListView.builder(
-      itemCount: files.length,
-      itemBuilder: (context, index) {
-        final ChangedFile file = files[index];
-        final bool isSelected = selectedPath == file.path;
-
-        return GestureDetector(
-          onSecondaryTapDown: (details) =>
-              _openContextMenu(context, details, file.path),
-          child: Container(
-            color: isSelected ? colors.surfaceSelected : null,
-            child: ListTile(
-              dense: true,
-              title: Text(
-                file.path,
-                style: Theme.of(context).textTheme.bodySmall,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              onTap: onFileTap == null ? null : () => onFileTap!(file.path),
-            ),
+    return Column(
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            GbmSpacing.space3,
+            GbmSpacing.space1,
+            GbmSpacing.space1,
+            GbmSpacing.space1,
           ),
-        );
-      },
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  'CHANGED FILES',
+                  style: TextStyle(
+                    fontSize: GbmTypography.textXs,
+                    fontWeight: GbmTypography.weightSemibold,
+                    color: colors.textTertiary,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+              // Spec page 03 item 10: same List/Tree preference as Working
+              // Copy, Compare, and the Conflict window's file lists.
+              const FileListModeToggleButton(),
+            ],
+          ),
+        ),
+        Expanded(
+          child: FileListModeSwitcher<ChangedFile>(
+            mode: viewMode,
+            items: files,
+            pathOf: (ChangedFile file) => file.path,
+            leafBuilder: (BuildContext context, ChangedFile file) =>
+                _buildFileRow(context, file),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFileRow(BuildContext context, ChangedFile file) {
+    final GbmColors colors = context.gbmColors;
+    final bool isSelected = selectedPath == file.path;
+
+    return GestureDetector(
+      onSecondaryTapDown: (details) =>
+          _openContextMenu(context, details, file.path),
+      child: Container(
+        color: isSelected ? colors.surfaceSelected : null,
+        child: ListTile(
+          dense: true,
+          title: Text(
+            file.path,
+            style: Theme.of(context).textTheme.bodySmall,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          onTap: onFileTap == null ? null : () => onFileTap!(file.path),
+        ),
+      ),
     );
   }
 

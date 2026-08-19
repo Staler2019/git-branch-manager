@@ -2,7 +2,10 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/changed_file.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
+import 'package:gbm_flutter/data/repositories/file_list_view_mode_repository.dart';
 import 'package:gbm_flutter/features/history_graph/widgets/changed_files_panel.dart';
+import 'package:gbm_flutter/widgets/file_list_mode_toggle_button.dart';
+import 'package:gbm_flutter/widgets/file_tree_folder_row.dart';
 
 import '../../../support/pump_app.dart';
 
@@ -174,4 +177,47 @@ void main() {
     expect(find.text('File history'), findsNothing);
     expect(find.text('Blame at this commit'), findsNothing);
   });
+
+  testWidgets('shows the shared list/tree mode toggle button', (tester) async {
+    await pumpGbmWidget(
+      tester,
+      child: ChangedFilesPanelCore(
+        hasSelectedCommit: true,
+        files: <ChangedFile>[_file('a.dart')],
+        selectedPath: null,
+        onFileTap: (_) {},
+      ),
+    );
+
+    expect(find.byType(FileListModeToggleButton), findsOneWidget);
+  });
+
+  testWidgets(
+    'renders folders via FileTreeFolderRow when viewMode is tree -- spec '
+    'page 03 item 10: the same List/Tree preference applies to History\'s '
+    'Changed files panel',
+    (tester) async {
+      await pumpGbmWidget(
+        tester,
+        child: ChangedFilesPanelCore(
+          hasSelectedCommit: true,
+          files: <ChangedFile>[
+            _file('a.dart'),
+            _file('b/c.dart'),
+            _file('b/d.dart'),
+          ],
+          selectedPath: null,
+          onFileTap: (_) {},
+          viewMode: FileListViewMode.tree,
+        ),
+      );
+
+      // 'b' has two children (c.dart, d.dart) so it does not single-child
+      // collapse -- unlike a lone-file folder, which FileTree.fromPaths
+      // flattens away entirely (see file_tree.dart's _collapseIfSingleChild).
+      expect(find.byType(FileTreeFolderRow), findsOneWidget);
+      expect(find.text('b'), findsOneWidget);
+      expect(find.text('a.dart'), findsOneWidget);
+    },
+  );
 }

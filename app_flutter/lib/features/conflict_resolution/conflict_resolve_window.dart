@@ -9,12 +9,15 @@ import '../../actions/gbm_sequencer_operation.dart';
 import '../../data/models/parsed_conflict_file.dart';
 import '../../data/models/repo_state.dart';
 import '../../data/models/working_copy_status.dart';
+import '../../data/repositories/file_list_view_mode_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
 import '../../data/repositories/working_copy_repository.dart' as wc;
 import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
+import '../../widgets/file_list_mode_switcher.dart';
+import '../../widgets/file_list_mode_toggle_button.dart';
 import '../../widgets/gbm_button.dart';
 import '../../widgets/gbm_menu.dart';
 import '../../widgets/split_pane.dart';
@@ -516,6 +519,38 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
     _applyParsedContentIfNeeded(session);
     if (_allResolved) _ensureResultSeeded();
 
+    // Spec page 03 item 10: same List/Tree preference as Working Copy,
+    // History's Changed files, and Compare's Files.
+    final FileListViewMode viewMode = ref.watch(fileListViewModeProvider);
+
+    Widget buildRailRow(ConflictBatchEntry entry) {
+      final WorkingCopyEntry? wc = conflicted
+          .cast<WorkingCopyEntry?>()
+          .firstWhere((e) => e?.path == entry.path, orElse: () => null);
+      return _ConflictRailRow(
+        entry: entry,
+        selected: entry.path == _selectedPath,
+        onTap: () => _selectPath(entry.path),
+        onTakeOurs: () => ref
+            .read(repoSessionProvider(widget.identity).notifier)
+            .resolveConflict(
+              entry.path,
+              ConflictResolution.takeOurs,
+              oursBlobMissing: wc?.oursBlob.isEmpty ?? false,
+            ),
+        onTakeTheirs: () => ref
+            .read(repoSessionProvider(widget.identity).notifier)
+            .resolveConflict(
+              entry.path,
+              ConflictResolution.takeTheirs,
+              theirsBlobMissing: wc?.theirsBlob.isEmpty ?? false,
+            ),
+        onMarkResolved: () => ref
+            .read(repoSessionProvider(widget.identity).notifier)
+            .resolveConflict(entry.path, ConflictResolution.markResolved),
+      );
+    }
+
     return _ConflictResolveWindowShortcuts(
       isMacOS: widget.isMacOS ?? Platform.isMacOS,
       onUndoDiscard: _undoLastDiscard,
@@ -582,76 +617,42 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
                                 horizontal: GbmSpacing.space3,
                                 vertical: GbmSpacing.space1,
                               ),
-                              child: Text(
-                                '${_batch.resolvedCount} of ${_batch.entries.length} resolved',
-                                style: TextStyle(
-                                  fontSize: GbmTypography.textXs,
-                                  color: colors.textTertiary,
-                                ),
+                              child: Row(
+                                children: <Widget>[
+                                  Expanded(
+                                    child: Text(
+                                      '${_batch.resolvedCount} of ${_batch.entries.length} resolved',
+                                      style: TextStyle(
+                                        fontSize: GbmTypography.textXs,
+                                        color: colors.textTertiary,
+                                      ),
+                                    ),
+                                  ),
+                                  const FileListModeToggleButton(),
+                                ],
                               ),
                             ),
                             Expanded(
-                              child: ListView(
-                                children: <Widget>[
-                                  for (final entry in _batch.entries)
-                                    _ConflictRailRow(
-                                      entry: entry,
-                                      selected: entry.path == _selectedPath,
-                                      onTap: () => _selectPath(entry.path),
-                                      onTakeOurs: () {
-                                        final WorkingCopyEntry? wc = conflicted
-                                            .cast<WorkingCopyEntry?>()
-                                            .firstWhere(
-                                              (e) => e?.path == entry.path,
-                                              orElse: () => null,
-                                            );
-                                        ref
-                                            .read(
-                                              repoSessionProvider(
-                                                widget.identity,
-                                              ).notifier,
-                                            )
-                                            .resolveConflict(
-                                              entry.path,
-                                              ConflictResolution.takeOurs,
-                                              oursBlobMissing:
-                                                  wc?.oursBlob.isEmpty ?? false,
-                                            );
-                                      },
-                                      onTakeTheirs: () {
-                                        final WorkingCopyEntry? wc = conflicted
-                                            .cast<WorkingCopyEntry?>()
-                                            .firstWhere(
-                                              (e) => e?.path == entry.path,
-                                              orElse: () => null,
-                                            );
-                                        ref
-                                            .read(
-                                              repoSessionProvider(
-                                                widget.identity,
-                                              ).notifier,
-                                            )
-                                            .resolveConflict(
-                                              entry.path,
-                                              ConflictResolution.takeTheirs,
-                                              theirsBlobMissing:
-                                                  wc?.theirsBlob.isEmpty ??
-                                                  false,
-                                            );
-                                      },
-                                      onMarkResolved: () => ref
-                                          .read(
-                                            repoSessionProvider(
-                                              widget.identity,
-                                            ).notifier,
-                                          )
-                                          .resolveConflict(
-                                            entry.path,
-                                            ConflictResolution.markResolved,
-                                          ),
+                              child: viewMode == FileListViewMode.list
+                                  ? ListView(
+                                      children: <Widget>[
+                                        for (final entry in _batch.entries)
+                                          buildRailRow(entry),
+                                      ],
+                                    )
+                                  // Tree mode has no scroll-offset
+                                  // persistence: FileTreeList builds its own
+                                  // internal ListView with no controller seam.
+                                  : FileListModeSwitcher<ConflictBatchEntry>(
+                                      mode: viewMode,
+                                      items: _batch.entries,
+                                      pathOf: (ConflictBatchEntry e) => e.path,
+                                      leafBuilder:
+                                          (
+                                            BuildContext context,
+                                            ConflictBatchEntry entry,
+                                          ) => buildRailRow(entry),
                                     ),
-                                ],
-                              ),
                             ),
                           ],
                         ),

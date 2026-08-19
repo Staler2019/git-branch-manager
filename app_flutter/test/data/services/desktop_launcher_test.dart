@@ -184,4 +184,114 @@ void main() {
       );
     });
   });
+
+  group('openFile (05-F "Open file")', () {
+    test('macOS hands the path to open', () async {
+      final _RecordingStarter starter = _RecordingStarter(
+        available: <String>{'open'},
+      );
+      final DesktopLauncher launcher = DesktopLauncher(
+        start: starter.call,
+        operatingSystem: 'macos',
+      );
+
+      expect(await launcher.openFile('/dev/repo/lib/main.dart'), isTrue);
+      expect(starter.attempted, <String>['open']);
+      expect(starter.args.single, <String>['/dev/repo/lib/main.dart']);
+    });
+
+    test('Linux uses xdg-open', () async {
+      final _RecordingStarter starter = _RecordingStarter(
+        available: <String>{'xdg-open'},
+      );
+      final DesktopLauncher launcher = DesktopLauncher(
+        start: starter.call,
+        operatingSystem: 'linux',
+      );
+
+      expect(await launcher.openFile('/dev/repo/lib/main.dart'), isTrue);
+      expect(starter.attempted, <String>['xdg-open']);
+    });
+
+    test('Windows normalizes separators before handing the path to start', () {
+      final _RecordingStarter starter = _RecordingStarter(
+        available: <String>{'cmd'},
+      );
+      final DesktopLauncher launcher = DesktopLauncher(
+        start: starter.call,
+        operatingSystem: 'windows',
+      );
+
+      return launcher.openFile('C:/dev/repo/lib/main.dart').then((_) {
+        expect(starter.args.single, <String>[
+          '/c',
+          'start',
+          '',
+          r'C:\dev\repo\lib\main.dart',
+        ]);
+      });
+    });
+
+    test('returns false when the launcher executable is missing', () async {
+      final _RecordingStarter starter = _RecordingStarter(
+        available: <String>{},
+      );
+      final DesktopLauncher launcher = DesktopLauncher(
+        start: starter.call,
+        operatingSystem: 'macos',
+      );
+
+      expect(await launcher.openFile('/dev/repo/lib/main.dart'), isFalse);
+    });
+  });
+
+  group('openInFileManager (05-A/05-F "Show in file manager")', () {
+    test('macOS reveals the item with -R rather than opening it', () async {
+      final _RecordingStarter starter = _RecordingStarter(
+        available: <String>{'open'},
+      );
+      final DesktopLauncher launcher = DesktopLauncher(
+        start: starter.call,
+        operatingSystem: 'macos',
+      );
+
+      expect(
+        await launcher.openInFileManager('/dev/repo/lib/main.dart'),
+        isTrue,
+      );
+      expect(starter.args.single, <String>['-R', '/dev/repo/lib/main.dart']);
+    });
+
+    test('Linux has no portable reveal, so it opens the path itself', () async {
+      final _RecordingStarter starter = _RecordingStarter(
+        available: <String>{'xdg-open'},
+      );
+      final DesktopLauncher launcher = DesktopLauncher(
+        start: starter.call,
+        operatingSystem: 'linux',
+      );
+
+      await launcher.openInFileManager('/dev/repo/lib/main.dart');
+      expect(starter.args.single, <String>['/dev/repo/lib/main.dart']);
+    });
+
+    test(
+      'Windows normalizes separators -- explorer /select, silently falls back '
+      'to opening Documents when handed forward slashes',
+      () async {
+        final _RecordingStarter starter = _RecordingStarter(
+          available: <String>{'explorer.exe'},
+        );
+        final DesktopLauncher launcher = DesktopLauncher(
+          start: starter.call,
+          operatingSystem: 'windows',
+        );
+
+        await launcher.openInFileManager('C:/dev/repo/lib/main.dart');
+        expect(starter.args.single, <String>[
+          r'/select,C:\dev\repo\lib\main.dart',
+        ]);
+      },
+    );
+  });
 }

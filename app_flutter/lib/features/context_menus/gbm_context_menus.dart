@@ -226,8 +226,11 @@ const GbmContextMenuGroupSpec _commit = GbmContextMenuGroupSpec(
 );
 
 /// 05-F: File (staged / unstaged) in working copy (right-click file row -- EXISTS)
-/// 6 top-level items. Note: multi-select label pluralization (e.g. "Stage 3 files")
-/// is NOT yet implemented; this defines the singular form.
+/// 6 top-level items. This defines the singular form; the render site
+/// (`working_copy_file_menu_items.dart`) pluralizes Stage and Discard with a
+/// count when a multi-selection is right-clicked, per spec's own mock
+/// ("Stage 3 files" / "Discard changes in 3 files…"), while leaving Open
+/// file and Show in file manager singular exactly as that mock does.
 const GbmContextMenuGroupSpec _workingCopyFile = GbmContextMenuGroupSpec(
   id: '05-F',
   target: GbmContextMenuTarget.workingCopyFile,
@@ -238,7 +241,7 @@ const GbmContextMenuGroupSpec _workingCopyFile = GbmContextMenuGroupSpec(
     GbmContextMenuItemSpec(label: 'Show in file manager'),
     GbmContextMenuItemSpec(label: 'Open terminal here'),
     GbmContextMenuItemSpec(label: 'Copy path'),
-    GbmContextMenuItemSpec(label: 'Discard changes', isDanger: true),
+    GbmContextMenuItemSpec(label: 'Discard changes…', isDanger: true),
   ],
 );
 

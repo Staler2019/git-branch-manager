@@ -30,6 +30,7 @@ import '../diff/side_by_side_diff_view.dart';
 import '../workspace/workspace_screen.dart' show repoIdForRoute;
 import 'widgets/commit_message_box.dart';
 import 'widgets/working_copy_board.dart';
+import 'widgets/working_copy_file_menu_items.dart';
 
 /// Changed-file list (staged/unstaged/untracked) + diff pane + commit box.
 /// The Dart analog of `WorkingCopyView` (src/app/views/pages/
@@ -368,7 +369,6 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
         wc.unstageFiles(ref, widget.identity, paths);
       },
       rowWrapper: (context, entry, fromStaged, selectedPaths, child) {
-        final String repoId = repoIdForRoute(widget.identity);
         return GestureDetector(
           onSecondaryTapDown: (details) {
             _openContextMenu(
@@ -377,7 +377,6 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
               fromStaged: fromStaged,
               selectedPaths: selectedPaths,
               position: details.globalPosition,
-              repoId: repoId,
             );
           },
           child: child,
@@ -573,13 +572,17 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
   /// Spec 05-F: "有多選時全部動作改為複數並帶數量，例如 Stage 3 files" -- when
   /// the right-clicked row is part of a multi-selection, the actions apply to
   /// the whole batch and say how many files that is.
+  ///
+  /// The item list itself lives in `widgets/working_copy_file_menu_items.dart`
+  /// so `context_menu_parity_test.dart` can check it against the spec catalog
+  /// without pumping this whole view; see that file for why Blame / File
+  /// History / Line History are no longer here.
   void _openContextMenu(
     BuildContext context, {
     required WorkingCopyEntry entry,
     required bool fromStaged,
     required Set<String> selectedPaths,
     required Offset position,
-    required String repoId,
   }) {
     // A right-click on a row outside the current selection acts on that row
     // alone, matching every other list in the app; right-clicking inside the
@@ -587,63 +590,42 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     final List<String> targets = selectedPaths.contains(entry.path)
         ? selectedPaths.toList(growable: false)
         : <String>[entry.path];
-    final int count = targets.length;
-    final String suffix = count == 1 ? '' : ' $count files';
+    final DesktopLauncher launcher = ref.read(desktopLauncherProvider);
+    // Open file / Show in file manager act on the right-clicked row, not the
+    // batch (see workingCopyFileMenuItems' doc comment), and both need an
+    // absolute path -- `entry.path` is repository-relative.
+    final String absolutePath = _absolutePathOf(entry.path);
 
-    showGbmContextMenu(context, position, <GbmMenuItem>[
-      GbmMenuItem(
-        label: fromStaged ? 'Unstage$suffix' : 'Stage$suffix',
-        icon: fromStaged ? Icons.remove : Icons.add,
-        onTap: () => fromStaged
+    showGbmContextMenu(
+      context,
+      position,
+      workingCopyFileMenuItems(
+        count: targets.length,
+        fromStaged: fromStaged,
+        onStageToggle: () => fromStaged
             ? wc.unstageFiles(ref, widget.identity, targets)
             : wc.stageFiles(ref, widget.identity, targets),
+        onOpenFile: () => launcher.openFile(absolutePath),
+        onShowInFileManager: () => launcher.openInFileManager(absolutePath),
+        onOpenTerminal: () => launcher.openTerminal(widget.identity.workDir),
+        onCopyPath: () =>
+            Clipboard.setData(ClipboardData(text: targets.join('\n'))),
+        onDiscard: fromStaged ? null : () => _discardFiles(targets),
       ),
-      GbmMenuItem(
-        label: 'Copy path',
-        icon: Icons.copy,
-        onTap: () => Clipboard.setData(ClipboardData(text: targets.join('\n'))),
-      ),
-      GbmMenuItem(
-        label: 'Open terminal here',
-        icon: Icons.terminal,
-        onTap: () => ref
-            .read(desktopLauncherProvider)
-            .openTerminal(widget.identity.workDir),
-      ),
-      // Single-file views: these inspect one path, so they are offered only
-      // when exactly one file is targeted rather than silently picking one.
-      if (count == 1) ...<GbmMenuItem>[
-        GbmMenuItem(
-          label: 'Blame…',
-          icon: Icons.person_outline,
-          onTap: () =>
-              context.push(RoutePaths.blameDialogFor(repoId, path: entry.path)),
-        ),
-        GbmMenuItem(
-          label: 'File History…',
-          icon: Icons.history,
-          onTap: () => context.push(
-            RoutePaths.fileHistoryDialogFor(repoId, path: entry.path),
-          ),
-        ),
-        GbmMenuItem(
-          label: 'Line History…',
-          icon: Icons.timeline,
-          onTap: () => context.push(
-            RoutePaths.lineHistoryDialogFor(repoId, path: entry.path),
-          ),
-        ),
-      ],
-      if (!fromStaged) ...<GbmMenuItem>[
-        const GbmMenuItem.separator(),
-        GbmMenuItem(
-          label: 'Discard changes${count == 1 ? '' : ' in $count files'}…',
-          icon: Icons.delete_outline,
-          danger: true,
-          onTap: () => _discardFiles(targets),
-        ),
-      ],
-    ]);
+    );
+  }
+
+  /// Joins the repository's work dir with a repository-relative path from
+  /// git. Kept deliberately dumb (no `package:path`, which this app does not
+  /// depend on): git always reports `/`-separated relative paths, and
+  /// [DesktopLauncher] normalizes separators for the Windows shell utilities
+  /// that care.
+  String _absolutePathOf(String repoRelativePath) {
+    final String base = widget.identity.workDir;
+    final String trimmed = base.endsWith('/') || base.endsWith(r'\')
+        ? base.substring(0, base.length - 1)
+        : base;
+    return '$trimmed/$repoRelativePath';
   }
 
   /// Opens the discard confirmation for [paths].

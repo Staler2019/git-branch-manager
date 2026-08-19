@@ -33,6 +33,7 @@ import 'package:gbm_flutter/features/sidebar/widgets/branch_folder_menu_items.da
 import 'package:gbm_flutter/features/sidebar/widgets/branch_tree_item.dart';
 import 'package:gbm_flutter/features/sidebar/widgets/stash_menu_items.dart';
 import 'package:gbm_flutter/features/sidebar/widgets/tag_menu_items.dart';
+import 'package:gbm_flutter/features/working_copy/widgets/working_copy_file_menu_items.dart';
 import 'package:gbm_flutter/widgets/gbm_menu.dart';
 
 import '../../support/pump_app.dart';
@@ -363,12 +364,25 @@ void main() {
     );
   });
 
-  // 05-F's group is absent for exactly one commit: the widget it used to
-  // pump (`ChangedFileRow`) was orphaned code that no `lib/` file ever
-  // built, so it was deleted rather than fixed -- the live 05-F menu is
-  // `working_copy_view.dart`'s `_openContextMenu()`. The group comes back
-  // in the next commit as a plain `test()` over the extracted
-  // `workingCopyFileMenuItems()` pure function, matching 05-D/H/I/J.
+  group('05-F Working copy file (conforms)', () {
+    test('workingCopyFileMenuItems matches the full 05-F catalog exactly', () {
+      final List<GbmMenuItem> items = workingCopyFileMenuItems(
+        count: 1,
+        fromStaged: false,
+        onStageToggle: () {},
+        onOpenFile: () {},
+        onShowInFileManager: () {},
+        onOpenTerminal: () {},
+        onCopyPath: () {},
+        onDiscard: () {},
+      );
+      final List<String> actual = items
+          .where((GbmMenuItem i) => !i.separator)
+          .map((GbmMenuItem i) => i.label)
+          .toList();
+      expect(actual, _specLabels(GbmContextMenuTarget.workingCopyFile));
+    });
+  });
 
   group('05-G Diff line (real gap, but small -- see matrix)', () {
     testWidgets(

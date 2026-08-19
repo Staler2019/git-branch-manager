@@ -8,6 +8,7 @@ import '../../data/models/working_copy_status.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/gbm_badge.dart';
+import '../../widgets/gbm_panel.dart';
 import 'background_task.dart';
 
 /// A horizontal status bar with three zones:
@@ -277,12 +278,9 @@ class _StatusBarState extends State<StatusBar> {
         ),
         const SizedBox(width: GbmSpacing.space2),
         if (extraCount > 0)
-          Text(
-            '+$extraCount more',
-            style: TextStyle(
-              fontSize: GbmTypography.textXs,
-              color: colors.textTertiary,
-            ),
+          _ExtraTasksChip(
+            extraTasks: tasks.skip(1).toList(growable: false),
+            onCancelTask: widget.onCancelTask,
           )
         else
           Tooltip(
@@ -311,6 +309,176 @@ class _StatusBarState extends State<StatusBar> {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// The "+N task" fold (spec page 10 STATUSPARTS #2: "其餘作業摺疊成 +N
+/// task，點了展開清單"). Tapping opens a small panel listing every folded
+/// task's label, progress, and its own Cancel affordance, reusing
+/// [onCancelTask] rather than opening a second data path to the same
+/// cancellation call. Anchored to this chip's own render box (a plain tap
+/// target, not a right-click point), using the same low-chrome `showMenu`
+/// idiom `gbm_menu.dart`'s `showGbmMenu` establishes -- `color: transparent`
+/// / `elevation: 0` / a single disabled [PopupMenuItem] wrapping a custom
+/// panel -- but with this widget's own row content instead of
+/// `GbmMenuItem`'s simple label+onTap shape, since a progress bar and a
+/// Cancel button don't fit that model.
+class _ExtraTasksChip extends StatelessWidget {
+  const _ExtraTasksChip({required this.extraTasks, required this.onCancelTask});
+
+  final List<BackgroundTask> extraTasks;
+  final ValueChanged<String> onCancelTask;
+
+  Future<void> _showExtraTasksMenu(BuildContext context) {
+    final RenderBox button = context.findRenderObject()! as RenderBox;
+    final RenderBox overlay =
+        Overlay.of(context).context.findRenderObject()! as RenderBox;
+    final RelativeRect position = RelativeRect.fromRect(
+      Rect.fromPoints(
+        button.localToGlobal(Offset.zero, ancestor: overlay),
+        button.localToGlobal(
+          button.size.bottomRight(Offset.zero),
+          ancestor: overlay,
+        ),
+      ),
+      Offset.zero & overlay.size,
+    );
+
+    return showMenu<void>(
+      context: context,
+      position: position,
+      color: Colors.transparent,
+      elevation: 0,
+      surfaceTintColor: Colors.transparent,
+      shadowColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+      items: <PopupMenuEntry<void>>[
+        PopupMenuItem<void>(
+          enabled: false,
+          padding: EdgeInsets.zero,
+          child: _ExtraTasksPanel(
+            extraTasks: extraTasks,
+            onCancelTask: onCancelTask,
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    return GestureDetector(
+      onTap: () => _showExtraTasksMenu(context),
+      child: Text(
+        '+${extraTasks.length} more',
+        style: TextStyle(
+          fontSize: GbmTypography.textXs,
+          color: colors.textLink,
+          decoration: TextDecoration.underline,
+        ),
+      ),
+    );
+  }
+}
+
+class _ExtraTasksPanel extends StatelessWidget {
+  const _ExtraTasksPanel({
+    required this.extraTasks,
+    required this.onCancelTask,
+  });
+
+  final List<BackgroundTask> extraTasks;
+  final ValueChanged<String> onCancelTask;
+
+  @override
+  Widget build(BuildContext context) {
+    return GbmPanel(
+      padding: const EdgeInsets.symmetric(
+        vertical: GbmSpacing.space1,
+        horizontal: GbmSpacing.space2,
+      ),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 260),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            for (final BackgroundTask task in extraTasks)
+              _ExtraTaskRow(task: task, onCancelTask: onCancelTask),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ExtraTaskRow extends StatelessWidget {
+  const _ExtraTaskRow({required this.task, required this.onCancelTask});
+
+  final BackgroundTask task;
+  final ValueChanged<String> onCancelTask;
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: GbmSpacing.space1),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Text(
+                  task.label,
+                  style: TextStyle(
+                    fontSize: GbmTypography.textXs,
+                    color: colors.textPrimary,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(2),
+                  child: LinearProgressIndicator(
+                    value: task.progress,
+                    minHeight: 2,
+                    backgroundColor: colors.surfaceSunken,
+                    valueColor: AlwaysStoppedAnimation<Color>(colors.accent),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: GbmSpacing.space2),
+          Tooltip(
+            message: task.cancellable
+                ? 'Cancel this operation'
+                : 'Cannot cancel ${task.label.toLowerCase()} operation',
+            child: TextButton(
+              onPressed: task.cancellable ? () => onCancelTask(task.id) : null,
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: GbmSpacing.space2,
+                ),
+                minimumSize: const Size(0, 24),
+              ),
+              child: Text(
+                'Cancel',
+                style: TextStyle(
+                  fontSize: GbmTypography.textXs,
+                  color: task.cancellable
+                      ? colors.textLink
+                      : colors.textTertiary,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -33,7 +33,6 @@ import 'package:gbm_flutter/features/sidebar/widgets/branch_folder_menu_items.da
 import 'package:gbm_flutter/features/sidebar/widgets/branch_tree_item.dart';
 import 'package:gbm_flutter/features/sidebar/widgets/stash_menu_items.dart';
 import 'package:gbm_flutter/features/sidebar/widgets/tag_menu_items.dart';
-import 'package:gbm_flutter/features/working_copy/widgets/changed_file_row.dart';
 import 'package:gbm_flutter/widgets/gbm_menu.dart';
 
 import '../../support/pump_app.dart';
@@ -126,25 +125,6 @@ RefInfo _goneBranch({String name = 'feature/gone'}) {
     isHead: false,
     isSymbolic: false,
     worktreePath: '',
-  );
-}
-
-WorkingCopyEntry _fileEntry({String path = 'src/main.dart'}) {
-  return WorkingCopyEntry(
-    path: path,
-    oldPath: '',
-    untracked: false,
-    staged: false,
-    indexStatus: FileChangeKind.modified,
-    hasUnstagedChange: true,
-    worktreeStatus: FileChangeKind.modified,
-    conflict: ConflictKind.none,
-    ancestorBlob: '',
-    oursBlob: '',
-    theirsBlob: '',
-    similarity: 0,
-    isSubmodule: false,
-    isConflicted: false,
   );
 }
 
@@ -383,41 +363,12 @@ void main() {
     );
   });
 
-  group('05-F Working copy file (real gap -- see matrix)', () {
-    testWidgets(
-      'ChangedFileRow matches the full 05-F catalog',
-      (tester) async {
-        await _pump(
-          tester,
-          ChangedFileRow(
-            entry: _fileEntry(),
-            checked: false,
-            selected: false,
-            onCheckToggle: () {},
-            onTap: () {},
-            onDiscard: () {},
-          ),
-        );
-        await _rightClick(tester, find.byType(ChangedFileRow));
-
-        for (final String label in _specLabels(
-          GbmContextMenuTarget.workingCopyFile,
-        )) {
-          expect(find.text(label), findsOneWidget, reason: 'missing: $label');
-        }
-      },
-      // Real gap, tracked in docs/reports/spec-conformance-matrix.md
-      // (Page 05, row 05-F): the right-click menu (see
-      // changed_file_context_menu_test.dart for its actual, correctly-
-      // documented behavior) is Stage/Unstage file, View diff, Copy
-      // path, Discard changes -- missing "Open file", "Show in file
-      // manager", "Open terminal here" from the spec's 6-item list,
-      // and the label reads "Stage file"/"Unstage file" rather than
-      // spec's plain "Stage". Remove `skip: true` once 05-F is brought
-      // to parity.
-      skip: true,
-    );
-  });
+  // 05-F's group is absent for exactly one commit: the widget it used to
+  // pump (`ChangedFileRow`) was orphaned code that no `lib/` file ever
+  // built, so it was deleted rather than fixed -- the live 05-F menu is
+  // `working_copy_view.dart`'s `_openContextMenu()`. The group comes back
+  // in the next commit as a plain `test()` over the extracted
+  // `workingCopyFileMenuItems()` pure function, matching 05-D/H/I/J.
 
   group('05-G Diff line (real gap, but small -- see matrix)', () {
     testWidgets(

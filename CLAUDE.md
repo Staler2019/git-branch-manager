@@ -634,7 +634,7 @@ dedicated `*_menu_items.dart` pure function each — the template to follow
 when this eventually gets fixed). Not fixed this round; tracked as skipped
 regression tests (below) so a future fix flips them green one at a time.
 
-**New defect found while writing test coverage, not from static reading
+~~**New defect found while writing test coverage, not from static reading
 (H2)**: `working_copy_view.dart`'s Commit/Amend buttons do not reactively
 enable while typing a commit summary — `_summaryController` has no listener
 wired to `setState`, so `canCommit` only recomputes on some *unrelated*
@@ -643,7 +643,16 @@ gate logic (`canCommit`) is correct in isolation — confirmed by pre-seeding
 `workingCopyDraftProvider` before mount — the defect is specifically the
 missing "text changed → rebuild" wiring. Both new test suites below had to
 route around this (stage-after-type ordering, or a full tab-away-and-back)
-rather than a plain `enterText` + assert. Not fixed this round.
+rather than a plain `enterText` + assert. Not fixed this round.~~ — **Fixed**
+(Tier 0, see below): `_summaryController` now carries a listener
+(`..addListener(_onSummaryChanged)`, mirroring `_diffScrollController`'s
+existing pattern) that calls `setState(() {})` on every keystroke, so
+`canCommit` recomputes immediately instead of waiting for an unrelated
+rebuild. `test/integration/workspace_states_table_test.dart` gained a test
+that drives this with a real `tester.enterText()` instead of the
+provider-override workaround the pre-existing test in that file still uses
+(that one verifies gate *logic*; the new one verifies the typing → rebuild
+wiring, which is what H2 was actually missing).
 
 **Other confirmed gaps**: `branchRenameCurrentBranch` has no keyboard
 shortcut bound despite F2 being unclaimed by anything else in spec's MENUS
@@ -651,7 +660,16 @@ table (unlike two *other* absent bindings — Find-in-files, Stash-changes —
 which are absent because spec's own table double-assigns their key to
 something else; this one is a genuine omission). It compounds with the
 `Rename branch` dialog route itself being entirely missing from
-`route_paths.dart`. `lib/features/workspace/widgets/tab_row.dart`'s 18-item
+`route_paths.dart`. **Deliberately still not fixed** (Tier 0's 0c/#45 was
+scoped out during planning, not silently skipped): the two existing rename
+entry points (`sidebar_panel.dart:119`, `workspace_screen.dart:887`) already
+work and share a plain `promptText` input, so nothing is actually broken —
+what's missing is the dedicated dialog spec calls for, and building that
+without a design draft for it risked a rewrite later. Deferred until a
+rename-dialog design draft exists; issue #45 stays open (not `Fixes #45`
+anywhere) rather than being marked resolved for a partial fix.
+
+`lib/features/workspace/widgets/tab_row.dart`'s 18-item
 `_MoreMenu` overflow menu plus 3 standalone buttons (Merge/Cherry-pick/
 Reset) is, per this audit's user-confirmed scope rule ("beyond-spec
 functionality is fine only via context menu or menu bar"), the sole
@@ -680,3 +698,52 @@ as a directory — running the whole directory in one `flutter test` command
 was found to be unreliable on macOS specifically (each app launch after the
 first fails to attach a debug connection), not a defect in the tests
 themselves.
+
+### Tier 0 fixes (fix/tier-0-spec-conformance-gaps)
+
+The audit above turned into 8 GitHub issues (#43–#50), grouped into tiers by
+dependency risk; Tier 0 was the "independent, no shared file" batch. Per
+user decision, all 8 landed as 7 sequential commits on one branch (not
+parallel worktrees, not squashed) rather than the 8th (#45) — see below.
+Commit order: `0b → 0a → 0h → 0f → 0d → 0e → 0g`.
+
+- **0a / #43** (`613f80c`) — H2 above, fixed.
+- **0b / #44** (`2a60b47`) — `gbm_context_menus.dart`'s 05-C doc comment
+  said "Not yet wired"; `branch_tree_item.dart`'s `_buildGoneMenuItems()`
+  already implemented it (confirmed by this same audit, see 05-C in the H1
+  paragraph above). Comment-only fix, no behavior change.
+- **0d / #46** (`2307ef7`) — History's ref chips now merge a synced
+  local+upstream pair into one chip with a cloud-icon suffix instead of
+  drawing both separately, and draw a dashed chip at the commit the
+  upstream actually points to when the two have diverged (spec page 02).
+- **0e / #47** (`a928bd5`) — the List/Tree file-view preference
+  (`fileListViewModeProvider`) is spec page 03 item 10's *one* shared
+  setting, but History's Changed files panel, Compare's two file lists, and
+  the conflict-resolution rail each drew their own hardcoded flat list with
+  no toggle. All three now read the shared provider and render through the
+  same `FileListModeSwitcher`/`FileTreeFolderRow` Working Copy already
+  used — proved cross-page, not just per-view, via a new
+  `test/integration/workspace_file_list_view_mode_test.dart`.
+- **0f / #48** (`16626b2`) — the status bar's folded "+N task" label is now
+  a tappable `showMenu` popover listing every background task with its own
+  Cancel button (spec page 10), not inert text.
+- **0g / #49** (`3e65208`) — see its own commit message for the five
+  sub-items and the capi extension (`gbm_discovery_set_base_folder_depth`,
+  `RepoIndexDb`'s schema-3 `lastScanSkipped` column) two of them needed.
+- **0h / #50** (`503e326`) — `operationLog`'s cap was a hardcoded module
+  constant whose doc comment incorrectly claimed it mirrored
+  `OperationRunner::kMaxUndoEntries` (a different, unrelated 200-entry list
+  for Undo Last); it now reads `AppPreferences.logMemoryLimit`, the field
+  spec's LOGRULES table actually describes ("上限寫在 Preferences，不隱
+  藏").
+- **0c / #45 — deliberately not in this batch.** See the F2 paragraph
+  above for why; issue #45 stays open, not closed by this branch's PR.
+
+Two premises in the original issues were corrected during planning, not
+just during implementation — worth knowing before re-reading #49/#50's
+issue text literally: #50 assumed the C++ `kMaxUndoEntries` constant needed
+changing in lockstep with the Flutter cap; it doesn't; they were never
+actually linked. #49 assumed all five Preferences sub-items were pure
+Flutter-side wiring; two needed a real capi addition, which the user
+explicitly approved doing as part of this round rather than splitting into
+a separate capi-only issue.

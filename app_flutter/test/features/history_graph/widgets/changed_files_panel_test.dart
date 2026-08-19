@@ -1,4 +1,5 @@
 import 'package:flutter/gestures.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/changed_file.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
@@ -110,6 +111,98 @@ void main() {
     expect(find.text('Copy path'), findsOneWidget);
   });
 
+  testWidgets('Compare with working copy and Open terminal here render in '
+      'spec 05-K order', (tester) async {
+    await pumpGbmWidget(
+      tester,
+      child: ChangedFilesPanelCore(
+        hasSelectedCommit: true,
+        files: <ChangedFile>[_file('a.dart')],
+        selectedPath: null,
+        onFileTap: (_) {},
+        onCompareWithWorkingCopy: (_) {},
+        onFileHistory: (_) {},
+        onBlame: (_) {},
+        onOpenTerminal: (_) {},
+      ),
+    );
+
+    await tester.tap(find.text('a.dart'), buttons: kSecondaryMouseButton);
+    await tester.pumpAndSettle();
+
+    // Spec 05-K's top-level order, minus the two (ii) items that need a
+    // blob-read capi entry point (Open file at this revision / Save this
+    // revision as…) and the "More actions" trigger, which only appears when
+    // onRestoreToThisState is wired.
+    final List<String> rendered = tester
+        .widgetList<Text>(
+          find.descendant(
+            of: find.byType(Overlay),
+            matching: find.byType(Text),
+          ),
+        )
+        .map((Text t) => t.data)
+        .whereType<String>()
+        // The Overlay also carries the panel itself (its header and rows);
+        // the menu starts at its first item.
+        .skipWhile((String s) => s != 'View diff in this commit')
+        .toList();
+    expect(rendered, <String>[
+      'View diff in this commit',
+      'Compare with working copy',
+      'File history',
+      'Blame at this commit',
+      'Open terminal here',
+      'Copy path',
+    ]);
+  });
+
+  testWidgets('compare-with-working-copy callback invoked with the path', (
+    tester,
+  ) async {
+    String? comparedPath;
+    await pumpGbmWidget(
+      tester,
+      child: ChangedFilesPanelCore(
+        hasSelectedCommit: true,
+        files: <ChangedFile>[_file('a.dart')],
+        selectedPath: null,
+        onFileTap: (_) {},
+        onCompareWithWorkingCopy: (path) => comparedPath = path,
+      ),
+    );
+
+    await tester.tap(find.text('a.dart'), buttons: kSecondaryMouseButton);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Compare with working copy'));
+    await tester.pumpAndSettle();
+
+    expect(comparedPath, 'a.dart');
+  });
+
+  testWidgets('open-terminal callback invoked on context menu tap', (
+    tester,
+  ) async {
+    String? terminalPath;
+    await pumpGbmWidget(
+      tester,
+      child: ChangedFilesPanelCore(
+        hasSelectedCommit: true,
+        files: <ChangedFile>[_file('a.dart')],
+        selectedPath: null,
+        onFileTap: (_) {},
+        onOpenTerminal: (path) => terminalPath = path,
+      ),
+    );
+
+    await tester.tap(find.text('a.dart'), buttons: kSecondaryMouseButton);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Open terminal here'));
+    await tester.pumpAndSettle();
+
+    expect(terminalPath, 'a.dart');
+  });
+
   testWidgets('file history callback invoked on context menu tap', (
     tester,
   ) async {
@@ -176,6 +269,8 @@ void main() {
 
     expect(find.text('File history'), findsNothing);
     expect(find.text('Blame at this commit'), findsNothing);
+    expect(find.text('Compare with working copy'), findsNothing);
+    expect(find.text('Open terminal here'), findsNothing);
   });
 
   testWidgets('shows the shared list/tree mode toggle button', (tester) async {

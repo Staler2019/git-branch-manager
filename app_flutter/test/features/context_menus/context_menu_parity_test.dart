@@ -511,18 +511,23 @@ void main() {
           expect(find.text(label), findsOneWidget, reason: 'missing: $label');
         }
       },
-      // Real gap, tracked in docs/reports/spec-conformance-matrix.md
-      // (Page 05, row 05-K): missing "Compare with working copy",
-      // "Open file at this revision", "Open terminal here" at the top
-      // level, and "Restore and stage"/"Save this revision as…"/
-      // "Export as patch…" from the "More actions" submenu.
-      // changed_files_panel.dart's own doc comment confirms "Open
-      // file at this revision" and "Save this revision as…" have no
-      // backing capi entry point yet (classification (ii) in the
-      // matrix, not a pure wiring gap). Remove `skip: true` once 05-K
-      // is brought to parity for the (i)-classified items, and note
-      // the (ii) items may need to stay omitted until capi grows a
-      // blob-read entry point.
+      // Partial gap, tracked in docs/reports/spec-conformance-matrix.md
+      // (Page 05, row 05-K). The two (i)-classified top-level items --
+      // "Compare with working copy" and "Open terminal here" -- were
+      // wired by #53 and are covered directly by
+      // `changed_files_panel_test.dart` (render + callback) and
+      // `test/integration/history_commit_file_menu_test.dart` (the
+      // container half really opening a Compare tab / reaching
+      // DesktopLauncher).
+      //
+      // What keeps this whole-catalog assertion skipped is the rest:
+      // "Open file at this revision" and "Save this revision as…" are
+      // (ii) -- gbm_capi.h has no blob-read entry point at all -- and
+      // "Restore and stage"/"Export as patch…" sit in the "More
+      // actions" submenu, whose flyout `gbm_menu.dart` does not render
+      // yet, so `tester.tap(find.text('More actions'))` below can never
+      // reveal them. Remove `skip: true` once both are addressed
+      // (Tier 4).
       skip: true,
     );
   });

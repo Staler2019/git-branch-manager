@@ -28,6 +28,7 @@ class AppPreferences {
     this.autoScanMinutes = 30,
     this.globalGitignoreEnabled = false,
     this.globalGitignorePath = '',
+    this.globalGitignoreSource = '',
     this.cherryPickAddsSourceLine = true,
     this.confirmForcePush = true,
     this.logMemoryLimit = 2000,
@@ -54,6 +55,19 @@ class AppPreferences {
   final bool globalGitignoreEnabled;
   final String globalGitignorePath;
 
+  /// Where [globalGitignorePath] came from: `''` (never set), `'imported'`
+  /// (read from the user's pre-existing `git config --global
+  /// core.excludesFile` at some point), or `'manual'` (typed into the path
+  /// field). Scoped down from the original ask: nothing in this app
+  /// currently *detects* an importable value (that would mean reading the
+  /// user's global git config, which has no capi entry point yet), so today
+  /// only the `''`/`'manual'` states are ever actually reached in
+  /// production. `'imported'` exists so a future round can wire up
+  /// detection without another field-plus-migration round trip, and so the
+  /// label-rendering logic in `_GitSection` has something real to switch on
+  /// and test now.
+  final String globalGitignoreSource;
+
   /// Git. Spec page 07's `MSGS` table, Cherry-pick row: the trailing
   /// "(cherry picked from commit …)" line "可在 Preferences 關閉".
   final bool cherryPickAddsSourceLine;
@@ -75,6 +89,7 @@ class AppPreferences {
     int? autoScanMinutes,
     bool? globalGitignoreEnabled,
     String? globalGitignorePath,
+    String? globalGitignoreSource,
     bool? cherryPickAddsSourceLine,
     bool? confirmForcePush,
     int? logMemoryLimit,
@@ -90,6 +105,8 @@ class AppPreferences {
       globalGitignoreEnabled:
           globalGitignoreEnabled ?? this.globalGitignoreEnabled,
       globalGitignorePath: globalGitignorePath ?? this.globalGitignorePath,
+      globalGitignoreSource:
+          globalGitignoreSource ?? this.globalGitignoreSource,
       cherryPickAddsSourceLine:
           cherryPickAddsSourceLine ?? this.cherryPickAddsSourceLine,
       confirmForcePush: confirmForcePush ?? this.confirmForcePush,
@@ -133,6 +150,9 @@ class AppPreferencesRepository {
       globalGitignorePath:
           _prefs.getString('${_kPrefix}globalGitignorePath') ??
           defaults.globalGitignorePath,
+      globalGitignoreSource:
+          _prefs.getString('${_kPrefix}globalGitignoreSource') ??
+          defaults.globalGitignoreSource,
       cherryPickAddsSourceLine:
           _prefs.getBool('${_kPrefix}cherryPickAddsSourceLine') ??
           defaults.cherryPickAddsSourceLine,
@@ -161,6 +181,10 @@ class AppPreferencesRepository {
     await _prefs.setString(
       '${_kPrefix}globalGitignorePath',
       p.globalGitignorePath,
+    );
+    await _prefs.setString(
+      '${_kPrefix}globalGitignoreSource',
+      p.globalGitignoreSource,
     );
     await _prefs.setBool(
       '${_kPrefix}cherryPickAddsSourceLine',

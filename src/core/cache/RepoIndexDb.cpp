@@ -29,7 +29,8 @@ CREATE TABLE IF NOT EXISTS base_folder(
   last_scan_started  INTEGER NOT NULL DEFAULT 0,
   last_scan_finished INTEGER NOT NULL DEFAULT 0,
   last_scan_dirs     INTEGER NOT NULL DEFAULT 0,
-  last_scan_ms       INTEGER NOT NULL DEFAULT 0
+  last_scan_ms       INTEGER NOT NULL DEFAULT 0,
+  last_scan_skipped  INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS repo(
@@ -196,7 +197,7 @@ GitResult<void> RepoIndexDb::migrate() {
     logMessage(LogLevel::Info,
                "Upgrading repository cache from schema " + std::to_string(oldVersion) + " to " +
                    std::to_string(kSchemaVersion));
-    return db_.transaction([this, oldVersion] {
+    return db_.transaction([this, oldVersion]() -> GitResult<void> {
         if (auto created = db_.execute(kSchema); !created) {
             return created;
         }
@@ -213,6 +214,45 @@ GitResult<void> RepoIndexDb::migrate() {
             logMessage(LogLevel::Info,
                        "Base folders were reset by the schema 2 upgrade (default scan depth "
                        "changed from 6 to 1); please re-add them.");
+        }
+        if (oldVersion < 3) {
+            // A plain new column with a default -- unlike the schema 2 step above,
+            // existing base folders and their scan history are safe to keep as-is.
+            //
+            // Checked for existence first rather than run unconditionally: the
+            // `db_.execute(kSchema)` above just created the table fresh (with this
+            // column already in it, per today's kSchema) for any DB that starts
+            // this transaction at schema_info version 0 *or* whose table was
+            // already created under today's layout (e.g. in tests that simulate
+            // an old cache by rolling `schema_info.version` back without reverting
+            // the table itself, see UpgradingFromSchemaOneClearsBaseFolders) -- an
+            // unconditional ALTER TABLE would then fail with "duplicate column".
+            auto columns = db_.prepare("PRAGMA table_info(base_folder);");
+            if (!columns) {
+                return fail(std::move(columns).error());
+            }
+            bool hasSkippedColumn = false;
+            for (;;) {
+                auto stepped = columns->step();
+                if (!stepped) {
+                    return fail(std::move(stepped).error());
+                }
+                if (!*stepped) {
+                    break;
+                }
+                if (columns->columnText(1) == "last_scan_skipped") {
+                    hasSkippedColumn = true;
+                    break;
+                }
+            }
+            if (!hasSkippedColumn) {
+                if (auto added = db_.execute(
+                        "ALTER TABLE base_folder ADD COLUMN last_scan_skipped INTEGER NOT NULL "
+                        "DEFAULT 0;");
+                    !added) {
+                    return added;
+                }
+            }
         }
         return db_.execute("UPDATE schema_info SET version = " + std::to_string(kSchemaVersion) +
                            ";");
@@ -323,7 +363,8 @@ GitResult<std::vector<BaseFolderRecord>> RepoIndexDb::baseFolders() const {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
     auto statement = db_.prepare(
         "SELECT id, path, enabled, max_depth, follow_links, generation, last_scan_started, "
-        "last_scan_finished, last_scan_dirs, last_scan_ms FROM base_folder ORDER BY path;");
+        "last_scan_finished, last_scan_dirs, last_scan_ms, last_scan_skipped FROM base_folder "
+        "ORDER BY path;");
     if (!statement) {
         return fail(std::move(statement).error());
     }
@@ -348,6 +389,7 @@ GitResult<std::vector<BaseFolderRecord>> RepoIndexDb::baseFolders() const {
         record.lastScanFinished = statement->columnInt(7);
         record.lastScanDirs = statement->columnInt(8);
         record.lastScanMs = statement->columnInt(9);
+        record.lastScanSkipped = statement->columnInt(10);
         folders.push_back(std::move(record));
     }
     return folders;
@@ -385,11 +427,12 @@ GitResult<std::int64_t> RepoIndexDb::beginScan(std::int64_t baseFolderId) {
 
 GitResult<void> RepoIndexDb::finishScan(std::int64_t baseFolderId,
                                         std::int64_t dirsScanned,
-                                        std::int64_t elapsedMs) {
+                                        std::int64_t elapsedMs,
+                                        std::int64_t dirsSkipped) {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
     auto statement = db_.prepare(
-        "UPDATE base_folder SET last_scan_finished = ?2, last_scan_dirs = ?3, last_scan_ms = ?4 "
-        "WHERE id = ?1;");
+        "UPDATE base_folder SET last_scan_finished = ?2, last_scan_dirs = ?3, last_scan_ms = ?4, "
+        "last_scan_skipped = ?5 WHERE id = ?1;");
     if (!statement) {
         return fail(std::move(statement).error());
     }
@@ -397,6 +440,7 @@ GitResult<void> RepoIndexDb::finishScan(std::int64_t baseFolderId,
     statement->bind(2, nowSeconds());
     statement->bind(3, dirsScanned);
     statement->bind(4, elapsedMs);
+    statement->bind(5, dirsSkipped);
     auto stepped = statement->step();
     if (!stepped) {
         return fail(std::move(stepped).error());

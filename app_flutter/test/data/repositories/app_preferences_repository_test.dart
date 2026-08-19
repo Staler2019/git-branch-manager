@@ -24,6 +24,9 @@ void main() {
       // Spec page 10's LOGRULES retention row.
       expect(p.logMemoryLimit, 2000);
       expect(p.logRetentionDays, 7);
+      // Nothing has been imported yet -- see the field's own doc comment for
+      // why detection is not wired up this round.
+      expect(p.globalGitignoreSource, '');
     });
 
     test('round-trips every field through SharedPreferences', () async {
@@ -40,6 +43,7 @@ void main() {
         autoScanMinutes: 45,
         globalGitignoreEnabled: true,
         globalGitignorePath: '~/.config/git/ignore',
+        globalGitignoreSource: 'imported',
         cherryPickAddsSourceLine: false,
         confirmForcePush: false,
         logMemoryLimit: 500,
@@ -56,6 +60,7 @@ void main() {
       expect(read.autoScanMinutes, 45);
       expect(read.globalGitignoreEnabled, isTrue);
       expect(read.globalGitignorePath, '~/.config/git/ignore');
+      expect(read.globalGitignoreSource, 'imported');
       expect(read.cherryPickAddsSourceLine, isFalse);
       expect(read.confirmForcePush, isFalse);
       expect(read.logMemoryLimit, 500);

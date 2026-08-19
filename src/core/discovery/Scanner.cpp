@@ -392,8 +392,8 @@ GitResult<ScanResult> Scanner::scan(const BaseFolderRecord& baseFolder,
                            .count();
 
     if (!result.cancelled) {
-        if (auto finished =
-                db_.finishScan(baseFolder.id, result.directoriesScanned, result.elapsedMs);
+        if (auto finished = db_.finishScan(baseFolder.id, result.directoriesScanned,
+                                           result.elapsedMs, result.directoriesSkipped);
             !finished) {
             return fail(std::move(finished).error());
         }

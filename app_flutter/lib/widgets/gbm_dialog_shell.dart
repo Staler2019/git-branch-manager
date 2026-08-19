@@ -27,22 +27,33 @@ class GbmDialogShell extends StatelessWidget {
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
     return Center(
-      child: Material(
-        color: Colors.transparent,
-        child: Container(
-          width: width,
-          constraints: const BoxConstraints(maxHeight: 560),
-          decoration: BoxDecoration(
-            color: colors.surfaceOverlay,
-            borderRadius: BorderRadius.circular(GbmSpacing.radiusLg),
-            boxShadow: <BoxShadow>[
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.3),
-                blurRadius: 24,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
+      // The shadow lives on this outer, colorless DecoratedBox rather than
+      // on the Material below -- a DecoratedBox with its own `color` sitting
+      // between a Material and a descendant ListTile/InkWell hides that
+      // descendant's ink splashes (Flutter's own debugCheckHasMaterial-style
+      // "background color or ink splashes may be invisible" assertion,
+      // which only ever fires once something in [child] actually renders a
+      // ListTile -- nothing did until preferences_dialog_test.dart, the
+      // first test to pump a dialog whose body uses CheckboxListTile). The
+      // panel's fill color now lives directly on Material itself instead, so
+      // Material is the nearest colored ancestor with nothing opaque
+      // between it and any ListTile in [child].
+      child: Container(
+        width: width,
+        constraints: const BoxConstraints(maxHeight: 560),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(GbmSpacing.radiusLg),
+          boxShadow: <BoxShadow>[
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.3),
+              blurRadius: 24,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Material(
+          color: colors.surfaceOverlay,
+          borderRadius: BorderRadius.circular(GbmSpacing.radiusLg),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[

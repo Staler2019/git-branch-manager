@@ -36,6 +36,7 @@ import '../models/submodule_info.dart';
 import '../models/undo_entry.dart';
 import '../models/working_copy_status.dart';
 import '../models/worktree_info.dart';
+import 'app_preferences_repository.dart';
 import 'gbm_bindings_provider.dart';
 import 'pending_operation_tracker.dart';
 import 'recents_repository.dart';
@@ -236,15 +237,21 @@ class CompareWithWorkingCopyResult {
   final ParsedDiff diff;
 }
 
-/// Caps how many [OperationRecord]s [RepoSessionState.operationLog] keeps,
-/// mirroring OperationRunner's own undo-journal cap (`kMaxUndoEntries` in
-/// OperationRunner.cpp) -- a live panel fed one record per `git` invocation
-/// needs a bound too, or a long session slowly grows an unbounded list.
-const int _kMaxOperationLogEntries = 500;
+/// Default cap for how many [OperationRecord]s [RepoSessionState.operationLog]
+/// keeps, used only when [RepoSessionController] isn't given an explicit
+/// value. The real cap in normal operation comes from
+/// [AppPreferences.logMemoryLimit] (spec page 10 LOGRULES: "記憶體中保留最近
+/// 2,000 筆…上限寫在 Preferences，不隱藏") -- this constant is *not* mirroring
+/// `OperationRunner.cpp`'s `kMaxUndoEntries` (that guards a different list,
+/// `undoJournal_`, the one Undo Last reads; it has never been the same
+/// number as this one, and changing it has no effect here). This value
+/// matches [AppPreferences]'s own default so the two stay in sync absent an
+/// explicit override.
+const int _kDefaultMaxOperationLogEntries = 2000;
 
 /// Caps how many entries [RepoSessionState.commitMetaCache] keeps. Unlike
-/// [_kMaxOperationLogEntries], there is no core-side precedent to mirror --
-/// this cache has no cap at all today, so a long session that scrolls
+/// [_kDefaultMaxOperationLogEntries], there is no core-side precedent to
+/// mirror -- this cache has no cap at all today, so a long session that scrolls
 /// through a very large repo's entire history grows it without bound. 5000
 /// is generous enough that normal browsing (a viewport's worth of rows plus
 /// scrollback) never hits it, while still bounding worst-case memory for a
@@ -324,7 +331,8 @@ class RepoSessionState {
   /// answer is this side's own action.
   final String? credentialPrompt;
 
-  /// Newest-last, capped at [_kMaxOperationLogEntries].
+  /// Newest-last, capped at [RepoSessionController.maxOperationLogEntries]
+  /// (sourced from [AppPreferences.logMemoryLimit]).
   final List<OperationRecord> operationLog;
   final BlameResult? lastBlame;
 
@@ -540,8 +548,9 @@ class RepoSessionState {
   /// Merges [metas] into [commitMetaCache] keyed by oid -- see that field's
   /// doc comment for why a reply must add to the cache rather than replace
   /// it -- then caps the result at [_kMaxCommitMetaCacheEntries] by
-  /// dropping the oldest entries in insertion order, mirroring
-  /// [operationLog]'s [_kMaxOperationLogEntries] cap.
+  /// dropping the oldest entries in insertion order, the same sublist
+  /// pattern [operationLog]'s cap uses (though that one's cap is
+  /// configurable via [AppPreferences.logMemoryLimit]; this one is not).
   RepoSessionState withCommitMeta(List<CommitMeta> metas) {
     final Map<String, CommitMeta> merged = <String, CommitMeta>{
       ...commitMetaCache,
@@ -555,6 +564,30 @@ class RepoSessionState {
           );
     return copyWith(commitMetaCache: capped);
   }
+
+  /// Appends [record] to [operationLog], then evicts the oldest entries
+  /// (sublist from the tail) once over [maxEntries] -- the same shape as
+  /// [withCommitMeta]'s eviction, extracted here (rather than left inline in
+  /// [RepoSessionController]'s event handler) so the cap logic is
+  /// unit-testable against a plain [RepoSessionState] without a live FFI
+  /// session. [maxEntries] is a parameter, not a class constant, because the
+  /// real cap is [RepoSessionController.maxOperationLogEntries] (sourced
+  /// from [AppPreferences.logMemoryLimit]), which this pure state class has
+  /// no way to read for itself.
+  RepoSessionState withOperationRecord(
+    OperationRecord record, {
+    required int maxEntries,
+  }) {
+    final List<OperationRecord> updated = <OperationRecord>[
+      ...operationLog,
+      record,
+    ];
+    return copyWith(
+      operationLog: updated.length > maxEntries
+          ? updated.sublist(updated.length - maxEntries)
+          : updated,
+    );
+  }
 }
 
 /// Owns one `gbm_capi` session handle end to end: opens it, subscribes to
@@ -562,14 +595,30 @@ class RepoSessionState {
 /// (`workspaceScreen`'s route scope owns the provider lifetime -- see the
 /// routing table in the plan).
 class RepoSessionController extends StateNotifier<RepoSessionState> {
-  RepoSessionController(this._bindings, this._identity, this._recents)
-    : super(const RepoSessionState()) {
+  RepoSessionController(
+    this._bindings,
+    this._identity,
+    this._recents, {
+    this.maxOperationLogEntries = _kDefaultMaxOperationLogEntries,
+  }) : super(const RepoSessionState()) {
     _open();
   }
 
   final GbmBindings _bindings;
   final RepoIdentity _identity;
   final RecentsRepository _recents;
+
+  /// Cap for [RepoSessionState.operationLog], read once at construction from
+  /// [AppPreferences.logMemoryLimit] by [repoSessionProvider] (via
+  /// `ref.read`, deliberately not `ref.watch` -- watching would rebuild this
+  /// whole controller, tearing down and reopening the live `gbm_capi`
+  /// session, every time the user changes the Preferences slider). A
+  /// preference change takes effect the next time a repository is opened,
+  /// not retroactively on an already-open session. Not underscore-prefixed
+  /// like this class's other fields, since it doubles as a test seam --
+  /// tests that need a small cap to exercise eviction pass it explicitly
+  /// instead of feeding thousands of events.
+  final int maxOperationLogEntries;
   Pointer<Void> _session = nullptr;
   GbmSessionEvents? _events;
   StreamSubscription<GbmEvent>? _subscription;
@@ -706,14 +755,9 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
       case GbmEventType.operationLogRecord:
         final Object? payload = decodeEventPayload(event.payload);
         if (payload is Map<String, dynamic>) {
-          final List<OperationRecord> updated = <OperationRecord>[
-            ...state.operationLog,
+          state = state.withOperationRecord(
             OperationRecord.fromJson(payload),
-          ];
-          state = state.copyWith(
-            operationLog: updated.length > _kMaxOperationLogEntries
-                ? updated.sublist(updated.length - _kMaxOperationLogEntries)
-                : updated,
+            maxEntries: maxOperationLogEntries,
           );
         }
       case GbmEventType.blameReady:
@@ -2875,5 +2919,17 @@ repoSessionProvider =
     >((ref, identity) {
       final GbmBindings bindings = ref.watch(gbmBindingsProvider);
       final RecentsRepository recents = ref.watch(recentsRepositoryProvider);
-      return RepoSessionController(bindings, identity, recents);
+      // `ref.read`, not `ref.watch`: this cap only needs to be current as of
+      // the moment the session opens. Watching would rebuild the whole
+      // controller -- tearing down and reopening the live `gbm_capi` session
+      // -- every time the user moves the Preferences slider.
+      final int maxOperationLogEntries = ref
+          .read(appPreferencesProvider)
+          .logMemoryLimit;
+      return RepoSessionController(
+        bindings,
+        identity,
+        recents,
+        maxOperationLogEntries: maxOperationLogEntries,
+      );
     });

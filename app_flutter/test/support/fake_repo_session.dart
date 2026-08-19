@@ -50,7 +50,13 @@ class FakeRepoSessionController extends RepoSessionController {
     RepoIdentity identity,
     RepoSessionState initialState, {
     ParsedConflictFile? parsedFile,
-  }) : super(FakeGbmBindings(), identity, FakeRecentsRepository()) {
+    int maxOperationLogEntries = 2000,
+  }) : super(
+         FakeGbmBindings(),
+         identity,
+         FakeRecentsRepository(),
+         maxOperationLogEntries: maxOperationLogEntries,
+       ) {
     _parsedFile = parsedFile;
     state = initialState;
   }

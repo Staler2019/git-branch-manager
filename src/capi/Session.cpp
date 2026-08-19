@@ -406,6 +406,17 @@ void Session::unstageLines(std::string path,
                                [this]() { refreshWorkingCopy(); });
 }
 
+void Session::discardLines(std::string path,
+                           std::size_t hunkIndex,
+                           std::vector<std::size_t> lineIndices) {
+    DiscardLinesRequest request;
+    request.path = std::move(path);
+    request.hunkIndex = hunkIndex;
+    request.lineIndices = std::move(lineIndices);
+    submitWorkingCopyOperation(makeDiscardLinesOperation(std::move(request)),
+                               [this]() { refreshWorkingCopy(); });
+}
+
 void Session::commitChanges(CommitRequest request) {
     submitWorkingCopyOperation(makeCommitOperation(std::move(request)), [this]() {
         refreshWorkingCopy();

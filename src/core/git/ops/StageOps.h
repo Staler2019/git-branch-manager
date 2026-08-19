@@ -58,6 +58,26 @@ struct PartialStageRequest {
     std::vector<std::size_t> lineIndices;
 };
 
+/// Hunk- or line-level *discard* for a single file: the destructive mirror
+/// of PartialStageRequest. Same shape and the same fresh-diff recomputation,
+/// with two deliberate differences:
+///
+/// - There is no `staged` field. Discarding is only ever defined against the
+///   unstaged diff (work tree vs index) -- there is nothing to discard on
+///   the staged side, only to unstage, which PartialStageRequest already
+///   does.
+/// - The patch is applied with `git apply --reverse` and *without*
+///   `--cached`, so git rewrites the file on disk. The index is never
+///   touched. This cannot be undone from the reflog or the stash, which is
+///   why the caller is expected to confirm first.
+struct DiscardLinesRequest {
+    std::string path;
+    std::size_t hunkIndex = 0;
+    /// Empty discards the whole hunk; otherwise these are indices into that
+    /// hunk's `lines` array, exactly as in PartialStageRequest.
+    std::vector<std::size_t> lineIndices;
+};
+
 /// `git add -- <paths>`. Works uniformly for modified, added and deleted
 /// paths: given an explicit pathspec (never a glob), `add` stages a removal
 /// exactly as readily as a modification.
@@ -73,5 +93,9 @@ std::unique_ptr<Operation> makeApplyPatchOperation(ApplyPatchRequest request);
 
 /// See PartialStageRequest's doc comment.
 std::unique_ptr<Operation> makePartialStageOperation(PartialStageRequest request);
+
+/// See DiscardLinesRequest's doc comment. Destructive: rewrites the work
+/// tree.
+std::unique_ptr<Operation> makeDiscardLinesOperation(DiscardLinesRequest request);
 
 }  // namespace gbm

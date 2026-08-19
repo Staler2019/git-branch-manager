@@ -99,6 +99,16 @@ GBM_API void gbm_unstage_lines(GbmSessionHandle session,
                                      toIndexVector(lineIndices, lineIndexCount));
 }
 
+GBM_API void gbm_discard_lines(GbmSessionHandle session,
+                               const char* path,
+                               int32_t hunkIndex,
+                               const int32_t* lineIndices,
+                               int32_t lineIndexCount) {
+    toSession(session)->discardLines(path != nullptr ? path : "",
+                                     static_cast<std::size_t>(hunkIndex),
+                                     toIndexVector(lineIndices, lineIndexCount));
+}
+
 GBM_API void gbm_commit_changes(GbmSessionHandle session,
                                 const char* message,
                                 int32_t amend,

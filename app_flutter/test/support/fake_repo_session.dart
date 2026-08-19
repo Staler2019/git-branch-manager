@@ -142,6 +142,17 @@ class FakeRepoSessionController extends RepoSessionController {
   }
 
   @override
+  void discardLines(String path, int hunkIndex, List<int> lineIndices) {
+    commandLog.add(
+      FakeCommand('discardLines', <String, Object?>{
+        'path': path,
+        'hunkIndex': hunkIndex,
+        'lineIndices': lineIndices,
+      }),
+    );
+  }
+
+  @override
   ParsedConflictFile parseConflictMarkers(String content) {
     final ParsedConflictFile? parsed = _parsedFile;
     if (parsed == null) {

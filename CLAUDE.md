@@ -848,3 +848,65 @@ Also noted while running the C++ suite:
 and `UndoApiTest.UndoLastOperationRevertsTheCommit` fail the same way under
 a loaded parallel `ctest` and pass on re-run. Not investigated here; worth
 knowing before blaming a future branch for it.
+
+### Tier 5 (fix/tier-5-native-window-title) — issue closed, not implemented
+
+Issue #60 asked for a custom Windows/Linux title bar (a window package, two
+platform-project changes, a new widget). **It should not be built**, and the
+one thing worth carrying forward from this round is why, because the same
+mistake is cheap to repeat.
+
+Reading spec page 01's prose instead of its mockup shows the spec asks for
+the *opposite*: 「三平台統一樣式，只有 menu bar 位置與**標題列跟隨系統**」
+(intent line), and item 2 of its three-item platform-differences list is
+「**標題列按鈕位置與號誌燈樣式沿用系統原生**」 — where the other two items in
+that same list (macOS `PlatformMenuBar`, the system file picker) plainly mean
+"use the OS's own facility". The facing panel scopes Flutter self-drawing to
+「視窗**內**所有內容」, putting the title bar deliberately in the other list.
+The page's three mockup cards illustrate what each OS's *native* decoration
+looks like — the macOS card draws traffic lights with the same placeholder
+technique the Windows/Linux cards use for minimize/square/close. Relying on
+native decorations, which this app already did, **is** the conforming
+behaviour. `spec-conformance-matrix.md`'s row read the illustration as a
+requirement; that row is now corrected in place, and #60 is closed as
+not-planned rather than fixed (same convention as #45: an issue whose premise
+does not survive contact with the source is closed with the evidence, not
+quietly retitled). **Generalisable rule: a mockup shows what the user sees,
+not who draws it — a conformance verdict has to rest on the spec's prose.**
+
+What *did* ship is a real page-01 gap the audit missed while chasing the
+imaginary one: all three mockup cards title the window `git-branch-manager`,
+but every platform still used Flutter's scaffold default `gbm_flutter`.
+`lib/app.dart`'s `MaterialApp.title` does not reach the OS window title on
+desktop, so this lives in native runner code only — `windows/runner/main.cpp`,
+both branches of `linux/runner/my_application.cc` (GNOME header bar *and* the
+X11 traditional title bar; changing one leaves half of Linux wrong), and on
+macOS `MainFlutterWindow.swift` plus `MainMenu.xib`. `PRODUCT_NAME` /
+`BINARY_NAME` were left alone on purpose: they are also the built artifact
+names and `release.yml` hardcodes `gbm_flutter.app`/`.exe` paths.
+
+Two things found by measuring rather than reasoning, worth knowing before
+touching this again:
+
+- **macOS needs a deferred re-assignment.** Setting the title synchronously
+  in `awakeFromNib`, in `MainMenu.xib`, *and* in
+  `AppDelegate.applicationDidFinishLaunching` are all reverted to
+  `CFBundleName` (`gbm_flutter`) before the window reaches the screen; only
+  `DispatchQueue.main.async { self.title = … }` survives. That line looks
+  like a redundant duplicate of the one above it, so
+  `test/platform/window_title_test.dart` asserts it explicitly — delete it as
+  "cleanup" and the title silently regresses.
+- **A macOS debug build's app code is not in `Contents/MacOS/<name>`.** That
+  file is a launcher stub with a `__debug_dylib` section; the compiled Swift
+  lives in `Contents/MacOS/<name>.debug.dylib`. Grepping the stub for a
+  string you just added returns nothing and looks exactly like a stale or
+  cached build — several rebuilds were spent on that false lead here.
+
+`test/platform/window_title_test.dart` asserts the three runner sources
+directly. That tier choice is deliberate: no widget or integration test can
+reach native runner code, and **PR CI never builds Windows at all** —
+`ci.yml`'s Flutter job is ubuntu-only and `windows/runner/main.cpp` is
+compiled solely by `release.yml` on tag — so this test is the only thing that
+sees a Windows-side regression before a release. Same rationale as `cq.yml`'s
+`flutter-action` version-pin check, which greps workflow source for the same
+"nothing else can see this" reason.

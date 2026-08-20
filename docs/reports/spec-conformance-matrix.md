@@ -196,7 +196,8 @@ below.
 |---|---|---|---|
 | macOS: menu bar in system tray only | 符合 | `platform_menu_bar_host.dart:58`, `workspace_screen.dart:249` | `PlatformMenuBarHost` builds a native `PlatformMenuBar`; `MenuBarRow` is conditionally hidden via `if (!isMacOS)`. |
 | Windows/Linux: in-window menu bar, all 7 spec menus | 符合 | `workspace_screen.dart:249-265`, `gbm_menu_model.dart:98-280` | `MenuBarRow` renders on Windows/Linux with all 7 menus. |
-| Windows/Linux: custom title bar (minimize/maximize/close, lucide icons) | **缺少** | `pubspec.yaml` (no `bitsdojo_window`/`window_manager`/`window_size` dependency, confirmed by grep) | Spec's page-01 mockup explicitly shows a custom title bar with minimize/square/close icons below which the menu bar sits. No such chrome widget exists anywhere in `app_flutter/lib/`; the app relies on the OS's native window decorations instead. This is a real, unambiguous gap — not a documented exception. |
+| Windows/Linux: custom title bar (minimize/maximize/close, lucide icons) | ~~**缺少**~~ → **符合 (by design)** (Tier 5 / #60) | Spec page 01's own prose, quoted below; `pubspec.yaml` correctly has no `bitsdojo_window`/`window_manager`/`window_size` dependency | **This row was wrong, and wrong in the direction that would have cost the most work.** It read the page-01 mockup as a requirement to *draw* a title bar; the spec says the opposite. Page 01's intent line: 「三平台統一樣式，只有 menu bar 位置與**標題列跟隨系統**」. Its 「依平台不同的部分（僅三項）」 panel, item 2: 「**標題列按鈕位置與號誌燈樣式沿用系統原生**」— and the other two items in that same three-item list (macOS `PlatformMenuBar`, the system file picker) unambiguously mean "use the OS's own facility", so item 2 is the same sentence shape. The facing 「統一的部分」 panel scopes Flutter self-drawing to 「視窗**內**所有內容」 — the title bar is deliberately placed in the *other* list. The three mockup cards illustrate what each OS's **native** decoration looks like: the macOS card draws red/amber/green traffic lights with exactly the same `{{ ic… }}` placeholder technique the Windows/Linux cards use for minimize/square/close, and nobody reads the macOS card as "hand-draw the traffic lights". #60's "lucide icons" came from this misreading. Relying on native decorations, which is what the app already did, **is** the conforming behaviour. Issue #60 closed as not-planned rather than implemented. |
+| Windows/Linux/macOS: native title bar reads `git-branch-manager` | ~~(not audited)~~ → **符合** (Tier 5, `0bf8971`) | `windows/runner/main.cpp:30`, `linux/runner/my_application.cc:48,52`, `macos/Runner/MainFlutterWindow.swift`, `macos/Runner/Base.lproj/MainMenu.xib:333` | **A real page-01 gap this audit missed entirely** while chasing the imaginary one above: all three mockup cards title the window `git-branch-manager`, but every platform still carried Flutter's scaffold default `gbm_flutter`. `lib/app.dart:14`'s `MaterialApp.title` does not reach the OS window title on desktop, so this could only be fixed in native runner code. **Stated honestly, so this row does not repeat the mistake above**: the title *text* is evidenced only by the mockups — no page-01 prose names it — so the reason to change it is that `gbm_flutter` is an unedited scaffold leftover while every other surface in the project (`MaterialApp.title`, the Info.plist usage descriptions, the README, the repo itself) already says `git-branch-manager`. `PRODUCT_NAME`/`BINARY_NAME` were deliberately left alone: they are also the built artifact names and `release.yml:161,204,226,254` hardcodes `gbm_flutter.app`/`.exe`. macOS additionally needs a deferred (next main-queue turn) re-assignment — measured, not defensive: a synchronous set in `awakeFromNib`, in the xib, or in `applicationDidFinishLaunching` is all reverted to `CFBundleName` before the window is on screen. Covered by `test/platform/window_title_test.dart`, which asserts the runner sources directly because no Dart test tier can reach them and PR CI never builds Windows at all. **Still not addressed**: macOS's Apple-menu/About/Quit app name remains `gbm_flutter` (it comes from `CFBundleName = $(PRODUCT_NAME)`, i.e. the artifact name); that is a different surface and page 01's macOS card does not show it. |
 
 ## Page 09 — Splitters (8 entries, `GbmSplitPane` + `tokens.dart`)
 
@@ -356,20 +357,28 @@ COMPARES 1 and COMPARES 3's entry-point gaps at once.
 ## Cross-cutting synthesis
 
 Counting every row across all 12 pages plus the shortcuts/dialogs audits:
-roughly **78 items checked**, **~52 符合** (including 2 corrected after
+roughly **78 items checked**, **~53 符合** (including 2 corrected after
 spot-check disproved an agent's initial claim, and 05-G's gap shrinking
 from "5 items missing" to "1 item missing" after a full read replaced the
-grep-derived first pass), **~20 real gaps** (mostly classification (i) —
+grep-derived first pass), **~19 real gaps** (mostly classification (i) —
 capi/service already exists, only the Flutter-side wiring is missing, and
 several of those "(i)" gaps turned out to need a small prerequisite —
 name resolution, a not-yet-built per-branch UI — rather than being pure
 copy-paste wiring), **2 (ii)** (need new capi: `Open file at this
 revision`, `Save this revision as…`), and a handful of spec-internal
 inconsistencies (two shortcut-key collisions, one MENUS-table omission)
-that are not code defects. Two rows (05-F, 05-G) were materially wrong in
-this report's first draft and were corrected in place once their full
-source was read instead of grepped — see the correction note in the
-Page 05 section for what happened and why.
+that are not code defects. **Three** rows were materially wrong in this
+report's first draft and were corrected in place once their real source was
+read instead of grepped or eyeballed. 05-F and 05-G are described in the
+Page 05 correction note. The third — page 01's title bar — is the worst of
+the three and a different failure mode from the other two: those two
+undercounted a real gap, whereas page 01 invented one that does not exist,
+by reading a mockup's *illustration of native OS decoration* as a
+requirement to draw custom chrome. It would have cost a third-party window
+package, Windows and Linux platform-project changes, and a new widget, all
+to move the app **away** from what the spec asks for. The lesson generalises
+past this report: a mockup shows what the user sees, not who draws it, so a
+verdict must rest on the spec's prose — and page 01's prose was explicit.
 
 The gaps cluster into a small number of root causes rather than being 24
 independent problems:

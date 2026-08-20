@@ -101,6 +101,48 @@ class WorkingTreeContentReply {
   final bool editable;
 }
 
+/// Reply to [RepoSessionController.exportFileAtRevision]: mirrors
+/// GBM_EVENT_FILE_AT_REVISION_EXPORTED's payload shape.
+///
+/// The three request parameters are echoed back by the capi so a listener
+/// with several exports in flight can tell which one this is -- match on
+/// [destPath], which the caller chose and is therefore unique per request,
+/// rather than on [path], which repeats across revisions.
+class FileAtRevisionExport {
+  const FileAtRevisionExport({
+    required this.revision,
+    required this.path,
+    required this.destPath,
+    required this.succeeded,
+    this.error,
+  });
+
+  factory FileAtRevisionExport.fromJson(Map<String, dynamic> json) {
+    final Object? error = json['error'];
+    return FileAtRevisionExport(
+      revision: json['revision'] as String,
+      path: json['path'] as String,
+      destPath: json['destPath'] as String,
+      succeeded: json['succeeded'] as bool,
+      error: error is Map<String, dynamic> ? GitError.fromJson(error) : null,
+    );
+  }
+
+  final String revision;
+  final String path;
+
+  /// Where the bytes were written. Only meaningful when [succeeded] --
+  /// nothing is created on disk otherwise, so a caller must never hand this
+  /// to the OS without checking.
+  final String destPath;
+  final bool succeeded;
+
+  /// Why it failed, or null on success. Present rather than routed through
+  /// `lastError` because a failed export is the answer to one specific
+  /// request, not a repository-wide error state.
+  final GitError? error;
+}
+
 /// Reply to [RepoSessionController.requestStashDiff]: mirrors
 /// GBM_EVENT_STASH_DIFF_READY's payload shape.
 class StashDiffReply {
@@ -275,6 +317,7 @@ class RepoSessionState {
     this.workingCopyStatus = WorkingCopyStatus.empty,
     this.lastDiff,
     this.lastWorkingTreeContent,
+    this.lastFileAtRevisionExport,
     this.stashes = const <StashEntry>[],
     this.lastStashDiff,
     this.worktrees = const <WorktreeInfo>[],
@@ -319,6 +362,7 @@ class RepoSessionState {
   final WorkingCopyStatus workingCopyStatus;
   final WorkingCopyDiffReply? lastDiff;
   final WorkingTreeContentReply? lastWorkingTreeContent;
+  final FileAtRevisionExport? lastFileAtRevisionExport;
   final List<StashEntry> stashes;
   final StashDiffReply? lastStashDiff;
   final List<WorktreeInfo> worktrees;
@@ -455,6 +499,7 @@ class RepoSessionState {
     WorkingCopyStatus? workingCopyStatus,
     WorkingCopyDiffReply? lastDiff,
     WorkingTreeContentReply? lastWorkingTreeContent,
+    FileAtRevisionExport? lastFileAtRevisionExport,
     List<StashEntry>? stashes,
     StashDiffReply? lastStashDiff,
     List<WorktreeInfo>? worktrees,
@@ -501,6 +546,8 @@ class RepoSessionState {
       lastDiff: lastDiff ?? this.lastDiff,
       lastWorkingTreeContent:
           lastWorkingTreeContent ?? this.lastWorkingTreeContent,
+      lastFileAtRevisionExport:
+          lastFileAtRevisionExport ?? this.lastFileAtRevisionExport,
       stashes: stashes ?? this.stashes,
       lastStashDiff: lastStashDiff ?? this.lastStashDiff,
       worktrees: worktrees ?? this.worktrees,
@@ -725,6 +772,14 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
             lastDiff: WorkingCopyDiffReply.fromJson(payload),
           );
         }
+      case GbmEventType.fileAtRevisionExported:
+        final Object? payload = decodeEventPayload(event.payload);
+        if (payload is Map<String, dynamic>) {
+          state = state.copyWith(
+            lastFileAtRevisionExport: FileAtRevisionExport.fromJson(payload),
+          );
+        }
+
       case GbmEventType.workingTreeContentReady:
         final Object? payload = decodeEventPayload(event.payload);
         if (payload is Map<String, dynamic>) {
@@ -1591,6 +1646,28 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   /// all) for the resolve editor. Async: see
   /// gbm_request_working_tree_content()'s doc comment in gbm_capi.h --
   /// [RepoSessionState.lastWorkingTreeContent] updates on reply.
+  /// Writes `path` as it was at `revision` to `destPath`, for 05-K's "Open
+  /// file at this revision" / "Save this revision as...". Async: the outcome
+  /// arrives as [RepoSessionState.lastFileAtRevisionExport], echoing all
+  /// three arguments back so a listener can match it to this call.
+  void exportFileAtRevision({
+    required String revision,
+    required String path,
+    required String destPath,
+  }) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> revisionPtr = revision.toNativeUtf8();
+    final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+    final Pointer<Utf8> destPtr = destPath.toNativeUtf8();
+    try {
+      _bindings.exportFileAtRevision(_session, revisionPtr, pathPtr, destPtr);
+    } finally {
+      malloc.free(revisionPtr);
+      malloc.free(pathPtr);
+      malloc.free(destPtr);
+    }
+  }
+
   void requestWorkingTreeContent(String path) {
     if (_session == nullptr) return;
     final Pointer<Utf8> pathPtr = path.toNativeUtf8();

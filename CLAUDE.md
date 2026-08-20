@@ -538,10 +538,12 @@ that were previously invisible rather than absent.
   footer — no entry point exists in `gbm_capi.h` or `src/core`), removing a
   *scanned* repository from the switcher list (05-A's "Remove from list" is
   live for manually-opened rows, which `RecentsRepository` owns, and
-  disabled for scanned ones, which would only come back on the next scan),
-  and open-file-at-revision / save-this-revision in 05-K. Settings whose effect
-  this layer cannot yet honour are likewise not offered in Preferences —
-  see `AppPreferences`' doc comment.
+  disabled for scanned ones, which would only come back on the next scan).
+  ~~and open-file-at-revision / save-this-revision in 05-K~~ — **Fixed**
+  (Tier 4, see below): `gbm_export_file_at_revision` is the blob-read entry
+  point that was missing. Settings whose effect this layer cannot yet honour
+  are likewise not offered in Preferences — see `AppPreferences`' doc
+  comment.
 - ~~**`TabRow`'s Merge…/Cherry-pick…/Reset… buttons bypass the action
   availability state machine**~~ — **Fixed**: `TabRow` gained a
   `conflictActive` param (stays presentational/Riverpod-free, same as
@@ -637,9 +639,16 @@ regression tests (below) so a future fix flips them green one at a time.
 **H1 update (Tier 1, see below)**: 05-F and 05-G now follow that template
 too (`working_copy_file_menu_items.dart`, `diff_line_menu_items.dart`), so
 six of eleven groups are catalog-checked with no `skip`, and 05-K's two
-wireable items landed. **05-B and 05-E are the only fully-drifted groups
-left.** Note the audit's own 05-F and 05-G rows were materially wrong —
-see the Tier 1 section for what they got wrong and why it moved the fix.
+wireable items landed. Note the audit's own 05-F and 05-G rows were
+materially wrong — see the Tier 1 section for what they got wrong and why
+it moved the fix.
+
+**H1 update (Tier 4)**: 05-K is now catalog-checked with no `skip` too
+(seven of eleven), so **05-B and 05-E are the only drifted groups left**.
+05-K's render site is still a private `_buildMenuItems` inside
+`changed_files_panel.dart` rather than a `*_menu_items.dart` pure function
+— it stayed there because its items need the container's commit oid and its
+two-step export state, which the pure-function template has nowhere to put.
 
 ~~**New defect found while writing test coverage, not from static reading
 (H2)**: `working_copy_view.dart`'s Commit/Amend buttons do not reactively
@@ -775,10 +784,11 @@ issue text:
   parity test now checks. **Deliberate reduction while doing it**:
   `Blame…`/`File History…`/`Line History…` left this menu, because 6 spec
   items + 3 beyond-spec extras is 9 and `showGbmContextMenu` asserts spec
-  page 05's own 8-item cap. `GbmMenuItem.submenu`'s flyout is not
-  implemented (`gbm_menu.dart`'s doc comment), so nesting them was not an
-  option. They stay reachable from `tab_row.dart`'s overflow menu, minus the
-  pre-filled path — a real, accepted convenience loss.
+  page 05's own 8-item cap. `GbmMenuItem.submenu`'s flyout was not
+  implemented at the time (it is now — Tier 4), so nesting them was not an
+  option then. They stay reachable from `tab_row.dart`'s overflow menu,
+  minus the pre-filled path — a real, accepted convenience loss, and one
+  that a follow-up could now revisit since the flyout exists.
 - **#52 needed a new capi, and 05-G's drift was 4 items not 1.** Spec's own
   05-G block lists `Stage 12 lines` / `Stage hunk` / `Unstage hunk` /
   `Copy lines` / `Discard 12 lines…`; the code had `Stage line`, `Copy line`,
@@ -942,3 +952,91 @@ app already renders `rebaseStep`/`rebaseTotal` in three surfaces
 over-display one, not a missing feature. **#68** asks for the reading to be
 settled before any code moves — implementing off a guess here is the exact
 failure mode that closed #60.
+
+### Tier 4 (fix/tier-4-file-at-revision) — issues #58 + #59
+
+The 05-K batch, and the only tier since Tier 0h to need new `src/core` C++.
+Both issues landed on one branch as sequential commits, per the user's
+decision to do 4a and 4b together. **#58's implementation sketch was wrong
+and was corrected during planning** — read this before re-reading its issue
+text.
+
+**The capi is an export, not a read.** #58 proposed mirroring
+`gbm_request_working_tree_content`: return the file's content inline in the
+event payload. But neither consumer displays content in-app — "Open file at
+this revision" needs a path to hand `DesktopLauncher.openFile()`, "Save this
+revision as…" needs bytes at a path the user picked, and the route tree has
+no in-app file viewer at all. Following the sketch would have produced (a) a
+capi whose `content` field nothing under `lib/` consumes, the orphan-wiring
+pattern this repo's audits keep flagging, and (b) no support for binary
+files, since a JSON string payload cannot carry one — and recovering an
+image out of history is exactly the case to support. So
+`gbm_export_file_at_revision(session, revision, path, destPath)` writes raw
+bytes to a destination and fires `GBM_EVENT_FILE_AT_REVISION_EXPORTED` (34)
+echoing all three parameters back. Same premise-correction convention as
+#50/#51/#60: the reasoning is recorded on the issue and in the PR, not
+silently applied.
+
+**`IProcessRunner::run()` is not byte-exact, and nothing said so.** This was
+found by measurement, not by reading: `run()` reassembles stdout from the
+line splitter, which drops the final separator and strips a `\r` before
+every `\n` (Windows CRLF tolerance, `ProcessRunner.cpp`'s `LineSplitter`).
+A text blob therefore comes back one byte short and a binary blob is
+silently corrupted wherever `\r\n` occurs. The first draft of `BlobStore`
+used `run()` and its own `cat-file -s` size check caught the mismatch —
+which is the only reason this is a note here rather than a bug in
+production. `BlobStore` now goes through `CatFileBatch`, which reads exactly
+the byte count `cat-file --batch`'s header declares straight off the pipe,
+and is the per-repository co-process `docs/ARCHITECTURE.md` already
+prescribes for object reads. **If you ever need verbatim stdout from git,
+`IProcessRunner::run()` is not it.**
+
+**The submenu flyout was #59's real blocker, not the capi.** `gbm_menu.dart`
+rendered a `GbmMenuItem.submenu` trigger's label with a permanently-null
+`onTap`, so every "More actions" item in the app was unreachable. It now
+draws a chevron and opens a nested menu **on tap, not on hover** — that is
+forced, not a preference: `showGbmMenu` is built on Material's `showMenu`,
+which lays a modal barrier over everything beneath it, so a hover-opened
+flyout would instantly make its own parent menu unhoverable. Choosing a
+child closes the parent too, and the parent is popped *before* the child's
+action runs: menu items routinely push a dialog, and popping afterwards
+would take the dialog down instead of the menu. `gbm_menu_test.dart` has a
+test that asserts exactly that ordering by pushing a route from a child and
+checking it survives.
+
+Two things that look like gaps but are deliberate:
+
+- **"Restore file to this state" and "Restore and stage" open the same
+  dialog.** `restore_file_dialog.dart` has always offered both as two
+  buttons on one dialog because the confirmation text is identical; a second
+  dialog would be the same dialog. Spec lists both as menu items, so both
+  exist as menu items.
+- **"Export as patch…" on a file row exports the whole commit.**
+  `gbm_patch_export` is `git format-patch -1 <commit>` — commit-level. A
+  single-file patch would be a different capi. Asserted in
+  `history_commit_file_menu_test.dart` so it reads as a decision, not a bug.
+
+`Directory.systemTemp`, not `path_provider`, backs the temp copy for
+open-at-revision: no plugin channel means a widget test can exercise the
+whole path, it is synchronous, and the macOS build does not run under App
+Sandbox. The temp filename keeps the extension (without it the OS has no
+file association) and carries the short oid (so two revisions of one file do
+not collide).
+
+`file_selector` is a new dependency, wrapped in `FileSavePicker` /
+`fileSavePickerProvider` so tests can substitute it exactly as
+`desktopLauncherProvider` allows. Spec page 01's platform-differences list
+names the system file picker as one of the three things taken from the OS,
+alongside the macOS `PlatformMenuBar` and the window title bar.
+`log_drawer.dart`'s "this app has no file-picker dependency" comment was
+made false by that and is corrected in place, but the drawer itself was
+deliberately not switched over.
+
+**Left open on purpose**: `gbm_context_menus.dart`'s 05-K submenu lists four
+children where spec's own block lists five — `Restore file to before this
+state` is missing from the catalog. That drift predates this work and was
+*not* fixed here, because the catalog is the parity test's acceptance
+baseline and editing it mid-fix would redefine the thing being verified.
+Tracked as **#71**, which also flags that the page-05 audit's method —
+comparing each render site against the catalog — could not have caught a
+catalog-vs-spec drift in *any* group, so others may exist.

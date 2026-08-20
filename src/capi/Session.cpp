@@ -141,6 +141,7 @@ Session::Session(GitInstallation installation,
       worktreeStore_(std::make_unique<WorktreeStore>(*runner_, paths_)),
       remoteStore_(std::make_unique<RemoteStore>(*runner_, paths_)),
       compareStore_(std::make_unique<CompareStore>(*runner_, paths_)),
+      blobStore_(std::make_unique<BlobStore>(installation_.executable, paths_)),
       blameStore_(std::make_unique<BlameStore>(*runner_, paths_)),
       commitMetaStore_(std::make_unique<CommitMetaStore>(installation_.executable, paths_)),
       fileHistoryStore_(std::make_unique<FileHistoryStore>(*runner_, paths_)),
@@ -194,11 +195,13 @@ Session::~Session() {
     sharedReadPool().cancelQueuedAndDrain();
 
     askpass_.stop();
-    // Explicit, not relying on member-destruction order: commitMetaStore_
-    // owns the one long-lived child process among these stores (the others
-    // spawn per-call), so end it up front alongside askpass_ rather than
-    // waiting for the destructor to reach it.
+    // Explicit, not relying on member-destruction order: commitMetaStore_ and
+    // blobStore_ are the stores that own a long-lived child process (both wrap
+    // a `cat-file --batch` co-process; the others spawn per-call), so end them
+    // up front alongside askpass_ rather than waiting for the destructor to
+    // reach them.
     commitMetaStore_->stop();
+    blobStore_->stop();
 }
 
 void Session::registerCallback(GbmEventCallback callback, void* userData) {
@@ -525,6 +528,39 @@ void Session::requestWorkingTreeContent(std::string path) {
         jsonAppendBool(payload, editable);
         payload += '}';
         callbacks_.emit(GBM_EVENT_WORKING_TREE_CONTENT_READY, payload);
+    });
+}
+
+void Session::exportFileAtRevision(std::string revision, std::string path, std::string destPath) {
+    sharedReadPool().post([this,
+                           revision = std::move(revision),
+                           path = std::move(path),
+                           destPath = std::move(destPath)]() {
+        FileAtRevisionRequest request;
+        request.revision = revision;
+        request.path = path;
+        request.destination = std::filesystem::path(destPath);
+        const GitResult<std::uint64_t> result =
+            blobStore_->exportFileAtRevision(std::move(request), CancellationToken{});
+
+        // Reported in the reply rather than as GBM_EVENT_ERROR_OCCURRED: the
+        // caller is waiting on this specific export to decide whether to
+        // open the file or tell the user it was saved, and a separate error
+        // event carries nothing to match it against.
+        std::string payload = "{\"revision\":";
+        jsonAppendEscaped(payload, revision);
+        payload += ",\"path\":";
+        jsonAppendEscaped(payload, path);
+        payload += ",\"destPath\":";
+        jsonAppendEscaped(payload, destPath);
+        payload += ",\"succeeded\":";
+        jsonAppendBool(payload, result.hasValue());
+        if (!result) {
+            payload += ",\"error\":";
+            payload += toJson(result.error());
+        }
+        payload += '}';
+        callbacks_.emit(GBM_EVENT_FILE_AT_REVISION_EXPORTED, payload);
     });
 }
 

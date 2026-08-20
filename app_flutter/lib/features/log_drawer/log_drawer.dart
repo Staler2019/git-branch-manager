@@ -82,10 +82,14 @@ class _LogDrawerState extends State<LogDrawer> {
   /// Spec page 10's `LOGRULES` export row: "Save as…（純文字）".
   ///
   /// Writes into the platform documents directory under a timestamped name
-  /// rather than opening a native save panel: this app has no file-picker
-  /// dependency (see pubspec.yaml), and a log that reliably lands somewhere
-  /// findable — with the full path shown afterwards so it can be attached to
-  /// a bug report — beats a button that stays disabled.
+  /// rather than opening a native save panel. When this was written the app
+  /// had no file-picker dependency at all; `file_selector` has since been
+  /// added for context menu 05-K's "Save this revision as…"
+  /// ([FileSavePicker]), so this could be switched over — it has not been,
+  /// because a log that reliably lands somewhere findable, with the full
+  /// path shown afterwards so it can be attached to a bug report, is not a
+  /// worse outcome than a save panel, and changing it here was outside that
+  /// change's scope.
   Future<void> _saveAs() async {
     final ScaffoldMessengerState? messenger = ScaffoldMessenger.maybeOf(
       context,

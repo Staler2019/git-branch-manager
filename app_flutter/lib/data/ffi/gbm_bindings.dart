@@ -51,6 +51,7 @@ abstract final class GbmEventType {
   static const int remotePrunePreviewReady = 31;
   static const int compareWithWorkingCopyReady = 32;
   static const int originalOperationMessageReady = 33;
+  static const int fileAtRevisionExported = 34;
 }
 
 /// `void (*)(GbmSessionHandle, int32_t, const uint8_t*, int32_t, void*)`.
@@ -340,6 +341,21 @@ typedef _RequestWorkingTreeContentNative =
     Void Function(Pointer<Void> session, Pointer<Utf8> path);
 typedef RequestWorkingTreeContentDart =
     void Function(Pointer<Void> session, Pointer<Utf8> path);
+
+typedef _ExportFileAtRevisionNative =
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> revision,
+      Pointer<Utf8> path,
+      Pointer<Utf8> destPath,
+    );
+typedef ExportFileAtRevisionDart =
+    void Function(
+      Pointer<Void> session,
+      Pointer<Utf8> revision,
+      Pointer<Utf8> path,
+      Pointer<Utf8> destPath,
+    );
 
 typedef _ParseConflictMarkersNative = Int32 Function(Pointer<Utf8> content);
 typedef ParseConflictMarkersDart = int Function(Pointer<Utf8> content);
@@ -1320,6 +1336,11 @@ class GbmBindings {
             _RequestWorkingTreeContentNative,
             RequestWorkingTreeContentDart
           >('gbm_request_working_tree_content'),
+      exportFileAtRevision = library
+          .lookupFunction<
+            _ExportFileAtRevisionNative,
+            ExportFileAtRevisionDart
+          >('gbm_export_file_at_revision'),
       parseConflictMarkers = library
           .lookupFunction<
             _ParseConflictMarkersNative,
@@ -1767,6 +1788,7 @@ class GbmBindings {
   final RevertDart revert;
   final ResolveConflictDart resolveConflict;
   final RequestWorkingTreeContentDart requestWorkingTreeContent;
+  final ExportFileAtRevisionDart exportFileAtRevision;
   final ParseConflictMarkersDart parseConflictMarkers;
   final WorkingCopyRefreshDart workingCopyRefresh;
   final WorkingCopyStatusJsonDart workingCopyStatusJson;

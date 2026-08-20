@@ -123,6 +123,7 @@ if(GBM_BUILD_CAPI)
         capi/CompareApiTest.cpp
         capi/ConflictMarkerApiTest.cpp
         capi/DiscoveryApiTest.cpp
+        capi/FileAtRevisionApiTest.cpp
         capi/FileHistoryApiTest.cpp
         capi/IdentityApiTest.cpp
         capi/InitCloneApiTest.cpp

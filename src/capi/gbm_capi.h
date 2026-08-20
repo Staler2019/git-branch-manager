@@ -212,6 +212,17 @@ enum GbmEventType {
     /// render them differently is a UI concern). Empty when no operation is
     /// in progress or git prepared no message at all -- not an error.
     GBM_EVENT_ORIGINAL_OPERATION_MESSAGE_READY = 33,
+    /// payload: {"revision": string, "path": string, "destPath": string,
+    /// "succeeded": bool, "error": GitError JSON (only when succeeded is
+    /// false)}. Reply to gbm_export_file_at_revision(). All three request
+    /// parameters are echoed back so a caller with several exports in
+    /// flight can match the reply to the one it is waiting on -- the same
+    /// per-request matching GBM_EVENT_COMPARE_READY uses. Unlike the
+    /// best-effort reads above this reports failure explicitly rather than
+    /// as an empty success: the caller is about to hand `destPath` to the
+    /// OS or tell the user their file was saved, and neither is safe to do
+    /// on a guess.
+    GBM_EVENT_FILE_AT_REVISION_EXPORTED = 34,
 };
 
 typedef void (*GbmEventCallback)(GbmSessionHandle session,
@@ -1128,6 +1139,32 @@ GBM_API void gbm_patch_export(GbmSessionHandle session,
                               const char* const* commitHexes,
                               int32_t commitCount,
                               const char* outputDir);
+
+// --- File at revision -------------------------------------------------------
+// Backs context menu 05-K's "Open file at this revision" / "Save this
+// revision as..." -- see src/core/git/ops/BlobOps.h.
+
+/// `git cat-file blob <revision>:<path>`, written verbatim to `destPath`.
+///
+/// Writes bytes to a path rather than returning the content inline (the way
+/// gbm_request_working_tree_content() does) because both callers need a real
+/// file: one hands `destPath` to the OS file association, the other is a
+/// "save as". A JSON string payload could not carry a binary blob at all,
+/// and an image recovered out of history is exactly the case this exists
+/// for.
+///
+/// `revision` is any expression git accepts (`<oid>`, `HEAD~2`, a branch or
+/// tag name); `path` is repository-relative and forward-slashed, as the
+/// changed-files list reports it. Nothing is written unless the read
+/// succeeded, so a failure never leaves a truncated file behind. Async:
+/// fires GBM_EVENT_FILE_AT_REVISION_EXPORTED, with `succeeded` false and an
+/// `error` on any failure -- including a path that does not exist at that
+/// revision, which is an ordinary outcome when the user right-clicks a file
+/// in a commit that deleted it.
+GBM_API void gbm_export_file_at_revision(GbmSessionHandle session,
+                                         const char* revision,
+                                         const char* path,
+                                         const char* destPath);
 
 /// `git apply`: applies a plain diff without creating a commit.
 /// `threeWay` falls back to a merge (leaving conflict markers) instead of

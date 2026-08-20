@@ -31,6 +31,7 @@
 #include "core/git/RepoState.h"
 #include "core/git/WorkingCopyStatus.h"
 #include "core/git/ops/BisectOps.h"
+#include "core/git/ops/BlobOps.h"
 #include "core/git/ops/BranchOps.h"
 #include "core/git/ops/CheckoutOp.h"
 #include "core/git/ops/CherryPickOps.h"
@@ -203,6 +204,9 @@ public:
 
     /// Async: see gbm_request_working_tree_content()'s doc comment.
     void requestWorkingTreeContent(std::string path);
+
+    /// Async: see gbm_export_file_at_revision()'s doc comment.
+    void exportFileAtRevision(std::string revision, std::string path, std::string destPath);
 
     /// Async: see gbm_stash_refresh()'s doc comment.
     void refreshStashes();
@@ -528,6 +532,7 @@ private:
     std::unique_ptr<WorktreeStore> worktreeStore_;
     std::unique_ptr<RemoteStore> remoteStore_;
     std::unique_ptr<CompareStore> compareStore_;
+    std::unique_ptr<BlobStore> blobStore_;
     std::unique_ptr<BlameStore> blameStore_;
     std::unique_ptr<CommitMetaStore> commitMetaStore_;
     std::unique_ptr<FileHistoryStore> fileHistoryStore_;

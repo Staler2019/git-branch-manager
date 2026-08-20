@@ -478,7 +478,7 @@ void main() {
     });
   });
 
-  group('05-K Commit file (real gap -- see matrix)', () {
+  group('05-K Commit file', () {
     testWidgets(
       'ChangedFilesPanelCore matches the full 05-K catalog, including the '
       '"More actions" submenu',
@@ -490,9 +490,15 @@ void main() {
             files: <ChangedFile>[_changedFile()],
             selectedPath: null,
             onFileTap: (_) {},
+            onCompareWithWorkingCopy: (_) {},
+            onOpenAtRevision: (_) {},
             onFileHistory: (_) {},
             onBlame: (_) {},
+            onOpenTerminal: (_) {},
             onRestoreToThisState: (_) {},
+            onRestoreAndStage: (_) {},
+            onSaveRevisionAs: (_) {},
+            onExportAsPatch: (_) {},
           ),
         );
         await _rightClick(tester, find.byType(ListTile).first);
@@ -511,24 +517,6 @@ void main() {
           expect(find.text(label), findsOneWidget, reason: 'missing: $label');
         }
       },
-      // Partial gap, tracked in docs/reports/spec-conformance-matrix.md
-      // (Page 05, row 05-K). The two (i)-classified top-level items --
-      // "Compare with working copy" and "Open terminal here" -- were
-      // wired by #53 and are covered directly by
-      // `changed_files_panel_test.dart` (render + callback) and
-      // `test/integration/history_commit_file_menu_test.dart` (the
-      // container half really opening a Compare tab / reaching
-      // DesktopLauncher).
-      //
-      // What keeps this whole-catalog assertion skipped is the rest:
-      // "Open file at this revision" and "Save this revision as…" are
-      // (ii) -- gbm_capi.h has no blob-read entry point at all -- and
-      // "Restore and stage"/"Export as patch…" sit in the "More
-      // actions" submenu, whose flyout `gbm_menu.dart` does not render
-      // yet, so `tester.tap(find.text('More actions'))` below can never
-      // reveal them. Remove `skip: true` once both are addressed
-      // (Tier 4).
-      skip: true,
     );
   });
 }

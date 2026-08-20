@@ -871,19 +871,44 @@ also records the untested hypothesis (a fixed 10s budget losing to parallel
 load) and warns against raising the timeout before confirming it — that
 would paper over a real refresh-coalescing bug if one exists.
 
-**A second, unrelated flake was isolated during Tier 0c's CI run and must
-not be folded into #70**: `WorkingCopyApiTest.UnstageHunkReversesAFullyStagedSingleHunkFile`
-fails with `LockHeld` — "Another Git process appears to be running in this
-repository", the lock being its *own* temp repo's `.git/index.lock`. Unlike
-#70's shape it is **not** a timeout and **not** load-dependent: run alone
-with no parallel `ctest`, it failed 1 in 12 and again at iteration 30 of
-40, each time in ~0.36s, nowhere near any timeout budget. So the test races
-itself — a working-copy operation is reported complete before git has
-released the index lock the next one needs. Tracked as **#77**, which
-records the captured error verbatim and warns that raising a timeout (the
-#70 remedy) does nothing here. Practical consequence: a red macOS capi job
-on an unrelated branch may be either flake, and they need different
-triage — read the failure text before assuming.
+**A second flake was isolated during Tier 0c's CI run and must not be
+folded into #70** — `WorkingCopyApiTest.UnstageHunkReversesAFullyStagedSingleHunkFile`
+failing with `LockHeld` ("Another Git process appears to be running in this
+repository", the lock being its *own* temp repo's `.git/index.lock`). Unlike
+#70's shape it was **not** a timeout and **not** load-dependent: run alone
+with no parallel `ctest`, it failed 1 in 12 and again at iteration 30 of 40,
+each time in ~0.36s, nowhere near any timeout budget. **Fixed** — #77, closed
+by PR #78 (`3f6cfa1`).
+
+Two things about it are worth keeping, because both are the kind of mistake
+that is cheap to repeat:
+
+- **It was a real product race, not a test artifact**, and the first
+  diagnosis recorded here was wrong in an instructive way. This paragraph
+  used to say "a working-copy operation is reported complete before git has
+  released the index lock the next one needs" — blaming the *previous
+  write*. That write's lock was long gone. The actual holder was the
+  **background status/diff that follows it on `sharedReadPool()`**: a
+  different pool from `OperationRunner`'s single serial worker, so reads and
+  writes are not serialised against each other, and a plain `git status`
+  rewrites the index (and takes `.git/index.lock`) whenever its stat cache
+  has gone stale. Writes never collide with writes; only a background read
+  can collide with a write. The fix is `--no-optional-locks` in
+  `GitCommand::globalFlags()` — see its doc comment for why it is global
+  rather than tagged onto the ~28 read call sites.
+- **The end-to-end flake could not be reproduced on demand afterwards, in
+  either direction.** After the fix the test passed 60/60 — but so did a
+  control run with the fix removed, and 40/40 under parallel `ctest` load.
+  Each test uses its own temp repository, so the race is intra-process
+  thread scheduling, not inter-process contention, and that stress method
+  cannot surface it. The evidence for the fix is the deterministic
+  mechanism test (`RealRepoTest.StatusReadDoesNotRewriteTheIndex`, red
+  before and green after) plus the causal chain above — not an A/B.
+
+**#70 is still open**, and the triage advice stands: a red capi job may be
+either shape, and they need different treatment — read the failure text
+before assuming. A 10s `waitFor`/`waitForRefreshesToSettle` timeout under
+load is #70; anything else is new.
 
 ### Tier 5 (fix/tier-5-native-window-title) — issue closed, not implemented
 

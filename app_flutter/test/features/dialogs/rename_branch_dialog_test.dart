@@ -19,11 +19,17 @@ const RepoIdentity _identity = RepoIdentity(
   gitDir: '/tmp/repo/.git',
 );
 
+/// [hasTrackingInfo] defaults to "there is an upstream", but the two are
+/// **not** the same thing and a test may need them apart: `hasTrackingInfo`
+/// mirrors git's `%(upstream:track)`, which is *empty* for a branch exactly
+/// in sync with its upstream, while `%(upstream)` is still populated. See
+/// the "synced branch" test below for why that distinction has teeth.
 RefInfo _branch(
   String shortName, {
   String upstream = '',
   int ahead = 0,
   bool isHead = false,
+  bool? hasTrackingInfo,
 }) {
   return RefInfo(
     fullName: 'refs/heads/$shortName',
@@ -33,7 +39,7 @@ RefInfo _branch(
     upstream: upstream,
     ahead: ahead,
     behind: 0,
-    hasTrackingInfo: upstream.isNotEmpty,
+    hasTrackingInfo: hasTrackingInfo ?? upstream.isNotEmpty,
     isGone: false,
     isHead: isHead,
     isSymbolic: false,
@@ -280,6 +286,42 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(controller.commandLog.single.args['renameRemote'], isFalse);
+    });
+
+    testWidgets('a branch in sync with its upstream still offers the remote '
+        'choice -- %(upstream:track) is empty when 0 ahead / 0 behind', (
+      tester,
+    ) async {
+      // Found by the device-tier run (integration_test/
+      // rename_branch_flow_test.dart), not by reading: git reports an
+      // *empty* `%(upstream:track)` for a branch exactly in sync, so
+      // RefInfo.hasTrackingInfo is false while RefInfo.upstream is still
+      // `refs/remotes/origin/feature`. Gating the remote section on
+      // hasTrackingInfo therefore hid it for the single most common case --
+      // a freshly-pushed branch -- and silently downgraded the rename to
+      // local-only with no way for the user to notice.
+      final FakeRepoSessionController controller = await _pumpDialog(
+        tester,
+        initialState: _sessionWith(<RefInfo>[
+          _branch(
+            'synced',
+            upstream: 'refs/remotes/origin/synced',
+            hasTrackingInfo: false,
+            isHead: true,
+          ),
+        ], head: 'synced'),
+      );
+
+      expect(find.text('Remote handling'), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField), 'synced-v2');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Rename'));
+      await tester.pumpAndSettle();
+
+      final FakeCommand command = controller.commandLog.single;
+      expect(command.args['renameRemote'], isTrue);
+      expect(command.args['remoteName'], 'origin');
     });
 
     testWidgets('the warning reports the real unpushed commit count', (

@@ -149,8 +149,13 @@ class _RenameBranchDialogContentState
     // name (refs/remotes/origin/main), not `%(upstream:short)`. Splitting it
     // on the first slash would yield "refs"; remoteBranchParts() is the
     // helper that already knows that.
-    final bool hasUpstream =
-        branch.hasTrackingInfo && branch.upstream.isNotEmpty;
+    // Keyed on `upstream` alone, deliberately *not* on `hasTrackingInfo`:
+    // the latter mirrors git's `%(upstream:track)`, which is empty for a
+    // branch exactly in sync with its upstream (0 ahead, 0 behind) even
+    // though `%(upstream)` is populated -- see RefStore.cpp's parseTrack().
+    // Conjoining the two hid this whole section for a freshly-pushed
+    // branch, quietly turning every such rename into a local-only one.
+    final bool hasUpstream = branch.upstream.isNotEmpty;
     final (String remote, String remoteBranch) = hasUpstream
         ? remoteBranchParts(branch.upstream)
         : ('', '');

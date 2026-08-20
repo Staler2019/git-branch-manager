@@ -681,7 +681,13 @@ with no defence. Neither is fixed here (Tier 0c scoped itself to rename);
 the matrix rows are corrected and each needs its own issue. Note the Stash
 one is not a free slot: `Ctrl/Cmd+Shift+S` currently belongs to
 `repositoryStageAll`, so honouring the revision means re-deciding that
-binding too.
+binding too. Two more REVISIONS casualties in the same table, both found
+after the first pass at these docs and both **not** fixed here:
+`repositoryStageSelectedLines` is now spec'd at `Ctrl/Cmd+Alt+S` but bound
+to `Ctrl/Cmd+Shift+Enter`, and `Edit → Select all` (`Ctrl/Cmd+A`) does not
+exist in `gbmMenus` at all — the latter is deliberately **sequenced after**
+the multi-select work (#54), since `Ctrl/Cmd+A` is also `MULTIKEYS`' "全選
+當前清單" and binding it first would give it nothing to select.
 
 `lib/features/workspace/widgets/tab_row.dart`'s 18-item
 `_MoreMenu` overflow menu plus 3 standalone buttons (Merge/Cherry-pick/
@@ -694,7 +700,12 @@ log, repository settings) is reachable *only* through it, and 2 of its 18
 items (`Repository Settings…`, `Preferences…`) duplicate menu-bar entries
 that already exist. Two competing Log implementations also still coexist:
 `features/log_drawer/` (matches spec page 10's bottom-drawer design) and
-the separate `operationLogDialog` route (doesn't).
+the separate `operationLogDialog` route (doesn't) — **and as of 260820
+that is no longer a tie to break**: P16's REVISIONS deletes the dialog
+from the spec by name ("只留抽屜；operation-log dialog 從規格中刪除"), so
+the route, its `_MoreMenu` entry and `features/operation_log/` are now
+非規格內容. This is the ruling **#61** was waiting on. Removing a live
+route is its own change with its own tests, so it is recorded, not done.
 
 New tests added this round: `test/features/context_menus/context_menu_parity_test.dart`
 asserts all 11 groups against `gbmContextMenuGroups` — the 6 conforming

@@ -34,14 +34,31 @@ This report is descriptive only — no fixes are applied here. See
 
 ## Page 04 — Menu bar & shortcuts (`gbm_menu_model.dart`, `gbm_shortcuts.dart`)
 
-**Menu bar (`gbmMenus`, 7 menus, 52 items):** matches spec's MENUS table
-verbatim across all 7 menus (File 8 / Edit 8 / View 11 / Repository 10 /
-Branch 7 / Remote 4 / Help 4). The one addition —
-`repositoryStageSelectedLines` ("Stage selected lines") — is not in the
-page-04 MENUS table, but the spec's own page-03 prose (SCOPES row 7 / P3
-item 5) names `Repository → Stage selected lines`, so this is the spec's
-own table missing a row it documents elsewhere, not an app-side addition.
-**符合** (spec-internal inconsistency, code sides with the prose).
+**Menu bar (`gbmMenus`, 7 menus, 52 items) (260820 修訂):** matches spec's
+MENUS table verbatim across all 7 menus (File 8 / Edit 8 / View 11 /
+Repository 10 / Branch 7 / Remote 4 / Help 4) **as that table stood at
+audit time**. P16's `REVISIONS` changes two things about this paragraph:
+
+- **`Stage selected lines` is no longer an app-side addition.** It was
+  logged here as "the spec's own table missing a row it documents
+  elsewhere" (page-03 prose, SCOPES row 7 / P3 item 5), with the verdict
+  **符合** on the grounds that the code sided with the prose. REVISIONS
+  now puts it *in* the MENUS table — "已加入 Repository 選單" — so the
+  spec-internal inconsistency is resolved in the code's favour and the
+  item itself stays 符合. But the same revision assigns it
+  **`Ctrl/Cmd+Alt+S`**, and `gbm_shortcuts.dart` binds it to
+  `Ctrl/Cmd+Shift+Enter` (the shift group's `LogicalKeyboardKey.enter`
+  entry). That is a **real shortcut mismatch** that did not exist when
+  this row was written — the audit had no shortcut to compare against.
+  **措辭不符** on the binding. Not fixed in the Tier 0c PR; needs its own
+  issue alongside the other two shortcut rows below.
+- **`Edit → Select all` is missing entirely.** REVISIONS adds it with
+  `Ctrl/Cmd+A` ("搭 P13 多選"), so the Edit menu should now have 9 items
+  and the app-wide total 53, not 52. `gbmMenus`' Edit menu has 8 and no
+  `editSelectAll` id exists in `GbmActionId`. **缺少** — and note it is
+  not independent of P13: `Ctrl/Cmd+A` is also `MULTIKEYS`' "全選當前清
+  單", so binding it before the multi-select work (#54) lands would give
+  it nothing to select. Sequence it after, not before.
 
 **Keyboard shortcuts (`gbmActionShortcuts()`, 35/52 ids bound):**
 
@@ -203,14 +220,25 @@ tab when opened — nothing else. The actual `TabRow` widget also renders:
 Per this audit's scope rule, this is the single largest source of
 "functionality beyond spec, but through a non-conforming entry point."
 
-### F-B. Log panel has two competing implementations
+### F-B. Log panel has two competing implementations (260820 修訂 — verdict hardened)
 
 Spec page 10 defines Log as a bottom drawer (`main.log` splitter,
 draggable height, zero space when collapsed). The code has both
 `lib/features/log_drawer/` (matches the spec) and a separate
 `operationLogDialog` modal route, reachable only from `_MoreMenu`. Same
-concept, two surfaces — full detail pending the page-10 discovery pass
-below.
+concept, two surfaces — full detail in the page-10 pass below.
+
+**P16's REVISIONS settles which one is wrong.** At audit time this was
+logged as an ambiguity: the spec described a drawer, the app had both, and
+nothing said the dialog was forbidden. REVISIONS now states it outright —
+「只留抽屜；**operation-log dialog 從規格中刪除**（LOGRULES 新增「只有一
+套」一列）」. So this is no longer "two implementations of one concept,
+pick a winner" but a **named removal**: `operationLogDialog`, its route
+constant, its `_MoreMenu` entry and `features/operation_log/` are now
+非規格內容 and should go, with the drawer keeping the feature. That also
+answers the open question tracked on **#61**, which was waiting for
+exactly this ruling. Not acted on in the Tier 0c PR (scoped to rename);
+deleting a live route is its own change with its own tests.
 
 ---
 
@@ -414,7 +442,9 @@ independent problems:
 3. **F-A**: `tab_row.dart`'s 18-item overflow menu is a spec-unsanctioned
    third entry surface for otherwise-legitimate features.
 4. **F-B**: the Log drawer and Operation Log dialog are two competing
-   implementations of the same spec concept.
+   implementations of the same spec concept — and as of 260820 this is no
+   longer a judgement call: P16's REVISIONS deletes the dialog from the
+   spec by name and keeps the drawer (see F-B above, and #61).
 5. Preferences (page 11) has 5 gaps that are all "field exists in the
    data model / backing repository, but no UI surfaces it yet" — the
    cheapest category to close.

@@ -21,6 +21,7 @@ add_executable(gbm_core_tests
     unit/OriginalOperationMessageTest.cpp
     unit/PreparedCommitMessageTest.cpp
     unit/ProcessRunnerTest.cpp
+    unit/RefStoreHeadTest.cpp
     unit/RemoteOpsTest.cpp
     unit/RepoStateTest.cpp
     unit/SideBySideDiffTest.cpp

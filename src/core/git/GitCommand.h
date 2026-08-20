@@ -44,6 +44,31 @@ struct GitCommand {
     /// UTF-8 filenames survive round-tripping. The pager and terminal prompt are
     /// disabled because there is no terminal to drive them, and a prompt would
     /// hang the child forever instead of returning an auth error we can report.
+    ///
+    /// `--no-optional-locks` is the fix for issue #77, and it is here rather
+    /// than on individual read commands on purpose. Reads and writes run on
+    /// *different* thread pools: writes are serialised by OperationRunner's
+    /// single worker, but Session::refreshWorkingCopy() and every other
+    /// background read post to sharedReadPool(), which is not serialised
+    /// against it. A plain `git status` or `git diff` rewrites the index
+    /// whenever its cached stat info has gone stale, and rewriting means
+    /// taking `.git/index.lock` -- so a background refresh could take the
+    /// lock out from under a real user operation, which then failed with
+    /// GitError::Code::LockHeld ("Another Git process appears to be running
+    /// in this repository"). This flag is git's own answer for GUI clients
+    /// in exactly that position (git 2.15+, equivalent to
+    /// GIT_OPTIONAL_LOCKS=0): it suppresses only *opportunistic* locking, so
+    /// commands that genuinely must write the index -- add, apply --cached,
+    /// commit, checkout -- still take their required lock and behave
+    /// identically.
+    ///
+    /// Applying it to every invocation rather than tagging the ~28
+    /// sharedReadPool() call sites individually is deliberate: a new read
+    /// command added later cannot forget to opt in, which is the drift this
+    /// repo's audits keep finding. The cost is that the index's stat cache is
+    /// no longer refreshed as a side effect of a status read, so a later
+    /// status may re-stat more files; that is the documented trade-off git
+    /// itself names for this flag.
     static std::vector<std::string> globalFlags() {
         return {
             "-c",
@@ -53,6 +78,7 @@ struct GitCommand {
             "-c",
             "advice.detachedHead=false",
             "--no-pager",
+            "--no-optional-locks",
         };
     }
 };

@@ -39,11 +39,13 @@
 #include "core/git/ops/WorktreeOps.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <gtest/gtest.h>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -974,6 +976,58 @@ TEST_F(RealRepoTest, WorkingCopyStatusReportsStagedUnstagedAndUntracked) {
     ASSERT_EQ(untracked.size(), 1u);
     EXPECT_EQ(untracked[0]->path, "new.txt");
     EXPECT_TRUE(untracked[0]->untracked);
+}
+
+/// Regression for #77: a background status read must not take git's
+/// *optional* index lock.
+///
+/// Writes go through OperationRunner's single serial thread, so two writes
+/// can never collide -- but Session::refreshWorkingCopy() posts to
+/// sharedReadPool(), a different pool entirely, and
+/// submitWorkingCopyOperation() emits its FINISHED event *before* kicking
+/// that refresh off. So a caller that reacts to the event by starting the
+/// next operation races the refresh, and a plain `git status` rewrites the
+/// index (taking .git/index.lock) whenever stat info has gone stale. The
+/// loser gets GitError::Code::LockHeld, "Another Git process appears to be
+/// running in this repository".
+///
+/// Asserted on the index's *bytes* rather than its mtime: filesystem
+/// timestamp granularity varies (HFS+ is 1s), so an mtime comparison can
+/// pass on a fast machine for the wrong reason.
+TEST_F(RealRepoTest, StatusReadDoesNotRewriteTheIndex) {
+    // Enough files that git has real stat work to do, and a back-dated mtime
+    // on each so the cached stat info is guaranteed stale -- without this git
+    // has no reason to want to rewrite the index and the test would pass
+    // vacuously, before *and* after the fix.
+    for (int i = 0; i < 40; ++i) {
+        const std::string name = "f" + std::to_string(i) + ".txt";
+        std::ofstream(repo_ / name) << "content " << i << "\n";
+    }
+    ASSERT_TRUE(run({"add", "-A"}));
+    ASSERT_TRUE(run({"commit", "--quiet", "-m", "many files"}));
+    for (int i = 0; i < 40; ++i) {
+        const std::string name = "f" + std::to_string(i) + ".txt";
+        std::filesystem::last_write_time(
+            repo_ / name,
+            std::filesystem::file_time_type::clock::now() - std::chrono::hours(24 * 365));
+    }
+
+    const auto readIndexBytes = [this]() {
+        std::ifstream in(repo_ / ".git" / "index", std::ios::binary);
+        return std::string((std::istreambuf_iterator<char>(in)),
+                           std::istreambuf_iterator<char>());
+    };
+    const std::string before = readIndexBytes();
+    ASSERT_FALSE(before.empty());
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status) << status.error().message;
+
+    EXPECT_EQ(readIndexBytes(), before)
+        << "a status read rewrote .git/index, which means it took the index "
+           "lock -- any concurrent write operation would have failed with "
+           "LockHeld. See GitCommand::globalFlags()'s --no-optional-locks.";
 }
 
 TEST_F(RealRepoTest, WorkingCopyStatusDetectsARenameStagedForCommit) {

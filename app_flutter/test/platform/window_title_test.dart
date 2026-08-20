@@ -103,6 +103,20 @@ void main() {
             'MainFlutterWindow.awakeFromNib should set the NSWindow title '
             'explicitly.',
       );
+
+      // The deferred re-assignment is what actually survives: measured on
+      // macOS, a synchronous set here (and in MainMenu.xib, and in
+      // AppDelegate.applicationDidFinishLaunching) is reverted to
+      // CFBundleName -- `gbm_flutter` -- before the window is on screen.
+      // It reads as redundant next to the line above, so assert it or it
+      // gets "cleaned up" and the title silently regresses.
+      expect(
+        source,
+        contains('DispatchQueue.main.async { self.title = "$expectedTitle" }'),
+        reason:
+            'The synchronous assignment alone does not stick; the next-turn '
+            're-assignment is the one that survives startup.',
+      );
     });
   });
 }

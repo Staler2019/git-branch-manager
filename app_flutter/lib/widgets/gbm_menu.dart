@@ -14,16 +14,18 @@ import '../theme/tokens.dart';
 ///
 /// A submenu item (created via [GbmMenuItem.submenu]) declares [children]
 /// nested one level only — recursive submenus are forbidden and asserted at
-/// construction time. NOTE: the flyout itself is not yet implemented —
-/// [_GbmMenuRow] currently renders a submenu trigger's label only and its
-/// `onTap` is always null, so tapping one just closes the menu. Until the
-/// flyout renders, callers should treat [GbmMenuItem.submenu] as
-/// display-only. `menu_bar_row.dart`'s View > Graph columns / Theme are
-/// visually submenu-shaped in the design doc but are built with the plain
+/// construction time. [_GbmMenuRow] renders such a row with a trailing
+/// chevron and opens the flyout **on tap**, not on hover: `showGbmMenu` is
+/// built on Material's `showMenu`, which inserts a modal barrier over
+/// everything beneath it, so a hover-opened flyout would immediately make
+/// the parent menu it came from unhoverable and unclickable. Tapping is the
+/// affordance the chevron advertises, and it is what widget tests can drive.
+/// `menu_bar_row.dart`'s View > Graph columns / Theme are visually
+/// submenu-shaped in the design doc but are built with the plain
 /// constructor (a real `onTap`, not `.submenu()`), since the parent itself
 /// already resolves to a working action (a columns picker dialog, cycling
-/// the theme) — [GbmMenuItem.submenu] is for a future item whose only
-/// affordance is its flyout.
+/// the theme) — [GbmMenuItem.submenu] is for an item whose only affordance
+/// is its flyout.
 ///
 /// [enabled] (default `true`) is a purely visual signal — [_GbmMenuRow]
 /// renders a disabled item with a fixed dim foreground and no hover
@@ -226,6 +228,60 @@ class _GbmMenuRow extends StatefulWidget {
 class _GbmMenuRowState extends State<_GbmMenuRow> {
   bool _hovered = false;
 
+  /// Opens this row's flyout to the right of the row, leaving the parent
+  /// menu standing underneath it.
+  ///
+  /// Each child's callback is wrapped so that choosing one closes the parent
+  /// too — the child row pops its own route, and this pops what is then the
+  /// topmost route, the parent. **Order matters**: the parent is popped
+  /// *before* the child's real action runs, because that action routinely
+  /// pushes a dialog, and popping afterwards would take the dialog down
+  /// instead of the menu. A child with no callback (a disabled item) is left
+  /// alone, so tapping it closes only the flyout and changes nothing.
+  void _openSubmenu() {
+    final RenderBox row = context.findRenderObject()! as RenderBox;
+    final RenderBox overlay =
+        Overlay.of(context).context.findRenderObject()! as RenderBox;
+    final Offset anchor = row.localToGlobal(
+      row.size.topRight(Offset.zero),
+      ancestor: overlay,
+    );
+    final NavigatorState parentNavigator = Navigator.of(context);
+
+    void closeParent() {
+      if (parentNavigator.canPop()) {
+        parentNavigator.pop();
+      }
+    }
+
+    showGbmMenu(
+      context,
+      position: RelativeRect.fromRect(
+        Rect.fromPoints(anchor, anchor),
+        Offset.zero & overlay.size,
+      ),
+      items: <GbmMenuItem>[
+        for (final GbmMenuItem child in widget.item.children)
+          if (child.separator)
+            const GbmMenuItem.separator()
+          else
+            GbmMenuItem(
+              label: child.label,
+              icon: child.icon,
+              shortcut: child.shortcut,
+              danger: child.danger,
+              enabled: child.enabled,
+              onTap: child.onTap == null
+                  ? null
+                  : () {
+                      closeParent();
+                      child.onTap!.call();
+                    },
+            ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
@@ -247,10 +303,14 @@ class _GbmMenuRowState extends State<_GbmMenuRow> {
       onExit: (_) => setState(() => _hovered = false),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () {
-          Navigator.of(context).pop();
-          item.onTap?.call();
-        },
+        // A submenu trigger opens its flyout and leaves this menu standing;
+        // every other row closes the menu and then acts.
+        onTap: item.isSubmenuTrigger
+            ? _openSubmenu
+            : () {
+                Navigator.of(context).pop();
+                item.onTap?.call();
+              },
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
@@ -272,7 +332,9 @@ class _GbmMenuRowState extends State<_GbmMenuRow> {
                   ),
                 ),
               ),
-              if (item.shortcut != null)
+              if (item.isSubmenuTrigger)
+                Icon(Icons.chevron_right, size: 14, color: foreground)
+              else if (item.shortcut != null)
                 Text(
                   item.shortcut!,
                   style: TextStyle(

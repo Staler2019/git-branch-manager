@@ -181,4 +181,171 @@ void main() {
       expect(find.text('Nested item'), findsNothing);
     });
   }
+
+  group('submenu flyout', () {
+    testWidgets('a submenu trigger renders a chevron, not a shortcut', (
+      tester,
+    ) async {
+      await _openMenu(tester, GbmThemeVariant.darkTechnical, <GbmMenuItem>[
+        GbmMenuItem.submenu(
+          label: 'More actions',
+          children: <GbmMenuItem>[
+            GbmMenuItem(label: 'Nested item', onTap: () {}),
+          ],
+        ),
+      ]);
+
+      expect(find.byIcon(Icons.chevron_right), findsOneWidget);
+    });
+
+    testWidgets('tapping the trigger opens the flyout and keeps the parent', (
+      tester,
+    ) async {
+      await _openMenu(tester, GbmThemeVariant.darkTechnical, <GbmMenuItem>[
+        GbmMenuItem(label: 'Copy path', onTap: () {}),
+        GbmMenuItem.submenu(
+          label: 'More actions',
+          children: <GbmMenuItem>[
+            GbmMenuItem(label: 'Nested item', onTap: () {}),
+          ],
+        ),
+      ]);
+
+      await tester.tap(find.text('More actions'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Nested item'), findsOneWidget);
+      // The parent is still standing underneath -- a submenu trigger is not
+      // an action, so it must not dismiss the menu it lives in.
+      expect(find.text('Copy path'), findsOneWidget);
+    });
+
+    testWidgets('choosing a child fires its callback and closes both menus', (
+      tester,
+    ) async {
+      bool tapped = false;
+      await _openMenu(tester, GbmThemeVariant.darkTechnical, <GbmMenuItem>[
+        GbmMenuItem(label: 'Copy path', onTap: () {}),
+        GbmMenuItem.submenu(
+          label: 'More actions',
+          children: <GbmMenuItem>[
+            GbmMenuItem(label: 'Nested item', onTap: () => tapped = true),
+          ],
+        ),
+      ]);
+
+      await tester.tap(find.text('More actions'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Nested item'));
+      await tester.pumpAndSettle();
+
+      expect(tapped, isTrue);
+      expect(find.text('Nested item'), findsNothing);
+      expect(find.text('Copy path'), findsNothing);
+    });
+
+    testWidgets('a child action that pushes a route keeps that route', (
+      tester,
+    ) async {
+      // The ordering guarantee _openSubmenu documents. Menu items routinely
+      // push a dialog; if the parent menu were popped *after* the action ran,
+      // that pop would take the dialog down instead of the menu, and the user
+      // would see the dialog flash and vanish.
+      late BuildContext outerContext;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: Scaffold(
+            body: Builder(
+              builder: (context) {
+                outerContext = context;
+                return Center(
+                  child: ElevatedButton(
+                    onPressed: () => showGbmMenu(
+                      context,
+                      position: const RelativeRect.fromLTRB(0, 0, 0, 0),
+                      items: <GbmMenuItem>[
+                        GbmMenuItem(label: 'Copy path', onTap: () {}),
+                        GbmMenuItem.submenu(
+                          label: 'More actions',
+                          children: <GbmMenuItem>[
+                            GbmMenuItem(
+                              label: 'Nested item',
+                              onTap: () => showDialog<void>(
+                                context: outerContext,
+                                builder: (_) =>
+                                    const AlertDialog(title: Text('Pushed')),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    child: const Text('open'),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('More actions'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Nested item'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Pushed'), findsOneWidget);
+      expect(find.text('Copy path'), findsNothing);
+      expect(find.text('Nested item'), findsNothing);
+    });
+
+    testWidgets('a disabled child changes nothing and leaves the parent open', (
+      tester,
+    ) async {
+      await _openMenu(tester, GbmThemeVariant.darkTechnical, <GbmMenuItem>[
+        GbmMenuItem(label: 'Copy path', onTap: () {}),
+        GbmMenuItem.submenu(
+          label: 'More actions',
+          children: <GbmMenuItem>[
+            const GbmMenuItem(
+              label: 'Nested item',
+              enabled: false,
+              onTap: null,
+            ),
+          ],
+        ),
+      ]);
+
+      await tester.tap(find.text('More actions'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Nested item'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Copy path'), findsOneWidget);
+    });
+
+    testWidgets('a separator inside a submenu still renders as a separator', (
+      tester,
+    ) async {
+      await _openMenu(tester, GbmThemeVariant.darkTechnical, <GbmMenuItem>[
+        GbmMenuItem.submenu(
+          label: 'More actions',
+          children: <GbmMenuItem>[
+            GbmMenuItem(label: 'First', onTap: () {}),
+            const GbmMenuItem.separator(),
+            GbmMenuItem(label: 'Second', onTap: () {}),
+          ],
+        ),
+      ]);
+
+      await tester.tap(find.text('More actions'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('First'), findsOneWidget);
+      expect(find.text('Second'), findsOneWidget);
+    });
+  });
 }

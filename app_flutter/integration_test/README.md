@@ -26,6 +26,7 @@ flutter test integration_test/repo_lifecycle_test.dart -d macos
 flutter test integration_test/commit_flow_test.dart -d macos
 flutter test integration_test/conflict_flow_test.dart -d macos
 flutter test integration_test/context_menu_flows_test.dart -d macos
+flutter test integration_test/rename_branch_flow_test.dart -d macos
 ```
 
 (`-d linux` / `-d windows` on those platforms.)

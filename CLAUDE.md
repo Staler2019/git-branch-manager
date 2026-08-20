@@ -962,6 +962,39 @@ over-display one, not a missing feature. **#68** asks for the reading to be
 settled before any code moves — implementing off a guess here is the exact
 failure mode that closed #60.
 
+### Tier 0c (fix/tier-0c-rename-branch-dialog) — issue #45, addendum
+
+Two things worth carrying forward from the verification pass, both found by
+*running* rather than by reading — see the Tier 0c section further up for
+the feature itself.
+
+**`RefInfo.hasTrackingInfo` does not mean "has an upstream".** It mirrors
+git's `%(upstream:track)` (`RefStore.cpp`'s `parseTrack()`), which is an
+**empty string** for a branch exactly in sync with its upstream — 0 ahead,
+0 behind — even though `%(upstream)` is fully populated. The rename
+dialog's first version gated its whole "Remote handling" section on
+`hasTrackingInfo && upstream.isNotEmpty`, which therefore hid it for the
+single most common case (a branch that was just pushed) and silently
+downgraded those renames to local-only. Anything asking "does this branch
+track a remote?" must read `upstream`, and reserve `hasTrackingInfo` for
+"did git report ahead/behind numbers". The widget tests all passed
+throughout, because the test fixture hardcoded
+`hasTrackingInfo: upstream.isNotEmpty` — the same wrong assumption, written
+twice, so the tests could not disagree with the code. A fixture that
+derives one field from another is a fixture that cannot falsify the
+derivation.
+
+**Nothing but a device-tier test crosses the FFI signature seam.**
+`test/**` runs on `FakeGbmBindings`; `tests/capi/**` calls the C++ directly;
+`dart:ffi`'s `lookupFunction` matches by **symbol name only, never by
+signature**. So changing a capi function's parameter list and its Dart
+typedef in lockstep is checked by nothing — a mismatch compiles, analyzes,
+and unit-tests clean, then corrupts the stack at runtime.
+`integration_test/rename_branch_flow_test.dart` is the only thing that
+would catch it for `gbm_branch_rename`. Same trap as the stale-dylib note
+in `integration_test/README.md`, and it fired again here: the checked-in
+copy was 21KB behind a fresh build.
+
 ### Tier 4 (fix/tier-4-file-at-revision) — issues #58 + #59
 
 The 05-K batch, and the only tier since Tier 0h to need new `src/core` C++.

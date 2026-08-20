@@ -903,6 +903,47 @@ TEST_F(RealRepoTest, HonoursAMaxCountLimit) {
     EXPECT_EQ((*snapshot)->rowCount(), 4u);
 }
 
+// readHead() reads HEAD's oid and its symbolic name out of a single
+// `git rev-parse --revs-only HEAD --symbolic-full-name HEAD`, and tells the two
+// apart by whether the second line is the literal string "HEAD". That is a
+// detail of git's own output, so these two cases are asserted against a real
+// git rather than only against FakeProcessRunner -- RefStoreHeadTest.cpp pins
+// the parsing and the invocation count, but a fake cannot notice if a future
+// git prints something else. The unborn third case is
+// HandlesAnEmptyRepositoryWithoutError, below.
+TEST_F(RealRepoTest, ReadsABranchHeadFromRealGit) {
+    commitFile("a.txt", "one\n", "first");
+
+    RefStore store(*runner_, paths_);
+    auto head = store.readHead(CancellationToken{});
+    ASSERT_TRUE(head) << head.error().message;
+    EXPECT_EQ(head->kind, HeadInfo::Kind::Branch);
+    EXPECT_EQ(head->fullRef, "refs/heads/main");
+    EXPECT_EQ(head->branchName, "main");
+
+    auto expected = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(expected);
+    EXPECT_EQ(head->target.hex(), expected->out);
+}
+
+TEST_F(RealRepoTest, ReadsADetachedHeadFromRealGit) {
+    commitFile("a.txt", "one\n", "first");
+    ASSERT_TRUE(run({"checkout", "--quiet", "--detach"}));
+
+    RefStore store(*runner_, paths_);
+    auto head = store.readHead(CancellationToken{});
+    ASSERT_TRUE(head) << head.error().message;
+    EXPECT_EQ(head->kind, HeadInfo::Kind::Detached);
+    EXPECT_TRUE(head->branchName.empty());
+    EXPECT_TRUE(head->fullRef.empty());
+
+    // The oid still has to be right: detaching must not cost the caller the
+    // commit HEAD is sitting on.
+    auto expected = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(expected);
+    EXPECT_EQ(head->target.hex(), expected->out);
+}
+
 TEST_F(RealRepoTest, HandlesAnEmptyRepositoryWithoutError) {
     // No commits at all. A fresh `git init` must open cleanly rather than
     // reporting a failure the user cannot act on.

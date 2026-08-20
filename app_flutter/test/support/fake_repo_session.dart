@@ -402,9 +402,17 @@ class FakeRepoSessionController extends RepoSessionController {
     required String from,
     required String to,
     bool force = false,
+    bool renameRemote = false,
+    String remoteName = '',
   }) {
     commandLog.add(
-      FakeCommand('renameBranch', <String, Object?>{'from': from, 'to': to}),
+      FakeCommand('renameBranch', <String, Object?>{
+        'from': from,
+        'to': to,
+        'force': force,
+        'renameRemote': renameRemote,
+        'remoteName': remoteName,
+      }),
     );
   }
 

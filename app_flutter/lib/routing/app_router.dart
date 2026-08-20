@@ -37,6 +37,7 @@ import '../features/dialogs/preferences/preferences_dialog.dart';
 import '../features/dialogs/prune_remote_branches/prune_remote_branches_dialog.dart';
 import '../features/dialogs/rebase_onto/rebase_onto_dialog.dart';
 import '../features/dialogs/reflog/reflog_dialog.dart';
+import '../features/dialogs/rename_branch/rename_branch_dialog.dart';
 import '../features/dialogs/repository_settings/repository_settings_dialog.dart';
 import '../features/dialogs/reset_branch/reset_branch_dialog.dart';
 import '../features/dialogs/restore_file/restore_file_dialog.dart';
@@ -409,6 +410,19 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
           );
           final String branch = state.uri.queryParameters['branch'] ?? '';
           return DeleteBranchDialogContent(
+            identity: identity,
+            branchName: branch.isEmpty ? null : branch,
+          );
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.renameBranchDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
+          final String branch = state.uri.queryParameters['branch'] ?? '';
+          return RenameBranchDialogContent(
             identity: identity,
             branchName: branch.isEmpty ? null : branch,
           );

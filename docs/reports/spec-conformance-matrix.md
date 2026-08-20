@@ -18,26 +18,55 @@ already-documented absence (see CLAUDE.md's Known gaps).
 This report is descriptive only — no fixes are applied here. See
 `docs/reports/code-review-2026-08.md` for the accompanying code review.
 
+> **Audit baseline moved on 260820 (commit `fc3bfb3`).** The spec this
+> matrix was written against had 12 pages; it now has 16. Four pages were
+> added — **P13** Branch rename dialog + branch/commit multi-select, **P14**
+> entry-point IA for the 24 already-shipped advanced screens, **P15** empty
+> states and error windows, **P16** the revision log itself — and P16's
+> `REVISIONS` table also *changes* rules the rows below were judged against.
+> Rows affected by that table are corrected in place and marked
+> "(260820 修訂)"; the four new pages are **not** audited here. Anything
+> below without that marker was judged against the original 12 pages and
+> may have drifted. See the Tier 0c PR for the rename rows, which are the
+> only ones this round implemented.
+
 ---
 
 ## Page 04 — Menu bar & shortcuts (`gbm_menu_model.dart`, `gbm_shortcuts.dart`)
 
-**Menu bar (`gbmMenus`, 7 menus, 52 items):** matches spec's MENUS table
-verbatim across all 7 menus (File 8 / Edit 8 / View 11 / Repository 10 /
-Branch 7 / Remote 4 / Help 4). The one addition —
-`repositoryStageSelectedLines` ("Stage selected lines") — is not in the
-page-04 MENUS table, but the spec's own page-03 prose (SCOPES row 7 / P3
-item 5) names `Repository → Stage selected lines`, so this is the spec's
-own table missing a row it documents elsewhere, not an app-side addition.
-**符合** (spec-internal inconsistency, code sides with the prose).
+**Menu bar (`gbmMenus`, 7 menus, 52 items) (260820 修訂):** matches spec's
+MENUS table verbatim across all 7 menus (File 8 / Edit 8 / View 11 /
+Repository 10 / Branch 7 / Remote 4 / Help 4) **as that table stood at
+audit time**. P16's `REVISIONS` changes two things about this paragraph:
 
-**Keyboard shortcuts (`gbmActionShortcuts()`, 35/52 ids bound):**
+- **`Stage selected lines` is no longer an app-side addition.** It was
+  logged here as "the spec's own table missing a row it documents
+  elsewhere" (page-03 prose, SCOPES row 7 / P3 item 5), with the verdict
+  **符合** on the grounds that the code sided with the prose. REVISIONS
+  now puts it *in* the MENUS table — "已加入 Repository 選單" — so the
+  spec-internal inconsistency is resolved in the code's favour and the
+  item itself stays 符合. But the same revision assigns it
+  **`Ctrl/Cmd+Alt+S`**, and `gbm_shortcuts.dart` binds it to
+  `Ctrl/Cmd+Shift+Enter` (the shift group's `LogicalKeyboardKey.enter`
+  entry). That is a **real shortcut mismatch** that did not exist when
+  this row was written — the audit had no shortcut to compare against.
+  **措辭不符** on the binding. Not fixed in the Tier 0c PR; needs its own
+  issue alongside the other two shortcut rows below.
+- **`Edit → Select all` is missing entirely.** REVISIONS adds it with
+  `Ctrl/Cmd+A` ("搭 P13 多選"), so the Edit menu should now have 9 items
+  and the app-wide total 53, not 52. `gbmMenus`' Edit menu has 8 and no
+  `editSelectAll` id exists in `GbmActionId`. **缺少** — and note it is
+  not independent of P13: `Ctrl/Cmd+A` is also `MULTIKEYS`' "全選當前清
+  單", so binding it before the multi-select work (#54) lands would give
+  it nothing to select. Sequence it after, not before.
+
+**Keyboard shortcuts (`gbmActionShortcuts()`, 36/52 ids bound — 35/52 at audit time; F2 is the one added since, see the rename row below):**
 
 | Spec item | Verdict | Evidence | Reason |
 |---|---|---|---|
-| Edit → Find in files, `Ctrl/Cmd+Shift+F` | 缺少 (spec-internal collision) | `gbm_shortcuts.dart` has no `editFindInFiles` entry | Spec's own MENUS table assigns `Ctrl/Cmd+Shift+F` to BOTH "Find in files" and "Repository → Fetch". Code kept `repositoryFetch`'s binding and left `editFindInFiles` unbound. Classification: spec defect, not a code bug — but flag for spec authors. |
-| Branch → Stash changes, `Ctrl/Cmd+Shift+T` | 缺少 (spec-internal collision) | `gbm_shortcuts.dart` has no `branchStashChanges` entry | Same pattern: spec's MENUS table assigns `Ctrl/Cmd+Shift+T` to BOTH "View → File list as tree" and "Branch → Stash changes". Code kept `viewFileListAsTree`. |
-| Branch → Rename current branch…, `F2` (from DIALOGS table + CTX 05-B) | **缺少 (real gap)** | `gbm_shortcuts.dart` has no `branchRenameCurrentBranch` entry; `F2` is otherwise unused — no collision excuse | Compounds with the missing dialog route below (page 06). This is the one shortcut gap that is NOT explained by a spec-internal collision. Classification **(i)** — action id and presumably a rename capi call already exist; only wiring is missing. |
+| Edit → Find in files, `Ctrl/Cmd+Shift+H` (260820 修訂) | **缺少** | `gbm_shortcuts.dart` has no `editFindInFiles` entry | Originally logged as a spec defect: the 12-page MENUS table assigned `Ctrl/Cmd+Shift+F` to BOTH "Find in files" and "Repository → Fetch", so the code kept `repositoryFetch` and left this unbound. **P16's REVISIONS resolves it** — Fetch keeps `Shift+F` ("工具列 F / P / P 三顆同組，不能拆") and Find in files moves to `Ctrl/Cmd+Shift+H`. The collision excuse is therefore gone; this is now an ordinary unbound shortcut. Not fixed in the Tier 0c PR (which scoped itself to rename) — needs its own issue. |
+| Branch → Stash changes, `Ctrl/Cmd+Shift+S` (260820 修訂) | **缺少** | `gbm_shortcuts.dart` has no `branchStashChanges` entry | Same story: the original table double-assigned `Ctrl/Cmd+Shift+T` to both this and "View → File list as tree", and the code kept the latter. **P16's REVISIONS moves Stash changes to `Ctrl/Cmd+Shift+S`** and keeps `Shift+T` for the tree toggle. Note `Ctrl/Cmd+Shift+S` is currently bound to `repositoryStageAll` here, so honouring the revision means re-deciding that binding, not just adding one. Needs its own issue. |
+| Branch → Rename branch…, `F2` (from DIALOGS table + CTX 05-B) | **符合** (fixed, Tier 0c) | `gbm_shortcuts.dart`'s bare-key group | Was the one shortcut gap not explained by a spec-internal collision, and it compounded with the missing dialog route below. Now bound, as the only entry in the map with no Ctrl/Cmd at all — it is constructed directly rather than through `_makeShortcut()`, which always adds one. P16's REVISIONS confirms the binding ("Branch → Rename branch… = F2"). Label also corrected from `Rename current branch…` to spec's `Rename branch…`. |
 | File → Exit, `Alt+F4 / Cmd+Q` | 符合 (by design) | `gbm_shortcuts.dart:103-104` doc comment; no `fileExit` entry | Correctly left out of the app's `Shortcuts`/`Actions` binding — these are OS-native window-close accelerators, not something the Flutter shortcut layer should intercept. |
 | Context-menu-scoped keys (Space/F2/Ctrl+Enter for file actions; Alt+Left/Right/↓, Ctrl/Cmd+↑/↓/Z for the conflict window) | 待查 | — | These are architecturally separate from the global 52-id map (bound locally at the widget that owns that context). Verification folded into pages 03/08 below. |
 
@@ -119,7 +148,7 @@ audit's plan flagged going in.
 | Switch repository | 符合 | `repo_switcher_popover.dart` | Correctly a popover, not a modal dialog — matches spec's own note that this is deliberately lightweight, not one of the 33 modal dialog routes. |
 | Clone repository | 符合 (documented gap, iii) | — | Already recorded in CLAUDE.md: no `git init`/clone capi entry point exists; File → Clone repository… stays disabled by design. |
 | New branch | 符合 | `route_paths.dart: newBranchDialog` | Route exists. |
-| **Rename branch** | **缺少 (real gap)** | `route_paths.dart` has no rename-branch route among its ~36 dialog constants | Spec's DIALOGS table names this dialog explicitly (from 05-B → Rename…, key F2). `GbmActionId.branchRenameCurrentBranch` exists as an action id but has no dialog to open and no shortcut (see page 04 above) — the whole feature has zero conforming entry points despite the enum id existing. Classification **(i)** — `gbm_branch_rename` exists in capi; only the Flutter dialog + route are missing. |
+| **Rename branch** | **符合** (fixed, Tier 0c) | `RoutePaths.renameBranchDialog`, `features/dialogs/rename_branch/` | Built against **P13 section A**, the design added on 260820 — which is why this was deliberately deferred in Tier 0 rather than built blind (see issue #45's history). All three spec entry points now reach it: 05-B context menu (naming the clicked branch), Branch menu, and F2 (both falling back to HEAD). The classification was optimistic: `gbm_branch_rename` did exist, but P13's "遠端連帶處理" needed it extended with `renameRemote`/`remoteName`/`askpassDir` plus a `--unset-upstream` step, since `git branch -m` carries tracking config across. |
 | Delete branch | 符合 | `deleteBranchDialog` | — |
 | Checkout | 符合 | `checkoutDialog` | — |
 | Merge | 符合 | `mergeDialog` | — |
@@ -133,7 +162,8 @@ audit's plan flagged going in.
 | Repository settings | 符合 | `repositorySettingsDialog` | — |
 | Preferences | 符合 | `preferencesDialog` | — |
 
-**14/16 present, 1 real gap (Rename branch), 1 documented absence (Clone).**
+**15/16 present, 1 documented absence (Clone).** Rename branch was the one
+real gap and is fixed (Tier 0c).
 
 ### Dialogs beyond the spec's 16 — entry-point audit
 
@@ -190,14 +220,25 @@ tab when opened — nothing else. The actual `TabRow` widget also renders:
 Per this audit's scope rule, this is the single largest source of
 "functionality beyond spec, but through a non-conforming entry point."
 
-### F-B. Log panel has two competing implementations
+### F-B. Log panel has two competing implementations (260820 修訂 — verdict hardened)
 
 Spec page 10 defines Log as a bottom drawer (`main.log` splitter,
 draggable height, zero space when collapsed). The code has both
 `lib/features/log_drawer/` (matches the spec) and a separate
 `operationLogDialog` modal route, reachable only from `_MoreMenu`. Same
-concept, two surfaces — full detail pending the page-10 discovery pass
-below.
+concept, two surfaces — full detail in the page-10 pass below.
+
+**P16's REVISIONS settles which one is wrong.** At audit time this was
+logged as an ambiguity: the spec described a drawer, the app had both, and
+nothing said the dialog was forbidden. REVISIONS now states it outright —
+「只留抽屜；**operation-log dialog 從規格中刪除**（LOGRULES 新增「只有一
+套」一列）」. So this is no longer "two implementations of one concept,
+pick a winner" but a **named removal**: `operationLogDialog`, its route
+constant, its `_MoreMenu` entry and `features/operation_log/` are now
+非規格內容 and should go, with the drawer keeping the feature. That also
+answers the open question tracked on **#61**, which was waiting for
+exactly this ruling. Not acted on in the Tier 0c PR (scoped to rename);
+deleting a live route is its own change with its own tests.
 
 ---
 
@@ -310,7 +351,7 @@ confirmed in `tokens.dart:543-544`. **11/11 符合.**
 | 4 | Log drawer (draggable height, zero when collapsed, filter/copy/save) | 符合 | `log_drawer.dart:20-70` | — |
 | 5 | Error DIALOG window (Esc closes, next-action button, duplicate→counter) | **缺少 — confirmed** | `workspace_screen.dart:297-316` | Errors surface as an inline, persistent `GbmWarningBanner` (`if (session.lastError case final error? when error.codeName != 'Conflict')`), not a modal dialog window. This does satisfy the spec's *intent* ("no auto-dismissing toast — must stay until the user has seen it") but not the *mechanism* — there is no dialog with a "what failed / why / raw git output (collapsed, monospace)" 3-section layout, no primary-button-as-next-action, and no repeated-error counter (searched for and found no such field). Classification **(i)** — the underlying `GitError` model already carries the needed fields (per `git_error.dart`); this is a missing dialog widget, not a missing data path. |
 
-**Additional finding — LOGRULES retention number:** spec says "記憶體中保留最近 2,000 筆" (in-memory keeps last 2,000 entries). Code caps `operationLog` at `_kMaxOperationLogEntries = 500` (`repo_session_repository.dart:243`). **措辭不符/缺少** — the retention mechanism (cap + sublist eviction) is correctly implemented, but the number is 500, not 2,000.
+**Additional finding — LOGRULES retention number (260820 修訂):** originally logged as a mismatch — spec said "記憶體中保留最近 2,000 筆" while the code capped `operationLog` at 500. **P16's REVISIONS reverses the direction**: the default is now 500 with Preferences able to raise it to 2,000 ("預設 500，Preferences 可調到 2,000"), which is what Tier 0h already built (the cap reads `AppPreferences.logMemoryLimit`). **符合** — no longer a gap; the spec moved to the code, not the other way round.
 
 ---
 
@@ -401,7 +442,9 @@ independent problems:
 3. **F-A**: `tab_row.dart`'s 18-item overflow menu is a spec-unsanctioned
    third entry surface for otherwise-legitimate features.
 4. **F-B**: the Log drawer and Operation Log dialog are two competing
-   implementations of the same spec concept.
+   implementations of the same spec concept — and as of 260820 this is no
+   longer a judgement call: P16's REVISIONS deletes the dialog from the
+   spec by name and keeps the drawer (see F-B above, and #61).
 5. Preferences (page 11) has 5 gaps that are all "field exists in the
    data model / backing repository, but no UI surfaces it yet" — the
    cheapest category to close.

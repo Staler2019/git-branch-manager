@@ -210,6 +210,8 @@ typedef _BranchRenameNative =
       Pointer<Utf8> from,
       Pointer<Utf8> to,
       Int32 force,
+      Int32 renameRemote,
+      Pointer<Utf8> remoteName,
     );
 typedef BranchRenameDart =
     void Function(
@@ -217,6 +219,8 @@ typedef BranchRenameDart =
       Pointer<Utf8> from,
       Pointer<Utf8> to,
       int force,
+      int renameRemote,
+      Pointer<Utf8> remoteName,
     );
 
 typedef _BranchDeleteNative =

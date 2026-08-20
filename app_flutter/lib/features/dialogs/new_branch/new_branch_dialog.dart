@@ -9,6 +9,7 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
+import '../branch_name_validation.dart';
 
 /// The three start-point kinds spec page 06's New branch row lists in its
 /// dropdown: "目前分支 / 指定 commit / tag".
@@ -63,32 +64,8 @@ class _NewBranchDialogContentState
     super.dispose();
   }
 
-  /// Git's own ref-name rules, limited to the ones a user hits by accident:
-  /// leading/trailing slash or dot, `..`, whitespace, and the characters
-  /// `~^:?*[\` plus control codes. Checked here so the button explains
-  /// itself before the create is attempted, not instead of git's own
-  /// validation -- `check_ref_format` remains the authority.
-  static final RegExp _illegalRefChars = RegExp(r'[\x00-\x20~^:?*\[\\\x7f]');
-
-  String? _nameError(List<String> existingNames) {
-    final String name = _nameController.text.trim();
-    if (name.isEmpty) return null; // Button is disabled; no need to nag yet.
-    if (existingNames.contains(name)) {
-      return 'A branch named "$name" already exists.';
-    }
-    if (_illegalRefChars.hasMatch(name)) {
-      return 'Branch names cannot contain spaces or any of ~^:?*[\\';
-    }
-    if (name.startsWith('/') ||
-        name.endsWith('/') ||
-        name.startsWith('.') ||
-        name.endsWith('.') ||
-        name.contains('..') ||
-        name.endsWith('.lock')) {
-      return 'Not a valid branch name.';
-    }
-    return null;
-  }
+  String? _nameError(List<String> existingNames) =>
+      branchNameError(_nameController.text, existingNames: existingNames);
 
   /// The ref the new branch is created at, or `''` for "current branch"
   /// (which `branchCreate` reads as HEAD).

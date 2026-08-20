@@ -358,10 +358,17 @@ class BranchTreeItem extends StatelessWidget {
           onTap: onNewBranchFromHere!,
         ),
       if (onRename != null)
+        // Spec page 13 keeps rename out of reach mid-sequencer ("分支正在被
+        // rebase / merge 佔用 -> 整個 dialog 不開啟"), and page 07 already
+        // disables every other HEAD-moving action there. Both `enabled` and
+        // `onTap` are set: `enabled` alone is only a visual signal (see
+        // GbmMenuItem's doc comment), `onTap: null` alone would leave a
+        // full-brightness item that silently does nothing.
         GbmMenuItem(
           label: 'Rename branch',
           icon: Icons.edit_outlined,
-          onTap: onRename!,
+          enabled: !conflictActive,
+          onTap: conflictActive ? null : onRename!,
         ),
       if (onMerge != null)
         GbmMenuItem(

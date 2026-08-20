@@ -218,8 +218,12 @@ const List<GbmMenuModel> gbmMenus = <GbmMenuModel>[
       GbmMenuItemModel(id: GbmActionId.branchNewBranch, label: 'New branch…'),
       GbmMenuItemModel(id: GbmActionId.branchCheckout, label: 'Checkout…'),
       GbmMenuItemModel(
+        // Spec's MENUS table says "Rename branch…", and since the dialog
+        // this now opens can rename a branch named by the 05-B context
+        // menu rather than only HEAD, the shorter label is also the
+        // accurate one. The action id keeps its original name.
         id: GbmActionId.branchRenameCurrentBranch,
-        label: 'Rename current branch…',
+        label: 'Rename branch…',
       ),
       GbmMenuItemModel(
         id: GbmActionId.branchMergeIntoCurrent,

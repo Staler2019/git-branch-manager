@@ -116,17 +116,15 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     );
   }
 
-  Future<void> _renameBranch(RefInfo branch) async {
-    final String? newName = await promptText(
-      context,
-      title: 'Rename Branch',
-      label: 'New name',
-      initialValue: branch.shortName,
+  /// 05-B's "Rename branch". Unlike the Branch menu and F2, this names the
+  /// clicked branch rather than letting the dialog fall back to HEAD.
+  void _renameBranch(RefInfo branch) {
+    context.push(
+      RoutePaths.renameBranchDialogFor(
+        Uri.encodeComponent(widget.identity.workDir),
+        branch: branch.shortName,
+      ),
     );
-    if (newName == null || newName == branch.shortName || !mounted) return;
-    ref
-        .read(repoSessionProvider(widget.identity).notifier)
-        .renameBranch(from: branch.shortName, to: newName);
   }
 
   void _deleteSingle(RefInfo branch) {

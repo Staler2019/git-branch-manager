@@ -70,6 +70,8 @@ abstract final class RoutePaths {
   static const String checkoutDialog = '/repo/:repoId/dialogs/checkout';
   static const String deleteBranchDialog =
       '/repo/:repoId/dialogs/delete-branch';
+  static const String renameBranchDialog =
+      '/repo/:repoId/dialogs/rename-branch';
   static const String rebaseOntoDialog = '/repo/:repoId/dialogs/rebase-onto';
   static const String forcePushDialog = '/repo/:repoId/dialogs/force-push';
   static const String deleteRemoteBranchDialog =
@@ -171,6 +173,16 @@ abstract final class RoutePaths {
       ).toString();
   static String checkoutDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/checkout';
+
+  /// [branch] empty means "the current branch" -- the Branch menu and F2
+  /// both leave it out; only the 05-B context menu names one.
+  static String renameBranchDialogFor(String repoId, {String branch = ''}) =>
+      Uri(
+        path: '/repo/$repoId/dialogs/rename-branch',
+        queryParameters: branch.isEmpty
+            ? null
+            : <String, String>{'branch': branch},
+      ).toString();
   static String deleteBranchDialogFor(String repoId, {String branch = ''}) =>
       Uri(
         path: '/repo/$repoId/dialogs/delete-branch',

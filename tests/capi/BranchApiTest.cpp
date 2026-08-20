@@ -81,6 +81,68 @@ protected:
         }
         std::error_code ec;
         std::filesystem::remove_all(repo_, ec);
+        if (!remote_.empty()) {
+            std::filesystem::remove_all(remote_, ec);
+        }
+    }
+
+    /// Adds a local bare repository as `origin` and publishes `branch` to it
+    /// with `-u`, so the rename tests have a real upstream to carry across.
+    /// Deliberately not in SetUp(): only the remote-rename tests need it, and
+    /// an extra init+push on every test in this file is pure overhead.
+    /// Same fixture shape as RemoteApiTest's -- no network involved.
+    void setUpRemoteWithBranch(const std::string& branch) {
+        const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
+        remote_ = std::filesystem::temp_directory_path() /
+                  ("gbm-capi-branch-remote-" + std::string(info->name()));
+        std::filesystem::remove_all(remote_);
+        ASSERT_EQ(runIn(remote_.parent_path(), {"init", "--quiet", "--bare", remote_.string()}), 0);
+        ASSERT_EQ(runGit({"remote", "add", "origin", remote_.string()}), 0);
+        ASSERT_EQ(runGit({"branch", branch}), 0);
+        ASSERT_EQ(runGit({"push", "--quiet", "-u", "origin", branch}), 0);
+    }
+
+    int runIn(const std::filesystem::path& dir, std::vector<std::string> args) {
+        std::string command = "git -C \"" + dir.string() + "\"";
+        for (const auto& arg : args) {
+            command += " \"" + arg + "\"";
+        }
+#ifdef _WIN32
+        command += " >NUL 2>&1";
+#else
+        command += " >/dev/null 2>&1";
+#endif
+        return std::system(command.c_str());
+    }
+
+    /// Branch names present in the bare remote, read from the remote itself
+    /// rather than from any remote-tracking ref -- a stale local ref would
+    /// otherwise make a failed delete look like it worked.
+    std::vector<std::string> remoteBranches() {
+        const std::string outFile = (repo_ / "..gbm_remote_branch_list.txt").string();
+        const std::string command = "git -C \"" + remote_.string() +
+                                    "\" branch --format=\"%(refname:short)\" > \"" + outFile + "\"";
+        [[maybe_unused]] const int rc = std::system(command.c_str());
+        std::ifstream in(outFile);
+        std::vector<std::string> names;
+        std::string line;
+        while (std::getline(in, line)) {
+            if (!line.empty()) names.push_back(line);
+        }
+        return names;
+    }
+
+    /// `branch`'s configured upstream, or empty when it has none.
+    std::string upstreamOf(const std::string& branch) {
+        const std::string outFile = (repo_ / "..gbm_upstream.txt").string();
+        const std::string command = "git -C \"" + repo_.string() + "\" for-each-ref " +
+                                    "--format=\"%(upstream:short)\" \"refs/heads/" + branch +
+                                    "\" > \"" + outFile + "\"";
+        [[maybe_unused]] const int rc = std::system(command.c_str());
+        std::ifstream in(outFile);
+        std::string line;
+        std::getline(in, line);
+        return line;
     }
 
     int runGit(std::vector<std::string> args) {
@@ -139,6 +201,7 @@ protected:
     }
 
     std::filesystem::path repo_;
+    std::filesystem::path remote_;
     GbmSessionHandle session_ = nullptr;
     EventLog log_;
 };
@@ -182,12 +245,72 @@ TEST_F(BranchApiTest, CreateBranchWithCheckoutAfterMovesHead) {
 TEST_F(BranchApiTest, RenameBranchChangesTheLocalBranchName) {
     ASSERT_EQ(runGit({"branch", "old-name"}), 0);
 
-    gbm_branch_rename(session_, "old-name", "new-name", /*force=*/0);
+    gbm_branch_rename(
+        session_, "old-name", "new-name", /*force=*/0, /*renameRemote=*/0, /*remoteName=*/"");
     ASSERT_TRUE(waitForOperationFinished());
 
     const auto branches = localBranches();
     EXPECT_EQ(std::find(branches.begin(), branches.end(), "old-name"), branches.end());
     EXPECT_NE(std::find(branches.begin(), branches.end(), "new-name"), branches.end());
+}
+
+TEST_F(BranchApiTest, RenameBranchWithRenameRemotePushesTheNewNameAndDeletesTheOldOne) {
+    setUpRemoteWithBranch("old-name");
+    const auto before = remoteBranches();
+    ASSERT_NE(std::find(before.begin(), before.end(), "old-name"), before.end());
+
+    gbm_branch_rename(
+        session_, "old-name", "new-name", /*force=*/0, /*renameRemote=*/1, /*remoteName=*/"origin");
+    ASSERT_TRUE(waitForOperationFinished());
+
+    const auto branches = localBranches();
+    EXPECT_NE(std::find(branches.begin(), branches.end(), "new-name"), branches.end());
+
+    const auto onRemote = remoteBranches();
+    EXPECT_NE(std::find(onRemote.begin(), onRemote.end(), "new-name"), onRemote.end());
+    EXPECT_EQ(std::find(onRemote.begin(), onRemote.end(), "old-name"), onRemote.end());
+
+    // --set-upstream on the push is what re-points tracking at the new name;
+    // without it the renamed branch would still track origin/old-name.
+    EXPECT_EQ(upstreamOf("new-name"), "origin/new-name");
+}
+
+TEST_F(BranchApiTest, RenameBranchWithoutRenameRemoteClearsTheUpstreamAndLeavesTheRemoteAlone) {
+    setUpRemoteWithBranch("old-name");
+    ASSERT_EQ(upstreamOf("old-name"), "origin/old-name");
+
+    gbm_branch_rename(
+        session_, "old-name", "new-name", /*force=*/0, /*renameRemote=*/0, /*remoteName=*/"");
+    ASSERT_TRUE(waitForOperationFinished());
+
+    // `git branch -m` keeps branch.<name>.remote/.merge, so this is the one
+    // assertion that proves the --unset-upstream step ran: without it the
+    // renamed branch silently still tracks origin/old-name.
+    EXPECT_EQ(upstreamOf("new-name"), "");
+
+    const auto onRemote = remoteBranches();
+    EXPECT_NE(std::find(onRemote.begin(), onRemote.end(), "old-name"), onRemote.end());
+}
+
+TEST_F(BranchApiTest, RenameBranchReportsTheLocalRenameWhenTheRemoteStepFails) {
+    ASSERT_EQ(runGit({"branch", "old-name"}), 0);
+
+    // No such remote, so the push fails while the local rename has already
+    // landed -- the half-done case the summary exists to describe.
+    gbm_branch_rename(session_,
+                      "old-name",
+                      "new-name",
+                      /*force=*/0,
+                      /*renameRemote=*/1,
+                      /*remoteName=*/"no-such-remote");
+    ASSERT_TRUE(waitForOperationFinished());
+
+    const auto branches = localBranches();
+    EXPECT_NE(std::find(branches.begin(), branches.end(), "new-name"), branches.end());
+
+    const std::string payload = lastOperationFinishedPayload();
+    EXPECT_NE(payload.find("\"succeeded\":false"), std::string::npos) << payload;
+    EXPECT_NE(payload.find("Renamed locally to new-name"), std::string::npos) << payload;
 }
 
 TEST_F(BranchApiTest, DeleteBranchRemovesASingleLocalBranch) {

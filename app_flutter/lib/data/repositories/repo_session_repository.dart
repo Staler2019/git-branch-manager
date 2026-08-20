@@ -1391,19 +1391,38 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
 
   /// `git branch -m <from> <to>` (`-M` when [force]). Async, refreshes refs
   /// on success.
+  ///
+  /// [renameRemote] carries the rename through to [remoteName] afterwards
+  /// (`push --set-upstream` then `push --delete`); leaving it false unsets
+  /// the branch's upstream instead, because `git branch -m` keeps the
+  /// tracking config and would otherwise leave the renamed branch pointing
+  /// at the old remote branch. Either way the remote work happens in core
+  /// as one operation, not as a chain of calls from here -- see
+  /// `gbm_branch_rename`'s doc comment.
   void renameBranch({
     required String from,
     required String to,
     bool force = false,
+    bool renameRemote = false,
+    String remoteName = '',
   }) {
     if (_session == nullptr) return;
     final Pointer<Utf8> fromPtr = from.toNativeUtf8();
     final Pointer<Utf8> toPtr = to.toNativeUtf8();
+    final Pointer<Utf8> remotePtr = remoteName.toNativeUtf8();
     try {
-      _bindings.branchRename(_session, fromPtr, toPtr, force ? 1 : 0);
+      _bindings.branchRename(
+        _session,
+        fromPtr,
+        toPtr,
+        force ? 1 : 0,
+        renameRemote ? 1 : 0,
+        remotePtr,
+      );
     } finally {
       malloc.free(fromPtr);
       malloc.free(toPtr);
+      malloc.free(remotePtr);
     }
   }
 

@@ -284,8 +284,17 @@ void Session::createBranch(CreateBranchRequest request) {
 }
 
 void Session::renameBranch(RenameBranchRequest request) {
-    submitOperation(makeRenameBranchOperation(std::move(request)),
-                    /*refreshHistoryOnSuccess=*/true);
+    // Only the remote half can prompt for credentials, so only it needs the
+    // askpass watch -- same conditional as deleteTag() below.
+    const bool needsAskpass = request.renameRemote;
+    if (needsAskpass) {
+        request.askpassDir = beginAskpass();
+    }
+    submitOperation(
+        makeRenameBranchOperation(std::move(request)),
+        /*refreshHistoryOnSuccess=*/true,
+        /*onSuccess=*/nullptr,
+        /*onAlways=*/needsAskpass ? std::function<void()>([this]() { endAskpass(); }) : nullptr);
 }
 
 void Session::deleteBranch(DeleteBranchRequest request) {
@@ -429,14 +438,20 @@ void Session::commitChanges(CommitRequest request) {
 
 void Session::submitOperation(std::unique_ptr<Operation> operation,
                               bool refreshHistoryOnSuccess,
-                              std::function<void()> onSuccess) {
+                              std::function<void()> onSuccess,
+                              std::function<void()> onAlways) {
     operations_->submit(std::move(operation),
-                        [this, refreshHistoryOnSuccess, onSuccess = std::move(onSuccess)](
-                            OperationOutcome outcome) {
+                        [this,
+                         refreshHistoryOnSuccess,
+                         onSuccess = std::move(onSuccess),
+                         onAlways = std::move(onAlways)](OperationOutcome outcome) {
                             const bool succeeded = outcome.succeeded;
                             refreshUndoJournalCache();
                             callbacks_.emit(GBM_EVENT_OPERATION_FINISHED, toJson(outcome));
                             refreshWorkingCopy();
+                            if (onAlways) {
+                                onAlways();
+                            }
                             if (succeeded && refreshHistoryOnSuccess) {
                                 refreshHistory();
                             }

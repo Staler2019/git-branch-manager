@@ -63,11 +63,15 @@ GBM_API void gbm_branch_create(GbmSessionHandle session,
 GBM_API void gbm_branch_rename(GbmSessionHandle session,
                                const char* from,
                                const char* to,
-                               int32_t force) {
+                               int32_t force,
+                               int32_t renameRemote,
+                               const char* remoteName) {
     RenameBranchRequest request;
     request.from = from != nullptr ? from : "";
     request.to = to != nullptr ? to : "";
     request.force = force != 0;
+    request.renameRemote = renameRemote != 0;
+    request.remoteName = remoteName != nullptr ? remoteName : "";
 
     toSession(session)->renameBranch(std::move(request));
 }

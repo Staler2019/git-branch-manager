@@ -100,8 +100,11 @@ class GbmKeyboardShortcut {
 
 /// Returns a map of GbmActionId to GbmKeyboardShortcut keyboard shortcuts.
 ///
-/// Exactly 35 of the 52 action IDs have keyboard shortcuts. The remaining 17
+/// Exactly 36 of the 52 action IDs have keyboard shortcuts. The remaining 16
 /// are either intentionally unbound (per spec) or handled specially (e.g., fileExit).
+/// `gbm_shortcuts_test.dart` asserts both numbers, so they cannot drift
+/// silently — but nothing checks the per-group counts in the comments
+/// below, which is how `// Shift group` came to say 14 while holding 15.
 ///
 /// The [isMacOS] parameter controls whether shortcuts use `meta` (macOS) or
 /// `control` (Windows/Linux). This is a pure function for testability; it does
@@ -169,7 +172,7 @@ Map<GbmActionId, GbmKeyboardShortcut> gbmActionShortcuts(bool isMacOS) {
       isMacOS,
     ),
 
-    // Shift group (14)
+    // Shift group (15)
     GbmActionId.fileCloneRepository: _makeShortcut(
       LogicalKeyboardKey.keyN,
       isMacOS,
@@ -244,6 +247,18 @@ Map<GbmActionId, GbmKeyboardShortcut> gbmActionShortcuts(bool isMacOS) {
       LogicalKeyboardKey.enter,
       isMacOS,
       shift: true,
+    ),
+
+    // Bare-key group (1). The only shortcut in the spec's MENUS table with
+    // no Ctrl/Cmd at all, so it cannot go through _makeShortcut() -- that
+    // helper always sets one or the other. F2 is the platform convention
+    // for rename on Windows and Linux, and spec's 260820 revision
+    // ("Branch → Rename branch… = F2") adopts it on macOS too rather than
+    // splitting the binding per platform.
+    GbmActionId.branchRenameCurrentBranch: const GbmKeyboardShortcut(
+      trigger: LogicalKeyboardKey.f2,
+      control: false,
+      meta: false,
     ),
   };
 }

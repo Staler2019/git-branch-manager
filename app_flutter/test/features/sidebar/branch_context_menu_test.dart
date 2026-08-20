@@ -161,6 +161,54 @@ void main() {
     expect(find.text('Rename branch'), findsNothing);
   });
 
+  group('conflict gate on Rename branch (spec P13: "分支正在被 rebase/merge '
+      '佔用 -> 整個 dialog 不開啟")', () {
+    testWidgets('renders dimmed while a sequencer operation is active', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        BranchTreeItem(
+          ref: _branch(),
+          conflictActive: true,
+          onCheckout: () {},
+          onRename: () {},
+        ),
+      );
+      await _rightClick(tester, find.byType(BranchTreeItem));
+      final Text label = tester.widget<Text>(find.text('Rename branch'));
+      expect(
+        label.style?.color,
+        tokensFor(GbmThemeVariant.darkTechnical).textTertiary,
+      );
+    });
+
+    testWidgets('tapping it mid-conflict does not invoke onRename', (
+      tester,
+    ) async {
+      bool renamed = false;
+      await _pump(
+        tester,
+        BranchTreeItem(
+          ref: _branch(),
+          conflictActive: true,
+          onCheckout: () {},
+          onRename: () => renamed = true,
+        ),
+      );
+      await _rightClick(tester, find.byType(BranchTreeItem));
+      await tester.tap(find.text('Rename branch'));
+      await tester.pumpAndSettle();
+      expect(
+        renamed,
+        isFalse,
+        reason:
+            'onTap must be null too -- `enabled: false` alone would leave a '
+            'dimmed item that still fires.',
+      );
+    });
+  });
+
   group('remote-only row (05-C)', () {
     testWidgets(
       'shows the 05-C remote-only subset, not the 05-B local-branch menu',

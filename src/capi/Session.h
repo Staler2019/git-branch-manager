@@ -513,12 +513,17 @@ private:
     /// the OperationOutcome sense -- see mergeBranch()'s doc comment above).
     /// Refreshes history too, but only when `refreshHistoryOnSuccess` and
     /// the operation actually succeeded, since a conflicting/aborted
-    /// operation has not moved any ref. `onSuccess`, if given, runs after
-    /// that -- e.g. bisect operations use it to also refresh their own
-    /// status snapshot, which nothing else here knows to do.
+    /// operation has not moved any ref. `onAlways`, if given, runs
+    /// unconditionally right after the event is emitted -- the hook
+    /// beginAskpass() requires, since a credential watch has to be stopped
+    /// whether the operation succeeded or not. `onSuccess`, if given, runs
+    /// last and only on success -- e.g. bisect operations use it to also
+    /// refresh their own status snapshot, which nothing else here knows to
+    /// do. Same two-callback shape as submitWorkingCopyOperation() above.
     void submitOperation(std::unique_ptr<Operation> operation,
                          bool refreshHistoryOnSuccess,
-                         std::function<void()> onSuccess = nullptr);
+                         std::function<void()> onSuccess = nullptr,
+                         std::function<void()> onAlways = nullptr);
 
     GitInstallation installation_;
     RepoPaths paths_;

@@ -5,41 +5,54 @@ import 'package:gbm_flutter/actions/gbm_shortcuts.dart';
 
 void main() {
   group('gbmActionShortcuts', () {
-    test(
-      'macOS shortcuts has exactly 35 entries with meta=true, control=false',
-      () {
-        final shortcuts = gbmActionShortcuts(true);
-        expect(shortcuts.length, 35);
-        for (final shortcut in shortcuts.values) {
-          expect(shortcut.meta, isTrue, reason: 'macOS should use meta=true');
-          expect(
-            shortcut.control,
-            isFalse,
-            reason: 'macOS should use control=false',
-          );
-        }
-      },
-    );
+    // branchRenameCurrentBranch is F2, the MENUS table's only binding with
+    // no Ctrl/Cmd at all, so it is excluded from the "every shortcut carries
+    // the platform modifier" invariant below rather than weakening it for
+    // everything else. Its own modifiers are asserted separately at the end
+    // of this group.
+    const Set<GbmActionId> bareKeyActions = <GbmActionId>{
+      GbmActionId.branchRenameCurrentBranch,
+    };
 
-    test(
-      'non-macOS shortcuts has exactly 35 entries with meta=false, control=true',
-      () {
-        final shortcuts = gbmActionShortcuts(false);
-        expect(shortcuts.length, 35);
-        for (final shortcut in shortcuts.values) {
-          expect(
-            shortcut.meta,
-            isFalse,
-            reason: 'non-macOS should use meta=false',
-          );
-          expect(
-            shortcut.control,
-            isTrue,
-            reason: 'non-macOS should use control=true',
-          );
-        }
-      },
-    );
+    test('macOS shortcuts has exactly 36 entries, and every one but the '
+        'bare-key group uses meta=true, control=false', () {
+      final shortcuts = gbmActionShortcuts(true);
+      expect(shortcuts.length, 36);
+      shortcuts.forEach((id, shortcut) {
+        if (bareKeyActions.contains(id)) return;
+        expect(
+          shortcut.meta,
+          isTrue,
+          reason: '$id: macOS should use meta=true',
+        );
+        expect(
+          shortcut.control,
+          isFalse,
+          reason: '$id: macOS should use control=false',
+        );
+      });
+    });
+
+    test('non-macOS shortcuts has exactly 36 entries, and every one but the '
+        'bare-key group uses meta=false, control=true', () {
+      final shortcuts = gbmActionShortcuts(false);
+      expect(shortcuts.length, 36);
+      for (final MapEntry<GbmActionId, GbmKeyboardShortcut> entry
+          in shortcuts.entries) {
+        if (bareKeyActions.contains(entry.key)) continue;
+        final GbmKeyboardShortcut shortcut = entry.value;
+        expect(
+          shortcut.meta,
+          isFalse,
+          reason: 'non-macOS should use meta=false',
+        );
+        expect(
+          shortcut.control,
+          isTrue,
+          reason: 'non-macOS should use control=true',
+        );
+      }
+    });
 
     test('no two shortcuts produce equal keyboard combinations on macOS', () {
       final shortcuts = gbmActionShortcuts(true);
@@ -91,26 +104,29 @@ void main() {
       expect(shortcutsNonMacOS.containsKey(GbmActionId.fileExit), isFalse);
     });
 
-    test(
-      'branchRenameCurrentBranch is bound to F2, per spec DIALOGS\' Rename '
-      'branch entry (from 05-B -> Rename…) and CTX 05-B\'s own "Rename…" '
-      'key column',
-      () {
-        final shortcuts = gbmActionShortcuts(false);
-        final GbmKeyboardShortcut rename =
-            shortcuts[GbmActionId.branchRenameCurrentBranch]!;
-        expect(rename.trigger, LogicalKeyboardKey.f2);
-      },
-      // Real gap, tracked in docs/reports/spec-conformance-matrix.md
-      // (Page 04, shortcuts table): unlike editFindInFiles and
-      // branchStashChanges (both absent because spec's own MENUS table
-      // double-assigns their key to something else), F2 is not claimed
-      // by any other spec shortcut -- this is a genuine, unexplained
-      // omission, not a spec-internal collision. It also compounds with
-      // the "Rename branch" dialog route being entirely missing (same
-      // matrix page). Remove `skip: true` once F2 is wired to
-      // branchRenameCurrentBranch.
-      skip: true,
-    );
+    test('branchRenameCurrentBranch is bound to F2, per spec DIALOGS\' Rename '
+        'branch entry (from 05-B -> Rename…) and CTX 05-B\'s own "Rename…" '
+        'key column', () {
+      final shortcuts = gbmActionShortcuts(false);
+      final GbmKeyboardShortcut rename =
+          shortcuts[GbmActionId.branchRenameCurrentBranch]!;
+      expect(rename.trigger, LogicalKeyboardKey.f2);
+    });
+
+    test('F2 carries no Ctrl/Cmd on either platform -- the one bare-key '
+        'binding in the MENUS table', () {
+      for (final bool isMacOS in <bool>[true, false]) {
+        final GbmKeyboardShortcut rename = gbmActionShortcuts(
+          isMacOS,
+        )[GbmActionId.branchRenameCurrentBranch]!;
+        expect(rename.control, isFalse, reason: 'isMacOS=$isMacOS');
+        expect(rename.meta, isFalse, reason: 'isMacOS=$isMacOS');
+        expect(rename.shift, isFalse, reason: 'isMacOS=$isMacOS');
+        expect(rename.alt, isFalse, reason: 'isMacOS=$isMacOS');
+        // The shortcuts dialog derives its text from these fields, so a
+        // stray modifier would show up as "Ctrl+F2" there too.
+        expect(rename.displayLabel, 'F2', reason: 'isMacOS=$isMacOS');
+      }
+    });
   });
 }

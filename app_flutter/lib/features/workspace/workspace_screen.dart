@@ -25,7 +25,6 @@ import '../../theme/gbm_theme.dart';
 import '../../theme/theme_mode_provider.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/gbm_banner.dart';
-import '../../widgets/prompt_text_dialog.dart';
 import '../../widgets/split_pane.dart';
 import '../history_graph/commit_search.dart';
 import '../history_graph/widgets/graph_columns_selector.dart';
@@ -669,9 +668,11 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
           ? () => context.push(RoutePaths.checkoutDialogFor(repoId))
           : null,
       // Detached HEAD (no branch name) or mid-conflict: nothing to rename.
+      // No `branch` query parameter -- the dialog reads HEAD itself, which
+      // is what "the current branch" has to mean for a menu item and F2.
       GbmActionId.branchRenameCurrentBranch:
           isActionEnabled(GbmActionId.branchRenameCurrentBranch, session)
-          ? () => _renameCurrentBranch(context, ref, identity, session)
+          ? () => context.push(RoutePaths.renameBranchDialogFor(repoId))
           : null,
       GbmActionId.branchMergeIntoCurrent:
           isActionEnabled(GbmActionId.branchMergeIntoCurrent, session)
@@ -867,26 +868,6 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
 
   /// Branch → Rename current branch…. Uses the same `promptText` field the
   /// sidebar's own rename uses, so the two entry points behave identically.
-  Future<void> _renameCurrentBranch(
-    BuildContext context,
-    WidgetRef ref,
-    RepoIdentity identity,
-    RepoSessionState session,
-  ) async {
-    final String current = session.refs.head.branchName;
-    if (current.isEmpty) return;
-    final String? newName = await promptText(
-      context,
-      title: 'Rename Branch',
-      label: 'New name',
-      initialValue: current,
-    );
-    if (newName == null || newName == current || !mounted) return;
-    ref
-        .read(repoSessionProvider(identity).notifier)
-        .renameBranch(from: current, to: newName);
-  }
-
   void _handleConflictAbort(
     WidgetRef ref,
     RepoIdentity identity,

@@ -670,20 +670,24 @@ provider-override workaround the pre-existing test in that file still uses
 (that one verifies gate *logic*; the new one verifies the typing → rebuild
 wiring, which is what H2 was actually missing).
 
-**Other confirmed gaps**: `branchRenameCurrentBranch` has no keyboard
-shortcut bound despite F2 being unclaimed by anything else in spec's MENUS
-table (unlike two *other* absent bindings — Find-in-files, Stash-changes —
-which are absent because spec's own table double-assigns their key to
-something else; this one is a genuine omission). It compounds with the
-`Rename branch` dialog route itself being entirely missing from
-`route_paths.dart`. **Deliberately still not fixed** (Tier 0's 0c/#45 was
-scoped out during planning, not silently skipped): the two existing rename
-entry points (`sidebar_panel.dart:119`, `workspace_screen.dart:887`) already
-work and share a plain `promptText` input, so nothing is actually broken —
-what's missing is the dedicated dialog spec calls for, and building that
-without a design draft for it risked a rewrite later. Deferred until a
-rename-dialog design draft exists; issue #45 stays open (not `Fixes #45`
-anywhere) rather than being marked resolved for a partial fix.
+~~**Other confirmed gaps**: `branchRenameCurrentBranch` has no keyboard
+shortcut bound despite F2 being unclaimed…~~ — **Fixed** (Tier 0c, see
+below). The two *other* absent bindings named there (Find-in-files,
+Stash-changes) were excused as spec-internal collisions — spec's own MENUS
+table double-assigned their keys. **That excuse expired on 260820**: P16's
+`REVISIONS` table reassigns Find-in-files to `Ctrl/Cmd+Shift+H` and Stash
+changes to `Ctrl/Cmd+Shift+S`, so both are now ordinary unbound shortcuts
+with no defence. Neither is fixed here (Tier 0c scoped itself to rename);
+the matrix rows are corrected and each needs its own issue. Note the Stash
+one is not a free slot: `Ctrl/Cmd+Shift+S` currently belongs to
+`repositoryStageAll`, so honouring the revision means re-deciding that
+binding too. Two more REVISIONS casualties in the same table, both found
+after the first pass at these docs and both **not** fixed here:
+`repositoryStageSelectedLines` is now spec'd at `Ctrl/Cmd+Alt+S` but bound
+to `Ctrl/Cmd+Shift+Enter`, and `Edit → Select all` (`Ctrl/Cmd+A`) does not
+exist in `gbmMenus` at all — the latter is deliberately **sequenced after**
+the multi-select work (#54), since `Ctrl/Cmd+A` is also `MULTIKEYS`' "全選
+當前清單" and binding it first would give it nothing to select.
 
 `lib/features/workspace/widgets/tab_row.dart`'s 18-item
 `_MoreMenu` overflow menu plus 3 standalone buttons (Merge/Cherry-pick/
@@ -696,7 +700,12 @@ log, repository settings) is reachable *only* through it, and 2 of its 18
 items (`Repository Settings…`, `Preferences…`) duplicate menu-bar entries
 that already exist. Two competing Log implementations also still coexist:
 `features/log_drawer/` (matches spec page 10's bottom-drawer design) and
-the separate `operationLogDialog` route (doesn't).
+the separate `operationLogDialog` route (doesn't) — **and as of 260820
+that is no longer a tie to break**: P16's REVISIONS deletes the dialog
+from the spec by name ("只留抽屜；operation-log dialog 從規格中刪除"), so
+the route, its `_MoreMenu` entry and `features/operation_log/` are now
+非規格內容. This is the ruling **#61** was waiting on. Removing a live
+route is its own change with its own tests, so it is recorded, not done.
 
 New tests added this round: `test/features/context_menus/context_menu_parity_test.dart`
 asserts all 11 groups against `gbmContextMenuGroups` — the 6 conforming
@@ -752,8 +761,8 @@ Commit order: `0b → 0a → 0h → 0f → 0d → 0e → 0g`.
   for Undo Last); it now reads `AppPreferences.logMemoryLimit`, the field
   spec's LOGRULES table actually describes ("上限寫在 Preferences，不隱
   藏").
-- **0c / #45 — deliberately not in this batch.** See the F2 paragraph
-  above for why; issue #45 stays open, not closed by this branch's PR.
+- **0c / #45 — deliberately not in this batch**, and shipped later on its
+  own branch once the blocker cleared. See "Tier 0c" below.
 
 Two premises in the original issues were corrected during planning, not
 just during implementation — worth knowing before re-reading #49/#50's
@@ -862,6 +871,20 @@ also records the untested hypothesis (a fixed 10s budget losing to parallel
 load) and warns against raising the timeout before confirming it — that
 would paper over a real refresh-coalescing bug if one exists.
 
+**A second, unrelated flake was isolated during Tier 0c's CI run and must
+not be folded into #70**: `WorkingCopyApiTest.UnstageHunkReversesAFullyStagedSingleHunkFile`
+fails with `LockHeld` — "Another Git process appears to be running in this
+repository", the lock being its *own* temp repo's `.git/index.lock`. Unlike
+#70's shape it is **not** a timeout and **not** load-dependent: run alone
+with no parallel `ctest`, it failed 1 in 12 and again at iteration 30 of
+40, each time in ~0.36s, nowhere near any timeout budget. So the test races
+itself — a working-copy operation is reported complete before git has
+released the index lock the next one needs. Tracked as **#77**, which
+records the captured error verbatim and warns that raising a timeout (the
+#70 remedy) does nothing here. Practical consequence: a red macOS capi job
+on an unrelated branch may be either flake, and they need different
+triage — read the failure text before assuming.
+
 ### Tier 5 (fix/tier-5-native-window-title) — issue closed, not implemented
 
 Issue #60 asked for a custom Windows/Linux title bar (a window package, two
@@ -953,6 +976,39 @@ over-display one, not a missing feature. **#68** asks for the reading to be
 settled before any code moves — implementing off a guess here is the exact
 failure mode that closed #60.
 
+### Tier 0c (fix/tier-0c-rename-branch-dialog) — issue #45, addendum
+
+Two things worth carrying forward from the verification pass, both found by
+*running* rather than by reading — see the Tier 0c section further up for
+the feature itself.
+
+**`RefInfo.hasTrackingInfo` does not mean "has an upstream".** It mirrors
+git's `%(upstream:track)` (`RefStore.cpp`'s `parseTrack()`), which is an
+**empty string** for a branch exactly in sync with its upstream — 0 ahead,
+0 behind — even though `%(upstream)` is fully populated. The rename
+dialog's first version gated its whole "Remote handling" section on
+`hasTrackingInfo && upstream.isNotEmpty`, which therefore hid it for the
+single most common case (a branch that was just pushed) and silently
+downgraded those renames to local-only. Anything asking "does this branch
+track a remote?" must read `upstream`, and reserve `hasTrackingInfo` for
+"did git report ahead/behind numbers". The widget tests all passed
+throughout, because the test fixture hardcoded
+`hasTrackingInfo: upstream.isNotEmpty` — the same wrong assumption, written
+twice, so the tests could not disagree with the code. A fixture that
+derives one field from another is a fixture that cannot falsify the
+derivation.
+
+**Nothing but a device-tier test crosses the FFI signature seam.**
+`test/**` runs on `FakeGbmBindings`; `tests/capi/**` calls the C++ directly;
+`dart:ffi`'s `lookupFunction` matches by **symbol name only, never by
+signature**. So changing a capi function's parameter list and its Dart
+typedef in lockstep is checked by nothing — a mismatch compiles, analyzes,
+and unit-tests clean, then corrupts the stack at runtime.
+`integration_test/rename_branch_flow_test.dart` is the only thing that
+would catch it for `gbm_branch_rename`. Same trap as the stale-dylib note
+in `integration_test/README.md`, and it fired again here: the checked-in
+copy was 21KB behind a fresh build.
+
 ### Tier 4 (fix/tier-4-file-at-revision) — issues #58 + #59
 
 The 05-K batch, and the only tier since Tier 0h to need new `src/core` C++.
@@ -1040,3 +1096,103 @@ baseline and editing it mid-fix would redefine the thing being verified.
 Tracked as **#71**, which also flags that the page-05 audit's method —
 comparing each render site against the catalog — could not have caught a
 catalog-vs-spec drift in *any* group, so others may exist.
+
+### Tier 0c (fix/tier-0c-rename-branch-dialog) — issue #45
+
+The one item Tier 0 deferred, shipped once its blocker cleared. Read this
+before re-reading #45's issue text: **both the issue's premise and its
+deferral reason were out of date**, in opposite directions.
+
+**The deferral reason expired.** Tier 0 scoped #45 out because there was no
+design draft for the rename dialog and building one blind risked a rewrite.
+That draft now exists: the spec gained four pages on 260820 (commit
+`fc3bfb3`), and **P13 section A** is exactly it — layout, the two remote
+options, and a `RENAMEVALID` table of five live-validation rules. Nothing
+about the deferral was wrong; the condition it named simply came true.
+
+**The issue text overstated the gap.** "Rename branch dialog + route + F2
+missing" reads as though rename did not work. It did: `sidebar_panel.dart`
+and `workspace_screen.dart` both renamed branches through a shared plain
+`promptText` box. What was missing was the *dedicated* dialog, its route,
+and the shortcut. The issue body has been corrected in place (same
+convention as #60 and #50) rather than quietly retitled.
+
+**The issue also understated the work.** It read "`gbm_branch_rename`
+already exists; only wiring is missing." P13's 遠端連帶處理 section made
+that false — see below.
+
+Eight sequential commits, every one green and independently revertible.
+
+**`gbm_branch_rename` grew three parameters** (`renameRemote`,
+`remoteName`, plus an internal `askpassDir`). The remote option is
+push-then-delete — git has no atomic remote rename — and it lives in
+`RenameBranchOperation::run()` rather than being chained from Dart. Three
+capi calls chained in the controller would produce three
+`OPERATION_FINISHED` events and three error exits, against spec page 10's
+one-background-task rule; `run()` was already multi-step anyway (the
+case-only rename goes through a `.gbm-rename-tmp` two-stage). `TagOps.cpp`'s
+`DeleteTagOperation` is the template followed throughout: local step first,
+remote steps behind the flag with `askpass::wire()` and no local timeout,
+and a partial-failure summary that says which half landed.
+
+**Two things measurement caught that reading would not have:**
+
+- **`git branch -m` keeps the upstream.** Spec says a local-only rename
+  leaves the branch with no upstream, and the obvious reading is that
+  renaming naturally drops the tracking config. It does not — `branch -m`
+  carries `branch.<name>.remote/.merge` across, so the renamed branch
+  silently still tracks the *old* remote branch. That needed an explicit
+  `git branch --unset-upstream` step. Verified directly against a scratch
+  repo before writing the test, precisely so the test could not pass
+  vacuously.
+- **`Session::submitOperation` had no unconditional hook.** `beginAskpass()`
+  documents that `endAskpass()` must be paired unconditionally, but only
+  `submitWorkingCopyOperation` had an `onAlways`; `submitOperation` had just
+  `onSuccess`, which would leak the credential watch on failure. Rename had
+  to stay on `submitOperation` (it emits `OPERATION_FINISHED`, an existing
+  capi contract), so `onAlways` was added there as its own commit.
+
+**`RefInfo.upstream` is the full ref name**, `refs/remotes/origin/main`, not
+`origin/main` — it comes from `%(upstream)`, not `%(upstream:short)`. The
+dialog recovers the remote with `remoteBranchParts()`; splitting on the
+first slash would send `"refs"` as the remote name. **`delete_branch_dialog.dart`'s
+`_remoteOf()` does exactly that split and is therefore broken today** — its
+"also delete on remote" checkbox builds a request against a remote named
+`refs`. Found while writing this dialog, deliberately not fixed here
+(different feature, needs its own test), tracked as its own issue.
+
+**F2 targets the current branch, not the sidebar selection.** Spec says
+"sidebar 選中後按 F2", and the sidebar *does* have selection state — but
+`_selected` is `SidebarPanel`'s local `State`, which
+`WorkspaceScreen._buildActionHandlers()` cannot read. Lifting it into a
+provider is work #54's multi-select round needs anyway. So F2 and the Branch
+menu fall back to HEAD (matching the action id's own name) and the 05-B
+context menu is what names a branch, via the route's `branch` query
+parameter. Deliberate, not an oversight.
+
+**Validation was extracted, not copied.** `branchNameError()`
+(`features/dialogs/branch_name_validation.dart`) came out of
+`new_branch_dialog.dart`'s private `_nameError`; two dialogs needing the
+same rules is how two drifting copies start. The rename dialog additionally
+excludes the branch's own name from the duplicate check — that is
+RENAMEVALID's 未改動 row, which disables the button *without* red text.
+
+`branch_tree_item.dart`'s Rename item gained the `conflictActive` gate the
+menu and F2 paths already had through `isActionEnabled()`; it sets **both**
+`enabled: false` and `onTap: null`, since `enabled` alone is only a visual
+signal (`gbm_menu.dart`'s doc comment). Noted while there: `New branch from
+here`, `Merge into current branch` and `Delete branch` in that same menu are
+still ungated despite spec page 07 disabling all three mid-conflict — a real
+gap of the same shape, left alone as out of scope for #45.
+
+`test/integration/workspace_rename_branch_flow_test.dart` covers the seam the
+widget tests cannot: F2 → handler map → route → dialog → controller. Its
+value was confirmed by mutation rather than assumed — deleting the F2 binding
+fails three of its four cases (the fourth, "mid-conflict F2 opens nothing",
+correctly still passes).
+
+**Docs**: `spec-conformance-matrix.md` gained a baseline banner recording
+that the audit was written against 12 pages and the spec now has 16, and its
+`REVISIONS`-affected rows were corrected in place — including two that had
+been excused as spec-internal collisions and no longer are. P14/P15/P16 are
+**not** audited; nothing under `lib/` was changed for them.

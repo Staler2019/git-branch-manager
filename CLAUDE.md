@@ -847,7 +847,10 @@ Also noted while running the C++ suite:
 `MergeApiTest.ConflictingMergeReportsConflictThenResolveAndCommitFinishes`
 and `UndoApiTest.UndoLastOperationRevertsTheCommit` fail the same way under
 a loaded parallel `ctest` and pass on re-run. Not investigated here; worth
-knowing before blaming a future branch for it.
+knowing before blaming a future branch for it. Tracked as **#70**, which
+also records the untested hypothesis (a fixed 10s budget losing to parallel
+load) and warns against raising the timeout before confirming it — that
+would paper over a real refresh-coalescing bug if one exists.
 
 ### Tier 5 (fix/tier-5-native-window-title) — issue closed, not implemented
 
@@ -885,6 +888,15 @@ macOS `MainFlutterWindow.swift` plus `MainMenu.xib`. `PRODUCT_NAME` /
 `BINARY_NAME` were left alone on purpose: they are also the built artifact
 names and `release.yml` hardcodes `gbm_flutter.app`/`.exe` paths.
 
+That leaves macOS's *application* name — the Apple menu, About panel, Quit
+item and Dock tooltip, all of which read `CFBundleName`, i.e.
+`$(PRODUCT_NAME)`, i.e. still `gbm_flutter`. Setting `NSWindow.title`
+directly is display-only and does not touch it. Tracked as **#67**, which
+lays out the two candidate fixes (a literal `CFBundleName` in `Info.plist`,
+keeping the artifact name; or a real rename with all four `release.yml`
+paths moved in lockstep) and notes the evidence is consistency, not a spec
+sentence — page 01's macOS card never draws the Apple menu.
+
 Two things found by measuring rather than reasoning, worth knowing before
 touching this again:
 
@@ -910,3 +922,23 @@ compiled solely by `release.yml` on tag — so this test is the only thing that
 sees a Windows-side regression before a release. Same rationale as `cq.yml`'s
 `flutter-action` version-pin check, which greps workflow source for the same
 "nothing else can see this" reason.
+
+The hole is one platform wider than that sentence implies: PR CI runs no
+`flutter build macos` either, so `macos/Runner/` is equally uncompiled until
+a tag. Only Linux is covered, by `flutter build linux --debug`. And a
+source-assertion test catches a string drifting or a `flutter create`
+regeneration — never a compile error. Tracked as **#69**; until it is
+resolved, assume any edit under `windows/runner/` or `macos/Runner/` reaches
+`main` having been compiled by nothing, and weigh the change accordingly.
+
+One more thing this round surfaced without resolving: spec's `MSGS` Rebase
+row says the step count 「只顯示在標題列」, but 標題列 means four different
+things across this spec (OS title bar on page 01; dialog header on page 06;
+panel header in page 02 item 16; column header row in the multi-select
+table), and page 01 is the *only* place it means the OS window title. The
+app already renders `rebaseStep`/`rebaseTotal` in three surfaces
+(`workspace_screen.dart:1055`, `status_bar.dart:117`,
+`conflict_resolve_window.dart:967`), so if this is a gap at all it is an
+over-display one, not a missing feature. **#68** asks for the reading to be
+settled before any code moves — implementing off a guess here is the exact
+failure mode that closed #60.

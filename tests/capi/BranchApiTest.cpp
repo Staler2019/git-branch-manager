@@ -108,46 +108,21 @@ protected:
     }
 
     int runIn(const std::filesystem::path& dir, std::vector<std::string> args) {
-        std::string command = "git -C \"" + dir.string() + "\"";
-        for (const auto& arg : args) {
-            command += " \"" + arg + "\"";
-        }
-#ifdef _WIN32
-        command += " >NUL 2>&1";
-#else
-        command += " >/dev/null 2>&1";
-#endif
-        return std::system(command.c_str());
+        return GitCli::run(dir, std::move(args));
     }
 
     /// Branch names present in the bare remote, read from the remote itself
     /// rather than from any remote-tracking ref -- a stale local ref would
     /// otherwise make a failed delete look like it worked.
     std::vector<std::string> remoteBranches() {
-        const std::string outFile = (repo_ / "..gbm_remote_branch_list.txt").string();
-        const std::string command = "git -C \"" + remote_.string() +
-                                    "\" branch --format=\"%(refname:short)\" > \"" + outFile + "\"";
-        [[maybe_unused]] const int rc = std::system(command.c_str());
-        std::ifstream in(outFile);
-        std::vector<std::string> names;
-        std::string line;
-        while (std::getline(in, line)) {
-            if (!line.empty()) names.push_back(line);
-        }
-        return names;
+        return GitCli::capture(remote_, {"branch", "--format=%(refname:short)"}).lines();
     }
 
     /// `branch`'s configured upstream, or empty when it has none.
     std::string upstreamOf(const std::string& branch) {
-        const std::string outFile = (repo_ / "..gbm_upstream.txt").string();
-        const std::string command = "git -C \"" + repo_.string() + "\" for-each-ref " +
-                                    "--format=\"%(upstream:short)\" \"refs/heads/" + branch +
-                                    "\" > \"" + outFile + "\"";
-        [[maybe_unused]] const int rc = std::system(command.c_str());
-        std::ifstream in(outFile);
-        std::string line;
-        std::getline(in, line);
-        return line;
+        return GitCli::capture(
+                   repo_, {"for-each-ref", "--format=%(upstream:short)", "refs/heads/" + branch})
+            .firstLine();
     }
 
     /// Fixture git, without a shell in the middle -- see tests/support/GitCli.h

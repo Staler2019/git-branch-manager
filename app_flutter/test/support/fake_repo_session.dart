@@ -16,6 +16,7 @@ import 'dart:ffi';
 
 import 'package:ffi/ffi.dart';
 import 'package:gbm_flutter/data/ffi/gbm_bindings.dart';
+import 'package:gbm_flutter/data/models/git_error.dart';
 import 'package:gbm_flutter/data/models/operation_choice.dart';
 import 'package:gbm_flutter/data/models/parsed_conflict_file.dart';
 import 'package:gbm_flutter/data/repositories/recents_repository.dart';
@@ -123,6 +124,45 @@ class FakeRepoSessionController extends RepoSessionController {
         path: path,
         editable: true,
         content: state.lastWorkingTreeContent?.content ?? '',
+      ),
+    );
+  }
+
+  /// Records the call and, unless [failFileAtRevisionExport] is set,
+  /// publishes a successful export echoing the request back -- the real
+  /// capi's own contract. Tests that need the failure branch flip the flag
+  /// before invoking the action.
+  bool failFileAtRevisionExport = false;
+
+  @override
+  void exportFileAtRevision({
+    required String revision,
+    required String path,
+    required String destPath,
+  }) {
+    commandLog.add(
+      FakeCommand('exportFileAtRevision', <String, Object?>{
+        'revision': revision,
+        'path': path,
+        'destPath': destPath,
+      }),
+    );
+    state = state.copyWith(
+      lastFileAtRevisionExport: FileAtRevisionExport(
+        revision: revision,
+        path: path,
+        destPath: destPath,
+        succeeded: !failFileAtRevisionExport,
+        error: failFileAtRevisionExport
+            ? const GitError(
+                code: 1,
+                codeName: 'NotFound',
+                message: 'nope',
+                detail: '',
+                argv: <String>[],
+                exitCode: 128,
+              )
+            : null,
       ),
     );
   }

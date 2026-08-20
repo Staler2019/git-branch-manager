@@ -245,9 +245,18 @@ const GbmContextMenuGroupSpec _workingCopyFile = GbmContextMenuGroupSpec(
   ],
 );
 
-/// 05-K: Commit file (inside History Changed Files panel -- not yet wired)
+/// 05-K: Commit file (inside History Changed Files panel -- EXISTS)
 /// 8 top-level items (at ceiling), no danger at top level. Has a submenu
 /// ("More actions").
+///
+/// Rendered by `changed_files_panel.dart`'s `_buildMenuItems`, and checked
+/// against this catalog with no `skip` by
+/// `test/features/context_menus/context_menu_parity_test.dart`. Note this
+/// list carries four submenu children where spec's own 05-K block has five
+/// -- "Restore file to before this state" is missing here. That predates the
+/// Tier 4 work and was left alone deliberately: this catalog is the parity
+/// test's acceptance baseline, and editing it mid-fix would have redefined
+/// the very thing being verified.
 const GbmContextMenuGroupSpec _historyCommitFile = GbmContextMenuGroupSpec(
   id: '05-K',
   target: GbmContextMenuTarget.historyCommitFile,

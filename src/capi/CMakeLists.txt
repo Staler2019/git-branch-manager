@@ -6,6 +6,7 @@ add_library(gbm_capi SHARED
     AskpassPoller.cpp
     Bisect.cpp
     Blame.cpp
+    Blob.cpp
     Branches.cpp
     CallbackRegistry.cpp
     CherryPick.cpp

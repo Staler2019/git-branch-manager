@@ -59,7 +59,16 @@ UI have drifted apart. Only 05-D/05-H/05-I/05-J have a dedicated
 of eleven groups follow the reference pattern and `context_menu_parity_test.dart`
 checks both against the catalog directly with no `skip`. 05-K's two
 (i)-classified items were wired but its parity assertion stays skipped —
-see its row. Only 05-B and 05-E remain fully hand-written and drifted.
+see its row.
+
+**Update (Tier 4, branch `fix/tier-4-file-at-revision`, issues #58 + #59).**
+05-K's remaining four items landed, so its parity assertion is no longer
+skipped either — seven of eleven groups are now catalog-checked. 05-K's
+render site stays a private `_buildMenuItems` inside
+`changed_files_panel.dart` rather than becoming a `*_menu_items.dart` pure
+function, because its items need the container's commit oid and its
+in-flight export state, which that template has nowhere to hold. **05-B and
+05-E are the only drifted groups left.**
 
 Two premises in the rows below were **wrong** and are corrected in place
 rather than silently edited away, because both changed where the fix had to
@@ -78,13 +87,15 @@ go: 05-F pointed at a widget nothing in `lib/` ever built, and 05-G's
 | 05-H Stash entry | 符合 | `stash_menu_items.dart` | Labels and order match spec exactly (6 items). Reference-quality. |
 | 05-I Conflict hunk | 符合 | `conflict_hunk_menu_items.dart` | Labels and order match spec exactly (5 items). Reference-quality. |
 | 05-J Branch folder | 符合 | `branch_folder_menu_items.dart` | Matches spec's 4 items (aside from a possible deliberate omission — see pending device/widget-tier note in Phase 3). |
-| 05-K Commit file | **部分修復** (Tier 1 / #53) | `changed_files_panel.dart` menu build | **Fixed**: the two (i)-classified top-level items are wired — `Compare with working copy` (opens a Compare tab via `compareTabsProvider.open(left: <oid>)` with a null `right`, then `context.go`, mirroring `sidebar_panel.dart`'s `_compareStash`; `push` would stack the tab over History rather than switch to it) and `Open terminal here` (the repository work dir, like 05-A/05-F — a historical commit's file has no directory of its own). **Still missing**: `Open file at this revision` / `Save this revision as…` are **(ii)** — `gbm_capi.h` still has no blob-read entry point — and `Restore and stage` / `Export as patch…` sit in the "More actions" submenu, whose flyout `gbm_menu.dart` does not render at all, so they would be unreachable even if wired. Both are Tier 4. The parity test's 05-K group therefore stays `skip: true`; regression coverage for the two new items lives in `changed_files_panel_test.dart` and `test/integration/history_commit_file_menu_test.dart` instead. |
+| 05-K Commit file | ~~**部分修復**~~ → **符合** (Tier 4 / #58 + #59) | `changed_files_panel.dart` menu build | **Fixed in two rounds.** Tier 1 (#53) wired the two (i)-classified top-level items — `Compare with working copy` (opens a Compare tab via `compareTabsProvider.open(left: <oid>)` with a null `right`, then `context.go`, mirroring `sidebar_panel.dart`'s `_compareStash`; `push` would stack the tab over History rather than switch to it) and `Open terminal here` (the repository work dir, like 05-A/05-F — a historical commit's file has no directory of its own). Tier 4 closed the rest, and **both of that round's premises needed correcting**. (1) `Open file at this revision` / `Save this revision as…` were classified **(ii)** "no blob-read entry point", which was true, but the entry point they needed is not the one #58 sketched: neither displays content in-app, so `gbm_export_file_at_revision(session, revision, path, destPath)` writes raw bytes to a destination instead of returning content inline — binary-safe by construction, where a JSON string payload could not have carried an image at all. (2) `Restore and stage` / `Export as patch…` were blocked on `GbmMenuItem.submenu`'s flyout, which was the *real* blocker for the whole group and turned out to be a `gbm_menu.dart` change, not a 05-K one: the trigger row had a permanently-null `onTap`. Both landed; the parity test's 05-K group is now asserted against the full catalog with **no `skip`**. Two documented deliberate outcomes: `Restore file to this state` and `Restore and stage` open the same dialog (`restore_file_dialog.dart` has always offered both as two buttons, because the confirmation text is identical), and `Export as patch…` writes the whole commit's patch, since `gbm_patch_export` is `git format-patch -1 <commit>`. Remaining, not fixed: the *catalog's* own 05-K submenu lists four children where spec lists five — `Restore file to before this state` is absent from `gbm_context_menus.dart`. Left alone on purpose, since that catalog is this test's acceptance baseline — tracked as **#71**, which also notes that this audit's method (render site vs. catalog) could not have caught a catalog-vs-spec drift in any group. |
 
-**Net**: after Tier 1, 6 of 11 groups (05-D/F/G/H/I/J) are
-reference-quality — each a pure `*_menu_items.dart` function checked against
-the catalog with no `skip` — and remain the template for the rest. 05-K is
-partially fixed (its two wireable items landed; the other four need capi or
-a submenu flyout). 05-B and 05-E are the only fully-unfixed groups left.
+**Net**: after Tier 4, 7 of 11 groups (05-D/F/G/H/I/J/K) are checked
+against the catalog with no `skip`; six of those are also
+reference-quality pure `*_menu_items.dart` functions and remain the template
+for the rest. 05-B and 05-E are the only unfixed groups left. The original
+post-Tier-1 text follows: 6 of 11 groups (05-D/F/G/H/I/J) are
+reference-quality … 05-K is partially fixed (its two wireable items landed;
+the other four need capi or a submenu flyout).
 The original text follows: 4 of 11 groups (05-D/H/I/J) are reference-quality
 and can be used as the template for fixing the other 7. 05-A and 05-C's apparent
 "gaps" are deliberate, documented reductions — not gaps. **Correction

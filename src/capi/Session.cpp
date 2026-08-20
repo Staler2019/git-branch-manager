@@ -429,14 +429,20 @@ void Session::commitChanges(CommitRequest request) {
 
 void Session::submitOperation(std::unique_ptr<Operation> operation,
                               bool refreshHistoryOnSuccess,
-                              std::function<void()> onSuccess) {
+                              std::function<void()> onSuccess,
+                              std::function<void()> onAlways) {
     operations_->submit(std::move(operation),
-                        [this, refreshHistoryOnSuccess, onSuccess = std::move(onSuccess)](
-                            OperationOutcome outcome) {
+                        [this,
+                         refreshHistoryOnSuccess,
+                         onSuccess = std::move(onSuccess),
+                         onAlways = std::move(onAlways)](OperationOutcome outcome) {
                             const bool succeeded = outcome.succeeded;
                             refreshUndoJournalCache();
                             callbacks_.emit(GBM_EVENT_OPERATION_FINISHED, toJson(outcome));
                             refreshWorkingCopy();
+                            if (onAlways) {
+                                onAlways();
+                            }
                             if (succeeded && refreshHistoryOnSuccess) {
                                 refreshHistory();
                             }

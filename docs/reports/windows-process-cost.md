@@ -9,19 +9,29 @@ optimises the wrong layer.
 
 ## The gap
 
-From one CI run (PR #73, run `32387290916`, identical `src/` tree on every
-platform, `cmake --workflow --preset capi-only`):
+Windows ctest totals from six CI runs of the same suite, oldest first. All are
+`cmake --workflow --preset capi-only`; the test count drifts because branches
+added tests. **Per-test time is the only comparable number**, and the run-to-run
+spread on GitHub's Windows runners is the first thing to notice:
 
-| Platform | ctest total | Job wall clock |
-|---|---|---|
-| Linux (`ubuntu-22.04`) | **22.89 s** | 3 m 31 s |
-| macOS (`macos-26`, arm64) | — | 2 m 18 s |
-| Windows (`windows-latest`) | **251.54 s** | 9 m 25 s |
+| Run | branch | tests | ctest total | s/test |
+|---|---|---|---|---|
+| `32365698665` | tier-5 | 502 | 202.71 s | 0.4038 |
+| `32367844938` | tier-5 | 502 | 204.81 s | 0.4080 |
+| `32374888281` | tier-4 | 508 | 212.61 s | 0.4185 |
+| `32382971897` | tier-0c | 511 | 236.51 s | 0.4628 |
+| `32387290916` | tier-0c | 511 | 251.54 s | 0.4923 |
+| `32389479399` | `--no-optional-locks` (#78) | 509 | 203.71 s | 0.4002 |
 
-**11×**, and it is not one pathological test. Linux's slowest single test is
-1.77 s; Windows has a dozen in the 2–9 s range and a long flat tail. A broad
-per-test constant, not an outlier, is the signature of **per-process
-overhead** — every one of these tests spawns git repeatedly.
+mean 0.4371, stdev 0.0387 — a **±9 % band**, min to max a 22 % spread, on runs
+whose `src/` differences cannot plausibly account for it. Any claim about a
+Windows speed-up smaller than that band is unfalsifiable from CI alone.
+
+For scale, the same suite on Linux (`ubuntu-22.04`, run `32387290916`) is
+**22.89 s** against Windows' ~220 s — roughly **11×**, and not one pathological
+test: Linux's slowest single case is 1.77 s while Windows has a dozen in the
+2–9 s range and a long flat tail. A broad per-test constant is the signature of
+**per-process overhead**, since every one of these tests spawns git repeatedly.
 
 ## Method
 
@@ -117,6 +127,21 @@ Same shim, same binary, after the change:
 calls take the unborn fallback and some `rev-parse` calls come from other
 sites (`RefStore::resolveRevision`, `BisectOps`).
 
+Per call, on macOS, 60 iterations against a real repository: the two-process
+form costs **11.3 ms** and the one-process form **5.9 ms** — 5.5 ms saved, or
+48 %. A user operation runs `readHead()` twice (once in `recordUndoPoint()`,
+once in the refresh's `load()`), so that is ~11 ms per operation on macOS and,
+extrapolating from Windows' higher per-process cost, plausibly 60–120 ms there.
+The extrapolation is not a measurement.
+
+**CI cannot confirm this, and does not.** The Windows run carrying the change
+(`32393264652`, 517 tests, 226.47 s) lands at **0.4380 s/test** — z = +0.02
+against the six-run population above, i.e. dead on its mean. Quoting it against
+the 0.4923 s/test baseline alone would manufacture a −11 % "improvement" that
+the rest of the population does not support; that baseline simply happened to
+be the slowest run in the set. The defensible claims here are the deterministic
+ones — 89 fewer processes, 5.5 ms per call — not a CI delta.
+
 ## What this does *not* fix
 
 Stated plainly so the CI number is not mistaken for the target:
@@ -143,7 +168,6 @@ Stated plainly so the CI number is not mistaken for the target:
 
 `--no-optional-locks` (issue #77) was checked for a Windows regression, since
 skipping the index stat-cache refresh could in principle cost later `status`
-calls. It did not: the Windows job ran **8 m 52 s** with it against a
-**9 m 25 s** baseline on the same tree without it — inside the noise, and if
-anything faster, which is consistent with fewer index writes for Defender to
-scan.
+calls. Its run is the fastest of the six above (0.4002 s/test) — but that is
+z = −0.95, still inside the band, so the honest reading is "no regression
+detected", not "measurably faster".

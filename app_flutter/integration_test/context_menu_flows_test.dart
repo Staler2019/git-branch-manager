@@ -19,6 +19,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/services/desktop_launcher.dart';
+import 'package:gbm_flutter/data/services/file_save_picker.dart';
 import 'package:gbm_flutter/features/compare/compare_page.dart';
 import 'package:gbm_flutter/features/history_graph/commit_graph_view.dart';
 import 'package:integration_test/integration_test.dart';
@@ -48,6 +49,22 @@ class _RecordingStarter {
     calls.add((executable: executable, arguments: arguments));
     return true;
   }
+}
+
+/// Answers the native save panel with a canned path. Faked for the same
+/// reason [_RecordingStarter] is: a real save panel would block the run, and
+/// what can actually be wrong is which path the export writes to, not
+/// whether macOS can draw a modal.
+class _FixedSavePicker implements FileSavePicker {
+  _FixedSavePicker(this.savePath);
+
+  final String savePath;
+
+  @override
+  Future<String?> saveFile({required String suggestedName}) async => savePath;
+
+  @override
+  Future<String?> pickDirectory() async => null;
 }
 
 void main() {
@@ -208,4 +225,84 @@ void main() {
       );
     },
   );
+
+  /// History -> select the fixture commit -> right-click its file row. Shared
+  /// by the two 05-K export tests below.
+  Future<void> openCommitFileMenu(WidgetTester tester) async {
+    await tester.tap(find.text('Add fixture'));
+    await tester.pumpAndSettle(const Duration(seconds: 2));
+    final Finder fileRow = find.ancestor(
+      of: find.text('fixture.txt'),
+      matching: find.byType(ListTile),
+    );
+    expect(fileRow, findsOneWidget);
+    await tester.tap(fileRow, buttons: kSecondaryMouseButton);
+    await tester.pumpAndSettle();
+  }
+
+  /// The export round-trips through a real FFI event, which `pumpAndSettle`
+  /// has no way to wait for -- it settles animations, not native callbacks.
+  Future<void> pumpUntil(WidgetTester tester, bool Function() done) async {
+    for (int i = 0; i < 60 && !done(); i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+  }
+
+  testWidgets(
+    '05-K: Open file at this revision writes the commit\'s bytes, not the '
+    'working copy\'s, and hands that file to the OS',
+    (tester) async {
+      final _RecordingStarter starter = _RecordingStarter();
+      await pumpRealAppOn(
+        tester,
+        repoPath,
+        extraOverrides: <Override>[
+          desktopLauncherProvider.overrideWithValue(
+            DesktopLauncher(start: starter.call, operatingSystem: 'macos'),
+          ),
+        ],
+      );
+      await openCommitFileMenu(tester);
+
+      expect(find.text('Open file at this revision'), findsOneWidget);
+      await tester.tap(find.text('Open file at this revision'));
+      await pumpUntil(tester, () => starter.calls.isNotEmpty);
+
+      expect(starter.calls, hasLength(1));
+      expect(starter.calls.single.executable, 'open');
+      final String opened = starter.calls.single.arguments.single;
+      expect(File(opened).existsSync(), isTrue, reason: opened);
+      // The whole point of the flow: the working copy holds _modified, and
+      // what landed on disk is what the commit held.
+      expect(File(opened).readAsStringSync(), _committed);
+      expect(
+        opened,
+        endsWith('.txt'),
+        reason: 'without the extension the OS has no file association',
+      );
+    },
+  );
+
+  testWidgets('05-K: Save this revision as… writes the commit\'s bytes to '
+      'the chosen path', (tester) async {
+    final String destination = '$repoPath/../saved-revision.txt';
+    await pumpRealAppOn(
+      tester,
+      repoPath,
+      extraOverrides: <Override>[
+        fileSavePickerProvider.overrideWithValue(_FixedSavePicker(destination)),
+      ],
+    );
+    await openCommitFileMenu(tester);
+
+    await tester.tap(find.text('More actions'));
+    await tester.pumpAndSettle();
+    expect(find.text('Save this revision as…'), findsOneWidget);
+    await tester.tap(find.text('Save this revision as…'));
+    await pumpUntil(tester, () => File(destination).existsSync());
+
+    expect(File(destination).existsSync(), isTrue, reason: destination);
+    expect(File(destination).readAsStringSync(), _committed);
+    File(destination).deleteSync();
+  });
 }

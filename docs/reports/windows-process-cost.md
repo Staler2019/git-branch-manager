@@ -23,9 +23,22 @@ spread on GitHub's Windows runners is the first thing to notice:
 | `32387290916` | tier-0c | 511 | 251.54 s | 0.4923 |
 | `32389479399` | `--no-optional-locks` (#78) | 509 | 203.71 s | 0.4002 |
 
-mean 0.4371, stdev 0.0387 — a **±9 % band**, min to max a 22 % spread, on runs
-whose `src/` differences cannot plausibly account for it. Any claim about a
-Windows speed-up smaller than that band is unfalsifiable from CI alone.
+mean 0.4309, stdev 0.0378 — a **±9 % band**, min to max a 23 % spread, on runs
+whose `src/` differences cannot plausibly account for it.
+
+The sharpest demonstration is not that table but a same-code pair. The branch
+carrying this report's own change was run twice, the second time with two extra
+tests and no behavioural difference:
+
+| Run | tests | ctest total | s/test |
+|---|---|---|---|
+| `32393264652` | 517 | 226.47 s | 0.4380 |
+| `32394639008` | 519 | 191.29 s | **0.3686** |
+
+**19 % apart, on effectively identical code.** The second is faster than every
+run in the table above, including the ones without the change. Any claim about
+a Windows speed-up needs either an effect well outside that spread or several
+runs per side; a single pair proves nothing in either direction.
 
 For scale, the same suite on Linux (`ubuntu-22.04`, run `32387290916`) is
 **22.89 s** against Windows' ~220 s — roughly **11×**, and not one pathological
@@ -134,13 +147,14 @@ once in the refresh's `load()`), so that is ~11 ms per operation on macOS and,
 extrapolating from Windows' higher per-process cost, plausibly 60–120 ms there.
 The extrapolation is not a measurement.
 
-**CI cannot confirm this, and does not.** The Windows run carrying the change
-(`32393264652`, 517 tests, 226.47 s) lands at **0.4380 s/test** — z = +0.02
-against the six-run population above, i.e. dead on its mean. Quoting it against
-the 0.4923 s/test baseline alone would manufacture a −11 % "improvement" that
-the rest of the population does not support; that baseline simply happened to
-be the slowest run in the set. The defensible claims here are the deterministic
-ones — 89 fewer processes, 5.5 ms per call — not a CI delta.
+**CI cannot confirm this, and does not.** The two runs carrying the change land
+at 0.4380 (z = +0.02, dead on the population mean) and 0.3686 (z = −1.65,
+faster than anything without the change) — 19 % apart from each other, which is
+larger than any effect a 89-process saving could produce. Quoting either one
+alone would manufacture a result: against the 0.4923 s/test baseline the first
+looks like −11 %, and that baseline simply happened to be the slowest run in
+the set. The defensible claims here are the deterministic ones — 89 fewer
+processes, 5.5 ms per call — not a CI delta.
 
 ## What this does *not* fix
 

@@ -146,28 +146,62 @@ GitResult<HeadInfo> RefStore::readHead(CancellationToken token) {
     GBM_ASSERT_NOT_UI_THREAD();
 
     HeadInfo head;
-    GitCommand command(paths_.commandDir(), {"symbolic-ref", "--quiet", "HEAD"});
+
+    // Both facts about HEAD -- which ref it points at and which commit that
+    // resolves to -- come from one git process, not two. This used to be a
+    // `symbolic-ref` followed by a `rev-parse`, and it sits on two hot paths at
+    // once: RefStore::load() runs it on every refs refresh, and
+    // OperationRunner::recordUndoPoint() runs it before every undoable write.
+    // Process creation costs roughly two orders of magnitude more on Windows
+    // than on Linux, so the spare spawn was a measurable share of the work
+    // there rather than a rounding error.
+    //
+    // `--revs-only` is load bearing. Without it this argument list exits 128 on
+    // a repository with no commits yet and writes "fatal: ambiguous argument
+    // 'HEAD'" to stderr -- and ProcessRunner records every invocation, stderr
+    // included, into the operation log the user can read. With it, an
+    // unresolvable HEAD is simply empty output and exit 0, which is the right
+    // shape for what is a normal state rather than an error.
+    GitCommand command(paths_.commandDir(),
+                       {"rev-parse", "--revs-only", "HEAD", "--symbolic-full-name", "HEAD"});
     command.timeout = std::chrono::seconds(15);
-    auto symbolic = runner_.run(command, token);
+    auto resolved = runner_.run(command, token);
 
-    if (symbolic && !symbolic->out.empty()) {
-        head.kind = HeadInfo::Kind::Branch;
-        head.fullRef = symbolic->out;
-        head.branchName = shortNameFor(head.fullRef, RefKind::LocalBranch);
-    } else {
-        head.kind = HeadInfo::Kind::Detached;
-    }
+    if (resolved && !resolved->out.empty()) {
+        // "<oid>\n<symbolic name>" -- run() joins records with '\n' and trims
+        // the trailing one.
+        const std::size_t split = resolved->out.find('\n');
+        const std::string oid = resolved->out.substr(0, split);
+        const std::string symbolic =
+            split == std::string::npos ? std::string() : resolved->out.substr(split + 1);
 
-    GitCommand revParse(paths_.commandDir(), {"rev-parse", "--verify", "--quiet", "HEAD"});
-    revParse.timeout = std::chrono::seconds(15);
-    auto resolved = runner_.run(revParse, token);
-    if (!resolved || resolved->out.empty()) {
-        // No commits yet. A fresh repository must still open cleanly rather than
-        // reporting an error, so this is a normal state, not a failure.
-        head.kind = HeadInfo::Kind::Unborn;
+        // git prints the literal string "HEAD" for a detached head. A branch
+        // always comes back fully qualified as `refs/heads/...`, so this cannot
+        // collide with a real branch name.
+        if (symbolic.empty() || symbolic == "HEAD") {
+            head.kind = HeadInfo::Kind::Detached;
+        } else {
+            head.kind = HeadInfo::Kind::Branch;
+            head.fullRef = symbolic;
+            head.branchName = shortNameFor(head.fullRef, RefKind::LocalBranch);
+        }
+        head.target = ObjectId::fromHex(oid);
         return head;
     }
-    head.target = ObjectId::fromHex(resolved->out);
+
+    // No commits yet. A fresh repository must still open cleanly rather than
+    // reporting an error, so this is a normal state, not a failure -- and the
+    // branch HEAD is parked on is still worth showing. The command above cannot
+    // supply that name (an unresolvable HEAD yields no output at all), so this
+    // one case still costs a second process, exactly as it did before.
+    head.kind = HeadInfo::Kind::Unborn;
+    GitCommand symbolicRef(paths_.commandDir(), {"symbolic-ref", "--quiet", "HEAD"});
+    symbolicRef.timeout = std::chrono::seconds(15);
+    auto symbolic = runner_.run(symbolicRef, token);
+    if (symbolic && !symbolic->out.empty()) {
+        head.fullRef = symbolic->out;
+        head.branchName = shortNameFor(head.fullRef, RefKind::LocalBranch);
+    }
     return head;
 }
 

@@ -233,12 +233,10 @@ TEST(HistoryProvider, SurvivesAChildKilledMidStream) {
 TEST(RefStore, ParsesForEachRefOutputIncludingTrackingInfo) {
     FakeProcessRunner runner;
 
-    FakeProcessRunner::Response symbolic;
-    symbolic.out = "refs/heads/main";
-    runner.whenArgsContain({"symbolic-ref"}, symbolic);
-
+    // readHead() resolves HEAD's oid and its symbolic name in one rev-parse,
+    // so the scripted reply is both lines: "<oid>\n<symbolic full name>".
     FakeProcessRunner::Response revParse;
-    revParse.out = std::string(40, 'a');
+    revParse.out = std::string(40, 'a') + "\nrefs/heads/main";
     runner.whenArgsContain({"rev-parse"}, revParse);
 
     // Fields are separated by the ASCII unit separator, which cannot appear in a
@@ -283,7 +281,7 @@ TEST(RefStore, TreatsAnUnbornHeadAsANormalState) {
     runner.whenArgsContain({"symbolic-ref"}, symbolic);
 
     FakeProcessRunner::Response revParse;
-    revParse.exitCode = 1;  // --verify --quiet finds nothing
+    revParse.exitCode = 1;  // HEAD does not resolve: no commits yet
     runner.whenArgsContain({"rev-parse"}, revParse);
     runner.whenArgsContain({"for-each-ref"}, FakeProcessRunner::Response{});
 
@@ -297,9 +295,8 @@ TEST(RefStore, TreatsAnUnbornHeadAsANormalState) {
 
 TEST(RefStore, TripsTheRefCountGuardOnAHugeRefSet) {
     FakeProcessRunner runner;
-    runner.whenArgsContain({"symbolic-ref"}, FakeProcessRunner::Response{});
     FakeProcessRunner::Response revParse;
-    revParse.out = std::string(40, 'a');
+    revParse.out = std::string(40, 'a');  // an oid with no symbolic name: detached
     runner.whenArgsContain({"rev-parse"}, revParse);
 
     const char sep = '\x1f';
@@ -382,12 +379,10 @@ TEST(RefStore, ExcludesAGoneUpstreamFromHistorySeeds) {
 
 TEST(RefStore, ParsesGoneTrackFieldWithoutCountingAsAheadOrBehind) {
     FakeProcessRunner runner;
-    FakeProcessRunner::Response symbolic;
-    symbolic.out = "refs/heads/feature";
-    runner.whenArgsContain({"symbolic-ref"}, symbolic);
-
+    // readHead() resolves HEAD's oid and its symbolic name in one rev-parse,
+    // so the scripted reply is both lines: "<oid>\n<symbolic full name>".
     FakeProcessRunner::Response revParse;
-    revParse.out = std::string(40, 'a');
+    revParse.out = std::string(40, 'a') + "\nrefs/heads/feature";
     runner.whenArgsContain({"rev-parse"}, revParse);
 
     const char sep = '\x1f';
@@ -419,12 +414,10 @@ TEST(RefStore, LoadsEveryRefWithASingleForEachRefInvocation) {
     // minutes. Every parsed field would still be correct if someone did that,
     // so the process count is the only thing that can catch it.
     FakeProcessRunner runner;
-    FakeProcessRunner::Response symbolic;
-    symbolic.out = "refs/heads/main";
-    runner.whenArgsContain({"symbolic-ref"}, symbolic);
-
+    // readHead() resolves HEAD's oid and its symbolic name in one rev-parse,
+    // so the scripted reply is both lines: "<oid>\n<symbolic full name>".
     FakeProcessRunner::Response revParse;
-    revParse.out = std::string(40, 'a');
+    revParse.out = std::string(40, 'a') + "\nrefs/heads/main";
     runner.whenArgsContain({"rev-parse"}, revParse);
 
     // Enough refs, each with tracking info, that a per-ref process would be
@@ -457,11 +450,12 @@ TEST(RefStore, LoadsEveryRefWithASingleForEachRefInvocation) {
     EXPECT_EQ(forEachRefCalls, 1u)
         << "one load() must cost exactly one for-each-ref, not one per ref";
 
-    // Three processes in total: symbolic-ref and rev-parse for HEAD
-    // (readHead), then the single for-each-ref. Pinned so that adding "just
-    // one more quick git call" to load() has to be a deliberate edit to this
-    // number.
-    EXPECT_EQ(runner.invocationCount(), 3u);
+    // Two processes in total: one rev-parse resolving HEAD's oid and symbolic
+    // name together (readHead), then the single for-each-ref. This was three
+    // until readHead() stopped issuing a separate symbolic-ref -- see
+    // RefStoreHeadTest.cpp. Pinned so that adding "just one more quick git
+    // call" to load() has to be a deliberate edit to this number.
+    EXPECT_EQ(runner.invocationCount(), 2u);
 }
 
 }  // namespace

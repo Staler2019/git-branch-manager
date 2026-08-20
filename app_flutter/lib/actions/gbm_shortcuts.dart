@@ -100,8 +100,11 @@ class GbmKeyboardShortcut {
 
 /// Returns a map of GbmActionId to GbmKeyboardShortcut keyboard shortcuts.
 ///
-/// Exactly 35 of the 52 action IDs have keyboard shortcuts. The remaining 17
+/// Exactly 36 of the 52 action IDs have keyboard shortcuts. The remaining 16
 /// are either intentionally unbound (per spec) or handled specially (e.g., fileExit).
+/// `gbm_shortcuts_test.dart` asserts both numbers, so they cannot drift
+/// silently — but nothing checks the per-group counts in the comments
+/// below, which is how `// Shift group` came to say 14 while holding 15.
 ///
 /// The [isMacOS] parameter controls whether shortcuts use `meta` (macOS) or
 /// `control` (Windows/Linux). This is a pure function for testability; it does
@@ -169,7 +172,7 @@ Map<GbmActionId, GbmKeyboardShortcut> gbmActionShortcuts(bool isMacOS) {
       isMacOS,
     ),
 
-    // Shift group (14)
+    // Shift group (15)
     GbmActionId.fileCloneRepository: _makeShortcut(
       LogicalKeyboardKey.keyN,
       isMacOS,

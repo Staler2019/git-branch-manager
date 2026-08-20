@@ -60,7 +60,7 @@ audit time**. P16's `REVISIONS` changes two things about this paragraph:
   單", so binding it before the multi-select work (#54) lands would give
   it nothing to select. Sequence it after, not before.
 
-**Keyboard shortcuts (`gbmActionShortcuts()`, 35/52 ids bound):**
+**Keyboard shortcuts (`gbmActionShortcuts()`, 36/52 ids bound — 35/52 at audit time; F2 is the one added since, see the rename row below):**
 
 | Spec item | Verdict | Evidence | Reason |
 |---|---|---|---|

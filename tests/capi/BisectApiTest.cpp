@@ -2,6 +2,7 @@
 // (gbm_capi.h).
 #include "capi/gbm_capi.h"
 #include "core/git/GitExecutable.h"
+#include "support/GitCli.h"
 
 #include <chrono>
 #include <condition_variable>
@@ -16,6 +17,8 @@
 
 namespace gbm::capi {
 namespace {
+
+using ::gbm::testing::GitCli;
 
 struct EventLog {
     std::mutex mutex;
@@ -60,9 +63,11 @@ void logCallback(GbmSessionHandle, int32_t eventType, const uint8_t* payload, in
 class BisectApiTest : public ::testing::Test {
 protected:
     static void SetUpTestSuite() {
-        auto detected = GitExecutable::detect();
-        if (!detected) {
-            GTEST_SKIP() << "no usable git found: " << detected.error().message;
+        // GitCli detects git once per test binary and caches it; this used to
+        // be a GitExecutable::detect() per suite, i.e. one `git --version`
+        // process each -- 29 of them across this binary.
+        if (GitCli::executable().empty()) {
+            GTEST_SKIP() << "no usable git found";
         }
     }
 
@@ -104,37 +109,20 @@ protected:
         std::filesystem::remove_all(repo_, ec);
     }
 
+    /// Fixture git, without a shell in the middle -- see tests/support/GitCli.h
+    /// for why that matters (one process instead of two, and no per-platform
+    /// quoting hazard).
     int runGit(std::vector<std::string> args) {
-        std::string command = "git -C \"" + repo_.string() + "\"";
-        for (const auto& arg : args) {
-            command += " \"" + arg + "\"";
-        }
-#ifdef _WIN32
-        command += " >NUL 2>&1";
-#else
-        command += " >/dev/null 2>&1";
-#endif
-        return std::system(command.c_str());
+        return GitCli::run(repo_, std::move(args));
     }
 
     std::string commitHex(const std::string& revision) {
-        const std::string outFile = (repo_ / "..gbm_rev.txt").string();
-        std::string command = "git -C \"" + repo_.string() + "\" rev-parse " + revision + " > \"" + outFile + "\"";
-        [[maybe_unused]] const int rc = std::system(command.c_str());
-        std::ifstream in(outFile);
-        std::string line;
-        std::getline(in, line);
-        return line;
+        return GitCli::capture(repo_, {"rev-parse", revision}).firstLine();
     }
 
     std::string currentBranch() {
-        const std::string outFile = (repo_ / "..gbm_branch.txt").string();
-        std::string command = "git -C \"" + repo_.string() + "\" symbolic-ref --short -q HEAD > \"" + outFile + "\"";
-        [[maybe_unused]] const int rc = std::system(command.c_str());
-        std::ifstream in(outFile);
-        std::string line;
-        std::getline(in, line);
-        return line;
+        return GitCli::capture(repo_, {"symbolic-ref", "--short", "-q", "HEAD"})
+            .firstLine();
     }
 
     std::string bisectStatusJson() {

@@ -1,7 +1,7 @@
 include(GoogleTest)
 
 # Test doubles live here rather than in the shipped library.
-add_library(gbm_test_support STATIC support/FakeProcessRunner.cpp)
+add_library(gbm_test_support STATIC support/FakeProcessRunner.cpp support/GitCli.cpp)
 target_include_directories(gbm_test_support PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(gbm_test_support PUBLIC gbm_core PRIVATE gbm_warnings)
 
@@ -13,6 +13,7 @@ add_executable(gbm_core_tests
     unit/ConflictMarkerParserTest.cpp
     unit/CoreBasicsTest.cpp
     unit/DiscoveryTest.cpp
+    unit/GitCliTest.cpp
     unit/GitExecutableTest.cpp
     unit/GitIntegrationTest.cpp
     unit/GraphBuilderTest.cpp
@@ -147,7 +148,7 @@ if(GBM_BUILD_CAPI)
         capi/WorktreeApiTest.cpp
     )
     target_link_libraries(gbm_capi_tests
-        PRIVATE gbm_capi gbm_core GTest::gtest GTest::gtest_main gbm_warnings gbm_sanitizers)
+        PRIVATE gbm_capi gbm_core gbm_test_support GTest::gtest GTest::gtest_main gbm_warnings gbm_sanitizers)
 
     # gbm_capi is SHARED, so on Windows (no RPATH like Linux/macOS) the
     # loader can't find gbm_capi.dll unless it sits next to the .exe --

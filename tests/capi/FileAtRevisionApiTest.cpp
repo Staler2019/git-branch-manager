@@ -11,6 +11,7 @@
 // ExportsABinaryFileByteIdentical exists to prove.
 #include "capi/gbm_capi.h"
 #include "core/git/GitExecutable.h"
+#include "support/GitCli.h"
 
 #include <chrono>
 #include <condition_variable>
@@ -25,6 +26,8 @@
 
 namespace gbm::capi {
 namespace {
+
+using ::gbm::testing::GitCli;
 
 struct EventLog {
     std::mutex mutex;
@@ -93,9 +96,11 @@ std::string readAllBytes(const std::filesystem::path& path) {
 class FileAtRevisionApiTest : public ::testing::Test {
 protected:
     static void SetUpTestSuite() {
-        auto detected = GitExecutable::detect();
-        if (!detected) {
-            GTEST_SKIP() << "no usable git found: " << detected.error().message;
+        // GitCli detects git once per test binary and caches it; this used to
+        // be a GitExecutable::detect() per suite, i.e. one `git --version`
+        // process each -- 29 of them across this binary.
+        if (GitCli::executable().empty()) {
+            GTEST_SKIP() << "no usable git found";
         }
     }
 
@@ -145,17 +150,11 @@ protected:
         std::filesystem::remove_all(out_, ec);
     }
 
+    /// Fixture git, without a shell in the middle -- see tests/support/GitCli.h
+    /// for why that matters (one process instead of two, and no per-platform
+    /// quoting hazard).
     int runGit(std::vector<std::string> args) {
-        std::string command = "git -C \"" + repo_.string() + "\"";
-        for (const auto& arg : args) {
-            command += " \"" + arg + "\"";
-        }
-#ifdef _WIN32
-        command += " >NUL 2>&1";
-#else
-        command += " >/dev/null 2>&1";
-#endif
-        return std::system(command.c_str());
+        return GitCli::run(repo_, std::move(args));
     }
 
     /// Fires the export and blocks until its reply arrives, returning the

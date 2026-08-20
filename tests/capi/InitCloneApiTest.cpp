@@ -5,6 +5,7 @@
 // askpass for it, so this stays fully offline, same as RemoteApiTest.cpp.
 #include "capi/gbm_capi.h"
 #include "core/git/GitExecutable.h"
+#include "support/GitCli.h"
 
 #include <cstdlib>
 #include <filesystem>
@@ -14,6 +15,8 @@
 
 namespace gbm::capi {
 namespace {
+
+using ::gbm::testing::GitCli;
 
 std::string lastResultJson() {
     std::string json(static_cast<std::size_t>(gbm_last_result_json_len()), '\0');
@@ -25,9 +28,11 @@ std::string lastResultJson() {
 class InitCloneApiTest : public ::testing::Test {
 protected:
     static void SetUpTestSuite() {
-        auto detected = GitExecutable::detect();
-        if (!detected) {
-            GTEST_SKIP() << "no usable git found: " << detected.error().message;
+        // GitCli detects git once per test binary and caches it; this used to
+        // be a GitExecutable::detect() per suite, i.e. one `git --version`
+        // process each -- 29 of them across this binary.
+        if (GitCli::executable().empty()) {
+            GTEST_SKIP() << "no usable git found";
         }
     }
 
@@ -52,18 +57,22 @@ protected:
         const std::filesystem::path scratch = base_ / "origin-scratch";
         std::filesystem::create_directories(scratch);
 
-        auto run = [](const std::string& cmd) { ASSERT_EQ(std::system(cmd.c_str()), 0); };
-        run("git init --quiet --bare --initial-branch=main \"" + origin.string() + "\"");
-        run("git -C \"" + scratch.string() + "\" init --quiet --initial-branch=main");
-        run("git -C \"" + scratch.string() + "\" config user.email test@example.com");
-        run("git -C \"" + scratch.string() + "\" config user.name Test");
+        auto run = [](const std::filesystem::path& dir, std::vector<std::string> args) {
+            ASSERT_EQ(GitCli::run(dir, std::move(args)), 0);
+        };
+        // `git init <dir>` names the directory as an argument rather than
+        // running inside it, so the working directory here is the parent.
+        run(base_, {"init", "--quiet", "--bare", "--initial-branch=main", origin.string()});
+        run(scratch, {"init", "--quiet", "--initial-branch=main"});
+        run(scratch, {"config", "user.email", "test@example.com"});
+        run(scratch, {"config", "user.name", "Test"});
         {
             std::ofstream file(scratch / "README.md");
             file << "hello\n";
         }
-        run("git -C \"" + scratch.string() + "\" add README.md");
-        run("git -C \"" + scratch.string() + "\" commit --quiet -m initial");
-        run("git -C \"" + scratch.string() + "\" push --quiet \"" + origin.string() + "\" main");
+        run(scratch, {"add", "README.md"});
+        run(scratch, {"commit", "--quiet", "-m", "initial"});
+        run(scratch, {"push", "--quiet", origin.string(), "main"});
         return origin;
     }
 

@@ -3,6 +3,7 @@
 // gbm_request_commit_file_diff()/GBM_EVENT_COMMIT_FILE_DIFF_READY.
 #include "capi/gbm_capi.h"
 #include "core/git/GitExecutable.h"
+#include "support/GitCli.h"
 
 #include <chrono>
 #include <condition_variable>
@@ -17,6 +18,8 @@
 
 namespace gbm::capi {
 namespace {
+
+using ::gbm::testing::GitCli;
 
 struct EventLog {
     std::mutex mutex;
@@ -58,9 +61,11 @@ void logCallback(GbmSessionHandle, int32_t eventType, const uint8_t* payload, in
 class CommitFilesApiTest : public ::testing::Test {
 protected:
     static void SetUpTestSuite() {
-        auto detected = GitExecutable::detect();
-        if (!detected) {
-            GTEST_SKIP() << "no usable git found: " << detected.error().message;
+        // GitCli detects git once per test binary and caches it; this used to
+        // be a GitExecutable::detect() per suite, i.e. one `git --version`
+        // process each -- 29 of them across this binary.
+        if (GitCli::executable().empty()) {
+            GTEST_SKIP() << "no usable git found";
         }
     }
 
@@ -94,27 +99,19 @@ protected:
         std::filesystem::remove_all(repo_, ec);
     }
 
+    /// Fixture git, without a shell in the middle -- see tests/support/GitCli.h
+    /// for why that matters (one process instead of two, and no per-platform
+    /// quoting hazard).
     int runGit(std::vector<std::string> args) {
-        std::string command = "git -C \"" + repo_.string() + "\"";
-        for (const auto& arg : args) {
-            command += " \"" + arg + "\"";
-        }
-#ifdef _WIN32
-        command += " >NUL 2>&1";
-#else
-        command += " >/dev/null 2>&1";
-#endif
-        return std::system(command.c_str());
+        return GitCli::run(repo_, std::move(args));
     }
 
     std::string revParseHead() {
-        const std::filesystem::path out = repo_ / "head-oid.txt";
-        std::string command = "git -C \"" + repo_.string() + "\" rev-parse HEAD > \"" + out.string() + "\"";
-        if (std::system(command.c_str()) != 0) return "";
-        std::ifstream in(out);
-        std::string oid;
-        std::getline(in, oid);
-        return oid;
+        // The redirect this replaces wrote head-oid.txt *inside* the
+        // repository under test, leaving an untracked file behind for every
+        // later status read to trip over.
+        const auto result = GitCli::capture(repo_, {"rev-parse", "HEAD"});
+        return result.exitCode == 0 ? result.firstLine() : std::string();
     }
 
     std::filesystem::path repo_;

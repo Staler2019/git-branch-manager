@@ -2,6 +2,7 @@
 // repo with two commits and a couple of extra local branches.
 #include "capi/gbm_capi.h"
 #include "core/git/GitExecutable.h"
+#include "support/GitCli.h"
 
 #include <algorithm>
 #include <chrono>
@@ -17,6 +18,8 @@
 
 namespace gbm::capi {
 namespace {
+
+using ::gbm::testing::GitCli;
 
 struct EventLog {
     std::mutex mutex;
@@ -49,9 +52,11 @@ void logCallback(GbmSessionHandle, int32_t eventType, const uint8_t* payload, in
 class BranchApiTest : public ::testing::Test {
 protected:
     static void SetUpTestSuite() {
-        auto detected = GitExecutable::detect();
-        if (!detected) {
-            GTEST_SKIP() << "no usable git found: " << detected.error().message;
+        // GitCli detects git once per test binary and caches it; this used to
+        // be a GitExecutable::detect() per suite, i.e. one `git --version`
+        // process each -- 29 of them across this binary.
+        if (GitCli::executable().empty()) {
+            GTEST_SKIP() << "no usable git found";
         }
     }
 
@@ -103,81 +108,41 @@ protected:
     }
 
     int runIn(const std::filesystem::path& dir, std::vector<std::string> args) {
-        std::string command = "git -C \"" + dir.string() + "\"";
-        for (const auto& arg : args) {
-            command += " \"" + arg + "\"";
-        }
-#ifdef _WIN32
-        command += " >NUL 2>&1";
-#else
-        command += " >/dev/null 2>&1";
-#endif
-        return std::system(command.c_str());
+        return GitCli::run(dir, std::move(args));
     }
 
     /// Branch names present in the bare remote, read from the remote itself
     /// rather than from any remote-tracking ref -- a stale local ref would
     /// otherwise make a failed delete look like it worked.
     std::vector<std::string> remoteBranches() {
-        const std::string outFile = (repo_ / "..gbm_remote_branch_list.txt").string();
-        const std::string command = "git -C \"" + remote_.string() +
-                                    "\" branch --format=\"%(refname:short)\" > \"" + outFile + "\"";
-        [[maybe_unused]] const int rc = std::system(command.c_str());
-        std::ifstream in(outFile);
-        std::vector<std::string> names;
-        std::string line;
-        while (std::getline(in, line)) {
-            if (!line.empty()) names.push_back(line);
-        }
-        return names;
+        return GitCli::capture(remote_, {"branch", "--format=%(refname:short)"}).lines();
     }
 
     /// `branch`'s configured upstream, or empty when it has none.
     std::string upstreamOf(const std::string& branch) {
-        const std::string outFile = (repo_ / "..gbm_upstream.txt").string();
-        const std::string command = "git -C \"" + repo_.string() + "\" for-each-ref " +
-                                    "--format=\"%(upstream:short)\" \"refs/heads/" + branch +
-                                    "\" > \"" + outFile + "\"";
-        [[maybe_unused]] const int rc = std::system(command.c_str());
-        std::ifstream in(outFile);
-        std::string line;
-        std::getline(in, line);
-        return line;
+        return GitCli::capture(
+                   repo_, {"for-each-ref", "--format=%(upstream:short)", "refs/heads/" + branch})
+            .firstLine();
     }
 
+    /// Fixture git, without a shell in the middle -- see tests/support/GitCli.h
+    /// for why that matters (one process instead of two, and no per-platform
+    /// quoting hazard).
     int runGit(std::vector<std::string> args) {
-        std::string command = "git -C \"" + repo_.string() + "\"";
-        for (const auto& arg : args) {
-            command += " \"" + arg + "\"";
-        }
-#ifdef _WIN32
-        command += " >NUL 2>&1";
-#else
-        command += " >/dev/null 2>&1";
-#endif
-        return std::system(command.c_str());
+        return GitCli::run(repo_, std::move(args));
     }
 
     std::vector<std::string> localBranches() {
         const std::string outFile = (repo_ / "..gbm_branch_test_list.txt").string();
-        // Double quotes, not single: single quotes are POSIX-shell syntax
-        // that cmd.exe passes through literally to git.exe on Windows
-        // instead of stripping, so git received them as part of the format
-        // string and the branch names never came back bare. Unquoted
-        // doesn't work either -- dash (Debian/Ubuntu's /bin/sh, which
-        // std::system() invokes) treats the embedded parens in
-        // %(refname:short) as a syntax error even mid-word. Double quotes
-        // are stripped correctly by both dash and Windows' argv parsing.
-        std::string command =
-            "git -C \"" + repo_.string() + "\" branch --format=\"%(refname:short)\" > \"" + outFile + "\"";
-        [[maybe_unused]] const int rc = std::system(command.c_str());
-        std::ifstream in(outFile);
-        std::vector<std::string> names;
-        std::string line;
-        while (std::getline(in, line)) {
-            if (!line.empty()) names.push_back(line);
-        }
-        return names;
+        // This used to build a command string, and the quoting was a genuine
+        // hazard rather than a theoretical one: single quotes are POSIX-shell
+        // syntax that cmd.exe passes through literally to git.exe on Windows,
+        // so git got them as part of the format string and the branch names
+        // never came back bare -- while leaving %(refname:short) unquoted made
+        // dash treat the parentheses as a syntax error. An argv vector has
+        // neither problem, because no shell ever sees it.
+        return GitCli::capture(repo_, {"branch", "--format=%(refname:short)"})
+            .lines();
     }
 
     bool waitForOperationFinished() {
@@ -220,26 +185,16 @@ TEST_F(BranchApiTest, CreateBranchAddsALocalBranchWithoutMovingHead) {
     const auto branches = localBranches();
     EXPECT_NE(std::find(branches.begin(), branches.end(), "feature-1"), branches.end());
 
-    const std::string outFile = (repo_ / "..gbm_branch_test_head.txt").string();
-    std::string command = "git -C \"" + repo_.string() + "\" symbolic-ref --short HEAD > \"" + outFile + "\"";
-    [[maybe_unused]] const int rc = std::system(command.c_str());
-    std::ifstream in(outFile);
-    std::string head;
-    std::getline(in, head);
-    EXPECT_EQ(head, "main");
+    EXPECT_EQ(GitCli::capture(repo_, {"symbolic-ref", "--short", "HEAD"}).firstLine(),
+              "main");
 }
 
 TEST_F(BranchApiTest, CreateBranchWithCheckoutAfterMovesHead) {
     gbm_branch_create(session_, "feature-2", "", /*checkoutAfter=*/1, /*setUpstream=*/0, "");
     ASSERT_TRUE(waitForOperationFinished());
 
-    const std::string outFile = (repo_ / "..gbm_branch_test_head2.txt").string();
-    std::string command = "git -C \"" + repo_.string() + "\" symbolic-ref --short HEAD > \"" + outFile + "\"";
-    [[maybe_unused]] const int rc = std::system(command.c_str());
-    std::ifstream in(outFile);
-    std::string head;
-    std::getline(in, head);
-    EXPECT_EQ(head, "feature-2");
+    EXPECT_EQ(GitCli::capture(repo_, {"symbolic-ref", "--short", "HEAD"}).firstLine(),
+              "feature-2");
 }
 
 TEST_F(BranchApiTest, RenameBranchChangesTheLocalBranchName) {

@@ -5,6 +5,7 @@
 // offline like every other capi test.
 #include "capi/gbm_capi.h"
 #include "core/git/GitExecutable.h"
+#include "support/GitCli.h"
 
 #include <chrono>
 #include <condition_variable>
@@ -19,6 +20,8 @@
 
 namespace gbm::capi {
 namespace {
+
+using ::gbm::testing::GitCli;
 
 struct EventLog {
     std::mutex mutex;
@@ -74,9 +77,11 @@ bool waitForWorkingCopyOperationFinished(EventLog& log) {
 class TagApiTest : public ::testing::Test {
 protected:
     static void SetUpTestSuite() {
-        auto detected = GitExecutable::detect();
-        if (!detected) {
-            GTEST_SKIP() << "no usable git found: " << detected.error().message;
+        // GitCli detects git once per test binary and caches it; this used to
+        // be a GitExecutable::detect() per suite, i.e. one `git --version`
+        // process each -- 29 of them across this binary.
+        if (GitCli::executable().empty()) {
+            GTEST_SKIP() << "no usable git found";
         }
     }
 
@@ -118,16 +123,7 @@ protected:
     int runGit(std::vector<std::string> args) { return runIn(repo_, std::move(args)); }
 
     int runIn(const std::filesystem::path& dir, std::vector<std::string> args) {
-        std::string command = "git -C \"" + dir.string() + "\"";
-        for (const auto& arg : args) {
-            command += " \"" + arg + "\"";
-        }
-#ifdef _WIN32
-        command += " >NUL 2>&1";
-#else
-        command += " >/dev/null 2>&1";
-#endif
-        return std::system(command.c_str());
+        return GitCli::run(dir, std::move(args));
     }
 
     bool remoteHasTag(const std::string& name) {

@@ -2,6 +2,7 @@
 // two commits and uncommitted changes.
 #include "capi/gbm_capi.h"
 #include "core/git/GitExecutable.h"
+#include "support/GitCli.h"
 
 #include <chrono>
 #include <condition_variable>
@@ -16,6 +17,8 @@
 
 namespace gbm::capi {
 namespace {
+
+using ::gbm::testing::GitCli;
 
 struct EventLog {
     std::mutex mutex;
@@ -48,9 +51,11 @@ void logCallback(GbmSessionHandle, int32_t eventType, const uint8_t* payload, in
 class ResetApiTest : public ::testing::Test {
 protected:
     static void SetUpTestSuite() {
-        auto detected = GitExecutable::detect();
-        if (!detected) {
-            GTEST_SKIP() << "no usable git found: " << detected.error().message;
+        // GitCli detects git once per test binary and caches it; this used to
+        // be a GitExecutable::detect() per suite, i.e. one `git --version`
+        // process each -- 29 of them across this binary.
+        if (GitCli::executable().empty()) {
+            GTEST_SKIP() << "no usable git found";
         }
     }
 
@@ -86,27 +91,15 @@ protected:
         std::filesystem::remove_all(repo_, ec);
     }
 
+    /// Fixture git, without a shell in the middle -- see tests/support/GitCli.h
+    /// for why that matters (one process instead of two, and no per-platform
+    /// quoting hazard).
     int runGit(std::vector<std::string> args) {
-        std::string command = "git -C \"" + repo_.string() + "\"";
-        for (const auto& arg : args) {
-            command += " \"" + arg + "\"";
-        }
-#ifdef _WIN32
-        command += " >NUL 2>&1";
-#else
-        command += " >/dev/null 2>&1";
-#endif
-        return std::system(command.c_str());
+        return GitCli::run(repo_, std::move(args));
     }
 
     std::string headCommitSubject() {
-        const std::string outFile = (repo_ / "..gbm_reset_test_head.txt").string();
-        std::string command = "git -C \"" + repo_.string() + "\" log -1 --format=%s > \"" + outFile + "\"";
-        [[maybe_unused]] const int rc = std::system(command.c_str());
-        std::ifstream in(outFile);
-        std::string line;
-        std::getline(in, line);
-        return line;
+        return GitCli::capture(repo_, {"log", "-1", "--format=%s"}).firstLine();
     }
 
     bool waitForOperationFinished() {
@@ -130,13 +123,7 @@ TEST_F(ResetApiTest, SoftResetMovesHeadKeepsIndexAndWorkTree) {
 
     EXPECT_EQ(headCommitSubject(), "First commit");
     // Soft reset leaves the second commit's changes staged.
-    const std::string outFile = (repo_ / "..gbm_reset_test_staged.txt").string();
-    std::string diffCmd = "git -C \"" + repo_.string() + "\" diff --cached --name-only > \"" + outFile + "\"";
-    [[maybe_unused]] const int rc = std::system(diffCmd.c_str());
-    std::ifstream in(outFile);
-    std::string line;
-    std::getline(in, line);
-    EXPECT_EQ(line, "file.txt");
+    EXPECT_EQ(GitCli::capture(repo_, {"diff", "--cached", "--name-only"}).firstLine(), "file.txt");
 }
 
 TEST_F(ResetApiTest, HardResetMovesHeadAndDiscardsWorkTreeChanges) {
@@ -181,13 +168,9 @@ TEST_F(ResetApiTest, RestorePathsStagedUnstagesAFile) {
         return false;
     }));
 
-    const std::string outFile = (repo_ / "..gbm_restore_test_staged.txt").string();
-    std::string diffCmd = "git -C \"" + repo_.string() + "\" diff --cached --name-only > \"" + outFile + "\"";
-    [[maybe_unused]] const int rc = std::system(diffCmd.c_str());
-    std::ifstream in(outFile);
-    std::string line;
-    std::getline(in, line);
-    EXPECT_TRUE(line.empty()) << "expected nothing staged after --staged restore, got: " << line;
+    const std::string staged =
+        GitCli::capture(repo_, {"diff", "--cached", "--name-only"}).firstLine();
+    EXPECT_TRUE(staged.empty()) << "expected nothing staged after --staged restore, got: " << staged;
 }
 
 TEST_F(ResetApiTest, CleanUntrackedRemovesUntrackedFiles) {

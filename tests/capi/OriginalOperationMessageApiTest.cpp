@@ -4,6 +4,7 @@
 // gbm_cherry_pick_continue_with_message()/gbm_rebase_continue_with_message().
 #include "capi/gbm_capi.h"
 #include "core/git/GitExecutable.h"
+#include "support/GitCli.h"
 
 #include <chrono>
 #include <condition_variable>
@@ -18,6 +19,8 @@
 
 namespace gbm::capi {
 namespace {
+
+using ::gbm::testing::GitCli;
 
 struct EventLog {
     std::mutex mutex;
@@ -112,9 +115,11 @@ bool waitForWorkingCopyStatusUpdated(EventLog& log) {
 class OriginalOperationMessageApiTest : public ::testing::Test {
 protected:
     static void SetUpTestSuite() {
-        auto detected = GitExecutable::detect();
-        if (!detected) {
-            GTEST_SKIP() << "no usable git found: " << detected.error().message;
+        // GitCli detects git once per test binary and caches it; this used to
+        // be a GitExecutable::detect() per suite, i.e. one `git --version`
+        // process each -- 29 of them across this binary.
+        if (GitCli::executable().empty()) {
+            GTEST_SKIP() << "no usable git found";
         }
     }
 
@@ -155,39 +160,22 @@ protected:
         std::filesystem::remove_all(repo_, ec);
     }
 
+    /// Fixture git, without a shell in the middle -- see tests/support/GitCli.h
+    /// for why that matters (one process instead of two, and no per-platform
+    /// quoting hazard).
     int runGit(std::vector<std::string> args) {
-        std::string command = "git -C \"" + repo_.string() + "\"";
-        for (const auto& arg : args) {
-            command += " \"" + arg + "\"";
-        }
-#ifdef _WIN32
-        command += " >NUL 2>&1";
-#else
-        command += " >/dev/null 2>&1";
-#endif
-        return std::system(command.c_str());
+        return GitCli::run(repo_, std::move(args));
     }
 
     std::string commitHex(const std::string& revision) {
-        const std::string outFile = (repo_ / "..gbm_rev.txt").string();
-        std::string command = "git -C \"" + repo_.string() + "\" rev-parse " + revision + " > \"" + outFile + "\"";
-        [[maybe_unused]] const int rc = std::system(command.c_str());
-        std::ifstream in(outFile);
-        std::string line;
-        std::getline(in, line);
-        return line;
+        return GitCli::capture(repo_, {"rev-parse", revision}).firstLine();
     }
 
     // Trims trailing newlines: `git log --format=%B` appends its own
     // terminator on top of the commit message's own trailing newline, and
     // that formatting detail is not what these tests care about.
     std::string headCommitMessage() {
-        const std::string outFile = (repo_ / "..gbm_msg.txt").string();
-        std::string command =
-            "git -C \"" + repo_.string() + "\" log -1 --format=%B > \"" + outFile + "\"";
-        [[maybe_unused]] const int rc = std::system(command.c_str());
-        std::ifstream in(outFile);
-        std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        std::string content = GitCli::capture(repo_, {"log", "-1", "--format=%B"}).out;
         while (!content.empty() && content.back() == '\n') {
             content.pop_back();
         }

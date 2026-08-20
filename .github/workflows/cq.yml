@@ -66,6 +66,26 @@ jobs:
           fi
           echo "core is Qt-free"
 
+      # Fixture git commands go through tests/support/GitCli.h, never a shell.
+      # std::system() runs `/bin/sh -c` on POSIX and `cmd.exe /c` on Windows, so
+      # every call costs a second process -- and the capi suite issued ~900 of
+      # them, which is most of why that suite takes ten times longer on Windows
+      # than on Linux (docs/reports/windows-process-cost.md). Building a command
+      # *string* is also a real quoting hazard rather than a theoretical one:
+      # BranchApiTest carried a five-line comment about single quotes surviving
+      # cmd.exe and unquoted parentheses breaking dash. Both problems return the
+      # moment someone adds one std::system() call back, and nothing else in CI
+      # would notice -- the tests would still pass, just slower and more
+      # fragile. Comment lines are allowed so the helper can explain itself.
+      - name: tests must not shell out with std::system
+        run: |
+          if grep -rn 'std::system' tests --include='*.cpp' --include='*.h' \
+              | grep -vE ':[[:space:]]*(//|\*)'; then
+            echo "::error::tests must call gbm::testing::GitCli, not std::system - see tests/support/GitCli.h"
+            exit 1
+          fi
+          echo "tests are shell-free"
+
       # subosito/flutter-action's `channel: stable` floats to whatever build
       # is current that day. dart format's output is not stable across Dart
       # SDK versions (CLAUDE.md's "Known gaps": a local Dart 3.12.2 and a CI

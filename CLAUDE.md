@@ -871,6 +871,20 @@ also records the untested hypothesis (a fixed 10s budget losing to parallel
 load) and warns against raising the timeout before confirming it — that
 would paper over a real refresh-coalescing bug if one exists.
 
+**A second, unrelated flake was isolated during Tier 0c's CI run and must
+not be folded into #70**: `WorkingCopyApiTest.UnstageHunkReversesAFullyStagedSingleHunkFile`
+fails with `LockHeld` — "Another Git process appears to be running in this
+repository", the lock being its *own* temp repo's `.git/index.lock`. Unlike
+#70's shape it is **not** a timeout and **not** load-dependent: run alone
+with no parallel `ctest`, it failed 1 in 12 and again at iteration 30 of
+40, each time in ~0.36s, nowhere near any timeout budget. So the test races
+itself — a working-copy operation is reported complete before git has
+released the index lock the next one needs. Tracked as **#77**, which
+records the captured error verbatim and warns that raising a timeout (the
+#70 remedy) does nothing here. Practical consequence: a red macOS capi job
+on an unrelated branch may be either flake, and they need different
+triage — read the failure text before assuming.
+
 ### Tier 5 (fix/tier-5-native-window-title) — issue closed, not implemented
 
 Issue #60 asked for a custom Windows/Linux title bar (a window package, two

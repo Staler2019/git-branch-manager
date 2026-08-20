@@ -12,6 +12,7 @@
 //
 // The dialog is registered via `topLevelRoutes`, not `extraRoutes`: dialog
 // routes are siblings of the workspace ShellRoute, not children of it.
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -21,6 +22,7 @@ import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/features/dialogs/rename_branch/rename_branch_dialog.dart';
+import 'package:gbm_flutter/features/sidebar/widgets/branch_tree_item.dart';
 import 'package:gbm_flutter/routing/dialog_route.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
 import 'package:go_router/go_router.dart';
@@ -118,6 +120,20 @@ List<RouteBase> _renameDialogRoute() => <RouteBase>[
 Future<void> _pressF2(WidgetTester tester) async {
   await tester.sendKeyDownEvent(LogicalKeyboardKey.f2);
   await tester.sendKeyUpEvent(LogicalKeyboardKey.f2);
+  await tester.pumpAndSettle();
+}
+
+/// The sidebar's own entry point (05-B "Rename branch"). Right-click is not
+/// reachable through `tester.tap`, so this mirrors
+/// branch_context_menu_test.dart's `_rightClick`.
+Future<void> _openBranchMenu(WidgetTester tester) async {
+  final TestGesture gesture = await tester.createGesture(
+    kind: PointerDeviceKind.mouse,
+    buttons: kSecondaryMouseButton,
+  );
+  addTearDown(gesture.removePointer);
+  await gesture.down(tester.getCenter(find.byType(BranchTreeItem).first));
+  await gesture.up();
   await tester.pumpAndSettle();
 }
 
@@ -227,6 +243,64 @@ void main() {
       await tester.pumpAndSettle();
 
       await _pressF2(tester);
+      expect(find.byType(RenameBranchDialogContent), findsOneWidget);
+    });
+
+    // The sidebar entry is the one of the three that dispatches by
+    // *navigation* rather than by a session command, so
+    // FakeRepoSessionController.commandLog cannot see it regress -- these
+    // assert on the dialog's presence instead. Its conflict gate is also the
+    // only one not routed through isActionEnabled(): BranchTreeItem takes a
+    // plain `conflictActive` param, so it needs its own transition coverage
+    // per CLAUDE.md's rule at the end of "Action availability state machine".
+    testWidgets('the sidebar\'s 05-B Rename branch opens the dialog seeded '
+        'with the clicked branch', (tester) async {
+      await pumpWorkspace(
+        tester,
+        identity: _identity,
+        initialState: _cleanSession(),
+        topLevelRoutes: _renameDialogRoute(),
+      );
+
+      await _openBranchMenu(tester);
+      await tester.tap(find.text('Rename branch'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(RenameBranchDialogContent), findsOneWidget);
+      final Finder nameField = find.descendant(
+        of: find.byType(RenameBranchDialogContent),
+        matching: find.byType(TextField),
+      );
+      expect(tester.widget<TextField>(nameField).controller!.text, 'main');
+    });
+
+    testWidgets('mid-conflict the sidebar\'s Rename branch is inert, and '
+        'recovers on the round trip back to clean', (tester) async {
+      final PumpedWorkspace pumped = await pumpWorkspace(
+        tester,
+        identity: _identity,
+        initialState: _conflictSession(),
+        topLevelRoutes: _renameDialogRoute(),
+      );
+
+      await _openBranchMenu(tester);
+      await tester.tap(find.text('Rename branch'));
+      await tester.pumpAndSettle();
+      expect(
+        find.byType(RenameBranchDialogContent),
+        findsNothing,
+        reason:
+            'SidebarPanel must pass conflictActive down so BranchTreeItem '
+            'nulls the Rename onTap, matching the menu and F2 paths that go '
+            'through isActionEnabled().',
+      );
+
+      pumped.controller.emit(_cleanSession());
+      await tester.pumpAndSettle();
+
+      await _openBranchMenu(tester);
+      await tester.tap(find.text('Rename branch'));
+      await tester.pumpAndSettle();
       expect(find.byType(RenameBranchDialogContent), findsOneWidget);
     });
   });

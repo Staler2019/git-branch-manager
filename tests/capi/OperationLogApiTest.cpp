@@ -6,6 +6,7 @@
 // process-wide gbm::Log sink gets routed back to the right session.
 #include "capi/gbm_capi.h"
 #include "core/git/GitExecutable.h"
+#include "support/GitCli.h"
 
 #include <algorithm>
 #include <chrono>
@@ -107,17 +108,11 @@ protected:
         std::filesystem::remove_all(repo_, ec);
     }
 
+    /// Fixture git, without a shell in the middle -- see tests/support/GitCli.h
+    /// for why that matters (one process instead of two, and no per-platform
+    /// quoting hazard).
     int runGit(std::vector<std::string> args) {
-        std::string command = "git -C \"" + repo_.string() + "\"";
-        for (const auto& arg : args) {
-            command += " \"" + arg + "\"";
-        }
-#ifdef _WIN32
-        command += " >NUL 2>&1";
-#else
-        command += " >/dev/null 2>&1";
-#endif
-        return std::system(command.c_str());
+        return ::gbm::testing::GitCli::run(repo_, std::move(args));
     }
 
     std::filesystem::path repo_;

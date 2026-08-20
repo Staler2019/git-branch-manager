@@ -182,6 +182,16 @@ class FakeRepoSessionController extends RepoSessionController {
   }
 
   @override
+  void exportPatches(List<String> commitHexes, String outputDir) {
+    commandLog.add(
+      FakeCommand('exportPatches', <String, Object?>{
+        'commitHexes': commitHexes,
+        'outputDir': outputDir,
+      }),
+    );
+  }
+
+  @override
   void discardLines(String path, int hunkIndex, List<int> lineIndices) {
     commandLog.add(
       FakeCommand('discardLines', <String, Object?>{

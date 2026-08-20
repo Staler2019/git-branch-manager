@@ -273,6 +273,121 @@ void main() {
     expect(find.text('Open terminal here'), findsNothing);
   });
 
+  testWidgets('context menu offers "Open file at this revision"', (
+    tester,
+  ) async {
+    String? opened;
+    await pumpGbmWidget(
+      tester,
+      child: ChangedFilesPanelCore(
+        hasSelectedCommit: true,
+        files: <ChangedFile>[_file('src/main.dart')],
+        selectedPath: null,
+        onFileTap: (_) {},
+        onOpenAtRevision: (path) => opened = path,
+      ),
+    );
+
+    await tester.tap(
+      find.text('src/main.dart'),
+      buttons: kSecondaryMouseButton,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Open file at this revision'));
+    await tester.pumpAndSettle();
+
+    expect(opened, 'src/main.dart');
+  });
+
+  testWidgets(
+    'the "More actions" submenu lists all four of spec 05-K\'s second-level '
+    'items',
+    (tester) async {
+      await pumpGbmWidget(
+        tester,
+        child: ChangedFilesPanelCore(
+          hasSelectedCommit: true,
+          files: <ChangedFile>[_file('a.dart')],
+          selectedPath: null,
+          onFileTap: (_) {},
+          onRestoreToThisState: (_) {},
+          onRestoreAndStage: (_) {},
+          onSaveRevisionAs: (_) {},
+          onExportAsPatch: (_) {},
+        ),
+      );
+
+      await tester.tap(find.text('a.dart'), buttons: kSecondaryMouseButton);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('More actions'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Restore file to this state'), findsOneWidget);
+      expect(find.text('Restore and stage'), findsOneWidget);
+      expect(find.text('Save this revision as…'), findsOneWidget);
+      expect(find.text('Export as patch…'), findsOneWidget);
+    },
+  );
+
+  for (final (String label, String field) in <(String, String)>[
+    ('Restore file to this state', 'onRestoreToThisState'),
+    ('Restore and stage', 'onRestoreAndStage'),
+    ('Save this revision as…', 'onSaveRevisionAs'),
+    ('Export as patch…', 'onExportAsPatch'),
+  ]) {
+    testWidgets('submenu item "$label" fires $field with the path', (
+      tester,
+    ) async {
+      final Map<String, String> fired = <String, String>{};
+      await pumpGbmWidget(
+        tester,
+        child: ChangedFilesPanelCore(
+          hasSelectedCommit: true,
+          files: <ChangedFile>[_file('src/main.dart')],
+          selectedPath: null,
+          onFileTap: (_) {},
+          onRestoreToThisState: (p) => fired['onRestoreToThisState'] = p,
+          onRestoreAndStage: (p) => fired['onRestoreAndStage'] = p,
+          onSaveRevisionAs: (p) => fired['onSaveRevisionAs'] = p,
+          onExportAsPatch: (p) => fired['onExportAsPatch'] = p,
+        ),
+      );
+
+      await tester.tap(
+        find.text('src/main.dart'),
+        buttons: kSecondaryMouseButton,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('More actions'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(label));
+      await tester.pumpAndSettle();
+
+      expect(fired, <String, String>{field: 'src/main.dart'});
+    });
+  }
+
+  testWidgets(
+    'the submenu disappears entirely when no second-level action is available',
+    (tester) async {
+      await pumpGbmWidget(
+        tester,
+        child: ChangedFilesPanelCore(
+          hasSelectedCommit: true,
+          files: <ChangedFile>[_file('a.dart')],
+          selectedPath: null,
+          onFileTap: (_) {},
+        ),
+      );
+
+      await tester.tap(find.text('a.dart'), buttons: kSecondaryMouseButton);
+      await tester.pumpAndSettle();
+
+      expect(find.text('More actions'), findsNothing);
+      expect(find.text('Open file at this revision'), findsNothing);
+    },
+  );
+
   testWidgets('shows the shared list/tree mode toggle button', (tester) async {
     await pumpGbmWidget(
       tester,

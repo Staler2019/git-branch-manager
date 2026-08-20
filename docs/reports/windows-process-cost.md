@@ -156,27 +156,75 @@ looks like −11 %, and that baseline simply happened to be the slowest run in
 the set. The defensible claims here are the deterministic ones — 89 fewer
 processes, 5.5 ms per call — not a CI delta.
 
-## What this does *not* fix
+## The fixture shell, since removed
 
-Stated plainly so the CI number is not mistaken for the target:
+The largest single item in the earlier version of this report was listed under
+"what this does not fix": 903 of the 1378 git invocations came from `runGit()`
+helpers built on `std::system()`, copy-pasted into 26 capi fixtures. On Windows
+each of those spawns **`cmd.exe` *and* `git.exe`**, so the fixtures alone cost
+~1806 processes against the app's 386.
 
-1. **Test fixtures dominate, and they are not app code.** 903 of 1378
-   invocations come from `runGit()` helpers built on `std::system()`. On
-   Windows that spawns **`cmd.exe` *and* `git.exe`** per call — roughly 1806
-   processes for the fixtures against 386 for the app. No change under `src/`
-   can touch this. Replacing `std::system()` with a direct spawn would be the
-   single largest win available for the *test job*.
-2. **ctest runs serially in CI.** `CMakePresets.json`'s `tbase` test preset
-   sets no `execution.jobs`, so all 511 cases run one at a time on every
-   platform. Parallelising would compress Windows' 251 s substantially — but
-   see **#70**: `UndoApiTest`/`MergeApiTest` (and, observed while writing
-   this, `BisectApiTest.BisectResetEndsTheSessionAndRestoresTheOriginalBranch`)
-   already fail intermittently under parallel load with a fixed 10 s
-   `waitFor` budget. Turning on `-j` in CI without settling #70 first would
-   trade wall clock for flakes. Deliberately not done here.
-3. **The remaining app spawns are mostly irreducible.** `status`, `diff` and
-   `for-each-ref` each answer a distinct question; `--version` is one probe
-   per `Session`.
+That is now fixed. `tests/support/GitCli.h` runs git through the existing
+`makeProcessRunner()` — `gbm_capi_tests` already linked `gbm_core`, so no new
+dependency — and every fixture call site goes through it.
+
+| | before | after |
+|---|---|---|
+| git processes | 1378 | 1348 |
+| shell processes | 903 | **0** |
+| **total** | **2281** | **1348** |
+
+**933 fewer processes, −41 %**, which is what the per-process model predicted.
+The 30 git processes that also went are `GitExecutable::detect()`: 29 fixtures
+each ran their own `git --version` probe purely to decide whether to skip, and
+`GitCli` detects once per test binary.
+
+Wall clock, `gbm_capi_tests` run end to end on macOS, three runs per side:
+
+| | samples | median |
+|---|---|---|
+| before | 64.19 / 54.95 / 45.49 | 54.95 s |
+| after | 38.43 / 40.97 / 52.49 | **40.97 s** |
+
+−25 % by median, **but the ranges overlap** (the fastest "before" run beats the
+slowest "after" one), so on macOS this is directional rather than conclusive at
+n=3. That is expected: `/bin/sh` is cheap. The deterministic process count is
+the number to trust here, and Windows — where the removed process is `cmd.exe`
+— is where the effect should be large enough to see. A controlled measurement
+on a single file was cleaner: `WorkingCopyApiTest --gtest_repeat=10` (800
+fixture calls) went from a median of **33.72 s** to **30.56 s**, non-overlapping
+ranges, 3.95 ms saved per call against a 4.39 ms prediction.
+
+Two correctness problems went with the shell, and they matter more than the
+seconds:
+
+- **Quoting.** `BranchApiTest` carried a five-line comment explaining that
+  single quotes are POSIX-shell syntax `cmd.exe` passes through literally, so
+  git received them as part of a `--format` string, while leaving
+  `%(refname:short)` unquoted made dash treat the parentheses as a syntax
+  error. An argv vector has no such failure mode.
+- **Stray files in the repository under test.** `CommitFilesApiTest` and
+  `CommitMetaApiTest` redirected `rev-parse HEAD` into `head-oid.txt` *inside*
+  the fixture repository, leaving an untracked file for every later status read
+  to trip over. `GitCli::capture()` returns stdout directly.
+
+A `cq.yml` guard now fails the build if `std::system` reappears under `tests/`,
+on the same reasoning as the "core must not depend on Qt" grep next to it: the
+tests would still pass, just slower and more fragile, so nothing else in CI
+would notice.
+
+## What this still does *not* fix
+
+1. **ctest runs serially in CI.** `CMakePresets.json`'s `tbase` test preset
+   sets no `execution.jobs`, so all cases run one at a time on every platform.
+   Parallelising would compress Windows further — but see **#70**:
+   `UndoApiTest`/`MergeApiTest` (and, observed while writing this,
+   `BisectApiTest.BisectResetEndsTheSessionAndRestoresTheOriginalBranch`)
+   already fail intermittently under parallel load with a fixed 10 s `waitFor`
+   budget. Turning on `-j` in CI without settling #70 first would trade wall
+   clock for flakes. Deliberately not done here.
+2. **The remaining app spawns are mostly irreducible.** `status`, `diff` and
+   `for-each-ref` each answer a distinct question.
 
 ## Sundry
 

@@ -245,6 +245,18 @@ Map<GbmActionId, GbmKeyboardShortcut> gbmActionShortcuts(bool isMacOS) {
       isMacOS,
       shift: true,
     ),
+
+    // Bare-key group (1). The only shortcut in the spec's MENUS table with
+    // no Ctrl/Cmd at all, so it cannot go through _makeShortcut() -- that
+    // helper always sets one or the other. F2 is the platform convention
+    // for rename on Windows and Linux, and spec's 260820 revision
+    // ("Branch → Rename branch… = F2") adopts it on macOS too rather than
+    // splitting the binding per platform.
+    GbmActionId.branchRenameCurrentBranch: const GbmKeyboardShortcut(
+      trigger: LogicalKeyboardKey.f2,
+      control: false,
+      meta: false,
+    ),
   };
 }
 

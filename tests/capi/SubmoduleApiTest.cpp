@@ -2,6 +2,7 @@
 // (gbm_capi.h).
 #include "capi/gbm_capi.h"
 #include "core/git/GitExecutable.h"
+#include "support/GitCli.h"
 
 #include <chrono>
 #include <condition_variable>
@@ -16,6 +17,8 @@
 
 namespace gbm::capi {
 namespace {
+
+using ::gbm::testing::GitCli;
 
 struct EventLog {
     std::mutex mutex;
@@ -120,16 +123,7 @@ protected:
     }
 
     int runGitIn(const std::filesystem::path& dir, std::vector<std::string> args) {
-        std::string command = "git -C \"" + dir.string() + "\"";
-        for (const auto& arg : args) {
-            command += " \"" + arg + "\"";
-        }
-#ifdef _WIN32
-        command += " >NUL 2>&1";
-#else
-        command += " >/dev/null 2>&1";
-#endif
-        return std::system(command.c_str());
+        return GitCli::run(dir, std::move(args));
     }
 
     std::string submodulesJson() {

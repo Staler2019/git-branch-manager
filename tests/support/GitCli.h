@@ -11,7 +11,37 @@ struct GitCliResult {
     int exitCode = 0;
     /// Records joined by '\n' with no trailing separator, exactly as
     /// IProcessRunner::run() reassembles them.
+    ///
+    /// Note this is *not* byte-exact stdout: the line splitter behind it drops
+    /// the final separator and strips a '\r' before every '\n'. That is fine
+    /// for the ref names, oids and subjects fixtures read, and wrong for a blob
+    /// or a patch -- see docs/reports/windows-process-cost.md.
     std::string out;
+
+    /// First line only, for the callers that used to `std::getline` once out of
+    /// a redirect file and ignore whatever followed.
+    std::string firstLine() const {
+        const std::size_t end = out.find('\n');
+        return end == std::string::npos ? out : out.substr(0, end);
+    }
+
+    /// Non-empty lines, for the callers that used to loop over that file.
+    std::vector<std::string> lines() const {
+        std::vector<std::string> result;
+        std::size_t start = 0;
+        while (start <= out.size()) {
+            const std::size_t end = out.find('\n', start);
+            const std::size_t stop = end == std::string::npos ? out.size() : end;
+            if (stop > start) {
+                result.push_back(out.substr(start, stop - start));
+            }
+            if (end == std::string::npos) {
+                break;
+            }
+            start = end + 1;
+        }
+        return result;
+    }
 };
 
 /// Runs a real git for test *fixtures* -- setting a repository up, and reading

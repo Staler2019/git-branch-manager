@@ -1,5 +1,6 @@
 #include "capi/gbm_capi.h"
 #include "core/git/GitExecutable.h"
+#include "support/GitCli.h"
 
 #include <cstdlib>
 #include <filesystem>
@@ -9,6 +10,8 @@
 
 namespace gbm::capi {
 namespace {
+
+using ::gbm::testing::GitCli;
 
 // Windows paths contain backslashes, which JSON escapes as `\\` -- searching
 // the raw path.string() as a substring of serialized JSON never matches
@@ -38,14 +41,8 @@ protected:
         std::filesystem::remove_all(base_);
         std::filesystem::create_directories(repo_);
 
-#ifdef _WIN32
-        const std::string cmd = "git -C \"" + repo_.string() +
-                                "\" init --quiet --initial-branch=main >NUL 2>&1";
-#else
-        const std::string cmd = "git -C \"" + repo_.string() +
-                                "\" init --quiet --initial-branch=main >/dev/null 2>&1";
-#endif
-        ASSERT_EQ(std::system(cmd.c_str()), 0);
+        ASSERT_EQ(GitCli::run(repo_, {"init", "--quiet", "--initial-branch=main"}),
+                  0);
     }
 
     void TearDown() override {

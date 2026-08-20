@@ -23,6 +23,8 @@
 namespace gbm::capi {
 namespace {
 
+using ::gbm::testing::GitCli;
+
 // Windows paths contain backslashes, which JSON escapes as `\\` -- searching
 // the raw path.string() as a substring of serialized JSON never matches
 // there, even though the same code is correct on POSIX where paths use `/`.
@@ -112,7 +114,7 @@ protected:
     /// for why that matters (one process instead of two, and no per-platform
     /// quoting hazard).
     int runGit(std::vector<std::string> args) {
-        return ::gbm::testing::GitCli::run(repo_, std::move(args));
+        return GitCli::run(repo_, std::move(args));
     }
 
     std::filesystem::path repo_;

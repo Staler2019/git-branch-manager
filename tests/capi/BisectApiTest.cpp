@@ -18,6 +18,8 @@
 namespace gbm::capi {
 namespace {
 
+using ::gbm::testing::GitCli;
+
 struct EventLog {
     std::mutex mutex;
     std::condition_variable cv;
@@ -109,27 +111,16 @@ protected:
     /// for why that matters (one process instead of two, and no per-platform
     /// quoting hazard).
     int runGit(std::vector<std::string> args) {
-        return ::gbm::testing::GitCli::run(repo_, std::move(args));
+        return GitCli::run(repo_, std::move(args));
     }
 
     std::string commitHex(const std::string& revision) {
-        const std::string outFile = (repo_ / "..gbm_rev.txt").string();
-        std::string command = "git -C \"" + repo_.string() + "\" rev-parse " + revision + " > \"" + outFile + "\"";
-        [[maybe_unused]] const int rc = std::system(command.c_str());
-        std::ifstream in(outFile);
-        std::string line;
-        std::getline(in, line);
-        return line;
+        return GitCli::capture(repo_, {"rev-parse", revision}).firstLine();
     }
 
     std::string currentBranch() {
-        const std::string outFile = (repo_ / "..gbm_branch.txt").string();
-        std::string command = "git -C \"" + repo_.string() + "\" symbolic-ref --short -q HEAD > \"" + outFile + "\"";
-        [[maybe_unused]] const int rc = std::system(command.c_str());
-        std::ifstream in(outFile);
-        std::string line;
-        std::getline(in, line);
-        return line;
+        return GitCli::capture(repo_, {"symbolic-ref", "--short", "-q", "HEAD"})
+            .firstLine();
     }
 
     std::string bisectStatusJson() {

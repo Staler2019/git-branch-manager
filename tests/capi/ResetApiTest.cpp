@@ -18,6 +18,8 @@
 namespace gbm::capi {
 namespace {
 
+using ::gbm::testing::GitCli;
+
 struct EventLog {
     std::mutex mutex;
     std::condition_variable cv;
@@ -91,17 +93,11 @@ protected:
     /// for why that matters (one process instead of two, and no per-platform
     /// quoting hazard).
     int runGit(std::vector<std::string> args) {
-        return ::gbm::testing::GitCli::run(repo_, std::move(args));
+        return GitCli::run(repo_, std::move(args));
     }
 
     std::string headCommitSubject() {
-        const std::string outFile = (repo_ / "..gbm_reset_test_head.txt").string();
-        std::string command = "git -C \"" + repo_.string() + "\" log -1 --format=%s > \"" + outFile + "\"";
-        [[maybe_unused]] const int rc = std::system(command.c_str());
-        std::ifstream in(outFile);
-        std::string line;
-        std::getline(in, line);
-        return line;
+        return GitCli::capture(repo_, {"log", "-1", "--format=%s"}).firstLine();
     }
 
     bool waitForOperationFinished() {
@@ -125,13 +121,7 @@ TEST_F(ResetApiTest, SoftResetMovesHeadKeepsIndexAndWorkTree) {
 
     EXPECT_EQ(headCommitSubject(), "First commit");
     // Soft reset leaves the second commit's changes staged.
-    const std::string outFile = (repo_ / "..gbm_reset_test_staged.txt").string();
-    std::string diffCmd = "git -C \"" + repo_.string() + "\" diff --cached --name-only > \"" + outFile + "\"";
-    [[maybe_unused]] const int rc = std::system(diffCmd.c_str());
-    std::ifstream in(outFile);
-    std::string line;
-    std::getline(in, line);
-    EXPECT_EQ(line, "file.txt");
+    EXPECT_EQ(GitCli::capture(repo_, {"diff", "--cached", "--name-only"}).firstLine(), "file.txt");
 }
 
 TEST_F(ResetApiTest, HardResetMovesHeadAndDiscardsWorkTreeChanges) {
@@ -176,13 +166,9 @@ TEST_F(ResetApiTest, RestorePathsStagedUnstagesAFile) {
         return false;
     }));
 
-    const std::string outFile = (repo_ / "..gbm_restore_test_staged.txt").string();
-    std::string diffCmd = "git -C \"" + repo_.string() + "\" diff --cached --name-only > \"" + outFile + "\"";
-    [[maybe_unused]] const int rc = std::system(diffCmd.c_str());
-    std::ifstream in(outFile);
-    std::string line;
-    std::getline(in, line);
-    EXPECT_TRUE(line.empty()) << "expected nothing staged after --staged restore, got: " << line;
+    const std::string staged =
+        GitCli::capture(repo_, {"diff", "--cached", "--name-only"}).firstLine();
+    EXPECT_TRUE(staged.empty()) << "expected nothing staged after --staged restore, got: " << staged;
 }
 
 TEST_F(ResetApiTest, CleanUntrackedRemovesUntrackedFiles) {

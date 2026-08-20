@@ -18,6 +18,8 @@
 namespace gbm::capi {
 namespace {
 
+using ::gbm::testing::GitCli;
+
 struct EventLog {
     std::mutex mutex;
     std::condition_variable cv;
@@ -107,7 +109,7 @@ protected:
     /// for why that matters (one process instead of two, and no per-platform
     /// quoting hazard).
     int runGit(std::vector<std::string> args) {
-        return ::gbm::testing::GitCli::run(repo_, std::move(args));
+        return GitCli::run(repo_, std::move(args));
     }
 
     bool waitForOperationFinished() {
@@ -147,8 +149,7 @@ TEST_F(RebaseApiTest, PlainRebaseReplaysFeatureCommitsOntoMain) {
     // feature no longer contains "Commit unique to main" as an unmerged
     // ancestor of main -- after a successful rebase, main is now an ancestor
     // of feature.
-    const std::string command = "git -C \"" + repo_.string() + "\" merge-base --is-ancestor main feature";
-    EXPECT_EQ(std::system(command.c_str()), 0);
+    EXPECT_EQ(GitCli::run(repo_, {"merge-base", "--is-ancestor", "main", "feature"}), 0);
 
     std::ifstream file(repo_ / "feature.txt");
     ASSERT_TRUE(file.good());

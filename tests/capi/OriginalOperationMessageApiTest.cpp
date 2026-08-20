@@ -20,6 +20,8 @@
 namespace gbm::capi {
 namespace {
 
+using ::gbm::testing::GitCli;
+
 struct EventLog {
     std::mutex mutex;
     std::condition_variable cv;
@@ -160,29 +162,18 @@ protected:
     /// for why that matters (one process instead of two, and no per-platform
     /// quoting hazard).
     int runGit(std::vector<std::string> args) {
-        return ::gbm::testing::GitCli::run(repo_, std::move(args));
+        return GitCli::run(repo_, std::move(args));
     }
 
     std::string commitHex(const std::string& revision) {
-        const std::string outFile = (repo_ / "..gbm_rev.txt").string();
-        std::string command = "git -C \"" + repo_.string() + "\" rev-parse " + revision + " > \"" + outFile + "\"";
-        [[maybe_unused]] const int rc = std::system(command.c_str());
-        std::ifstream in(outFile);
-        std::string line;
-        std::getline(in, line);
-        return line;
+        return GitCli::capture(repo_, {"rev-parse", revision}).firstLine();
     }
 
     // Trims trailing newlines: `git log --format=%B` appends its own
     // terminator on top of the commit message's own trailing newline, and
     // that formatting detail is not what these tests care about.
     std::string headCommitMessage() {
-        const std::string outFile = (repo_ / "..gbm_msg.txt").string();
-        std::string command =
-            "git -C \"" + repo_.string() + "\" log -1 --format=%B > \"" + outFile + "\"";
-        [[maybe_unused]] const int rc = std::system(command.c_str());
-        std::ifstream in(outFile);
-        std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        std::string content = GitCli::capture(repo_, {"log", "-1", "--format=%B"}).out;
         while (!content.empty() && content.back() == '\n') {
             content.pop_back();
         }

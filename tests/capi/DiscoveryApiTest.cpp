@@ -28,9 +28,11 @@ std::string jsonNeedle(const std::filesystem::path& path) {
 class DiscoveryApiTest : public ::testing::Test {
 protected:
     static void SetUpTestSuite() {
-        auto detected = GitExecutable::detect();
-        if (!detected) {
-            GTEST_SKIP() << "no usable git found: " << detected.error().message;
+        // GitCli detects git once per test binary and caches it; this used to
+        // be a GitExecutable::detect() per suite, i.e. one `git --version`
+        // process each -- 29 of them across this binary.
+        if (GitCli::executable().empty()) {
+            GTEST_SKIP() << "no usable git found";
         }
     }
 

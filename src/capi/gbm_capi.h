@@ -392,12 +392,30 @@ GBM_API void gbm_branch_create(GbmSessionHandle session,
                                int32_t setUpstream,
                                const char* upstream);
 
-/// `git branch -m <from> <to>` (`-M` when `force`). Async: fires
-/// GBM_EVENT_OPERATION_FINISHED, and on success refreshes refs.
+/// `git branch -m <from> <to>` (`-M` when `force`).
+///
+/// When `renameRemote` is set, the rename is carried through to
+/// `remoteName` afterwards: `git push --set-upstream <remoteName> <to>`,
+/// then `git push <remoteName> --delete <from>`. git has no atomic remote
+/// rename, so it really is push-then-delete -- everyone else's
+/// remote-tracking ref for the old name goes `gone`. A failure in either
+/// remote step is reported as a failed operation whose summary states that
+/// the *local* rename did land, since the caller otherwise cannot tell
+/// which half happened.
+///
+/// When `renameRemote` is not set, the branch's upstream is unset instead:
+/// `git branch -m` carries the tracking config across, which would leave
+/// the renamed branch tracking the old remote branch.
+///
+/// Async: fires GBM_EVENT_OPERATION_FINISHED, and on success refreshes
+/// refs. May fire GBM_EVENT_CREDENTIAL_REQUESTED while `renameRemote` is
+/// contacting the remote.
 GBM_API void gbm_branch_rename(GbmSessionHandle session,
                                const char* from,
                                const char* to,
-                               int32_t force);
+                               int32_t force,
+                               int32_t renameRemote,
+                               const char* remoteName);
 
 /// `git branch -d/-D <names...>` (multiple names in one call, matching
 /// `git branch`'s own multi-name support -- a multi-select delete is one

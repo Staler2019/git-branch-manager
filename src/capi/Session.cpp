@@ -284,8 +284,17 @@ void Session::createBranch(CreateBranchRequest request) {
 }
 
 void Session::renameBranch(RenameBranchRequest request) {
-    submitOperation(makeRenameBranchOperation(std::move(request)),
-                    /*refreshHistoryOnSuccess=*/true);
+    // Only the remote half can prompt for credentials, so only it needs the
+    // askpass watch -- same conditional as deleteTag() below.
+    const bool needsAskpass = request.renameRemote;
+    if (needsAskpass) {
+        request.askpassDir = beginAskpass();
+    }
+    submitOperation(
+        makeRenameBranchOperation(std::move(request)),
+        /*refreshHistoryOnSuccess=*/true,
+        /*onSuccess=*/nullptr,
+        /*onAlways=*/needsAskpass ? std::function<void()>([this]() { endAskpass(); }) : nullptr);
 }
 
 void Session::deleteBranch(DeleteBranchRequest request) {

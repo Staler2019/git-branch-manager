@@ -1,8 +1,10 @@
 #include "core/git/ops/BranchOps.h"
 
 #include "core/base/FsUtil.h"
+#include "core/git/AskpassHelper.h"
 #include "core/git/RefStore.h"
 
+#include <chrono>
 #include <sstream>
 #include <string_view>
 #include <utility>
@@ -204,9 +206,7 @@ public:
                     "The branch is currently named " + temporary + "; rename it manually to finish";
                 return outcome;
             }
-            outcome.succeeded = true;
-            outcome.summary = "Renamed to " + request_.to;
-            return outcome;
+            return finishLocalRename(runner, paths, token);
         }
 
         std::vector<std::string> args{
@@ -220,12 +220,75 @@ public:
             outcome.summary = outcome.error->message;
             return outcome;
         }
-        outcome.succeeded = true;
-        outcome.summary = "Renamed to " + request_.to;
-        return outcome;
+        return finishLocalRename(runner, paths, token);
     }
 
 private:
+    /// Everything after the local rename has landed. Either carries the
+    /// rename through to the remote -- push the new name, then delete the
+    /// old one, in that order -- or, when the branch is staying local-only,
+    /// drops the tracking config `git branch -m` would otherwise have left
+    /// pointing at the old remote branch.
+    ///
+    /// A failure here is reported as a failure with the local rename spelled
+    /// out in the summary, the same shape DeleteTagOperation uses: the branch
+    /// really has been renamed, and saying only "push failed" would leave the
+    /// user unable to tell which half happened.
+    OperationOutcome finishLocalRename(IProcessRunner& runner,
+                                       const RepoPaths& paths,
+                                       CancellationToken token) {
+        OperationOutcome outcome;
+        outcome.succeeded = true;
+        outcome.summary = "Renamed to " + request_.to;
+
+        if (!request_.renameRemote) {
+            // `git branch -m` carries branch.<name>.remote/.merge across with
+            // the rename, so without this the renamed branch would still
+            // track the *old* remote branch. Its exit code is deliberately
+            // ignored rather than swallowed: --unset-upstream fails when
+            // there was no upstream to begin with, which is the common case
+            // and not an error -- either way the branch ends up with no
+            // upstream, which is the whole point.
+            GitCommand unsetUpstream(paths.commandDir(),
+                                     {"branch", "--unset-upstream", request_.to});
+            unsetUpstream.timeout = std::chrono::seconds(60);
+            (void)runner.run(unsetUpstream, token);
+            return outcome;
+        }
+
+        // No local timeout on either remote step: the budget belongs to the
+        // network, exactly as PushTagOperation/DeleteTagOperation do it.
+        GitCommand push(paths.commandDir(),
+                        {"push", "--set-upstream", request_.remoteName, request_.to});
+        push.timeout = std::chrono::milliseconds(0);
+        askpass::wire(push, request_.askpassDir);
+        auto pushed = runner.run(push, token);
+        if (!pushed) {
+            outcome.succeeded = false;
+            outcome.error = std::move(pushed).error();
+            outcome.summary = "Renamed locally to " + request_.to + ", but could not push it to " +
+                              request_.remoteName + ": " + outcome.error->message;
+            return outcome;
+        }
+
+        GitCommand deleteOld(paths.commandDir(),
+                             {"push", request_.remoteName, "--delete", request_.from});
+        deleteOld.timeout = std::chrono::milliseconds(0);
+        askpass::wire(deleteOld, request_.askpassDir);
+        auto deleted = runner.run(deleteOld, token);
+        if (!deleted) {
+            outcome.succeeded = false;
+            outcome.error = std::move(deleted).error();
+            outcome.summary = "Renamed to " + request_.to +
+                              " and pushed it, but could not delete " + request_.from + " on " +
+                              request_.remoteName + ": " + outcome.error->message;
+            return outcome;
+        }
+
+        outcome.summary = "Renamed to " + request_.to + " locally and on " + request_.remoteName;
+        return outcome;
+    }
+
     RenameBranchRequest request_;
 };
 

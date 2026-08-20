@@ -2,6 +2,7 @@
 
 #include "core/git/OperationRunner.h"
 
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <vector>
@@ -20,6 +21,25 @@ struct RenameBranchRequest {
     std::string from;
     std::string to;
     bool force = false;
+    /// Carries the rename through to `remoteName` after the local rename
+    /// succeeds: pushes the branch under its new name (with `-u`, so the
+    /// renamed branch tracks it), then deletes the old branch on the remote.
+    /// git has no atomic remote rename, so this really is push-then-delete,
+    /// and everyone else's remote-tracking ref for the old name goes `gone`.
+    /// Push comes first deliberately -- reversing the two would leave the
+    /// branch unpublished if the second step failed.
+    ///
+    /// When this is false and the branch had an upstream, the upstream is
+    /// unset instead: `git branch -m` *keeps* the tracking config, which
+    /// would otherwise leave the renamed branch still tracking the old
+    /// remote branch. That is not configurable -- it is what "rename
+    /// locally only" means.
+    bool renameRemote = false;
+    std::string remoteName;
+    /// Set by the app layer to a directory made with askpass::makeRequestDir();
+    /// only the `renameRemote` steps need it, since they are the only ones
+    /// that talk to a remote.
+    std::filesystem::path askpassDir;
 };
 
 struct DeleteBranchRequest {

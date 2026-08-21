@@ -651,6 +651,42 @@ class FakeRepoSessionController extends RepoSessionController {
       FakeCommand('requestCommitMeta', <String, Object?>{'oids': oids}),
     );
   }
+
+  @override
+  void startBisect({
+    String badRef = '',
+    List<String> goodRefs = const <String>[],
+    List<String> paths = const <String>[],
+    bool noCheckout = false,
+  }) {
+    commandLog.add(
+      FakeCommand('startBisect', <String, Object?>{
+        'badRef': badRef,
+        'goodRefs': goodRefs,
+        'paths': paths,
+        'noCheckout': noCheckout,
+      }),
+    );
+  }
+
+  @override
+  void markBisect({required bool good, String ref = ''}) {
+    commandLog.add(
+      FakeCommand('markBisect', <String, Object?>{'good': good, 'ref': ref}),
+    );
+  }
+
+  @override
+  void skipBisect({List<String> refs = const <String>[]}) {
+    commandLog.add(FakeCommand('skipBisect', <String, Object?>{'refs': refs}));
+  }
+
+  @override
+  void resetBisect({String target = ''}) {
+    commandLog.add(
+      FakeCommand('resetBisect', <String, Object?>{'target': target}),
+    );
+  }
 }
 
 /// Fake [GbmBindings] that fails session open immediately, so

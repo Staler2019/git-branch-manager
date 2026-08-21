@@ -7,7 +7,6 @@ import '../features/compare/compare_page.dart';
 import '../features/panels/panel_page.dart';
 import '../features/conflict_resolution/conflict_resolve_window.dart';
 import '../features/dialogs/about/about_dialog.dart';
-import '../features/dialogs/bisect/bisect_dialog.dart';
 import '../features/dialogs/blame/blame_dialog.dart';
 import '../features/dialogs/checkout/checkout_dialog.dart';
 import '../features/dialogs/checkout_recovery/checkout_recovery_dialog.dart';
@@ -280,15 +279,6 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
             state.pathParameters['repoId']!,
           );
           return InteractiveRebaseDialogContent(identity: identity);
-        },
-      ),
-      dialogRoute(
-        path: RoutePaths.bisectDialog,
-        builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(
-            state.pathParameters['repoId']!,
-          );
-          return BisectDialogContent(identity: identity);
         },
       ),
       dialogRoute(

@@ -813,14 +813,8 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         GbmPanelKind.interactiveRebase,
         dialogRoute: RoutePaths.interactiveRebaseDialogFor(repoId),
       ),
-      GbmActionId.toolsBisect: () => _openPanel(
-        context,
-        ref,
-        identity,
-        repoId,
-        GbmPanelKind.bisect,
-        dialogRoute: RoutePaths.bisectDialogFor(repoId),
-      ),
+      GbmActionId.toolsBisect: () =>
+          _openPanel(context, ref, identity, repoId, GbmPanelKind.bisect),
       GbmActionId.toolsCleanUntrackedFiles: () =>
           context.push(RoutePaths.cleanUntrackedDialogFor(repoId)),
 

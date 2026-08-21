@@ -276,11 +276,10 @@ class _GeneralTab extends StatelessWidget {
               label: 'Manage submodules…',
               kind: GbmPanelKind.manageSubmodules,
             ),
-            GbmButton(
+            _PanelLinkButton(
+              identity: identity,
               label: 'Manage LFS…',
-              onPressed: () => context.push(
-                RoutePaths.manageLfsDialogFor(repoIdForRoute(identity)),
-              ),
+              kind: GbmPanelKind.manageLfs,
             ),
             GbmButton(
               label: 'Clean untracked files…',

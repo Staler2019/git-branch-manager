@@ -42,7 +42,6 @@ abstract final class RoutePaths {
   static const String interactiveRebaseDialog =
       '/repo/:repoId/dialogs/interactive-rebase';
   static const String bisectDialog = '/repo/:repoId/dialogs/bisect';
-  static const String manageLfsDialog = '/repo/:repoId/dialogs/manage-lfs';
   static const String patchesDialog = '/repo/:repoId/dialogs/patches';
   static const String cleanUntrackedDialog =
       '/repo/:repoId/dialogs/clean-untracked';
@@ -141,8 +140,6 @@ abstract final class RoutePaths {
       '/repo/$repoId/dialogs/interactive-rebase';
   static String bisectDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/bisect';
-  static String manageLfsDialogFor(String repoId) =>
-      '/repo/$repoId/dialogs/manage-lfs';
   static String patchesDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/patches';
   static String cleanUntrackedDialogFor(String repoId) =>

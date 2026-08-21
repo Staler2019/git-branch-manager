@@ -595,6 +595,46 @@ class FakeRepoSessionController extends RepoSessionController {
       }),
     );
   }
+
+  @override
+  void installLfs() {
+    commandLog.add(const FakeCommand('installLfs'));
+  }
+
+  @override
+  void trackLfsPattern(String pattern) {
+    commandLog.add(
+      FakeCommand('trackLfsPattern', <String, Object?>{'pattern': pattern}),
+    );
+  }
+
+  @override
+  void untrackLfsPattern(String pattern) {
+    commandLog.add(
+      FakeCommand('untrackLfsPattern', <String, Object?>{'pattern': pattern}),
+    );
+  }
+
+  @override
+  void pullLfs({String remoteName = ''}) {
+    commandLog.add(
+      FakeCommand('pullLfs', <String, Object?>{'remoteName': remoteName}),
+    );
+  }
+
+  @override
+  void fetchLfs({String remoteName = ''}) {
+    commandLog.add(
+      FakeCommand('fetchLfs', <String, Object?>{'remoteName': remoteName}),
+    );
+  }
+
+  @override
+  void pruneLfs({bool dryRun = false}) {
+    commandLog.add(
+      FakeCommand('pruneLfs', <String, Object?>{'dryRun': dryRun}),
+    );
+  }
 }
 
 /// Fake [GbmBindings] that fails session open immediately, so

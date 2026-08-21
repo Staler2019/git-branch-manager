@@ -789,14 +789,8 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         repoId,
         GbmPanelKind.manageSubmodules,
       ),
-      GbmActionId.toolsLargeFiles: () => _openPanel(
-        context,
-        ref,
-        identity,
-        repoId,
-        GbmPanelKind.manageLfs,
-        dialogRoute: RoutePaths.manageLfsDialogFor(repoId),
-      ),
+      GbmActionId.toolsLargeFiles: () =>
+          _openPanel(context, ref, identity, repoId, GbmPanelKind.manageLfs),
       GbmActionId.toolsPatches: () => _openPanel(
         context,
         ref,

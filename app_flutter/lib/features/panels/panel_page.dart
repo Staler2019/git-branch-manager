@@ -5,6 +5,7 @@ import '../../data/repositories/panel_tabs_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
+import 'lfs_panel.dart';
 import 'remotes_panel.dart';
 import 'stashes_panel.dart';
 import 'submodules_panel.dart';
@@ -57,6 +58,7 @@ class PanelPage extends ConsumerWidget {
       ),
       GbmPanelKind.manageRemotes => RemotesPanel(identity: identity),
       GbmPanelKind.manageSubmodules => SubmodulesPanel(identity: identity),
+      GbmPanelKind.manageLfs => LfsPanel(identity: identity),
       _ => _NotYetPortedPanel(kind: spec.kind),
     };
   }

@@ -14,7 +14,7 @@ import 'package:gbm_flutter/data/models/stash_entry.dart';
 import 'package:gbm_flutter/data/repositories/branch_repository.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
-import 'package:gbm_flutter/features/dialogs/manage_stashes/manage_stashes_dialog.dart';
+import 'package:gbm_flutter/features/panels/stashes_panel.dart';
 import 'package:gbm_flutter/features/sidebar/sidebar_panel.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
@@ -110,16 +110,17 @@ Future<_Harness> _pump(
             const Scaffold(body: SizedBox(key: Key('compare-stub'))),
       ),
       GoRoute(
-        path: RoutePaths.manageStashesDialog,
-        // The real dialog, not a stub -- its initState is exactly what
-        // "View diff" needs covered (see route_paths.dart's
-        // manageStashesDialogFor(selectIndex:) doc comment): it reads
-        // ?index= and fires requestStashDiff for it.
+        path: RoutePaths.panel,
+        // The real panel, not a stub -- its initState is exactly what
+        // "View diff" needs covered: it reads the ?select= the sidebar put
+        // on the route and fires requestStashDiff for it. Tier 6c moved
+        // this target from the manage-stashes dialog to a tab (spec page
+        // 14 `IAMAP`); the assertion below follows it.
         builder: (context, state) => Scaffold(
-          body: ManageStashesDialogContent(
+          body: StashesPanel(
             identity: _testIdentity,
             initialSelectedIndex: int.tryParse(
-              state.uri.queryParameters['index'] ?? '',
+              state.uri.queryParameters['select'] ?? '',
             ),
           ),
         ),
@@ -253,14 +254,13 @@ void main() {
         await tester.pump();
         await tester.pump();
 
-        // `push`, not `go` -- SidebarPanel stays mounted underneath, and
-        // the dialog is now mounted too, so its own element resolves the
-        // post-navigation location.
+        // `go`, not `push` -- a panel is a tab that replaces the shell's
+        // child rather than stacking over the sidebar.
         expect(
           GoRouterState.of(
-            tester.element(find.byType(ManageStashesDialogContent)),
+            tester.element(find.byType(StashesPanel)),
           ).uri.toString(),
-          contains('manage-stashes'),
+          contains('/panel/'),
         );
         expect(
           h.fake.commandLog.any(

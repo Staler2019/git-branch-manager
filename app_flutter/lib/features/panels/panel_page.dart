@@ -5,6 +5,7 @@ import '../../data/repositories/panel_tabs_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
+import 'stashes_panel.dart';
 import 'worktrees_panel.dart';
 
 /// Renders whichever management panel `/repo/:repoId/panel/:tabId` names --
@@ -18,10 +19,19 @@ import 'worktrees_panel.dart';
 /// the rest fall through to [_NotYetPortedPanel], which says so plainly
 /// rather than rendering blank. Progress is tracked on issue #76.
 class PanelPage extends ConsumerWidget {
-  const PanelPage({super.key, required this.identity, required this.tabId});
+  const PanelPage({
+    super.key,
+    required this.identity,
+    required this.tabId,
+    this.query = const <String, String>{},
+  });
 
   final RepoIdentity identity;
   final String tabId;
+
+  /// The route's query parameters, carrying per-panel opening state (see
+  /// [RoutePaths.panelFor]). Panels that need none ignore it.
+  final Map<String, String> query;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -39,6 +49,10 @@ class PanelPage extends ConsumerWidget {
 
     return switch (spec.kind) {
       GbmPanelKind.manageWorktrees => WorktreesPanel(identity: identity),
+      GbmPanelKind.manageStashes => StashesPanel(
+        identity: identity,
+        initialSelectedIndex: int.tryParse(query['select'] ?? ''),
+      ),
       _ => _NotYetPortedPanel(kind: spec.kind),
     };
   }

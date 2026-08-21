@@ -32,8 +32,6 @@ abstract final class RoutePaths {
   static const String cherryPickDialog = '/repo/:repoId/dialogs/cherry-pick';
   static const String stashChangesDialog =
       '/repo/:repoId/dialogs/stash-changes';
-  static const String manageStashesDialog =
-      '/repo/:repoId/dialogs/manage-stashes';
   static const String manageRemotesDialog =
       '/repo/:repoId/dialogs/manage-remotes';
   static const String createTagDialog = '/repo/:repoId/dialogs/create-tag';
@@ -122,20 +120,6 @@ abstract final class RoutePaths {
       '/repo/$repoId/dialogs/cherry-pick';
   static String stashChangesDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/stash-changes';
-
-  /// [selectIndex] pre-selects a stash entry (and its diff) on open --
-  /// used by the sidebar's stash context menu's "View diff" item so
-  /// clicking it doesn't land on ManageStashesDialogContent's default
-  /// "Select a stash" empty state.
-  static String manageStashesDialogFor(String repoId, {int? selectIndex}) {
-    if (selectIndex == null) {
-      return '/repo/$repoId/dialogs/manage-stashes';
-    }
-    return Uri(
-      path: '/repo/$repoId/dialogs/manage-stashes',
-      queryParameters: <String, String>{'index': '$selectIndex'},
-    ).toString();
-  }
 
   static String manageRemotesDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/manage-remotes';
@@ -282,6 +266,18 @@ abstract final class RoutePaths {
   static String conflictsFor(String repoId) => '/repo/$repoId/conflicts';
   static String compareFor(String repoId, String tabId) =>
       '/repo/$repoId/compare/$tabId';
-  static String panelFor(String repoId, String tabId) =>
-      '/repo/$repoId/panel/$tabId';
+
+  /// [query] carries per-panel opening state (e.g. the stash a 05-H "View
+  /// diff" should land on). It is *not* part of the tab's identity --
+  /// `panelTabsProvider` keys on kind + subject -- so re-opening the same
+  /// panel with a different query focuses the existing tab and hands it new
+  /// state, rather than creating a second one.
+  static String panelFor(
+    String repoId,
+    String tabId, {
+    Map<String, String>? query,
+  }) => Uri(
+    path: '/repo/$repoId/panel/$tabId',
+    queryParameters: (query == null || query.isEmpty) ? null : query,
+  ).toString();
 }

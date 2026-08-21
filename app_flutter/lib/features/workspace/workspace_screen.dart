@@ -748,7 +748,6 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         identity,
         repoId,
         GbmPanelKind.manageStashes,
-        dialogRoute: RoutePaths.manageStashesDialogFor(repoId),
       ),
       GbmActionId.toolsWorktrees: () => _openPanel(
         context,

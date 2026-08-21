@@ -29,7 +29,6 @@ import '../features/dialogs/line_history/line_history_dialog.dart';
 import '../features/dialogs/manage_base_folders/manage_base_folders_dialog.dart';
 import '../features/dialogs/manage_lfs/manage_lfs_dialog.dart';
 import '../features/dialogs/manage_remotes/manage_remotes_dialog.dart';
-import '../features/dialogs/manage_stashes/manage_stashes_dialog.dart';
 import '../features/dialogs/manage_submodules/manage_submodules_dialog.dart';
 import '../features/dialogs/merge/merge_dialog.dart';
 import '../features/dialogs/new_branch/new_branch_dialog.dart';
@@ -157,6 +156,7 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
               return PanelPage(
                 identity: identity,
                 tabId: state.pathParameters['tabId']!,
+                query: state.uri.queryParameters,
               );
             },
           ),
@@ -212,20 +212,6 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
             state.pathParameters['repoId']!,
           );
           return StashChangesDialogContent(identity: identity);
-        },
-      ),
-      dialogRoute(
-        path: RoutePaths.manageStashesDialog,
-        builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(
-            state.pathParameters['repoId']!,
-          );
-          return ManageStashesDialogContent(
-            identity: identity,
-            initialSelectedIndex: int.tryParse(
-              state.uri.queryParameters['index'] ?? '',
-            ),
-          );
         },
       ),
       dialogRoute(

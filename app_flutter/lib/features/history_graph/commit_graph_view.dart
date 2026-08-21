@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/models/commit_meta.dart';
 import '../../data/models/graph_snapshot.dart';
+import '../../data/models/list_selection.dart';
 import '../../data/models/ref_snapshot.dart';
 import '../../data/repositories/branch_repository.dart';
 import '../../data/repositories/history_repository.dart';
@@ -122,6 +123,20 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
     ref
         .read(repoSessionProvider(identity).notifier)
         .createBranch(name: name, startPoint: commitOid);
+  }
+
+  /// MULTIKEYS' `單擊` row: select only this commit and move the anchor to
+  /// it. Written through [commitSelectionProvider] rather than to
+  /// `selectedCommitProvider`, which is now that selection's anchor read
+  /// back out (see its doc comment) and no longer independently writable.
+  void _selectSingle(String oid) {
+    final StateController<ListSelection<String>> selection = ref.read(
+      commitSelectionProvider(widget.identity).notifier,
+    );
+    selection.state = selection.state.single(oid);
+    ref.read(selectedCommitFilePathProvider(widget.identity).notifier).state =
+        null;
+    requestCommitFiles(ref, widget.identity, oid);
   }
 
   @override
@@ -246,27 +261,7 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
                   meta != null &&
                   effectiveEmail.isNotEmpty &&
                   meta.author.email == effectiveEmail,
-              onTap: oid.isEmpty
-                  ? null
-                  : () {
-                      ref
-                              .read(
-                                selectedCommitProvider(
-                                  widget.identity,
-                                ).notifier,
-                              )
-                              .state =
-                          oid;
-                      ref
-                              .read(
-                                selectedCommitFilePathProvider(
-                                  widget.identity,
-                                ).notifier,
-                              )
-                              .state =
-                          null;
-                      requestCommitFiles(ref, widget.identity, oid);
-                    },
+              onTap: oid.isEmpty ? null : () => _selectSingle(oid),
               onCheckout: oid.isEmpty
                   ? null
                   : () => ref

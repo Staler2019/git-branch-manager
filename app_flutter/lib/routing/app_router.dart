@@ -28,7 +28,6 @@ import '../features/dialogs/keyboard_shortcuts/keyboard_shortcuts_dialog.dart';
 import '../features/dialogs/line_history/line_history_dialog.dart';
 import '../features/dialogs/manage_base_folders/manage_base_folders_dialog.dart';
 import '../features/dialogs/manage_lfs/manage_lfs_dialog.dart';
-import '../features/dialogs/manage_submodules/manage_submodules_dialog.dart';
 import '../features/dialogs/merge/merge_dialog.dart';
 import '../features/dialogs/new_branch/new_branch_dialog.dart';
 import '../features/dialogs/patches/patches_dialog.dart';
@@ -292,15 +291,6 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
             state.pathParameters['repoId']!,
           );
           return InteractiveRebaseDialogContent(identity: identity);
-        },
-      ),
-      dialogRoute(
-        path: RoutePaths.manageSubmodulesDialog,
-        builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(
-            state.pathParameters['repoId']!,
-          );
-          return ManageSubmodulesDialogContent(identity: identity);
         },
       ),
       dialogRoute(

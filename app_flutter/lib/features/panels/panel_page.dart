@@ -7,6 +7,7 @@ import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import 'remotes_panel.dart';
 import 'stashes_panel.dart';
+import 'submodules_panel.dart';
 import 'worktrees_panel.dart';
 
 /// Renders whichever management panel `/repo/:repoId/panel/:tabId` names --
@@ -55,6 +56,7 @@ class PanelPage extends ConsumerWidget {
         initialSelectedIndex: int.tryParse(query['select'] ?? ''),
       ),
       GbmPanelKind.manageRemotes => RemotesPanel(identity: identity),
+      GbmPanelKind.manageSubmodules => SubmodulesPanel(identity: identity),
       _ => _NotYetPortedPanel(kind: spec.kind),
     };
   }

@@ -41,8 +41,6 @@ abstract final class RoutePaths {
   static const String undoLastDialog = '/repo/:repoId/dialogs/undo-last';
   static const String interactiveRebaseDialog =
       '/repo/:repoId/dialogs/interactive-rebase';
-  static const String manageSubmodulesDialog =
-      '/repo/:repoId/dialogs/manage-submodules';
   static const String bisectDialog = '/repo/:repoId/dialogs/bisect';
   static const String manageLfsDialog = '/repo/:repoId/dialogs/manage-lfs';
   static const String patchesDialog = '/repo/:repoId/dialogs/patches';
@@ -141,8 +139,6 @@ abstract final class RoutePaths {
       '/repo/$repoId/dialogs/undo-last';
   static String interactiveRebaseDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/interactive-rebase';
-  static String manageSubmodulesDialogFor(String repoId) =>
-      '/repo/$repoId/dialogs/manage-submodules';
   static String bisectDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/bisect';
   static String manageLfsDialogFor(String repoId) =>

@@ -266,30 +266,15 @@ class _GeneralTab extends StatelessWidget {
           spacing: GbmSpacing.space2,
           runSpacing: GbmSpacing.space2,
           children: <Widget>[
-            // Worktrees became a tab in Tier 6c (spec page 14 `IAMAP`), so
-            // this closes the dialog before navigating: a tab replaces the
-            // shell's child, and leaving a modal open over it would hide the
-            // thing the user just asked for. Wrapped in a Consumer because
-            // _GeneralTab is a StatelessWidget with no `ref` of its own.
-            Consumer(
-              builder: (context, ref, _) => GbmButton(
-                label: 'Manage worktrees…',
-                onPressed: () {
-                  final String tabId = ref
-                      .read(panelTabsProvider(identity).notifier)
-                      .open(GbmPanelKind.manageWorktrees);
-                  context.pop();
-                  context.go(
-                    RoutePaths.panelFor(repoIdForRoute(identity), tabId),
-                  );
-                },
-              ),
+            _PanelLinkButton(
+              identity: identity,
+              label: 'Manage worktrees…',
+              kind: GbmPanelKind.manageWorktrees,
             ),
-            GbmButton(
+            _PanelLinkButton(
+              identity: identity,
               label: 'Manage submodules…',
-              onPressed: () => context.push(
-                RoutePaths.manageSubmodulesDialogFor(repoIdForRoute(identity)),
-              ),
+              kind: GbmPanelKind.manageSubmodules,
             ),
             GbmButton(
               label: 'Manage LFS…',
@@ -372,21 +357,10 @@ class _RemotesTab extends StatelessWidget {
         const SizedBox(height: GbmSpacing.space2),
         Row(
           children: <Widget>[
-            // Remotes became a tab in Tier 6c, so this pops the dialog
-            // first -- same reason as the worktrees link above.
-            Consumer(
-              builder: (context, ref, _) => GbmButton(
-                label: 'Manage remotes…',
-                onPressed: () {
-                  final String tabId = ref
-                      .read(panelTabsProvider(identity).notifier)
-                      .open(GbmPanelKind.manageRemotes);
-                  context.pop();
-                  context.go(
-                    RoutePaths.panelFor(repoIdForRoute(identity), tabId),
-                  );
-                },
-              ),
+            _PanelLinkButton(
+              identity: identity,
+              label: 'Manage remotes…',
+              kind: GbmPanelKind.manageRemotes,
             ),
             const SizedBox(width: GbmSpacing.space2),
             GbmButton(
@@ -535,6 +509,44 @@ class _PerformanceTab extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Opens one of spec page 14's management panels as a **tab**, from inside
+/// this dialog.
+///
+/// Two things it does that a plain `context.push` would not, and both
+/// matter: it registers the tab with [panelTabsProvider] (a tab that is not
+/// in that list renders "This panel is no longer open"), and it pops the
+/// dialog *before* navigating — a tab replaces the shell's child, so leaving
+/// the modal up would hide the thing the user just asked for.
+///
+/// A [Consumer] because `_GeneralTab` is a [StatelessWidget] with no `ref`.
+class _PanelLinkButton extends StatelessWidget {
+  const _PanelLinkButton({
+    required this.identity,
+    required this.label,
+    required this.kind,
+  });
+
+  final RepoIdentity identity;
+  final String label;
+  final GbmPanelKind kind;
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer(
+      builder: (context, ref, _) => GbmButton(
+        label: label,
+        onPressed: () {
+          final String tabId = ref
+              .read(panelTabsProvider(identity).notifier)
+              .open(kind);
+          context.pop();
+          context.go(RoutePaths.panelFor(repoIdForRoute(identity), tabId));
+        },
+      ),
     );
   }
 }

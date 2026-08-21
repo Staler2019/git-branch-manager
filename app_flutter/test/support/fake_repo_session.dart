@@ -524,6 +524,77 @@ class FakeRepoSessionController extends RepoSessionController {
   void dismissDeleteBranchChoices() {
     commandLog.add(const FakeCommand('dismissDeleteBranchChoices'));
   }
+
+  // Spec page 19 management panels (Tier 6c). Each records into
+  // [commandLog] so a panel test can assert the toolbar reached the
+  // session; without an override they would hit the null-session guard and
+  // silently no-op, which a test cannot tell apart from a dead button.
+  @override
+  void addSubmodule(String url, {String path = '', String branch = ''}) {
+    commandLog.add(
+      FakeCommand('addSubmodule', <String, Object?>{
+        'url': url,
+        'path': path,
+        'branch': branch,
+      }),
+    );
+  }
+
+  @override
+  void initSubmodules({
+    List<String> paths = const <String>[],
+    bool recursive = false,
+  }) {
+    commandLog.add(
+      FakeCommand('initSubmodules', <String, Object?>{
+        'paths': paths,
+        'recursive': recursive,
+      }),
+    );
+  }
+
+  @override
+  void updateSubmodules({
+    List<String> paths = const <String>[],
+    bool recursive = false,
+    bool init = false,
+    bool remote = false,
+  }) {
+    commandLog.add(
+      FakeCommand('updateSubmodules', <String, Object?>{
+        'paths': paths,
+        'recursive': recursive,
+        'init': init,
+        'remote': remote,
+      }),
+    );
+  }
+
+  @override
+  void syncSubmodules({
+    List<String> paths = const <String>[],
+    bool recursive = false,
+  }) {
+    commandLog.add(
+      FakeCommand('syncSubmodules', <String, Object?>{
+        'paths': paths,
+        'recursive': recursive,
+      }),
+    );
+  }
+
+  @override
+  void deinitSubmodules({
+    List<String> paths = const <String>[],
+    bool force = false,
+  }) {
+    commandLog.add(
+      FakeCommand('deinitSubmodules', <String, Object?>{
+        'paths': paths,
+        'force': force,
+      }),
+    );
+  }
 }
 
 /// Fake [GbmBindings] that fails session open immediately, so

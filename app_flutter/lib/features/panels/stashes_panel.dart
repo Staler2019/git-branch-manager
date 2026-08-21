@@ -6,13 +6,11 @@ import '../../data/models/stash_entry.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
 import '../../routing/route_paths.dart';
-import '../../theme/gbm_theme.dart';
-import '../../theme/tokens.dart';
 import '../../widgets/gbm_button.dart';
-import '../../widgets/gbm_row.dart';
 import '../history_graph/widgets/graph_date_format.dart';
 import 'gbm_panel_tab_shell.dart';
 import 'panel_file_diff_detail.dart';
+import 'panel_widgets.dart';
 
 /// `manage-stashes` as a tab (spec page 14 `IAMAP`), laid out on page 19's
 /// shared template.
@@ -138,19 +136,18 @@ class _StashesPanelState extends ConsumerState<StashesPanel> {
         ),
       ],
       list: stashes.isEmpty
-          ? Center(
-              child: Text(
-                'No stashes',
-                style: TextStyle(
-                  fontSize: GbmTypography.textSm,
-                  color: context.gbmColors.textTertiary,
-                ),
-              ),
-            )
+          ? const PanelEmptyList(message: 'No stashes')
           : ListView.builder(
               itemCount: stashes.length,
-              itemBuilder: (context, i) => _StashListRow(
-                entry: stashes[i],
+              // P19 list column: stash 編號 + 訊息 + 時間.
+              itemBuilder: (context, i) => PanelListRow(
+                title: 'stash@{${stashes[i].index}}: ${stashes[i].message}',
+                subtitle: formatGraphDate(
+                  DateTime.fromMillisecondsSinceEpoch(
+                    stashes[i].timestamp * 1000,
+                  ),
+                  DateTime.now(),
+                ),
                 selected: stashes[i].index == selected,
                 onTap: () => _select(stashes[i].index),
               ),
@@ -165,58 +162,6 @@ class _StashesPanelState extends ConsumerState<StashesPanel> {
               storageId: 'panel.stashes.detail',
             )
           : const Center(child: CircularProgressIndicator()),
-    );
-  }
-}
-
-/// P19 list column: stash 編號 + 訊息 + 時間.
-class _StashListRow extends StatelessWidget {
-  const _StashListRow({
-    required this.entry,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final StashEntry entry;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final GbmColors colors = context.gbmColors;
-    return GbmRow(
-      selected: selected,
-      onTap: onTap,
-      height: GbmSpacing.rowHeightComfortable + GbmSpacing.space3,
-      padding: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Text(
-              'stash@{${entry.index}}: ${entry.message}',
-              style: TextStyle(
-                fontSize: GbmTypography.textSm,
-                color: colors.textPrimary,
-                fontWeight: GbmTypography.weightMedium,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-            Text(
-              formatGraphDate(
-                DateTime.fromMillisecondsSinceEpoch(entry.timestamp * 1000),
-                DateTime.now(),
-              ),
-              style: TextStyle(
-                fontSize: GbmTypography.textXs,
-                color: colors.textTertiary,
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

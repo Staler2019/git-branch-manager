@@ -5,11 +5,10 @@ import '../../data/models/worktree_info.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
 import '../../data/services/desktop_launcher.dart';
-import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/gbm_button.dart';
-import '../../widgets/gbm_row.dart';
 import 'gbm_panel_tab_shell.dart';
+import 'panel_widgets.dart';
 
 /// `manage-worktrees` as a tab, and spec page 19's **reference instance**:
 /// the other eleven panels "只換欄位不換造型", so this is the one to copy.
@@ -59,6 +58,23 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
   RepoSessionController get _session =>
       ref.read(repoSessionProvider(widget.identity).notifier);
 
+  /// The 分支 + 狀態 half of P19's list row (the 名稱 half is the path's base
+  /// name). Every flag git reports is shown rather than only the first, so a
+  /// worktree that is both locked and prunable does not look like one that
+  /// is merely locked.
+  String _describe(WorktreeInfo w) {
+    final String status = <String>[
+      if (w.isMain) 'main',
+      if (w.isLocked) 'locked',
+      if (w.isPrunable) 'prunable',
+      if (w.isBare) 'bare',
+    ].join(' · ');
+    return <String>[
+      w.isDetached ? 'detached' : w.branch,
+      if (status.isNotEmpty) status,
+    ].join(' · ');
+  }
+
   @override
   Widget build(BuildContext context) {
     final List<WorktreeInfo> worktrees = ref.watch(
@@ -107,21 +123,14 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
           if (_addExpanded) _buildAddForm(),
           Expanded(
             child: worktrees.isEmpty
-                ? Center(
-                    child: Text(
-                      'No worktrees',
-                      style: TextStyle(
-                        fontSize: GbmTypography.textSm,
-                        color: context.gbmColors.textTertiary,
-                      ),
-                    ),
-                  )
+                ? const PanelEmptyList(message: 'No worktrees')
                 : ListView.builder(
                     itemCount: worktrees.length,
                     itemBuilder: (context, index) {
                       final WorktreeInfo w = worktrees[index];
-                      return _WorktreeListRow(
-                        worktree: w,
+                      return PanelListRow(
+                        title: w.path.split('/').last,
+                        subtitle: _describe(w),
                         selected: w.path == _selectedPath,
                         onTap: () => setState(() => _selectedPath = w.path),
                       );
@@ -195,71 +204,6 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
   }
 }
 
-/// P19 list column: worktree 名稱 + 分支 + 狀態.
-class _WorktreeListRow extends StatelessWidget {
-  const _WorktreeListRow({
-    required this.worktree,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final WorktreeInfo worktree;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final GbmColors colors = context.gbmColors;
-    final String name = worktree.path.split('/').last;
-    final String status = <String>[
-      if (worktree.isMain) 'main',
-      if (worktree.isLocked) 'locked',
-      if (worktree.isPrunable) 'prunable',
-      if (worktree.isBare) 'bare',
-    ].join(' · ');
-
-    return GbmRow(
-      selected: selected,
-      onTap: onTap,
-      // Two stacked lines (name over branch·status) do not fit
-      // rowHeightComfortable, which is sized for one -- a widget test caught
-      // this as a 2px RenderFlex overflow rather than it shipping as a
-      // clipped second line.
-      height: GbmSpacing.rowHeightComfortable + GbmSpacing.space3,
-      padding: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Text(
-              name,
-              style: TextStyle(
-                fontSize: GbmTypography.textSm,
-                color: colors.textPrimary,
-                fontWeight: GbmTypography.weightMedium,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-            Text(
-              <String>[
-                worktree.isDetached ? 'detached' : worktree.branch,
-                if (status.isNotEmpty) status,
-              ].join(' · '),
-              style: TextStyle(
-                fontSize: GbmTypography.textXs,
-                color: colors.textTertiary,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 /// P19 detail column: 路徑、HEAD、鎖定原因 (待提交數 unavailable -- see the
 /// class doc on [WorktreesPanel]).
 class _WorktreeDetail extends StatelessWidget {
@@ -270,78 +214,38 @@ class _WorktreeDetail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final GbmColors colors = context.gbmColors;
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(GbmSpacing.space4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          _field(colors, 'Path', worktree.path, mono: true),
-          _field(
-            colors,
-            'HEAD',
-            worktree.isDetached
-                ? '${worktree.headOid} (detached)'
-                : '${worktree.branch} · ${worktree.headOid}',
-            mono: true,
+    return PanelDetailColumn(
+      children: <Widget>[
+        PanelDetailField(label: 'Path', value: worktree.path, mono: true),
+        PanelDetailField(
+          label: 'HEAD',
+          value: worktree.isDetached
+              ? '${worktree.headOid} (detached)'
+              : '${worktree.branch} · ${worktree.headOid}',
+          mono: true,
+        ),
+        if (worktree.isLocked)
+          PanelDetailField(
+            label: 'Lock reason',
+            value: worktree.lockReason.isEmpty
+                ? 'Locked, no reason recorded'
+                : worktree.lockReason,
           ),
-          if (worktree.isLocked)
-            _field(
-              colors,
-              'Lock reason',
-              worktree.lockReason.isEmpty
-                  ? 'Locked, no reason recorded'
-                  : worktree.lockReason,
-            ),
-          if (worktree.isPrunable)
-            _field(
-              colors,
-              'Prunable',
-              worktree.prunableReason.isEmpty
-                  ? 'Prunable'
-                  : worktree.prunableReason,
-            ),
-          if (onToggleLock != null) ...<Widget>[
-            const SizedBox(height: GbmSpacing.space3),
-            GbmButton(
-              label: worktree.isLocked ? 'Unlock' : 'Lock',
-              onPressed: onToggleLock,
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _field(
-    GbmColors colors,
-    String label,
-    String value, {
-    bool mono = false,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: GbmSpacing.space3),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: GbmTypography.textXs,
-              color: colors.textTertiary,
-            ),
+        if (worktree.isPrunable)
+          PanelDetailField(
+            label: 'Prunable',
+            value: worktree.prunableReason.isEmpty
+                ? 'Prunable'
+                : worktree.prunableReason,
           ),
-          const SizedBox(height: GbmSpacing.space1),
-          SelectableText(
-            value,
-            style: TextStyle(
-              fontSize: GbmTypography.textSm,
-              color: colors.textPrimary,
-              fontFamily: mono ? 'monospace' : null,
-            ),
+        if (onToggleLock != null) ...<Widget>[
+          const SizedBox(height: GbmSpacing.space3),
+          GbmButton(
+            label: worktree.isLocked ? 'Unlock' : 'Lock',
+            onPressed: onToggleLock,
           ),
         ],
-      ),
+      ],
     );
   }
 }

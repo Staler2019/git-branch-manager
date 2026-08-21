@@ -8,6 +8,7 @@ import '../../theme/tokens.dart';
 import 'bisect_panel.dart';
 import 'blame_panel.dart';
 import 'file_history_panel.dart';
+import 'interactive_rebase_panel.dart';
 import 'line_history_panel.dart';
 import 'lfs_panel.dart';
 import 'reflog_panel.dart';
@@ -83,6 +84,9 @@ class PanelPage extends ConsumerWidget {
         path: spec.subject ?? '',
         initialStartLine: int.tryParse(query['from'] ?? '') ?? 1,
         initialEndLine: int.tryParse(query['to'] ?? '') ?? 1,
+      ),
+      GbmPanelKind.interactiveRebase => InteractiveRebasePanel(
+        identity: identity,
       ),
       _ => _NotYetPortedPanel(kind: spec.kind),
     };

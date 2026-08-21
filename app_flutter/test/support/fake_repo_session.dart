@@ -21,6 +21,7 @@ import 'package:gbm_flutter/data/models/operation_choice.dart';
 import 'package:gbm_flutter/data/models/parsed_conflict_file.dart';
 import 'package:gbm_flutter/data/repositories/recents_repository.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
+import 'package:gbm_flutter/data/models/rebase_todo_entry.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 
 /// One recorded call into [FakeRepoSessionController] -- a name plus
@@ -738,6 +739,35 @@ class FakeRepoSessionController extends RepoSessionController {
       FakeCommand('requestCommitFileDiff', <String, Object?>{
         'oid': oid,
         'path': path,
+      }),
+    );
+  }
+
+  @override
+  void requestRebasePlan(String upstream) {
+    commandLog.add(
+      FakeCommand('requestRebasePlan', <String, Object?>{'upstream': upstream}),
+    );
+  }
+
+  @override
+  void startInteractiveRebase(
+    String upstream,
+    List<RebaseTodoEntry> todo, {
+    String onto = '',
+    bool stashFirst = false,
+  }) {
+    commandLog.add(
+      FakeCommand('startInteractiveRebase', <String, Object?>{
+        'upstream': upstream,
+        // The todo's *shape* is what matters to a caller test -- which
+        // action landed on which commit, in what order -- so it is
+        // flattened rather than stored as opaque entries a test would have
+        // to reach into.
+        'oids': todo.map((RebaseTodoEntry e) => e.oid).toList(),
+        'actions': todo.map((RebaseTodoEntry e) => e.action.name).toList(),
+        'onto': onto,
+        'stashFirst': stashFirst,
       }),
     );
   }

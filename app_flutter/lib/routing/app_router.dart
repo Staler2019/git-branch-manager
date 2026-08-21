@@ -20,7 +20,6 @@ import '../features/dialogs/delete_remote_branch/delete_remote_branch_dialog.dar
 import '../features/dialogs/discard_changes/discard_changes_dialog.dart';
 import '../features/dialogs/discard_changes/discard_changes_request.dart';
 import '../features/dialogs/force_push/force_push_dialog.dart';
-import '../features/dialogs/interactive_rebase/interactive_rebase_dialog.dart';
 import '../features/dialogs/keyboard_shortcuts/keyboard_shortcuts_dialog.dart';
 import '../features/dialogs/manage_base_folders/manage_base_folders_dialog.dart';
 import '../features/dialogs/merge/merge_dialog.dart';
@@ -231,15 +230,6 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
             state.pathParameters['repoId']!,
           );
           return UndoLastDialogContent(identity: identity);
-        },
-      ),
-      dialogRoute(
-        path: RoutePaths.interactiveRebaseDialog,
-        builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(
-            state.pathParameters['repoId']!,
-          );
-          return InteractiveRebaseDialogContent(identity: identity);
         },
       ),
       dialogRoute(

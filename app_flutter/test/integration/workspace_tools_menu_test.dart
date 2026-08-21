@@ -155,22 +155,20 @@ void main() {
         extraRoutes: _panelRoute,
         topLevelRoutes: <RouteBase>[
           GoRoute(
-            path: RoutePaths.interactiveRebaseDialog,
+            path: RoutePaths.patchesDialog,
             builder: (context, state) =>
-                const Scaffold(body: Text('interactive-rebase-dialog')),
+                const Scaffold(body: Text('patches-dialog')),
           ),
         ],
       );
 
-      expect(GbmPanelKind.interactiveRebase.isPortedToTab, isFalse);
+      expect(GbmPanelKind.patches.isPortedToTab, isFalse);
 
       await _openToolsMenu(tester);
-      await tester.tap(find.text('Rewrite history'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Interactive rebase…'));
+      await tester.tap(find.text('Patches…'));
       await tester.pumpAndSettle();
 
-      expect(find.text('interactive-rebase-dialog'), findsOneWidget);
+      expect(find.text('patches-dialog'), findsOneWidget);
       expect(pumped.container.read(panelTabsProvider(_identity)), isEmpty);
     });
   });

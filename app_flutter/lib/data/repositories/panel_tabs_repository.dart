@@ -82,7 +82,8 @@ enum GbmPanelKind {
       this == GbmPanelKind.bisect ||
       this == GbmPanelKind.blame ||
       this == GbmPanelKind.fileHistory ||
-      this == GbmPanelKind.lineHistory;
+      this == GbmPanelKind.lineHistory ||
+      this == GbmPanelKind.interactiveRebase;
 
   /// Whether this panel is *about* a particular file, in which case two
   /// tabs of the same kind for two different paths are two different tabs.

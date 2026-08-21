@@ -811,7 +811,6 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         identity,
         repoId,
         GbmPanelKind.interactiveRebase,
-        dialogRoute: RoutePaths.interactiveRebaseDialogFor(repoId),
       ),
       GbmActionId.toolsBisect: () =>
           _openPanel(context, ref, identity, repoId, GbmPanelKind.bisect),

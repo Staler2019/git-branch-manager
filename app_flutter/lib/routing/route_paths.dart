@@ -35,8 +35,6 @@ abstract final class RoutePaths {
   static const String createTagDialog = '/repo/:repoId/dialogs/create-tag';
   static const String credentialDialog = '/repo/:repoId/dialogs/credential';
   static const String undoLastDialog = '/repo/:repoId/dialogs/undo-last';
-  static const String interactiveRebaseDialog =
-      '/repo/:repoId/dialogs/interactive-rebase';
   static const String patchesDialog = '/repo/:repoId/dialogs/patches';
   static const String cleanUntrackedDialog =
       '/repo/:repoId/dialogs/clean-untracked';
@@ -117,8 +115,6 @@ abstract final class RoutePaths {
       '/repo/$repoId/dialogs/credential';
   static String undoLastDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/undo-last';
-  static String interactiveRebaseDialogFor(String repoId) =>
-      '/repo/$repoId/dialogs/interactive-rebase';
   static String patchesDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/patches';
   static String cleanUntrackedDialogFor(String repoId) =>

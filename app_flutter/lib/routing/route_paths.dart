@@ -34,9 +34,6 @@ abstract final class RoutePaths {
       '/repo/:repoId/dialogs/stash-changes';
   static const String createTagDialog = '/repo/:repoId/dialogs/create-tag';
   static const String credentialDialog = '/repo/:repoId/dialogs/credential';
-  static const String blameDialog = '/repo/:repoId/dialogs/blame';
-  static const String fileHistoryDialog = '/repo/:repoId/dialogs/file-history';
-  static const String lineHistoryDialog = '/repo/:repoId/dialogs/line-history';
   static const String undoLastDialog = '/repo/:repoId/dialogs/undo-last';
   static const String interactiveRebaseDialog =
       '/repo/:repoId/dialogs/interactive-rebase';
@@ -118,18 +115,6 @@ abstract final class RoutePaths {
       '/repo/$repoId/dialogs/create-tag';
   static String credentialDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/credential';
-  static String blameDialogFor(String repoId, {String path = ''}) => Uri(
-    path: '/repo/$repoId/dialogs/blame',
-    queryParameters: path.isEmpty ? null : <String, String>{'path': path},
-  ).toString();
-  static String fileHistoryDialogFor(String repoId, {String path = ''}) => Uri(
-    path: '/repo/$repoId/dialogs/file-history',
-    queryParameters: path.isEmpty ? null : <String, String>{'path': path},
-  ).toString();
-  static String lineHistoryDialogFor(String repoId, {String path = ''}) => Uri(
-    path: '/repo/$repoId/dialogs/line-history',
-    queryParameters: path.isEmpty ? null : <String, String>{'path': path},
-  ).toString();
   static String undoLastDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/undo-last';
   static String interactiveRebaseDialogFor(String repoId) =>

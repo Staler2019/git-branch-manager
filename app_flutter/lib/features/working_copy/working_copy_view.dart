@@ -646,25 +646,10 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
   /// over it.
   void _openFilePanel(GbmPanelKind kind, String path) {
     final String repoId = Uri.encodeComponent(widget.identity.workDir);
-    if (!kind.isPortedToTab) {
-      context.push(switch (kind) {
-        GbmPanelKind.fileHistory => RoutePaths.fileHistoryDialogFor(
-          repoId,
-          path: path,
-        ),
-        GbmPanelKind.blame => RoutePaths.blameDialogFor(repoId, path: path),
-        GbmPanelKind.lineHistory => RoutePaths.lineHistoryDialogFor(
-          repoId,
-          path: path,
-        ),
-        _ => throw ArgumentError.value(
-          kind,
-          'kind',
-          'not a per-file history panel',
-        ),
-      });
-      return;
-    }
+    assert(
+      kind.isPerSubject && kind.isPortedToTab,
+      'not a per-file history panel, or not ported yet: $kind',
+    );
     final String tabId = ref
         .read(panelTabsProvider(widget.identity).notifier)
         .open(kind, subject: path);

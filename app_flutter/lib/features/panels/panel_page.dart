@@ -6,6 +6,9 @@ import '../../data/repositories/repo_identity.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import 'bisect_panel.dart';
+import 'blame_panel.dart';
+import 'file_history_panel.dart';
+import 'line_history_panel.dart';
 import 'lfs_panel.dart';
 import 'reflog_panel.dart';
 import 'remotes_panel.dart';
@@ -63,6 +66,24 @@ class PanelPage extends ConsumerWidget {
       GbmPanelKind.manageLfs => LfsPanel(identity: identity),
       GbmPanelKind.reflog => ReflogPanel(identity: identity),
       GbmPanelKind.bisect => BisectPanel(identity: identity),
+      // The three per-subject panels are always about a file. A tab
+      // without one cannot exist (panelTabsProvider.open requires the
+      // subject for these kinds), so `?? ''` is unreachable rather than a
+      // fallback -- an empty path would ask git to blame the whole repo.
+      GbmPanelKind.blame => BlamePanel(
+        identity: identity,
+        path: spec.subject ?? '',
+      ),
+      GbmPanelKind.fileHistory => FileHistoryPanel(
+        identity: identity,
+        path: spec.subject ?? '',
+      ),
+      GbmPanelKind.lineHistory => LineHistoryPanel(
+        identity: identity,
+        path: spec.subject ?? '',
+        initialStartLine: int.tryParse(query['from'] ?? '') ?? 1,
+        initialEndLine: int.tryParse(query['to'] ?? '') ?? 1,
+      ),
       _ => _NotYetPortedPanel(kind: spec.kind),
     };
   }

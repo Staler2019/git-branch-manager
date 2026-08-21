@@ -687,6 +687,60 @@ class FakeRepoSessionController extends RepoSessionController {
       FakeCommand('resetBisect', <String, Object?>{'target': target}),
     );
   }
+
+  @override
+  void requestBlame(
+    String path, {
+    String revision = '',
+    int startLine = 0,
+    int endLine = 0,
+  }) {
+    commandLog.add(
+      FakeCommand('requestBlame', <String, Object?>{
+        'path': path,
+        'revision': revision,
+        'startLine': startLine,
+        'endLine': endLine,
+      }),
+    );
+  }
+
+  @override
+  void requestFileHistory(String path, {String startRevision = ''}) {
+    commandLog.add(
+      FakeCommand('requestFileHistory', <String, Object?>{
+        'path': path,
+        'startRevision': startRevision,
+      }),
+    );
+  }
+
+  @override
+  void requestLineHistory(
+    String path,
+    int startLine,
+    int endLine, {
+    String startRevision = '',
+  }) {
+    commandLog.add(
+      FakeCommand('requestLineHistory', <String, Object?>{
+        'path': path,
+        'startLine': startLine,
+        'endLine': endLine,
+        'startRevision': startRevision,
+      }),
+    );
+  }
+
+  @override
+  void requestCommitFileDiff(String oid, String path) {
+    commandLog.add(
+      FakeCommand('requestCommitFileDiff', <String, Object?>{
+        'oid': oid,
+        'path': path,
+      }),
+    );
+  }
 }
 
 /// Fake [GbmBindings] that fails session open immediately, so

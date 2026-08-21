@@ -801,13 +801,24 @@ GBM_API void gbm_pull(GbmSessionHandle session,
 
 /// `git push`, with `--force-with-lease` when `forceWithLease` is set --
 /// there is no plain `--force` in this app (see PushForceMode's doc
-/// comment). `branch` empty pushes the current branch. Async: fires
-/// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success also triggers
-/// the same refresh gbm_history_refresh() would (the local remote-tracking
-/// ref moves).
+/// comment).
+///
+/// `branches`/`branchCount`: the branches to push. `branchCount` 0 pushes
+/// the current branch, the original behaviour. More than one is a
+/// multi-select push, expressed as one `git push <remote> a b c` rather
+/// than N separate calls -- same multi-name convention gbm_branch_delete
+/// already uses, and git's own per-ref reporting gives "carry on past a ref
+/// that failed" for free. Passing branches with an empty `remoteName` is
+/// accepted but the names are ignored, matching the pre-existing behaviour
+/// (git needs a remote before it can take refspecs).
+///
+/// Async: fires GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success
+/// also triggers the same refresh gbm_history_refresh() would (the local
+/// remote-tracking ref moves).
 GBM_API void gbm_push(GbmSessionHandle session,
                       const char* remoteName,
-                      const char* branch,
+                      const char* const* branches,
+                      int32_t branchCount,
                       int32_t setUpstream,
                       int32_t pushTags,
                       int32_t forceWithLease);

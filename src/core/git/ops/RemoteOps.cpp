@@ -141,7 +141,11 @@ public:
     explicit PushOperation(PushRequest request) : request_(std::move(request)) {}
 
     std::string describe() const override {
-        return "Push" +
+        std::string what = "Push";
+        if (request_.branches.size() > 1) {
+            what += " " + std::to_string(request_.branches.size()) + " branches";
+        }
+        return what +
                (request_.remoteName.empty() ? std::string() : " to " + request_.remoteName);
     }
 
@@ -161,8 +165,10 @@ public:
         }
         if (!request_.remoteName.empty()) {
             args.push_back(request_.remoteName);
-            if (!request_.branch.empty()) {
-                args.push_back(request_.branch);
+            for (const auto& branch : request_.branches) {
+                if (!branch.empty()) {
+                    args.push_back(branch);
+                }
             }
         }
 

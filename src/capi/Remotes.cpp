@@ -70,13 +70,14 @@ GBM_API void gbm_pull(GbmSessionHandle session,
 
 GBM_API void gbm_push(GbmSessionHandle session,
                       const char* remoteName,
-                      const char* branch,
+                      const char* const* branches,
+                      int32_t branchCount,
                       int32_t setUpstream,
                       int32_t pushTags,
                       int32_t forceWithLease) {
     PushRequest request;
     request.remoteName = remoteName != nullptr ? remoteName : "";
-    request.branch = branch != nullptr ? branch : "";
+    request.branches = toStringVector(branches, branchCount);
     request.setUpstream = setUpstream != 0;
     request.pushTags = pushTags != 0;
     request.force = forceWithLease != 0 ? PushForceMode::ForceWithLease : PushForceMode::None;

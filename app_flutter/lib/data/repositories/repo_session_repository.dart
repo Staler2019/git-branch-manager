@@ -2152,30 +2152,36 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   }
 
   /// `git push`, with `--force-with-lease` when `forceWithLease` is set --
-  /// there is no plain `--force` (see gbm_push()'s doc comment). `branch`
-  /// empty pushes the current branch.
+  /// there is no plain `--force` (see gbm_push()'s doc comment).
+  ///
+  /// [branches] empty pushes the current branch. More than one is a
+  /// multi-select push: it becomes a single `git push <remote> a b c`, not N
+  /// calls, so the whole batch is one background task (spec page 10) and
+  /// git's own per-ref reporting supplies "carry on past a ref that failed".
   void pushChanges({
     String remoteName = '',
-    String branch = '',
+    List<String> branches = const <String>[],
     bool setUpstream = false,
     bool pushTags = false,
     bool forceWithLease = false,
   }) {
     if (_session == nullptr) return;
     final Pointer<Utf8> remotePtr = remoteName.toNativeUtf8();
-    final Pointer<Utf8> branchPtr = branch.toNativeUtf8();
     try {
-      _bindings.push(
-        _session,
-        remotePtr,
-        branchPtr,
-        setUpstream ? 1 : 0,
-        pushTags ? 1 : 0,
-        forceWithLease ? 1 : 0,
+      _withNativeStringArray(
+        branches,
+        (array, count) => _bindings.push(
+          _session,
+          remotePtr,
+          array,
+          count,
+          setUpstream ? 1 : 0,
+          pushTags ? 1 : 0,
+          forceWithLease ? 1 : 0,
+        ),
       );
     } finally {
       malloc.free(remotePtr);
-      malloc.free(branchPtr);
     }
   }
 

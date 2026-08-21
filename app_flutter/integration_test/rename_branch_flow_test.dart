@@ -95,7 +95,7 @@ Future<void> _openRenameDialog(WidgetTester tester, String branch) async {
   await gesture.up();
   await tester.pumpAndSettle();
 
-  await tester.tap(find.text('Rename branch'));
+  await tester.tap(find.text('Rename…'));
   await tester.pumpAndSettle(const Duration(seconds: 1));
 }
 

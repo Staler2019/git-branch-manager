@@ -624,7 +624,8 @@ typedef _PushNative =
     Void Function(
       Pointer<Void> session,
       Pointer<Utf8> remoteName,
-      Pointer<Utf8> branch,
+      Pointer<Pointer<Utf8>> branches,
+      Int32 branchCount,
       Int32 setUpstream,
       Int32 pushTags,
       Int32 forceWithLease,
@@ -633,7 +634,8 @@ typedef PushDart =
     void Function(
       Pointer<Void> session,
       Pointer<Utf8> remoteName,
-      Pointer<Utf8> branch,
+      Pointer<Pointer<Utf8>> branches,
+      int branchCount,
       int setUpstream,
       int pushTags,
       int forceWithLease,

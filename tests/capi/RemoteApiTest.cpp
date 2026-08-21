@@ -262,7 +262,14 @@ TEST_F(RemoteApiTest, PushUploadsLocalCommitsToTheRemote) {
     ASSERT_EQ(runGit({"add", "new-file.txt"}), 0);
     ASSERT_EQ(runGit({"commit", "--quiet", "-m", "New commit"}), 0);
 
-    gbm_push(session_, "origin", "main", /*setUpstream=*/0, /*pushTags=*/0, /*forceWithLease=*/0);
+    const char* branches[] = {"main"};
+    gbm_push(session_,
+             "origin",
+             branches,
+             /*branchCount=*/1,
+             /*setUpstream=*/0,
+             /*pushTags=*/0,
+             /*forceWithLease=*/0);
     ASSERT_TRUE(waitForWorkingCopyOperationFinished(log_));
 
     const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_WORKING_COPY_OPERATION_FINISHED);

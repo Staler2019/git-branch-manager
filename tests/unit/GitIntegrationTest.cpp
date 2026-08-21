@@ -2314,13 +2314,67 @@ protected:
     std::filesystem::path remote_;
 };
 
+TEST_F(RemoteRepoTest, PushesSeveralBranchesInOneOperation) {
+    // Spec page 13's multi-select push. One `git push origin a b c`, not N
+    // operations: git updates each ref in turn and reports per-ref status,
+    // which is the "依序執行，失敗不中斷其餘" behaviour the batch needs, and
+    // one command means one background task (spec page 10) rather than N
+    // OPERATION_FINISHED events.
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"branch", "feature-one"}));
+    ASSERT_TRUE(run({"branch", "feature-two"}));
+
+    OperationRunner operations(*runner_, paths_);
+    PushRequest push;
+    push.remoteName = "origin";
+    push.branches = {"main", "feature-one", "feature-two"};
+    auto pushed = submitAndWait(operations, makePushOperation(push));
+    ASSERT_TRUE(pushed.succeeded) << (pushed.error ? pushed.error->detail : "");
+
+    for (const char* branch : {"main", "feature-one", "feature-two"}) {
+        auto listed = run({"ls-remote", remote_.string(), std::string("refs/heads/") + branch});
+        ASSERT_TRUE(listed);
+        EXPECT_FALSE(listed->out.empty()) << branch << " was not pushed";
+    }
+}
+
+TEST_F(RemoteRepoTest, PushWithNoBranchesStillPushesTheCurrentOne) {
+    // branchCount 0 keeps the pre-existing "let git decide" behaviour: no
+    // refspec is passed at all, so git pushes the current branch through its
+    // configured upstream. It is *not* equivalent to passing the current
+    // branch's name -- without an upstream git refuses outright, which is why
+    // the first push here has to name the branch and set one up.
+    commitFile("a.txt", "1\n", "c1");
+
+    OperationRunner operations(*runner_, paths_);
+    PushRequest first;
+    first.remoteName = "origin";
+    first.branches = {"main"};
+    first.setUpstream = true;
+    auto initial = submitAndWait(operations, makePushOperation(first));
+    ASSERT_TRUE(initial.succeeded) << (initial.error ? initial.error->detail : "");
+
+    commitFile("a.txt", "2\n", "c2");
+    auto local = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(local);
+
+    PushRequest followUp;
+    followUp.remoteName = "origin";
+    auto pushed = submitAndWait(operations, makePushOperation(followUp));
+    ASSERT_TRUE(pushed.succeeded) << (pushed.error ? pushed.error->detail : "");
+
+    auto remoteHead = run({"ls-remote", remote_.string(), "refs/heads/main"});
+    ASSERT_TRUE(remoteHead);
+    EXPECT_NE(remoteHead->out.find(local->out), std::string::npos);
+}
+
 TEST_F(RemoteRepoTest, PushesFetchesAndPulls) {
     commitFile("a.txt", "1\n", "c1");
 
     OperationRunner operations(*runner_, paths_);
     PushRequest push;
     push.remoteName = "origin";
-    push.branch = "main";
+    push.branches = {"main"};
     push.setUpstream = true;
     auto pushed = submitAndWait(operations, makePushOperation(push));
     ASSERT_TRUE(pushed.succeeded) << (pushed.error ? pushed.error->detail : "");
@@ -2382,7 +2436,7 @@ TEST_F(RemoteRepoTest, ForceWithLeaseRefusesAStalePushAndSucceedsAfterRefetching
     OperationRunner operations(*runner_, paths_);
     PushRequest push;
     push.remoteName = "origin";
-    push.branch = "main";
+    push.branches = {"main"};
     push.setUpstream = true;
     auto pushed = submitAndWait(operations, makePushOperation(push));
     ASSERT_TRUE(pushed.succeeded);
@@ -2417,7 +2471,7 @@ TEST_F(RemoteRepoTest, ForceWithLeaseRefusesAStalePushAndSucceedsAfterRefetching
 
     PushRequest forcePush;
     forcePush.remoteName = "origin";
-    forcePush.branch = "main";
+    forcePush.branches = {"main"};
     forcePush.force = PushForceMode::ForceWithLease;
     auto rejected = submitAndWait(operations, makePushOperation(forcePush));
     EXPECT_FALSE(rejected.succeeded)

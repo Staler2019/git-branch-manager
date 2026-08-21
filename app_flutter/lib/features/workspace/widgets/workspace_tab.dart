@@ -4,11 +4,11 @@ import '../../../routing/route_paths.dart';
 
 /// The kind of content a [WorkspaceTab] renders. [history] and
 /// [workingCopy] are the two fixed tabs tab_row.dart has always shown;
-/// [compare] is declared now, ahead of need, purely so the M6 commit that
-/// actually adds Compare tabs (multiple, closable, each carrying its own ref
-/// pair) doesn't have to touch this enum -- this commit never constructs a
-/// [WorkspaceTab] with [compare].
-enum WorkspaceTabKind { history, workingCopy, compare }
+/// [compare] is one open Compare tab (spec page 12); [panel] is one of the
+/// twelve advanced management panels spec page 14's `IAMAP` routes to tabs
+/// rather than dialogs. All three of the non-fixed kinds are closable and
+/// can be open several at a time.
+enum WorkspaceTabKind { history, workingCopy, compare, panel }
 
 /// One entry in the workspace tab strip. Immutable so a new tab list is
 /// always a fresh `copyWith`-free rebuild rather than an in-place mutation

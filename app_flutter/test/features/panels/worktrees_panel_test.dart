@@ -1,0 +1,148 @@
+// WorktreesPanel is spec page 19's reference instance -- the panel the
+// other eleven are meant to be copied from ("只換欄位不換造型"). So this
+// asserts the P19 PANELSPEC row for manage-worktrees specifically:
+//
+//   list:    worktree 名稱 + 分支 + 狀態
+//   detail:  路徑、HEAD、待提交數、鎖定原因
+//   toolbar: Add、Prune、Open、Remove
+//
+// 待提交數 is deliberately absent -- WorktreeInfo carries no pending-change
+// count and gbm_capi has no per-worktree status call. See WorktreesPanel's
+// class doc.
+import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/worktree_info.dart';
+import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
+import 'package:gbm_flutter/features/panels/worktrees_panel.dart';
+
+import 'panel_test_support.dart';
+
+const WorktreeInfo _main = WorktreeInfo(
+  path: '/src/git-branch-manager',
+  headOid: 'a1b2c3d',
+  branch: 'main',
+  isMain: true,
+  isBare: false,
+  isDetached: false,
+  isLocked: false,
+  lockReason: '',
+  isPrunable: false,
+  prunableReason: '',
+);
+
+const WorktreeInfo _locked = WorktreeInfo(
+  path: '/src/wt/gbm-lfs',
+  headOid: '9d02f4e',
+  branch: 'feature/lfs',
+  isMain: false,
+  isBare: false,
+  isDetached: false,
+  isLocked: true,
+  lockReason: 'on the USB drive',
+  isPrunable: false,
+  prunableReason: '',
+);
+
+Future<PumpedPanel> _pump(
+  WidgetTester tester, {
+  List<WorktreeInfo> worktrees = const <WorktreeInfo>[_main, _locked],
+}) => pumpPanel(
+  tester,
+  WorktreesPanel(identity: panelTestIdentity),
+  state: RepoSessionState(isOpen: true, worktrees: worktrees),
+);
+
+void main() {
+  group('WorktreesPanel (spec P19 reference instance)', () {
+    testWidgets('the toolbar carries PANELSPEC\'s four actions', (
+      tester,
+    ) async {
+      await _pump(tester);
+
+      for (final String label in const <String>[
+        'Add…',
+        'Prune',
+        'Open',
+        'Remove',
+      ]) {
+        expect(find.text(label), findsOneWidget, reason: label);
+      }
+    });
+
+    testWidgets('the list shows name, branch and status per row', (
+      tester,
+    ) async {
+      await _pump(tester);
+
+      // 名稱 (base name, not the full path -- the path is detail-column
+      // content), 分支, 狀態.
+      expect(find.text('git-branch-manager'), findsOneWidget);
+      expect(find.text('main · main'), findsOneWidget);
+      expect(find.text('gbm-lfs'), findsOneWidget);
+      expect(find.text('feature/lfs · locked'), findsOneWidget);
+    });
+
+    testWidgets('the detail pane is empty until a row is selected', (
+      tester,
+    ) async {
+      await _pump(tester);
+
+      expect(find.text('Select a worktree to see its details'), findsOneWidget);
+    });
+
+    testWidgets('selecting a row shows path, HEAD and lock reason', (
+      tester,
+    ) async {
+      await _pump(tester);
+
+      await tester.tap(find.text('gbm-lfs'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Path'), findsOneWidget);
+      expect(find.text('/src/wt/gbm-lfs'), findsOneWidget);
+      expect(find.text('HEAD'), findsOneWidget);
+      expect(find.text('feature/lfs · 9d02f4e'), findsOneWidget);
+      expect(find.text('Lock reason'), findsOneWidget);
+      expect(find.text('on the USB drive'), findsOneWidget);
+    });
+
+    testWidgets('Open and Remove are disabled with nothing selected', (
+      tester,
+    ) async {
+      await _pump(tester);
+
+      expect(panelButton(tester, 'Open').onPressed, isNull);
+      expect(panelButton(tester, 'Remove').onPressed, isNull);
+    });
+
+    // The main worktree is the repository -- git refuses to remove it, so
+    // the button must not offer to.
+    testWidgets('Remove stays disabled for the main worktree', (tester) async {
+      await _pump(tester);
+
+      await tester.tap(find.text('git-branch-manager'));
+      await tester.pumpAndSettle();
+
+      expect(panelButton(tester, 'Open').onPressed, isNotNull);
+      expect(panelButton(tester, 'Remove').onPressed, isNull);
+    });
+
+    testWidgets('Remove dispatches for a non-main worktree', (tester) async {
+      await _pump(tester);
+
+      await tester.tap(find.text('gbm-lfs'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Remove'));
+      await tester.pumpAndSettle();
+
+      expect(panelButton(tester, 'Remove'), isNotNull);
+    });
+
+    testWidgets('an empty repository shows an empty-list message', (
+      tester,
+    ) async {
+      await _pump(tester, worktrees: const <WorktreeInfo>[]);
+
+      expect(find.text('No worktrees'), findsOneWidget);
+    });
+  });
+}

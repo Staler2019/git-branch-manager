@@ -136,11 +136,25 @@ class MenuBarRow extends StatelessWidget {
     BuildContext context,
     GbmMenuItemModel itemModel,
   ) {
-    // Submenu parents (viewGraphColumns, viewTheme) are still clickable:
-    // both resolve to a real handler (a columns picker dialog, and cycling
-    // the theme variant), so rendering them inert made two working actions
-    // look broken. The nested submenu itself is a separate affordance; the
-    // parent stays the one-click path to the same thing.
+    // A submenu parent with declared children (Tools > Rewrite history) is
+    // a group, not an action -- it has no handler of its own, so it renders
+    // as a flyout trigger.
+    if (itemModel.isSubmenuParent && itemModel.children.isNotEmpty) {
+      return GbmMenuItem.submenu(
+        label: itemModel.label,
+        children: <GbmMenuItem>[
+          for (final GbmMenuItemModel child in itemModel.children)
+            _buildMenuItemFromModel(context, child),
+        ],
+      );
+    }
+
+    // Submenu parents whose children are dynamic (viewGraphColumns,
+    // viewTheme) are still clickable: both resolve to a real handler (a
+    // columns picker dialog, and cycling the theme variant), so rendering
+    // them inert made two working actions look broken. The nested submenu
+    // itself is a separate affordance; the parent stays the one-click path
+    // to the same thing.
     final VoidCallback? handler = _resolveHandler(context, itemModel.id);
 
     return GbmMenuItem(

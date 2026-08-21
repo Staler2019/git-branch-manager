@@ -226,11 +226,19 @@ const GbmContextMenuGroupSpec _commit = GbmContextMenuGroupSpec(
 );
 
 /// 05-F: File (staged / unstaged) in working copy (right-click file row -- EXISTS)
-/// 6 top-level items. This defines the singular form; the render site
-/// (`working_copy_file_menu_items.dart`) pluralizes Stage and Discard with a
-/// count when a multi-selection is right-clicked, per spec's own mock
-/// ("Stage 3 files" / "Discard changes in 3 files…"), while leaving Open
-/// file and Show in file manager singular exactly as that mock does.
+/// 7 top-level items, one of them a submenu. This defines the singular form;
+/// the render site (`working_copy_file_menu_items.dart`) pluralizes Stage and
+/// Discard with a count when a multi-selection is right-clicked, per spec's
+/// own mock ("Stage 3 files" / "Discard changes in 3 files…"), while leaving
+/// Open file and Show in file manager singular exactly as that mock does.
+///
+/// The `History` flyout comes from spec page 14, whose rule 3 prescribes it
+/// as the remedy for the 8-item cap ("要塞第 9 項時，作法是把同族動作收成一個
+/// flyout（如 History ▸），不是把項目擠掉") and whose `FILECTXSUB` table names
+/// the three children. Page 14's `FILECTX` table also shows `Open diff` and
+/// `Ignore ▸` and renames `Show in file manager` -- those are *not* adopted,
+/// because that table and page 05's own list are two unreconciled versions of
+/// this menu (issue #88) and only the flyout is called for by page 14's prose.
 const GbmContextMenuGroupSpec _workingCopyFile = GbmContextMenuGroupSpec(
   id: '05-F',
   target: GbmContextMenuTarget.workingCopyFile,
@@ -241,6 +249,15 @@ const GbmContextMenuGroupSpec _workingCopyFile = GbmContextMenuGroupSpec(
     GbmContextMenuItemSpec(label: 'Show in file manager'),
     GbmContextMenuItemSpec(label: 'Open terminal here'),
     GbmContextMenuItemSpec(label: 'Copy path'),
+    GbmContextMenuItemSpec(
+      label: 'History',
+      isSubmenuTrigger: true,
+      children: <GbmContextMenuItemSpec>[
+        GbmContextMenuItemSpec(label: 'File history…'),
+        GbmContextMenuItemSpec(label: 'Blame…'),
+        GbmContextMenuItemSpec(label: 'Line history…'),
+      ],
+    ),
     GbmContextMenuItemSpec(label: 'Discard changes…', isDanger: true),
   ],
 );

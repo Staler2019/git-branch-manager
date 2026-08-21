@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../data/repositories/compare_tabs_repository.dart';
+import '../../../data/repositories/panel_tabs_repository.dart';
 import '../../../routing/route_paths.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
@@ -21,8 +22,20 @@ WorkspaceTab compareWorkspaceTab(CompareTabSpec spec, String repoId) {
   );
 }
 
-/// The History/Working Copy tab switcher plus the always-visible
-/// Merge/Cherry-pick/Reset shortcuts. Presentational (no Riverpod/FFI
+/// Builds the [WorkspaceTab] a [PanelTabSpec] renders as -- closable, and
+/// rendered after the Compare tabs so the strip reads
+/// fixed -> Compare -> panels in the order each was opened.
+WorkspaceTab panelWorkspaceTab(PanelTabSpec spec, String repoId) {
+  return WorkspaceTab(
+    kind: WorkspaceTabKind.panel,
+    label: spec.label,
+    route: RoutePaths.panelFor(repoId, spec.id),
+    closable: true,
+  );
+}
+
+/// The History/Working Copy tab switcher plus the Cherry-pick shortcut.
+/// Presentational (no Riverpod/FFI
 /// dependency, same split as MenuBarRow -- see its doc comment): active tab
 /// comes from the current GoRouter location, and [pendingChangeCount] is
 /// handed in rather than read from the session, so a caller test can drive
@@ -39,6 +52,8 @@ class TabRow extends StatelessWidget {
     required this.pendingChangeCount,
     this.compareTabs = const <CompareTabSpec>[],
     this.onCloseCompareTab,
+    this.panelTabs = const <PanelTabSpec>[],
+    this.onClosePanelTab,
     this.conflictActive = false,
   });
 
@@ -51,16 +66,44 @@ class TabRow extends StatelessWidget {
   final List<CompareTabSpec> compareTabs;
   final ValueChanged<String>? onCloseCompareTab;
 
-  /// Gates Merge…/Cherry-pick…/Reset… the same way `isActionEnabled()`
-  /// gates every other conflict-sensitive action (see CLAUDE.md's "Action
-  /// availability state machine") -- the caller passes
+  /// Open management-panel tabs (panel_tabs_repository.dart) -- spec page
+  /// 14's `IAMAP` carrier for the twelve advanced panels. Empty by default,
+  /// like [compareTabs], so callers that predate them are unaffected.
+  final List<PanelTabSpec> panelTabs;
+  final ValueChanged<String>? onClosePanelTab;
+
+  /// Gates Cherry-pick… the same way `isActionEnabled()` gates every other
+  /// conflict-sensitive action (see CLAUDE.md's "Action availability state
+  /// machine") -- the caller passes
   /// `!isActionEnabled(GbmActionId.branchMergeIntoCurrent, session)` rather
   /// than this widget re-deriving `session.conflictActive` itself, since
-  /// TabRow stays presentational/Riverpod-free like MenuBarRow. Merge is the
-  /// only one of the three with its own [GbmActionId] today; Cherry-pick and
-  /// Reset share its gate because all three would start a second sequencer
-  /// operation mid-conflict, the same class of action spec page 07 disables.
+  /// TabRow stays presentational/Riverpod-free like MenuBarRow.
+  ///
+  /// Cherry-pick still borrows Merge's [GbmActionId] because it has none of
+  /// its own, and both would start a second sequencer operation mid-conflict
+  /// -- the same class of action spec page 07 disables. Merge… and Reset…
+  /// used to sit here under the same gate and were removed in Tier 6b: spec
+  /// page 14 confines beyond-spec entry points to the menu bar and context
+  /// menus, and both already had a home there (Branch -> Merge into
+  /// current…, and 05-E's "Reset branch to here…"). Cherry-pick… stays
+  /// because `cherryPickDialog` has no other entry point at all and spec is
+  /// self-contradictory about where it belongs -- see issue #86.
   final bool conflictActive;
+
+  /// Resolves which close callback a tab uses from its [WorkspaceTab.kind],
+  /// never from its position in the strip -- the two closable kinds sit in
+  /// one flat list and dispatching on index would silently hand a panel id
+  /// to the Compare notifier the moment the ordering changed.
+  VoidCallback? _closeHandlerFor(WorkspaceTab tab, String? id) {
+    if (!tab.closable || id == null) return null;
+    return switch (tab.kind) {
+      WorkspaceTabKind.compare when onCloseCompareTab != null =>
+        () => onCloseCompareTab!(id),
+      WorkspaceTabKind.panel when onClosePanelTab != null =>
+        () => onClosePanelTab!(id),
+      _ => null,
+    };
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -70,6 +113,8 @@ class TabRow extends StatelessWidget {
       ...defaultWorkspaceTabs(repoId, pendingChangeCount: pendingChangeCount),
       for (final CompareTabSpec spec in compareTabs)
         compareWorkspaceTab(spec, repoId),
+      for (final PanelTabSpec spec in panelTabs)
+        panelWorkspaceTab(spec, repoId),
     ];
     // Fixed tabs (History, Working Copy) have no backing spec -- only
     // entries from `compareTabs` do, in the same order they were appended
@@ -79,6 +124,7 @@ class TabRow extends StatelessWidget {
       null,
       null,
       for (final CompareTabSpec spec in compareTabs) spec.id,
+      for (final PanelTabSpec spec in panelTabs) spec.id,
     ];
     final int activeIndex = activeWorkspaceTabIndex(tabs, location);
 
@@ -93,9 +139,9 @@ class TabRow extends StatelessWidget {
         children: <Widget>[
           // Scrollable, unlike the trailing action buttons below: dynamic
           // Compare tabs (each carrying a "left vs right" label) can push
-          // the fixed row width past what History/Working Copy/Merge/
-          // Cherry-pick/Reset/More alone ever needed, and those trailing
-          // actions must stay reachable rather than get squeezed off-screen.
+          // the fixed row width past what History/Working Copy/Cherry-pick/
+          // More alone ever needed, and those trailing actions must stay
+          // reachable rather than get squeezed off-screen.
           Expanded(
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -109,24 +155,10 @@ class TabRow extends StatelessWidget {
                       active: index == activeIndex,
                       badgeCount: tab.badgeCount,
                       onTap: () => context.go(tab.route),
-                      onClose: !tab.closable || onCloseCompareTab == null
-                          ? null
-                          : () => onCloseCompareTab!(tabIds[index]!),
+                      onClose: _closeHandlerFor(tab, tabIds[index]),
                     ),
                   ],
                 ],
-              ),
-            ),
-          ),
-          TextButton(
-            onPressed: conflictActive
-                ? null
-                : () => context.push(RoutePaths.mergeDialogFor(repoId)),
-            child: Text(
-              'Merge…',
-              style: TextStyle(
-                fontSize: GbmTypography.textSm,
-                color: colors.textSecondary,
               ),
             ),
           ),
@@ -142,18 +174,6 @@ class TabRow extends StatelessWidget {
               ),
             ),
           ),
-          TextButton(
-            onPressed: conflictActive
-                ? null
-                : () => context.push(RoutePaths.resetBranchDialogFor(repoId)),
-            child: Text(
-              'Reset…',
-              style: TextStyle(
-                fontSize: GbmTypography.textSm,
-                color: colors.textSecondary,
-              ),
-            ),
-          ),
           _MoreMenu(repoId: repoId),
         ],
       ),
@@ -161,9 +181,16 @@ class TabRow extends StatelessWidget {
   }
 }
 
-/// Groups the M5 stash/tag/worktree/remote/operation-log dialogs, which are
-/// used less often than merge/cherry-pick/reset, behind one icon button --
-/// keeps the tab row from growing a new inline TextButton per milestone.
+/// Holds the advanced-panel dialogs that have no other entry point yet.
+///
+/// Spec page 14 rules this menu out entirely ("分頁列右側的 18 項溢出選單在
+/// Tools 與 flyout 上線後刪除。同一功能不留兩條路") and Tier 6b moved most of
+/// it: nine items to the new Tools menu, three to the file context menu's
+/// History flyout, two duplicates dropped, and `Operation Log…` deleted with
+/// its dialog in Tier 6a. What remains is only what spec has not assigned a
+/// home to -- see issues #84 (Create tag…) and #85 (Undo last operation…).
+/// Neither has a second route, so keeping them here does not violate
+/// "同一功能不留兩條路"; this menu disappears once those two are placed.
 class _MoreMenu extends StatelessWidget {
   const _MoreMenu({required this.repoId});
 
@@ -186,7 +213,7 @@ class _MoreMenu extends StatelessWidget {
   /// menu anchored to a button, not a right-click context menu, so it goes
   /// through `showGbmMenu` directly rather than `showGbmContextMenu` (whose
   /// `validateGbmMenuItems` ≤8-item cap is scoped to spec page 05's 11
-  /// right-click groups only, not this button's 18 dialog shortcuts).
+  /// right-click groups only, not this button's dialog shortcuts).
   void _open(BuildContext buttonContext) {
     final RenderBox button = buttonContext.findRenderObject()! as RenderBox;
     final RenderBox overlay =
@@ -206,89 +233,13 @@ class _MoreMenu extends StatelessWidget {
       position: position,
       items: <GbmMenuItem>[
         GbmMenuItem(
-          label: 'Stash Changes…',
-          onTap: () =>
-              buttonContext.push(RoutePaths.stashChangesDialogFor(repoId)),
-        ),
-        GbmMenuItem(
-          label: 'Manage Stashes…',
-          onTap: () =>
-              buttonContext.push(RoutePaths.manageStashesDialogFor(repoId)),
-        ),
-        GbmMenuItem(
-          label: 'Create Tag…',
+          label: 'Create tag…',
           onTap: () =>
               buttonContext.push(RoutePaths.createTagDialogFor(repoId)),
         ),
         GbmMenuItem(
-          label: 'Manage Worktrees…',
-          onTap: () =>
-              buttonContext.push(RoutePaths.manageWorktreesDialogFor(repoId)),
-        ),
-        GbmMenuItem(
-          label: 'Remotes…',
-          onTap: () =>
-              buttonContext.push(RoutePaths.manageRemotesDialogFor(repoId)),
-        ),
-        GbmMenuItem(
-          label: 'Blame…',
-          onTap: () => buttonContext.push(RoutePaths.blameDialogFor(repoId)),
-        ),
-        GbmMenuItem(
-          label: 'File History…',
-          onTap: () =>
-              buttonContext.push(RoutePaths.fileHistoryDialogFor(repoId)),
-        ),
-        GbmMenuItem(
-          label: 'Line History…',
-          onTap: () =>
-              buttonContext.push(RoutePaths.lineHistoryDialogFor(repoId)),
-        ),
-        GbmMenuItem(
-          label: 'Reflog…',
-          onTap: () => buttonContext.push(RoutePaths.reflogDialogFor(repoId)),
-        ),
-        GbmMenuItem(
-          label: 'Undo Last Operation…',
+          label: 'Undo last operation…',
           onTap: () => buttonContext.push(RoutePaths.undoLastDialogFor(repoId)),
-        ),
-        GbmMenuItem(
-          label: 'Interactive Rebase…',
-          onTap: () =>
-              buttonContext.push(RoutePaths.interactiveRebaseDialogFor(repoId)),
-        ),
-        GbmMenuItem(
-          label: 'Submodules…',
-          onTap: () =>
-              buttonContext.push(RoutePaths.manageSubmodulesDialogFor(repoId)),
-        ),
-        GbmMenuItem(
-          label: 'Bisect…',
-          onTap: () => buttonContext.push(RoutePaths.bisectDialogFor(repoId)),
-        ),
-        GbmMenuItem(
-          label: 'Git LFS…',
-          onTap: () =>
-              buttonContext.push(RoutePaths.manageLfsDialogFor(repoId)),
-        ),
-        GbmMenuItem(
-          label: 'Patches…',
-          onTap: () => buttonContext.push(RoutePaths.patchesDialogFor(repoId)),
-        ),
-        GbmMenuItem(
-          label: 'Clean Untracked…',
-          onTap: () =>
-              buttonContext.push(RoutePaths.cleanUntrackedDialogFor(repoId)),
-        ),
-        GbmMenuItem(
-          label: 'Repository Settings…',
-          onTap: () => buttonContext.push(
-            RoutePaths.repositorySettingsDialogFor(repoId),
-          ),
-        ),
-        GbmMenuItem(
-          label: 'Preferences…',
-          onTap: () => buttonContext.push(RoutePaths.preferencesDialog),
         ),
       ],
     );

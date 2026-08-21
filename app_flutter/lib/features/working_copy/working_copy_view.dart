@@ -7,6 +7,7 @@ import '../../actions/gbm_action_availability.dart';
 import '../../actions/gbm_action_id.dart';
 import '../../data/models/working_copy_status.dart';
 import '../../data/repositories/file_list_view_mode_repository.dart';
+import '../../data/repositories/panel_tabs_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart'
     show
@@ -619,8 +620,32 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
         onCopyPath: () =>
             Clipboard.setData(ClipboardData(text: targets.join('\n'))),
         onDiscard: fromStaged ? null : () => _discardFiles(targets),
+        // Spec page 14 routes these three to tabs, not dialogs -- they are
+        // in IAMAP's "大型管理面板（12）" group. Opened per file (the flyout
+        // exists precisely so the path is pre-filled), so each gets its own
+        // tab keyed by subject.
+        onFileHistory: () =>
+            _openFilePanel(GbmPanelKind.fileHistory, entry.path),
+        onBlame: () => _openFilePanel(GbmPanelKind.blame, entry.path),
+        onLineHistory: () =>
+            _openFilePanel(GbmPanelKind.lineHistory, entry.path),
       ),
     );
+  }
+
+  /// Opens one of the three per-file history panels as a tab about [path]
+  /// (spec page 14 `IAMAP`), with the path pre-filled -- which is the whole
+  /// point of putting them behind the file's own context menu.
+  ///
+  /// `context.go` rather than `push`: a panel sits beside History/Working
+  /// Copy and replaces the shell's child instead of stacking over it.
+  void _openFilePanel(GbmPanelKind kind, String path) {
+    final String repoId = Uri.encodeComponent(widget.identity.workDir);
+    assert(kind.isPerSubject, 'not a per-file history panel: $kind');
+    final String tabId = ref
+        .read(panelTabsProvider(widget.identity).notifier)
+        .open(kind, subject: path);
+    context.go(RoutePaths.panelFor(repoId, tabId));
   }
 
   /// Joins the repository's work dir with a repository-relative path from

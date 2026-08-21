@@ -544,4 +544,21 @@ abstract final class GbmLayout {
     flexRatio: <double>[1, 1.12, 1],
     minExtent: 220,
   );
+
+  /// Management panel tab: left list <-> right detail (spec page 19's shared
+  /// 〈工具列 + 左清單 + 右明細〉 template). Not in spec page 09's SPLITTERS
+  /// table -- that page predates P14/P19 and lists no panel splitter -- so
+  /// these numbers follow [splitterCwFiles], the closest existing
+  /// list-beside-detail case, rather than inventing a different feel.
+  static const GbmSplitterSpec splitterPanelList = GbmSplitterSpec.extent(
+    defaultExtent: 280,
+    minExtent: 180,
+  );
+
+  /// Management panel detail column: file list <-> diff, for the P19
+  /// `PANELSPEC` rows whose detail is "檔案清單 + diff". Follows
+  /// [splitterMainFiles], History's own files-above-content splitter, for
+  /// the same reason [splitterPanelList] follows [splitterCwFiles].
+  static const GbmSplitterSpec splitterPanelDetailFiles =
+      GbmSplitterSpec.extent(defaultExtent: 160, minExtent: 96);
 }

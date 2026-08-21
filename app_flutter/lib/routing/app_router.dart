@@ -4,10 +4,9 @@ import 'package:go_router/go_router.dart';
 import '../data/repositories/recents_repository.dart';
 import '../data/repositories/repo_identity.dart';
 import '../features/compare/compare_page.dart';
+import '../features/panels/panel_page.dart';
 import '../features/conflict_resolution/conflict_resolve_window.dart';
 import '../features/dialogs/about/about_dialog.dart';
-import '../features/dialogs/bisect/bisect_dialog.dart';
-import '../features/dialogs/blame/blame_dialog.dart';
 import '../features/dialogs/checkout/checkout_dialog.dart';
 import '../features/dialogs/checkout_recovery/checkout_recovery_dialog.dart';
 import '../features/dialogs/cherry_pick/cherry_pick_dialog.dart';
@@ -20,24 +19,14 @@ import '../features/dialogs/delete_branch_recovery/delete_branch_recovery_dialog
 import '../features/dialogs/delete_remote_branch/delete_remote_branch_dialog.dart';
 import '../features/dialogs/discard_changes/discard_changes_dialog.dart';
 import '../features/dialogs/discard_changes/discard_changes_request.dart';
-import '../features/dialogs/file_history/file_history_dialog.dart';
 import '../features/dialogs/force_push/force_push_dialog.dart';
-import '../features/dialogs/interactive_rebase/interactive_rebase_dialog.dart';
 import '../features/dialogs/keyboard_shortcuts/keyboard_shortcuts_dialog.dart';
-import '../features/dialogs/line_history/line_history_dialog.dart';
 import '../features/dialogs/manage_base_folders/manage_base_folders_dialog.dart';
-import '../features/dialogs/manage_lfs/manage_lfs_dialog.dart';
-import '../features/dialogs/manage_remotes/manage_remotes_dialog.dart';
-import '../features/dialogs/manage_stashes/manage_stashes_dialog.dart';
-import '../features/dialogs/manage_submodules/manage_submodules_dialog.dart';
-import '../features/dialogs/manage_worktrees/manage_worktrees_dialog.dart';
 import '../features/dialogs/merge/merge_dialog.dart';
 import '../features/dialogs/new_branch/new_branch_dialog.dart';
-import '../features/dialogs/patches/patches_dialog.dart';
 import '../features/dialogs/preferences/preferences_dialog.dart';
 import '../features/dialogs/prune_remote_branches/prune_remote_branches_dialog.dart';
 import '../features/dialogs/rebase_onto/rebase_onto_dialog.dart';
-import '../features/dialogs/reflog/reflog_dialog.dart';
 import '../features/dialogs/rename_branch/rename_branch_dialog.dart';
 import '../features/dialogs/repository_settings/repository_settings_dialog.dart';
 import '../features/dialogs/reset_branch/reset_branch_dialog.dart';
@@ -148,6 +137,19 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
               );
             },
           ),
+          GoRoute(
+            path: RoutePaths.panel,
+            builder: (context, state) {
+              final RepoIdentity identity = repoIdentityFromRouteParam(
+                state.pathParameters['repoId']!,
+              );
+              return PanelPage(
+                identity: identity,
+                tabId: state.pathParameters['tabId']!,
+                query: state.uri.queryParameters,
+              );
+            },
+          ),
         ],
       ),
       dialogRoute(
@@ -203,38 +205,6 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
         },
       ),
       dialogRoute(
-        path: RoutePaths.manageStashesDialog,
-        builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(
-            state.pathParameters['repoId']!,
-          );
-          return ManageStashesDialogContent(
-            identity: identity,
-            initialSelectedIndex: int.tryParse(
-              state.uri.queryParameters['index'] ?? '',
-            ),
-          );
-        },
-      ),
-      dialogRoute(
-        path: RoutePaths.manageWorktreesDialog,
-        builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(
-            state.pathParameters['repoId']!,
-          );
-          return ManageWorktreesDialogContent(identity: identity);
-        },
-      ),
-      dialogRoute(
-        path: RoutePaths.manageRemotesDialog,
-        builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(
-            state.pathParameters['repoId']!,
-          );
-          return ManageRemotesDialogContent(identity: identity);
-        },
-      ),
-      dialogRoute(
         path: RoutePaths.createTagDialog,
         builder: (context, state) {
           final RepoIdentity identity = repoIdentityFromRouteParam(
@@ -253,102 +223,12 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
         },
       ),
       dialogRoute(
-        path: RoutePaths.blameDialog,
-        builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(
-            state.pathParameters['repoId']!,
-          );
-          return BlameDialogContent(
-            identity: identity,
-            initialPath: state.uri.queryParameters['path'] ?? '',
-          );
-        },
-      ),
-      dialogRoute(
-        path: RoutePaths.fileHistoryDialog,
-        builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(
-            state.pathParameters['repoId']!,
-          );
-          return FileHistoryDialogContent(
-            identity: identity,
-            initialPath: state.uri.queryParameters['path'] ?? '',
-          );
-        },
-      ),
-      dialogRoute(
-        path: RoutePaths.lineHistoryDialog,
-        builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(
-            state.pathParameters['repoId']!,
-          );
-          return LineHistoryDialogContent(
-            identity: identity,
-            initialPath: state.uri.queryParameters['path'] ?? '',
-          );
-        },
-      ),
-      dialogRoute(
-        path: RoutePaths.reflogDialog,
-        builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(
-            state.pathParameters['repoId']!,
-          );
-          return ReflogDialogContent(identity: identity);
-        },
-      ),
-      dialogRoute(
         path: RoutePaths.undoLastDialog,
         builder: (context, state) {
           final RepoIdentity identity = repoIdentityFromRouteParam(
             state.pathParameters['repoId']!,
           );
           return UndoLastDialogContent(identity: identity);
-        },
-      ),
-      dialogRoute(
-        path: RoutePaths.interactiveRebaseDialog,
-        builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(
-            state.pathParameters['repoId']!,
-          );
-          return InteractiveRebaseDialogContent(identity: identity);
-        },
-      ),
-      dialogRoute(
-        path: RoutePaths.manageSubmodulesDialog,
-        builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(
-            state.pathParameters['repoId']!,
-          );
-          return ManageSubmodulesDialogContent(identity: identity);
-        },
-      ),
-      dialogRoute(
-        path: RoutePaths.bisectDialog,
-        builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(
-            state.pathParameters['repoId']!,
-          );
-          return BisectDialogContent(identity: identity);
-        },
-      ),
-      dialogRoute(
-        path: RoutePaths.manageLfsDialog,
-        builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(
-            state.pathParameters['repoId']!,
-          );
-          return ManageLfsDialogContent(identity: identity);
-        },
-      ),
-      dialogRoute(
-        path: RoutePaths.patchesDialog,
-        builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(
-            state.pathParameters['repoId']!,
-          );
-          return PatchesDialogContent(identity: identity);
         },
       ),
       dialogRoute(
@@ -526,7 +406,10 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
           final RepoIdentity identity = repoIdentityFromRouteParam(
             state.pathParameters['repoId']!,
           );
-          return PruneRemoteBranchesDialogContent(identity: identity);
+          return PruneRemoteBranchesDialogContent(
+            identity: identity,
+            initialRemote: state.uri.queryParameters['remote'],
+          );
         },
       ),
       GoRoute(

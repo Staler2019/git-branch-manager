@@ -2,97 +2,115 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/actions/gbm_action_id.dart';
 import 'package:gbm_flutter/actions/gbm_menu_model.dart';
 
+/// Every item in every menu, including declared submenu children.
+///
+/// This must recurse: spec page 14's `Tools > Rewrite history` holds three
+/// real action ids in [GbmMenuItemModel.children], and a flat walk over
+/// `menu.items` would report them as missing from the menu bar entirely --
+/// which is the opposite of the truth.
+List<GbmMenuItemModel> _allItems() {
+  final List<GbmMenuItemModel> items = <GbmMenuItemModel>[];
+  void visit(GbmMenuItemModel item) {
+    items.add(item);
+    item.children.forEach(visit);
+  }
+
+  for (final GbmMenuModel menu in gbmMenus) {
+    menu.items.forEach(visit);
+  }
+  return items;
+}
+
 void main() {
   group('gbmMenus', () {
-    test('all 53 GbmActionId values appear exactly once across all menus', () {
-      // Flatten all items from all menus
-      final allItems = <GbmMenuItemModel>[];
-      for (final menu in gbmMenus) {
-        allItems.addAll(menu.items);
-      }
+    test('every GbmActionId appears exactly once across all menus', () {
+      final List<GbmActionId> idList = _allItems()
+          .map((GbmMenuItemModel item) => item.id)
+          .toList();
+      final Set<GbmActionId> idSet = idList.toSet();
 
-      // Extract all IDs
-      final idSet = allItems.map((item) => item.id).toSet();
-      final idList = allItems.map((item) => item.id).toList();
-
-      // Check uniqueness: Set size should equal List size
       expect(
         idSet.length,
         idList.length,
         reason: 'Each GbmActionId should appear exactly once',
       );
-
-      // Check completeness: all 53 IDs should be in the set
       expect(
         idSet,
         GbmActionId.values.toSet(),
-        reason: 'All 53 GbmActionId values must be present',
+        reason: 'Every GbmActionId value must be present',
       );
     });
 
-    test('has exactly 7 menus with correct titles in order', () {
-      expect(gbmMenus.length, 7);
-      expect(gbmMenus.map((m) => m.title).toList(), [
+    test('has exactly 8 menus with correct titles in order', () {
+      // Tools is spec page 14's new eighth menu, placed per its rule 1:
+      // "放在 Remote 之後、Help 之前".
+      expect(gbmMenus.length, 8);
+      expect(gbmMenus.map((GbmMenuModel m) => m.title).toList(), <String>[
         'File',
         'Edit',
         'View',
         'Repository',
         'Branch',
         'Remote',
+        'Tools',
         'Help',
       ]);
     });
 
-    test('only viewGraphColumns and viewTheme have isSubmenuParent=true', () {
-      final allItems = <GbmMenuItemModel>[];
-      for (final menu in gbmMenus) {
-        allItems.addAll(menu.items);
-      }
-
-      final submenuParents = allItems.where((item) => item.isSubmenuParent);
+    test('Tools menu matches spec page 14 TOOLSMENU verbatim', () {
+      final GbmMenuModel tools = gbmMenus.firstWhere(
+        (GbmMenuModel m) => m.title == 'Tools',
+      );
       expect(
-        submenuParents.length,
-        2,
-        reason: 'Exactly 2 items should be submenu parents',
+        tools.items.map((GbmMenuItemModel i) => i.label).toList(),
+        <String>[
+          'Stashes…',
+          'Worktrees…',
+          'Remotes…',
+          'Submodules…',
+          'Large files (LFS)…',
+          'Patches…',
+          'Reflog…',
+          'Rewrite history',
+        ],
       );
 
-      final submenuParentIds = submenuParents.map((item) => item.id).toSet();
-      expect(submenuParentIds, {
-        GbmActionId.viewGraphColumns,
-        GbmActionId.viewTheme,
-      });
-
-      // All other items should have isSubmenuParent=false
-      final nonSubmenuItems = allItems.where((item) => !item.isSubmenuParent);
+      // Rule 2: "破壞性或多步驟的三項（Interactive rebase、Bisect、Clean
+      // untracked files）收進 Rewrite history 第二層，不與唯讀面板同層".
+      final GbmMenuItemModel rewrite = tools.items.last;
+      expect(rewrite.isSubmenuParent, isTrue);
       expect(
-        nonSubmenuItems.length,
-        51,
-        reason: '51 items should not be submenu parents',
+        rewrite.children.map((GbmMenuItemModel i) => i.label).toList(),
+        <String>['Interactive rebase…', 'Bisect…', 'Clean untracked files…'],
       );
     });
 
-    test('only branchDeleteBranch has isDanger=true', () {
-      final allItems = <GbmMenuItemModel>[];
-      for (final menu in gbmMenus) {
-        allItems.addAll(menu.items);
-      }
-
-      final dangerItems = allItems.where((item) => item.isDanger);
-      expect(
-        dangerItems.length,
-        1,
-        reason: 'Exactly 1 item should be marked as danger',
+    test('the three submenu parents are the only ones', () {
+      final Iterable<GbmMenuItemModel> parents = _allItems().where(
+        (GbmMenuItemModel item) => item.isSubmenuParent,
       );
-
-      final dangerItem = dangerItems.first;
-      expect(dangerItem.id, GbmActionId.branchDeleteBranch);
-
-      // All other items should have isDanger=false
-      final nonDangerItems = allItems.where((item) => !item.isDanger);
       expect(
-        nonDangerItems.length,
-        52,
-        reason: '52 items should not be marked as danger',
+        parents.map((GbmMenuItemModel item) => item.id).toSet(),
+        <GbmActionId>{
+          // Dynamic children, built at the widget layer.
+          GbmActionId.viewGraphColumns,
+          GbmActionId.viewTheme,
+          // Static children, declared in the model.
+          GbmActionId.toolsRewriteHistory,
+        },
+      );
+    });
+
+    test('only branchDeleteBranch and Clean untracked files are danger', () {
+      final Iterable<GbmMenuItemModel> danger = _allItems().where(
+        (GbmMenuItemModel item) => item.isDanger,
+      );
+      expect(
+        danger.map((GbmMenuItemModel item) => item.id).toSet(),
+        <GbmActionId>{
+          GbmActionId.branchDeleteBranch,
+          GbmActionId.toolsCleanUntrackedFiles,
+        },
       );
     });
   });

@@ -10,6 +10,7 @@ import '../../data/models/remote_info.dart';
 import '../../data/models/stash_entry.dart';
 import '../../data/repositories/branch_repository.dart';
 import '../../data/repositories/compare_tabs_repository.dart';
+import '../../data/repositories/panel_tabs_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../actions/gbm_selection_gesture.dart';
 import '../../data/models/list_selection.dart';
@@ -442,11 +443,23 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
         .branchFromStash(stash.index, name);
   }
 
+  /// 05-H "View diff" -- opens the Stashes panel with this stash selected.
+  ///
+  /// Was the manage-stashes *dialog* until Tier 6c moved that panel to a tab
+  /// (spec page 14 `IAMAP`). `context.go`, not `push`: a panel is a tab
+  /// beside History/Working Copy and replaces the shell's child. The stash
+  /// index rides in the query rather than the tab id, so asking twice for
+  /// two different stashes focuses one tab instead of opening two.
   void _viewStashDiff(StashEntry stash) {
-    context.push(
-      RoutePaths.manageStashesDialogFor(
-        Uri.encodeComponent(widget.identity.workDir),
-        selectIndex: stash.index,
+    final String repoId = Uri.encodeComponent(widget.identity.workDir);
+    final String tabId = ref
+        .read(panelTabsProvider(widget.identity).notifier)
+        .open(GbmPanelKind.manageStashes);
+    context.go(
+      RoutePaths.panelFor(
+        repoId,
+        tabId,
+        query: <String, String>{'select': '${stash.index}'},
       ),
     );
   }

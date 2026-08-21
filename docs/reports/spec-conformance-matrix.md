@@ -28,7 +28,10 @@ This report is descriptive only — no fixes are applied here. See
 > **P20** 未實作功能, **P21** Pull 流程與錯誤 — and P16's
 > `REVISIONS` table also *changes* rules the rows below were judged against.
 > Rows affected by that table are corrected in place and marked
-> "(260820 修訂)"; the nine new pages are **not** audited here. Anything
+> "(260820 修訂)"; the nine new pages are **not** audited here, with two
+> exceptions closed since: **P14** (entry-point IA) by Tier 6b, and **P19**
+> (管理面板樣版) by Tier 6c, which implemented every `PANELSPEC` row it had
+> data for and recorded the rest on #76. Anything
 > below without that marker was judged against the original 12 pages and
 > may have drifted. See the Tier 0c PR for the rename rows, which are the
 > only ones this round implemented.
@@ -237,7 +240,24 @@ whether their **entry point** is a context menu or the menu bar.
 
 ## Architectural findings that span multiple pages
 
-### F-A. `tab_row.dart`'s `_MoreMenu` is a third, spec-unsanctioned entry surface
+### F-A. `tab_row.dart`'s `_MoreMenu` is a third, spec-unsanctioned entry surface (**largely fixed, Tier 6b / #62**)
+
+> **Resolved in Tier 6b**, and the resolution was already written down: this
+> finding was logged as needing a design decision, but spec **page 14**
+> (`進階功能的入口與載體`, added 260820) *is* that decision. It was missed
+> because this matrix's own banner said the spec had 16 pages when it has 21.
+> The overflow menu is now **2 items** and the standalone buttons **1**; a
+> new **Tools** menu (page 14's `TOOLSMENU`, placed between Remote and Help)
+> takes nine, the file context menu's new `History ▸` flyout takes three,
+> `Stash changes…` returns to the Branch menu, two duplicates are dropped and
+> `Operation Log…` went with F-B. What remains is what spec assigns no home
+> to (`Create tag…` → #84, `Undo last operation…` → #85) and `Cherry-pick…`,
+> whose dialog has no other entry point and whose spec is self-contradictory
+> (#86). Page 14 also routes the twelve management panels to **tabs** —
+> **all twelve are now ported (Tier 6c)**, their dialogs and routes deleted,
+> so the repo-scoped dialog count is 22 rather than 34. Each panel's
+> `PANELSPEC` fields that had no backing data are listed on #76 rather than
+> faked; see CLAUDE.md's "Tier 6c" section for the per-panel reasoning.
 
 The spec's page-02 item 13 / page-03 item 9 describe the tab row as: two
 persistent tabs (History / Working Copy) + an additional closable Compare
@@ -496,8 +516,10 @@ independent problems:
    diagnosis: COMPARES 1 needed the **sidebar branch tree's** multi-select,
    not History's, so the root cause was one mechanism short of what this
    line claims — both were built.)*
-3. **F-A**: `tab_row.dart`'s 18-item overflow menu is a spec-unsanctioned
-   third entry surface for otherwise-legitimate features.
+3. ~~**F-A**: `tab_row.dart`'s 18-item overflow menu is a spec-unsanctioned
+   third entry surface for otherwise-legitimate features.~~ **Largely fixed
+   (Tier 6b / #62)** — down to 2 items plus 1 button, all three of which are
+   things spec has not assigned a home to (#84/#85/#86). See F-A above.
 4. **F-B**: the Log drawer and Operation Log dialog are two competing
    implementations of the same spec concept — and as of 260820 this is no
    longer a judgement call: P16's REVISIONS deletes the dialog from the

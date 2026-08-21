@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../data/models/git_identity.dart';
 import '../../../data/models/remote_info.dart';
+import '../../../data/repositories/panel_tabs_repository.dart';
 import '../../../data/repositories/repo_identity.dart';
 import '../../../data/repositories/repo_session_repository.dart';
 import '../../../routing/route_paths.dart';
@@ -265,23 +266,20 @@ class _GeneralTab extends StatelessWidget {
           spacing: GbmSpacing.space2,
           runSpacing: GbmSpacing.space2,
           children: <Widget>[
-            GbmButton(
+            _PanelLinkButton(
+              identity: identity,
               label: 'Manage worktrees…',
-              onPressed: () => context.push(
-                RoutePaths.manageWorktreesDialogFor(repoIdForRoute(identity)),
-              ),
+              kind: GbmPanelKind.manageWorktrees,
             ),
-            GbmButton(
+            _PanelLinkButton(
+              identity: identity,
               label: 'Manage submodules…',
-              onPressed: () => context.push(
-                RoutePaths.manageSubmodulesDialogFor(repoIdForRoute(identity)),
-              ),
+              kind: GbmPanelKind.manageSubmodules,
             ),
-            GbmButton(
+            _PanelLinkButton(
+              identity: identity,
               label: 'Manage LFS…',
-              onPressed: () => context.push(
-                RoutePaths.manageLfsDialogFor(repoIdForRoute(identity)),
-              ),
+              kind: GbmPanelKind.manageLfs,
             ),
             GbmButton(
               label: 'Clean untracked files…',
@@ -358,11 +356,10 @@ class _RemotesTab extends StatelessWidget {
         const SizedBox(height: GbmSpacing.space2),
         Row(
           children: <Widget>[
-            GbmButton(
+            _PanelLinkButton(
+              identity: identity,
               label: 'Manage remotes…',
-              onPressed: () => context.push(
-                RoutePaths.manageRemotesDialogFor(repoIdForRoute(identity)),
-              ),
+              kind: GbmPanelKind.manageRemotes,
             ),
             const SizedBox(width: GbmSpacing.space2),
             GbmButton(
@@ -511,6 +508,44 @@ class _PerformanceTab extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Opens one of spec page 14's management panels as a **tab**, from inside
+/// this dialog.
+///
+/// Two things it does that a plain `context.push` would not, and both
+/// matter: it registers the tab with [panelTabsProvider] (a tab that is not
+/// in that list renders "This panel is no longer open"), and it pops the
+/// dialog *before* navigating — a tab replaces the shell's child, so leaving
+/// the modal up would hide the thing the user just asked for.
+///
+/// A [Consumer] because `_GeneralTab` is a [StatelessWidget] with no `ref`.
+class _PanelLinkButton extends StatelessWidget {
+  const _PanelLinkButton({
+    required this.identity,
+    required this.label,
+    required this.kind,
+  });
+
+  final RepoIdentity identity;
+  final String label;
+  final GbmPanelKind kind;
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer(
+      builder: (context, ref, _) => GbmButton(
+        label: label,
+        onPressed: () {
+          final String tabId = ref
+              .read(panelTabsProvider(identity).notifier)
+              .open(kind);
+          context.pop();
+          context.go(RoutePaths.panelFor(repoIdForRoute(identity), tabId));
+        },
+      ),
     );
   }
 }

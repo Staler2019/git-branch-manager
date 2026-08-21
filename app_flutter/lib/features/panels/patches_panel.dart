@@ -63,8 +63,10 @@ class PatchRow {
 /// **`Import…` (`git am`) is a fourth button, on purpose.** It has no entry
 /// point anywhere in the spec, and `gbm_patch_import`/`_continue`/`_skip`/
 /// `_abort` would be four orphaned capi calls without it — the same call
-/// manage-submodules makes for Add…/Deinit. Its three sequencer buttons only
-/// appear while an import is actually in progress.
+/// manage-submodules makes for Add…/Deinit (#92). Its three sequencer buttons
+/// only appear while an import is actually in progress; whether they belong
+/// here or in P07's conflict banner, which carries the same three verbs for
+/// rebase/cherry-pick/merge, is the open half of **#94**.
 class PatchesPanel extends ConsumerStatefulWidget {
   const PatchesPanel({super.key, required this.identity});
 

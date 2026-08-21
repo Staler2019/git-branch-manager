@@ -24,9 +24,9 @@ import 'panel_widgets.dart';
 /// in the spec** — not in `PANELSPEC`, not in `TOOLSMENU`, not in P04
 /// `MENUS`. Dropping them to match the table exactly would orphan two
 /// working capi calls and remove the only way to add a submodule at all.
-/// Kept, separated after the four spec'd actions, and tracked as its own
-/// issue — the same call Tier 6b made for the Cherry-pick button (#86) and
-/// for `Create tag…` / `Undo last operation…` (#84/#85).
+/// Kept, separated after the four spec'd actions, and tracked as **#92** —
+/// the same call Tier 6b made for the Cherry-pick button (#86) and for
+/// `Create tag…` / `Undo last operation…` (#84/#85).
 ///
 /// **預期 commit is absent.** [SubmoduleInfo] carries `headOid` (the
 /// submodule's actual HEAD) but not the gitlink oid the superproject

@@ -79,6 +79,11 @@ class PanelPage extends ConsumerWidget {
         identity: identity,
         path: spec.subject ?? '',
       ),
+      // `from`/`to` are parsed here but produced by nothing under lib/ --
+      // P14 FILECTXSUB's 「選行後」 names the intended producer (open with
+      // the diff's selected lines) and it has not been built. Wiring one
+      // also needs LineHistoryPanel.didUpdateWidget, since re-opening the
+      // same file focuses the existing tab rather than remounting it. #95.
       GbmPanelKind.lineHistory => LineHistoryPanel(
         identity: identity,
         path: spec.subject ?? '',

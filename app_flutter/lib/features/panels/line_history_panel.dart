@@ -8,6 +8,7 @@ import '../../data/repositories/history_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
 import '../../routing/route_paths.dart';
+import '../../theme/tokens.dart';
 import '../../widgets/gbm_button.dart';
 import '../history_graph/widgets/graph_date_format.dart';
 import 'gbm_panel_tab_shell.dart';
@@ -42,6 +43,12 @@ class LineHistoryPanel extends ConsumerStatefulWidget {
 
   final RepoIdentity identity;
   final String path;
+
+  /// Both are **parsed by `panel_page.dart` but produced by nothing** under
+  /// `lib/` today, and are read in `initState` only — so a second open of
+  /// the same file focuses the existing tab and silently keeps the old
+  /// range. Wiring a producer therefore also needs a `didUpdateWidget`; the
+  /// two must land together. Tracked as **#95**.
   final int initialStartLine;
   final int initialEndLine;
 
@@ -177,7 +184,7 @@ class _RangeFields extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.all(8),
+      padding: const EdgeInsets.all(GbmSpacing.space2),
       child: Row(
         children: <Widget>[
           Expanded(
@@ -192,7 +199,7 @@ class _RangeFields extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: GbmSpacing.space2),
           Expanded(
             child: TextField(
               controller: endController,
@@ -205,7 +212,7 @@ class _RangeFields extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: GbmSpacing.space2),
           GbmButton(label: 'Load', onPressed: onSubmit),
         ],
       ),

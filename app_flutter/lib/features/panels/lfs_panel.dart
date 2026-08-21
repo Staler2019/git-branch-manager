@@ -32,7 +32,7 @@ import 'panel_widgets.dart';
 /// the working tree keeps its pointer files, so Fetch alone leaves the
 /// repository unusable for LFS content. `gbm_lfs_pull` exists and has no
 /// entry point anywhere else in the spec — same call as manage-submodules'
-/// Add…/Deinit, tracked on #76.
+/// Add…/Deinit (#92). Tracked as **#93**.
 ///
 /// **`Install` is not a toolbar button.** It only means anything when LFS
 /// is not installed, and it appears in that state's own message instead —

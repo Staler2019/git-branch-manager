@@ -145,8 +145,7 @@ public:
         if (request_.branches.size() > 1) {
             what += " " + std::to_string(request_.branches.size()) + " branches";
         }
-        return what +
-               (request_.remoteName.empty() ? std::string() : " to " + request_.remoteName);
+        return what + (request_.remoteName.empty() ? std::string() : " to " + request_.remoteName);
     }
 
     OperationOutcome run(IProcessRunner& runner,

@@ -13,9 +13,19 @@ import '../../../widgets/gbm_dialog_shell.dart';
 /// (src/app/dialogs/ResetBranchDialog.cpp). Routed as
 /// `/repo/:repoId/dialogs/reset-branch`.
 class ResetBranchDialogContent extends ConsumerStatefulWidget {
-  const ResetBranchDialogContent({super.key, required this.identity});
+  const ResetBranchDialogContent({
+    super.key,
+    required this.identity,
+    this.target,
+  });
 
   final RepoIdentity identity;
+
+  /// Pre-fills the "Reset to" field. 05-E's "Reset branch to here…" passes
+  /// the right-clicked commit's oid; null keeps the dialog's own default of
+  /// the current branch, which is what Branch -> Reset… has always opened
+  /// with.
+  final String? target;
 
   @override
   ConsumerState<ResetBranchDialogContent> createState() =>
@@ -34,7 +44,7 @@ class _ResetBranchDialogContentState
       repoSessionProvider(widget.identity),
     );
     _targetController = TextEditingController(
-      text: session.refs.head.branchName,
+      text: widget.target ?? session.refs.head.branchName,
     );
   }
 

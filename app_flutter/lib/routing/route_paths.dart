@@ -96,8 +96,19 @@ abstract final class RoutePaths {
   static String workspaceFor(String repoId) => historyFor(repoId);
   static String historyFor(String repoId) => '/repo/$repoId/history';
   static String workingCopyFor(String repoId) => '/repo/$repoId/working-copy';
-  static String resetBranchDialogFor(String repoId) =>
-      '/repo/$repoId/dialogs/reset-branch';
+
+  /// [target] pre-fills the "Reset to" field -- 05-E's "Reset branch to
+  /// here…" passes the right-clicked commit's oid. Same query-parameter
+  /// shape as [renameBranchDialogFor]; empty means "no pre-fill", and the
+  /// dialog keeps its own default (the current branch).
+  static String resetBranchDialogFor(String repoId, {String target = ''}) =>
+      Uri(
+        path: '/repo/$repoId/dialogs/reset-branch',
+        queryParameters: target.isEmpty
+            ? null
+            : <String, String>{'target': target},
+      ).toString();
+
   static String mergeDialogFor(String repoId) => '/repo/$repoId/dialogs/merge';
   static String cherryPickDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/cherry-pick';
@@ -190,8 +201,15 @@ abstract final class RoutePaths {
             ? null
             : <String, String>{'branch': branch},
       ).toString();
-  static String rebaseOntoDialogFor(String repoId) =>
-      '/repo/$repoId/dialogs/rebase-onto';
+
+  /// [target] pre-selects what to rebase onto -- 05-B's "Rebase current
+  /// onto here" passes a branch name, 05-E's "Rebase onto here" a commit
+  /// oid. See [resetBranchDialogFor] for the shared shape.
+  static String rebaseOntoDialogFor(String repoId, {String target = ''}) => Uri(
+    path: '/repo/$repoId/dialogs/rebase-onto',
+    queryParameters: target.isEmpty ? null : <String, String>{'target': target},
+  ).toString();
+
   static String forcePushDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/force-push';
   static String deleteRemoteBranchDialogFor(

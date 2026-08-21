@@ -24,9 +24,22 @@ import '../../../widgets/gbm_dialog_shell.dart';
 ///
 /// Routed as `/repo/:repoId/dialogs/rebase-onto`.
 class RebaseOntoDialogContent extends ConsumerStatefulWidget {
-  const RebaseOntoDialogContent({super.key, required this.identity});
+  const RebaseOntoDialogContent({
+    super.key,
+    required this.identity,
+    this.target,
+  });
 
   final RepoIdentity identity;
+
+  /// Pre-selects what to rebase onto. 05-B's "Rebase current onto here"
+  /// passes a branch name, which is already one of the dropdown's own
+  /// options; 05-E's "Rebase onto here" passes a commit oid, which is not,
+  /// so [_candidateItems] adds it as an extra option rather than dropping a
+  /// target the user explicitly picked. `git rebase` takes any committish,
+  /// so an oid is a perfectly good upstream -- see gbm_capi.h's
+  /// gbm_rebase_start.
+  final String? target;
 
   @override
   ConsumerState<RebaseOntoDialogContent> createState() =>
@@ -37,6 +50,37 @@ class _RebaseOntoDialogContentState
     extends ConsumerState<RebaseOntoDialogContent> {
   String? _target;
   bool _stashFirst = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _target = widget.target;
+  }
+
+  /// The branch list, plus [RebaseOntoDialogContent.target] itself when it
+  /// is not one of those branches (a commit oid). Without that extra entry
+  /// `DropdownButtonFormField` would assert on an `initialValue` that is
+  /// not among its items, and silently dropping the pre-fill would send the
+  /// user back to picking a target they already chose.
+  List<DropdownMenuItem<String>> _candidateItems(List<RefInfo> candidates) {
+    final String? target = widget.target;
+    final bool targetIsBranch = candidates.any(
+      (RefInfo b) => b.shortName == target,
+    );
+    return <DropdownMenuItem<String>>[
+      if (target != null && !targetIsBranch)
+        DropdownMenuItem<String>(
+          value: target,
+          // Abbreviated the way every other oid in the app is, so the row
+          // reads as a commit rather than as a 40-character branch name.
+          child: Text(
+            target.length >= 8 ? 'commit ${target.substring(0, 8)}' : target,
+          ),
+        ),
+      for (final RefInfo b in candidates)
+        DropdownMenuItem<String>(value: b.shortName, child: Text(b.shortName)),
+    ];
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -94,13 +138,7 @@ class _RebaseOntoDialogContentState
               isDense: true,
               border: OutlineInputBorder(),
             ),
-            items: <DropdownMenuItem<String>>[
-              for (final RefInfo b in candidates)
-                DropdownMenuItem<String>(
-                  value: b.shortName,
-                  child: Text(b.shortName),
-                ),
-            ],
+            items: _candidateItems(candidates),
             onChanged: (String? value) => setState(() => _target = value),
           ),
           const SizedBox(height: GbmSpacing.space2),

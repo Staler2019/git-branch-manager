@@ -168,7 +168,11 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
           final RepoIdentity identity = repoIdentityFromRouteParam(
             state.pathParameters['repoId']!,
           );
-          return ResetBranchDialogContent(identity: identity);
+          final String target = state.uri.queryParameters['target'] ?? '';
+          return ResetBranchDialogContent(
+            identity: identity,
+            target: target.isEmpty ? null : target,
+          );
         },
       ),
       dialogRoute(
@@ -434,7 +438,11 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
           final RepoIdentity identity = repoIdentityFromRouteParam(
             state.pathParameters['repoId']!,
           );
-          return RebaseOntoDialogContent(identity: identity);
+          final String target = state.uri.queryParameters['target'] ?? '';
+          return RebaseOntoDialogContent(
+            identity: identity,
+            target: target.isEmpty ? null : target,
+          );
         },
       ),
       dialogRoute(

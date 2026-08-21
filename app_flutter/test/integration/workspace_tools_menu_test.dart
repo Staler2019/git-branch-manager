@@ -141,14 +141,28 @@ void main() {
       expect(find.text('Clean untracked files…'), findsOneWidget);
     });
 
-    testWidgets('Tools > Rewrite history > Bisect… opens a panel tab', (
+    // Spec page 14 assigns all twelve panels to tabs, but they are ported
+    // one at a time (#76). Until GbmPanelKind.isPortedToTab flips, an entry
+    // point must keep opening the existing dialog -- sending it to an
+    // unbuilt tab would swap a working screen for a placeholder. This locks
+    // that rule in so a future port cannot quietly regress it.
+    testWidgets('an unported panel still opens its dialog, not a stub tab', (
       tester,
     ) async {
       final PumpedWorkspace pumped = await pumpWorkspace(
         tester,
         identity: _identity,
         extraRoutes: _panelRoute,
+        topLevelRoutes: <RouteBase>[
+          GoRoute(
+            path: RoutePaths.bisectDialog,
+            builder: (context, state) =>
+                const Scaffold(body: Text('bisect-dialog')),
+          ),
+        ],
       );
+
+      expect(GbmPanelKind.bisect.isPortedToTab, isFalse);
 
       await _openToolsMenu(tester);
       await tester.tap(find.text('Rewrite history'));
@@ -156,10 +170,8 @@ void main() {
       await tester.tap(find.text('Bisect…'));
       await tester.pumpAndSettle();
 
-      final List<PanelTabSpec> tabs = pumped.container.read(
-        panelTabsProvider(_identity),
-      );
-      expect(tabs.single.kind, GbmPanelKind.bisect);
+      expect(find.text('bisect-dialog'), findsOneWidget);
+      expect(pumped.container.read(panelTabsProvider(_identity)), isEmpty);
     });
   });
 }

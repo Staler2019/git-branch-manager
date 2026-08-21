@@ -78,9 +78,9 @@ Future<GoRouter> _pump(
             const Scaffold(body: Text('reset-branch-dialog')),
       ),
       GoRoute(
-        path: RoutePaths.manageStashesDialog,
+        path: RoutePaths.createTagDialog,
         builder: (context, state) =>
-            const Scaffold(body: Text('manage-stashes-dialog')),
+            const Scaffold(body: Text('create-tag-dialog')),
       ),
     ],
   );
@@ -198,13 +198,18 @@ void main() {
   });
 
   testWidgets(
-    'More menu lists all 16 items via showGbmMenu (not Material PopupMenuButton chrome)',
-    // This list is exhaustive on purpose -- keep it that way when items
-    // change. It has been wrong before: the name said 18 while the menu
-    // built 19, because the list silently omitted "Repository Settings…".
-    // 19 -> 18 was Tier 6a removing "Operation Log…" (#61); 18 -> 16 is
-    // Tier 6b dropping "Repository Settings…"/"Preferences…", which
-    // duplicate menu-bar entries (code-review M1).
+    'More menu holds only the two items spec has not rehomed',
+    // Spec page 14 deletes this menu outright ("分頁列右側的 18 項溢出選單在
+    // Tools 與 flyout 上線後刪除。同一功能不留兩條路"). Tier 6b moved every
+    // item it could: nine to the Tools menu, three to the file context
+    // menu's History flyout, Stash changes to the Branch menu, two
+    // duplicates dropped, and Operation Log deleted in Tier 6a.
+    //
+    // These two have nowhere to go: spec gives Create tag… and Undo last
+    // operation… no entry point at all -- not in 05-D, not in TOOLSMENU, not
+    // in MENUS (P18 draws both dialogs but names no `from:`). Issues #84 and
+    // #85. Keeping them here does not violate "同一功能不留兩條路" because
+    // neither has a second route; the menu disappears once they are placed.
     (tester) async {
       await _pump(tester, pendingChangeCount: 0);
       await tester.tap(find.byTooltip('More'));
@@ -214,53 +219,47 @@ void main() {
       // _MoreMenu doc comment on why this must go through showGbmMenu.
       expect(find.byType(PopupMenuButton<String>), findsNothing);
 
-      for (final String label in const <String>[
+      expect(find.text('Create tag…'), findsOneWidget);
+      expect(find.text('Undo last operation…'), findsOneWidget);
+
+      // Everything that was rehomed must be gone from here, or the app has
+      // two routes to one feature -- exactly what page 14 forbids.
+      for (final String gone in const <String>[
         'Stash changes…',
         'Manage stashes…',
-        'Create tag…',
         'Manage worktrees…',
         'Remotes…',
         'Blame…',
         'File history…',
         'Line history…',
         'Reflog…',
-        'Undo last operation…',
         'Interactive rebase…',
         'Submodules…',
         'Bisect…',
         'Large files (LFS)…',
         'Patches…',
         'Clean untracked files…',
+        'Repository Settings…',
+        'Preferences…',
+        'Operation Log…',
       ]) {
-        expect(find.text(label), findsOneWidget, reason: label);
+        expect(find.text(gone), findsNothing, reason: gone);
       }
     },
   );
 
-  // Issue #61. Spec page 10's LOGRULES gained a "只有一套" row on 260820
-  // ("Log 只有底部抽屜這一個實作…不另開 operation log dialog"), and P14's
-  // IAMAP routes the operation-log dialog to "刪除 -- 改走 P10 底部抽屜".
-  // The surviving entry point is View -> Log (Ctrl/Cmd+Shift+L), covered by
-  // test/integration/workspace_log_drawer_reachability_test.dart.
-  testWidgets('More menu no longer offers Operation Log… (spec P10/P14)', (
+  // Manage stashes… moved to the Tools menu in Tier 6b; its dispatch is
+  // covered by test/integration/workspace_tools_menu_test.dart. What is
+  // still worth asserting here is that a surviving _MoreMenu item routes.
+  testWidgets('More menu > Create tag… pushes the create-tag route', (
     tester,
   ) async {
     await _pump(tester, pendingChangeCount: 0);
     await tester.tap(find.byTooltip('More'));
     await tester.pumpAndSettle();
-
-    expect(find.text('Operation Log…'), findsNothing);
-  });
-
-  testWidgets('More menu > Manage stashes… pushes the manage-stashes route', (
-    tester,
-  ) async {
-    await _pump(tester, pendingChangeCount: 0);
-    await tester.tap(find.byTooltip('More'));
+    await tester.tap(find.text('Create tag…'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Manage stashes…'));
-    await tester.pumpAndSettle();
-    expect(find.text('manage-stashes-dialog'), findsOneWidget);
+    expect(find.text('create-tag-dialog'), findsOneWidget);
   });
 
   testWidgets('renders an open Compare tab after the two fixed tabs', (

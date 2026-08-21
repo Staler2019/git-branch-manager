@@ -633,19 +633,42 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     );
   }
 
-  /// Opens one of the three per-file history panels as a tab for [path].
+  /// Opens one of the three per-file history panels for [path], via
+  /// whichever carrier that panel currently has.
   ///
-  /// `context.go`, not `push`: a panel is a tab beside History/Working Copy,
-  /// so it replaces the shell's child rather than stacking over it -- same
-  /// reasoning as `WorkspaceScreen._openPanelTab`, which this mirrors from
-  /// the one place that cannot call it (a context menu inside the tab).
+  /// Same rule as `WorkspaceScreen._openPanel`: spec page 14 assigns these
+  /// to tabs, but until [GbmPanelKind.isPortedToTab] flips they still open
+  /// their dialog -- with the path pre-filled either way, which is the whole
+  /// point of putting them behind the file's own context menu.
+  ///
+  /// When it is a tab, `context.go` rather than `push`: a panel sits beside
+  /// History/Working Copy and replaces the shell's child instead of stacking
+  /// over it.
   void _openFilePanel(GbmPanelKind kind, String path) {
+    final String repoId = Uri.encodeComponent(widget.identity.workDir);
+    if (!kind.isPortedToTab) {
+      context.push(switch (kind) {
+        GbmPanelKind.fileHistory => RoutePaths.fileHistoryDialogFor(
+          repoId,
+          path: path,
+        ),
+        GbmPanelKind.blame => RoutePaths.blameDialogFor(repoId, path: path),
+        GbmPanelKind.lineHistory => RoutePaths.lineHistoryDialogFor(
+          repoId,
+          path: path,
+        ),
+        _ => throw ArgumentError.value(
+          kind,
+          'kind',
+          'not a per-file history panel',
+        ),
+      });
+      return;
+    }
     final String tabId = ref
         .read(panelTabsProvider(widget.identity).notifier)
         .open(kind, subject: path);
-    context.go(
-      RoutePaths.panelFor(Uri.encodeComponent(widget.identity.workDir), tabId),
-    );
+    context.go(RoutePaths.panelFor(repoId, tabId));
   }
 
   /// Joins the repository's work dir with a repository-relative path from

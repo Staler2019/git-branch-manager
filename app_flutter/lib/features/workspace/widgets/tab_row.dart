@@ -233,79 +233,13 @@ class _MoreMenu extends StatelessWidget {
       position: position,
       items: <GbmMenuItem>[
         GbmMenuItem(
-          label: 'Stash changes…',
-          onTap: () =>
-              buttonContext.push(RoutePaths.stashChangesDialogFor(repoId)),
-        ),
-        GbmMenuItem(
-          label: 'Manage stashes…',
-          onTap: () =>
-              buttonContext.push(RoutePaths.manageStashesDialogFor(repoId)),
-        ),
-        GbmMenuItem(
           label: 'Create tag…',
           onTap: () =>
               buttonContext.push(RoutePaths.createTagDialogFor(repoId)),
         ),
         GbmMenuItem(
-          label: 'Manage worktrees…',
-          onTap: () =>
-              buttonContext.push(RoutePaths.manageWorktreesDialogFor(repoId)),
-        ),
-        GbmMenuItem(
-          label: 'Remotes…',
-          onTap: () =>
-              buttonContext.push(RoutePaths.manageRemotesDialogFor(repoId)),
-        ),
-        GbmMenuItem(
-          label: 'Blame…',
-          onTap: () => buttonContext.push(RoutePaths.blameDialogFor(repoId)),
-        ),
-        GbmMenuItem(
-          label: 'File history…',
-          onTap: () =>
-              buttonContext.push(RoutePaths.fileHistoryDialogFor(repoId)),
-        ),
-        GbmMenuItem(
-          label: 'Line history…',
-          onTap: () =>
-              buttonContext.push(RoutePaths.lineHistoryDialogFor(repoId)),
-        ),
-        GbmMenuItem(
-          label: 'Reflog…',
-          onTap: () => buttonContext.push(RoutePaths.reflogDialogFor(repoId)),
-        ),
-        GbmMenuItem(
           label: 'Undo last operation…',
           onTap: () => buttonContext.push(RoutePaths.undoLastDialogFor(repoId)),
-        ),
-        GbmMenuItem(
-          label: 'Interactive rebase…',
-          onTap: () =>
-              buttonContext.push(RoutePaths.interactiveRebaseDialogFor(repoId)),
-        ),
-        GbmMenuItem(
-          label: 'Submodules…',
-          onTap: () =>
-              buttonContext.push(RoutePaths.manageSubmodulesDialogFor(repoId)),
-        ),
-        GbmMenuItem(
-          label: 'Bisect…',
-          onTap: () => buttonContext.push(RoutePaths.bisectDialogFor(repoId)),
-        ),
-        GbmMenuItem(
-          label: 'Large files (LFS)…',
-          onTap: () =>
-              buttonContext.push(RoutePaths.manageLfsDialogFor(repoId)),
-        ),
-        GbmMenuItem(
-          label: 'Patches…',
-          onTap: () => buttonContext.push(RoutePaths.patchesDialogFor(repoId)),
-        ),
-        GbmMenuItem(
-          label: 'Clean untracked files…',
-          onTap: () =>
-              buttonContext.push(RoutePaths.cleanUntrackedDialogFor(repoId)),
         ),
       ],
     );

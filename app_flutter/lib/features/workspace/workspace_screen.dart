@@ -742,53 +742,82 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       // Clean untracked files… shares the Rewrite history submenu but
       // belongs to IAMAP's "中型表單 / 確認框" group, so it stays a dialog --
       // menu adjacency is not carrier assignment.
-      GbmActionId.toolsStashes: () => _openPanelTab(
+      GbmActionId.toolsStashes: () => _openPanel(
         context,
         ref,
         identity,
         repoId,
         GbmPanelKind.manageStashes,
+        RoutePaths.manageStashesDialogFor(repoId),
       ),
-      GbmActionId.toolsWorktrees: () => _openPanelTab(
+      GbmActionId.toolsWorktrees: () => _openPanel(
         context,
         ref,
         identity,
         repoId,
         GbmPanelKind.manageWorktrees,
+        RoutePaths.manageWorktreesDialogFor(repoId),
       ),
-      GbmActionId.toolsRemotes: () => _openPanelTab(
+      GbmActionId.toolsRemotes: () => _openPanel(
         context,
         ref,
         identity,
         repoId,
         GbmPanelKind.manageRemotes,
+        RoutePaths.manageRemotesDialogFor(repoId),
       ),
-      GbmActionId.toolsSubmodules: () => _openPanelTab(
+      GbmActionId.toolsSubmodules: () => _openPanel(
         context,
         ref,
         identity,
         repoId,
         GbmPanelKind.manageSubmodules,
+        RoutePaths.manageSubmodulesDialogFor(repoId),
       ),
-      GbmActionId.toolsLargeFiles: () =>
-          _openPanelTab(context, ref, identity, repoId, GbmPanelKind.manageLfs),
-      GbmActionId.toolsPatches: () =>
-          _openPanelTab(context, ref, identity, repoId, GbmPanelKind.patches),
-      GbmActionId.toolsReflog: () =>
-          _openPanelTab(context, ref, identity, repoId, GbmPanelKind.reflog),
+      GbmActionId.toolsLargeFiles: () => _openPanel(
+        context,
+        ref,
+        identity,
+        repoId,
+        GbmPanelKind.manageLfs,
+        RoutePaths.manageLfsDialogFor(repoId),
+      ),
+      GbmActionId.toolsPatches: () => _openPanel(
+        context,
+        ref,
+        identity,
+        repoId,
+        GbmPanelKind.patches,
+        RoutePaths.patchesDialogFor(repoId),
+      ),
+      GbmActionId.toolsReflog: () => _openPanel(
+        context,
+        ref,
+        identity,
+        repoId,
+        GbmPanelKind.reflog,
+        RoutePaths.reflogDialogFor(repoId),
+      ),
       // "Rewrite history" names a group, not an action -- it has no handler
       // of its own, and menu_bar_row.dart renders it as a flyout trigger
       // from its declared children rather than reading this map for it.
       GbmActionId.toolsRewriteHistory: null,
-      GbmActionId.toolsInteractiveRebase: () => _openPanelTab(
+      GbmActionId.toolsInteractiveRebase: () => _openPanel(
         context,
         ref,
         identity,
         repoId,
         GbmPanelKind.interactiveRebase,
+        RoutePaths.interactiveRebaseDialogFor(repoId),
       ),
-      GbmActionId.toolsBisect: () =>
-          _openPanelTab(context, ref, identity, repoId, GbmPanelKind.bisect),
+      GbmActionId.toolsBisect: () => _openPanel(
+        context,
+        ref,
+        identity,
+        repoId,
+        GbmPanelKind.bisect,
+        RoutePaths.bisectDialogFor(repoId),
+      ),
       GbmActionId.toolsCleanUntrackedFiles: () =>
           context.push(RoutePaths.cleanUntrackedDialogFor(repoId)),
 
@@ -1071,6 +1100,30 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         .read(compareTabsProvider(identity).notifier)
         .open(left: left);
     context.go(RoutePaths.compareFor(repoId, tabId));
+  }
+
+  /// Opens a spec page 14 management panel via whichever carrier it
+  /// currently has.
+  ///
+  /// Page 14 assigns all twelve to tabs, but they are being ported one
+  /// commit at a time (issue #76). Until [GbmPanelKind.isPortedToTab] flips
+  /// for a kind, this pushes its existing dialog instead: sending it to an
+  /// unbuilt tab would swap a working screen for a placeholder, which is a
+  /// regression wearing conformance as a disguise. One helper rather than a
+  /// per-item ternary so there is exactly one place the carrier is decided.
+  void _openPanel(
+    BuildContext context,
+    WidgetRef ref,
+    RepoIdentity identity,
+    String repoId,
+    GbmPanelKind kind,
+    String dialogRoute,
+  ) {
+    if (!kind.isPortedToTab) {
+      context.push(dialogRoute);
+      return;
+    }
+    _openPanelTab(context, ref, identity, repoId, kind);
   }
 
   /// Opens (or focuses, if already open) one of spec page 14's twelve

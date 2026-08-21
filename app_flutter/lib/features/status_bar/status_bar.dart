@@ -39,6 +39,7 @@ class StatusBar extends StatefulWidget {
     this.repoState,
     this.workingCopyStatus,
     this.conflictActive = false,
+    this.selectionSummary,
   });
 
   final String currentBranch;
@@ -54,6 +55,19 @@ class StatusBar extends StatefulWidget {
   final model.RepoState? repoState;
   final WorkingCopyStatus? workingCopyStatus;
   final bool conflictActive;
+
+  /// Spec page 13's selection summary (「狀態列改為顯示 selection 摘要」),
+  /// already formatted by whoever owns the selected list — this widget stays
+  /// presentational and does not know what a commit or a branch is.
+  ///
+  /// Null both when nothing is multi-selected and when the selected list is
+  /// not the visible one: only [WorkspaceScreen] knows which tab is showing,
+  /// so it decides, rather than this widget guessing from a route.
+  ///
+  /// Loses to [conflictActive]: a conflict takes zone 1 outright. A stopped
+  /// sequencer is the one thing that must be readable at a glance, and a
+  /// selection is recoverable information (the rows are still highlighted).
+  final String? selectionSummary;
 
   @override
   State<StatusBar> createState() => _StatusBarState();
@@ -212,6 +226,24 @@ class _StatusBarState extends State<StatusBar> {
                             color: colors.textTertiary,
                           ),
                         ),
+                        if (widget.selectionSummary case final summary?) ...[
+                          const SizedBox(width: GbmSpacing.space2),
+                          Text(
+                            '·',
+                            style: TextStyle(
+                              fontSize: GbmTypography.textXs,
+                              color: colors.borderDefault,
+                            ),
+                          ),
+                          const SizedBox(width: GbmSpacing.space2),
+                          Text(
+                            summary,
+                            style: TextStyle(
+                              fontSize: GbmTypography.textXs,
+                              color: colors.textSecondary,
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),

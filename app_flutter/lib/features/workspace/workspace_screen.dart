@@ -28,6 +28,7 @@ import '../../theme/tokens.dart';
 import '../../widgets/gbm_banner.dart';
 import '../../widgets/split_pane.dart';
 import '../history_graph/commit_search.dart';
+import '../history_graph/commit_selection_summary.dart';
 import '../history_graph/widgets/graph_columns_selector.dart';
 import '../log_drawer/log_drawer.dart';
 import '../repo_switcher/repo_switcher_popover.dart';
@@ -363,6 +364,27 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
               repoState: session.repoState,
               workingCopyStatus: session.workingCopyStatus,
               conflictActive: session.conflictActive,
+              // Spec page 13 puts the commit selection summary in the status
+              // bar, and the History tab is the only place that selection is
+              // visible -- showing "4 commits · contiguous" while the user is
+              // looking at Working Copy or a Compare tab would describe rows
+              // that are off screen. StatusBar is presentational and has no
+              // route awareness, so the tab test lives here.
+              //
+              // Plain equality against History's own route, the same primitive
+              // activeWorkspaceTabIndex() uses -- deliberately *without* its
+              // "no tab matched, fall back to History" clause, which exists to
+              // keep a tab highlighted while a dialog is pushed on top. Here
+              // that fallback would claim History is showing whenever any
+              // dialog is open, including one pushed from Working Copy.
+              selectionSummary:
+                  GoRouterState.of(context).uri.toString() ==
+                      RoutePaths.historyFor(repoId)
+                  ? commitSelectionSummary(
+                      selection: ref.watch(commitSelectionProvider(identity)),
+                      allOids: session.graph.oidsHex,
+                    )
+                  : null,
               onOpenLog: () {
                 setState(() {
                   _lastSeenOperationLogIndex = session.operationLog.length;

@@ -19,13 +19,16 @@ This report is descriptive only — no fixes are applied here. See
 `docs/reports/code-review-2026-08.md` for the accompanying code review.
 
 > **Audit baseline moved on 260820 (commit `fc3bfb3`).** The spec this
-> matrix was written against had 12 pages; it now has 16. Four pages were
-> added — **P13** Branch rename dialog + branch/commit multi-select, **P14**
-> entry-point IA for the 24 already-shipped advanced screens, **P15** empty
-> states and error windows, **P16** the revision log itself — and P16's
+> matrix was written against had 12 pages; it now has **21** (this banner
+> said 16 until Tier 6a — the count was wrong, not just stale). Nine pages
+> were added — **P13** Branch rename dialog + branch/commit multi-select,
+> **P14** entry-point IA for the 24 already-shipped advanced screens,
+> **P15** empty states and error windows, **P16** the revision log itself,
+> **P17/P18** dialog 版面 (流程類 12 + 修復類 8), **P19** 管理面板樣版,
+> **P20** 未實作功能, **P21** Pull 流程與錯誤 — and P16's
 > `REVISIONS` table also *changes* rules the rows below were judged against.
 > Rows affected by that table are corrected in place and marked
-> "(260820 修訂)"; the four new pages are **not** audited here. Anything
+> "(260820 修訂)"; the nine new pages are **not** audited here. Anything
 > below without that marker was judged against the original 12 pages and
 > may have drifted. See the Tier 0c PR for the rename rows, which are the
 > only ones this round implemented.
@@ -267,8 +270,20 @@ pick a winner" but a **named removal**: `operationLogDialog`, its route
 constant, its `_MoreMenu` entry and `features/operation_log/` are now
 非規格內容 and should go, with the drawer keeping the feature. That also
 answers the open question tracked on **#61**, which was waiting for
-exactly this ruling. Not acted on in the Tier 0c PR (scoped to rename);
-deleting a live route is its own change with its own tests.
+exactly this ruling.
+
+**Done in Tier 6a (#61).** The route constant, its `app_router.dart`
+registration, the `_MoreMenu` entry and `features/operation_log/` are all
+removed, along with the now-orphaned `RepoSessionController
+.clearOperationLog()`. One deliberate capability loss: the dialog's `Clear`
+button was not ported, because LOGRULES' 匯出 row lists only
+`Copy all、Save as…` and its 保留 row already bounds the list (500 entries,
+2,000 via Preferences, 7-day file rotation). The drawer's reachability was
+proved *before* the deletion by
+`test/integration/workspace_log_drawer_reachability_test.dart`, which
+asserts View → Log (`Ctrl/Cmd+Shift+L`) expands the `main.log` pane — a
+size assertion, since `LogDrawer` is always mounted and only its height
+distinguishes open from collapsed.
 
 ---
 

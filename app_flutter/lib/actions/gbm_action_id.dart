@@ -27,6 +27,7 @@ enum GbmActionId {
   editCut,
   editCopy,
   editPaste,
+  editSelectAll,
   editFindInHistory,
   editFindInFiles,
   editFilterBranches,

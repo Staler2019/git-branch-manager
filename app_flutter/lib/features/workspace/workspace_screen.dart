@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../actions/gbm_action_availability.dart';
 import '../../actions/gbm_action_id.dart';
 import '../../actions/gbm_menu_model.dart';
+import '../../actions/gbm_selection_gesture.dart';
 import '../../actions/gbm_sequencer_operation.dart';
 import '../../data/models/ref_snapshot.dart';
 import '../../data/models/repo_state.dart';
@@ -521,6 +522,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       GbmActionId.editPaste: () => _invokeTextIntent(
         const PasteTextIntent(SelectionChangedCause.keyboard),
       ),
+      GbmActionId.editSelectAll: _invokeSelectAll,
       // Both searches live on the History view: commit search filters the
       // commit list, and "find in files" is the same field scoped to paths.
       // Navigating there first means the shortcut works from Working Copy
@@ -828,6 +830,29 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   /// widget, which is how Edit → Undo/Redo/Cut/Copy/Paste reach whichever
   /// field has focus. Silently does nothing when no editable widget is
   /// focused -- the correct outcome for "Copy" with nothing selected.
+  /// Ctrl/Cmd+A has to mean two different things depending on what has
+  /// focus: "select every row" over a list (spec page 13's `MULTIKEYS`) and
+  /// "select all text" inside an editor. Focus is the only thing that can
+  /// tell them apart, so this offers the list intent first and falls back
+  /// to the text one when nothing consumed it.
+  ///
+  /// The handler-map entry is deliberately **non-null**. All three dispatch
+  /// paths read this one map (see CLAUDE.md's Intent / Action layer), and a
+  /// null here would grey the macOS menu item out and make the keyboard
+  /// path a no-op while leaving the in-window menu working -- the exact
+  /// split `workspace_intent_dispatch_parity_test.dart` exists to catch.
+  void _invokeSelectAll() {
+    final BuildContext? focused = primaryFocus?.context;
+    if (focused == null) return;
+    if (Actions.maybeInvoke(focused, const GbmSelectAllIntent()) != null) {
+      return;
+    }
+    Actions.maybeInvoke(
+      focused,
+      const SelectAllTextIntent(SelectionChangedCause.keyboard),
+    );
+  }
+
   void _invokeTextIntent(Intent intent) {
     final BuildContext? focused = primaryFocus?.context;
     if (focused == null) return;

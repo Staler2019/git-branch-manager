@@ -129,17 +129,16 @@ Future<void> _tapWith(
   await tester.sendKeyUpEvent(modifier);
 }
 
-void main() {
-  // currentSelectionGesture() branches on defaultTargetPlatform, so the
-  // toggle modifier under test has to match whatever platform the test
-  // runner reports -- otherwise a Ctrl-click here would read as a plain
-  // click and the assertion would pass or fail for the wrong reason.
-  final LogicalKeyboardKey toggleKey =
-      debugDefaultTargetPlatformOverride == TargetPlatform.macOS ||
-          defaultTargetPlatform == TargetPlatform.macOS
-      ? LogicalKeyboardKey.metaLeft
-      : LogicalKeyboardKey.controlLeft;
+/// currentSelectionGesture() branches on defaultTargetPlatform, so the toggle
+/// modifier under test has to match whatever platform the test runner
+/// reports -- otherwise a Ctrl-click here would read as a plain click and the
+/// assertion would pass or fail for the wrong reason.
+final LogicalKeyboardKey toggleKey =
+    defaultTargetPlatform == TargetPlatform.macOS
+    ? LogicalKeyboardKey.metaLeft
+    : LogicalKeyboardKey.controlLeft;
 
+void main() {
   group('MULTIKEYS mouse rows', () {
     testWidgets('a plain click selects only that row', (tester) async {
       await _pump(tester);
@@ -281,6 +280,29 @@ void main() {
 
       expect(_selection.items, <String>[_oid('b')]);
       expect(_selection.anchor, _oid('b'));
+    });
+  });
+
+  group('Ctrl/Cmd+A stays scoped to the list', () {
+    testWidgets('does nothing to the selection while the filter field '
+        'holds focus', (tester) async {
+      // The binding lives in _SelectionShortcuts, not in the app-wide
+      // WorkspaceActionShortcuts, precisely so the same key still means
+      // "select all text" in a field. If it ever migrates upward this
+      // fails, which is the point.
+      await _pump(tester);
+      await _tap(tester, _oid('c'));
+      expect(_selection.length, 1);
+
+      await tester.tap(find.byType(TextField));
+      await tester.pumpAndSettle();
+
+      await tester.sendKeyDownEvent(toggleKey);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyA);
+      await tester.sendKeyUpEvent(toggleKey);
+      await tester.pumpAndSettle();
+
+      expect(_selection.items, <String>[_oid('c')]);
     });
   });
 }

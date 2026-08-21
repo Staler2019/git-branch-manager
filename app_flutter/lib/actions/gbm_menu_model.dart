@@ -135,6 +135,7 @@ const List<GbmMenuModel> gbmMenus = <GbmMenuModel>[
       GbmMenuItemModel(id: GbmActionId.editCut, label: 'Cut'),
       GbmMenuItemModel(id: GbmActionId.editCopy, label: 'Copy'),
       GbmMenuItemModel(id: GbmActionId.editPaste, label: 'Paste'),
+      GbmMenuItemModel(id: GbmActionId.editSelectAll, label: 'Select all'),
       GbmMenuItemModel(
         id: GbmActionId.editFindInHistory,
         label: 'Find in history',

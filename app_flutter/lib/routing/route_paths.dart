@@ -37,7 +37,6 @@ abstract final class RoutePaths {
   static const String blameDialog = '/repo/:repoId/dialogs/blame';
   static const String fileHistoryDialog = '/repo/:repoId/dialogs/file-history';
   static const String lineHistoryDialog = '/repo/:repoId/dialogs/line-history';
-  static const String reflogDialog = '/repo/:repoId/dialogs/reflog';
   static const String undoLastDialog = '/repo/:repoId/dialogs/undo-last';
   static const String interactiveRebaseDialog =
       '/repo/:repoId/dialogs/interactive-rebase';
@@ -132,8 +131,6 @@ abstract final class RoutePaths {
     path: '/repo/$repoId/dialogs/line-history',
     queryParameters: path.isEmpty ? null : <String, String>{'path': path},
   ).toString();
-  static String reflogDialogFor(String repoId) =>
-      '/repo/$repoId/dialogs/reflog';
   static String undoLastDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/undo-last';
   static String interactiveRebaseDialogFor(String repoId) =>

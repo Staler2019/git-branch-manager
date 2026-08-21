@@ -799,14 +799,8 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         GbmPanelKind.patches,
         dialogRoute: RoutePaths.patchesDialogFor(repoId),
       ),
-      GbmActionId.toolsReflog: () => _openPanel(
-        context,
-        ref,
-        identity,
-        repoId,
-        GbmPanelKind.reflog,
-        dialogRoute: RoutePaths.reflogDialogFor(repoId),
-      ),
+      GbmActionId.toolsReflog: () =>
+          _openPanel(context, ref, identity, repoId, GbmPanelKind.reflog),
       // "Rewrite history" names a group, not an action -- it has no handler
       // of its own, and menu_bar_row.dart renders it as a flyout trigger
       // from its declared children rather than reading this map for it.

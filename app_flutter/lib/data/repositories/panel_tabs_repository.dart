@@ -77,7 +77,8 @@ enum GbmPanelKind {
       this == GbmPanelKind.manageStashes ||
       this == GbmPanelKind.manageRemotes ||
       this == GbmPanelKind.manageSubmodules ||
-      this == GbmPanelKind.manageLfs;
+      this == GbmPanelKind.manageLfs ||
+      this == GbmPanelKind.reflog;
 
   /// Whether this panel is *about* a particular file, in which case two
   /// tabs of the same kind for two different paths are two different tabs.

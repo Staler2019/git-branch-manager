@@ -33,7 +33,6 @@ import '../features/dialogs/patches/patches_dialog.dart';
 import '../features/dialogs/preferences/preferences_dialog.dart';
 import '../features/dialogs/prune_remote_branches/prune_remote_branches_dialog.dart';
 import '../features/dialogs/rebase_onto/rebase_onto_dialog.dart';
-import '../features/dialogs/reflog/reflog_dialog.dart';
 import '../features/dialogs/rename_branch/rename_branch_dialog.dart';
 import '../features/dialogs/repository_settings/repository_settings_dialog.dart';
 import '../features/dialogs/reset_branch/reset_branch_dialog.dart';
@@ -263,15 +262,6 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
             identity: identity,
             initialPath: state.uri.queryParameters['path'] ?? '',
           );
-        },
-      ),
-      dialogRoute(
-        path: RoutePaths.reflogDialog,
-        builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(
-            state.pathParameters['repoId']!,
-          );
-          return ReflogDialogContent(identity: identity);
         },
       ),
       dialogRoute(

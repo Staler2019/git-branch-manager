@@ -372,6 +372,10 @@ class FakeRepoSessionController extends RepoSessionController {
     commandLog.add(
       FakeCommand('checkout', <String, Object?>{
         'target': target,
+        // `detach` matters to the reflog panel, whose targets are bare oids
+        // with no branch to land on -- recording it is what lets a test
+        // tell "checked out detached" from "tried to check out a branch".
+        'detach': detach,
         'createBranch': createBranch,
         'newBranchName': newBranchName,
       }),
@@ -633,6 +637,18 @@ class FakeRepoSessionController extends RepoSessionController {
   void pruneLfs({bool dryRun = false}) {
     commandLog.add(
       FakeCommand('pruneLfs', <String, Object?>{'dryRun': dryRun}),
+    );
+  }
+
+  @override
+  void requestReflog({String ref = ''}) {
+    commandLog.add(FakeCommand('requestReflog', <String, Object?>{'ref': ref}));
+  }
+
+  @override
+  void requestCommitMeta(List<String> oids) {
+    commandLog.add(
+      FakeCommand('requestCommitMeta', <String, Object?>{'oids': oids}),
     );
   }
 }

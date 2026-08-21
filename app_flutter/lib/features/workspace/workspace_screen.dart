@@ -746,7 +746,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
           context.push(RoutePaths.pruneRemoteBranchesDialogFor(repoId)),
       // Same destination as Tools > Remotes… -- "同一功能不留兩條路" is
       // about carriers, not about how many menus point at one panel.
-      GbmActionId.remoteManageRemotes: () => _openPanel(
+      GbmActionId.remoteManageRemotes: () => _openPanelTab(
         context,
         ref,
         identity,
@@ -761,28 +761,28 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       // Clean untracked files… shares the Rewrite history submenu but
       // belongs to IAMAP's "中型表單 / 確認框" group, so it stays a dialog --
       // menu adjacency is not carrier assignment.
-      GbmActionId.toolsStashes: () => _openPanel(
+      GbmActionId.toolsStashes: () => _openPanelTab(
         context,
         ref,
         identity,
         repoId,
         GbmPanelKind.manageStashes,
       ),
-      GbmActionId.toolsWorktrees: () => _openPanel(
+      GbmActionId.toolsWorktrees: () => _openPanelTab(
         context,
         ref,
         identity,
         repoId,
         GbmPanelKind.manageWorktrees,
       ),
-      GbmActionId.toolsRemotes: () => _openPanel(
+      GbmActionId.toolsRemotes: () => _openPanelTab(
         context,
         ref,
         identity,
         repoId,
         GbmPanelKind.manageRemotes,
       ),
-      GbmActionId.toolsSubmodules: () => _openPanel(
+      GbmActionId.toolsSubmodules: () => _openPanelTab(
         context,
         ref,
         identity,
@@ -790,22 +790,16 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         GbmPanelKind.manageSubmodules,
       ),
       GbmActionId.toolsLargeFiles: () =>
-          _openPanel(context, ref, identity, repoId, GbmPanelKind.manageLfs),
-      GbmActionId.toolsPatches: () => _openPanel(
-        context,
-        ref,
-        identity,
-        repoId,
-        GbmPanelKind.patches,
-        dialogRoute: RoutePaths.patchesDialogFor(repoId),
-      ),
+          _openPanelTab(context, ref, identity, repoId, GbmPanelKind.manageLfs),
+      GbmActionId.toolsPatches: () =>
+          _openPanelTab(context, ref, identity, repoId, GbmPanelKind.patches),
       GbmActionId.toolsReflog: () =>
-          _openPanel(context, ref, identity, repoId, GbmPanelKind.reflog),
+          _openPanelTab(context, ref, identity, repoId, GbmPanelKind.reflog),
       // "Rewrite history" names a group, not an action -- it has no handler
       // of its own, and menu_bar_row.dart renders it as a flyout trigger
       // from its declared children rather than reading this map for it.
       GbmActionId.toolsRewriteHistory: null,
-      GbmActionId.toolsInteractiveRebase: () => _openPanel(
+      GbmActionId.toolsInteractiveRebase: () => _openPanelTab(
         context,
         ref,
         identity,
@@ -813,7 +807,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         GbmPanelKind.interactiveRebase,
       ),
       GbmActionId.toolsBisect: () =>
-          _openPanel(context, ref, identity, repoId, GbmPanelKind.bisect),
+          _openPanelTab(context, ref, identity, repoId, GbmPanelKind.bisect),
       GbmActionId.toolsCleanUntrackedFiles: () =>
           context.push(RoutePaths.cleanUntrackedDialogFor(repoId)),
 
@@ -1096,37 +1090,6 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         .read(compareTabsProvider(identity).notifier)
         .open(left: left);
     context.go(RoutePaths.compareFor(repoId, tabId));
-  }
-
-  /// Opens a spec page 14 management panel via whichever carrier it
-  /// currently has.
-  ///
-  /// Page 14 assigns all twelve to tabs, but they are being ported one
-  /// commit at a time (issue #76). Until [GbmPanelKind.isPortedToTab] flips
-  /// for a kind, this pushes its existing dialog instead: sending it to an
-  /// unbuilt tab would swap a working screen for a placeholder, which is a
-  /// regression wearing conformance as a disguise. One helper rather than a
-  /// per-item ternary so there is exactly one place the carrier is decided.
-  void _openPanel(
-    BuildContext context,
-    WidgetRef ref,
-    RepoIdentity identity,
-    String repoId,
-    GbmPanelKind kind, {
-    String? dialogRoute,
-  }) {
-    if (!kind.isPortedToTab) {
-      // A panel is only unported while its dialog still exists, so the
-      // caller must have named one; the assert catches the ordering mistake
-      // of flipping isPortedToTab without building the panel.
-      assert(
-        dialogRoute != null,
-        'unported panel $kind needs its dialog route',
-      );
-      if (dialogRoute != null) context.push(dialogRoute);
-      return;
-    }
-    _openPanelTab(context, ref, identity, repoId, kind);
   }
 
   /// Opens (or focuses, if already open) one of spec page 14's twelve

@@ -62,29 +62,6 @@ enum GbmPanelKind {
     GbmPanelKind.lineHistory => 'line-history',
   };
 
-  /// Whether this panel's dialog has been ported to the tab carrier yet.
-  ///
-  /// Spec page 14 assigns all twelve to tabs, but they are being moved one
-  /// commit at a time (progress tracked on issue #76). Until a panel is
-  /// ported, its entry point must keep opening the **existing dialog** --
-  /// routing it to an unbuilt tab would trade a working screen for a
-  /// placeholder, which is a regression dressed up as conformance.
-  ///
-  /// Flip this as each panel lands; it is the single switch that decides
-  /// which carrier every entry point uses.
-  bool get isPortedToTab =>
-      this == GbmPanelKind.manageWorktrees ||
-      this == GbmPanelKind.manageStashes ||
-      this == GbmPanelKind.manageRemotes ||
-      this == GbmPanelKind.manageSubmodules ||
-      this == GbmPanelKind.manageLfs ||
-      this == GbmPanelKind.reflog ||
-      this == GbmPanelKind.bisect ||
-      this == GbmPanelKind.blame ||
-      this == GbmPanelKind.fileHistory ||
-      this == GbmPanelKind.lineHistory ||
-      this == GbmPanelKind.interactiveRebase;
-
   /// Whether this panel is *about* a particular file, in which case two
   /// tabs of the same kind for two different paths are two different tabs.
   /// The nine repository-wide panels are singletons: asking for Worktrees

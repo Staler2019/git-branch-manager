@@ -141,35 +141,69 @@ void main() {
       expect(find.text('Clean untracked files…'), findsOneWidget);
     });
 
-    // Spec page 14 assigns all twelve panels to tabs, but they are ported
-    // one at a time (#76). Until GbmPanelKind.isPortedToTab flips, an entry
-    // point must keep opening the existing dialog -- sending it to an
-    // unbuilt tab would swap a working screen for a placeholder. This locks
-    // that rule in so a future port cannot quietly regress it.
-    testWidgets('an unported panel still opens its dialog, not a stub tab', (
+    // All twelve of `IAMAP`'s panels are tabs now, so the rule this used to
+    // guard (an unported panel keeps its dialog) has no cases left. What
+    // replaces it is the post-condition: every Tools entry must reach a tab,
+    // and none may fall back to a dialog route that no longer exists.
+    testWidgets('every Tools panel entry opens a tab, never a dialog', (
       tester,
     ) async {
-      final PumpedWorkspace pumped = await pumpWorkspace(
-        tester,
-        identity: _identity,
-        extraRoutes: _panelRoute,
-        topLevelRoutes: <RouteBase>[
-          GoRoute(
-            path: RoutePaths.patchesDialog,
-            builder: (context, state) =>
-                const Scaffold(body: Text('patches-dialog')),
-          ),
-        ],
-      );
+      const List<(String, GbmPanelKind)> entries = <(String, GbmPanelKind)>[
+        ('Stashes…', GbmPanelKind.manageStashes),
+        ('Worktrees…', GbmPanelKind.manageWorktrees),
+        ('Remotes…', GbmPanelKind.manageRemotes),
+        ('Submodules…', GbmPanelKind.manageSubmodules),
+        ('Large files (LFS)…', GbmPanelKind.manageLfs),
+        ('Patches…', GbmPanelKind.patches),
+        ('Reflog…', GbmPanelKind.reflog),
+      ];
 
-      expect(GbmPanelKind.patches.isPortedToTab, isFalse);
+      for (final (String label, GbmPanelKind kind) in entries) {
+        final PumpedWorkspace pumped = await pumpWorkspace(
+          tester,
+          identity: _identity,
+          extraRoutes: _panelRoute,
+        );
 
-      await _openToolsMenu(tester);
-      await tester.tap(find.text('Patches…'));
-      await tester.pumpAndSettle();
+        await _openToolsMenu(tester);
+        await tester.tap(find.text(label));
+        await tester.pumpAndSettle();
 
-      expect(find.text('patches-dialog'), findsOneWidget);
-      expect(pumped.container.read(panelTabsProvider(_identity)), isEmpty);
+        final List<PanelTabSpec> tabs = pumped.container.read(
+          panelTabsProvider(_identity),
+        );
+        expect(tabs, hasLength(1), reason: label);
+        expect(tabs.single.kind, kind, reason: label);
+        expect(_location(tester), contains('/panel/'), reason: label);
+      }
+    });
+
+    // The two in the Rewrite history submenu take one more click, so they
+    // are checked separately rather than bent into the loop above.
+    testWidgets('the Rewrite history panels open tabs too', (tester) async {
+      for (final (String label, GbmPanelKind kind)
+          in const <(String, GbmPanelKind)>[
+            ('Interactive rebase…', GbmPanelKind.interactiveRebase),
+            ('Bisect…', GbmPanelKind.bisect),
+          ]) {
+        final PumpedWorkspace pumped = await pumpWorkspace(
+          tester,
+          identity: _identity,
+          extraRoutes: _panelRoute,
+        );
+
+        await _openToolsMenu(tester);
+        await tester.tap(find.text('Rewrite history'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(label));
+        await tester.pumpAndSettle();
+
+        final List<PanelTabSpec> tabs = pumped.container.read(
+          panelTabsProvider(_identity),
+        );
+        expect(tabs, hasLength(1), reason: label);
+        expect(tabs.single.kind, kind, reason: label);
+      }
     });
   });
 }

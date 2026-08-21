@@ -771,6 +771,31 @@ class FakeRepoSessionController extends RepoSessionController {
       }),
     );
   }
+
+  @override
+  void applyPatchFiles(
+    List<String> files, {
+    bool threeWay = false,
+    bool updateIndex = false,
+  }) {
+    commandLog.add(
+      FakeCommand('applyPatchFiles', <String, Object?>{
+        'files': files,
+        'threeWay': threeWay,
+        'updateIndex': updateIndex,
+      }),
+    );
+  }
+
+  @override
+  void importPatches(List<String> patchFiles, {bool threeWay = false}) {
+    commandLog.add(
+      FakeCommand('importPatches', <String, Object?>{
+        'patchFiles': patchFiles,
+        'threeWay': threeWay,
+      }),
+    );
+  }
 }
 
 /// Fake [GbmBindings] that fails session open immediately, so

@@ -24,7 +24,6 @@ import '../features/dialogs/keyboard_shortcuts/keyboard_shortcuts_dialog.dart';
 import '../features/dialogs/manage_base_folders/manage_base_folders_dialog.dart';
 import '../features/dialogs/merge/merge_dialog.dart';
 import '../features/dialogs/new_branch/new_branch_dialog.dart';
-import '../features/dialogs/patches/patches_dialog.dart';
 import '../features/dialogs/preferences/preferences_dialog.dart';
 import '../features/dialogs/prune_remote_branches/prune_remote_branches_dialog.dart';
 import '../features/dialogs/rebase_onto/rebase_onto_dialog.dart';
@@ -230,15 +229,6 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
             state.pathParameters['repoId']!,
           );
           return UndoLastDialogContent(identity: identity);
-        },
-      ),
-      dialogRoute(
-        path: RoutePaths.patchesDialog,
-        builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(
-            state.pathParameters['repoId']!,
-          );
-          return PatchesDialogContent(identity: identity);
         },
       ),
       dialogRoute(

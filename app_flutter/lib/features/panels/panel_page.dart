@@ -10,6 +10,7 @@ import 'blame_panel.dart';
 import 'file_history_panel.dart';
 import 'interactive_rebase_panel.dart';
 import 'line_history_panel.dart';
+import 'patches_panel.dart';
 import 'lfs_panel.dart';
 import 'reflog_panel.dart';
 import 'remotes_panel.dart';
@@ -22,11 +23,10 @@ import 'worktrees_panel.dart';
 /// [panelTabsProvider] the same way `ComparePage` resolves against
 /// `compareTabsProvider`.
 ///
-/// Spec page 14's `IAMAP` assigns twelve panels to this carrier. They are
-/// being ported one at a time (each its own commit), so [GbmPanelKind] has
-/// twelve values while this switch only builds the ones that have landed;
-/// the rest fall through to [_NotYetPortedPanel], which says so plainly
-/// rather than rendering blank. Progress is tracked on issue #76.
+/// Spec page 14's `IAMAP` assigns twelve panels to this carrier and all
+/// twelve have landed, so the switch is exhaustive over [GbmPanelKind] with
+/// no default arm — adding a thirteenth kind is a compile error here rather
+/// than a blank pane at runtime.
 class PanelPage extends ConsumerWidget {
   const PanelPage({
     super.key,
@@ -88,24 +88,8 @@ class PanelPage extends ConsumerWidget {
       GbmPanelKind.interactiveRebase => InteractiveRebasePanel(
         identity: identity,
       ),
-      _ => _NotYetPortedPanel(kind: spec.kind),
+      GbmPanelKind.patches => PatchesPanel(identity: identity),
     };
-  }
-}
-
-/// Shown for a [GbmPanelKind] whose dialog has not been ported to a tab yet.
-/// Naming the panel and pointing at the tracking issue beats an empty pane,
-/// which reads as a rendering bug rather than as unfinished work.
-class _NotYetPortedPanel extends StatelessWidget {
-  const _NotYetPortedPanel({required this.kind});
-
-  final GbmPanelKind kind;
-
-  @override
-  Widget build(BuildContext context) {
-    return _PanelMessage(
-      message: '${kind.label} has not been ported to a tab yet (see #76)',
-    );
   }
 }
 

@@ -633,23 +633,15 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     );
   }
 
-  /// Opens one of the three per-file history panels for [path], via
-  /// whichever carrier that panel currently has.
-  ///
-  /// Same rule as `WorkspaceScreen._openPanel`: spec page 14 assigns these
-  /// to tabs, but until [GbmPanelKind.isPortedToTab] flips they still open
-  /// their dialog -- with the path pre-filled either way, which is the whole
+  /// Opens one of the three per-file history panels as a tab about [path]
+  /// (spec page 14 `IAMAP`), with the path pre-filled -- which is the whole
   /// point of putting them behind the file's own context menu.
   ///
-  /// When it is a tab, `context.go` rather than `push`: a panel sits beside
-  /// History/Working Copy and replaces the shell's child instead of stacking
-  /// over it.
+  /// `context.go` rather than `push`: a panel sits beside History/Working
+  /// Copy and replaces the shell's child instead of stacking over it.
   void _openFilePanel(GbmPanelKind kind, String path) {
     final String repoId = Uri.encodeComponent(widget.identity.workDir);
-    assert(
-      kind.isPerSubject && kind.isPortedToTab,
-      'not a per-file history panel, or not ported yet: $kind',
-    );
+    assert(kind.isPerSubject, 'not a per-file history panel: $kind');
     final String tabId = ref
         .read(panelTabsProvider(widget.identity).notifier)
         .open(kind, subject: path);

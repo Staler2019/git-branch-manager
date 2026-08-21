@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../actions/gbm_selection_gesture.dart';
 import '../../../data/models/commit_meta.dart';
 import '../../../data/models/graph_snapshot.dart';
 import '../../../theme/gbm_theme.dart';
@@ -35,6 +36,8 @@ class CommitRow extends StatelessWidget {
     this.meta,
     this.selected = false,
     this.onTap,
+    this.onSelect,
+    this.onContextMenuRequested,
     this.refChips = const <RefChipData>[],
     this.isOwnCommit = false,
     this.showGraph = true,
@@ -57,6 +60,26 @@ class CommitRow extends StatelessWidget {
   final CommitMeta? meta;
   final bool selected;
   final VoidCallback? onTap;
+
+  /// Reports the spec page 13 gesture a click carried (plain / Ctrl-Cmd /
+  /// Shift), leaving the selection arithmetic to the caller, which is the
+  /// only side that knows the list this row sits in.
+  ///
+  /// When null, [onTap] is used unchanged -- the pre-multi-select behaviour,
+  /// which the parity and row tests still drive.
+  final void Function(SelectionGesture gesture)? onSelect;
+
+  /// Called on right-click **before** the menu is built, so the caller can
+  /// make the selection match what the menu is about to act on.
+  ///
+  /// Spec page 13: 「右鍵點在已選中的項目上不改變 selection…；點在未選中的
+  /// 項目上先改為只選它、再開選單，避免對看不見的選取做動作」 -- right-
+  /// clicking an already-selected row leaves the selection alone, while
+  /// right-clicking an unselected one collapses to just that row first, so
+  /// no action is ever aimed at a selection the user cannot see. Only the
+  /// caller knows the selection, so the rule lives there; this is the hook
+  /// that lets it run first.
+  final VoidCallback? onContextMenuRequested;
 
   /// Chip render data for this commit (from `graph_ref_chips.dart`'s
   /// `refChipsForCommit`, already carrying the local/origin merge rule),
@@ -109,7 +132,9 @@ class CommitRow extends StatelessWidget {
         child: GbmRow(
           height: kCommitRowHeight,
           selected: selected,
-          onTap: onTap,
+          onTap: onSelect == null
+              ? onTap
+              : () => onSelect!(currentSelectionGesture()),
           padding: EdgeInsets.zero,
           child: Row(
             children: <Widget>[
@@ -263,6 +288,7 @@ class CommitRow extends StatelessWidget {
   }
 
   void _openContextMenu(BuildContext context, TapDownDetails details) {
+    onContextMenuRequested?.call();
     showGbmContextMenu(context, details.globalPosition, _buildMenuItems());
   }
 }

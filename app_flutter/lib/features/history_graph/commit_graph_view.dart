@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../actions/gbm_selection_gesture.dart';
 import '../../data/models/commit_meta.dart';
 import '../../data/models/graph_snapshot.dart';
 import '../../data/models/list_selection.dart';
@@ -43,6 +44,17 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
   final ScrollController _controller = ScrollController();
   final TextEditingController _searchController = TextEditingController();
 
+  /// Focus owner for the commit list, so `_SelectionShortcuts`' bindings
+  /// only fire while the list is what the user is actually working in.
+  ///
+  /// Focus is requested explicitly from [_publish] rather than relying on
+  /// the rows' `InkWell`s: an InkWell is focusable for keyboard traversal
+  /// but a plain tap does not move focus to it, so without this the very
+  /// gesture that creates a selection would leave focus wherever it was
+  /// (typically the filter field), and Shift+↑/↓, Ctrl/Cmd+A and Esc would
+  /// all silently do nothing.
+  final FocusNode _listFocus = FocusNode(debugLabel: 'CommitGraphView list');
+
   @override
   void initState() {
     super.initState();
@@ -52,6 +64,7 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
   @override
   void dispose() {
     _searchController.dispose();
+    _listFocus.dispose();
     _controller
       ..removeListener(_onScroll)
       ..dispose();
@@ -125,18 +138,83 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
         .createBranch(name: name, startPoint: commitOid);
   }
 
-  /// MULTIKEYS' `單擊` row: select only this commit and move the anchor to
-  /// it. Written through [commitSelectionProvider] rather than to
+  StateController<ListSelection<String>> get _selectionController =>
+      ref.read(commitSelectionProvider(widget.identity).notifier);
+
+  /// Publishes a new selection and keeps the single-target surfaces in step
+  /// with its anchor: the changed-files panel reloads for the new anchor and
+  /// any file drilled into under the previous one is cleared, since it may
+  /// not exist in this commit at all.
+  ///
+  /// Written through [commitSelectionProvider] rather than to
   /// `selectedCommitProvider`, which is now that selection's anchor read
   /// back out (see its doc comment) and no longer independently writable.
-  void _selectSingle(String oid) {
-    final StateController<ListSelection<String>> selection = ref.read(
-      commitSelectionProvider(widget.identity).notifier,
-    );
-    selection.state = selection.state.single(oid);
+  void _publish(ListSelection<String> next) {
+    _listFocus.requestFocus();
+    final String? previousAnchor = _selectionController.state.anchor;
+    _selectionController.state = next;
+    final String? anchor = next.anchor;
+    if (anchor == null || anchor == previousAnchor) return;
     ref.read(selectedCommitFilePathProvider(widget.identity).notifier).state =
         null;
-    requestCommitFiles(ref, widget.identity, oid);
+    requestCommitFiles(ref, widget.identity, anchor);
+  }
+
+  /// Applies one of spec page 13's three mouse rows.
+  ///
+  /// [visibleOids] is the list **as rendered** -- under a filter that is the
+  /// match list, not the whole snapshot. A Shift-range therefore never
+  /// reaches across rows the user cannot see. Contiguity is a separate
+  /// question answered against the unfiltered snapshot (see
+  /// [_selectedAreContiguous]), which is why a range taken under a filter
+  /// can be a perfectly good selection and still, correctly, be too gappy
+  /// to cherry-pick.
+  void _onRowSelect(
+    String oid,
+    SelectionGesture gesture,
+    List<String> visibleOids,
+  ) {
+    final ListSelection<String> current = _selectionController.state;
+    _publish(switch (gesture) {
+      SelectionGesture.single => current.single(oid),
+      SelectionGesture.toggle => current.toggle(oid),
+      SelectionGesture.range => current.range(oid, visibleOids),
+    });
+  }
+
+  /// Spec page 13's right-click rule, run before the menu is built: an
+  /// already-selected row leaves the selection alone; any other row
+  /// collapses to just itself first.
+  void _normaliseSelectionForMenu(String oid) {
+    final ListSelection<String> current = _selectionController.state;
+    if (current.contains(oid)) return;
+    _publish(current.single(oid));
+  }
+
+  /// `Shift + ↑ / ↓`: 以鍵盤延伸範圍 — move the selection's free end one
+  /// row in [delta]'s direction, measured in the rendered list so it tracks
+  /// what the user sees.
+  ///
+  /// The free end is the end that is **not** the anchor, mirroring what a
+  /// Shift-click does: the anchor stays pinned and the other end travels.
+  /// Picking "whichever end lies in the direction of travel" instead would
+  /// make Shift+Up after a downward range grow it upward rather than shrink
+  /// it back, which is not how any list behaves.
+  void _extendSelection(int delta, List<String> visibleOids) {
+    if (visibleOids.isEmpty) return;
+    final ListSelection<String> current = _selectionController.state;
+    final List<String> ordered = current.orderedBy(visibleOids);
+    final String? anchor = current.anchor;
+    if (ordered.isEmpty || anchor == null || !visibleOids.contains(anchor)) {
+      _publish(current.single(visibleOids.first));
+      return;
+    }
+    final String freeEnd = ordered.first == anchor
+        ? ordered.last
+        : ordered.first;
+    final int from = visibleOids.indexOf(freeEnd);
+    final int next = (from + delta).clamp(0, visibleOids.length - 1);
+    _publish(current.range(visibleOids[next], visibleOids));
   }
 
   @override
@@ -150,8 +228,8 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
     final Map<String, CommitMeta> metaCache = ref.watch(
       commitMetaProvider(widget.identity),
     );
-    final String? selectedOid = ref.watch(
-      selectedCommitProvider(widget.identity),
+    final ListSelection<String> selection = ref.watch(
+      commitSelectionProvider(widget.identity),
     );
     final RefSnapshot refs = ref.watch(repoRefsProvider(widget.identity));
     final String effectiveEmail = ref.watch(
@@ -208,7 +286,7 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
                   visibleRows,
                   query,
                   metaCache,
-                  selectedOid,
+                  selection,
                   refs,
                   effectiveEmail,
                 ),
@@ -222,71 +300,93 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
     List<int> visibleRows,
     String query,
     Map<String, CommitMeta> metaCache,
-    String? selectedOid,
+    ListSelection<String> selection,
     RefSnapshot refs,
     String effectiveEmail,
   ) {
+    // The rendered order, as oids. Every selection transition is expressed
+    // against this rather than against `visibleRows` (snapshot indices), so
+    // a range never silently spans rows a filter is hiding.
+    final List<String> visibleOids = <String>[
+      for (final int index in visibleRows)
+        if (index < graph.oidsHex.length) graph.oidsHex[index],
+    ];
+
     return LayoutBuilder(
       builder: (context, constraints) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) _requestVisibleMeta(constraints.maxHeight);
         });
-        return ListView.builder(
-          controller: _controller,
-          itemExtent: kCommitRowHeight,
-          itemCount: visibleRows.length,
-          itemBuilder: (context, position) {
-            // `position` walks the filtered result list; `index` is the row's
-            // real place in the unfiltered snapshot, which is what selection
-            // and the graph edge lookups are keyed on.
-            final int index = visibleRows[position];
-            final GraphRow row = graph.rows[index];
-            final String oid = index < graph.oidsHex.length
-                ? graph.oidsHex[index]
-                : '';
-            final CommitMeta? meta = metaCache[oid];
-            return CommitRow(
-              row: row,
-              oidHex: oid,
-              graph: graph,
-              rowIndex: index,
-              maxLane: graph.laneCount,
-              meta: meta,
-              showGraph: query.isEmpty,
-              selected: oid.isNotEmpty && oid == selectedOid,
-              refChips: oid.isEmpty
-                  ? const <RefChipData>[]
-                  : refChipsForCommit(refs, oid),
-              isOwnCommit:
-                  meta != null &&
-                  effectiveEmail.isNotEmpty &&
-                  meta.author.email == effectiveEmail,
-              onTap: oid.isEmpty ? null : () => _selectSingle(oid),
-              onCheckout: oid.isEmpty
-                  ? null
-                  : () => ref
-                        .read(repoSessionProvider(widget.identity).notifier)
-                        .checkout(target: oid, detach: true),
-              onCherryPick: oid.isEmpty
-                  ? null
-                  : () => ref
-                        .read(repoSessionProvider(widget.identity).notifier)
-                        .cherryPick([oid]),
-              onRevert: oid.isEmpty
-                  ? null
-                  : () => ref
-                        .read(repoSessionProvider(widget.identity).notifier)
-                        .revert([oid]),
-              onCreateBranchHere: oid.isEmpty
-                  ? null
-                  : () => _createBranchFromCommit(
-                      context,
-                      ref,
-                      widget.identity,
-                      oid,
-                    ),
-            );
-          },
+        return _SelectionShortcuts(
+          focusNode: _listFocus,
+          onSelectAll: () =>
+              _publish(_selectionController.state.selectAll(visibleOids)),
+          onCollapse: () =>
+              _publish(_selectionController.state.collapseToAnchor()),
+          onExtend: (int delta) => _extendSelection(delta, visibleOids),
+          child: ListView.builder(
+            controller: _controller,
+            itemExtent: kCommitRowHeight,
+            itemCount: visibleRows.length,
+            itemBuilder: (context, position) {
+              // `position` walks the filtered result list; `index` is the
+              // row's real place in the unfiltered snapshot, which is what
+              // the graph edge lookups are keyed on.
+              final int index = visibleRows[position];
+              final GraphRow row = graph.rows[index];
+              final String oid = index < graph.oidsHex.length
+                  ? graph.oidsHex[index]
+                  : '';
+              final CommitMeta? meta = metaCache[oid];
+              return CommitRow(
+                row: row,
+                oidHex: oid,
+                graph: graph,
+                rowIndex: index,
+                maxLane: graph.laneCount,
+                meta: meta,
+                showGraph: query.isEmpty,
+                selected: oid.isNotEmpty && selection.contains(oid),
+                refChips: oid.isEmpty
+                    ? const <RefChipData>[]
+                    : refChipsForCommit(refs, oid),
+                isOwnCommit:
+                    meta != null &&
+                    effectiveEmail.isNotEmpty &&
+                    meta.author.email == effectiveEmail,
+                onSelect: oid.isEmpty
+                    ? null
+                    : (SelectionGesture gesture) =>
+                          _onRowSelect(oid, gesture, visibleOids),
+                onContextMenuRequested: oid.isEmpty
+                    ? null
+                    : () => _normaliseSelectionForMenu(oid),
+                onCheckout: oid.isEmpty
+                    ? null
+                    : () => ref
+                          .read(repoSessionProvider(widget.identity).notifier)
+                          .checkout(target: oid, detach: true),
+                onCherryPick: oid.isEmpty
+                    ? null
+                    : () => ref
+                          .read(repoSessionProvider(widget.identity).notifier)
+                          .cherryPick(<String>[oid]),
+                onRevert: oid.isEmpty
+                    ? null
+                    : () => ref
+                          .read(repoSessionProvider(widget.identity).notifier)
+                          .revert(<String>[oid]),
+                onCreateBranchHere: oid.isEmpty
+                    ? null
+                    : () => _createBranchFromCommit(
+                        context,
+                        ref,
+                        widget.identity,
+                        oid,
+                      ),
+              );
+            },
+          ),
         );
       },
     );
@@ -377,6 +477,82 @@ class _CommitSearchField extends StatelessWidget {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// Keyboard half of spec page 13's `MULTIKEYS`, scoped to the commit list.
+///
+/// **Deliberately not registered app-wide.** Ctrl/Cmd+A is also every text
+/// field's "select all text", so binding it in `WorkspaceActionShortcuts`
+/// would steal it from the commit summary box and the history filter. Living
+/// here means it only fires while focus is inside the list -- a row's own
+/// `InkWell` takes focus when tapped, which puts the focus chain through
+/// this widget, so no explicit focus plumbing is needed.
+///
+/// [GbmSelectAllIntent] rather than Flutter's `SelectAllTextIntent` for the
+/// same reason `workspace_screen.dart`'s handler offers it first: a list and
+/// an editor need the same key to mean two different things, and focus is
+/// what tells them apart.
+class _SelectionShortcuts extends StatelessWidget {
+  const _SelectionShortcuts({
+    required this.focusNode,
+    required this.onSelectAll,
+    required this.onCollapse,
+    required this.onExtend,
+    required this.child,
+  });
+
+  final FocusNode focusNode;
+  final VoidCallback onSelectAll;
+  final VoidCallback onCollapse;
+  final ValueChanged<int> onExtend;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    // Shortcuts/Actions sit **above** [focusNode], not below it. A key event
+    // dispatches to the primary focus and then walks its *ancestors*, so a
+    // Shortcuts nested inside the focused node would never see anything.
+    return Shortcuts(
+      shortcuts: <ShortcutActivator, Intent>{
+        const SingleActivator(LogicalKeyboardKey.arrowUp, shift: true):
+            const GbmExtendSelectionIntent(-1),
+        const SingleActivator(LogicalKeyboardKey.arrowDown, shift: true):
+            const GbmExtendSelectionIntent(1),
+        // Both modifiers are registered rather than branching on platform:
+        // an unheld modifier simply never matches, and this keeps the list
+        // working under a remote/VM session where the platform reported and
+        // the keyboard actually attached disagree.
+        const SingleActivator(LogicalKeyboardKey.keyA, meta: true):
+            const GbmSelectAllIntent(),
+        const SingleActivator(LogicalKeyboardKey.keyA, control: true):
+            const GbmSelectAllIntent(),
+        const SingleActivator(LogicalKeyboardKey.escape): const DismissIntent(),
+      },
+      child: Actions(
+        actions: <Type, Action<Intent>>{
+          GbmExtendSelectionIntent: CallbackAction<GbmExtendSelectionIntent>(
+            onInvoke: (GbmExtendSelectionIntent intent) {
+              onExtend(intent.delta);
+              return null;
+            },
+          ),
+          GbmSelectAllIntent: CallbackAction<GbmSelectAllIntent>(
+            onInvoke: (GbmSelectAllIntent intent) {
+              onSelectAll();
+              return null;
+            },
+          ),
+          DismissIntent: CallbackAction<DismissIntent>(
+            onInvoke: (DismissIntent intent) {
+              onCollapse();
+              return null;
+            },
+          ),
+        },
+        child: Focus(focusNode: focusNode, child: child),
       ),
     );
   }

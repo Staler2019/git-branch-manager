@@ -88,7 +88,12 @@ void main() {
         expect(find.text('Copy SHA'), findsOneWidget);
       });
 
-      testWidgets('context menu omits merge and compare items', (tester) async {
+      testWidgets('merge and compare render disabled rather than omitted '
+          'when the caller offers no destination', (tester) async {
+        // Spec page 13 is explicit that an unavailable action is kept and
+        // disabled, not hidden: 「不隱藏 — 隱藏會讓人以為功能不存在」. This
+        // used to assert the opposite (findsNothing) back when 05-E was
+        // hand-written and short of the catalog.
         final row = _row();
         await pumpGbmWidget(
           tester,
@@ -107,8 +112,8 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        expect(find.text('Merge into current'), findsNothing);
-        expect(find.text('Compare with'), findsNothing);
+        expect(find.text('Merge into current'), findsOneWidget);
+        expect(find.text('Compare with…'), findsOneWidget);
       });
 
       testWidgets('cherry-pick callback is invoked when menu item tapped', (
@@ -161,6 +166,10 @@ void main() {
         );
         await tester.pumpAndSettle();
 
+        // Revert lives under "More actions" in the catalog, not at top
+        // level -- it moved there when 05-E was brought to parity.
+        await tester.tap(find.text('More actions'));
+        await tester.pumpAndSettle();
         expect(find.text('Revert commit'), findsOneWidget);
 
         await tester.tap(find.text('Revert commit'));
@@ -194,7 +203,8 @@ void main() {
         expect(find.text('Create branch here…'), findsOneWidget);
       });
 
-      testWidgets('context menu omitted actions do not appear', (tester) async {
+      testWidgets('actions with no callback render disabled, and Copy SHA '
+          'still works on its own', (tester) async {
         final row = _row();
         await pumpGbmWidget(
           tester,
@@ -214,11 +224,15 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        expect(find.text('Checkout this commit'), findsNothing);
-        expect(find.text('Cherry-pick'), findsNothing);
-        expect(find.text('Create branch here…'), findsNothing);
-        expect(find.text('Revert commit'), findsNothing);
-        // Copy SHA always appears
+        // Present, per the spec's keep-and-disable rule...
+        for (final String label in <String>[
+          'Checkout this commit',
+          'Cherry-pick',
+          'Create branch here…',
+        ]) {
+          expect(find.text(label), findsOneWidget, reason: label);
+        }
+        // ...and Copy SHA has a built-in fallback, so it is genuinely live.
         expect(find.text('Copy SHA'), findsOneWidget);
       });
     });

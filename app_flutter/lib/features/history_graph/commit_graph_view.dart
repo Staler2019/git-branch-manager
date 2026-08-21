@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../actions/gbm_selection_gesture.dart';
 import '../../data/models/commit_meta.dart';
@@ -8,9 +9,12 @@ import '../../data/models/graph_snapshot.dart';
 import '../../data/models/list_selection.dart';
 import '../../data/models/ref_snapshot.dart';
 import '../../data/repositories/branch_repository.dart';
+import '../../data/repositories/compare_tabs_repository.dart';
+import '../../data/services/file_save_picker.dart';
 import '../../data/repositories/history_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
+import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/prompt_text_dialog.dart';
@@ -217,6 +221,72 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
     _publish(current.range(visibleOids[next], visibleOids));
   }
 
+  String get _repoId => Uri.encodeComponent(widget.identity.workDir);
+
+  RepoSessionController get _session =>
+      ref.read(repoSessionProvider(widget.identity).notifier);
+
+  /// The selection in history order, newest first -- the order History
+  /// itself renders and the order the menu's counted labels describe.
+  List<String> _selectedNewestFirst() {
+    final GraphSnapshotView graph = ref.read(
+      repoGraphProvider(widget.identity),
+    );
+    return ref
+        .read(commitSelectionProvider(widget.identity))
+        .orderedBy(graph.oidsHex);
+  }
+
+  /// gbm_cherry_pick and gbm_revert both take commits **oldest first** (see
+  /// gbm_capi.h: revert states it shares cherry-pick's convention), and
+  /// History is newest-first. Reversing here rather than at each call site
+  /// keeps the one place that has to know about it findable.
+  List<String> _selectedOldestFirst() =>
+      _selectedNewestFirst().reversed.toList(growable: false);
+
+  void _copySelectedShas() {
+    // One per line, per MULTIACTS' 「支援 — 每行一個 hash 複製」.
+    Clipboard.setData(ClipboardData(text: _selectedNewestFirst().join('\n')));
+  }
+
+  /// COMPARES 3: 「History 內 Ctrl/Cmd 點選兩個 commit → 右鍵 Compare」.
+  ///
+  /// With two selected, both sides are filled directly, older on the left so
+  /// the diff reads forwards in time -- the same older-left/newer-right
+  /// convention `_compareStash` follows. With one, only the left is known,
+  /// and the Compare tab's own ref picker chooses the right, exactly as
+  /// 05-D's "Compare with…" on a tag already does.
+  void _compareSelection() {
+    final List<String> ordered = _selectedNewestFirst();
+    if (ordered.isEmpty) return;
+    final String tabId = ordered.length >= 2
+        ? ref
+              .read(compareTabsProvider(widget.identity).notifier)
+              .open(left: ordered.last, right: ordered.first)
+        : ref
+              .read(compareTabsProvider(widget.identity).notifier)
+              .open(left: ordered.first);
+    context.go(RoutePaths.compareFor(_repoId, tabId));
+  }
+
+  /// 05-E's "Compare with working copy": the right side is the live tree,
+  /// which [CompareTabSpec] models as a null right rather than a ref string
+  /// (gbm_capi has a genuinely different call for it).
+  void _compareWithWorkingCopy(String oid) {
+    final String tabId = ref
+        .read(compareTabsProvider(widget.identity).notifier)
+        .open(left: oid);
+    context.go(RoutePaths.compareFor(_repoId, tabId));
+  }
+
+  Future<void> _exportSelectedPatches() async {
+    final String? dir = await ref.read(fileSavePickerProvider).pickDirectory();
+    if (dir == null || !mounted) return;
+    // Oldest first so the generated 0001-, 0002-… numbering runs forwards
+    // through history, matching what `git format-patch` produces for a range.
+    _session.exportPatches(_selectedOldestFirst(), dir);
+  }
+
   @override
   Widget build(BuildContext context) {
     final GraphSnapshotView graph = ref.watch(
@@ -236,6 +306,11 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
       repoSessionProvider(
         widget.identity,
       ).select((state) => state.effectiveIdentity.email),
+    );
+    final bool conflictActive = ref.watch(
+      repoSessionProvider(
+        widget.identity,
+      ).select((RepoSessionState state) => state.conflictActive),
     );
     final GbmColors colors = context.gbmColors;
 
@@ -289,6 +364,7 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
                   selection,
                   refs,
                   effectiveEmail,
+                  conflictActive,
                 ),
         ),
       ],
@@ -303,7 +379,13 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
     ListSelection<String> selection,
     RefSnapshot refs,
     String effectiveEmail,
+    bool conflictActive,
   ) {
+    // Contiguity is judged against the **unfiltered** snapshot, not the
+    // rendered list: three commits that look adjacent under a filter are
+    // not a range git can replay, so cherry-pick and revert correctly stay
+    // disabled for them (MULTIACTS).
+    final bool contiguous = selection.isContiguousIn(graph.oidsHex);
     // The rendered order, as oids. Every selection transition is expressed
     // against this rather than against `visibleRows` (snapshot indices), so
     // a range never silently spans rows a filter is hiding.
@@ -361,21 +443,29 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
                 onContextMenuRequested: oid.isEmpty
                     ? null
                     : () => _normaliseSelectionForMenu(oid),
+                menuSelectionCount: selection.length,
+                menuSelectionIsContiguous: contiguous,
+                conflictActive: conflictActive,
+                menuTitle: selection.length > 1
+                    ? '${selection.length} commits'
+                    : null,
+                onCopySha: oid.isEmpty ? null : _copySelectedShas,
                 onCheckout: oid.isEmpty
                     ? null
-                    : () => ref
-                          .read(repoSessionProvider(widget.identity).notifier)
-                          .checkout(target: oid, detach: true),
+                    : () => _session.checkout(target: oid, detach: true),
+                onMerge: oid.isEmpty
+                    ? null
+                    // gbm_merge_branch's `target` is pushed straight into
+                    // `git merge <target>` (MergeOps.cpp), so an oid is a
+                    // perfectly good merge target -- no oid-to-branch-name
+                    // resolution step is needed despite the parameter's name.
+                    : () => _session.mergeBranch(oid, MergeMode.noFastForward),
                 onCherryPick: oid.isEmpty
                     ? null
-                    : () => ref
-                          .read(repoSessionProvider(widget.identity).notifier)
-                          .cherryPick(<String>[oid]),
+                    : () => _session.cherryPick(_selectedOldestFirst()),
                 onRevert: oid.isEmpty
                     ? null
-                    : () => ref
-                          .read(repoSessionProvider(widget.identity).notifier)
-                          .revert(<String>[oid]),
+                    : () => _session.revert(_selectedOldestFirst()),
                 onCreateBranchHere: oid.isEmpty
                     ? null
                     : () => _createBranchFromCommit(
@@ -384,6 +474,21 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
                         widget.identity,
                         oid,
                       ),
+                onCompare: oid.isEmpty ? null : _compareSelection,
+                onRebaseOntoHere: oid.isEmpty
+                    ? null
+                    : () => context.push(
+                        RoutePaths.rebaseOntoDialogFor(_repoId, target: oid),
+                      ),
+                onResetBranchHere: oid.isEmpty
+                    ? null
+                    : () => context.push(
+                        RoutePaths.resetBranchDialogFor(_repoId, target: oid),
+                      ),
+                onExportAsPatch: oid.isEmpty ? null : _exportSelectedPatches,
+                onCompareWithWorkingCopy: oid.isEmpty
+                    ? null
+                    : () => _compareWithWorkingCopy(oid),
               );
             },
           ),

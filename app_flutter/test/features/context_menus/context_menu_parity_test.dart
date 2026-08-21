@@ -28,6 +28,7 @@ import 'package:gbm_flutter/features/context_menus/gbm_context_menus.dart';
 import 'package:gbm_flutter/features/diff/widgets/diff_line.dart';
 import 'package:gbm_flutter/features/diff/widgets/diff_line_menu_items.dart';
 import 'package:gbm_flutter/features/history_graph/widgets/changed_files_panel.dart';
+import 'package:gbm_flutter/features/history_graph/widgets/commit_menu_items.dart';
 import 'package:gbm_flutter/features/history_graph/widgets/commit_row.dart';
 import 'package:gbm_flutter/features/repo_switcher/repo_switcher_popover.dart';
 import 'package:gbm_flutter/features/sidebar/widgets/branch_folder_menu_items.dart';
@@ -315,54 +316,85 @@ void main() {
     });
   });
 
-  group('05-E Commit (real gap -- see matrix)', () {
-    testWidgets(
-      'CommitRow matches the full 05-E catalog, including the "More '
-      'actions" submenu',
-      (tester) async {
-        await _pump(
-          tester,
-          CommitRow(
-            row: _graphRow(),
-            oidHex: 'abc12345def67890',
-            graph: GraphSnapshotView.empty,
-            rowIndex: 0,
-            maxLane: 0,
-            onCheckout: () {},
-            onCherryPick: () {},
-            onRevert: () {},
-            onCreateBranchHere: () {},
-          ),
-        );
-        await tester.tap(
-          find.byType(CommitRow),
-          buttons: kSecondaryMouseButton,
-        );
-        await tester.pumpAndSettle();
+  group('05-E Commit (conforms)', () {
+    test('commitMenuItems matches the full 05-E catalog exactly', () {
+      final List<GbmMenuItem> items = commitMenuItems(
+        count: 1,
+        contiguous: true,
+        conflictActive: false,
+        onCopySha: () {},
+        onCheckout: () {},
+        onMerge: () {},
+        onCherryPick: () {},
+        onCreateBranchHere: () {},
+        onCompare: () {},
+        onRebaseOntoHere: () {},
+        onResetBranchHere: () {},
+        onRevert: () {},
+        onExportAsPatch: () {},
+        onCompareWithWorkingCopy: () {},
+      );
+      final List<String> actual = items
+          .where((GbmMenuItem i) => !i.separator)
+          .map((GbmMenuItem i) => i.label)
+          .toList();
+      expect(actual, _specLabels(GbmContextMenuTarget.commit));
+    });
 
-        for (final String label in _specLabels(GbmContextMenuTarget.commit)) {
-          expect(find.text(label), findsOneWidget, reason: 'missing: $label');
-        }
-        await tester.tap(find.text('More actions'));
-        await tester.pumpAndSettle();
-        for (final String label in _specSubLabels(
-          GbmContextMenuTarget.commit,
-          'More actions',
-        )) {
-          expect(find.text(label), findsOneWidget, reason: 'missing: $label');
-        }
-      },
-      // Real gap, tracked in docs/reports/spec-conformance-matrix.md
-      // (Page 05, row 05-E): missing "Merge into current", "Compare
-      // with…", and the entire "More actions" submenu.
-      // commit_row.dart's own doc comment explains why each is
-      // omitted -- Merge needs mergeBranch to accept an oid rather
-      // than a branch name (or a name-resolution step first),
-      // Compare is planned as milestone M6, and rebase/reset are not
-      // yet wired on the Dart side even though the capi calls exist.
-      // Remove `skip: true` once 05-E is brought to parity.
-      skip: true,
-    );
+    test('the "More actions" submenu matches its catalog children', () {
+      final GbmMenuItem submenu = commitMenuItems(
+        count: 1,
+        contiguous: true,
+        conflictActive: false,
+        onCopySha: () {},
+      ).firstWhere((GbmMenuItem i) => i.isSubmenuTrigger);
+      expect(
+        submenu.children.map((GbmMenuItem i) => i.label).toList(),
+        _specSubLabels(GbmContextMenuTarget.commit, 'More actions'),
+      );
+    });
+
+    testWidgets('a CommitRow right-click really renders that catalog', (
+      tester,
+    ) async {
+      // The pure function above is the acceptance baseline; this checks the
+      // render site actually goes through it rather than keeping its own
+      // hand-written list, which is how 05-B/E drifted in the first place.
+      await _pump(
+        tester,
+        CommitRow(
+          row: _graphRow(),
+          oidHex: 'abc12345def67890',
+          graph: GraphSnapshotView.empty,
+          rowIndex: 0,
+          maxLane: 0,
+          onCheckout: () {},
+          onMerge: () {},
+          onCherryPick: () {},
+          onRevert: () {},
+          onCreateBranchHere: () {},
+          onCompare: () {},
+          onRebaseOntoHere: () {},
+          onResetBranchHere: () {},
+          onExportAsPatch: () {},
+          onCompareWithWorkingCopy: () {},
+        ),
+      );
+      await tester.tap(find.byType(CommitRow), buttons: kSecondaryMouseButton);
+      await tester.pumpAndSettle();
+
+      for (final String label in _specLabels(GbmContextMenuTarget.commit)) {
+        expect(find.text(label), findsOneWidget, reason: 'missing: $label');
+      }
+      await tester.tap(find.text('More actions'));
+      await tester.pumpAndSettle();
+      for (final String label in _specSubLabels(
+        GbmContextMenuTarget.commit,
+        'More actions',
+      )) {
+        expect(find.text(label), findsOneWidget, reason: 'missing: $label');
+      }
+    });
   });
 
   group('05-F Working copy file (conforms)', () {

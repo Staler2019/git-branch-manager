@@ -423,6 +423,9 @@ void main() {
         onOpenFile: () {},
         onShowInFileManager: () {},
         onOpenTerminal: () {},
+        onFileHistory: () {},
+        onBlame: () {},
+        onLineHistory: () {},
         onCopyPath: () {},
         onDiscard: () {},
       );

@@ -23,6 +23,9 @@ List<GbmMenuItem> _items({
   void Function()? onOpenTerminal,
   void Function()? onCopyPath,
   void Function()? onDiscard,
+  void Function()? onFileHistory,
+  void Function()? onBlame,
+  void Function()? onLineHistory,
 }) {
   return workingCopyFileMenuItems(
     count: count,
@@ -33,20 +36,36 @@ List<GbmMenuItem> _items({
     onOpenTerminal: onOpenTerminal ?? () {},
     onCopyPath: onCopyPath ?? () {},
     onDiscard: withDiscard ? (onDiscard ?? () {}) : null,
+    onFileHistory: onFileHistory ?? () {},
+    onBlame: onBlame ?? () {},
+    onLineHistory: onLineHistory ?? () {},
   );
 }
 
 void main() {
   group('spec 05-F order and labels', () {
-    test('a single unstaged file gives the six spec items in spec order', () {
+    test('a single unstaged file gives the seven spec items in spec order', () {
+      // 'History' is spec page 14 rule 3's flyout, restoring the three
+      // per-file history actions Tier 1 had to drop against the 8-item cap.
       expect(_labels(_items()), <String>[
         'Stage',
         'Open file',
         'Show in file manager',
         'Open terminal here',
         'Copy path',
+        'History',
         'Discard changes…',
       ]);
+    });
+
+    test('the History flyout carries FILECTXSUB\'s three children', () {
+      final GbmMenuItem history = _items().firstWhere(
+        (GbmMenuItem i) => i.label == 'History',
+      );
+      expect(
+        history.children.map((GbmMenuItem c) => c.label).toList(),
+        <String>['File history…', 'Blame…', 'Line history…'],
+      );
     });
 
     test('a staged file swaps Stage for Unstage and drops Discard', () {
@@ -59,6 +78,7 @@ void main() {
         'Show in file manager',
         'Open terminal here',
         'Copy path',
+        'History',
       ]);
     });
 

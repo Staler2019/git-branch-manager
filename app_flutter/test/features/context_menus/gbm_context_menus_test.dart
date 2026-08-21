@@ -31,7 +31,7 @@ void main() {
         GbmContextMenuTarget.branchFolder: 4, // 05-J
         GbmContextMenuTarget.tag: 5, // 05-D
         GbmContextMenuTarget.commit: 7, // 05-E
-        GbmContextMenuTarget.workingCopyFile: 6, // 05-F
+        GbmContextMenuTarget.workingCopyFile: 7, // 05-F (6 + History flyout)
         GbmContextMenuTarget.historyCommitFile: 8, // 05-K
         GbmContextMenuTarget.diffLine: 5, // 05-G
         GbmContextMenuTarget.stashEntry: 6, // 05-H
@@ -154,6 +154,9 @@ void main() {
         'Show in file manager',
         'Open terminal here',
         'Copy path',
+        // Spec page 14 rule 3's flyout, holding the three per-file history
+        // actions Tier 1 had to drop against the 8-item cap.
+        'History',
         // The ellipsis was dropped when this catalog was first transcribed;
         // spec's own mock reads "Discard changes in 3 files…" and the item
         // does open a confirmation dialog, so it belongs here.

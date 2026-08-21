@@ -7,6 +7,7 @@ import '../../actions/gbm_action_availability.dart';
 import '../../actions/gbm_action_id.dart';
 import '../../data/models/working_copy_status.dart';
 import '../../data/repositories/file_list_view_mode_repository.dart';
+import '../../data/repositories/panel_tabs_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart'
     show
@@ -619,7 +620,31 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
         onCopyPath: () =>
             Clipboard.setData(ClipboardData(text: targets.join('\n'))),
         onDiscard: fromStaged ? null : () => _discardFiles(targets),
+        // Spec page 14 routes these three to tabs, not dialogs -- they are
+        // in IAMAP's "大型管理面板（12）" group. Opened per file (the flyout
+        // exists precisely so the path is pre-filled), so each gets its own
+        // tab keyed by subject.
+        onFileHistory: () =>
+            _openFilePanel(GbmPanelKind.fileHistory, entry.path),
+        onBlame: () => _openFilePanel(GbmPanelKind.blame, entry.path),
+        onLineHistory: () =>
+            _openFilePanel(GbmPanelKind.lineHistory, entry.path),
       ),
+    );
+  }
+
+  /// Opens one of the three per-file history panels as a tab for [path].
+  ///
+  /// `context.go`, not `push`: a panel is a tab beside History/Working Copy,
+  /// so it replaces the shell's child rather than stacking over it -- same
+  /// reasoning as `WorkspaceScreen._openPanelTab`, which this mirrors from
+  /// the one place that cannot call it (a context menu inside the tab).
+  void _openFilePanel(GbmPanelKind kind, String path) {
+    final String tabId = ref
+        .read(panelTabsProvider(widget.identity).notifier)
+        .open(kind, subject: path);
+    context.go(
+      RoutePaths.panelFor(Uri.encodeComponent(widget.identity.workDir), tabId),
     );
   }
 

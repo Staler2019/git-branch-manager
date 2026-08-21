@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../data/repositories/recents_repository.dart';
 import '../data/repositories/repo_identity.dart';
 import '../features/compare/compare_page.dart';
+import '../features/panels/panel_page.dart';
 import '../features/conflict_resolution/conflict_resolve_window.dart';
 import '../features/dialogs/about/about_dialog.dart';
 import '../features/dialogs/bisect/bisect_dialog.dart';
@@ -143,6 +144,18 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
                 state.pathParameters['repoId']!,
               );
               return ComparePage(
+                identity: identity,
+                tabId: state.pathParameters['tabId']!,
+              );
+            },
+          ),
+          GoRoute(
+            path: RoutePaths.panel,
+            builder: (context, state) {
+              final RepoIdentity identity = repoIdentityFromRouteParam(
+                state.pathParameters['repoId']!,
+              );
+              return PanelPage(
                 identity: identity,
                 tabId: state.pathParameters['tabId']!,
               );

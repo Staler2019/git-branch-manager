@@ -97,6 +97,12 @@ abstract final class RoutePaths {
   /// URL.
   static const String compare = '/repo/:repoId/compare/:tabId';
 
+  /// One open `PanelTabSpec` (data/repositories/panel_tabs_repository.dart)
+  /// -- the advanced management panels spec page 14's `IAMAP` routes to
+  /// tabs rather than dialogs. A ShellRoute child, like [compare], so the
+  /// menu bar / tab strip / sidebar stay mounted around it.
+  static const String panel = '/repo/:repoId/panel/:tabId';
+
   static String workspaceFor(String repoId) => historyFor(repoId);
   static String historyFor(String repoId) => '/repo/$repoId/history';
   static String workingCopyFor(String repoId) => '/repo/$repoId/working-copy';
@@ -280,4 +286,6 @@ abstract final class RoutePaths {
   static String conflictsFor(String repoId) => '/repo/$repoId/conflicts';
   static String compareFor(String repoId, String tabId) =>
       '/repo/$repoId/compare/$tabId';
+  static String panelFor(String repoId, String tabId) =>
+      '/repo/$repoId/panel/$tabId';
 }

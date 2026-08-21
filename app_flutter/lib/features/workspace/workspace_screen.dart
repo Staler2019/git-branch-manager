@@ -15,6 +15,7 @@ import '../../data/models/working_copy_status.dart';
 import '../../data/repositories/app_preferences_repository.dart';
 import '../../data/repositories/chrome_visibility_repository.dart';
 import '../../data/repositories/compare_tabs_repository.dart';
+import '../../data/repositories/panel_tabs_repository.dart';
 import '../../data/repositories/file_list_view_mode_repository.dart';
 import '../../data/repositories/history_repository.dart';
 import '../../data/repositories/panel_layout_repository.dart';
@@ -277,6 +278,9 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
             compareTabs: ref.watch(compareTabsProvider(identity)),
             onCloseCompareTab: (String tabId) =>
                 _closeCompareTab(context, ref, identity, repoId, tabId),
+            panelTabs: ref.watch(panelTabsProvider(identity)),
+            onClosePanelTab: (String tabId) =>
+                _closePanelTab(context, ref, identity, repoId, tabId),
             // Sourced from isActionEnabled(), not session.conflictActive
             // directly -- single source of truth, same pattern as
             // BranchTreeItem/CommitGraphView. Cherry-pick/Reset have no
@@ -731,6 +735,63 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       GbmActionId.remoteManageRemotes: () =>
           context.push(RoutePaths.manageRemotesDialogFor(repoId)),
 
+      // Tools -- spec page 14's eighth menu. Every entry except Clean
+      // untracked files… opens a *tab* (`_openPanelTab`), because
+      // TOOLSMENU's note column reads 分頁 for all of them and IAMAP puts
+      // them on "分頁（與 History / Working copy / Compare 同一條分頁列）".
+      // Clean untracked files… shares the Rewrite history submenu but
+      // belongs to IAMAP's "中型表單 / 確認框" group, so it stays a dialog --
+      // menu adjacency is not carrier assignment.
+      GbmActionId.toolsStashes: () => _openPanelTab(
+        context,
+        ref,
+        identity,
+        repoId,
+        GbmPanelKind.manageStashes,
+      ),
+      GbmActionId.toolsWorktrees: () => _openPanelTab(
+        context,
+        ref,
+        identity,
+        repoId,
+        GbmPanelKind.manageWorktrees,
+      ),
+      GbmActionId.toolsRemotes: () => _openPanelTab(
+        context,
+        ref,
+        identity,
+        repoId,
+        GbmPanelKind.manageRemotes,
+      ),
+      GbmActionId.toolsSubmodules: () => _openPanelTab(
+        context,
+        ref,
+        identity,
+        repoId,
+        GbmPanelKind.manageSubmodules,
+      ),
+      GbmActionId.toolsLargeFiles: () =>
+          _openPanelTab(context, ref, identity, repoId, GbmPanelKind.manageLfs),
+      GbmActionId.toolsPatches: () =>
+          _openPanelTab(context, ref, identity, repoId, GbmPanelKind.patches),
+      GbmActionId.toolsReflog: () =>
+          _openPanelTab(context, ref, identity, repoId, GbmPanelKind.reflog),
+      // "Rewrite history" names a group, not an action -- it has no handler
+      // of its own, and menu_bar_row.dart renders it as a flyout trigger
+      // from its declared children rather than reading this map for it.
+      GbmActionId.toolsRewriteHistory: null,
+      GbmActionId.toolsInteractiveRebase: () => _openPanelTab(
+        context,
+        ref,
+        identity,
+        repoId,
+        GbmPanelKind.interactiveRebase,
+      ),
+      GbmActionId.toolsBisect: () =>
+          _openPanelTab(context, ref, identity, repoId, GbmPanelKind.bisect),
+      GbmActionId.toolsCleanUntrackedFiles: () =>
+          context.push(RoutePaths.cleanUntrackedDialogFor(repoId)),
+
       // Help
       GbmActionId.helpDocumentation: () =>
           ref.read(desktopLauncherProvider).openUrl(GbmUrls.documentation),
@@ -1010,6 +1071,44 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         .read(compareTabsProvider(identity).notifier)
         .open(left: left);
     context.go(RoutePaths.compareFor(repoId, tabId));
+  }
+
+  /// Opens (or focuses, if already open) one of spec page 14's twelve
+  /// management panels as a tab and navigates to it.
+  ///
+  /// `context.go`, not `push`: a panel is a tab beside History/Working
+  /// Copy, so it *replaces* the shell's child rather than stacking over it
+  /// -- `push` would leave the previous tab underneath and make the strip
+  /// disagree with what is on screen. Same reasoning as `_openCompareTab`.
+  void _openPanelTab(
+    BuildContext context,
+    WidgetRef ref,
+    RepoIdentity identity,
+    String repoId,
+    GbmPanelKind kind, {
+    String? subject,
+  }) {
+    final String tabId = ref
+        .read(panelTabsProvider(identity).notifier)
+        .open(kind, subject: subject);
+    context.go(RoutePaths.panelFor(repoId, tabId));
+  }
+
+  /// Same navigate-away-first ordering as [_closeCompareTab], for the same
+  /// reason: GoRouter must never render PanelPage for a tabId that is about
+  /// to stop existing in panelTabsProvider.
+  void _closePanelTab(
+    BuildContext context,
+    WidgetRef ref,
+    RepoIdentity identity,
+    String repoId,
+    String tabId,
+  ) {
+    final String currentLocation = GoRouterState.of(context).uri.toString();
+    if (currentLocation == RoutePaths.panelFor(repoId, tabId)) {
+      context.go(RoutePaths.historyFor(repoId));
+    }
+    ref.read(panelTabsProvider(identity).notifier).close(tabId);
   }
 
   /// Navigates away first when closing the currently active Compare tab, so

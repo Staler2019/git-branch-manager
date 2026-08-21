@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../data/repositories/compare_tabs_repository.dart';
+import '../../../data/repositories/panel_tabs_repository.dart';
 import '../../../routing/route_paths.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
@@ -17,6 +18,18 @@ WorkspaceTab compareWorkspaceTab(CompareTabSpec spec, String repoId) {
     kind: WorkspaceTabKind.compare,
     label: '${spec.left} vs ${spec.right ?? 'Working Copy'}',
     route: RoutePaths.compareFor(repoId, spec.id),
+    closable: true,
+  );
+}
+
+/// Builds the [WorkspaceTab] a [PanelTabSpec] renders as -- closable, and
+/// rendered after the Compare tabs so the strip reads
+/// fixed -> Compare -> panels in the order each was opened.
+WorkspaceTab panelWorkspaceTab(PanelTabSpec spec, String repoId) {
+  return WorkspaceTab(
+    kind: WorkspaceTabKind.panel,
+    label: spec.label,
+    route: RoutePaths.panelFor(repoId, spec.id),
     closable: true,
   );
 }
@@ -39,6 +52,8 @@ class TabRow extends StatelessWidget {
     required this.pendingChangeCount,
     this.compareTabs = const <CompareTabSpec>[],
     this.onCloseCompareTab,
+    this.panelTabs = const <PanelTabSpec>[],
+    this.onClosePanelTab,
     this.conflictActive = false,
   });
 
@@ -50,6 +65,12 @@ class TabRow extends StatelessWidget {
   /// care about History/Working Copy are unaffected.
   final List<CompareTabSpec> compareTabs;
   final ValueChanged<String>? onCloseCompareTab;
+
+  /// Open management-panel tabs (panel_tabs_repository.dart) -- spec page
+  /// 14's `IAMAP` carrier for the twelve advanced panels. Empty by default,
+  /// like [compareTabs], so callers that predate them are unaffected.
+  final List<PanelTabSpec> panelTabs;
+  final ValueChanged<String>? onClosePanelTab;
 
   /// Gates Cherry-pick… the same way `isActionEnabled()` gates every other
   /// conflict-sensitive action (see CLAUDE.md's "Action availability state
@@ -69,6 +90,21 @@ class TabRow extends StatelessWidget {
   /// self-contradictory about where it belongs -- see issue #86.
   final bool conflictActive;
 
+  /// Resolves which close callback a tab uses from its [WorkspaceTab.kind],
+  /// never from its position in the strip -- the two closable kinds sit in
+  /// one flat list and dispatching on index would silently hand a panel id
+  /// to the Compare notifier the moment the ordering changed.
+  VoidCallback? _closeHandlerFor(WorkspaceTab tab, String? id) {
+    if (!tab.closable || id == null) return null;
+    return switch (tab.kind) {
+      WorkspaceTabKind.compare when onCloseCompareTab != null =>
+        () => onCloseCompareTab!(id),
+      WorkspaceTabKind.panel when onClosePanelTab != null =>
+        () => onClosePanelTab!(id),
+      _ => null,
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
@@ -77,6 +113,8 @@ class TabRow extends StatelessWidget {
       ...defaultWorkspaceTabs(repoId, pendingChangeCount: pendingChangeCount),
       for (final CompareTabSpec spec in compareTabs)
         compareWorkspaceTab(spec, repoId),
+      for (final PanelTabSpec spec in panelTabs)
+        panelWorkspaceTab(spec, repoId),
     ];
     // Fixed tabs (History, Working Copy) have no backing spec -- only
     // entries from `compareTabs` do, in the same order they were appended
@@ -86,6 +124,7 @@ class TabRow extends StatelessWidget {
       null,
       null,
       for (final CompareTabSpec spec in compareTabs) spec.id,
+      for (final PanelTabSpec spec in panelTabs) spec.id,
     ];
     final int activeIndex = activeWorkspaceTabIndex(tabs, location);
 
@@ -116,9 +155,7 @@ class TabRow extends StatelessWidget {
                       active: index == activeIndex,
                       badgeCount: tab.badgeCount,
                       onTap: () => context.go(tab.route),
-                      onClose: !tab.closable || onCloseCompareTab == null
-                          ? null
-                          : () => onCloseCompareTab!(tabIds[index]!),
+                      onClose: _closeHandlerFor(tab, tabIds[index]),
                     ),
                   ],
                 ],

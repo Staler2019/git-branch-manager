@@ -69,11 +69,30 @@ class PlatformMenuBarHost extends StatelessWidget {
             menus: <PlatformMenuItem>[
               for (final GbmMenuItemModel item in menu.items)
                 if (!_systemProvided.contains(item.id))
-                  PlatformMenuItem(
-                    label: item.label,
-                    shortcut: _activatorFor(shortcuts[item.id]),
-                    onSelected: handlers[item.id],
-                  ),
+                  // A submenu parent with declared children (Tools >
+                  // Rewrite history) becomes a real nested macOS submenu.
+                  // The two dynamic submenu parents (viewGraphColumns,
+                  // viewTheme) declare no children and stay flat items, as
+                  // they were -- their content is built at the widget layer
+                  // and has no PlatformMenu equivalent.
+                  if (item.isSubmenuParent && item.children.isNotEmpty)
+                    PlatformMenu(
+                      label: item.label,
+                      menus: <PlatformMenuItem>[
+                        for (final GbmMenuItemModel child in item.children)
+                          PlatformMenuItem(
+                            label: child.label,
+                            shortcut: _activatorFor(shortcuts[child.id]),
+                            onSelected: handlers[child.id],
+                          ),
+                      ],
+                    )
+                  else
+                    PlatformMenuItem(
+                      label: item.label,
+                      shortcut: _activatorFor(shortcuts[item.id]),
+                      onSelected: handlers[item.id],
+                    ),
               // Both system-provided roles are appended to the menu they
               // belong to, so Quit still sits under File and About under
               // Help even though macOS owns their behaviour.

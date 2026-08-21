@@ -72,6 +72,21 @@ enum GbmActionId {
   remotePruneRemoteBranches,
   remoteManageRemotes,
 
+  // Tools (8 + 3 in the Rewrite history submenu) -- spec page 14's new
+  // eighth menu: "menu bar 新增一個 Tools 選單，收所有 repo-scoped 的進階面板。
+  // 放在 Remote 之後、Help 之前".
+  toolsStashes,
+  toolsWorktrees,
+  toolsRemotes,
+  toolsSubmodules,
+  toolsLargeFiles,
+  toolsPatches,
+  toolsReflog,
+  toolsRewriteHistory,
+  toolsInteractiveRebase,
+  toolsBisect,
+  toolsCleanUntrackedFiles,
+
   // Help (4)
   helpDocumentation,
   helpKeyboardShortcuts,

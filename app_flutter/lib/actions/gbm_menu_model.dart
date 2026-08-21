@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import 'gbm_action_id.dart';
 
 /// Represents a single menu item.
@@ -10,6 +12,7 @@ class GbmMenuItemModel {
     required this.label,
     this.isSubmenuParent = false,
     this.isDanger = false,
+    this.children = const <GbmMenuItemModel>[],
   });
 
   /// The action ID this menu item triggers.
@@ -21,12 +24,30 @@ class GbmMenuItemModel {
   /// "Sentence case throughout, including button labels").
   final String label;
 
-  /// Whether this item is a submenu parent (not directly clickable).
+  /// Whether this item opens a submenu.
   ///
-  /// Only [GbmActionId.viewGraphColumns] and [GbmActionId.viewTheme] should
-  /// have this set to `true`. Their actual submenu content is built at the
-  /// widget layer.
+  /// Two shapes share this flag:
+  ///
+  /// - [GbmActionId.viewGraphColumns] and [GbmActionId.viewTheme] leave
+  ///   [children] empty and have their submenu content built at the widget
+  ///   layer, because it is *dynamic* (the live column set, the available
+  ///   theme variants). Both also resolve to a real handler, so their parent
+  ///   row stays clickable as a one-click path to the same thing.
+  /// - [GbmActionId.toolsRewriteHistory] declares its [children] here,
+  ///   because they are three ordinary, fixed action items (spec page 14
+  ///   rule 2: "破壞性或多步驟的三項…收進 Rewrite history 第二層"). It has no
+  ///   handler of its own -- "rewrite history" names a group, not an action.
+  ///
+  /// Declaring fixed children in the model rather than special-casing a
+  /// third id at the widget layer is deliberate: the widget layer already
+  /// carries two such cases, and a third would make "which submenus exist"
+  /// unanswerable from the model alone.
   final bool isSubmenuParent;
+
+  /// This item's submenu entries, for a [isSubmenuParent] whose children are
+  /// static. Empty for every other item, including the two dynamic submenu
+  /// parents above.
+  final List<GbmMenuItemModel> children;
 
   /// Whether this item should be displayed with danger/error styling.
   ///
@@ -41,14 +62,16 @@ class GbmMenuItemModel {
           id == other.id &&
           label == other.label &&
           isSubmenuParent == other.isSubmenuParent &&
-          isDanger == other.isDanger;
+          isDanger == other.isDanger &&
+          listEquals(children, other.children);
 
   @override
   int get hashCode =>
       id.hashCode ^
       label.hashCode ^
       isSubmenuParent.hashCode ^
-      isDanger.hashCode;
+      isDanger.hashCode ^
+      Object.hashAll(children);
 
   @override
   String toString() =>
@@ -259,6 +282,49 @@ const List<GbmMenuModel> gbmMenus = <GbmMenuModel>[
       GbmMenuItemModel(
         id: GbmActionId.remoteManageRemotes,
         label: 'Manage remotes…',
+      ),
+    ],
+  ),
+
+  // Tools (8 items) -- spec page 14's new eighth menu, placed between
+  // Remote and Help per its rule 1: "放在 Remote 之後、Help 之前；它是「開一個
+  // 面板」而不是「對目前分支做事」，所以不塞進 Repository". Labels are verbatim
+  // from that page's TOOLSMENU table.
+  //
+  // Every item here opens a *tab*, not a dialog: TOOLSMENU's note column
+  // reads 分頁 for all seven top-level panels, and page 14's IAMAP assigns
+  // them to "分頁（與 History / Working copy / Compare 同一條分頁列）". The
+  // exception is Clean untracked files…, which shares the submenu but
+  // belongs to IAMAP's "中型表單 / 確認框" group and stays a dialog.
+  GbmMenuModel(
+    title: 'Tools',
+    items: <GbmMenuItemModel>[
+      GbmMenuItemModel(id: GbmActionId.toolsStashes, label: 'Stashes…'),
+      GbmMenuItemModel(id: GbmActionId.toolsWorktrees, label: 'Worktrees…'),
+      GbmMenuItemModel(id: GbmActionId.toolsRemotes, label: 'Remotes…'),
+      GbmMenuItemModel(id: GbmActionId.toolsSubmodules, label: 'Submodules…'),
+      GbmMenuItemModel(
+        id: GbmActionId.toolsLargeFiles,
+        label: 'Large files (LFS)…',
+      ),
+      GbmMenuItemModel(id: GbmActionId.toolsPatches, label: 'Patches…'),
+      GbmMenuItemModel(id: GbmActionId.toolsReflog, label: 'Reflog…'),
+      GbmMenuItemModel(
+        id: GbmActionId.toolsRewriteHistory,
+        label: 'Rewrite history',
+        isSubmenuParent: true,
+        children: <GbmMenuItemModel>[
+          GbmMenuItemModel(
+            id: GbmActionId.toolsInteractiveRebase,
+            label: 'Interactive rebase…',
+          ),
+          GbmMenuItemModel(id: GbmActionId.toolsBisect, label: 'Bisect…'),
+          GbmMenuItemModel(
+            id: GbmActionId.toolsCleanUntrackedFiles,
+            label: 'Clean untracked files…',
+            isDanger: true,
+          ),
+        ],
       ),
     ],
   ),

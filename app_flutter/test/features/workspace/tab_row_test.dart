@@ -215,6 +215,10 @@ void main() {
 
   testWidgets(
     'More menu lists all 18 items via showGbmMenu (not Material PopupMenuButton chrome)',
+    // The count in this name used to say 18 while the menu built 19 -- the
+    // list below silently omitted "Repository Settings…". Removing
+    // "Operation Log…" (issue #61) is what brought the two into line, so the
+    // list is now genuinely exhaustive: keep it that way when items change.
     (tester) async {
       await _pump(tester, pendingChangeCount: 0);
       await tester.tap(find.byTooltip('More'));
@@ -230,7 +234,6 @@ void main() {
         'Create Tag…',
         'Manage Worktrees…',
         'Remotes…',
-        'Operation Log…',
         'Blame…',
         'File History…',
         'Line History…',
@@ -242,12 +245,28 @@ void main() {
         'Git LFS…',
         'Patches…',
         'Clean Untracked…',
+        'Repository Settings…',
         'Preferences…',
       ]) {
         expect(find.text(label), findsOneWidget, reason: label);
       }
     },
   );
+
+  // Issue #61. Spec page 10's LOGRULES gained a "只有一套" row on 260820
+  // ("Log 只有底部抽屜這一個實作…不另開 operation log dialog"), and P14's
+  // IAMAP routes the operation-log dialog to "刪除 -- 改走 P10 底部抽屜".
+  // The surviving entry point is View -> Log (Ctrl/Cmd+Shift+L), covered by
+  // test/integration/workspace_log_drawer_reachability_test.dart.
+  testWidgets('More menu no longer offers Operation Log… (spec P10/P14)', (
+    tester,
+  ) async {
+    await _pump(tester, pendingChangeCount: 0);
+    await tester.tap(find.byTooltip('More'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Operation Log…'), findsNothing);
+  });
 
   testWidgets('More menu > Manage Stashes… pushes the manage-stashes route', (
     tester,

@@ -29,6 +29,16 @@ This report is descriptive only — no fixes are applied here. See
 > below without that marker was judged against the original 12 pages and
 > may have drifted. See the Tier 0c PR for the rename rows, which are the
 > only ones this round implemented.
+>
+> **P13 section B is now implemented** (Tier 2+3, issues #54–#57): the
+> `MULTIKEYS` / `MULTIACTS` / `MULTIBRANCHMENU` selection rules, the History
+> status-bar selection summary, and both `Edit → Select all` and the two
+> Compare entry points that depended on them. Rows it touched (Edit → Select
+> all, 05-B, 05-E, COMPARES 1, COMPARES 3) are corrected in place below.
+> **P13 section A** (the rename dialog) shipped earlier in Tier 0c. P14–P16
+> remain unaudited, and section B was not audited row-by-row before being
+> implemented — it was read from the source spec directly, so no matrix rows
+> exist for `MULTIKEYS`/`MULTIACTS`/`MULTIBRANCHMENU` themselves.
 
 ---
 
@@ -52,13 +62,21 @@ audit time**. P16's `REVISIONS` changes two things about this paragraph:
   this row was written — the audit had no shortcut to compare against.
   **措辭不符** on the binding. Not fixed in the Tier 0c PR; needs its own
   issue alongside the other two shortcut rows below.
-- **`Edit → Select all` is missing entirely.** REVISIONS adds it with
-  `Ctrl/Cmd+A` ("搭 P13 多選"), so the Edit menu should now have 9 items
-  and the app-wide total 53, not 52. `gbmMenus`' Edit menu has 8 and no
-  `editSelectAll` id exists in `GbmActionId`. **缺少** — and note it is
-  not independent of P13: `Ctrl/Cmd+A` is also `MULTIKEYS`' "全選當前清
-  單", so binding it before the multi-select work (#54) lands would give
-  it nothing to select. Sequence it after, not before.
+- ~~**`Edit → Select all` is missing entirely.**~~ → **符合** (fixed,
+  Tier 2 / #54). REVISIONS adds it with `Ctrl/Cmd+A` ("搭 P13 多選"), so
+  the Edit menu now has 9 items and the app-wide total is 53. The
+  sequencing note below held: it shipped *with* the multi-select work, in
+  the same branch, because `Ctrl/Cmd+A` is also `MULTIKEYS`' "全選當前清
+  單" and binding it first would have given it nothing to select.
+  `GbmActionId.editSelectAll`'s handler follows `_invokeTextIntent`'s
+  existing shape — non-null in the handler map (so all three dispatch
+  paths stay in agreement) and forwarding by focus: it invokes
+  `GbmSelectAllIntent` first and falls back to `SelectAllTextIntent`, so
+  the same key still selects text when a `TextField` holds focus. The
+  commit list and the branch tree each register their own
+  `GbmSelectAllIntent` action inside their own focus scope, which is also
+  what keeps the list binding from stealing `DefaultTextEditingShortcuts`'
+  select-all.
 
 **Keyboard shortcuts (`gbmActionShortcuts()`, 36/52 ids bound — 35/52 at audit time; F2 is the one added since, see the rename row below):**
 
@@ -99,6 +117,12 @@ function, because its items need the container's commit oid and its
 in-flight export state, which that template has nowhere to hold. **05-B and
 05-E are the only drifted groups left.**
 
+**Update (Tier 2+3, branch `feat/tier-2-3-multi-select-compare`, issues #54,
+#55, #56, #57).** 05-B and 05-E both landed, so **no group is skipped any
+more**. Both rows' premises were wrong in the same direction — each named a
+prerequisite that did not exist — and both are corrected in place below
+rather than edited away, since the correction is what moved the work.
+
 Two premises in the rows below were **wrong** and are corrected in place
 rather than silently edited away, because both changed where the fix had to
 go: 05-F pointed at a widget nothing in `lib/` ever built, and 05-G's
@@ -107,10 +131,10 @@ go: 05-F pointed at a widget nothing in `lib/` ever built, and 05-G's
 | Group | Verdict | Evidence | Detail |
 |---|---|---|---|
 | 05-A Repository | 符合 (deliberate reduction) + 1 minor 多出 | `repo_switcher_popover.dart:740-877` `RepoSwitcherRow._openContextMenu()` | Omits Fetch/Pull/Push vs. the catalog's 7 items — documented in the catalog's own comment: a repo row in the switcher list has no open session to act on. Renders: Open / Open in file manager / Open in terminal / Settings… / [separator] / Remove from list (5 items). The leading `Open` item is not in spec's 05-A list at all — low-severity addition (mirrors the row's own double-click action, a reasonable convenience), noted for completeness rather than flagged as something to remove. |
-| 05-B Local branch | **缺少** | `branch_tree_item.dart:321-387` `_buildMenuItems()` | Renders: Checkout / New branch from here / Rename branch / Merge into current branch / Copy branch name / Delete branch (6 items). Missing vs. spec's 8: `Rebase current onto here`, `Compare with…`. Also wording: `Rename branch` vs. spec `Rename…`, `Merge into current branch` vs. spec `Merge into current`. The file's own doc comment (lines 321-327) explains why: both omissions are deliberate, not oversights — "no per-branch entry point exists yet; a targeted rebase/compare would need the same UI as its repository-level peer, not yet surfaced." Classification **(i) with a prerequisite** — `gbm_rebase_start`/`gbm_request_compare_refs` exist in capi, but there's no per-branch rebase/compare UI to route to yet (same shape as the 05-E correction below: capi existing ≠ Dart-side wiring existing). |
+| 05-B Local branch | ~~**缺少**~~ → **符合** (Tier 3 / #57) | `sidebar/widgets/local_branch_menu_items.dart`, rendered by `branch_tree_item.dart` | **This row's premise — and #57's — was wrong about `Compare with…`.** It read as needing a new picker UI; it does not. `sidebar_panel.dart`'s `_compareStash()`/`_compareTag()` had already established the convention: open a Compare tab with only the left side filled (`compareTabsProvider.open(left: <ref>)`) and let `CompareRefPicker`, which the Compare page already renders, take the right. A branch copies that verbatim — zero new dialogs. `Rebase current onto here` was likewise not blocked on Dart-side plumbing: `RoutePaths.rebaseOntoDialogFor` gained a `target` query parameter (template: `renameBranchDialogFor`) and the existing dialog pre-selects it. **Fixed**: all 8 items now render with spec's exact labels — the render site is a pure `*_menu_items.dart` function asserted for **exact equality**, replacing the parity test's previous `startsWith` comparison, which is what let the two wording drifts (`Rename branch`, `Merge into current branch`) sit unreported. The `skip: true` is gone. Also closed while there: `New branch from here`, `Merge into current` and `Delete branch` were ungated mid-conflict despite spec page 07 disabling all three; they now go through `isActionEnabled()` like the rest. |
 | 05-C Remote-only / gone branch | 符合 (verify) | `branch_tree_item.dart` | CLAUDE.md's "Known gaps" section documents this as fixed (`_buildGoneMenuItems()`), matching spec's 05-C note that a gone row keeps only Prune+Copy. The *catalog file's* doc comment still says "not yet wired" — that comment is stale, not the implementation; flagged for correction in Phase 5. |
 | 05-D Tag | 符合 | `tag_menu_items.dart` | Labels and order match spec exactly (5 items). Reference-quality implementation. |
-| 05-E Commit | **缺少** | `commit_row.dart:226-259` menu build | Renders: Checkout this commit / Cherry-pick / Create branch here… / Copy SHA / Revert commit (5 items, no submenu). Missing vs. spec's 7 top-level + "More actions" submenu of 5: `Merge into current`, `Compare with…`, and the ENTIRE submenu (`Rebase onto here`, `Reset branch to here…`, `Revert commit`, `Export as patch…`, `Compare with working copy`). Note spec keeps `Revert commit` inside the submenu; code promotes it to top level. **Classification correction**: `commit_row.dart`'s own doc comment (lines 226-229) gives the real reason for each omission, and it's not uniformly "(i) trivial wiring" as first assumed from capi existing alone — `Merge into current` is omitted because `mergeBranch` takes a branch **name**, not a commit oid (needs either an API change or a name-resolution step, not just a UI hookup); `Compare items` are explicitly deferred as "M6" (a planned milestone, not an oversight); `rebase/reset` are noted "destructive, not wired" — meaning the *Dart-side* plumbing, not just the menu item, doesn't exist yet, so capi having the C function is necessary but not sufficient. Revised classification: `Compare with…` stays **(i)** (capi + Dart service both proven elsewhere); `Merge into current` and `Rebase/Reset` are **(i) with extra work** (need a name-resolution step or Dart-side wiring first, not pure UI); nothing here is **(ii)**. This is exactly the kind of per-site nuance the audit plan flagged as necessary to check before trusting a grep-derived classification. |
+| 05-E Commit | ~~**缺少**~~ → **符合** (Tier 3 / #56) | `history_graph/widgets/commit_menu_items.dart`, rendered by `commit_row.dart` | **The premise this row and #56 shared was wrong.** Both said `Merge into current` needed an oid→branch-name resolution step because `mergeBranch` takes a name. It does not: `gbm_merge_branch`'s `target` is pushed straight into `git merge <target>` (`src/core/git/ops/MergeOps.cpp:59,82`) and only an empty string is rejected — an oid is a perfectly legal committish, and `startRebase(upstream)` behaves the same way. So there was no prerequisite, only wiring. **Fixed**: all 7 top-level items plus the full `More actions` submenu of 5 now render, with `Revert commit` back inside the submenu where spec puts it. The submenu could only be built because Tier 4 had already made `GbmMenuItem.submenu`'s flyout actually open — before that its trigger row carried a permanently-null `onTap`. Multi-select changes the labels rather than the item set (`Cherry-pick 3 commits`, following 05-F's counted-label pattern), and the contiguity-gated trio (`Cherry-pick`/`Revert`, plus `Squash` which this app does not offer at all) renders `enabled: false` **and** `onTap: null` with spec's own tooltip 「選取需為連續 commit」 when the range has a gap. Contiguity is judged against the **unfiltered** snapshot, so three rows that look adjacent under a search filter are correctly refused. The `skip: true` is gone. |
 | 05-F Working copy file | ~~缺少~~ → **符合** (Tier 1 / #51) | `working_copy_view.dart:576` `_openContextMenu()` → `working_copy/widgets/working_copy_file_menu_items.dart` | **This row audited the wrong file — twice.** The first pass grepped `label: '...'` and so missed ternary-labelled items; the "corrected" second pass fixed that but still pointed at `changed_file_row.dart`, which **no file under `lib/` ever constructed**. `WorkingCopyBoard` (commit `39d6303`) replaced that row widget and commit `5581538` moved the 05-F menu into `working_copy_view.dart`; `ChangedFileRow` had been orphaned since, referenced only by `test/`. So the live menu already had `Open terminal here` and full multi-select pluralization, and the real gap was two items, not three. **Fixed**: `Open file` and `Show in file manager` added (`DesktopLauncher.openFile()` is new; `openInFileManager()` already existed, and both now normalize `/`→`\` on Windows, without which `explorer.exe /select,` silently opens Documents instead of revealing). The orphaned widget and its test file were deleted in their own commit. **Deliberate reduction**: `Blame…`/`File History…`/`Line History…` were dropped from this menu — they are beyond-spec, and 6 spec items + 3 extras is 9, over `showGbmContextMenu`'s asserted 8-item cap (spec page 05's own "最多 8 項"); `GbmMenuItem.submenu`'s flyout does not render yet, so nesting them was not available. All three stay reachable from `tab_row.dart`'s overflow menu, minus the pre-filled path. |
 | 05-G Diff line | ~~缺少~~ → **符合** (Tier 1 / #52) | `diff_line.dart:140` `_showContextMenu()` → `diff/widgets/diff_line_menu_items.dart` | **The gap was larger than the corrected second pass reported.** Reading spec's own 05-G block verbatim (`{ label: 'Stage 12 lines' }, { 'Stage hunk' }, { 'Unstage hunk' }, { 'Copy lines' }, { sep }, { 'Discard 12 lines…', danger }`) shows four differences, not one: the missing `Discard`, plus `Stage line` vs `Stage`/`Stage N lines`, `Copy line` vs `Copy lines`, and spec listing **both** hunk directions as separate entries where the code ternaried between them. **Fixed, all four.** Both hunk items now always render with the inapplicable direction disabled (`enabled: false` *and* `onTap: null` — `enabled` alone is a visual signal only, see `gbm_menu.dart`); the count comes from `_DiffHunkSection`'s checkbox selection using 05-F's own "right-click inside the selection keeps the batch" rule. `Discard` needed a **new capi** — `gbm_stage_lines`/`gbm_unstage_lines` are `git apply --cached` (index only), so `gbm_discard_lines` was added (`git apply --reverse` without `--cached`, patch built with `unstaging=true` since that flag means "will be reverse-applied, check the new side"). It is offered only on the unstaged side and always routes through the discard-changes dialog's new line mode, never straight to the controller. **Follow-up defect, found by writing the missing coverage rather than by reading the diff**: that new line mode reaches the dialog through a URL, and the router's inline parsing cross-nulled `hunk` against `line`, so a half-parsed line selection silently degraded to *whole-file* discard behind the same danger button. Parsing moved to `DiscardChangesRequest.fromQuery` (`features/dialogs/discard_changes/discard_changes_request.dart`); an unhonourable line request is now `isMalformed` and the dialog offers `Close` and no destructive button. |
 | 05-H Stash entry | 符合 | `stash_menu_items.dart` | Labels and order match spec exactly (6 items). Reference-quality. |
@@ -118,10 +142,16 @@ go: 05-F pointed at a widget nothing in `lib/` ever built, and 05-G's
 | 05-J Branch folder | 符合 | `branch_folder_menu_items.dart` | Matches spec's 4 items (aside from a possible deliberate omission — see pending device/widget-tier note in Phase 3). |
 | 05-K Commit file | ~~**部分修復**~~ → **符合** (Tier 4 / #58 + #59) | `changed_files_panel.dart` menu build | **Fixed in two rounds.** Tier 1 (#53) wired the two (i)-classified top-level items — `Compare with working copy` (opens a Compare tab via `compareTabsProvider.open(left: <oid>)` with a null `right`, then `context.go`, mirroring `sidebar_panel.dart`'s `_compareStash`; `push` would stack the tab over History rather than switch to it) and `Open terminal here` (the repository work dir, like 05-A/05-F — a historical commit's file has no directory of its own). Tier 4 closed the rest, and **both of that round's premises needed correcting**. (1) `Open file at this revision` / `Save this revision as…` were classified **(ii)** "no blob-read entry point", which was true, but the entry point they needed is not the one #58 sketched: neither displays content in-app, so `gbm_export_file_at_revision(session, revision, path, destPath)` writes raw bytes to a destination instead of returning content inline — binary-safe by construction, where a JSON string payload could not have carried an image at all. (2) `Restore and stage` / `Export as patch…` were blocked on `GbmMenuItem.submenu`'s flyout, which was the *real* blocker for the whole group and turned out to be a `gbm_menu.dart` change, not a 05-K one: the trigger row had a permanently-null `onTap`. Both landed; the parity test's 05-K group is now asserted against the full catalog with **no `skip`**. Two documented deliberate outcomes: `Restore file to this state` and `Restore and stage` open the same dialog (`restore_file_dialog.dart` has always offered both as two buttons, because the confirmation text is identical), and `Export as patch…` writes the whole commit's patch, since `gbm_patch_export` is `git format-patch -1 <commit>`. Remaining, not fixed: the *catalog's* own 05-K submenu lists four children where spec lists five — `Restore file to before this state` is absent from `gbm_context_menus.dart`. Left alone on purpose, since that catalog is this test's acceptance baseline — tracked as **#71**, which also notes that this audit's method (render site vs. catalog) could not have caught a catalog-vs-spec drift in any group. |
 
-**Net**: after Tier 4, 7 of 11 groups (05-D/F/G/H/I/J/K) are checked
-against the catalog with no `skip`; six of those are also
-reference-quality pure `*_menu_items.dart` functions and remain the template
-for the rest. 05-B and 05-E are the only unfixed groups left. The original
+**Net**: after Tier 3, **all 11 groups are checked against the catalog with
+no `skip`** — the parity test has no skipped assertions left, so H1's root
+cause (a catalog nothing under `lib/` imports) can no longer drift
+unnoticed in any group. Eight of the eleven are now pure
+`*_menu_items.dart` functions; 05-A, 05-C and 05-K keep private render-site
+builders for reasons recorded in their own rows. The post-Tier-4 text
+follows: 7 of 11 groups (05-D/F/G/H/I/J/K) are checked against the catalog
+with no `skip`; six of those are also reference-quality pure
+`*_menu_items.dart` functions and remain the template for the rest. 05-B and
+05-E are the only unfixed groups left. The original
 post-Tier-1 text follows: 6 of 11 groups (05-D/F/G/H/I/J) are
 reference-quality … 05-K is partially fixed (its two wireable items landed;
 the other four need capi or a submenu flyout).
@@ -390,13 +420,18 @@ dialog pair in F-B).
 | CHANGEVIEWS 2: Stash — inline expand on click | **缺少** | `sidebar_panel.dart:896-960` | Stash rows are not expandable in place; right-click "View diff" opens a dialog instead of the spec's inline-expand-then-click-file flow. |
 | CHANGEVIEWS 3: Working copy | 符合 | `working_copy_view.dart` | — |
 | CHANGEVIEWS 4: Between two refs — read-only 3-part view | 符合 | `compare_page.dart:209-403` | ref pickers / file list / diff pane, all present. |
-| COMPARES 1: Branch ↔ Branch (multi-select → right-click → Compare) | **缺少** | `commit_row.dart:25,229` | No multi-select path in History; consistent with the page-05 finding that 05-E's context menu is also missing "Compare with…" at the branch/commit level. |
+| COMPARES 1: Branch ↔ Branch (multi-select → right-click → Compare) | ~~**缺少**~~ → **符合** (Tier 3 / #55) | `sidebar_panel.dart` `_multiBranchMenuItems()` → `sidebar/widgets/multi_branch_menu_items.dart`; second entry point `GbmActionId.repositoryCompare` | **This row was partly out of date when written**: the *second* entry point for a branch↔branch compare — `Repository → Compare…`, `Ctrl/Cmd+Shift+C` — already existed and worked. Only spec's literal reading (「同時選兩個分支 → 右鍵 Compare」) was missing, and it needed sidebar branch multi-select, not History's. **Fixed** on the user's explicit "照字面做" ruling: `branchSelectionProvider` gives the branch tree the same `ListSelection` model History uses, and `MULTIBRANCHMENU` gained a `Compare` item that opens a tab with **both** sides filled. It is disabled with a stated reason for any count other than two, since a comparison has exactly two ends. |
 | COMPARES 2: Branch ↔ Tag | 符合 | `sidebar_panel.dart:201-207` | `_compareTag()`. |
-| COMPARES 3: Commit ↔ Commit (Ctrl/Cmd-click multi-select, merge-base + 2-dot/3-dot toggle) | **缺少 (entry point) / 符合 (once reached)** | no multi-select mechanism found in `history_graph/`; but `compare_page.dart:262-321` implements the 2-dot/3-dot toggle and merge-base labeling once a Compare tab IS open | The comparison *engine* correctly implements the harder half of this spec row (merge-base detection, 2-dot/3-dot); what's missing is entirely the *entry point* — there's no way to Ctrl/Cmd-click two commits in History to reach it. Same root cause as COMPARES 1 and 05-E. |
+| COMPARES 3: Commit ↔ Commit (Ctrl/Cmd-click multi-select, merge-base + 2-dot/3-dot toggle) | ~~**缺少 (entry point)**~~ → **符合** (Tier 2+3 / #54 + #55) | `commit_graph_view.dart` (MULTIKEYS gestures) → `commit_menu_items.dart`'s `Compare with…`; engine unchanged in `compare_page.dart:262-321` | The engine half was already right, as this row said. The entry point now exists: Ctrl/Cmd-click two commit rows, right-click either one, `Compare with…`. **left = the older side, right = the newer**, taken from the snapshot's own order rather than click order — the same direction convention `_compareStash()` set by always putting the stash on the right. A single selection still opens the tab with only `left` filled and leaves the right to `CompareRefPicker`, so the one-commit and two-commit cases share one item rather than two. |
 | COMPARES 4: Stash ↔ any ref, stash forced to the right side | 符合 | `sidebar_panel.dart:175-181`, `compare_page.dart:31-61` | `_compareStash()` places stash OID correctly. |
 | COMPARES 5: any ref ↔ Working copy, checkout-to-overwrite is the only writable path | 符合 | `compare_page.dart:143-175,342-349,536-600` | Confirmed as the sole writable comparison, with a confirmation dialog before `restorePaths()`. |
 
-**6/9 符合, 3 gaps that are all the SAME underlying cause**: History has no
+**Now 8/9 符合** (CHANGEVIEWS 2's inline stash expand is the one gap left).
+The prediction below held exactly: multi-select plus 05-E's `Compare with…`
+closed COMPARES 1 and COMPARES 3 together, in one branch. The one thing it
+got wrong is *which* multi-select COMPARES 1 needed — the branch tree's, not
+History's — which is why Tier 3 had to build both. Original text: **6/9
+符合, 3 gaps that are all the SAME underlying cause**: History has no
 multi-select mechanism, so every Compare flow that depends on selecting
 two commits (branch↔branch via commits, commit↔commit) has a working
 back-end but no front-door. This corroborates 05-E's finding that
@@ -435,10 +470,17 @@ verdict must rest on the spec's prose — and page 01's prose was explicit.
 The gaps cluster into a small number of root causes rather than being 24
 independent problems:
 1. **F1**: the context-menu catalog file is dead code — 7 of 11 groups
-   drifted from spec because nothing enforces they match it.
+   drifted from spec because nothing enforces they match it. *(Closed after
+   Tier 3: every group is now parity-asserted with no `skip`. The catalog is
+   still imported only by `test/`, which is the point — it is the acceptance
+   baseline, and eight render sites are now pure functions checked against
+   it for exact label equality.)*
 2. **History has no multi-select** — this alone explains 05-E's missing
    `Compare with…`/`Merge into current`, and both Compare-page entry-point
-   gaps (COMPARES 1 and 3).
+   gaps (COMPARES 1 and 3). *(Closed in Tier 2+3. One correction to the
+   diagnosis: COMPARES 1 needed the **sidebar branch tree's** multi-select,
+   not History's, so the root cause was one mechanism short of what this
+   line claims — both were built.)*
 3. **F-A**: `tab_row.dart`'s 18-item overflow menu is a spec-unsanctioned
    third entry surface for otherwise-legitimate features.
 4. **F-B**: the Log drawer and Operation Log dialog are two competing

@@ -353,6 +353,8 @@ class FakeRepoSessionController extends RepoSessionController {
       FakeCommand('deleteBranch', <String, Object?>{
         'names': names,
         'force': force,
+        'isRemote': isRemote,
+        'remoteName': remoteName,
       }),
     );
   }

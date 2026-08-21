@@ -74,6 +74,12 @@ abstract final class RoutePaths {
       '/repo/:repoId/dialogs/rename-branch';
   static const String rebaseOntoDialog = '/repo/:repoId/dialogs/rebase-onto';
   static const String forcePushDialog = '/repo/:repoId/dialogs/force-push';
+
+  /// Multi-branch delete confirmation (spec page 13). Separate from
+  /// [deleteBranchDialog], which is 05-B's single-branch flow with its own
+  /// branch picker.
+  static const String deleteBranchesDialog =
+      '/repo/:repoId/dialogs/delete-branches';
   static const String deleteRemoteBranchDialog =
       '/repo/:repoId/dialogs/delete-remote-branch';
   static const String restoreFileDialog = '/repo/:repoId/dialogs/restore-file';
@@ -194,6 +200,19 @@ abstract final class RoutePaths {
             ? null
             : <String, String>{'branch': branch},
       ).toString();
+
+  /// [names] is carried as one comma-separated `names` parameter; a branch
+  /// name cannot contain a comma (git refuses it), so the split is safe.
+  static String deleteBranchesDialogFor(
+    String repoId, {
+    required List<String> names,
+  }) => Uri(
+    path: '/repo/$repoId/dialogs/delete-branches',
+    queryParameters: names.isEmpty
+        ? null
+        : <String, String>{'names': names.join(',')},
+  ).toString();
+
   static String deleteBranchDialogFor(String repoId, {String branch = ''}) =>
       Uri(
         path: '/repo/$repoId/dialogs/delete-branch',

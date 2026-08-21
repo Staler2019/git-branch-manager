@@ -15,6 +15,7 @@ import '../features/dialogs/clean_untracked/clean_untracked_dialog.dart';
 import '../features/dialogs/create_tag/create_tag_dialog.dart';
 import '../features/dialogs/credential/credential_dialog.dart';
 import '../features/dialogs/delete_branch/delete_branch_dialog.dart';
+import '../features/dialogs/delete_branches/delete_branches_dialog.dart';
 import '../features/dialogs/delete_branch_recovery/delete_branch_recovery_dialog.dart';
 import '../features/dialogs/delete_remote_branch/delete_remote_branch_dialog.dart';
 import '../features/dialogs/discard_changes/discard_changes_dialog.dart';
@@ -452,6 +453,19 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
             state.pathParameters['repoId']!,
           );
           return ForcePushDialogContent(identity: identity);
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.deleteBranchesDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
+          final String names = state.uri.queryParameters['names'] ?? '';
+          return DeleteBranchesDialogContent(
+            identity: identity,
+            names: names.isEmpty ? const <String>[] : names.split(','),
+          );
         },
       ),
       dialogRoute(

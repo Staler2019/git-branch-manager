@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../actions/gbm_selection_gesture.dart';
 import '../../../data/models/ref_snapshot.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/ref_chip_colors.dart';
@@ -17,6 +18,10 @@ class BranchTreeItem extends StatelessWidget {
     required this.onCheckout,
     this.selected = false,
     this.onSelectedChanged,
+    this.onSelect,
+    this.multiSelectMenuBuilder,
+    this.multiSelectMenuTitle,
+    this.onCollapseSelectionToThis,
     this.onRename,
     this.onDelete,
     this.onNewBranchFromHere,
@@ -47,6 +52,33 @@ class BranchTreeItem extends StatelessWidget {
   /// Null hides the selection checkbox entirely (HEAD can't be
   /// multi-selected for deletion -- see SidebarPanel's doc comment).
   final ValueChanged<bool>? onSelectedChanged;
+
+  /// Reports a modifier-carrying click for spec page 13's multi-select.
+  ///
+  /// **Only [SelectionGesture.toggle] and [SelectionGesture.range] reach
+  /// here.** A plain click on a local branch row stays what it has always
+  /// been in this app -- a checkout -- rather than becoming "select only
+  /// this". `MULTIKEYS`' 單擊 row is written for lists generally and the
+  /// spec says nothing about the branch tree specifically, so changing the
+  /// sidebar's primary interaction on that basis would be a guess with a
+  /// large blast radius. History's commit list, which had no competing
+  /// single-click meaning, follows `MULTIKEYS` exactly.
+  final void Function(SelectionGesture gesture)? onSelect;
+
+  /// Spec page 13's right-click rule for a multi-selection: 「右鍵點在**已
+  /// 選中**的項目上不改變 selection，選單標題顯示數量；點在**未選中**的項
+  /// 目上先改為只選它、再開選單」.
+  ///
+  /// Both halves live here rather than in the panel because this widget owns
+  /// `onSecondaryTapDown`. [multiSelectMenuBuilder] is non-null only when
+  /// this row is *inside* a selection of more than one -- then it replaces
+  /// the per-row menu wholesale and [multiSelectMenuTitle] becomes the
+  /// menu's header. Otherwise [onCollapseSelectionToThis] runs first, so the
+  /// per-row menu that follows can never act on a selection the user can no
+  /// longer see.
+  final List<GbmMenuItem> Function()? multiSelectMenuBuilder;
+  final String? multiSelectMenuTitle;
+  final VoidCallback? onCollapseSelectionToThis;
   final VoidCallback? onRename;
   final VoidCallback? onDelete;
 
@@ -228,9 +260,15 @@ class BranchTreeItem extends StatelessWidget {
         child: InkWell(
           onTap: _isRemoteOnly
               ? null
-              : (ref.isHead || conflictActive)
-              ? null
-              : onCheckout,
+              : () {
+                  final SelectionGesture gesture = currentSelectionGesture();
+                  if (gesture != SelectionGesture.single && onSelect != null) {
+                    onSelect!(gesture);
+                    return;
+                  }
+                  if (ref.isHead || conflictActive) return;
+                  onCheckout();
+                },
           onDoubleTap: _isRemoteOnly && !conflictActive ? onCheckout : null,
           borderRadius: BorderRadius.circular(GbmSpacing.radiusSm),
           child: maybeDim,
@@ -369,6 +407,17 @@ class BranchTreeItem extends StatelessWidget {
   }
 
   void _openContextMenu(BuildContext context, TapDownDetails details) {
+    final List<GbmMenuItem> Function()? multi = multiSelectMenuBuilder;
+    if (multi != null) {
+      showGbmContextMenu(
+        context,
+        details.globalPosition,
+        multi(),
+        title: multiSelectMenuTitle,
+      );
+      return;
+    }
+    onCollapseSelectionToThis?.call();
     showGbmContextMenu(context, details.globalPosition, _buildMenuItems());
   }
 }

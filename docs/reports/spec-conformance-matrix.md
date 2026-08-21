@@ -28,7 +28,10 @@ This report is descriptive only — no fixes are applied here. See
 > **P20** 未實作功能, **P21** Pull 流程與錯誤 — and P16's
 > `REVISIONS` table also *changes* rules the rows below were judged against.
 > Rows affected by that table are corrected in place and marked
-> "(260820 修訂)"; the nine new pages are **not** audited here. Anything
+> "(260820 修訂)"; the nine new pages are **not** audited here, with two
+> exceptions closed since: **P14** (entry-point IA) by Tier 6b, and **P19**
+> (管理面板樣版) by Tier 6c, which implemented every `PANELSPEC` row it had
+> data for and recorded the rest on #76. Anything
 > below without that marker was judged against the original 12 pages and
 > may have drifted. See the Tier 0c PR for the rename rows, which are the
 > only ones this round implemented.
@@ -250,9 +253,11 @@ whether their **entry point** is a context menu or the menu bar.
 > `Operation Log…` went with F-B. What remains is what spec assigns no home
 > to (`Create tag…` → #84, `Undo last operation…` → #85) and `Cherry-pick…`,
 > whose dialog has no other entry point and whose spec is self-contradictory
-> (#86). Page 14 also routes the twelve management panels to **tabs**; one
-> (manage-worktrees) is ported, the other eleven still open their dialogs on
-> purpose — see #76 for the per-panel progress table.
+> (#86). Page 14 also routes the twelve management panels to **tabs** —
+> **all twelve are now ported (Tier 6c)**, their dialogs and routes deleted,
+> so the repo-scoped dialog count is 22 rather than 34. Each panel's
+> `PANELSPEC` fields that had no backing data are listed on #76 rather than
+> faked; see CLAUDE.md's "Tier 6c" section for the per-panel reasoning.
 
 The spec's page-02 item 13 / page-03 item 9 describe the tab row as: two
 persistent tabs (History / Working Copy) + an additional closable Compare

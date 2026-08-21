@@ -37,13 +37,9 @@ src/core/   headless C++20, no Qt/Dart (docs/ARCHITECTURE.md)
 /dialogs/manage-base-folders               > one open repository, see gbm_capi.h's
 /dialogs/preferences                      /  Discovery section, and spec page 11)
 
-/repo/:repoId/dialogs/<name>       34 repo-scoped dialogs: reset-branch, merge,
-                                    cherry-pick, stash-changes, manage-stashes,
-                                    manage-worktrees, manage-remotes, create-tag,
-                                    credential, blame, file-history,
-                                    line-history, reflog, undo-last,
-                                    interactive-rebase, manage-submodules, bisect,
-                                    manage-lfs, patches, clean-untracked,
+/repo/:repoId/dialogs/<name>       22 repo-scoped dialogs: reset-branch, merge,
+                                    cherry-pick, stash-changes, create-tag,
+                                    credential, undo-last, clean-untracked,
                                     checkout-recovery, delete-branch-recovery,
                                     prune-remote-branches, repository-settings,
                                     new-branch, checkout, delete-branch,
@@ -51,6 +47,14 @@ src/core/   headless C++20, no Qt/Dart (docs/ARCHITECTURE.md)
                                     restore-file, discard-changes,
                                     rename-branch, delete-branches
 ```
+
+**Twelve former dialogs are now `/panel/:tabId` tabs**, not dialog routes —
+spec page 14's `IAMAP` reassigns every large management panel to the tab
+carrier (see "Tier 6c" below). `manage-stashes`, `manage-worktrees`,
+`manage-remotes`, `manage-submodules`, `manage-lfs`, `patches`, `reflog`,
+`interactive-rebase`, `bisect`, `blame`, `file-history` and `line-history`
+were deleted along with their routes and helpers; a `RoutePaths.<name>DialogFor`
+for any of them no longer exists.
 
 Dialog routes are top-level (pushed over whatever's underneath), not
 `ShellRoute` children — see `dialog_route.dart`.
@@ -1387,6 +1391,100 @@ above had itself drifted: `rename-branch` (Tier 0c) and `delete-branches`
 documented "33" was two short before `operation-log` was removed. Counted
 from `route_paths.dart`, not from the prose, and the two missing names are
 now in the list.
+
+### Tier 6c (feat/tier-6c-panel-tabs) — issue #76's twelve panels
+
+The carrier swap Tier 6b set up and deliberately did not perform. All twelve
+of `IAMAP`'s large management panels are now tabs; their dialogs, routes and
+`RoutePaths.*DialogFor` helpers are deleted. Thirteen sequential commits, each
+green and independently revertible.
+
+**`GbmPanelKind.isPortedToTab` is gone, and that is the point.** Tier 6b
+introduced it as the single per-panel carrier switch precisely so eleven
+working dialogs would not be replaced by placeholders mid-port. With all
+twelve landed it had no `false` case left, so it was deleted along with
+`_openPanel`'s dialog fallback — a getter that is constantly true is dead
+weight, and `PanelPage`'s switch is now exhaustive over `GbmPanelKind` with
+**no default arm**, so a thirteenth kind is a compile error rather than a
+blank pane. `workspace_tools_menu_test.dart`'s "an unported panel still opens
+its dialog" test went with it, replaced by the real post-condition: every
+Tools entry opens a tab and none falls back to a route that no longer exists.
+
+**The shared pieces, extracted after the second and third panel copied them
+verbatim** (P19's own rule is 「只換欄位不換造型」):
+
+- `features/panels/panel_widgets.dart` — `PanelListRow` (two-line list row),
+  `PanelDetailField`, `PanelDetailColumn`, `PanelEmptyList`.
+- `features/panels/panel_file_diff_detail.dart` — the 「檔案清單 + diff（唯讀）」
+  detail column.
+- `features/panels/panel_diff_text.dart` — raw unified-diff **text** with
+  per-line colouring.
+- `test/features/panels/panel_test_support.dart` — `pumpPanel()`/`panelButton()`.
+
+**Three things found by running rather than reading**, each of which would
+have shipped as a real defect:
+
+- **`DiffPage` is not a file list.** For a non-binary file it renders that
+  file's hunks and *no header at all*, so a multi-file diff (a stash's, say)
+  arrives as one unlabelled run of hunks. P19 names 「檔案清單 + diff」 for
+  manage-stashes; satisfying it needed `PanelFileDiffDetail`, not a one-line
+  `DiffPage(...)`. Found by asserting the file path in a widget test.
+- **`RadioListTile` needs a `Material` ancestor.** `GbmPanelTabShell` wraps
+  the detail column in a `Container(color:)`, which swallows the ink splash —
+  Flutter asserts about it rather than silently degrading, so
+  interactive-rebase's action picker is wrapped in
+  `Material(type: MaterialType.transparency)`.
+- **`str.replace` hit two getters at once.** Appending `interactiveRebase` to
+  `isPortedToTab` also appended it to `isPerSubject`, because both ended with
+  the same `this == GbmPanelKind.lineHistory;` line. Caught only by
+  `panel_tabs_repository_test.dart`'s "only the three per-file panels are
+  per-subject" — a test that exists to pin a set, not a count.
+
+**Where a panel's PANELSPEC row could not be honoured, it is absent and
+recorded — never faked.** The full list, and which need a capi to close, is on
+issue #76. In summary: 待提交數 (worktrees), 最後 fetch (remotes), 預期 commit
+(submodules), 大小 (LFS), 剩餘步數 and 自訂測試指令 (bisect), 欄位選擇器
+(file-history). Two more are *design* decisions rather than gaps and say so in
+their class docs: interactive-rebase's 訊息編輯 (Reword is deliberately not an
+action — see `RebaseOps.h`) and file-history's 含重命名 (`git log --follow` is
+unconditional in the capi, so a toggle would be a lie; it renders as a disabled
+indicator instead).
+
+**Where the dialog did something `PANELSPEC` does not list**, the #61-style
+capability audit ran before deleting it. manage-remotes was the first such
+case and the only real loss: its per-row **Pull / Push** are gone, because
+`PANELSPEC`'s toolbar and P04 `MENUS`' Remote menu *both* exclude per-remote
+sync. Fetching one remote is covered as a superset by `Fetch all remotes`;
+pulling or pushing a non-upstream remote is not covered by anything, and is
+recorded on #76 rather than kept as an off-spec extra (the Tier 6a `Clear`
+precedent). Elsewhere the audit went the other way: `gbm_submodule_add`/
+`_deinit`, `gbm_lfs_pull` and `gbm_patch_import`'s four calls have **no entry
+point anywhere in the spec**, so deleting their buttons would have orphaned
+working capi — they stay, ordered after the spec'd actions, tracked on #76
+(the same call Tier 6b made for Cherry-pick, #86).
+
+**Two controls that only matter in one state are not toolbar buttons**:
+LFS's `Install` and bisect's `Start` live in their panel's own
+not-yet-usable state, which explains itself and offers the one fix. A
+permanently-irrelevant button is noise; a state that says why nothing works
+is not.
+
+Smaller things worth knowing:
+
+- `RoutePaths.panelFor` grew a `query` map. It is **not** part of a tab's
+  identity (`panelTabsProvider` keys on kind + subject), so re-opening a panel
+  with a different query focuses the existing tab and hands it new state —
+  which is why `StashesPanel` applies `initialSelectedIndex` in
+  `didUpdateWidget` as well as `initState`.
+- `lfs_pattern_match.dart` is an **approximation** of gitattributes matching,
+  not a port of `wildmatch()`. A pattern it cannot parse matches nothing, so a
+  group reads 0 rather than claiming a wrong number. 11 unit tests pin both
+  sides.
+- `FakeRepoSessionController.checkout` was dropping its `detach` argument, so
+  no test could tell a detached checkout from a failed branch checkout. Fixed
+  while wiring the reflog panel.
+- `changed_files_panel.dart` was passing `identity.workDir` **unencoded** into
+  a route; fixed on the way past.
 
 ### Tier 6b (feat/tier-6b-tools-menu-entry-points) — issue #62 (+ #76)
 

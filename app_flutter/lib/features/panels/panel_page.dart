@@ -5,6 +5,17 @@ import '../../data/repositories/panel_tabs_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
+import 'bisect_panel.dart';
+import 'blame_panel.dart';
+import 'file_history_panel.dart';
+import 'interactive_rebase_panel.dart';
+import 'line_history_panel.dart';
+import 'patches_panel.dart';
+import 'lfs_panel.dart';
+import 'reflog_panel.dart';
+import 'remotes_panel.dart';
+import 'stashes_panel.dart';
+import 'submodules_panel.dart';
 import 'worktrees_panel.dart';
 
 /// Renders whichever management panel `/repo/:repoId/panel/:tabId` names --
@@ -12,16 +23,24 @@ import 'worktrees_panel.dart';
 /// [panelTabsProvider] the same way `ComparePage` resolves against
 /// `compareTabsProvider`.
 ///
-/// Spec page 14's `IAMAP` assigns twelve panels to this carrier. They are
-/// being ported one at a time (each its own commit), so [GbmPanelKind] has
-/// twelve values while this switch only builds the ones that have landed;
-/// the rest fall through to [_NotYetPortedPanel], which says so plainly
-/// rather than rendering blank. Progress is tracked on issue #76.
+/// Spec page 14's `IAMAP` assigns twelve panels to this carrier and all
+/// twelve have landed, so the switch is exhaustive over [GbmPanelKind] with
+/// no default arm — adding a thirteenth kind is a compile error here rather
+/// than a blank pane at runtime.
 class PanelPage extends ConsumerWidget {
-  const PanelPage({super.key, required this.identity, required this.tabId});
+  const PanelPage({
+    super.key,
+    required this.identity,
+    required this.tabId,
+    this.query = const <String, String>{},
+  });
 
   final RepoIdentity identity;
   final String tabId;
+
+  /// The route's query parameters, carrying per-panel opening state (see
+  /// [RoutePaths.panelFor]). Panels that need none ignore it.
+  final Map<String, String> query;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -39,24 +58,43 @@ class PanelPage extends ConsumerWidget {
 
     return switch (spec.kind) {
       GbmPanelKind.manageWorktrees => WorktreesPanel(identity: identity),
-      _ => _NotYetPortedPanel(kind: spec.kind),
+      GbmPanelKind.manageStashes => StashesPanel(
+        identity: identity,
+        initialSelectedIndex: int.tryParse(query['select'] ?? ''),
+      ),
+      GbmPanelKind.manageRemotes => RemotesPanel(identity: identity),
+      GbmPanelKind.manageSubmodules => SubmodulesPanel(identity: identity),
+      GbmPanelKind.manageLfs => LfsPanel(identity: identity),
+      GbmPanelKind.reflog => ReflogPanel(identity: identity),
+      GbmPanelKind.bisect => BisectPanel(identity: identity),
+      // The three per-subject panels are always about a file. A tab
+      // without one cannot exist (panelTabsProvider.open requires the
+      // subject for these kinds), so `?? ''` is unreachable rather than a
+      // fallback -- an empty path would ask git to blame the whole repo.
+      GbmPanelKind.blame => BlamePanel(
+        identity: identity,
+        path: spec.subject ?? '',
+      ),
+      GbmPanelKind.fileHistory => FileHistoryPanel(
+        identity: identity,
+        path: spec.subject ?? '',
+      ),
+      // `from`/`to` are parsed here but produced by nothing under lib/ --
+      // P14 FILECTXSUB's 「選行後」 names the intended producer (open with
+      // the diff's selected lines) and it has not been built. Wiring one
+      // also needs LineHistoryPanel.didUpdateWidget, since re-opening the
+      // same file focuses the existing tab rather than remounting it. #95.
+      GbmPanelKind.lineHistory => LineHistoryPanel(
+        identity: identity,
+        path: spec.subject ?? '',
+        initialStartLine: int.tryParse(query['from'] ?? '') ?? 1,
+        initialEndLine: int.tryParse(query['to'] ?? '') ?? 1,
+      ),
+      GbmPanelKind.interactiveRebase => InteractiveRebasePanel(
+        identity: identity,
+      ),
+      GbmPanelKind.patches => PatchesPanel(identity: identity),
     };
-  }
-}
-
-/// Shown for a [GbmPanelKind] whose dialog has not been ported to a tab yet.
-/// Naming the panel and pointing at the tracking issue beats an empty pane,
-/// which reads as a rendering bug rather than as unfinished work.
-class _NotYetPortedPanel extends StatelessWidget {
-  const _NotYetPortedPanel({required this.kind});
-
-  final GbmPanelKind kind;
-
-  @override
-  Widget build(BuildContext context) {
-    return _PanelMessage(
-      message: '${kind.label} has not been ported to a tab yet (see #76)',
-    );
   }
 }
 

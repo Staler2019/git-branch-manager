@@ -86,6 +86,10 @@ class _FakeFileSavePicker implements FileSavePicker {
 
   @override
   Future<String?> pickDirectory() async => directoryPath;
+  @override
+  Future<List<String>> openFiles({
+    List<String> extensions = const <String>[],
+  }) async => const <String>[];
 }
 
 RepoSessionState _stateWithSelectedCommit() => RepoSessionState(

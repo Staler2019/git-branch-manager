@@ -554,4 +554,11 @@ abstract final class GbmLayout {
     defaultExtent: 280,
     minExtent: 180,
   );
+
+  /// Management panel detail column: file list <-> diff, for the P19
+  /// `PANELSPEC` rows whose detail is "檔案清單 + diff". Follows
+  /// [splitterMainFiles], History's own files-above-content splitter, for
+  /// the same reason [splitterPanelList] follows [splitterCwFiles].
+  static const GbmSplitterSpec splitterPanelDetailFiles =
+      GbmSplitterSpec.extent(defaultExtent: 160, minExtent: 96);
 }

@@ -32,26 +32,9 @@ abstract final class RoutePaths {
   static const String cherryPickDialog = '/repo/:repoId/dialogs/cherry-pick';
   static const String stashChangesDialog =
       '/repo/:repoId/dialogs/stash-changes';
-  static const String manageStashesDialog =
-      '/repo/:repoId/dialogs/manage-stashes';
-  static const String manageWorktreesDialog =
-      '/repo/:repoId/dialogs/manage-worktrees';
-  static const String manageRemotesDialog =
-      '/repo/:repoId/dialogs/manage-remotes';
   static const String createTagDialog = '/repo/:repoId/dialogs/create-tag';
   static const String credentialDialog = '/repo/:repoId/dialogs/credential';
-  static const String blameDialog = '/repo/:repoId/dialogs/blame';
-  static const String fileHistoryDialog = '/repo/:repoId/dialogs/file-history';
-  static const String lineHistoryDialog = '/repo/:repoId/dialogs/line-history';
-  static const String reflogDialog = '/repo/:repoId/dialogs/reflog';
   static const String undoLastDialog = '/repo/:repoId/dialogs/undo-last';
-  static const String interactiveRebaseDialog =
-      '/repo/:repoId/dialogs/interactive-rebase';
-  static const String manageSubmodulesDialog =
-      '/repo/:repoId/dialogs/manage-submodules';
-  static const String bisectDialog = '/repo/:repoId/dialogs/bisect';
-  static const String manageLfsDialog = '/repo/:repoId/dialogs/manage-lfs';
-  static const String patchesDialog = '/repo/:repoId/dialogs/patches';
   static const String cleanUntrackedDialog =
       '/repo/:repoId/dialogs/clean-untracked';
   static const String checkoutRecoveryDialog =
@@ -125,62 +108,29 @@ abstract final class RoutePaths {
   static String stashChangesDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/stash-changes';
 
-  /// [selectIndex] pre-selects a stash entry (and its diff) on open --
-  /// used by the sidebar's stash context menu's "View diff" item so
-  /// clicking it doesn't land on ManageStashesDialogContent's default
-  /// "Select a stash" empty state.
-  static String manageStashesDialogFor(String repoId, {int? selectIndex}) {
-    if (selectIndex == null) {
-      return '/repo/$repoId/dialogs/manage-stashes';
-    }
-    return Uri(
-      path: '/repo/$repoId/dialogs/manage-stashes',
-      queryParameters: <String, String>{'index': '$selectIndex'},
-    ).toString();
-  }
-
-  static String manageWorktreesDialogFor(String repoId) =>
-      '/repo/$repoId/dialogs/manage-worktrees';
-  static String manageRemotesDialogFor(String repoId) =>
-      '/repo/$repoId/dialogs/manage-remotes';
   static String createTagDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/create-tag';
   static String credentialDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/credential';
-  static String blameDialogFor(String repoId, {String path = ''}) => Uri(
-    path: '/repo/$repoId/dialogs/blame',
-    queryParameters: path.isEmpty ? null : <String, String>{'path': path},
-  ).toString();
-  static String fileHistoryDialogFor(String repoId, {String path = ''}) => Uri(
-    path: '/repo/$repoId/dialogs/file-history',
-    queryParameters: path.isEmpty ? null : <String, String>{'path': path},
-  ).toString();
-  static String lineHistoryDialogFor(String repoId, {String path = ''}) => Uri(
-    path: '/repo/$repoId/dialogs/line-history',
-    queryParameters: path.isEmpty ? null : <String, String>{'path': path},
-  ).toString();
-  static String reflogDialogFor(String repoId) =>
-      '/repo/$repoId/dialogs/reflog';
   static String undoLastDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/undo-last';
-  static String interactiveRebaseDialogFor(String repoId) =>
-      '/repo/$repoId/dialogs/interactive-rebase';
-  static String manageSubmodulesDialogFor(String repoId) =>
-      '/repo/$repoId/dialogs/manage-submodules';
-  static String bisectDialogFor(String repoId) =>
-      '/repo/$repoId/dialogs/bisect';
-  static String manageLfsDialogFor(String repoId) =>
-      '/repo/$repoId/dialogs/manage-lfs';
-  static String patchesDialogFor(String repoId) =>
-      '/repo/$repoId/dialogs/patches';
   static String cleanUntrackedDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/clean-untracked';
   static String checkoutRecoveryDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/checkout-recovery';
   static String deleteBranchRecoveryDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/delete-branch-recovery';
-  static String pruneRemoteBranchesDialogFor(String repoId) =>
-      '/repo/$repoId/dialogs/prune-remote-branches';
+
+  /// [remote] pre-selects which remote to preview -- the Remotes panel's
+  /// `Prune` passes the selected row. Empty keeps the dialog's own default
+  /// (the first configured remote).
+  static String pruneRemoteBranchesDialogFor(
+    String repoId, {
+    String remote = '',
+  }) => Uri(
+    path: '/repo/$repoId/dialogs/prune-remote-branches',
+    queryParameters: remote.isEmpty ? null : <String, String>{'remote': remote},
+  ).toString();
   static String repositorySettingsDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/repository-settings';
   static String newBranchDialogFor(String repoId, {String startPoint = ''}) =>
@@ -286,6 +236,18 @@ abstract final class RoutePaths {
   static String conflictsFor(String repoId) => '/repo/$repoId/conflicts';
   static String compareFor(String repoId, String tabId) =>
       '/repo/$repoId/compare/$tabId';
-  static String panelFor(String repoId, String tabId) =>
-      '/repo/$repoId/panel/$tabId';
+
+  /// [query] carries per-panel opening state (e.g. the stash a 05-H "View
+  /// diff" should land on). It is *not* part of the tab's identity --
+  /// `panelTabsProvider` keys on kind + subject -- so re-opening the same
+  /// panel with a different query focuses the existing tab and hands it new
+  /// state, rather than creating a second one.
+  static String panelFor(
+    String repoId,
+    String tabId, {
+    Map<String, String>? query,
+  }) => Uri(
+    path: '/repo/$repoId/panel/$tabId',
+    queryParameters: (query == null || query.isEmpty) ? null : query,
+  ).toString();
 }

@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../data/models/changed_file.dart';
 import '../../../data/repositories/compare_tabs_repository.dart';
+import '../../../data/repositories/panel_tabs_repository.dart';
 import '../../../data/repositories/file_list_view_mode_repository.dart';
 import '../../../data/repositories/history_repository.dart';
 import '../../../data/repositories/repo_identity.dart';
@@ -156,6 +157,21 @@ class _ChangedFilesPanelState extends ConsumerState<ChangedFilesPanel> {
     }
   }
 
+  /// Opens one of the per-file history panels as a tab about [path].
+  ///
+  /// `context.go`, not `push`: a panel is a ShellRoute child beside
+  /// History/Working Copy, so pushing would stack it over History instead
+  /// of switching to it -- the same two steps `_compareWithWorkingCopy`
+  /// below takes.
+  void _openFilePanel(GbmPanelKind kind, String path) {
+    final String tabId = ref
+        .read(panelTabsProvider(widget.identity).notifier)
+        .open(kind, subject: path);
+    context.go(
+      RoutePaths.panelFor(Uri.encodeComponent(widget.identity.workDir), tabId),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final RepoIdentity identity = widget.identity;
@@ -191,16 +207,17 @@ class _ChangedFilesPanelState extends ConsumerState<ChangedFilesPanel> {
                   path;
               requestCommitFileDiff(ref, identity, selectedCommitOid, path);
             },
+      // Both became tabs in Tier 6c (spec page 14 `IAMAP`), so these
+      // register the tab and `go` rather than pushing a dialog -- see
+      // [_openFilePanel]. They also went through `identity.workDir`
+      // unencoded, which would have broken any repository whose path
+      // contains a character the router treats specially.
       onFileHistory: selectedCommitOid == null
           ? null
-          : (String path) => context.push(
-              RoutePaths.fileHistoryDialogFor(identity.workDir, path: path),
-            ),
+          : (String path) => _openFilePanel(GbmPanelKind.fileHistory, path),
       onBlame: selectedCommitOid == null
           ? null
-          : (String path) => context.push(
-              RoutePaths.blameDialogFor(identity.workDir, path: path),
-            ),
+          : (String path) => _openFilePanel(GbmPanelKind.blame, path),
       // 05-K → "Compare with working copy". Opens a Compare tab with the
       // commit on the left and Working Copy on the right (a null `right` is
       // what CompareTabSpec means by that), then navigates to it -- the

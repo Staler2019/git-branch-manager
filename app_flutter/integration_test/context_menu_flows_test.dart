@@ -65,6 +65,11 @@ class _FixedSavePicker implements FileSavePicker {
 
   @override
   Future<String?> pickDirectory() async => null;
+
+  @override
+  Future<List<String>> openFiles({
+    List<String> extensions = const <String>[],
+  }) async => const <String>[];
 }
 
 void main() {

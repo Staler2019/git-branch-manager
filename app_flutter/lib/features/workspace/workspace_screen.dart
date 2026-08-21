@@ -33,6 +33,7 @@ import '../history_graph/commit_selection_summary.dart';
 import '../history_graph/widgets/graph_columns_selector.dart';
 import '../log_drawer/log_drawer.dart';
 import '../repo_switcher/repo_switcher_popover.dart';
+import '../panels/add_remote_prompt.dart';
 import '../sidebar/sidebar_panel.dart';
 import '../status_bar/background_task.dart';
 import '../status_bar/status_bar.dart';
@@ -724,16 +725,34 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
           : null,
 
       // Remote
-      GbmActionId.remoteAddRemote: () =>
-          context.push(RoutePaths.manageRemotesDialogFor(repoId)),
+      // P04 MENUS labels this "Add remote…", and P14's rule is that the
+      // ellipsis means it opens a dialog -- so it opens the add prompt
+      // itself. It used to open the whole manage-remotes dialog, which was
+      // the only way to reach the prompt before Remotes became a panel.
+      GbmActionId.remoteAddRemote: () async {
+        final ({String name, String url})? result = await promptAddRemote(
+          context,
+        );
+        if (result == null) return;
+        ref
+            .read(repoSessionProvider(identity).notifier)
+            .addRemote(result.name, result.url);
+      },
       GbmActionId.remoteFetchAllRemotes:
           isActionEnabled(GbmActionId.remoteFetchAllRemotes, session)
           ? () => ref.read(repoSessionProvider(identity).notifier).fetchRemote()
           : null,
       GbmActionId.remotePruneRemoteBranches: () =>
           context.push(RoutePaths.pruneRemoteBranchesDialogFor(repoId)),
-      GbmActionId.remoteManageRemotes: () =>
-          context.push(RoutePaths.manageRemotesDialogFor(repoId)),
+      // Same destination as Tools > Remotes… -- "同一功能不留兩條路" is
+      // about carriers, not about how many menus point at one panel.
+      GbmActionId.remoteManageRemotes: () => _openPanelTab(
+        context,
+        ref,
+        identity,
+        repoId,
+        GbmPanelKind.manageRemotes,
+      ),
 
       // Tools -- spec page 14's eighth menu. Every entry except Clean
       // untracked files… opens a *tab* (`_openPanelTab`), because
@@ -742,82 +761,53 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       // Clean untracked files… shares the Rewrite history submenu but
       // belongs to IAMAP's "中型表單 / 確認框" group, so it stays a dialog --
       // menu adjacency is not carrier assignment.
-      GbmActionId.toolsStashes: () => _openPanel(
+      GbmActionId.toolsStashes: () => _openPanelTab(
         context,
         ref,
         identity,
         repoId,
         GbmPanelKind.manageStashes,
-        RoutePaths.manageStashesDialogFor(repoId),
       ),
-      GbmActionId.toolsWorktrees: () => _openPanel(
+      GbmActionId.toolsWorktrees: () => _openPanelTab(
         context,
         ref,
         identity,
         repoId,
         GbmPanelKind.manageWorktrees,
-        RoutePaths.manageWorktreesDialogFor(repoId),
       ),
-      GbmActionId.toolsRemotes: () => _openPanel(
+      GbmActionId.toolsRemotes: () => _openPanelTab(
         context,
         ref,
         identity,
         repoId,
         GbmPanelKind.manageRemotes,
-        RoutePaths.manageRemotesDialogFor(repoId),
       ),
-      GbmActionId.toolsSubmodules: () => _openPanel(
+      GbmActionId.toolsSubmodules: () => _openPanelTab(
         context,
         ref,
         identity,
         repoId,
         GbmPanelKind.manageSubmodules,
-        RoutePaths.manageSubmodulesDialogFor(repoId),
       ),
-      GbmActionId.toolsLargeFiles: () => _openPanel(
-        context,
-        ref,
-        identity,
-        repoId,
-        GbmPanelKind.manageLfs,
-        RoutePaths.manageLfsDialogFor(repoId),
-      ),
-      GbmActionId.toolsPatches: () => _openPanel(
-        context,
-        ref,
-        identity,
-        repoId,
-        GbmPanelKind.patches,
-        RoutePaths.patchesDialogFor(repoId),
-      ),
-      GbmActionId.toolsReflog: () => _openPanel(
-        context,
-        ref,
-        identity,
-        repoId,
-        GbmPanelKind.reflog,
-        RoutePaths.reflogDialogFor(repoId),
-      ),
+      GbmActionId.toolsLargeFiles: () =>
+          _openPanelTab(context, ref, identity, repoId, GbmPanelKind.manageLfs),
+      GbmActionId.toolsPatches: () =>
+          _openPanelTab(context, ref, identity, repoId, GbmPanelKind.patches),
+      GbmActionId.toolsReflog: () =>
+          _openPanelTab(context, ref, identity, repoId, GbmPanelKind.reflog),
       // "Rewrite history" names a group, not an action -- it has no handler
       // of its own, and menu_bar_row.dart renders it as a flyout trigger
       // from its declared children rather than reading this map for it.
       GbmActionId.toolsRewriteHistory: null,
-      GbmActionId.toolsInteractiveRebase: () => _openPanel(
+      GbmActionId.toolsInteractiveRebase: () => _openPanelTab(
         context,
         ref,
         identity,
         repoId,
         GbmPanelKind.interactiveRebase,
-        RoutePaths.interactiveRebaseDialogFor(repoId),
       ),
-      GbmActionId.toolsBisect: () => _openPanel(
-        context,
-        ref,
-        identity,
-        repoId,
-        GbmPanelKind.bisect,
-        RoutePaths.bisectDialogFor(repoId),
-      ),
+      GbmActionId.toolsBisect: () =>
+          _openPanelTab(context, ref, identity, repoId, GbmPanelKind.bisect),
       GbmActionId.toolsCleanUntrackedFiles: () =>
           context.push(RoutePaths.cleanUntrackedDialogFor(repoId)),
 
@@ -1100,30 +1090,6 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         .read(compareTabsProvider(identity).notifier)
         .open(left: left);
     context.go(RoutePaths.compareFor(repoId, tabId));
-  }
-
-  /// Opens a spec page 14 management panel via whichever carrier it
-  /// currently has.
-  ///
-  /// Page 14 assigns all twelve to tabs, but they are being ported one
-  /// commit at a time (issue #76). Until [GbmPanelKind.isPortedToTab] flips
-  /// for a kind, this pushes its existing dialog instead: sending it to an
-  /// unbuilt tab would swap a working screen for a placeholder, which is a
-  /// regression wearing conformance as a disguise. One helper rather than a
-  /// per-item ternary so there is exactly one place the carrier is decided.
-  void _openPanel(
-    BuildContext context,
-    WidgetRef ref,
-    RepoIdentity identity,
-    String repoId,
-    GbmPanelKind kind,
-    String dialogRoute,
-  ) {
-    if (!kind.isPortedToTab) {
-      context.push(dialogRoute);
-      return;
-    }
-    _openPanelTab(context, ref, identity, repoId, kind);
   }
 
   /// Opens (or focuses, if already open) one of spec page 14's twelve

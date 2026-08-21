@@ -21,6 +21,7 @@ import 'package:gbm_flutter/data/models/operation_choice.dart';
 import 'package:gbm_flutter/data/models/parsed_conflict_file.dart';
 import 'package:gbm_flutter/data/repositories/recents_repository.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
+import 'package:gbm_flutter/data/models/rebase_todo_entry.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 
 /// One recorded call into [FakeRepoSessionController] -- a name plus
@@ -372,6 +373,10 @@ class FakeRepoSessionController extends RepoSessionController {
     commandLog.add(
       FakeCommand('checkout', <String, Object?>{
         'target': target,
+        // `detach` matters to the reflog panel, whose targets are bare oids
+        // with no branch to land on -- recording it is what lets a test
+        // tell "checked out detached" from "tried to check out a branch".
+        'detach': detach,
         'createBranch': createBranch,
         'newBranchName': newBranchName,
       }),
@@ -523,6 +528,273 @@ class FakeRepoSessionController extends RepoSessionController {
   @override
   void dismissDeleteBranchChoices() {
     commandLog.add(const FakeCommand('dismissDeleteBranchChoices'));
+  }
+
+  // Spec page 19 management panels (Tier 6c). Each records into
+  // [commandLog] so a panel test can assert the toolbar reached the
+  // session; without an override they would hit the null-session guard and
+  // silently no-op, which a test cannot tell apart from a dead button.
+  @override
+  void addSubmodule(String url, {String path = '', String branch = ''}) {
+    commandLog.add(
+      FakeCommand('addSubmodule', <String, Object?>{
+        'url': url,
+        'path': path,
+        'branch': branch,
+      }),
+    );
+  }
+
+  @override
+  void initSubmodules({
+    List<String> paths = const <String>[],
+    bool recursive = false,
+  }) {
+    commandLog.add(
+      FakeCommand('initSubmodules', <String, Object?>{
+        'paths': paths,
+        'recursive': recursive,
+      }),
+    );
+  }
+
+  @override
+  void updateSubmodules({
+    List<String> paths = const <String>[],
+    bool recursive = false,
+    bool init = false,
+    bool remote = false,
+  }) {
+    commandLog.add(
+      FakeCommand('updateSubmodules', <String, Object?>{
+        'paths': paths,
+        'recursive': recursive,
+        'init': init,
+        'remote': remote,
+      }),
+    );
+  }
+
+  @override
+  void syncSubmodules({
+    List<String> paths = const <String>[],
+    bool recursive = false,
+  }) {
+    commandLog.add(
+      FakeCommand('syncSubmodules', <String, Object?>{
+        'paths': paths,
+        'recursive': recursive,
+      }),
+    );
+  }
+
+  @override
+  void deinitSubmodules({
+    List<String> paths = const <String>[],
+    bool force = false,
+  }) {
+    commandLog.add(
+      FakeCommand('deinitSubmodules', <String, Object?>{
+        'paths': paths,
+        'force': force,
+      }),
+    );
+  }
+
+  @override
+  void installLfs() {
+    commandLog.add(const FakeCommand('installLfs'));
+  }
+
+  @override
+  void trackLfsPattern(String pattern) {
+    commandLog.add(
+      FakeCommand('trackLfsPattern', <String, Object?>{'pattern': pattern}),
+    );
+  }
+
+  @override
+  void untrackLfsPattern(String pattern) {
+    commandLog.add(
+      FakeCommand('untrackLfsPattern', <String, Object?>{'pattern': pattern}),
+    );
+  }
+
+  @override
+  void pullLfs({String remoteName = ''}) {
+    commandLog.add(
+      FakeCommand('pullLfs', <String, Object?>{'remoteName': remoteName}),
+    );
+  }
+
+  @override
+  void fetchLfs({String remoteName = ''}) {
+    commandLog.add(
+      FakeCommand('fetchLfs', <String, Object?>{'remoteName': remoteName}),
+    );
+  }
+
+  @override
+  void pruneLfs({bool dryRun = false}) {
+    commandLog.add(
+      FakeCommand('pruneLfs', <String, Object?>{'dryRun': dryRun}),
+    );
+  }
+
+  @override
+  void requestReflog({String ref = ''}) {
+    commandLog.add(FakeCommand('requestReflog', <String, Object?>{'ref': ref}));
+  }
+
+  @override
+  void requestCommitMeta(List<String> oids) {
+    commandLog.add(
+      FakeCommand('requestCommitMeta', <String, Object?>{'oids': oids}),
+    );
+  }
+
+  @override
+  void startBisect({
+    String badRef = '',
+    List<String> goodRefs = const <String>[],
+    List<String> paths = const <String>[],
+    bool noCheckout = false,
+  }) {
+    commandLog.add(
+      FakeCommand('startBisect', <String, Object?>{
+        'badRef': badRef,
+        'goodRefs': goodRefs,
+        'paths': paths,
+        'noCheckout': noCheckout,
+      }),
+    );
+  }
+
+  @override
+  void markBisect({required bool good, String ref = ''}) {
+    commandLog.add(
+      FakeCommand('markBisect', <String, Object?>{'good': good, 'ref': ref}),
+    );
+  }
+
+  @override
+  void skipBisect({List<String> refs = const <String>[]}) {
+    commandLog.add(FakeCommand('skipBisect', <String, Object?>{'refs': refs}));
+  }
+
+  @override
+  void resetBisect({String target = ''}) {
+    commandLog.add(
+      FakeCommand('resetBisect', <String, Object?>{'target': target}),
+    );
+  }
+
+  @override
+  void requestBlame(
+    String path, {
+    String revision = '',
+    int startLine = 0,
+    int endLine = 0,
+  }) {
+    commandLog.add(
+      FakeCommand('requestBlame', <String, Object?>{
+        'path': path,
+        'revision': revision,
+        'startLine': startLine,
+        'endLine': endLine,
+      }),
+    );
+  }
+
+  @override
+  void requestFileHistory(String path, {String startRevision = ''}) {
+    commandLog.add(
+      FakeCommand('requestFileHistory', <String, Object?>{
+        'path': path,
+        'startRevision': startRevision,
+      }),
+    );
+  }
+
+  @override
+  void requestLineHistory(
+    String path,
+    int startLine,
+    int endLine, {
+    String startRevision = '',
+  }) {
+    commandLog.add(
+      FakeCommand('requestLineHistory', <String, Object?>{
+        'path': path,
+        'startLine': startLine,
+        'endLine': endLine,
+        'startRevision': startRevision,
+      }),
+    );
+  }
+
+  @override
+  void requestCommitFileDiff(String oid, String path) {
+    commandLog.add(
+      FakeCommand('requestCommitFileDiff', <String, Object?>{
+        'oid': oid,
+        'path': path,
+      }),
+    );
+  }
+
+  @override
+  void requestRebasePlan(String upstream) {
+    commandLog.add(
+      FakeCommand('requestRebasePlan', <String, Object?>{'upstream': upstream}),
+    );
+  }
+
+  @override
+  void startInteractiveRebase(
+    String upstream,
+    List<RebaseTodoEntry> todo, {
+    String onto = '',
+    bool stashFirst = false,
+  }) {
+    commandLog.add(
+      FakeCommand('startInteractiveRebase', <String, Object?>{
+        'upstream': upstream,
+        // The todo's *shape* is what matters to a caller test -- which
+        // action landed on which commit, in what order -- so it is
+        // flattened rather than stored as opaque entries a test would have
+        // to reach into.
+        'oids': todo.map((RebaseTodoEntry e) => e.oid).toList(),
+        'actions': todo.map((RebaseTodoEntry e) => e.action.name).toList(),
+        'onto': onto,
+        'stashFirst': stashFirst,
+      }),
+    );
+  }
+
+  @override
+  void applyPatchFiles(
+    List<String> files, {
+    bool threeWay = false,
+    bool updateIndex = false,
+  }) {
+    commandLog.add(
+      FakeCommand('applyPatchFiles', <String, Object?>{
+        'files': files,
+        'threeWay': threeWay,
+        'updateIndex': updateIndex,
+      }),
+    );
+  }
+
+  @override
+  void importPatches(List<String> patchFiles, {bool threeWay = false}) {
+    commandLog.add(
+      FakeCommand('importPatches', <String, Object?>{
+        'patchFiles': patchFiles,
+        'threeWay': threeWay,
+      }),
+    );
   }
 }
 

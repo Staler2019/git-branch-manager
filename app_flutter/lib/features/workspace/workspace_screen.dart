@@ -748,7 +748,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         identity,
         repoId,
         GbmPanelKind.manageStashes,
-        RoutePaths.manageStashesDialogFor(repoId),
+        dialogRoute: RoutePaths.manageStashesDialogFor(repoId),
       ),
       GbmActionId.toolsWorktrees: () => _openPanel(
         context,
@@ -756,7 +756,6 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         identity,
         repoId,
         GbmPanelKind.manageWorktrees,
-        RoutePaths.manageWorktreesDialogFor(repoId),
       ),
       GbmActionId.toolsRemotes: () => _openPanel(
         context,
@@ -764,7 +763,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         identity,
         repoId,
         GbmPanelKind.manageRemotes,
-        RoutePaths.manageRemotesDialogFor(repoId),
+        dialogRoute: RoutePaths.manageRemotesDialogFor(repoId),
       ),
       GbmActionId.toolsSubmodules: () => _openPanel(
         context,
@@ -772,7 +771,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         identity,
         repoId,
         GbmPanelKind.manageSubmodules,
-        RoutePaths.manageSubmodulesDialogFor(repoId),
+        dialogRoute: RoutePaths.manageSubmodulesDialogFor(repoId),
       ),
       GbmActionId.toolsLargeFiles: () => _openPanel(
         context,
@@ -780,7 +779,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         identity,
         repoId,
         GbmPanelKind.manageLfs,
-        RoutePaths.manageLfsDialogFor(repoId),
+        dialogRoute: RoutePaths.manageLfsDialogFor(repoId),
       ),
       GbmActionId.toolsPatches: () => _openPanel(
         context,
@@ -788,7 +787,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         identity,
         repoId,
         GbmPanelKind.patches,
-        RoutePaths.patchesDialogFor(repoId),
+        dialogRoute: RoutePaths.patchesDialogFor(repoId),
       ),
       GbmActionId.toolsReflog: () => _openPanel(
         context,
@@ -796,7 +795,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         identity,
         repoId,
         GbmPanelKind.reflog,
-        RoutePaths.reflogDialogFor(repoId),
+        dialogRoute: RoutePaths.reflogDialogFor(repoId),
       ),
       // "Rewrite history" names a group, not an action -- it has no handler
       // of its own, and menu_bar_row.dart renders it as a flyout trigger
@@ -808,7 +807,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         identity,
         repoId,
         GbmPanelKind.interactiveRebase,
-        RoutePaths.interactiveRebaseDialogFor(repoId),
+        dialogRoute: RoutePaths.interactiveRebaseDialogFor(repoId),
       ),
       GbmActionId.toolsBisect: () => _openPanel(
         context,
@@ -816,7 +815,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         identity,
         repoId,
         GbmPanelKind.bisect,
-        RoutePaths.bisectDialogFor(repoId),
+        dialogRoute: RoutePaths.bisectDialogFor(repoId),
       ),
       GbmActionId.toolsCleanUntrackedFiles: () =>
           context.push(RoutePaths.cleanUntrackedDialogFor(repoId)),
@@ -1116,11 +1115,18 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     WidgetRef ref,
     RepoIdentity identity,
     String repoId,
-    GbmPanelKind kind,
-    String dialogRoute,
-  ) {
+    GbmPanelKind kind, {
+    String? dialogRoute,
+  }) {
     if (!kind.isPortedToTab) {
-      context.push(dialogRoute);
+      // A panel is only unported while its dialog still exists, so the
+      // caller must have named one; the assert catches the ordering mistake
+      // of flipping isPortedToTab without building the panel.
+      assert(
+        dialogRoute != null,
+        'unported panel $kind needs its dialog route',
+      );
+      if (dialogRoute != null) context.push(dialogRoute);
       return;
     }
     _openPanelTab(context, ref, identity, repoId, kind);

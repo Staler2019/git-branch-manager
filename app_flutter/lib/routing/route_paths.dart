@@ -34,8 +34,6 @@ abstract final class RoutePaths {
       '/repo/:repoId/dialogs/stash-changes';
   static const String manageStashesDialog =
       '/repo/:repoId/dialogs/manage-stashes';
-  static const String manageWorktreesDialog =
-      '/repo/:repoId/dialogs/manage-worktrees';
   static const String manageRemotesDialog =
       '/repo/:repoId/dialogs/manage-remotes';
   static const String createTagDialog = '/repo/:repoId/dialogs/create-tag';
@@ -139,8 +137,6 @@ abstract final class RoutePaths {
     ).toString();
   }
 
-  static String manageWorktreesDialogFor(String repoId) =>
-      '/repo/$repoId/dialogs/manage-worktrees';
   static String manageRemotesDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/manage-remotes';
   static String createTagDialogFor(String repoId) =>

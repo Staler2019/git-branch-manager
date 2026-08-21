@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../data/models/git_identity.dart';
 import '../../../data/models/remote_info.dart';
+import '../../../data/repositories/panel_tabs_repository.dart';
 import '../../../data/repositories/repo_identity.dart';
 import '../../../data/repositories/repo_session_repository.dart';
 import '../../../routing/route_paths.dart';
@@ -265,10 +266,23 @@ class _GeneralTab extends StatelessWidget {
           spacing: GbmSpacing.space2,
           runSpacing: GbmSpacing.space2,
           children: <Widget>[
-            GbmButton(
-              label: 'Manage worktrees…',
-              onPressed: () => context.push(
-                RoutePaths.manageWorktreesDialogFor(repoIdForRoute(identity)),
+            // Worktrees became a tab in Tier 6c (spec page 14 `IAMAP`), so
+            // this closes the dialog before navigating: a tab replaces the
+            // shell's child, and leaving a modal open over it would hide the
+            // thing the user just asked for. Wrapped in a Consumer because
+            // _GeneralTab is a StatelessWidget with no `ref` of its own.
+            Consumer(
+              builder: (context, ref, _) => GbmButton(
+                label: 'Manage worktrees…',
+                onPressed: () {
+                  final String tabId = ref
+                      .read(panelTabsProvider(identity).notifier)
+                      .open(GbmPanelKind.manageWorktrees);
+                  context.pop();
+                  context.go(
+                    RoutePaths.panelFor(repoIdForRoute(identity), tabId),
+                  );
+                },
               ),
             ),
             GbmButton(

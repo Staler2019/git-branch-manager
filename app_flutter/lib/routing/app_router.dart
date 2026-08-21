@@ -31,7 +31,6 @@ import '../features/dialogs/manage_lfs/manage_lfs_dialog.dart';
 import '../features/dialogs/manage_remotes/manage_remotes_dialog.dart';
 import '../features/dialogs/manage_stashes/manage_stashes_dialog.dart';
 import '../features/dialogs/manage_submodules/manage_submodules_dialog.dart';
-import '../features/dialogs/manage_worktrees/manage_worktrees_dialog.dart';
 import '../features/dialogs/merge/merge_dialog.dart';
 import '../features/dialogs/new_branch/new_branch_dialog.dart';
 import '../features/dialogs/patches/patches_dialog.dart';
@@ -227,15 +226,6 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
               state.uri.queryParameters['index'] ?? '',
             ),
           );
-        },
-      ),
-      dialogRoute(
-        path: RoutePaths.manageWorktreesDialog,
-        builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(
-            state.pathParameters['repoId']!,
-          );
-          return ManageWorktreesDialogContent(identity: identity);
         },
       ),
       dialogRoute(

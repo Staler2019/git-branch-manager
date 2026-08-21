@@ -33,6 +33,7 @@ import 'package:gbm_flutter/features/history_graph/widgets/commit_row.dart';
 import 'package:gbm_flutter/features/repo_switcher/repo_switcher_popover.dart';
 import 'package:gbm_flutter/features/sidebar/widgets/branch_folder_menu_items.dart';
 import 'package:gbm_flutter/features/sidebar/widgets/branch_tree_item.dart';
+import 'package:gbm_flutter/features/sidebar/widgets/local_branch_menu_items.dart';
 import 'package:gbm_flutter/features/sidebar/widgets/stash_menu_items.dart';
 import 'package:gbm_flutter/features/sidebar/widgets/tag_menu_items.dart';
 import 'package:gbm_flutter/features/working_copy/widgets/working_copy_file_menu_items.dart';
@@ -70,10 +71,19 @@ Future<void> _pump(WidgetTester tester, Widget child) =>
 /// Renders the visible top-level menu's item labels, in order, excluding
 /// separators -- the `GbmMenuItem` list itself isn't reachable from a
 /// widget-pump test, only what `showGbmContextMenu`/`showGbmMenu` paint.
+/// Labels inside the open menu only.
+///
+/// Scoped to the `PopupMenuItem` showGbmMenu wraps its panel in, not to the
+/// whole `Overlay`: in these harnesses the widget under test is itself
+/// inside the overlay, so an Overlay-wide search also picks up the row's own
+/// branch name and the assertion compares the wrong list.
 List<String> _visibleMenuLabels(WidgetTester tester) {
   return tester
       .widgetList<Text>(
-        find.descendant(of: find.byType(Overlay), matching: find.byType(Text)),
+        find.descendant(
+          of: find.byType(PopupMenuItem<void>),
+          matching: find.byType(Text),
+        ),
       )
       .map((Text t) => t.data)
       .whereType<String>()
@@ -203,43 +213,50 @@ void main() {
     );
   });
 
-  group('05-B Local branch (real gap -- see matrix)', () {
-    testWidgets(
-      'BranchTreeItem matches the full 05-B catalog',
-      (tester) async {
-        await _pump(
-          tester,
-          BranchTreeItem(
-            ref: _localBranch(),
-            onCheckout: () {},
-            onRename: () {},
-            onDelete: () {},
-            onNewBranchFromHere: () {},
-            onMerge: () {},
-          ),
-        );
-        await _rightClick(tester, find.byType(BranchTreeItem));
+  group('05-B Local branch (conforms)', () {
+    test('localBranchMenuItems matches the full 05-B catalog exactly', () {
+      final List<GbmMenuItem> items = localBranchMenuItems(
+        branchName: 'feature/x',
+        isCurrent: false,
+        conflictActive: false,
+        onCheckout: () {},
+        onNewBranchFromHere: () {},
+        onRename: () {},
+        onMerge: () {},
+        onRebaseOntoHere: () {},
+        onCompare: () {},
+        onDelete: () {},
+      );
+      final List<String> actual = items
+          .where((GbmMenuItem i) => !i.separator)
+          .map((GbmMenuItem i) => i.label)
+          .toList();
+      expect(actual, _specLabels(GbmContextMenuTarget.localBranch));
+    });
 
-        final List<String> visible = _visibleMenuLabels(tester);
-        for (final String label in _specLabels(
-          GbmContextMenuTarget.localBranch,
-        )) {
-          expect(
-            visible.any((String v) => v.startsWith(label.split('…').first)),
-            isTrue,
-            reason: 'missing spec item: $label',
-          );
-        }
-      },
-      // Real gap, tracked in docs/reports/spec-conformance-matrix.md
-      // (Page 05, row 05-B): missing "Rebase current onto here" and
-      // "Compare with…" -- branch_tree_item.dart's own doc comment says
-      // both need a not-yet-built per-branch rebase/compare UI, not just
-      // a wiring change. Also wording drift: "Rename branch" vs spec
-      // "Rename…", "Merge into current branch" vs spec "Merge into
-      // current". Remove `skip: true` once 05-B is brought to parity.
-      skip: true,
-    );
+    testWidgets('a BranchTreeItem right-click really renders that catalog', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        BranchTreeItem(
+          ref: _localBranch(),
+          onCheckout: () {},
+          onRename: () {},
+          onDelete: () {},
+          onNewBranchFromHere: () {},
+          onMerge: () {},
+          onRebaseOntoHere: () {},
+          onCompareRef: () {},
+        ),
+      );
+      await _rightClick(tester, find.byType(BranchTreeItem));
+
+      expect(
+        _visibleMenuLabels(tester),
+        _specLabels(GbmContextMenuTarget.localBranch),
+      );
+    });
   });
 
   group('05-C Remote-only / gone branch (conforms)', () {

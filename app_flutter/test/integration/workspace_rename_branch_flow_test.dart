@@ -253,7 +253,7 @@ void main() {
     // only one not routed through isActionEnabled(): BranchTreeItem takes a
     // plain `conflictActive` param, so it needs its own transition coverage
     // per CLAUDE.md's rule at the end of "Action availability state machine".
-    testWidgets('the sidebar\'s 05-B Rename branch opens the dialog seeded '
+    testWidgets('the sidebar\'s 05-B Rename… opens the dialog seeded '
         'with the clicked branch', (tester) async {
       await pumpWorkspace(
         tester,
@@ -263,7 +263,7 @@ void main() {
       );
 
       await _openBranchMenu(tester);
-      await tester.tap(find.text('Rename branch'));
+      await tester.tap(find.text('Rename…'));
       await tester.pumpAndSettle();
 
       expect(find.byType(RenameBranchDialogContent), findsOneWidget);
@@ -284,7 +284,7 @@ void main() {
       );
 
       await _openBranchMenu(tester);
-      await tester.tap(find.text('Rename branch'));
+      await tester.tap(find.text('Rename…'));
       await tester.pumpAndSettle();
       expect(
         find.byType(RenameBranchDialogContent),
@@ -299,7 +299,7 @@ void main() {
       await tester.pumpAndSettle();
 
       await _openBranchMenu(tester);
-      await tester.tap(find.text('Rename branch'));
+      await tester.tap(find.text('Rename…'));
       await tester.pumpAndSettle();
       expect(find.byType(RenameBranchDialogContent), findsOneWidget);
     });

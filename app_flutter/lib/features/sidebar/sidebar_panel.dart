@@ -204,6 +204,28 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     context.go(RoutePaths.compareFor(repoId, tabId));
   }
 
+  // 05-B "Compare with…" -- same `left: <ref string>` mechanism as
+  // _compareTag and _compareStash. A branch name is already a valid ref, so
+  // no per-branch compare dialog is needed; the Compare page's own picker
+  // chooses the right-hand side.
+  void _compareRef(String refName) {
+    final String repoId = Uri.encodeComponent(widget.identity.workDir);
+    final String tabId = ref
+        .read(compareTabsProvider(widget.identity).notifier)
+        .open(left: refName);
+    context.go(RoutePaths.compareFor(repoId, tabId));
+  }
+
+  // 05-B "Rebase current onto here" -- the repository-level rebase dialog,
+  // pre-selected on this branch, rather than a second per-branch dialog
+  // that would duplicate its stash-first handling and commit-count preview.
+  void _rebaseOntoBranch(RefInfo branch) {
+    final String repoId = Uri.encodeComponent(widget.identity.workDir);
+    context.push(
+      RoutePaths.rebaseOntoDialogFor(repoId, target: branch.shortName),
+    );
+  }
+
   void _deleteTag(RefInfo tag) {
     ref
         .read(repoSessionProvider(widget.identity).notifier)
@@ -813,6 +835,17 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
               ? () => _openDeleteRemoteBranchDialog(node.ref)
               : null,
           onFetchRef: isRemoteOnly ? () => _fetchRemoteRef(node.ref) : null,
+          // 05-B's two previously-missing items. Neither needed a new
+          // dialog: Compare reuses the same open-a-tab-with-this-ref-on-the
+          // -left mechanism _compareTag/_compareStash already use, and
+          // Rebase reuses the repository-level dialog, now pre-fillable via
+          // its `target` query parameter.
+          onCompareRef: isRemoteOnly
+              ? null
+              : () => _compareRef(node.ref.shortName),
+          onRebaseOntoHere: isRemoteOnly || node.ref.isHead
+              ? null
+              : () => _rebaseOntoBranch(node.ref),
           // Sourced from isActionEnabled(), not session.conflictActive
           // directly -- single source of truth for checkout availability.
           conflictActive: !isActionEnabled(GbmActionId.branchCheckout, session),

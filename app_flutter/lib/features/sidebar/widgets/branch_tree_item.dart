@@ -7,6 +7,7 @@ import '../../../theme/ref_chip_colors.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_menu.dart';
 import '../../../widgets/lucide_icon.dart';
+import 'local_branch_menu_items.dart';
 import 'tag_menu_items.dart';
 
 class BranchTreeItem extends StatelessWidget {
@@ -25,6 +26,7 @@ class BranchTreeItem extends StatelessWidget {
     this.onFetchRef,
     this.onPushTag,
     this.onCompareRef,
+    this.onRebaseOntoHere,
     this.onDeleteTag,
     this.conflictActive = false,
   });
@@ -54,6 +56,12 @@ class BranchTreeItem extends StatelessWidget {
   final VoidCallback? onNewBranchFromHere;
   final VoidCallback? onMerge;
 
+  /// 05-B's "Rebase current onto here" -- replays the current branch on top
+  /// of this one. Opens the shared rebase-onto dialog pre-filled with this
+  /// branch (see RoutePaths.rebaseOntoDialogFor's `target`), rather than a
+  /// new per-branch dialog.
+  final VoidCallback? onRebaseOntoHere;
+
   /// 05-C actions -- see [_buildMenuItems]'s branches on
   /// `ref.kind == RefKind.remoteBranch` and `ref.isGone`. [onPruneRef] is
   /// wired for both a remote-only row and a gone row (pruning the vanished
@@ -72,6 +80,11 @@ class BranchTreeItem extends StatelessWidget {
   /// tag_menu_items.dart's `onPush` doc comment for why (no single
   /// unambiguous remote to push to).
   final VoidCallback? onPushTag;
+
+  /// 05-B's and 05-D's "Compare with…" -- opens a Compare tab with this ref
+  /// on the left, leaving the right side to the Compare page's own ref
+  /// picker. Same mechanism `_compareStash`/`_compareTag` already use; no
+  /// per-branch compare dialog is involved.
   final VoidCallback? onCompareRef;
   final VoidCallback? onDeleteTag;
 
@@ -318,13 +331,10 @@ class BranchTreeItem extends StatelessWidget {
     ];
   }
 
-  /// `ctxItemsFor('branch')` from gbm_context_menus.dart's 05-B (Local
-  /// branch), scoped to what this app already has a real destination for.
-  /// "Rebase current onto here" and "Compare with…" are omitted (no
-  /// per-branch entry point exists yet -- a targeted rebase/compare would
-  /// need the same UI as its repository-level peer, not yet surfaced),
-  /// so they are left off rather than wired to something that silently does
-  /// the wrong thing.
+  /// Dispatches to whichever of the four page-05 groups this row is: 05-D
+  /// for a tag, 05-C for a remote-only row, 05-C's disabled subset for a
+  /// "gone" row, and 05-B for an ordinary local branch (the fall-through,
+  /// built by [localBranchMenuItems]).
   List<GbmMenuItem> _buildMenuItems() {
     if (_isTag) {
       return tagMenuItems(
@@ -344,53 +354,18 @@ class BranchTreeItem extends StatelessWidget {
     if (ref.isGone) {
       return _buildGoneMenuItems();
     }
-    return <GbmMenuItem>[
-      if (!ref.isHead)
-        GbmMenuItem(
-          label: 'Checkout ${ref.shortName}',
-          icon: Icons.call_split,
-          onTap: conflictActive ? null : onCheckout,
-        ),
-      if (onNewBranchFromHere != null)
-        GbmMenuItem(
-          label: 'New branch from here',
-          icon: Icons.add,
-          onTap: onNewBranchFromHere!,
-        ),
-      if (onRename != null)
-        // Spec page 13 keeps rename out of reach mid-sequencer ("分支正在被
-        // rebase / merge 佔用 -> 整個 dialog 不開啟"), and page 07 already
-        // disables every other HEAD-moving action there. Both `enabled` and
-        // `onTap` are set: `enabled` alone is only a visual signal (see
-        // GbmMenuItem's doc comment), `onTap: null` alone would leave a
-        // full-brightness item that silently does nothing.
-        GbmMenuItem(
-          label: 'Rename branch',
-          icon: Icons.edit_outlined,
-          enabled: !conflictActive,
-          onTap: conflictActive ? null : onRename!,
-        ),
-      if (onMerge != null)
-        GbmMenuItem(
-          label: 'Merge into current branch',
-          icon: Icons.call_merge,
-          onTap: onMerge!,
-        ),
-      GbmMenuItem(
-        label: 'Copy branch name',
-        icon: Icons.copy,
-        onTap: () => Clipboard.setData(ClipboardData(text: ref.shortName)),
-      ),
-      if (onDelete != null) ...<GbmMenuItem>[
-        const GbmMenuItem.separator(),
-        GbmMenuItem(
-          label: 'Delete branch',
-          icon: Icons.delete_outline,
-          danger: true,
-          onTap: onDelete!,
-        ),
-      ],
-    ];
+    return localBranchMenuItems(
+      branchName: ref.shortName,
+      isCurrent: ref.isHead,
+      conflictActive: conflictActive,
+      onCheckout: onCheckout,
+      onNewBranchFromHere: onNewBranchFromHere,
+      onRename: onRename,
+      onMerge: onMerge,
+      onRebaseOntoHere: onRebaseOntoHere,
+      onCompare: onCompareRef,
+      onDelete: onDelete,
+    );
   }
 
   void _openContextMenu(BuildContext context, TapDownDetails details) {

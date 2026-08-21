@@ -237,7 +237,22 @@ whether their **entry point** is a context menu or the menu bar.
 
 ## Architectural findings that span multiple pages
 
-### F-A. `tab_row.dart`'s `_MoreMenu` is a third, spec-unsanctioned entry surface
+### F-A. `tab_row.dart`'s `_MoreMenu` is a third, spec-unsanctioned entry surface (**largely fixed, Tier 6b / #62**)
+
+> **Resolved in Tier 6b**, and the resolution was already written down: this
+> finding was logged as needing a design decision, but spec **page 14**
+> (`進階功能的入口與載體`, added 260820) *is* that decision. It was missed
+> because this matrix's own banner said the spec had 16 pages when it has 21.
+> The overflow menu is now **2 items** and the standalone buttons **1**; a
+> new **Tools** menu (page 14's `TOOLSMENU`, placed between Remote and Help)
+> takes nine, the file context menu's new `History ▸` flyout takes three,
+> `Stash changes…` returns to the Branch menu, two duplicates are dropped and
+> `Operation Log…` went with F-B. What remains is what spec assigns no home
+> to (`Create tag…` → #84, `Undo last operation…` → #85) and `Cherry-pick…`,
+> whose dialog has no other entry point and whose spec is self-contradictory
+> (#86). Page 14 also routes the twelve management panels to **tabs**; one
+> (manage-worktrees) is ported, the other eleven still open their dialogs on
+> purpose — see #76 for the per-panel progress table.
 
 The spec's page-02 item 13 / page-03 item 9 describe the tab row as: two
 persistent tabs (History / Working Copy) + an additional closable Compare
@@ -496,8 +511,10 @@ independent problems:
    diagnosis: COMPARES 1 needed the **sidebar branch tree's** multi-select,
    not History's, so the root cause was one mechanism short of what this
    line claims — both were built.)*
-3. **F-A**: `tab_row.dart`'s 18-item overflow menu is a spec-unsanctioned
-   third entry surface for otherwise-legitimate features.
+3. ~~**F-A**: `tab_row.dart`'s 18-item overflow menu is a spec-unsanctioned
+   third entry surface for otherwise-legitimate features.~~ **Largely fixed
+   (Tier 6b / #62)** — down to 2 items plus 1 button, all three of which are
+   things spec has not assigned a home to (#84/#85/#86). See F-A above.
 4. **F-B**: the Log drawer and Operation Log dialog are two competing
    implementations of the same spec concept — and as of 260820 this is no
    longer a judgement call: P16's REVISIONS deletes the dialog from the

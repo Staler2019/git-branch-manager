@@ -29,6 +29,7 @@ src/core/   headless C++20, no Qt/Dart (docs/ARCHITECTURE.md)
   /history                         CommitGraphView
   /working-copy                    WorkingCopyView
   /compare/:tabId                  ComparePage (one ShellRoute child per open Compare tab)
+  /panel/:tabId                    PanelPage (one per open management-panel tab, spec P14)
 /repo/:repoId/conflicts            ConflictResolveWindow (standalone window, not a dialog overlay)
 
 /dialogs/about                            \  app-wide (not repo-scoped: discovery
@@ -107,6 +108,9 @@ lib/
     diff/            DiffPage, side-by-side diff
     conflict_resolution/  ConflictResolveWindow (standalone window, not a dialog)
     compare/         ComparePage
+    panels/          PanelPage + GbmPanelTabShell (spec P19's shared
+                      〈toolbar + left list + right detail〉 template) +
+                      one file per ported management panel
     status_bar/      StatusBar, BackgroundTask
     log_drawer/      LogDrawer
     context_menus/   Shared GbmContextMenuItemSpec builders (9 right-click targets)
@@ -249,7 +253,7 @@ per-event-type interpretation — which of the 34 event types updates which
 ### Intent / Action layer
 
 `lib/actions/` holds three pure-data files with no Riverpod/FFI dependency:
-`gbm_action_id.dart` (the `GbmActionId` enum, 52 values), `gbm_menu_model.dart`
+`gbm_action_id.dart` (the `GbmActionId` enum, 64 values), `gbm_menu_model.dart`
 (the menu-bar/label/shortcut-string model `MenuBarRow` and the keyboard
 shortcuts dialog both read), and `gbm_shortcuts.dart`
 (`GbmActionId -> GbmKeyboardShortcut`, platform-aware Cmd/Ctrl binding).
@@ -693,16 +697,12 @@ exist in `gbmMenus` at all — the latter is deliberately **sequenced after**
 the multi-select work (#54), since `Ctrl/Cmd+A` is also `MULTIKEYS`' "全選
 當前清單" and binding it first would give it nothing to select.
 
-`lib/features/workspace/widgets/tab_row.dart`'s 18-item
-`_MoreMenu` overflow menu plus 3 standalone buttons (Merge/Cherry-pick/
-Reset) is, per this audit's user-confirmed scope rule ("beyond-spec
-functionality is fine only via context menu or menu bar"), the sole
-non-conforming entry surface in the app — every "extra" feature beyond the
-12 spec pages (stash management, worktrees, submodules, bisect, LFS,
-patches, reflog/undo, blame, file/line history, tags, remotes, operation
-log, repository settings) is reachable *only* through it, and 2 of its 18
-items (`Repository Settings…`, `Preferences…`) duplicate menu-bar entries
-that already exist. ~~Two competing Log implementations also still coexist~~ — **Fixed**
+~~`lib/features/workspace/widgets/tab_row.dart`'s 18-item `_MoreMenu`
+overflow menu plus 3 standalone buttons is the sole non-conforming entry
+surface in the app~~ — **Largely fixed** (Tier 6b, #62): spec page 14 turned
+out to already answer the design question this was waiting on. The menu is
+down to **2** items and the buttons to **1**; see "Tier 6b" below for what
+moved where and why three of those remain. ~~Two competing Log implementations also still coexist~~ — **Fixed**
 (Tier 6a, #61): P16's REVISIONS deleted the dialog from the spec by name
 ("只留抽屜；operation-log dialog 從規格中刪除") and P10's LOGRULES gained a
 「只有一套」 row, so `operationLogDialog`, its route constant, its
@@ -1387,3 +1387,91 @@ above had itself drifted: `rename-branch` (Tier 0c) and `delete-branches`
 documented "33" was two short before `operation-log` was removed. Counted
 from `route_paths.dart`, not from the prose, and the two missing names are
 now in the list.
+
+### Tier 6b (feat/tier-6b-tools-menu-entry-points) — issue #62 (+ #76)
+
+The entry-point reshuffle. Like #61, **this issue's central premise had
+expired**: it says the placement of the 16 overflow items "intentionally
+does NOT pre-assign… that's a design decision requiring explicit
+confirmation at kickoff". Spec page 14 (`進階功能的入口與載體`, added
+260820) already *is* that decision, with four numbered rules and three
+tables (`IAMAP`, `TOOLSMENU`, `FILECTX`/`FILECTXSUB`). Nobody had read it
+because the docs still claimed the spec had 16 pages when it has 21 — see
+Tier 6a.
+
+**What page 14 rules, verbatim where it matters:**
+
+- A new **Tools** menu, the menu bar's eighth, "放在 Remote 之後、Help 之前；
+  它是「開一個面板」而不是「對目前分支做事」，所以不塞進 Repository".
+- The destructive/multi-step three (Interactive rebase, Bisect, Clean
+  untracked files) go in a **Rewrite history** submenu, "不與唯讀面板同層 ——
+  手滑點到的代價差太多".
+- The context-menu 8-item cap stays; the way to add a ninth is a flyout
+  ("如 History ▸"), "不是把項目擠掉" — which is exactly the reduction Tier 1
+  was forced into and is now undone.
+- The twelve large management panels become **tabs**, not dialogs
+  (`IAMAP`), sharing P19's 〈toolbar + left list + right detail〉 template.
+
+**Three of #62's factual claims did not survive checking**, all recorded on
+the issue rather than quietly worked around:
+
+1. *"Removing the button isn't removing the feature"* — true for Merge…
+   (Branch menu) and Reset… (05-E's `Reset branch to here…`), **false for
+   Cherry-pick…**: `cherryPickDialog` has no other entry point at all, since
+   05-E's `Cherry-pick` calls `_session.cherryPick(...)` directly and skips
+   the dialog. Removing it would have recreated the orphan-route defect this
+   repo already fixed once for `deleteRemoteBranchDialog`. Spec contradicts
+   itself here — P18 draws a full Cherry-pick dialog, 05-E's label has no
+   ellipsis and P14 says only dialog-openers get one — so the button stays
+   until **#86** settles it.
+2. *`_MoreMenu` is 18 items* — it was **19**, see Tier 6a.
+3. *The 16 items all have somewhere to go* — **`Create tag…` and `Undo last
+   operation…` have no spec'd entry point anywhere** (not 05-D, not
+   `TOOLSMENU`, not `MENUS`; P18 draws both dialogs but names no `from:`).
+   So the menu could only be *reduced*, not deleted. **#84**/**#85**.
+
+**The trap that mattered most: a carrier swap is not free.** Routing the
+Tools menu at the tab carrier is what page 14 asks for, but only
+manage-worktrees has actually been ported. Pointing the other eleven at an
+unbuilt tab would have replaced eleven working dialogs with a placeholder —
+a regression wearing conformance as a disguise. `GbmPanelKind.isPortedToTab`
+is the single switch that decides the carrier per panel, read by both
+`_openPanel` (Tools) and `_openFilePanel` (History flyout); flip it as each
+panel lands. An integration test asserts an unported panel still opens its
+dialog and creates no tab, so a future port cannot regress it silently.
+
+**Panel tabs mirror Compare deliberately** — `PanelTabSpec` /
+`panelTabsProvider` / `WorkspaceTabKind.panel` / `RoutePaths.panel` /
+`TabRow.panelTabs` are one-to-one with the Compare equivalents, rather than
+a second tab mechanism. One behaviour differs on purpose: re-opening an
+already-open panel **focuses** it instead of stacking a duplicate, because
+two Compare tabs hold two different ref pairs while two Worktrees tabs are
+the same thing twice.
+
+Two smaller things worth keeping:
+
+- **`TabRow` dispatches tab-close by `WorkspaceTab.kind`, never by index.**
+  Both closable kinds sit in one flat list, so an index-based lookup would
+  hand a panel id to the Compare notifier the first time the ordering
+  changed.
+- **`GbmMenuItemModel` gained `children`.** The two pre-existing submenu
+  parents (`viewGraphColumns`, `viewTheme`) have *dynamic* children built at
+  the widget layer; Rewrite history's three are fixed action items, so they
+  are declared in the model. A third widget-layer special case would have
+  made "which submenus exist" unanswerable from the model alone.
+
+**Deliberate reductions, recorded not faked**: P19's `PANELSPEC` wants
+待提交數 in the worktrees detail column, but `WorktreeInfo` carries no
+pending-change count and `gbm_capi.h` has no per-worktree status call (a
+status read is scoped to the session's own work dir). And only the `History`
+flyout was taken from page 14's `FILECTX` table — its `Open diff`, `Ignore ▸`
+and `Reveal in Finder` rename conflict with page 05's own 05-F list, which
+`REVISIONS` never reconciled (**#88**).
+
+**Still open after this round**: the eleven unported panels (**#76**, which
+now carries the per-panel progress table), plus **#84**–**#89** for the six
+spec gaps and conflicts found here. Page 14's rule 4 wants the flyout to
+open on **hover after 120ms**; it opens on tap, because `showGbmMenu` is
+built on Material's `showMenu`, whose modal barrier makes a hover-opened
+child unhoverable from its own parent — Tier 4 documented this and it has
+not changed (**#87**).

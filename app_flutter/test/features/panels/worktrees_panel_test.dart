@@ -9,25 +9,12 @@
 // 待提交數 is deliberately absent -- WorktreeInfo carries no pending-change
 // count and gbm_capi has no per-worktree status call. See WorktreesPanel's
 // class doc.
-import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/worktree_info.dart';
-import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/features/panels/worktrees_panel.dart';
-import 'package:gbm_flutter/theme/gbm_theme.dart';
-import 'package:gbm_flutter/theme/theme_mode_provider.dart';
-import 'package:gbm_flutter/theme/tokens.dart';
-import 'package:gbm_flutter/widgets/gbm_button.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../support/fake_repo_session.dart';
-
-final RepoIdentity _identity = RepoIdentity(
-  workDir: '/test/repo',
-  gitDir: '/test/repo/.git',
-);
+import 'panel_test_support.dart';
 
 const WorktreeInfo _main = WorktreeInfo(
   path: '/src/git-branch-manager',
@@ -55,49 +42,14 @@ const WorktreeInfo _locked = WorktreeInfo(
   prunableReason: '',
 );
 
-Future<ProviderContainer> _pump(
+Future<PumpedPanel> _pump(
   WidgetTester tester, {
   List<WorktreeInfo> worktrees = const <WorktreeInfo>[_main, _locked],
-}) async {
-  tester.view.physicalSize = const Size(1200, 800);
-  tester.view.devicePixelRatio = 1.0;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
-
-  // GbmSplitPane reads sharedPreferencesProvider in initState to restore
-  // the splitter position, so the panel shell cannot mount without it.
-  SharedPreferences.setMockInitialValues(<String, Object>{});
-  final SharedPreferences prefs = await SharedPreferences.getInstance();
-
-  final FakeRepoSessionController fake = FakeRepoSessionController(
-    _identity,
-    RepoSessionState(isOpen: true, worktrees: worktrees),
-  );
-  final ProviderContainer container = ProviderContainer(
-    overrides: <Override>[
-      sharedPreferencesProvider.overrideWithValue(prefs),
-      repoSessionProvider(_identity).overrideWith((ref) => fake),
-    ],
-  );
-  addTearDown(container.dispose);
-
-  await tester.pumpWidget(
-    UncontrolledProviderScope(
-      container: container,
-      child: MaterialApp(
-        theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
-        home: Scaffold(body: WorktreesPanel(identity: _identity)),
-      ),
-    ),
-  );
-  await tester.pumpAndSettle();
-  return container;
-}
-
-GbmButton _button(WidgetTester tester, String label) =>
-    tester.widget<GbmButton>(
-      find.ancestor(of: find.text(label), matching: find.byType(GbmButton)),
-    );
+}) => pumpPanel(
+  tester,
+  WorktreesPanel(identity: panelTestIdentity),
+  state: RepoSessionState(isOpen: true, worktrees: worktrees),
+);
 
 void main() {
   group('WorktreesPanel (spec P19 reference instance)', () {
@@ -158,8 +110,8 @@ void main() {
     ) async {
       await _pump(tester);
 
-      expect(_button(tester, 'Open').onPressed, isNull);
-      expect(_button(tester, 'Remove').onPressed, isNull);
+      expect(panelButton(tester, 'Open').onPressed, isNull);
+      expect(panelButton(tester, 'Remove').onPressed, isNull);
     });
 
     // The main worktree is the repository -- git refuses to remove it, so
@@ -170,8 +122,8 @@ void main() {
       await tester.tap(find.text('git-branch-manager'));
       await tester.pumpAndSettle();
 
-      expect(_button(tester, 'Open').onPressed, isNotNull);
-      expect(_button(tester, 'Remove').onPressed, isNull);
+      expect(panelButton(tester, 'Open').onPressed, isNotNull);
+      expect(panelButton(tester, 'Remove').onPressed, isNull);
     });
 
     testWidgets('Remove dispatches for a non-main worktree', (tester) async {
@@ -182,7 +134,7 @@ void main() {
       await tester.tap(find.text('Remove'));
       await tester.pumpAndSettle();
 
-      expect(_button(tester, 'Remove'), isNotNull);
+      expect(panelButton(tester, 'Remove'), isNotNull);
     });
 
     testWidgets('an empty repository shows an empty-list message', (

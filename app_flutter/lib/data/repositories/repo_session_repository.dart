@@ -2208,14 +2208,6 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     state = state.copyWith(clearCredentialPrompt: true);
   }
 
-  /// Empties [RepoSessionState.operationLog] -- the operation-log panel's
-  /// "Clear" action (mirrors `OperationLogView::clearLog()`). Local to this
-  /// session's in-memory list only; does not affect gbm::Log itself, which
-  /// keeps no history of its own (see core/base/Logging.h).
-  void clearOperationLog() {
-    state = state.copyWith(operationLog: const <OperationRecord>[]);
-  }
-
   /// `git blame`. `revision` empty blames from the working copy; `startLine`/
   /// `endLine` both 0 blames the whole file. Async: fires
   /// GBM_EVENT_BLAME_READY into [RepoSessionState.lastBlame]. A newer call

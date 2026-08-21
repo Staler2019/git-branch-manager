@@ -36,10 +36,10 @@ src/core/   headless C++20, no Qt/Dart (docs/ARCHITECTURE.md)
 /dialogs/manage-base-folders               > one open repository, see gbm_capi.h's
 /dialogs/preferences                      /  Discovery section, and spec page 11)
 
-/repo/:repoId/dialogs/<name>       33 repo-scoped dialogs: reset-branch, merge,
+/repo/:repoId/dialogs/<name>       34 repo-scoped dialogs: reset-branch, merge,
                                     cherry-pick, stash-changes, manage-stashes,
                                     manage-worktrees, manage-remotes, create-tag,
-                                    credential, operation-log, blame, file-history,
+                                    credential, blame, file-history,
                                     line-history, reflog, undo-last,
                                     interactive-rebase, manage-submodules, bisect,
                                     manage-lfs, patches, clean-untracked,
@@ -47,7 +47,8 @@ src/core/   headless C++20, no Qt/Dart (docs/ARCHITECTURE.md)
                                     prune-remote-branches, repository-settings,
                                     new-branch, checkout, delete-branch,
                                     rebase-onto, force-push, delete-remote-branch,
-                                    restore-file, discard-changes
+                                    restore-file, discard-changes,
+                                    rename-branch, delete-branches
 ```
 
 Dialog routes are top-level (pushed over whatever's underneath), not
@@ -105,12 +106,11 @@ lib/
     sidebar/         SidebarPanel
     diff/            DiffPage, side-by-side diff
     conflict_resolution/  ConflictResolveWindow (standalone window, not a dialog)
-    operation_log/   OperationLogDialog
     compare/         ComparePage
     status_bar/      StatusBar, BackgroundTask
     log_drawer/      LogDrawer
     context_menus/   Shared GbmContextMenuItemSpec builders (9 right-click targets)
-    dialogs/         The 33 repo-scoped dialog contents listed above, plus the 4 app-wide ones
+    dialogs/         The 34 repo-scoped dialog contents listed above, plus the 4 app-wide ones
 ```
 
 Presentational/container split: `MenuBarRow`, `TopBar`, `TabRow`
@@ -702,14 +702,12 @@ non-conforming entry surface in the app — every "extra" feature beyond the
 patches, reflog/undo, blame, file/line history, tags, remotes, operation
 log, repository settings) is reachable *only* through it, and 2 of its 18
 items (`Repository Settings…`, `Preferences…`) duplicate menu-bar entries
-that already exist. Two competing Log implementations also still coexist:
-`features/log_drawer/` (matches spec page 10's bottom-drawer design) and
-the separate `operationLogDialog` route (doesn't) — **and as of 260820
-that is no longer a tie to break**: P16's REVISIONS deletes the dialog
-from the spec by name ("只留抽屜；operation-log dialog 從規格中刪除"), so
-the route, its `_MoreMenu` entry and `features/operation_log/` are now
-非規格內容. This is the ruling **#61** was waiting on. Removing a live
-route is its own change with its own tests, so it is recorded, not done.
+that already exist. ~~Two competing Log implementations also still coexist~~ — **Fixed**
+(Tier 6a, #61): P16's REVISIONS deleted the dialog from the spec by name
+("只留抽屜；operation-log dialog 從規格中刪除") and P10's LOGRULES gained a
+「只有一套」 row, so `operationLogDialog`, its route constant, its
+`_MoreMenu` entry and `features/operation_log/` are all gone;
+`features/log_drawer/` keeps the feature. See "Tier 6a" below.
 
 New tests added this round: `test/features/context_menus/context_menu_parity_test.dart`
 asserts all 11 groups against `gbmContextMenuGroups` — the 6 conforming
@@ -1340,3 +1338,52 @@ selection change.
 Unstage / Discard on multiple files, Drop on multiple stashes — were already
 partly present and were not re-audited against MULTIKEYS' click semantics
 here. **#76** stays open for that and for P13 A/P14–P16.
+
+### Tier 6a (fix/tier-6a-remove-operation-log-dialog) — issue #61
+
+The Log reconciliation. #61 was written as a judgement call ("does
+`operationLogDialog` have any capability the drawer lacks? **Read both
+implementations fully before deciding**"), but by the time it was picked up
+the spec had already ruled, so the round became an execution, not a
+decision. Three things are worth carrying forward.
+
+**The spec is four pages longer than this file said.** `CLAUDE.md` and
+`docs/reports/spec-conformance-matrix.md` both recorded a 260820 baseline of
+**16** pages. The checked-in
+`docs/claude-design-demo/Flutter Desktop Spec (standalone).html` has **21** —
+P17/P18 (dialog 版面, 流程類 12 + 修復類 8), P19 (管理面板樣版), P20 (未實作
+功能), P21 (Pull 流程與錯誤). Both baselines are corrected in place. **P17–P21
+are unaudited**; nothing under `lib/` was changed for them here. Anyone
+reading a conformance verdict written before this round should check whether
+a later page revises it — that is exactly how #61 and #62 both went stale.
+
+**The capability comparison the issue demanded has one real answer, and it
+is a loss.** The drawer beats the dialog on two axes (`Save as…`, and the
+info/warning/error filter) and loses on exactly one: the dialog had a
+`Clear` button. It was **not** ported. P10's `LOGRULES` 匯出 row lists only
+`Copy all、Save as…`, and its 保留 row already caps memory at 500 entries
+(2,000 via Preferences) with 7-day file rotation — so the need Clear served
+is covered, and adding it back would be beyond-spec. Recorded rather than
+silently dropped, per this repo's convention.
+
+**`clearOperationLog()` went with it.** `RepoSessionController` had exactly
+one caller for that method — the deleted dialog — so leaving it would have
+recreated the orphan-wiring shape this repo's audits keep finding
+(`deleteRemoteBranchDialog` was the same). Checked by grep before deleting,
+not assumed.
+
+Also corrected while there, and worth knowing because the two errors
+concealed each other: `tab_row_test.dart`'s "More menu lists all 18 items"
+asserted a list of 18 labels while `_MoreMenu` actually built **19** — the
+list silently omitted `Repository Settings…`. Removing `Operation Log…`
+brought the count to a genuine 18, and the missing label was added, so the
+name and the list now agree. A test that names a count and then hand-lists
+the members can disagree with itself in both directions at once.
+
+The route tree is now **34** repo-scoped dialogs. That number went *up*
+while this round deleted one, because the enumerated list in the route tree
+above had itself drifted: `rename-branch` (Tier 0c) and `delete-branches`
+(Tier 2+3) were both added as real routes and never listed, so the
+documented "33" was two short before `operation-log` was removed. Counted
+from `route_paths.dart`, not from the prose, and the two missing names are
+now in the list.

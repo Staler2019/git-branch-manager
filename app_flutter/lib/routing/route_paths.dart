@@ -40,8 +40,6 @@ abstract final class RoutePaths {
       '/repo/:repoId/dialogs/manage-remotes';
   static const String createTagDialog = '/repo/:repoId/dialogs/create-tag';
   static const String credentialDialog = '/repo/:repoId/dialogs/credential';
-  static const String operationLogDialog =
-      '/repo/:repoId/dialogs/operation-log';
   static const String blameDialog = '/repo/:repoId/dialogs/blame';
   static const String fileHistoryDialog = '/repo/:repoId/dialogs/file-history';
   static const String lineHistoryDialog = '/repo/:repoId/dialogs/line-history';
@@ -143,8 +141,6 @@ abstract final class RoutePaths {
       '/repo/$repoId/dialogs/create-tag';
   static String credentialDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/credential';
-  static String operationLogDialogFor(String repoId) =>
-      '/repo/$repoId/dialogs/operation-log';
   static String blameDialogFor(String repoId, {String path = ''}) => Uri(
     path: '/repo/$repoId/dialogs/blame',
     queryParameters: path.isEmpty ? null : <String, String>{'path': path},

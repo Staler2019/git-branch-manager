@@ -45,7 +45,6 @@ import '../features/dialogs/restore_file/restore_file_dialog.dart';
 import '../features/dialogs/stash_changes/stash_changes_dialog.dart';
 import '../features/dialogs/undo_last/undo_last_dialog.dart';
 import '../features/history_graph/history_page.dart';
-import '../features/operation_log/operation_log_dialog.dart';
 import '../features/welcome/welcome_screen.dart';
 import '../features/working_copy/working_copy_view.dart';
 import '../features/workspace/workspace_screen.dart';
@@ -251,15 +250,6 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
             state.pathParameters['repoId']!,
           );
           return CredentialDialogContent(identity: identity);
-        },
-      ),
-      dialogRoute(
-        path: RoutePaths.operationLogDialog,
-        builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(
-            state.pathParameters['repoId']!,
-          );
-          return OperationLogDialogContent(identity: identity);
         },
       ),
       dialogRoute(

@@ -231,11 +231,6 @@ class _MoreMenu extends StatelessWidget {
               buttonContext.push(RoutePaths.manageRemotesDialogFor(repoId)),
         ),
         GbmMenuItem(
-          label: 'Operation Log…',
-          onTap: () =>
-              buttonContext.push(RoutePaths.operationLogDialogFor(repoId)),
-        ),
-        GbmMenuItem(
           label: 'Blame…',
           onTap: () => buttonContext.push(RoutePaths.blameDialogFor(repoId)),
         ),

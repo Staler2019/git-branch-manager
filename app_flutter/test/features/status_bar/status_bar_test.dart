@@ -701,5 +701,107 @@ void main() {
       // Should show just the conflict count when no operation name
       expect(find.text('1 conflicted'), findsOneWidget);
     });
+    testWidgets('renders the selection summary alongside repo status', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: Scaffold(
+            body: StatusBar(
+              currentBranch: 'main',
+              ahead: 0,
+              behind: 0,
+              commitCount: 42,
+              lastScanDuration: const Duration(milliseconds: 100),
+              graphLaneCapacity: 6,
+              backgroundTasks: const [],
+              hasUnreadLog: false,
+              onOpenLog: () {},
+              onCancelTask: (_) {},
+              selectionSummary: '4 commits \u00b7 contiguous',
+            ),
+          ),
+        ),
+      );
+
+      await tester.pump();
+
+      // Additive, not a replacement: spec page 13 asks for the summary in the
+      // status bar without taking the repo status away.
+      expect(find.text('4 commits \u00b7 contiguous'), findsOneWidget);
+      expect(find.text('main'), findsOneWidget);
+      expect(find.text('42c'), findsOneWidget);
+    });
+
+    testWidgets('omits the selection summary when it is null', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: Scaffold(
+            body: StatusBar(
+              currentBranch: 'main',
+              ahead: 0,
+              behind: 0,
+              commitCount: 42,
+              lastScanDuration: const Duration(milliseconds: 100),
+              graphLaneCapacity: 6,
+              backgroundTasks: const [],
+              hasUnreadLog: false,
+              onOpenLog: () {},
+              onCancelTask: (_) {},
+            ),
+          ),
+        ),
+      );
+
+      await tester.pump();
+
+      expect(find.textContaining('commits'), findsNothing);
+    });
+
+    testWidgets('a conflict takes zone 1 from the selection summary', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: Scaffold(
+            body: StatusBar(
+              currentBranch: 'main',
+              ahead: 0,
+              behind: 0,
+              commitCount: 42,
+              lastScanDuration: const Duration(milliseconds: 100),
+              graphLaneCapacity: 6,
+              backgroundTasks: const [],
+              hasUnreadLog: false,
+              onOpenLog: () {},
+              onCancelTask: (_) {},
+              repoState: const RepoState(
+                flags: RepoStateFlags.merge,
+                isClean: false,
+                isSequencerOperation: true,
+                rebaseStep: 0,
+                rebaseTotal: 0,
+                rebaseOntoLabel: '',
+                indexLocked: false,
+                indexLockAgeSeconds: null,
+                describe: 'merging',
+              ),
+              workingCopyStatus: _createConflictedStatus(<String>['a.txt']),
+              conflictActive: true,
+              selectionSummary: '4 commits \u00b7 contiguous',
+            ),
+          ),
+        ),
+      );
+
+      await tester.pump();
+
+      // The stopped sequencer is the thing that must be readable at a glance.
+      expect(find.text('MERGE \u00b7 1 conflicted'), findsOneWidget);
+      expect(find.text('4 commits \u00b7 contiguous'), findsNothing);
+    });
   });
 }

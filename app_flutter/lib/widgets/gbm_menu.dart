@@ -41,6 +41,7 @@ class GbmMenuItem {
     this.shortcut,
     this.danger = false,
     this.enabled = true,
+    this.tooltip,
     required this.onTap,
     this.children = const <GbmMenuItem>[],
   }) : separator = false,
@@ -52,6 +53,7 @@ class GbmMenuItem {
       shortcut = null,
       danger = false,
       enabled = true,
+      tooltip = null,
       onTap = null,
       separator = true,
       children = const <GbmMenuItem>[],
@@ -66,6 +68,7 @@ class GbmMenuItem {
       shortcut = null,
       danger = false,
       enabled = true,
+      tooltip = null,
       onTap = null {
     assert(_noNestedSubmenus(children));
   }
@@ -84,6 +87,14 @@ class GbmMenuItem {
   final String? shortcut;
   final bool danger;
   final bool enabled;
+
+  /// Hover text explaining *why* an item is in the state it is in -- spec
+  /// page 13's multi-select rule is explicit that a single-item-only action
+  /// stays visible but disabled "並附 tooltip 說明原因，不隱藏" (kept with a
+  /// tooltip giving the reason, not hidden), because hiding it reads as
+  /// "this feature does not exist". Null means no tooltip.
+  final String? tooltip;
+
   final bool separator;
   final bool _isSubmenuTrigger;
   final VoidCallback? onTap;
@@ -139,6 +150,7 @@ Future<void> showGbmMenu(
   BuildContext context, {
   required RelativeRect position,
   required List<GbmMenuItem> items,
+  String? title,
 }) {
   return showMenu<void>(
     context: context,
@@ -152,7 +164,7 @@ Future<void> showGbmMenu(
       PopupMenuItem<void>(
         enabled: false,
         padding: EdgeInsets.zero,
-        child: _GbmMenuPanel(items: items),
+        child: _GbmMenuPanel(items: items, title: title),
       ),
     ],
   );
@@ -167,8 +179,9 @@ Future<void> showGbmMenu(
 Future<void> showGbmContextMenu(
   BuildContext context,
   Offset globalPosition,
-  List<GbmMenuItem> items,
-) {
+  List<GbmMenuItem> items, {
+  String? title,
+}) {
   validateGbmMenuItems(items);
   final RenderBox overlay =
       Overlay.of(context).context.findRenderObject()! as RenderBox;
@@ -176,13 +189,22 @@ Future<void> showGbmContextMenu(
     Rect.fromPoints(globalPosition, globalPosition),
     Offset.zero & overlay.size,
   );
-  return showGbmMenu(context, position: position, items: items);
+  return showGbmMenu(context, position: position, items: items, title: title);
 }
 
 class _GbmMenuPanel extends StatelessWidget {
-  const _GbmMenuPanel({required this.items});
+  const _GbmMenuPanel({required this.items, this.title});
 
   final List<GbmMenuItem> items;
+
+  /// Optional non-interactive header. Spec page 13 requires a multi-select
+  /// context menu to name how many items it is about to act on ("選單標題
+  /// 顯示數量"), so a right-click on a selection of three commits opens a
+  /// menu headed "3 items" rather than looking identical to a single-row
+  /// menu. It is a label, never a row: it takes no hover, no tap, and is
+  /// deliberately not counted by [validateGbmMenuItems]'s 8-item cap, which
+  /// is spec page 05's limit on *actions*.
+  final String? title;
 
   @override
   Widget build(BuildContext context) {
@@ -198,7 +220,26 @@ class _GbmMenuPanel extends StatelessWidget {
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
+          if (title case final String header) ...<Widget>[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 6, 10, 4),
+              child: Text(
+                header,
+                style: TextStyle(
+                  fontSize: GbmTypography.textXs,
+                  fontWeight: GbmTypography.weightSemibold,
+                  color: colors.textTertiary,
+                ),
+              ),
+            ),
+            Container(
+              height: 1,
+              margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              color: colors.borderSubtle,
+            ),
+          ],
           for (final GbmMenuItem item in items)
             item.separator
                 ? Container(
@@ -271,6 +312,7 @@ class _GbmMenuRowState extends State<_GbmMenuRow> {
               shortcut: child.shortcut,
               danger: child.danger,
               enabled: child.enabled,
+              tooltip: child.tooltip,
               onTap: child.onTap == null
                   ? null
                   : () {
@@ -298,7 +340,7 @@ class _GbmMenuRowState extends State<_GbmMenuRow> {
               ? colors.textOnAccent
               : (item.danger ? colors.danger : colors.textPrimary));
 
-    return MouseRegion(
+    final Widget row = MouseRegion(
       onEnter: (_) => setState(() => _hovered = item.enabled),
       onExit: (_) => setState(() => _hovered = false),
       child: GestureDetector(
@@ -350,5 +392,14 @@ class _GbmMenuRowState extends State<_GbmMenuRow> {
         ),
       ),
     );
+
+    // Wrapped outside MouseRegion, not inside the Container: a disabled row
+    // is exactly the case a tooltip exists to explain, and Tooltip needs to
+    // receive the pointer for the whole row to answer "why is this greyed
+    // out?" rather than only over the label text.
+    if (item.tooltip case final String message) {
+      return Tooltip(message: message, child: row);
+    }
+    return row;
   }
 }

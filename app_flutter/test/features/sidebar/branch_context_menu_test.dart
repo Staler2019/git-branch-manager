@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
 import 'package:gbm_flutter/features/sidebar/widgets/branch_tree_item.dart';
+import 'package:gbm_flutter/features/sidebar/widgets/local_branch_menu_items.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
 
 import '../../support/pump_app.dart';
@@ -110,16 +111,19 @@ void main() {
       );
       await _rightClick(tester, find.byType(BranchTreeItem));
 
-      expect(find.text('Checkout feature/x'), findsOneWidget);
-      expect(find.text('New branch from here'), findsOneWidget);
-      expect(find.text('Rename branch'), findsOneWidget);
-      expect(find.text('Merge into current branch'), findsOneWidget);
+      expect(find.text('Checkout'), findsOneWidget);
+      expect(find.text('New branch from here…'), findsOneWidget);
+      expect(find.text('Rename…'), findsOneWidget);
+      expect(find.text('Merge into current'), findsOneWidget);
       expect(find.text('Copy branch name'), findsOneWidget);
-      expect(find.text('Delete branch'), findsOneWidget);
+      expect(find.text('Delete branch…'), findsOneWidget);
     },
   );
 
-  testWidgets('the HEAD branch has no Checkout entry', (tester) async {
+  testWidgets('the HEAD branch keeps Checkout but disables it', (tester) async {
+    // It used to be omitted, which left the HEAD row's menu one item short
+    // of the 05-B catalog. Spec page 13 is explicit that an unavailable
+    // action stays visible with a reason rather than disappearing.
     await _pump(
       tester,
       BranchTreeItem(
@@ -129,7 +133,12 @@ void main() {
       ),
     );
     await _rightClick(tester, find.byType(BranchTreeItem));
-    expect(find.textContaining('Checkout'), findsNothing);
+
+    expect(find.text('Checkout'), findsOneWidget);
+    final Tooltip tooltip = tester.widget<Tooltip>(
+      find.ancestor(of: find.text('Checkout'), matching: find.byType(Tooltip)),
+    );
+    expect(tooltip.message, kAlreadyOnBranchTooltip);
   });
 
   testWidgets('Delete branch is styled danger', (tester) async {
@@ -138,11 +147,11 @@ void main() {
       BranchTreeItem(ref: _branch(), onCheckout: () {}, onDelete: () {}),
     );
     await _rightClick(tester, find.byType(BranchTreeItem));
-    final Text label = tester.widget<Text>(find.text('Delete branch'));
+    final Text label = tester.widget<Text>(find.text('Delete branch…'));
     expect(label.style?.color, tokensFor(GbmThemeVariant.darkTechnical).danger);
   });
 
-  testWidgets('tapping Rename branch invokes onRename and closes the menu', (
+  testWidgets('tapping Rename… invokes onRename and closes the menu', (
     tester,
   ) async {
     bool renamed = false;
@@ -155,13 +164,13 @@ void main() {
       ),
     );
     await _rightClick(tester, find.byType(BranchTreeItem));
-    await tester.tap(find.text('Rename branch'));
+    await tester.tap(find.text('Rename…'));
     await tester.pumpAndSettle();
     expect(renamed, isTrue);
-    expect(find.text('Rename branch'), findsNothing);
+    expect(find.text('Rename…'), findsNothing);
   });
 
-  group('conflict gate on Rename branch (spec P13: "分支正在被 rebase/merge '
+  group('conflict gate on Rename… (spec P13: "分支正在被 rebase/merge '
       '佔用 -> 整個 dialog 不開啟")', () {
     testWidgets('renders dimmed while a sequencer operation is active', (
       tester,
@@ -176,7 +185,7 @@ void main() {
         ),
       );
       await _rightClick(tester, find.byType(BranchTreeItem));
-      final Text label = tester.widget<Text>(find.text('Rename branch'));
+      final Text label = tester.widget<Text>(find.text('Rename…'));
       expect(
         label.style?.color,
         tokensFor(GbmThemeVariant.darkTechnical).textTertiary,
@@ -197,7 +206,7 @@ void main() {
         ),
       );
       await _rightClick(tester, find.byType(BranchTreeItem));
-      await tester.tap(find.text('Rename branch'));
+      await tester.tap(find.text('Rename…'));
       await tester.pumpAndSettle();
       expect(
         renamed,
@@ -229,10 +238,10 @@ void main() {
         expect(find.text('Copy branch name'), findsOneWidget);
         expect(find.text('Prune this ref'), findsOneWidget);
         expect(find.text('Delete on remote…'), findsOneWidget);
-        expect(find.text('Rename branch'), findsNothing);
-        expect(find.text('Delete branch'), findsNothing);
-        expect(find.text('Merge into current branch'), findsNothing);
-        expect(find.text('New branch from here'), findsNothing);
+        expect(find.text('Rename…'), findsNothing);
+        expect(find.text('Delete branch…'), findsNothing);
+        expect(find.text('Merge into current'), findsNothing);
+        expect(find.text('New branch from here…'), findsNothing);
       },
     );
 
@@ -392,10 +401,10 @@ void main() {
       expect(find.text('Copy branch name'), findsOneWidget);
       expect(find.text('Prune this ref'), findsOneWidget);
       expect(find.text('Delete on remote…'), findsOneWidget);
-      expect(find.text('Rename branch'), findsNothing);
-      expect(find.text('Delete branch'), findsNothing);
-      expect(find.text('Merge into current branch'), findsNothing);
-      expect(find.text('New branch from here'), findsNothing);
+      expect(find.text('Rename…'), findsNothing);
+      expect(find.text('Delete branch…'), findsNothing);
+      expect(find.text('Merge into current'), findsNothing);
+      expect(find.text('New branch from here…'), findsNothing);
     });
 
     testWidgets(
@@ -516,9 +525,9 @@ void main() {
       expect(find.text('Compare with…'), findsOneWidget);
       expect(find.text('Copy tag name'), findsOneWidget);
       expect(find.text('Delete tag…'), findsOneWidget);
-      expect(find.text('Rename branch'), findsNothing);
-      expect(find.text('Delete branch'), findsNothing);
-      expect(find.text('Merge into current branch'), findsNothing);
+      expect(find.text('Rename…'), findsNothing);
+      expect(find.text('Delete branch…'), findsNothing);
+      expect(find.text('Merge into current'), findsNothing);
     });
 
     testWidgets('Delete tag… is styled danger', (tester) async {

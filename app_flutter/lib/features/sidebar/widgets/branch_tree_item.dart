@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../actions/gbm_selection_gesture.dart';
 import '../../../data/models/ref_snapshot.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/ref_chip_colors.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_menu.dart';
 import '../../../widgets/lucide_icon.dart';
+import 'local_branch_menu_items.dart';
 import 'tag_menu_items.dart';
 
 class BranchTreeItem extends StatelessWidget {
@@ -16,6 +18,10 @@ class BranchTreeItem extends StatelessWidget {
     required this.onCheckout,
     this.selected = false,
     this.onSelectedChanged,
+    this.onSelect,
+    this.multiSelectMenuBuilder,
+    this.multiSelectMenuTitle,
+    this.onCollapseSelectionToThis,
     this.onRename,
     this.onDelete,
     this.onNewBranchFromHere,
@@ -25,6 +31,7 @@ class BranchTreeItem extends StatelessWidget {
     this.onFetchRef,
     this.onPushTag,
     this.onCompareRef,
+    this.onRebaseOntoHere,
     this.onDeleteTag,
     this.conflictActive = false,
   });
@@ -45,6 +52,33 @@ class BranchTreeItem extends StatelessWidget {
   /// Null hides the selection checkbox entirely (HEAD can't be
   /// multi-selected for deletion -- see SidebarPanel's doc comment).
   final ValueChanged<bool>? onSelectedChanged;
+
+  /// Reports a modifier-carrying click for spec page 13's multi-select.
+  ///
+  /// **Only [SelectionGesture.toggle] and [SelectionGesture.range] reach
+  /// here.** A plain click on a local branch row stays what it has always
+  /// been in this app -- a checkout -- rather than becoming "select only
+  /// this". `MULTIKEYS`' 單擊 row is written for lists generally and the
+  /// spec says nothing about the branch tree specifically, so changing the
+  /// sidebar's primary interaction on that basis would be a guess with a
+  /// large blast radius. History's commit list, which had no competing
+  /// single-click meaning, follows `MULTIKEYS` exactly.
+  final void Function(SelectionGesture gesture)? onSelect;
+
+  /// Spec page 13's right-click rule for a multi-selection: 「右鍵點在**已
+  /// 選中**的項目上不改變 selection，選單標題顯示數量；點在**未選中**的項
+  /// 目上先改為只選它、再開選單」.
+  ///
+  /// Both halves live here rather than in the panel because this widget owns
+  /// `onSecondaryTapDown`. [multiSelectMenuBuilder] is non-null only when
+  /// this row is *inside* a selection of more than one -- then it replaces
+  /// the per-row menu wholesale and [multiSelectMenuTitle] becomes the
+  /// menu's header. Otherwise [onCollapseSelectionToThis] runs first, so the
+  /// per-row menu that follows can never act on a selection the user can no
+  /// longer see.
+  final List<GbmMenuItem> Function()? multiSelectMenuBuilder;
+  final String? multiSelectMenuTitle;
+  final VoidCallback? onCollapseSelectionToThis;
   final VoidCallback? onRename;
   final VoidCallback? onDelete;
 
@@ -53,6 +87,12 @@ class BranchTreeItem extends StatelessWidget {
   /// `onSecondaryTapDown` wiring below.
   final VoidCallback? onNewBranchFromHere;
   final VoidCallback? onMerge;
+
+  /// 05-B's "Rebase current onto here" -- replays the current branch on top
+  /// of this one. Opens the shared rebase-onto dialog pre-filled with this
+  /// branch (see RoutePaths.rebaseOntoDialogFor's `target`), rather than a
+  /// new per-branch dialog.
+  final VoidCallback? onRebaseOntoHere;
 
   /// 05-C actions -- see [_buildMenuItems]'s branches on
   /// `ref.kind == RefKind.remoteBranch` and `ref.isGone`. [onPruneRef] is
@@ -72,6 +112,11 @@ class BranchTreeItem extends StatelessWidget {
   /// tag_menu_items.dart's `onPush` doc comment for why (no single
   /// unambiguous remote to push to).
   final VoidCallback? onPushTag;
+
+  /// 05-B's and 05-D's "Compare with…" -- opens a Compare tab with this ref
+  /// on the left, leaving the right side to the Compare page's own ref
+  /// picker. Same mechanism `_compareStash`/`_compareTag` already use; no
+  /// per-branch compare dialog is involved.
   final VoidCallback? onCompareRef;
   final VoidCallback? onDeleteTag;
 
@@ -215,9 +260,15 @@ class BranchTreeItem extends StatelessWidget {
         child: InkWell(
           onTap: _isRemoteOnly
               ? null
-              : (ref.isHead || conflictActive)
-              ? null
-              : onCheckout,
+              : () {
+                  final SelectionGesture gesture = currentSelectionGesture();
+                  if (gesture != SelectionGesture.single && onSelect != null) {
+                    onSelect!(gesture);
+                    return;
+                  }
+                  if (ref.isHead || conflictActive) return;
+                  onCheckout();
+                },
           onDoubleTap: _isRemoteOnly && !conflictActive ? onCheckout : null,
           borderRadius: BorderRadius.circular(GbmSpacing.radiusSm),
           child: maybeDim,
@@ -318,13 +369,10 @@ class BranchTreeItem extends StatelessWidget {
     ];
   }
 
-  /// `ctxItemsFor('branch')` from gbm_context_menus.dart's 05-B (Local
-  /// branch), scoped to what this app already has a real destination for.
-  /// "Rebase current onto here" and "Compare with…" are omitted (no
-  /// per-branch entry point exists yet -- a targeted rebase/compare would
-  /// need the same UI as its repository-level peer, not yet surfaced),
-  /// so they are left off rather than wired to something that silently does
-  /// the wrong thing.
+  /// Dispatches to whichever of the four page-05 groups this row is: 05-D
+  /// for a tag, 05-C for a remote-only row, 05-C's disabled subset for a
+  /// "gone" row, and 05-B for an ordinary local branch (the fall-through,
+  /// built by [localBranchMenuItems]).
   List<GbmMenuItem> _buildMenuItems() {
     if (_isTag) {
       return tagMenuItems(
@@ -344,56 +392,32 @@ class BranchTreeItem extends StatelessWidget {
     if (ref.isGone) {
       return _buildGoneMenuItems();
     }
-    return <GbmMenuItem>[
-      if (!ref.isHead)
-        GbmMenuItem(
-          label: 'Checkout ${ref.shortName}',
-          icon: Icons.call_split,
-          onTap: conflictActive ? null : onCheckout,
-        ),
-      if (onNewBranchFromHere != null)
-        GbmMenuItem(
-          label: 'New branch from here',
-          icon: Icons.add,
-          onTap: onNewBranchFromHere!,
-        ),
-      if (onRename != null)
-        // Spec page 13 keeps rename out of reach mid-sequencer ("分支正在被
-        // rebase / merge 佔用 -> 整個 dialog 不開啟"), and page 07 already
-        // disables every other HEAD-moving action there. Both `enabled` and
-        // `onTap` are set: `enabled` alone is only a visual signal (see
-        // GbmMenuItem's doc comment), `onTap: null` alone would leave a
-        // full-brightness item that silently does nothing.
-        GbmMenuItem(
-          label: 'Rename branch',
-          icon: Icons.edit_outlined,
-          enabled: !conflictActive,
-          onTap: conflictActive ? null : onRename!,
-        ),
-      if (onMerge != null)
-        GbmMenuItem(
-          label: 'Merge into current branch',
-          icon: Icons.call_merge,
-          onTap: onMerge!,
-        ),
-      GbmMenuItem(
-        label: 'Copy branch name',
-        icon: Icons.copy,
-        onTap: () => Clipboard.setData(ClipboardData(text: ref.shortName)),
-      ),
-      if (onDelete != null) ...<GbmMenuItem>[
-        const GbmMenuItem.separator(),
-        GbmMenuItem(
-          label: 'Delete branch',
-          icon: Icons.delete_outline,
-          danger: true,
-          onTap: onDelete!,
-        ),
-      ],
-    ];
+    return localBranchMenuItems(
+      branchName: ref.shortName,
+      isCurrent: ref.isHead,
+      conflictActive: conflictActive,
+      onCheckout: onCheckout,
+      onNewBranchFromHere: onNewBranchFromHere,
+      onRename: onRename,
+      onMerge: onMerge,
+      onRebaseOntoHere: onRebaseOntoHere,
+      onCompare: onCompareRef,
+      onDelete: onDelete,
+    );
   }
 
   void _openContextMenu(BuildContext context, TapDownDetails details) {
+    final List<GbmMenuItem> Function()? multi = multiSelectMenuBuilder;
+    if (multi != null) {
+      showGbmContextMenu(
+        context,
+        details.globalPosition,
+        multi(),
+        title: multiSelectMenuTitle,
+      );
+      return;
+    }
+    onCollapseSelectionToThis?.call();
     showGbmContextMenu(context, details.globalPosition, _buildMenuItems());
   }
 }

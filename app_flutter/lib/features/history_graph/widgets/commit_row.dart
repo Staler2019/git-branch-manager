@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../actions/gbm_selection_gesture.dart';
 import '../../../data/models/commit_meta.dart';
 import '../../../data/models/graph_snapshot.dart';
 import '../../../theme/gbm_theme.dart';
@@ -8,6 +9,7 @@ import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_menu.dart';
 import '../../../widgets/gbm_row.dart';
 import '../../../widgets/gbm_tag_chip.dart';
+import 'commit_menu_items.dart';
 import 'graph_column_painter.dart';
 import 'graph_date_format.dart';
 import 'graph_ref_chips.dart';
@@ -35,6 +37,8 @@ class CommitRow extends StatelessWidget {
     this.meta,
     this.selected = false,
     this.onTap,
+    this.onSelect,
+    this.onContextMenuRequested,
     this.refChips = const <RefChipData>[],
     this.isOwnCommit = false,
     this.showGraph = true,
@@ -42,6 +46,17 @@ class CommitRow extends StatelessWidget {
     this.onCherryPick,
     this.onRevert,
     this.onCreateBranchHere,
+    this.onMerge,
+    this.onCompare,
+    this.onRebaseOntoHere,
+    this.onResetBranchHere,
+    this.onExportAsPatch,
+    this.onCompareWithWorkingCopy,
+    this.menuSelectionCount = 1,
+    this.menuSelectionIsContiguous = true,
+    this.conflictActive = false,
+    this.menuTitle,
+    this.onCopySha,
   });
 
   final GraphRow row;
@@ -57,6 +72,26 @@ class CommitRow extends StatelessWidget {
   final CommitMeta? meta;
   final bool selected;
   final VoidCallback? onTap;
+
+  /// Reports the spec page 13 gesture a click carried (plain / Ctrl-Cmd /
+  /// Shift), leaving the selection arithmetic to the caller, which is the
+  /// only side that knows the list this row sits in.
+  ///
+  /// When null, [onTap] is used unchanged -- the pre-multi-select behaviour,
+  /// which the parity and row tests still drive.
+  final void Function(SelectionGesture gesture)? onSelect;
+
+  /// Called on right-click **before** the menu is built, so the caller can
+  /// make the selection match what the menu is about to act on.
+  ///
+  /// Spec page 13: 「右鍵點在已選中的項目上不改變 selection…；點在未選中的
+  /// 項目上先改為只選它、再開選單，避免對看不見的選取做動作」 -- right-
+  /// clicking an already-selected row leaves the selection alone, while
+  /// right-clicking an unselected one collapses to just that row first, so
+  /// no action is ever aimed at a selection the user cannot see. Only the
+  /// caller knows the selection, so the rule lives there; this is the hook
+  /// that lets it run first.
+  final VoidCallback? onContextMenuRequested;
 
   /// Chip render data for this commit (from `graph_ref_chips.dart`'s
   /// `refChipsForCommit`, already carrying the local/origin merge rule),
@@ -78,12 +113,40 @@ class CommitRow extends StatelessWidget {
   /// to omit the graph rather than draw one that lies.
   final bool showGraph;
 
-  /// Right-click context menu callbacks for 05-E commit menu. Null when no
-  /// backing capability exists for that action at this row level.
+  /// Right-click context menu callbacks for the 05-E commit menu. Null when
+  /// the caller has no destination to offer for that action.
   final VoidCallback? onCheckout;
   final VoidCallback? onCherryPick;
   final VoidCallback? onRevert;
   final VoidCallback? onCreateBranchHere;
+  final VoidCallback? onMerge;
+  final VoidCallback? onCompare;
+  final VoidCallback? onRebaseOntoHere;
+  final VoidCallback? onResetBranchHere;
+  final VoidCallback? onExportAsPatch;
+  final VoidCallback? onCompareWithWorkingCopy;
+
+  /// How many commits the menu is about to act on, and whether they form an
+  /// unbroken run -- see [commitMenuItems], which turns them into counted
+  /// labels and MULTIACTS' contiguity gate. Both default to the
+  /// single-selection case, so a caller with no multi-select (the parity
+  /// test, any future one-row surface) gets exactly the spec's singular
+  /// menu with nothing disabled.
+  final int menuSelectionCount;
+  final bool menuSelectionIsContiguous;
+
+  /// Spec page 07's STATES rule: mid-sequencer, the HEAD-moving items are
+  /// disabled. Passed in rather than re-derived here, matching how
+  /// `BranchTreeItem` and `TabRow` take the same flag.
+  final bool conflictActive;
+
+  /// Header naming the selection size, per spec page 13's
+  /// 「選單標題顯示數量」. Null for a single row, which needs no header.
+  final String? menuTitle;
+
+  /// Overrides the default "copy this row's oid" -- a multi-selection copies
+  /// every selected SHA, one per line, which only the caller can assemble.
+  final VoidCallback? onCopySha;
 
   @override
   Widget build(BuildContext context) {
@@ -109,7 +172,9 @@ class CommitRow extends StatelessWidget {
         child: GbmRow(
           height: kCommitRowHeight,
           selected: selected,
-          onTap: onTap,
+          onTap: onSelect == null
+              ? onTap
+              : () => onSelect!(currentSelectionGesture()),
           padding: EdgeInsets.zero,
           child: Row(
             children: <Widget>[
@@ -226,44 +291,35 @@ class CommitRow extends StatelessWidget {
     );
   }
 
-  /// 05-E (commit row) context menu items. Includes only items with a real
-  /// backing capability: checkout (detached), cherry-pick, copy SHA, revert,
-  /// create branch. Omits merge-into-current (mergeBranch takes branch names,
-  /// not oids), compare items (M6), rebase/reset (destructive, not wired).
-  List<GbmMenuItem> _buildMenuItems() {
-    return <GbmMenuItem>[
-      if (onCheckout != null)
-        GbmMenuItem(
-          label: 'Checkout this commit',
-          icon: Icons.call_split,
-          onTap: onCheckout!,
-        ),
-      if (onCherryPick != null)
-        GbmMenuItem(
-          label: 'Cherry-pick',
-          icon: Icons.copy,
-          onTap: onCherryPick!,
-        ),
-      if (onCreateBranchHere != null)
-        GbmMenuItem(
-          label: 'Create branch here…',
-          icon: Icons.add,
-          onTap: onCreateBranchHere!,
-        ),
-      GbmMenuItem(
-        label: 'Copy SHA',
-        icon: Icons.copy,
-        onTap: () => Clipboard.setData(ClipboardData(text: oidHex)),
-      ),
-      if (onRevert != null) ...<GbmMenuItem>[
-        const GbmMenuItem.separator(),
-        GbmMenuItem(label: 'Revert commit', icon: Icons.undo, onTap: onRevert!),
-      ],
-    ];
-  }
+  /// The full 05-E menu, built from the shared [commitMenuItems] catalog
+  /// function rather than a hand-written list -- see its doc comment for
+  /// what "disabled with a tooltip" and the counted labels mean.
+  List<GbmMenuItem> _buildMenuItems() => commitMenuItems(
+    count: menuSelectionCount,
+    contiguous: menuSelectionIsContiguous,
+    conflictActive: conflictActive,
+    onCopySha:
+        onCopySha ?? () => Clipboard.setData(ClipboardData(text: oidHex)),
+    onCheckout: onCheckout,
+    onMerge: onMerge,
+    onCherryPick: onCherryPick,
+    onCreateBranchHere: onCreateBranchHere,
+    onCompare: onCompare,
+    onRebaseOntoHere: onRebaseOntoHere,
+    onResetBranchHere: onResetBranchHere,
+    onRevert: onRevert,
+    onExportAsPatch: onExportAsPatch,
+    onCompareWithWorkingCopy: onCompareWithWorkingCopy,
+  );
 
   void _openContextMenu(BuildContext context, TapDownDetails details) {
-    showGbmContextMenu(context, details.globalPosition, _buildMenuItems());
+    onContextMenuRequested?.call();
+    showGbmContextMenu(
+      context,
+      details.globalPosition,
+      _buildMenuItems(),
+      title: menuTitle,
+    );
   }
 }
 

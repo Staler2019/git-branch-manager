@@ -4,7 +4,7 @@ import 'package:gbm_flutter/actions/gbm_menu_model.dart';
 
 void main() {
   group('gbmMenus', () {
-    test('all 52 GbmActionId values appear exactly once across all menus', () {
+    test('all 53 GbmActionId values appear exactly once across all menus', () {
       // Flatten all items from all menus
       final allItems = <GbmMenuItemModel>[];
       for (final menu in gbmMenus) {
@@ -22,11 +22,11 @@ void main() {
         reason: 'Each GbmActionId should appear exactly once',
       );
 
-      // Check completeness: all 52 IDs should be in the set
+      // Check completeness: all 53 IDs should be in the set
       expect(
         idSet,
         GbmActionId.values.toSet(),
-        reason: 'All 52 GbmActionId values must be present',
+        reason: 'All 53 GbmActionId values must be present',
       );
     });
 
@@ -66,8 +66,8 @@ void main() {
       final nonSubmenuItems = allItems.where((item) => !item.isSubmenuParent);
       expect(
         nonSubmenuItems.length,
-        50,
-        reason: '50 items should not be submenu parents',
+        51,
+        reason: '51 items should not be submenu parents',
       );
     });
 
@@ -91,8 +91,8 @@ void main() {
       final nonDangerItems = allItems.where((item) => !item.isDanger);
       expect(
         nonDangerItems.length,
-        51,
-        reason: '51 items should not be marked as danger',
+        52,
+        reason: '52 items should not be marked as danger',
       );
     });
   });

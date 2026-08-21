@@ -484,8 +484,12 @@ that were previously invisible rather than absent.
   (cloud-off for gone, new `assets/icons/cloud-off.svg`) at 0.62 opacity,
   single tap inert, double tap checks out as a new local branch, and its
   right-click menu swaps to the 05-C subset (Checkout as new local…/Copy
-  branch name/Prune this ref/Delete on remote…, "Fetch this branch" omitted
-  — `gbm_remote_fetch()` has no per-ref fetch capability). `sidebar_panel.dart`
+  branch name/Prune this ref/Delete on remote…, ~~"Fetch this branch" omitted
+  — `gbm_remote_fetch()` has no per-ref fetch capability~~ — **stale**:
+  `gbm_capi.h`'s `gbm_remote_fetch()` takes `refs`/`refCount` and restricts
+  the fetch to exactly those refs, `BranchTreeItem`'s `onFetchRef` is wired
+  to it, and 05-C's parity assertion passes with the item present).
+  `sidebar_panel.dart`
   wires the three real actions: `checkout(target: fullName, createBranch:
   true, newBranchName: shortName)`, `pruneRemote(remoteName, [fullName])`,
   and `context.push(RoutePaths.deleteRemoteBranchDialogFor(...))` — the
@@ -1221,3 +1225,118 @@ that the audit was written against 12 pages and the spec now has 16, and its
 `REVISIONS`-affected rows were corrected in place — including two that had
 been excused as spec-internal collisions and no longer are. P14/P15/P16 are
 **not** audited; nothing under `lib/` was changed for them.
+
+### Tier 2 + Tier 3 (feat/tier-2-3-multi-select-compare) — issues #54–#57
+
+Spec **P13 section B**: the selection model itself, plus the three things
+that were blocked on it. Twelve sequential commits on one branch. **Three of
+the four issues' premises were wrong**, and all three corrections changed
+where the work went — read this before re-reading their issue text.
+
+- **#56 said `Merge into current` needed an oid→branch-name step.** It does
+  not. `gbm_merge_branch`'s `target` is pushed straight into
+  `git merge <target>` (`MergeOps.cpp:59,82`) and only an empty string is
+  rejected; an oid is a legal committish, and `startRebase(upstream)` is the
+  same. There was no prerequisite, only wiring.
+- **#57 said `Compare with…` probably needed a new dialog.** It needed none.
+  `sidebar_panel.dart`'s `_compareStash()`/`_compareTag()` already
+  established the convention — open a Compare tab with only the left side
+  filled and let the Compare page's own `CompareRefPicker` take the right.
+- **#55 said there was no UI path to Compare at all.** `Repository →
+  Compare…` (`Ctrl/Cmd+Shift+C`) already existed and worked. Only spec's
+  literal 「同時選兩個分支 → 右鍵 Compare」 was missing.
+- **#54 said there was no multi-select mechanism.** The sidebar already had
+  a checkbox one (the "delete gone branches" flow). What was missing was
+  MULTIKEYS' click semantics and the menus.
+
+**One selection model, two providers.** `ListSelection<T>`
+(`data/models/list_selection.dart`) is an immutable `(ordered items, anchor)`
+pair with five transitions, `isContiguousIn` and `orderedBy`.
+`commitSelectionProvider` and `branchSelectionProvider` each hold one —
+separate on purpose, per spec's 「選取狀態跨 scope 不混用」.
+`selectedCommitProvider` is no longer independently writable: it is now
+`ref.watch(commitSelectionProvider(identity)).anchor`, which is exactly its
+old single-select meaning and leaves `commit_detail_panel.dart` /
+`changed_files_panel.dart` untouched. **The checkbox and Ctrl/Cmd-click
+write the same `branchSelectionProvider` state** — a checkbox tick *is*
+`ListSelection.toggle`. Growing a second selection set is the bug shape this
+whole arrangement exists to prevent.
+
+Things worth knowing before touching this again, most of them found by
+running rather than reading:
+
+- **Contiguity is judged on the unfiltered snapshot**, never on the rendered
+  rows. Three commits that look adjacent under a search filter are not a
+  range git can replay, so cherry-pick/revert correctly stay disabled for
+  them. Every *transition*, on the other hand, is expressed against the
+  visible list, so a Shift range never silently spans hidden rows.
+- **`Ctrl/Cmd+A` must be bound inside the list's own focus scope, never
+  app-wide.** A `Shortcuts` closer to a focused editor than
+  `DefaultTextEditingShortcuts` steals text select-all — so the branch
+  tree's binding wraps the tree scroll area only, deliberately leaving the
+  filter `TextField` outside it. `GbmActionId.editSelectAll`'s handler
+  follows `_invokeTextIntent`'s existing shape (non-null in the handler map,
+  forwarding by focus, `GbmSelectAllIntent` first then `SelectAllTextIntent`)
+  rather than inventing a second mechanism.
+- **Tapping an `InkWell` does not give it focus.** It is focusable for
+  traversal, but a tap does not request focus, so the branch tree's
+  `Ctrl/Cmd+A` did nothing after clicking a row. `_onBranchSelect` now calls
+  `_treeFocus.requestFocus()` first. The test for it must use a *modifier*
+  click, since a plain click routes through checkout instead.
+- **`gbm_push` grew `branches`/`branchCount`**, mirroring
+  `gbm_branch_delete`'s existing multi-name convention. `git push <remote> a
+  b c` is natively 「依序執行，失敗不中斷其餘」 and is one background task,
+  where chaining N calls from Dart would emit N `OPERATION_FINISHED` events
+  against spec page 10 — the same reasoning Tier 0c's rename hit.
+  **`branchCount 0` is not equivalent to naming the current branch**: it
+  passes no refspec at all, so git pushes through the configured upstream
+  and *refuses outright* when there is none. Measured, not assumed — the
+  first version of `PushWithNoBranchesStillPushesTheCurrentOne` failed on
+  exactly that and its doc comment now records it.
+- **Spec says nothing about how a multi-branch Fetch/Push picks its remote**,
+  so `sidebar_panel.dart` owns that decision and documents it there: Fetch
+  groups by each branch's own upstream remote (a branch with no upstream has
+  no remote-tracking ref and is skipped) and passes `refs`/`refCount` so it
+  is one call per remote, not N. Push does the same for published branches;
+  unpublished ones go to the repository's *sole* remote in their own call
+  with `--set-upstream`, because folding them into a same-remote group would
+  let `push -u` repoint a branch that tracks a differently-named upstream.
+  With several remotes and an unpublished branch selected, Push is disabled
+  **with a stated reason** rather than silently dropping branches.
+- **Remote names come from `remoteBranchParts()`, never a first-slash
+  split.** `RefInfo.upstream` is the full `refs/remotes/origin/x`, so that
+  split yields `"refs"` — the live bug tracked as **#74** in
+  `delete_branch_dialog.dart`, untouched here.
+- **`RefInfo.ahead` only means anything when `upstream` is non-empty.** A
+  branch that never had one reports `ahead: 0`, which rendered literally
+  would claim "0 unpushed commits" — the opposite of the truth. The
+  delete-branches confirmation says 「no upstream」 for those instead. The
+  test is `upstream.isNotEmpty`, **not** `hasTrackingInfo` (Tier 0c's trap).
+
+**Right-click has two halves, both implemented**: on an already-selected row
+the selection is untouched and the menu gains a counted title; on an
+unselected row the selection collapses to just that row first, so no action
+ever runs against a selection the user cannot see.
+
+**Single-item-only actions stay visible and disabled with a tooltip**, never
+hidden — 「隱藏會讓人以為功能不存在」. That means `enabled: false` **and**
+`onTap: null`, since `enabled` alone is only a visual signal
+(`gbm_menu.dart`). `GbmMenuItem` gained `tooltip` and `showGbmContextMenu`
+gained `title` for this; the title deliberately does **not** count toward
+`validateGbmMenuItems`' 8-item cap, which is spec page 05's limit on
+*actions*.
+
+**Two deliberate reductions, recorded rather than faked**:
+`MULTIACTS`' `Squash` is not offered at all — no capi supports "squash these
+N commits" (`gbm_capi.h` has merge's `--squash` mode and interactive
+rebase's Squash ordinal, neither of which is that). And the History status
+bar reports count + contiguity only, not spec's 「合計 diff」: `ChangedFile`
+carries no +/- line counts, and the only `--numstat` path is
+`CompareOps.cpp`'s range diff, so a running total would fire a diff on every
+selection change.
+
+**What is still not done from P13 B**: 05-B's own menu is now conflict-gated
+(that gap is closed), but the file and stash rows in `MULTIACTS` — Stage /
+Unstage / Discard on multiple files, Drop on multiple stashes — were already
+partly present and were not re-audited against MULTIKEYS' click semantics
+here. **#76** stays open for that and for P13 A/P14–P16.

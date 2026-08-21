@@ -7,15 +7,22 @@ temporary git repository created per test.
 
 ## Precondition
 
-The native library must already exist at `app_flutter/build/native/`:
+The native library must be resolvable by `native_library.dart`'s candidate
+list. **`scripts/build_capi.sh` does not exist in this repo** -- that name
+appears in `native_library.dart`'s doc comment and in earlier revisions of
+this file, but no such script was ever added, so do not go looking for it.
 
-```bash
-./scripts/build_capi.sh   # or build_capi.ps1 on Windows
-```
+What actually happens on macOS, observed while adding
+`multi_push_flow_test.dart`: `flutter test integration_test/<file> -d macos`
+builds the Runner target, whose "Build gbm_capi" Xcode Run Script phase runs
+`cmake --preset capi-only` and copies the result next to the executable
+inside the `.app` -- candidate #2. So the dylib is rebuilt from current
+source on every run, and no manual step is needed. Linux and Windows reach
+candidate #2 the same way, via their CMake Phase B block.
 
-`flutter test integration_test/` does not go through either of the
-packaged-build paths that would otherwise put it there (see
-`lib/data/ffi/native_library.dart`'s doc comment).
+Candidate #3 (`app_flutter/build/native/`) is the manual escape hatch. If you
+put a dylib there by hand, remember it is a **copy**: see the staleness
+warning below.
 
 ## Running
 
@@ -27,6 +34,7 @@ flutter test integration_test/commit_flow_test.dart -d macos
 flutter test integration_test/conflict_flow_test.dart -d macos
 flutter test integration_test/context_menu_flows_test.dart -d macos
 flutter test integration_test/rename_branch_flow_test.dart -d macos
+flutter test integration_test/multi_push_flow_test.dart -d macos
 ```
 
 (`-d linux` / `-d windows` on those platforms.)
@@ -41,12 +49,13 @@ future Flutter/`flutter_tools` version fixes multi-app-launch sequencing.
 
 ## The native library must be current, not merely present
 
-`build_capi.sh` is a precondition on *every* run that touches a new capi
-entry point, not a one-off setup step: `build/native/libgbm_capi.dylib` is a
-copy, so a stale one keeps loading happily and the flow under test fails in
-a way that looks like a Dart bug. `context_menu_flows_test.dart`'s discard
-flow needs `gbm_discard_lines`, which did not exist in any dylib built
-before it.
+`build/native/libgbm_capi.dylib` is a **copy**, not a symlink: a stale one
+keeps loading happily and the flow under test then fails in a way that looks
+exactly like a Dart bug. `context_menu_flows_test.dart`'s discard flow needs
+`gbm_discard_lines`, which did not exist in any dylib built before it;
+`multi_push_flow_test.dart` needs `gbm_push`'s two-parameter multi-branch
+form. If you populated candidate #3 by hand, re-copy it after every capi
+change -- the Xcode/CMake build phases feeding candidate #2 do not touch it.
 
 ## Shared preferences are the machine's real ones
 

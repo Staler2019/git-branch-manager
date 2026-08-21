@@ -13,6 +13,10 @@ compile_commands.json
 *.user
 *.swp
 .DS_Store
+# Per-machine MCP server config (an IDE bridge on a localhost port), not
+# shareable -- and it sits at both the repo root and app_flutter/, so a
+# `git add` on either directory sweeps it up. One did.
+.mcp.json
 
 # Test/scratch output
 tests/golden/*.actual

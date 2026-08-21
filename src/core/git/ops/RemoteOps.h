@@ -83,7 +83,14 @@ enum class PushForceMode : std::uint8_t {
 
 struct PushRequest {
     std::string remoteName;
-    std::string branch;  ///< Empty pushes the current branch.
+    /// Refspecs to push. Empty pushes the current branch. More than one is
+    /// how a multi-select push is expressed: `git push <remote> a b c`
+    /// pushes each in turn and reports per-ref status, continuing past a
+    /// ref it could not update -- which is exactly the "依序執行，失敗項不
+    /// 中斷其餘" behaviour a batch push needs, without the caller having to
+    /// chain N separate operations (and emit N OPERATION_FINISHED events).
+    /// Mirrors the multi-name convention gbm_branch_delete already uses.
+    std::vector<std::string> branches;
     bool setUpstream = false;
     bool pushTags = false;
     PushForceMode force = PushForceMode::None;

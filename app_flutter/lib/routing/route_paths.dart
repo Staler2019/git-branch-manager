@@ -74,6 +74,12 @@ abstract final class RoutePaths {
       '/repo/:repoId/dialogs/rename-branch';
   static const String rebaseOntoDialog = '/repo/:repoId/dialogs/rebase-onto';
   static const String forcePushDialog = '/repo/:repoId/dialogs/force-push';
+
+  /// Multi-branch delete confirmation (spec page 13). Separate from
+  /// [deleteBranchDialog], which is 05-B's single-branch flow with its own
+  /// branch picker.
+  static const String deleteBranchesDialog =
+      '/repo/:repoId/dialogs/delete-branches';
   static const String deleteRemoteBranchDialog =
       '/repo/:repoId/dialogs/delete-remote-branch';
   static const String restoreFileDialog = '/repo/:repoId/dialogs/restore-file';
@@ -96,8 +102,19 @@ abstract final class RoutePaths {
   static String workspaceFor(String repoId) => historyFor(repoId);
   static String historyFor(String repoId) => '/repo/$repoId/history';
   static String workingCopyFor(String repoId) => '/repo/$repoId/working-copy';
-  static String resetBranchDialogFor(String repoId) =>
-      '/repo/$repoId/dialogs/reset-branch';
+
+  /// [target] pre-fills the "Reset to" field -- 05-E's "Reset branch to
+  /// here…" passes the right-clicked commit's oid. Same query-parameter
+  /// shape as [renameBranchDialogFor]; empty means "no pre-fill", and the
+  /// dialog keeps its own default (the current branch).
+  static String resetBranchDialogFor(String repoId, {String target = ''}) =>
+      Uri(
+        path: '/repo/$repoId/dialogs/reset-branch',
+        queryParameters: target.isEmpty
+            ? null
+            : <String, String>{'target': target},
+      ).toString();
+
   static String mergeDialogFor(String repoId) => '/repo/$repoId/dialogs/merge';
   static String cherryPickDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/cherry-pick';
@@ -183,6 +200,19 @@ abstract final class RoutePaths {
             ? null
             : <String, String>{'branch': branch},
       ).toString();
+
+  /// [names] is carried as one comma-separated `names` parameter; a branch
+  /// name cannot contain a comma (git refuses it), so the split is safe.
+  static String deleteBranchesDialogFor(
+    String repoId, {
+    required List<String> names,
+  }) => Uri(
+    path: '/repo/$repoId/dialogs/delete-branches',
+    queryParameters: names.isEmpty
+        ? null
+        : <String, String>{'names': names.join(',')},
+  ).toString();
+
   static String deleteBranchDialogFor(String repoId, {String branch = ''}) =>
       Uri(
         path: '/repo/$repoId/dialogs/delete-branch',
@@ -190,8 +220,15 @@ abstract final class RoutePaths {
             ? null
             : <String, String>{'branch': branch},
       ).toString();
-  static String rebaseOntoDialogFor(String repoId) =>
-      '/repo/$repoId/dialogs/rebase-onto';
+
+  /// [target] pre-selects what to rebase onto -- 05-B's "Rebase current
+  /// onto here" passes a branch name, 05-E's "Rebase onto here" a commit
+  /// oid. See [resetBranchDialogFor] for the shared shape.
+  static String rebaseOntoDialogFor(String repoId, {String target = ''}) => Uri(
+    path: '/repo/$repoId/dialogs/rebase-onto',
+    queryParameters: target.isEmpty ? null : <String, String>{'target': target},
+  ).toString();
+
   static String forcePushDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/force-push';
   static String deleteRemoteBranchDialogFor(

@@ -14,10 +14,10 @@ void main() {
       GbmActionId.branchRenameCurrentBranch,
     };
 
-    test('macOS shortcuts has exactly 36 entries, and every one but the '
+    test('macOS shortcuts has exactly 37 entries, and every one but the '
         'bare-key group uses meta=true, control=false', () {
       final shortcuts = gbmActionShortcuts(true);
-      expect(shortcuts.length, 36);
+      expect(shortcuts.length, 37);
       shortcuts.forEach((id, shortcut) {
         if (bareKeyActions.contains(id)) return;
         expect(
@@ -33,10 +33,10 @@ void main() {
       });
     });
 
-    test('non-macOS shortcuts has exactly 36 entries, and every one but the '
+    test('non-macOS shortcuts has exactly 37 entries, and every one but the '
         'bare-key group uses meta=false, control=true', () {
       final shortcuts = gbmActionShortcuts(false);
-      expect(shortcuts.length, 36);
+      expect(shortcuts.length, 37);
       for (final MapEntry<GbmActionId, GbmKeyboardShortcut> entry
           in shortcuts.entries) {
         if (bareKeyActions.contains(entry.key)) continue;
@@ -126,6 +126,33 @@ void main() {
         // The shortcuts dialog derives its text from these fields, so a
         // stray modifier would show up as "Ctrl+F2" there too.
         expect(rename.displayLabel, 'F2', reason: 'isMacOS=$isMacOS');
+      }
+    });
+  });
+
+  group('editSelectAll (spec page 13 REVISIONS)', () {
+    test('is bound to the plain Ctrl/Cmd+A, with no shift', () {
+      for (final bool isMacOS in <bool>[true, false]) {
+        final GbmKeyboardShortcut? shortcut = gbmActionShortcuts(
+          isMacOS,
+        )[GbmActionId.editSelectAll];
+        expect(shortcut, isNotNull, reason: 'isMacOS=$isMacOS');
+        expect(shortcut!.trigger, LogicalKeyboardKey.keyA);
+        expect(shortcut.shift, isFalse);
+        expect(shortcut.meta, isMacOS);
+        expect(shortcut.control, !isMacOS);
+      }
+    });
+
+    test('does not collide with repositoryAmendLastCommit, which is the '
+        'shift variant of the same key', () {
+      for (final bool isMacOS in <bool>[true, false]) {
+        final Map<GbmActionId, GbmKeyboardShortcut> shortcuts =
+            gbmActionShortcuts(isMacOS);
+        final GbmKeyboardShortcut amend =
+            shortcuts[GbmActionId.repositoryAmendLastCommit]!;
+        expect(amend.trigger, LogicalKeyboardKey.keyA);
+        expect(amend.shift, isTrue);
       }
     });
   });

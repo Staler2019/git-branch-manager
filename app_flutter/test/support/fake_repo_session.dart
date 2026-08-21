@@ -320,13 +320,16 @@ class FakeRepoSessionController extends RepoSessionController {
   @override
   void pushChanges({
     String remoteName = '',
-    String branch = '',
+    List<String> branches = const <String>[],
     bool setUpstream = false,
     bool pushTags = false,
     bool forceWithLease = false,
   }) {
     commandLog.add(
       FakeCommand('pushChanges', <String, Object?>{
+        'remoteName': remoteName,
+        'branches': branches,
+        'setUpstream': setUpstream,
         'forceWithLease': forceWithLease,
       }),
     );
@@ -350,6 +353,8 @@ class FakeRepoSessionController extends RepoSessionController {
       FakeCommand('deleteBranch', <String, Object?>{
         'names': names,
         'force': force,
+        'isRemote': isRemote,
+        'remoteName': remoteName,
       }),
     );
   }

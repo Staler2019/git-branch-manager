@@ -348,4 +348,120 @@ void main() {
       expect(find.text('Second'), findsOneWidget);
     });
   });
+
+  group('multi-select affordances (spec page 13)', () {
+    testWidgets('showGbmContextMenu renders the title as a non-item header', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => Center(
+                child: ElevatedButton(
+                  onPressed: () => showGbmContextMenu(
+                    context,
+                    const Offset(20, 20),
+                    <GbmMenuItem>[GbmMenuItem(label: 'Copy SHA', onTap: () {})],
+                    title: '3 items',
+                  ),
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('3 items'), findsOneWidget);
+      expect(find.text('Copy SHA'), findsOneWidget);
+    });
+
+    testWidgets(
+      'a title does not consume any of the 8-item context-menu budget',
+      (tester) async {
+        // validateGbmMenuItems caps *actions* at 8 (spec page 05). A header
+        // that names the selection is not an action, so a full 8-item menu
+        // must still be legal with a title on top -- if the title were ever
+        // counted, this would trip the assert and fail.
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => Center(
+                  child: ElevatedButton(
+                    onPressed: () => showGbmContextMenu(
+                      context,
+                      const Offset(20, 20),
+                      <GbmMenuItem>[
+                        for (int i = 0; i < 8; i++)
+                          GbmMenuItem(label: 'Item $i', onTap: () {}),
+                      ],
+                      title: '5 items',
+                    ),
+                    child: const Text('open'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('open'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('5 items'), findsOneWidget);
+        expect(find.text('Item 7'), findsOneWidget);
+      },
+    );
+
+    testWidgets('a disabled item carries its tooltip', (tester) async {
+      await _openMenu(tester, GbmThemeVariant.darkTechnical, <GbmMenuItem>[
+        const GbmMenuItem(
+          label: 'Rename…',
+          enabled: false,
+          tooltip: 'Only one branch at a time',
+          onTap: null,
+        ),
+      ]);
+
+      final Tooltip tooltip = tester.widget<Tooltip>(find.byType(Tooltip));
+      expect(tooltip.message, 'Only one branch at a time');
+    });
+
+    testWidgets('a submenu child keeps its tooltip through the re-wrap', (
+      tester,
+    ) async {
+      // The flyout rebuilds every child to graft on "close the parent
+      // first" (see _openSubmenu). A field left out of that rebuild is
+      // silently dropped, which is invisible until someone opens a submenu.
+      await _openMenu(tester, GbmThemeVariant.darkTechnical, <GbmMenuItem>[
+        GbmMenuItem.submenu(
+          label: 'More actions',
+          children: const <GbmMenuItem>[
+            GbmMenuItem(
+              label: 'Reset branch to here…',
+              enabled: false,
+              tooltip: 'Needs a single target commit',
+              onTap: null,
+            ),
+          ],
+        ),
+      ]);
+
+      await tester.tap(find.text('More actions'));
+      await tester.pumpAndSettle();
+
+      final Tooltip tooltip = tester.widget<Tooltip>(
+        find.ancestor(
+          of: find.text('Reset branch to here…'),
+          matching: find.byType(Tooltip),
+        ),
+      );
+      expect(tooltip.message, 'Needs a single target commit');
+    });
+  });
 }

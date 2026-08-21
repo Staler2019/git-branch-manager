@@ -136,6 +136,12 @@ Map<GbmActionId, GbmKeyboardShortcut> gbmActionShortcuts(bool isMacOS) {
     GbmActionId.editCut: _makeShortcut(LogicalKeyboardKey.keyX, isMacOS),
     GbmActionId.editCopy: _makeShortcut(LogicalKeyboardKey.keyC, isMacOS),
     GbmActionId.editPaste: _makeShortcut(LogicalKeyboardKey.keyV, isMacOS),
+    // Spec page 13's REVISIONS row adds Edit -> Select all at the plain
+    // Ctrl/Cmd+A. It does not collide with repositoryAmendLastCommit, which
+    // is Ctrl/Cmd+Shift+A, and it deliberately keeps the same key a text
+    // field uses: the handler routes by focus, so it means "select all rows"
+    // over a list and "select all text" inside an editor.
+    GbmActionId.editSelectAll: _makeShortcut(LogicalKeyboardKey.keyA, isMacOS),
     GbmActionId.editFindInHistory: _makeShortcut(
       LogicalKeyboardKey.keyF,
       isMacOS,

@@ -1,4 +1,4 @@
-// Integration coverage for the TabRow Merge/Cherry-pick/Reset gap this
+// Integration coverage for the TabRow Cherry-pick gap this
 // branch fixes: CLAUDE.md's "Known gaps" flagged these three TextButtons as
 // bypassing isActionEnabled() entirely (a fourth dispatch surface beyond
 // menu click / keyboard / macOS system menu -- see
@@ -77,36 +77,32 @@ List<RouteBase> _dialogPlaceholderRoutes() => <RouteBase>[
 ];
 
 void main() {
-  group('TabRow Merge/Cherry-pick/Reset vs conflictActive', () {
-    testWidgets(
-      'clean: Merge/Cherry-pick/Reset all reach their dialog routes',
-      (tester) async {
-        final pumped = await pumpWorkspace(
-          tester,
-          identity: _identity,
-          initialState: _cleanSession(),
-          topLevelRoutes: _dialogPlaceholderRoutes(),
-        );
+  group('TabRow Cherry-pick vs conflictActive', () {
+    testWidgets('clean: Cherry-pick all reach their dialog routes', (
+      tester,
+    ) async {
+      final pumped = await pumpWorkspace(
+        tester,
+        identity: _identity,
+        initialState: _cleanSession(),
+        topLevelRoutes: _dialogPlaceholderRoutes(),
+      );
 
-        for (final (String label, String dialogText)
-            in const <(String, String)>[
-              ('Merge…', 'merge-dialog'),
-              ('Cherry-pick…', 'cherry-pick-dialog'),
-              ('Reset…', 'reset-branch-dialog'),
-            ]) {
-          await tester.tap(find.text(label));
-          await tester.pumpAndSettle();
-          expect(find.text(dialogText), findsOneWidget, reason: label);
-          // Each dialog is pushed on top of TabRow, not swapped in --
-          // pop back before the next iteration so the following button is
-          // visible again.
-          pumped.router.pop();
-          await tester.pumpAndSettle();
-        }
-      },
-    );
+      for (final (String label, String dialogText) in const <(String, String)>[
+        ('Cherry-pick…', 'cherry-pick-dialog'),
+      ]) {
+        await tester.tap(find.text(label));
+        await tester.pumpAndSettle();
+        expect(find.text(dialogText), findsOneWidget, reason: label);
+        // Each dialog is pushed on top of TabRow, not swapped in --
+        // pop back before the next iteration so the following button is
+        // visible again.
+        pumped.router.pop();
+        await tester.pumpAndSettle();
+      }
+    });
 
-    testWidgets('conflict: Merge/Cherry-pick/Reset render disabled and do not '
+    testWidgets('conflict: Cherry-pick render disabled and do not '
         'navigate', (tester) async {
       final pumped = await pumpWorkspace(
         tester,
@@ -115,11 +111,7 @@ void main() {
         topLevelRoutes: _dialogPlaceholderRoutes(),
       );
 
-      for (final String label in const <String>[
-        'Merge…',
-        'Cherry-pick…',
-        'Reset…',
-      ]) {
+      for (final String label in const <String>['Cherry-pick…']) {
         final TextButton button = tester.widget<TextButton>(
           find.ancestor(
             of: find.text(label),
@@ -141,11 +133,7 @@ void main() {
           .currentConfiguration
           .uri
           .toString();
-      for (final String label in const <String>[
-        'Merge…',
-        'Cherry-pick…',
-        'Reset…',
-      ]) {
+      for (final String label in const <String>['Cherry-pick…']) {
         await tester.tap(find.text(label));
         await tester.pumpAndSettle();
       }
@@ -169,7 +157,7 @@ void main() {
           tester
               .widget<TextButton>(
                 find.ancestor(
-                  of: find.text('Merge…'),
+                  of: find.text('Cherry-pick…'),
                   matching: find.byType(TextButton),
                 ),
               )
@@ -184,7 +172,7 @@ void main() {
           tester
               .widget<TextButton>(
                 find.ancestor(
-                  of: find.text('Merge…'),
+                  of: find.text('Cherry-pick…'),
                   matching: find.byType(TextButton),
                 ),
               )
@@ -196,9 +184,9 @@ void main() {
               'build.',
         );
 
-        await tester.tap(find.text('Merge…'));
+        await tester.tap(find.text('Cherry-pick…'));
         await tester.pumpAndSettle();
-        expect(find.text('merge-dialog'), findsOneWidget);
+        expect(find.text('cherry-pick-dialog'), findsOneWidget);
       },
     );
   });

@@ -123,13 +123,6 @@ void main() {
     );
   });
 
-  testWidgets('Merge button pushes the merge dialog route', (tester) async {
-    await _pump(tester, pendingChangeCount: 0);
-    await tester.tap(find.text('Merge…'));
-    await tester.pumpAndSettle();
-    expect(find.text('merge-dialog'), findsOneWidget);
-  });
-
   testWidgets('Cherry-pick button pushes the cherry-pick dialog route', (
     tester,
   ) async {
@@ -139,38 +132,35 @@ void main() {
     expect(find.text('cherry-pick-dialog'), findsOneWidget);
   });
 
-  testWidgets('Reset button pushes the reset-branch dialog route', (
+  // Tier 6b removed the Merge… and Reset… buttons: spec page 14 confines
+  // beyond-spec entry points to the menu bar and context menus, and both
+  // already had a home there (Branch -> Merge into current…, and 05-E's
+  // "Reset branch to here…"). Cherry-pick… stayed -- see #86.
+  testWidgets('the tab row no longer offers Merge… or Reset… buttons', (
     tester,
   ) async {
     await _pump(tester, pendingChangeCount: 0);
-    await tester.tap(find.text('Reset…'));
-    await tester.pumpAndSettle();
-    expect(find.text('reset-branch-dialog'), findsOneWidget);
+    expect(find.text('Merge…'), findsNothing);
+    expect(find.text('Reset…'), findsNothing);
+    expect(find.text('Cherry-pick…'), findsOneWidget);
   });
 
-  group('conflictActive gates Merge/Cherry-pick/Reset', () {
-    testWidgets('Merge/Cherry-pick/Reset render as disabled TextButtons '
+  group('conflictActive gates Cherry-pick', () {
+    testWidgets('Cherry-pick renders as a disabled TextButton '
         '(onPressed null) while conflictActive is true', (tester) async {
       await _pump(tester, pendingChangeCount: 0, conflictActive: true);
 
-      for (final String label in const <String>[
-        'Merge…',
-        'Cherry-pick…',
-        'Reset…',
-      ]) {
-        final TextButton button = tester.widget<TextButton>(
-          find.ancestor(
-            of: find.text(label),
-            matching: find.byType(TextButton),
-          ),
-        );
-        expect(button.onPressed, isNull, reason: label);
-      }
+      final TextButton button = tester.widget<TextButton>(
+        find.ancestor(
+          of: find.text('Cherry-pick…'),
+          matching: find.byType(TextButton),
+        ),
+      );
+      expect(button.onPressed, isNull);
     });
 
     testWidgets(
-      'tapping Merge/Cherry-pick/Reset while conflictActive is true does '
-      'not navigate',
+      'tapping Cherry-pick while conflictActive is true does not navigate',
       (tester) async {
         final GoRouter router = await _pump(
           tester,
@@ -183,14 +173,8 @@ void main() {
             .uri
             .toString();
 
-        for (final String label in const <String>[
-          'Merge…',
-          'Cherry-pick…',
-          'Reset…',
-        ]) {
-          await tester.tap(find.text(label));
-          await tester.pumpAndSettle();
-        }
+        await tester.tap(find.text('Cherry-pick…'));
+        await tester.pumpAndSettle();
 
         expect(
           router.routerDelegate.currentConfiguration.uri.toString(),
@@ -199,13 +183,13 @@ void main() {
       },
     );
 
-    testWidgets('Merge/Cherry-pick/Reset are enabled again once conflictActive '
+    testWidgets('Cherry-pick is enabled again once conflictActive '
         'flips back to false', (tester) async {
       await _pump(tester, pendingChangeCount: 0);
 
       final TextButton button = tester.widget<TextButton>(
         find.ancestor(
-          of: find.text('Merge…'),
+          of: find.text('Cherry-pick…'),
           matching: find.byType(TextButton),
         ),
       );
@@ -214,11 +198,13 @@ void main() {
   });
 
   testWidgets(
-    'More menu lists all 18 items via showGbmMenu (not Material PopupMenuButton chrome)',
-    // The count in this name used to say 18 while the menu built 19 -- the
-    // list below silently omitted "Repository Settings…". Removing
-    // "Operation Log…" (issue #61) is what brought the two into line, so the
-    // list is now genuinely exhaustive: keep it that way when items change.
+    'More menu lists all 16 items via showGbmMenu (not Material PopupMenuButton chrome)',
+    // This list is exhaustive on purpose -- keep it that way when items
+    // change. It has been wrong before: the name said 18 while the menu
+    // built 19, because the list silently omitted "Repository Settings…".
+    // 19 -> 18 was Tier 6a removing "Operation Log…" (#61); 18 -> 16 is
+    // Tier 6b dropping "Repository Settings…"/"Preferences…", which
+    // duplicate menu-bar entries (code-review M1).
     (tester) async {
       await _pump(tester, pendingChangeCount: 0);
       await tester.tap(find.byTooltip('More'));
@@ -229,24 +215,22 @@ void main() {
       expect(find.byType(PopupMenuButton<String>), findsNothing);
 
       for (final String label in const <String>[
-        'Stash Changes…',
-        'Manage Stashes…',
-        'Create Tag…',
-        'Manage Worktrees…',
+        'Stash changes…',
+        'Manage stashes…',
+        'Create tag…',
+        'Manage worktrees…',
         'Remotes…',
         'Blame…',
-        'File History…',
-        'Line History…',
+        'File history…',
+        'Line history…',
         'Reflog…',
-        'Undo Last Operation…',
-        'Interactive Rebase…',
+        'Undo last operation…',
+        'Interactive rebase…',
         'Submodules…',
         'Bisect…',
-        'Git LFS…',
+        'Large files (LFS)…',
         'Patches…',
-        'Clean Untracked…',
-        'Repository Settings…',
-        'Preferences…',
+        'Clean untracked files…',
       ]) {
         expect(find.text(label), findsOneWidget, reason: label);
       }
@@ -268,13 +252,13 @@ void main() {
     expect(find.text('Operation Log…'), findsNothing);
   });
 
-  testWidgets('More menu > Manage Stashes… pushes the manage-stashes route', (
+  testWidgets('More menu > Manage stashes… pushes the manage-stashes route', (
     tester,
   ) async {
     await _pump(tester, pendingChangeCount: 0);
     await tester.tap(find.byTooltip('More'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Manage Stashes…'));
+    await tester.tap(find.text('Manage stashes…'));
     await tester.pumpAndSettle();
     expect(find.text('manage-stashes-dialog'), findsOneWidget);
   });

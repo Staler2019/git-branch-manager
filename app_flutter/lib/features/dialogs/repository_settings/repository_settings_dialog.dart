@@ -372,10 +372,20 @@ class _RemotesTab extends StatelessWidget {
         const SizedBox(height: GbmSpacing.space2),
         Row(
           children: <Widget>[
-            GbmButton(
-              label: 'Manage remotes…',
-              onPressed: () => context.push(
-                RoutePaths.manageRemotesDialogFor(repoIdForRoute(identity)),
+            // Remotes became a tab in Tier 6c, so this pops the dialog
+            // first -- same reason as the worktrees link above.
+            Consumer(
+              builder: (context, ref, _) => GbmButton(
+                label: 'Manage remotes…',
+                onPressed: () {
+                  final String tabId = ref
+                      .read(panelTabsProvider(identity).notifier)
+                      .open(GbmPanelKind.manageRemotes);
+                  context.pop();
+                  context.go(
+                    RoutePaths.panelFor(repoIdForRoute(identity), tabId),
+                  );
+                },
               ),
             ),
             const SizedBox(width: GbmSpacing.space2),

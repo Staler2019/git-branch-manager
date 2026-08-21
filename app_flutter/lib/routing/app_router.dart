@@ -28,7 +28,6 @@ import '../features/dialogs/keyboard_shortcuts/keyboard_shortcuts_dialog.dart';
 import '../features/dialogs/line_history/line_history_dialog.dart';
 import '../features/dialogs/manage_base_folders/manage_base_folders_dialog.dart';
 import '../features/dialogs/manage_lfs/manage_lfs_dialog.dart';
-import '../features/dialogs/manage_remotes/manage_remotes_dialog.dart';
 import '../features/dialogs/manage_submodules/manage_submodules_dialog.dart';
 import '../features/dialogs/merge/merge_dialog.dart';
 import '../features/dialogs/new_branch/new_branch_dialog.dart';
@@ -212,15 +211,6 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
             state.pathParameters['repoId']!,
           );
           return StashChangesDialogContent(identity: identity);
-        },
-      ),
-      dialogRoute(
-        path: RoutePaths.manageRemotesDialog,
-        builder: (context, state) {
-          final RepoIdentity identity = repoIdentityFromRouteParam(
-            state.pathParameters['repoId']!,
-          );
-          return ManageRemotesDialogContent(identity: identity);
         },
       ),
       dialogRoute(
@@ -515,7 +505,10 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
           final RepoIdentity identity = repoIdentityFromRouteParam(
             state.pathParameters['repoId']!,
           );
-          return PruneRemoteBranchesDialogContent(identity: identity);
+          return PruneRemoteBranchesDialogContent(
+            identity: identity,
+            initialRemote: state.uri.queryParameters['remote'],
+          );
         },
       ),
       GoRoute(

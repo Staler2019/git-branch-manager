@@ -25,9 +25,19 @@ import '../../../widgets/gbm_dialog_shell.dart';
 /// stale remote-tracking refs specifically, and a preview entry the user
 /// recognizes as still wanted should be easy to keep.
 class PruneRemoteBranchesDialogContent extends ConsumerStatefulWidget {
-  const PruneRemoteBranchesDialogContent({super.key, required this.identity});
+  const PruneRemoteBranchesDialogContent({
+    super.key,
+    required this.identity,
+    this.initialRemote,
+  });
 
   final RepoIdentity identity;
+
+  /// Which remote to preview on open. The Remotes panel's `Prune` acts on
+  /// the row the user selected, so landing on `remotes.first` instead would
+  /// silently prune a different remote than the one they were looking at.
+  /// Null (no query parameter) keeps the previous behaviour.
+  final String? initialRemote;
 
   @override
   ConsumerState<PruneRemoteBranchesDialogContent> createState() =>
@@ -47,9 +57,10 @@ class _PruneRemoteBranchesDialogContentState
       final List<RemoteInfo> remotes = ref.read(
         repoSessionProvider(widget.identity).select((state) => state.remotes),
       );
-      if (remotes.isNotEmpty) {
-        _pickRemote(remotes.first.name);
-      }
+      if (remotes.isEmpty) return;
+      final String? requested = widget.initialRemote;
+      final bool exists = remotes.any((RemoteInfo r) => r.name == requested);
+      _pickRemote(exists ? requested! : remotes.first.name);
     });
   }
 

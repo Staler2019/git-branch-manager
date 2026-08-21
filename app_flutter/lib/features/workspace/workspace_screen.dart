@@ -33,6 +33,7 @@ import '../history_graph/commit_selection_summary.dart';
 import '../history_graph/widgets/graph_columns_selector.dart';
 import '../log_drawer/log_drawer.dart';
 import '../repo_switcher/repo_switcher_popover.dart';
+import '../panels/add_remote_prompt.dart';
 import '../sidebar/sidebar_panel.dart';
 import '../status_bar/background_task.dart';
 import '../status_bar/status_bar.dart';
@@ -724,16 +725,34 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
           : null,
 
       // Remote
-      GbmActionId.remoteAddRemote: () =>
-          context.push(RoutePaths.manageRemotesDialogFor(repoId)),
+      // P04 MENUS labels this "Add remote…", and P14's rule is that the
+      // ellipsis means it opens a dialog -- so it opens the add prompt
+      // itself. It used to open the whole manage-remotes dialog, which was
+      // the only way to reach the prompt before Remotes became a panel.
+      GbmActionId.remoteAddRemote: () async {
+        final ({String name, String url})? result = await promptAddRemote(
+          context,
+        );
+        if (result == null) return;
+        ref
+            .read(repoSessionProvider(identity).notifier)
+            .addRemote(result.name, result.url);
+      },
       GbmActionId.remoteFetchAllRemotes:
           isActionEnabled(GbmActionId.remoteFetchAllRemotes, session)
           ? () => ref.read(repoSessionProvider(identity).notifier).fetchRemote()
           : null,
       GbmActionId.remotePruneRemoteBranches: () =>
           context.push(RoutePaths.pruneRemoteBranchesDialogFor(repoId)),
-      GbmActionId.remoteManageRemotes: () =>
-          context.push(RoutePaths.manageRemotesDialogFor(repoId)),
+      // Same destination as Tools > Remotes… -- "同一功能不留兩條路" is
+      // about carriers, not about how many menus point at one panel.
+      GbmActionId.remoteManageRemotes: () => _openPanel(
+        context,
+        ref,
+        identity,
+        repoId,
+        GbmPanelKind.manageRemotes,
+      ),
 
       // Tools -- spec page 14's eighth menu. Every entry except Clean
       // untracked files… opens a *tab* (`_openPanelTab`), because
@@ -762,7 +781,6 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         identity,
         repoId,
         GbmPanelKind.manageRemotes,
-        dialogRoute: RoutePaths.manageRemotesDialogFor(repoId),
       ),
       GbmActionId.toolsSubmodules: () => _openPanel(
         context,

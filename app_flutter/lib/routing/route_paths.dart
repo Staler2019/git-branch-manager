@@ -32,8 +32,6 @@ abstract final class RoutePaths {
   static const String cherryPickDialog = '/repo/:repoId/dialogs/cherry-pick';
   static const String stashChangesDialog =
       '/repo/:repoId/dialogs/stash-changes';
-  static const String manageRemotesDialog =
-      '/repo/:repoId/dialogs/manage-remotes';
   static const String createTagDialog = '/repo/:repoId/dialogs/create-tag';
   static const String credentialDialog = '/repo/:repoId/dialogs/credential';
   static const String blameDialog = '/repo/:repoId/dialogs/blame';
@@ -121,8 +119,6 @@ abstract final class RoutePaths {
   static String stashChangesDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/stash-changes';
 
-  static String manageRemotesDialogFor(String repoId) =>
-      '/repo/$repoId/dialogs/manage-remotes';
   static String createTagDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/create-tag';
   static String credentialDialogFor(String repoId) =>
@@ -159,8 +155,17 @@ abstract final class RoutePaths {
       '/repo/$repoId/dialogs/checkout-recovery';
   static String deleteBranchRecoveryDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/delete-branch-recovery';
-  static String pruneRemoteBranchesDialogFor(String repoId) =>
-      '/repo/$repoId/dialogs/prune-remote-branches';
+
+  /// [remote] pre-selects which remote to preview -- the Remotes panel's
+  /// `Prune` passes the selected row. Empty keeps the dialog's own default
+  /// (the first configured remote).
+  static String pruneRemoteBranchesDialogFor(
+    String repoId, {
+    String remote = '',
+  }) => Uri(
+    path: '/repo/$repoId/dialogs/prune-remote-branches',
+    queryParameters: remote.isEmpty ? null : <String, String>{'remote': remote},
+  ).toString();
   static String repositorySettingsDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/repository-settings';
   static String newBranchDialogFor(String repoId, {String startPoint = ''}) =>

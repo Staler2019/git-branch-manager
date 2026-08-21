@@ -5,6 +5,7 @@ import '../../data/repositories/panel_tabs_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
+import 'remotes_panel.dart';
 import 'stashes_panel.dart';
 import 'worktrees_panel.dart';
 
@@ -53,6 +54,7 @@ class PanelPage extends ConsumerWidget {
         identity: identity,
         initialSelectedIndex: int.tryParse(query['select'] ?? ''),
       ),
+      GbmPanelKind.manageRemotes => RemotesPanel(identity: identity),
       _ => _NotYetPortedPanel(kind: spec.kind),
     };
   }

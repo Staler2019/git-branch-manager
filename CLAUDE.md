@@ -36,7 +36,7 @@ src/core/   headless C++20, no Qt/Dart (docs/ARCHITECTURE.md)
 /dialogs/manage-base-folders               > one open repository, see gbm_capi.h's
 /dialogs/preferences                      /  Discovery section, and spec page 11)
 
-/repo/:repoId/dialogs/<name>       32 repo-scoped dialogs: reset-branch, merge,
+/repo/:repoId/dialogs/<name>       34 repo-scoped dialogs: reset-branch, merge,
                                     cherry-pick, stash-changes, manage-stashes,
                                     manage-worktrees, manage-remotes, create-tag,
                                     credential, blame, file-history,
@@ -47,7 +47,8 @@ src/core/   headless C++20, no Qt/Dart (docs/ARCHITECTURE.md)
                                     prune-remote-branches, repository-settings,
                                     new-branch, checkout, delete-branch,
                                     rebase-onto, force-push, delete-remote-branch,
-                                    restore-file, discard-changes
+                                    restore-file, discard-changes,
+                                    rename-branch, delete-branches
 ```
 
 Dialog routes are top-level (pushed over whatever's underneath), not
@@ -109,7 +110,7 @@ lib/
     status_bar/      StatusBar, BackgroundTask
     log_drawer/      LogDrawer
     context_menus/   Shared GbmContextMenuItemSpec builders (9 right-click targets)
-    dialogs/         The 32 repo-scoped dialog contents listed above, plus the 4 app-wide ones
+    dialogs/         The 34 repo-scoped dialog contents listed above, plus the 4 app-wide ones
 ```
 
 Presentational/container split: `MenuBarRow`, `TopBar`, `TabRow`
@@ -1379,4 +1380,10 @@ brought the count to a genuine 18, and the missing label was added, so the
 name and the list now agree. A test that names a count and then hand-lists
 the members can disagree with itself in both directions at once.
 
-The route tree is now **32** repo-scoped dialogs, not 33.
+The route tree is now **34** repo-scoped dialogs. That number went *up*
+while this round deleted one, because the enumerated list in the route tree
+above had itself drifted: `rename-branch` (Tier 0c) and `delete-branches`
+(Tier 2+3) were both added as real routes and never listed, so the
+documented "33" was two short before `operation-log` was removed. Counted
+from `route_paths.dart`, not from the prose, and the two missing names are
+now in the list.

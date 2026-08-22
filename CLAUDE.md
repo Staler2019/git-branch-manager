@@ -2347,6 +2347,30 @@ rather than relaxed:
   been true, then false, then true again — the file records the sequence so the
   next reader does not trust it on sight.
 
+**An axis flip invalidates a stored splitter extent, and the one machine
+guaranteed to hold a stale value is the user's own.** Extent mode persists a
+raw pixel number (`split_pane.dart` stores `[extentPx]`), keyed on `storageId`
+alone with no axis in the key — so a files band anyone had dragged taller while
+it lived *below* the graph would come back as a column that wide on the right.
+`main.files` is therefore now `main.files.v2`; dropping the old key **is** the
+migration, because the number has no meaning across the flip. `main.detail`
+deliberately keeps its id — it is ratio mode, and 62/38 still reads as "the
+graph gets more" whichever way the divider runs. **Rule: changing a
+`GbmSplitPane`'s axis obliges you to decide what happens to its stored value,
+and only ratio mode survives the change.**
+
+**The refs column's ceiling moved again, and its doc comment had gone stale in
+two directions at once.** It cited a ceiling of 173 bisected against a ~632px
+commit list, and explained the 104px default by saying the twelve-lane case
+gives up Date. The recomposition took that list to exactly 834px, so the real
+ceiling is **287** (at 288 the ladder starts dropping Date) and *nothing* is
+given up. Re-measured with a throwaway probe that reads the row's real width
+off the rendered widget and then bisects `planCommitRowColumns` directly —
+the pure function takes `widths` as a parameter, so no enum constant has to be
+mutated to sweep the range. **A comment claiming its bounds are measured has to
+be re-measured whenever anything upstream of the measurement moves**, and a
+page recomposition is upstream of every width in the row.
+
 **Nothing at any tier covered the page's composition**, which is how three
 wrong placements stayed green through several rounds of work on this very page.
 `history_page_layout_test.dart` is that cover, and it reads positions off the
@@ -2365,6 +2389,13 @@ reddens exactly the other three.
   still running. `pkill -f "gbm_flutter.app/Contents/MacOS/gbm_flutter"` is the
   fix. It looks exactly like a broken test — **run one pre-existing device test
   as a control before believing the new one.**
+- **Do not edit `lib/` while a background device-tier run is in flight.** Each
+  `flutter test integration_test/... -d macos` recompiles the app from the
+  working tree, so a mutation probe applied during the run is compiled into
+  whichever tests happen to start after it — and the output cannot tell you
+  which. Any green from such a run attests nothing and has to be discarded and
+  re-run against a clean tree. Same family as the `git add -A` lesson below:
+  the working tree is shared state, and a background job is another reader.
 - **Swapping a widget for a design-system one breaks device-tier finders that
   nothing else uses.** `ListTile(dense: true)` → `GbmRow` in the Changed files
   list turned three `context_menu_flows_test.dart` cases red on

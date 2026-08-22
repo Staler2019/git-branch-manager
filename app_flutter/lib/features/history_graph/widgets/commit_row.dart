@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../../../actions/gbm_selection_gesture.dart';
 import '../../../data/models/commit_meta.dart';
+import '../../../data/models/graph_column.dart';
 import '../../../data/models/graph_snapshot.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
@@ -10,15 +11,26 @@ import '../../../widgets/gbm_menu.dart';
 import '../../../widgets/gbm_row.dart';
 import '../../../widgets/gbm_tag_chip.dart';
 import 'commit_menu_items.dart';
+import 'commit_row_layout.dart';
 import 'graph_column_painter.dart';
 import 'graph_date_format.dart';
 import 'graph_ref_chips.dart';
 
-const double kGraphLaneWidth = 18;
+/// Aliases [GbmLayout.graphLaneWidth] rather than repeating its value.
+///
+/// The token existed but had no reader anywhere under `lib/` -- this file's
+/// own literal was the live number, so a spec revision had two edit sites
+/// and only one of them mattered. Kept as a top-level name because the
+/// painter and every graph test already import it by this name; what
+/// changes is where the number comes from.
+const double kGraphLaneWidth = GbmLayout.graphLaneWidth;
 const double kCommitRowHeight = GbmSpacing.rowHeightComfortable;
 
-/// `graph · [HEAD] · hash · subject · author · date`, the design doc's
-/// commit-list row order. Wrapped in [GbmRow] (Commit 1) for the shared
+/// `graph · subject · refs · author · date · hash`, spec page 02's own
+/// column order -- see [planCommitRowColumns], which decides which of them
+/// this row can afford. HEAD has no column of its own: it is a ref chip in
+/// the Refs column (`refChipsForCommit`), which is the only way the mockup
+/// draws it. Wrapped in [GbmRow] (Commit 1) for the shared
 /// hover/selected background instead of a bare [SizedBox], so a commit list
 /// looks and behaves like every other list in the app (sidebar, repo list).
 ///
@@ -34,7 +46,9 @@ class CommitRow extends StatelessWidget {
     required this.graph,
     required this.rowIndex,
     required this.maxLane,
+    this.plan = CommitRowColumnPlan.full,
     this.meta,
+    this.fileCount,
     this.selected = false,
     this.onTap,
     this.onSelect,
@@ -65,11 +79,28 @@ class CommitRow extends StatelessWidget {
   final int rowIndex;
   final int maxLane;
 
+  /// Which optional columns this row may draw at the list's current width.
+  ///
+  /// Computed once per list by CommitGraphView, never per row: author and
+  /// date are trailing fixed-width columns, so a row deciding on its own
+  /// would stop lining up with its neighbours. Defaults to
+  /// [CommitRowColumnPlan.full] so callers that do not measure -- widget
+  /// tests, mostly -- keep the pre-degradation layout.
+  final CommitRowColumnPlan plan;
+
   /// Null while [history_repository.dart]'s `commitMetaProvider` has not
   /// yet answered for this row's oid -- rendered as a skeleton placeholder
   /// rather than leaving subject/author blank, so the row does not visibly
   /// pop in a beat after the graph itself renders.
   final CommitMeta? meta;
+
+  /// How many files this commit changed, or null while
+  /// `commitFileCountProvider` has not answered for this oid -- which,
+  /// unlike [meta], is also the permanent state for a commit git could not
+  /// answer for at all. Null renders a skeleton, `0` renders "0"; the two
+  /// are deliberately different, because a commit really can change nothing
+  /// (an empty commit, or a merge with no first-parent delta).
+  final int? fileCount;
   final bool selected;
   final VoidCallback? onTap;
 
@@ -159,6 +190,7 @@ class CommitRow extends StatelessWidget {
     final String dateTooltip = formatGraphDateTooltip(time);
     final String subject = meta?.subject ?? '';
     final String author = meta?.author.name ?? '';
+    final String committer = meta?.committer.name ?? '';
 
     return Semantics(
       label:
@@ -176,115 +208,175 @@ class CommitRow extends StatelessWidget {
               ? onTap
               : () => onSelect!(currentSelectionGesture()),
           padding: EdgeInsets.zero,
+          // Built from plan.columns rather than a hardcoded child list, so
+          // the order the user dragged in the picker is the order drawn --
+          // and so the gaps come from `gapAfterColumn`, the same function
+          // the width budget charges. The default is spec's own order
+          // (`spec_raw.html:1310-1316`, and GRAPH_COLS in the same order):
+          // graph, message, refs, author, date, hash.
           child: Row(
             children: <Widget>[
-              if (showGraph)
-                SizedBox(
-                  width: kGraphLaneWidth * (maxLane + 1),
-                  height: kCommitRowHeight,
-                  child: ExcludeSemantics(
-                    child: CustomPaint(
-                      painter: GraphRowPainter(
-                        row: row,
-                        rowIndex: rowIndex,
-                        graph: graph,
-                        laneWidth: kGraphLaneWidth,
-                        colors: context.gbmColors,
-                      ),
-                    ),
-                  ),
-                )
-              else
-                // Keeps the subject column aligned with the unfiltered list,
-                // so results do not jump horizontally as the query changes.
-                const SizedBox(width: GbmSpacing.space3),
-              const SizedBox(width: GbmSpacing.space2),
-              if (row.isHead)
-                Padding(
-                  padding: const EdgeInsets.only(right: GbmSpacing.space2),
-                  child: Text(
-                    'HEAD',
-                    style: TextStyle(
-                      fontSize: GbmTypography.textXs,
-                      fontWeight: GbmTypography.weightSemibold,
-                      color: colors.accent,
-                    ),
-                  ),
+              for (final PlannedColumn column in plan.columns)
+                ..._columnChildren(context, column, colors, <String, String>{
+                  'subject': subject,
+                  'author': author,
+                  'committer': committer,
+                  'date': date,
+                  'dateTooltip': dateTooltip,
+                }),
+              const SizedBox(width: kRowTrailingGap),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// One column's widget plus the gap after it, or nothing at all when the
+  /// column has nothing to draw (a commit with no ref chips, or a column
+  /// whose feature has not landed yet).
+  List<Widget> _columnChildren(
+    BuildContext context,
+    PlannedColumn column,
+    GbmColors colors,
+    Map<String, String> text,
+  ) {
+    final Widget? child = switch (column.id) {
+      GbmGraphColumnId.graph => _graphColumn(context),
+      GbmGraphColumnId.message => Expanded(
+        child: meta == null
+            ? _SkeletonBlock(width: 220, colors: colors)
+            : Text(
+                text['subject']!,
+                style: TextStyle(
+                  fontSize: GbmTypography.textSm,
+                  color: colors.textPrimary,
                 ),
-              Text(
-                oidHex.isEmpty ? '' : oidHex.substring(0, 8),
+                overflow: TextOverflow.ellipsis,
+              ),
+      ),
+      // The strip sizes itself to its chips and is capped at the column's
+      // width; a commit carrying none draws nothing and costs no gap, so the
+      // message runs straight into the author exactly as the mockup shows.
+      GbmGraphColumnId.refs =>
+        refChips.isEmpty
+            ? null
+            : _RefChipStrip(chips: refChips, maxWidth: column.width),
+      GbmGraphColumnId.hash => SizedBox(
+        // A slot, not the glyphs' intrinsic width: the test font makes eight
+        // hex characters ~88px against ~53px on a device, and the plan
+        // budgets the column's width either way.
+        width: column.width,
+        child: Text(
+          oidHex.isEmpty ? '' : oidHex.substring(0, 8),
+          style: TextStyle(
+            fontFamily: GbmTypography.fontMono,
+            fontSize: GbmTypography.textXs,
+            color: colors.textTertiary,
+          ),
+          overflow: TextOverflow.ellipsis,
+          maxLines: 1,
+        ),
+      ),
+      GbmGraphColumnId.author => SizedBox(
+        width: column.width,
+        child: meta == null
+            ? _SkeletonBlock(width: 80, colors: colors)
+            : Text(
+                text['author']!,
+                style: TextStyle(
+                  fontSize: GbmTypography.textXs,
+                  color: isOwnCommit ? colors.accent : colors.textSecondary,
+                  fontWeight: isOwnCommit ? GbmTypography.weightSemibold : null,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+      ),
+      GbmGraphColumnId.date => SizedBox(
+        width: column.width,
+        child: Tooltip(
+          message: text['dateTooltip']!,
+          child: Text(
+            text['date']!,
+            style: TextStyle(
+              fontSize: GbmTypography.textXs,
+              color: colors.textTertiary,
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ),
+      // Styled like the author column but deliberately *without* its
+      // own-commit accent: spec singles out the Author column for that
+      // ("Author 欄以 accent 色加粗顯示"), and applying it here too would
+      // make a rebased or cherry-picked commit -- where the committer is you
+      // and the author is not -- claim to be yours in the wrong column.
+      GbmGraphColumnId.committer => SizedBox(
+        width: column.width,
+        child: meta == null
+            ? _SkeletonBlock(width: 80, colors: colors)
+            : Text(
+                text['committer']!,
+                style: TextStyle(
+                  fontSize: GbmTypography.textXs,
+                  color: colors.textSecondary,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+      ),
+      // Right-aligned, unlike every other column: it is the row's only
+      // numeric field, and a column of numbers that do not share a ones
+      // place is markedly harder to compare down the list.
+      GbmGraphColumnId.changedFiles => SizedBox(
+        width: column.width,
+        child: fileCount == null
+            ? Align(
+                alignment: Alignment.centerRight,
+                child: _SkeletonBlock(width: 18, colors: colors),
+              )
+            : Text(
+                '$fileCount',
+                textAlign: TextAlign.right,
                 style: TextStyle(
                   fontFamily: GbmTypography.fontMono,
                   fontSize: GbmTypography.textXs,
                   color: colors.textTertiary,
                 ),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
               ),
-              const SizedBox(width: GbmSpacing.space3),
-              if (refChips.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(right: GbmSpacing.space2),
-                  child: Wrap(
-                    spacing: 4,
-                    children: <Widget>[
-                      for (final RefChipData chip in refChips)
-                        GbmTagChip(
-                          label: chip.label,
-                          kind: chip.kind,
-                          isCurrent: chip.isCurrent,
-                          showCloudIcon: chip.showCloudIcon,
-                          isDashed: chip.isDashed,
-                        ),
-                    ],
-                  ),
-                ),
-              Expanded(
-                child: meta == null
-                    ? _SkeletonBlock(width: 220, colors: colors)
-                    : Text(
-                        subject,
-                        style: TextStyle(
-                          fontSize: GbmTypography.textSm,
-                          color: colors.textPrimary,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-              ),
-              const SizedBox(width: GbmSpacing.space3),
-              SizedBox(
-                width: 110,
-                child: meta == null
-                    ? _SkeletonBlock(width: 80, colors: colors)
-                    : Text(
-                        author,
-                        style: TextStyle(
-                          fontSize: GbmTypography.textXs,
-                          color: isOwnCommit
-                              ? colors.accent
-                              : colors.textSecondary,
-                          fontWeight: isOwnCommit
-                              ? GbmTypography.weightSemibold
-                              : null,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-              ),
-              const SizedBox(width: GbmSpacing.space2),
-              SizedBox(
-                width: 80,
-                child: Tooltip(
-                  message: dateTooltip,
-                  child: Text(
-                    date,
-                    style: TextStyle(
-                      fontSize: GbmTypography.textXs,
-                      color: colors.textTertiary,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ),
-              const SizedBox(width: GbmSpacing.space3),
-            ],
+      ),
+    };
+    if (child == null) return const <Widget>[];
+
+    final double gap = gapAfterColumn(column.id);
+    return <Widget>[child, if (gap > 0) SizedBox(width: gap)];
+  }
+
+  Widget _graphColumn(BuildContext context) {
+    if (!showGraph) {
+      // Keeps the subject column aligned with the unfiltered list, so
+      // results do not jump horizontally as the query changes.
+      return const SizedBox(width: GbmSpacing.space3);
+    }
+    return SizedBox(
+      // plan.graphWidth is the natural width unless the row is too narrow to
+      // hold it and the message floor at once, in which case it is clipped --
+      // lane 0 paints leftmost, so what goes is always the highest lanes,
+      // never HEAD or the trunk. ClipRect is what keeps that a clip rather
+      // than a CustomPaint drawing outside its box.
+      width: plan.graphWidth ?? kGraphLaneWidth * (maxLane + 1),
+      height: kCommitRowHeight,
+      child: ClipRect(
+        child: ExcludeSemantics(
+          child: CustomPaint(
+            painter: GraphRowPainter(
+              row: row,
+              rowIndex: rowIndex,
+              graph: graph,
+              laneWidth: kGraphLaneWidth,
+              colors: context.gbmColors,
+            ),
           ),
         ),
       ),
@@ -344,6 +436,57 @@ class _SkeletonBlock extends StatelessWidget {
         decoration: BoxDecoration(
           color: colors.surfaceSunken,
           borderRadius: BorderRadius.circular(2),
+        ),
+      ),
+    );
+  }
+}
+
+/// The ref chips, as one clipped line rather than a Wrap.
+///
+/// A Wrap in a Row receives an unbounded width constraint, so it never
+/// actually wrapped -- it just took as much as its chips wanted and pushed
+/// the rest of the row, which is one of the ways a commit row overflowed. A
+/// bounded, clipped Row renders identically whenever there is room and
+/// simply runs out of view when there is not. Wrapping is not an option
+/// either way: the row is a fixed kCommitRowHeight tall, so a second line of
+/// chips would overflow vertically instead.
+class _RefChipStrip extends StatelessWidget {
+  const _RefChipStrip({required this.chips, this.maxWidth});
+
+  final List<RefChipData> chips;
+
+  /// Null for "unbounded", which is what [CommitRowColumnPlan.full] means --
+  /// the pre-existing behaviour, kept for unmeasured callers.
+  final double? maxWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    final Widget strip = Row(
+      mainAxisSize: MainAxisSize.min,
+      spacing: 4,
+      children: <Widget>[
+        for (final RefChipData chip in chips)
+          GbmTagChip(
+            label: chip.label,
+            kind: chip.kind,
+            isCurrent: chip.isCurrent,
+            showCloudIcon: chip.showCloudIcon,
+            isDashed: chip.isDashed,
+          ),
+      ],
+    );
+    if (maxWidth == null) return strip;
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: maxWidth!),
+      child: ClipRect(
+        // OverflowBox is what lets the inner Row keep its natural width
+        // inside a narrower box; without it the Row would itself overflow
+        // and throw before ClipRect ever got to hide anything.
+        child: OverflowBox(
+          alignment: Alignment.centerLeft,
+          maxWidth: double.infinity,
+          child: strip,
         ),
       ),
     );

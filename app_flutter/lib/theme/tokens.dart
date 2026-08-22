@@ -489,6 +489,9 @@ abstract final class GbmLayout {
 
   static const double menuMinWidth = 220;
 
+  /// One commit-graph lane's horizontal slot. Read through
+  /// `kGraphLaneWidth` (commit_row.dart), which aliases this -- that name is
+  /// what the painter and the graph tests import.
   static const double graphLaneWidth = 18;
 
   static const double diffGutterWidth = 36;

@@ -235,3 +235,12 @@ Backups.backupdb
 .MobileBackups.trash
 MobileBackups.trash
 tmbootpicker.efi
+
+# Design-spec extraction output
+#
+# `tools/extract_design_spec.py` decodes docs/claude-design-demo/'s bundled
+# spec HTML into these two files, writing them to --out (default: cwd).
+# They are derived artifacts -- regenerate them rather than tracking them:
+#   python3 tools/extract_design_spec.py
+/spec_raw.html
+/spec_logic.js

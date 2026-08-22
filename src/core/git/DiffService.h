@@ -31,12 +31,38 @@ struct ChangedFile {
     int similarity = 0;
 };
 
+/// How many files one commit changed. The Changed files column's whole
+/// payload -- deliberately not a `ChangedFile` list, because the column shows
+/// a number and a viewport's worth of full lists is a great deal of string.
+struct CommitFileCount {
+    ObjectId commit;
+    std::uint32_t fileCount = 0;
+};
+
 struct DiffOptions {
     std::uint32_t contextLines = 3;
     bool ignoreWhitespace = false;
     bool ignoreEolOnly = false;  ///< Hides CRLF-only noise, common on Windows.
     bool detectRenames = true;
-    bool firstParentOnly = true;  ///< For merges: diff against the first parent.
+    /// For merges: diff against the first parent (`--diff-merges=first-parent`,
+    /// needs git 2.31+). Without it git's default applies and `diff-tree`
+    /// prints *nothing at all* for a merge -- an empty changed-file list and
+    /// an empty patch, which is what this repo shipped before.
+    ///
+    /// Note `--first-parent` is **not** the flag: `diff-tree` accepts it and
+    /// silently ignores it. Measured here on merge `d2010dd`: with
+    /// `--first-parent` the raw output is empty, with
+    /// `--diff-merges=first-parent` it is the same 19 paths
+    /// `git diff <first-parent> <merge>` reports. `git log` is the command
+    /// that honours `--first-parent`; see `HistoryProvider`'s own flag, which
+    /// is a different setting on a different command.
+    ///
+    /// Setting this false does not switch to "show every parent" -- it
+    /// restores git's default, i.e. the empty-for-merges behaviour above. No
+    /// caller sets it false; a caller that wanted both sides would need
+    /// `--diff-merges=separate` and a consumer prepared for one path to
+    /// appear once per parent.
+    bool firstParentOnly = true;
 
     /// Rename detection is quadratic in changed paths; above this many it is
     /// switched off so a sweeping refactor commit still opens.
@@ -137,6 +163,35 @@ public:
     GitResult<ChangedFilesPtr> changedFiles(const ObjectId& commit,
                                             const DiffOptions& options,
                                             CancellationToken token);
+
+    /// Changed-file counts for many commits in a single git invocation.
+    ///
+    /// The History column needs one number per visible row, and calling
+    /// [changedFiles] per row would be one process per row. This is one
+    /// `git log --no-walk --raw` over the whole viewport instead.
+    ///
+    /// Its answer must equal `changedFiles(c).size()` for every commit, or
+    /// the column and the panel it opens contradict each other on screen.
+    /// Two things are load-bearing for that and neither is obvious:
+    ///
+    ///  * The rename flag is always passed explicitly, from the same
+    ///    [rawRenameFlag] both paths call. `git log` is porcelain and honours
+    ///    `diff.renames` (default *true* since git 2.9, and settable per
+    ///    repository); `diff-tree` is plumbing and ignores it. Omitting the
+    ///    flag would therefore make the two disagree on every rename commit,
+    ///    and would additionally let a user's own `diff.renames = false` move
+    ///    one of them and not the other.
+    ///  * The `--raw` records are parsed by the same code, not by a second
+    ///    reader written to the same spec.
+    ///
+    /// Commits are returned keyed by oid and **not** in the order given:
+    /// `git log --no-walk` sorts by commit date unless asked not to. A commit
+    /// git does not report at all is absent from the result rather than
+    /// present with zero, so a caller can tell "no files" from "not
+    /// answered".
+    GitResult<std::vector<CommitFileCount>> commitFileCounts(const std::vector<ObjectId>& commits,
+                                                             const DiffOptions& options,
+                                                             CancellationToken token);
 
     /// Diff of one file within a commit.
     GitResult<ParsedDiffPtr> commitFileDiff(const ObjectId& commit,

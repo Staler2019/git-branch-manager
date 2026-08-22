@@ -1747,3 +1747,310 @@ described only the child-row bend — the source of the mis-port. Both now name
 `laneWidth` or `colors` change (theme switch, gutter resize) does not trigger a
 repaint; and `graph_edge_geometry_test.dart`'s `'handles multiple edges'`
 fixture uses `childLane != rows[0].lane`, a shape `GraphBuilder` cannot produce.
+
+### Narrow-window layout (fix/narrow-window-layout)
+
+The window had no layout floor. Six independent surfaces overflowed once it
+got small, and **nothing in the suite could see any of them** — every widget
+test sizes its harness wide enough that degradation never fires. The round
+started as "add a test for the git graph at a small window" and the scope
+grew twice on evidence: first to the sidebar and top bar, then to every
+deliberately-deferred item, at the user's explicit instruction to fix rather
+than file.
+
+**The bug was reachable at the app's own default window size.** Mutation-
+checking `workspace_narrow_window_test.dart` against the unfixed code failed
+its `1280x720` case — the same 1280x720 `linux/runner/my_application.cc:55`
+and `windows/runner/main.cpp:29` open with. "Small window" was the reported
+symptom, not the boundary.
+
+**The rule the whole round turns on**: `RenderFlex` lays out **non-flex
+children first** and only then divides what is left. A flexible child can
+therefore never rescue an overflow that non-flex children caused, and every
+one of the six defects below is the same shape — a variable-width `Text` left
+non-flex, or a fixed-width column with no width to come out of.
+
+| Surface | What was non-flex | Symptom |
+|---|---|---|
+| `top_bar.dart` | `repoName`, `repoState.describe` | trailing controls pushed off the right edge |
+| `sidebar_panel.dart` folder row | `Text` with no `maxLines` | wrapped to two lines inside a 26px row |
+| `branch_tree_item.dart` | the `gone` / `↑N ↓M` label | branch name squeezed toward zero |
+| `sidebar_panel.dart` selection bar | two `TextButton`s at their 64px minimum | count label had nothing left |
+| `sidebar_panel.dart` tree indent | 12px per level, uncapped | deep leaves ran out of name |
+| `commit_row.dart` | graph column, hash, the ref-chip `Wrap` | hard overflow at 12+ lanes |
+
+**`MenuBarRow`, `TabRow` and `StatusBar` needed nothing** — all three already
+wrap their variable content in `Expanded > SingleChildScrollView`
+(`menu_bar_row.dart:97` says so explicitly: 「七個選單在 800px 左右的窄視窗
+放不下」). The plan for this round assumed the opposite and was going to pass
+`isMacOS: true` to suppress `MenuBarRow` "for attribution"; that would have
+tested less for no gain. **`TopBar` was the one piece of chrome with no
+guard**, and the audit found it only by grepping all four for the pattern the
+other three shared.
+
+#### The commit-row column plan
+
+`features/history_graph/widgets/commit_row_layout.dart`'s
+`planCommitRowColumns()` is the single decision point. **It is computed once
+per list, in `CommitGraphView._buildList`'s existing `LayoutBuilder`, and
+passed down** — never per row. Its inputs are deliberately restricted to
+facts every row shares (width, `graph.laneCount`, the picker's hidden set):
+author and date are trailing fixed-width columns, so a row deciding for
+itself — the HEAD row, say, which is also the one most likely to carry ref
+chips — would stop lining up with its neighbours and the list would stop
+reading as a table. `workspace_narrow_window_test.dart`'s "every row shows
+the same set of columns" is the only test at any tier that can see that
+regression.
+
+Ladder: **date → author → hash → refs**, then clip the graph column. Only the
+first three were agreed up front; refs going last is the function's own call
+(a branch chip is the one thing in the row saying *where you are*, and unlike
+the hash it has no second home in the commit detail panel), recorded in its
+doc comment rather than presented as a requirement. **Nothing about narrow
+windows is spec'd** — `docs/` and the spec HTML have no breakpoints and no
+minimum widths. The ladder is derived from P02 item 16's "Graph 與 Message
+固定不可關", which is why those two are the only things it will not surrender.
+
+Three things found by running, not reading:
+
+- **A budget-driven column is not monotonic.** Refs were first implemented as
+  "whatever is spare after the message floor", which made them *reappear* at
+  narrower widths as other columns dropped out and freed space — the exact
+  opposite of a degradation ladder. Only the monotonicity property test
+  (`for w = 2000 down to 40`, assert no column ever comes back) caught it.
+  The fix is `kRefsReserveWidth`, making refs a real rung.
+- **`Expanded` satisfies "no overflow" while hiding its child.** A subject
+  column collapsed to zero throws nothing. `kMinSubjectWidth` and the
+  `subjectWidthFor()` assertions exist because "did not overflow" is not the
+  same claim as "Message is visible", and P02-16 wants the second one.
+- **`Spacer` competes for the space it looks like it is donating.** `TopBar`'s
+  first fix left the `Spacer` in place beside two new `Flexible`s; being a
+  flex child itself, it capped the repo name at a third of the free space
+  even on a wide window. Replacing it with an `Expanded` around the pair
+  leaves the identical blank gap without taking a cut.
+
+#### Two premises that did not survive, and one that could not
+
+- **"Hiding a column frees width for the ones that remain"** — written as a
+  test, and unprovable: once the ladder has dropped date and author on its
+  own, the plan is *identical* to the user having switched the same two off.
+  That convergence is the property worth pinning, and is what the test
+  asserts now. There is one set of rules, not two.
+- **"The plan must always leave 80px for the message"** — false below ~160px,
+  where the row still owes its inter-column spacing with every column gone
+  and the graph clipped to zero. The contract there is only that nothing goes
+  negative, and the test says so.
+- **A `takeException()` test cannot see a cross-axis overflow.** The sidebar
+  folder row's wrapped label grew *taller* than its row, and `RenderFlex`
+  reports only main-axis overflow — so the broken version threw nothing and a
+  "does not overflow" case passed identically before and after the fix. It
+  was replaced by an assertion on the rendered label height. **Before writing
+  a no-exception test, check which axis the defect is on.**
+
+#### The column picker was wired to nothing
+
+`GraphColumnsSelector` held its visibility map in local `State` and wrote it
+straight to SharedPreferences; `readVisibility()` had **no caller on the
+render path at all**. Switching Author off changed a stored preference and
+nothing on screen — the same orphan-wiring shape as the old
+`deleteRemoteBranchDialog` route. Fixed with
+`GraphColumnVisibilityNotifier`/`graphColumnVisibilityProvider` (shaped after
+`ChromeVisibilityNotifier`, its closest sibling) feeding
+`hiddenGraphColumnsProvider` into the plan. Width may still take a column the
+user wanted; it can never restore one they hid. `kLockedGraphColumnIds` puts
+P02-16 in the store rather than only in a disabled checkbox — **a disabled
+control is an affordance, not an invariant**, and a hand-edited preferences
+file reaches the same state.
+
+Consequence worth knowing: **`CommitGraphView` now depends on
+SharedPreferences**, so any test that pumps the commit list must override
+`sharedPreferencesProvider`. Two existing test files did not and began
+throwing `UnimplementedError` inside the list's `LayoutBuilder` — the fake
+seam working as designed, failing loudly rather than reaching a real store.
+
+#### Smaller things
+
+- `GbmSplitPane`'s extent mode never compared the persisted extent to the
+  space it actually got (`_availableExtent` was read in the same
+  `LayoutBuilder` but only the drag path used it), so a window narrower than
+  the sidebar width the user last dragged to overflowed. `_clampedFixedExtent()`
+  protects the **filling** pane at `spec.minExtent` and makes the fixed pane
+  yield — the filling pane is the content the window exists to show, and the
+  fixed one has a toggle. It deliberately does **not** write back to
+  `_currentFlexes`: a temporarily narrow window must not overwrite the size
+  the user dragged to.
+- `GbmLayout.graphLaneWidth` was dead; `commit_row.dart`'s `kGraphLaneWidth`
+  literal was the live number. The alias now points one at the other so a spec
+  revision has one edit site that matters.
+- **`GraphRowPainter.shouldRepaint` is not a live defect here.** It compares
+  only `row`/`rowIndex`/`graph`, so a dynamic graph-column width looked like
+  it might paint stale — measured instead of reasoned about (a resize-in-place
+  test in `commit_row_narrow_width_test.dart`): `RenderCustomPaint` marks
+  itself needing paint on a size change regardless. The `laneWidth`/`colors`
+  concern recorded in the previous section still stands for theme switches.
+- **`BranchTreeItem` renders `ref.shortName`, the full slash-separated branch
+  name**, so a nested leaf repeats its whole folder prefix *on top of* the
+  indent. Found by dumping the rendered `Text`s; the intuitive guess ("a leaf
+  shows its last segment") is wrong and makes every finder miss. It is also
+  why capping the indent at `_kMaxIndentedDepth` costs nothing — the hierarchy
+  is already in the label.
+- **The default test surface is 800x600.** A `SizedBox` wider than that is
+  silently clamped, which made a 1200px control case overflow by exactly
+  `(1200 - 80) - 800 = 320px` and look like a bug in the plan. Widget tests
+  that assert a wide layout must size `tester.view.physicalSize` too.
+- **`TopBar` has a floor this round did not chase**: its non-flex remainder
+  (back button, Refresh, divider, three theme swatches) needs ~327 logical px
+  under the test font, so 320 still overflows by 7.2px with the repo name
+  already at zero. TopBar spans the whole window, so that is below any real
+  one; closing it would mean degrading the trailing controls themselves.
+
+### History column order and widths (feat/graph-column-order-and-widths)
+
+P02 item 16, in full: 「Graph 與 Message 固定不可關，其餘可開關並拖曳排序。設定存
+在應用層級，所有 repo 共用；欄寬各自可拖曳並記憶。」The previous round wired
+`readVisibility()` to the render path and left `readOrder()` / `readWidths()` with
+**no reader at all** — the same orphan-wiring shape as the old
+`deleteRemoteBranchDialog` route. Both are now live, along with the two columns
+spec lists and the app did not have (Committer, Changed files). **Twenty sequential
+commits, each green and independently revertible** — the approved plan budgeted
+fourteen, and the delta is itself ledger material: a visibility-fallback fix
+(`f69ee0c`) and two extractions found while implementing, the drag-handle fix
+(`07509e1`) and the picker entry-point test (`2371d49`) below, and one commit split
+in two once a product fix was spotted riding inside a `test:` commit
+(`dbf5e0e`/`77c1902`). The `chore:` prerequisite that removed the mis-committed
+spec generator output (`b8c6c2b`) landed on the parent branch first.
+
+**Where the column decision lives now**: `data/models/graph_column.dart` owns the
+`GbmGraphColumnId` enum and two pure resolvers (`resolveGraphColumnOrder`,
+`resolveGraphColumnWidths`); `graph_columns_repository.dart` holds the two
+notifiers plus `graphColumnLayoutProvider`, which is the single 〈visible +
+ordered + resolved widths〉 object that the row, the degradation ladder and the
+resize strips all read. Growing a second source of column order is the bug shape
+that arrangement exists to prevent.
+
+**Three visible behaviour changes, none of them incidental**: the default order
+is now spec's `graph │ message │ refs │ author │ date │ hash` (hash was second,
+refs was fourth — a pre-existing drift, not introduced here); `refs` stopped being
+"whatever is left after the message floor" and became an ordinary fixed,
+draggable, remembered column, because a column that eats the remainder has no
+width to remember; and the standalone `HEAD` text label is gone, replaced by the
+`HEAD → <branch>` ref chip spec's mockup actually draws (with a bare `HEAD` chip
+for detached, or the "you are here" marker would have vanished entirely).
+
+#### Premise corrections — read these before re-reading the approved plan
+
+- **Plan note 9 was backwards, and the correction is generalisable.** It said
+  `ReorderableListView`'s default trailing drag handle is fine to keep and only
+  the *test* must drag the handle rather than the row. Measured on the real
+  widget: a mouse click with **2px** of travel loses its toggle outright.
+  `ReorderableDragStartListener` hands the pointer to an
+  `ImmediateMultiDragGestureRecognizer`, whose acceptance threshold is
+  `computeHitSlop(kind)` — **`kPrecisePointerHitSlop` (1.0px) for
+  `PointerDeviceKind.mouse`**, not `kTouchSlop` (18px). So the whole-row handle
+  is not a test-only inconvenience; it is a real defect for anyone whose hand is
+  not perfectly still. The row is now inert and a 20×24 `_GripHandle` at its
+  trailing edge is the only drag surface. Related, and the only reason a
+  transparent grip is hit-testable at all: **`Container(color:)` builds a
+  `_RenderColoredBox` constructed `HitTestBehavior.opaque`**, while `Listener`
+  (which `ReorderableDragStartListener` is) defaults to `deferToChild`.
+- **Plan note 12's batch command would have shipped two screens disagreeing.**
+  It specified `--no-renames` on the batch `git log`, reasoning that `diff-tree`
+  defaults to no rename detection so the batch should match. Measured, both
+  halves are wrong in the same way: **`git log --raw` honours `diff.renames`
+  (default true since git 2.9, and settable per repo) while `git diff-tree --raw`
+  ignores it entirely.** Hardcoding `--no-renames` on one path only would have
+  put a column reading `2` beside a panel listing `1` on any repo that sets it.
+  The flag is now **always passed explicitly on both**, from one shared
+  `rawRenameFlag()`, and `parseRawRecords()` is shared too so the two cannot
+  drift. `BatchFileCountsIgnoreTheRepositorysDiffRenamesSetting` is the test that
+  makes this falsifiable — it sets `git config diff.renames false`, and the
+  omit-the-flag mutation goes red on exactly it.
+
+#### Measured, not reasoned
+
+- **`git diff-tree` silently ignores `--first-parent`.** On a two-parent merge,
+  `diff-tree -m --first-parent` emits **33** records = the first parent's 19 plus
+  the second's 14; the flag does nothing and `-m` prints both sides. The correct
+  spelling is **`--diff-merges=first-parent`** (git 2.31+), which gives 19 and
+  agrees with `git diff <first-parent> <merge>`. `git log` *does* honour
+  `--first-parent`, which is exactly why the wrong flag looks plausible. All
+  three `DiffService` call sites use the explicit form.
+- **The merge fix had to be all three call sites or none.** `changedFiles` (the
+  panel's list) and the two single-file patch paths were each empty for merges.
+  Fixing only the list would have produced 19 rows that each open an empty
+  diff — worse than an honest 0. Non-merge output is byte-identical before and
+  after (md5-checked on a normal commit and a root commit), so this is purely
+  additive.
+- **`git diff-tree --stdin` cannot carry a batch.** With `-m` it echoes the input
+  commit lines back and produces output only for the last one; the rest vanish
+  silently. The batch is `git log --no-walk --format=%x00COMMIT %H -r --raw -z`,
+  sliced on the `COMMIT ` header fields.
+- **`git log --no-walk` sorts by commit date, not by the order the oids were
+  given** (`--no-walk=unsorted` would preserve it). Nothing may assume the reply
+  is index-aligned with the request — which is why the payload echoes each oid.
+- **Absent is not zero.** A commit git never answered for must be *omitted* from
+  the file-count reply, never cached as `0`; `UnknownOidIsOmittedFromTheFileCountsReply`
+  pins it. On the Dart side `fileCount == null` renders a skeleton and `0` renders
+  a real zero, so the two states stay distinguishable on screen.
+
+#### The popover defect only the device tier could see
+
+`showGraphColumnsPopover` opened unconditionally below its anchor. On the 800×600
+default widget-test canvas that always fits, so every widget and integration test
+was green. On a real 1440×900 window the button sits at y=681, leaving 191px
+below — **the last two rows of the eight-row list land off-screen and cannot be
+clicked**. Found while writing the device test for something else entirely: the
+tap on `Changed files` kept missing, and the button's actual rect
+(`Rect.fromLTRB(950.6, 681.0, 978.6, 709.0)`) had to be recovered through a
+deliberate `expect(1, 2, reason: …)`, because `debugPrint` does not reach the
+piped output at device tier. The popover now compares the space above and below
+and flips. **A placement bug is invisible to any tier whose canvas is bigger than
+the real window.**
+
+#### Harness and process notes
+
+- **`pumpRealAppOn` now clears `graphColumns.*`** alongside `panelLayout.*`. Device
+  tests share the machine's real `shared_preferences`, so a column the developer
+  once dragged or switched off would silently change what every later device test
+  renders — the same class of failure as the splitter-ratio incident recorded in
+  the Tier 1 section.
+- **`integration_test/README.md` claimed `scripts/build_capi.sh` does not exist.**
+  It was added by `ab58282` (2026-08-13) while the README's last touch was
+  2026-08-21, so the doc was stale rather than wrong when written. Corrected in
+  place.
+- **Do not revert a mutation check with `git checkout -- <file>`.** Doing that here
+  discarded an entire uncommitted implementation, because the file's last commit
+  predated the work. Every subsequent mutation went `cp file "$SCRATCH/x.bak"` →
+  mutate → `cp` back. And every mutation script carries a hard
+  `assert s.count(old) == 1` before writing: two mutations in this round failed to
+  match after `clang-format` reflowed an argument list onto one line, and without
+  that assert both would have read as a passing green.
+
+#### Still open
+
+- **The refs column's default width sits in a measured 1.4px corridor** — floor 91
+  (spec's own `HEAD → main` example chip) against ceiling 92 (bisected against
+  `workspace_narrow_window_test.dart`'s twelve-lane 1280×720 case, the app's own
+  default window size). 92 was chosen. The consequence, recorded in
+  `graph_column.dart` rather than hidden: a HEAD **synced with its upstream**
+  needs ~103px, so its cloud icon clips and what remains is glow-without-cloud —
+  the signature spec assigns to the *opposite* state. Widening the column restores
+  it and the width is remembered, but the default reads wrong. Not fixable by
+  picking another default; 103 is past the ceiling. **Worth overruling if the
+  synced case matters more than the twelve-lane lock.**
+- **There is no column header row, so there is no obvious place to grab.** Spec's
+  mockup draws none, and adding one would have changed the page's appearance for a
+  feature the mockup does not show — so the resize surface is an invisible 8px
+  strip on the list itself, revealed only by the cursor on hover. That it does not
+  also eat the commit row's click rests on `HitTestBehavior.translucent` plus a
+  horizontal-drag recognizer *only* (a plain tap has no recognizer to win, so it
+  falls through) — a gesture-arena property, pinned by its own test because no
+  layout assertion can see it. **Discoverability is the accepted cost** of keeping
+  the mockup's appearance — and manual testing confirmed the cost is real: with no
+  static hint, the strip is hard to find and hard to grab. Tracked as **#99**,
+  deferred to the next spec revision, since every candidate fix (a header row, a
+  faint always-visible divider, a width field in the picker) changes the page's
+  appearance for something the mockup does not draw.
+- **The manual pass is not done**: dragging to reorder, dragging an edge,
+  restarting to confirm persistence, and clicking through a resize strip on a real
+  repository are interactive and were not performed here.

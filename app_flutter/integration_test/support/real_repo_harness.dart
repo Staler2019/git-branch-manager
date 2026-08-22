@@ -95,8 +95,13 @@ Future<SharedPreferences> pumpRealAppOn(
   // put a row's centre under the neighbouring pane and make an otherwise
   // correct `tester.tap` miss its hit test. Reset to the built-in defaults
   // so a test's geometry depends only on the code under test.
+  //
+  // `graphColumns.*` is cleared for the same reason and is the newer half of
+  // it: the History column set, their order and their dragged widths are all
+  // persisted app-wide, so a developer who once switched Author off would
+  // make an author-finding test fail on their machine and nowhere else.
   for (final String key in prefs.getKeys().where(
-    (String k) => k.startsWith('panelLayout.'),
+    (String k) => k.startsWith('panelLayout.') || k.startsWith('graphColumns.'),
   )) {
     await prefs.remove(key);
   }

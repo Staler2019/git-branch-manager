@@ -881,6 +881,45 @@ void Session::requestCommitMeta(std::vector<std::string> oids) {
     });
 }
 
+void Session::requestCommitFileCounts(std::vector<std::string> oids) {
+    // postFront, like requestCommitMeta(): both answer the same viewport, and
+    // a fast scroll should not leave the newest request behind a stale one.
+    sharedReadPool().postFront([this, oids = std::move(oids)]() {
+        std::vector<ObjectId> parsed;
+        parsed.reserve(oids.size());
+        for (const std::string& oid : oids) {
+            parsed.push_back(ObjectId::fromHex(oid));
+        }
+        const GitResult<std::vector<CommitFileCount>> result =
+            diffs_->commitFileCounts(parsed, DiffOptions{}, CancellationToken{});
+        if (!result) {
+            // Deliberately not an error event. This backs a column that is off
+            // by default and shows a number; failing the whole session's error
+            // channel because one viewport could not be counted would be
+            // louder than the feature is important. The caller sees the
+            // absence instead, which is the same thing it must already handle
+            // for an individual unanswerable oid.
+            callbacks_.emit(GBM_EVENT_COMMIT_FILE_COUNTS_READY, "[]");
+            return;
+        }
+        std::string payload = "[";
+        bool first = true;
+        for (const CommitFileCount& entry : *result) {
+            if (!first) {
+                payload += ',';
+            }
+            first = false;
+            payload += "{\"oid\":";
+            jsonAppendEscaped(payload, entry.commit.hex());
+            payload += ",\"fileCount\":";
+            payload += std::to_string(entry.fileCount);
+            payload += '}';
+        }
+        payload += ']';
+        callbacks_.emit(GBM_EVENT_COMMIT_FILE_COUNTS_READY, payload);
+    });
+}
+
 void Session::requestCommitFiles(std::string oid) {
     sharedReadPool().postFront([this, oid = std::move(oid)]() {
         const ObjectId commitOid = ObjectId::fromHex(oid);

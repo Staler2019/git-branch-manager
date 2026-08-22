@@ -17,6 +17,8 @@ Future<(ProviderContainer, WidgetTester)> _pumpSplitPane(
   required String storageId,
   ValueChanged<List<double>>? onFlexChanged,
   int? childCount,
+  double width = 600,
+  double height = 400,
 }) async {
   SharedPreferences.setMockInitialValues(<String, Object>{});
   final SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -42,8 +44,8 @@ Future<(ProviderContainer, WidgetTester)> _pumpSplitPane(
         home: Scaffold(
           body: Center(
             child: SizedBox(
-              width: 600,
-              height: 400,
+              width: width,
+              height: height,
               child: GbmSplitPane(
                 axis: axis,
                 spec: spec,
@@ -641,5 +643,99 @@ void main() {
         expect(find.text('main content only'), findsOneWidget);
       },
     );
+  });
+
+  // Extent mode used to build `SizedBox(width: _currentFlexes[0])` +
+  // Expanded straight from the persisted/default extent, never comparing it
+  // to the space it actually got: _availableExtent was read in the same
+  // LayoutBuilder but only consulted on the drag path. A container narrower
+  // than the stored extent therefore produced a hard RenderFlex overflow --
+  // reachable in the real app by shrinking the window below the sidebar
+  // width the user last dragged to.
+  group('extent mode in a container narrower than the stored extent', () {
+    testWidgets('does not overflow when the container is below the extent', (
+      tester,
+    ) async {
+      await _pumpSplitPane(
+        tester,
+        axis: Axis.horizontal,
+        spec: GbmLayout.splitterMainSidebar, // default 250, min 180
+        storageId: 'test.narrow.overflow',
+        width: 200,
+      );
+
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('leaves the second pane a non-zero width', (tester) async {
+      await _pumpSplitPane(
+        tester,
+        axis: Axis.horizontal,
+        spec: GbmLayout.splitterMainSidebar,
+        storageId: 'test.narrow.second',
+        width: 200,
+      );
+
+      // Clamping only to "not overflowing" could be satisfied by handing the
+      // fixed pane everything and the content pane nothing. The content pane
+      // is the window.
+      expect(
+        tester.getSize(find.byKey(const Key('pane-1'))).width,
+        greaterThan(0),
+      );
+    });
+
+    testWidgets('keeps the fixed pane inside the container', (tester) async {
+      await _pumpSplitPane(
+        tester,
+        axis: Axis.horizontal,
+        spec: GbmLayout.splitterMainSidebar,
+        storageId: 'test.narrow.fixed',
+        width: 200,
+      );
+
+      expect(
+        tester.getSize(find.byKey(const Key('pane-0'))).width,
+        lessThanOrEqualTo(200),
+      );
+    });
+
+    testWidgets('clamps a vertical extent splitter the same way', (
+      tester,
+    ) async {
+      await _pumpSplitPane(
+        tester,
+        axis: Axis.vertical,
+        spec: GbmLayout.splitterMainFiles, // default 186, min 140
+        storageId: 'test.narrow.vertical',
+        height: 150,
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(
+        tester.getSize(find.byKey(const Key('pane-1'))).height,
+        greaterThan(0),
+      );
+    });
+
+    testWidgets('a container wider than the extent is untouched', (
+      tester,
+    ) async {
+      // Control: the clamp must not fire when there is room, or the cases
+      // above would pass for the wrong reason.
+      await _pumpSplitPane(
+        tester,
+        axis: Axis.horizontal,
+        spec: GbmLayout.splitterMainSidebar,
+        storageId: 'test.narrow.control',
+        width: 600,
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(
+        tester.getSize(find.byKey(const Key('pane-0'))).width,
+        GbmLayout.splitterMainSidebar.defaultExtent,
+      );
+    });
   });
 }

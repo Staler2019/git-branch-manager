@@ -9,6 +9,13 @@ import '../data/repositories/panel_layout_repository.dart';
 import '../theme/gbm_theme.dart';
 import '../theme/tokens.dart';
 
+/// The divider's hit width. Wider than the 1px line it draws so the drag
+/// target is reachable; the extra 4px come out of the panes, which is why
+/// every extent calculation in this file has to subtract it. Previously
+/// written out three times (drag maths, divider build, and now the
+/// build-time clamp), which is one copy too many to keep in step.
+const double _kDividerWidth = 5.0;
+
 /// A resizable split pane widget supporting both extent mode (fixed first pane)
 /// and flex mode (weighted multi-pane layout).
 ///
@@ -196,9 +203,8 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
       final List<double> defaultRatios = widget.spec.flexRatio!;
       final double flexSum = _currentFlexes.reduce((a, b) => a + b);
       final int paneCount = defaultRatios.length;
-      final double dividerWidth = 5.0;
       final double availableFlexSpace =
-          _availableExtent - (paneCount - 1) * dividerWidth;
+          _availableExtent - (paneCount - 1) * _kDividerWidth;
       final double pixelsPerFlexUnit = availableFlexSpace / flexSum;
 
       final double flexDelta = deltaPixels / pixelsPerFlexUnit;
@@ -271,7 +277,6 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
   }
 
   Widget _buildDivider(int dividerIndex) {
-    const double dividerWidth = 5.0;
     const double dividerVisualWidth = 1.0;
     final bool isHovered = _hoveredDividers.contains(dividerIndex);
 
@@ -310,7 +315,7 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
             onDoubleTap: _resetToDefault,
             behavior: HitTestBehavior.opaque,
             child: Container(
-              width: dividerWidth,
+              width: _kDividerWidth,
               color: Colors.transparent,
               child: Center(
                 child: Container(
@@ -354,7 +359,7 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
             onDoubleTap: _resetToDefault,
             behavior: HitTestBehavior.opaque,
             child: Container(
-              height: dividerWidth,
+              height: _kDividerWidth,
               color: Colors.transparent,
               child: Center(
                 child: Container(
@@ -391,6 +396,21 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
     widget.onFlexChanged?.call(_currentFlexes);
   }
 
+  /// Extent mode's fixed pane width/height for this build -- the persisted
+  /// value, reduced if it no longer fits. See the call site for why the
+  /// filling pane is the one held at [GbmSplitterSpec.minExtent].
+  ///
+  /// Deliberately does **not** write back to `_currentFlexes`: a window that
+  /// is temporarily narrow must not overwrite the size the user dragged to,
+  /// or restoring the window would not restore the layout.
+  double _clampedFixedExtent() {
+    final double maxFixed = math.max(
+      0,
+      _availableExtent - _kDividerWidth - widget.spec.minExtent,
+    );
+    return _currentFlexes[0].clamp(0, maxFixed);
+  }
+
   @override
   Widget build(BuildContext context) {
     // View → Reset panel sizes (Ctrl/Cmd+0). See panelLayoutGenerationProvider
@@ -406,11 +426,28 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
             : constraints.maxHeight;
 
         if (widget.spec.defaultExtent != null) {
-          // Extent mode: two children, first is fixed, second fills
+          // Extent mode: two children, first is fixed, second fills.
+          //
+          // The stored extent has to be clamped against the space this build
+          // actually got. It is persisted (and defaulted) independently of
+          // the window, so a container narrower than it -- the user shrinks
+          // the window below the sidebar width they last dragged to -- used
+          // to hand SizedBox a width larger than the Row, i.e. a thrown
+          // RenderFlex overflow. _availableExtent was already being read
+          // here, but only the drag path consulted it.
+          //
+          // The clamp protects the *filling* pane, not the fixed one: it
+          // keeps at least spec.minExtent, and the fixed pane gives up
+          // whatever is left over. That is the right way round because the
+          // filling pane is the content the window exists to show, and the
+          // fixed pane (sidebar, log drawer) is the one with a toggle. When
+          // even that is impossible the fixed pane collapses to zero rather
+          // than overflowing.
+          final double clampedExtent = _clampedFixedExtent();
           if (widget.axis == Axis.horizontal) {
             return Row(
               children: <Widget>[
-                SizedBox(width: _currentFlexes[0], child: widget.children[0]),
+                SizedBox(width: clampedExtent, child: widget.children[0]),
                 _buildDivider(0),
                 Expanded(child: widget.children[1]),
               ],
@@ -421,7 +458,7 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
               children: <Widget>[
                 Expanded(child: widget.children[1]),
                 _buildDivider(0),
-                SizedBox(height: _currentFlexes[0], child: widget.children[0]),
+                SizedBox(height: clampedExtent, child: widget.children[0]),
               ],
             );
           }

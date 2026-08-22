@@ -57,6 +57,40 @@ void requestCommitMeta(
   ref.read(repoSessionProvider(identity).notifier).requestCommitMeta(missing);
 }
 
+/// How many files each commit changed, keyed by oid -- see
+/// [RepoSessionState.commitFileCountCache]. Populated by
+/// [requestCommitFileCounts]. A commit absent from this map has not been
+/// answered for; one present with 0 genuinely changed nothing.
+final ProviderFamily<Map<String, int>, RepoIdentity> commitFileCountProvider =
+    Provider.family<Map<String, int>, RepoIdentity>((ref, identity) {
+      return ref.watch(
+        repoSessionProvider(
+          identity,
+        ).select((state) => state.commitFileCountCache),
+      );
+    });
+
+/// Requests changed-file counts for whichever of `oids` are not already
+/// cached, exactly as [requestCommitMeta] does for metadata.
+///
+/// Only called when the Changed files column is switched on: it is off by
+/// default (spec's own GRAPH_COLS), so a user who never turns it on pays no
+/// git process for it at all.
+void requestCommitFileCounts(
+  WidgetRef ref,
+  RepoIdentity identity,
+  List<String> oids,
+) {
+  final Map<String, int> cached = ref.read(commitFileCountProvider(identity));
+  final List<String> missing = oids
+      .where((oid) => !cached.containsKey(oid))
+      .toList(growable: false);
+  if (missing.isEmpty) return;
+  ref
+      .read(repoSessionProvider(identity).notifier)
+      .requestCommitFileCounts(missing);
+}
+
 /// Changed files in a commit, selected out of [repoSessionProvider].
 final ProviderFamily<List<ChangedFile>, RepoIdentity> commitFilesProvider =
     Provider.family<List<ChangedFile>, RepoIdentity>((ref, identity) {

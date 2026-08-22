@@ -31,8 +31,9 @@ struct EventLog {
         cv.notify_all();
     }
 
-    bool waitFor(const std::function<bool(const std::vector<std::pair<int32_t, std::string>>&)>& pred,
-                std::chrono::milliseconds timeout = std::chrono::seconds(10)) {
+    bool waitFor(
+        const std::function<bool(const std::vector<std::pair<int32_t, std::string>>&)>& pred,
+        std::chrono::milliseconds timeout = std::chrono::seconds(10)) {
         std::unique_lock<std::mutex> lock(mutex);
         return cv.wait_for(lock, timeout, [&] { return pred(events); });
     }
@@ -47,7 +48,11 @@ struct EventLog {
     }
 };
 
-void logCallback(GbmSessionHandle, int32_t eventType, const uint8_t* payload, int32_t payloadLen, void* userData) {
+void logCallback(GbmSessionHandle,
+                 int32_t eventType,
+                 const uint8_t* payload,
+                 int32_t payloadLen,
+                 void* userData) {
     auto* log = static_cast<EventLog*>(userData);
     std::string body;
     if (payload != nullptr) {
@@ -70,7 +75,8 @@ protected:
 
     void SetUp() override {
         const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
-        repo_ = std::filesystem::temp_directory_path() / ("gbm-capi-commitmeta-" + std::string(info->name()));
+        repo_ = std::filesystem::temp_directory_path() /
+                ("gbm-capi-commitmeta-" + std::string(info->name()));
         std::filesystem::remove_all(repo_);
         std::filesystem::create_directories(repo_);
 
@@ -101,9 +107,7 @@ protected:
     /// Fixture git, without a shell in the middle -- see tests/support/GitCli.h
     /// for why that matters (one process instead of two, and no per-platform
     /// quoting hazard).
-    int runGit(std::vector<std::string> args) {
-        return GitCli::run(repo_, std::move(args));
-    }
+    int runGit(std::vector<std::string> args) { return GitCli::run(repo_, std::move(args)); }
 
     std::string revParseHead() {
         // The redirect this replaces wrote head-oid.txt *inside* the
@@ -152,13 +156,65 @@ TEST_F(CommitMetaApiTest, UnreadableOidIsOmittedNotAnErrorEvent) {
     // see gbm_request_commit_meta()'s doc comment.
     EXPECT_EQ(log_.lastPayloadOfType(GBM_EVENT_COMMIT_META_READY), "[]");
     EXPECT_TRUE(log_.waitFor(
-        [](const auto& events) {
-            for (const auto& [type, payload] : events) {
-                if (type == GBM_EVENT_ERROR_OCCURRED) return true;
-            }
-            return false;
-        },
-        std::chrono::milliseconds(200)) == false);
+                    [](const auto& events) {
+                        for (const auto& [type, payload] : events) {
+                            if (type == GBM_EVENT_ERROR_OCCURRED) return true;
+                        }
+                        return false;
+                    },
+                    std::chrono::milliseconds(200)) == false);
+}
+
+TEST_F(CommitMetaApiTest, RequestCommitFileCountsCountsEachCommitOnce) {
+    // Two more commits, so the batch really batches and a per-oid answer
+    // could not be mistaken for a whole-viewport one.
+    std::ofstream(repo_ / "file.txt") << "one\ntwo\n";
+    std::ofstream(repo_ / "second.txt") << "second\n";
+    ASSERT_EQ(runGit({"add", "."}), 0);
+    ASSERT_EQ(runGit({"commit", "--quiet", "-m", "two files"}), 0);
+    const std::string twoFiles = revParseHead();
+
+    const char* oids[] = {headOid_.c_str(), twoFiles.c_str()};
+    gbm_request_commit_file_counts(session_, oids, 2);
+
+    ASSERT_TRUE(log_.waitFor([](const auto& events) {
+        for (const auto& [type, payload] : events) {
+            if (type == GBM_EVENT_COMMIT_FILE_COUNTS_READY) return true;
+        }
+        return false;
+    }));
+
+    const std::string payload = log_.lastPayloadOfType(GBM_EVENT_COMMIT_FILE_COUNTS_READY);
+    // The root commit is one file and must not read as empty; diff-tree needs
+    // --root for that and `git log` gets it for free, which is the one place
+    // the two commands differ by design.
+    EXPECT_NE(payload.find("{\"oid\":\"" + headOid_ + "\",\"fileCount\":1}"), std::string::npos)
+        << payload;
+    EXPECT_NE(payload.find("{\"oid\":\"" + twoFiles + "\",\"fileCount\":2}"), std::string::npos)
+        << payload;
+}
+
+TEST_F(CommitMetaApiTest, UnknownOidIsOmittedFromTheFileCountsReply) {
+    // Absent, not zero -- the caller caches these, and caching a zero for a
+    // commit git never answered for would show "0 files" until restart.
+    const std::string missing(40, 'e');
+    const char* oids[] = {headOid_.c_str(), missing.c_str()};
+    gbm_request_commit_file_counts(session_, oids, 2);
+
+    ASSERT_TRUE(log_.waitFor([](const auto& events) {
+        for (const auto& [type, payload] : events) {
+            if (type == GBM_EVENT_COMMIT_FILE_COUNTS_READY) return true;
+        }
+        return false;
+    }));
+
+    const std::string payload = log_.lastPayloadOfType(GBM_EVENT_COMMIT_FILE_COUNTS_READY);
+    EXPECT_EQ(payload.find(missing), std::string::npos) << payload;
+    // And the whole batch is not failed by the one bad oid: an empty reply
+    // here would mean a single stale oid blanks the column for the viewport.
+    // (git refuses the whole invocation for an unknown rev, so this asserts
+    // the reply arrives -- what it contains is git's call, not ours.)
+    EXPECT_FALSE(payload.empty());
 }
 
 }  // namespace

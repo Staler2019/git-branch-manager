@@ -39,6 +39,8 @@
 #include "core/git/ops/WorktreeOps.h"
 
 #include <algorithm>
+#include <map>
+#include <sstream>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -448,6 +450,183 @@ TEST_F(RealRepoTest, HandlesAddedAndDeletedFilesInDiffs) {
     ASSERT_EQ((*files)->size(), 1u);
     EXPECT_EQ((*files)->at(0).kind, FileChangeKind::Deleted);
     EXPECT_EQ((*files)->at(0).path, "gone.txt");
+}
+
+TEST_F(RealRepoTest, ReportsAMergeCommitAgainstItsFirstParent) {
+    // `diff-tree` prints nothing at all for a merge unless told which parent
+    // to diff against, so before --diff-merges=first-parent this whole test
+    // saw an empty list and an empty patch -- the Changed files panel showed
+    // "0 files" for every merge in the repository.
+    //
+    // The fixture is built so that all three plausible implementations give
+    // three different answers, and only the right one gives 1:
+    //
+    //   * no --diff-merges at all      -> 0 files (the shipped bug)
+    //   * -m / --diff-merges=separate  -> 2 files (both parents concatenated)
+    //   * --diff-merges=first-parent   -> 1 file, side.txt
+    //
+    // `-m --first-parent` lands in the second bucket: diff-tree accepts
+    // --first-parent and silently ignores it. That trap is why the fixture
+    // makes the two parents contribute *different* paths rather than the
+    // same one -- with a shared path, "both parents" and "first parent only"
+    // would agree and the test could not tell them apart.
+    commitFile("base.txt", "base\n", "c1");
+
+    ASSERT_TRUE(run({"checkout", "--quiet", "-b", "side"}));
+    commitFile("side.txt", "from the side branch\n", "side commit");
+
+    ASSERT_TRUE(run({"checkout", "--quiet", "main"}));
+    commitFile("main.txt", "from main\n", "main commit");
+
+    // --no-ff is belt and braces: main has its own commit, so this is already
+    // a true merge, but a fast-forward would silently turn this into a
+    // non-merge test that passes for the wrong reason.
+    ASSERT_TRUE(run({"merge", "--quiet", "--no-ff", "-m", "merge side", "side"}));
+
+    auto head = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(head);
+    const ObjectId oid = ObjectId::fromHex(head->out);
+
+    auto parents = run({"rev-list", "--parents", "-n", "1", "HEAD"});
+    ASSERT_TRUE(parents);
+    // "<merge> <parent1> <parent2>" -- three hashes means it really merged.
+    EXPECT_EQ(std::count(parents->out.begin(), parents->out.end(), ' '), 2);
+
+    DiffService diffs(*runner_, paths_);
+    DiffOptions options;
+
+    auto files = diffs.changedFiles(oid, options, CancellationToken{});
+    ASSERT_TRUE(files) << files.error().message;
+    ASSERT_EQ((*files)->size(), 1u) << "a merge must diff against its first parent only";
+    EXPECT_EQ((*files)->at(0).path, "side.txt");
+    EXPECT_EQ((*files)->at(0).kind, FileChangeKind::Added);
+
+    // The other half. Listing the files while every one of them opens an
+    // empty diff would be worse than honestly reporting nothing, so the list
+    // and the patch are fixed together and asserted together.
+    auto diff = diffs.commitFileDiff(oid, "side.txt", options, CancellationToken{});
+    ASSERT_TRUE(diff) << diff.error().message;
+    ASSERT_EQ((*diff)->files.size(), 1u);
+    EXPECT_EQ((*diff)->files[0].addedLines, 1u);
+}
+
+TEST_F(RealRepoTest, BatchFileCountsAgreeWithThePerCommitList) {
+    // The Changed files column reads the batch count; clicking the row opens
+    // the panel, which reads changedFiles(). They run *different git
+    // subcommands*, so the only thing standing between them and contradicting
+    // each other on screen is this test.
+    //
+    // The rename commit is the case that matters most and the one the
+    // original plan for this work would have got wrong. Its batch command was
+    // specified with --no-renames "to match diff-tree's default", but
+    // changedFiles() does not run at diff-tree's default -- it passes
+    // --find-renames whenever DiffOptions::detectRenames, which is true. So
+    // the column would have said 2 (add + delete) beside a panel listing 1
+    // (a rename). Measured before the fix, not reasoned about.
+    //
+    // The reverse asymmetry is just as real and is why the flag is always
+    // passed explicitly rather than omitted for the false case: `git log` is
+    // porcelain and honours `diff.renames`, which has defaulted to *true*
+    // since git 2.9, while `diff-tree` is plumbing and ignores it entirely.
+    commitFile("base.txt", "l1\nl2\nl3\nl4\nl5\n", "c1");  // root
+
+    ASSERT_TRUE(run({"checkout", "--quiet", "-b", "side"}));
+    commitFile("side.txt", "side\n", "side commit");
+    ASSERT_TRUE(run({"checkout", "--quiet", "main"}));
+    commitFile("main.txt", "main\n", "main commit");
+    ASSERT_TRUE(run({"merge", "--quiet", "--no-ff", "-m", "merge side", "side"}));
+
+    ASSERT_TRUE(run({"mv", "base.txt", "moved.txt"}));
+    ASSERT_TRUE(run({"commit", "--quiet", "-m", "rename base"}));
+
+    // Oldest first: root, side, main, merge, rename.
+    auto listed = run({"rev-list", "--reverse", "--all"});
+    ASSERT_TRUE(listed);
+    std::vector<ObjectId> commits;
+    std::istringstream lines(listed->out);
+    for (std::string line; std::getline(lines, line);) {
+        if (!line.empty()) {
+            commits.push_back(ObjectId::fromHex(line));
+        }
+    }
+    ASSERT_EQ(commits.size(), 5u);
+
+    DiffService diffs(*runner_, paths_);
+    DiffOptions options;
+
+    auto counts = diffs.commitFileCounts(commits, options, CancellationToken{});
+    ASSERT_TRUE(counts) << counts.error().message;
+    ASSERT_EQ(counts->size(), commits.size());
+
+    // Keyed by oid, because `git log --no-walk` sorts by commit date rather
+    // than honouring the order it was given -- indexing into the result as if
+    // it mirrored the input would be a real bug that happened to pass here.
+    std::map<std::string, std::uint32_t> byOid;
+    for (const CommitFileCount& entry : *counts) {
+        byOid[entry.commit.hex()] = entry.fileCount;
+    }
+
+    for (const ObjectId& commit : commits) {
+        auto files = diffs.changedFiles(commit, options, CancellationToken{});
+        ASSERT_TRUE(files) << files.error().message;
+        ASSERT_TRUE(byOid.count(commit.hex())) << commit.hex() << " missing from the batch";
+        EXPECT_EQ(byOid[commit.hex()], (*files)->size())
+            << "batch and per-commit disagree for " << commit.hex();
+    }
+
+    // And the shapes are the ones the fixture set up, so a future change that
+    // made *both* paths wrong in the same way would still be caught.
+    const std::string rename = commits.back().hex();
+    EXPECT_EQ(byOid[rename], 1u) << "a rename is one file, not an add plus a delete";
+    EXPECT_EQ(byOid[commits.front().hex()], 1u) << "the root commit must not read as empty";
+}
+
+TEST_F(RealRepoTest, BatchFileCountsIgnoreTheRepositorysDiffRenamesSetting) {
+    // Why rawRenameFlag() never returns "" and the flag is never omitted.
+    //
+    // Omitting it passes the test above, because that fixture leaves
+    // `diff.renames` unset and git's porcelain default (true since 2.9)
+    // happens to agree with what changedFiles() asks diff-tree for. A user
+    // who has turned rename detection off in their own repository moves
+    // `git log` and does not move `diff-tree` -- so the column would read 2
+    // and the panel 1, for that user only, on their own machine. That is
+    // exactly the class of bug a fixture has to be built to reproduce rather
+    // than reasoned about, so this one sets the config.
+    commitFile("original.txt", "l1\nl2\nl3\nl4\nl5\n", "c1");
+    ASSERT_TRUE(run({"mv", "original.txt", "renamed.txt"}));
+    ASSERT_TRUE(run({"commit", "--quiet", "-m", "rename it"}));
+    ASSERT_TRUE(run({"config", "diff.renames", "false"}));
+
+    auto head = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(head);
+    const ObjectId oid = ObjectId::fromHex(head->out);
+
+    DiffService diffs(*runner_, paths_);
+    DiffOptions options;  // detectRenames defaults true -- the app's own setting wins.
+
+    auto files = diffs.changedFiles(oid, options, CancellationToken{});
+    ASSERT_TRUE(files) << files.error().message;
+    auto counts = diffs.commitFileCounts({oid}, options, CancellationToken{});
+    ASSERT_TRUE(counts) << counts.error().message;
+    ASSERT_EQ(counts->size(), 1u);
+
+    EXPECT_EQ((*files)->size(), 1u) << "diff-tree is plumbing and ignores diff.renames";
+    EXPECT_EQ(counts->at(0).fileCount, (*files)->size())
+        << "the batch must follow DiffOptions, not the repository's diff.renames";
+}
+
+TEST_F(RealRepoTest, BatchFileCountsOmitACommitGitCannotAnswerFor) {
+    // Absent, not zero: the caller has to be able to tell "this commit
+    // changed no files" from "this commit was never answered for", because
+    // the second is what a cache should not remember.
+    commitFile("a.txt", "one\n", "c1");
+    auto head = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(head);
+
+    DiffService diffs(*runner_, paths_);
+    auto counts = diffs.commitFileCounts({}, DiffOptions{}, CancellationToken{});
+    ASSERT_TRUE(counts);
+    EXPECT_TRUE(counts->empty()) << "an empty request must not run git at all";
 }
 
 TEST_F(RealRepoTest, DetectsAndReportsRenames) {

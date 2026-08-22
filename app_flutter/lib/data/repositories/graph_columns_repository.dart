@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/graph_column.dart';
 import '../../theme/theme_mode_provider.dart' show sharedPreferencesProvider;
 
 /// Persists graph column visibility, order, and width settings app-level
@@ -77,4 +78,235 @@ class GraphColumnsRepository {
 final Provider<GraphColumnsRepository> graphColumnsRepositoryProvider =
     Provider<GraphColumnsRepository>((ref) {
       return GraphColumnsRepository(ref.watch(sharedPreferencesProvider));
+    });
+
+/// The two columns spec page 02 item 16 pins open: "Graph 與 Message 固定
+/// 不可關". Enforced in the store rather than only in the picker's disabled
+/// checkbox -- a disabled control is an affordance, not an invariant, and a
+/// hand-edited or corrupt preferences file reaches the same state.
+const Set<String> kLockedGraphColumnIds = <String>{'graph', 'message'};
+
+/// Whether [columnId] is on, given a (possibly partial) [visibility] map.
+///
+/// An unseen column falls back to its own [GbmGraphColumnId.defaultVisible],
+/// **not** to a blanket `true`: spec's annotated layout is six columns on and
+/// two off (Committer, Changed files), and the map is partial on every
+/// existing install because the old picker wrote a key only when a column was
+/// toggled. A `?? true` fallback therefore does not mean "first run shows the
+/// spec's layout" -- it means every user gains two columns they never asked
+/// for. A user who *did* switch Committer on has `committer: true` stored and
+/// keeps it, so the fallback is migration-safe in both directions.
+///
+/// An id belonging to no known column keeps the blanket `true`; nothing
+/// renders it, and guessing `false` would silently hide a column added by a
+/// newer build whose enum this one has not caught up with.
+bool isGraphColumnVisible(Map<String, bool> visibility, String columnId) {
+  if (kLockedGraphColumnIds.contains(columnId)) return true;
+  final bool? stored = visibility[columnId];
+  if (stored != null) return stored;
+  return graphColumnById(columnId)?.defaultVisible ?? true;
+}
+
+/// Column visibility as live state rather than a value read once.
+///
+/// [GraphColumnsSelector] used to hold this map in its own `State` and write
+/// it straight to SharedPreferences. Nothing under `lib/` read it back on
+/// the render path, so toggling a column changed the stored preference and
+/// nothing on screen -- the orphan-wiring shape this repository's audits
+/// keep finding. A StateNotifier is what lets both the picker and
+/// CommitGraphView sit on one source; the shape mirrors
+/// [ChromeVisibilityNotifier], its closest sibling.
+class GraphColumnVisibilityNotifier extends StateNotifier<Map<String, bool>> {
+  GraphColumnVisibilityNotifier(this._repo) : super(_repo.readVisibility());
+
+  final GraphColumnsRepository _repo;
+
+  Future<void> setVisible(String columnId, bool visible) async {
+    if (kLockedGraphColumnIds.contains(columnId)) return;
+    final Map<String, bool> next = <String, bool>{...state, columnId: visible};
+    state = next;
+    await _repo.writeVisibility(next);
+  }
+}
+
+final StateNotifierProvider<GraphColumnVisibilityNotifier, Map<String, bool>>
+graphColumnVisibilityProvider =
+    StateNotifierProvider<GraphColumnVisibilityNotifier, Map<String, bool>>((
+      ref,
+    ) {
+      return GraphColumnVisibilityNotifier(
+        ref.watch(graphColumnsRepositoryProvider),
+      );
+    });
+
+/// The switched-off columns, in the shape `planCommitRowColumns` takes.
+/// Locked columns can never appear here, whatever the stored map says.
+///
+/// Iterates the *columns*, not the stored map's entries: a column the map
+/// never mentions is hidden whenever its [GbmGraphColumnId.defaultVisible] is
+/// false, and walking the entries alone can only ever report columns somebody
+/// has already toggled. That is the same walk [GraphColumnLayout.hiddenStorageIds]
+/// makes, deliberately -- two derivations of "which columns are off" is how
+/// the picker and the row stop agreeing.
+final Provider<Set<String>> hiddenGraphColumnsProvider = Provider<Set<String>>((
+  ref,
+) {
+  final Map<String, bool> visibility = ref.watch(graphColumnVisibilityProvider);
+  return <String>{
+    for (final GbmGraphColumnId id in GbmGraphColumnId.values)
+      if (!isGraphColumnVisible(visibility, id.storageId)) id.storageId,
+  };
+});
+
+/// Column order as live state.
+///
+/// Sibling of [GraphColumnVisibilityNotifier], and orphaned for the same
+/// reason until now: [GraphColumnsRepository.readOrder] had no caller on the
+/// render path at all.
+///
+/// State is always a fully resolved order -- every column exactly once, the
+/// two locked ones pinned to the front -- so the render path can index it
+/// without re-validating. [move] is the only transition; it re-resolves
+/// after applying, so an out-of-range or locked-slot drag degrades to a
+/// no-op rather than corrupting the list.
+class GraphColumnOrderNotifier extends StateNotifier<List<GbmGraphColumnId>> {
+  GraphColumnOrderNotifier(this._repo)
+    : super(resolveGraphColumnOrder(_repo.readOrder()));
+
+  final GraphColumnsRepository _repo;
+
+  /// Moves the column at [oldIndex] to [newIndex], both indices into the
+  /// **full** order, locked columns included.
+  ///
+  /// That is deliberately *not* the index space the picker's
+  /// `ReorderableListView` reports: it lists only the movable columns, so it
+  /// converts by adding the locked count before calling here (see
+  /// `graph_columns_selector.dart`'s `onReorderItem`). Keeping the full order
+  /// as this method's coordinate system is what lets the locked-slot guard
+  /// below exist at all -- an index space with no locked slots in it could
+  /// not express the refusal.
+  ///
+  /// Refused, as a no-op, when either index is out of range or either end
+  /// touches a locked slot: spec pins Graph and Message, and a `ReorderableListView`
+  /// that excludes them from its children is an affordance, not the invariant.
+  Future<void> move(int oldIndex, int newIndex) async {
+    final List<GbmGraphColumnId> current = state;
+    if (oldIndex < 0 || oldIndex >= current.length) return;
+    if (newIndex < 0 || newIndex >= current.length) return;
+    if (!current[oldIndex].isMovable) return;
+    if (!current[newIndex].isMovable) return;
+    if (oldIndex == newIndex) return;
+
+    final List<GbmGraphColumnId> next = <GbmGraphColumnId>[...current];
+    next.insert(newIndex, next.removeAt(oldIndex));
+
+    state = resolveGraphColumnOrder(<String>[
+      for (final GbmGraphColumnId id in next) id.storageId,
+    ]);
+    await _repo.writeOrder(<String>[
+      for (final GbmGraphColumnId id in state) id.storageId,
+    ]);
+  }
+}
+
+final StateNotifierProvider<GraphColumnOrderNotifier, List<GbmGraphColumnId>>
+graphColumnOrderProvider =
+    StateNotifierProvider<GraphColumnOrderNotifier, List<GbmGraphColumnId>>((
+      ref,
+    ) {
+      return GraphColumnOrderNotifier(
+        ref.watch(graphColumnsRepositoryProvider),
+      );
+    });
+
+/// Column widths as live state, with the write deliberately separated from
+/// the state change.
+///
+/// A resize drag calls [setWidth] on every frame; persisting there would
+/// write SharedPreferences at the frame rate. [commitWidths] is what the
+/// drag-end handler calls instead -- the same split
+/// `split_pane.dart` makes between its drag updates and its `_persist`.
+class GraphColumnWidthNotifier
+    extends StateNotifier<Map<GbmGraphColumnId, double>> {
+  GraphColumnWidthNotifier(this._repo)
+    : super(resolveGraphColumnWidths(_repo.readWidths()));
+
+  final GraphColumnsRepository _repo;
+
+  /// Sets [id]'s width, clamped to its own range. State only -- call
+  /// [commitWidths] once the gesture ends.
+  void setWidth(GbmGraphColumnId id, double width) {
+    if (!id.isResizable) return;
+    final double clamped = width.clamp(id.minWidth, id.maxWidth).toDouble();
+    if (state[id] == clamped) return;
+    state = <GbmGraphColumnId, double>{...state, id: clamped};
+  }
+
+  /// Persists the current widths. Only resizable columns are written: the
+  /// other two have no width of their own, and storing one would be a value
+  /// [resolveGraphColumnWidths] then has to ignore on the way back in.
+  Future<void> commitWidths() {
+    return _repo.writeWidths(<String, double>{
+      for (final MapEntry<GbmGraphColumnId, double> entry in state.entries)
+        if (entry.key.isResizable) entry.key.storageId: entry.value,
+    });
+  }
+}
+
+final StateNotifierProvider<
+  GraphColumnWidthNotifier,
+  Map<GbmGraphColumnId, double>
+>
+graphColumnWidthProvider =
+    StateNotifierProvider<
+      GraphColumnWidthNotifier,
+      Map<GbmGraphColumnId, double>
+    >((ref) {
+      return GraphColumnWidthNotifier(
+        ref.watch(graphColumnsRepositoryProvider),
+      );
+    });
+
+/// Order, width and visibility as one value.
+///
+/// The commit rows, the layout ladder and the resize strips all need the
+/// same three facts, and each deriving them separately is how the three
+/// drift apart. Everything downstream reads this.
+class GraphColumnLayout {
+  const GraphColumnLayout({
+    required this.order,
+    required this.widths,
+    required this.visibility,
+  });
+
+  /// Every column, in display order, locked ones first.
+  final List<GbmGraphColumnId> order;
+  final Map<GbmGraphColumnId, double> widths;
+  final Map<String, bool> visibility;
+
+  double widthOf(GbmGraphColumnId id) => widths[id] ?? id.defaultWidth;
+
+  bool isVisible(GbmGraphColumnId id) =>
+      isGraphColumnVisible(visibility, id.storageId);
+
+  /// [order] without the switched-off columns.
+  List<GbmGraphColumnId> get visibleOrder => <GbmGraphColumnId>[
+    for (final GbmGraphColumnId id in order)
+      if (isVisible(id)) id,
+  ];
+
+  /// The switched-off columns, in the shape `planCommitRowColumns` takes.
+  Set<String> get hiddenStorageIds => <String>{
+    for (final GbmGraphColumnId id in order)
+      if (!isVisible(id)) id.storageId,
+  };
+}
+
+final Provider<GraphColumnLayout> graphColumnLayoutProvider =
+    Provider<GraphColumnLayout>((ref) {
+      return GraphColumnLayout(
+        order: ref.watch(graphColumnOrderProvider),
+        widths: ref.watch(graphColumnWidthProvider),
+        visibility: ref.watch(graphColumnVisibilityProvider),
+      );
     });

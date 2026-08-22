@@ -45,24 +45,57 @@ class TopBar extends ConsumerWidget {
             icon: const Icon(Icons.arrow_back, size: 18),
             tooltip: 'Close repository',
           ),
-          Text(
-            repoName,
-            style: TextStyle(
-              fontSize: GbmTypography.textMd,
-              fontWeight: GbmTypography.weightSemibold,
-              color: colors.textPrimary,
+          // The repository name and state label are the only variable-width
+          // things in this bar, and both used to be non-flex Texts with no
+          // ellipsis. RenderFlex lays non-flex children out first and only
+          // then divides what is left, so a long repository name pushed the
+          // trailing controls straight off the right edge -- a thrown
+          // overflow in debug/test builds, not just a visual clip. Wrapping
+          // them in Flexible moves them out of the non-flex pass; the
+          // ellipsis is what makes that shrink legible.
+          //
+          // `Expanded` around the pair replaces the `Spacer` that used to sit
+          // after them. A Spacer is itself a flex child, so it would have
+          // competed for the same space and capped the name at its own share
+          // (a third) even on a wide window where the full name fits. Here
+          // the inner Row's default mainAxisSize.max leaves the same blank
+          // gap the Spacer produced, without taking a cut.
+          Expanded(
+            child: Row(
+              children: <Widget>[
+                // 4:1 -- the state label is a short fixed vocabulary
+                // (MERGING, REBASING, ...) and is also shown in the status
+                // bar, so it is the half that should yield first. The
+                // repository name has no second home in the window.
+                Flexible(
+                  flex: 4,
+                  child: Text(
+                    repoName,
+                    style: TextStyle(
+                      fontSize: GbmTypography.textMd,
+                      fontWeight: GbmTypography.weightSemibold,
+                      color: colors.textPrimary,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                  ),
+                ),
+                const SizedBox(width: GbmSpacing.space3),
+                if (repoState != null)
+                  Flexible(
+                    child: Text(
+                      repoState!.describe,
+                      style: TextStyle(
+                        fontSize: GbmTypography.textSm,
+                        color: colors.textSecondary,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                    ),
+                  ),
+              ],
             ),
           ),
-          const SizedBox(width: GbmSpacing.space3),
-          if (repoState != null)
-            Text(
-              repoState!.describe,
-              style: TextStyle(
-                fontSize: GbmTypography.textSm,
-                color: colors.textSecondary,
-              ),
-            ),
-          const Spacer(),
           if (isRefreshing)
             const SizedBox(
               width: 16,

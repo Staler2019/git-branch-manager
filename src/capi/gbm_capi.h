@@ -223,6 +223,13 @@ enum GbmEventType {
     /// OS or tell the user their file was saved, and neither is safe to do
     /// on a guess.
     GBM_EVENT_FILE_AT_REVISION_EXPORTED = 34,
+    /// payload: [{"oid": string, "fileCount": int}]. Reply to
+    /// gbm_request_commit_file_counts(). Best-effort like
+    /// GBM_EVENT_COMMIT_META_READY: an oid git could not answer for is simply
+    /// absent from the array rather than present with zero, so a caller can
+    /// tell "changed nothing" from "not answered" and cache only the former.
+    /// The array is **not** in the order requested.
+    GBM_EVENT_COMMIT_FILE_COUNTS_READY = 35,
 };
 
 typedef void (*GbmEventCallback)(GbmSessionHandle session,
@@ -897,6 +904,25 @@ GBM_API void gbm_request_blame(GbmSessionHandle session,
 GBM_API void gbm_request_commit_meta(GbmSessionHandle session,
                                      const char* const* oids,
                                      int32_t oidCount);
+
+/// Batch changed-file *counts* for `oids`, e.g. the rows currently visible in
+/// a scrolling commit list -- the History Changed files column's whole data
+/// source. One `git log --no-walk --raw` for the entire viewport, not one
+/// process per row, which is why this exists rather than the caller looping
+/// gbm_request_commit_files() (that one also overwrites the changed-files
+/// list the commit detail panel is showing).
+///
+/// The counts are guaranteed to equal the length of the list
+/// gbm_request_commit_files() returns for the same commit -- see
+/// DiffService::commitFileCounts()'s doc comment for the two things that
+/// guarantee rests on. Async: always fires
+/// GBM_EVENT_COMMIT_FILE_COUNTS_READY, never GBM_EVENT_ERROR_OCCURRED, since
+/// an unanswerable oid is dropped rather than failing the batch. Like
+/// gbm_request_commit_meta(), a newer request is not queued behind an older
+/// one.
+GBM_API void gbm_request_commit_file_counts(GbmSessionHandle session,
+                                            const char* const* oids,
+                                            int32_t oidCount);
 
 /// Commits that touched `path`, newest first, following renames the way
 /// `git log --follow` does. `startRevision` empty means HEAD. Async: fires

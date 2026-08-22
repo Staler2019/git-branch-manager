@@ -937,9 +937,17 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                         fontSize: GbmTypography.textXs,
                         color: colors.textSecondary,
                       ),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
                     ),
                   ),
+                  // Default TextButton padding plus its 64px minimum width
+                  // put the pair at ~150px, which does not leave the count
+                  // label anything at the sidebar's 180px minimum. The
+                  // buttons stay full-width targets vertically; only the
+                  // horizontal padding and the minimum are given up.
                   TextButton(
+                    style: _compactActionStyle,
                     onPressed: () => _selectionController.state =
                         const ListSelection<String>(),
                     child: Text(
@@ -951,6 +959,7 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                     ),
                   ),
                   TextButton(
+                    style: _compactActionStyle,
                     onPressed: _deleteSelected,
                     child: Text(
                       'Delete',
@@ -1089,14 +1098,24 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     );
   }
 
-  Widget _buildTreeNodes(List<BranchTreeNode> nodes, BuildContext context) {
+  Widget _buildTreeNodes(
+    List<BranchTreeNode> nodes,
+    BuildContext context, {
+    int depth = 0,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: nodes.map((node) => _buildTreeNode(node, context)).toList(),
+      children: nodes
+          .map((node) => _buildTreeNode(node, context, depth: depth))
+          .toList(),
     );
   }
 
-  Widget _buildTreeNode(BranchTreeNode node, BuildContext context) {
+  Widget _buildTreeNode(
+    BranchTreeNode node,
+    BuildContext context, {
+    int depth = 0,
+  }) {
     final RepoSessionState session = ref.watch(
       repoSessionProvider(widget.identity),
     );
@@ -1177,7 +1196,7 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
         ),
       );
     } else if (node is BranchTreeFolder) {
-      return _buildFolderNode(node, context);
+      return _buildFolderNode(node, context, depth: depth);
     }
     return const SizedBox.shrink();
   }
@@ -1195,7 +1214,29 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     });
   }
 
-  Widget _buildFolderNode(BranchTreeFolder folder, BuildContext context) {
+  /// How many folder levels still get the 12px indent. The sidebar's own
+  /// minimum is 180px (GbmLayout.sidebarMinWidth) and a leaf row already
+  /// spends ~93px of that on a checkbox, an icon and the actions button, so
+  /// an uncapped indent runs the branch name out of room after a handful of
+  /// levels -- and a branch leaf renders its *full* slash-separated name
+  /// anyway, so the indent is not the only thing expressing the hierarchy.
+  /// Past this depth the rows stay flush; expansion state still shows where
+  /// they sit.
+  static const int _kMaxIndentedDepth = 3;
+
+  /// Shared by the selection action bar's two TextButtons -- see the comment
+  /// at their call site for why the defaults do not fit a 180px sidebar.
+  static final ButtonStyle _compactActionStyle = TextButton.styleFrom(
+    padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
+    minimumSize: Size.zero,
+    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+  );
+
+  Widget _buildFolderNode(
+    BranchTreeFolder folder,
+    BuildContext context, {
+    int depth = 0,
+  }) {
     final colors = context.gbmColors;
     final isExpanded = _expandedFolders.contains(folder.folderName);
 
@@ -1233,6 +1274,13 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                         fontSize: GbmTypography.textSm,
                         color: colors.textSecondary,
                       ),
+                      // Without these the Text soft-wraps to a second line
+                      // inside a fixed-height rowHeightCompact (26px)
+                      // Container. That is a *cross-axis* overflow, which
+                      // RenderFlex does not report -- so it never threw, it
+                      // just silently painted over the neighbouring rows.
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
                     ),
                   ),
                 ),
@@ -1242,8 +1290,10 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
         ),
         if (isExpanded)
           Padding(
-            padding: const EdgeInsets.only(left: GbmSpacing.space3),
-            child: _buildTreeNodes(folder.children, context),
+            padding: EdgeInsets.only(
+              left: depth < _kMaxIndentedDepth ? GbmSpacing.space3 : 0,
+            ),
+            child: _buildTreeNodes(folder.children, context, depth: depth + 1),
           ),
       ],
     );

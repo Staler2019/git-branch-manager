@@ -8,9 +8,14 @@ temporary git repository created per test.
 ## Precondition
 
 The native library must be resolvable by `native_library.dart`'s candidate
-list. **`scripts/build_capi.sh` does not exist in this repo** -- that name
-appears in `native_library.dart`'s doc comment and in earlier revisions of
-this file, but no such script was ever added, so do not go looking for it.
+list. **`app_flutter/scripts/build_capi.sh` does now exist** -- it was added
+by `ab58282` (2026-08-13) alongside the macOS Runner's Xcode Run Script
+phase. This paragraph used to say the opposite ("no such script was ever
+added, so do not go looking for it") and was simply never revisited; it is
+corrected here rather than deleted, because the earlier claim is the reason
+`native_library.dart`'s doc comment mentioning the script reads as a
+dangling reference. Running it builds `--preset capi-only` and copies the
+result into candidate #3.
 
 What actually happens on macOS, observed while adding
 `multi_push_flow_test.dart`: `flutter test integration_test/<file> -d macos`
@@ -35,6 +40,7 @@ flutter test integration_test/conflict_flow_test.dart -d macos
 flutter test integration_test/context_menu_flows_test.dart -d macos
 flutter test integration_test/rename_branch_flow_test.dart -d macos
 flutter test integration_test/multi_push_flow_test.dart -d macos
+flutter test integration_test/commit_file_counts_test.dart -d macos
 ```
 
 (`-d linux` / `-d windows` on those platforms.)

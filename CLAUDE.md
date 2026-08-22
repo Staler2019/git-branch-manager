@@ -2182,15 +2182,50 @@ endpoints fall out for free (a complete walk ends at a root with no parents; a
 `--max-count` walk keeps its real parent and so becomes a boundary stub, which
 there is the *true* statement).
 
-**It is faithful for a structural reason, not because this repository's history
+~~**It is faithful for a structural reason, not because this repository's history
 happens to suit it.** `HistoryQuery::isLinearWalk()` requires **one** tip,
 `--first-parent` and `--no-merges` together: one tip walked first-parent visits
 exactly that tip's first-parent chain in order, so the `--no-merges` output is a
 *subsequence* of that chain and any two consecutive rows are still first-parent
-ancestor and descendant with only merges elided. Relax any of the three and it
-stops holding — two tips or `--all` interleave several chains, and without
-`--first-parent` every side branch is walked. That sentence is in the header so
-it is not re-derived from a sample.
+ancestor and descendant with only merges elided.~~ — **Corrected on sight of the
+running app**; the argument was sound and the feature built on it was wrong. See
+the next subsection.
+
+#### The straight line must still contain the merged-in work
+
+The first implementation read the ruling's 「no merge 的效果」 as `--first-parent`
+and set it alongside `--no-merges`. Running it produced the correction:
+「filter only one branch 要看到的是包含並進來的 commit，只是不寫 merge commit
+不會出現，的一條直線」. `--first-parent` does the opposite of that — it keeps the
+merge row's own line and discards everything that arrived *through* the merge.
+**Measured on this project's own `main`: 3 rows with `--first-parent --no-merges`
+against 442 with `--no-merges` alone**, and 485 unfiltered. The branch filter did
+not narrow the graph, it emptied it.
+
+`isLinearWalk()` is now **one tip + `--no-merges`**, with `--first-parent`
+neither required nor forbidden. The single line comes entirely from the bridge,
+not from narrowing the walk.
+
+**The subsequence argument dies with it, and there is no weaker version to
+keep.** Without `--first-parent`, even when a row's real parent *is* emitted it
+need not be the next row — topo order can interleave a side branch's commits
+between a trunk commit and its parent, and the bridge links to the interleaved
+row regardless. So the drawn segment means **"the next row"** and nothing else;
+anything wanting real edges must read an unfiltered snapshot. One property does
+survive: `toRevListArgs()` always emits `--topo-order` or `--date-order`, both of
+which guarantee a parent is never printed before its children, so a segment never
+points from an ancestor down to its own descendant. **That depends on the
+ordering flag staying unconditional.**
+
+`--topo-order` was kept over `--date-order` (which `HistoryQuery` already
+supports as a one-flag change): it groups a merged branch's commits at the point
+they landed rather than interleaving them by timestamp.
+
+**The RED test asserts presence, not count.** `GitIntegrationTest`'s fixture
+already had a commit on each side branch; those are exactly the rows
+`--first-parent` swallowed, so they are looked up by subject and asserted
+individually. A 4→6 row-count bump can go green for the wrong reason, and
+"the commits merged in are still there" *is* the requirement.
 
 #### The whole of `HistoryQuery` had never been exposed
 

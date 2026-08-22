@@ -168,18 +168,25 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
   bool _isGoneAndBulkSelectable(RefInfo branch) =>
       branch.isGone && !branch.isHead && branch.worktreePath.isEmpty;
 
-  /// Drops selected names that no longer exist (a branch was deleted or
-  /// renamed under the selection).
-  void _pruneSelection(List<RefInfo> branches) {
-    final Set<String> names = branches.map((b) => b.shortName).toSet();
+  /// Set while a prune is scheduled but has not run yet, so a burst of
+  /// rebuilds between the frame and its callback schedules exactly one.
+  bool _prunePending = false;
+
+  /// The selection with names that no longer exist dropped, or null when
+  /// every selected name is still live -- the early return that keeps this
+  /// from writing an equal value on every build and rebuilding forever.
+  ///
+  /// [names] is the *short* names of the merged local + remote-only list, the
+  /// same keys the selection itself uses.
+  ListSelection<String>? _prunedSelection(Set<String> names) {
     final ListSelection<String> current = _selection;
     final List<String> survivors = <String>[
       for (final String name in current.items)
         if (names.contains(name)) name,
     ];
-    if (survivors.length == current.length) return;
+    if (survivors.length == current.length) return null;
     final String? anchor = current.anchor;
-    _selectionController.state = ListSelection<String>(
+    return ListSelection<String>(
       items: survivors,
       anchor: survivors.isEmpty
           ? null
@@ -187,6 +194,53 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                 ? anchor
                 : survivors.last),
     );
+  }
+
+  Set<String> _liveBranchNames() {
+    final RefSnapshot refs = ref.read(repoRefsProvider(widget.identity));
+    return mergeLocalAndRemoteBranches(
+      refs.localBranches,
+      refs.remoteBranches,
+    ).map((RefInfo b) => b.shortName).toSet();
+  }
+
+  /// Drops selected names that no longer exist (a branch was deleted or
+  /// renamed under the selection).
+  ///
+  /// **The write is deferred to after the frame, and must stay that way.**
+  /// This is called from `build()`, and `_selectionController.state = ...`
+  /// reaches Riverpod's `_debugCanModifyProviders`, which throws
+  /// `Tried to modify a provider while the widget tree was building`. That
+  /// throw is `assert`-guarded, so a release build strips it and lets the
+  /// write land mid-build instead -- the inconsistent-state risk the message
+  /// describes. Both halves are wrong; only the debug half is loud.
+  ///
+  /// Deferring rather than moving the whole thing to a `ref.listen` on
+  /// `repoRefsProvider` is deliberate. A listener covers *changes* only, and
+  /// `branchSelectionProvider` is not autoDispose, so a selection outlives
+  /// the repository it was made in and can already be stale at the first
+  /// build -- with no change event to hang a prune on. Deferring keeps one
+  /// path for all three entry cases (mount, refs change, identity change),
+  /// because `build()` always sees the current pair. Same trap, opposite
+  /// resolution, as `WorkspaceScreen._syncHistoryFilter`, which needed a
+  /// post-frame arm *alongside* its listener for exactly this reason.
+  ///
+  /// The callback recomputes from the then-current refs rather than from
+  /// [branches]: refs can change again between this frame and the callback,
+  /// and a captured list would write a stale answer.
+  void _pruneSelection(List<RefInfo> branches) {
+    if (_prunePending) return;
+    final Set<String> names = branches.map((b) => b.shortName).toSet();
+    if (_prunedSelection(names) == null) return;
+
+    _prunePending = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _prunePending = false;
+      if (!mounted) return;
+      final ListSelection<String>? next = _prunedSelection(_liveBranchNames());
+      if (next == null) return;
+      _selectionController.state = next;
+    });
   }
 
   Future<void> _createBranch() async {

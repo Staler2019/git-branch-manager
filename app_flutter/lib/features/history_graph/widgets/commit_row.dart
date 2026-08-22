@@ -14,7 +14,14 @@ import 'graph_column_painter.dart';
 import 'graph_date_format.dart';
 import 'graph_ref_chips.dart';
 
-const double kGraphLaneWidth = 18;
+/// Aliases [GbmLayout.graphLaneWidth] rather than repeating its value.
+///
+/// The token existed but had no reader anywhere under `lib/` -- this file's
+/// own literal was the live number, so a spec revision had two edit sites
+/// and only one of them mattered. Kept as a top-level name because the
+/// painter and every graph test already import it by this name; what
+/// changes is where the number comes from.
+const double kGraphLaneWidth = GbmLayout.graphLaneWidth;
 const double kCommitRowHeight = GbmSpacing.rowHeightComfortable;
 
 /// `graph · [HEAD] · hash · subject · author · date`, the design doc's

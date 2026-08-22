@@ -22,6 +22,7 @@ import 'package:gbm_flutter/data/models/signature.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/features/history_graph/commit_graph_view.dart';
+import 'package:gbm_flutter/features/history_graph/widgets/commit_row.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/theme_mode_provider.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
@@ -157,6 +158,27 @@ void main() {
       find.byKey(const ValueKey<String>('history-search-field')),
     );
     expect(size.height, GbmSpacing.rowHeightCompact);
+  });
+
+  testWidgets('a commit row is spec\'s compact row, not the comfortable one', (
+    tester,
+  ) async {
+    await _pumpAtPaneHeight(tester, 400);
+
+    // `spec_logic.js:428` is `const L0 = 15, L1 = 32, RH = 26`, and the
+    // mockup's rows are `height:26px` with a seven-row graph SVG at
+    // `height="182"` (= 7 x 26). The code shipped 34 (`rowHeightComfortable`)
+    // for a long time, so this is a conformance lock, not a preference.
+    //
+    // This test exists because changing the constant broke **nothing**: the
+    // whole suite stayed green at 34 and at 26 alike, since nothing else
+    // asserts an absolute row position. A change no test can see is a change
+    // the next person will undo by accident.
+    expect(kCommitRowHeight, GbmSpacing.rowHeightCompact);
+    expect(kCommitRowHeight, 26.0);
+
+    final Size row = tester.getSize(find.byType(CommitRow).first);
+    expect(row.height, 26.0);
   });
 
   testWidgets('a normal pane still renders the commit list', (tester) async {

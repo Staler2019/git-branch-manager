@@ -181,6 +181,7 @@ class CommitRow extends StatelessWidget {
     final String dateTooltip = formatGraphDateTooltip(time);
     final String subject = meta?.subject ?? '';
     final String author = meta?.author.name ?? '';
+    final String committer = meta?.committer.name ?? '';
 
     return Semantics(
       label:
@@ -210,6 +211,7 @@ class CommitRow extends StatelessWidget {
                 ..._columnChildren(context, column, colors, <String, String>{
                   'subject': subject,
                   'author': author,
+                  'committer': committer,
                   'date': date,
                   'dateTooltip': dateTooltip,
                 }),
@@ -295,10 +297,27 @@ class CommitRow extends StatelessWidget {
           ),
         ),
       ),
-      // Both land in their own commits later in this round. Until then they
-      // draw nothing rather than an empty slot -- spec starts both switched
-      // off, so this is only reachable by turning one on in the picker.
-      GbmGraphColumnId.committer => null,
+      // Styled like the author column but deliberately *without* its
+      // own-commit accent: spec singles out the Author column for that
+      // ("Author 欄以 accent 色加粗顯示"), and applying it here too would
+      // make a rebased or cherry-picked commit -- where the committer is you
+      // and the author is not -- claim to be yours in the wrong column.
+      GbmGraphColumnId.committer => SizedBox(
+        width: column.width,
+        child: meta == null
+            ? _SkeletonBlock(width: 80, colors: colors)
+            : Text(
+                text['committer']!,
+                style: TextStyle(
+                  fontSize: GbmTypography.textXs,
+                  color: colors.textSecondary,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+      ),
+      // Lands in its own commit later in this round. Until then it draws
+      // nothing rather than an empty slot -- spec starts it switched off, so
+      // this is only reachable by turning it on in the picker.
       GbmGraphColumnId.changedFiles => null,
     };
     if (child == null) return const <Widget>[];

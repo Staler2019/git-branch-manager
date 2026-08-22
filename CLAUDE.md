@@ -2380,6 +2380,52 @@ implementation detail. Both placement decisions are mutation-checked — droppin
 `fixedPaneEnd` reddens exactly the files case, swapping the inner children
 reddens exactly the other three.
 
+#### A provider written from `build()`, and why no tier saw it
+
+Found by the user running the app, not by any test: selecting branches and
+then letting a branch vanish under the selection threw
+`Tried to modify a provider while the widget tree was building` out of
+`SidebarPanel.build()`. `_pruneSelection` drops selected names that no longer
+exist and wrote `branchSelectionProvider` straight from `build()`.
+
+**Pre-existing, not this round's** — the call has been in `build()` since
+`4474d550` (the Tier 2+3 multi-select round). Fixed here anyway because this
+branch had already reworked the lines around it and a fix off `main` would
+have conflicted with the open PR.
+
+**The throw is `assert`-guarded**, which changes what the bug *is*:
+`riverpod/src/framework/element.dart` wraps `debugCanModifyProviders?.call()`
+in `assert(() { ... }(), '')`, so debug and profile builds crash the sidebar's
+build while a **release build strips the assert and lets the write land
+mid-frame** — the inconsistent-state risk the message describes. Check whether
+a Riverpod guard is assert-wrapped before writing "it crashes" in a report.
+
+**Why no tier saw it, and it is the fixture rule again.** Every existing
+sidebar test overrides `repoRefsProvider(...).overrideWithValue(...)` with one
+fixed snapshot, and **a snapshot that cannot shrink cannot make a selected
+branch vanish** — so no fixture in the suite could reach the code path at all.
+`repoRefsProvider` derives from the session (`branch_repository.dart:11`), so
+the new test simply leaves it un-overridden and lets `emit()` shrink it. Same
+family as the `hasTrackingInfo` fixture and the borrowed `_mergeState()`.
+
+**The fix defers the write rather than moving it to a listener**, and the
+reason is the trap this file already records twice: `ref.listen` covers
+*changes* only, and `branchSelectionProvider` is not autoDispose, so a
+selection outlives the repository it was made in and can already be stale at
+the first build with no change event to hang a prune on. Deferring to a
+post-frame callback keeps one path for all three entry cases (mount, refs
+change, identity change) because `build()` always sees the current pair. The
+callback recomputes from the then-current refs instead of the captured list,
+so a second refs change between frame and callback cannot write a stale
+answer. Mutation-checked in both directions: writing directly reddens all four
+failure arms, and simulating a listener-only fix (skip the first build)
+reddens **exactly** the two mount arms and leaves the shrink arms green.
+
+Checked while there, since `4474d550` created `commitSelectionProvider` and
+`branchSelectionProvider` symmetrically: there is **no commit-side twin** —
+`line_history_panel._goToCommit` and `blame_panel`'s "Go to commit" both write
+from callbacks. `working_copy_selection_state.prune()` has no caller at all.
+
 #### Harness and process notes
 
 - **A stale `gbm_flutter` instance blocks the whole device tier.** Every

@@ -226,7 +226,7 @@ void main() {
 
   group('column widths', () {
     test('a wider column is charged to the budget', () {
-      const double width = 600;
+      const double width = 700;
       final double base = _plan(width).subjectWidthFor(width);
       final double dragged = _plan(
         width,
@@ -247,7 +247,7 @@ void main() {
     // A dragged column can push the row past the message floor, and that has
     // to go through the same ladder rather than overflowing.
     test('dragging wide enough makes the ladder give a column up', () {
-      const double width = 500;
+      const double width = 600;
       expect(_plan(width).showDate, isTrue);
       expect(
         _plan(
@@ -258,21 +258,37 @@ void main() {
       );
     });
 
-    // Pins the deliberate exception in `_slotWidth`. Refs still lives off
-    // leftover space, so its budget slot is the reserve and not its stored
-    // 120px default; the next commit turns it into an ordinary fixed column
-    // and this expectation is what makes that change visible rather than
-    // silent.
-    test('refs is still charged its reserve, not its stored width', () {
-      const double width = 600;
+    // Refs is charged its own width now instead of a hardcoded reserve, so
+    // dragging it moves the budget like any other column. The previous
+    // commit deliberately exempted it so this change is attributable here.
+    test('refs is charged its stored width like any other column', () {
+      const double width = 700;
       final double base = _plan(width).subjectWidthFor(width);
       final double dragged = _plan(
         width,
-        widths: <GbmGraphColumnId, double>{GbmGraphColumnId.refs: 300},
+        widths: <GbmGraphColumnId, double>{GbmGraphColumnId.refs: 200},
       ).subjectWidthFor(width);
 
-      expect(dragged, base);
-      expect(_plan(2000).widthOf(GbmGraphColumnId.refs), kRefsReserveWidth);
+      expect(dragged, base - 140);
+      expect(
+        _plan(2000).widthOf(GbmGraphColumnId.refs),
+        GbmGraphColumnId.refs.defaultWidth,
+      );
+    });
+
+    // The cap is the column's width, full stop. It used to be the reserve
+    // plus everything spare, which made it differ between a wide and a
+    // merely-adequate window and made the drag a no-op on the former.
+    test('the chip cap is the column width, not the spare space', () {
+      expect(_plan(2000).maxRefsWidth, _plan(700).maxRefsWidth);
+      expect(_plan(2000).maxRefsWidth, GbmGraphColumnId.refs.defaultWidth);
+      expect(
+        _plan(
+          2000,
+          widths: <GbmGraphColumnId, double>{GbmGraphColumnId.refs: 200},
+        ).maxRefsWidth,
+        200,
+      );
     });
   });
 

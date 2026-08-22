@@ -23,7 +23,13 @@ import 'dart:math' as math;
 enum GbmGraphColumnId {
   graph('graph', 'Graph', defaultWidth: 0, minWidth: 0, maxWidth: 0),
   message('message', 'Message', defaultWidth: 0, minWidth: 0, maxWidth: 0),
-  refs('refs', 'Refs', defaultWidth: 120, minWidth: 48, maxWidth: 400),
+  // 60 is what the row has always reserved for the chip strip. Raising it
+  // to a roomier-looking 120 was measured against
+  // `workspace_narrow_window_test.dart`'s 1280x720 case -- the app's own
+  // default window size -- and cost the Author column on a twelve-lane
+  // history, so it stays where it is and the user drags it up when they
+  // want more.
+  refs('refs', 'Refs', defaultWidth: 60, minWidth: 48, maxWidth: 400),
   author('author', 'Author', defaultWidth: 110, minWidth: 48, maxWidth: 320),
   date('date', 'Date', defaultWidth: 80, minWidth: 48, maxWidth: 240),
   // Spec spells these "Commit hash" and "Changed files"; the picker they

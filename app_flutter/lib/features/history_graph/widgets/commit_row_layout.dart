@@ -32,18 +32,6 @@ const double kHashColumnWidth = 64;
 const double kAuthorColumnWidth = 110;
 const double kDateColumnWidth = 80;
 
-/// The smallest ref-chip strip worth drawing.
-///
-/// Refs have no natural fixed width -- one commit carries none and another
-/// carries four -- so the ladder reserves this much whenever the strip is on
-/// and caps the strip at whatever is actually spare. Giving refs a reserve
-/// rather than letting them live purely off leftover space is what makes the
-/// ladder monotonic: a purely budget-driven strip *reappears* as narrower
-/// widths knock out other columns and free space up, which is the opposite
-/// of a degradation ladder. `commit_row_layout_test.dart`'s monotonicity
-/// property is what caught that.
-const double kRefsReserveWidth = 60;
-
 /// The order the ladder surrenders columns in, cheapest to lose first.
 ///
 /// Least to most identifying. Changed files and Committer lead because spec
@@ -208,7 +196,7 @@ CommitRowColumnPlan planCommitRowColumns({
   final Set<String> hidden = hiddenByUser ?? kDefaultHiddenGraphColumnIds;
   final Map<GbmGraphColumnId, double> slots = <GbmGraphColumnId, double>{
     for (final GbmGraphColumnId id in GbmGraphColumnId.values)
-      id: _slotWidth(id, widths[id] ?? id.defaultWidth),
+      id: widths[id] ?? id.defaultWidth,
   };
 
   final Set<GbmGraphColumnId> visible = <GbmGraphColumnId>{
@@ -230,13 +218,32 @@ CommitRowColumnPlan planCommitRowColumns({
     visible.remove(id);
   }
 
-  // Whatever the strip did not need of its reserve, plus anything spare
-  // beyond the message floor, is what the chips may actually use.
+  // Refs is an ordinary column now: its width comes from what the user
+  // dragged to, the ladder budgets that width, and the strip is capped at
+  // it. Two other shapes were tried and rejected, both by measurement:
+  //
+  //  * Keeping the old elastic cap (reserve + everything spare beyond the
+  //    message floor) makes the drag a no-op wherever there is spare space
+  //    -- raising the reserve raises the cost by the same amount, so the sum
+  //    is algebraically independent of it. A column whose width cannot be
+  //    dragged on an ordinary window does not honour spec's "欄寬各自可拖曳
+  //    並記憶".
+  //  * Raising the default to a roomier 120 cost the Author column at the
+  //    app's own default 1280x720 on a twelve-lane history, which
+  //    `workspace_narrow_window_test.dart` exists to forbid.
+  //
+  // So the default stays at the 60 the row has always reserved -- no drop
+  // threshold moves -- and what changes is the reach on a *wide* window: a
+  // commit with several chips used to render them all and is now capped at
+  // 60 until the user drags the column wider (up to `refs.maxWidth`). That
+  // is a real, visible reduction and the unavoidable price of the setting:
+  // a column living off leftover space has no width to remember.
+  //
+  // The cap is a maximum, not a fixed box: the strip shrinks to its chips,
+  // so a commit carrying none leaves no hole between the message and the
+  // author -- which is how the mockup draws it (`spec_raw.html:1310-1313`,
+  // where the chip span has no width at all).
   final bool showRefs = visible.contains(GbmGraphColumnId.refs);
-  final double refsBudget = showRefs
-      ? slots[GbmGraphColumnId.refs]! +
-            math.max(0, leftover() - kMinSubjectWidth)
-      : 0;
 
   // Last resort: the graph column itself. lane 0 is drawn leftmost, so
   // clipping always takes the highest lanes and never HEAD or the trunk.
@@ -262,21 +269,9 @@ CommitRowColumnPlan planCommitRowColumns({
           ),
     ],
     graphWidth: resolvedGraphWidth,
-    maxRefsWidth: showRefs ? refsBudget : null,
+    maxRefsWidth: showRefs ? slots[GbmGraphColumnId.refs] : null,
     graphClipped: graphClipped,
   );
-}
-
-/// The width [id] occupies in the row's budget.
-///
-/// Refs is the one column whose budget slot is not its stored width: it still
-/// lives off leftover space (see [kRefsReserveWidth]), so charging it the
-/// full 120px default would shift every drop threshold. Turning it into an
-/// ordinary fixed column is the *next* commit's change, deliberately split
-/// out so a moved threshold is attributable to it and not to this rewiring.
-double _slotWidth(GbmGraphColumnId id, double stored) {
-  if (id == GbmGraphColumnId.refs) return kRefsReserveWidth;
-  return stored;
 }
 
 Map<GbmGraphColumnId, double> _slotWidths(CommitRowColumnPlan plan) {
@@ -288,10 +283,11 @@ Map<GbmGraphColumnId, double> _slotWidths(CommitRowColumnPlan plan) {
 
 /// The gap drawn to the right of [id].
 ///
-/// Mirrors `CommitRow`'s own child list, which is not uniform: hash and
-/// author are followed by `space3` and date and refs by `space2`. The two
-/// have to move together, so these are named here rather than assumed equal.
-double _gapAfter(GbmGraphColumnId id) {
+/// Not uniform, and deliberately so -- these are the paddings `CommitRow`
+/// has always drawn. `CommitRow` now calls this function rather than
+/// repeating the numbers, so the rendered row and the width budget cannot
+/// disagree about what a column costs.
+double gapAfterColumn(GbmGraphColumnId id) {
   switch (id) {
     case GbmGraphColumnId.hash:
     case GbmGraphColumnId.author:
@@ -300,12 +296,15 @@ double _gapAfter(GbmGraphColumnId id) {
     case GbmGraphColumnId.date:
     case GbmGraphColumnId.refs:
     case GbmGraphColumnId.changedFiles:
-      return GbmSpacing.space2;
     case GbmGraphColumnId.graph:
+      return GbmSpacing.space2;
     case GbmGraphColumnId.message:
       return 0;
   }
 }
+
+/// The gap after the last column, drawn once whatever the row shows.
+const double kRowTrailingGap = GbmSpacing.space3;
 
 /// Everything in a row that is not the subject or the ref chips, at
 /// [graphWidth]. Mirrors CommitRow's own child list; the two have to move
@@ -315,10 +314,14 @@ double _fixedCost(
   Map<GbmGraphColumnId, double> slots,
   double graphWidth,
 ) {
-  double total = graphWidth + GbmSpacing.space2;
+  double total = 0;
   for (final GbmGraphColumnId id in visible) {
-    if (id.isLocked) continue;
-    total += (slots[id] ?? id.defaultWidth) + _gapAfter(id);
+    if (id == GbmGraphColumnId.message) continue;
+    total +=
+        (id == GbmGraphColumnId.graph
+            ? graphWidth
+            : slots[id] ?? id.defaultWidth) +
+        gapAfterColumn(id);
   }
-  return total + GbmSpacing.space3;
+  return total + kRowTrailingGap;
 }

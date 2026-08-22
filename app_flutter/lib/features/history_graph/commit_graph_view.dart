@@ -20,6 +20,7 @@ import '../../theme/tokens.dart';
 import '../../widgets/prompt_text_dialog.dart';
 import 'commit_search.dart';
 import 'widgets/commit_row.dart';
+import 'widgets/commit_row_layout.dart';
 import 'widgets/graph_ref_chips.dart';
 
 /// The Fork-style commit graph, rendered from the real packed
@@ -399,6 +400,17 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) _requestVisibleMeta(constraints.maxHeight);
         });
+        // One plan for the whole list, from the width this build actually
+        // got. Deliberately not computed inside CommitRow: author and date
+        // are trailing fixed-width columns, so a row that decided for itself
+        // -- the HEAD row, say, which is also the one most likely to carry
+        // ref chips -- would stop lining up with its neighbours and the list
+        // would stop reading as a table.
+        final CommitRowColumnPlan plan = planCommitRowColumns(
+          availableWidth: constraints.maxWidth,
+          laneCount: graph.laneCount,
+          showGraph: query.isEmpty,
+        );
         return _SelectionShortcuts(
           focusNode: _listFocus,
           onSelectAll: () =>
@@ -426,6 +438,7 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
                 graph: graph,
                 rowIndex: index,
                 maxLane: graph.laneCount,
+                plan: plan,
                 meta: meta,
                 showGraph: query.isEmpty,
                 selected: oid.isNotEmpty && selection.contains(oid),

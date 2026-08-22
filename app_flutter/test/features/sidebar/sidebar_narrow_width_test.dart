@@ -92,7 +92,7 @@ const String _siblingLeaf = '$_longSegment/team/subsystem/sibling';
 final RefSnapshot _deepRefs = _refs(<RefInfo>[
   _branch('main', isHead: true, upstream: 'refs/remotes/origin/main'),
   _branch(
-    '$_longSegment/team/subsystem/$_longSegment',
+    _deepLeaf,
     upstream: 'refs/remotes/origin/x',
     ahead: 1234,
     behind: 5678,
@@ -226,10 +226,10 @@ void main() {
       // "No overflow" alone would pass with the name's Expanded collapsed to
       // zero by the non-flex tracking label beside it -- which is exactly
       // the failure this row had.
-      expect(
-        tester.getSize(find.text(_longSegment).last).width,
-        greaterThan(0),
-      );
+      // Deliberately the leaf, not `find.text(_longSegment).last` -- that
+      // matches the folder row (exact-text finder), so it would have
+      // asserted the wrong widget's width entirely.
+      expect(tester.getSize(find.text(_deepLeaf)).width, greaterThan(0));
     });
   });
 

@@ -10,6 +10,7 @@ import '../../../widgets/gbm_menu.dart';
 import '../../../widgets/gbm_row.dart';
 import '../../../widgets/gbm_tag_chip.dart';
 import 'commit_menu_items.dart';
+import 'commit_row_layout.dart';
 import 'graph_column_painter.dart';
 import 'graph_date_format.dart';
 import 'graph_ref_chips.dart';
@@ -41,6 +42,7 @@ class CommitRow extends StatelessWidget {
     required this.graph,
     required this.rowIndex,
     required this.maxLane,
+    this.plan = CommitRowColumnPlan.full,
     this.meta,
     this.selected = false,
     this.onTap,
@@ -71,6 +73,15 @@ class CommitRow extends StatelessWidget {
   final GraphSnapshotView graph;
   final int rowIndex;
   final int maxLane;
+
+  /// Which optional columns this row may draw at the list's current width.
+  ///
+  /// Computed once per list by CommitGraphView, never per row: author and
+  /// date are trailing fixed-width columns, so a row deciding on its own
+  /// would stop lining up with its neighbours. Defaults to
+  /// [CommitRowColumnPlan.full] so callers that do not measure -- widget
+  /// tests, mostly -- keep the pre-degradation layout.
+  final CommitRowColumnPlan plan;
 
   /// Null while [history_repository.dart]'s `commitMetaProvider` has not
   /// yet answered for this row's oid -- rendered as a skeleton placeholder
@@ -187,16 +198,24 @@ class CommitRow extends StatelessWidget {
             children: <Widget>[
               if (showGraph)
                 SizedBox(
-                  width: kGraphLaneWidth * (maxLane + 1),
+                  // plan.graphWidth is the natural width unless the row is
+                  // too narrow to hold it and the message floor at once, in
+                  // which case it is clipped -- lane 0 paints leftmost, so
+                  // what goes is always the highest lanes, never HEAD or the
+                  // trunk. ClipRect is what keeps that a clip rather than a
+                  // CustomPaint drawing outside its box.
+                  width: plan.graphWidth ?? kGraphLaneWidth * (maxLane + 1),
                   height: kCommitRowHeight,
-                  child: ExcludeSemantics(
-                    child: CustomPaint(
-                      painter: GraphRowPainter(
-                        row: row,
-                        rowIndex: rowIndex,
-                        graph: graph,
-                        laneWidth: kGraphLaneWidth,
-                        colors: context.gbmColors,
+                  child: ClipRect(
+                    child: ExcludeSemantics(
+                      child: CustomPaint(
+                        painter: GraphRowPainter(
+                          row: row,
+                          rowIndex: rowIndex,
+                          graph: graph,
+                          laneWidth: kGraphLaneWidth,
+                          colors: context.gbmColors,
+                        ),
                       ),
                     ),
                   ),
@@ -218,30 +237,31 @@ class CommitRow extends StatelessWidget {
                     ),
                   ),
                 ),
-              Text(
-                oidHex.isEmpty ? '' : oidHex.substring(0, 8),
-                style: TextStyle(
-                  fontFamily: GbmTypography.fontMono,
-                  fontSize: GbmTypography.textXs,
-                  color: colors.textTertiary,
+              if (plan.showHash) ...<Widget>[
+                SizedBox(
+                  // A slot, not the glyphs' intrinsic width: the test font
+                  // makes eight hex characters ~88px against ~53px on a
+                  // device, and the plan budgets kHashColumnWidth either way.
+                  width: kHashColumnWidth,
+                  child: Text(
+                    oidHex.isEmpty ? '' : oidHex.substring(0, 8),
+                    style: TextStyle(
+                      fontFamily: GbmTypography.fontMono,
+                      fontSize: GbmTypography.textXs,
+                      color: colors.textTertiary,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                  ),
                 ),
-              ),
-              const SizedBox(width: GbmSpacing.space3),
-              if (refChips.isNotEmpty)
+                const SizedBox(width: GbmSpacing.space3),
+              ],
+              if (plan.showRefs && refChips.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(right: GbmSpacing.space2),
-                  child: Wrap(
-                    spacing: 4,
-                    children: <Widget>[
-                      for (final RefChipData chip in refChips)
-                        GbmTagChip(
-                          label: chip.label,
-                          kind: chip.kind,
-                          isCurrent: chip.isCurrent,
-                          showCloudIcon: chip.showCloudIcon,
-                          isDashed: chip.isDashed,
-                        ),
-                    ],
+                  child: _RefChipStrip(
+                    chips: refChips,
+                    maxWidth: plan.maxRefsWidth,
                   ),
                 ),
               Expanded(
@@ -256,40 +276,44 @@ class CommitRow extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                       ),
               ),
-              const SizedBox(width: GbmSpacing.space3),
-              SizedBox(
-                width: 110,
-                child: meta == null
-                    ? _SkeletonBlock(width: 80, colors: colors)
-                    : Text(
-                        author,
-                        style: TextStyle(
-                          fontSize: GbmTypography.textXs,
-                          color: isOwnCommit
-                              ? colors.accent
-                              : colors.textSecondary,
-                          fontWeight: isOwnCommit
-                              ? GbmTypography.weightSemibold
-                              : null,
+              if (plan.showAuthor) ...<Widget>[
+                const SizedBox(width: GbmSpacing.space3),
+                SizedBox(
+                  width: kAuthorColumnWidth,
+                  child: meta == null
+                      ? _SkeletonBlock(width: 80, colors: colors)
+                      : Text(
+                          author,
+                          style: TextStyle(
+                            fontSize: GbmTypography.textXs,
+                            color: isOwnCommit
+                                ? colors.accent
+                                : colors.textSecondary,
+                            fontWeight: isOwnCommit
+                                ? GbmTypography.weightSemibold
+                                : null,
+                          ),
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        overflow: TextOverflow.ellipsis,
+                ),
+              ],
+              if (plan.showDate) ...<Widget>[
+                const SizedBox(width: GbmSpacing.space2),
+                SizedBox(
+                  width: kDateColumnWidth,
+                  child: Tooltip(
+                    message: dateTooltip,
+                    child: Text(
+                      date,
+                      style: TextStyle(
+                        fontSize: GbmTypography.textXs,
+                        color: colors.textTertiary,
                       ),
-              ),
-              const SizedBox(width: GbmSpacing.space2),
-              SizedBox(
-                width: 80,
-                child: Tooltip(
-                  message: dateTooltip,
-                  child: Text(
-                    date,
-                    style: TextStyle(
-                      fontSize: GbmTypography.textXs,
-                      color: colors.textTertiary,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
-              ),
+              ],
               const SizedBox(width: GbmSpacing.space3),
             ],
           ),
@@ -351,6 +375,57 @@ class _SkeletonBlock extends StatelessWidget {
         decoration: BoxDecoration(
           color: colors.surfaceSunken,
           borderRadius: BorderRadius.circular(2),
+        ),
+      ),
+    );
+  }
+}
+
+/// The ref chips, as one clipped line rather than a Wrap.
+///
+/// A Wrap in a Row receives an unbounded width constraint, so it never
+/// actually wrapped -- it just took as much as its chips wanted and pushed
+/// the rest of the row, which is one of the ways a commit row overflowed. A
+/// bounded, clipped Row renders identically whenever there is room and
+/// simply runs out of view when there is not. Wrapping is not an option
+/// either way: the row is a fixed kCommitRowHeight tall, so a second line of
+/// chips would overflow vertically instead.
+class _RefChipStrip extends StatelessWidget {
+  const _RefChipStrip({required this.chips, this.maxWidth});
+
+  final List<RefChipData> chips;
+
+  /// Null for "unbounded", which is what [CommitRowColumnPlan.full] means --
+  /// the pre-existing behaviour, kept for unmeasured callers.
+  final double? maxWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    final Widget strip = Row(
+      mainAxisSize: MainAxisSize.min,
+      spacing: 4,
+      children: <Widget>[
+        for (final RefChipData chip in chips)
+          GbmTagChip(
+            label: chip.label,
+            kind: chip.kind,
+            isCurrent: chip.isCurrent,
+            showCloudIcon: chip.showCloudIcon,
+            isDashed: chip.isDashed,
+          ),
+      ],
+    );
+    if (maxWidth == null) return strip;
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: maxWidth!),
+      child: ClipRect(
+        // OverflowBox is what lets the inner Row keep its natural width
+        // inside a narrower box; without it the Row would itself overflow
+        // and throw before ClipRect ever got to hide anything.
+        child: OverflowBox(
+          alignment: Alignment.centerLeft,
+          maxWidth: double.infinity,
+          child: strip,
         ),
       ),
     );

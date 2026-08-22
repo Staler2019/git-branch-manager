@@ -83,9 +83,17 @@ void main() {
   });
 
   group('hiddenGraphColumnsProvider', () {
-    test('is empty by default', () async {
+    // Was 'is empty by default'. It no longer is, and that is the fix rather
+    // than a weakened assertion: spec's GRAPH_COLS starts Committer and
+    // Changed files off (`on: false`), so a stored map that mentions neither
+    // -- which is every map, since the old picker only wrote a key on toggle
+    // -- must report them hidden. The set is still asserted exactly.
+    test('defaults to the two columns spec starts switched off', () async {
       final ProviderContainer c = await _container();
-      expect(c.read(hiddenGraphColumnsProvider), isEmpty);
+      expect(c.read(hiddenGraphColumnsProvider), <String>{
+        'committer',
+        'changedFiles',
+      });
     });
 
     test('collects the columns switched off', () async {
@@ -96,7 +104,12 @@ void main() {
       await n.setVisible('author', false);
       await n.setVisible('date', false);
 
-      expect(c.read(hiddenGraphColumnsProvider), <String>{'author', 'date'});
+      expect(c.read(hiddenGraphColumnsProvider), <String>{
+        'author',
+        'date',
+        'committer',
+        'changedFiles',
+      });
     });
 
     test('never reports a locked column as hidden', () async {
@@ -106,7 +119,10 @@ void main() {
             '{"graph":false,"message":false,"date":false}',
       });
 
-      expect(c.read(hiddenGraphColumnsProvider), <String>{'date'});
+      final Set<String> hidden = c.read(hiddenGraphColumnsProvider);
+      expect(hidden.contains('graph'), isFalse);
+      expect(hidden.contains('message'), isFalse);
+      expect(hidden, <String>{'date', 'committer', 'changedFiles'});
     });
   });
 }

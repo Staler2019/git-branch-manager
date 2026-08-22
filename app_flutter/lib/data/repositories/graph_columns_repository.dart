@@ -87,11 +87,24 @@ final Provider<GraphColumnsRepository> graphColumnsRepositoryProvider =
 const Set<String> kLockedGraphColumnIds = <String>{'graph', 'message'};
 
 /// Whether [columnId] is on, given a (possibly partial) [visibility] map.
-/// Unseen columns default to visible: a first run has an empty map and must
-/// show the spec's own annotated layout.
+///
+/// An unseen column falls back to its own [GbmGraphColumnId.defaultVisible],
+/// **not** to a blanket `true`: spec's annotated layout is six columns on and
+/// two off (Committer, Changed files), and the map is partial on every
+/// existing install because the old picker wrote a key only when a column was
+/// toggled. A `?? true` fallback therefore does not mean "first run shows the
+/// spec's layout" -- it means every user gains two columns they never asked
+/// for. A user who *did* switch Committer on has `committer: true` stored and
+/// keeps it, so the fallback is migration-safe in both directions.
+///
+/// An id belonging to no known column keeps the blanket `true`; nothing
+/// renders it, and guessing `false` would silently hide a column added by a
+/// newer build whose enum this one has not caught up with.
 bool isGraphColumnVisible(Map<String, bool> visibility, String columnId) {
   if (kLockedGraphColumnIds.contains(columnId)) return true;
-  return visibility[columnId] ?? true;
+  final bool? stored = visibility[columnId];
+  if (stored != null) return stored;
+  return graphColumnById(columnId)?.defaultVisible ?? true;
 }
 
 /// Column visibility as live state rather than a value read once.
@@ -128,13 +141,20 @@ graphColumnVisibilityProvider =
 
 /// The switched-off columns, in the shape `planCommitRowColumns` takes.
 /// Locked columns can never appear here, whatever the stored map says.
+///
+/// Iterates the *columns*, not the stored map's entries: a column the map
+/// never mentions is hidden whenever its [GbmGraphColumnId.defaultVisible] is
+/// false, and walking the entries alone can only ever report columns somebody
+/// has already toggled. That is the same walk [GraphColumnLayout.hiddenStorageIds]
+/// makes, deliberately -- two derivations of "which columns are off" is how
+/// the picker and the row stop agreeing.
 final Provider<Set<String>> hiddenGraphColumnsProvider = Provider<Set<String>>((
   ref,
 ) {
   final Map<String, bool> visibility = ref.watch(graphColumnVisibilityProvider);
   return <String>{
-    for (final MapEntry<String, bool> entry in visibility.entries)
-      if (!entry.value && !kLockedGraphColumnIds.contains(entry.key)) entry.key,
+    for (final GbmGraphColumnId id in GbmGraphColumnId.values)
+      if (!isGraphColumnVisible(visibility, id.storageId)) id.storageId,
   };
 });
 

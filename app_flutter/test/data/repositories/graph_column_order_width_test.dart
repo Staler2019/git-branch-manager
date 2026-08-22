@@ -258,6 +258,55 @@ void main() {
       },
     );
 
+    // The map is partial on every existing install: the old picker wrote a
+    // key only when a column was toggled, so nobody has one for these two.
+    // Whether they are on therefore rests entirely on the fallback.
+    test('an empty map hides exactly Committer and Changed files', () async {
+      final ProviderContainer c = await _container();
+      final GraphColumnLayout layout = c.read(graphColumnLayoutProvider);
+
+      expect(layout.hiddenStorageIds, <String>{'committer', 'changedFiles'});
+      expect(_ids(layout.visibleOrder), <String>[
+        'graph',
+        'message',
+        'refs',
+        'author',
+        'date',
+        'hash',
+      ]);
+    });
+
+    // Two derivations of "which columns are off" is how the picker and the
+    // row stop agreeing, so they are asserted equal rather than separately.
+    test(
+      'hiddenGraphColumnsProvider agrees with the layout, including defaults',
+      () async {
+        final ProviderContainer c = await _container(<String, Object>{
+          '${GraphColumnsRepository.keyPrefix}visibility': '{"date":false}',
+        });
+        expect(
+          c.read(hiddenGraphColumnsProvider),
+          c.read(graphColumnLayoutProvider).hiddenStorageIds,
+        );
+        expect(c.read(hiddenGraphColumnsProvider), <String>{
+          'date',
+          'committer',
+          'changedFiles',
+        });
+      },
+    );
+
+    // The other direction of the migration: someone who went looking for
+    // Committer and switched it on must keep it.
+    test('a stored true beats the default-hidden flag', () async {
+      final ProviderContainer c = await _container(<String, Object>{
+        '${GraphColumnsRepository.keyPrefix}visibility': '{"committer":true}',
+      });
+      final GraphColumnLayout layout = c.read(graphColumnLayoutProvider);
+      expect(layout.isVisible(GbmGraphColumnId.committer), isTrue);
+      expect(layout.hiddenStorageIds, <String>{'changedFiles'});
+    });
+
     test('visibleOrder drops hidden columns but keeps the order', () async {
       final ProviderContainer c = await _container(<String, Object>{
         '${GraphColumnsRepository.keyPrefix}visibility': '{"author":false}',

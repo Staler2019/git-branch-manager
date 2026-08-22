@@ -78,6 +78,32 @@ void main() {
     });
   });
 
+  // Spec's GRAPH_COLS carries an `on:` flag per column (`spec_logic.js:451`):
+  // six true, and Committer / Changed files false. Pinned here because the
+  // fallback in `isGraphColumnVisible` is the only thing standing between an
+  // existing install -- whose stored map mentions neither -- and two columns
+  // switching themselves on.
+  group('defaultVisible', () {
+    test('matches the spec GRAPH_COLS on-flags', () {
+      expect(
+        <GbmGraphColumnId>[
+          for (final GbmGraphColumnId id in GbmGraphColumnId.values)
+            if (!id.defaultVisible) id,
+        ],
+        <GbmGraphColumnId>[
+          GbmGraphColumnId.committer,
+          GbmGraphColumnId.changedFiles,
+        ],
+      );
+    });
+
+    test('a locked column is never default-hidden', () {
+      for (final GbmGraphColumnId id in GbmGraphColumnId.values) {
+        if (id.isLocked) expect(id.defaultVisible, isTrue, reason: id.name);
+      }
+    });
+  });
+
   group('locked columns', () {
     test('graph and message are locked, nothing else is', () {
       final Set<GbmGraphColumnId> locked = <GbmGraphColumnId>{

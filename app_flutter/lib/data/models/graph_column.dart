@@ -35,6 +35,7 @@ enum GbmGraphColumnId {
     defaultWidth: 110,
     minWidth: 48,
     maxWidth: 320,
+    defaultVisible: false,
   ),
   changedFiles(
     'changedFiles',
@@ -42,6 +43,7 @@ enum GbmGraphColumnId {
     defaultWidth: 64,
     minWidth: 40,
     maxWidth: 160,
+    defaultVisible: false,
   );
 
   const GbmGraphColumnId(
@@ -50,6 +52,7 @@ enum GbmGraphColumnId {
     required this.defaultWidth,
     required this.minWidth,
     required this.maxWidth,
+    this.defaultVisible = true,
   });
 
   /// The key this column uses inside every `graphColumns.*` map.
@@ -63,6 +66,18 @@ enum GbmGraphColumnId {
   final double defaultWidth;
   final double minWidth;
   final double maxWidth;
+
+  /// Whether the column is on when the stored visibility map says nothing
+  /// about it -- spec's `GRAPH_COLS` `on:` flag (`spec_logic.js:451`), where
+  /// Committer and Changed files are the only two that start off.
+  ///
+  /// This is not cosmetic. The old picker wrote a key only when a column was
+  /// *toggled*, so every existing install has a map that omits these two, and
+  /// a blanket `?? true` fallback switches them on for everybody the moment
+  /// they gain a render path. It also decides who pays for the Changed files
+  /// column's per-commit file counts: spec starts it off precisely so that
+  /// cost is opt-in.
+  final bool defaultVisible;
 
   /// Spec's "Graph 與 Message 固定不可關".
   ///

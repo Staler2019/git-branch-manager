@@ -166,6 +166,12 @@ void main() {
     await tester.tap(find.text('Message'), warnIfMissed: false);
     await tester.pumpAndSettle();
 
-    expect(container.read(hiddenGraphColumnsProvider), isEmpty);
+    // Deliberately not `isEmpty`: that only ever stood in for this claim
+    // while every other column happened to default visible, and Committer /
+    // Changed files now default off per spec's GRAPH_COLS. Naming the two
+    // columns under test is the stronger assertion, not the weaker one.
+    final Set<String> hidden = container.read(hiddenGraphColumnsProvider);
+    expect(hidden.contains('graph'), isFalse);
+    expect(hidden.contains('message'), isFalse);
   });
 }

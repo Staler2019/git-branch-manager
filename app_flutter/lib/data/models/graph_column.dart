@@ -58,20 +58,24 @@ enum GbmGraphColumnId {
   //    of horizontal padding plus 2px of border = 90.6px. (A widget test
   //    cannot check this: the Ahem test font makes every glyph one em wide
   //    and puts the same chip at 141.75px.)
-  //  * **Ceiling 173**, bisected against
+  //  * **Ceiling 287**, bisected against
   //    `workspace_narrow_window_test.dart`'s twelve-lane case at 1280x720 --
-  //    the app's own default window size, where the row gets ~632px. At 174
-  //    the ladder starts giving up the Author column there, which that test
-  //    exists to forbid.
+  //    the app's own default window size, where the row gets exactly 834px.
+  //    At 288 the ladder starts giving up the Date column there, which that
+  //    test exists to forbid.
   //
-  // **That ceiling moved twice in one round, and only the second move made
-  // it roomy.** It was 92 while the lane pitch was 18 (twelve lanes cost
+  // **That ceiling has moved three times, and 104 stopped being near it at
+  // the second.** It was 92 while the lane pitch was 18 (twelve lanes cost
   // `18 x 13 = 234`), then 105 once the pitch became spec's 17 (`17 x 13 =
   // 221`) -- a corridor 91..105. Then the Graph column gained a 153px cap,
-  // which is what actually pays for the headroom: twelve lanes now cost 153
-  // rather than 221, and 68 of those 68px land here. **104 is therefore not
-  // the ceiling any more and is not chosen for being near one** -- it is
-  // `ceil(103.1)`, the width of the one chip below.
+  // which is what paid for the headroom: twelve lanes now cost 153 rather
+  // than 221, and all 68 of those px land here, taking the ceiling to 173.
+  // Then History's panes were recomposed to spec (Changed files right,
+  // Commit detail below), so the commit list stopped losing 38% of its
+  // *width* to the detail pane and went from ~632px to 834px -- ceiling
+  // 287. **104 is therefore nowhere near the ceiling and is not chosen for
+  // being near one** -- it is `ceil(103.1)`, the width of the one chip
+  // below.
   //
   // What that bought is a defect closed rather than merely more room. At 92 a
   // HEAD **synced with its upstream** did not fit: that chip is `HEAD → main`
@@ -82,11 +86,13 @@ enum GbmGraphColumnId {
   // `spec_raw.html:1392`). 104 is `ceil(103.1)`, so the synced chip now
   // renders whole at the default width.
   //
-  // Note what the default still gives up at that window: **Date**. That is
-  // pre-existing and not a cost of widening refs -- the ladder dropped it
-  // when the row cost 69px more than it does now -- but it is the reason
-  // `workspace_narrow_window_test.dart`'s twelve-lane case asserts Author
-  // and hash rather than every column.
+  // The default now gives up **nothing** at that window. It did give up Date
+  // while the commit list was ~632px, and that was never a cost of widening
+  // refs -- the ladder had dropped it before refs moved at all. The pane
+  // recomposition took the list to 834px and Date came back, which is why
+  // `workspace_narrow_window_test.dart`'s twelve-lane case asserts Date
+  // alongside Author and hash. Read its own comment before trusting its
+  // title: that assertion set has been right, then wrong, then right again.
   //
   // Anything longer than a four-character branch name still clips at the
   // default and needs a drag -- up to `maxWidth`, and remembered after.

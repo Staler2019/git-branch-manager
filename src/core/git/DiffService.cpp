@@ -116,7 +116,7 @@ GitResult<DiffService::ChangedFilesPtr> DiffService::changedFiles(const ObjectId
         args.emplace_back("--find-renames");
     }
     if (options.firstParentOnly) {
-        args.emplace_back("--first-parent");
+        args.emplace_back("--diff-merges=first-parent");
     }
     args.push_back(commit.hex());
 
@@ -216,7 +216,7 @@ GitResult<DiffService::ParsedDiffPtr> DiffService::commitDiff(const ObjectId& co
         args.push_back(std::move(flag));
     }
     if (options.firstParentOnly) {
-        args.emplace_back("--first-parent");
+        args.emplace_back("--diff-merges=first-parent");
     }
     args.push_back(commit.hex());
 
@@ -252,7 +252,7 @@ GitResult<DiffService::ParsedDiffPtr> DiffService::commitFileDiff(const ObjectId
         args.push_back(std::move(flag));
     }
     if (options.firstParentOnly) {
-        args.emplace_back("--first-parent");
+        args.emplace_back("--diff-merges=first-parent");
     }
     args.push_back(commit.hex());
     args.emplace_back("--");

@@ -36,7 +36,25 @@ struct DiffOptions {
     bool ignoreWhitespace = false;
     bool ignoreEolOnly = false;  ///< Hides CRLF-only noise, common on Windows.
     bool detectRenames = true;
-    bool firstParentOnly = true;  ///< For merges: diff against the first parent.
+    /// For merges: diff against the first parent (`--diff-merges=first-parent`,
+    /// needs git 2.31+). Without it git's default applies and `diff-tree`
+    /// prints *nothing at all* for a merge -- an empty changed-file list and
+    /// an empty patch, which is what this repo shipped before.
+    ///
+    /// Note `--first-parent` is **not** the flag: `diff-tree` accepts it and
+    /// silently ignores it. Measured here on merge `d2010dd`: with
+    /// `--first-parent` the raw output is empty, with
+    /// `--diff-merges=first-parent` it is the same 19 paths
+    /// `git diff <first-parent> <merge>` reports. `git log` is the command
+    /// that honours `--first-parent`; see `HistoryProvider`'s own flag, which
+    /// is a different setting on a different command.
+    ///
+    /// Setting this false does not switch to "show every parent" -- it
+    /// restores git's default, i.e. the empty-for-merges behaviour above. No
+    /// caller sets it false; a caller that wanted both sides would need
+    /// `--diff-merges=separate` and a consumer prepared for one path to
+    /// appear once per parent.
+    bool firstParentOnly = true;
 
     /// Rename detection is quadratic in changed paths; above this many it is
     /// switched off so a sweeping refactor commit still opens.

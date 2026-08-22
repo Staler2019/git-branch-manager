@@ -450,6 +450,64 @@ TEST_F(RealRepoTest, HandlesAddedAndDeletedFilesInDiffs) {
     EXPECT_EQ((*files)->at(0).path, "gone.txt");
 }
 
+TEST_F(RealRepoTest, ReportsAMergeCommitAgainstItsFirstParent) {
+    // `diff-tree` prints nothing at all for a merge unless told which parent
+    // to diff against, so before --diff-merges=first-parent this whole test
+    // saw an empty list and an empty patch -- the Changed files panel showed
+    // "0 files" for every merge in the repository.
+    //
+    // The fixture is built so that all three plausible implementations give
+    // three different answers, and only the right one gives 1:
+    //
+    //   * no --diff-merges at all      -> 0 files (the shipped bug)
+    //   * -m / --diff-merges=separate  -> 2 files (both parents concatenated)
+    //   * --diff-merges=first-parent   -> 1 file, side.txt
+    //
+    // `-m --first-parent` lands in the second bucket: diff-tree accepts
+    // --first-parent and silently ignores it. That trap is why the fixture
+    // makes the two parents contribute *different* paths rather than the
+    // same one -- with a shared path, "both parents" and "first parent only"
+    // would agree and the test could not tell them apart.
+    commitFile("base.txt", "base\n", "c1");
+
+    ASSERT_TRUE(run({"checkout", "--quiet", "-b", "side"}));
+    commitFile("side.txt", "from the side branch\n", "side commit");
+
+    ASSERT_TRUE(run({"checkout", "--quiet", "main"}));
+    commitFile("main.txt", "from main\n", "main commit");
+
+    // --no-ff is belt and braces: main has its own commit, so this is already
+    // a true merge, but a fast-forward would silently turn this into a
+    // non-merge test that passes for the wrong reason.
+    ASSERT_TRUE(run({"merge", "--quiet", "--no-ff", "-m", "merge side", "side"}));
+
+    auto head = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(head);
+    const ObjectId oid = ObjectId::fromHex(head->out);
+
+    auto parents = run({"rev-list", "--parents", "-n", "1", "HEAD"});
+    ASSERT_TRUE(parents);
+    // "<merge> <parent1> <parent2>" -- three hashes means it really merged.
+    EXPECT_EQ(std::count(parents->out.begin(), parents->out.end(), ' '), 2);
+
+    DiffService diffs(*runner_, paths_);
+    DiffOptions options;
+
+    auto files = diffs.changedFiles(oid, options, CancellationToken{});
+    ASSERT_TRUE(files) << files.error().message;
+    ASSERT_EQ((*files)->size(), 1u) << "a merge must diff against its first parent only";
+    EXPECT_EQ((*files)->at(0).path, "side.txt");
+    EXPECT_EQ((*files)->at(0).kind, FileChangeKind::Added);
+
+    // The other half. Listing the files while every one of them opens an
+    // empty diff would be worse than honestly reporting nothing, so the list
+    // and the patch are fixed together and asserted together.
+    auto diff = diffs.commitFileDiff(oid, "side.txt", options, CancellationToken{});
+    ASSERT_TRUE(diff) << diff.error().message;
+    ASSERT_EQ((*diff)->files.size(), 1u);
+    EXPECT_EQ((*diff)->files[0].addedLines, 1u);
+}
+
 TEST_F(RealRepoTest, DetectsAndReportsRenames) {
     commitFile("original.txt", "line1\nline2\nline3\nline4\nline5\n", "c1");
     ASSERT_TRUE(run({"mv", "original.txt", "renamed.txt"}));

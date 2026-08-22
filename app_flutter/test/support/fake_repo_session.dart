@@ -664,6 +664,18 @@ class FakeRepoSessionController extends RepoSessionController {
     );
   }
 
+  /// Recorded, not no-opped: without this override the real method hits its
+  /// own `_session == nullptr` guard and silently returns, so `commandLog`
+  /// could not tell "correctly gated off by an invisible column" from "never
+  /// wired up at all" -- which is exactly the distinction the Changed files
+  /// column's visible-gate test turns on.
+  @override
+  void requestCommitFileCounts(List<String> oids) {
+    commandLog.add(
+      FakeCommand('requestCommitFileCounts', <String, Object?>{'oids': oids}),
+    );
+  }
+
   @override
   void startBisect({
     String badRef = '',

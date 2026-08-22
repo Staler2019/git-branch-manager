@@ -52,6 +52,7 @@ abstract final class GbmEventType {
   static const int compareWithWorkingCopyReady = 32;
   static const int originalOperationMessageReady = 33;
   static const int fileAtRevisionExported = 34;
+  static const int commitFileCountsReady = 35;
 }
 
 /// `void (*)(GbmSessionHandle, int32_t, const uint8_t*, int32_t, void*)`.
@@ -673,6 +674,19 @@ typedef _RequestCommitMetaNative =
       Int32 oidCount,
     );
 typedef RequestCommitMetaDart =
+    void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> oids,
+      int oidCount,
+    );
+
+typedef _RequestCommitFileCountsNative =
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> oids,
+      Int32 oidCount,
+    );
+typedef RequestCommitFileCountsDart =
     void Function(
       Pointer<Void> session,
       Pointer<Pointer<Utf8>> oids,
@@ -1478,6 +1492,11 @@ class GbmBindings {
           .lookupFunction<_RequestCommitMetaNative, RequestCommitMetaDart>(
             'gbm_request_commit_meta',
           ),
+      requestCommitFileCounts = library
+          .lookupFunction<
+            _RequestCommitFileCountsNative,
+            RequestCommitFileCountsDart
+          >('gbm_request_commit_file_counts'),
       requestCommitFiles = library
           .lookupFunction<_RequestCommitFilesNative, RequestCommitFilesDart>(
             'gbm_request_commit_files',
@@ -1837,6 +1856,7 @@ class GbmBindings {
   final CancelCredentialDart cancelCredential;
   final RequestBlameDart requestBlame;
   final RequestCommitMetaDart requestCommitMeta;
+  final RequestCommitFileCountsDart requestCommitFileCounts;
   final RequestCommitFilesDart requestCommitFiles;
   final RequestCommitFileDiffDart requestCommitFileDiff;
   final RequestCompareRefsDart requestCompareRefs;

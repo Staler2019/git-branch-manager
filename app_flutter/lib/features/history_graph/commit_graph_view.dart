@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../actions/gbm_selection_gesture.dart';
 import '../../data/models/commit_meta.dart';
+import '../../data/models/graph_column.dart';
 import '../../data/models/graph_snapshot.dart';
 import '../../data/models/list_selection.dart';
 import '../../data/models/ref_snapshot.dart';
@@ -133,10 +134,23 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
   /// Skips oids already cached (see `requestCommitMeta`'s own dedup), so
   /// this can be called freely on every scroll tick and every rebuild
   /// without turning a fast scroll into a `cat-file` request storm.
+  ///
+  /// The file-count request is gated on the Changed files column being
+  /// visible, and the gate is read *here* rather than latched at mount:
+  /// switching the column on rebuilds this widget, which re-runs the
+  /// post-frame callback below, so the rows already on screen are counted
+  /// immediately instead of staying blank until the next scroll.
   void _requestVisibleMeta(double viewportHeight) {
     final List<String> oids = _visibleOids(viewportHeight);
     if (oids.isEmpty) return;
     requestCommitMeta(ref, widget.identity, oids);
+    final bool wantsFileCounts = isGraphColumnVisible(
+      ref.read(graphColumnVisibilityProvider),
+      GbmGraphColumnId.changedFiles.storageId,
+    );
+    if (wantsFileCounts) {
+      requestCommitFileCounts(ref, widget.identity, oids);
+    }
   }
 
   Future<void> _createBranchFromCommit(
@@ -506,6 +520,16 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
     List<String> visibleOids,
     CommitRowColumnPlan plan,
   ) {
+    // Watched here rather than threaded down from build() beside metaCache:
+    // this helper already takes eleven positional parameters, and the counts
+    // are read by nothing else on the way down. Conditional on the column
+    // being on, so a user who never switched it on never subscribes -- and
+    // the list does not rebuild for a reply it would not draw.
+    final Map<String, int> fileCounts =
+        plan.shows(GbmGraphColumnId.changedFiles)
+        ? ref.watch(commitFileCountProvider(widget.identity))
+        : const <String, int>{};
+
     return ListView.builder(
       controller: _controller,
       itemExtent: kCommitRowHeight,
@@ -528,6 +552,7 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
           maxLane: graph.laneCount,
           plan: plan,
           meta: meta,
+          fileCount: fileCounts[oid],
           showGraph: query.isEmpty,
           selected: oid.isNotEmpty && selection.contains(oid),
           refChips: oid.isEmpty

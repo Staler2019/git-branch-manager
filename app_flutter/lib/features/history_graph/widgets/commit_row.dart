@@ -48,6 +48,7 @@ class CommitRow extends StatelessWidget {
     required this.maxLane,
     this.plan = CommitRowColumnPlan.full,
     this.meta,
+    this.fileCount,
     this.selected = false,
     this.onTap,
     this.onSelect,
@@ -92,6 +93,14 @@ class CommitRow extends StatelessWidget {
   /// rather than leaving subject/author blank, so the row does not visibly
   /// pop in a beat after the graph itself renders.
   final CommitMeta? meta;
+
+  /// How many files this commit changed, or null while
+  /// `commitFileCountProvider` has not answered for this oid -- which,
+  /// unlike [meta], is also the permanent state for a commit git could not
+  /// answer for at all. Null renders a skeleton, `0` renders "0"; the two
+  /// are deliberately different, because a commit really can change nothing
+  /// (an empty commit, or a merge with no first-parent delta).
+  final int? fileCount;
   final bool selected;
   final VoidCallback? onTap;
 
@@ -315,10 +324,28 @@ class CommitRow extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
       ),
-      // Lands in its own commit later in this round. Until then it draws
-      // nothing rather than an empty slot -- spec starts it switched off, so
-      // this is only reachable by turning it on in the picker.
-      GbmGraphColumnId.changedFiles => null,
+      // Right-aligned, unlike every other column: it is the row's only
+      // numeric field, and a column of numbers that do not share a ones
+      // place is markedly harder to compare down the list.
+      GbmGraphColumnId.changedFiles => SizedBox(
+        width: column.width,
+        child: fileCount == null
+            ? Align(
+                alignment: Alignment.centerRight,
+                child: _SkeletonBlock(width: 18, colors: colors),
+              )
+            : Text(
+                '$fileCount',
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                  fontFamily: GbmTypography.fontMono,
+                  fontSize: GbmTypography.textXs,
+                  color: colors.textTertiary,
+                ),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
+              ),
+      ),
     };
     if (child == null) return const <Widget>[];
 

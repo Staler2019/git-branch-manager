@@ -300,6 +300,14 @@ const int _kDefaultMaxOperationLogEntries = 2000;
 /// session that never closes.
 const int _kMaxCommitMetaCacheEntries = 5000;
 
+/// Caps [RepoSessionState.commitFileCountCache], for the same reason and by
+/// the same rule as [_kMaxCommitMetaCacheEntries] -- both are viewport-filled
+/// caches with no natural bound. Deliberately the same number rather than a
+/// separately-tuned one: the two are populated from the same rows, so a
+/// different cap would only mean one of them evicting a commit the other
+/// still remembers.
+const int _kMaxCommitFileCountCacheEntries = 5000;
+
 /// Everything the workspace shell (`features/workspace`), sidebar
 /// (`features/sidebar`) and history graph (`features/history_graph`) read
 /// for one open repository. Immutable; a new session event produces a new
@@ -326,6 +334,7 @@ class RepoSessionState {
     this.operationLog = const <OperationRecord>[],
     this.lastBlame,
     this.commitMetaCache = const <String, CommitMeta>{},
+    this.commitFileCountCache = const <String, int>{},
     this.lastFileHistory = const <FileHistoryEntry>[],
     this.commitFiles = const <ChangedFile>[],
     this.selectedCommitFileDiff,
@@ -387,6 +396,16 @@ class RepoSessionState {
   /// to this cache, not overwrite the rows fetched by an earlier one. See
   /// history_repository.dart's `commitMetaProvider`/`requestCommitMeta`.
   final Map<String, CommitMeta> commitMetaCache;
+
+  /// How many files each commit changed, keyed by oid -- the History Changed
+  /// files column's data. Merged rather than replaced on every reply, exactly
+  /// like [commitMetaCache], and for the same reason: a viewport scroll only
+  /// asks for the newly-visible rows.
+  ///
+  /// A commit git could not answer for is **absent**, never present with 0 --
+  /// see GBM_EVENT_COMMIT_FILE_COUNTS_READY. Caching a 0 for an unanswerable
+  /// oid would show "0 files" for the rest of the session.
+  final Map<String, int> commitFileCountCache;
   final List<FileHistoryEntry> lastFileHistory;
   final List<ChangedFile> commitFiles;
   final ParsedDiff? selectedCommitFileDiff;
@@ -509,6 +528,7 @@ class RepoSessionState {
     List<OperationRecord>? operationLog,
     BlameResult? lastBlame,
     Map<String, CommitMeta>? commitMetaCache,
+    Map<String, int>? commitFileCountCache,
     List<FileHistoryEntry>? lastFileHistory,
     List<ChangedFile>? commitFiles,
     ParsedDiff? selectedCommitFileDiff,
@@ -558,6 +578,7 @@ class RepoSessionState {
       operationLog: operationLog ?? this.operationLog,
       lastBlame: lastBlame ?? this.lastBlame,
       commitMetaCache: commitMetaCache ?? this.commitMetaCache,
+      commitFileCountCache: commitFileCountCache ?? this.commitFileCountCache,
       lastFileHistory: lastFileHistory ?? this.lastFileHistory,
       commitFiles: commitFiles ?? this.commitFiles,
       selectedCommitFileDiff:
@@ -610,6 +631,24 @@ class RepoSessionState {
             merged.entries.skip(merged.length - _kMaxCommitMetaCacheEntries),
           );
     return copyWith(commitMetaCache: capped);
+  }
+
+  /// Merges [counts] into [commitFileCountCache], then caps the result at
+  /// [_kMaxCommitFileCountCacheEntries] the same way [withCommitMeta] does.
+  RepoSessionState withCommitFileCounts(Map<String, int> counts) {
+    final Map<String, int> merged = <String, int>{
+      ...commitFileCountCache,
+      ...counts,
+    };
+    final Map<String, int> capped =
+        merged.length <= _kMaxCommitFileCountCacheEntries
+        ? merged
+        : Map<String, int>.fromEntries(
+            merged.entries.skip(
+              merged.length - _kMaxCommitFileCountCacheEntries,
+            ),
+          );
+    return copyWith(commitFileCountCache: capped);
   }
 
   /// Appends [record] to [operationLog], then evicts the oldest entries
@@ -826,6 +865,22 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
           final List<CommitMeta> metas = CommitMeta.listFromJson(payload);
           if (metas.isNotEmpty) {
             state = state.withCommitMeta(metas);
+          }
+        }
+      case GbmEventType.commitFileCountsReady:
+        final Object? payload = decodeEventPayload(event.payload);
+        if (payload is List<dynamic>) {
+          final Map<String, int> counts = <String, int>{};
+          for (final Object? entry in payload) {
+            if (entry is! Map<String, dynamic>) continue;
+            final Object? oid = entry['oid'];
+            final Object? count = entry['fileCount'];
+            if (oid is String && oid.isNotEmpty && count is int) {
+              counts[oid] = count;
+            }
+          }
+          if (counts.isNotEmpty) {
+            state = state.withCommitFileCounts(counts);
           }
         }
       case GbmEventType.commitFilesReady:
@@ -2247,6 +2302,21 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     _withNativeStringArray(
       oids,
       (array, count) => _bindings.requestCommitMeta(_session, array, count),
+    );
+  }
+
+  /// Batch changed-file counts for `oids` -- the History Changed files
+  /// column, which is off by default, so this is only ever called for a user
+  /// who switched it on. Async: fires GBM_EVENT_COMMIT_FILE_COUNTS_READY,
+  /// merged into [RepoSessionState.commitFileCountCache]. Prefer
+  /// history_repository.dart's `requestCommitFileCounts`, which dedupes
+  /// against already-cached oids first.
+  void requestCommitFileCounts(List<String> oids) {
+    if (_session == nullptr || oids.isEmpty) return;
+    _withNativeStringArray(
+      oids,
+      (array, count) =>
+          _bindings.requestCommitFileCounts(_session, array, count),
     );
   }
 

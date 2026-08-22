@@ -1,4 +1,5 @@
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
+import 'branch_filter.dart';
 
 /// Base class for a node in the branch tree (folder or leaf).
 sealed class BranchTreeNode {
@@ -171,22 +172,24 @@ List<RefInfo> mergeLocalAndRemoteBranches(
   return <RefInfo>[...localBranches, ...remoteOnly];
 }
 
-/// Filters [branches] to those whose [RefInfo.shortName] contains [query]
-/// as a case-insensitive substring (Cmd/Ctrl+Shift+E "Filter branches", see
+/// Filters [branches] to those whose [RefInfo.shortName] matches [query]
+/// under [matchesBranchFilter] (Cmd/Ctrl+Shift+E "Filter branches", see
 /// gbm_action_id.dart's `editFilterBranches`). Matching is flat against the
 /// full slash-delimited name (e.g. 'docs' matches 'chore/docs'), independent
 /// of [buildBranchTree]'s folder grouping -- callers building a filtered
 /// tree should pass the filtered list into [buildBranchTree] afterward.
 ///
+/// This used to inline a bare `contains`, which failed spec P02-14's own
+/// worked example; the rule now lives in `branch_filter.dart` because tags
+/// and stashes are filtered by the same box and must share it.
+///
 /// A blank (empty or whitespace-only) [query] returns [branches] unchanged.
 List<RefInfo> filterBranches(List<RefInfo> branches, String query) {
-  final String trimmed = query.trim();
-  if (trimmed.isEmpty) {
+  if (query.trim().isEmpty) {
     return branches;
   }
-  final String needle = trimmed.toLowerCase();
   return branches
-      .where((ref) => ref.shortName.toLowerCase().contains(needle))
+      .where((ref) => matchesBranchFilter(ref.shortName, query))
       .toList(growable: false);
 }
 

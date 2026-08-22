@@ -27,6 +27,7 @@ import 'widgets/branch_folder_menu_items.dart';
 import 'widgets/branch_tree_item.dart';
 import 'widgets/multi_branch_menu_items.dart';
 import 'widgets/stash_menu_items.dart';
+import 'branch_filter.dart';
 
 /// Local branches for the open repository, with checkout-on-tap, plus
 /// create/rename/delete and the multi-select "gone" bulk-delete flow (see
@@ -759,11 +760,13 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
       _expandedFolders,
     );
     final List<RefInfo> filteredTags = filterBranches(refs.tags, _filterQuery);
-    final String filterNeedle = _filterQuery.trim().toLowerCase();
-    final List<StashEntry> filteredStashes = filterNeedle.isEmpty
+    // Stashes go through the same rule as branches and tags: P02-14 is one
+    // box over three sections, so a query that finds a branch by its
+    // initials must find a stash the same way.
+    final List<StashEntry> filteredStashes = _filterQuery.trim().isEmpty
         ? session.stashes
         : session.stashes
-              .where((s) => s.message.toLowerCase().contains(filterNeedle))
+              .where((s) => matchesBranchFilter(s.message, _filterQuery))
               .toList(growable: false);
 
     return Container(
@@ -984,7 +987,7 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                       ),
                     ),
                   )
-                : filterNeedle.isNotEmpty &&
+                : _filterQuery.trim().isNotEmpty &&
                       branchTree.isEmpty &&
                       filteredTags.isEmpty &&
                       filteredStashes.isEmpty

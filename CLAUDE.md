@@ -2435,6 +2435,24 @@ from callbacks. `working_copy_selection_state.prune()` has no caller at all.
   still running. `pkill -f "gbm_flutter.app/Contents/MacOS/gbm_flutter"` is the
   fix. It looks exactly like a broken test — **run one pre-existing device test
   as a control before believing the new one.**
+- **The device tier flakes on `pumpAndSettle` when run as a batch, and it is a
+  different test every time (#101).** Running the eight files back to back
+  leaves exactly one failing with `pumpAndSettle timed out` — `context_menu_flows`
+  in one batch, `commit_flow_test.dart:67` in the next at **13m28s** — while
+  every one of them passes alone. Mechanism confirmed, not guessed:
+  `top_bar.dart:99` renders a bare **indeterminate** `CircularProgressIndicator`
+  while `isRefreshing`, which schedules frames forever, so a `pumpAndSettle`
+  that starts while a post-operation refresh is still in flight can only run out
+  its 10-minute default. Batch runs load the machine, the refresh takes longer,
+  and the race flips. **This file already states the rule** ("Never
+  `pumpAndSettle()` while `isRefreshing` is true", cancel-surface section) — but
+  only the widget and integration tiers follow it; `integration_test/` does not.
+  **It is not #70**: that one is a fixed 10s `waitFor` budget in C++, this is a
+  Dart indeterminate animation. Read the failure text before picking a family.
+- **Never reduce a device batch's output to `tail -1`.** On failure the last
+  line is the *test name*, not the error, so the whole diagnosis is lost and the
+  run cannot be attributed — which is exactly what happened the first time #101
+  fired here, costing a second full batch to recover the text.
 - **Do not edit `lib/` while a background device-tier run is in flight.** Each
   `flutter test integration_test/... -d macos` recompiles the app from the
   working tree, so a mutation probe applied during the run is compiled into

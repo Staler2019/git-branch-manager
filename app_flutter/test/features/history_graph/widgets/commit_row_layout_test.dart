@@ -157,18 +157,6 @@ void main() {
     });
   });
 
-  // The constants CommitRow still names have to stay equal to the enum
-  // defaults the plan now resolves widths from, or a drag would move the
-  // budget and leave the rendered slot behind. Asserted rather than assumed:
-  // they live in two files.
-  group('column widths and the enum agree', () {
-    test('the three named constants match their column defaults', () {
-      expect(kHashColumnWidth, GbmGraphColumnId.hash.defaultWidth);
-      expect(kAuthorColumnWidth, GbmGraphColumnId.author.defaultWidth);
-      expect(kDateColumnWidth, GbmGraphColumnId.date.defaultWidth);
-    });
-  });
-
   group('column order', () {
     test('columns follow the given order', () {
       final List<GbmGraphColumnId> reversed = <GbmGraphColumnId>[

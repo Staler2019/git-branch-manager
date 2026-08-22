@@ -34,6 +34,12 @@ enum GbmGraphColumnId {
   date('date', 'Date', defaultWidth: 80, minWidth: 48, maxWidth: 240),
   // Spec spells these "Commit hash" and "Changed files"; the picker they
   // replace used "Hash" and "Changed Files".
+  //
+  // 64 is a slot rather than the intrinsic width of eight hex characters on
+  // purpose: a widget test renders in the Ahem font, where every glyph is one
+  // em wide, so an intrinsic hash measures ~88px in a test and ~53px on a
+  // device. Sizing it explicitly makes the row's width budget mean the same
+  // thing in both.
   hash('hash', 'Commit hash', defaultWidth: 64, minWidth: 40, maxWidth: 200),
   committer(
     'committer',

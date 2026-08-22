@@ -14,24 +14,6 @@ import 'commit_row.dart' show kGraphLaneWidth;
 /// graph gets clipped.
 const double kMinSubjectWidth = 80;
 
-/// Fixed slots for the three optional columns that have a predictable width.
-///
-/// The hash column is a slot here rather than the intrinsic width of eight
-/// hex characters on purpose: a widget test renders in the Ahem font, where
-/// every glyph is one em wide, so an intrinsic hash measures ~88px in a test
-/// and ~53px on a device. Sizing it explicitly makes the row's width budget
-/// mean the same thing in both.
-///
-/// These are now the *fallbacks* rather than the numbers themselves -- a
-/// column's live width comes from `graphColumnWidthProvider`, which starts at
-/// [GbmGraphColumnId.defaultWidth] and moves when the user drags. They are
-/// kept as named constants because several tests and `commit_row.dart` still
-/// name them, and `graph_column_test.dart` pins them equal to the enum's own
-/// defaults so the two cannot drift apart silently.
-const double kHashColumnWidth = 64;
-const double kAuthorColumnWidth = 110;
-const double kDateColumnWidth = 80;
-
 /// The order the ladder surrenders columns in, cheapest to lose first.
 ///
 /// Least to most identifying. Changed files and Committer lead because spec

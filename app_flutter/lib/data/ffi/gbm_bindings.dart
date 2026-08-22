@@ -109,6 +109,22 @@ typedef RepoStateJsonDart = int Function(Pointer<Void> session);
 
 typedef _HistoryRefreshNative = Void Function(Pointer<Void> session);
 typedef HistoryRefreshDart = void Function(Pointer<Void> session);
+typedef _HistorySetFilterNative =
+    Void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> includeRefs,
+      Int32 includeRefCount,
+      Int32 firstParentOnly,
+      Int32 noMerges,
+    );
+typedef HistorySetFilterDart =
+    void Function(
+      Pointer<Void> session,
+      Pointer<Pointer<Utf8>> includeRefs,
+      int includeRefCount,
+      int firstParentOnly,
+      int noMerges,
+    );
 
 typedef _RefsJsonNative = Int32 Function(Pointer<Void> session);
 typedef RefsJsonDart = int Function(Pointer<Void> session);
@@ -1261,6 +1277,10 @@ class GbmBindings {
           .lookupFunction<_HistoryRefreshNative, HistoryRefreshDart>(
             'gbm_history_refresh',
           ),
+      historySetFilter = library
+          .lookupFunction<_HistorySetFilterNative, HistorySetFilterDart>(
+            'gbm_history_set_filter',
+          ),
       refsJson = library.lookupFunction<_RefsJsonNative, RefsJsonDart>(
         'gbm_refs_json',
       ),
@@ -1788,6 +1808,7 @@ class GbmBindings {
   final RegisterCallbackDart registerCallback;
   final RepoStateJsonDart repoStateJson;
   final HistoryRefreshDart historyRefresh;
+  final HistorySetFilterDart historySetFilter;
   final RefsJsonDart refsJson;
   final GraphRowsDart graphSnapshotRows;
   final GraphOidsDart graphSnapshotOids;

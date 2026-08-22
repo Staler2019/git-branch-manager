@@ -492,7 +492,17 @@ abstract final class GbmLayout {
   /// One commit-graph lane's horizontal slot. Read through
   /// `kGraphLaneWidth` (commit_row.dart), which aliases this -- that name is
   /// what the painter and the graph tests import.
-  static const double graphLaneWidth = 18;
+  ///
+  /// **17, from the mockup's own geometry, not 18.** `spec_logic.js:428` is
+  /// `const L0 = 15, L1 = 32, RH = 26`: two lane centres 17px apart. The 18
+  /// this shipped with was a pre-existing drift of the same kind as the
+  /// commit row's 34-vs-26 (see `kCommitRowHeight`).
+  ///
+  /// One knock-on worth knowing: the graph column's natural width is
+  /// `graphLaneWidth * (laneCount + 1)`, so a twelve-lane history drops from
+  /// 234px to 221px. That 13px is what re-opened the refs column's width
+  /// ceiling -- see `GbmGraphColumnId.refs`.
+  static const double graphLaneWidth = 17;
 
   static const double diffGutterWidth = 36;
   static const double diffMarkerWidth = 14;

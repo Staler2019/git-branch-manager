@@ -198,10 +198,19 @@ void main() {
     testWidgets('keeps the author column at a width that only costs date', (
       tester,
     ) async {
-      // 560/8 lanes is one rung down: the plan drops date and nothing else.
+      // 610/8 lanes is one rung down: the plan drops date and nothing else.
       // The plan is asserted alongside the render so the case says which
       // rung it is standing on -- the width alone does not.
-      const double width = 560;
+      //
+      // This was 560 until the refs column widened from 92 to 104 and the
+      // lane pitch narrowed from 18 to 17 -- a net +3px of fixed cost at
+      // eight lanes, which was enough to push 560 off this rung and onto the
+      // next one down. Measured after that change, the rung spans roughly
+      // 563..670, so 560 was sitting 3px from its lower edge. 610 is chosen
+      // near the middle of the span rather than at either end, so the next
+      // few-pixel change to a column width does not silently move which rung
+      // this case is testing.
+      const double width = 610;
       final CommitRowColumnPlan plan = planCommitRowColumns(
         availableWidth: width,
         laneCount: 8,

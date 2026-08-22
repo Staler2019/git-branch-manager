@@ -1327,6 +1327,44 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     _bindings.historyRefresh(_session);
   }
 
+  /// Narrows every subsequent history walk. See gbm_history_set_filter()'s
+  /// doc comment in gbm_capi.h -- notably that `includeRefs` are *full* ref
+  /// names, that the filter is session state so an operation-driven refresh
+  /// keeps it, and that an empty list clears it.
+  ///
+  /// Triggers a walk on its own, so callers must not follow it with
+  /// [refreshHistory].
+  void setHistoryFilter({
+    required List<String> includeRefs,
+    bool firstParentOnly = false,
+    bool noMerges = false,
+  }) {
+    if (_session == nullptr) return;
+    state = state.copyWith(isRefreshing: true, clearError: true);
+    if (includeRefs.isEmpty) {
+      // _withNativeStringArray on an empty list would still allocate; the
+      // capi reads nothing when the count is 0, so pass a null array.
+      _bindings.historySetFilter(
+        _session,
+        nullptr,
+        0,
+        firstParentOnly ? 1 : 0,
+        noMerges ? 1 : 0,
+      );
+      return;
+    }
+    _withNativeStringArray(
+      includeRefs,
+      (array, count) => _bindings.historySetFilter(
+        _session,
+        array,
+        count,
+        firstParentOnly ? 1 : 0,
+        noMerges ? 1 : 0,
+      ),
+    );
+  }
+
   /// `git switch`/`git checkout`. See gbm_branch_checkout()'s doc comment in
   /// gbm_capi.h for the target/createBranch/newBranchName relationship. A
   /// checkout refused because the work tree is dirty is not itself an

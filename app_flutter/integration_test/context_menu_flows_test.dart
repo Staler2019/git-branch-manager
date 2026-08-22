@@ -15,13 +15,13 @@
 import 'dart:io';
 
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/services/desktop_launcher.dart';
 import 'package:gbm_flutter/data/services/file_save_picker.dart';
 import 'package:gbm_flutter/features/compare/compare_page.dart';
 import 'package:gbm_flutter/features/history_graph/commit_graph_view.dart';
+import 'package:gbm_flutter/widgets/gbm_row.dart';
 import 'package:integration_test/integration_test.dart';
 
 import 'support/real_repo_harness.dart';
@@ -200,13 +200,13 @@ void main() {
       );
 
       // Targets the whole row rather than its Text: the secondary-tap
-      // handler wraps the ListTile, so this is the widget actually under
+      // handler wraps the GbmRow, so this is the widget actually under
       // test. (The Text works too -- an earlier miss here was the stale
       // `panelLayout.*` preference `pumpRealAppOn` now clears, not the
       // finder.)
       final Finder fileRow = find.ancestor(
         of: find.text('fixture.txt'),
-        matching: find.byType(ListTile),
+        matching: find.byType(GbmRow),
       );
       expect(fileRow, findsOneWidget);
       await tester.tap(fileRow, buttons: kSecondaryMouseButton);
@@ -236,9 +236,12 @@ void main() {
   Future<void> openCommitFileMenu(WidgetTester tester) async {
     await tester.tap(find.text('Add fixture'));
     await tester.pumpAndSettle(const Duration(seconds: 2));
+    // GbmRow, not ListTile: the Changed files list moved onto the design
+    // system's own row in fix/history-density-and-branch-filter, because a
+    // dense ListTile still reserves more height than spec's 26px commit row.
     final Finder fileRow = find.ancestor(
       of: find.text('fixture.txt'),
-      matching: find.byType(ListTile),
+      matching: find.byType(GbmRow),
     );
     expect(fileRow, findsOneWidget);
     await tester.tap(fileRow, buttons: kSecondaryMouseButton);

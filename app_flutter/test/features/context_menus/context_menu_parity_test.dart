@@ -18,6 +18,7 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/widgets/gbm_row.dart';
 import 'package:gbm_flutter/data/models/changed_file.dart';
 import 'package:gbm_flutter/data/models/graph_snapshot.dart';
 import 'package:gbm_flutter/data/models/parsed_diff.dart';
@@ -553,7 +554,11 @@ void main() {
             onExportAsPatch: (_) {},
           ),
         );
-        await _rightClick(tester, find.byType(ListTile).first);
+        // `GbmRow`, not `ListTile`: the row moved onto the design system
+        // when the file lists were tightened to the commit list's height.
+        // The finder names the file row, not the widget that happens to
+        // draw it.
+        await _rightClick(tester, find.byType(GbmRow).first);
 
         for (final String label in _specLabels(
           GbmContextMenuTarget.historyCommitFile,

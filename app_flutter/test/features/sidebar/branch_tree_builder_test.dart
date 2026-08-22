@@ -248,6 +248,16 @@ void main() {
       expect(filterBranches(branches, 'nonexistent'), isEmpty);
     });
 
+    test('matches by word initials, not only by substring', () {
+      // The seam, not the rule: `branch_filter_test.dart` owns spec
+      // P02-14's matching semantics, and this asserts `filterBranches`
+      // actually goes through them. It inlined a bare `contains` for a
+      // long time, which is exactly the regression this catches --
+      // `'feature/auth'.contains('fa')` is false.
+      expect(filterBranches(branches, 'fa'), [featureAuth]);
+      expect(filterBranches(branches, 'cd'), [choreDocs]);
+    });
+
     test('trims surrounding whitespace before matching', () {
       expect(filterBranches(branches, '  main  '), [main]);
     });

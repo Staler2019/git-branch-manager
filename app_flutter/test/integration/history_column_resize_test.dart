@@ -162,6 +162,60 @@ void main() {
       );
     });
 
+    testWidgets('the Graph strip drags from the width on screen, not the '
+        'stored cap', (tester) async {
+      // Graph is the one resizable column before Message, so its strip is on
+      // its *right* edge and a rightward drag widens it -- the opposite sign
+      // from every other column, which is why `dragSign` is derived from
+      // `fromRight` rather than stored next to it.
+      //
+      // The fixture has one lane, so the column is drawn at its natural
+      // `17 * 2 = 34` while the stored cap sits at the 153 default. Starting
+      // the drag from 153 would mean the first 119px of travel changed
+      // nothing visible; this asserts it starts from the 34 on screen.
+      final PumpedWorkspace w = await _pump(tester);
+      expect(
+        w.container.read(graphColumnWidthProvider)[GbmGraphColumnId.graph],
+        GbmGraphColumnId.graph.defaultWidth,
+        reason: 'precondition: the stored cap is still the default',
+      );
+
+      await tester.drag(
+        _strip(GbmGraphColumnId.graph),
+        const Offset(40, 0),
+        touchSlopX: 0,
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        w.container.read(graphColumnWidthProvider)[GbmGraphColumnId.graph],
+        kGraphLaneWidth * 2 + 40,
+      );
+    });
+
+    testWidgets('the Graph strip stops at one lane, never at zero', (
+      tester,
+    ) async {
+      // The user's own words for this bound: 「保持最小一線寬度，使用者最小
+      // 就這樣，但一樣維持欄位存在」. Spec's "Graph 固定不可關" is what makes
+      // collapsing it to nothing wrong -- a column dragged to zero is a
+      // column switched off by another name.
+      final PumpedWorkspace w = await _pump(tester);
+
+      await tester.drag(
+        _strip(GbmGraphColumnId.graph),
+        const Offset(-400, 0),
+        touchSlopX: 0,
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        w.container.read(graphColumnWidthProvider)[GbmGraphColumnId.graph],
+        GbmGraphColumnId.graph.minWidth,
+      );
+      expect(GbmGraphColumnId.graph.minWidth, kGraphLaneWidth * 2);
+    });
+
     testWidgets('dragging inward narrows it, and stops at minWidth', (
       tester,
     ) async {
@@ -247,7 +301,16 @@ void main() {
       final PumpedWorkspace w = await _pump(tester);
       expect(w.container.read(selectedCommitProvider(_identity)), isNull);
 
-      final Offset atStrip = tester.getCenter(_strip(GbmGraphColumnId.author));
+      // The strip spans the list's full height, and the list is taller than
+      // its six rows, so its own centre lands in the empty space below them.
+      // Take the strip's x and a real row's y. (This used to pass on the
+      // centre alone only because the graph pane was mis-composed down to a
+      // 186px strip, which happened to be shorter than the rows -- see
+      // history_page_layout_test.dart.)
+      final Offset atStrip = Offset(
+        tester.getCenter(_strip(GbmGraphColumnId.author)).dx,
+        tester.getCenter(find.byType(CommitRow).first).dy,
+      );
       await tester.tapAt(atStrip);
       await tester.pumpAndSettle();
 
@@ -274,7 +337,12 @@ void main() {
     ) async {
       final PumpedWorkspace w = await _pump(tester);
 
-      await tester.tapAt(tester.getCenter(_strip(GbmGraphColumnId.author)));
+      await tester.tapAt(
+        Offset(
+          tester.getCenter(_strip(GbmGraphColumnId.author)).dx,
+          tester.getCenter(find.byType(CommitRow).first).dy,
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(

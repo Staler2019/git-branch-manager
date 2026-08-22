@@ -50,10 +50,39 @@ void main() {
       expect(_shown(p), <String>{'hash', 'refs', 'author', 'date'});
     });
 
-    test('does not cap the graph column', () {
+    test('still honours the graph cap -- it is a preference, not a rung', () {
+      // This case used to assert the opposite (`graphClipped` false and the
+      // full `kGraphLaneWidth * 13`), back when the graph took whatever the
+      // lane count asked for and only the message floor could cut it short.
+      //
+      // The cap is deliberately *not* part of the degradation ladder: the
+      // ladder reacts to how much room the window has, while this is the
+      // user's own setting and so must hold at 2000px exactly as it does at
+      // 800. A cap that quietly lifted itself on a wide window would be the
+      // non-monotonic shape the ladder's own property test exists to forbid.
       final CommitRowColumnPlan p = _plan(2000, laneCount: 12);
+      expect(p.graphWidth, GbmGraphColumnId.graph.defaultWidth);
+      expect(p.graphClipped, isTrue, reason: 'twelve lanes do not fit in 153');
+    });
+
+    test('a lane count under the cap is drawn whole, not padded to it', () {
+      // The cap is a maximum, never a size: a quiet repository must not get
+      // a 153px gutter with two lanes rattling around in it.
+      final CommitRowColumnPlan p = _plan(2000, laneCount: 2);
+      expect(p.graphWidth, kGraphLaneWidth * 3);
       expect(p.graphClipped, isFalse);
+    });
+
+    test('dragging the cap wider reveals the lanes it was hiding', () {
+      final CommitRowColumnPlan p = _plan(
+        2000,
+        laneCount: 12,
+        widths: <GbmGraphColumnId, double>{
+          GbmGraphColumnId.graph: kGraphLaneWidth * 13,
+        },
+      );
       expect(p.graphWidth, kGraphLaneWidth * 13);
+      expect(p.graphClipped, isFalse);
     });
   });
 

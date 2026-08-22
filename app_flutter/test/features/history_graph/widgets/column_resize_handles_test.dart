@@ -23,8 +23,7 @@ ColumnResizeHandle _handleFor(
 
 void main() {
   group('resizeHandlesFor', () {
-    test('gives one strip to each resizable column and none to the two '
-        'locked ones', () {
+    test('gives one strip to each resizable column and none to Message', () {
       final List<ColumnResizeHandle> handles = resizeHandlesFor(
         CommitRowColumnPlan.full,
       );
@@ -32,32 +31,36 @@ void main() {
       expect(
         handles.map((ColumnResizeHandle h) => h.id).toSet(),
         <GbmGraphColumnId>{
+          GbmGraphColumnId.graph,
           GbmGraphColumnId.refs,
           GbmGraphColumnId.author,
           GbmGraphColumnId.date,
           GbmGraphColumnId.hash,
         },
       );
-      // Spec's "Graph 與 Message 固定不可關" governs dragging too, and
-      // neither has a width of its own to drag in the first place.
-      expect(
-        handles.map((ColumnResizeHandle h) => h.id),
-        isNot(contains(GbmGraphColumnId.graph)),
-      );
+      // Message is the sole flex column: its width is whatever is left, so
+      // there is nothing to drag. Graph *is* here now -- dragging it moves
+      // the cap on how many lanes are drawn, never whether the column
+      // exists, so spec's "Graph 與 Message 固定不可關" is untouched.
       expect(
         handles.map((ColumnResizeHandle h) => h.id),
         isNot(contains(GbmGraphColumnId.message)),
       );
     });
 
-    test('anchors every default column to the right edge', () {
-      // In spec's order Message comes second, so everything draggable sits
-      // after it and keeps a fixed distance from the row's right edge.
+    test('anchors trailing columns right and Graph left', () {
+      // In spec's order Message comes second, so every draggable column
+      // *except Graph* sits after it and keeps a fixed distance from the
+      // row's right edge. Graph is the one column before Message, so its
+      // strip is measured from the left and a rightward drag widens it
+      // rather than narrowing it -- the opposite sign, and the reason
+      // `dragSign` is derived from `fromRight` instead of stored beside it.
       for (final ColumnResizeHandle h in resizeHandlesFor(
         CommitRowColumnPlan.full,
       )) {
-        expect(h.fromRight, isTrue, reason: h.id.storageId);
-        expect(h.dragSign, -1, reason: h.id.storageId);
+        final bool isGraph = h.id == GbmGraphColumnId.graph;
+        expect(h.fromRight, isGraph ? isFalse : isTrue, reason: h.id.storageId);
+        expect(h.dragSign, isGraph ? 1 : -1, reason: h.id.storageId);
       }
     });
 
@@ -72,7 +75,7 @@ void main() {
       const double hash = _g3 + _g3 + 64; // trailing + gapAfter(hash) + width
       const double date = hash + _g2 + 80;
       const double author = date + _g3 + 110;
-      const double refs = author + _g2 + 92;
+      const double refs = author + _g2 + 104;
 
       expect(_handleFor(handles, GbmGraphColumnId.hash).offset, hash);
       expect(_handleFor(handles, GbmGraphColumnId.date).offset, date);
@@ -130,6 +133,31 @@ void main() {
         expect(hash.offset, plan.graphWidth! + _g2 + 64);
       },
     );
+
+    test('the Graph column has no strip while a search hides the lanes', () {
+      // `showGraph: false` is the live commit-search path
+      // (`commit_graph_view.dart` passes `showGraph: query.isEmpty`). The
+      // column stays in the layout -- P02-16 forbids closing it -- but holds
+      // a 12px spacer instead of lanes.
+      //
+      // Without this gate the strip stayed up over that spacer, and
+      // `renderedWidthOf` reported 12, so a drag near the left edge wrote a
+      // near-minimum lane cap into SharedPreferences that outlived the
+      // search. Every other column keeps its strip: none of them changed.
+      final CommitRowColumnPlan plan = planCommitRowColumns(
+        availableWidth: 1200,
+        laneCount: 8,
+        showGraph: false,
+      );
+
+      expect(plan.drawsGraph, isFalse);
+      expect(plan.shows(GbmGraphColumnId.graph), isTrue);
+      final Set<GbmGraphColumnId> ids = resizeHandlesFor(
+        plan,
+      ).map((ColumnResizeHandle h) => h.id).toSet();
+      expect(ids, isNot(contains(GbmGraphColumnId.graph)));
+      expect(ids, contains(GbmGraphColumnId.refs));
+    });
 
     test('a column the plan gave up has no strip', () {
       // Dragging a column that is not on screen would be a gesture with no

@@ -288,6 +288,34 @@ GBM_API int32_t gbm_repo_state_json(GbmSessionHandle session);
 /// failure.
 GBM_API void gbm_history_refresh(GbmSessionHandle session);
 
+/// Narrows every subsequent history walk, then triggers the same refresh
+/// gbm_history_refresh() would. The filter is session state, so an
+/// operation-driven or auto-fetch refresh keeps it -- clearing it means
+/// calling this again with includeRefCount 0.
+///
+/// `includeRefs` are full ref names ("refs/heads/main"), matching
+/// gbm_refs_json()'s `fullName`; a short name will not resolve. Names that no
+/// longer exist in the current refs are dropped rather than passed to git,
+/// which would abort the whole walk with "unknown revision" -- so a branch
+/// deleted while its filter is set degrades to a wider walk, never to an
+/// empty graph. With every name dropped (or none given) the walk is
+/// unfiltered.
+///
+/// `firstParentOnly` adds --first-parent and `noMerges` adds --no-merges. The
+/// two together on exactly one ref are what the sidebar branch filter sets
+/// when it narrows to a single branch: the graph then collapses to one lane
+/// with no merge rows, and the line stays continuous across the merges that
+/// were removed (see HistoryQuery::isLinearWalk).
+///
+/// Like gbm_history_refresh() this streams: expect GBM_EVENT_REFS_UPDATED,
+/// then one or more GBM_EVENT_GRAPH_UPDATED, the last with
+/// {"complete": true}.
+GBM_API void gbm_history_set_filter(GbmSessionHandle session,
+                                    const char* const* includeRefs,
+                                    int32_t includeRefCount,
+                                    int32_t firstParentOnly,
+                                    int32_t noMerges);
+
 /// Populates the staging buffer with the most recently published RefSnapshot
 /// (branches, tags, HEAD) as JSON. Returns 0 on success, or a negative
 /// GbmErrorCode if gbm_history_refresh() has not yet published one.

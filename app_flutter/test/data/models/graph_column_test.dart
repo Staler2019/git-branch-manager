@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/repositories/graph_columns_repository.dart'
     show kLockedGraphColumnIds;
 import 'package:gbm_flutter/data/models/graph_column.dart';
+import 'package:gbm_flutter/theme/tokens.dart';
 
 void main() {
   group('kGraphColumnOrderDefault', () {
@@ -126,15 +127,41 @@ void main() {
       }
     });
 
-    test('a locked column is neither movable nor resizable', () {
+    test('a locked column is pinned in place', () {
       // Not two independent facts: spec's "其餘" governs toggling *and*
-      // reordering, and graph/message have no fixed width to drag anyway
-      // (graph is derived from the lane count, message is the sole flex).
+      // reordering, so a column that cannot be switched off cannot be
+      // dragged to a new position either.
       for (final GbmGraphColumnId id in GbmGraphColumnId.values) {
         if (!id.isLocked) continue;
         expect(id.isMovable, isFalse);
-        expect(id.isResizable, isFalse);
       }
+    });
+
+    test('locked does not imply un-resizable: graph is both', () {
+      // These used to be the same predicate, and reading them as one is what
+      // this case exists to stop. Locked answers "can it be switched off";
+      // resizable answers "can its width be dragged". Graph is now the
+      // column where the two disagree: a drag changes the cap on how many
+      // lanes it draws, never whether the column is there, and even at
+      // `minWidth` one lane is still drawn -- so spec's "Graph 與 Message
+      // 固定不可關" holds at every width.
+      expect(GbmGraphColumnId.graph.isLocked, isTrue);
+      expect(GbmGraphColumnId.graph.isMovable, isFalse);
+      expect(GbmGraphColumnId.graph.isResizable, isTrue);
+
+      // Message is the one column with no width of its own to drag.
+      expect(GbmGraphColumnId.message.isLocked, isTrue);
+      expect(GbmGraphColumnId.message.isResizable, isFalse);
+    });
+
+    test('graph\'s width bounds are exact lane multiples', () {
+      // `graph_column.dart` has no imports on purpose, so it spells these as
+      // literals and cannot express the derivation. This is where the
+      // derivation is checked: eight lanes for the cap, one for the floor,
+      // twenty-four for the ceiling, each plus the trailing half-slot.
+      expect(GbmGraphColumnId.graph.defaultWidth, GbmLayout.graphLaneWidth * 9);
+      expect(GbmGraphColumnId.graph.minWidth, GbmLayout.graphLaneWidth * 2);
+      expect(GbmGraphColumnId.graph.maxWidth, GbmLayout.graphLaneWidth * 25);
     });
 
     test('every unlocked column is both movable and resizable', () {
@@ -303,18 +330,38 @@ void main() {
     });
 
     test('ignores a stored width for a non-resizable column', () {
-      // graph's width comes from the lane count and message is the flex
-      // column; a stored value for either is stale data, not a user setting.
+      // Message is the sole flex column, so a stored value for it is stale
+      // data rather than a user setting. Graph is deliberately *not* in this
+      // case any more -- see the companion below.
       final Map<GbmGraphColumnId, double> resolved = resolveGraphColumnWidths(
-        const <String, double>{'graph': 999, 'message': 999},
-      );
-      expect(
-        resolved[GbmGraphColumnId.graph],
-        GbmGraphColumnId.graph.defaultWidth,
+        const <String, double>{'message': 999},
       );
       expect(
         resolved[GbmGraphColumnId.message],
         GbmGraphColumnId.message.defaultWidth,
+      );
+    });
+
+    test('honours a stored width for graph, clamped to its bounds', () {
+      final Map<GbmGraphColumnId, double> resolved = resolveGraphColumnWidths(
+        const <String, double>{'graph': 200},
+      );
+      expect(resolved[GbmGraphColumnId.graph], 200);
+
+      // 999 is past `maxWidth`, and the documented rule is to clamp rather
+      // than reject: a user who dragged to an extreme lands at the extreme.
+      final Map<GbmGraphColumnId, double> tooWide = resolveGraphColumnWidths(
+        const <String, double>{'graph': 999},
+      );
+      expect(tooWide[GbmGraphColumnId.graph], GbmGraphColumnId.graph.maxWidth);
+
+      // And a drag past the floor still leaves one lane on screen.
+      final Map<GbmGraphColumnId, double> tooNarrow = resolveGraphColumnWidths(
+        const <String, double>{'graph': 1},
+      );
+      expect(
+        tooNarrow[GbmGraphColumnId.graph],
+        GbmGraphColumnId.graph.minWidth,
       );
     });
 

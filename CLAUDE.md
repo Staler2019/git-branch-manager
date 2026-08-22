@@ -2028,7 +2028,7 @@ the real window.**
 
 #### Still open
 
-- **The refs column's default width sits in a measured 1.4px corridor** — floor 91
+- ~~**The refs column's default width sits in a measured 1.4px corridor** — floor 91
   (spec's own `HEAD → main` example chip) against ceiling 92 (bisected against
   `workspace_narrow_window_test.dart`'s twelve-lane 1280×720 case, the app's own
   default window size). 92 was chosen. The consequence, recorded in
@@ -2037,7 +2037,11 @@ the real window.**
   the signature spec assigns to the *opposite* state. Widening the column restores
   it and the width is remembered, but the default reads wrong. Not fixable by
   picking another default; 103 is past the ceiling. **Worth overruling if the
-  synced case matters more than the twelve-lane lock.**
+  synced case matters more than the twelve-lane lock.**~~ — **Fixed** by the
+  next round's lane-pitch correction, not by overruling anything: 18 → 17px
+  gives a twelve-lane row 13px back, which lifted the ceiling past 103 and let
+  refs go to **104** (`ceil(103.1)`), so the synced-HEAD chip renders whole at
+  the default. See "History density…" below for the re-bisection.
 - **There is no column header row, so there is no obvious place to grab.** Spec's
   mockup draws none, and adding one would have changed the page's appearance for a
   feature the mockup does not show — so the resize surface is an invisible 8px
@@ -2054,3 +2058,423 @@ the real window.**
 - **The manual pass is not done**: dragging to reorder, dragging an edge,
   restarting to confirm persistence, and clicking through a resize strip on a real
   repository are interactive and were not performed here.
+
+### History density, graph geometry and the branch filter (fix/history-density-and-branch-filter)
+
+Six problems found by running the app on a real repository, not by reading: a
+live `RenderFlex overflowed by 2.3 pixels on the bottom`, a graph column that
+grew without bound as branches ran in parallel, no way to suppress merge rows,
+no way to give the graph less room, lines too far apart, and commit/file rows
+too tall. They share one subject — **History's information density and how much
+of it the user controls** — and the last of them is answered by a new capi
+rather than by CSS. Twenty-two sequential commits, each green and independently
+revertible.
+
+**Two of the six were spec conformance, not taste.** `spec_logic.js:428` is
+`const L0 = 15, L1 = 32, RH = 26` and the mockup's graph SVG is `height="182"`
+= 7 × 26, so **the commit row is 26px and the lane pitch is 17** — the code had
+34 (`rowHeightComfortable`) and 18. `rowHeightCompact = 26` was already a spec
+token the sidebar and Working Copy used. So "shorten the spacing" was a
+correction back to the spec's own numbers, and is recorded that way rather than
+as a visual preference. The same reading gave the dot geometry (`r: 4.2`, halo
+`2`, HEAD ring `r: 7` at `1.5`, connector `1.75`) — **all four values in
+`graph_column_painter.dart` were wrong**, and none of them broke a test, so each
+got one.
+
+**SVG paints stroke on top of fill, and centres it on the path.** Spec's dot is
+`r: 4.2` with a 2px panel-coloured stroke, which shows a **3.2px** coloured core
+inside a halo reaching 5.2 — not a 4.2px dot with a ring around it. Drawing the
+halo first and the fill second looks equivalent and is not. Pinned by
+`graph_dot_geometry_test.dart`, which records draw calls through
+`implements Canvas` + `noSuchMethod` (a `PictureRecorder` is opaque and cannot
+be asserted on). Two traps inside that test: `GraphRow.isHead` is `flags & 0x20`,
+not the low bit; and **`Paint.color` quantises on read-back**, so a comparison
+against the source token fails while Expected and Actual print identically —
+compare `.toARGB32()`.
+
+**`isLocked` is not `!isResizable`.** The graph column is locked (P02-16:
+「Graph 與 Message 固定不可關」) *and* now resizable: dragging it moves a **cap on
+how many lanes are drawn**, never whether the column exists. The user's ruling
+set the floor — 「git graph 保持最小一線寬度，使用者最小就這樣，但一樣維持欄位存
+在」 — so the minimum is one lane, not zero. Because the stored width is a
+maximum rather than a size, `renderedWidthOf()` supplies the drag origin;
+without it a drag on a repository with two lanes would move nothing visible
+until it passed the natural width.
+
+**A resize strip must be withheld when the column is a spacer.** `showGraph:
+false` is the live commit-search path — the column stays laid out but holds a
+12px spacer, because `graph.edges` connect adjacent rows of the *unfiltered*
+snapshot. The strip stayed up over that spacer and `renderedWidthOf` reported
+12, so a drag near the left edge wrote a near-minimum lane cap into
+SharedPreferences that outlived the search. `CommitRowColumnPlan.drawsGraph`
+exists for exactly that gate.
+
+**The refs ceiling recorded last round was measured before this round's cap and
+is now false.** It said 105; re-bisecting `planCommitRowColumns` after the
+153px graph cap landed gives **173**. So the previous round's recorded regret —
+a synced HEAD's cloud icon clipping at the 104px default — is gone, and
+`workspace_narrow_window_test.dart`'s title ("gives up nothing") was a lie in
+the other direction: that case *does* give up Date. Retitled, with a negative
+assertion and the date label derived through the real formatter rather than
+hardcoded.
+
+#### The branch filter was wrong in six of its nine rules
+
+The user pointed at spec P02-14 directly (「因為你 filter branch 時做錯了…看
+spec 02 頁 14 點」). Audited against the running code: rules 1, 2 and 5 already
+conformed; **3, 4, 6, 7, 8 and 9 were all gaps**, each closed in its own commit.
+
+- **Rule 3's own example did not match.** Spec says 「打 `gl` 命中
+  `feature/graph-lanes`」 and `filterBranches` was
+  `shortName.contains(needle)`, for which that is plainly false. Extracted as
+  `matchesBranchFilter()` (substring first, then initials) rather than patched
+  in place, because Tags and Stashes need the identical rule — the
+  `branchNameError()` precedent. **The plan's own algorithm sketch was wrong
+  and was corrected before implementing**: splitting on `/` alone gives `fg` for
+  `feature/graph-lanes`, not `gl`; the separators are `/ - _ . space` plus a
+  camelCase boundary. A deliberate negative test pins substring-over-initials
+  rather than subsequence (`fl` must *not* match).
+- **Folder identity must be the full path, not the display segment.** Rule 4
+  (expand-all while filtering) had no effect at first because
+  `_buildFolderNode` re-derived `isExpanded` from `_expandedFolders` instead of
+  reading `folder.isExpanded`. Fixing that turned five existing tests red, which
+  is how a **pre-existing** bug surfaced: the panel keyed on `folderName` (one
+  segment, `sub`) while `buildBranchTree` keyed on the full path
+  (`feature/sub`). They agree only at depth one, so `feature/sub` and
+  `chore/sub` opened and closed together and Copy-folder-prefix gave `sub/`.
+  `BranchTreeFolder.folderPath` is the fix. **A second source of truth for a
+  computed fact is what hid it** — the re-derivation could not disagree with
+  itself.
+- **Rule 7's pin replaces the tree row, never joins it.** Rendering both shows
+  `main` twice whenever HEAD does match the query. `filterBranches` is left
+  alone — it is a pure name rule with no business knowing which ref is HEAD,
+  which is also why rule 6's hit count still counts only genuine matches.
+- **Rules 8/9 bind Esc and ↓ with `CallbackShortcuts` placed innermost, above
+  the `TextField`**, so they resolve before `DefaultTextEditingShortcuts` and
+  leave the tree's own Esc (MULTIKEYS' collapse) untouched. The first test for
+  that was red on a **wrong premise, not wrong code**: a plain click on a branch
+  row routes through checkout and never reaches `_onBranchSelect`, so focus
+  stayed in the filter box. A modifier click is the pattern that works, as this
+  file already records.
+- **Recorded reduction**: ↓ enters the first *branch* result only, so a query
+  matching only a tag or a stash no-ops. A defensible reading of 「第一個結果」,
+  written down rather than left for the next audit to file as a bug.
+
+#### `--first-parent --no-merges` breaks the trunk, and git will not fix it
+
+The user's ruling was 「只有一個分支：我要有 no merge 的效果，但是不會有平行線。
+兩分支以上，就照目前狀態顯示」. The flags alone do not deliver it, and this was
+measured before any code was written:
+
+- Under `--first-parent --no-merges`, a surviving row's recorded first parent is
+  often a merge git never emits. `GraphBuilder::finish()` turns those pending
+  edges into `kRowBoundary` stubs with `FlagBoundary`, which the Dart renderer
+  draws as `EdgeSegmentKind.boundaryStub` — "arrives from above and stops
+  halfway". **So the trunk would break once per removed merge**, the exact
+  opposite of one continuous line.
+- **git has no flag that bridges the gap**: `--parents` and `--ancestry-path`
+  both still report the excluded merge. Checked directly, so nobody re-checks.
+
+The bridge is a one-row lookahead in `HistoryProvider`'s walk loop, **not** a
+mode in `GraphBuilder` — the builder stays single-path, so every existing
+invariant test and `GraphAsciiRenderer` keep applying unchanged, and the
+endpoints fall out for free (a complete walk ends at a root with no parents; a
+`--max-count` walk keeps its real parent and so becomes a boundary stub, which
+there is the *true* statement).
+
+~~**It is faithful for a structural reason, not because this repository's history
+happens to suit it.** `HistoryQuery::isLinearWalk()` requires **one** tip,
+`--first-parent` and `--no-merges` together: one tip walked first-parent visits
+exactly that tip's first-parent chain in order, so the `--no-merges` output is a
+*subsequence* of that chain and any two consecutive rows are still first-parent
+ancestor and descendant with only merges elided.~~ — **Corrected on sight of the
+running app**; the argument was sound and the feature built on it was wrong. See
+the next subsection.
+
+#### The straight line must still contain the merged-in work
+
+The first implementation read the ruling's 「no merge 的效果」 as `--first-parent`
+and set it alongside `--no-merges`. Running it produced the correction:
+「filter only one branch 要看到的是包含並進來的 commit，只是不寫 merge commit
+不會出現，的一條直線」. `--first-parent` does the opposite of that — it keeps the
+merge row's own line and discards everything that arrived *through* the merge.
+**Measured on this project's own `main`: 3 rows with `--first-parent --no-merges`
+against 442 with `--no-merges` alone**, and 485 unfiltered. The branch filter did
+not narrow the graph, it emptied it.
+
+`isLinearWalk()` is now **one tip + `--no-merges`**, with `--first-parent`
+neither required nor forbidden. The single line comes entirely from the bridge,
+not from narrowing the walk.
+
+**The subsequence argument dies with it, and there is no weaker version to
+keep.** Without `--first-parent`, even when a row's real parent *is* emitted it
+need not be the next row — topo order can interleave a side branch's commits
+between a trunk commit and its parent, and the bridge links to the interleaved
+row regardless. So the drawn segment means **"the next row"** and nothing else;
+anything wanting real edges must read an unfiltered snapshot. One property does
+survive: `toRevListArgs()` always emits `--topo-order` or `--date-order`, both of
+which guarantee a parent is never printed before its children, so a segment never
+points from an ancestor down to its own descendant. **That depends on the
+ordering flag staying unconditional.**
+
+`--topo-order` was kept over `--date-order` (which `HistoryQuery` already
+supports as a one-flag change): it groups a merged branch's commits at the point
+they landed rather than interleaving them by timestamp.
+
+**The RED test asserts presence, not count.** `GitIntegrationTest`'s fixture
+already had a commit on each side branch; those are exactly the rows
+`--first-parent` swallowed, so they are looked up by subject and asserted
+individually. A 4→6 row-count bump can go green for the wrong reason, and
+"the commits merged in are still there" *is* the requirement.
+
+#### The whole of `HistoryQuery` had never been exposed
+
+`gbm_history_refresh(session)` took no parameters, while `HistoryQuery` had
+`includeRefs`, `excludeRefs`, `firstParentOnly`, `grep`, `author`, `maxCount`
+and `dateOrder` — and `includeRefs`' own comment already said 「這是 Branches…
+（graph 分支過濾）設的」 for a UI that was never built. `gbm_history_set_filter`
+closes it, with two decisions worth keeping:
+
+- **The filter is session state, not a parameter of one walk.** An operation or
+  an auto-fetch resync calls `refreshHistory()` on its own; if that dropped the
+  filter the graph would silently widen back out under the user while the
+  sidebar still showed one branch. `HistoryFilterApiTest.SurvivesARefreshItDidNotAskFor`
+  is the lock.
+- **Stale ref names are dropped, not forwarded.** rev-list aborts the *entire*
+  walk with "unknown revision" on one bad name, so a branch deleted or pruned
+  while its filter was set would blank the graph rather than stop narrowing it.
+  `RefStore::refExists` (which exists for exactly this) filters them; with every
+  name gone the walk falls back to unfiltered, the same thing clearing the
+  filter does. Mutation-checked: forwarding them turns both stale-ref tests red
+  by *timeout*, because no completed `GRAPH_UPDATED` ever arrives — which is the
+  blank-graph failure itself.
+
+`toStringVector` had five identical copies across `src/capi/`; it moved to
+`Handle.h` in its own commit rather than gaining a sixth.
+
+#### The filter query had to leave the sidebar first
+
+`SidebarPanel` is hideable, so local `State` holding the only copy of the query
+would let the graph stay converged with nothing on screen to say why or to clear
+it — the `material_state_hidden` shape this file's own UX rubric flags.
+`branchFilterQueryProvider` is identity-keyed and deliberately **not**
+persisted: a filter is something the user is doing now, not a setting.
+`initState` re-seeds the `TextEditingController` from it, which is the half a
+naive lift forgets — the rows stay narrowed and the box looks empty.
+
+`historyFilterFor()` is the convergence rule, and it sends **`fullName`, never
+`shortName`**: `mergeLocalAndRemoteBranches` strips the `<remote>/` prefix off a
+remote-only row so it groups with a same-named local branch, so `origin/staging`
+arrives as `staging` and would resolve to the wrong ref or to none. Same class
+as `delete_branch_dialog.dart`'s first-slash split (#74).
+
+**A measurement overturned this round's own test design.** The dispatcher has a
+250ms debounce and compares against the last request *sent*; both mutations
+(zero-delay timer, drop the comparison) left the first version of
+`workspace_history_filter_convergence_test.dart` **green**. Instrumenting the
+provider showed why: typing all eleven characters of `graph-lanes` fires the
+listener **once**, because `historyFilterRequestProvider`'s value is *equal* for
+every prefix that does not resolve to exactly one branch, and Riverpod does not
+notify on an equal value. So the test that claimed to prove the debounce was
+proving `HistoryFilterRequest.==`. The debounce's real job is a burst of
+*different* values — backspacing out of a query and typing it back — and the
+last-sent comparison's real job is the case where such a burst lands back on the
+filter already in force. Both now have a case that goes red without them.
+**Three mechanisms were doing overlapping work and only one was tested; the fix
+was to name which case belongs to which, not to delete two of them.**
+
+#### A retained query outliving its session
+
+`branchFilterQueryProvider` is not autoDispose, so the query survives the
+repository being closed; the C++ session's filter does not; and **`ref.listen`
+never fires for the value already present when it registers**. Leaving a
+filtered repository and coming back therefore showed one branch in the sidebar
+and every branch in the graph -- the exact two-screens-disagree state this round
+exists to prevent, and the one defect none of its own tests could see, because
+every one of them pumps a workspace whose query starts empty.
+
+`_syncHistoryFilter()` re-sends the current request after the first frame and on
+the session's `isOpen` false->true edge, undebounced -- this is not a keystroke,
+it is a session that has no filter and a query that says it should have one. The
+`isOpen` arm clears `_lastSentHistoryFilter` first, or the comparison would
+decide the core already knows. The provider's own doc comment claimed the
+opposite (`重開 repository 會看到全部`) and is corrected in place.
+
+**Generalisable**: every `ref.listen`-driven piece of session state has this
+shape. The listener covers *changes*; something else has to cover the value that
+was already there. The test that sees it is the one that seeds the provider
+**before** pumping.
+
+#### History's three panes were in the wrong place, all three of them
+
+Spec P02 says it in one line — 「History 分頁：**右側 Changed files**（02-10）+
+**下方 Commit detail**（02-08）」 — and its `SPLITTERS` table names both dividers:
+`main.detail` 「Commit list ↔ Commit detail」 水平 62/38 min 160, and `main.files`
+「中央 ↔ Changed files」 垂直 186px min 140. The page had detail on the right and
+files below, i.e. both axes swapped.
+
+**The third error was the one worth catching.** `history_page.dart` passed the
+commit graph as pane 0 of an *extent-mode* vertical splitter, expecting "graph
+first, so on top, filling". Extent mode pins **pane 0** to its fixed size, and
+the old implicit rule put a vertical fixed pane at the **bottom** — so the
+commit graph, the whole point of the page, rendered as a **186px strip along
+the bottom** with the file list filling everything above it. Measured off the
+rendered rects before touching anything: `graph=(255,677)-(1085,863)`,
+`files=(255,112)-(1085,672)`.
+
+**The root cause is a widget API, so that is where the fix went.**
+`GbmSplitPane`'s fixed pane used to sit at an end chosen by the axis —
+horizontal → leading, vertical → trailing — a rule invisible at the call site,
+where `children: [a, b]` reads as "a then b" either way. It is now an explicit
+`fixedPaneEnd: GbmFixedPaneEnd.leading | .trailing`, defaulting to leading, with
+the two vertical call sites (log drawer, panel file list) saying `trailing`
+outright. The drag-delta inversion follows the same flag instead of the axis.
+The old rule could not express *horizontal + trailing* at all, which is exactly
+what History's right-hand files column needs.
+
+**Two existing tests were passing because of the bug**, and both are corrected
+rather than relaxed:
+
+- `history_column_resize_test.dart`'s "a single click on a strip still selects
+  the row under it" tapped the strip's own centre. The strip spans the list's
+  full height, so that point is only over a row while the list is *short* —
+  which it was, at 186px. With the graph at its proper height the centre lands
+  in the empty space below the last row. It now takes the strip's x and a real
+  row's y.
+- `workspace_narrow_window_test.dart`'s twelve-lane 1280×720 case asserted that
+  Date is dropped. The commit list grew from `(1280-260)×0.62 ≈ 632px` to
+  `1280-250-5-186-5 = 834px`, so nothing is dropped any more. That title has now
+  been true, then false, then true again — the file records the sequence so the
+  next reader does not trust it on sight.
+
+**An axis flip invalidates a stored splitter extent, and the one machine
+guaranteed to hold a stale value is the user's own.** Extent mode persists a
+raw pixel number (`split_pane.dart` stores `[extentPx]`), keyed on `storageId`
+alone with no axis in the key — so a files band anyone had dragged taller while
+it lived *below* the graph would come back as a column that wide on the right.
+`main.files` is therefore now `main.files.v2`; dropping the old key **is** the
+migration, because the number has no meaning across the flip. `main.detail`
+deliberately keeps its id — it is ratio mode, and 62/38 still reads as "the
+graph gets more" whichever way the divider runs. **Rule: changing a
+`GbmSplitPane`'s axis obliges you to decide what happens to its stored value,
+and only ratio mode survives the change.**
+
+**The refs column's ceiling moved again, and its doc comment had gone stale in
+two directions at once.** It cited a ceiling of 173 bisected against a ~632px
+commit list, and explained the 104px default by saying the twelve-lane case
+gives up Date. The recomposition took that list to exactly 834px, so the real
+ceiling is **287** (at 288 the ladder starts dropping Date) and *nothing* is
+given up. Re-measured with a throwaway probe that reads the row's real width
+off the rendered widget and then bisects `planCommitRowColumns` directly —
+the pure function takes `widths` as a parameter, so no enum constant has to be
+mutated to sweep the range. **A comment claiming its bounds are measured has to
+be re-measured whenever anything upstream of the measurement moves**, and a
+page recomposition is upstream of every width in the row.
+
+**Nothing at any tier covered the page's composition**, which is how three
+wrong placements stayed green through several rounds of work on this very page.
+`history_page_layout_test.dart` is that cover, and it reads positions off the
+**rendered rects**, never off which splitter nests inside which: "the files
+column is to the right of the graph" is the requirement, the nesting is an
+implementation detail. Both placement decisions are mutation-checked — dropping
+`fixedPaneEnd` reddens exactly the files case, swapping the inner children
+reddens exactly the other three.
+
+#### A provider written from `build()`, and why no tier saw it
+
+Found by the user running the app, not by any test: selecting branches and
+then letting a branch vanish under the selection threw
+`Tried to modify a provider while the widget tree was building` out of
+`SidebarPanel.build()`. `_pruneSelection` drops selected names that no longer
+exist and wrote `branchSelectionProvider` straight from `build()`.
+
+**Pre-existing, not this round's** — the call has been in `build()` since
+`4474d550` (the Tier 2+3 multi-select round). Fixed here anyway because this
+branch had already reworked the lines around it and a fix off `main` would
+have conflicted with the open PR.
+
+**The throw is `assert`-guarded**, which changes what the bug *is*:
+`riverpod/src/framework/element.dart` wraps `debugCanModifyProviders?.call()`
+in `assert(() { ... }(), '')`, so debug and profile builds crash the sidebar's
+build while a **release build strips the assert and lets the write land
+mid-frame** — the inconsistent-state risk the message describes. Check whether
+a Riverpod guard is assert-wrapped before writing "it crashes" in a report.
+
+**Why no tier saw it, and it is the fixture rule again.** Every existing
+sidebar test overrides `repoRefsProvider(...).overrideWithValue(...)` with one
+fixed snapshot, and **a snapshot that cannot shrink cannot make a selected
+branch vanish** — so no fixture in the suite could reach the code path at all.
+`repoRefsProvider` derives from the session (`branch_repository.dart:11`), so
+the new test simply leaves it un-overridden and lets `emit()` shrink it. Same
+family as the `hasTrackingInfo` fixture and the borrowed `_mergeState()`.
+
+**The fix defers the write rather than moving it to a listener**, and the
+reason is the trap this file already records twice: `ref.listen` covers
+*changes* only, and `branchSelectionProvider` is not autoDispose, so a
+selection outlives the repository it was made in and can already be stale at
+the first build with no change event to hang a prune on. Deferring to a
+post-frame callback keeps one path for all three entry cases (mount, refs
+change, identity change) because `build()` always sees the current pair. The
+callback recomputes from the then-current refs instead of the captured list,
+so a second refs change between frame and callback cannot write a stale
+answer. Mutation-checked in both directions: writing directly reddens all four
+failure arms, and simulating a listener-only fix (skip the first build)
+reddens **exactly** the two mount arms and leaves the shrink arms green.
+
+Checked while there, since `4474d550` created `commitSelectionProvider` and
+`branchSelectionProvider` symmetrically: there is **no commit-side twin** —
+`line_history_panel._goToCommit` and `blame_panel`'s "Go to commit" both write
+from callbacks. `working_copy_selection_state.prune()` has no caller at all.
+
+#### Harness and process notes
+
+- **A stale `gbm_flutter` instance blocks the whole device tier.** Every
+  `flutter test integration_test/... -d macos` failed instantly with
+  `did not complete` (and, from the app side, `Failed to foreground app; open
+  returned 1`) while a manually-launched debug build from an earlier session was
+  still running. `pkill -f "gbm_flutter.app/Contents/MacOS/gbm_flutter"` is the
+  fix. It looks exactly like a broken test — **run one pre-existing device test
+  as a control before believing the new one.**
+- **The device tier flakes on `pumpAndSettle` when run as a batch, and it is a
+  different test every time (#101).** Running the eight files back to back
+  leaves exactly one failing with `pumpAndSettle timed out` — `context_menu_flows`
+  in one batch, `commit_flow_test.dart:67` in the next at **13m28s** — while
+  every one of them passes alone. Mechanism confirmed, not guessed:
+  `top_bar.dart:99` renders a bare **indeterminate** `CircularProgressIndicator`
+  while `isRefreshing`, which schedules frames forever, so a `pumpAndSettle`
+  that starts while a post-operation refresh is still in flight can only run out
+  its 10-minute default. Batch runs load the machine, the refresh takes longer,
+  and the race flips. **This file already states the rule** ("Never
+  `pumpAndSettle()` while `isRefreshing` is true", cancel-surface section) — but
+  only the widget and integration tiers follow it; `integration_test/` does not.
+  **It is not #70**: that one is a fixed 10s `waitFor` budget in C++, this is a
+  Dart indeterminate animation. Read the failure text before picking a family.
+- **Never reduce a device batch's output to `tail -1`.** On failure the last
+  line is the *test name*, not the error, so the whole diagnosis is lost and the
+  run cannot be attributed — which is exactly what happened the first time #101
+  fired here, costing a second full batch to recover the text.
+- **Do not edit `lib/` while a background device-tier run is in flight.** Each
+  `flutter test integration_test/... -d macos` recompiles the app from the
+  working tree, so a mutation probe applied during the run is compiled into
+  whichever tests happen to start after it — and the output cannot tell you
+  which. Any green from such a run attests nothing and has to be discarded and
+  re-run against a clean tree. Same family as the `git add -A` lesson below:
+  the working tree is shared state, and a background job is another reader.
+- **Swapping a widget for a design-system one breaks device-tier finders that
+  nothing else uses.** `ListTile(dense: true)` → `GbmRow` in the Changed files
+  list turned three `context_menu_flows_test.dart` cases red on
+  `find.byType(ListTile)`. Neither the widget nor the integration tier goes
+  through that finder, so `flutter test` stayed green throughout — **the eight
+  device tests are the only thing that sees this class of change**, which is why
+  a round that touches shared row widgets has to rerun all of them, one at a
+  time.
+- **`git commit` after `git add -A <dir>` swept an unrelated in-progress change
+  into a `refactor:` commit.** Caught by reading `git diff --stat`'s output in
+  the same call; split with `reset --soft` + selective `add`. Stage by file when
+  two changes are live in one directory.
+- **A `std::span<const ObjectId>` does not accept a braced list** in C++20
+  (`initializer_list` construction lands in C++26), so the bridge passes
+  `std::span(&record.oid, 1)`.
+- **Comparing iterators from two separate `toRevListArgs()` calls compares
+  iterators into two different vectors.** The first `--no-merges` test did that
+  and failed for that reason rather than for the reason it was written.

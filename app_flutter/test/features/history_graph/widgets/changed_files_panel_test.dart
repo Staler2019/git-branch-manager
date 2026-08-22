@@ -1,6 +1,9 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/theme/tokens.dart';
+import 'package:gbm_flutter/features/history_graph/widgets/commit_row.dart';
+import 'package:gbm_flutter/widgets/gbm_row.dart';
 import 'package:gbm_flutter/data/models/changed_file.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/data/repositories/file_list_view_mode_repository.dart';
@@ -67,6 +70,29 @@ void main() {
 
     expect(find.text('a.dart'), findsOneWidget);
     expect(find.text('b/c.dart'), findsOneWidget);
+  });
+
+  testWidgets('a file row is as tall as a commit row, not a dense ListTile', (
+    tester,
+  ) async {
+    await pumpGbmWidget(
+      tester,
+      child: ChangedFilesPanelCore(
+        hasSelectedCommit: true,
+        files: <ChangedFile>[_file('lib/a.dart')],
+        selectedPath: null,
+        onFileTap: null,
+      ),
+    );
+
+    // This list used to be `ListTile(dense: true)`, which keeps Material's
+    // own list metrics (~40px dense, 48 otherwise) and so read visibly
+    // looser than the 26px commit rows immediately above it. Pinned here
+    // because the swap to `GbmRow` broke no existing assertion at all --
+    // only the parity test noticed, and only because it happened to name
+    // `ListTile` as its finder.
+    expect(tester.getSize(find.byType(GbmRow).first).height, kCommitRowHeight);
+    expect(kCommitRowHeight, GbmSpacing.rowHeightCompact);
   });
 
   testWidgets('tapping a file invokes onFileTap with its path', (tester) async {

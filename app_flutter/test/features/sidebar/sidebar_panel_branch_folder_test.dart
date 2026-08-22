@@ -147,6 +147,81 @@ Future<void> _rightClick(WidgetTester tester, Finder finder) async {
 }
 
 void main() {
+  group('folder identity is the path, not the display segment', () {
+    // Two folders that share a *segment* under different parents. The panel
+    // used to key `_expandedFolders` on `folderName` ('sub') while
+    // `buildBranchTree` keyed `isExpanded` on the full path ('feature/sub'),
+    // so the two agreed only at depth one. Found when making the builder the
+    // single source of truth broke five unrelated tests -- not by reading.
+    final RefSnapshot refs = RefSnapshot(
+      head: HeadInfo(
+        kind: HeadKind.branch,
+        branchName: 'main',
+        fullRef: 'refs/heads/main',
+        target: 'a' * 40,
+      ),
+      refs: <RefInfo>[
+        _localBranch('main', isHead: true),
+        _localBranch('feature/sub/alpha'),
+        _localBranch('chore/sub/beta'),
+      ],
+      refCountGuardTripped: false,
+      totalRefCount: 3,
+    );
+
+    testWidgets('opening one sub does not open the other', (tester) async {
+      await _pump(tester, refs: refs);
+
+      await tester.tap(find.text('feature'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('sub'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('feature/sub/alpha'), findsOneWidget);
+
+      await tester.tap(find.text('chore'));
+      await tester.pumpAndSettle();
+
+      // `chore/sub` was never opened. Keyed on the segment, it inherited
+      // `feature/sub`'s state and its child appeared unasked.
+      expect(find.text('chore/sub/beta'), findsNothing);
+      expect(find.text('sub'), findsNWidgets(2));
+    });
+
+    testWidgets('Copy folder prefix copies the path, not the segment', (
+      tester,
+    ) async {
+      await _pump(tester, refs: refs);
+      await tester.tap(find.text('feature'));
+      await tester.pumpAndSettle();
+
+      String? copied;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (MethodCall call) async {
+          if (call.method == 'Clipboard.setData') {
+            copied =
+                (call.arguments as Map<Object?, Object?>)['text'] as String?;
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+
+      await _rightClick(tester, find.text('sub'));
+      await tester.tap(find.text('Copy folder prefix'));
+      await tester.pumpAndSettle();
+
+      // 'sub/' would be useless: it is not a prefix of any branch name.
+      expect(copied, 'feature/sub/');
+    });
+  });
+
   group('SidebarPanel branch folder context menu (05-J)', () {
     testWidgets('right-clicking a folder row opens its 05-J menu', (
       tester,

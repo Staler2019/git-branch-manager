@@ -81,6 +81,7 @@ class CommitRowColumnPlan {
     this.graphWidth,
     this.maxRefsWidth,
     this.graphClipped = false,
+    this.drawsGraph = true,
   });
 
   final List<PlannedColumn>? _columns;
@@ -89,6 +90,22 @@ class CommitRowColumnPlan {
   /// measure a width (existing widget tests, and any future embedding that
   /// has room to spare).
   static const CommitRowColumnPlan full = CommitRowColumnPlan(null);
+
+  /// The width [id] is actually **drawn** at, which is not always the width
+  /// stored for it.
+  ///
+  /// They differ for Graph and only for Graph: its stored width is a cap, so
+  /// a two-lane history is drawn at its natural 51px while the cap sits at
+  /// 153. A drag that started from the stored 153 would move an invisible
+  /// number -- the first 100px of travel would change nothing on screen --
+  /// so the resize strip takes its origin from here instead. Null for
+  /// Message, which has no width of its own.
+  double? renderedWidthOf(GbmGraphColumnId id) {
+    for (final PlannedColumn column in columns) {
+      if (column.id == id) return column.width;
+    }
+    return null;
+  }
 
   /// The visible columns in display order, each with the slot it gets.
   List<PlannedColumn> get columns => _columns ?? kDefaultPlannedColumns;
@@ -105,6 +122,18 @@ class CommitRowColumnPlan {
   /// lanes will be clipped. Distinct from `graphWidth != null`, which is
   /// also true whenever the plan simply resolved the natural width.
   final bool graphClipped;
+
+  /// False while a commit search is active, when the Graph column is still
+  /// laid out (spec P02-16 forbids closing it) but holds a bare spacer
+  /// instead of lanes -- `commit_graph_view.dart` passes `showGraph:
+  /// query.isEmpty`, because `graph.edges` connect adjacent rows of the
+  /// *unfiltered* snapshot.
+  ///
+  /// It exists so [resizeHandlesFor] can withhold the Graph strip in that
+  /// state. Leaving the strip up would let a drag write a cap derived from
+  /// the 12px spacer -- a near-minimum lane cap, persisted to
+  /// SharedPreferences and still in force after the search is cleared.
+  final bool drawsGraph;
 
   bool shows(GbmGraphColumnId id) {
     for (final PlannedColumn column in columns) {
@@ -186,12 +215,22 @@ CommitRowColumnPlan planCommitRowColumns({
       if (id.isLocked || !hidden.contains(id.storageId)) id,
   };
 
+  // What the snapshot would like, and what the user's cap allows.
+  //
+  // The cap is a *maximum*, never a size: a two-lane history draws two lanes
+  // and hands the rest to the message, exactly as before. What changed is
+  // that a twelve-lane history no longer takes 221px unasked -- it stops at
+  // the cap and clips the highest lanes, which the user can then drag back
+  // (see `GbmGraphColumnId.graph`, and note lane 0 is drawn leftmost so
+  // clipping never takes HEAD or the trunk).
   final double graphNatural = showGraph
       ? kGraphLaneWidth * (laneCount + 1)
       : GbmSpacing.space3;
+  final double graphWanted = showGraph
+      ? math.min(graphNatural, slots[GbmGraphColumnId.graph]!)
+      : graphNatural;
 
-  double leftover() =>
-      availableWidth - _fixedCost(visible, slots, graphNatural);
+  double leftover() => availableWidth - _fixedCost(visible, slots, graphWanted);
 
   // Rung by rung, cheapest to lose first, stopping the moment the message
   // floor fits.
@@ -229,13 +268,15 @@ CommitRowColumnPlan planCommitRowColumns({
 
   // Last resort: the graph column itself. lane 0 is drawn leftmost, so
   // clipping always takes the highest lanes and never HEAD or the trunk.
-  double resolvedGraphWidth = graphNatural;
-  bool graphClipped = false;
+  double resolvedGraphWidth = graphWanted;
   final double shortfall = kMinSubjectWidth - leftover();
   if (showGraph && shortfall > 0) {
-    resolvedGraphWidth = math.max(0, graphNatural - shortfall);
-    graphClipped = resolvedGraphWidth < graphNatural;
+    resolvedGraphWidth = math.max(0, graphWanted - shortfall);
   }
+  // True whichever reason cut the lanes short -- the user's cap or the
+  // message floor. Both mean the same thing to a reader of the row: there
+  // are lanes you are not being shown.
+  final bool graphClipped = showGraph && resolvedGraphWidth < graphNatural;
 
   return CommitRowColumnPlan(
     <PlannedColumn>[
@@ -253,6 +294,7 @@ CommitRowColumnPlan planCommitRowColumns({
     graphWidth: resolvedGraphWidth,
     maxRefsWidth: showRefs ? slots[GbmGraphColumnId.refs] : null,
     graphClipped: graphClipped,
+    drawsGraph: showGraph,
   );
 }
 
@@ -359,9 +401,16 @@ class ColumnResizeHandle {
 /// whatever order the user dragged the columns into: the thing that gives
 /// way is always the same thing.
 ///
-/// Graph and Message get none: spec's "其餘可開關並拖曳排序 / 欄寬各自可拖曳"
-/// excludes them, and neither has a width of its own to drag anyway (the
-/// graph's comes from the lane count, Message's is whatever is left).
+/// Message gets none: it is the sole flex column, so its width is whatever
+/// is left and there is nothing to drag. Graph *does* get one -- dragging it
+/// moves the cap on how many lanes are drawn, never whether the column
+/// exists, so spec's "Graph 與 Message 固定不可關" is untouched. (This
+/// comment used to say Graph got none too; that stopped being true when the
+/// column became resizable, one commit before this one.)
+///
+/// The one exception is [CommitRowColumnPlan.drawsGraph]: with no lanes on
+/// screen the strip would sit over a 12px spacer, and a drag there would
+/// persist a cap the user never saw.
 List<ColumnResizeHandle> resizeHandlesFor(CommitRowColumnPlan plan) {
   final List<PlannedColumn> columns = plan.columns;
   final int messageIndex = columns.indexWhere(
@@ -376,7 +425,7 @@ List<ColumnResizeHandle> resizeHandlesFor(CommitRowColumnPlan plan) {
     final PlannedColumn column = columns[i];
     final double width = column.width ?? 0;
     fromLeft += width + gapAfterColumn(column.id);
-    if (column.id.isResizable) {
+    if (column.id.isResizable && _isDraggable(plan, column.id)) {
       // The boundary is the column's right edge, i.e. before its own gap.
       handles.add(
         ColumnResizeHandle(
@@ -393,7 +442,7 @@ List<ColumnResizeHandle> resizeHandlesFor(CommitRowColumnPlan plan) {
     final PlannedColumn column = columns[i];
     final double width = column.width ?? 0;
     fromRight += gapAfterColumn(column.id) + width;
-    if (column.id.isResizable) {
+    if (column.id.isResizable && _isDraggable(plan, column.id)) {
       // The boundary is the column's left edge, which is what `fromRight`
       // now names: everything from here to the row's right edge.
       handles.add(
@@ -404,3 +453,6 @@ List<ColumnResizeHandle> resizeHandlesFor(CommitRowColumnPlan plan) {
 
   return handles;
 }
+
+bool _isDraggable(CommitRowColumnPlan plan, GbmGraphColumnId id) =>
+    id != GbmGraphColumnId.graph || plan.drawsGraph;

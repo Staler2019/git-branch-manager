@@ -3,11 +3,16 @@
 //
 // The lower tiers each hand CommitRow a width directly. Only this one proves
 // the width it actually receives in production -- after the sidebar takes
-// 250px, two 5px dividers, and the commit-detail splitter takes 38% -- is a
+// 250px, the Changed files column takes 186px, and two 5px dividers -- is a
 // width the row can survive. Roughly:
 //
-//   commit list ~= (window - 250 - 5 - 5) * 0.62
-//     1024x768 -> ~474px      800x600 -> ~335px      1280x720 -> ~632px
+//   commit list ~= window - 250 - 5 - 186 - 5
+//     1024x768 -> ~578px      800x600 -> ~354px      1280x720 -> ~834px
+//
+// Those numbers grew when History's panes were recomposed to match spec P02
+// (Changed files right, Commit detail below): the commit-detail splitter used
+// to take 38% of the *width*, so the list was ~632px at 1280 and one rung
+// further down the ladder.
 //
 // Two structural rules this file follows:
 //
@@ -37,6 +42,7 @@ import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/features/history_graph/commit_graph_view.dart';
 import 'package:gbm_flutter/features/history_graph/history_page.dart';
 import 'package:gbm_flutter/features/history_graph/widgets/commit_row.dart';
+import 'package:gbm_flutter/features/history_graph/widgets/graph_date_format.dart';
 
 import '../support/pump_workspace.dart';
 
@@ -176,6 +182,13 @@ Rect _graphRectOfRow(WidgetTester tester, int rowIndex) => tester.getRect(
       .first,
 );
 
+/// What the Date column would render for the fixture's commits, derived
+/// through the same formatter the row uses rather than hardcoded -- the
+/// fixture's `when: 0` makes it an epoch date, whose spelling is
+/// `formatGraphDate`'s business and not this test's.
+String _dateLabel() =>
+    formatGraphDate(DateTime.fromMillisecondsSinceEpoch(0), DateTime.now());
+
 void main() {
   for (final (String label, ui.Size size) in <(String, ui.Size)>[
     ('1024x768', _small),
@@ -244,13 +257,23 @@ void main() {
   group('at the default 1280x720 window', () {
     testWidgets('a twelve-lane history gives up nothing', (tester) async {
       // The app's own default window size (my_application.cc:55,
-      // main.cpp:29). Degradation firing here would mean the ladder is
-      // tuned too eagerly for ordinary use.
+      // main.cpp:29). Degradation biting harder than this here would mean
+      // the ladder is tuned too eagerly for ordinary use.
+      //
+      // The title has now been true twice and false once in between, so read
+      // the history before trusting it: it originally claimed "gives up
+      // nothing" while asserting only the two positives, and Date was in fact
+      // dropped -- the list was ~632px then. Recomposing the page to spec
+      // (see history_page_layout_test.dart) gave the list ~834px, which is
+      // enough for Date again. The negative assertion is gone because there
+      // is nothing left to give up; the three positives are the rung lock,
+      // and any of them vanishing is the regression.
       await _pump(tester, size: const ui.Size(1280, 720), laneCount: 12);
 
       expect(tester.takeException(), isNull);
       expect(find.text('Ada Lovelace').first, findsOneWidget);
       expect(find.text(_oidAt(1).substring(0, 8)), findsWidgets);
+      expect(find.text(_dateLabel()), findsWidgets);
     });
   });
 }

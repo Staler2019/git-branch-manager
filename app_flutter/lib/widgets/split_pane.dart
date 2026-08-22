@@ -16,11 +16,29 @@ import '../theme/tokens.dart';
 /// build-time clamp), which is one copy too many to keep in step.
 const double _kDividerWidth = 5.0;
 
+/// Which end of the split the fixed pane sits at, in extent mode.
+///
+/// Explicit rather than derived from the axis. It used to be implicit --
+/// horizontal put the fixed pane first, vertical put it last -- and that rule
+/// is invisible at the call site, where `children: [a, b]` reads as "a then b"
+/// in both. History's page was built on exactly that misreading: it passed the
+/// commit graph as pane 0 of a vertical split expecting it on top and filling,
+/// and got it pinned to the bottom at 186px instead.
+enum GbmFixedPaneEnd {
+  /// Left (horizontal) or top (vertical): the sidebar, the panel list rail.
+  leading,
+
+  /// Right (horizontal) or bottom (vertical): the log drawer, History's
+  /// Changed files column.
+  trailing,
+}
+
 /// A resizable split pane widget supporting both extent mode (fixed first pane)
 /// and flex mode (weighted multi-pane layout).
 ///
 /// - **Extent mode** (`spec.defaultExtent != null`): exactly 2 children.
-///   Pane 0 has fixed pixel width/height; pane 1 fills remaining space.
+///   Pane 0 has fixed pixel width/height and sits at [fixedPaneEnd]; pane 1
+///   fills the remaining space at the other end.
 ///
 /// - **Flex mode** (`spec.flexRatio != null`): N children with weighted ratios.
 ///   Each pane resizes proportionally to its flex weight.
@@ -35,6 +53,7 @@ class GbmSplitPane extends ConsumerStatefulWidget {
     required this.storageId,
     this.onFlexChanged,
     this.controller,
+    this.fixedPaneEnd = GbmFixedPaneEnd.leading,
   });
 
   /// [Axis.horizontal] = panes side-by-side, vertical dividers, drag left-right.
@@ -62,6 +81,10 @@ class GbmSplitPane extends ConsumerStatefulWidget {
   /// that the user has never dragged open, since [_currentFlexes] is
   /// otherwise private State the caller has no way to reach.
   final GbmSplitPaneController? controller;
+
+  /// Where children[0] -- the fixed-extent pane -- sits. Extent mode only;
+  /// flex mode lays children out in order and ignores this.
+  final GbmFixedPaneEnd fixedPaneEnd;
 
   @override
   ConsumerState<GbmSplitPane> createState() => _GbmSplitPaneState();
@@ -183,8 +206,10 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
     if (widget.spec.defaultExtent != null) {
       // Extent mode
       final double minExtent = widget.spec.minExtent;
-      // For vertical axis with pane 0 at the bottom, invert delta: drag-down shrinks
-      final double adjustedDelta = widget.axis == Axis.vertical
+      // A trailing fixed pane grows as the divider moves *away* from the end
+      // it is pinned to, so drag-down (or drag-right) shrinks it.
+      final double adjustedDelta =
+          widget.fixedPaneEnd == GbmFixedPaneEnd.trailing
           ? -deltaPixels
           : deltaPixels;
       final double newExtent = (_currentFlexes[0] + adjustedDelta).clamp(
@@ -444,24 +469,23 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
           // even that is impossible the fixed pane collapses to zero rather
           // than overflowing.
           final double clampedExtent = _clampedFixedExtent();
-          if (widget.axis == Axis.horizontal) {
-            return Row(
-              children: <Widget>[
-                SizedBox(width: clampedExtent, child: widget.children[0]),
-                _buildDivider(0),
-                Expanded(child: widget.children[1]),
-              ],
-            );
-          } else {
-            // Vertical: render main content first, then divider, then fixed drawer
-            return Column(
-              children: <Widget>[
-                Expanded(child: widget.children[1]),
-                _buildDivider(0),
-                SizedBox(height: clampedExtent, child: widget.children[0]),
-              ],
-            );
-          }
+          final bool horizontal = widget.axis == Axis.horizontal;
+          final Widget fixed = horizontal
+              ? SizedBox(width: clampedExtent, child: widget.children[0])
+              : SizedBox(height: clampedExtent, child: widget.children[0]);
+          final List<Widget> panes =
+              widget.fixedPaneEnd == GbmFixedPaneEnd.leading
+              ? <Widget>[
+                  fixed,
+                  _buildDivider(0),
+                  Expanded(child: widget.children[1]),
+                ]
+              : <Widget>[
+                  Expanded(child: widget.children[1]),
+                  _buildDivider(0),
+                  fixed,
+                ];
+          return horizontal ? Row(children: panes) : Column(children: panes);
         } else {
           // Flex mode: N children with flex weights
           final double flexSum = _currentFlexes.reduce((a, b) => a + b);

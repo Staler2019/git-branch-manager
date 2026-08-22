@@ -41,8 +41,15 @@ void main() {
       expect(GbmLayout.menuMinWidth, 220);
     });
 
-    test('graph lane width matches spec (18)', () {
-      expect(GbmLayout.graphLaneWidth, 18);
+    test('graph lane width matches spec (17)', () {
+      // This assertion used to say 18 and to call 18 "spec". It was never
+      // checked against the source: the mockup's graph geometry is
+      // `const L0 = 15, L1 = 32, RH = 26` (`spec_logic.js:428`), i.e. two
+      // lane centres 17px apart. A test that names a spec value without
+      // naming where in the spec it comes from can be wrong in exactly this
+      // way and still look authoritative, so the citation is part of the
+      // assertion now.
+      expect(GbmLayout.graphLaneWidth, 17);
     });
 
     test('diff gutter widths match spec (36 old, 36 new, 14 marker)', () {

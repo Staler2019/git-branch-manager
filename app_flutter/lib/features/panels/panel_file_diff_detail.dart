@@ -87,6 +87,7 @@ class _PanelFileDiffDetailState extends ConsumerState<PanelFileDiffDetail> {
       axis: Axis.vertical,
       spec: GbmLayout.splitterPanelDetailFiles,
       storageId: widget.storageId,
+      fixedPaneEnd: GbmFixedPaneEnd.trailing,
       children: <Widget>[
         Container(
           color: colors.surfacePanel,

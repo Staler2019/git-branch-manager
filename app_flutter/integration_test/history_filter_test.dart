@@ -97,9 +97,11 @@ void main() {
         .length;
     expect(unfiltered, _gitRowCount(repoPath, <String>['--all']));
 
+    // The shape the app actually sends: --no-merges alone. --first-parent is
+    // deliberately absent -- it would drop every commit that arrived through a
+    // merge, which is the defect this test's expected count now pins.
     controller.setHistoryFilter(
       includeRefs: const <String>['refs/heads/main'],
-      firstParentOnly: true,
       noMerges: true,
     );
     await tester.pumpAndSettle(const Duration(seconds: 5));
@@ -111,11 +113,7 @@ void main() {
         .length;
     expect(
       filtered,
-      _gitRowCount(repoPath, <String>[
-        '--first-parent',
-        '--no-merges',
-        'refs/heads/main',
-      ]),
+      _gitRowCount(repoPath, <String>['--no-merges', 'refs/heads/main']),
       reason:
           'a signature mismatch across the FFI seam would not surface as a '
           'wrong row count -- it would crash or read garbage -- so reaching '
@@ -162,7 +160,6 @@ void main() {
 
     controller.setHistoryFilter(
       includeRefs: const <String>['refs/heads/main'],
-      firstParentOnly: true,
       noMerges: true,
     );
     await tester.pumpAndSettle(const Duration(seconds: 5));

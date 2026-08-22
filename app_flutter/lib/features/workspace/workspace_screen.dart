@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
@@ -29,6 +30,7 @@ import '../../theme/tokens.dart';
 import '../../widgets/gbm_banner.dart';
 import '../../widgets/split_pane.dart';
 import '../history_graph/commit_search.dart';
+import '../history_graph/graph_filter_convergence.dart';
 import '../history_graph/commit_selection_summary.dart';
 import '../history_graph/widgets/graph_columns_selector.dart';
 import '../log_drawer/log_drawer.dart';
@@ -100,10 +102,40 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   DateTime? _scanStartedAt;
   Duration? _lastScanDuration;
 
+  /// The last filter actually handed to the core, so an unrelated rebuild
+  /// cannot restart a history walk. Null until the first dispatch, which is
+  /// deliberately *not* the same as [HistoryFilterRequest.none]: the session
+  /// opens unfiltered already, so there is nothing to send for that state.
+  HistoryFilterRequest? _lastSentHistoryFilter;
+  Timer? _historyFilterDebounce;
+
   @override
   void dispose() {
+    _historyFilterDebounce?.cancel();
     _branchFilterFocusNode.dispose();
     super.dispose();
+  }
+
+  /// Typing in the sidebar's filter box changes this on every keystroke, and
+  /// each dispatch is a full `git rev-list`. Debounced so "graph-lanes" is
+  /// one walk rather than eleven; compared against the last one *sent* so a
+  /// query that lands back on a filter already in force costs nothing.
+  void _dispatchHistoryFilter(
+    RepoIdentity identity,
+    HistoryFilterRequest next,
+  ) {
+    _historyFilterDebounce?.cancel();
+    _historyFilterDebounce = Timer(kHistoryFilterDebounce, () {
+      if (!mounted || next == _lastSentHistoryFilter) return;
+      _lastSentHistoryFilter = next;
+      ref
+          .read(repoSessionProvider(identity).notifier)
+          .setHistoryFilter(
+            includeRefs: next.includeRefs,
+            firstParentOnly: next.firstParentOnly,
+            noMerges: next.noMerges,
+          );
+    });
   }
 
   void _showGraphColumnsDialog(BuildContext context) {
@@ -165,6 +197,16 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
           });
         }
       },
+    );
+
+    // The graph converges on the sidebar's branch filter: exactly one match
+    // collapses it to a single line with no merge rows (see
+    // historyFilterFor). Listened here rather than in SidebarPanel because
+    // the sidebar is hideable and the graph is not.
+    ref.listen<HistoryFilterRequest>(
+      historyFilterRequestProvider(identity),
+      (HistoryFilterRequest? previous, HistoryFilterRequest next) =>
+          _dispatchHistoryFilter(identity, next),
     );
 
     // Pushed automatically -- a credential prompt is not something the user

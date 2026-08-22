@@ -281,6 +281,8 @@ public:
     void requestCommitMeta(std::vector<std::string> oids);
 
     /// Async: see gbm_request_commit_files()'s doc comment.
+    void requestCommitFileCounts(std::vector<std::string> oids);
+
     void requestCommitFiles(std::string oid);
 
     /// Async: see gbm_request_commit_file_diff()'s doc comment.

@@ -98,49 +98,43 @@ std::vector<std::string> DiffService::diffFlags(const DiffOptions& options) cons
     return flags;
 }
 
-GitResult<DiffService::ChangedFilesPtr> DiffService::changedFiles(const ObjectId& commit,
-                                                                  const DiffOptions& options,
-                                                                  CancellationToken token) {
-    GBM_ASSERT_NOT_UI_THREAD();
+namespace {
 
-    const std::string cacheKey = commit.hex() + ":files:" + std::to_string(options.hash());
-    if (auto cached = fileListCache_.get(cacheKey)) {
-        return ChangedFilesPtr(cached);
-    }
+/// The `--raw` rename flag, for whichever git command is about to be run.
+///
+/// Always explicit, never omitted. `diff-tree` is plumbing and does no rename
+/// detection unless asked, but `git log` is porcelain and honours
+/// `diff.renames` -- which has defaulted to *true* since git 2.9 and can be
+/// set per repository. Leaving the flag off would make the two commands
+/// disagree about what a rename is, which on screen is the Changed files
+/// column saying 2 next to a panel listing 1.
+std::string rawRenameFlag(const DiffOptions& options) {
+    return options.detectRenames ? "--find-renames" : "--no-renames";
+}
 
-    // --root matters: without it, diff-tree prints nothing at all for a commit
-    // with no parent, so the very first commit in a repository would show an empty
-    // changed-file list. With it, the root commit reads as all-additions.
-    std::vector<std::string> args{"diff-tree", "-r", "--raw", "-z", "--no-commit-id", "--root"};
-    if (options.detectRenames) {
-        args.emplace_back("--find-renames");
-    }
-    if (options.firstParentOnly) {
-        args.emplace_back("--diff-merges=first-parent");
-    }
-    args.push_back(commit.hex());
-
-    GitCommand command(paths_.commandDir(), std::move(args));
-    command.timeout = std::chrono::seconds(120);
-
-    // `--raw -z` emits NUL-separated fields, and rename entries span three
-    // records (metadata, old path, new path) rather than two. Using -z rather
-    // than parsing quoted paths is what keeps non-ASCII filenames correct.
-    std::vector<std::string> records;
-    const LineSink sink = [&records](std::string_view field) {
-        records.emplace_back(field);
-        return true;
-    };
-
-    auto result =
-        runner_.streamSeparated(command, IProcessRunner::Separator::Nul, sink, nullptr, token);
-    if (!result) {
-        return fail(std::move(result).error());
-    }
-
-    auto files = std::make_shared<std::vector<ChangedFile>>();
-    for (std::size_t i = 0; i < records.size();) {
+/// Parses one commit's worth of `--raw -z` fields into changed files.
+///
+/// Shared by changedFiles() and commitFileCounts() rather than written twice:
+/// the count the History column shows has to be the length of the list the
+/// panel shows, and one parser is the only way to guarantee that without a
+/// test for every record shape.
+///
+/// `--raw -z` emits NUL-separated fields, and rename and copy entries span
+/// three records (metadata, old path, new path) rather than two. Using -z
+/// rather than parsing quoted paths is what keeps non-ASCII filenames
+/// correct.
+std::vector<ChangedFile> parseRawRecords(const std::vector<std::string>& records,
+                                         std::size_t begin,
+                                         std::size_t end) {
+    std::vector<ChangedFile> files;
+    for (std::size_t i = begin; i < end;) {
         std::string_view meta = records[i];
+        // git log writes its commit header and the raw block separated by a
+        // newline, so the first metadata record of each commit arrives with a
+        // leading one. diff-tree's records never do.
+        while (!meta.empty() && (meta.front() == '\n' || meta.front() == '\r')) {
+            meta.remove_prefix(1);
+        }
         if (meta.empty() || meta.front() != ':') {
             ++i;
             continue;
@@ -183,21 +177,128 @@ GitResult<DiffService::ChangedFilesPtr> DiffService::changedFiles(const ObjectId
 
         const bool hasTwoPaths =
             file.kind == FileChangeKind::Renamed || file.kind == FileChangeKind::Copied;
-        if (hasTwoPaths && i + 2 < records.size()) {
+        if (hasTwoPaths && i + 2 < end) {
             file.oldPath = records[i + 1];
             file.path = records[i + 2];
             i += 3;
-        } else if (i + 1 < records.size()) {
+        } else if (i + 1 < end) {
             file.path = records[i + 1];
             i += 2;
         } else {
             break;
         }
-        files->push_back(std::move(file));
+        files.push_back(std::move(file));
     }
+    return files;
+}
+
+/// Collects a command's NUL-separated output into fields.
+LineSink collectFields(std::vector<std::string>& records) {
+    return [&records](std::string_view field) {
+        records.emplace_back(field);
+        return true;
+    };
+}
+
+}  // namespace
+
+GitResult<DiffService::ChangedFilesPtr> DiffService::changedFiles(const ObjectId& commit,
+                                                                  const DiffOptions& options,
+                                                                  CancellationToken token) {
+    GBM_ASSERT_NOT_UI_THREAD();
+
+    const std::string cacheKey = commit.hex() + ":files:" + std::to_string(options.hash());
+    if (auto cached = fileListCache_.get(cacheKey)) {
+        return ChangedFilesPtr(cached);
+    }
+
+    // --root matters: without it, diff-tree prints nothing at all for a commit
+    // with no parent, so the very first commit in a repository would show an empty
+    // changed-file list. With it, the root commit reads as all-additions.
+    std::vector<std::string> args{"diff-tree", "-r", "--raw", "-z", "--no-commit-id", "--root"};
+    args.emplace_back(rawRenameFlag(options));
+    if (options.firstParentOnly) {
+        args.emplace_back("--diff-merges=first-parent");
+    }
+    args.push_back(commit.hex());
+
+    GitCommand command(paths_.commandDir(), std::move(args));
+    command.timeout = std::chrono::seconds(120);
+
+    std::vector<std::string> records;
+    auto result = runner_.streamSeparated(
+        command, IProcessRunner::Separator::Nul, collectFields(records), nullptr, token);
+    if (!result) {
+        return fail(std::move(result).error());
+    }
+
+    auto files =
+        std::make_shared<std::vector<ChangedFile>>(parseRawRecords(records, 0, records.size()));
 
     fileListCache_.put(cacheKey, files, estimateBytes(*files));
     return ChangedFilesPtr(files);
+}
+
+GitResult<std::vector<CommitFileCount>> DiffService::commitFileCounts(
+    const std::vector<ObjectId>& commits, const DiffOptions& options, CancellationToken token) {
+    GBM_ASSERT_NOT_UI_THREAD();
+
+    std::vector<CommitFileCount> counts;
+    if (commits.empty()) {
+        return counts;
+    }
+
+    // `git log --no-walk`, not `diff-tree --stdin`: --stdin combined with a
+    // merge-diff flag echoes the input commit lines back and produces output
+    // for only the last one, dropping the rest silently.
+    //
+    // --no-walk keeps this to exactly the commits named -- without it git
+    // would walk their whole ancestry. A root commit needs no `--root` here;
+    // `log` prints its diff already, which is the equivalent of the flag
+    // changedFiles() has to pass diff-tree.
+    std::vector<std::string> args{
+        "log", "--no-walk", "--format=%x00COMMIT %H", "-r", "--raw", "-z", rawRenameFlag(options)};
+    if (options.firstParentOnly) {
+        args.emplace_back("--diff-merges=first-parent");
+    }
+    for (const ObjectId& commit : commits) {
+        args.push_back(commit.hex());
+    }
+
+    GitCommand command(paths_.commandDir(), std::move(args));
+    command.timeout = std::chrono::seconds(120);
+
+    std::vector<std::string> records;
+    auto result = runner_.streamSeparated(
+        command, IProcessRunner::Separator::Nul, collectFields(records), nullptr, token);
+    if (!result) {
+        return fail(std::move(result).error());
+    }
+
+    // The `%x00` in the format is what makes each commit header its own field,
+    // so the stream reads as: "COMMIT <hex>", that commit's raw records,
+    // "COMMIT <hex>", and so on. Slice on the headers and hand each slice to
+    // the same parser changedFiles() uses.
+    static constexpr std::string_view kHeader = "COMMIT ";
+    std::vector<std::pair<std::string, std::size_t>> headers;
+    for (std::size_t i = 0; i < records.size(); ++i) {
+        std::string_view field = records[i];
+        if (field.rfind(kHeader, 0) != 0) {
+            continue;
+        }
+        headers.emplace_back(std::string(field.substr(kHeader.size())), i);
+    }
+
+    counts.reserve(headers.size());
+    for (std::size_t h = 0; h < headers.size(); ++h) {
+        const std::size_t begin = headers[h].second + 1;
+        const std::size_t end = (h + 1 < headers.size()) ? headers[h + 1].second : records.size();
+        CommitFileCount entry;
+        entry.commit = ObjectId::fromHex(headers[h].first);
+        entry.fileCount = static_cast<std::uint32_t>(parseRawRecords(records, begin, end).size());
+        counts.push_back(std::move(entry));
+    }
+    return counts;
 }
 
 GitResult<DiffService::ParsedDiffPtr> DiffService::commitDiff(const ObjectId& commit,

@@ -44,7 +44,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/operation_choice.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
-import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/features/dialogs/checkout_recovery/checkout_recovery_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/credential/credential_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/delete_branch_recovery/delete_branch_recovery_dialog.dart';

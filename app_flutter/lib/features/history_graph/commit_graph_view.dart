@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -60,6 +61,14 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
   /// (typically the filter field), and Shift+↑/↓, Ctrl/Cmd+A and Esc would
   /// all silently do nothing.
   final FocusNode _listFocus = FocusNode(debugLabel: 'CommitGraphView list');
+
+  /// The width the column being dragged had when the gesture started, plus
+  /// the pointer's travel since. Accumulated rather than applied frame by
+  /// frame because [GraphColumnWidthNotifier.setWidth] clamps: adding each
+  /// delta to the *clamped* value makes a drag past `minWidth` and back
+  /// lag behind the pointer by however far it overshot.
+  double _resizeStartWidth = 0;
+  double _resizeTravel = 0;
 
   @override
   void initState() {
@@ -432,95 +441,220 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
           onCollapse: () =>
               _publish(_selectionController.state.collapseToAnchor()),
           onExtend: (int delta) => _extendSelection(delta, visibleOids),
-          child: ListView.builder(
-            controller: _controller,
-            itemExtent: kCommitRowHeight,
-            itemCount: visibleRows.length,
-            itemBuilder: (context, position) {
-              // `position` walks the filtered result list; `index` is the
-              // row's real place in the unfiltered snapshot, which is what
-              // the graph edge lookups are keyed on.
-              final int index = visibleRows[position];
-              final GraphRow row = graph.rows[index];
-              final String oid = index < graph.oidsHex.length
-                  ? graph.oidsHex[index]
-                  : '';
-              final CommitMeta? meta = metaCache[oid];
-              return CommitRow(
-                row: row,
-                oidHex: oid,
-                graph: graph,
-                rowIndex: index,
-                maxLane: graph.laneCount,
-                plan: plan,
-                meta: meta,
-                showGraph: query.isEmpty,
-                selected: oid.isNotEmpty && selection.contains(oid),
-                refChips: oid.isEmpty
-                    ? const <RefChipData>[]
-                    : refChipsForCommit(refs, oid),
-                isOwnCommit:
-                    meta != null &&
-                    effectiveEmail.isNotEmpty &&
-                    meta.author.email == effectiveEmail,
-                onSelect: oid.isEmpty
-                    ? null
-                    : (SelectionGesture gesture) =>
-                          _onRowSelect(oid, gesture, visibleOids),
-                onContextMenuRequested: oid.isEmpty
-                    ? null
-                    : () => _normaliseSelectionForMenu(oid),
-                menuSelectionCount: selection.length,
-                menuSelectionIsContiguous: contiguous,
-                conflictActive: conflictActive,
-                menuTitle: selection.length > 1
-                    ? '${selection.length} commits'
-                    : null,
-                onCopySha: oid.isEmpty ? null : _copySelectedShas,
-                onCheckout: oid.isEmpty
-                    ? null
-                    : () => _session.checkout(target: oid, detach: true),
-                onMerge: oid.isEmpty
-                    ? null
-                    // gbm_merge_branch's `target` is pushed straight into
-                    // `git merge <target>` (MergeOps.cpp), so an oid is a
-                    // perfectly good merge target -- no oid-to-branch-name
-                    // resolution step is needed despite the parameter's name.
-                    : () => _session.mergeBranch(oid, MergeMode.noFastForward),
-                onCherryPick: oid.isEmpty
-                    ? null
-                    : () => _session.cherryPick(_selectedOldestFirst()),
-                onRevert: oid.isEmpty
-                    ? null
-                    : () => _session.revert(_selectedOldestFirst()),
-                onCreateBranchHere: oid.isEmpty
-                    ? null
-                    : () => _createBranchFromCommit(
-                        context,
-                        ref,
-                        widget.identity,
-                        oid,
-                      ),
-                onCompare: oid.isEmpty ? null : _compareSelection,
-                onRebaseOntoHere: oid.isEmpty
-                    ? null
-                    : () => context.push(
-                        RoutePaths.rebaseOntoDialogFor(_repoId, target: oid),
-                      ),
-                onResetBranchHere: oid.isEmpty
-                    ? null
-                    : () => context.push(
-                        RoutePaths.resetBranchDialogFor(_repoId, target: oid),
-                      ),
-                onExportAsPatch: oid.isEmpty ? null : _exportSelectedPatches,
-                onCompareWithWorkingCopy: oid.isEmpty
-                    ? null
-                    : () => _compareWithWorkingCopy(oid),
-              );
-            },
+          child: Stack(
+            children: <Widget>[
+              _buildRows(
+                graph,
+                visibleRows,
+                query,
+                metaCache,
+                selection,
+                refs,
+                effectiveEmail,
+                conflictActive,
+                contiguous,
+                visibleOids,
+                plan,
+              ),
+              // Spec page 02 item 16's "欄寬各自可拖曳並記憶", reached without
+              // a header row -- the mockup has none. See
+              // kColumnResizeHandleWidth for why an invisible strip and not
+              // a visible grip.
+              for (final ColumnResizeHandle handle in resizeHandlesFor(plan))
+                _ColumnResizeStrip(
+                  key: ValueKey<String>(
+                    'graphColumnResize.${handle.id.storageId}',
+                  ),
+                  handle: handle,
+                  onDragStart: () {
+                    _resizeStartWidth = columnLayout.widthOf(handle.id);
+                    _resizeTravel = 0;
+                  },
+                  onDragUpdate: (double dx) {
+                    _resizeTravel += dx;
+                    ref
+                        .read(graphColumnWidthProvider.notifier)
+                        .setWidth(
+                          handle.id,
+                          _resizeStartWidth + _resizeTravel * handle.dragSign,
+                        );
+                  },
+                  onDragEnd: () => ref
+                      .read(graphColumnWidthProvider.notifier)
+                      .commitWidths(),
+                ),
+            ],
           ),
         );
       },
+    );
+  }
+
+  Widget _buildRows(
+    GraphSnapshotView graph,
+    List<int> visibleRows,
+    String query,
+    Map<String, CommitMeta> metaCache,
+    ListSelection<String> selection,
+    RefSnapshot refs,
+    String effectiveEmail,
+    bool conflictActive,
+    bool contiguous,
+    List<String> visibleOids,
+    CommitRowColumnPlan plan,
+  ) {
+    return ListView.builder(
+      controller: _controller,
+      itemExtent: kCommitRowHeight,
+      itemCount: visibleRows.length,
+      itemBuilder: (context, position) {
+        // `position` walks the filtered result list; `index` is the
+        // row's real place in the unfiltered snapshot, which is what
+        // the graph edge lookups are keyed on.
+        final int index = visibleRows[position];
+        final GraphRow row = graph.rows[index];
+        final String oid = index < graph.oidsHex.length
+            ? graph.oidsHex[index]
+            : '';
+        final CommitMeta? meta = metaCache[oid];
+        return CommitRow(
+          row: row,
+          oidHex: oid,
+          graph: graph,
+          rowIndex: index,
+          maxLane: graph.laneCount,
+          plan: plan,
+          meta: meta,
+          showGraph: query.isEmpty,
+          selected: oid.isNotEmpty && selection.contains(oid),
+          refChips: oid.isEmpty
+              ? const <RefChipData>[]
+              : refChipsForCommit(refs, oid),
+          isOwnCommit:
+              meta != null &&
+              effectiveEmail.isNotEmpty &&
+              meta.author.email == effectiveEmail,
+          onSelect: oid.isEmpty
+              ? null
+              : (SelectionGesture gesture) =>
+                    _onRowSelect(oid, gesture, visibleOids),
+          onContextMenuRequested: oid.isEmpty
+              ? null
+              : () => _normaliseSelectionForMenu(oid),
+          menuSelectionCount: selection.length,
+          menuSelectionIsContiguous: contiguous,
+          conflictActive: conflictActive,
+          menuTitle: selection.length > 1
+              ? '${selection.length} commits'
+              : null,
+          onCopySha: oid.isEmpty ? null : _copySelectedShas,
+          onCheckout: oid.isEmpty
+              ? null
+              : () => _session.checkout(target: oid, detach: true),
+          onMerge: oid.isEmpty
+              ? null
+              // gbm_merge_branch's `target` is pushed straight into
+              // `git merge <target>` (MergeOps.cpp), so an oid is a
+              // perfectly good merge target -- no oid-to-branch-name
+              // resolution step is needed despite the parameter's name.
+              : () => _session.mergeBranch(oid, MergeMode.noFastForward),
+          onCherryPick: oid.isEmpty
+              ? null
+              : () => _session.cherryPick(_selectedOldestFirst()),
+          onRevert: oid.isEmpty
+              ? null
+              : () => _session.revert(_selectedOldestFirst()),
+          onCreateBranchHere: oid.isEmpty
+              ? null
+              : () =>
+                    _createBranchFromCommit(context, ref, widget.identity, oid),
+          onCompare: oid.isEmpty ? null : _compareSelection,
+          onRebaseOntoHere: oid.isEmpty
+              ? null
+              : () => context.push(
+                  RoutePaths.rebaseOntoDialogFor(_repoId, target: oid),
+                ),
+          onResetBranchHere: oid.isEmpty
+              ? null
+              : () => context.push(
+                  RoutePaths.resetBranchDialogFor(_repoId, target: oid),
+                ),
+          onExportAsPatch: oid.isEmpty ? null : _exportSelectedPatches,
+          onCompareWithWorkingCopy: oid.isEmpty
+              ? null
+              : () => _compareWithWorkingCopy(oid),
+        );
+      },
+    );
+  }
+}
+
+/// One column boundary's invisible grab strip, laid over the commit list.
+///
+/// The strip has to be invisible in behaviour as well as in paint: it lies
+/// over live commit rows, and a click on it must select the row underneath
+/// exactly as a click two pixels to the left would. What makes that work is
+/// **`MouseRegion(opaque: false)`**, and the reason is narrower than it
+/// looks -- `RenderMouseRegion.hitTest` is `super.hitTest(...) && _opaque`,
+/// so a non-opaque region records its subtree's hit-test entries and *still*
+/// returns false, letting the enclosing [Stack] carry on to the [ListView]
+/// behind it. Both the strip's recognizer and the row's therefore end up in
+/// the same gesture arena, and the arena picks by gesture kind: a horizontal
+/// drag has no competitor here, a tap has no recognizer on this side at all.
+/// The same non-opacity is what keeps hover reaching the row, so its
+/// highlight does not go dead in an 8px band.
+///
+/// [HitTestBehavior.translucent] on the [GestureDetector] says the same
+/// thing one layer down and is the honest value for a detector that must
+/// never consume a tap -- but it is **not** what carries the behaviour
+/// today. Measured, not assumed: with the [MouseRegion] in place, flipping
+/// this to `opaque` changes nothing, while flipping the region to
+/// `opaque: true` blocks the tap outright. `history_column_resize_test.dart`
+/// asserts the click-through directly, because none of this is visible in
+/// the widget tree -- a strip that swallows taps looks identical.
+class _ColumnResizeStrip extends StatelessWidget {
+  const _ColumnResizeStrip({
+    super.key,
+    required this.handle,
+    required this.onDragStart,
+    required this.onDragUpdate,
+    required this.onDragEnd,
+  });
+
+  final ColumnResizeHandle handle;
+  final VoidCallback onDragStart;
+  final ValueChanged<double> onDragUpdate;
+  final VoidCallback onDragEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    // The strip straddles the boundary rather than sitting beside it.
+    final double edge = handle.offset - kColumnResizeHandleWidth / 2;
+    return Positioned(
+      top: 0,
+      bottom: 0,
+      left: handle.fromRight ? null : edge,
+      right: handle.fromRight ? edge : null,
+      width: kColumnResizeHandleWidth,
+      child: MouseRegion(
+        opaque: false,
+        cursor: SystemMouseCursors.resizeColumn,
+        child: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          // The column has to sit under the pointer, not `kTouchSlop`
+          // behind it. `DragStartBehavior.start` -- GestureDetector's
+          // default -- takes the position at which the recognizer won the
+          // arena as the drag origin, so the first 20px of every grab are
+          // silently discarded and the boundary trails the cursor for the
+          // rest of the gesture. `.down` reports from where the pointer
+          // actually went down.
+          dragStartBehavior: DragStartBehavior.down,
+          onHorizontalDragStart: (_) => onDragStart(),
+          onHorizontalDragUpdate: (DragUpdateDetails d) =>
+              onDragUpdate(d.delta.dx),
+          onHorizontalDragEnd: (_) => onDragEnd(),
+        ),
+      ),
     );
   }
 }

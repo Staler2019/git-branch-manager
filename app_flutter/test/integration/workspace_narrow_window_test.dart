@@ -63,8 +63,12 @@ GraphSnapshotView _graph(int laneCount) {
           commitTime: 0,
           lane: i,
           color: i,
-          // flags bit 0 is isHead -- see GraphRow. Only row 0.
-          flags: i == 0 ? 1 : 0,
+          // GraphRow.isHead is bit 0x20, not bit 0 -- an earlier comment
+          // here said bit 0 and set 1, which marks nothing. Kept at 0x20 on
+          // row 0 so the fixture says what it means; nothing in this file
+          // depends on it either way, because the HEAD *chip* comes from
+          // _refs() below and HEAD has no other representation in the row.
+          flags: i == 0 ? 0x20 : 0,
         ),
     ],
     oidsHex: <String>[for (int i = 0; i < laneCount; i++) _oidAt(i)],

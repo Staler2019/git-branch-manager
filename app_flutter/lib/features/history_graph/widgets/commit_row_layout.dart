@@ -307,3 +307,100 @@ double _fixedCost(
   }
   return total + kRowTrailingGap;
 }
+
+/// How wide the invisible grab strip on a column boundary is.
+///
+/// The mockup draws no header row at all, so there is nowhere to put a
+/// visible resize grip and spec says nothing about how "欄寬各自可拖曳" is
+/// reached. The decision (recorded here because it is ours, not spec's) is
+/// an invisible strip lying over the commit list itself: the row keeps the
+/// mockup's appearance exactly, and the only thing that changes is the
+/// cursor on hover. 8 logical pixels is the same grab width
+/// `split_pane.dart` uses for its own divider.
+const double kColumnResizeHandleWidth = 8;
+
+/// Where one column's grab strip sits, in the coordinates a [Positioned]
+/// inside a row-width [Stack] takes.
+///
+/// [offset] is measured to the *boundary*, not to the strip's edge -- the
+/// strip straddles it, so a caller subtracts half of
+/// [kColumnResizeHandleWidth].
+class ColumnResizeHandle {
+  const ColumnResizeHandle({
+    required this.id,
+    required this.offset,
+    required this.fromRight,
+  });
+
+  final GbmGraphColumnId id;
+
+  /// Distance from the row's left edge when [fromRight] is false, or from
+  /// its right edge when true.
+  final double offset;
+
+  /// Which edge [offset] is measured from. A column before
+  /// [GbmGraphColumnId.message] has a fixed distance from the left; one
+  /// after it has a fixed distance from the right, because Message is the
+  /// sole flex column and absorbs every width change in between.
+  final bool fromRight;
+
+  /// What a rightward drag does to this column's width: widens a
+  /// left-anchored column, narrows a right-anchored one. Derived rather than
+  /// stored, so the two can never be set inconsistently.
+  double get dragSign => fromRight ? -1 : 1;
+}
+
+/// The grab strips [plan] implies, one per resizable visible column.
+///
+/// Each strip sits on the column's boundary *with Message* -- the right edge
+/// of a left-anchored column, the left edge of a right-anchored one -- so a
+/// drag always trades width directly with the subject and never with a
+/// neighbouring fixed column. That is what makes the gesture predictable
+/// whatever order the user dragged the columns into: the thing that gives
+/// way is always the same thing.
+///
+/// Graph and Message get none: spec's "其餘可開關並拖曳排序 / 欄寬各自可拖曳"
+/// excludes them, and neither has a width of its own to drag anyway (the
+/// graph's comes from the lane count, Message's is whatever is left).
+List<ColumnResizeHandle> resizeHandlesFor(CommitRowColumnPlan plan) {
+  final List<PlannedColumn> columns = plan.columns;
+  final int messageIndex = columns.indexWhere(
+    (PlannedColumn c) => c.id == GbmGraphColumnId.message,
+  );
+  if (messageIndex < 0) return const <ColumnResizeHandle>[];
+
+  final List<ColumnResizeHandle> handles = <ColumnResizeHandle>[];
+
+  double fromLeft = 0;
+  for (int i = 0; i < messageIndex; i++) {
+    final PlannedColumn column = columns[i];
+    final double width = column.width ?? 0;
+    fromLeft += width + gapAfterColumn(column.id);
+    if (column.id.isResizable) {
+      // The boundary is the column's right edge, i.e. before its own gap.
+      handles.add(
+        ColumnResizeHandle(
+          id: column.id,
+          offset: fromLeft - gapAfterColumn(column.id),
+          fromRight: false,
+        ),
+      );
+    }
+  }
+
+  double fromRight = kRowTrailingGap;
+  for (int i = columns.length - 1; i > messageIndex; i--) {
+    final PlannedColumn column = columns[i];
+    final double width = column.width ?? 0;
+    fromRight += gapAfterColumn(column.id) + width;
+    if (column.id.isResizable) {
+      // The boundary is the column's left edge, which is what `fromRight`
+      // now names: everything from here to the row's right edge.
+      handles.add(
+        ColumnResizeHandle(id: column.id, offset: fromRight, fromRight: true),
+      );
+    }
+  }
+
+  return handles;
+}

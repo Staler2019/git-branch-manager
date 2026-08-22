@@ -2028,7 +2028,7 @@ the real window.**
 
 #### Still open
 
-- **The refs column's default width sits in a measured 1.4px corridor** — floor 91
+- ~~**The refs column's default width sits in a measured 1.4px corridor** — floor 91
   (spec's own `HEAD → main` example chip) against ceiling 92 (bisected against
   `workspace_narrow_window_test.dart`'s twelve-lane 1280×720 case, the app's own
   default window size). 92 was chosen. The consequence, recorded in
@@ -2037,7 +2037,11 @@ the real window.**
   the signature spec assigns to the *opposite* state. Widening the column restores
   it and the width is remembered, but the default reads wrong. Not fixable by
   picking another default; 103 is past the ceiling. **Worth overruling if the
-  synced case matters more than the twelve-lane lock.**
+  synced case matters more than the twelve-lane lock.**~~ — **Fixed** by the
+  next round's lane-pitch correction, not by overruling anything: 18 → 17px
+  gives a twelve-lane row 13px back, which lifted the ceiling past 103 and let
+  refs go to **104** (`ceil(103.1)`), so the synced-HEAD chip renders whole at
+  the default. See "History density…" below for the re-bisection.
 - **There is no column header row, so there is no obvious place to grab.** Spec's
   mockup draws none, and adding one would have changed the page's appearance for a
   feature the mockup does not show — so the resize surface is an invisible 8px
@@ -2243,6 +2247,28 @@ last-sent comparison's real job is the case where such a burst lands back on the
 filter already in force. Both now have a case that goes red without them.
 **Three mechanisms were doing overlapping work and only one was tested; the fix
 was to name which case belongs to which, not to delete two of them.**
+
+#### A retained query outliving its session
+
+`branchFilterQueryProvider` is not autoDispose, so the query survives the
+repository being closed; the C++ session's filter does not; and **`ref.listen`
+never fires for the value already present when it registers**. Leaving a
+filtered repository and coming back therefore showed one branch in the sidebar
+and every branch in the graph -- the exact two-screens-disagree state this round
+exists to prevent, and the one defect none of its own tests could see, because
+every one of them pumps a workspace whose query starts empty.
+
+`_syncHistoryFilter()` re-sends the current request after the first frame and on
+the session's `isOpen` false->true edge, undebounced -- this is not a keystroke,
+it is a session that has no filter and a query that says it should have one. The
+`isOpen` arm clears `_lastSentHistoryFilter` first, or the comparison would
+decide the core already knows. The provider's own doc comment claimed the
+opposite (`重開 repository 會看到全部`) and is corrected in place.
+
+**Generalisable**: every `ref.listen`-driven piece of session state has this
+shape. The listener covers *changes*; something else has to cover the value that
+was already there. The test that sees it is the one that seeds the provider
+**before** pumping.
 
 #### Harness and process notes
 

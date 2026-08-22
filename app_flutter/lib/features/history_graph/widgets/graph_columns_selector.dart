@@ -7,6 +7,7 @@ import '../../../data/models/graph_column.dart';
 import '../../../data/repositories/graph_columns_repository.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
+import '../../../widgets/lucide_icon.dart';
 
 /// The picker's own width. Spec's grid column for this panel is 214px
 /// (`spec_raw.html:1351`); the extra 6 are the panel padding it sits inside.
@@ -24,19 +25,23 @@ const double kGraphColumnsSelectorWidth = 220;
 /// invisible to the commit list, which never read it back. Sitting both on
 /// one notifier is what makes a toggle reach the rows.
 ///
-/// Two deliberate departures from the plan that produced this widget, both
-/// about the drag affordance:
+/// One deliberate departure from the plan that produced this widget: the drag
+/// affordance is a grip glyph in the row's trailing hint slot, not the
+/// framework's `buildDefaultDragHandles`. That default is a 24px Material
+/// `Icons.drag_handle` stacked over a 24px row, and it is gated on
+/// `Theme.of(context).platform` -- so a widget test (android) would exercise
+/// the long-press path no desktop user ever gets.
 ///
-///  * `buildDefaultDragHandles: false`. The framework's default handle is a
-///    24px Material `Icons.drag_handle` stacked over the row's trailing edge,
-///    which is both taller than this 24px row and a glyph the mockup does not
-///    draw -- its hint slot is empty for every unlocked column. It is also
-///    gated on `Theme.of(context).platform`, so a widget test (android) would
-///    exercise a long-press path no desktop user ever gets.
-///  * The whole row is therefore the handle, via [ReorderableDragStartListener],
-///    with a `grab` cursor as the only visible signal. Press-and-release still
-///    toggles: a tap and an immediate drag are different gestures, and the
-///    drag needs `kTouchSlop` of travel before it wins.
+/// **The whole row must not be the handle**, which an earlier version of this
+/// file made it. `ReorderableDragStartListener` hands the pointer to an
+/// `ImmediateMultiDragGestureRecognizer`, whose acceptance threshold is
+/// `computeHitSlop(kind)` -- and that is `kPrecisePointerHitSlop` (**1px**)
+/// for `PointerDeviceKind.mouse`, not `kTouchSlop` (18px). Measured on this
+/// widget: a mouse click with 2px of travel lost its toggle outright, where
+/// the same gesture as touch still toggled. On a desktop app that is the
+/// primary input device, so the drag surface has to be somewhere the user is
+/// not trying to click. See `graph_columns_selector_test.dart`'s
+/// "a wobbly mouse click still toggles" for the regression lock.
 class GraphColumnsSelector extends ConsumerWidget {
   const GraphColumnsSelector({super.key});
 
@@ -104,18 +109,16 @@ class GraphColumnsSelector extends ConsumerWidget {
                 visibility,
                 id.storageId,
               );
-              return ReorderableDragStartListener(
+              return _ColumnRow(
                 key: ValueKey<String>(id.storageId),
-                index: i,
-                child: MouseRegion(
-                  cursor: SystemMouseCursors.grab,
-                  child: _ColumnRow(
-                    id: id,
-                    isVisible: isVisible,
-                    onToggle: () => ref
-                        .read(graphColumnVisibilityProvider.notifier)
-                        .setVisible(id.storageId, !isVisible),
-                  ),
+                id: id,
+                isVisible: isVisible,
+                onToggle: () => ref
+                    .read(graphColumnVisibilityProvider.notifier)
+                    .setVisible(id.storageId, !isVisible),
+                trailing: ReorderableDragStartListener(
+                  index: i,
+                  child: const _GripHandle(),
                 ),
               );
             },
@@ -130,13 +133,24 @@ class GraphColumnsSelector extends ConsumerWidget {
 ///
 /// A locked column passes no [onToggle] -- that, rather than a separate
 /// `locked` flag, is what dims the row and prints the `固定` hint, so the two
-/// cannot disagree about which rows are pinned.
+/// cannot disagree about which rows are pinned. It also passes no [trailing],
+/// so the hint slot holds either `固定` or a drag handle and never both.
 class _ColumnRow extends StatelessWidget {
-  const _ColumnRow({required this.id, required this.isVisible, this.onToggle});
+  const _ColumnRow({
+    super.key,
+    required this.id,
+    required this.isVisible,
+    this.onToggle,
+    this.trailing,
+  });
 
   final GbmGraphColumnId id;
   final bool isVisible;
   final VoidCallback? onToggle;
+
+  /// The drag handle, for a movable row. Built by the list so the reorder
+  /// index stays with the list rather than leaking into this row.
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -192,10 +206,43 @@ class _ColumnRow extends StatelessWidget {
                       fontSize: 10.5,
                       color: colors.textTertiary,
                     ),
-                  ),
+                  )
+                else
+                  ?trailing,
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The drag surface of a movable row: a Lucide `grip-vertical` in the slot
+/// the locked rows use for their `固定` hint.
+///
+/// The `Container`'s transparent colour is load-bearing, not decoration --
+/// `ReorderableDragStartListener` is a `Listener`, which defers hit testing to
+/// its child, so without it only the glyph's own painted pixels would start a
+/// drag. `Container(color:)` builds a `ColoredBox` whose render object is
+/// constructed `HitTestBehavior.opaque`, which is what makes the whole 20x24
+/// box grabbable.
+class _GripHandle extends StatelessWidget {
+  const _GripHandle();
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.grab,
+      child: Container(
+        width: 20,
+        height: 24,
+        alignment: Alignment.center,
+        color: Colors.transparent,
+        child: LucideIcon(
+          'grip-vertical',
+          size: 12,
+          color: context.gbmColors.textTertiary,
         ),
       ),
     );

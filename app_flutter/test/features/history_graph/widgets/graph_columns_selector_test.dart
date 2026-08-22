@@ -6,12 +6,14 @@
 // drifted from spec ("Hash", "Changed Files"). Both are gone: rows are found
 // by their spec label, and the labels now come from GbmGraphColumnId.label,
 // so a drift shows up here as a failure rather than as an agreed-upon typo.
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/graph_column.dart';
 import 'package:gbm_flutter/data/repositories/graph_columns_repository.dart';
 import 'package:gbm_flutter/features/history_graph/widgets/graph_columns_selector.dart';
+import 'package:gbm_flutter/widgets/lucide_icon.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../support/pump_app.dart';
@@ -45,6 +47,16 @@ List<String> _rowOrder(WidgetTester tester) {
   return <String>[for (final (double, String) entry in found) entry.$2];
 }
 
+/// The 20x24 grip at the trailing edge of the row labelled [label].
+///
+/// Found by walking out to the row and back down to its only [LucideIcon],
+/// rather than by a key: the handle is what the user aims at, and a finder
+/// that goes through the rendered row cannot drift away from it.
+Finder _handle(String label) => find.descendant(
+  of: find.ancestor(of: find.text(label), matching: find.byType(Row)).first,
+  matching: find.byType(LucideIcon),
+);
+
 /// Drags the row labelled [label] by [dy] using an explicit gesture.
 ///
 /// `tester.drag` would do, but the reorder needs the intermediate frames:
@@ -52,9 +64,13 @@ List<String> _rowOrder(WidgetTester tester) {
 /// its neighbours' midpoints, and a single synthetic move is easy to get
 /// wrong in a way that reads as "reorder is broken" rather than "the test
 /// never moved the pointer".
+///
+/// The gesture starts on the grip, not on the label: only the grip is wired
+/// to the reorder listener, and a drag started anywhere else is by design a
+/// plain click that toggles the row.
 Future<void> _dragRow(WidgetTester tester, String label, double dy) async {
   final TestGesture gesture = await tester.startGesture(
-    tester.getCenter(find.text(label)),
+    tester.getCenter(_handle(label)),
   );
   await tester.pump();
   for (int i = 0; i < 8; i++) {
@@ -159,6 +175,33 @@ void main() {
       expect(visibility['hash'], isFalse);
     });
 
+    testWidgets('a wobbly mouse click still toggles', (tester) async {
+      // The reason the grip exists. When the whole row was the drag surface,
+      // `ImmediateMultiDragGestureRecognizer` took the pointer after
+      // `computeHitSlop(mouse)` == kPrecisePointerHitSlop == 1px of travel --
+      // so a 2px wobble, which is nothing on a real mouse or trackpad, lifted
+      // the row, dropped it back, and swallowed the toggle. Measured on this
+      // widget before the fix: mouse lost it at 2px, touch (18px slop) did
+      // not, which is why every other gesture in this file was blind to it.
+      //
+      // `kind: PointerDeviceKind.mouse` is the whole point -- the default is
+      // touch, and this test passes vacuously without it.
+      await _pump(tester);
+      expect(_boxIsFilled(tester, 'Author'), isTrue);
+
+      final TestGesture gesture = await tester.startGesture(
+        tester.getCenter(find.text('Author')),
+        kind: PointerDeviceKind.mouse,
+      );
+      await tester.pump(const Duration(milliseconds: 16));
+      await gesture.moveBy(const Offset(2, 0));
+      await tester.pump(const Duration(milliseconds: 16));
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      expect(_boxIsFilled(tester, 'Author'), isFalse);
+    });
+
     testWidgets('the two locked rows cannot be switched off', (tester) async {
       await _pump(tester);
 
@@ -243,13 +286,29 @@ void main() {
       ]);
     });
 
-    testWidgets('a locked row is not draggable', (tester) async {
+    testWidgets('a locked row has no grip and stays put', (tester) async {
       await _pump(tester);
       final double rowHeight =
           tester.getTopLeft(find.text('Author')).dy -
           tester.getTopLeft(find.text('Refs')).dy;
 
-      await _dragRow(tester, 'Graph', rowHeight * 3);
+      // The hint slot holds either `固定` or a grip, never both -- so the
+      // absence of a handle is the same fact as the presence of the hint.
+      expect(_handle('Graph'), findsNothing);
+      expect(_handle('Message'), findsNothing);
+
+      // And dragging the row body does nothing, because the row body is not
+      // a drag surface for any row.
+      final TestGesture gesture = await tester.startGesture(
+        tester.getCenter(find.text('Graph')),
+      );
+      await tester.pump();
+      for (int i = 0; i < 8; i++) {
+        await gesture.moveBy(Offset(0, rowHeight * 3 / 8));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await gesture.up();
+      await tester.pumpAndSettle();
 
       expect(_rowOrder(tester).first, 'Graph');
       expect(_rowOrder(tester)[1], 'Message');

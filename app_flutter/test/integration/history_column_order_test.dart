@@ -23,6 +23,7 @@ import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/features/history_graph/commit_graph_view.dart';
 import 'package:gbm_flutter/features/history_graph/widgets/graph_columns_selector.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
+import 'package:gbm_flutter/widgets/lucide_icon.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
 import 'package:gbm_flutter/theme/theme_mode_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -138,6 +139,12 @@ double _cellX(WidgetTester tester, String text) {
       .dx;
 }
 
+/// Drags the picker row labelled [label] by [dy], from its grip.
+///
+/// The grip, not the row body: only the trailing handle is wired to the
+/// reorder listener, because an immediate drag recognizer over the whole row
+/// takes a 1px mouse wobble away from the toggle (see the selector's own
+/// "a wobbly mouse click still toggles").
 Future<void> _dragPickerRow(
   WidgetTester tester,
   String label,
@@ -146,8 +153,16 @@ Future<void> _dragPickerRow(
   final TestGesture gesture = await tester.startGesture(
     tester.getCenter(
       find.descendant(
-        of: find.byType(GraphColumnsSelector),
-        matching: find.text(label),
+        of: find
+            .ancestor(
+              of: find.descendant(
+                of: find.byType(GraphColumnsSelector),
+                matching: find.text(label),
+              ),
+              matching: find.byType(Row),
+            )
+            .first,
+        matching: find.byType(LucideIcon),
       ),
     ),
   );

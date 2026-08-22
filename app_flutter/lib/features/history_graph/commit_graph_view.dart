@@ -18,10 +18,13 @@ import '../../data/repositories/repo_session_repository.dart';
 import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
+import '../../widgets/gbm_icon_button.dart';
+import '../../widgets/lucide_icon.dart';
 import '../../widgets/prompt_text_dialog.dart';
 import 'commit_search.dart';
 import '../../data/repositories/graph_columns_repository.dart';
 import 'widgets/commit_row.dart';
+import 'widgets/graph_columns_selector.dart';
 import 'widgets/commit_row_layout.dart';
 import 'widgets/graph_ref_chips.dart';
 
@@ -742,8 +745,56 @@ class _CommitSearchField extends StatelessWidget {
                 color: colors.textTertiary,
               ),
             ),
+          const SizedBox(width: GbmSpacing.space1),
+          const _ColumnsButton(),
         ],
       ),
+    );
+  }
+}
+
+/// Spec page 02 item 16's "History 標題列右側一顆按鈕", drawn with the
+/// `columns-3` glyph the mockup labels it with (`spec_logic.js:800`).
+///
+/// "標題列" means four different things across this spec (see CLAUDE.md #68);
+/// here it is the History panel's own top row, not the tab row and not the OS
+/// window title -- the mockup pins the icon to the panel's caption
+/// (`spec_raw.html:1298`), one line above the graph, not to the tab strip
+/// that sits above that.
+///
+/// Stateful only to own a [GlobalKey]: the popover is anchored to this
+/// button's rect, and a `RenderBox` is the only thing that knows it.
+class _ColumnsButton extends StatefulWidget {
+  const _ColumnsButton();
+
+  @override
+  State<_ColumnsButton> createState() => _ColumnsButtonState();
+}
+
+class _ColumnsButtonState extends State<_ColumnsButton> {
+  final GlobalKey _key = GlobalKey();
+
+  void _open() {
+    final RenderBox? box =
+        _key.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null) return;
+    showGraphColumnsPopover(
+      context,
+      anchor: box.localToGlobal(Offset.zero) & box.size,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GbmIconButton(
+      key: _key,
+      tooltip: 'Graph columns',
+      icon: LucideIcon(
+        'columns-3',
+        size: 14,
+        color: context.gbmColors.textTertiary,
+      ),
+      onPressed: _open,
     );
   }
 }

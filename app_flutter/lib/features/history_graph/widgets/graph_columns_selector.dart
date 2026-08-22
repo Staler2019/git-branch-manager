@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -196,6 +198,83 @@ class _ColumnRow extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Opens the picker under [anchor] (a global-coordinate rect, normally the
+/// History header button's), right-aligned to it because that button sits at
+/// the panel's trailing edge.
+///
+/// `showGeneralDialog` rather than `showGbmMenu`: a menu closes on the first
+/// click, and this panel exists to be clicked repeatedly -- eight check boxes
+/// and a drag. Copied from `showRepoSwitcherPopover`, which needed the same
+/// thing for its search field. The transparent barrier keeps click-outside
+/// and Esc dismissal without dimming the window behind it.
+Future<void> showGraphColumnsPopover(
+  BuildContext context, {
+  required Rect anchor,
+}) {
+  return showGeneralDialog<void>(
+    context: context,
+    barrierDismissible: true,
+    barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+    barrierColor: Colors.transparent,
+    pageBuilder: (BuildContext dialogContext, _, _) =>
+        _GraphColumnsPopover(anchor: anchor),
+  );
+}
+
+class _GraphColumnsPopover extends StatelessWidget {
+  const _GraphColumnsPopover({required this.anchor});
+
+  final Rect anchor;
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    final Size screen = MediaQuery.sizeOf(context);
+    // Right-aligned to the anchor, then clamped so a button near either edge
+    // still lands the panel fully on screen.
+    final double left = math.max(
+      GbmSpacing.space2,
+      math.min(
+        anchor.right - kGraphColumnsSelectorWidth,
+        screen.width - kGraphColumnsSelectorWidth - GbmSpacing.space2,
+      ),
+    );
+    final double top = anchor.bottom + GbmSpacing.space1;
+
+    return Stack(
+      children: <Widget>[
+        Positioned(
+          left: left,
+          top: top,
+          child: Material(
+            type: MaterialType.transparency,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: math.max(
+                  120,
+                  screen.height - top - GbmSpacing.space3,
+                ),
+              ),
+              child: Container(
+                padding: const EdgeInsets.all(5),
+                decoration: BoxDecoration(
+                  color: colors.surfaceOverlay,
+                  border: Border.all(color: colors.borderDefault),
+                  borderRadius: BorderRadius.circular(GbmSpacing.radiusMd),
+                  boxShadow: GbmEffects.shadowLg(context.gbmThemeVariant),
+                ),
+                child: const SingleChildScrollView(
+                  child: GraphColumnsSelector(),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

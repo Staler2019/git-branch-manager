@@ -68,9 +68,7 @@ struct HistoryQuery {
     /// neighbouring rows can be unrelated; without `--first-parent` every side
     /// branch is walked too; without `--no-merges` nothing is removed and
     /// there is nothing to bridge.
-    bool isLinearWalk() const {
-        return includeRefs.size() == 1 && firstParentOnly && noMerges;
-    }
+    bool isLinearWalk() const { return includeRefs.size() == 1 && firstParentOnly && noMerges; }
 };
 
 /// Why a history walk was started. RepositorySession threads this from each

@@ -5,8 +5,8 @@
 #include "core/graph/GraphBuilder.h"
 
 #include <algorithm>
-#include <span>
 #include <charconv>
+#include <span>
 #include <utility>
 
 namespace gbm {

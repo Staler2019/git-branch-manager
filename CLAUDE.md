@@ -1903,3 +1903,151 @@ seam working as designed, failing loudly rather than reaching a real store.
   under the test font, so 320 still overflows by 7.2px with the repo name
   already at zero. TopBar spans the whole window, so that is below any real
   one; closing it would mean degrading the trailing controls themselves.
+
+### History column order and widths (feat/graph-column-order-and-widths)
+
+P02 item 16, in full: 「Graph 與 Message 固定不可關，其餘可開關並拖曳排序。設定存
+在應用層級，所有 repo 共用；欄寬各自可拖曳並記憶。」The previous round wired
+`readVisibility()` to the render path and left `readOrder()` / `readWidths()` with
+**no reader at all** — the same orphan-wiring shape as the old
+`deleteRemoteBranchDialog` route. Both are now live, along with the two columns
+spec lists and the app did not have (Committer, Changed files). **Twenty sequential
+commits, each green and independently revertible** — the approved plan budgeted
+fourteen, and the delta is itself ledger material: a visibility-fallback fix
+(`f69ee0c`) and two extractions found while implementing, the drag-handle fix
+(`07509e1`) and the picker entry-point test (`2371d49`) below, and one commit split
+in two once a product fix was spotted riding inside a `test:` commit
+(`dbf5e0e`/`77c1902`). The `chore:` prerequisite that removed the mis-committed
+spec generator output (`b8c6c2b`) landed on the parent branch first.
+
+**Where the column decision lives now**: `data/models/graph_column.dart` owns the
+`GbmGraphColumnId` enum and two pure resolvers (`resolveGraphColumnOrder`,
+`resolveGraphColumnWidths`); `graph_columns_repository.dart` holds the two
+notifiers plus `graphColumnLayoutProvider`, which is the single 〈visible +
+ordered + resolved widths〉 object that the row, the degradation ladder and the
+resize strips all read. Growing a second source of column order is the bug shape
+that arrangement exists to prevent.
+
+**Three visible behaviour changes, none of them incidental**: the default order
+is now spec's `graph │ message │ refs │ author │ date │ hash` (hash was second,
+refs was fourth — a pre-existing drift, not introduced here); `refs` stopped being
+"whatever is left after the message floor" and became an ordinary fixed,
+draggable, remembered column, because a column that eats the remainder has no
+width to remember; and the standalone `HEAD` text label is gone, replaced by the
+`HEAD → <branch>` ref chip spec's mockup actually draws (with a bare `HEAD` chip
+for detached, or the "you are here" marker would have vanished entirely).
+
+#### Premise corrections — read these before re-reading the approved plan
+
+- **Plan note 9 was backwards, and the correction is generalisable.** It said
+  `ReorderableListView`'s default trailing drag handle is fine to keep and only
+  the *test* must drag the handle rather than the row. Measured on the real
+  widget: a mouse click with **2px** of travel loses its toggle outright.
+  `ReorderableDragStartListener` hands the pointer to an
+  `ImmediateMultiDragGestureRecognizer`, whose acceptance threshold is
+  `computeHitSlop(kind)` — **`kPrecisePointerHitSlop` (1.0px) for
+  `PointerDeviceKind.mouse`**, not `kTouchSlop` (18px). So the whole-row handle
+  is not a test-only inconvenience; it is a real defect for anyone whose hand is
+  not perfectly still. The row is now inert and a 20×24 `_GripHandle` at its
+  trailing edge is the only drag surface. Related, and the only reason a
+  transparent grip is hit-testable at all: **`Container(color:)` builds a
+  `_RenderColoredBox` constructed `HitTestBehavior.opaque`**, while `Listener`
+  (which `ReorderableDragStartListener` is) defaults to `deferToChild`.
+- **Plan note 12's batch command would have shipped two screens disagreeing.**
+  It specified `--no-renames` on the batch `git log`, reasoning that `diff-tree`
+  defaults to no rename detection so the batch should match. Measured, both
+  halves are wrong in the same way: **`git log --raw` honours `diff.renames`
+  (default true since git 2.9, and settable per repo) while `git diff-tree --raw`
+  ignores it entirely.** Hardcoding `--no-renames` on one path only would have
+  put a column reading `2` beside a panel listing `1` on any repo that sets it.
+  The flag is now **always passed explicitly on both**, from one shared
+  `rawRenameFlag()`, and `parseRawRecords()` is shared too so the two cannot
+  drift. `BatchFileCountsIgnoreTheRepositorysDiffRenamesSetting` is the test that
+  makes this falsifiable — it sets `git config diff.renames false`, and the
+  omit-the-flag mutation goes red on exactly it.
+
+#### Measured, not reasoned
+
+- **`git diff-tree` silently ignores `--first-parent`.** On a two-parent merge,
+  `diff-tree -m --first-parent` emits **33** records = the first parent's 19 plus
+  the second's 14; the flag does nothing and `-m` prints both sides. The correct
+  spelling is **`--diff-merges=first-parent`** (git 2.31+), which gives 19 and
+  agrees with `git diff <first-parent> <merge>`. `git log` *does* honour
+  `--first-parent`, which is exactly why the wrong flag looks plausible. All
+  three `DiffService` call sites use the explicit form.
+- **The merge fix had to be all three call sites or none.** `changedFiles` (the
+  panel's list) and the two single-file patch paths were each empty for merges.
+  Fixing only the list would have produced 19 rows that each open an empty
+  diff — worse than an honest 0. Non-merge output is byte-identical before and
+  after (md5-checked on a normal commit and a root commit), so this is purely
+  additive.
+- **`git diff-tree --stdin` cannot carry a batch.** With `-m` it echoes the input
+  commit lines back and produces output only for the last one; the rest vanish
+  silently. The batch is `git log --no-walk --format=%x00COMMIT %H -r --raw -z`,
+  sliced on the `COMMIT ` header fields.
+- **`git log --no-walk` sorts by commit date, not by the order the oids were
+  given** (`--no-walk=unsorted` would preserve it). Nothing may assume the reply
+  is index-aligned with the request — which is why the payload echoes each oid.
+- **Absent is not zero.** A commit git never answered for must be *omitted* from
+  the file-count reply, never cached as `0`; `UnknownOidIsOmittedFromTheFileCountsReply`
+  pins it. On the Dart side `fileCount == null` renders a skeleton and `0` renders
+  a real zero, so the two states stay distinguishable on screen.
+
+#### The popover defect only the device tier could see
+
+`showGraphColumnsPopover` opened unconditionally below its anchor. On the 800×600
+default widget-test canvas that always fits, so every widget and integration test
+was green. On a real 1440×900 window the button sits at y=681, leaving 191px
+below — **the last two rows of the eight-row list land off-screen and cannot be
+clicked**. Found while writing the device test for something else entirely: the
+tap on `Changed files` kept missing, and the button's actual rect
+(`Rect.fromLTRB(950.6, 681.0, 978.6, 709.0)`) had to be recovered through a
+deliberate `expect(1, 2, reason: …)`, because `debugPrint` does not reach the
+piped output at device tier. The popover now compares the space above and below
+and flips. **A placement bug is invisible to any tier whose canvas is bigger than
+the real window.**
+
+#### Harness and process notes
+
+- **`pumpRealAppOn` now clears `graphColumns.*`** alongside `panelLayout.*`. Device
+  tests share the machine's real `shared_preferences`, so a column the developer
+  once dragged or switched off would silently change what every later device test
+  renders — the same class of failure as the splitter-ratio incident recorded in
+  the Tier 1 section.
+- **`integration_test/README.md` claimed `scripts/build_capi.sh` does not exist.**
+  It was added by `ab58282` (2026-08-13) while the README's last touch was
+  2026-08-21, so the doc was stale rather than wrong when written. Corrected in
+  place.
+- **Do not revert a mutation check with `git checkout -- <file>`.** Doing that here
+  discarded an entire uncommitted implementation, because the file's last commit
+  predated the work. Every subsequent mutation went `cp file "$SCRATCH/x.bak"` →
+  mutate → `cp` back. And every mutation script carries a hard
+  `assert s.count(old) == 1` before writing: two mutations in this round failed to
+  match after `clang-format` reflowed an argument list onto one line, and without
+  that assert both would have read as a passing green.
+
+#### Still open
+
+- **The refs column's default width sits in a measured 1.4px corridor** — floor 91
+  (spec's own `HEAD → main` example chip) against ceiling 92 (bisected against
+  `workspace_narrow_window_test.dart`'s twelve-lane 1280×720 case, the app's own
+  default window size). 92 was chosen. The consequence, recorded in
+  `graph_column.dart` rather than hidden: a HEAD **synced with its upstream**
+  needs ~103px, so its cloud icon clips and what remains is glow-without-cloud —
+  the signature spec assigns to the *opposite* state. Widening the column restores
+  it and the width is remembered, but the default reads wrong. Not fixable by
+  picking another default; 103 is past the ceiling. **Worth overruling if the
+  synced case matters more than the twelve-lane lock.**
+- **There is no column header row, so there is no obvious place to grab.** Spec's
+  mockup draws none, and adding one would have changed the page's appearance for a
+  feature the mockup does not show — so the resize surface is an invisible 8px
+  strip on the list itself, revealed only by the cursor on hover. That it does not
+  also eat the commit row's click rests on `HitTestBehavior.translucent` plus a
+  horizontal-drag recognizer *only* (a plain tap has no recognizer to win, so it
+  falls through) — a gesture-arena property, pinned by its own test because no
+  layout assertion can see it. **Discoverability is the accepted cost** of keeping
+  the mockup's appearance; if it turns out nobody finds the strip, a header row is
+  the fix and it needs a spec decision first.
+- **The manual pass is not done**: dragging to reorder, dragging an edge,
+  restarting to confirm persistence, and clicking through a resize strip on a real
+  repository are interactive and were not performed here.

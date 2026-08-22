@@ -19,6 +19,7 @@ Future<(ProviderContainer, WidgetTester)> _pumpSplitPane(
   int? childCount,
   double width = 600,
   double height = 400,
+  GbmFixedPaneEnd fixedPaneEnd = GbmFixedPaneEnd.leading,
 }) async {
   SharedPreferences.setMockInitialValues(<String, Object>{});
   final SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -51,6 +52,7 @@ Future<(ProviderContainer, WidgetTester)> _pumpSplitPane(
                 spec: spec,
                 storageId: storageId,
                 onFlexChanged: onFlexChanged,
+                fixedPaneEnd: fixedPaneEnd,
                 children: children,
               ),
             ),
@@ -297,6 +299,47 @@ void main() {
     });
 
     // Test 8: Vertical extent mode renders panes in correct order
+    testWidgets('horizontal extent mode: a trailing fixed pane sits right', (
+      tester,
+    ) async {
+      // The combination the old implicit rule could not express at all --
+      // horizontal always pinned the fixed pane to the left -- and the one
+      // History's Changed files column needs (spec P02 SPLITTERS,
+      // `main.files`:「中央 ↔ Changed files」).
+      await _pumpSplitPane(
+        tester,
+        axis: Axis.horizontal,
+        spec: GbmLayout.splitterMainSidebar,
+        storageId: 'test.horizontal.trailing',
+        fixedPaneEnd: GbmFixedPaneEnd.trailing,
+      );
+
+      final Rect fixed = tester.getRect(find.byKey(const Key('pane-0')));
+      final Rect fills = tester.getRect(find.byKey(const Key('pane-1')));
+      expect(fixed.left, greaterThan(fills.right));
+      expect(fixed.width, GbmLayout.splitterMainSidebar.defaultExtent);
+      // The helper centres a 600x400 box on the surface, so "flush with the
+      // start" is measured against the pane itself, not against zero.
+      expect(fills.left, tester.getRect(find.byType(GbmSplitPane)).left);
+    });
+
+    testWidgets('vertical extent mode: a leading fixed pane sits on top', (
+      tester,
+    ) async {
+      await _pumpSplitPane(
+        tester,
+        axis: Axis.vertical,
+        spec: GbmLayout.splitterMainLog,
+        storageId: 'test.vertical.leading',
+      );
+
+      final Rect fixed = tester.getRect(find.byKey(const Key('pane-0')));
+      final Rect fills = tester.getRect(find.byKey(const Key('pane-1')));
+      expect(fixed.top, tester.getRect(find.byType(GbmSplitPane)).top);
+      expect(fixed.bottom, lessThan(fills.top));
+      expect(fixed.height, GbmLayout.splitterMainLog.defaultExtent);
+    });
+
     testWidgets('vertical extent mode: renders main content above drawer', (
       tester,
     ) async {
@@ -304,6 +347,7 @@ void main() {
         tester,
         axis: Axis.vertical,
         spec: GbmLayout.splitterMainLog,
+        fixedPaneEnd: GbmFixedPaneEnd.trailing,
         storageId: 'test.vertical.extent',
       );
 
@@ -413,6 +457,7 @@ void main() {
                   child: GbmSplitPane(
                     axis: Axis.vertical,
                     spec: GbmLayout.splitterMainLog,
+                    fixedPaneEnd: GbmFixedPaneEnd.trailing,
                     storageId: 'test.vertical.drag',
                     onFlexChanged: (flex) => capturedFlexes.add(flex.toList()),
                     children: <Widget>[
@@ -474,6 +519,7 @@ void main() {
                     child: GbmSplitPane(
                       axis: Axis.vertical,
                       spec: GbmLayout.splitterMainLog,
+                      fixedPaneEnd: GbmFixedPaneEnd.trailing,
                       storageId: 'test.controller.open',
                       controller: controller,
                       children: <Widget>[
@@ -542,6 +588,7 @@ void main() {
                   child: GbmSplitPane(
                     axis: Axis.vertical,
                     spec: GbmLayout.splitterMainLog,
+                    fixedPaneEnd: GbmFixedPaneEnd.trailing,
                     storageId: 'test.controller.noop',
                     controller: controller,
                     children: <Widget>[
@@ -610,6 +657,7 @@ void main() {
                     child: GbmSplitPane(
                       axis: Axis.vertical,
                       spec: GbmLayout.splitterMainLog,
+                      fixedPaneEnd: GbmFixedPaneEnd.trailing,
                       storageId: 'test.regression.outer',
                       children: <Widget>[
                         const Text('drawer'),

@@ -417,6 +417,8 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
               axis: Axis.vertical,
               spec: GbmLayout.splitterMainLog,
               storageId: 'main.log',
+              // The drawer is pinned to the bottom; the workspace fills above.
+              fixedPaneEnd: GbmFixedPaneEnd.trailing,
               controller: _logDrawerController,
               children: <Widget>[
                 LogDrawer(records: session.operationLog),

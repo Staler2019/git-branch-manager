@@ -52,6 +52,17 @@ enum GbmGraphColumnId {
   // the default and needs a drag -- up to `maxWidth`, and remembered after.
   // `graph_column_test.dart` pins the floor; the narrow-window test pins the
   // ceiling; neither is free to move quietly.
+  //
+  // One consequence of the ceiling worth knowing before reading a screenshot:
+  // a HEAD **synced with its upstream** does not fit either. That chip is
+  // `HEAD → main` plus a 3px gap and a 9.5px cloud icon (`GbmTagChip`), i.e.
+  // ~103px, and the strip clips left-aligned -- so the cloud is the first
+  // thing lost and what remains is glow-without-cloud, which is precisely
+  // the signature spec assigns to the *opposite* state ("目前 HEAD，且遠端不
+  // 在這裡", `spec_raw.html:1392`). The absent dashed origin chip elsewhere
+  // in the list still distinguishes the two, and widening the column
+  // restores it, but the chip alone reads wrong at the default width. Not
+  // fixable by choosing a different default: 103 is past the ceiling.
   refs('refs', 'Refs', defaultWidth: 92, minWidth: 48, maxWidth: 400),
   author('author', 'Author', defaultWidth: 110, minWidth: 48, maxWidth: 320),
   date('date', 'Date', defaultWidth: 80, minWidth: 48, maxWidth: 240),

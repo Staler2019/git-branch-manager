@@ -790,6 +790,19 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
               .where((s) => matchesBranchFilter(s.message, _filterQuery))
               .toList(growable: false);
 
+    // P02-14 rule 6: 「右側顯示 命中/總數」. One ratio across all three
+    // sections, matching the one box that produced it -- a per-section
+    // breakdown would be three numbers for a control that does not
+    // distinguish them.
+    //
+    // `filteredBranches`, not the rendered rows: rule 7 puts the current
+    // branch on screen whether or not it matched, and counting what is drawn
+    // would quietly redefine 命中 as "visible".
+    final int filterHits =
+        filteredBranches.length + filteredTags.length + filteredStashes.length;
+    final int filterTotal =
+        branches.length + refs.tags.length + session.stashes.length;
+
     return Container(
       decoration: BoxDecoration(
         color: colors.surfacePanel,
@@ -872,7 +885,7 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
           ),
           // Filter field -- Cmd/Ctrl+Shift+E (editFilterBranches) focuses
           // this via widget.filterFocusNode. Matches branches, tags and
-          // stashes by substring (see filterBranches's doc comment).
+          // stashes through matchesBranchFilter (see branch_filter.dart).
           Padding(
             padding: const EdgeInsets.fromLTRB(
               GbmSpacing.space3,
@@ -880,69 +893,93 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
               GbmSpacing.space3,
               GbmSpacing.space2,
             ),
-            child: SizedBox(
-              height: 28,
-              child: TextField(
-                controller: _filterController,
-                focusNode: widget.filterFocusNode,
-                style: TextStyle(
-                  fontSize: GbmTypography.textSm,
-                  color: colors.textPrimary,
-                ),
-                onChanged: (value) => setState(() => _filterQuery = value),
-                decoration: InputDecoration(
-                  isDense: true,
-                  hintText: 'Filter branches',
-                  hintStyle: TextStyle(
-                    fontSize: GbmTypography.textSm,
-                    color: colors.textTertiary,
-                  ),
-                  prefixIcon: Icon(
-                    Icons.search,
-                    size: 14,
-                    color: colors.textTertiary,
-                  ),
-                  prefixIconConstraints: const BoxConstraints(
-                    minWidth: 28,
-                    minHeight: 28,
-                  ),
-                  suffixIcon: _filterQuery.isEmpty
-                      ? null
-                      : IconButton(
-                          icon: Icon(
-                            Icons.close,
-                            size: 14,
-                            color: colors.textTertiary,
-                          ),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(
-                            minWidth: 28,
-                            minHeight: 28,
-                          ),
-                          onPressed: () => setState(() {
-                            _filterController.clear();
-                            _filterQuery = '';
-                          }),
+            child: Row(
+              children: <Widget>[
+                Expanded(
+                  child: SizedBox(
+                    height: 28,
+                    child: TextField(
+                      controller: _filterController,
+                      focusNode: widget.filterFocusNode,
+                      style: TextStyle(
+                        fontSize: GbmTypography.textSm,
+                        color: colors.textPrimary,
+                      ),
+                      onChanged: (value) =>
+                          setState(() => _filterQuery = value),
+                      decoration: InputDecoration(
+                        isDense: true,
+                        hintText: 'Filter branches',
+                        hintStyle: TextStyle(
+                          fontSize: GbmTypography.textSm,
+                          color: colors.textTertiary,
                         ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    vertical: GbmSpacing.space1,
-                  ),
-                  filled: true,
-                  fillColor: colors.surfaceSunken,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(4),
-                    borderSide: BorderSide(color: colors.borderSubtle),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(4),
-                    borderSide: BorderSide(color: colors.borderSubtle),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(4),
-                    borderSide: BorderSide(color: colors.borderFocus),
+                        prefixIcon: Icon(
+                          Icons.search,
+                          size: 14,
+                          color: colors.textTertiary,
+                        ),
+                        prefixIconConstraints: const BoxConstraints(
+                          minWidth: 28,
+                          minHeight: 28,
+                        ),
+                        suffixIcon: _filterQuery.isEmpty
+                            ? null
+                            : IconButton(
+                                icon: Icon(
+                                  Icons.close,
+                                  size: 14,
+                                  color: colors.textTertiary,
+                                ),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(
+                                  minWidth: 28,
+                                  minHeight: 28,
+                                ),
+                                onPressed: () => setState(() {
+                                  _filterController.clear();
+                                  _filterQuery = '';
+                                }),
+                              ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          vertical: GbmSpacing.space1,
+                        ),
+                        filled: true,
+                        fillColor: colors.surfaceSunken,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(4),
+                          borderSide: BorderSide(color: colors.borderSubtle),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(4),
+                          borderSide: BorderSide(color: colors.borderSubtle),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(4),
+                          borderSide: BorderSide(color: colors.borderFocus),
+                        ),
+                      ),
+                    ),
                   ),
                 ),
-              ),
+                // Only while filtering: "6/6" on an untouched sidebar is
+                // noise, and spec describes the count as part of the
+                // filter's behaviour rather than as a permanent counter.
+                if (isFiltering)
+                  Padding(
+                    padding: const EdgeInsets.only(left: GbmSpacing.space2),
+                    child: Text(
+                      '$filterHits/$filterTotal',
+                      style: TextStyle(
+                        fontSize: GbmTypography.textXs,
+                        color: colors.textTertiary,
+                        fontFeatures: const <FontFeature>[
+                          FontFeature.tabularFigures(),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
           // Selection action bar
@@ -1008,19 +1045,6 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                       ),
                     ),
                   )
-                : _filterQuery.trim().isNotEmpty &&
-                      branchTree.isEmpty &&
-                      filteredTags.isEmpty &&
-                      filteredStashes.isEmpty
-                ? Center(
-                    child: Text(
-                      'No matches',
-                      style: TextStyle(
-                        color: colors.textTertiary,
-                        fontSize: GbmTypography.textSm,
-                      ),
-                    ),
-                  )
                 : _BranchSelectionShortcuts(
                     focusNode: _treeFocus,
                     onSelectAll: _selectAllBranches,
@@ -1040,6 +1064,27 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                               context,
                             ),
                           _buildTreeNodes(branchTree, context),
+                          // Inside the scroll column rather than replacing
+                          // it, because the pinned current branch (rule 7)
+                          // lives here too -- a centred label swapped in for
+                          // the whole tree took the pin down with it, in
+                          // exactly the state where "where am I" is hardest
+                          // to answer.
+                          if (isFiltering &&
+                              branchTree.isEmpty &&
+                              filteredTags.isEmpty &&
+                              filteredStashes.isEmpty)
+                            Padding(
+                              padding: const EdgeInsets.all(GbmSpacing.space3),
+                              child: Text(
+                                'No matches',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: colors.textTertiary,
+                                  fontSize: GbmTypography.textSm,
+                                ),
+                              ),
+                            ),
                           if (filteredTags.isNotEmpty) ...<Widget>[
                             Padding(
                               padding: const EdgeInsets.fromLTRB(

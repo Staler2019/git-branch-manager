@@ -135,6 +135,61 @@ List<String> _rows(WidgetTester tester) => tester
     .toList();
 
 void main() {
+  group('rule 6: the hit count', () {
+    testWidgets('reports matches over the whole three-section total', (
+      tester,
+    ) async {
+      await _pump(tester);
+      await _type(tester, 'graph');
+
+      // Four branches + one tag + one stash. `graph` matches the two
+      // feature branches and nothing else, and the total is deliberately
+      // the total across all three sections rather than per-section --
+      // P02-14 is one box over Branches, Tags and Stash.
+      expect(find.text('2/6'), findsOneWidget);
+    });
+
+    testWidgets('counts the pinned current branch only if it really matched', (
+      tester,
+    ) async {
+      // `main` is on screen under this query because rule 7 pins it, not
+      // because it matched. A count sourced from what is rendered would say
+      // 3/6 and quietly redefine "命中".
+      await _pump(tester);
+      await _type(tester, 'graph');
+
+      expect(_rows(tester), contains('main'));
+      expect(find.text('3/6'), findsNothing);
+    });
+
+    testWidgets('counts a tag and a stash the same as a branch', (
+      tester,
+    ) async {
+      await _pump(tester);
+      await _type(tester, 'wip');
+
+      expect(find.text('1/6'), findsOneWidget);
+    });
+
+    testWidgets('reports zero rather than hiding when nothing matches', (
+      tester,
+    ) async {
+      await _pump(tester);
+      await _type(tester, 'zzz');
+
+      expect(find.text('0/6'), findsOneWidget);
+    });
+
+    testWidgets('is absent with no query', (tester) async {
+      // "6/6" on an untouched sidebar is noise: nothing has been filtered,
+      // so there is no ratio to report. Spec describes the count as part of
+      // the filter's behaviour, not as a permanent branch counter.
+      await _pump(tester);
+
+      expect(find.textContaining('/6'), findsNothing);
+    });
+  });
+
   group('rule 7: the current branch is pinned and never filtered out', () {
     testWidgets('survives a query it does not match', (tester) async {
       await _pump(tester);
@@ -161,6 +216,24 @@ void main() {
         _rows(tester).where((String name) => name == 'main').length,
         1,
         reason: 'pinned *instead of* in the tree, never as well as',
+      );
+    });
+
+    testWidgets('survives a query that matches nothing at all', (tester) async {
+      // Found while writing rule 6's zero case, not by reading the diff: the
+      // panel swapped the whole tree for a centred "No matches" label the
+      // moment every section came back empty, and the pinned row lives
+      // inside the arm that swap replaces. So rule 7 held for a query with
+      // matches and silently did not for a query without -- which is the one
+      // state where "where am I" is hardest to answer.
+      await _pump(tester);
+      await _type(tester, 'zzz');
+
+      expect(_rows(tester), <String>['main']);
+      expect(
+        find.text('No matches'),
+        findsOneWidget,
+        reason: 'the pin must not swallow the explanation either',
       );
     });
 

@@ -755,8 +755,29 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     final bool anyGoneSelectable = filteredBranches.any(
       _isGoneAndBulkSelectable,
     );
+    // P02-14 rule 7: 「目前分支永遠置頂顯示，即使不符合條件也不會被濾掉」.
+    //
+    // Read as "regardless of the query", not "restructure the sidebar
+    // permanently": with no query the tree is exactly what buildBranchTree
+    // produced, folders and all. A filter is the only state in which the
+    // current branch can vanish, and the sidebar must always be able to
+    // answer "where am I".
+    //
+    // The pin *replaces* the tree row rather than joining it -- rendering
+    // both would show `main` twice whenever it does match. `filterBranches`
+    // itself is left alone: it is a pure name-matching rule and has no
+    // business knowing which ref is HEAD, which is also why the hit count
+    // below still counts only genuine matches.
+    final bool isFiltering = _filterQuery.trim().isNotEmpty;
+    final RefInfo? pinnedHead = isFiltering
+        ? branches.where((RefInfo b) => b.isHead).firstOrNull
+        : null;
     final List<BranchTreeNode> branchTree = buildBranchTree(
-      filteredBranches,
+      pinnedHead == null
+          ? filteredBranches
+          : filteredBranches
+                .where((RefInfo b) => !b.isHead)
+                .toList(growable: false),
       _expandedFolders,
     );
     final List<RefInfo> filteredTags = filterBranches(refs.tags, _filterQuery);
@@ -1009,6 +1030,15 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: <Widget>[
+                          // Routed through the same _buildTreeNode as any
+                          // other leaf, so the pinned row keeps checkout,
+                          // selection and the 05-B menu rather than becoming
+                          // a second, thinner rendering of a branch.
+                          if (pinnedHead != null)
+                            _buildTreeNode(
+                              BranchTreeLeaf(ref: pinnedHead),
+                              context,
+                            ),
                           _buildTreeNodes(branchTree, context),
                           if (filteredTags.isNotEmpty) ...<Widget>[
                             Padding(

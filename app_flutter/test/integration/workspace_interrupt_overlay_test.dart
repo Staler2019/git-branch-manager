@@ -114,11 +114,16 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.byType(CredentialDialogContent), findsOneWidget);
 
-        // Resolve before the test ends -- CredentialDialogContent.dispose()
-        // calls cancelCredential() via `ref` when popped unanswered, which
-        // throws if it fires after pumpWorkspace's ProviderContainer is
-        // already disposed by addTearDown. Every other test below resolves
-        // its dialog before finishing for the same reason.
+        // Resolve before the test ends. This used to be load-bearing for
+        // the wrong reason: the comment here blamed pumpWorkspace's
+        // ProviderContainer being disposed by addTearDown, but
+        // CredentialDialogContent.dispose() reached for `ref` and
+        // flutter_riverpod gates every `ref` member on `context.mounted`,
+        // so it threw on *any* unanswered pop, teardown or not -- the
+        // safety net never worked. Fixed by capturing the notifier in
+        // initState; workspace_interrupt_abrupt_dismiss_test.dart now
+        // covers that path directly. Resolving here is kept because these
+        // tests are about the answered path anyway.
         await _tapActionButton(tester, 'Cancel');
       },
     );

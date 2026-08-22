@@ -19,6 +19,7 @@ import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/prompt_text_dialog.dart';
 import 'commit_search.dart';
+import '../../data/repositories/graph_columns_repository.dart';
 import 'widgets/commit_row.dart';
 import 'widgets/commit_row_layout.dart';
 import 'widgets/graph_ref_chips.dart';
@@ -410,6 +411,11 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
           availableWidth: constraints.maxWidth,
           laneCount: graph.laneCount,
           showGraph: query.isEmpty,
+          // Spec page 02 item 16's picker. Width may still take a column the
+          // user asked to keep; it can never bring back one they switched
+          // off -- planCommitRowColumns starts from this set and only ever
+          // subtracts.
+          hiddenByUser: ref.watch(hiddenGraphColumnsProvider),
         );
         return _SelectionShortcuts(
           focusNode: _listFocus,

@@ -78,3 +78,61 @@ final Provider<GraphColumnsRepository> graphColumnsRepositoryProvider =
     Provider<GraphColumnsRepository>((ref) {
       return GraphColumnsRepository(ref.watch(sharedPreferencesProvider));
     });
+
+/// The two columns spec page 02 item 16 pins open: "Graph 與 Message 固定
+/// 不可關". Enforced in the store rather than only in the picker's disabled
+/// checkbox -- a disabled control is an affordance, not an invariant, and a
+/// hand-edited or corrupt preferences file reaches the same state.
+const Set<String> kLockedGraphColumnIds = <String>{'graph', 'message'};
+
+/// Whether [columnId] is on, given a (possibly partial) [visibility] map.
+/// Unseen columns default to visible: a first run has an empty map and must
+/// show the spec's own annotated layout.
+bool isGraphColumnVisible(Map<String, bool> visibility, String columnId) {
+  if (kLockedGraphColumnIds.contains(columnId)) return true;
+  return visibility[columnId] ?? true;
+}
+
+/// Column visibility as live state rather than a value read once.
+///
+/// [GraphColumnsSelector] used to hold this map in its own `State` and write
+/// it straight to SharedPreferences. Nothing under `lib/` read it back on
+/// the render path, so toggling a column changed the stored preference and
+/// nothing on screen -- the orphan-wiring shape this repository's audits
+/// keep finding. A StateNotifier is what lets both the picker and
+/// CommitGraphView sit on one source; the shape mirrors
+/// [ChromeVisibilityNotifier], its closest sibling.
+class GraphColumnVisibilityNotifier extends StateNotifier<Map<String, bool>> {
+  GraphColumnVisibilityNotifier(this._repo) : super(_repo.readVisibility());
+
+  final GraphColumnsRepository _repo;
+
+  Future<void> setVisible(String columnId, bool visible) async {
+    if (kLockedGraphColumnIds.contains(columnId)) return;
+    final Map<String, bool> next = <String, bool>{...state, columnId: visible};
+    state = next;
+    await _repo.writeVisibility(next);
+  }
+}
+
+final StateNotifierProvider<GraphColumnVisibilityNotifier, Map<String, bool>>
+graphColumnVisibilityProvider =
+    StateNotifierProvider<GraphColumnVisibilityNotifier, Map<String, bool>>((
+      ref,
+    ) {
+      return GraphColumnVisibilityNotifier(
+        ref.watch(graphColumnsRepositoryProvider),
+      );
+    });
+
+/// The switched-off columns, in the shape `planCommitRowColumns` takes.
+/// Locked columns can never appear here, whatever the stored map says.
+final Provider<Set<String>> hiddenGraphColumnsProvider = Provider<Set<String>>((
+  ref,
+) {
+  final Map<String, bool> visibility = ref.watch(graphColumnVisibilityProvider);
+  return <String>{
+    for (final MapEntry<String, bool> entry in visibility.entries)
+      if (!entry.value && !kLockedGraphColumnIds.contains(entry.key)) entry.key,
+  };
+});

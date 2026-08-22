@@ -1,24 +1,17 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../data/repositories/graph_columns_repository.dart';
 
-/// UI to toggle column visibility for the graph display.
-/// Converts to ConsumerStatefulWidget with local state to fix reactivity bug:
-/// previous implementation read visibility once and persisted changes to
-/// SharedPreferences but never rebuilt to show the updated local state.
-class GraphColumnsSelector extends ConsumerStatefulWidget {
+/// Spec page 02 item 16's column picker.
+///
+/// State lives in [graphColumnVisibilityProvider], not in this widget. An
+/// earlier version kept it in local `State` and wrote through to
+/// SharedPreferences: that fixed the checkbox not reflecting its own taps,
+/// but left the setting invisible to the commit list, which never read it
+/// back. Sitting both on one notifier is what makes a toggle reach the rows.
+class GraphColumnsSelector extends ConsumerWidget {
   const GraphColumnsSelector({super.key});
-
-  @override
-  ConsumerState<GraphColumnsSelector> createState() =>
-      _GraphColumnsSelectorState();
-}
-
-class _GraphColumnsSelectorState extends ConsumerState<GraphColumnsSelector> {
-  late Map<String, bool> _visibility;
 
   /// Map of internal column ids to display labels (Title Case).
   static const Map<String, String> _columnLabels = <String, String>{
@@ -33,14 +26,10 @@ class _GraphColumnsSelectorState extends ConsumerState<GraphColumnsSelector> {
   };
 
   @override
-  void initState() {
-    super.initState();
-    final repo = ref.read(graphColumnsRepositoryProvider);
-    _visibility = repo.readVisibility();
-  }
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final Map<String, bool> visibility = ref.watch(
+      graphColumnVisibilityProvider,
+    );
     final columnIds = _columnLabels.keys.toList();
 
     return SizedBox(
@@ -52,8 +41,8 @@ class _GraphColumnsSelectorState extends ConsumerState<GraphColumnsSelector> {
         itemBuilder: (context, index) {
           final colId = columnIds[index];
           final label = _columnLabels[colId] ?? colId;
-          final isVisible = _visibility[colId] ?? true;
-          final isLocked = colId == 'graph' || colId == 'message';
+          final isVisible = isGraphColumnVisible(visibility, colId);
+          final isLocked = kLockedGraphColumnIds.contains(colId);
 
           return CheckboxListTile(
             title: Text(label),
@@ -61,13 +50,9 @@ class _GraphColumnsSelectorState extends ConsumerState<GraphColumnsSelector> {
             enabled: !isLocked,
             onChanged: isLocked
                 ? null
-                : (value) {
-                    setState(() {
-                      _visibility[colId] = value ?? false;
-                    });
-                    final repo = ref.read(graphColumnsRepositoryProvider);
-                    unawaited(repo.writeVisibility(_visibility));
-                  },
+                : (value) => ref
+                      .read(graphColumnVisibilityProvider.notifier)
+                      .setVisible(colId, value ?? false),
           );
         },
       ),

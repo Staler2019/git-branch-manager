@@ -12,6 +12,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/theme/theme_mode_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gbm_flutter/data/models/commit_meta.dart';
 import 'package:gbm_flutter/data/models/graph_snapshot.dart';
 import 'package:gbm_flutter/data/models/signature.dart';
@@ -63,8 +65,19 @@ late ProviderContainer _container;
 late GoRouter _router;
 
 Future<void> _pump(WidgetTester tester) async {
+  // CommitGraphView reads the column picker's setting
+  // (graphColumnVisibilityProvider -> graphColumnsRepositoryProvider ->
+  // sharedPreferencesProvider), so this override is now mandatory for
+  // anything that pumps the commit list. Without it the unoverridden
+  // sharedPreferencesProvider throws UnimplementedError while building the
+  // list's LayoutBuilder -- which is the fake-provider seam working as
+  // designed: a forgotten override fails loudly instead of reaching a real
+  // preferences store.
+  SharedPreferences.setMockInitialValues(<String, Object>{});
+  final SharedPreferences prefs = await SharedPreferences.getInstance();
   _container = ProviderContainer(
     overrides: <Override>[
+      sharedPreferencesProvider.overrideWithValue(prefs),
       repoSessionProvider(_identity).overrideWith(
         (ref) => FakeRepoSessionController(
           _identity,

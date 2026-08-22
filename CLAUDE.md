@@ -1573,3 +1573,96 @@ open on **hover after 120ms**; it opens on tap, because `showGbmMenu` is
 built on Material's `showMenu`, whose modal barrier makes a hover-opened
 child unhoverable from its own parent — Tier 4 documented this and it has
 not changed (**#87**).
+
+### Cancel-surface integration tests (test/cancel-surface-integration-tests)
+
+Integration coverage for the two halves of one question — *does the state
+machine stay clean when intents switch, and when an operation is cancelled
+abruptly?* Six sequential commits, each green and independently revertible.
+Four new files under `test/integration/`, plus one `lib/` fix the tests
+forced out into the open.
+
+**The defect: `ref` inside `dispose()` never worked, in any of the three
+interrupt dialogs.** `credential_dialog.dart`, `checkout_recovery_dialog.dart`
+and `delete_branch_recovery_dialog.dart` each carried a `_resolved` flag plus
+a `dispose()` that dispatched the cancel command when the dialog was popped
+unanswered — the safety net for a barrier tap, a back gesture, or a route
+change out from under it. It threw `StateError` every single time.
+flutter_riverpod's `ConsumerStatefulElement._assertNotDisposed()` gates every
+`ref` member on `context.mounted`, and by the time `State.dispose()` runs the
+element is already unmounted. So the guard is unconditional: **any `ref` use
+in a `ConsumerState.dispose()` throws.** Fixed by capturing the notifier in
+`initState()` into a field and calling that, guarded on
+`StateNotifier.mounted` in case the provider went first.
+
+The blast radius was real, not theoretical. For the credential dialog the
+net is what stops a blocked git subprocess hanging until `GBM_ASKPASS`'s own
+timeout — so every non-button dismissal of a credential prompt left git
+waiting.
+
+**Why it survived so long is the more useful lesson.**
+`workspace_interrupt_overlay_test.dart`'s header had *seen* the throw and
+written it down — but attributed it to test-harness mechanics ("throws if it
+fires after pumpWorkspace's ProviderContainer is already disposed by
+addTearDown") and worked around it by resolving every dialog before the test
+ended. A correct observation with a wrong cause becomes a permanent excuse:
+the workaround was carried into every later test in that file, and the real
+path was never exercised. That comment is corrected in place. **A note
+explaining why a test must avoid a code path deserves the same scrutiny as
+the code path itself.**
+
+**Three harness facts found by running, each of which would otherwise read
+as a bug in the code under test:**
+
+- **Never `pumpAndSettle()` while `isRefreshing` is true.** `TopBar` renders
+  an indeterminate `CircularProgressIndicator` for exactly that flag, and an
+  indeterminate spinner schedules frames forever — `pumpAndSettle` times out
+  instead of failing on the assertion under test, which looks like a hang in
+  the status bar rather than a harness misuse. Use `pump()` until the flag is
+  back off.
+- **`StatusBar` lingers a finished task for 3 seconds** (`_lingerTimer`), so
+  "the task cleared" cannot be asserted on the frame after the transition.
+  Drain with `pump(Duration(seconds: 3, ...))` — asserting too early would
+  pin the linger away by accident.
+- **A barrier tap is the right gesture for "dismissed without answering"**
+  (`dialogRoute`'s `barrierDismissible: true`); `router.pop()` reaches the
+  same path and is the recorded fallback. Esc/`DismissIntent` focus semantics
+  are not worth fighting.
+
+**Two fixture rules this round re-earned:**
+
+- **Do not borrow `workspace_conflict_transition_test.dart`'s `_mergeState()`.**
+  It sets `isSequencerOperation: true` for a merge; the core's flag excludes
+  merge on purpose (`gbm_sequencer_operation.dart`'s IMPORTANT block).
+  Harmless there — that file only needs `conflictActive`, which the
+  conflicted entry supplies — but `_backgroundTasks()` gates the status-bar
+  sequencer task on exactly that flag, so borrowing it manufactures a
+  "Merging" task and pins the *opposite* of the documented behaviour. The
+  faithful fixture is what makes "a merge conflict shows the banner but
+  contributes no status-bar task" meaningful, and mutation-checking confirmed
+  it: swap the fixture back and the test goes red. Same shape as Tier 0c's
+  `hasTrackingInfo` trap — a fixture that disagrees with its source cannot
+  falsify anything.
+- **Count, don't `any`.** Every "exactly once" assertion goes through
+  `commandLog.where((c) => c.name == ...).length`. `.any(...)` is blind to a
+  double dispatch, and a double dispatch is precisely what deleting
+  `_resolved` would cause — the button path would fire the cancel, then
+  `dispose()` would fire it again. The button-path tests are what pin that
+  flag; the barrier-path tests alone would not.
+
+**What the tests cover**, beyond the fix's own regression lock:
+`workspace_conflict_abort_dispatch_test.dart` closes the gap left by the
+existing revert-only case — all three dispatching arms of
+`_handleConflictAbort/Skip/Continue` through the real buttons, plus the two
+state-machine properties that motivated the batch: a mid-flight kind change
+must re-target the same Abort button without repeating the previous call, and
+`rebaseMerge | cherryPick` (a real on-disk state — a rebase on the merge
+backend leaves `CHERRY_PICK_HEAD` mid-step) must resolve to rebase per
+`activeSequencerOperation()`'s documented ladder. Mutation-checked by
+inverting that ladder.
+
+`FakeRepoSessionController` gained a `refreshHistory` override. Without it
+the status-bar Cancel test could not tell a dead button from a dispatched
+one — the unoverridden method hits the real `_session == nullptr` guard and
+silently no-ops, which is the fake's documented failure mode for anything it
+forgets to record.

@@ -2046,8 +2046,11 @@ the real window.**
   horizontal-drag recognizer *only* (a plain tap has no recognizer to win, so it
   falls through) — a gesture-arena property, pinned by its own test because no
   layout assertion can see it. **Discoverability is the accepted cost** of keeping
-  the mockup's appearance; if it turns out nobody finds the strip, a header row is
-  the fix and it needs a spec decision first.
+  the mockup's appearance — and manual testing confirmed the cost is real: with no
+  static hint, the strip is hard to find and hard to grab. Tracked as **#99**,
+  deferred to the next spec revision, since every candidate fix (a header row, a
+  faint always-visible divider, a width field in the picker) changes the page's
+  appearance for something the mockup does not draw.
 - **The manual pass is not done**: dragging to reorder, dragging an edge,
   restarting to confirm persistence, and clicking through a resize strip on a real
   repository are interactive and were not performed here.

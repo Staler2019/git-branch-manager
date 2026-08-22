@@ -12,7 +12,6 @@ import 'package:gbm_flutter/data/models/ref_snapshot.dart';
 import 'package:gbm_flutter/data/repositories/branch_filter_repository.dart';
 import 'package:gbm_flutter/data/repositories/branch_repository.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
-import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/features/history_graph/graph_filter_convergence.dart';
 
 import '../support/fake_repo_session.dart';

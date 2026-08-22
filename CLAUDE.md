@@ -2054,3 +2054,212 @@ the real window.**
 - **The manual pass is not done**: dragging to reorder, dragging an edge,
   restarting to confirm persistence, and clicking through a resize strip on a real
   repository are interactive and were not performed here.
+
+### History density, graph geometry and the branch filter (fix/history-density-and-branch-filter)
+
+Six problems found by running the app on a real repository, not by reading: a
+live `RenderFlex overflowed by 2.3 pixels on the bottom`, a graph column that
+grew without bound as branches ran in parallel, no way to suppress merge rows,
+no way to give the graph less room, lines too far apart, and commit/file rows
+too tall. They share one subject — **History's information density and how much
+of it the user controls** — and the last of them is answered by a new capi
+rather than by CSS. Twenty-two sequential commits, each green and independently
+revertible.
+
+**Two of the six were spec conformance, not taste.** `spec_logic.js:428` is
+`const L0 = 15, L1 = 32, RH = 26` and the mockup's graph SVG is `height="182"`
+= 7 × 26, so **the commit row is 26px and the lane pitch is 17** — the code had
+34 (`rowHeightComfortable`) and 18. `rowHeightCompact = 26` was already a spec
+token the sidebar and Working Copy used. So "shorten the spacing" was a
+correction back to the spec's own numbers, and is recorded that way rather than
+as a visual preference. The same reading gave the dot geometry (`r: 4.2`, halo
+`2`, HEAD ring `r: 7` at `1.5`, connector `1.75`) — **all four values in
+`graph_column_painter.dart` were wrong**, and none of them broke a test, so each
+got one.
+
+**SVG paints stroke on top of fill, and centres it on the path.** Spec's dot is
+`r: 4.2` with a 2px panel-coloured stroke, which shows a **3.2px** coloured core
+inside a halo reaching 5.2 — not a 4.2px dot with a ring around it. Drawing the
+halo first and the fill second looks equivalent and is not. Pinned by
+`graph_dot_geometry_test.dart`, which records draw calls through
+`implements Canvas` + `noSuchMethod` (a `PictureRecorder` is opaque and cannot
+be asserted on). Two traps inside that test: `GraphRow.isHead` is `flags & 0x20`,
+not the low bit; and **`Paint.color` quantises on read-back**, so a comparison
+against the source token fails while Expected and Actual print identically —
+compare `.toARGB32()`.
+
+**`isLocked` is not `!isResizable`.** The graph column is locked (P02-16:
+「Graph 與 Message 固定不可關」) *and* now resizable: dragging it moves a **cap on
+how many lanes are drawn**, never whether the column exists. The user's ruling
+set the floor — 「git graph 保持最小一線寬度，使用者最小就這樣，但一樣維持欄位存
+在」 — so the minimum is one lane, not zero. Because the stored width is a
+maximum rather than a size, `renderedWidthOf()` supplies the drag origin;
+without it a drag on a repository with two lanes would move nothing visible
+until it passed the natural width.
+
+**A resize strip must be withheld when the column is a spacer.** `showGraph:
+false` is the live commit-search path — the column stays laid out but holds a
+12px spacer, because `graph.edges` connect adjacent rows of the *unfiltered*
+snapshot. The strip stayed up over that spacer and `renderedWidthOf` reported
+12, so a drag near the left edge wrote a near-minimum lane cap into
+SharedPreferences that outlived the search. `CommitRowColumnPlan.drawsGraph`
+exists for exactly that gate.
+
+**The refs ceiling recorded last round was measured before this round's cap and
+is now false.** It said 105; re-bisecting `planCommitRowColumns` after the
+153px graph cap landed gives **173**. So the previous round's recorded regret —
+a synced HEAD's cloud icon clipping at the 104px default — is gone, and
+`workspace_narrow_window_test.dart`'s title ("gives up nothing") was a lie in
+the other direction: that case *does* give up Date. Retitled, with a negative
+assertion and the date label derived through the real formatter rather than
+hardcoded.
+
+#### The branch filter was wrong in six of its nine rules
+
+The user pointed at spec P02-14 directly (「因為你 filter branch 時做錯了…看
+spec 02 頁 14 點」). Audited against the running code: rules 1, 2 and 5 already
+conformed; **3, 4, 6, 7, 8 and 9 were all gaps**, each closed in its own commit.
+
+- **Rule 3's own example did not match.** Spec says 「打 `gl` 命中
+  `feature/graph-lanes`」 and `filterBranches` was
+  `shortName.contains(needle)`, for which that is plainly false. Extracted as
+  `matchesBranchFilter()` (substring first, then initials) rather than patched
+  in place, because Tags and Stashes need the identical rule — the
+  `branchNameError()` precedent. **The plan's own algorithm sketch was wrong
+  and was corrected before implementing**: splitting on `/` alone gives `fg` for
+  `feature/graph-lanes`, not `gl`; the separators are `/ - _ . space` plus a
+  camelCase boundary. A deliberate negative test pins substring-over-initials
+  rather than subsequence (`fl` must *not* match).
+- **Folder identity must be the full path, not the display segment.** Rule 4
+  (expand-all while filtering) had no effect at first because
+  `_buildFolderNode` re-derived `isExpanded` from `_expandedFolders` instead of
+  reading `folder.isExpanded`. Fixing that turned five existing tests red, which
+  is how a **pre-existing** bug surfaced: the panel keyed on `folderName` (one
+  segment, `sub`) while `buildBranchTree` keyed on the full path
+  (`feature/sub`). They agree only at depth one, so `feature/sub` and
+  `chore/sub` opened and closed together and Copy-folder-prefix gave `sub/`.
+  `BranchTreeFolder.folderPath` is the fix. **A second source of truth for a
+  computed fact is what hid it** — the re-derivation could not disagree with
+  itself.
+- **Rule 7's pin replaces the tree row, never joins it.** Rendering both shows
+  `main` twice whenever HEAD does match the query. `filterBranches` is left
+  alone — it is a pure name rule with no business knowing which ref is HEAD,
+  which is also why rule 6's hit count still counts only genuine matches.
+- **Rules 8/9 bind Esc and ↓ with `CallbackShortcuts` placed innermost, above
+  the `TextField`**, so they resolve before `DefaultTextEditingShortcuts` and
+  leave the tree's own Esc (MULTIKEYS' collapse) untouched. The first test for
+  that was red on a **wrong premise, not wrong code**: a plain click on a branch
+  row routes through checkout and never reaches `_onBranchSelect`, so focus
+  stayed in the filter box. A modifier click is the pattern that works, as this
+  file already records.
+- **Recorded reduction**: ↓ enters the first *branch* result only, so a query
+  matching only a tag or a stash no-ops. A defensible reading of 「第一個結果」,
+  written down rather than left for the next audit to file as a bug.
+
+#### `--first-parent --no-merges` breaks the trunk, and git will not fix it
+
+The user's ruling was 「只有一個分支：我要有 no merge 的效果，但是不會有平行線。
+兩分支以上，就照目前狀態顯示」. The flags alone do not deliver it, and this was
+measured before any code was written:
+
+- Under `--first-parent --no-merges`, a surviving row's recorded first parent is
+  often a merge git never emits. `GraphBuilder::finish()` turns those pending
+  edges into `kRowBoundary` stubs with `FlagBoundary`, which the Dart renderer
+  draws as `EdgeSegmentKind.boundaryStub` — "arrives from above and stops
+  halfway". **So the trunk would break once per removed merge**, the exact
+  opposite of one continuous line.
+- **git has no flag that bridges the gap**: `--parents` and `--ancestry-path`
+  both still report the excluded merge. Checked directly, so nobody re-checks.
+
+The bridge is a one-row lookahead in `HistoryProvider`'s walk loop, **not** a
+mode in `GraphBuilder` — the builder stays single-path, so every existing
+invariant test and `GraphAsciiRenderer` keep applying unchanged, and the
+endpoints fall out for free (a complete walk ends at a root with no parents; a
+`--max-count` walk keeps its real parent and so becomes a boundary stub, which
+there is the *true* statement).
+
+**It is faithful for a structural reason, not because this repository's history
+happens to suit it.** `HistoryQuery::isLinearWalk()` requires **one** tip,
+`--first-parent` and `--no-merges` together: one tip walked first-parent visits
+exactly that tip's first-parent chain in order, so the `--no-merges` output is a
+*subsequence* of that chain and any two consecutive rows are still first-parent
+ancestor and descendant with only merges elided. Relax any of the three and it
+stops holding — two tips or `--all` interleave several chains, and without
+`--first-parent` every side branch is walked. That sentence is in the header so
+it is not re-derived from a sample.
+
+#### The whole of `HistoryQuery` had never been exposed
+
+`gbm_history_refresh(session)` took no parameters, while `HistoryQuery` had
+`includeRefs`, `excludeRefs`, `firstParentOnly`, `grep`, `author`, `maxCount`
+and `dateOrder` — and `includeRefs`' own comment already said 「這是 Branches…
+（graph 分支過濾）設的」 for a UI that was never built. `gbm_history_set_filter`
+closes it, with two decisions worth keeping:
+
+- **The filter is session state, not a parameter of one walk.** An operation or
+  an auto-fetch resync calls `refreshHistory()` on its own; if that dropped the
+  filter the graph would silently widen back out under the user while the
+  sidebar still showed one branch. `HistoryFilterApiTest.SurvivesARefreshItDidNotAskFor`
+  is the lock.
+- **Stale ref names are dropped, not forwarded.** rev-list aborts the *entire*
+  walk with "unknown revision" on one bad name, so a branch deleted or pruned
+  while its filter was set would blank the graph rather than stop narrowing it.
+  `RefStore::refExists` (which exists for exactly this) filters them; with every
+  name gone the walk falls back to unfiltered, the same thing clearing the
+  filter does. Mutation-checked: forwarding them turns both stale-ref tests red
+  by *timeout*, because no completed `GRAPH_UPDATED` ever arrives — which is the
+  blank-graph failure itself.
+
+`toStringVector` had five identical copies across `src/capi/`; it moved to
+`Handle.h` in its own commit rather than gaining a sixth.
+
+#### The filter query had to leave the sidebar first
+
+`SidebarPanel` is hideable, so local `State` holding the only copy of the query
+would let the graph stay converged with nothing on screen to say why or to clear
+it — the `material_state_hidden` shape this file's own UX rubric flags.
+`branchFilterQueryProvider` is identity-keyed and deliberately **not**
+persisted: a filter is something the user is doing now, not a setting.
+`initState` re-seeds the `TextEditingController` from it, which is the half a
+naive lift forgets — the rows stay narrowed and the box looks empty.
+
+`historyFilterFor()` is the convergence rule, and it sends **`fullName`, never
+`shortName`**: `mergeLocalAndRemoteBranches` strips the `<remote>/` prefix off a
+remote-only row so it groups with a same-named local branch, so `origin/staging`
+arrives as `staging` and would resolve to the wrong ref or to none. Same class
+as `delete_branch_dialog.dart`'s first-slash split (#74).
+
+**A measurement overturned this round's own test design.** The dispatcher has a
+250ms debounce and compares against the last request *sent*; both mutations
+(zero-delay timer, drop the comparison) left the first version of
+`workspace_history_filter_convergence_test.dart` **green**. Instrumenting the
+provider showed why: typing all eleven characters of `graph-lanes` fires the
+listener **once**, because `historyFilterRequestProvider`'s value is *equal* for
+every prefix that does not resolve to exactly one branch, and Riverpod does not
+notify on an equal value. So the test that claimed to prove the debounce was
+proving `HistoryFilterRequest.==`. The debounce's real job is a burst of
+*different* values — backspacing out of a query and typing it back — and the
+last-sent comparison's real job is the case where such a burst lands back on the
+filter already in force. Both now have a case that goes red without them.
+**Three mechanisms were doing overlapping work and only one was tested; the fix
+was to name which case belongs to which, not to delete two of them.**
+
+#### Harness and process notes
+
+- **A stale `gbm_flutter` instance blocks the whole device tier.** Every
+  `flutter test integration_test/... -d macos` failed instantly with
+  `did not complete` (and, from the app side, `Failed to foreground app; open
+  returned 1`) while a manually-launched debug build from an earlier session was
+  still running. `pkill -f "gbm_flutter.app/Contents/MacOS/gbm_flutter"` is the
+  fix. It looks exactly like a broken test — **run one pre-existing device test
+  as a control before believing the new one.**
+- **`git commit` after `git add -A <dir>` swept an unrelated in-progress change
+  into a `refactor:` commit.** Caught by reading `git diff --stat`'s output in
+  the same call; split with `reset --soft` + selective `add`. Stage by file when
+  two changes are live in one directory.
+- **A `std::span<const ObjectId>` does not accept a braced list** in C++20
+  (`initializer_list` construction lands in C++26), so the bridge passes
+  `std::span(&record.oid, 1)`.
+- **Comparing iterators from two separate `toRevListArgs()` calls compares
+  iterators into two different vectors.** The first `--no-merges` test did that
+  and failed for that reason rather than for the reason it was written.

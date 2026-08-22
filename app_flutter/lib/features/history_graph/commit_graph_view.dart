@@ -520,7 +520,14 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
                   ),
                   handle: handle,
                   onDragStart: () {
-                    _resizeStartWidth = columnLayout.widthOf(handle.id);
+                    // The width on screen, not the width in storage. For
+                    // every column but Graph they are the same; Graph's
+                    // stored value is a cap, so starting from it would mean
+                    // a leftward drag moved nothing until the cursor caught
+                    // up with the cap. See `renderedWidthOf`.
+                    _resizeStartWidth =
+                        plan.renderedWidthOf(handle.id) ??
+                        columnLayout.widthOf(handle.id);
                     _resizeTravel = 0;
                   },
                   onDragUpdate: (double dx) {

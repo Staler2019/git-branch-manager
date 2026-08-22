@@ -196,14 +196,25 @@ void main() {
     });
 
     test('setWidth() ignores a non-resizable column', () async {
+      // Message is the only one left: it is the flex column, so it has no
+      // width of its own to set. Graph moved out of this case when it became
+      // draggable -- see the companion below.
       final ProviderContainer c = await _container();
       c
           .read(graphColumnWidthProvider.notifier)
-          .setWidth(GbmGraphColumnId.graph, 400);
+          .setWidth(GbmGraphColumnId.message, 400);
       expect(
-        c.read(graphColumnWidthProvider)[GbmGraphColumnId.graph],
-        GbmGraphColumnId.graph.defaultWidth,
+        c.read(graphColumnWidthProvider)[GbmGraphColumnId.message],
+        GbmGraphColumnId.message.defaultWidth,
       );
+    });
+
+    test('setWidth() accepts graph, which is locked but resizable', () async {
+      final ProviderContainer c = await _container();
+      c
+          .read(graphColumnWidthProvider.notifier)
+          .setWidth(GbmGraphColumnId.graph, 200);
+      expect(c.read(graphColumnWidthProvider)[GbmGraphColumnId.graph], 200);
     });
   });
 

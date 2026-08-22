@@ -21,7 +21,29 @@ import 'dart:math' as math;
 /// here and pinned by `graph_column_test.dart` rather than derived from the
 /// enum's own name.
 enum GbmGraphColumnId {
-  graph('graph', 'Graph', defaultWidth: 0, minWidth: 0, maxWidth: 0),
+  // Graph is the one column whose *content* width is not a preference: it is
+  // `laneWidth * (laneCount + 1)`, so a busy repository can ask for any width
+  // at all. These three numbers turn that open-ended demand into a budget.
+  //
+  //  * `defaultWidth` 153 is a **cap, not a size**: the column takes its
+  //    natural width and stops there, so a two-lane history still draws two
+  //    lanes and leaves the rest to the message. 153 = 17 x 9, i.e. eight
+  //    parallel lanes plus the trailing half-slot. **Eight is ours, not
+  //    spec's** -- the spec has nothing to say about how thick the graph may
+  //    get. It is the point where the column stops reading as "where am I"
+  //    and starts reading as a wall, and it is a single constant to change if
+  //    that judgement is wrong.
+  //  * `minWidth` 34 = 17 x 2 is one lane. **The column is never removable**
+  //    (it stays `isLocked`, per spec's "Graph 與 Message 固定不可關"); this
+  //    is how far a drag may collapse it, and one lane is still a graph.
+  //  * `maxWidth` 425 = 17 x 25 is twenty-four lanes, past which the row is
+  //    all graph on any ordinary window.
+  //
+  // Literals rather than `GbmLayout.graphLaneWidth * 9`: this file has no
+  // imports at all, which is what lets the repository depend on it instead of
+  // the reverse. `graph_column_test.dart` asserts all three stay exact lane
+  // multiples, so the derivation is checked even though it is not expressed.
+  graph('graph', 'Graph', defaultWidth: 153, minWidth: 34, maxWidth: 425),
   message('message', 'Message', defaultWidth: 0, minWidth: 0, maxWidth: 0),
   // 104, and the corridor it sits in was re-measured this round after the
   // lane pitch went from 18 to 17. Both bounds are measured, not reasoned
@@ -135,12 +157,16 @@ enum GbmGraphColumnId {
   /// word, so a locked column is also a pinned one.
   bool get isMovable => !isLocked;
 
-  /// The same six columns again, and not a third independent fact: graph's
-  /// width is derived from the snapshot's lane count and message is the sole
-  /// flex column, so neither has a "column width" to drag or remember. Spec's
-  /// "欄寬各自可拖曳並記憶" is read against the same "其餘" as the sentence
-  /// before it.
-  bool get isResizable => !isLocked;
+  /// Seven columns -- everything except Message, which is the sole flex
+  /// column and so has no width of its own to drag or remember.
+  ///
+  /// **Graph is resizable but still locked**, and that combination is
+  /// deliberate rather than an oversight. Spec's "其餘可開關並拖曳排序" keeps
+  /// it unclosable, which [isLocked] honours; what a drag changes is the cap
+  /// on how many lanes it will draw before clipping, not whether the column
+  /// exists. Collapsing it to [minWidth] still leaves one lane, so the
+  /// "Graph 固定不可關" guarantee holds at every width.
+  bool get isResizable => this != GbmGraphColumnId.message;
 }
 
 /// The spec's own order, from `GRAPH_COLS` (`spec_logic.js:451`).

@@ -90,6 +90,22 @@ class CommitRowColumnPlan {
   /// has room to spare).
   static const CommitRowColumnPlan full = CommitRowColumnPlan(null);
 
+  /// The width [id] is actually **drawn** at, which is not always the width
+  /// stored for it.
+  ///
+  /// They differ for Graph and only for Graph: its stored width is a cap, so
+  /// a two-lane history is drawn at its natural 51px while the cap sits at
+  /// 153. A drag that started from the stored 153 would move an invisible
+  /// number -- the first 100px of travel would change nothing on screen --
+  /// so the resize strip takes its origin from here instead. Null for
+  /// Message, which has no width of its own.
+  double? renderedWidthOf(GbmGraphColumnId id) {
+    for (final PlannedColumn column in columns) {
+      if (column.id == id) return column.width;
+    }
+    return null;
+  }
+
   /// The visible columns in display order, each with the slot it gets.
   List<PlannedColumn> get columns => _columns ?? kDefaultPlannedColumns;
 
@@ -186,12 +202,22 @@ CommitRowColumnPlan planCommitRowColumns({
       if (id.isLocked || !hidden.contains(id.storageId)) id,
   };
 
+  // What the snapshot would like, and what the user's cap allows.
+  //
+  // The cap is a *maximum*, never a size: a two-lane history draws two lanes
+  // and hands the rest to the message, exactly as before. What changed is
+  // that a twelve-lane history no longer takes 221px unasked -- it stops at
+  // the cap and clips the highest lanes, which the user can then drag back
+  // (see `GbmGraphColumnId.graph`, and note lane 0 is drawn leftmost so
+  // clipping never takes HEAD or the trunk).
   final double graphNatural = showGraph
       ? kGraphLaneWidth * (laneCount + 1)
       : GbmSpacing.space3;
+  final double graphWanted = showGraph
+      ? math.min(graphNatural, slots[GbmGraphColumnId.graph]!)
+      : graphNatural;
 
-  double leftover() =>
-      availableWidth - _fixedCost(visible, slots, graphNatural);
+  double leftover() => availableWidth - _fixedCost(visible, slots, graphWanted);
 
   // Rung by rung, cheapest to lose first, stopping the moment the message
   // floor fits.
@@ -229,13 +255,15 @@ CommitRowColumnPlan planCommitRowColumns({
 
   // Last resort: the graph column itself. lane 0 is drawn leftmost, so
   // clipping always takes the highest lanes and never HEAD or the trunk.
-  double resolvedGraphWidth = graphNatural;
-  bool graphClipped = false;
+  double resolvedGraphWidth = graphWanted;
   final double shortfall = kMinSubjectWidth - leftover();
   if (showGraph && shortfall > 0) {
-    resolvedGraphWidth = math.max(0, graphNatural - shortfall);
-    graphClipped = resolvedGraphWidth < graphNatural;
+    resolvedGraphWidth = math.max(0, graphWanted - shortfall);
   }
+  // True whichever reason cut the lanes short -- the user's cap or the
+  // message floor. Both mean the same thing to a reader of the row: there
+  // are lanes you are not being shown.
+  final bool graphClipped = showGraph && resolvedGraphWidth < graphNatural;
 
   return CommitRowColumnPlan(
     <PlannedColumn>[

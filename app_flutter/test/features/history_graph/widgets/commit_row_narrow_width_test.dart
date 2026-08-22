@@ -266,4 +266,58 @@ void main() {
       expect(_graphRect(tester).width, kGraphLaneWidth * 5);
     });
   });
+
+  group('resizing in place', () {
+    testWidgets('the graph column follows a width change without a rebuild '
+        'of the row itself', (tester) async {
+      // GraphRowPainter.shouldRepaint compares only row/rowIndex/graph, none
+      // of which change when the window is resized -- so on paper a narrower
+      // box could keep the old painting. Measured rather than reasoned about,
+      // per this round's plan: RenderCustomPaint marks itself needing paint
+      // when its size changes regardless of shouldRepaint, and this is the
+      // case that says so out loud.
+      _sizeSurface(tester, 1200);
+      final GraphSnapshotView graph = _graph(12);
+
+      late StateSetter setWidth;
+      double width = 1000;
+
+      await pumpGbmWidget(
+        tester,
+        child: StatefulBuilder(
+          builder: (context, setState) {
+            setWidth = setState;
+            return Align(
+              alignment: Alignment.topLeft,
+              child: SizedBox(
+                width: width,
+                child: CommitRow(
+                  row: graph.rows.first,
+                  oidHex: _oid,
+                  graph: graph,
+                  rowIndex: 0,
+                  maxLane: 12,
+                  plan: planCommitRowColumns(
+                    availableWidth: width,
+                    laneCount: 12,
+                    showGraph: true,
+                  ),
+                  meta: _meta(),
+                ),
+              ),
+            );
+          },
+        ),
+      );
+
+      final double wide = _graphRect(tester).width;
+
+      setWidth(() => width = 240);
+      await tester.pump();
+
+      final double narrow = _graphRect(tester).width;
+      expect(narrow, lessThan(wide));
+      expect(tester.takeException(), isNull);
+    });
+  });
 }

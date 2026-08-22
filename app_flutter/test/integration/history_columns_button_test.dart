@@ -13,6 +13,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/commit_meta.dart';
 import 'package:gbm_flutter/data/models/graph_snapshot.dart';
 import 'package:gbm_flutter/data/models/signature.dart';
+import 'package:gbm_flutter/data/models/graph_column.dart';
+import 'package:gbm_flutter/data/repositories/graph_columns_repository.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/features/history_graph/commit_graph_view.dart';
@@ -104,6 +106,56 @@ Future<void> _pump(WidgetTester tester) async {
 
 Finder get _button => find.byTooltip('Graph columns');
 
+/// Set by [_pumpShortWindow] so its test can read a provider without
+/// threading the container through. [_pump] deliberately does not set it --
+/// nothing else in this file reads a provider directly, and a global that
+/// two helpers both write is a global that goes stale across tests.
+ProviderContainer? container;
+
+/// Same tree as [_pump] but in a window short enough that the History header
+/// button sits in the lower half -- the real desktop case, see the
+/// low-button test below.
+Future<void> _pumpShortWindow(WidgetTester tester) async {
+  tester.view.physicalSize = const Size(1400, 420);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+
+  SharedPreferences.setMockInitialValues(<String, Object>{});
+  final SharedPreferences prefs = await SharedPreferences.getInstance();
+  final ProviderContainer c = ProviderContainer(
+    overrides: <Override>[
+      sharedPreferencesProvider.overrideWithValue(prefs),
+      repoSessionProvider(
+        _identity,
+      ).overrideWith((ref) => FakeRepoSessionController(_identity, _state())),
+    ],
+  );
+  container = c;
+  addTearDown(c.dispose);
+
+  await tester.pumpWidget(
+    UncontrolledProviderScope(
+      container: c,
+      child: MaterialApp(
+        theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+        home: Scaffold(
+          body: Column(
+            children: <Widget>[
+              // Pushes the History panel -- and therefore its header button --
+              // down the window, the way the workspace chrome and the changed
+              // files splitter do in the real app.
+              const SizedBox(height: 280),
+              Expanded(child: CommitGraphView(identity: _identity)),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+}
+
 void main() {
   testWidgets('History carries the button, and the picker is not open yet', (
     tester,
@@ -189,6 +241,46 @@ void main() {
         reason: 'closed after ticking $label',
       );
     }
+  });
+
+  testWidgets('every row is reachable when the button sits low', (
+    tester,
+  ) async {
+    // The placement defect this closes, found on the device tier rather than
+    // by reading: at 1440x900 the History header button lands at y ~= 681, so
+    // a popover that always opens downward gets ~175px for ~230px of rows.
+    // The bottom two -- Committer and Changed files, the two the picker
+    // gained this round -- were then inside a scroll view, present in the
+    // tree and *not hit-testable*, which is the failure mode a findsOneWidget
+    // assertion cannot see.
+    await _pumpShortWindow(tester);
+
+    await tester.tap(_button);
+    await tester.pumpAndSettle();
+
+    // Reachability, not presence: tapping is the claim, so the assertion is
+    // that the tap lands and the row actually flips.
+    await tester.tap(
+      find.descendant(
+        of: find.byType(GraphColumnsSelector),
+        matching: find.text('Changed files'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      isGraphColumnVisible(
+        container!.read(graphColumnVisibilityProvider),
+        GbmGraphColumnId.changedFiles.storageId,
+      ),
+      isTrue,
+    );
+    // And it went up rather than merely scrolling: the panel's top edge is
+    // above the button it hangs off.
+    expect(
+      tester.getRect(find.byType(GraphColumnsSelector)).top,
+      lessThan(tester.getRect(_button).top),
+    );
   });
 
   testWidgets('tapping outside closes it without undoing the toggle', (

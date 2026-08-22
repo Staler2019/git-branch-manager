@@ -272,6 +272,16 @@ Future<void> showGraphColumnsPopover(
   );
 }
 
+/// Roughly how tall the picker is at its full eight rows -- header, eight
+/// 24px rows, the panel's own padding and border.
+///
+/// Used only to decide whether the popover opens below its anchor or above
+/// it. An estimate is enough, and measuring would need a layout pass that
+/// has to happen *after* the placement it would inform: being wrong in
+/// either direction costs at most a scroll, since the panel sits in a
+/// SingleChildScrollView whichever way it opens.
+const double _kEstimatedPopoverHeight = 8 * 24 + 26 + 10 + 2;
+
 class _GraphColumnsPopover extends StatelessWidget {
   const _GraphColumnsPopover({required this.anchor});
 
@@ -290,22 +300,31 @@ class _GraphColumnsPopover extends StatelessWidget {
         screen.width - kGraphColumnsSelectorWidth - GbmSpacing.space2,
       ),
     );
-    final double top = anchor.bottom + GbmSpacing.space1;
+    // Opens above the anchor when there is not room below it and there is
+    // more room above. Measured, not assumed: the History header button sits
+    // near the *bottom* of the window in the default layout (y ~= 681 of 900
+    // on a 1440x900 desktop), which left the panel 175px for its ~230px of
+    // rows -- so Committer and Changed files rendered inside a scroll view
+    // the user had to find before they could tick them. A popover is not a
+    // dropdown; it belongs on whichever side it fits.
+    final double gap = GbmSpacing.space1;
+    final double margin = GbmSpacing.space3;
+    final double spaceBelow = screen.height - anchor.bottom - gap - margin;
+    final double spaceAbove = anchor.top - gap - margin;
+    final bool openAbove =
+        spaceBelow < _kEstimatedPopoverHeight && spaceAbove > spaceBelow;
+    final double available = math.max(120, openAbove ? spaceAbove : spaceBelow);
 
     return Stack(
       children: <Widget>[
         Positioned(
           left: left,
-          top: top,
+          top: openAbove ? null : anchor.bottom + gap,
+          bottom: openAbove ? screen.height - anchor.top + gap : null,
           child: Material(
             type: MaterialType.transparency,
             child: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxHeight: math.max(
-                  120,
-                  screen.height - top - GbmSpacing.space3,
-                ),
-              ),
+              constraints: BoxConstraints(maxHeight: available),
               child: Container(
                 padding: const EdgeInsets.all(5),
                 decoration: BoxDecoration(

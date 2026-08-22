@@ -366,30 +366,27 @@ void main() {
   });
 
   group('delete-branch recovery dialog -- abrupt dismissal', () {
-    testWidgets(
-      'a barrier tap pops the dialog and dispatches '
-      'dismissDeleteBranchChoices exactly once',
-      (tester) async {
-        final pumped = await pumpWorkspace(
-          tester,
-          identity: _identity,
-          topLevelRoutes: _interruptDialogRoutes,
-        );
+    testWidgets('a barrier tap pops the dialog and dispatches '
+        'dismissDeleteBranchChoices exactly once', (tester) async {
+      final pumped = await pumpWorkspace(
+        tester,
+        identity: _identity,
+        topLevelRoutes: _interruptDialogRoutes,
+      );
 
-        pumped.controller.emit(
-          pumped.controller.state.copyWith(
-            deleteBranchChoices: _deleteBranchChoices,
-          ),
-        );
-        await tester.pumpAndSettle();
-        expect(find.byType(DeleteBranchRecoveryDialogContent), findsOneWidget);
+      pumped.controller.emit(
+        pumped.controller.state.copyWith(
+          deleteBranchChoices: _deleteBranchChoices,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(DeleteBranchRecoveryDialogContent), findsOneWidget);
 
-        await _dismissViaBarrier(tester);
+      await _dismissViaBarrier(tester);
 
-        expect(find.byType(DeleteBranchRecoveryDialogContent), findsNothing);
-        expect(_countOf(pumped.controller, 'dismissDeleteBranchChoices'), 1);
-      },
-    );
+      expect(find.byType(DeleteBranchRecoveryDialogContent), findsNothing);
+      expect(_countOf(pumped.controller, 'dismissDeleteBranchChoices'), 1);
+    });
 
     testWidgets(
       'resolving via Cancel dispatches dismissDeleteBranchChoices exactly '

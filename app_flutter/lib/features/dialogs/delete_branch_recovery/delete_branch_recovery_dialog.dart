@@ -32,12 +32,26 @@ class _DeleteBranchRecoveryDialogContentState
     extends ConsumerState<DeleteBranchRecoveryDialogContent> {
   bool _resolved = false;
 
+  /// Captured up front because [dispose] cannot reach `ref`: by the time
+  /// `State.dispose()` runs the element is already unmounted, and
+  /// flutter_riverpod gates every `ref` member on `context.mounted`
+  /// (`ConsumerStatefulElement._assertNotDisposed`). A `ref.read(...)` there
+  /// therefore throws `StateError: Cannot use "ref" after the widget was
+  /// disposed` **unconditionally** -- which silently broke the
+  /// dispatch-on-the-way-out below for as long as it existed. Holding the
+  /// notifier is the supported way to dispatch during disposal.
+  late final RepoSessionController _session;
+
+  @override
+  void initState() {
+    super.initState();
+    _session = ref.read(repoSessionProvider(widget.identity).notifier);
+  }
+
   @override
   void dispose() {
-    if (!_resolved) {
-      ref
-          .read(repoSessionProvider(widget.identity).notifier)
-          .dismissDeleteBranchChoices();
+    if (!_resolved && _session.mounted) {
+      _session.dismissDeleteBranchChoices();
     }
     super.dispose();
   }

@@ -407,15 +407,23 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
         // -- the HEAD row, say, which is also the one most likely to carry
         // ref chips -- would stop lining up with its neighbours and the list
         // would stop reading as a table.
+        // Spec page 02 item 16's three settings -- which columns are on,
+        // what order they sit in, and how wide each one was dragged to --
+        // arrive as one value so the row, the ladder and (later) the resize
+        // strips cannot each derive them differently.
+        final GraphColumnLayout columnLayout = ref.watch(
+          graphColumnLayoutProvider,
+        );
         final CommitRowColumnPlan plan = planCommitRowColumns(
           availableWidth: constraints.maxWidth,
           laneCount: graph.laneCount,
           showGraph: query.isEmpty,
-          // Spec page 02 item 16's picker. Width may still take a column the
-          // user asked to keep; it can never bring back one they switched
-          // off -- planCommitRowColumns starts from this set and only ever
-          // subtracts.
-          hiddenByUser: ref.watch(hiddenGraphColumnsProvider),
+          order: columnLayout.order,
+          widths: columnLayout.widths,
+          // Width may still take a column the user asked to keep; it can
+          // never bring back one they switched off -- planCommitRowColumns
+          // starts from this set and only ever subtracts.
+          hiddenByUser: columnLayout.hiddenStorageIds,
         );
         return _SelectionShortcuts(
           focusNode: _listFocus,

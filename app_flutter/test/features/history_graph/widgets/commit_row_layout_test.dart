@@ -9,6 +9,7 @@
 // than to any measured font, so these cases say nothing about Ahem vs a real
 // device -- that distinction only matters at the widget tier.
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/graph_column.dart';
 import 'package:gbm_flutter/features/history_graph/widgets/commit_row.dart';
 import 'package:gbm_flutter/features/history_graph/widgets/commit_row_layout.dart';
 
@@ -16,15 +17,23 @@ CommitRowColumnPlan _plan(
   double width, {
   int laneCount = 1,
   bool showGraph = true,
-  Set<String> hiddenByUser = const <String>{},
+  Set<String>? hiddenByUser,
+  List<GbmGraphColumnId> order = kGraphColumnOrderDefault,
+  Map<GbmGraphColumnId, double> widths = const <GbmGraphColumnId, double>{},
 }) {
   return planCommitRowColumns(
     availableWidth: width,
     laneCount: laneCount,
     showGraph: showGraph,
     hiddenByUser: hiddenByUser,
+    order: order,
+    widths: widths,
   );
 }
+
+List<String> _ids(CommitRowColumnPlan p) => <String>[
+  for (final PlannedColumn column in p.columns) column.id.storageId,
+];
 
 /// The optional columns still on, as a set, for order-independent compares.
 Set<String> _shown(CommitRowColumnPlan p) => <String>{
@@ -145,6 +154,125 @@ void main() {
     test('refs are dropped when there is nothing left for them', () {
       final CommitRowColumnPlan p = _plan(120, laneCount: 12);
       expect(p.showRefs, isFalse);
+    });
+  });
+
+  // The constants CommitRow still names have to stay equal to the enum
+  // defaults the plan now resolves widths from, or a drag would move the
+  // budget and leave the rendered slot behind. Asserted rather than assumed:
+  // they live in two files.
+  group('column widths and the enum agree', () {
+    test('the three named constants match their column defaults', () {
+      expect(kHashColumnWidth, GbmGraphColumnId.hash.defaultWidth);
+      expect(kAuthorColumnWidth, GbmGraphColumnId.author.defaultWidth);
+      expect(kDateColumnWidth, GbmGraphColumnId.date.defaultWidth);
+    });
+  });
+
+  group('column order', () {
+    test('columns follow the given order', () {
+      final List<GbmGraphColumnId> reversed = <GbmGraphColumnId>[
+        GbmGraphColumnId.graph,
+        GbmGraphColumnId.message,
+        GbmGraphColumnId.hash,
+        GbmGraphColumnId.date,
+        GbmGraphColumnId.author,
+        GbmGraphColumnId.refs,
+      ];
+      expect(_ids(_plan(2000, order: reversed)), <String>[
+        'graph',
+        'message',
+        'hash',
+        'date',
+        'author',
+        'refs',
+      ]);
+    });
+
+    // Reordering must not change *what* is affordable, only where it sits:
+    // the ladder walks kColumnDropOrder, which is independent of display
+    // order. Without this a user's drag would silently change which columns
+    // survive a narrow window.
+    test('display order does not change which columns survive', () {
+      final List<GbmGraphColumnId> reordered = <GbmGraphColumnId>[
+        GbmGraphColumnId.graph,
+        GbmGraphColumnId.message,
+        GbmGraphColumnId.hash,
+        GbmGraphColumnId.refs,
+        GbmGraphColumnId.date,
+        GbmGraphColumnId.author,
+      ];
+      for (double w = 1000; w >= 40; w -= 5) {
+        expect(
+          _ids(_plan(w, order: reordered)).toSet(),
+          _ids(_plan(w)).toSet(),
+          reason: 'width \$w',
+        );
+      }
+    });
+
+    // Only the six spec starts switched on -- "nothing was given up for
+    // width" is a different claim from "every column is enabled".
+    test('full is the spec default layout', () {
+      expect(
+        <String>[
+          for (final PlannedColumn c in CommitRowColumnPlan.full.columns)
+            c.id.storageId,
+        ],
+        <String>['graph', 'message', 'refs', 'author', 'date', 'hash'],
+      );
+    });
+  });
+
+  group('column widths', () {
+    test('a wider column is charged to the budget', () {
+      const double width = 600;
+      final double base = _plan(width).subjectWidthFor(width);
+      final double dragged = _plan(
+        width,
+        widths: <GbmGraphColumnId, double>{GbmGraphColumnId.author: 210},
+      ).subjectWidthFor(width);
+
+      expect(dragged, base - 100);
+    });
+
+    test('the planned slot is what the caller dragged to', () {
+      final CommitRowColumnPlan plan = _plan(
+        2000,
+        widths: <GbmGraphColumnId, double>{GbmGraphColumnId.date: 137},
+      );
+      expect(plan.widthOf(GbmGraphColumnId.date), 137);
+    });
+
+    // A dragged column can push the row past the message floor, and that has
+    // to go through the same ladder rather than overflowing.
+    test('dragging wide enough makes the ladder give a column up', () {
+      const double width = 500;
+      expect(_plan(width).showDate, isTrue);
+      expect(
+        _plan(
+          width,
+          widths: <GbmGraphColumnId, double>{GbmGraphColumnId.author: 320},
+        ).showDate,
+        isFalse,
+      );
+    });
+
+    // Pins the deliberate exception in `_slotWidth`. Refs still lives off
+    // leftover space, so its budget slot is the reserve and not its stored
+    // 120px default; the next commit turns it into an ordinary fixed column
+    // and this expectation is what makes that change visible rather than
+    // silent.
+    test('refs is still charged its reserve, not its stored width', () {
+      const double width = 600;
+      final double base = _plan(width).subjectWidthFor(width);
+      final double dragged = _plan(
+        width,
+        widths: <GbmGraphColumnId, double>{GbmGraphColumnId.refs: 300},
+      ).subjectWidthFor(width);
+
+      expect(dragged, base);
+      expect(_plan(2000).widthOf(GbmGraphColumnId.refs), kRefsReserveWidth);
     });
   });
 

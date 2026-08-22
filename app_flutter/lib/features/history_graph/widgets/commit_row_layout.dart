@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import '../../../data/models/graph_column.dart';
 import '../../../theme/tokens.dart';
 import 'commit_row.dart' show kGraphLaneWidth;
 
@@ -20,6 +21,13 @@ const double kMinSubjectWidth = 80;
 /// every glyph is one em wide, so an intrinsic hash measures ~88px in a test
 /// and ~53px on a device. Sizing it explicitly makes the row's width budget
 /// mean the same thing in both.
+///
+/// These are now the *fallbacks* rather than the numbers themselves -- a
+/// column's live width comes from `graphColumnWidthProvider`, which starts at
+/// [GbmGraphColumnId.defaultWidth] and moves when the user drags. They are
+/// kept as named constants because several tests and `commit_row.dart` still
+/// name them, and `graph_column_test.dart` pins them equal to the enum's own
+/// defaults so the two cannot drift apart silently.
 const double kHashColumnWidth = 64;
 const double kAuthorColumnWidth = 110;
 const double kDateColumnWidth = 80;
@@ -36,25 +44,84 @@ const double kDateColumnWidth = 80;
 /// property is what caught that.
 const double kRefsReserveWidth = 60;
 
-/// Which optional columns a commit row can afford, plus the caps that keep
-/// the variable-width parts inside their share.
+/// The order the ladder surrenders columns in, cheapest to lose first.
+///
+/// Least to most identifying. Changed files and Committer lead because spec
+/// starts them switched off (`GbmGraphColumnId.defaultVisible`): a column the
+/// user went looking for and turned on is still worth less than one they
+/// never had to ask for. Then a date (the easiest thing to recover -- the
+/// list is in date order), then an author (often uniform across a working
+/// branch), then the hash, which names the commit. Refs go last because a
+/// branch or tag chip is the only thing in the row that says *where you
+/// are*, and unlike the hash it has no second home in the commit detail
+/// panel.
+///
+/// **Nothing here is spec'd.** Neither the design spec nor `docs/` says
+/// anything about narrow windows -- no breakpoints, no minimum widths. What
+/// *is* spec'd is P02 item 16's "Graph and Message cannot be switched off",
+/// and this ladder is derived from it: those two are the only columns it
+/// will not surrender. Do not cite this ordering as a spec requirement.
+const List<GbmGraphColumnId> kColumnDropOrder = <GbmGraphColumnId>[
+  GbmGraphColumnId.changedFiles,
+  GbmGraphColumnId.committer,
+  GbmGraphColumnId.date,
+  GbmGraphColumnId.author,
+  GbmGraphColumnId.hash,
+  GbmGraphColumnId.refs,
+];
+
+/// One column's place in a planned row.
+class PlannedColumn {
+  const PlannedColumn(this.id, this.width);
+
+  final GbmGraphColumnId id;
+
+  /// The fixed slot this column gets, or null when it has none:
+  /// [GbmGraphColumnId.message] is the sole flex column and never has one,
+  /// and graph has none in [CommitRowColumnPlan.full], which is the value
+  /// for callers that never measured a width at all.
+  final double? width;
+}
+
+/// Every column a row can show, in the spec's own order, at its default
+/// width -- what [CommitRowColumnPlan.full] resolves to.
+///
+/// Computed from the enum rather than written out, so a column added there
+/// cannot be forgotten here. Columns spec starts switched off are excluded:
+/// "nothing was given up for width" is not the same claim as "everything is
+/// switched on".
+final List<PlannedColumn> kDefaultPlannedColumns =
+    List<PlannedColumn>.unmodifiable(<PlannedColumn>[
+      for (final GbmGraphColumnId id in kGraphColumnOrderDefault)
+        if (id.defaultVisible)
+          PlannedColumn(id, id.isLocked ? null : id.defaultWidth),
+    ]);
+
+/// Which columns a commit row can afford and how wide each one gets, plus the
+/// caps that keep the variable-width parts inside their share.
 ///
 /// Computed once per list, never per row -- see [planCommitRowColumns].
 class CommitRowColumnPlan {
-  const CommitRowColumnPlan({
+  /// [columns] is positional and private-typed because [full] needs to be a
+  /// `const` (it is a default parameter value in `commit_row.dart`) while
+  /// the default column list is computed from the enum -- so the field holds
+  /// null for "not measured" and [columns] resolves it.
+  const CommitRowColumnPlan(
+    this._columns, {
     this.graphWidth,
     this.maxRefsWidth,
     this.graphClipped = false,
-    this.showHash = true,
-    this.showRefs = true,
-    this.showAuthor = true,
-    this.showDate = true,
   });
+
+  final List<PlannedColumn>? _columns;
 
   /// Nothing given up and nothing capped -- the value for callers that do not
   /// measure a width (existing widget tests, and any future embedding that
   /// has room to spare).
-  static const CommitRowColumnPlan full = CommitRowColumnPlan();
+  static const CommitRowColumnPlan full = CommitRowColumnPlan(null);
+
+  /// The visible columns in display order, each with the slot it gets.
+  List<PlannedColumn> get columns => _columns ?? kDefaultPlannedColumns;
 
   /// The graph column's width under this plan, or null to use its natural
   /// width (`kGraphLaneWidth * (laneCount + 1)`). [planCommitRowColumns]
@@ -69,86 +136,106 @@ class CommitRowColumnPlan {
   /// also true whenever the plan simply resolved the natural width.
   final bool graphClipped;
 
-  final bool showHash;
-  final bool showRefs;
-  final bool showAuthor;
-  final bool showDate;
+  bool shows(GbmGraphColumnId id) {
+    for (final PlannedColumn column in columns) {
+      if (column.id == id) return true;
+    }
+    return false;
+  }
+
+  /// [id]'s slot under this plan, or null when it has none (see
+  /// [PlannedColumn.width]) or is not shown at all.
+  double? widthOf(GbmGraphColumnId id) {
+    for (final PlannedColumn column in columns) {
+      if (column.id == id) return column.width;
+    }
+    return null;
+  }
+
+  bool get showHash => shows(GbmGraphColumnId.hash);
+  bool get showRefs => shows(GbmGraphColumnId.refs);
+  bool get showAuthor => shows(GbmGraphColumnId.author);
+  bool get showDate => shows(GbmGraphColumnId.date);
+  bool get showCommitter => shows(GbmGraphColumnId.committer);
+  bool get showChangedFiles => shows(GbmGraphColumnId.changedFiles);
 
   /// What the subject column ends up with at [availableWidth] under this
   /// plan. Exposed so tests can assert the Message floor directly instead of
   /// inferring it from the flags.
   double subjectWidthFor(double availableWidth) {
-    return availableWidth - _fixedCost(this, graphWidth ?? 0);
+    return availableWidth -
+        _fixedCost(
+          <GbmGraphColumnId>{
+            for (final PlannedColumn column in columns) column.id,
+          },
+          _slotWidths(this),
+          graphWidth ?? 0,
+        );
   }
 }
 
 /// Decides the plan for one commit list at [availableWidth].
 ///
 /// **Per list, not per row.** The inputs are deliberately limited to facts
-/// every row shares (the width, the snapshot's lane count) and exclude
-/// per-row ones like "is this HEAD" or "does this commit carry ref chips".
-/// Author and date are trailing fixed-width columns: if the HEAD row -- which
-/// is also the row most likely to carry chips -- decided on its own to give
-/// up date, its columns would stop lining up with its neighbours' and the
-/// list would stop being a table.
+/// every row shares (the width, the snapshot's lane count, the user's own
+/// column settings) and exclude per-row ones like "is this HEAD" or "does
+/// this commit carry ref chips". Author and date are trailing fixed-width
+/// columns: if the HEAD row -- which is also the row most likely to carry
+/// chips -- decided on its own to give up date, its columns would stop
+/// lining up with its neighbours' and the list would stop being a table.
 ///
-/// **The ladder is date, then author, then hash, then refs.** Least to most
-/// identifying: a date is the easiest thing to recover (the list is in date
-/// order), an author is often uniform across a working branch, and the hash
-/// names the commit. Refs go last because a branch or tag chip is the only
-/// thing in the row that says *where you are*, and unlike the hash it has no
-/// second home in the commit detail panel.
+/// The ladder itself is [kColumnDropOrder]; see its doc comment for why that
+/// order and why none of it is spec'd.
 ///
-/// Only `date -> author -> hash` was agreed up front; appending refs at the
-/// end is this function's own decision, recorded here rather than presented
-/// as a requirement.
-///
-/// **Nothing here is spec'd.** Neither the design spec nor `docs/` says
-/// anything about narrow windows -- no breakpoints, no minimum widths. What
-/// *is* spec'd is P02 item 16's "Graph and Message cannot be switched off",
-/// and this ladder is derived from it: those two are the only columns the
-/// function will not surrender. Do not cite this ordering as a spec
-/// requirement.
-///
-/// [hiddenByUser] is the column-picker's own set (ids as
-/// `GraphColumnsSelector` writes them: `refs`, `author`, `date`, `hash`).
-/// Width may hide a column the user asked for; it can never reveal one they
-/// turned off.
+/// [order] and [widths] come from `graphColumnLayoutProvider`, i.e. from what
+/// the user dragged; both default to the spec's own values so a caller that
+/// does not measure anything still gets the shipped layout. [hiddenByUser] is
+/// the same provider's hidden set. Width may hide a column the user asked
+/// for; it can never reveal one they turned off.
 CommitRowColumnPlan planCommitRowColumns({
   required double availableWidth,
   required int laneCount,
   required bool showGraph,
-  Set<String> hiddenByUser = const <String>{},
+  List<GbmGraphColumnId> order = kGraphColumnOrderDefault,
+  Map<GbmGraphColumnId, double> widths = const <GbmGraphColumnId, double>{},
+  Set<String>? hiddenByUser,
 }) {
-  bool showHash = !hiddenByUser.contains('hash');
-  bool showRefs = !hiddenByUser.contains('refs');
-  bool showAuthor = !hiddenByUser.contains('author');
-  bool showDate = !hiddenByUser.contains('date');
+  // Not `const {}`: an omitted set means "the user has configured nothing",
+  // and spec's own layout has Committer and Changed files switched off. An
+  // empty default would quietly make the unconfigured case eight columns
+  // wide -- the same trap `isGraphColumnVisible`'s fallback exists to close,
+  // one layer down. A caller wanting all eight passes an explicit `{}`.
+  final Set<String> hidden = hiddenByUser ?? kDefaultHiddenGraphColumnIds;
+  final Map<GbmGraphColumnId, double> slots = <GbmGraphColumnId, double>{
+    for (final GbmGraphColumnId id in GbmGraphColumnId.values)
+      id: _slotWidth(id, widths[id] ?? id.defaultWidth),
+  };
+
+  final Set<GbmGraphColumnId> visible = <GbmGraphColumnId>{
+    for (final GbmGraphColumnId id in order)
+      if (id.isLocked || !hidden.contains(id.storageId)) id,
+  };
 
   final double graphNatural = showGraph
       ? kGraphLaneWidth * (laneCount + 1)
       : GbmSpacing.space3;
 
-  CommitRowColumnPlan candidate() => CommitRowColumnPlan(
-    showHash: showHash,
-    showRefs: showRefs,
-    showAuthor: showAuthor,
-    showDate: showDate,
-  );
-
-  double leftover() => availableWidth - _fixedCost(candidate(), graphNatural);
+  double leftover() =>
+      availableWidth - _fixedCost(visible, slots, graphNatural);
 
   // Rung by rung, cheapest to lose first, stopping the moment the message
   // floor fits.
-  if (leftover() < kMinSubjectWidth && showDate) showDate = false;
-  if (leftover() < kMinSubjectWidth && showAuthor) showAuthor = false;
-  if (leftover() < kMinSubjectWidth && showHash) showHash = false;
-  if (leftover() < kMinSubjectWidth && showRefs) showRefs = false;
+  for (final GbmGraphColumnId id in kColumnDropOrder) {
+    if (leftover() >= kMinSubjectWidth) break;
+    visible.remove(id);
+  }
 
   // Whatever the strip did not need of its reserve, plus anything spare
   // beyond the message floor, is what the chips may actually use.
+  final bool showRefs = visible.contains(GbmGraphColumnId.refs);
   final double refsBudget = showRefs
-      ? kRefsReserveWidth + math.max(0, leftover() - kMinSubjectWidth)
+      ? slots[GbmGraphColumnId.refs]! +
+            math.max(0, leftover() - kMinSubjectWidth)
       : 0;
 
   // Last resort: the graph column itself. lane 0 is drawn leftmost, so
@@ -162,24 +249,76 @@ CommitRowColumnPlan planCommitRowColumns({
   }
 
   return CommitRowColumnPlan(
+    <PlannedColumn>[
+      for (final GbmGraphColumnId id in order)
+        if (visible.contains(id))
+          PlannedColumn(
+            id,
+            id == GbmGraphColumnId.graph
+                ? resolvedGraphWidth
+                : id == GbmGraphColumnId.message
+                ? null
+                : slots[id],
+          ),
+    ],
     graphWidth: resolvedGraphWidth,
     maxRefsWidth: showRefs ? refsBudget : null,
     graphClipped: graphClipped,
-    showHash: showHash,
-    showRefs: showRefs,
-    showAuthor: showAuthor,
-    showDate: showDate,
   );
+}
+
+/// The width [id] occupies in the row's budget.
+///
+/// Refs is the one column whose budget slot is not its stored width: it still
+/// lives off leftover space (see [kRefsReserveWidth]), so charging it the
+/// full 120px default would shift every drop threshold. Turning it into an
+/// ordinary fixed column is the *next* commit's change, deliberately split
+/// out so a moved threshold is attributable to it and not to this rewiring.
+double _slotWidth(GbmGraphColumnId id, double stored) {
+  if (id == GbmGraphColumnId.refs) return kRefsReserveWidth;
+  return stored;
+}
+
+Map<GbmGraphColumnId, double> _slotWidths(CommitRowColumnPlan plan) {
+  return <GbmGraphColumnId, double>{
+    for (final PlannedColumn column in plan.columns)
+      if (column.width != null) column.id: column.width!,
+  };
+}
+
+/// The gap drawn to the right of [id].
+///
+/// Mirrors `CommitRow`'s own child list, which is not uniform: hash and
+/// author are followed by `space3` and date and refs by `space2`. The two
+/// have to move together, so these are named here rather than assumed equal.
+double _gapAfter(GbmGraphColumnId id) {
+  switch (id) {
+    case GbmGraphColumnId.hash:
+    case GbmGraphColumnId.author:
+    case GbmGraphColumnId.committer:
+      return GbmSpacing.space3;
+    case GbmGraphColumnId.date:
+    case GbmGraphColumnId.refs:
+    case GbmGraphColumnId.changedFiles:
+      return GbmSpacing.space2;
+    case GbmGraphColumnId.graph:
+    case GbmGraphColumnId.message:
+      return 0;
+  }
 }
 
 /// Everything in a row that is not the subject or the ref chips, at
 /// [graphWidth]. Mirrors CommitRow's own child list; the two have to move
 /// together.
-double _fixedCost(CommitRowColumnPlan plan, double graphWidth) {
+double _fixedCost(
+  Set<GbmGraphColumnId> visible,
+  Map<GbmGraphColumnId, double> slots,
+  double graphWidth,
+) {
   double total = graphWidth + GbmSpacing.space2;
-  if (plan.showHash) total += kHashColumnWidth + GbmSpacing.space3;
-  if (plan.showAuthor) total += kAuthorColumnWidth + GbmSpacing.space3;
-  if (plan.showDate) total += kDateColumnWidth + GbmSpacing.space2;
-  if (plan.showRefs) total += kRefsReserveWidth + GbmSpacing.space2;
+  for (final GbmGraphColumnId id in visible) {
+    if (id.isLocked) continue;
+    total += (slots[id] ?? id.defaultWidth) + _gapAfter(id);
+  }
   return total + GbmSpacing.space3;
 }

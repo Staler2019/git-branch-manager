@@ -23,9 +23,9 @@ import 'dart:math' as math;
 enum GbmGraphColumnId {
   graph('graph', 'Graph', defaultWidth: 0, minWidth: 0, maxWidth: 0),
   message('message', 'Message', defaultWidth: 0, minWidth: 0, maxWidth: 0),
-  // 92 is not a round number and not a guess: it is the *only* value that
-  // satisfies both of this column's constraints, each measured rather than
-  // reasoned about.
+  // 104, and the corridor it sits in was re-measured this round after the
+  // lane pitch went from 18 to 17. Both bounds are measured, not reasoned
+  // about.
   //
   //  * Floor 91. The HEAD chip is the sole thing in the row that says where
   //    you are, and spec labels it `HEAD → main` (`spec_logic.js:439`).
@@ -33,37 +33,33 @@ enum GbmGraphColumnId {
   //    chip renders `HEAD → ` and nothing useful. Measured off the bundled
   //    `assets/fonts/JetBrainsMono-Medium.ttf` -- the font `GbmTagChip`
   //    actually sets -- at `GbmTypography.textXs`: 72.6px of text plus 16px
-  //    of horizontal padding plus 2px of border = 90.6px. (Same method
-  //    reproduces the repo's recorded "8 hex characters ≈ 53px on device"
-  //    datum exactly, which is why it is trusted here. A widget test cannot
-  //    check this: the Ahem test font makes every glyph one em wide and puts
-  //    the same chip at 141.75px.)
-  //  * Ceiling 92, found by bisection against
+  //    of horizontal padding plus 2px of border = 90.6px. (A widget test
+  //    cannot check this: the Ahem test font makes every glyph one em wide
+  //    and puts the same chip at 141.75px.)
+  //  * **Ceiling 105**, re-bisected against
   //    `workspace_narrow_window_test.dart`'s twelve-lane case at 1280x720 --
-  //    the app's own default window size. At 93 the ladder starts giving up
+  //    the app's own default window size. At 106 the ladder starts giving up
   //    the Author column there, which that test exists to forbid.
   //
-  // So the two hold together with 1.4px to spare and no more. **That
-  // corridor is the finding, not the number**: this column cannot get any
-  // roomier without either clipping spec's own example chip or eating a
-  // regression lock, and the honest reading is that at twelve lanes and
-  // 1280x720 there is genuinely no room for both. Anything longer than a
-  // four-character branch name (`HEAD → develop` needs 110px) still clips at
-  // the default and needs a drag -- up to `maxWidth`, and remembered after.
+  // **The previous ceiling was 92, and that 13px is exactly the graph column
+  // getting narrower**: its natural width is `laneWidth * (laneCount + 1)`,
+  // so twelve lanes went from `18 x 13 = 234` to `17 x 13 = 221`. The old
+  // corridor was 91..92 -- 1.4px wide -- and the value had to be 92.
+  //
+  // What that bought is a defect closed rather than merely more room. At 92 a
+  // HEAD **synced with its upstream** did not fit: that chip is `HEAD → main`
+  // plus a 3px gap and a 9.5px cloud icon (`GbmTagChip`), i.e. 103.1px, and
+  // the strip clips left-aligned -- so the cloud was the first thing lost and
+  // what remained was glow-without-cloud, which is precisely the signature
+  // spec assigns to the *opposite* state ("目前 HEAD，且遠端不在這裡",
+  // `spec_raw.html:1392`). 104 is `ceil(103.1)`, so the synced chip now
+  // renders whole at the default width.
+  //
+  // Anything longer than a four-character branch name still clips at the
+  // default and needs a drag -- up to `maxWidth`, and remembered after.
   // `graph_column_test.dart` pins the floor; the narrow-window test pins the
   // ceiling; neither is free to move quietly.
-  //
-  // One consequence of the ceiling worth knowing before reading a screenshot:
-  // a HEAD **synced with its upstream** does not fit either. That chip is
-  // `HEAD → main` plus a 3px gap and a 9.5px cloud icon (`GbmTagChip`), i.e.
-  // ~103px, and the strip clips left-aligned -- so the cloud is the first
-  // thing lost and what remains is glow-without-cloud, which is precisely
-  // the signature spec assigns to the *opposite* state ("目前 HEAD，且遠端不
-  // 在這裡", `spec_raw.html:1392`). The absent dashed origin chip elsewhere
-  // in the list still distinguishes the two, and widening the column
-  // restores it, but the chip alone reads wrong at the default width. Not
-  // fixable by choosing a different default: 103 is past the ceiling.
-  refs('refs', 'Refs', defaultWidth: 92, minWidth: 48, maxWidth: 400),
+  refs('refs', 'Refs', defaultWidth: 104, minWidth: 48, maxWidth: 400),
   author('author', 'Author', defaultWidth: 110, minWidth: 48, maxWidth: 320),
   date('date', 'Date', defaultWidth: 80, minWidth: 48, maxWidth: 240),
   // Spec spells these "Commit hash" and "Changed files"; the picker they

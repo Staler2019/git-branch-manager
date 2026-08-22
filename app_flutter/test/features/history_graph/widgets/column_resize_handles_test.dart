@@ -72,7 +72,7 @@ void main() {
       const double hash = _g3 + _g3 + 64; // trailing + gapAfter(hash) + width
       const double date = hash + _g2 + 80;
       const double author = date + _g3 + 110;
-      const double refs = author + _g2 + 92;
+      const double refs = author + _g2 + 104;
 
       expect(_handleFor(handles, GbmGraphColumnId.hash).offset, hash);
       expect(_handleFor(handles, GbmGraphColumnId.date).offset, date);

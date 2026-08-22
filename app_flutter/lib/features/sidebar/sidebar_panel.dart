@@ -543,12 +543,14 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     return refs;
   }
 
-  Set<String> _collectFolderNames(List<BranchTreeNode> nodes) {
+  /// Full paths, not display names -- `_expandedFolders` is keyed the way
+  /// `buildBranchTree` reads it (see [BranchTreeFolder.folderPath]).
+  Set<String> _collectFolderPaths(List<BranchTreeNode> nodes) {
     final Set<String> names = <String>{};
     for (final BranchTreeNode node in nodes) {
       if (node is BranchTreeFolder) {
-        names.add(node.folderName);
-        names.addAll(_collectFolderNames(node.children));
+        names.add(node.folderPath);
+        names.addAll(_collectFolderPaths(node.children));
       }
     }
     return names;
@@ -560,12 +562,12 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
   // of their own recorded expand state.
   void _toggleFolderExpand(BranchTreeFolder folder) {
     setState(() {
-      if (_expandedFolders.contains(folder.folderName)) {
-        _expandedFolders.remove(folder.folderName);
+      if (_expandedFolders.contains(folder.folderPath)) {
+        _expandedFolders.remove(folder.folderPath);
       } else {
         _expandedFolders
-          ..add(folder.folderName)
-          ..addAll(_collectFolderNames(folder.children));
+          ..add(folder.folderPath)
+          ..addAll(_collectFolderPaths(folder.children));
       }
     });
   }
@@ -620,10 +622,10 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
       context,
       details.globalPosition,
       branchFolderMenuItems(
-        isExpanded: _expandedFolders.contains(folder.folderName),
+        isExpanded: folder.isExpanded,
         onToggleExpand: () => _toggleFolderExpand(folder),
         onCopyPrefix: () =>
-            Clipboard.setData(ClipboardData(text: '${folder.folderName}/')),
+            Clipboard.setData(ClipboardData(text: '${folder.folderPath}/')),
         onDeleteMerged: () => _deleteMergedInFolder(folder),
         onFetchFolder: fetchable == null ? null : () => _fetchFolder(folder),
       ),
@@ -779,6 +781,9 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                 .where((RefInfo b) => !b.isHead)
                 .toList(growable: false),
       _expandedFolders,
+      // P02-14 rule 4. Read-only: the user's own set is never written to
+      // here, so clearing the query restores exactly what they had.
+      expandAll: isFiltering,
     );
     final List<RefInfo> filteredTags = filterBranches(refs.tags, _filterQuery);
     // Stashes go through the same rule as branches and tags: P02-14 is one
@@ -1284,10 +1289,10 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
   // _toggleFolderExpand's doc comment for why that one recurses).
   void _toggleFolderExpandedSingleLevel(BranchTreeFolder folder) {
     setState(() {
-      if (_expandedFolders.contains(folder.folderName)) {
-        _expandedFolders.remove(folder.folderName);
+      if (_expandedFolders.contains(folder.folderPath)) {
+        _expandedFolders.remove(folder.folderPath);
       } else {
-        _expandedFolders.add(folder.folderName);
+        _expandedFolders.add(folder.folderPath);
       }
     });
   }
@@ -1316,7 +1321,12 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     int depth = 0,
   }) {
     final colors = context.gbmColors;
-    final isExpanded = _expandedFolders.contains(folder.folderName);
+    // From the node, not re-derived from _expandedFolders: buildBranchTree
+    // already decided this, and while a filter is active it decides
+    // `expandAll` -- a second reading of the set here would draw a closed
+    // chevron over an open folder and, worse, gate the children on the
+    // stale answer.
+    final bool isExpanded = folder.isExpanded;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,

@@ -135,6 +135,59 @@ List<String> _rows(WidgetTester tester) => tester
     .toList();
 
 void main() {
+  group('rule 4: folders open while filtering', () {
+    testWidgets('CONTROL: a folder is collapsed with no query', (
+      tester,
+    ) async {
+      await _pump(tester);
+
+      expect(find.text('feature'), findsOneWidget);
+      expect(_rows(tester), isNot(contains('feature/graph-lanes')));
+    });
+
+    testWidgets('a match inside a collapsed folder is revealed', (
+      tester,
+    ) async {
+      // Without this the filter is close to useless on a real repository:
+      // every branch worth finding lives under a folder, the count says two
+      // matched, and the tree shows a closed folder.
+      await _pump(tester);
+      await _type(tester, 'graph');
+
+      expect(_rows(tester), contains('feature/graph-lanes'));
+      expect(_rows(tester), contains('feature/graph-columns'));
+    });
+
+    testWidgets('clearing the query restores the previous collapse state', (
+      tester,
+    ) async {
+      await _pump(tester);
+      await _type(tester, 'graph');
+      await _type(tester, '');
+
+      // 「清空後回到原本收合狀態」 -- the auto-expansion is a view of the
+      // filtered tree, never a write to the user's own expanded set.
+      expect(_rows(tester), isNot(contains('feature/graph-lanes')));
+    });
+
+    testWidgets('a folder the user opened stays open afterwards', (
+      tester,
+    ) async {
+      await _pump(tester);
+      await tester.tap(find.text('feature'));
+      await tester.pumpAndSettle();
+      expect(_rows(tester), contains('feature/graph-lanes'));
+
+      await _type(tester, 'chore');
+      await _type(tester, '');
+
+      // The other half of "原本收合狀態": restoring must not collapse what
+      // was open either. A boolean "expand all" flag gets this right; a
+      // filter that mutated _expandedFolders and undid itself would not.
+      expect(_rows(tester), contains('feature/graph-lanes'));
+    });
+  });
+
   group('rule 6: the hit count', () {
     testWidgets('reports matches over the whole three-section total', (
       tester,

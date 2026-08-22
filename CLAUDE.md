@@ -2305,6 +2305,57 @@ shape. The listener covers *changes*; something else has to cover the value that
 was already there. The test that sees it is the one that seeds the provider
 **before** pumping.
 
+#### History's three panes were in the wrong place, all three of them
+
+Spec P02 says it in one line — 「History 分頁：**右側 Changed files**（02-10）+
+**下方 Commit detail**（02-08）」 — and its `SPLITTERS` table names both dividers:
+`main.detail` 「Commit list ↔ Commit detail」 水平 62/38 min 160, and `main.files`
+「中央 ↔ Changed files」 垂直 186px min 140. The page had detail on the right and
+files below, i.e. both axes swapped.
+
+**The third error was the one worth catching.** `history_page.dart` passed the
+commit graph as pane 0 of an *extent-mode* vertical splitter, expecting "graph
+first, so on top, filling". Extent mode pins **pane 0** to its fixed size, and
+the old implicit rule put a vertical fixed pane at the **bottom** — so the
+commit graph, the whole point of the page, rendered as a **186px strip along
+the bottom** with the file list filling everything above it. Measured off the
+rendered rects before touching anything: `graph=(255,677)-(1085,863)`,
+`files=(255,112)-(1085,672)`.
+
+**The root cause is a widget API, so that is where the fix went.**
+`GbmSplitPane`'s fixed pane used to sit at an end chosen by the axis —
+horizontal → leading, vertical → trailing — a rule invisible at the call site,
+where `children: [a, b]` reads as "a then b" either way. It is now an explicit
+`fixedPaneEnd: GbmFixedPaneEnd.leading | .trailing`, defaulting to leading, with
+the two vertical call sites (log drawer, panel file list) saying `trailing`
+outright. The drag-delta inversion follows the same flag instead of the axis.
+The old rule could not express *horizontal + trailing* at all, which is exactly
+what History's right-hand files column needs.
+
+**Two existing tests were passing because of the bug**, and both are corrected
+rather than relaxed:
+
+- `history_column_resize_test.dart`'s "a single click on a strip still selects
+  the row under it" tapped the strip's own centre. The strip spans the list's
+  full height, so that point is only over a row while the list is *short* —
+  which it was, at 186px. With the graph at its proper height the centre lands
+  in the empty space below the last row. It now takes the strip's x and a real
+  row's y.
+- `workspace_narrow_window_test.dart`'s twelve-lane 1280×720 case asserted that
+  Date is dropped. The commit list grew from `(1280-260)×0.62 ≈ 632px` to
+  `1280-250-5-186-5 = 834px`, so nothing is dropped any more. That title has now
+  been true, then false, then true again — the file records the sequence so the
+  next reader does not trust it on sight.
+
+**Nothing at any tier covered the page's composition**, which is how three
+wrong placements stayed green through several rounds of work on this very page.
+`history_page_layout_test.dart` is that cover, and it reads positions off the
+**rendered rects**, never off which splitter nests inside which: "the files
+column is to the right of the graph" is the requirement, the nesting is an
+implementation detail. Both placement decisions are mutation-checked — dropping
+`fixedPaneEnd` reddens exactly the files case, swapping the inner children
+reddens exactly the other three.
+
 #### Harness and process notes
 
 - **A stale `gbm_flutter` instance blocks the whole device tier.** Every

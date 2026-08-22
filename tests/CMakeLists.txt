@@ -127,6 +127,7 @@ if(GBM_BUILD_CAPI)
         capi/DiscoveryApiTest.cpp
         capi/FileAtRevisionApiTest.cpp
         capi/FileHistoryApiTest.cpp
+        capi/HistoryFilterApiTest.cpp
         capi/IdentityApiTest.cpp
         capi/InitCloneApiTest.cpp
         capi/JsonCodecTest.cpp

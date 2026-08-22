@@ -114,6 +114,14 @@ public:
     /// Async: see gbm_history_refresh()'s doc comment in gbm_capi.h.
     void refreshHistory();
 
+    /// Narrows every subsequent history walk, including the ones an operation
+    /// or an auto-fetch resync triggers on their own -- the filter is session
+    /// state, not a parameter of one walk, so it survives until changed. See
+    /// gbm_history_set_filter().
+    void setHistoryFilter(std::vector<std::string> includeRefs,
+                          bool firstParentOnly,
+                          bool noMerges);
+
     /// The most recently published graph snapshot, or null if
     /// refreshHistory() has not yet produced one. Thread-safe; never blocks.
     GraphSnapshotPtr currentGraph() const;
@@ -555,6 +563,12 @@ private:
     mutable std::mutex graphMutex_;
     GraphSnapshotPtr graph_;
     RefSnapshotPtr refs_;
+    /// The branch filter, guarded by graphMutex_ because refreshHistory()
+    /// reads it from a pool thread. Empty includeRefs means an unfiltered
+    /// walk, which is the default.
+    std::vector<std::string> historyIncludeRefs_;
+    bool historyFirstParentOnly_ = false;
+    bool historyNoMerges_ = false;
     /// Only ever written from the thread that calls exportGraph()/
     /// releaseExportedGraph() -- Dart's FFI calls are made from a single
     /// isolate at a time by convention, so this needs no lock of its own.

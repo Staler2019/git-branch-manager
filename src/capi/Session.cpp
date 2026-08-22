@@ -233,6 +233,22 @@ void Session::refreshHistory() {
 
         HistoryQuery query;
         query.seedRefs = RefStore::historySeedRefs(*refsResult.value());
+        {
+            std::lock_guard<std::mutex> lock(graphMutex_);
+            // Only refs that still exist. rev-list aborts the *entire* walk
+            // with "unknown revision" on one stale name, so a branch deleted
+            // or pruned while the filter was set would blank the whole graph
+            // rather than just stop narrowing it. Dropping every stale name
+            // can empty the list, which falls back to the unfiltered walk --
+            // the same thing the user sees after clearing the filter.
+            for (const std::string& ref : historyIncludeRefs_) {
+                if (RefStore::refExists(*refsResult.value(), ref)) {
+                    query.includeRefs.push_back(ref);
+                }
+            }
+            query.firstParentOnly = historyFirstParentOnly_;
+            query.noMerges = historyNoMerges_;
+        }
 
         const GitResult<GraphSnapshotPtr> walkResult = history_->walk(
             query, [this](GraphSnapshotPtr chunk) { publishGraph(std::move(chunk)); }, token);
@@ -241,6 +257,18 @@ void Session::refreshHistory() {
             callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(walkResult.error()));
         }
     });
+}
+
+void Session::setHistoryFilter(std::vector<std::string> includeRefs,
+                               bool firstParentOnly,
+                               bool noMerges) {
+    {
+        std::lock_guard<std::mutex> lock(graphMutex_);
+        historyIncludeRefs_ = std::move(includeRefs);
+        historyFirstParentOnly_ = firstParentOnly;
+        historyNoMerges_ = noMerges;
+    }
+    refreshHistory();
 }
 
 GraphSnapshotPtr Session::currentGraph() const {

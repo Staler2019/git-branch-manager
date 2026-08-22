@@ -15,12 +15,16 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/changed_file.dart';
 import 'package:gbm_flutter/data/models/commit_meta.dart';
+import 'package:gbm_flutter/data/models/list_selection.dart';
 import 'package:gbm_flutter/data/models/graph_snapshot.dart';
 import 'package:gbm_flutter/data/models/signature.dart';
+import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/data/repositories/chrome_visibility_repository.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
+import 'package:gbm_flutter/data/repositories/history_repository.dart';
 import 'package:gbm_flutter/features/history_graph/commit_graph_view.dart';
 import 'package:gbm_flutter/features/history_graph/history_page.dart';
 import 'package:gbm_flutter/features/history_graph/widgets/changed_files_panel.dart';
@@ -55,6 +59,17 @@ GraphSnapshotView _graph() => GraphSnapshotView(
   edges: const <GraphEdge>[],
 );
 
+ChangedFile _file(String path) => ChangedFile(
+  path: path,
+  oldPath: path,
+  kind: FileChangeKind.modified,
+  oldMode: '100644',
+  newMode: '100644',
+  oldBlob: 'aaa',
+  newBlob: 'bbb',
+  similarity: 0,
+);
+
 CommitMeta _meta(String oid) => CommitMeta(
   oid: oid,
   tree: 'b' * 40,
@@ -76,7 +91,7 @@ CommitMeta _meta(String oid) => CommitMeta(
   signedCommit: false,
 );
 
-Future<void> _pump(WidgetTester tester) async {
+Future<void> _pump(WidgetTester tester, {ui.Size? size}) async {
   await pumpWorkspace(
     tester,
     identity: _identity,
@@ -86,8 +101,23 @@ Future<void> _pump(WidgetTester tester) async {
       commitMetaCache: <String, CommitMeta>{
         for (int i = 0; i < _kRowCount; i++) _oidAt(i): _meta(_oidAt(i)),
       },
+      // Without a selection ChangedFilesPanel renders a centred 'No files
+      // changed' and builds no header, so every assertion about the column
+      // would be measuring a placeholder.
+      commitFiles: <ChangedFile>[
+        _file('lib/features/history_graph/history_page.dart'),
+        _file('lib/widgets/split_pane.dart'),
+      ],
     ),
-    surfaceSize: const ui.Size(1600, 900),
+    surfaceSize: size ?? const ui.Size(1600, 900),
+    overrides: <Override>[
+      commitSelectionProvider(_identity).overrideWith(
+        (Ref ref) => ListSelection<String>(
+          items: <String>[_oidAt(0)],
+          anchor: _oidAt(0),
+        ),
+      ),
+    ],
     historyBuilder: (context, state) => HistoryPage(identity: _identity),
   );
   await tester.pumpAndSettle();
@@ -137,6 +167,29 @@ void main() {
       // Stated separately: a ratio alone would still hold if the two were
       // swapped and the numbers happened to be near 50/50.
       expect(graph.height, greaterThan(detail.height));
+    });
+
+    testWidgets('the files column survives being 186px wide', (tester) async {
+      // It used to be a full-width band 186px *tall*; as a column it is 186px
+      // *wide*, which is the shape its header (title + the List/Tree switcher)
+      // had never been laid out at. Checked at the app's own default window
+      // and one step below it, since the column keeps its width as the window
+      // shrinks -- the centre pane is what yields.
+      for (final ui.Size size in <ui.Size>[
+        const ui.Size(1280, 720),
+        const ui.Size(1024, 768),
+      ]) {
+        await _pump(tester, size: size);
+        expect(tester.takeException(), isNull, reason: '$size');
+        // The header is the part that had never been laid out this narrow;
+        // assert it is really on screen, or this is a placeholder test.
+        expect(find.text('CHANGED FILES'), findsOneWidget, reason: '$size');
+        expect(
+          tester.getRect(find.byType(ChangedFilesPanel)).width,
+          GbmLayout.splitterMainFiles.defaultExtent,
+          reason: '$size',
+        );
+      }
     });
 
     testWidgets('hiding Commit detail gives the graph the full height', (

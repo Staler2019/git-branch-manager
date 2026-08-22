@@ -182,19 +182,19 @@ GitResult<GraphSnapshotPtr> HistoryProvider::walk(const HistoryQuery& query,
             return true;  // Skip the row; do not abandon the whole walk.
         }
         if (bridgeFilteredParents) {
-            // `--no-merges` removes rows from the middle of a first-parent
-            // chain, so a row's recorded first parent is often a commit git
-            // never emits. GraphBuilder would leave that edge pending and
-            // finish() would turn it into a boundary stub -- a line that
-            // arrives from above and stops halfway -- so a trunk with three
-            // merges in it would be drawn broken in three places, which is the
-            // opposite of the single unbroken line this mode exists to show.
+            // `--no-merges` removes rows from the middle of the history, so a
+            // row's recorded parent is often a commit git never emits.
+            // GraphBuilder would leave that edge pending and finish() would
+            // turn it into a boundary stub -- a line that arrives from above
+            // and stops halfway -- so a branch with three merges in it would be
+            // drawn broken in three places, which is the opposite of the single
+            // unbroken line this mode exists to show. The side branches the
+            // merges brought in would also still be drawn as parallel lanes.
             //
-            // Rewriting the parent to the next row emitted is not a guess:
-            // isLinearWalk() guarantees the output is a subsequence of one
-            // first-parent chain, so the next row *is* this row's nearest
-            // surviving first-parent ancestor. Only merges were elided between
-            // them.
+            // Rewriting the parent to the next row emitted **is** a deliberate
+            // simplification, not a reconstruction of the real edge: this mode
+            // draws a list, and the segment means "the next row". See
+            // isLinearWalk() for what that does and does not claim.
             //
             // The last record is emitted unbridged on purpose. A complete walk
             // ends at a root (no parents, correctly drawn as a root); a walk

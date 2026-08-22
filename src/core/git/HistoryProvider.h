@@ -42,10 +42,11 @@ struct HistoryQuery {
     std::optional<std::int64_t> since;
     std::optional<std::int64_t> until;
     bool firstParentOnly = false;
-    /// Adds --no-merges, so merge commits get no row of their own. Separate
-    /// from firstParentOnly because --first-parent still emits the merge
-    /// itself, only not its second parent's side. The sidebar branch filter
-    /// sets both when it narrows to exactly one branch -- see isLinearWalk().
+    /// Adds --no-merges, so merge commits get no row of their own -- but every
+    /// commit that *arrived through* a merge still gets one. Separate from
+    /// firstParentOnly, which is the opposite trade: it keeps the merge row and
+    /// drops the whole second-parent side. The sidebar branch filter sets this
+    /// one alone when it narrows to exactly one branch -- see isLinearWalk().
     bool noMerges = false;
     bool includeReflog = false;  ///< Adds --reflog, so post-reset commits appear.
     bool dateOrder = false;      ///< Interleaves branches; the graph will zig-zag.
@@ -53,22 +54,41 @@ struct HistoryQuery {
 
     std::vector<std::string> toRevListArgs() const;
 
-    /// True when the walk is guaranteed to emit one unbroken first-parent
-    /// chain, which is what lets HistoryProvider bridge over the rows the
-    /// filter removed (see its walk loop).
+    /// True when the walk should be drawn as one straight line: every emitted
+    /// row linked to the next, no parallel lanes and no merge rows. This is
+    /// what turns on parent bridging in HistoryProvider's walk loop.
     ///
-    /// All three conditions are load-bearing. **One** tip walked with
-    /// `--first-parent` visits exactly the commits on that tip's first-parent
-    /// chain, in order; the output under `--no-merges` is then a *subsequence*
-    /// of that chain, so any two consecutive output rows are still
-    /// first-parent ancestor and descendant with only merges elided between
-    /// them. That is a structural property of the walk, not an observation
-    /// about any particular repository. Relax any condition and it stops
-    /// holding: two tips (or `--all`) interleave several chains, so
-    /// neighbouring rows can be unrelated; without `--first-parent` every side
-    /// branch is walked too; without `--no-merges` nothing is removed and
-    /// there is nothing to bridge.
-    bool isLinearWalk() const { return includeRefs.size() == 1 && firstParentOnly && noMerges; }
+    /// **Read this before assuming the line means ancestry -- it does not.**
+    /// An earlier version of this predicate also required `firstParentOnly`
+    /// and justified the bridge with a subsequence argument: one tip walked
+    /// `--first-parent` visits exactly that chain in order, so consecutive
+    /// `--no-merges` rows were still first-parent ancestor and descendant.
+    /// That argument was sound and the feature built on it was wrong, because
+    /// `--first-parent` also discards every commit that landed through a
+    /// merge -- on this project's own `main`, 3 rows instead of 442. What the
+    /// user asked for is the merged-in work *present*, with only the merge
+    /// commits gone.
+    ///
+    /// So the bridge is now list decoration, not topology: a segment means
+    /// "the next row", nothing more. Two adjacent rows need not be related at
+    /// all, and even when a row's real parent is emitted it may not be the
+    /// next one -- topo order can interleave a side branch's commits between a
+    /// trunk commit and its parent, and the bridge links to the interleaved
+    /// row anyway. Anything that wants real edges must read an unfiltered
+    /// snapshot.
+    ///
+    /// One property does survive and is worth keeping: `toRevListArgs()`
+    /// always emits `--topo-order` or `--date-order`, and both guarantee a
+    /// parent is never printed before its children, so a bridged segment never
+    /// points from an ancestor down to its own descendant. **That depends on
+    /// the ordering flag staying unconditional** -- make it optional and this
+    /// stops holding.
+    ///
+    /// Both remaining conditions are load-bearing: two tips (or `--all`)
+    /// interleave unrelated histories into one column, which is a lie of a
+    /// different size; and without `--no-merges` nothing is removed, so there
+    /// is nothing to bridge and the real graph is what the user asked to see.
+    bool isLinearWalk() const { return includeRefs.size() == 1 && noMerges; }
 };
 
 /// Why a history walk was started. RepositorySession threads this from each

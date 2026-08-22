@@ -886,16 +886,13 @@ TEST(HistoryQuery, NoMergesDropsMergeCommitsFromTheWalk) {
     EXPECT_NE(std::find(args.begin(), args.end(), "--no-merges"), args.end());
 }
 
-TEST(HistoryQuery, LinearWalkNeedsASingleTipAndBothFlags) {
-    // isLinearWalk() is what turns on parent bridging in the walk loop, and a
-    // bridge is only truthful when consecutive output rows are guaranteed to be
-    // first-parent ancestor/descendant. That guarantee comes from *one* tip
-    // walked with --first-parent: several interleaved chains (--all, or two
-    // includeRefs) put unrelated commits next to each other, and --no-merges
-    // without --first-parent keeps every side branch.
+TEST(HistoryQuery, LinearWalkNeedsASingleTipAndNoMerges) {
+    // isLinearWalk() is what turns on parent bridging in the walk loop. It does
+    // *not* require --first-parent: that flag drops every commit that landed
+    // through a merge, which is most of a real branch's history, and the mode
+    // exists to show that work as one line with only the merge rows gone.
     HistoryQuery query;
     query.includeRefs = {"refs/heads/main"};
-    query.firstParentOnly = true;
     query.noMerges = true;
     EXPECT_TRUE(query.isLinearWalk());
 
@@ -911,9 +908,11 @@ TEST(HistoryQuery, LinearWalkNeedsASingleTipAndBothFlags) {
     mergesKept.noMerges = false;
     EXPECT_FALSE(mergesKept.isLinearWalk());
 
-    HistoryQuery everyParent = query;
-    everyParent.firstParentOnly = false;
-    EXPECT_FALSE(everyParent.isLinearWalk());
+    // --first-parent is neither required nor forbidden: a caller that wants
+    // both still gets one bridged line, it just gets far fewer rows.
+    HistoryQuery firstParentToo = query;
+    firstParentToo.firstParentOnly = true;
+    EXPECT_TRUE(firstParentToo.isLinearWalk());
 }
 
 TEST(HistoryQuery, PushesFilteringDownIntoGit) {

@@ -166,13 +166,20 @@ TEST_F(HistoryFilterApiTest, NarrowsTheWalkToOneBranchWithoutMerges) {
     const int32_t unfiltered = graphRowCount();
     ASSERT_EQ(static_cast<std::size_t>(unfiltered), gitRowCount({"--all"}));
 
+    // The shape the app actually sends: --no-merges alone. --first-parent is
+    // deliberately off, so the commits that arrived through a merge are still
+    // rows -- see HistoryQuery::isLinearWalk().
     const char* refs[] = {"refs/heads/main"};
-    gbm_history_set_filter(session_, refs, 1, /*firstParentOnly=*/1, /*noMerges=*/1);
+    gbm_history_set_filter(session_, refs, 1, /*firstParentOnly=*/0, /*noMerges=*/1);
     ASSERT_TRUE(log_.waitForCompletedWalks(2));
 
-    const std::size_t expected = gitRowCount({"--first-parent", "--no-merges", "refs/heads/main"});
+    const std::size_t expected = gitRowCount({"--no-merges", "refs/heads/main"});
     EXPECT_EQ(static_cast<std::size_t>(graphRowCount()), expected);
     EXPECT_LT(graphRowCount(), unfiltered) << "the filter must actually narrow the walk";
+    // And it narrows by *less* than --first-parent would, which is the whole
+    // correction: that flag would leave only main's own commits behind.
+    EXPECT_GT(expected, gitRowCount({"--first-parent", "--no-merges", "refs/heads/main"}))
+        << "fixture must have work that arrived through a merge";
 }
 
 TEST_F(HistoryFilterApiTest, ClearingTheFilterRestoresTheFullWalk) {

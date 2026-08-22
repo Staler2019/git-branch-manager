@@ -259,15 +259,22 @@ TEST_F(RealRepoTest, ParentSetsMatchGit) {
 
 TEST_F(RealRepoTest, LinearWalkBridgesOverTheMergesItFiltersOut) {
     // The sidebar branch filter narrowing to one branch asks for a single
-    // unbroken line with no merge rows. `--first-parent --no-merges` gives the
-    // rows, but on its own it also breaks the line: each surviving commit's
-    // recorded first parent is a merge git never emits, so GraphBuilder leaves
+    // unbroken line with no merge rows -- and the line must still contain the
+    // work that *arrived through* those merges. `--no-merges` gives exactly
+    // those rows, but on its own it also breaks the line: a surviving commit's
+    // recorded parent is often a merge git never emits, so GraphBuilder leaves
     // that edge pending and finish() turns it into a boundary stub -- a line
     // arriving from above and stopping halfway, once per removed merge.
     //
+    // `--first-parent` is emphatically *not* the way to get one line: it drops
+    // every commit that landed via a merge, which on a real repository is most
+    // of them (measured on this project's own `main`: 3 rows with
+    // `--first-parent --no-merges` against 442 with `--no-merges` alone).
+    //
     // Two merges, so a fix that happens to bridge only the newest row still
-    // fails. Every commit is on main's first-parent chain, so the *only*
-    // reason a row could go missing or a line could break is the filter.
+    // fails, and each side branch carries a commit of its own -- those are
+    // precisely the rows `--first-parent` would swallow, so they are asserted
+    // by name rather than left to a row count.
     commitFile("a.txt", "1\n", "c1");
 
     for (const std::string& side : {std::string("side-one"), std::string("side-two")}) {
@@ -281,7 +288,6 @@ TEST_F(RealRepoTest, LinearWalkBridgesOverTheMergesItFiltersOut) {
 
     HistoryQuery query;
     query.includeRefs = {"refs/heads/main"};
-    query.firstParentOnly = true;
     query.noMerges = true;
     ASSERT_TRUE(query.isLinearWalk());
 
@@ -292,7 +298,7 @@ TEST_F(RealRepoTest, LinearWalkBridgesOverTheMergesItFiltersOut) {
     // The rows themselves: exactly what git reports for the same filter, in
     // the same order. Asserted against git rather than against a count, so a
     // bridge that silently dropped or duplicated a row cannot pass.
-    auto expected = run({"rev-list", "--first-parent", "--no-merges", "refs/heads/main"});
+    auto expected = run({"rev-list", "--topo-order", "--no-merges", "refs/heads/main"});
     ASSERT_TRUE(expected);
     std::vector<std::string> expectedOids;
     {
@@ -305,6 +311,22 @@ TEST_F(RealRepoTest, LinearWalkBridgesOverTheMergesItFiltersOut) {
         }
     }
     ASSERT_GE(expectedOids.size(), 4u) << "fixture must survive the filter with several rows";
+
+    // The product requirement, stated as presence rather than as a count: a
+    // count can go green for the wrong reason, and "the commits merged in are
+    // still there" is the whole point of dropping --first-parent.
+    for (const std::string& subject : {std::string("on side-one"), std::string("on side-two")}) {
+        auto merged = run({"rev-list", "-1", "--format=%H", "--no-commit-header",
+                           "refs/heads/main", "--grep=" + subject});
+        ASSERT_TRUE(merged);
+        std::string oid = merged->out;
+        while (!oid.empty() && (oid.back() == '\n' || oid.back() == '\r')) {
+            oid.pop_back();
+        }
+        ASSERT_FALSE(oid.empty()) << "fixture lost \"" << subject << "\"";
+        EXPECT_NE(std::find(expectedOids.begin(), expectedOids.end(), oid), expectedOids.end())
+            << "\"" << subject << "\" must survive the filter";
+    }
     ASSERT_EQ((*snapshot)->rowCount(), expectedOids.size());
     for (std::size_t row = 0; row < expectedOids.size(); ++row) {
         EXPECT_EQ((*snapshot)->oids[row].hex(), expectedOids[row]) << "row " << row;

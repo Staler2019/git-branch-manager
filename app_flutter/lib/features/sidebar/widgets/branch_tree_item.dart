@@ -182,7 +182,15 @@ class BranchTreeItem extends StatelessWidget {
             ),
           LucideIcon(iconName, size: 13, color: iconColor),
           const SizedBox(width: GbmSpacing.space2),
+          // 4:1 against the tracking label below. The label used to be a
+          // plain non-flex Text: RenderFlex sizes non-flex children first,
+          // so "up 1234 down 5678" took whatever it wanted and left the name
+          // whatever remained -- which at the sidebar's 180px minimum, with
+          // a few levels of folder indent in front, is close to nothing. The
+          // name is what the row is for and it has no icon or tooltip
+          // standing in for it, so it is the half that keeps the space.
           Expanded(
+            flex: 4,
             child: Text(
               ref.shortName,
               style: TextStyle(
@@ -196,19 +204,27 @@ class BranchTreeItem extends StatelessWidget {
             ),
           ),
           if (ref.isGone)
-            Text(
-              'gone',
-              style: TextStyle(
-                fontSize: GbmTypography.textXs,
-                color: colors.danger,
+            Flexible(
+              child: Text(
+                'gone',
+                style: TextStyle(
+                  fontSize: GbmTypography.textXs,
+                  color: colors.danger,
+                ),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
               ),
             )
           else if (ref.hasTrackingInfo && (ref.ahead > 0 || ref.behind > 0))
-            Text(
-              '${ref.ahead > 0 ? '↑${ref.ahead}' : ''}${ref.behind > 0 ? ' ↓${ref.behind}' : ''}',
-              style: TextStyle(
-                fontSize: GbmTypography.textXs,
-                color: colors.textTertiary,
+            Flexible(
+              child: Text(
+                '${ref.ahead > 0 ? '↑${ref.ahead}' : ''}${ref.behind > 0 ? ' ↓${ref.behind}' : ''}',
+                style: TextStyle(
+                  fontSize: GbmTypography.textXs,
+                  color: colors.textTertiary,
+                ),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
               ),
             ),
           if (onRename != null ||

@@ -332,5 +332,23 @@ void main() {
         );
       }
     });
+
+    // The Refs column's floor, and the only direction this tier can guard.
+    //
+    // `_RefChipStrip` clips left-aligned, so a Refs column narrower than the
+    // HEAD chip renders `HEAD → ` and nothing that identifies anything --
+    // and since the standalone `HEAD` text label was removed, that chip is
+    // the row's only "you are here" mark. 91 is the measured chip width
+    // (90.6) rounded up; see the enum's own comment for how it was measured
+    // and why a widget test cannot reproduce it (the Ahem test font puts the
+    // same chip at 141.75px).
+    //
+    // Deliberately a floor and not an equality: the *ceiling* is owned by
+    // `workspace_narrow_window_test.dart`'s twelve-lane 1280x720 case, which
+    // goes red at 93. Restating 92 here would duplicate that guard and make
+    // both red for one cause; each end is pinned once.
+    test('Refs is wide enough for the HEAD chip at its default', () {
+      expect(GbmGraphColumnId.refs.defaultWidth, greaterThanOrEqualTo(91));
+    });
   });
 }

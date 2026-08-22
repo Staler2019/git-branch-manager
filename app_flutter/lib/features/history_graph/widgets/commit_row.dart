@@ -26,8 +26,11 @@ import 'graph_ref_chips.dart';
 const double kGraphLaneWidth = GbmLayout.graphLaneWidth;
 const double kCommitRowHeight = GbmSpacing.rowHeightComfortable;
 
-/// `graph · [HEAD] · hash · subject · author · date`, the design doc's
-/// commit-list row order. Wrapped in [GbmRow] (Commit 1) for the shared
+/// `graph · subject · refs · author · date · hash`, spec page 02's own
+/// column order -- see [planCommitRowColumns], which decides which of them
+/// this row can afford. HEAD has no column of its own: it is a ref chip in
+/// the Refs column (`refChipsForCommit`), which is the only way the mockup
+/// draws it. Wrapped in [GbmRow] (Commit 1) for the shared
 /// hover/selected background instead of a bare [SizedBox], so a commit list
 /// looks and behaves like every other list in the app (sidebar, repo list).
 ///
@@ -301,23 +304,7 @@ class CommitRow extends StatelessWidget {
     if (child == null) return const <Widget>[];
 
     final double gap = gapAfterColumn(column.id);
-    return <Widget>[
-      child,
-      if (gap > 0) SizedBox(width: gap),
-      // Removed in the next commit, where HEAD becomes a ref chip instead.
-      if (column.id == GbmGraphColumnId.graph && row.isHead)
-        Padding(
-          padding: const EdgeInsets.only(right: GbmSpacing.space2),
-          child: Text(
-            'HEAD',
-            style: TextStyle(
-              fontSize: GbmTypography.textXs,
-              fontWeight: GbmTypography.weightSemibold,
-              color: colors.accent,
-            ),
-          ),
-        ),
-    ];
+    return <Widget>[child, if (gap > 0) SizedBox(width: gap)];
   }
 
   Widget _graphColumn(BuildContext context) {

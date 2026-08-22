@@ -23,13 +23,36 @@ import 'dart:math' as math;
 enum GbmGraphColumnId {
   graph('graph', 'Graph', defaultWidth: 0, minWidth: 0, maxWidth: 0),
   message('message', 'Message', defaultWidth: 0, minWidth: 0, maxWidth: 0),
-  // 60 is what the row has always reserved for the chip strip. Raising it
-  // to a roomier-looking 120 was measured against
-  // `workspace_narrow_window_test.dart`'s 1280x720 case -- the app's own
-  // default window size -- and cost the Author column on a twelve-lane
-  // history, so it stays where it is and the user drags it up when they
-  // want more.
-  refs('refs', 'Refs', defaultWidth: 60, minWidth: 48, maxWidth: 400),
+  // 92 is not a round number and not a guess: it is the *only* value that
+  // satisfies both of this column's constraints, each measured rather than
+  // reasoned about.
+  //
+  //  * Floor 91. The HEAD chip is the sole thing in the row that says where
+  //    you are, and spec labels it `HEAD → main` (`spec_logic.js:439`).
+  //    `_RefChipStrip` clips left-aligned, so a column narrower than that
+  //    chip renders `HEAD → ` and nothing useful. Measured off the bundled
+  //    `assets/fonts/JetBrainsMono-Medium.ttf` -- the font `GbmTagChip`
+  //    actually sets -- at `GbmTypography.textXs`: 72.6px of text plus 16px
+  //    of horizontal padding plus 2px of border = 90.6px. (Same method
+  //    reproduces the repo's recorded "8 hex characters ≈ 53px on device"
+  //    datum exactly, which is why it is trusted here. A widget test cannot
+  //    check this: the Ahem test font makes every glyph one em wide and puts
+  //    the same chip at 141.75px.)
+  //  * Ceiling 92, found by bisection against
+  //    `workspace_narrow_window_test.dart`'s twelve-lane case at 1280x720 --
+  //    the app's own default window size. At 93 the ladder starts giving up
+  //    the Author column there, which that test exists to forbid.
+  //
+  // So the two hold together with 1.4px to spare and no more. **That
+  // corridor is the finding, not the number**: this column cannot get any
+  // roomier without either clipping spec's own example chip or eating a
+  // regression lock, and the honest reading is that at twelve lanes and
+  // 1280x720 there is genuinely no room for both. Anything longer than a
+  // four-character branch name (`HEAD → develop` needs 110px) still clips at
+  // the default and needs a drag -- up to `maxWidth`, and remembered after.
+  // `graph_column_test.dart` pins the floor; the narrow-window test pins the
+  // ceiling; neither is free to move quietly.
+  refs('refs', 'Refs', defaultWidth: 92, minWidth: 48, maxWidth: 400),
   author('author', 'Author', defaultWidth: 110, minWidth: 48, maxWidth: 320),
   date('date', 'Date', defaultWidth: 80, minWidth: 48, maxWidth: 240),
   // Spec spells these "Commit hash" and "Changed files"; the picker they

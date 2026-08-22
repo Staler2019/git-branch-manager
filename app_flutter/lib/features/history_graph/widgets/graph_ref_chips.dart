@@ -14,11 +14,20 @@ class RefChipData {
     this.isDashed = false,
   });
 
+  /// What the chip prints. For the HEAD chip this is already the composed
+  /// `HEAD → <branch>` (spec page 02's `CHIP_HEAD`, `spec_logic.js:439`),
+  /// not the bare branch name -- composing it here rather than at render
+  /// time is the same rule this class's doc comment states for the merge
+  /// and divergence flags.
   final String label;
   final RefKind kind;
 
-  /// True for the branch HEAD currently points at -- unrelated to
-  /// [showCloudIcon]/[isDashed], which are purely about local/remote sync.
+  /// True for the branch HEAD currently points at, and for the standalone
+  /// `HEAD` chip a detached HEAD gets. Unrelated to
+  /// [showCloudIcon]/[isDashed], which are purely about local/remote sync:
+  /// spec's own prose separates them too, defining the glow-without-cloud
+  /// chip as "目前 HEAD，且遠端不在這裡" -- so HEAD *with* the remote here is
+  /// the glow and the cloud together, not a third style.
   final bool isCurrent;
 
   /// A local branch chip whose upstream remote branch points at the same
@@ -40,6 +49,21 @@ class RefChipData {
 /// upstream renders as one chip with a cloud icon instead of two chips, and
 /// a diverged upstream renders as its own dashed chip on the commit it
 /// actually points at.
+///
+/// HEAD is one of these chips and has no other representation in the row --
+/// the standalone `HEAD` text label that used to sit beside the graph column
+/// is gone, because the mockup draws HEAD as a chip and only as a chip
+/// (`spec_logic.js:439`, and the annotated panel at `spec_raw.html:1392`).
+/// Two consequences follow, both deliberate:
+///
+///  * The HEAD chip is returned **first**. `_RefChipStrip` clips left-aligned
+///    at the Refs column's width, so position decides which chips survive a
+///    narrow column, and HEAD is the one thing in the row that says where you
+///    are. Without this the surviving chip would be whatever order
+///    `git for-each-ref` happened to return.
+///  * A detached HEAD gets a standalone chip labelled `HEAD`, since no
+///    [RefInfo] carries `isHead` in that state. Deleting the text label
+///    without this would replace a visible state with an invisible hole.
 List<RefChipData> refChipsForCommit(RefSnapshot refs, String targetOid) {
   // fullName -> RefInfo, for resolving a local branch's `upstream` (which is
   // the tracked ref's *full* name, confirmed against real `git for-each-ref`
@@ -91,7 +115,9 @@ List<RefChipData> refChipsForCommit(RefSnapshot refs, String targetOid) {
 
     chips.add(
       RefChipData(
-        label: ref.shortName,
+        // Spec's own label for this chip is `HEAD → main`, not `main` with a
+        // different fill: the arrow form is what `GRAPH_ROWS` writes.
+        label: ref.isHead ? 'HEAD → ${ref.shortName}' : ref.shortName,
         kind: ref.kind,
         isCurrent: ref.isHead,
         showCloudIcon: showCloudIcon,
@@ -99,5 +125,25 @@ List<RefChipData> refChipsForCommit(RefSnapshot refs, String targetOid) {
       ),
     );
   }
+
+  // Detached HEAD points at a commit rather than a branch, so nothing in
+  // `refs.refs` reports `isHead` and the loop above produced no HEAD chip.
+  // git's own `HEAD` label is what this mirrors. Typed as a local branch
+  // because that is the kind `refChipColorsFor` gives the current-branch
+  // fill to; it is a styling channel, not a claim that a branch exists.
+  if (refs.head.kind == HeadKind.detached && refs.head.target == targetOid) {
+    chips.insert(
+      0,
+      const RefChipData(
+        label: 'HEAD',
+        kind: RefKind.localBranch,
+        isCurrent: true,
+      ),
+    );
+    return chips;
+  }
+
+  final int headIndex = chips.indexWhere((RefChipData c) => c.isCurrent);
+  if (headIndex > 0) chips.insert(0, chips.removeAt(headIndex));
   return chips;
 }

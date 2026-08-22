@@ -58,11 +58,20 @@ RefInfo _tag(String name, String target) {
   );
 }
 
-RefSnapshot _snapshot(List<RefInfo> refs) => RefSnapshot(
-  head: RefSnapshot.empty.head,
+RefSnapshot _snapshot(List<RefInfo> refs, {HeadInfo? head}) => RefSnapshot(
+  head: head ?? RefSnapshot.empty.head,
   refs: refs,
   refCountGuardTripped: false,
   totalRefCount: refs.length,
+);
+
+/// A HEAD detached at [target] -- the state in which *no* [RefInfo] reports
+/// `isHead`, so nothing in `refs` can produce the HEAD chip.
+HeadInfo _detachedAt(String target) => HeadInfo(
+  kind: HeadKind.detached,
+  branchName: '',
+  fullRef: '',
+  target: target,
 );
 
 void main() {
@@ -170,6 +179,119 @@ void main() {
       final result = refChipsForCommit(refs, 'abc123');
 
       expect(result.single.isCurrent, isTrue);
+    });
+  });
+
+  // HEAD used to be a separate accent-coloured `HEAD` text label beside the
+  // graph column *as well as* a chip. The mockup draws it only as a chip
+  // (`spec_logic.js:439`'s `label: 'HEAD → main'` with `CHIP_HEAD`, and the
+  // annotated panel at `spec_raw.html:1392`), so the label is gone and these
+  // are the cases that have to hold for nothing to have been lost with it.
+  group('the HEAD chip', () {
+    test('spells the spec label, not the bare branch name', () {
+      final refs = _snapshot(<RefInfo>[_local('main', 'abc123', isHead: true)]);
+
+      expect(refChipsForCommit(refs, 'abc123').single.label, 'HEAD → main');
+    });
+
+    test('a branch that is not HEAD keeps its plain name', () {
+      final refs = _snapshot(<RefInfo>[
+        _local('main', 'abc123', isHead: true),
+        _local('topic', 'def456'),
+      ]);
+
+      expect(refChipsForCommit(refs, 'def456').single.label, 'topic');
+    });
+
+    test('still merges with a synced upstream, glow and cloud together', () {
+      // Spec defines the glow-without-cloud chip as "目前 HEAD，且遠端不在這
+      // 裡", so HEAD *with* the remote here is both marks at once rather than
+      // a third style -- and the merge rule must not be lost to the rename.
+      final refs = _snapshot(<RefInfo>[
+        _local(
+          'main',
+          'abc123',
+          upstream: 'refs/remotes/origin/main',
+          isHead: true,
+        ),
+        _remote('origin/main', 'abc123'),
+      ]);
+
+      final result = refChipsForCommit(refs, 'abc123');
+
+      expect(result, hasLength(1));
+      expect(result.single.label, 'HEAD → main');
+      expect(result.single.isCurrent, isTrue);
+      expect(result.single.showCloudIcon, isTrue);
+    });
+
+    test('comes first, whatever order the refs arrive in', () {
+      // _RefChipStrip clips left-aligned at the Refs column's width, so the
+      // first chip is the one that survives a narrow column. Asserted on
+      // position, not on presence: the list held all of these before too.
+      final refs = _snapshot(<RefInfo>[
+        _tag('v1.0', 'abc123'),
+        _local('topic', 'abc123'),
+        _local('main', 'abc123', isHead: true),
+      ]);
+
+      final result = refChipsForCommit(refs, 'abc123');
+
+      expect(result, hasLength(3));
+      expect(result.first.label, 'HEAD → main');
+      // The rest keep their relative order rather than being re-sorted.
+      expect(result.map((c) => c.label).skip(1), <String>['v1.0', 'topic']);
+    });
+
+    test('a detached HEAD gets a standalone chip on the commit it sits on', () {
+      // No RefInfo reports isHead here, so without this the row would have
+      // no "you are here" mark at all -- the text label used to be it.
+      final refs = _snapshot(<RefInfo>[
+        _local('main', 'def456'),
+      ], head: _detachedAt('abc123'));
+
+      final result = refChipsForCommit(refs, 'abc123');
+
+      expect(result, hasLength(1));
+      expect(result.single.label, 'HEAD');
+      expect(result.single.isCurrent, isTrue);
+    });
+
+    test('the detached chip leads the refs that share its commit', () {
+      final refs = _snapshot(<RefInfo>[
+        _tag('v1.0', 'abc123'),
+      ], head: _detachedAt('abc123'));
+
+      final result = refChipsForCommit(refs, 'abc123');
+
+      expect(result.map((c) => c.label), <String>['HEAD', 'v1.0']);
+    });
+
+    test('no detached chip appears on any other commit', () {
+      final refs = _snapshot(<RefInfo>[
+        _local('main', 'def456'),
+      ], head: _detachedAt('abc123'));
+
+      expect(refChipsForCommit(refs, 'def456').single.label, 'main');
+    });
+
+    test('an on-branch HEAD produces no standalone chip', () {
+      // The two paths are mutually exclusive; a snapshot whose head is a
+      // branch must go through the RefInfo path and nothing else.
+      final refs = _snapshot(
+        <RefInfo>[_local('main', 'abc123', isHead: true)],
+        head: HeadInfo(
+          kind: HeadKind.branch,
+          branchName: 'main',
+          fullRef: 'refs/heads/main',
+          target: 'abc123',
+        ),
+      );
+
+      final result = refChipsForCommit(refs, 'abc123');
+
+      expect(result, hasLength(1));
+      expect(result.single.label, 'HEAD → main');
     });
   });
 }

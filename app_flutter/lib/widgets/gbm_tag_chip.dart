@@ -83,6 +83,20 @@ class GbmTagChip extends StatelessWidget {
         color: chip.fill,
         border: Border.all(color: chip.border),
         borderRadius: radius,
+        // Spec's `CHIP_HEAD` is `CHIP_LOCAL` plus `box-shadow:0 0 0 2px
+        // var(--accent-subtle)` (`spec_logic.js:433`), and its prose reads
+        // that ring as the HEAD signal itself: "實心加外光暈…＝目前 HEAD".
+        // A zero-blur BoxShadow at spreadRadius 2 is the same ring; it
+        // paints outside the box, so it changes nothing about layout -- the
+        // strip's 4px inter-chip gap already absorbs two of them meeting.
+        boxShadow: isCurrent
+            ? <BoxShadow>[
+                BoxShadow(
+                  color: context.gbmColors.accentSubtle,
+                  spreadRadius: 2,
+                ),
+              ]
+            : null,
       ),
       child: content,
     );

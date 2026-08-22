@@ -257,7 +257,9 @@ void main() {
         widths: <GbmGraphColumnId, double>{GbmGraphColumnId.refs: 200},
       ).subjectWidthFor(width);
 
-      expect(dragged, base - 140);
+      // Expressed against the default rather than as a literal: the drag
+      // costs the subject exactly the difference, whatever the default is.
+      expect(dragged, base - (200 - GbmGraphColumnId.refs.defaultWidth));
       expect(
         _plan(2000).widthOf(GbmGraphColumnId.refs),
         GbmGraphColumnId.refs.defaultWidth,

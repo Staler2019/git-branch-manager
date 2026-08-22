@@ -1666,3 +1666,84 @@ the status-bar Cancel test could not tell a dead button from a dispatched
 one — the unoverridden method hits the real `_session == nullptr` guard and
 silently no-ops, which is the fake's documented failure mode for anything it
 forgets to record.
+
+### Graph edge continuity (fix/graph-edge-parent-lane-conjunction) — PR #97
+
+The commit-graph rendering path had no section here before this round, and it
+had a live defect: **wherever a branch merged back into an older lane, its line
+stopped half-way down the parent's row in the neighbouring column instead of
+touching the commit dot.** Visible on any repository with merges. Two commits,
+each green and independently revertible.
+
+**Where the render path lives**, since nothing above says: `src/core/graph/`
+builds the DAG (`GraphBuilder` → `GraphSnapshot`, `Edge` = 16 bytes,
+`{childRow, parentRow, lane, childLane, color, kind}`), and there are
+deliberately **no per-row pass-through records** — straight segments are
+reconstructed at paint time by interval query, keeping memory at O(N+E) rather
+than O(N × lanes). On the Dart side that reconstruction is
+`features/history_graph/widgets/graph_edge_geometry.dart`'s
+`computeEdgeSegments()`, which returns `List<EdgeSegment>` in lane/Y-fraction
+coordinates (Y ∈ {0.0, 0.5, 1.0}); `graph_column_painter.dart` maps those
+straight to canvas and draws a cubic iff `hasBend` (`startLane != endLane`).
+**`GraphAsciiRenderer.cpp` is the reference renderer** — a deterministic text
+renderer that exists precisely so rendering decisions have a checkable
+counterpart. When the two disagree, the C++ one is right.
+
+**The root cause was a mistranslated comment, not a missed line.**
+`GraphBuilder` delegates the *arrival* bend to the renderer on purpose:
+`patchIncoming()` (`GraphBuilder.cpp:59-69`) fills in `parentRow` and
+**never rewrites `edge.lane`**, and `:103-104` says why ("Every other incoming
+lane bends into `lane` here"). So where several edges converge on one commit,
+only the one `chooseLane()` picked has `lane == rows[parentRow].lane`; every
+other one *must* be bent into it by whoever draws. `GraphAsciiRenderer.cpp:122-127`
+does exactly that comparison. The Dart port hard-coded `endLane: edge.lane` and
+carried a comment asserting the opposite — "bends only happen at the child row"
+— so the next reader maintained the code the comment described. The fix is one
+line (`endLane: graph.rows[rowIndex].lane`); `graph_column_painter.dart` needed
+no change at all, because `hasBend` is derived and the arrival segment routes
+itself through the existing cubic branch.
+
+**`edge.lane == rows[parentRow].lane` is a false invariant.** The first plan for
+this round was a C++ invariant test asserting it, in the style of
+`GraphBuilderTest.cpp`'s `Invariant*` family. Reading the builder killed that:
+the inequality is the design, not a bug, and a test asserting it would have
+failed against correct code and pushed the fix into the wrong layer entirely.
+
+**The fixture-falsifiability trap, in a third shape.** The pre-existing
+`graph_edge_geometry_test.dart`'s `'draws into parent dot'` case reuses **one**
+`GraphRow(lane: 1)` instance for all three rows, and its edge is also `lane: 1`
+— so the fixture cannot express a conjunction at all and passes identically
+before and after the fix. Same class as Tier 0c's `hasTrackingInfo` fixture
+(which derived one field from another) and the cancel-surface round's borrowed
+`_mergeState()` (which contradicted its source): **a fixture that cannot
+disagree with the code proves nothing.** `graph_edge_continuity_test.dart`'s
+`_mergeAndRejoin()` anchors its lane values to output `GraphBuilderTest.cpp`'s
+`TrunkKeepsLaneZeroAcrossAMerge` already asserts, and says so in a comment, so
+the numbers are not mine to bend when a test goes red.
+
+Two implementation choices in that test worth keeping:
+
+- **Segments are identified by position in the spanning list, never by
+  `edgeColor`.** A real snapshot shares one colour per lane, so colour-matching
+  silently attributes one edge's segment to another.
+- **`_spans()` is re-implemented in the test** rather than imported, mirroring
+  `gbm::Edge::spans()`. The test needs its own opinion about which rows should
+  carry a line; borrowing that answer from the code under test would make P1
+  ("exactly one segment per spanned row") vacuous.
+
+Verified by measurement, not by reasoning: RED before the fix hit **exactly**
+the two conjunction fixtures (16 other assertions green), and reverting the one
+line afterwards reproduced **exactly** the same two. A broad red would have
+meant the test was pinning something else.
+
+**Corrected in place**: `graph_column_painter.dart` cited a reference
+implementation at `src/app/models/GraphColumnDelegate.cpp` that **does not
+exist** in this repository, and `GraphSnapshot.h`'s `Edge` doc comment
+described only the child-row bend — the source of the mis-port. Both now name
+`GraphAsciiRenderer` as the single reference and cross-link the Dart file.
+
+**Found while there, not fixed and not tracked as issues yet**:
+`GraphRowPainter.shouldRepaint` compares only `row`/`rowIndex`/`graph`, so a
+`laneWidth` or `colors` change (theme switch, gutter resize) does not trigger a
+repaint; and `graph_edge_geometry_test.dart`'s `'handles multiple edges'`
+fixture uses `childLane != rows[0].lane`, a shape `GraphBuilder` cannot produce.

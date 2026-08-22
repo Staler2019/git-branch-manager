@@ -64,7 +64,17 @@ static_assert(sizeof(RowMeta) == 16, "RowMeta must stay 16 bytes; see the memory
 /// A connection from a child row down to a parent row.
 ///
 /// `lane` is the column the edge occupies while descending; `childLane` is where
-/// it starts. When they differ the renderer draws a single bend at the child row.
+/// it starts. When they differ the renderer draws a bend at the child row.
+///
+/// A second bend belongs at the *parent* row, and it is the renderer's job too:
+/// `lane` is fixed when the edge is created and `GraphBuilder::patchIncoming()`
+/// only fills in `parentRow`, so where several edges converge on one commit,
+/// only the one `chooseLane()` picked shares that row's lane. Every other
+/// arriving edge must bend from its own `lane` into `rows[parentRow].lane`, or
+/// it renders as a line stopping beside the commit dot rather than touching it.
+/// `GraphAsciiRenderer` does exactly that comparison; see also
+/// app_flutter/lib/features/history_graph/widgets/graph_edge_geometry.dart.
+///
 /// There are deliberately no per-row pass-through records: reconstructing
 /// straight segments at paint time via an interval query keeps memory at O(N+E)
 /// rather than O(N x lanes).

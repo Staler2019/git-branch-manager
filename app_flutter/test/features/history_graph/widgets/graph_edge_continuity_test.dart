@@ -68,39 +68,39 @@ void main() {
     });
   });
 
-  group(
-    '匯流點：邊線抵達父節點時必須彎進該列的 lane',
-    () {
-      // P4b。分支併回主幹時，edge.lane 停在原本下降的那一欄，而父節點的圓點在
-      // rows[parentRow].lane —— 兩者不同時線就停在隔壁欄的半空中，接不到點。
-      //
-      // 這是渲染層的責任，不是 GraphBuilder 的疏漏：patchIncoming()
-      // （GraphBuilder.cpp:59-68）只回填 parentRow，刻意不改寫 edge.lane，而
-      // GraphBuilder.cpp:105-110 註明「其餘 incoming lane 在此彎入 lane」。C++ 的
-      // 參考渲染器確實照做（GraphAsciiRenderer.cpp:122-127 讀 rows[row+1].lane，
-      // 不同就畫 '/'），Dart 這一側漏了。
-      fixtures.forEach((String name, GraphSnapshotView graph) {
-        test(name, () {
-          for (int i = 0; i < graph.edges.length; i++) {
-            final GraphEdge edge = graph.edges[i];
-            if (edge.parentRow == kRowBoundary) {
-              continue; // boundary 沒有父節點圓點可接，由 P5 收尾。
-            }
-            final EdgeSegment arrival = _segmentOf(graph, i, edge.parentRow);
-            expect(
-              arrival.endLane,
-              graph.rows[edge.parentRow].lane,
-              reason:
-                  '$name edge#$i（第 ${edge.childRow} 列 -> 第 ${edge.parentRow} 列，'
-                  'lane ${edge.lane}）沒有彎進父節點圓點所在的 '
-                  'lane ${graph.rows[edge.parentRow].lane}，線會停在半空中',
-            );
+  group('匯流點：邊線抵達父節點時必須彎進該列的 lane', () {
+    // P4b。分支併回主幹時，edge.lane 停在原本下降的那一欄，而父節點的圓點在
+    // rows[parentRow].lane —— 兩者不同時線就停在隔壁欄的半空中，接不到點。
+    //
+    // 這是渲染層的責任，不是 GraphBuilder 的疏漏：patchIncoming()
+    // （GraphBuilder.cpp:59-68）只回填 parentRow，刻意不改寫 edge.lane，而
+    // GraphBuilder.cpp:105-110 註明「其餘 incoming lane 在此彎入 lane」。C++ 的
+    // 參考渲染器確實照做（GraphAsciiRenderer.cpp:122-127 讀 rows[row+1].lane，
+    // 不同就畫 '/'）；Dart 這一側原本漏了，這一組就是那個缺陷的回歸鎖。
+    //
+    // 會踩雷的只有「一個 commit 收到多條位於不同 lane 的 incoming」——
+    // 也就是 mergeAndRejoin 與 shortMergeAndRejoin 兩個 fixture。直線、
+    // 相鄰兩列、boundary 都不會，所以修正前後它們都綠。
+    fixtures.forEach((String name, GraphSnapshotView graph) {
+      test(name, () {
+        for (int i = 0; i < graph.edges.length; i++) {
+          final GraphEdge edge = graph.edges[i];
+          if (edge.parentRow == kRowBoundary) {
+            continue; // boundary 沒有父節點圓點可接，由 P5 收尾。
           }
-        });
+          final EdgeSegment arrival = _segmentOf(graph, i, edge.parentRow);
+          expect(
+            arrival.endLane,
+            graph.rows[edge.parentRow].lane,
+            reason:
+                '$name edge#$i（第 ${edge.childRow} 列 -> 第 ${edge.parentRow} 列，'
+                'lane ${edge.lane}）沒有彎進父節點圓點所在的 '
+                'lane ${graph.rows[edge.parentRow].lane}，線會停在半空中',
+          );
+        }
       });
-    },
-    skip: '缺陷：_edgeSegmentForRow 的抵達分支未讀 rows[parentRow].lane',
-  );
+    });
+  });
 }
 
 // --- 斷言 helper ------------------------------------------------------------

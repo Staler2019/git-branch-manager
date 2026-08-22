@@ -95,7 +95,16 @@ class EdgeSegment {
 /// Rules (from src/core/graph/GraphSnapshot.h):
 /// - `lane` is the column the edge occupies while descending.
 /// - `childLane` is where it starts; when they differ, a bend occurs at
-///   the child row only.
+///   the child row.
+/// - A second bend can occur at the *parent* row. `GraphBuilder` never
+///   rewrites `lane` once an edge is created (`patchIncoming()` fills in
+///   `parentRow` and nothing else), so when several edges converge on one
+///   commit only the lane `chooseLane()` picked becomes that row's lane --
+///   every other arriving edge has to bend into it here, or it would stop
+///   beside the dot instead of touching it. `GraphBuilder.cpp`'s own
+///   comment calls this out ("Every other incoming lane bends into `lane`
+///   here"), and `GraphAsciiRenderer.cpp` implements it by comparing
+///   `edge->lane` against `rows[parentRow].lane`.
 /// - No per-row pass-through records: straight segments at paint time via
 ///   interval query, O(N+E) memory instead of O(N x lanes).
 List<EdgeSegment> computeEdgeSegments(
@@ -110,11 +119,16 @@ List<EdgeSegment> computeEdgeSegments(
   final List<GraphEdge> spanning = graph.edgesSpanning(rowIndex);
 
   return <EdgeSegment>[
-    for (final GraphEdge edge in spanning) _edgeSegmentForRow(edge, rowIndex),
+    for (final GraphEdge edge in spanning)
+      _edgeSegmentForRow(graph, edge, rowIndex),
   ];
 }
 
-EdgeSegment _edgeSegmentForRow(GraphEdge edge, int rowIndex) {
+EdgeSegment _edgeSegmentForRow(
+  GraphSnapshotView graph,
+  GraphEdge edge,
+  int rowIndex,
+) {
   if (edge.childRow == rowIndex && edge.parentRow == rowIndex) {
     // Degenerate: child and parent both resolve to this row. Draw a
     // zero-length segment at the dot center -- nothing to connect.
@@ -144,11 +158,15 @@ EdgeSegment _edgeSegmentForRow(GraphEdge edge, int rowIndex) {
   }
 
   if (edge.parentRow == rowIndex) {
-    // This row's commit is the parent: the edge arrives from directly
-    // above (bends only happen at the child row) into the dot center.
+    // This row's commit is the parent: the edge arrives from directly above
+    // in its descending lane and bends into the parent's own lane, ending at
+    // the dot center. The two lanes are equal for the edge `chooseLane()`
+    // picked and differ for every other edge converging here -- see the
+    // parent-bend rule on computeEdgeSegments above. Reading `edge.lane` for
+    // both ends instead would leave those lines hanging one column over.
     return EdgeSegment(
       startLane: edge.lane,
-      endLane: edge.lane,
+      endLane: graph.rows[rowIndex].lane,
       startYFraction: 0.0,
       endYFraction: 0.5,
       kind: EdgeSegmentKind.intoParentDot,

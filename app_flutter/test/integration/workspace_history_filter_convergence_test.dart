@@ -13,6 +13,7 @@ import 'package:gbm_flutter/data/repositories/branch_filter_repository.dart';
 import 'package:gbm_flutter/data/repositories/branch_repository.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/features/history_graph/graph_filter_convergence.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../support/fake_repo_session.dart';
 import '../support/pump_workspace.dart';
@@ -204,6 +205,38 @@ void main() {
     await _filter(tester, pumped, '   ');
 
     expect(_filterCalls(pumped.controller), isEmpty);
+  });
+
+  testWidgets('a query that outlived its session is re-sent on mount', (
+    tester,
+  ) async {
+    // branchFilterQueryProvider is not autoDispose, so the query survives the
+    // repository being closed -- but the C++ session's filter does not (a
+    // fresh Session starts with an empty includeRefs), and `ref.listen` never
+    // fires for the value already present when it registers. So leaving a
+    // repository with a filter set and coming back left the sidebar showing
+    // one branch while the graph showed everything: the exact two-screens-
+    // disagree state this round exists to prevent.
+    //
+    // Seeding the provider *before* pumping is that state exactly -- a fresh
+    // WorkspaceScreen whose filter is already non-empty.
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final PumpedWorkspace pumped = await pumpWorkspace(
+      tester,
+      identity: _identity,
+      overrides: <Override>[
+        repoRefsProvider(_identity).overrideWithValue(_refs),
+        branchFilterQueryProvider(
+          _identity,
+        ).overrideWith((Ref ref) => 'graph-lanes'),
+      ],
+    );
+    await tester.pump();
+
+    expect(_filterCalls(pumped.controller).length, 1);
+    expect(_filterCalls(pumped.controller).single.args['includeRefs'], <String>[
+      'refs/heads/feature/graph-lanes',
+    ]);
   });
 
   testWidgets('clearing after a filter widens the walk again', (tester) async {

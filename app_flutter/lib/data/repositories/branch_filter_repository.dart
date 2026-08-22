@@ -14,6 +14,11 @@ import 'repo_identity.dart';
 /// shape this project's UX rubric flags.
 ///
 /// Not persisted, unlike `chromeVisibilityProvider`: a filter is something the
-/// user is doing now, not a setting. Reopening a repository shows all of it.
+/// user is doing now, not a setting — it dies with the app, not with the
+/// repository. It is deliberately *not* autoDispose either, so it survives the
+/// repository being closed and reopened within one run. The C++ session's
+/// filter does not survive that, which is why `WorkspaceScreen` re-sends this
+/// value on mount and on a session reopen rather than trusting `ref.listen`,
+/// which never fires for the value already in place.
 final StateProviderFamily<String, RepoIdentity> branchFilterQueryProvider =
     StateProvider.family<String, RepoIdentity>((ref, identity) => '');

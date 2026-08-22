@@ -110,6 +110,19 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   Timer? _historyFilterDebounce;
 
   @override
+  void initState() {
+    super.initState();
+    // branchFilterQueryProvider outlives the session it was typed into (it is
+    // not autoDispose), but a freshly opened C++ session is always unfiltered
+    // and `ref.listen` never fires for the value already present when it
+    // registers. So leaving a repository with a filter set and coming back
+    // showed one branch in the sidebar and every branch in the graph. Sync
+    // after the first frame rather than here, so the dispatch does not land
+    // mid-build.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncHistoryFilter());
+  }
+
+  @override
   void dispose() {
     _historyFilterDebounce?.cancel();
     _branchFilterFocusNode.dispose();
@@ -136,6 +149,30 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
             noMerges: next.noMerges,
           );
     });
+  }
+
+  /// Makes the core agree with the filter currently in force, immediately and
+  /// without debouncing -- this is not a keystroke, it is a session that has
+  /// no filter and a query that says it should have one.
+  void _syncHistoryFilter() {
+    if (!mounted) return;
+    final HistoryFilterRequest current = ref.read(
+      historyFilterRequestProvider(widget.identity),
+    );
+    // `none` is what a fresh session already is, so there is nothing to send.
+    if (current == HistoryFilterRequest.none ||
+        current == _lastSentHistoryFilter) {
+      return;
+    }
+    _historyFilterDebounce?.cancel();
+    _lastSentHistoryFilter = current;
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .setHistoryFilter(
+          includeRefs: current.includeRefs,
+          firstParentOnly: current.firstParentOnly,
+          noMerges: current.noMerges,
+        );
   }
 
   void _showGraphColumnsDialog(BuildContext context) {
@@ -208,6 +245,19 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       (HistoryFilterRequest? previous, HistoryFilterRequest next) =>
           _dispatchHistoryFilter(identity, next),
     );
+
+    // A session can be recreated under a mounted WorkspaceScreen (reopen after
+    // an error), and the new one carries no filter -- so the last-sent record
+    // has to be dropped before re-syncing, or the comparison in
+    // _syncHistoryFilter would decide the core already knows.
+    ref.listen<bool>(repoSessionProvider(identity).select((s) => s.isOpen), (
+      bool? previous,
+      bool next,
+    ) {
+      if (!next) return;
+      _lastSentHistoryFilter = null;
+      _syncHistoryFilter();
+    });
 
     // Pushed automatically -- a credential prompt is not something the user
     // chose to open, unlike every other dialog route. See

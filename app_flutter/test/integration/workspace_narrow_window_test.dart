@@ -37,6 +37,7 @@ import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/features/history_graph/commit_graph_view.dart';
 import 'package:gbm_flutter/features/history_graph/history_page.dart';
 import 'package:gbm_flutter/features/history_graph/widgets/commit_row.dart';
+import 'package:gbm_flutter/features/history_graph/widgets/graph_date_format.dart';
 
 import '../support/pump_workspace.dart';
 
@@ -176,6 +177,13 @@ Rect _graphRectOfRow(WidgetTester tester, int rowIndex) => tester.getRect(
       .first,
 );
 
+/// What the Date column would render for the fixture's commits, derived
+/// through the same formatter the row uses rather than hardcoded -- the
+/// fixture's `when: 0` makes it an epoch date, whose spelling is
+/// `formatGraphDate`'s business and not this test's.
+String _dateLabel() =>
+    formatGraphDate(DateTime.fromMillisecondsSinceEpoch(0), DateTime.now());
+
 void main() {
   for (final (String label, ui.Size size) in <(String, ui.Size)>[
     ('1024x768', _small),
@@ -242,15 +250,27 @@ void main() {
   }
 
   group('at the default 1280x720 window', () {
-    testWidgets('a twelve-lane history gives up nothing', (tester) async {
+    testWidgets('a twelve-lane history keeps Author and the hash, and gives '
+        'up only Date', (tester) async {
       // The app's own default window size (my_application.cc:55,
-      // main.cpp:29). Degradation firing here would mean the ladder is
-      // tuned too eagerly for ordinary use.
+      // main.cpp:29). Degradation biting harder than this here would mean
+      // the ladder is tuned too eagerly for ordinary use.
+      //
+      // This case was titled "gives up nothing" and asserted only the two
+      // positives, so it passed while the row was in fact one rung down --
+      // Date is dropped at this width and has been since before the Graph
+      // column gained its cap (the row then cost 69px more than it does
+      // now). Measured, not assumed: `planCommitRowColumns` at ~632px with
+      // twelve lanes reports `date=false, author=true, hash=true`. Asserting
+      // the negative too is what makes this a rung lock rather than a
+      // one-sided claim -- Date reappearing is as much a change as Author
+      // vanishing.
       await _pump(tester, size: const ui.Size(1280, 720), laneCount: 12);
 
       expect(tester.takeException(), isNull);
       expect(find.text('Ada Lovelace').first, findsOneWidget);
       expect(find.text(_oidAt(1).substring(0, 8)), findsWidgets);
+      expect(find.text(_dateLabel()), findsNothing);
     });
   });
 }

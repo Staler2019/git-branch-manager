@@ -58,15 +58,20 @@ enum GbmGraphColumnId {
   //    of horizontal padding plus 2px of border = 90.6px. (A widget test
   //    cannot check this: the Ahem test font makes every glyph one em wide
   //    and puts the same chip at 141.75px.)
-  //  * **Ceiling 105**, re-bisected against
+  //  * **Ceiling 173**, bisected against
   //    `workspace_narrow_window_test.dart`'s twelve-lane case at 1280x720 --
-  //    the app's own default window size. At 106 the ladder starts giving up
-  //    the Author column there, which that test exists to forbid.
+  //    the app's own default window size, where the row gets ~632px. At 174
+  //    the ladder starts giving up the Author column there, which that test
+  //    exists to forbid.
   //
-  // **The previous ceiling was 92, and that 13px is exactly the graph column
-  // getting narrower**: its natural width is `laneWidth * (laneCount + 1)`,
-  // so twelve lanes went from `18 x 13 = 234` to `17 x 13 = 221`. The old
-  // corridor was 91..92 -- 1.4px wide -- and the value had to be 92.
+  // **That ceiling moved twice in one round, and only the second move made
+  // it roomy.** It was 92 while the lane pitch was 18 (twelve lanes cost
+  // `18 x 13 = 234`), then 105 once the pitch became spec's 17 (`17 x 13 =
+  // 221`) -- a corridor 91..105. Then the Graph column gained a 153px cap,
+  // which is what actually pays for the headroom: twelve lanes now cost 153
+  // rather than 221, and 68 of those 68px land here. **104 is therefore not
+  // the ceiling any more and is not chosen for being near one** -- it is
+  // `ceil(103.1)`, the width of the one chip below.
   //
   // What that bought is a defect closed rather than merely more room. At 92 a
   // HEAD **synced with its upstream** did not fit: that chip is `HEAD → main`
@@ -76,6 +81,12 @@ enum GbmGraphColumnId {
   // spec assigns to the *opposite* state ("目前 HEAD，且遠端不在這裡",
   // `spec_raw.html:1392`). 104 is `ceil(103.1)`, so the synced chip now
   // renders whole at the default width.
+  //
+  // Note what the default still gives up at that window: **Date**. That is
+  // pre-existing and not a cost of widening refs -- the ladder dropped it
+  // when the row cost 69px more than it does now -- but it is the reason
+  // `workspace_narrow_window_test.dart`'s twelve-lane case asserts Author
+  // and hash rather than every column.
   //
   // Anything longer than a four-character branch name still clips at the
   // default and needs a drag -- up to `maxWidth`, and remembered after.

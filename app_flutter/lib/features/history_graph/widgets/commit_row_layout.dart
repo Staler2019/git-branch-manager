@@ -81,6 +81,7 @@ class CommitRowColumnPlan {
     this.graphWidth,
     this.maxRefsWidth,
     this.graphClipped = false,
+    this.drawsGraph = true,
   });
 
   final List<PlannedColumn>? _columns;
@@ -121,6 +122,18 @@ class CommitRowColumnPlan {
   /// lanes will be clipped. Distinct from `graphWidth != null`, which is
   /// also true whenever the plan simply resolved the natural width.
   final bool graphClipped;
+
+  /// False while a commit search is active, when the Graph column is still
+  /// laid out (spec P02-16 forbids closing it) but holds a bare spacer
+  /// instead of lanes -- `commit_graph_view.dart` passes `showGraph:
+  /// query.isEmpty`, because `graph.edges` connect adjacent rows of the
+  /// *unfiltered* snapshot.
+  ///
+  /// It exists so [resizeHandlesFor] can withhold the Graph strip in that
+  /// state. Leaving the strip up would let a drag write a cap derived from
+  /// the 12px spacer -- a near-minimum lane cap, persisted to
+  /// SharedPreferences and still in force after the search is cleared.
+  final bool drawsGraph;
 
   bool shows(GbmGraphColumnId id) {
     for (final PlannedColumn column in columns) {
@@ -281,6 +294,7 @@ CommitRowColumnPlan planCommitRowColumns({
     graphWidth: resolvedGraphWidth,
     maxRefsWidth: showRefs ? slots[GbmGraphColumnId.refs] : null,
     graphClipped: graphClipped,
+    drawsGraph: showGraph,
   );
 }
 
@@ -387,9 +401,16 @@ class ColumnResizeHandle {
 /// whatever order the user dragged the columns into: the thing that gives
 /// way is always the same thing.
 ///
-/// Graph and Message get none: spec's "其餘可開關並拖曳排序 / 欄寬各自可拖曳"
-/// excludes them, and neither has a width of its own to drag anyway (the
-/// graph's comes from the lane count, Message's is whatever is left).
+/// Message gets none: it is the sole flex column, so its width is whatever
+/// is left and there is nothing to drag. Graph *does* get one -- dragging it
+/// moves the cap on how many lanes are drawn, never whether the column
+/// exists, so spec's "Graph 與 Message 固定不可關" is untouched. (This
+/// comment used to say Graph got none too; that stopped being true when the
+/// column became resizable, one commit before this one.)
+///
+/// The one exception is [CommitRowColumnPlan.drawsGraph]: with no lanes on
+/// screen the strip would sit over a 12px spacer, and a drag there would
+/// persist a cap the user never saw.
 List<ColumnResizeHandle> resizeHandlesFor(CommitRowColumnPlan plan) {
   final List<PlannedColumn> columns = plan.columns;
   final int messageIndex = columns.indexWhere(
@@ -404,7 +425,7 @@ List<ColumnResizeHandle> resizeHandlesFor(CommitRowColumnPlan plan) {
     final PlannedColumn column = columns[i];
     final double width = column.width ?? 0;
     fromLeft += width + gapAfterColumn(column.id);
-    if (column.id.isResizable) {
+    if (column.id.isResizable && _isDraggable(plan, column.id)) {
       // The boundary is the column's right edge, i.e. before its own gap.
       handles.add(
         ColumnResizeHandle(
@@ -421,7 +442,7 @@ List<ColumnResizeHandle> resizeHandlesFor(CommitRowColumnPlan plan) {
     final PlannedColumn column = columns[i];
     final double width = column.width ?? 0;
     fromRight += gapAfterColumn(column.id) + width;
-    if (column.id.isResizable) {
+    if (column.id.isResizable && _isDraggable(plan, column.id)) {
       // The boundary is the column's left edge, which is what `fromRight`
       // now names: everything from here to the row's right edge.
       handles.add(
@@ -432,3 +453,6 @@ List<ColumnResizeHandle> resizeHandlesFor(CommitRowColumnPlan plan) {
 
   return handles;
 }
+
+bool _isDraggable(CommitRowColumnPlan plan, GbmGraphColumnId id) =>
+    id != GbmGraphColumnId.graph || plan.drawsGraph;

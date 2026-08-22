@@ -134,6 +134,31 @@ void main() {
       },
     );
 
+    test('the Graph column has no strip while a search hides the lanes', () {
+      // `showGraph: false` is the live commit-search path
+      // (`commit_graph_view.dart` passes `showGraph: query.isEmpty`). The
+      // column stays in the layout -- P02-16 forbids closing it -- but holds
+      // a 12px spacer instead of lanes.
+      //
+      // Without this gate the strip stayed up over that spacer, and
+      // `renderedWidthOf` reported 12, so a drag near the left edge wrote a
+      // near-minimum lane cap into SharedPreferences that outlived the
+      // search. Every other column keeps its strip: none of them changed.
+      final CommitRowColumnPlan plan = planCommitRowColumns(
+        availableWidth: 1200,
+        laneCount: 8,
+        showGraph: false,
+      );
+
+      expect(plan.drawsGraph, isFalse);
+      expect(plan.shows(GbmGraphColumnId.graph), isTrue);
+      final Set<GbmGraphColumnId> ids = resizeHandlesFor(
+        plan,
+      ).map((ColumnResizeHandle h) => h.id).toSet();
+      expect(ids, isNot(contains(GbmGraphColumnId.graph)));
+      expect(ids, contains(GbmGraphColumnId.refs));
+    });
+
     test('a column the plan gave up has no strip', () {
       // Dragging a column that is not on screen would be a gesture with no
       // visible target, and would silently move a width the user cannot see.

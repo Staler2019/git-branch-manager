@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/graph_column.dart';
 import '../../theme/theme_mode_provider.dart' show sharedPreferencesProvider;
 
 /// Persists graph column visibility, order, and width settings app-level
@@ -136,3 +137,149 @@ final Provider<Set<String>> hiddenGraphColumnsProvider = Provider<Set<String>>((
       if (!entry.value && !kLockedGraphColumnIds.contains(entry.key)) entry.key,
   };
 });
+
+/// Column order as live state.
+///
+/// Sibling of [GraphColumnVisibilityNotifier], and orphaned for the same
+/// reason until now: [GraphColumnsRepository.readOrder] had no caller on the
+/// render path at all.
+///
+/// State is always a fully resolved order -- every column exactly once, the
+/// two locked ones pinned to the front -- so the render path can index it
+/// without re-validating. [move] is the only transition; it re-resolves
+/// after applying, so an out-of-range or locked-slot drag degrades to a
+/// no-op rather than corrupting the list.
+class GraphColumnOrderNotifier extends StateNotifier<List<GbmGraphColumnId>> {
+  GraphColumnOrderNotifier(this._repo)
+    : super(resolveGraphColumnOrder(_repo.readOrder()));
+
+  final GraphColumnsRepository _repo;
+
+  /// Moves the column at [oldIndex] to [newIndex], both indices into the
+  /// full order (locked columns included, so the picker's own indices and
+  /// these agree).
+  ///
+  /// Refused, as a no-op, when either index is out of range or either end
+  /// touches a locked slot: spec pins Graph and Message, and a `ReorderableListView`
+  /// that excludes them from its children is an affordance, not the invariant.
+  Future<void> move(int oldIndex, int newIndex) async {
+    final List<GbmGraphColumnId> current = state;
+    if (oldIndex < 0 || oldIndex >= current.length) return;
+    if (newIndex < 0 || newIndex >= current.length) return;
+    if (!current[oldIndex].isMovable) return;
+    if (!current[newIndex].isMovable) return;
+    if (oldIndex == newIndex) return;
+
+    final List<GbmGraphColumnId> next = <GbmGraphColumnId>[...current];
+    next.insert(newIndex, next.removeAt(oldIndex));
+
+    state = resolveGraphColumnOrder(<String>[
+      for (final GbmGraphColumnId id in next) id.storageId,
+    ]);
+    await _repo.writeOrder(<String>[
+      for (final GbmGraphColumnId id in state) id.storageId,
+    ]);
+  }
+}
+
+final StateNotifierProvider<GraphColumnOrderNotifier, List<GbmGraphColumnId>>
+graphColumnOrderProvider =
+    StateNotifierProvider<GraphColumnOrderNotifier, List<GbmGraphColumnId>>((
+      ref,
+    ) {
+      return GraphColumnOrderNotifier(
+        ref.watch(graphColumnsRepositoryProvider),
+      );
+    });
+
+/// Column widths as live state, with the write deliberately separated from
+/// the state change.
+///
+/// A resize drag calls [setWidth] on every frame; persisting there would
+/// write SharedPreferences at the frame rate. [commitWidths] is what the
+/// drag-end handler calls instead -- the same split
+/// `split_pane.dart` makes between its drag updates and its `_persist`.
+class GraphColumnWidthNotifier
+    extends StateNotifier<Map<GbmGraphColumnId, double>> {
+  GraphColumnWidthNotifier(this._repo)
+    : super(resolveGraphColumnWidths(_repo.readWidths()));
+
+  final GraphColumnsRepository _repo;
+
+  /// Sets [id]'s width, clamped to its own range. State only -- call
+  /// [commitWidths] once the gesture ends.
+  void setWidth(GbmGraphColumnId id, double width) {
+    if (!id.isResizable) return;
+    final double clamped = width.clamp(id.minWidth, id.maxWidth).toDouble();
+    if (state[id] == clamped) return;
+    state = <GbmGraphColumnId, double>{...state, id: clamped};
+  }
+
+  /// Persists the current widths. Only resizable columns are written: the
+  /// other two have no width of their own, and storing one would be a value
+  /// [resolveGraphColumnWidths] then has to ignore on the way back in.
+  Future<void> commitWidths() {
+    return _repo.writeWidths(<String, double>{
+      for (final MapEntry<GbmGraphColumnId, double> entry in state.entries)
+        if (entry.key.isResizable) entry.key.storageId: entry.value,
+    });
+  }
+}
+
+final StateNotifierProvider<
+  GraphColumnWidthNotifier,
+  Map<GbmGraphColumnId, double>
+>
+graphColumnWidthProvider =
+    StateNotifierProvider<
+      GraphColumnWidthNotifier,
+      Map<GbmGraphColumnId, double>
+    >((ref) {
+      return GraphColumnWidthNotifier(
+        ref.watch(graphColumnsRepositoryProvider),
+      );
+    });
+
+/// Order, width and visibility as one value.
+///
+/// The commit rows, the layout ladder and the resize strips all need the
+/// same three facts, and each deriving them separately is how the three
+/// drift apart. Everything downstream reads this.
+class GraphColumnLayout {
+  const GraphColumnLayout({
+    required this.order,
+    required this.widths,
+    required this.visibility,
+  });
+
+  /// Every column, in display order, locked ones first.
+  final List<GbmGraphColumnId> order;
+  final Map<GbmGraphColumnId, double> widths;
+  final Map<String, bool> visibility;
+
+  double widthOf(GbmGraphColumnId id) => widths[id] ?? id.defaultWidth;
+
+  bool isVisible(GbmGraphColumnId id) =>
+      isGraphColumnVisible(visibility, id.storageId);
+
+  /// [order] without the switched-off columns.
+  List<GbmGraphColumnId> get visibleOrder => <GbmGraphColumnId>[
+    for (final GbmGraphColumnId id in order)
+      if (isVisible(id)) id,
+  ];
+
+  /// The switched-off columns, in the shape `planCommitRowColumns` takes.
+  Set<String> get hiddenStorageIds => <String>{
+    for (final GbmGraphColumnId id in order)
+      if (!isVisible(id)) id.storageId,
+  };
+}
+
+final Provider<GraphColumnLayout> graphColumnLayoutProvider =
+    Provider<GraphColumnLayout>((ref) {
+      return GraphColumnLayout(
+        order: ref.watch(graphColumnOrderProvider),
+        widths: ref.watch(graphColumnWidthProvider),
+        visibility: ref.watch(graphColumnVisibilityProvider),
+      );
+    });

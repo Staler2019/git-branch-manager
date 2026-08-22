@@ -1,129 +1,310 @@
+// Unit coverage for the two pure resolvers behind spec page 02 item 16's
+// "其餘可開關並拖曳排序 … 欄寬各自可拖曳並記憶".
+//
+// These exist as pure functions rather than notifier methods because the
+// interesting cases are all about *bad stored input* -- a preferences file
+// written by an older build, hand-edited, or corrupt -- and a resolver that
+// can be called with a literal is far easier to pin than one reachable only
+// through SharedPreferences.
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/repositories/graph_columns_repository.dart'
+    show kLockedGraphColumnIds;
 import 'package:gbm_flutter/data/models/graph_column.dart';
 
 void main() {
-  group('GraphColumn', () {
-    test('creates instance with all required fields', () {
-      final column = GraphColumn(
-        id: 'author',
-        label: 'Author',
-        visible: true,
-        locked: false,
-        width: 120.0,
-        order: 3,
+  group('kGraphColumnOrderDefault', () {
+    test('matches the spec GRAPH_COLS order', () {
+      // spec_logic.js:451 GRAPH_COLS -- Graph, Message, Refs, Author, Date,
+      // Commit hash, Committer, Changed files. The picker list and the row's
+      // render order are the same list in the spec, so there is one default.
+      expect(kGraphColumnOrderDefault, <GbmGraphColumnId>[
+        GbmGraphColumnId.graph,
+        GbmGraphColumnId.message,
+        GbmGraphColumnId.refs,
+        GbmGraphColumnId.author,
+        GbmGraphColumnId.date,
+        GbmGraphColumnId.hash,
+        GbmGraphColumnId.committer,
+        GbmGraphColumnId.changedFiles,
+      ]);
+    });
+
+    test('every id appears exactly once', () {
+      expect(
+        kGraphColumnOrderDefault.toSet().length,
+        GbmGraphColumnId.values.length,
       );
+    });
+  });
 
-      expect(column.id, 'author');
-      expect(column.label, 'Author');
-      expect(column.visible, true);
-      expect(column.locked, false);
-      expect(column.width, 120.0);
-      expect(column.order, 3);
+  group('storage ids', () {
+    test('match the strings already persisted by the visibility picker', () {
+      // graph_columns_selector.dart's map is what wrote graphColumns.visibility
+      // on every existing install. Renaming any of these silently orphans a
+      // user's saved settings, so they are pinned here rather than left to
+      // whatever the enum name happens to be.
+      expect(
+        <String>[
+          for (final GbmGraphColumnId id in kGraphColumnOrderDefault)
+            id.storageId,
+        ],
+        <String>[
+          'graph',
+          'message',
+          'refs',
+          'author',
+          'date',
+          'hash',
+          'committer',
+          'changedFiles',
+        ],
+      );
     });
 
-    group('toJson / fromJson', () {
-      test('serializes to JSON correctly', () {
-        final column = GraphColumn(
-          id: 'refs',
-          label: 'Refs',
-          visible: true,
-          locked: true,
-          width: 150.0,
-          order: 2,
-        );
+    test('graphColumnById round-trips every id', () {
+      for (final GbmGraphColumnId id in GbmGraphColumnId.values) {
+        expect(graphColumnById(id.storageId), id);
+      }
+      expect(graphColumnById('nope'), isNull);
+    });
+  });
 
-        final json = column.toJson();
+  group('labels', () {
+    test('use the spec spelling, not the old picker Title Case', () {
+      // spec writes "Commit hash" and "Changed files"; the picker had "Hash"
+      // and "Changed Files".
+      expect(GbmGraphColumnId.hash.label, 'Commit hash');
+      expect(GbmGraphColumnId.changedFiles.label, 'Changed files');
+    });
+  });
 
-        expect(json['id'], 'refs');
-        expect(json['label'], 'Refs');
-        expect(json['visible'], true);
-        expect(json['locked'], true);
-        expect(json['width'], 150.0);
-        expect(json['order'], 2);
-      });
-
-      test('deserializes from JSON correctly', () {
-        final json = {
-          'id': 'date',
-          'label': 'Date',
-          'visible': false,
-          'locked': false,
-          'width': 90.0,
-          'order': 4,
-        };
-
-        final column = GraphColumn.fromJson(json);
-
-        expect(column.id, 'date');
-        expect(column.label, 'Date');
-        expect(column.visible, false);
-        expect(column.locked, false);
-        expect(column.width, 90.0);
-        expect(column.order, 4);
-      });
-
-      test('round-trip JSON serialization preserves values', () {
-        final original = GraphColumn(
-          id: 'hash',
-          label: 'Commit hash',
-          visible: true,
-          locked: false,
-          width: 100.0,
-          order: 5,
-        );
-
-        final json = original.toJson();
-        final restored = GraphColumn.fromJson(json);
-
-        expect(restored.id, original.id);
-        expect(restored.label, original.label);
-        expect(restored.visible, original.visible);
-        expect(restored.locked, original.locked);
-        expect(restored.width, original.width);
-        expect(restored.order, original.order);
+  group('locked columns', () {
+    test('graph and message are locked, nothing else is', () {
+      final Set<GbmGraphColumnId> locked = <GbmGraphColumnId>{
+        for (final GbmGraphColumnId id in GbmGraphColumnId.values)
+          if (id.isLocked) id,
+      };
+      expect(locked, <GbmGraphColumnId>{
+        GbmGraphColumnId.graph,
+        GbmGraphColumnId.message,
       });
     });
 
-    group('copyWith', () {
-      test('copies all fields when none are provided', () {
-        final original = GraphColumn(
-          id: 'author',
-          label: 'Author',
-          visible: true,
-          locked: false,
-          width: 120.0,
-          order: 3,
+    test('isLocked agrees with kLockedGraphColumnIds', () {
+      for (final GbmGraphColumnId id in GbmGraphColumnId.values) {
+        expect(
+          id.isLocked,
+          kLockedGraphColumnIds.contains(id.storageId),
+          reason: 'the enum and the storage-level guard must not drift',
         );
+      }
+    });
 
-        final copy = original.copyWith();
+    test('a locked column is neither movable nor resizable', () {
+      // Not two independent facts: spec's "其餘" governs toggling *and*
+      // reordering, and graph/message have no fixed width to drag anyway
+      // (graph is derived from the lane count, message is the sole flex).
+      for (final GbmGraphColumnId id in GbmGraphColumnId.values) {
+        if (!id.isLocked) continue;
+        expect(id.isMovable, isFalse);
+        expect(id.isResizable, isFalse);
+      }
+    });
 
-        expect(copy.id, original.id);
-        expect(copy.label, original.label);
-        expect(copy.visible, original.visible);
-        expect(copy.locked, original.locked);
-        expect(copy.width, original.width);
-        expect(copy.order, original.order);
-      });
+    test('every unlocked column is both movable and resizable', () {
+      for (final GbmGraphColumnId id in GbmGraphColumnId.values) {
+        if (id.isLocked) continue;
+        expect(id.isMovable, isTrue, reason: '${id.storageId} should reorder');
+        expect(id.isResizable, isTrue, reason: '${id.storageId} should resize');
+      }
+    });
+  });
 
-      test('updates only specified fields', () {
-        final original = GraphColumn(
-          id: 'author',
-          label: 'Author',
-          visible: true,
-          locked: false,
-          width: 120.0,
-          order: 3,
+  group('resolveGraphColumnOrder', () {
+    test('empty stored order gives the default', () {
+      expect(
+        resolveGraphColumnOrder(const <String>[]),
+        kGraphColumnOrderDefault,
+      );
+    });
+
+    test('honours a stored reordering of the movable columns', () {
+      final List<GbmGraphColumnId> resolved = resolveGraphColumnOrder(
+        const <String>[
+          'graph',
+          'message',
+          'hash',
+          'date',
+          'author',
+          'refs',
+          'committer',
+          'changedFiles',
+        ],
+      );
+      expect(resolved.map((GbmGraphColumnId c) => c.storageId), <String>[
+        'graph',
+        'message',
+        'hash',
+        'date',
+        'author',
+        'refs',
+        'committer',
+        'changedFiles',
+      ]);
+    });
+
+    test('pins graph first and message second however they were stored', () {
+      final List<GbmGraphColumnId> resolved = resolveGraphColumnOrder(
+        const <String>['hash', 'message', 'author', 'graph', 'date'],
+      );
+      expect(resolved[0], GbmGraphColumnId.graph);
+      expect(resolved[1], GbmGraphColumnId.message);
+    });
+
+    test('appends known columns the stored list never mentioned', () {
+      // Forward compatibility: a preferences file written before a column
+      // existed must not make that column unreachable.
+      final List<GbmGraphColumnId> resolved = resolveGraphColumnOrder(
+        const <String>['graph', 'message', 'hash'],
+      );
+      expect(resolved.map((GbmGraphColumnId c) => c.storageId), <String>[
+        'graph',
+        'message',
+        'hash',
+        'refs',
+        'author',
+        'date',
+        'committer',
+        'changedFiles',
+      ]);
+    });
+
+    test('drops ids it does not recognise', () {
+      final List<GbmGraphColumnId> resolved = resolveGraphColumnOrder(
+        const <String>['graph', 'message', 'gravatar', 'hash'],
+      );
+      expect(resolved.contains(GbmGraphColumnId.hash), isTrue);
+      expect(resolved.length, GbmGraphColumnId.values.length);
+    });
+
+    test('drops duplicates rather than rendering a column twice', () {
+      final List<GbmGraphColumnId> resolved = resolveGraphColumnOrder(
+        const <String>['graph', 'message', 'hash', 'hash', 'hash'],
+      );
+      expect(resolved.length, GbmGraphColumnId.values.length);
+      expect(resolved.toSet().length, resolved.length);
+    });
+
+    test('always returns every id exactly once, whatever the input', () {
+      for (final List<String> stored in <List<String>>[
+        <String>[],
+        <String>['message'],
+        <String>['changedFiles', 'committer', 'graph'],
+        <String>['x', 'y', 'z'],
+        <String>['graph', 'graph', 'message', 'message'],
+      ]) {
+        final List<GbmGraphColumnId> resolved = resolveGraphColumnOrder(stored);
+        expect(
+          resolved.toSet(),
+          GbmGraphColumnId.values.toSet(),
+          reason: 'stored=$stored lost or duplicated a column',
         );
+        expect(resolved.length, GbmGraphColumnId.values.length);
+      }
+    });
+  });
 
-        final updated = original.copyWith(visible: false, width: 150.0);
+  group('resolveGraphColumnWidths', () {
+    test('empty stored map gives every column its default', () {
+      final Map<GbmGraphColumnId, double> resolved = resolveGraphColumnWidths(
+        const <String, double>{},
+      );
+      for (final GbmGraphColumnId id in GbmGraphColumnId.values) {
+        expect(resolved[id], id.defaultWidth);
+      }
+    });
 
-        expect(updated.id, original.id);
-        expect(updated.label, original.label);
-        expect(updated.visible, false);
-        expect(updated.locked, original.locked);
-        expect(updated.width, 150.0);
-        expect(updated.order, original.order);
-      });
+    test('honours a stored width inside the allowed range', () {
+      final Map<GbmGraphColumnId, double> resolved = resolveGraphColumnWidths(
+        const <String, double>{'author': 150},
+      );
+      expect(resolved[GbmGraphColumnId.author], 150);
+    });
+
+    test('clamps a width below the minimum and above the maximum', () {
+      final Map<GbmGraphColumnId, double> resolved = resolveGraphColumnWidths(
+        const <String, double>{'author': 1, 'date': 100000},
+      );
+      expect(
+        resolved[GbmGraphColumnId.author],
+        GbmGraphColumnId.author.minWidth,
+      );
+      expect(resolved[GbmGraphColumnId.date], GbmGraphColumnId.date.maxWidth);
+    });
+
+    test('falls back to the default for NaN, infinity and non-positive', () {
+      final Map<GbmGraphColumnId, double> resolved = resolveGraphColumnWidths(
+        <String, double>{
+          'author': double.nan,
+          'date': double.infinity,
+          'hash': 0,
+          'refs': -40,
+        },
+      );
+      expect(
+        resolved[GbmGraphColumnId.author],
+        GbmGraphColumnId.author.defaultWidth,
+      );
+      expect(
+        resolved[GbmGraphColumnId.date],
+        GbmGraphColumnId.date.defaultWidth,
+      );
+      expect(
+        resolved[GbmGraphColumnId.hash],
+        GbmGraphColumnId.hash.defaultWidth,
+      );
+      expect(
+        resolved[GbmGraphColumnId.refs],
+        GbmGraphColumnId.refs.defaultWidth,
+      );
+    });
+
+    test('ignores unknown ids instead of throwing', () {
+      final Map<GbmGraphColumnId, double> resolved = resolveGraphColumnWidths(
+        const <String, double>{'gravatar': 42},
+      );
+      expect(resolved.length, GbmGraphColumnId.values.length);
+    });
+
+    test('ignores a stored width for a non-resizable column', () {
+      // graph's width comes from the lane count and message is the flex
+      // column; a stored value for either is stale data, not a user setting.
+      final Map<GbmGraphColumnId, double> resolved = resolveGraphColumnWidths(
+        const <String, double>{'graph': 999, 'message': 999},
+      );
+      expect(
+        resolved[GbmGraphColumnId.graph],
+        GbmGraphColumnId.graph.defaultWidth,
+      );
+      expect(
+        resolved[GbmGraphColumnId.message],
+        GbmGraphColumnId.message.defaultWidth,
+      );
+    });
+
+    test('every default sits inside its own [min, max]', () {
+      for (final GbmGraphColumnId id in GbmGraphColumnId.values) {
+        expect(
+          id.defaultWidth,
+          greaterThanOrEqualTo(id.minWidth),
+          reason: id.storageId,
+        );
+        expect(
+          id.defaultWidth,
+          lessThanOrEqualTo(id.maxWidth),
+          reason: id.storageId,
+        );
+      }
     });
   });
 }

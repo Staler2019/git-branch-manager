@@ -176,8 +176,15 @@ class GraphColumnOrderNotifier extends StateNotifier<List<GbmGraphColumnId>> {
   final GraphColumnsRepository _repo;
 
   /// Moves the column at [oldIndex] to [newIndex], both indices into the
-  /// full order (locked columns included, so the picker's own indices and
-  /// these agree).
+  /// **full** order, locked columns included.
+  ///
+  /// That is deliberately *not* the index space the picker's
+  /// `ReorderableListView` reports: it lists only the movable columns, so it
+  /// converts by adding the locked count before calling here (see
+  /// `graph_columns_selector.dart`'s `onReorderItem`). Keeping the full order
+  /// as this method's coordinate system is what lets the locked-slot guard
+  /// below exist at all -- an index space with no locked slots in it could
+  /// not express the refusal.
   ///
   /// Refused, as a no-op, when either index is out of range or either end
   /// touches a locked slot: spec pins Graph and Message, and a `ReorderableListView`

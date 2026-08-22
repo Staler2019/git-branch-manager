@@ -14,6 +14,7 @@ import '../../data/repositories/panel_tabs_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../actions/gbm_selection_gesture.dart';
 import '../../data/models/list_selection.dart';
+import '../../data/repositories/branch_filter_repository.dart';
 import '../../data/repositories/branch_selection_repository.dart';
 import '../../data/repositories/repo_session_repository.dart';
 import '../../routing/route_paths.dart';
@@ -82,7 +83,28 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
       ref.read(branchSelectionProvider(widget.identity).notifier);
   final Set<String> _expandedFolders = <String>{};
   final TextEditingController _filterController = TextEditingController();
-  String _filterQuery = '';
+
+  /// P02-14's one filter box. The value lives in
+  /// [branchFilterQueryProvider], not here, because the History graph
+  /// converges on it -- see that provider's doc comment. `build()` watches it
+  /// explicitly so this stays a plain read.
+  String get _filterQuery =>
+      ref.read(branchFilterQueryProvider(widget.identity));
+
+  set _filterQuery(String value) =>
+      ref.read(branchFilterQueryProvider(widget.identity).notifier).state =
+          value;
+
+  @override
+  void initState() {
+    super.initState();
+    // The sidebar is hideable, so this State can be rebuilt while the query
+    // is still set. Seeding the controller is what makes the box show the
+    // filter that is actually in force rather than looking empty.
+    _filterController.text = ref.read(
+      branchFilterQueryProvider(widget.identity),
+    );
+  }
 
   @override
   void dispose() {
@@ -241,10 +263,8 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
 
   /// P02-14 rule 8. Also the clear button's action, so the two cannot drift.
   void _clearFilter() {
-    setState(() {
-      _filterController.clear();
-      _filterQuery = '';
-    });
+    _filterController.clear();
+    _filterQuery = '';
   }
 
   /// P02-14 rule 9: 「↓ 直接跳進第一個結果」.
@@ -785,6 +805,10 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     final ListSelection<String> selection = ref.watch(
       branchSelectionProvider(widget.identity),
     );
+    // Subscribes this widget to the filter box; the `_filterQuery` getter
+    // below is a plain read, so without this line typing would change the
+    // provider and nothing would repaint.
+    ref.watch(branchFilterQueryProvider(widget.identity));
     final GbmColors colors = context.gbmColors;
     final List<RefInfo> branches = mergeLocalAndRemoteBranches(
       refs.localBranches,
@@ -971,8 +995,7 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                           fontSize: GbmTypography.textSm,
                           color: colors.textPrimary,
                         ),
-                        onChanged: (value) =>
-                            setState(() => _filterQuery = value),
+                        onChanged: (value) => _filterQuery = value,
                         decoration: InputDecoration(
                           isDense: true,
                           hintText: 'Filter branches',

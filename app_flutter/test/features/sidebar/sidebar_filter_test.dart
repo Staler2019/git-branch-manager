@@ -136,6 +136,82 @@ List<String> _rows(WidgetTester tester) => tester
     .toList();
 
 void main() {
+  group('the query outlives the widget', () {
+    testWidgets('hiding and re-showing the sidebar keeps the filter in force', (
+      tester,
+    ) async {
+      // The value lives in branchFilterQueryProvider, not in
+      // _SidebarPanelState, because the History graph converges on it: a
+      // sidebar that can be hidden must not be able to take the *only* copy
+      // of the filter with it, leaving the graph narrowed with nothing on
+      // screen to say why or to clear it.
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final ProviderContainer container = ProviderContainer(
+        overrides: <Override>[
+          sharedPreferencesProvider.overrideWithValue(prefs),
+          repoRefsProvider(_identity).overrideWithValue(_refs),
+          repoSessionProvider(_identity).overrideWith(
+            (ref) => FakeRepoSessionController(
+              _identity,
+              const RepoSessionState(
+                isOpen: true,
+                stashes: <StashEntry>[_stash],
+              ),
+            ),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      late StateSetter setVisible;
+      bool visible = true;
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+            home: Scaffold(
+              body: StatefulBuilder(
+                builder: (context, setState) {
+                  setVisible = setState;
+                  return SizedBox(
+                    width: 260,
+                    height: 700,
+                    child: visible
+                        ? SidebarPanel(
+                            identity: _identity,
+                            filterFocusNode: null,
+                          )
+                        : const SizedBox.shrink(),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await _type(tester, 'gl');
+      expect(_rows(tester), <String>['main', 'feature/graph-lanes']);
+
+      setVisible(() => visible = false);
+      await tester.pumpAndSettle();
+      expect(find.byType(SidebarPanel), findsNothing);
+
+      setVisible(() => visible = true);
+      await tester.pumpAndSettle();
+
+      // Both halves: the rows are still narrowed, *and* the box shows the
+      // query that narrowed them. A provider that the field did not re-read
+      // on mount would pass the first assertion and fail the second, leaving
+      // a filter in force with an empty-looking box.
+      expect(_rows(tester), <String>['main', 'feature/graph-lanes']);
+      expect(tester.widget<TextField>(_filterField()).controller?.text, 'gl');
+    });
+  });
+
   group('rule 8: Esc clears the filter', () {
     testWidgets('Esc in the filter field empties it and unfilters', (
       tester,

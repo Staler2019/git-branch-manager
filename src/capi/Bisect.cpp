@@ -11,20 +11,7 @@
 using namespace gbm;
 using namespace gbm::capi;
 
-namespace {
-
-std::vector<std::string> toStringVector(const char* const* items, int32_t count) {
-    std::vector<std::string> out;
-    out.reserve(static_cast<std::size_t>(count > 0 ? count : 0));
-    for (int32_t i = 0; i < count; ++i) {
-        if (items[i] != nullptr) {
-            out.emplace_back(items[i]);
-        }
-    }
-    return out;
-}
-
-}  // namespace
+namespace {}  // namespace
 
 GBM_API void gbm_bisect_refresh(GbmSessionHandle session) {
     toSession(session)->refreshBisectStatus();

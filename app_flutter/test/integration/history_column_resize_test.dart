@@ -301,7 +301,16 @@ void main() {
       final PumpedWorkspace w = await _pump(tester);
       expect(w.container.read(selectedCommitProvider(_identity)), isNull);
 
-      final Offset atStrip = tester.getCenter(_strip(GbmGraphColumnId.author));
+      // The strip spans the list's full height, and the list is taller than
+      // its six rows, so its own centre lands in the empty space below them.
+      // Take the strip's x and a real row's y. (This used to pass on the
+      // centre alone only because the graph pane was mis-composed down to a
+      // 186px strip, which happened to be shorter than the rows -- see
+      // history_page_layout_test.dart.)
+      final Offset atStrip = Offset(
+        tester.getCenter(_strip(GbmGraphColumnId.author)).dx,
+        tester.getCenter(find.byType(CommitRow).first).dy,
+      );
       await tester.tapAt(atStrip);
       await tester.pumpAndSettle();
 
@@ -328,7 +337,12 @@ void main() {
     ) async {
       final PumpedWorkspace w = await _pump(tester);
 
-      await tester.tapAt(tester.getCenter(_strip(GbmGraphColumnId.author)));
+      await tester.tapAt(
+        Offset(
+          tester.getCenter(_strip(GbmGraphColumnId.author)).dx,
+          tester.getCenter(find.byType(CommitRow).first).dy,
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(

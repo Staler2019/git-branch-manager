@@ -17,6 +17,7 @@ import '../../../data/services/file_save_picker.dart';
 import '../../../routing/route_paths.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
+import '../../../widgets/gbm_row.dart';
 import '../../../widgets/file_list_mode_switcher.dart';
 import '../../../widgets/file_list_mode_toggle_button.dart';
 import '../../../widgets/gbm_menu.dart';
@@ -414,21 +415,26 @@ class ChangedFilesPanelCore extends StatelessWidget {
     final GbmColors colors = context.gbmColors;
     final bool isSelected = selectedPath == file.path;
 
-    return GestureDetector(
-      onSecondaryTapDown: (details) =>
+    // `GbmRow`, not `ListTile(dense: true)`. A dense ListTile still reserves
+    // Material's own list metrics -- roughly 48px before `dense` and ~40 after
+    // -- which is why this list read as loose next to a 26px commit row. The
+    // design system already owns this shape (hover, selected background,
+    // secondary tap), and reaching for a Material widget instead is the
+    // "check `lib/widgets/` before hand-rolling" miss CLAUDE.md records.
+    return GbmRow(
+      height: GbmSpacing.rowHeightCompact,
+      selected: isSelected,
+      onTap: onFileTap == null ? null : () => onFileTap!(file.path),
+      onSecondaryTapDown: (TapDownDetails details) =>
           _openContextMenu(context, details, file.path),
-      child: Container(
-        color: isSelected ? colors.surfaceSelected : null,
-        child: ListTile(
-          dense: true,
-          title: Text(
-            file.path,
-            style: Theme.of(context).textTheme.bodySmall,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          onTap: onFileTap == null ? null : () => onFileTap!(file.path),
+      child: Text(
+        file.path,
+        style: TextStyle(
+          fontSize: GbmTypography.textSm,
+          color: colors.textPrimary,
         ),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
       ),
     );
   }

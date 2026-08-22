@@ -6,8 +6,11 @@ import 'graph_edge_geometry.dart';
 
 /// Paints one row's lane dot and its connectors (edges), consuming the real
 /// edge list from [GraphSnapshotView] and drawing curved bends where needed.
-/// Mirrors the behavior of `GraphColumnDelegate`/`GraphAsciiRenderer`
-/// (src/app/models/GraphColumnDelegate.cpp, src/core/graph/GraphAsciiRenderer.cpp).
+/// Mirrors the behavior of the reference renderer,
+/// src/core/graph/GraphAsciiRenderer.cpp. (This comment used to also name a
+/// `GraphColumnDelegate` at src/app/models/GraphColumnDelegate.cpp; no such
+/// file exists in this repository -- the ASCII renderer is the only
+/// reference.)
 class GraphRowPainter extends CustomPainter {
   const GraphRowPainter({
     required this.row,

@@ -2253,6 +2253,14 @@ was to name which case belongs to which, not to delete two of them.**
   still running. `pkill -f "gbm_flutter.app/Contents/MacOS/gbm_flutter"` is the
   fix. It looks exactly like a broken test — **run one pre-existing device test
   as a control before believing the new one.**
+- **Swapping a widget for a design-system one breaks device-tier finders that
+  nothing else uses.** `ListTile(dense: true)` → `GbmRow` in the Changed files
+  list turned three `context_menu_flows_test.dart` cases red on
+  `find.byType(ListTile)`. Neither the widget nor the integration tier goes
+  through that finder, so `flutter test` stayed green throughout — **the eight
+  device tests are the only thing that sees this class of change**, which is why
+  a round that touches shared row widgets has to rerun all of them, one at a
+  time.
 - **`git commit` after `git add -A <dir>` swept an unrelated in-progress change
   into a `refactor:` commit.** Caught by reading `git diff --stat`'s output in
   the same call; split with `reset --soft` + selective `add`. Stage by file when

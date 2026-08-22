@@ -19,20 +19,24 @@ const Duration kHistoryFilterDebounce = Duration(milliseconds: 250);
 class HistoryFilterRequest {
   const HistoryFilterRequest({
     required this.includeRefs,
-    required this.firstParentOnly,
+    this.firstParentOnly = false,
     required this.noMerges,
   });
 
   /// The unfiltered walk: every ref, merges and parallel lanes included.
   static const HistoryFilterRequest none = HistoryFilterRequest(
     includeRefs: <String>[],
-    firstParentOnly: false,
     noMerges: false,
   );
 
   /// Full ref names ('refs/heads/main'), never short ones — see
   /// gbm_history_set_filter()'s doc comment.
   final List<String> includeRefs;
+
+  /// Kept on the request, and on the capi, even though nothing in the app sets
+  /// it: `HistoryQuery` has the field and the entry point is a general filter,
+  /// not a private channel for this one screen. See historyFilterFor for why
+  /// the graph convergence must *not* use it.
   final bool firstParentOnly;
   final bool noMerges;
 
@@ -64,9 +68,19 @@ class HistoryFilterRequest {
 /// The graph's response to the sidebar's branch filter (spec P02-14).
 ///
 /// The user's ruling, verbatim: 「只有一個分支：我要有 no merge 的效果，但是不會
-/// 有平行線。兩分支以上，就照目前狀態顯示」. So **exactly one** match converges
-/// the graph to a single line with no merge rows; anything else — no query, no
-/// match, or two matches and up — is the ordinary walk.
+/// 有平行線。兩分支以上，就照目前狀態顯示」, later sharpened after seeing it run:
+/// 「filter only one branch 要看到的是包含並進來的 commit，只是不寫 merge commit
+/// 不會出現，的一條直線」. So **exactly one** match converges the graph to a
+/// single line that still contains every commit on the branch, with only the
+/// merge rows gone; anything else — no query, no match, or two matches and up —
+/// is the ordinary walk.
+///
+/// The first implementation read 「no merge 的效果」 as `--first-parent` and set
+/// it alongside `--no-merges`. That was wrong in a way only running it showed:
+/// `--first-parent` discards everything that landed *through* a merge, so on
+/// this project's own `main` the branch collapsed from 442 rows to 3. Only
+/// `noMerges` is set now — the single line comes from
+/// `HistoryQuery::isLinearWalk()`'s bridging, not from narrowing the walk.
 ///
 /// Deliberately *not* driven by `branchSelectionProvider`: that selection
 /// exists for Fetch/Push/Delete, and having it redraw the whole graph would be
@@ -89,7 +103,6 @@ HistoryFilterRequest historyFilterFor(List<RefInfo> branches, String query) {
   // delete_branch_dialog.dart's first-slash split (#74).
   return HistoryFilterRequest(
     includeRefs: <String>[matches.first.fullName],
-    firstParentOnly: true,
     noMerges: true,
   );
 }

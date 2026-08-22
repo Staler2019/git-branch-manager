@@ -47,7 +47,10 @@ void main() {
         'graph-lanes',
       );
       expect(request.includeRefs, <String>['refs/heads/feature/graph-lanes']);
-      expect(request.firstParentOnly, isTrue);
+      // --first-parent is exactly what this must NOT set: it drops every
+      // commit that arrived through a merge. The single line comes from
+      // isLinearWalk()'s bridging in the core, not from narrowing here.
+      expect(request.firstParentOnly, isFalse);
       expect(request.noMerges, isTrue);
     });
 

@@ -99,7 +99,7 @@ void main() {
     expect(call.args['includeRefs'], <String>[
       'refs/heads/feature/graph-lanes',
     ]);
-    expect(call.args['firstParentOnly'], isTrue);
+    expect(call.args['firstParentOnly'], isFalse);
     expect(call.args['noMerges'], isTrue);
   });
 

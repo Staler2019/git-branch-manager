@@ -15,6 +15,13 @@ import 'widgets/commit_detail_panel.dart';
 /// Two nested splitters, both named by the spec's own SPLITTERS table:
 /// - `main.files`  「中央 ↔ Changed files」, vertical divider, 186px, min 140.
 ///   The files column is the *trailing* fixed pane, so it sits on the right.
+///   Its storage id carries a `.v2` suffix: extent mode persists a raw pixel
+///   value (`split_pane.dart`'s `[extentPx]`), so the height anyone had
+///   already dragged this band to while it lived *below* the graph would come
+///   back as a column *width* on the new axis. Dropping the old key is the
+///   migration -- the stored number has no meaning across an axis flip.
+///   `main.detail` deliberately keeps its id: it is ratio mode, and 62/38
+///   still reads as "the graph gets more" whichever way the divider runs.
 /// - `main.detail` 「Commit list ↔ Commit detail」, horizontal divider, 62/38,
 ///   min 160. Nested inside the centre, so the graph and the detail share one
 ///   column and the files list spans their full height.
@@ -58,7 +65,7 @@ class HistoryPage extends ConsumerWidget {
     return GbmSplitPane(
       axis: Axis.horizontal,
       spec: GbmLayout.splitterMainFiles,
-      storageId: 'main.files',
+      storageId: 'main.files.v2',
       fixedPaneEnd: GbmFixedPaneEnd.trailing,
       children: <Widget>[
         ChangedFilesPanel(identity: identity),

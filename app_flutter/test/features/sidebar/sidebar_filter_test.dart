@@ -10,6 +10,7 @@
 // header, leaving no orphan title) were already conformant when this file was
 // written and are covered by the existing suite; the rules below were not.
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
@@ -135,10 +136,110 @@ List<String> _rows(WidgetTester tester) => tester
     .toList();
 
 void main() {
-  group('rule 4: folders open while filtering', () {
-    testWidgets('CONTROL: a folder is collapsed with no query', (
+  group('rule 8: Esc clears the filter', () {
+    testWidgets('Esc in the filter field empties it and unfilters', (
       tester,
     ) async {
+      await _pump(tester);
+      await tester.tap(_filterField());
+      await tester.pumpAndSettle();
+      await _type(tester, 'graph');
+      expect(find.text('2/6'), findsOneWidget);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+
+      // Both halves: the box is empty *and* the tree is back to unfiltered,
+      // which for this fixture means the folders are collapsed again.
+      expect(tester.widget<TextField>(_filterField()).controller?.text, '');
+      expect(find.textContaining('/6'), findsNothing);
+      expect(_rows(tester), isNot(contains('feature/graph-lanes')));
+    });
+
+    testWidgets('Esc in the tree still collapses the selection', (
+      tester,
+    ) async {
+      // The tree already binds Esc to DismissIntent for MULTIKEYS' collapse.
+      // The filter field sits outside _BranchSelectionShortcuts, so the two
+      // bindings never see the same event -- asserted rather than assumed,
+      // because "it is a different subtree" is exactly the kind of claim
+      // that stops being true after one refactor.
+      await _pump(tester);
+      await _type(tester, 'graph');
+
+      // A **modifier** click, not a plain one: a plain click on a branch row
+      // routes through checkout and never reaches `_onBranchSelect`, so
+      // focus stays in the filter box and Esc goes there instead. The first
+      // version of this test used a plain tap and failed for that reason --
+      // the code was right and the premise was not.
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.tap(find.text('feature/graph-lanes'));
+      await tester.pumpAndSettle();
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<TextField>(_filterField()).controller?.text,
+        'graph',
+        reason: 'Esc with the tree focused must not reach the filter box',
+      );
+    });
+  });
+
+  group('rule 9: the down arrow enters the results', () {
+    testWidgets('selects the first match', (tester) async {
+      await _pump(tester);
+      await tester.tap(_filterField());
+      await tester.pumpAndSettle();
+      await _type(tester, 'graph');
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pumpAndSettle();
+
+      final List<BranchTreeItem> items = tester
+          .widgetList<BranchTreeItem>(find.byType(BranchTreeItem))
+          .toList();
+      final BranchTreeItem firstMatch = items.firstWhere(
+        (BranchTreeItem i) => i.ref.shortName == 'feature/graph-columns',
+      );
+      expect(firstMatch.selected, isTrue);
+    });
+
+    testWidgets('skips the pinned current branch, which did not match', (
+      tester,
+    ) async {
+      // `main` is row zero under rule 7 but is not a *result*. Landing on it
+      // would make the arrow key select something the query excluded.
+      await _pump(tester);
+      await tester.tap(_filterField());
+      await tester.pumpAndSettle();
+      await _type(tester, 'graph');
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pumpAndSettle();
+
+      final BranchTreeItem head = tester
+          .widgetList<BranchTreeItem>(find.byType(BranchTreeItem))
+          .firstWhere((BranchTreeItem i) => i.ref.shortName == 'main');
+      expect(head.selected, isFalse);
+    });
+
+    testWidgets('does nothing when nothing matched', (tester) async {
+      await _pump(tester);
+      await tester.tap(_filterField());
+      await tester.pumpAndSettle();
+      await _type(tester, 'zzz');
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(_rows(tester), <String>['main']);
+    });
+  });
+
+  group('rule 4: folders open while filtering', () {
+    testWidgets('CONTROL: a folder is collapsed with no query', (tester) async {
       await _pump(tester);
 
       expect(find.text('feature'), findsOneWidget);

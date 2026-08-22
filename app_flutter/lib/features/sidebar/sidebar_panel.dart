@@ -229,6 +229,52 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     };
   }
 
+  /// The first *result* row in rendered order, or null when the filter
+  /// matched nothing. Written during `build` because rendered order is the
+  /// tree's, and the tree sorts its children -- recomputing it in the key
+  /// handler would mean a second copy of that ordering.
+  ///
+  /// Deliberately not `_selectableBranchNames().first`: that list is in ref
+  /// order, so it would name whichever branch git happened to list first
+  /// rather than the row directly under the filter box.
+  String? _firstResultName;
+
+  /// P02-14 rule 8. Also the clear button's action, so the two cannot drift.
+  void _clearFilter() {
+    setState(() {
+      _filterController.clear();
+      _filterQuery = '';
+    });
+  }
+
+  /// P02-14 rule 9: 「↓ 直接跳進第一個結果」.
+  ///
+  /// Selects rather than merely focusing, so ↑/↓ and Shift+↑/↓ continue from
+  /// there -- the point of the key is to hand the keyboard over to the
+  /// results. A no-op when nothing matched; the pinned current branch (rule
+  /// 7) is not a result and is skipped, since landing on it would select
+  /// something the query excluded.
+  void _enterFirstResult() {
+    final String? first = _firstResultName;
+    if (first == null) return;
+    _onBranchSelect(first, SelectionGesture.single);
+  }
+
+  /// The first selectable leaf in render order, skipping remote-only rows --
+  /// `BranchTreeItem` draws those with `selected: false`, so selecting one
+  /// would look like the key did nothing.
+  String? _firstLeafName(List<BranchTreeNode> nodes) {
+    for (final BranchTreeNode node in nodes) {
+      if (node is BranchTreeLeaf) {
+        if (node.ref.kind != RefKind.remoteBranch) return node.ref.shortName;
+      } else if (node is BranchTreeFolder) {
+        final String? nested = _firstLeafName(node.children);
+        if (nested != null) return nested;
+      }
+    }
+    return null;
+  }
+
   /// The rows a range can span: the merged tree as currently filtered,
   /// minus HEAD and remote-only rows (neither is bulk-selectable).
   List<String> _selectableBranchNames() {
@@ -785,6 +831,7 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
       // here, so clearing the query restores exactly what they had.
       expandAll: isFiltering,
     );
+    _firstResultName = _firstLeafName(branchTree);
     final List<RefInfo> filteredTags = filterBranches(refs.tags, _filterQuery);
     // Stashes go through the same rule as branches and tags: P02-14 is one
     // box over three sections, so a query that finds a branch by its
@@ -903,65 +950,77 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                 Expanded(
                   child: SizedBox(
                     height: 28,
-                    child: TextField(
-                      controller: _filterController,
-                      focusNode: widget.filterFocusNode,
-                      style: TextStyle(
-                        fontSize: GbmTypography.textSm,
-                        color: colors.textPrimary,
-                      ),
-                      onChanged: (value) =>
-                          setState(() => _filterQuery = value),
-                      decoration: InputDecoration(
-                        isDense: true,
-                        hintText: 'Filter branches',
-                        hintStyle: TextStyle(
+                    // P02-14 rules 8 and 9. Placed here rather than on the
+                    // panel: this is the innermost `Shortcuts` above the
+                    // field, so it resolves Esc and ↓ before the app-level
+                    // `DefaultTextEditingShortcuts` gets them -- and it is
+                    // scoped to the field, so the tree's own Esc (MULTIKEYS'
+                    // collapse) is untouched. Same focus-scope reasoning as
+                    // Ctrl/Cmd+A being bound to the tree only.
+                    child: CallbackShortcuts(
+                      bindings: <ShortcutActivator, VoidCallback>{
+                        const SingleActivator(LogicalKeyboardKey.escape):
+                            _clearFilter,
+                        const SingleActivator(LogicalKeyboardKey.arrowDown):
+                            _enterFirstResult,
+                      },
+                      child: TextField(
+                        controller: _filterController,
+                        focusNode: widget.filterFocusNode,
+                        style: TextStyle(
                           fontSize: GbmTypography.textSm,
-                          color: colors.textTertiary,
+                          color: colors.textPrimary,
                         ),
-                        prefixIcon: Icon(
-                          Icons.search,
-                          size: 14,
-                          color: colors.textTertiary,
-                        ),
-                        prefixIconConstraints: const BoxConstraints(
-                          minWidth: 28,
-                          minHeight: 28,
-                        ),
-                        suffixIcon: _filterQuery.isEmpty
-                            ? null
-                            : IconButton(
-                                icon: Icon(
-                                  Icons.close,
-                                  size: 14,
-                                  color: colors.textTertiary,
+                        onChanged: (value) =>
+                            setState(() => _filterQuery = value),
+                        decoration: InputDecoration(
+                          isDense: true,
+                          hintText: 'Filter branches',
+                          hintStyle: TextStyle(
+                            fontSize: GbmTypography.textSm,
+                            color: colors.textTertiary,
+                          ),
+                          prefixIcon: Icon(
+                            Icons.search,
+                            size: 14,
+                            color: colors.textTertiary,
+                          ),
+                          prefixIconConstraints: const BoxConstraints(
+                            minWidth: 28,
+                            minHeight: 28,
+                          ),
+                          suffixIcon: _filterQuery.isEmpty
+                              ? null
+                              : IconButton(
+                                  icon: Icon(
+                                    Icons.close,
+                                    size: 14,
+                                    color: colors.textTertiary,
+                                  ),
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(
+                                    minWidth: 28,
+                                    minHeight: 28,
+                                  ),
+                                  onPressed: _clearFilter,
                                 ),
-                                padding: EdgeInsets.zero,
-                                constraints: const BoxConstraints(
-                                  minWidth: 28,
-                                  minHeight: 28,
-                                ),
-                                onPressed: () => setState(() {
-                                  _filterController.clear();
-                                  _filterQuery = '';
-                                }),
-                              ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          vertical: GbmSpacing.space1,
-                        ),
-                        filled: true,
-                        fillColor: colors.surfaceSunken,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(4),
-                          borderSide: BorderSide(color: colors.borderSubtle),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(4),
-                          borderSide: BorderSide(color: colors.borderSubtle),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(4),
-                          borderSide: BorderSide(color: colors.borderFocus),
+                          contentPadding: const EdgeInsets.symmetric(
+                            vertical: GbmSpacing.space1,
+                          ),
+                          filled: true,
+                          fillColor: colors.surfaceSunken,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(4),
+                            borderSide: BorderSide(color: colors.borderSubtle),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(4),
+                            borderSide: BorderSide(color: colors.borderSubtle),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(4),
+                            borderSide: BorderSide(color: colors.borderFocus),
+                          ),
                         ),
                       ),
                     ),

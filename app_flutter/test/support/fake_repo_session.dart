@@ -288,6 +288,17 @@ class FakeRepoSessionController extends RepoSessionController {
     );
   }
 
+  /// Recorded rather than left to the null-session no-op because the status
+  /// bar's Cancel button dispatches through here: `_cancelTask('history-scan')`
+  /// (workspace_screen.dart) cancels the incremental scan by re-requesting
+  /// the current snapshot, there being no separate cancel entry point in the
+  /// capi. Without this override a test could not tell a dead Cancel button
+  /// apart from a dispatched one.
+  @override
+  void refreshHistory() {
+    commandLog.add(const FakeCommand('refreshHistory'));
+  }
+
   @override
   void fetchRemote({
     String remoteName = '',

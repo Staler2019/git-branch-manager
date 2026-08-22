@@ -869,6 +869,53 @@ TEST(HistoryQuery, NarrowsToIncludeRefsWithoutAll) {
     EXPECT_NE(std::find(args.begin(), args.end(), "refs/heads/feature-b"), args.end());
 }
 
+TEST(HistoryQuery, NoMergesDropsMergeCommitsFromTheWalk) {
+    // The sidebar branch filter narrowing to exactly one branch asks for "one
+    // line, no merge rows" -- --first-parent alone still emits the merge
+    // commits themselves, so --no-merges is a separate flag rather than an
+    // implication of it.
+    HistoryQuery query;
+    // One vector, not two calls: toRevListArgs() returns by value, so
+    // iterators taken from separate temporaries are not comparable at all.
+    const auto byDefault = query.toRevListArgs();
+    EXPECT_EQ(std::find(byDefault.begin(), byDefault.end(), "--no-merges"), byDefault.end())
+        << "--no-merges must be opt-in; the default walk shows merges";
+
+    query.noMerges = true;
+    const auto args = query.toRevListArgs();
+    EXPECT_NE(std::find(args.begin(), args.end(), "--no-merges"), args.end());
+}
+
+TEST(HistoryQuery, LinearWalkNeedsASingleTipAndBothFlags) {
+    // isLinearWalk() is what turns on parent bridging in the walk loop, and a
+    // bridge is only truthful when consecutive output rows are guaranteed to be
+    // first-parent ancestor/descendant. That guarantee comes from *one* tip
+    // walked with --first-parent: several interleaved chains (--all, or two
+    // includeRefs) put unrelated commits next to each other, and --no-merges
+    // without --first-parent keeps every side branch.
+    HistoryQuery query;
+    query.includeRefs = {"refs/heads/main"};
+    query.firstParentOnly = true;
+    query.noMerges = true;
+    EXPECT_TRUE(query.isLinearWalk());
+
+    HistoryQuery twoTips = query;
+    twoTips.includeRefs = {"refs/heads/main", "refs/heads/feature"};
+    EXPECT_FALSE(twoTips.isLinearWalk());
+
+    HistoryQuery allRefs = query;
+    allRefs.includeRefs.clear();
+    EXPECT_FALSE(allRefs.isLinearWalk());
+
+    HistoryQuery mergesKept = query;
+    mergesKept.noMerges = false;
+    EXPECT_FALSE(mergesKept.isLinearWalk());
+
+    HistoryQuery everyParent = query;
+    everyParent.firstParentOnly = false;
+    EXPECT_FALSE(everyParent.isLinearWalk());
+}
+
 TEST(HistoryQuery, PushesFilteringDownIntoGit) {
     HistoryQuery query;
     query.author = "someone";

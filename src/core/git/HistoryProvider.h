@@ -42,11 +42,35 @@ struct HistoryQuery {
     std::optional<std::int64_t> since;
     std::optional<std::int64_t> until;
     bool firstParentOnly = false;
+    /// Adds --no-merges, so merge commits get no row of their own. Separate
+    /// from firstParentOnly because --first-parent still emits the merge
+    /// itself, only not its second parent's side. The sidebar branch filter
+    /// sets both when it narrows to exactly one branch -- see isLinearWalk().
+    bool noMerges = false;
     bool includeReflog = false;  ///< Adds --reflog, so post-reset commits appear.
     bool dateOrder = false;      ///< Interleaves branches; the graph will zig-zag.
     std::uint32_t maxCount = 0;  ///< 0 means unlimited.
 
     std::vector<std::string> toRevListArgs() const;
+
+    /// True when the walk is guaranteed to emit one unbroken first-parent
+    /// chain, which is what lets HistoryProvider bridge over the rows the
+    /// filter removed (see its walk loop).
+    ///
+    /// All three conditions are load-bearing. **One** tip walked with
+    /// `--first-parent` visits exactly the commits on that tip's first-parent
+    /// chain, in order; the output under `--no-merges` is then a *subsequence*
+    /// of that chain, so any two consecutive output rows are still
+    /// first-parent ancestor and descendant with only merges elided between
+    /// them. That is a structural property of the walk, not an observation
+    /// about any particular repository. Relax any condition and it stops
+    /// holding: two tips (or `--all`) interleave several chains, so
+    /// neighbouring rows can be unrelated; without `--first-parent` every side
+    /// branch is walked too; without `--no-merges` nothing is removed and
+    /// there is nothing to bridge.
+    bool isLinearWalk() const {
+        return includeRefs.size() == 1 && firstParentOnly && noMerges;
+    }
 };
 
 /// Why a history walk was started. RepositorySession threads this from each

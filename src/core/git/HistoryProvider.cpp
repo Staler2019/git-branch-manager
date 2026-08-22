@@ -25,6 +25,9 @@ std::vector<std::string> HistoryQuery::toRevListArgs() const {
     if (firstParentOnly) {
         args.emplace_back("--first-parent");
     }
+    if (noMerges) {
+        args.emplace_back("--no-merges");
+    }
     if (includeReflog) {
         args.emplace_back("--reflog");
     }

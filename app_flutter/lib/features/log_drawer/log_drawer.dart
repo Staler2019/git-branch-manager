@@ -20,7 +20,7 @@ enum _LogLevel { all, info, warning, error }
 class LogDrawer extends StatefulWidget {
   const LogDrawer({super.key, required this.records});
 
-  final List<OperationRecord> records;
+  final List<GbmLogEntry> records;
 
   @override
   State<LogDrawer> createState() => _LogDrawerState();
@@ -38,7 +38,7 @@ class _LogDrawerState extends State<LogDrawer> {
   /// showed every warning and spec's three-level `LOGRULES` model was not
   /// actually a partition. Going through `level` makes the three mutually
   /// exclusive by construction.
-  List<OperationRecord> get _filteredRecords {
+  List<GbmLogEntry> get _filteredRecords {
     return widget.records.where((record) {
       return switch (_selectedLevel) {
         _LogLevel.all => true,
@@ -57,12 +57,19 @@ class _LogDrawerState extends State<LogDrawer> {
   /// it took. Nothing here reaches into credentials or file contents -- the
   /// `LOGRULES` "不記什麼" row is satisfied upstream, by what
   /// `OperationRecord` chooses to carry at all.
-  static String _formatRecord(OperationRecord r) {
+  static String _formatRecord(GbmLogEntry entry) {
     final String when = DateTime.fromMillisecondsSinceEpoch(
-      r.whenEpochMs,
+      entry.whenEpochMs,
     ).toIso8601String();
-    return '$when  ${r.levelLabel}  ${escapeControlChars(r.commandLine)}  '
-        '(exit ${r.exitCode}, ${r.durationMs}ms)';
+    final String head =
+        '$when  ${entry.levelLabel}  ${escapeControlChars(entry.message)}';
+    // An app-level event is not a process: printing `(exit 0, 0ms)` after it
+    // would read as a git invocation that succeeded instantly.
+    return switch (entry) {
+      OperationRecord(:final int exitCode, :final int durationMs) =>
+        '$head  (exit $exitCode, ${durationMs}ms)',
+      AppLogEntry() => head,
+    };
   }
 
   String get _exportText => _filteredRecords.map(_formatRecord).join('\n');
@@ -199,7 +206,7 @@ class _LogDrawerState extends State<LogDrawer> {
                     itemBuilder: (context, index) {
                       final record =
                           _filteredRecords[_filteredRecords.length - 1 - index];
-                      return _OperationRow(record: record);
+                      return _LogRow(entry: record);
                     },
                   ),
           ),
@@ -217,10 +224,25 @@ String _formatTime(int epochMs) {
   return '${pad(when.hour)}:${pad(when.minute)}:${pad(when.second)}';
 }
 
-class _OperationRow extends StatelessWidget {
-  const _OperationRow({required this.record});
+class _LogRow extends StatelessWidget {
+  const _LogRow({required this.entry});
 
-  final OperationRecord record;
+  final GbmLogEntry entry;
+
+  /// The icon for a git invocation stays a four-way on the *cause*, which is
+  /// finer than the three levels and orthogonal to them -- a timeout and a
+  /// rejected exit are both errors but not the same thing. An app-level
+  /// event has no process outcome to be finer about, so it falls back to the
+  /// level.
+  static IconData _iconFor(GbmLogEntry entry) => switch (entry) {
+    OperationRecord(cancelled: true) => Icons.stop_circle,
+    OperationRecord(timedOut: true) => Icons.schedule,
+    OperationRecord(:final int exitCode) when exitCode != 0 => Icons.error,
+    OperationRecord() => Icons.check_circle,
+    AppLogEntry(level: OperationLogLevel.info) => Icons.info_outline,
+    AppLogEntry(level: OperationLogLevel.warning) => Icons.warning_amber,
+    AppLogEntry(level: OperationLogLevel.error) => Icons.error_outline,
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -228,21 +250,18 @@ class _OperationRow extends StatelessWidget {
     // Colour follows the level, not `failed`: a cancelled read used to be
     // painted the same danger red as a genuinely rejected command, which is
     // what made a superseded refresh look like a failure.
-    final Color statusColor = switch (record.level) {
+    final Color statusColor = switch (entry.level) {
       OperationLogLevel.info => colors.textTertiary,
       OperationLogLevel.warning => colors.warning,
       OperationLogLevel.error => colors.danger,
     };
-    // The icon stays a four-way on the *cause*, which is finer than the
-    // three levels and orthogonal to them -- a timeout and a rejected exit
-    // are both errors but not the same thing.
-    final IconData statusIcon = record.cancelled
-        ? Icons.stop_circle
-        : record.timedOut
-        ? Icons.schedule
-        : record.exitCode != 0
-        ? Icons.error
-        : Icons.check_circle;
+    final IconData statusIcon = _iconFor(entry);
+    // Null for an app-level event: it has no process, so the duration, exit
+    // code and stderr blocks below are absent rather than zeroed.
+    final OperationRecord? git = switch (entry) {
+      final OperationRecord record => record,
+      AppLogEntry() => null,
+    };
 
     return Padding(
       padding: const EdgeInsets.symmetric(
@@ -264,7 +283,7 @@ class _OperationRow extends StatelessWidget {
               SizedBox(
                 width: 68,
                 child: Text(
-                  record.levelLabel,
+                  entry.levelLabel,
                   style: TextStyle(
                     fontSize: GbmTypography.textXs,
                     fontFamily: GbmTypography.fontMono,
@@ -274,7 +293,7 @@ class _OperationRow extends StatelessWidget {
               ),
               const SizedBox(width: GbmSpacing.space2),
               Text(
-                _formatTime(record.whenEpochMs),
+                _formatTime(entry.whenEpochMs),
                 style: TextStyle(
                   fontSize: GbmTypography.textXs,
                   fontFamily: GbmTypography.fontMono,
@@ -284,7 +303,7 @@ class _OperationRow extends StatelessWidget {
               const SizedBox(width: GbmSpacing.space2),
               Expanded(
                 child: SelectableText(
-                  escapeControlChars(record.commandLine),
+                  escapeControlChars(entry.message),
                   style: TextStyle(
                     fontSize: GbmTypography.textSm,
                     fontFamily: GbmTypography.fontMono,
@@ -292,31 +311,33 @@ class _OperationRow extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(width: GbmSpacing.space2),
-              Text(
-                '${record.durationMs}ms',
-                style: TextStyle(
-                  fontSize: GbmTypography.textXs,
-                  color: colors.textTertiary,
-                ),
-              ),
-              if (record.failed && record.exitCode != 0) ...<Widget>[
-                const SizedBox(width: GbmSpacing.space1),
+              if (git != null) ...<Widget>[
+                const SizedBox(width: GbmSpacing.space2),
                 Text(
-                  'exit ${record.exitCode}',
+                  '${git.durationMs}ms',
                   style: TextStyle(
                     fontSize: GbmTypography.textXs,
-                    color: statusColor,
+                    color: colors.textTertiary,
                   ),
                 ),
+                if (git.failed && git.exitCode != 0) ...<Widget>[
+                  const SizedBox(width: GbmSpacing.space1),
+                  Text(
+                    'exit ${git.exitCode}',
+                    style: TextStyle(
+                      fontSize: GbmTypography.textXs,
+                      color: statusColor,
+                    ),
+                  ),
+                ],
               ],
             ],
           ),
-          if (record.failed && record.stderrText.isNotEmpty)
+          if (git != null && git.failed && git.stderrText.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: GbmSpacing.space1),
               child: SelectableText(
-                record.stderrText,
+                git.stderrText,
                 style: TextStyle(
                   fontSize: GbmTypography.textXs,
                   fontFamily: GbmTypography.fontMono,

@@ -448,4 +448,104 @@ void main() {
       );
     });
   });
+
+  // Spec page 10's LOGRULES 記什麼 row asks for 「應用層事件（開啟 repo、切
+  // 分支、prune 掉哪些 ref）」 alongside git invocations, and page 10's own
+  // mockup draws one as a warning row with no exit code and no duration.
+  group('LogDrawer renders app-level events', () {
+    Future<void> pumpEntries(WidgetTester tester, List<GbmLogEntry> entries) {
+      return tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: Scaffold(body: LogDrawer(records: entries)),
+        ),
+      );
+    }
+
+    const AppLogEntry goneMarked = AppLogEntry(
+      whenEpochMs: 1692000000000,
+      level: OperationLogLevel.warning,
+      message:
+          'origin/graph-lanes no longer exists on the remote '
+          '- marked as gone (not pruned)',
+    );
+
+    testWidgets('an app event shows its message and level word', (
+      tester,
+    ) async {
+      await pumpEntries(tester, <GbmLogEntry>[goneMarked]);
+
+      expect(find.text(goneMarked.message), findsOneWidget);
+      expect(find.text('WARNING'), findsOneWidget);
+    });
+
+    // An app event is not a process. Printing `0ms` beside it would read as
+    // a git invocation that returned instantly.
+    testWidgets('an app event shows no duration and no exit code', (
+      tester,
+    ) async {
+      await pumpEntries(tester, <GbmLogEntry>[
+        const AppLogEntry(
+          whenEpochMs: 1692000000000,
+          level: OperationLogLevel.error,
+          message: 'Something went wrong',
+        ),
+      ]);
+
+      expect(find.textContaining('ms'), findsNothing);
+      expect(find.textContaining('exit '), findsNothing);
+    });
+
+    // The filter is the reason GbmLogEntry carries `level` rather than
+    // leaving the drawer to pattern-match on the subtype: an app warning has
+    // to land in the same bucket a cancelled git read does.
+    testWidgets('an app warning is filtered as a warning, not as an error', (
+      tester,
+    ) async {
+      await pumpEntries(tester, <GbmLogEntry>[goneMarked]);
+
+      await tester.tap(find.text('Error'));
+      await tester.pump();
+      expect(find.text(goneMarked.message), findsNothing);
+
+      await tester.tap(find.text('Warning'));
+      await tester.pump();
+      expect(find.text(goneMarked.message), findsOneWidget);
+    });
+
+    // The export and the row are one code path per field on purpose -- they
+    // drifted apart once already (LOGRULES' three levels were not a
+    // partition), so the `(exit N, Nms)` suffix has to be absent in both.
+    testWidgets('the export writes no exit code for an app event', (
+      tester,
+    ) async {
+      String? clipboardText;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (MethodCall methodCall) async {
+          if (methodCall.method == 'Clipboard.setData') {
+            clipboardText =
+                (methodCall.arguments as Map<Object?, Object?>)['text']
+                    as String?;
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+
+      await pumpEntries(tester, <GbmLogEntry>[goneMarked]);
+      await tester.tap(find.text('Copy All'));
+      await tester.pump();
+
+      expect(clipboardText, contains('WARNING'));
+      expect(clipboardText, contains(goneMarked.message));
+      expect(clipboardText, isNot(contains('exit ')));
+      expect(clipboardText, isNot(contains('ms)')));
+    });
+  });
 }

@@ -123,4 +123,48 @@ void main() {
       }
     });
   });
+
+  // Spec page 10's LOGRULES 記什麼 row asks for app-level events
+  // (「開啟 repo、切分支、prune 掉哪些 ref」) in the same log as git
+  // invocations, so both are members of one sealed GbmLogEntry set.
+  group('AppLogEntry', () {
+    AppLogEntry entry(OperationLogLevel level) => AppLogEntry(
+      whenEpochMs: 1,
+      level: level,
+      message: 'Opened repository /tmp/demo',
+    );
+
+    test('is a GbmLogEntry, as is OperationRecord', () {
+      expect(entry(OperationLogLevel.info), isA<GbmLogEntry>());
+      expect(
+        record(cancelled: false, timedOut: false, exitCode: 0),
+        isA<GbmLogEntry>(),
+      );
+    });
+
+    // Deliberately not OperationRecord's `CANCELLED`: that word is exact
+    // there because a git invocation's only way to be a warning is to have
+    // been cancelled, and an app event has no process to cancel.
+    test('reads WARNING where a git record reads CANCELLED', () {
+      expect(entry(OperationLogLevel.warning).levelLabel, 'WARNING');
+      expect(
+        record(cancelled: true, timedOut: false, exitCode: 143).levelLabel,
+        'CANCELLED',
+      );
+    });
+
+    test('maps info and error to the same words a git record does', () {
+      expect(entry(OperationLogLevel.info).levelLabel, 'INFO');
+      expect(entry(OperationLogLevel.error).levelLabel, 'ERROR');
+    });
+
+    // The drawer and the export both read `message`, so a git record has to
+    // surface its command line through the same member.
+    test('message is the command line for a git record', () {
+      expect(
+        record(cancelled: false, timedOut: false, exitCode: 0).message,
+        record(cancelled: false, timedOut: false, exitCode: 0).commandLine,
+      );
+    });
+  });
 }

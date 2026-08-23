@@ -314,7 +314,7 @@ class CompareWithWorkingCopyResult {
   final ParsedDiff diff;
 }
 
-/// Default cap for how many [OperationRecord]s [RepoSessionState.operationLog]
+/// Default cap for how many [GbmLogEntry]s [RepoSessionState.operationLog]
 /// keeps, used only when [RepoSessionController] isn't given an explicit
 /// value. The real cap in normal operation comes from
 /// [AppPreferences.logMemoryLimit] (spec page 10 LOGRULES: "記憶體中保留最近
@@ -366,7 +366,7 @@ class RepoSessionState {
     this.worktrees = const <WorktreeInfo>[],
     this.remotes = const <RemoteInfo>[],
     this.credentialPrompt,
-    this.operationLog = const <OperationRecord>[],
+    this.operationLog = const <GbmLogEntry>[],
     this.lastBlame,
     this.commitMetaCache = const <String, CommitMeta>{},
     this.commitFileCountCache = const <String, int>{},
@@ -422,7 +422,7 @@ class RepoSessionState {
 
   /// Newest-last, capped at [RepoSessionController.maxOperationLogEntries]
   /// (sourced from [AppPreferences.logMemoryLimit]).
-  final List<OperationRecord> operationLog;
+  final List<GbmLogEntry> operationLog;
   final BlameResult? lastBlame;
 
   /// Batch-fetched commit metadata (author/subject/body), keyed by oid and
@@ -586,7 +586,7 @@ class RepoSessionState {
     List<RemoteInfo>? remotes,
     String? credentialPrompt,
     bool clearCredentialPrompt = false,
-    List<OperationRecord>? operationLog,
+    List<GbmLogEntry>? operationLog,
     BlameResult? lastBlame,
     Map<String, CommitMeta>? commitMetaCache,
     Map<String, int>? commitFileCountCache,
@@ -786,13 +786,10 @@ class RepoSessionState {
   /// from [AppPreferences.logMemoryLimit]), which this pure state class has
   /// no way to read for itself.
   RepoSessionState withOperationRecord(
-    OperationRecord record, {
+    GbmLogEntry record, {
     required int maxEntries,
   }) {
-    final List<OperationRecord> updated = <OperationRecord>[
-      ...operationLog,
-      record,
-    ];
+    final List<GbmLogEntry> updated = <GbmLogEntry>[...operationLog, record];
     return copyWith(
       operationLog: updated.length > maxEntries
           ? updated.sublist(updated.length - maxEntries)

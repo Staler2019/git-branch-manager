@@ -366,4 +366,86 @@ void main() {
       expect(find.text('git push'), findsNothing);
     });
   });
+
+  group('LogDrawer row shows the level in words', () {
+    Future<void> pumpWith(
+      WidgetTester tester,
+      List<OperationRecord> records,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: Scaffold(body: LogDrawer(records: records)),
+        ),
+      );
+      await tester.pump();
+    }
+
+    OperationRecord recordWith({
+      String commandLine = 'git status',
+      int exitCode = 0,
+      bool cancelled = false,
+      bool timedOut = false,
+    }) {
+      return OperationRecord(
+        whenEpochMs: 1692000000000,
+        repoDir: '/path/to/repo',
+        argv: const <String>['git', 'status'],
+        commandLine: commandLine,
+        exitCode: exitCode,
+        durationMs: 10,
+        stderrText: '',
+        cancelled: cancelled,
+        timedOut: timedOut,
+      );
+    }
+
+    testWidgets('a cancelled row reads CANCELLED, not just a red icon', (
+      tester,
+    ) async {
+      // Before this, cancellation was signalled only by a red stop_circle
+      // icon -- the same colour as a genuine failure, with no word anywhere
+      // on screen to tell the two apart. The level strings existed only in
+      // the export path.
+      await pumpWith(tester, <OperationRecord>[
+        recordWith(exitCode: 143, cancelled: true),
+      ]);
+
+      expect(find.text('CANCELLED'), findsOneWidget);
+    });
+
+    testWidgets('a rejected command reads ERROR', (tester) async {
+      await pumpWith(tester, <OperationRecord>[recordWith(exitCode: 1)]);
+      expect(find.text('ERROR'), findsOneWidget);
+    });
+
+    testWidgets('a timeout reads TIMEOUT', (tester) async {
+      await pumpWith(tester, <OperationRecord>[
+        recordWith(exitCode: 143, timedOut: true),
+      ]);
+      expect(find.text('TIMEOUT'), findsOneWidget);
+    });
+
+    testWidgets('a clean run reads INFO', (tester) async {
+      await pumpWith(tester, <OperationRecord>[recordWith()]);
+      expect(find.text('INFO'), findsOneWidget);
+    });
+
+    testWidgets('the command line renders control characters visibly', (
+      tester,
+    ) async {
+      await pumpWith(tester, <OperationRecord>[
+        recordWith(
+          commandLine:
+              'git for-each-ref "--format=%(refname)'
+              '\u001f%(objecttype)"',
+        ),
+      ]);
+
+      expect(
+        find.text(r'git for-each-ref "--format=%(refname)\x1f%(objecttype)"'),
+        findsOneWidget,
+      );
+    });
+  });
 }

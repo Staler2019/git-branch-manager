@@ -85,3 +85,45 @@ class OperationRecord {
     OperationLogLevel.error => timedOut ? 'TIMEOUT' : 'ERROR',
   };
 }
+
+/// Renders C0 control characters (and DEL) as visible escapes, so a command
+/// line that carries one is legible instead of running together.
+///
+/// The case that forced this: `RefStore::load()` joins `for-each-ref`'s eight
+/// `%(...)` fields with `\x1f` (`src/core/git/RefStore.cpp`'s
+/// `kFieldSeparator`). In a `SelectableText` those bytes have no glyph, so
+/// the whole `--format=` argument reads as one run-together string -- and
+/// copying it out of the log drops them entirely, which is how a perfectly
+/// well-formed command reached a bug report looking corrupted.
+///
+/// Backslashes are deliberately **not** escaped. `OperationRecord::commandLine()`
+/// (src/core/base/Logging.cpp) already doubles a backslash inside a quoted
+/// argument, so doing it again here would render every Windows path with twice
+/// the backslashes it has. The consequence, stated rather than hidden: the
+/// output is *visible* but not strictly round-trippable -- a literal `\x1f`
+/// someone typed into a path is indistinguishable from an escaped 0x1F byte.
+/// This text is read by a human, not re-parsed, so visibility wins.
+///
+/// Applied to the command line only. `stderrText` is genuinely multi-line and
+/// escaping its newlines would collapse it into one unreadable row.
+String escapeControlChars(String text) {
+  final StringBuffer out = StringBuffer();
+  for (final int unit in text.codeUnits) {
+    if (unit >= 0x20 && unit != 0x7f) {
+      out.writeCharCode(unit);
+      continue;
+    }
+    switch (unit) {
+      case 0x09:
+        out.write(r'\t');
+      case 0x0a:
+        out.write(r'\n');
+      case 0x0d:
+        out.write(r'\r');
+      default:
+        out.write(r'\x');
+        out.write(unit.toRadixString(16).padLeft(2, '0'));
+    }
+  }
+  return out.toString();
+}

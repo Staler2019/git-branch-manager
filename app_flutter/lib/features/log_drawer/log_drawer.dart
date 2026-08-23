@@ -61,7 +61,7 @@ class _LogDrawerState extends State<LogDrawer> {
     final String when = DateTime.fromMillisecondsSinceEpoch(
       r.whenEpochMs,
     ).toIso8601String();
-    return '$when  ${r.levelLabel}  ${r.commandLine}  '
+    return '$when  ${r.levelLabel}  ${escapeControlChars(r.commandLine)}  '
         '(exit ${r.exitCode}, ${r.durationMs}ms)';
   }
 
@@ -225,9 +225,17 @@ class _OperationRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
-    final Color statusColor = record.failed
-        ? colors.danger
-        : colors.textTertiary;
+    // Colour follows the level, not `failed`: a cancelled read used to be
+    // painted the same danger red as a genuinely rejected command, which is
+    // what made a superseded refresh look like a failure.
+    final Color statusColor = switch (record.level) {
+      OperationLogLevel.info => colors.textTertiary,
+      OperationLogLevel.warning => colors.warning,
+      OperationLogLevel.error => colors.danger,
+    };
+    // The icon stays a four-way on the *cause*, which is finer than the
+    // three levels and orthogonal to them -- a timeout and a rejected exit
+    // are both errors but not the same thing.
     final IconData statusIcon = record.cancelled
         ? Icons.stop_circle
         : record.timedOut
@@ -248,6 +256,23 @@ class _OperationRow extends StatelessWidget {
             children: <Widget>[
               Icon(statusIcon, size: 14, color: statusColor),
               const SizedBox(width: GbmSpacing.space2),
+              // Spec page 10 item 4 lists the level as a field of a log row.
+              // It existed only in the export until now; on screen the sole
+              // signal was the icon's colour, so "cancelled" and "failed"
+              // were indistinguishable at a glance. Fixed width so the
+              // timestamps below it stay in a column.
+              SizedBox(
+                width: 68,
+                child: Text(
+                  record.levelLabel,
+                  style: TextStyle(
+                    fontSize: GbmTypography.textXs,
+                    fontFamily: GbmTypography.fontMono,
+                    color: statusColor,
+                  ),
+                ),
+              ),
+              const SizedBox(width: GbmSpacing.space2),
               Text(
                 _formatTime(record.whenEpochMs),
                 style: TextStyle(
@@ -259,7 +284,7 @@ class _OperationRow extends StatelessWidget {
               const SizedBox(width: GbmSpacing.space2),
               Expanded(
                 child: SelectableText(
-                  record.commandLine,
+                  escapeControlChars(record.commandLine),
                   style: TextStyle(
                     fontSize: GbmTypography.textSm,
                     fontFamily: GbmTypography.fontMono,

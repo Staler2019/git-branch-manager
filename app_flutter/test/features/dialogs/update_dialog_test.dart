@@ -27,6 +27,23 @@ final LatestRelease _release = LatestRelease(
   assets: const <ReleaseAsset>[_asset],
 );
 
+/// A release body the size semantic-release actually publishes.
+///
+/// The live v0.30.0 notes are 7,922 characters over 74 lines. Every other
+/// fixture in this file uses a single short line, which is why no widget
+/// test could see the overflow this pins: a fixture that cannot disagree
+/// with the code proves nothing.
+final LatestRelease _wordyRelease = LatestRelease(
+  version: const AppVersion(9, 9, 9),
+  tagName: 'v9.9.9',
+  htmlUrl: 'https://example.test/releases/tag/v9.9.9',
+  notes: List<String>.generate(
+    74,
+    (int i) => '* change $i ([abc$i](https://example.test/commit/abc$i))',
+  ).join('\n'),
+  assets: const <ReleaseAsset>[_asset],
+);
+
 /// Mirrors `FakeRepoSessionController`'s shape: a real subclass whose
 /// overridden methods record instead of acting, so the widget is driven
 /// through the same notifier API it uses in production.
@@ -297,6 +314,49 @@ void main() {
 
       expect(fake.calls, <String>['cancel']);
       expect(fake.calls, isNot(contains('install')));
+    });
+
+    // Found by the device tier against the real GitHub API, where the
+    // release body is a full generated changelog: the notes rendered as an
+    // unbounded Text inside GbmDialogShell's 560px-capped Column, which
+    // overflowed by 2,977 pixels and took the dialog with it.
+    testWidgets('a full changelog scrolls instead of overflowing the dialog', (
+      WidgetTester tester,
+    ) async {
+      await _pumpDialog(
+        tester,
+        UpdateState.available(release: _wordyRelease, asset: _asset),
+      );
+
+      // A vertical overflow inside a vertical Column is main-axis, so
+      // RenderFlex does report it -- unlike the cross-axis case this repo
+      // has been caught by before.
+      expect(tester.takeException(), isNull);
+      expect(
+        find.descendant(
+          of: find.byType(SingleChildScrollView),
+          matching: find.textContaining('change 0'),
+        ),
+        findsOneWidget,
+        reason: 'the notes must be reachable, not merely clipped',
+      );
+    });
+
+    // The buttons are the whole point of the dialog; long notes must never
+    // push them out of reach.
+    testWidgets('keeps its actions visible under a full changelog', (
+      WidgetTester tester,
+    ) async {
+      await _pumpDialog(
+        tester,
+        UpdateState.available(release: _wordyRelease, asset: _asset),
+      );
+
+      expect(find.text('Download and install'), findsOneWidget);
+      expect(
+        tester.getRect(find.text('Download and install')).bottom,
+        lessThan(600),
+      );
     });
 
     // Past the point of no return: the detached script is already running.

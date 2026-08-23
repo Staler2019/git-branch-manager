@@ -96,11 +96,22 @@ class _UpdateDialogContentState extends ConsumerState<UpdateDialogContent> {
           ],
           if (_notes(state) case final String notes) ...<Widget>[
             const SizedBox(height: GbmSpacing.space3),
-            Text(
-              notes,
-              style: TextStyle(
-                fontSize: GbmTypography.textSm,
-                color: colors.textSecondary,
+            // Flexible + scroll rather than a plain Text: the release body
+            // is a generated changelog of unbounded length -- the live
+            // v0.30.0 is 7,922 characters over 74 lines -- and
+            // GbmDialogShell caps the dialog at 560px. Rendered flat it
+            // overflowed by ~2,500px and pushed the buttons out of reach.
+            // The notes take whatever the headline leaves and scroll past
+            // it, so no release body can make the dialog unusable.
+            Flexible(
+              child: SingleChildScrollView(
+                child: Text(
+                  notes,
+                  style: TextStyle(
+                    fontSize: GbmTypography.textSm,
+                    color: colors.textSecondary,
+                  ),
+                ),
               ),
             ),
           ],

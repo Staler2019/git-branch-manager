@@ -8,6 +8,7 @@ import 'package:gbm_flutter/data/models/update_state.dart';
 import 'package:gbm_flutter/data/repositories/update_repository.dart';
 import 'package:gbm_flutter/data/services/github_release_gateway.dart';
 import 'package:gbm_flutter/data/services/update_downloader.dart';
+import 'package:gbm_flutter/data/services/update_installer.dart';
 
 LatestRelease _release(String tag, {List<ReleaseAsset>? assets}) {
   return LatestRelease(
@@ -102,12 +103,64 @@ class _FakeDownloader implements UpdateDownloader {
 
 Directory _tempDir() => Directory.systemTemp.createTempSync('gbm-ctl-test');
 
+/// An installer pointed at a throwaway directory it can genuinely write.
+///
+/// The default `UpdateInstaller` probes `Platform.resolvedExecutable`'s
+/// directory -- under `flutter test` that is the Flutter SDK's own `bin`,
+/// so whether a check reports "not writable" would depend on how the SDK
+/// happens to be installed on the machine running the suite. A fixture that
+/// answers differently per machine cannot falsify anything.
+UpdateInstaller _installableInstaller({
+  List<String>? events,
+  bool startSucceeds = true,
+  ProcessRunResult unpack = const ProcessRunResult(0, ''),
+}) {
+  final Directory install = Directory('${_tempDir().path}/opt/gbm')
+    ..createSync(recursive: true);
+  return UpdateInstaller(
+    operatingSystem: 'linux',
+    executablePath: '${install.path}/gbm_flutter',
+    abi: Abi.linuxX64,
+    run: (String exe, List<String> args) async {
+      events?.add('unpack');
+      return unpack;
+    },
+    start: (String e, List<String> a, {String? workingDirectory}) async {
+      events?.add('start');
+      return startSucceeds;
+    },
+    exitProcess: (int code) => events?.add('exit'),
+  );
+}
+
+/// Pointed at a directory whose parent this user cannot write, so
+/// `selfInstallBlocker()` reaches its real answer rather than a stubbed one.
+UpdateInstaller _blockedInstaller() {
+  final Directory parent = Directory('${_tempDir().path}/readonly')
+    ..createSync(recursive: true);
+  final Directory install = Directory('${parent.path}/gbm')
+    ..createSync(recursive: true);
+  Process.runSync('chmod', <String>['555', parent.path]);
+  // A 555 parent cannot be emptied, so without this the directory survives
+  // every run and accumulates in the system temp directory forever.
+  addTearDown(() {
+    Process.runSync('chmod', <String>['u+w', parent.path]);
+    parent.deleteSync(recursive: true);
+  });
+  return UpdateInstaller(
+    operatingSystem: 'linux',
+    executablePath: '${install.path}/gbm_flutter',
+    abi: Abi.linuxX64,
+  );
+}
+
 UpdateController _controller({
   LatestRelease? result,
   Object? error,
   AppVersion? current = const AppVersion(0, 30, 0),
   Abi? abi,
   UpdateDownloader? downloader,
+  UpdateInstaller? installer,
   Directory Function()? createDownloadDir,
 }) {
   return UpdateController(
@@ -115,6 +168,7 @@ UpdateController _controller({
     currentVersion: current,
     abi: abi ?? Abi.macosArm64,
     downloader: downloader,
+    installer: installer ?? _installableInstaller(),
     createDownloadDir: createDownloadDir ?? _tempDir,
   );
 }
@@ -166,6 +220,7 @@ void main() {
         gateway: gateway,
         currentVersion: null,
         abi: Abi.macosArm64,
+        installer: _installableInstaller(),
       );
       await c.check();
 
@@ -232,6 +287,7 @@ void main() {
         gateway: gateway,
         currentVersion: const AppVersion(0, 30, 0),
         abi: Abi.macosArm64,
+        installer: _installableInstaller(),
       );
 
       await Future.wait<void>(<Future<void>>[c.check(), c.check()]);
@@ -305,6 +361,111 @@ void main() {
         expect(c.state.blockedReason, contains(kChecksumManifestName));
       },
     );
+  });
+
+  group('self-install degradation', () {
+    // The machine's answer, not the release's -- and it has to arrive with
+    // the offer, not when the Install button is pressed. Downloading 24MB
+    // and only then discovering the directory is read-only is the failure
+    // this check exists to avoid.
+    test(
+      'an unwritable install directory is reported with the offer',
+      () async {
+        final UpdateController c = _controller(
+          result: _release('v9.9.9'),
+          installer: _blockedInstaller(),
+        );
+        await c.check();
+
+        expect(c.state.status, UpdateStatus.available);
+        expect(c.state.canSelfInstall, isFalse);
+        expect(c.state.blockedReason, contains('not writable'));
+        expect(
+          c.state.asset,
+          isNull,
+          reason:
+              'an asset present with a blockedReason would let a caller '
+              'start a download that can never be installed',
+        );
+      },
+    );
+  });
+
+  group('install', () {
+    late List<String> events;
+
+    setUp(() => events = <String>[]);
+
+    Future<UpdateController> ready({
+      bool startSucceeds = true,
+      ProcessRunResult unpack = const ProcessRunResult(0, ''),
+    }) async {
+      final UpdateController c = _controller(
+        result: _release('v9.9.9'),
+        downloader: _FakeDownloader(ticks: <int>[50, 100]),
+        installer: _installableInstaller(
+          events: events,
+          startSucceeds: startSucceeds,
+          unpack: unpack,
+        ),
+      );
+      await c.check();
+      await c.download();
+      return c;
+    }
+
+    // The ordering is the whole safety argument: unpack first, so a bad
+    // archive is an error the running app can still show; close the FFI
+    // sessions next, so no git process is left holding an index lock; and
+    // only then hand over to the detached script.
+    test('unpacks, closes down, and only then hands over', () async {
+      final UpdateController c = await ready();
+
+      await c.install(beforeExit: () async => events.add('beforeExit'));
+
+      expect(events, <String>['unpack', 'beforeExit', 'start', 'exit']);
+    });
+
+    test('a corrupt archive fails while the app is still running', () async {
+      final UpdateController c = await ready(
+        unpack: const ProcessRunResult(1, 'tar: unexpected end of file'),
+      );
+
+      await c.install(beforeExit: () async => events.add('beforeExit'));
+
+      expect(c.state.status, UpdateStatus.failed);
+      expect(c.state.errorMessage, contains('unexpected end of file'));
+      expect(
+        events,
+        isNot(contains('beforeExit')),
+        reason:
+            'unpacking after the sessions closed would leave nothing '
+            'able to report the failure',
+      );
+    });
+
+    test('an updater that will not start leaves the app running', () async {
+      final UpdateController c = await ready(startSucceeds: false);
+
+      await c.install(beforeExit: () async => events.add('beforeExit'));
+
+      expect(c.state.status, UpdateStatus.failed);
+      expect(c.state.errorMessage, contains('releases page'));
+      expect(events, isNot(contains('exit')));
+    });
+
+    test('does nothing from a state that is not ready to install', () async {
+      final UpdateController c = _controller(
+        result: _release('v9.9.9'),
+        installer: _installableInstaller(events: events),
+      );
+      await c.check();
+
+      await c.install(beforeExit: () async => events.add('beforeExit'));
+
+      expect(c.state.status, UpdateStatus.available);
+      expect(events, isEmpty);
+    });
   });
 
   group('download', () {

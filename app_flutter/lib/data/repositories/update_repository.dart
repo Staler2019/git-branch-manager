@@ -8,6 +8,7 @@ import '../models/release_asset.dart';
 import '../models/update_state.dart';
 import '../services/github_release_gateway.dart';
 import '../services/update_downloader.dart';
+import '../services/update_installer.dart';
 import 'build_version_repository.dart';
 
 /// Drives the update flow and publishes one [UpdateState] snapshot per
@@ -21,9 +22,11 @@ class UpdateController extends StateNotifier<UpdateState> {
     required this._gateway,
     required this._currentVersion,
     UpdateDownloader? downloader,
+    UpdateInstaller? installer,
     Directory Function()? createDownloadDir,
     Abi? abi,
   }) : _downloader = downloader ?? const UpdateDownloader(),
+       _installer = installer ?? const UpdateInstaller(),
        _createDownloadDir = createDownloadDir ?? _createSystemTempDownloadDir,
        _abi = abi ?? Abi.current(),
        super(const UpdateState.idle());
@@ -37,6 +40,7 @@ class UpdateController extends StateNotifier<UpdateState> {
 
   final GithubReleaseGateway _gateway;
   final UpdateDownloader _downloader;
+  final UpdateInstaller _installer;
   final Directory Function() _createDownloadDir;
 
   /// Created lazily on the first download and reused, so cancelling and
@@ -128,6 +132,16 @@ class UpdateController extends StateNotifier<UpdateState> {
       );
     }
 
+    // Asked here rather than when the Install button is pressed, so an
+    // install that was never going to work says so before the download
+    // instead of after it. The installer owns the answer -- if this and the
+    // install path each decided writability for themselves they could
+    // disagree, and the button would be offering something that then fails.
+    final String? blocker = _installer.selfInstallBlocker();
+    if (blocker != null) {
+      return UpdateState.available(release: release, blockedReason: blocker);
+    }
+
     return UpdateState.available(release: release, asset: asset);
   }
 
@@ -204,6 +218,66 @@ class UpdateController extends StateNotifier<UpdateState> {
   ///
   /// Only meaningful while [UpdateState.isCancellable]; once the updater
   /// script is detached there is nothing left to stop.
+  /// Unpacks the verified download and hands over to the updater script.
+  ///
+  /// One-way, and the only state with no way back: [cancel] stops at
+  /// [UpdateStatus.readyToInstall] because after this the swap is running in
+  /// a detached process this one no longer controls.
+  ///
+  /// [beforeExit] is where the app closes its FFI sessions -- an interrupted
+  /// refresh would otherwise leave an orphan git process holding an index
+  /// lock in a repository the user still has open. It is supplied by the
+  /// caller rather than reached for here because this layer has no business
+  /// knowing which repository sessions are open.
+  Future<void> install({required Future<void> Function() beforeExit}) async {
+    final UpdateState current = state;
+    final LatestRelease? release = current.release;
+    final ReleaseAsset? asset = current.asset;
+    final String? bundlePath = current.downloadedPath;
+    final Directory? dir = _downloadDir;
+    if (current.status != UpdateStatus.readyToInstall ||
+        release == null ||
+        asset == null ||
+        bundlePath == null ||
+        dir == null) {
+      return;
+    }
+
+    state = UpdateState.installing(
+      release: release,
+      asset: asset,
+      downloadedPath: bundlePath,
+    );
+
+    try {
+      // Unpacked before the app quits, never inside the script: an archive
+      // that will not open is then an error there is still a window to
+      // report, rather than a broken install found when nothing is left
+      // running to report it.
+      final Directory staged = await _installer.stage(
+        bundle: File(bundlePath),
+        into: dir,
+      );
+      // The script lives in system temp, never in the directory it is about
+      // to move aside -- it would be renamed out from under itself mid-run.
+      // NOTE: the download directory survives a successful install, since
+      // this process is gone before the script finishes with it. Sweeping
+      // stale `gbm-update-*` directories belongs with the `.gbm-old` sweep.
+      final String? reason = await _installer.launchUpdater(
+        staged: staged,
+        scriptDir: Directory.systemTemp,
+        beforeExit: beforeExit,
+      );
+      if (reason != null) {
+        state = UpdateState.failed(reason);
+      }
+    } on UpdateInstallException catch (e) {
+      state = UpdateState.failed(e.message);
+    } on Object catch (e) {
+      state = UpdateState.failed('The update could not be installed: $e');
+    }
+  }
+
   void cancel() {
     _cancelRequested = true;
   }
@@ -247,5 +321,6 @@ final StateNotifierProvider<UpdateController, UpdateState> updateProvider =
         gateway: ref.watch(githubReleaseGatewayProvider),
         currentVersion: ref.watch(buildVersionProvider),
         downloader: ref.watch(updateDownloaderProvider),
+        installer: ref.watch(updateInstallerProvider),
       );
     });

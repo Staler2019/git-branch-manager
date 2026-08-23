@@ -77,6 +77,40 @@ Future<SharedPreferences> pumpRealAppOn(
   WidgetTester tester,
   String workDir, {
   List<Override> extraOverrides = const <Override>[],
+}) => _pumpRealApp(
+  tester,
+  recents: <Map<String, Object?>>[
+    <String, Object?>{'workDir': workDir, 'lastOpenedEpochMs': 0},
+  ],
+  extraOverrides: extraOverrides,
+);
+
+/// Boots the real [GbmApp] with **no** repository open, landing on
+/// `WelcomeScreen`.
+///
+/// The recents list is written as an explicit empty array rather than left
+/// alone: these tests share the machine's real `shared_preferences`, so
+/// skipping the write would let the developer's own last-opened repository
+/// decide `appRouterProvider`'s `initialLocation` and open a workspace
+/// instead.
+///
+/// `WelcomeScreen` renders no menu bar (`MenuBarRow`/`PlatformMenuBarHost`
+/// are built inside `WorkspaceScreen`), so this is the state where the
+/// About dialog's own button is the only route to the update check -- which
+/// is the reason that button exists.
+Future<SharedPreferences> pumpRealAppWithNoRepo(
+  WidgetTester tester, {
+  List<Override> extraOverrides = const <Override>[],
+}) => _pumpRealApp(
+  tester,
+  recents: const <Map<String, Object?>>[],
+  extraOverrides: extraOverrides,
+);
+
+Future<SharedPreferences> _pumpRealApp(
+  WidgetTester tester, {
+  required List<Map<String, Object?>> recents,
+  List<Override> extraOverrides = const <Override>[],
 }) async {
   // The desktop test window otherwise defaults to a size narrow enough to
   // overflow ordinary rows (e.g. a commit row's ref-chip badges) -- a
@@ -108,12 +142,7 @@ Future<SharedPreferences> pumpRealAppOn(
     await prefs.remove(key);
   }
 
-  await prefs.setString(
-    'recents.repos',
-    jsonEncode(<Map<String, Object?>>[
-      <String, Object?>{'workDir': workDir, 'lastOpenedEpochMs': 0},
-    ]),
-  );
+  await prefs.setString('recents.repos', jsonEncode(recents));
 
   await tester.pumpWidget(
     ProviderScope(

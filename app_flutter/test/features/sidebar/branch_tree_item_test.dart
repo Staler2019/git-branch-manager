@@ -292,4 +292,155 @@ void main() {
       );
     });
   });
+
+  group('isGonePending renders spec page 02 stage 1 and 2', () {
+    RefInfo localRef({String upstream = 'refs/remotes/origin/feature'}) =>
+        RefInfo(
+          fullName: 'refs/heads/feature',
+          shortName: 'feature',
+          kind: RefKind.localBranch,
+          target: 'abc123',
+          isHead: false,
+          isGone: false,
+          upstream: upstream,
+          ahead: 0,
+          behind: 0,
+          hasTrackingInfo: false,
+          isSymbolic: false,
+          worktreePath: '',
+        );
+
+    Future<void> pumpRow(
+      WidgetTester tester,
+      RefInfo ref, {
+      required bool isGonePending,
+    }) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: Scaffold(
+            body: BranchTreeItem(
+              ref: ref,
+              onCheckout: () {},
+              isGonePending: isGonePending,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    testWidgets('a pending-gone local branch gets the gone badge', (
+      tester,
+    ) async {
+      await pumpRow(tester, localRef(), isGonePending: true);
+
+      expect(find.text('gone'), findsOneWidget);
+    });
+
+    testWidgets('a pending-gone local branch gets the cloud-off icon', (
+      tester,
+    ) async {
+      await pumpRow(tester, localRef(), isGonePending: true);
+
+      expect(
+        tester.widget<LucideIcon>(find.byType(LucideIcon)).name,
+        'cloud-off',
+      );
+    });
+
+    testWidgets('without the flag it renders as an ordinary branch', (
+      tester,
+    ) async {
+      await pumpRow(tester, localRef(), isGonePending: false);
+
+      expect(find.text('gone'), findsNothing);
+      expect(
+        tester.widget<LucideIcon>(find.byType(LucideIcon)).name,
+        'git-branch',
+      );
+    });
+
+    testWidgets('the accessibility label says upstream gone', (tester) async {
+      // Spec page 02 stage 2. The badge is three letters in the smallest
+      // type size in the app; a screen reader has to be told outright.
+      // Disposed inline, not via addTearDown: flutter_test verifies that no
+      // SemanticsHandle is live *before* tear-downs run, so registering the
+      // dispose there fails the test with an unrelated assertion.
+      final SemanticsHandle handle = tester.ensureSemantics();
+
+      await pumpRow(tester, localRef(), isGonePending: true);
+
+      expect(find.bySemanticsLabel(RegExp('upstream gone')), findsOneWidget);
+      handle.dispose();
+    });
+
+    testWidgets('a pending-gone remote-only row is struck through', (
+      tester,
+    ) async {
+      // Stage 1: 「該列轉半透明、名稱加刪除線」. The remote-only row already
+      // renders at .62 opacity for a different reason ("not checked out
+      // here"), so the strikethrough is what distinguishes "gone from the
+      // remote" from "just not local yet".
+      await pumpRow(tester, _remoteOnlyRef(), isGonePending: true);
+
+      final Text name = tester.widget<Text>(find.text('worktrees'));
+      expect(name.style?.decoration, TextDecoration.lineThrough);
+    });
+
+    testWidgets('a live remote-only row is not struck through', (tester) async {
+      await pumpRow(tester, _remoteOnlyRef(), isGonePending: false);
+
+      final Text name = tester.widget<Text>(find.text('worktrees'));
+      expect(name.style?.decoration, isNot(TextDecoration.lineThrough));
+    });
+
+    testWidgets('a pending-gone local branch is struck through too', (
+      tester,
+    ) async {
+      await pumpRow(tester, localRef(), isGonePending: true);
+
+      final Text name = tester.widget<Text>(find.text('feature'));
+      expect(name.style?.decoration, TextDecoration.lineThrough);
+    });
+
+    testWidgets('a pending-gone local branch is dimmed', (tester) async {
+      // Stage 1's 半透明 applies to the marked row whichever shape it has;
+      // only remote-only rows were dimmed before.
+      await pumpRow(tester, localRef(), isGonePending: true);
+
+      expect(find.byType(Opacity), findsOneWidget);
+    });
+
+    testWidgets('a row git already reports as gone needs no flag', (
+      tester,
+    ) async {
+      // The existing path must keep working after a real prune, when the
+      // pending entry has been dropped and RefInfo.isGone took over.
+      await pumpRow(
+        tester,
+        RefInfo(
+          fullName: 'refs/heads/feature',
+          shortName: 'feature',
+          kind: RefKind.localBranch,
+          target: 'abc123',
+          isHead: false,
+          isGone: true,
+          upstream: 'refs/remotes/origin/feature',
+          ahead: 0,
+          behind: 0,
+          hasTrackingInfo: false,
+          isSymbolic: false,
+          worktreePath: '',
+        ),
+        isGonePending: false,
+      );
+
+      expect(find.text('gone'), findsOneWidget);
+      expect(
+        tester.widget<LucideIcon>(find.byType(LucideIcon)).name,
+        'cloud-off',
+      );
+    });
+  });
 }

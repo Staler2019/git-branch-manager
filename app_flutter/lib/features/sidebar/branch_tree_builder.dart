@@ -132,22 +132,6 @@ List<BranchTreeNode> buildBranchTree(
   return result.toList(growable: false);
 }
 
-/// Splits a remote branch's [RefInfo.fullName]
-/// (`refs/remotes/<remote>/<branch>`) into its remote name and the branch
-/// name as it exists on the remote (no remote prefix) -- the inverse of what
-/// [mergeLocalAndRemoteBranches] does to a remote-only leaf's `shortName`
-/// for tree grouping. Used wherever an action needs the remote name back
-/// (checkout-as-new-local, prune this ref, delete on remote).
-(String remote, String branch) remoteBranchParts(String fullName) {
-  const String prefix = 'refs/remotes/';
-  final String rest = fullName.startsWith(prefix)
-      ? fullName.substring(prefix.length)
-      : fullName;
-  final int slash = rest.indexOf('/');
-  if (slash < 0) return (rest, '');
-  return (rest.substring(0, slash), rest.substring(slash + 1));
-}
-
 /// Merges [localBranches] with the subset of [remoteBranches] that has no
 /// local branch tracking it ("remote-only", Flutter Desktop Spec's
 /// `BRANCH_STATES` "Remote only（未 checkout）") into one flat list ready for

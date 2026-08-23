@@ -66,6 +66,7 @@ add_library(gbm_core STATIC
     cache/Database.cpp
     cache/RepoIndexDb.cpp
 
+    workers/DelayTimer.cpp
     workers/ThreadPool.cpp
 )
 

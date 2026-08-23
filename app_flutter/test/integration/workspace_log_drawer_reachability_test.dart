@@ -105,7 +105,7 @@ void main() {
       // The capability the deleted dialog provided -- reading back every
       // git invocation this session made -- survives in the drawer.
       final LogDrawer drawer = tester.widget<LogDrawer>(find.byType(LogDrawer));
-      expect(drawer.records.map((OperationRecord r) => r.commandLine), <String>[
+      expect(drawer.records.map((GbmLogEntry e) => e.message), <String>[
         'git rev-parse --absolute-git-dir',
         'git status --porcelain',
       ]);

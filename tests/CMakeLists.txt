@@ -12,6 +12,7 @@ add_executable(gbm_core_tests
     unit/ConflictBatchTest.cpp
     unit/ConflictMarkerParserTest.cpp
     unit/CoreBasicsTest.cpp
+    unit/DelayTimerTest.cpp
     unit/DiscoveryTest.cpp
     unit/GitCliTest.cpp
     unit/GitExecutableTest.cpp
@@ -128,6 +129,7 @@ if(GBM_BUILD_CAPI)
         capi/FileAtRevisionApiTest.cpp
         capi/FileHistoryApiTest.cpp
         capi/HistoryFilterApiTest.cpp
+        capi/HistoryRefreshApiTest.cpp
         capi/IdentityApiTest.cpp
         capi/InitCloneApiTest.cpp
         capi/JsonCodecTest.cpp

@@ -179,17 +179,32 @@ applies to the Flutter layer too).
 | `lastRemotePrunePreview` | `RemotePrunePreview?` | `git remote prune --dry-run` preview |
 | `compareWithWorkingCopyResults` | `Map<String, CompareWithWorkingCopyResult>` | Compare tab results against the working copy |
 | `originalOperationMessage` | `String?` | original commit message read mid-conflict (see `gbm_*_continue_with_message`) |
+| `gonePendingByRemote` | `Map<String, List<String>>` | remote name → full names of its remote-tracking refs that no longer exist upstream; accumulated per remote from `git remote prune --dry-run` (never replaced wholesale — `fetch --all` fires one preview per remote and the replies race). Distinct from `lastRemotePrunePreview`, which stays last-write-wins for the Prune dialog |
 
-Plus one derived getter, not a field — the single source of truth for conflict
-state, read by every conflict-aware surface and by
-`lib/actions/gbm_action_availability.dart` (see "Action availability state
-machine" below):
+Plus two derived getters, not fields.
+
+The single source of truth for conflict state, read by every conflict-aware
+surface and by `lib/actions/gbm_action_availability.dart` (see "Action
+availability state machine" below):
 
 ```dart
 bool get conflictActive =>
     (repoState?.isSequencerOperation ?? false) ||
     workingCopyStatus.conflicted.isNotEmpty;
 ```
+
+And the flattened gone-pending set — the only form UI code should read, since
+no surface cares which remote a stale ref came from:
+
+```dart
+Set<String> get gonePendingRefs =>
+    gonePendingByRemote.values.expand((refs) => refs).toSet();
+```
+
+Neither `gonePendingRefs` nor `RefInfo.isGone` is read directly by a render
+site: both go through `features/sidebar/gone_marking.dart`'s
+`isEffectivelyGone()`, so the sidebar rows, the bulk-select set and the status
+bar cannot disagree about whether a branch is gone.
 
 ### Lifecycle
 
@@ -2478,3 +2493,347 @@ from callbacks. `working_copy_selection_state.prune()` has no caller at all.
 - **Comparing iterators from two separate `toRevListArgs()` calls compares
   iterators into two different vectors.** The first `--no-merges` test did that
   and failed for that reason rather than for the reason it was written.
+
+### Gone marking after fetch, and log levels (fix/fetch-gone-marking-and-log-levels)
+
+Two symptoms from one user session — 「刪掉遠端分支，然後 fetch」 — that turned out
+to be unrelated, and both root causes were confirmed by *running*, not by reading.
+Ten sequential commits, each green and independently revertible.
+
+#### Symptom 1: the sidebar never marks anything gone
+
+**`RefInfo.isGone` can only ever be true after a prune.** It comes solely from
+git's `%(upstream:track)` reporting `[gone]` (`RefStore.cpp`'s `parseTrack()`),
+and **git only reports that once the remote-tracking ref is already deleted
+locally**. `FetchOperation::run()` emits `git fetch --all` with no `--prune`
+(`FetchRequest.prune` defaults false and no Flutter call site passes it), so the
+ref survives, git stays silent, and there is nothing for the sidebar to render.
+The refresh itself *does* run (`Session::fetchRemote`'s `onSuccess →
+refreshHistory()`) — the reported "no auto-refresh" was a correct observation
+with a wrong cause.
+
+**Adding `--prune` is the wrong fix and the spec says so.** P02's
+〈遠端分支被刪除時怎麼看得到〉 is explicitly three-stage: mark (half-opacity,
+strikethrough, cloud-off, a pending count in the section header) → badge the
+tracking local branch and show `upstream gone` in the status bar → **only an
+explicit Remote → Prune remote branches actually removes**. `--prune` deletes
+the ref silently, which skips straight to stage 3 and makes stage 3 pointless.
+P10's mockup does draw `git fetch --prune origin`, but the same panel then reads
+「標記為 gone（尚未 prune）」 — it contradicts itself, and per the **Tier 5
+precedent the prose wins over the mockup**.
+
+So stages 1–2 need a source of truth that deletes nothing. `git remote prune
+--dry-run` is exactly that, and the capi for it already existed
+(`gbm_remote_prune_preview` / event 31, previously used only by the Prune
+dialog). No new capi function; the whole C++ delta this round is **two
+`kind()` overrides**.
+
+**Attribution goes through `Operation::kind()`, never through `describe()`.**
+"The next completion event is my fetch" is wrong whenever any of the ~thirty
+other methods on the shared channel is submitted in between — which is what
+`PendingOperationTracker` exists for, and `OperationRunner.h`'s `kind()` doc
+comment names that tracker explicitly. Only `checkout` and `delete-branch` had
+overrides; `fetch` and `prune-remote` gained them. Matching on `describe()`'s
+`"Fetch all remotes"` would be taking user-facing English as a protocol.
+
+- **Fetch rides event 5, prune-remote rides event 3.** `Session::fetchRemote`
+  goes through `submitWorkingCopyOperation`, `pruneRemote` through
+  `submitOperation`. One `OperationRunner` queue, one stamping path, two capi
+  events — so one kind vocabulary is correct, but the two arms live in different
+  handlers. `_handleOperationOutcome`'s switch carries an explicit
+  `case PendingOperationKind.fetch: break;` with a comment: popping the fetch
+  queue there as well would double-pop and misattribute the next fetch.
+- **The exhaustiveness check is the mechanism, not a formality.** Adding
+  `pruneRemote` to the enum made that switch a compile error at exactly the
+  place the new arm belongs. Neither switch has a `default`, deliberately.
+
+**Preview scope must match what was actually fetched**, so
+`remotesToPreviewAfterFetch()` returns `[name]` for a single-remote fetch and
+fans out only for `fetch --all`. It derives the remote list from
+`refs.remoteBranches` via `remoteBranchParts`, **not** from `state.remotes`:
+`_open()` never calls `refreshRemotes()`, so that field is routinely empty and a
+`state.remotes`-based fan-out would silently preview nothing.
+
+**The background preview must not be able to raise a banner, and that needed a
+mechanism rather than a promise.** `requestRemotePrunePreview` fires
+`GBM_EVENT_ERROR_OCCURRED` on failure → `state.lastError` →
+`workspace_screen.dart` draws `GbmWarningBanner`; and it has **no askpass
+wiring** (`CancellationToken{}`, no `askpassDir`), so an HTTPS remote without
+cached credentials fails every time. Left alone, every fetch would flash an
+error the user did not ask for, against P10's low-priority-background rule.
+`_isSuppressedAutoPrunePreviewError()` matches `GitError.argv` for
+`remote`/`prune`/`--dry-run` **plus the remote name**, counted per remote and in
+flight only — so the Prune dialog's own failure for a *different* remote still
+shows. Recorded limit rather than papered over: an automatic and a
+dialog-initiated preview of the **same** remote overlapping produce identical
+argv and the dialog's failure is swallowed once; fixing that needs the capi to
+carry a request origin.
+
+Costs written into doc comments rather than discovered later: `git remote prune
+--dry-run` **contacts the remote**, so each fetch now costs one extra network
+round-trip per remote; and `requestRemotePrunePreview` uses `postFront`, which
+was meant for the dialog's interactive latency and now jumps N network jobs
+ahead of already-queued viewport reads.
+
+#### Symptom 2: a cancelled `for-each-ref` read as a failure
+
+The user's log row was **exit 143** = 128 + SIGTERM.
+`Session::refreshHistory()` calls `historyCancel_.cancel()` before posting a new
+refresh, so a superseded read is terminated and leaves a
+`cancelled: true, exitCode: 143` record. Not a git failure at all.
+
+Three display defects made it read as one, and **the middle one is the real
+bug**: `_filteredRecords`' warning predicate (`failed && !cancelled &&
+!timedOut`) was a strict **subset** of its error predicate (`cancelled ||
+timedOut || exitCode != 0`), so LOGRULES' three levels were not three sets —
+picking *error* also showed every warning. Classification is now one function
+(`OperationRecord.level`), and **`cancelled` is checked before `exitCode`**
+because a terminated child carries both.
+
+**Cancelled is warning, not error** — deliberate: a read superseded by a newer
+one is not a fault, and treating it as one is precisely this misreport.
+LOGRULES' own error example is a genuinely rejected `git push`.
+
+`escapeControlChars()` renders `\x1f` field separators visibly. It is applied to
+the **export** as well as the row, which is in tension with "log records the
+command verbatim": the escape is reversible and unambiguous, and the user's own
+report arrived with the separators silently deleted by copy-paste, which is what
+made the command look corrupt. It deliberately does **not** touch backslashes —
+`OperationRecord::commandLine()` (`Logging.cpp:36-38`) already doubles them
+inside quoted args, and escaping twice would corrupt what it is trying to make
+readable.
+
+#### Things worth knowing before touching this again
+
+- **`RemotePrunePreviewEntry.ref` is a short name** (`origin/x`) while
+  `RefInfo.upstream` and a remote row's `fullName` are full
+  (`refs/remotes/origin/x`). Comparing the two forms directly never matches and
+  the marking would silently never appear. `fullRemoteRefName()` is the one
+  idempotent normaliser both directions go through.
+- **The two `pruneRemote` call sites disagree on ref form and always have**:
+  `prune_remote_branches_dialog.dart` sends short names (`preview.refs.map((e) =>
+  e.ref)`), `sidebar_panel.dart`'s `_pruneRemoteRef`/`_pruneGoneUpstream` send
+  full ones. An un-normalised removal no-ops for the **dialog** path, which is
+  the common one. Mutation-checked: dropping `.map(fullRemoteRefName)` reddens
+  five tests.
+- **The header count is derived from the rendered tree, not from
+  `gonePendingRefs.length`.** A ref the user pruned in a terminal leaves the refs
+  snapshot while the pending set still holds it, so the raw count would claim
+  「3 待清理」 above zero marked rows. Counting effective-gone rows also means a
+  missed B5 cleanup degrades to one stale round rather than a wrong number.
+- **Assert prune-clearing on `state.gonePendingByRemote`, never on the sidebar.**
+  A really-pruned ref also vanishes from the refs snapshot, so the row
+  disappears either way and a rendering assertion goes green with the removal
+  logic deleted entirely.
+- **A failed prune must still pop its queue entry.** The queue tracks
+  submissions, not successes; skipping the pop lets a failed request answer for
+  the *next* prune's outcome and clear marks that prune never touched. Same rule
+  as fetch, and each has its own test.
+- **`_readUndoJournal()` was missing the `_session == nullptr` guard** every
+  sibling has, which is why a reducer-level test tripped
+  `FakeGbmBindings.noSuchMethod`. The fake seam failing loudly found a real
+  robustness hole, exactly as documented.
+
+#### Two defects this round introduced and then closed
+
+- **A non-flex `Text` in the BRANCHES header overflowed by 13px** — the same
+  `RenderFlex` rule the narrow-window round is entirely about, repeated one
+  round later. **B3's own widget tests could not see it**: they pump
+  `SidebarPanel` on the 800px default test canvas, where nothing is tight. It
+  surfaced only once `pumpWorkspace` gave the sidebar its real width. Now a
+  `GbmBadge` (truer to spec's 「待清理數量」 anyway), with a regression test
+  pinned at `GbmLayout.sidebarMinWidth` and mutation-checked at 116px overflow.
+  **Rule: a widget test that sizes its own canvas proves nothing about layout
+  under real constraints.**
+- The status-bar semantics test needed `find.bySemanticsLabel`, not
+  `find.byType(Semantics).first` — `MaterialApp` has its own. And a
+  `SemanticsHandle` must be disposed **inline at the end of the test body**, not
+  via `addTearDown`: teardown runs after `flutter_test`'s handle verification.
+
+#### Process notes
+
+- **`clang-format` is version-sensitive the same way `dart format` is.** CI pins
+  version 18 (`cq.yml`); a local 22 reformats pre-existing lines in
+  `RemoteApiTest.cpp` that 18 left alone. Running it wholesale swept 40 unrelated
+  lines into the diff. Fix: restore the file, re-apply only the intended edit,
+  and verify the *new lines* survive the local formatter byte-for-byte. Never
+  `git checkout --` a file whose work is uncommitted — copy it to the scratchpad
+  first, as this repo already records.
+- Deferred to their own issues with evidence, per the approved plan: **#102**
+  (Preferences' three `autoFetch*` settings have no consumer at all —
+  `Timer.periodic` appears nowhere, so P11 item 9's auto-fetch does not exist),
+  ~~**#103**~~, ~~**#104**~~, ~~**#105**~~ — **all three fixed in the very next
+  round**, see "Refresh coalescing and app-level log events" below. **#102 is
+  still open.** Note that #105's issue text as written here (「cannot be
+  expressed by `OperationRecord`, which is git-invocation-shaped and produced
+  C++-side」) was half wrong: the shape claim held, the "produced C++-side"
+  claim did not, and it changed where the fix went entirely.
+
+### Refresh coalescing and app-level log events (fix/refresh-coalescing-and-app-log-events) — issues #103–#105
+
+The three issues the previous round filed rather than fixed, closed in one
+branch. Two of the three turned out to be a different problem than their issue
+text described — read this before re-reading them. Six sequential commits, each
+green and independently revertible.
+
+#### #104 was not a race, it was a crash — and this repo can prove that
+
+The issue said 「`historyCancel_` 在 worker thread 被改寫，UI thread 同時呼叫
+同一個函式，無鎖保護」, which reads as a benign-until-proven-otherwise data
+race. It is not benign. `HistoryRefreshApiTest.ConcurrentRefreshesDoNotRaceOn
+TheCancellationSource` (4 threads × 25 `gbm_history_refresh` calls) reports,
+under ThreadSanitizer, a data race **and then a SEGV** inside
+`CancellationSource::cancel()` (`CancellationToken.h:146`, reached from
+`Session.cpp:216`): two threads tear `CancellationState`'s callback list apart
+and one of them invokes a freed `std::function`.
+
+**`build/tsan` already existed and nothing in these docs said so.** `CMakeLists.txt`
+has `option(GBM_SANITIZE "…address,undefined | thread")` and the tree carries
+configured `build/tsan` and `build/asan-ubsan` presets. That is what turns "a
+race, in principle" into a **falsifiable** test — the exact thing the #77 note
+said was unavailable for a scheduling bug. It is not a substitute for #77's
+reasoning (a *timing* race still cannot be reproduced on demand), but a
+**memory-ordering** race can be, and should be:
+
+```
+cmake --build build/tsan --target gbm_capi_tests
+./build/tsan/tests/gbm_capi_tests --gtest_filter=HistoryRefreshApiTest.*
+```
+
+The fix holds `historyCancelMutex_` (now `refreshMutex_`) across the whole
+`cancel()` + replace + `token()` step, not just the assignment: a caller that
+observed the old source *between* them would cancel a walk the other one is
+about to start. Holding a lock across `cancel()` is safe because the only
+callback ever registered on that source is `ProcessRunner::execute()`'s
+`child->terminate()` — a signal send that takes no lock of ours.
+
+#### #103: the class was fine, its driver did not exist
+
+`RefreshCoalescer`'s own doc comment names the driver: 「RepositorySession owns
+one single-shot QTimer, restarted (`QTimer::start(kDelay)`, which Qt restarts
+if already running) on every request() call that returns Arm」. That Qt
+`RepositorySession` is gone from this tree, capi has no event loop of its own
+(the same reason `AskpassPoller` runs its own thread), and `ThreadPool` has no
+delayed post. So connecting the coalescer meant **building the timer first**:
+`src/core/workers/DelayTimer.{h,cpp}`, whose `arm()` deliberately reproduces
+`QTimer::start()`'s restart-if-running semantics rather than inventing new
+ones.
+
+**The symptom reproduces deterministically**, which is worth knowing because
+the user reported it from a real session and it looked untestable:
+`ABurstOfRefreshesTerminatesNoGitProcess` fires eight `gbm_history_refresh`
+calls 15 ms apart and, before the fix, logs **7 records with `exitCode: 143`,
+`cancelled: true`**. The spacing is the whole trick — each call needs a chance
+to actually start its child before the next one arrives, which is what the
+shipping app does and what a tight loop does not.
+
+Three things about the integration are worth keeping:
+
+- **Publishing needs a monotonic gate, not an equality check.** Once superseded
+  walks are no longer cancelled, a stale one can still be streaming chunks —
+  and its `complete:true` would tell Dart the *newer* walk had finished.
+  `publishedGeneration_` is compared and written inside the same `graphMutex_`
+  critical section as `refs_`/`graph_` (`claimPublishLocked`). Comparing
+  against `RefreshCoalescer::currentGeneration()` alone leaves a window between
+  the check and the store, and a stale snapshot overwriting a newer one is
+  worse than the log noise this whole change exists to remove.
+- **`onFinished()` on every terminal path, via a scope guard.** Miss one and
+  the coalescer stays `running_` forever, every later request folds into a
+  batch nothing will drive, and **refreshes stop happening at all — silently,
+  with no error anywhere.** `dispatchRefresh()`'s lambda has three early
+  returns, so it uses a `ScopeExit` rather than a call per path. Same lesson as
+  Tier 0c's `submitOperation` `onAlways` hook.
+  `RefreshesStillWorkAfterABurstHasSettled` is the lock, and it goes red *by
+  timeout* when the guard is deleted — mutation-checked, and the other three
+  cases stay green.
+- **`setHistoryFilter()` is now the only routine caller that cancels anything.**
+  It uses `fireNow()` because the Flutter side already debounces the filter box
+  by 250 ms, and it genuinely supersedes a walk whose filter is already wrong.
+  A deliberate, user-initiated filter change leaving one `cancelled` record is
+  honest; the per-operation churn was not.
+
+**Cost, measured**: `ctest` went 124 s → 134 s, entirely from the 150 ms window
+now sitting in front of every refresh. Worth watching against **#70**, whose
+budgets are 10 s — 150 ms is far inside them, but the direction is the wrong
+one.
+
+`~Session()`'s ordering gained a step, and the position is not arbitrary:
+`refreshTimer_.stop()` goes **after** `operations_->drain()` (those completion
+callbacks are one of the two things that arm the timer) and **before**
+`sharedReadPool().cancelQueuedAndDrain()` (firing the timer posts a *new* task
+onto that pool). `DelayTimer::arm()` is a no-op after `stop()`, so a late arm
+from a still-unwinding completion path cannot resurrect it.
+
+#### #105's premise was wrong: there is no C++-side log at all
+
+The issue said app-level events 「需要新的記錄型別 + capi 改動」. Checked
+directly before designing anything: `src/core/base/Logging.{h,cpp}` has
+**sinks and nothing else** — no file writing, no rotation, no storage (`grep
+ofstream|fopen|rotat src/` hits only blob/askpass/rebase paths). The entire log
+is `RepoSessionState.operationLog`, fed by `GBM_EVENT_OPERATION_LOG_RECORD`. So
+an app-level event needs **no capi whatsoever**; the whole fix is Dart-side.
+
+`GbmLogEntry` is the sealed supertype of `OperationRecord` (one git invocation)
+and the new `AppLogEntry` (an event with no process). Sealed so the drawer's
+rendering *and* its plain-text export must both handle every kind — those two
+already drifted apart once, which is what the previous round's `level` fix was
+about. Both members live in `operation_record.dart` because a sealed type's
+subtypes must be in the same library.
+
+`AppLogEvents` (`data/models/app_log_events.dart`) is a factory rather than
+four constructor calls scattered through the controller, for two reasons that
+are not style: the **wording is a product surface** (`LOGRULES` 匯出:
+「回報問題時附這份即可，不需要另外重現」), and `LOGRULES`' 不記什麼 rule
+(認證資訊、remote URL 中的 token、檔案內容) is easier to keep when one place
+builds every line. Note what the four take: a work-tree path, a branch name, a
+remote **name**, ref names — never a URL, which is where a token would live.
+
+Two decisions recorded rather than left to be re-derived:
+
+- **The lines are English.** The spec's wording is Chinese because the spec is;
+  every string in this app is English, and page 10's mockup row is describing
+  content, not dictating language.
+- **The gone-marking log diffs against what is already marked.** An automatic
+  prune preview runs after *every* fetch (previous round), so logging the whole
+  preview would repeat the same warning on every fetch until the user pruned.
+  `_logNewlyGoneRefs()` therefore runs **before** the state update and is
+  judged per remote — `gonePendingByRemote` is per remote, and a shared set
+  would swallow `upstream/a` because `origin/a` was seen first.
+
+#### The one emit site no widget test can reach, and how to see it anyway
+
+「開啟 repo」 is emitted in `_open()` right after `isOpen: true`, which
+`FakeRepoSessionController` **never executes**: its `FakeGbmBindings.sessionOpen()`
+returns `nullptr` by design, so `_open()` returns before allocating a handle.
+The factory pins the wording at unit tier; the emit site is covered by
+`integration_test/repo_lifecycle_test.dart` at device tier, and getting that
+assertion to work taught two things:
+
+- **`find.text` cannot see the oldest entry in the log drawer.** The list is
+  `reverse: true` with a `ListView.builder`, so by the time the git records for
+  open + checkout exist, 「Opened repository …」 has been scrolled out of the
+  viewport and was never built. Reading `tester.widget<LogDrawer>(…).records`
+  asserts the data instead — which is also what the widget-tier reachability
+  test already does, for a different reason.
+- **Do not assert a temp path verbatim on macOS.** `/var/folders/…` and
+  `/private/var/folders/…` are the same directory, and which one arrives
+  depends on who canonicalised it. `startsWith('Opened repository ')` is the
+  claim being made anyway.
+
+#### Smaller things
+
+- `shortRemoteRefName()` joins `fullRemoteRefName()` in
+  `remote_prune_preview_entry.dart`, equally idempotent. Display only — every
+  *comparison* in this codebase is on the full form.
+- `RepoSessionState.operationLog` is now `List<GbmLogEntry>`. Its cap is
+  unchanged and shared: `LOGRULES` 保留 caps the log, not each kind of entry
+  separately, so an app event and a git record compete for the same 500 slots.
+- **`clang-format` version drift fired again, and the config decided it.** A
+  local v22 wanted a blank line between `ScopeExit`'s one-line constructor and
+  its destructor. That is `SeparateDefinitionBlocks: Always` in `.clang-format`
+  — an option that exists since v14, so CI's pinned v18 applies it too and the
+  change was safe to take. **Check whether a formatter suggestion comes from
+  the repo's own config before assuming it is a version artifact**; the
+  previous round's rule ("never run it wholesale") still holds for everything
+  that does not.
+

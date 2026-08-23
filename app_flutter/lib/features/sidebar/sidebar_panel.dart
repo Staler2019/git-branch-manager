@@ -20,10 +20,12 @@ import '../../data/repositories/repo_session_repository.dart';
 import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
+import '../../widgets/gbm_badge.dart';
 import '../../widgets/gbm_menu.dart';
 import '../../widgets/prompt_text_dialog.dart';
 import '../repo_switcher/repo_switcher_popover.dart';
 import 'branch_tree_builder.dart';
+import 'gone_marking.dart';
 import 'widgets/branch_folder_menu_items.dart';
 import 'widgets/branch_tree_item.dart';
 import 'widgets/multi_branch_menu_items.dart';
@@ -165,8 +167,21 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
       _selection.length > 1 &&
       _selection.items.contains(branch.shortName);
 
-  bool _isGoneAndBulkSelectable(RefInfo branch) =>
-      branch.isGone && !branch.isHead && branch.worktreePath.isEmpty;
+  /// [gonePendingRefs] is threaded in rather than read from the session
+  /// here so this stays a pure predicate over one row -- a branch whose
+  /// upstream the dry-run preview reports as gone belongs in the bulk-delete
+  /// selection exactly as much as one git already reports `[gone]` for.
+  ///
+  /// `RefKind` is not widened: a remote-only row is not a local branch and
+  /// "delete gone branches" deletes local branches. [isEffectivelyGone]
+  /// would return true for one, so the `!branch.isHead` /
+  /// `worktreePath.isEmpty` guards are joined by [_isBulkSelectable]'s own
+  /// kind check at every call site.
+  bool _isGoneAndBulkSelectable(RefInfo branch, Set<String> gonePendingRefs) =>
+      isEffectivelyGone(branch, gonePendingRefs) &&
+      branch.kind == RefKind.localBranch &&
+      !branch.isHead &&
+      branch.worktreePath.isEmpty;
 
   /// Set while a prune is scheduled but has not run yet, so a burst of
   /// rebuilds between the frame and its callback schedules exactly one.
@@ -878,9 +893,15 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
       branches,
       _filterQuery,
     );
+    final Set<String> gonePendingRefs = session.gonePendingRefs;
     final bool anyGoneSelectable = filteredBranches.any(
-      _isGoneAndBulkSelectable,
+      (RefInfo b) => _isGoneAndBulkSelectable(b, gonePendingRefs),
     );
+    // Spec page 02 stage 1: 「在區塊標題右邊顯示待清理數量」. Counted over
+    // the unfiltered merged list -- how many refs are waiting to be pruned
+    // is a fact about the repository, not about what the filter box happens
+    // to be showing.
+    final int pendingCleanup = gonePendingCount(branches, gonePendingRefs);
     // P02-14 rule 7: 「目前分支永遠置頂顯示，即使不符合條件也不會被濾掉」.
     //
     // Read as "regardless of the query", not "restructure the sidebar
@@ -970,6 +991,31 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                     ),
                   ),
                 ),
+                // A bare count, not a sentence: spec asks for 「待清理數量」,
+                // and prose here is what made this header overflow. A
+                // RenderFlex sizes non-flex children first, so a wider label
+                // beside two 28px icon buttons pushed past the sidebar's
+                // width instead of letting the Expanded 'BRANCHES' yield --
+                // the same shape as the narrow-window round's findings. The
+                // meaning lives in the tooltip.
+                if (pendingCleanup > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(right: GbmSpacing.space1),
+                    child: Tooltip(
+                      message:
+                          '$pendingCleanup remote-tracking '
+                          '${pendingCleanup == 1 ? 'ref no longer exists' : 'refs no longer exist'} '
+                          'upstream. Remote → Prune remote branches removes '
+                          '${pendingCleanup == 1 ? 'it' : 'them'}.',
+                      child: Semantics(
+                        label: '$pendingCleanup branches pending cleanup',
+                        child: GbmBadge(
+                          label: '$pendingCleanup',
+                          kind: GbmBadgeKind.removed,
+                        ),
+                      ),
+                    ),
+                  ),
                 Tooltip(
                   message: 'Select all branches with a gone upstream',
                   child: IconButton(
@@ -989,7 +1035,11 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                         ? () => _selectionController.state =
                               const ListSelection<String>().selectAll(<String>[
                                 for (final RefInfo b in filteredBranches)
-                                  if (_isGoneAndBulkSelectable(b)) b.shortName,
+                                  if (_isGoneAndBulkSelectable(
+                                    b,
+                                    gonePendingRefs,
+                                  ))
+                                    b.shortName,
                               ])
                         : null,
                   ),
@@ -1391,7 +1441,12 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
           onMerge: isRemoteOnly || node.ref.isHead ? null : _openMergeDialog,
           onPruneRef: isRemoteOnly
               ? () => _pruneRemoteRef(node.ref)
-              : node.ref.isGone && node.ref.upstream.isNotEmpty
+              // Effective gone, not `isGone`: a row marked from the dry-run
+              // preview is exactly the row whose upstream Prune should
+              // remove, and it is the only way that menu item is reachable
+              // before a real prune has happened.
+              : isEffectivelyGone(node.ref, session.gonePendingRefs) &&
+                    node.ref.upstream.isNotEmpty
               ? () => _pruneGoneUpstream(node.ref)
               : null,
           onDeleteOnRemote: isRemoteOnly
@@ -1412,6 +1467,7 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
           // Sourced from isActionEnabled(), not session.conflictActive
           // directly -- single source of truth for checkout availability.
           conflictActive: !isActionEnabled(GbmActionId.branchCheckout, session),
+          isGonePending: isEffectivelyGone(node.ref, session.gonePendingRefs),
         ),
       );
     } else if (node is BranchTreeFolder) {

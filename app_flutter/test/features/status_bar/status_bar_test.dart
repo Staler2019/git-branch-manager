@@ -804,4 +804,72 @@ void main() {
       expect(find.text('4 commits \u00b7 contiguous'), findsNothing);
     });
   });
+  group('StatusBar upstreamGone', () {
+    Future<void> pump(
+      WidgetTester tester, {
+      required bool upstreamGone,
+      int ahead = 2,
+      int behind = 1,
+    }) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: Scaffold(
+            body: StatusBar(
+              currentBranch: 'main',
+              ahead: ahead,
+              behind: behind,
+              upstreamGone: upstreamGone,
+              commitCount: 42,
+              lastScanDuration: const Duration(milliseconds: 150),
+              graphLaneCapacity: 8,
+              backgroundTasks: const [],
+              hasUnreadLog: false,
+              onOpenLog: () {},
+              onCancelTask: (_) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    testWidgets('replaces the ahead/behind counts', (tester) async {
+      // Spec page 02: 「status bar 的 ahead/behind 改顯示 upstream gone」.
+      // Replaces, not joins: the counts are measured against an upstream
+      // that no longer exists, so showing "2↑ 1↓ upstream gone" would state
+      // a distance from nothing.
+      await pump(tester, upstreamGone: true);
+
+      expect(find.text('upstream gone'), findsOneWidget);
+      expect(find.text('2↑'), findsNothing);
+      expect(find.text('1↓'), findsNothing);
+    });
+
+    testWidgets('leaves the branch name and commit count alone', (
+      tester,
+    ) async {
+      await pump(tester, upstreamGone: true);
+
+      expect(find.text('main'), findsWidgets);
+      expect(find.text('42c'), findsOneWidget);
+    });
+
+    testWidgets('false keeps the existing counts', (tester) async {
+      await pump(tester, upstreamGone: false);
+
+      expect(find.text('upstream gone'), findsNothing);
+      expect(find.text('2↑'), findsOneWidget);
+      expect(find.text('1↓'), findsOneWidget);
+    });
+
+    testWidgets('shows even with zero ahead and behind', (tester) async {
+      // A branch in sync when its upstream vanished reports 0/0, which
+      // renders nothing at all today -- exactly the case where the user has
+      // no other signal that the upstream is gone.
+      await pump(tester, upstreamGone: true, ahead: 0, behind: 0);
+
+      expect(find.text('upstream gone'), findsOneWidget);
+    });
+  });
 }

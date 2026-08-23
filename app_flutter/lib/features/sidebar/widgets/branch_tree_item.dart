@@ -34,6 +34,7 @@ class BranchTreeItem extends StatelessWidget {
     this.onRebaseOntoHere,
     this.onDeleteTag,
     this.conflictActive = false,
+    this.isGonePending = false,
   });
 
   final RefInfo ref;
@@ -48,6 +49,26 @@ class BranchTreeItem extends StatelessWidget {
   final VoidCallback onCheckout;
   final bool selected;
   final bool conflictActive;
+
+  /// Whether the upstream this row points at is in
+  /// [RepoSessionState.gonePendingRefs] -- `git remote prune --dry-run` says
+  /// it no longer exists on the remote, but nothing has been deleted yet.
+  ///
+  /// Spec page 02 marks such a row in three stages and this widget covers
+  /// the first two (半透明 + 刪除線 + cloud-off, and the `gone` badge on a
+  /// local branch that tracks it); only an explicit Remote -> Prune remote
+  /// branches performs the third. Computed by [SidebarPanel] through
+  /// `gone_marking.dart`'s `isEffectivelyGone`, so this widget stays
+  /// presentational with no Riverpod dependency -- same shape as
+  /// [conflictActive].
+  final bool isGonePending;
+
+  /// [RefInfo.isGone] (git already reports `[gone]`, i.e. the ref is
+  /// already pruned locally) or [isGonePending] (the dry run says it will
+  /// be). Every gone-shaped rendering decision below reads this rather than
+  /// `ref.isGone`, so a row stays marked continuously across a real prune as
+  /// the truth hands over from one source to the other.
+  bool get _gone => ref.isGone || isGonePending;
 
   /// Null hides the selection checkbox entirely (HEAD can't be
   /// multi-selected for deletion -- see SidebarPanel's doc comment).
@@ -138,7 +159,7 @@ class BranchTreeItem extends StatelessWidget {
 
     final StringBuffer label = StringBuffer(ref.shortName);
     if (ref.isHead) label.write(', current branch');
-    if (ref.isGone) {
+    if (_gone) {
       label.write(', upstream gone');
     } else if (_isRemoteOnly) {
       label.write(
@@ -152,10 +173,10 @@ class BranchTreeItem extends StatelessWidget {
     // BRANCH_STATES table: gone -> cloud-off + warning; remote-only ->
     // cloud + tertiary (dimmed via the Opacity wrap below); everything else
     // keeps the existing git-branch + chip-derived color.
-    final String iconName = ref.isGone
+    final String iconName = _gone
         ? 'cloud-off'
         : (_isRemoteOnly ? 'cloud' : 'git-branch');
-    final Color iconColor = ref.isGone
+    final Color iconColor = _gone
         ? colors.warning
         : _isRemoteOnly
         ? colors.textTertiary
@@ -199,11 +220,14 @@ class BranchTreeItem extends StatelessWidget {
                     ? GbmTypography.weightSemibold
                     : GbmTypography.weightRegular,
                 color: colors.textPrimary,
+                // Spec page 02 stage 1: 「該列轉半透明、名稱加刪除線」.
+                decoration: _gone ? TextDecoration.lineThrough : null,
+                decorationColor: colors.textPrimary,
               ),
               overflow: TextOverflow.ellipsis,
             ),
           ),
-          if (ref.isGone)
+          if (_gone)
             Flexible(
               child: Text(
                 'gone',
@@ -258,13 +282,16 @@ class BranchTreeItem extends StatelessWidget {
       ),
     );
 
-    final Widget maybeTooltip = ref.isGone && ref.upstream.isNotEmpty
+    final Widget maybeTooltip = _gone && ref.upstream.isNotEmpty
         ? Tooltip(message: 'Upstream gone: ${ref.upstream}', child: row)
         : row;
 
     // Spec's BRANCH_STATES: remote-only rows render at .62 opacity --
     // "本機還沒有這條分支" (the local machine doesn't have this branch yet).
-    final Widget maybeDim = _isRemoteOnly
+    // Spec page 02 stage 1 dims a gone row for a different reason ("this no
+    // longer exists on the remote"); the strikethrough on the name is what
+    // tells the two apart, since a remote-only row can be either.
+    final Widget maybeDim = _isRemoteOnly || _gone
         ? Opacity(opacity: 0.62, child: maybeTooltip)
         : maybeTooltip;
 
@@ -405,7 +432,7 @@ class BranchTreeItem extends StatelessWidget {
     if (_isRemoteOnly) {
       return _buildRemoteOnlyMenuItems();
     }
-    if (ref.isGone) {
+    if (_gone) {
       return _buildGoneMenuItems();
     }
     return localBranchMenuItems(

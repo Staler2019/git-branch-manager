@@ -416,6 +416,15 @@ class FakeRepoSessionController extends RepoSessionController {
   }
 
   @override
+  void requestRemotePrunePreview(String remoteName) {
+    commandLog.add(
+      FakeCommand('requestRemotePrunePreview', <String, Object?>{
+        'remoteName': remoteName,
+      }),
+    );
+  }
+
+  @override
   void pruneRemote(String remoteName, List<String> refs) {
     commandLog.add(
       FakeCommand('pruneRemote', <String, Object?>{

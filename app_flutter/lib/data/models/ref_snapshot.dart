@@ -154,3 +154,27 @@ class RefSnapshot {
   List<RefInfo> get tags =>
       refs.where((r) => r.kind == RefKind.tag).toList(growable: false);
 }
+
+/// Splits a remote branch's [RefInfo.fullName]
+/// (`refs/remotes/<remote>/<branch>`) into its remote name and the branch
+/// name as it exists on the remote (no remote prefix).
+///
+/// Used wherever an action needs the remote name back (checkout-as-new-local,
+/// prune this ref, delete on remote, and deciding which remotes a completed
+/// fetch touched). It is also the inverse of what
+/// `branch_tree_builder.dart`'s `mergeLocalAndRemoteBranches` does to a
+/// remote-only leaf's `shortName` for tree grouping.
+///
+/// Lives here rather than beside that function because the repository layer
+/// needs it too and must not import `features/`. Splitting a full ref name
+/// on its first slash instead yields `"refs"` as the remote -- the live bug
+/// tracked as #74 -- so there must stay exactly one implementation.
+(String remote, String branch) remoteBranchParts(String fullName) {
+  const String prefix = 'refs/remotes/';
+  final String rest = fullName.startsWith(prefix)
+      ? fullName.substring(prefix.length)
+      : fullName;
+  final int slash = rest.indexOf('/');
+  if (slash < 0) return (rest, '');
+  return (rest.substring(0, slash), rest.substring(slash + 1));
+}

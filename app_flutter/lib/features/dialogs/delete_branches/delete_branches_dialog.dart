@@ -9,7 +9,6 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
-import '../../sidebar/branch_tree_builder.dart';
 
 /// One branch's line in the confirmation list.
 @immutable

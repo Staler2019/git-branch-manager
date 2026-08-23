@@ -20,6 +20,31 @@ namespace gbm::capi {
 
 namespace {
 
+/// Runs a callback on every exit path out of a scope, including the early
+/// returns a lambda body accumulates. Local to this file because the one
+/// caller (Session::dispatchRefresh) is the only place in capi where missing
+/// a terminal path is silently fatal rather than merely wrong: an unreported
+/// refresh leaves RefreshCoalescer stuck in `running_` and every later
+/// request folds into a batch nothing will ever drive.
+class ScopeExit {
+public:
+    explicit ScopeExit(std::function<void()> onExit) : onExit_(std::move(onExit)) {}
+
+    ~ScopeExit() {
+        if (onExit_) {
+            onExit_();
+        }
+    }
+
+    ScopeExit(const ScopeExit&) = delete;
+    ScopeExit& operator=(const ScopeExit&) = delete;
+    ScopeExit(ScopeExit&&) = delete;
+    ScopeExit& operator=(ScopeExit&&) = delete;
+
+private:
+    std::function<void()> onExit_;
+};
+
 // The process-wide registry of open Sessions, keyed implicitly by work tree
 // (Session::paths().workDir()) -- see Session::dispatchOperationLogRecord()'s
 // doc comment for why this exists: gbm::Log's operation sink is a single
@@ -149,7 +174,8 @@ Session::Session(GitInstallation installation,
       submoduleStore_(std::make_unique<SubmoduleStore>(*runner_, paths_)),
       bisectStore_(std::make_unique<BisectStore>(*runner_, paths_)),
       lfsStore_(std::make_unique<LfsStore>(*runner_, paths_)),
-      localIdentityStore_(std::make_unique<LocalIdentityStore>(*runner_, paths_)) {
+      localIdentityStore_(std::make_unique<LocalIdentityStore>(*runner_, paths_)),
+      refreshTimer_([this]() { onRefreshTimerFired(); }) {
     ensureOperationLogSinkInstalled();
     registerLiveSession(this);
 }
@@ -180,6 +206,15 @@ Session::~Session() {
     // so the sharedReadPool() drain below actually catches it.
     operations_->drain();
 
+    // After operations_->drain(), because those completion callbacks are one
+    // of the two things that arm this timer; before the pool drain below,
+    // because firing it posts a *new* task onto sharedReadPool(). Any
+    // armed-but-unfired deadline is simply dropped -- the session is going
+    // away, so the refresh it would have run has no one to report to. A late
+    // arm() from a still-unwinding completion path is a no-op after this
+    // (DelayTimer::arm()'s contract).
+    refreshTimer_.stop();
+
     // sharedReadPool() is process-wide (see its doc comment), so this is
     // coarser than RepositorySession::cancelPendingReads() +
     // ThreadPool::cancelQueuedAndDrain(), which safely assume a pool
@@ -191,7 +226,10 @@ Session::~Session() {
     // cancellation scope instead of a pool-wide drain. Still required here:
     // without it, a task queued or running on the shared pool could call
     // back into this Session after its destructor returns.
-    historyCancel_.cancel();
+    {
+        std::lock_guard<std::mutex> lock(refreshMutex_);
+        historyCancel_.cancel();
+    }
     sharedReadPool().cancelQueuedAndDrain();
 
     askpass_.stop();
@@ -213,11 +251,89 @@ RepoState Session::repoState() const {
 }
 
 void Session::refreshHistory() {
-    historyCancel_.cancel();
-    historyCancel_ = CancellationSource();
-    const CancellationToken token = historyCancel_.token();
+    // Not "cancel whatever is running, then post mine". That is what this
+    // used to do, and it terminated a perfectly healthy `git` process on
+    // every refresh that landed on a busy session -- the exit 143
+    // (128 + SIGTERM) `for-each-ref` / `rev-list` lines that made the log
+    // drawer look like the app was failing. See
+    // HistoryRefreshApiTest.ABurstOfRefreshesTerminatesNoGitProcess.
+    //
+    // A request while a walk is running folds into a dirty bit instead, and
+    // finishRefresh() drives the single follow-up. Nothing is cancelled, so
+    // no record is produced at all.
+    //
+    // Both flags are always true and the origin is always Explicit: capi has
+    // exactly one refresh entry point and it has always read refs *and*
+    // walked history, and GraphUpdateOrigin is not plumbed through the FFI
+    // surface at all. The merged batch is therefore constant today -- the
+    // contract (takePending() exactly once per dispatch) is still honoured
+    // so that a future refs-only entry point is a change of arguments rather
+    // than a change of mechanism.
+    bool needsArm = false;
+    {
+        std::lock_guard<std::mutex> lock(refreshMutex_);
+        needsArm = refreshCoalescer_.request(/*wantsRefs=*/true,
+                                             /*wantsHistory=*/true,
+                                             GraphUpdateOrigin::Explicit) ==
+                   RefreshCoalescer::RefreshAction::Arm;
+    }
+    if (needsArm) {
+        refreshTimer_.arm(RefreshCoalescer::kDelay);
+    }
+}
 
-    sharedReadPool().post([this, token]() {
+void Session::onRefreshTimerFired() {
+    RefreshCoalescer::Generation generation = 0;
+    CancellationToken token;
+    {
+        std::lock_guard<std::mutex> lock(refreshMutex_);
+        generation = refreshCoalescer_.onTimeout();
+        if (generation == 0) {
+            // The quiet period has not actually elapsed -- a request re-armed
+            // the timer after this firing was already scheduled.
+            return;
+        }
+        (void)refreshCoalescer_.takePending();
+        token = historyCancel_.token();
+    }
+    dispatchRefresh(generation, token);
+}
+
+void Session::finishRefresh(RefreshCoalescer::Generation generation) {
+    bool again = false;
+    {
+        std::lock_guard<std::mutex> lock(refreshMutex_);
+        again = refreshCoalescer_.onFinished(generation);
+    }
+    // Outside the lock: arm() takes the timer's own lock and the timer thread
+    // takes refreshMutex_ from its callback, so holding both at once here
+    // would be the only place in this file where a lock order exists at all.
+    if (again) {
+        // Debouncer::finish()'s own contract -- "fire immediately, no second
+        // wait" -- rather than a second kDelay window, so a request that
+        // arrived mid-walk is not made to wait twice.
+        refreshTimer_.arm(std::chrono::milliseconds{0});
+    }
+}
+
+bool Session::claimPublishLocked(RefreshCoalescer::Generation generation) {
+    if (generation < publishedGeneration_) {
+        return false;
+    }
+    publishedGeneration_ = generation;
+    return true;
+}
+
+void Session::dispatchRefresh(RefreshCoalescer::Generation generation, CancellationToken token) {
+    sharedReadPool().post([this, generation, token]() {
+        // onFinished() must run on *every* terminal path: miss one and the
+        // coalescer stays running_ forever, every later request folds into a
+        // dirty bit nothing will ever drive, and refreshes silently stop.
+        // The body below has three early returns, so this is a scope guard
+        // rather than a call per path -- the same reasoning that put an
+        // onAlways hook on submitOperation().
+        const ScopeExit finish([this, generation]() { finishRefresh(generation); });
+
         const GitResult<RefSnapshotPtr> refsResult = refStore_->load(token);
         if (!refsResult) {
             if (!token.isCancelled()) {
@@ -227,6 +343,9 @@ void Session::refreshHistory() {
         }
         {
             std::lock_guard<std::mutex> lock(graphMutex_);
+            if (!claimPublishLocked(generation)) {
+                return;
+            }
             refs_ = refsResult.value();
         }
         callbacks_.emitEmpty(GBM_EVENT_REFS_UPDATED);
@@ -251,7 +370,11 @@ void Session::refreshHistory() {
         }
 
         const GitResult<GraphSnapshotPtr> walkResult = history_->walk(
-            query, [this](GraphSnapshotPtr chunk) { publishGraph(std::move(chunk)); }, token);
+            query,
+            [this, generation](GraphSnapshotPtr chunk) {
+                publishGraph(std::move(chunk), generation);
+            },
+            token);
 
         if (!walkResult && !token.isCancelled()) {
             callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(walkResult.error()));
@@ -268,7 +391,29 @@ void Session::setHistoryFilter(std::vector<std::string> includeRefs,
         historyFirstParentOnly_ = firstParentOnly;
         historyNoMerges_ = noMerges;
     }
-    refreshHistory();
+
+    // fireNow(), not request(): the Flutter side already debounces the filter
+    // box by 250 ms (branchFilterQueryProvider -> historyFilterRequestProvider),
+    // so stacking another 150 ms window on top would make a settled query wait
+    // twice. This is also the one caller that genuinely supersedes an
+    // in-flight walk rather than folding into it -- that walk is now applying
+    // a filter the user has already changed, so letting it finish is pure
+    // waste. Cancelling it is what leaves a `cancelled` record behind; a
+    // deliberate, user-initiated filter change is rare and honest about it,
+    // unlike the per-operation churn refreshHistory() used to produce.
+    RefreshCoalescer::Generation generation = 0;
+    CancellationToken token;
+    {
+        std::lock_guard<std::mutex> lock(refreshMutex_);
+        historyCancel_.cancel();
+        historyCancel_ = CancellationSource();
+        token = historyCancel_.token();
+        generation = refreshCoalescer_.fireNow(/*wantsRefs=*/true,
+                                               /*wantsHistory=*/true,
+                                               GraphUpdateOrigin::Explicit);
+        (void)refreshCoalescer_.takePending();
+    }
+    dispatchRefresh(generation, token);
 }
 
 GraphSnapshotPtr Session::currentGraph() const {
@@ -290,10 +435,18 @@ void Session::releaseExportedGraph() {
     exportedGraph_.reset();
 }
 
-void Session::publishGraph(GraphSnapshotPtr snapshot) {
+void Session::publishGraph(GraphSnapshotPtr snapshot, RefreshCoalescer::Generation generation) {
     const bool complete = snapshot && snapshot->complete;
     {
         std::lock_guard<std::mutex> lock(graphMutex_);
+        // Dropped rather than published when a newer dispatch has already
+        // written here. Nothing cancels a superseded walk any more (see
+        // refreshHistory()), so a walk that setHistoryFilter() overtook can
+        // still be streaming chunks -- and its `complete:true` would tell
+        // Dart the *newer* walk had finished.
+        if (!claimPublishLocked(generation)) {
+            return;
+        }
         graph_ = std::move(snapshot);
     }
     std::string payload = "{\"complete\":";

@@ -280,4 +280,272 @@ void main() {
       expect(saveButton, findsWidgets);
     });
   });
+
+  group('LogDrawer level filter partitions records', () {
+    /// A superseded `for-each-ref`: Session::refreshHistory() SIGTERMs the
+    /// in-flight read before posting a newer one, so it lands in the log as
+    /// cancelled with 128 + SIGTERM = 143.
+    OperationRecord cancelledRead() => OperationRecord(
+      whenEpochMs: 1692000000000,
+      repoDir: '/path/to/repo',
+      argv: const <String>['git', 'for-each-ref'],
+      commandLine: 'git for-each-ref',
+      exitCode: 143,
+      durationMs: 20,
+      stderrText: '',
+      cancelled: true,
+      timedOut: false,
+    );
+
+    OperationRecord rejectedPush() => OperationRecord(
+      whenEpochMs: 1692000001000,
+      repoDir: '/path/to/repo',
+      argv: const <String>['git', 'push'],
+      commandLine: 'git push',
+      exitCode: 1,
+      durationMs: 500,
+      stderrText: '',
+      cancelled: false,
+      timedOut: false,
+    );
+
+    Future<void> pumpWith(
+      WidgetTester tester,
+      List<OperationRecord> records,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: Scaffold(body: LogDrawer(records: records)),
+        ),
+      );
+      await tester.pump();
+    }
+
+    Future<void> selectFilter(WidgetTester tester, String label) async {
+      await tester.tap(find.widgetWithText(TextButton, label));
+      await tester.pump();
+    }
+
+    testWidgets('Warning shows a cancelled record', (tester) async {
+      await pumpWith(tester, <OperationRecord>[
+        cancelledRead(),
+        rejectedPush(),
+      ]);
+      await selectFilter(tester, 'Warning');
+
+      expect(find.text('git for-each-ref'), findsOneWidget);
+      expect(find.text('git push'), findsNothing);
+    });
+
+    testWidgets('Error does NOT also show the cancelled record', (
+      tester,
+    ) async {
+      // The regression this pins: the warning predicate used to be
+      // `failed && !cancelled && !timedOut` while the error predicate was
+      // `cancelled || timedOut || exitCode != 0`, making warning a strict
+      // subset of error -- so Error showed everything Warning did.
+      await pumpWith(tester, <OperationRecord>[
+        cancelledRead(),
+        rejectedPush(),
+      ]);
+      await selectFilter(tester, 'Error');
+
+      expect(find.text('git push'), findsOneWidget);
+      expect(find.text('git for-each-ref'), findsNothing);
+    });
+
+    testWidgets('Info shows neither', (tester) async {
+      await pumpWith(tester, <OperationRecord>[
+        cancelledRead(),
+        rejectedPush(),
+      ]);
+      await selectFilter(tester, 'Info');
+
+      expect(find.text('git for-each-ref'), findsNothing);
+      expect(find.text('git push'), findsNothing);
+    });
+  });
+
+  group('LogDrawer row shows the level in words', () {
+    Future<void> pumpWith(
+      WidgetTester tester,
+      List<OperationRecord> records,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: Scaffold(body: LogDrawer(records: records)),
+        ),
+      );
+      await tester.pump();
+    }
+
+    OperationRecord recordWith({
+      String commandLine = 'git status',
+      int exitCode = 0,
+      bool cancelled = false,
+      bool timedOut = false,
+    }) {
+      return OperationRecord(
+        whenEpochMs: 1692000000000,
+        repoDir: '/path/to/repo',
+        argv: const <String>['git', 'status'],
+        commandLine: commandLine,
+        exitCode: exitCode,
+        durationMs: 10,
+        stderrText: '',
+        cancelled: cancelled,
+        timedOut: timedOut,
+      );
+    }
+
+    testWidgets('a cancelled row reads CANCELLED, not just a red icon', (
+      tester,
+    ) async {
+      // Before this, cancellation was signalled only by a red stop_circle
+      // icon -- the same colour as a genuine failure, with no word anywhere
+      // on screen to tell the two apart. The level strings existed only in
+      // the export path.
+      await pumpWith(tester, <OperationRecord>[
+        recordWith(exitCode: 143, cancelled: true),
+      ]);
+
+      expect(find.text('CANCELLED'), findsOneWidget);
+    });
+
+    testWidgets('a rejected command reads ERROR', (tester) async {
+      await pumpWith(tester, <OperationRecord>[recordWith(exitCode: 1)]);
+      expect(find.text('ERROR'), findsOneWidget);
+    });
+
+    testWidgets('a timeout reads TIMEOUT', (tester) async {
+      await pumpWith(tester, <OperationRecord>[
+        recordWith(exitCode: 143, timedOut: true),
+      ]);
+      expect(find.text('TIMEOUT'), findsOneWidget);
+    });
+
+    testWidgets('a clean run reads INFO', (tester) async {
+      await pumpWith(tester, <OperationRecord>[recordWith()]);
+      expect(find.text('INFO'), findsOneWidget);
+    });
+
+    testWidgets('the command line renders control characters visibly', (
+      tester,
+    ) async {
+      await pumpWith(tester, <OperationRecord>[
+        recordWith(
+          commandLine:
+              'git for-each-ref "--format=%(refname)'
+              '\u001f%(objecttype)"',
+        ),
+      ]);
+
+      expect(
+        find.text(r'git for-each-ref "--format=%(refname)\x1f%(objecttype)"'),
+        findsOneWidget,
+      );
+    });
+  });
+
+  // Spec page 10's LOGRULES 記什麼 row asks for 「應用層事件（開啟 repo、切
+  // 分支、prune 掉哪些 ref）」 alongside git invocations, and page 10's own
+  // mockup draws one as a warning row with no exit code and no duration.
+  group('LogDrawer renders app-level events', () {
+    Future<void> pumpEntries(WidgetTester tester, List<GbmLogEntry> entries) {
+      return tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: Scaffold(body: LogDrawer(records: entries)),
+        ),
+      );
+    }
+
+    const AppLogEntry goneMarked = AppLogEntry(
+      whenEpochMs: 1692000000000,
+      level: OperationLogLevel.warning,
+      message:
+          'origin/graph-lanes no longer exists on the remote '
+          '- marked as gone (not pruned)',
+    );
+
+    testWidgets('an app event shows its message and level word', (
+      tester,
+    ) async {
+      await pumpEntries(tester, <GbmLogEntry>[goneMarked]);
+
+      expect(find.text(goneMarked.message), findsOneWidget);
+      expect(find.text('WARNING'), findsOneWidget);
+    });
+
+    // An app event is not a process. Printing `0ms` beside it would read as
+    // a git invocation that returned instantly.
+    testWidgets('an app event shows no duration and no exit code', (
+      tester,
+    ) async {
+      await pumpEntries(tester, <GbmLogEntry>[
+        const AppLogEntry(
+          whenEpochMs: 1692000000000,
+          level: OperationLogLevel.error,
+          message: 'Something went wrong',
+        ),
+      ]);
+
+      expect(find.textContaining('ms'), findsNothing);
+      expect(find.textContaining('exit '), findsNothing);
+    });
+
+    // The filter is the reason GbmLogEntry carries `level` rather than
+    // leaving the drawer to pattern-match on the subtype: an app warning has
+    // to land in the same bucket a cancelled git read does.
+    testWidgets('an app warning is filtered as a warning, not as an error', (
+      tester,
+    ) async {
+      await pumpEntries(tester, <GbmLogEntry>[goneMarked]);
+
+      await tester.tap(find.text('Error'));
+      await tester.pump();
+      expect(find.text(goneMarked.message), findsNothing);
+
+      await tester.tap(find.text('Warning'));
+      await tester.pump();
+      expect(find.text(goneMarked.message), findsOneWidget);
+    });
+
+    // The export and the row are one code path per field on purpose -- they
+    // drifted apart once already (LOGRULES' three levels were not a
+    // partition), so the `(exit N, Nms)` suffix has to be absent in both.
+    testWidgets('the export writes no exit code for an app event', (
+      tester,
+    ) async {
+      String? clipboardText;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (MethodCall methodCall) async {
+          if (methodCall.method == 'Clipboard.setData') {
+            clipboardText =
+                (methodCall.arguments as Map<Object?, Object?>)['text']
+                    as String?;
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+
+      await pumpEntries(tester, <GbmLogEntry>[goneMarked]);
+      await tester.tap(find.text('Copy All'));
+      await tester.pump();
+
+      expect(clipboardText, contains('WARNING'));
+      expect(clipboardText, contains(goneMarked.message));
+      expect(clipboardText, isNot(contains('exit ')));
+      expect(clipboardText, isNot(contains('ms)')));
+    });
+  });
 }

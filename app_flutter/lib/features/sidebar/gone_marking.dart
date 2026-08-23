@@ -1,0 +1,61 @@
+import '../../data/models/ref_snapshot.dart';
+
+/// Whether [ref] should render with spec page 02's "gone" treatment, given
+/// the set of remote-tracking refs a `git remote prune --dry-run` says no
+/// longer exist upstream ([RepoSessionState.gonePendingRefs]).
+///
+/// Two sources, deliberately OR'd rather than kept apart:
+///
+/// * [RefInfo.isGone] -- git's own `%(upstream:track)` reporting `[gone]`,
+///   which only happens *after* the remote-tracking ref has been deleted
+///   locally (spec's stage 3, an explicit Remote -> Prune remote branches).
+/// * [gonePendingRefs] -- the dry-run's answer, which is how stages 1 and 2
+///   can mark a row without deleting anything.
+///
+/// A row therefore stays marked continuously across a real prune: the
+/// pending entry is dropped as `isGone` starts reporting true, and callers
+/// never have to know which source is currently supplying the truth.
+///
+/// The two row shapes carry the ref name in different fields, which is the
+/// part that is easy to get wrong:
+///
+/// * A **local branch** is matched on [RefInfo.upstream] -- git's
+///   `%(upstream)`, the tracked ref's *full* name.
+/// * A **remote-only** row is matched on [RefInfo.fullName], never on
+///   `shortName`: `mergeLocalAndRemoteBranches` strips the `<remote>/`
+///   prefix off a remote-only leaf's `shortName` for tree grouping, so
+///   `origin/vanished` arrives here as `vanished`.
+///
+/// Both are full ref names, matching what
+/// `RemotePrunePreviewEntry.fullRefName` normalises to. Note the test is
+/// `upstream.isNotEmpty`, never `hasTrackingInfo`: the latter mirrors
+/// `%(upstream:track)`, which is an *empty string* for a branch exactly in
+/// sync with its upstream, so it is false for the single most common case
+/// of "does track a remote".
+bool isEffectivelyGone(RefInfo ref, Set<String> gonePendingRefs) {
+  if (ref.isGone) return true;
+  if (gonePendingRefs.isEmpty) return false;
+  if (ref.kind == RefKind.remoteBranch) {
+    return gonePendingRefs.contains(ref.fullName);
+  }
+  if (ref.upstream.isEmpty) return false;
+  return gonePendingRefs.contains(ref.upstream);
+}
+
+/// How many rows in [branches] the pending set actually marks -- spec page
+/// 02's "在區塊標題右邊顯示待清理數量".
+///
+/// An intersection with the rows on screen, **not** `gonePendingRefs.length`.
+/// The set outlives the snapshot: pruning in a terminal, or removing a whole
+/// remote, deletes the refs while `gonePendingByRemote` still lists them, and
+/// a raw count would then claim "3 pending" over a tree with nothing marked.
+///
+/// Rows git already reports as [RefInfo.isGone] are excluded: their
+/// remote-tracking ref is already deleted, so there is nothing left for
+/// Prune to clean up and counting them would never reach zero.
+int gonePendingCount(List<RefInfo> branches, Set<String> gonePendingRefs) {
+  if (gonePendingRefs.isEmpty) return 0;
+  return branches
+      .where((RefInfo b) => !b.isGone && isEffectivelyGone(b, gonePendingRefs))
+      .length;
+}

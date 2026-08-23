@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
@@ -22,6 +23,7 @@ import '../models/graph_snapshot.dart';
 import '../models/lfs_state.dart';
 import '../models/line_history_chunk.dart';
 import '../models/operation_choice.dart';
+import '../models/app_log_events.dart';
 import '../models/operation_record.dart';
 import '../models/parsed_conflict_file.dart';
 import '../models/parsed_diff.dart';
@@ -239,6 +241,40 @@ class CompareFileDiffResult {
   final ParsedDiff diff;
 }
 
+/// Which remotes a just-completed fetch should be asked to preview for
+/// pruning, per spec page 02's three-stage gone flow (stage 1 and 2 mark,
+/// stage 3 -- an explicit Remote -> Prune remote branches -- removes).
+///
+/// [fetchedRemote] is the name the fetch was submitted with; an empty string
+/// is `git fetch --all` (`FetchOperation::run`, RemoteOps.cpp) and only then
+/// does this fan out. Scoping matters because `git remote prune --dry-run`
+/// contacts the network: previewing every remote after `fetch origin` would
+/// fire round trips the user never asked for.
+///
+/// The fan-out derives remote names from [refs], **not** from
+/// `RepoSessionState.remotes`: `RepoSessionController._open()` calls
+/// `_readRepoState`/`refreshHistory`/`refreshWorkingCopy` and never
+/// `refreshRemotes()`, so `remotes` is routinely empty and would silently
+/// preview nothing. A named remote is returned even when the snapshot has no
+/// refs for it -- a remote fetched for the first time has no remote-tracking
+/// refs yet.
+///
+/// Order is stable (first appearance in the snapshot) so the resulting calls,
+/// and any test asserting on them, are deterministic.
+@visibleForTesting
+List<String> remotesToPreviewAfterFetch(
+  String fetchedRemote,
+  RefSnapshot refs,
+) {
+  if (fetchedRemote.isNotEmpty) return <String>[fetchedRemote];
+  final LinkedHashSet<String> names = LinkedHashSet<String>();
+  for (final RefInfo ref in refs.remoteBranches) {
+    final (String remote, String _) = remoteBranchParts(ref.fullName);
+    if (remote.isNotEmpty) names.add(remote);
+  }
+  return names.toList(growable: false);
+}
+
 /// Reply to [RepoSessionController.requestRemotePrunePreview]: mirrors
 /// GBM_EVENT_REMOTE_PRUNE_PREVIEW_READY's payload shape.
 class RemotePrunePreview {
@@ -280,7 +316,7 @@ class CompareWithWorkingCopyResult {
   final ParsedDiff diff;
 }
 
-/// Default cap for how many [OperationRecord]s [RepoSessionState.operationLog]
+/// Default cap for how many [GbmLogEntry]s [RepoSessionState.operationLog]
 /// keeps, used only when [RepoSessionController] isn't given an explicit
 /// value. The real cap in normal operation comes from
 /// [AppPreferences.logMemoryLimit] (spec page 10 LOGRULES: "記憶體中保留最近
@@ -332,7 +368,7 @@ class RepoSessionState {
     this.worktrees = const <WorktreeInfo>[],
     this.remotes = const <RemoteInfo>[],
     this.credentialPrompt,
-    this.operationLog = const <OperationRecord>[],
+    this.operationLog = const <GbmLogEntry>[],
     this.lastBlame,
     this.commitMetaCache = const <String, CommitMeta>{},
     this.commitFileCountCache = const <String, int>{},
@@ -358,6 +394,7 @@ class RepoSessionState {
     this.compareResults = const <String, CompareResult>{},
     this.compareFileDiffResults = const <String, CompareFileDiffResult>{},
     this.lastRemotePrunePreview,
+    this.gonePendingByRemote = const <String, List<String>>{},
     this.compareWithWorkingCopyResults =
         const <String, CompareWithWorkingCopyResult>{},
     this.originalOperationMessage,
@@ -387,7 +424,7 @@ class RepoSessionState {
 
   /// Newest-last, capped at [RepoSessionController.maxOperationLogEntries]
   /// (sourced from [AppPreferences.logMemoryLimit]).
-  final List<OperationRecord> operationLog;
+  final List<GbmLogEntry> operationLog;
   final BlameResult? lastBlame;
 
   /// Batch-fetched commit metadata (author/subject/body), keyed by oid and
@@ -475,6 +512,31 @@ class RepoSessionState {
   /// dialog can be open at a time.
   final RemotePrunePreview? lastRemotePrunePreview;
 
+  /// Remote name -> the full ref names on that remote which `git remote
+  /// prune --dry-run` says no longer exist upstream.
+  ///
+  /// Spec page 02's "遠端分支被刪除時怎麼看得到" is explicitly three-staged:
+  /// a fetch marks the row (半透明 + 刪除線 + cloud-off, plus a pending count
+  /// in the section header), the local branch tracking it gets a `gone`
+  /// badge, and only an explicit Remote -> Prune remote branches actually
+  /// removes the ref. Git will not report `[gone]` in `%(upstream:track)`
+  /// until the remote-tracking ref is already deleted locally, so stage 1
+  /// and 2 need a source of truth that does *not* delete anything -- which
+  /// is what the dry-run preview is.
+  ///
+  /// Keyed per remote, and replaced per remote by [withGonePendingFor],
+  /// because `git fetch --all` fires one preview per remote and the replies
+  /// arrive independently: a whole-map overwrite would let the second reply
+  /// erase the first. Distinct from [lastRemotePrunePreview], which stays a
+  /// single last-write-wins field for the Prune dialog -- one dialog, one
+  /// remote, no accumulation wanted there.
+  final Map<String, List<String>> gonePendingByRemote;
+
+  /// Every gone-pending ref across all remotes, flattened -- the only thing
+  /// UI code should read.
+  Set<String> get gonePendingRefs =>
+      gonePendingByRemote.values.expand((refs) => refs).toSet();
+
   /// Every GBM_EVENT_COMPARE_WITH_WORKING_COPY_READY reply received this
   /// session, keyed by [CompareWithWorkingCopyResult.key]. Same
   /// accumulate-not-replace reasoning as [compareResults] -- several
@@ -526,7 +588,7 @@ class RepoSessionState {
     List<RemoteInfo>? remotes,
     String? credentialPrompt,
     bool clearCredentialPrompt = false,
-    List<OperationRecord>? operationLog,
+    List<GbmLogEntry>? operationLog,
     BlameResult? lastBlame,
     Map<String, CommitMeta>? commitMetaCache,
     Map<String, int>? commitFileCountCache,
@@ -552,6 +614,7 @@ class RepoSessionState {
     Map<String, CompareResult>? compareResults,
     Map<String, CompareFileDiffResult>? compareFileDiffResults,
     RemotePrunePreview? lastRemotePrunePreview,
+    Map<String, List<String>>? gonePendingByRemote,
     Map<String, CompareWithWorkingCopyResult>? compareWithWorkingCopyResults,
     String? originalOperationMessage,
     bool clearOriginalOperationMessage = false,
@@ -606,6 +669,7 @@ class RepoSessionState {
           compareFileDiffResults ?? this.compareFileDiffResults,
       lastRemotePrunePreview:
           lastRemotePrunePreview ?? this.lastRemotePrunePreview,
+      gonePendingByRemote: gonePendingByRemote ?? this.gonePendingByRemote,
       compareWithWorkingCopyResults:
           compareWithWorkingCopyResults ?? this.compareWithWorkingCopyResults,
       originalOperationMessage: clearOriginalOperationMessage
@@ -620,6 +684,68 @@ class RepoSessionState {
   /// dropping the oldest entries in insertion order, the same sublist
   /// pattern [operationLog]'s cap uses (though that one's cap is
   /// configurable via [AppPreferences.logMemoryLimit]; this one is not).
+  /// Replaces [remote]'s slice of [gonePendingByRemote] with [entries],
+  /// normalised to full ref names via [RemotePrunePreviewEntry.fullRefName].
+  ///
+  /// An empty [entries] drops the remote from the map instead of storing an
+  /// empty list: a ref the user pruned in a terminal must stop being marked,
+  /// and a remote that contributes nothing should not keep an entry that
+  /// later reads as "this remote has been checked".
+  RepoSessionState withGonePendingFor(
+    String remote,
+    List<RemotePrunePreviewEntry> entries,
+  ) {
+    final Map<String, List<String>> next = <String, List<String>>{
+      ...gonePendingByRemote,
+    };
+    if (entries.isEmpty) {
+      next.remove(remote);
+    } else {
+      next[remote] = entries.map((e) => e.fullRefName).toList(growable: false);
+    }
+    return copyWith(
+      gonePendingByRemote: Map<String, List<String>>.unmodifiable(next),
+    );
+  }
+
+  /// Drops [refs] from [remote]'s slice of [gonePendingByRemote] -- what a
+  /// *successful* `pruneRemote` means for the marking.
+  ///
+  /// Removal rather than a whole-slice clear because the Prune dialog lets
+  /// the user deselect entries: the refs actually pruned are a subset of
+  /// what was previewed, and the ones left behind are still gone-pending.
+  ///
+  /// [refs] is normalised through [fullRemoteRefName] because the call
+  /// sites disagree on form -- `prune_remote_branches_dialog.dart` sends
+  /// git's short names, `sidebar_panel.dart` sends full ones -- and this
+  /// map stores full names. Comparing without normalising would silently
+  /// no-op for every dialog-initiated prune.
+  ///
+  /// A real prune also makes git start reporting `[gone]` in
+  /// `%(upstream:track)`, so the existing [RefInfo.isGone] path takes over
+  /// the display for any local branch that tracked one of these refs; that
+  /// is why this removes rather than leaving both sources lit at once.
+  RepoSessionState withGonePendingRemoved(String remote, List<String> refs) {
+    final List<String>? current = gonePendingByRemote[remote];
+    if (current == null) return this;
+    final Set<String> removed = refs.map(fullRemoteRefName).toSet();
+    final List<String> kept = current
+        .where((String ref) => !removed.contains(ref))
+        .toList(growable: false);
+    if (kept.length == current.length) return this;
+    final Map<String, List<String>> next = <String, List<String>>{
+      ...gonePendingByRemote,
+    };
+    if (kept.isEmpty) {
+      next.remove(remote);
+    } else {
+      next[remote] = kept;
+    }
+    return copyWith(
+      gonePendingByRemote: Map<String, List<String>>.unmodifiable(next),
+    );
+  }
+
   RepoSessionState withCommitMeta(List<CommitMeta> metas) {
     final Map<String, CommitMeta> merged = <String, CommitMeta>{
       ...commitMetaCache,
@@ -662,13 +788,10 @@ class RepoSessionState {
   /// from [AppPreferences.logMemoryLimit]), which this pure state class has
   /// no way to read for itself.
   RepoSessionState withOperationRecord(
-    OperationRecord record, {
+    GbmLogEntry record, {
     required int maxEntries,
   }) {
-    final List<OperationRecord> updated = <OperationRecord>[
-      ...operationLog,
-      record,
-    ];
+    final List<GbmLogEntry> updated = <GbmLogEntry>[...operationLog, record];
     return copyWith(
       operationLog: updated.length > maxEntries
           ? updated.sublist(updated.length - maxEntries)
@@ -763,6 +886,16 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     _subscription = events.events.listen(_onEvent);
 
     state = state.copyWith(isOpen: true);
+    // LOGRULES 記什麼 lists 「開啟 repo」 alongside git invocations. Emitted
+    // here rather than in the provider, because this is the point at which
+    // the handle is genuinely allocated -- every earlier return in this
+    // method is an open that did not happen.
+    _appendAppLog(
+      AppLogEvents.repositoryOpened(
+        _identity.workDir,
+        atEpochMs: _nowEpochMs(),
+      ),
+    );
     _readRepoState();
     refreshHistory();
     refreshWorkingCopy();
@@ -786,12 +919,17 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
         );
       case GbmEventType.errorOccurred:
         final Object? payload = decodeEventPayload(event.payload);
-        state = state.copyWith(
-          isRefreshing: false,
-          lastError: payload is Map<String, dynamic>
-              ? GitError.fromJson(payload)
-              : null,
-        );
+        final GitError? error = payload is Map<String, dynamic>
+            ? GitError.fromJson(payload)
+            : null;
+        // Suppression means "do not write", not "write null": an unrelated
+        // failure already on screen must survive a background preview
+        // failing behind it.
+        if (error != null && _isSuppressedAutoPrunePreviewError(error)) {
+          state = state.copyWith(isRefreshing: false);
+        } else {
+          state = state.copyWith(isRefreshing: false, lastError: error);
+        }
       case GbmEventType.operationFinished:
         _readRepoState();
         _readUndoJournal();
@@ -804,13 +942,16 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
         _readWorkingCopyStatus();
       case GbmEventType.workingCopyOperationFinished:
         final Object? payload = decodeEventPayload(event.payload);
-        if (payload is Map<String, dynamic> && payload['succeeded'] == false) {
-          final Object? error = payload['error'];
-          state = state.copyWith(
-            lastError: error is Map<String, dynamic>
-                ? GitError.fromJson(error)
-                : null,
-          );
+        if (payload is Map<String, dynamic>) {
+          if (payload['succeeded'] == false) {
+            final Object? error = payload['error'];
+            state = state.copyWith(
+              lastError: error is Map<String, dynamic>
+                  ? GitError.fromJson(error)
+                  : null,
+            );
+          }
+          _handleWorkingCopyOutcomeKind(payload);
         }
         _readUndoJournal();
       case GbmEventType.workingCopyDiffReady:
@@ -946,9 +1087,19 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
       case GbmEventType.remotePrunePreviewReady:
         final Object? payload = decodeEventPayload(event.payload);
         if (payload is Map<String, dynamic>) {
-          state = state.copyWith(
-            lastRemotePrunePreview: RemotePrunePreview.fromJson(payload),
+          final RemotePrunePreview preview = RemotePrunePreview.fromJson(
+            payload,
           );
+          // Two consumers with different lifetimes, both written here:
+          // lastRemotePrunePreview is the Prune dialog's last-write-wins
+          // view of one remote, gonePendingByRemote accumulates across
+          // remotes so the sidebar can mark rows without deleting any ref
+          // (spec page 02's three-stage gone flow, stages 1 and 2).
+          _consumeAutoPrunePreview(preview.remote);
+          _logNewlyGoneRefs(preview);
+          state = state
+              .copyWith(lastRemotePrunePreview: preview)
+              .withGonePendingFor(preview.remote, preview.refs);
         }
       case GbmEventType.compareWithWorkingCopyReady:
         final Object? payload = decodeEventPayload(event.payload);
@@ -1247,6 +1398,20 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
         state = state.copyWith(
           checkoutChoices: succeeded ? const <OperationChoice>[] : choices,
         );
+        // LOGRULES 記什麼: 「切分支」. Only on success -- a refused checkout
+        // already produces a git record carrying the reason, and claiming
+        // HEAD moved when it did not is worse than saying nothing.
+        if (succeeded) {
+          _appendAppLog(
+            AppLogEvents.branchCheckedOut(
+              target: request.target,
+              detach: request.detach,
+              createBranch: request.createBranch,
+              newBranchName: request.newBranchName,
+              atEpochMs: _nowEpochMs(),
+            ),
+          );
+        }
       case PendingOperationKind.deleteBranch:
         final PendingDeleteBranchRequest? request = _pending.takeDeleteBranch();
         if (request == null) break;
@@ -1254,10 +1419,187 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
         state = state.copyWith(
           deleteBranchChoices: succeeded ? const <OperationChoice>[] : choices,
         );
+      case PendingOperationKind.fetch:
+        // Unreachable, and the exhaustiveness check is what keeps it that
+        // way. Fetch goes through Session::submitWorkingCopyOperation, so
+        // its outcome arrives on GBM_EVENT_WORKING_COPY_OPERATION_FINISHED
+        // and is consumed there -- popping the fetch queue *here* as well
+        // would double-pop and misattribute the next fetch. If the capi
+        // ever moves fetch onto this channel, this arm is where the change
+        // has to be made deliberately rather than absorbed by a default.
+        break;
+      case PendingOperationKind.pruneRemote:
+        final PendingPruneRemoteRequest? request = _pending.takePruneRemote();
+        if (request == null) break;
+        if (!succeeded) break;
+        state = state.withGonePendingRemoved(request.remoteName, request.refs);
+        // LOGRULES 記什麼: 「prune 掉哪些 ref」 -- which ones, not just that
+        // a prune happened. Skipped for an empty list so a no-op prune does
+        // not produce a line saying nothing was removed.
+        if (request.refs.isNotEmpty) {
+          _appendAppLog(
+            AppLogEvents.refsPruned(
+              remote: request.remoteName,
+              refs: request.refs,
+              atEpochMs: _nowEpochMs(),
+            ),
+          );
+        }
       case null:
         break;
     }
   }
+
+  /// Remote name -> how many automatic post-fetch prune previews for that
+  /// remote are still awaiting a reply.
+  ///
+  /// A count rather than a set because `fetch --all` on a repository with the
+  /// same remote previewed twice in quick succession would otherwise have one
+  /// reply clear a marker that still covers another request in flight.
+  final Map<String, int> _autoPrunePreviewsInFlight = <String, int>{};
+
+  /// True when [error] is a failed `git remote prune --dry-run` for a remote
+  /// this class asked about itself, in which case it must not reach
+  /// [RepoSessionState.lastError] -- `workspace_screen.dart` renders that as
+  /// a banner, and a background task the user did not initiate has no
+  /// business interrupting them (spec page 10). Consumes one in-flight
+  /// marker, so a *second* failure for the same remote (the Prune dialog's)
+  /// still surfaces.
+  ///
+  /// Matched on [GitError.argv] because that is the only discriminator the
+  /// capi provides: GBM_EVENT_ERROR_OCCURRED carries no request identity.
+  /// Per remote, not "any preview is in flight" -- opening the Prune dialog
+  /// for `upstream` during a post-fetch preview of `origin` must still show
+  /// the dialog's own failure.
+  ///
+  /// Known limit, recorded rather than papered over: an automatic and a
+  /// dialog-initiated preview of the *same* remote overlapping produce
+  /// identical argv, so the dialog's failure would be swallowed once.
+  /// Fixing that properly means the capi carrying a request origin, which is
+  /// out of scope here.
+  bool _isSuppressedAutoPrunePreviewError(GitError error) {
+    if (_autoPrunePreviewsInFlight.isEmpty) return false;
+    final List<String> argv = error.argv;
+    if (!argv.contains('remote') ||
+        !argv.contains('prune') ||
+        !argv.contains('--dry-run')) {
+      return false;
+    }
+    for (final String remote in _autoPrunePreviewsInFlight.keys) {
+      if (!argv.contains(remote)) continue;
+      _consumeAutoPrunePreview(remote);
+      return true;
+    }
+    return false;
+  }
+
+  /// Appends one app-level log line, honouring the same memory cap git
+  /// records go through -- `LOGRULES` 保留 caps the log, not each kind of
+  /// entry separately.
+  void _appendAppLog(AppLogEntry entry) {
+    state = state.withOperationRecord(
+      entry,
+      maxEntries: maxOperationLogEntries,
+    );
+  }
+
+  /// Wall-clock for an app-level entry. Named so the one non-deterministic
+  /// input in these four call sites is visible rather than inlined five
+  /// times.
+  int _nowEpochMs() => DateTime.now().millisecondsSinceEpoch;
+
+  /// Logs page 10's gone-marking row, once per ref, for the refs this
+  /// preview newly marks.
+  ///
+  /// Must be called *before* the state is updated, and must diff rather than
+  /// log every ref in the preview: an automatic preview runs after every
+  /// fetch (see [_remotesToPreviewAfterFetch]), so logging the whole list
+  /// would repeat the same warning on every fetch until the user pruned,
+  /// which is exactly the kind of noise `LOGRULES` 只有一套 is guarding
+  /// against elsewhere.
+  void _logNewlyGoneRefs(RemotePrunePreview preview) {
+    final Set<String> known =
+        (state.gonePendingByRemote[preview.remote] ?? const <String>[]).toSet();
+    for (final RemotePrunePreviewEntry entry in preview.refs) {
+      if (known.contains(entry.fullRefName)) continue;
+      _appendAppLog(
+        AppLogEvents.remoteRefGone(entry.ref, atEpochMs: _nowEpochMs()),
+      );
+    }
+  }
+
+  void _consumeAutoPrunePreview(String remote) {
+    final int remaining = (_autoPrunePreviewsInFlight[remote] ?? 0) - 1;
+    if (remaining <= 0) {
+      _autoPrunePreviewsInFlight.remove(remote);
+    } else {
+      _autoPrunePreviewsInFlight[remote] = remaining;
+    }
+  }
+
+  /// Consumes the `kind` stamp on a working-copy completion outcome.
+  ///
+  /// Separate from [_handleOperationOutcome] because the two ride different
+  /// capi events (GBM_EVENT_WORKING_COPY_OPERATION_FINISHED vs
+  /// GBM_EVENT_OPERATION_FINISHED) even though one `OperationRunner` queue
+  /// feeds both -- popping a queue from the wrong handler would double-pop.
+  void _handleWorkingCopyOutcomeKind(Map<String, dynamic> payload) {
+    final PendingOperationKind? kind = PendingOperationKind.fromWireName(
+      payload['kind'] as String? ?? '',
+    );
+    if (kind != PendingOperationKind.fetch) return;
+
+    // Popped whether or not the fetch succeeded: the queue tracks
+    // submissions, so skipping it on failure would hand this request's
+    // outcome to the next fetch.
+    final PendingFetchRequest? request = _pending.takeFetch();
+    if (request == null) return;
+    if (payload['succeeded'] != true) return;
+
+    // Spec page 02 is explicit that a fetch must not silently remove a
+    // remote-tracking ref, so this asks `git remote prune --dry-run` what a
+    // real prune *would* remove and marks those rows instead. Two costs,
+    // recorded rather than hidden: the dry run contacts the remote (one
+    // round trip per remote, 30s timeout each), and
+    // `Session::requestRemotePrunePreview` posts with `postFront`, so these
+    // jump ahead of queued viewport reads on the shared read pool. Both are
+    // acceptable for something the user triggered by pressing Fetch.
+    for (final String remote in remotesToPreviewAfterFetch(
+      request.remoteName,
+      state.refs,
+    )) {
+      _autoPrunePreviewsInFlight[remote] =
+          (_autoPrunePreviewsInFlight[remote] ?? 0) + 1;
+      requestRemotePrunePreview(remote);
+    }
+  }
+
+  /// Test-only: records a pending fetch request without going through
+  /// [fetchRemote], which `FakeRepoSessionController` overrides to log the
+  /// call instead of reaching this class's implementation. Same reason
+  /// [debugRecordCheckout] exists.
+  @visibleForTesting
+  void debugRecordFetch({String remoteName = ''}) =>
+      _pending.recordFetch(PendingFetchRequest(remoteName: remoteName));
+
+  /// Test-only: records a pending prune-remote request without going through
+  /// [pruneRemote], for the same reason [debugRecordFetch] exists.
+  @visibleForTesting
+  void debugRecordPruneRemote({
+    required String remoteName,
+    required List<String> refs,
+  }) => _pending.recordPruneRemote(
+    PendingPruneRemoteRequest(remoteName: remoteName, refs: refs),
+  );
+
+  /// Test-only entry point to [_onEvent], so a reducer-level test can feed a
+  /// real native event payload without an open session. Takes the event in
+  /// its wire form (raw JSON bytes) deliberately -- a hook that accepted an
+  /// already-decoded map would skip [decodeEventPayload] and could not
+  /// catch a payload-shape mismatch, which is most of what such a test is
+  /// for.
+  @visibleForTesting
+  void debugHandleEvent(GbmEvent event) => _onEvent(event);
 
   /// Test-only entry point to [_handleOperationOutcome], for a reducer-level
   /// regression test that can't drive the real GBM_EVENT_OPERATION_FINISHED
@@ -1308,6 +1650,13 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// Session::refreshUndoJournalCache()'s doc comment), so this is called
   /// right after GBM_EVENT_OPERATION_FINISHED / GBM_EVENT_WORKING_COPY_OPERATION_FINISHED.
   void _readUndoJournal() {
+    // The `_session == nullptr` guard every other `_read*` carries, and
+    // which this one was missing. Unreachable in production (events only
+    // arrive on an open session), but it is the guard the fake session seam
+    // relies on: FakeGbmBindings throws via noSuchMethod on anything it
+    // does not implement, so without this any reducer test driving a real
+    // event through _onEvent dies here rather than on its own assertion.
+    if (_session == nullptr) return;
     if (_bindings.undoJournalJson(_session) == 0) {
       final String json = readLastResultJson(_bindings);
       if (json.isNotEmpty) {
@@ -2208,6 +2557,11 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     bool tags = false,
   }) {
     if (_session == nullptr) return;
+    // Recorded before the call, so the outcome that comes back on
+    // GBM_EVENT_WORKING_COPY_OPERATION_FINISHED can be attributed to *this*
+    // request rather than to whichever fetch happens to be at the head of
+    // the queue. See PendingOperationTracker's doc comment.
+    _pending.recordFetch(PendingFetchRequest(remoteName: remoteName));
     final Pointer<Utf8> remotePtr = remoteName.toNativeUtf8();
     try {
       _withNativeStringArray(
@@ -2491,6 +2845,12 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// refreshes history.
   void pruneRemote(String remoteName, List<String> refs) {
     if (_session == nullptr || refs.isEmpty) return;
+    // Recorded before the call so the outcome can be attributed to *this*
+    // request -- see PendingOperationTracker's doc comment. Only a
+    // successful prune clears the gone-pending marks it answers for.
+    _pending.recordPruneRemote(
+      PendingPruneRemoteRequest(remoteName: remoteName, refs: refs),
+    );
     final Pointer<Utf8> remotePtr = remoteName.toNativeUtf8();
     try {
       _withNativeStringArray(
@@ -3152,6 +3512,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     // No further GBM_EVENT_OPERATION_FINISHED events will arrive to consume
     // whatever is still pending.
     _pending.clear();
+    _autoPrunePreviewsInFlight.clear();
     super.dispose();
   }
 }

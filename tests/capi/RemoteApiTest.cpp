@@ -219,6 +219,37 @@ TEST_F(RemoteApiTest, FetchWithRefsBringsInOnlyTheNamedBranch) {
     EXPECT_NE(runGit({"rev-parse", "--verify", "origin/unwanted"}), 0);
 }
 
+TEST_F(RemoteApiTest, FetchStampsItsOutcomeWithAKindSoDartCanAttributeIt) {
+    // Roughly thirty controller methods share GBM_EVENT_WORKING_COPY_OPERATION_FINISHED
+    // and OperationRunner's queue can hold more than one operation, so
+    // "the next completion event is my fetch" is wrong whenever anything
+    // else is submitted in between. Operation::kind() exists precisely so
+    // Dart's PendingOperationTracker can pair an outcome with the request
+    // that produced it (see OperationRunner.h's doc comment); fetch had no
+    // override, which is why the post-fetch gone-marking had nothing stable
+    // to hang off.
+    gbm_remote_fetch(session_, "origin", nullptr, 0, /*prune=*/0, /*tags=*/0);
+    ASSERT_TRUE(waitForWorkingCopyOperationFinished(log_));
+
+    const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_WORKING_COPY_OPERATION_FINISHED);
+    EXPECT_NE(outcome.find("\"kind\":\"fetch\""), std::string::npos) << outcome;
+}
+
+TEST_F(RemoteApiTest, AFailedFetchIsStampedToo) {
+    // The stamp is applied by OperationRunner on the single path every
+    // completion funnels through, so it must survive a failure. Dart pops
+    // its FIFO on any outcome, success or not -- an unstamped failure would
+    // leave the queue misaligned and attribute the *next* fetch's outcome
+    // to this request.
+    const char* refs[] = {"main"};
+    gbm_remote_fetch(session_, "", refs, 1, /*prune=*/0, /*tags=*/0);
+    ASSERT_TRUE(waitForWorkingCopyOperationFinished(log_));
+
+    const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_WORKING_COPY_OPERATION_FINISHED);
+    EXPECT_NE(outcome.find("\"succeeded\":false"), std::string::npos) << outcome;
+    EXPECT_NE(outcome.find("\"kind\":\"fetch\""), std::string::npos) << outcome;
+}
+
 TEST_F(RemoteApiTest, FetchWithRefsButNoRemoteNameFailsCleanly) {
     const char* refs[] = {"main"};
     gbm_remote_fetch(session_, "", refs, 1, /*prune=*/0, /*tags=*/0);
@@ -327,6 +358,38 @@ TEST_F(RemoteApiTest, PruneDeletesExactlyTheSelectedRemoteTrackingRef) {
     EXPECT_NE(runGit({"rev-parse", "--verify", "origin/gone"}), 0);
     // Untouched: gbm_remote_prune only deletes the refs it is given.
     EXPECT_EQ(runGit({"rev-parse", "--verify", "origin/main"}), 0);
+}
+
+TEST_F(RemoteApiTest, PruneStampsItsOutcomeWithAKindSoDartCanAttributeIt) {
+    // Same reasoning as FetchStampsItsOutcomeWithAKindSoDartCanAttributeIt
+    // above, on the other completion channel: Dart clears its gone-pending
+    // marks when a prune succeeds, and "the next OPERATION_FINISHED is my
+    // prune" is wrong whenever any of the ~thirty other methods sharing
+    // that channel is submitted in between.
+    ASSERT_EQ(runIn(remote_, {"branch", "gone", "main"}), 0);
+    gbm_remote_fetch(session_, "origin", nullptr, 0, /*prune=*/0, /*tags=*/0);
+    ASSERT_TRUE(waitForWorkingCopyOperationFinished(log_));
+
+    const char* refs[] = {"origin/gone"};
+    gbm_remote_prune(session_, "origin", refs, 1);
+    ASSERT_TRUE(waitForOperationFinished(log_));
+
+    const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_OPERATION_FINISHED);
+    EXPECT_NE(outcome.find("\"kind\":\"prune-remote\""), std::string::npos) << outcome;
+}
+
+TEST_F(RemoteApiTest, AFailedPruneIsStampedToo) {
+    // The stamp comes from OperationRunner's single completion path, so it
+    // must survive a failure. Dart pops its FIFO on any outcome -- an
+    // unstamped failure would misalign the queue and let a *failed* prune
+    // clear gone marks the next prune was supposed to answer for.
+    const char* refs[] = {"origin/never-existed"};
+    gbm_remote_prune(session_, "origin", refs, 1);
+    ASSERT_TRUE(waitForOperationFinished(log_));
+
+    const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_OPERATION_FINISHED);
+    EXPECT_NE(outcome.find("\"succeeded\":false"), std::string::npos) << outcome;
+    EXPECT_NE(outcome.find("\"kind\":\"prune-remote\""), std::string::npos) << outcome;
 }
 
 TEST_F(RemoteApiTest, AddRemoteAddsANewRemote) {

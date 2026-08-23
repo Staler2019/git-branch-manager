@@ -29,6 +29,7 @@ class StatusBar extends StatefulWidget {
     required this.currentBranch,
     required this.ahead,
     required this.behind,
+    this.upstreamGone = false,
     required this.commitCount,
     required this.lastScanDuration,
     required this.graphLaneCapacity,
@@ -45,6 +46,20 @@ class StatusBar extends StatefulWidget {
   final String currentBranch;
   final int ahead;
   final int behind;
+
+  /// Whether the current branch's upstream no longer exists on the remote --
+  /// either git already reports `[gone]`, or a post-fetch
+  /// `git remote prune --dry-run` says it will once pruned. Computed by
+  /// `workspace_screen.dart` through `gone_marking.dart`'s
+  /// `isEffectivelyGone`, keeping this widget presentational.
+  ///
+  /// Spec page 02: 「status bar 的 ahead/behind 改顯示 `upstream gone`」.
+  /// It *replaces* the counts rather than sitting beside them -- [ahead] and
+  /// [behind] are distances measured against a ref that is not there, so
+  /// rendering both would state a distance from nothing. It also matters
+  /// most in the case that renders nothing today: a branch that was exactly
+  /// in sync when its upstream vanished reports 0 and 0.
+  final bool upstreamGone;
   final int commitCount;
   final Duration lastScanDuration;
   final int graphLaneCapacity;
@@ -198,25 +213,36 @@ class _StatusBarState extends State<StatusBar> {
                             color: colors.textPrimary,
                           ),
                         ),
-                        if (widget.ahead > 0) ...<Widget>[
+                        if (widget.upstreamGone) ...<Widget>[
                           const SizedBox(width: GbmSpacing.space2),
                           Text(
-                            '${widget.ahead}↑',
+                            'upstream gone',
                             style: TextStyle(
                               fontSize: GbmTypography.textXs,
-                              color: colors.textTertiary,
+                              color: colors.warning,
                             ),
                           ),
-                        ],
-                        if (widget.behind > 0) ...<Widget>[
-                          const SizedBox(width: GbmSpacing.space2),
-                          Text(
-                            '${widget.behind}↓',
-                            style: TextStyle(
-                              fontSize: GbmTypography.textXs,
-                              color: colors.textTertiary,
+                        ] else ...<Widget>[
+                          if (widget.ahead > 0) ...<Widget>[
+                            const SizedBox(width: GbmSpacing.space2),
+                            Text(
+                              '${widget.ahead}↑',
+                              style: TextStyle(
+                                fontSize: GbmTypography.textXs,
+                                color: colors.textTertiary,
+                              ),
                             ),
-                          ),
+                          ],
+                          if (widget.behind > 0) ...<Widget>[
+                            const SizedBox(width: GbmSpacing.space2),
+                            Text(
+                              '${widget.behind}↓',
+                              style: TextStyle(
+                                fontSize: GbmTypography.textXs,
+                                color: colors.textTertiary,
+                              ),
+                            ),
+                          ],
                         ],
                         const SizedBox(width: GbmSpacing.space2),
                         Text(

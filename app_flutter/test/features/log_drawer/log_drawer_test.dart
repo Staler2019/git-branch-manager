@@ -280,4 +280,90 @@ void main() {
       expect(saveButton, findsWidgets);
     });
   });
+
+  group('LogDrawer level filter partitions records', () {
+    /// A superseded `for-each-ref`: Session::refreshHistory() SIGTERMs the
+    /// in-flight read before posting a newer one, so it lands in the log as
+    /// cancelled with 128 + SIGTERM = 143.
+    OperationRecord cancelledRead() => OperationRecord(
+      whenEpochMs: 1692000000000,
+      repoDir: '/path/to/repo',
+      argv: const <String>['git', 'for-each-ref'],
+      commandLine: 'git for-each-ref',
+      exitCode: 143,
+      durationMs: 20,
+      stderrText: '',
+      cancelled: true,
+      timedOut: false,
+    );
+
+    OperationRecord rejectedPush() => OperationRecord(
+      whenEpochMs: 1692000001000,
+      repoDir: '/path/to/repo',
+      argv: const <String>['git', 'push'],
+      commandLine: 'git push',
+      exitCode: 1,
+      durationMs: 500,
+      stderrText: '',
+      cancelled: false,
+      timedOut: false,
+    );
+
+    Future<void> pumpWith(
+      WidgetTester tester,
+      List<OperationRecord> records,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: Scaffold(body: LogDrawer(records: records)),
+        ),
+      );
+      await tester.pump();
+    }
+
+    Future<void> selectFilter(WidgetTester tester, String label) async {
+      await tester.tap(find.widgetWithText(TextButton, label));
+      await tester.pump();
+    }
+
+    testWidgets('Warning shows a cancelled record', (tester) async {
+      await pumpWith(tester, <OperationRecord>[
+        cancelledRead(),
+        rejectedPush(),
+      ]);
+      await selectFilter(tester, 'Warning');
+
+      expect(find.text('git for-each-ref'), findsOneWidget);
+      expect(find.text('git push'), findsNothing);
+    });
+
+    testWidgets('Error does NOT also show the cancelled record', (
+      tester,
+    ) async {
+      // The regression this pins: the warning predicate used to be
+      // `failed && !cancelled && !timedOut` while the error predicate was
+      // `cancelled || timedOut || exitCode != 0`, making warning a strict
+      // subset of error -- so Error showed everything Warning did.
+      await pumpWith(tester, <OperationRecord>[
+        cancelledRead(),
+        rejectedPush(),
+      ]);
+      await selectFilter(tester, 'Error');
+
+      expect(find.text('git push'), findsOneWidget);
+      expect(find.text('git for-each-ref'), findsNothing);
+    });
+
+    testWidgets('Info shows neither', (tester) async {
+      await pumpWith(tester, <OperationRecord>[
+        cancelledRead(),
+        rejectedPush(),
+      ]);
+      await selectFilter(tester, 'Info');
+
+      expect(find.text('git for-each-ref'), findsNothing);
+      expect(find.text('git push'), findsNothing);
+    });
+  });
 }

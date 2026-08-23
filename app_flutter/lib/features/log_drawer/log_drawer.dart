@@ -29,18 +29,23 @@ class LogDrawer extends StatefulWidget {
 class _LogDrawerState extends State<LogDrawer> {
   _LogLevel _selectedLevel = _LogLevel.all;
 
+  /// Filters on [OperationRecord.level] rather than re-deriving the
+  /// conditions here.
+  ///
+  /// The predicates this replaces were `failed && !cancelled && !timedOut`
+  /// for warning against `cancelled || timedOut || exitCode != 0` for error
+  /// -- warning was a strict *subset* of error, so selecting Error also
+  /// showed every warning and spec's three-level `LOGRULES` model was not
+  /// actually a partition. Going through `level` makes the three mutually
+  /// exclusive by construction.
   List<OperationRecord> get _filteredRecords {
     return widget.records.where((record) {
-      switch (_selectedLevel) {
-        case _LogLevel.all:
-          return true;
-        case _LogLevel.info:
-          return !record.failed;
-        case _LogLevel.warning:
-          return record.failed && !record.cancelled && !record.timedOut;
-        case _LogLevel.error:
-          return record.cancelled || record.timedOut || record.exitCode != 0;
-      }
+      return switch (_selectedLevel) {
+        _LogLevel.all => true,
+        _LogLevel.info => record.level == OperationLogLevel.info,
+        _LogLevel.warning => record.level == OperationLogLevel.warning,
+        _LogLevel.error => record.level == OperationLogLevel.error,
+      };
     }).toList();
   }
 
@@ -56,14 +61,7 @@ class _LogDrawerState extends State<LogDrawer> {
     final String when = DateTime.fromMillisecondsSinceEpoch(
       r.whenEpochMs,
     ).toIso8601String();
-    final String level = r.cancelled
-        ? 'CANCELLED'
-        : r.timedOut
-        ? 'TIMEOUT'
-        : r.failed
-        ? 'ERROR'
-        : 'INFO';
-    return '$when  $level  ${r.commandLine}  '
+    return '$when  ${r.levelLabel}  ${r.commandLine}  '
         '(exit ${r.exitCode}, ${r.durationMs}ms)';
   }
 

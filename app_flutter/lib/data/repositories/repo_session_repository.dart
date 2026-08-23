@@ -23,6 +23,7 @@ import '../models/graph_snapshot.dart';
 import '../models/lfs_state.dart';
 import '../models/line_history_chunk.dart';
 import '../models/operation_choice.dart';
+import '../models/app_log_events.dart';
 import '../models/operation_record.dart';
 import '../models/parsed_conflict_file.dart';
 import '../models/parsed_diff.dart';
@@ -876,6 +877,16 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     _subscription = events.events.listen(_onEvent);
 
     state = state.copyWith(isOpen: true);
+    // LOGRULES 記什麼 lists 「開啟 repo」 alongside git invocations. Emitted
+    // here rather than in the provider, because this is the point at which
+    // the handle is genuinely allocated -- every earlier return in this
+    // method is an open that did not happen.
+    _appendAppLog(
+      AppLogEvents.repositoryOpened(
+        _identity.workDir,
+        atEpochMs: _nowEpochMs(),
+      ),
+    );
     _readRepoState();
     refreshHistory();
     refreshWorkingCopy();
@@ -1076,6 +1087,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
           // remotes so the sidebar can mark rows without deleting any ref
           // (spec page 02's three-stage gone flow, stages 1 and 2).
           _consumeAutoPrunePreview(preview.remote);
+          _logNewlyGoneRefs(preview);
           state = state
               .copyWith(lastRemotePrunePreview: preview)
               .withGonePendingFor(preview.remote, preview.refs);
@@ -1377,6 +1389,20 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
         state = state.copyWith(
           checkoutChoices: succeeded ? const <OperationChoice>[] : choices,
         );
+        // LOGRULES 記什麼: 「切分支」. Only on success -- a refused checkout
+        // already produces a git record carrying the reason, and claiming
+        // HEAD moved when it did not is worse than saying nothing.
+        if (succeeded) {
+          _appendAppLog(
+            AppLogEvents.branchCheckedOut(
+              target: request.target,
+              detach: request.detach,
+              createBranch: request.createBranch,
+              newBranchName: request.newBranchName,
+              atEpochMs: _nowEpochMs(),
+            ),
+          );
+        }
       case PendingOperationKind.deleteBranch:
         final PendingDeleteBranchRequest? request = _pending.takeDeleteBranch();
         if (request == null) break;
@@ -1398,6 +1424,18 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
         if (request == null) break;
         if (!succeeded) break;
         state = state.withGonePendingRemoved(request.remoteName, request.refs);
+        // LOGRULES 記什麼: 「prune 掉哪些 ref」 -- which ones, not just that
+        // a prune happened. Skipped for an empty list so a no-op prune does
+        // not produce a line saying nothing was removed.
+        if (request.refs.isNotEmpty) {
+          _appendAppLog(
+            AppLogEvents.refsPruned(
+              remote: request.remoteName,
+              refs: request.refs,
+              atEpochMs: _nowEpochMs(),
+            ),
+          );
+        }
       case null:
         break;
     }
@@ -1444,6 +1482,41 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
       return true;
     }
     return false;
+  }
+
+  /// Appends one app-level log line, honouring the same memory cap git
+  /// records go through -- `LOGRULES` 保留 caps the log, not each kind of
+  /// entry separately.
+  void _appendAppLog(AppLogEntry entry) {
+    state = state.withOperationRecord(
+      entry,
+      maxEntries: maxOperationLogEntries,
+    );
+  }
+
+  /// Wall-clock for an app-level entry. Named so the one non-deterministic
+  /// input in these four call sites is visible rather than inlined five
+  /// times.
+  int _nowEpochMs() => DateTime.now().millisecondsSinceEpoch;
+
+  /// Logs page 10's gone-marking row, once per ref, for the refs this
+  /// preview newly marks.
+  ///
+  /// Must be called *before* the state is updated, and must diff rather than
+  /// log every ref in the preview: an automatic preview runs after every
+  /// fetch (see [_remotesToPreviewAfterFetch]), so logging the whole list
+  /// would repeat the same warning on every fetch until the user pruned,
+  /// which is exactly the kind of noise `LOGRULES` 只有一套 is guarding
+  /// against elsewhere.
+  void _logNewlyGoneRefs(RemotePrunePreview preview) {
+    final Set<String> known =
+        (state.gonePendingByRemote[preview.remote] ?? const <String>[]).toSet();
+    for (final RemotePrunePreviewEntry entry in preview.refs) {
+      if (known.contains(entry.fullRefName)) continue;
+      _appendAppLog(
+        AppLogEvents.remoteRefGone(entry.ref, atEpochMs: _nowEpochMs()),
+      );
+    }
   }
 
   void _consumeAutoPrunePreview(String remote) {

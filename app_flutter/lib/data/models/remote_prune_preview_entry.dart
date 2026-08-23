@@ -44,4 +44,10 @@ class RemotePrunePreviewEntry {
 String fullRemoteRefName(String ref) =>
     ref.startsWith(_kRemotePrefix) ? ref : '$_kRemotePrefix$ref';
 
+/// The inverse of [fullRemoteRefName], equally idempotent. For display only:
+/// `origin/feature/x` is what the user recognises, while every comparison in
+/// this codebase is done on the full form.
+String shortRemoteRefName(String ref) =>
+    ref.startsWith(_kRemotePrefix) ? ref.substring(_kRemotePrefix.length) : ref;
+
 const String _kRemotePrefix = 'refs/remotes/';

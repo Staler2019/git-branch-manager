@@ -18,6 +18,7 @@ import 'package:gbm_flutter/features/sidebar/widgets/branch_tree_item.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/theme_mode_provider.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
+import 'package:gbm_flutter/widgets/gbm_badge.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../support/fake_repo_session.dart';
@@ -139,7 +140,7 @@ void main() {
 
     expect(_rowIsGonePending(tester, 'feature'), isFalse);
     expect(_rowIsGonePending(tester, 'orphan'), isFalse);
-    expect(find.text('1 to clean up'), findsNothing);
+    expect(find.byType(GbmBadge), findsNothing);
   });
 
   testWidgets('a preview marks the local branch that tracks the gone ref', (
@@ -190,7 +191,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('2 to clean up'), findsOneWidget);
+    expect(tester.widget<GbmBadge>(find.byType(GbmBadge)).label, '2');
   });
 
   testWidgets('the count ignores refs the snapshot no longer has', (
@@ -208,7 +209,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('to clean up'), findsNothing);
+    expect(find.byType(GbmBadge), findsNothing);
   });
 
   testWidgets('marking a row dispatches no command at all', (tester) async {
@@ -249,6 +250,78 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(_rowIsGonePending(tester, 'feature'), isFalse);
-    expect(find.textContaining('to clean up'), findsNothing);
+    expect(find.byType(GbmBadge), findsNothing);
   });
+
+  testWidgets('the pending badge does not overflow the section header', (
+    tester,
+  ) async {
+    // Caught by running, not by reading: the first version of this badge was
+    // a non-flex Text reading "N to clean up", which overflowed the BRANCHES
+    // header by 13px at the harness's own width. RenderFlex sizes non-flex
+    // children first, so a wider label beside the two 28px icon buttons
+    // pushes past the sidebar instead of letting the Expanded 'BRANCHES'
+    // label yield. Pinned at the sidebar's documented minimum with a
+    // two-digit count, which is the worst case the badge can reach in
+    // practice.
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    final FakeRepoSessionController fake = await _pumpConstrained(
+      tester,
+      width: GbmLayout.sidebarMinWidth,
+    );
+
+    fake.emit(
+      _stateWith(<String, List<String>>{
+        'origin': <String>[
+          'refs/remotes/origin/feature',
+          'refs/remotes/origin/orphan',
+        ],
+      }),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.widget<GbmBadge>(find.byType(GbmBadge)).label, '2');
+    expect(tester.takeException(), isNull);
+  });
+}
+
+Future<FakeRepoSessionController> _pumpConstrained(
+  WidgetTester tester, {
+  required double width,
+}) async {
+  SharedPreferences.setMockInitialValues(<String, Object>{});
+  final SharedPreferences prefs = await SharedPreferences.getInstance();
+
+  final FakeRepoSessionController fake = FakeRepoSessionController(
+    _identity,
+    _stateWith(const <String, List<String>>{}),
+  );
+
+  final ProviderContainer container = ProviderContainer(
+    overrides: <Override>[
+      sharedPreferencesProvider.overrideWithValue(prefs),
+      repoSessionProvider(_identity).overrideWith((ref) => fake),
+    ],
+  );
+  addTearDown(container.dispose);
+
+  await tester.pumpWidget(
+    UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp(
+        theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+        home: Scaffold(
+          body: SizedBox(
+            width: width,
+            child: SidebarPanel(identity: _identity, filterFocusNode: null),
+          ),
+        ),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+  return fake;
 }

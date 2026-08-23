@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
@@ -236,6 +237,40 @@ class CompareFileDiffResult {
   final bool threeDot;
   final String path;
   final ParsedDiff diff;
+}
+
+/// Which remotes a just-completed fetch should be asked to preview for
+/// pruning, per spec page 02's three-stage gone flow (stage 1 and 2 mark,
+/// stage 3 -- an explicit Remote -> Prune remote branches -- removes).
+///
+/// [fetchedRemote] is the name the fetch was submitted with; an empty string
+/// is `git fetch --all` (`FetchOperation::run`, RemoteOps.cpp) and only then
+/// does this fan out. Scoping matters because `git remote prune --dry-run`
+/// contacts the network: previewing every remote after `fetch origin` would
+/// fire round trips the user never asked for.
+///
+/// The fan-out derives remote names from [refs], **not** from
+/// `RepoSessionState.remotes`: `RepoSessionController._open()` calls
+/// `_readRepoState`/`refreshHistory`/`refreshWorkingCopy` and never
+/// `refreshRemotes()`, so `remotes` is routinely empty and would silently
+/// preview nothing. A named remote is returned even when the snapshot has no
+/// refs for it -- a remote fetched for the first time has no remote-tracking
+/// refs yet.
+///
+/// Order is stable (first appearance in the snapshot) so the resulting calls,
+/// and any test asserting on them, are deterministic.
+@visibleForTesting
+List<String> remotesToPreviewAfterFetch(
+  String fetchedRemote,
+  RefSnapshot refs,
+) {
+  if (fetchedRemote.isNotEmpty) return <String>[fetchedRemote];
+  final LinkedHashSet<String> names = LinkedHashSet<String>();
+  for (final RefInfo ref in refs.remoteBranches) {
+    final (String remote, String _) = remoteBranchParts(ref.fullName);
+    if (remote.isNotEmpty) names.add(remote);
+  }
+  return names.toList(growable: false);
 }
 
 /// Reply to [RepoSessionController.requestRemotePrunePreview]: mirrors
@@ -847,13 +882,16 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
         _readWorkingCopyStatus();
       case GbmEventType.workingCopyOperationFinished:
         final Object? payload = decodeEventPayload(event.payload);
-        if (payload is Map<String, dynamic> && payload['succeeded'] == false) {
-          final Object? error = payload['error'];
-          state = state.copyWith(
-            lastError: error is Map<String, dynamic>
-                ? GitError.fromJson(error)
-                : null,
-          );
+        if (payload is Map<String, dynamic>) {
+          if (payload['succeeded'] == false) {
+            final Object? error = payload['error'];
+            state = state.copyWith(
+              lastError: error is Map<String, dynamic>
+                  ? GitError.fromJson(error)
+                  : null,
+            );
+          }
+          _handleWorkingCopyOutcomeKind(payload);
         }
         _readUndoJournal();
       case GbmEventType.workingCopyDiffReady:
@@ -1319,6 +1357,49 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     }
   }
 
+  /// Consumes the `kind` stamp on a working-copy completion outcome.
+  ///
+  /// Separate from [_handleOperationOutcome] because the two ride different
+  /// capi events (GBM_EVENT_WORKING_COPY_OPERATION_FINISHED vs
+  /// GBM_EVENT_OPERATION_FINISHED) even though one `OperationRunner` queue
+  /// feeds both -- popping a queue from the wrong handler would double-pop.
+  void _handleWorkingCopyOutcomeKind(Map<String, dynamic> payload) {
+    final PendingOperationKind? kind = PendingOperationKind.fromWireName(
+      payload['kind'] as String? ?? '',
+    );
+    if (kind != PendingOperationKind.fetch) return;
+
+    // Popped whether or not the fetch succeeded: the queue tracks
+    // submissions, so skipping it on failure would hand this request's
+    // outcome to the next fetch.
+    final PendingFetchRequest? request = _pending.takeFetch();
+    if (request == null) return;
+    if (payload['succeeded'] != true) return;
+
+    // Spec page 02 is explicit that a fetch must not silently remove a
+    // remote-tracking ref, so this asks `git remote prune --dry-run` what a
+    // real prune *would* remove and marks those rows instead. Two costs,
+    // recorded rather than hidden: the dry run contacts the remote (one
+    // round trip per remote, 30s timeout each), and
+    // `Session::requestRemotePrunePreview` posts with `postFront`, so these
+    // jump ahead of queued viewport reads on the shared read pool. Both are
+    // acceptable for something the user triggered by pressing Fetch.
+    for (final String remote in remotesToPreviewAfterFetch(
+      request.remoteName,
+      state.refs,
+    )) {
+      requestRemotePrunePreview(remote);
+    }
+  }
+
+  /// Test-only: records a pending fetch request without going through
+  /// [fetchRemote], which `FakeRepoSessionController` overrides to log the
+  /// call instead of reaching this class's implementation. Same reason
+  /// [debugRecordCheckout] exists.
+  @visibleForTesting
+  void debugRecordFetch({String remoteName = ''}) =>
+      _pending.recordFetch(PendingFetchRequest(remoteName: remoteName));
+
   /// Test-only entry point to [_onEvent], so a reducer-level test can feed a
   /// real native event payload without an open session. Takes the event in
   /// its wire form (raw JSON bytes) deliberately -- a hook that accepted an
@@ -1377,6 +1458,13 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   /// Session::refreshUndoJournalCache()'s doc comment), so this is called
   /// right after GBM_EVENT_OPERATION_FINISHED / GBM_EVENT_WORKING_COPY_OPERATION_FINISHED.
   void _readUndoJournal() {
+    // The `_session == nullptr` guard every other `_read*` carries, and
+    // which this one was missing. Unreachable in production (events only
+    // arrive on an open session), but it is the guard the fake session seam
+    // relies on: FakeGbmBindings throws via noSuchMethod on anything it
+    // does not implement, so without this any reducer test driving a real
+    // event through _onEvent dies here rather than on its own assertion.
+    if (_session == nullptr) return;
     if (_bindings.undoJournalJson(_session) == 0) {
       final String json = readLastResultJson(_bindings);
       if (json.isNotEmpty) {
@@ -2277,6 +2365,11 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     bool tags = false,
   }) {
     if (_session == nullptr) return;
+    // Recorded before the call, so the outcome that comes back on
+    // GBM_EVENT_WORKING_COPY_OPERATION_FINISHED can be attributed to *this*
+    // request rather than to whichever fetch happens to be at the head of
+    // the queue. See PendingOperationTracker's doc comment.
+    _pending.recordFetch(PendingFetchRequest(remoteName: remoteName));
     final Pointer<Utf8> remotePtr = remoteName.toNativeUtf8();
     try {
       _withNativeStringArray(

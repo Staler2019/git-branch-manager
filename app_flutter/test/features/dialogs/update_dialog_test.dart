@@ -225,6 +225,29 @@ void main() {
       expect(sessions.closeAllCalls, 1);
     });
 
+    // The last point a user can still back out. `cancel` there does not
+    // ask an in-flight transfer to stop -- there is none left -- it discards
+    // the verified bundle, which is why the button has to reach the
+    // controller rather than just pop the dialog.
+    testWidgets('backs out of a finished download without dismissing', (
+      WidgetTester tester,
+    ) async {
+      final _FakeUpdate fake = await _pumpDialog(
+        tester,
+        UpdateState.readyToInstall(
+          release: _release,
+          asset: _asset,
+          downloadedPath: '/tmp/x.dmg',
+        ),
+      );
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pump();
+
+      expect(fake.calls, <String>['cancel']);
+      expect(fake.calls, isNot(contains('install')));
+    });
+
     // Past the point of no return: the detached script is already running.
     testWidgets('offers nothing to press while installing', (
       WidgetTester tester,

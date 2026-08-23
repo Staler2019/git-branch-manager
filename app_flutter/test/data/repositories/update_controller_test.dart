@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ffi' show Abi;
 import 'dart:io';
 
@@ -91,7 +92,10 @@ class _FakeDownloader implements UpdateDownloader {
     }
     onVerifying?.call();
     final File file = File('${into.path}${Platform.pathSeparator}${asset.name}')
-      ..createSync(recursive: true)
+      // Deliberately NOT `createSync(recursive: true)`: the real downloader
+      // calls `file.openWrite()` and creates no directory, so handing it an
+      // `into` that has been deleted throws. A fixture that recreates the
+      // directory would repair the very defect it is meant to catch.
       ..writeAsStringSync('bundle');
     return file;
   }
@@ -151,6 +155,22 @@ UpdateInstaller _blockedInstaller() {
     operatingSystem: 'linux',
     executablePath: '${install.path}/gbm_flutter',
     abi: Abi.linuxX64,
+  );
+}
+
+/// Like [_installableInstaller], but its unpack step does not return until
+/// [unpack] completes -- the only way to observe [UpdateStatus.installing]
+/// from outside, since `install()` otherwise runs straight through.
+UpdateInstaller _blockingInstaller(Future<ProcessRunResult> unpack) {
+  final Directory install = Directory('${_tempDir().path}/opt/gbm')
+    ..createSync(recursive: true);
+  return UpdateInstaller(
+    operatingSystem: 'linux',
+    executablePath: '${install.path}/gbm_flutter',
+    abi: Abi.linuxX64,
+    run: (String exe, List<String> args) => unpack,
+    start: (String e, List<String> a, {String? workingDirectory}) async => true,
+    exitProcess: (int code) {},
   );
 }
 
@@ -602,6 +622,99 @@ void main() {
 
       expect(d.calls, 0);
       expect(c.state.status, UpdateStatus.available);
+    });
+  });
+
+  group('cancel from readyToInstall', () {
+    // The download has already returned by then, so the flag `cancel` sets
+    // is read by nothing -- the button was inert. Cancelling here has to
+    // undo the download itself, not ask a finished loop to stop.
+    test('returns to the offer instead of staying ready', () async {
+      final Directory dir = _tempDir();
+      final UpdateController c = _controller(
+        result: _release('v9.9.9'),
+        downloader: _FakeDownloader(),
+        createDownloadDir: () => dir,
+      );
+      await c.check();
+      await c.download();
+      expect(c.state.status, UpdateStatus.readyToInstall);
+
+      c.cancel();
+
+      expect(c.state.status, UpdateStatus.available);
+      // Still offered, not lost: the user declined the install, not the
+      // update. Pressing Download again must be able to start over.
+      expect(c.state.release?.tagName, 'v9.9.9');
+      expect(c.state.canSelfInstall, isTrue);
+    });
+
+    test('discards the verified bundle', () async {
+      final Directory dir = _tempDir();
+      final UpdateController c = _controller(
+        result: _release('v9.9.9'),
+        downloader: _FakeDownloader(),
+        createDownloadDir: () => dir,
+      );
+      await c.check();
+      await c.download();
+      expect(File(c.state.downloadedPath!).existsSync(), isTrue);
+
+      c.cancel();
+
+      expect(dir.existsSync(), isFalse);
+    });
+
+    // Cancelling and downloading again must not reuse a directory that was
+    // just deleted -- `_downloadDir` is created lazily and cached, so
+    // clearing it is part of the discard, not an afterthought.
+    test('can download again afterwards', () async {
+      Directory? dir;
+      final UpdateController c = _controller(
+        result: _release('v9.9.9'),
+        downloader: _FakeDownloader(),
+        createDownloadDir: () => dir = _tempDir(),
+      );
+      await c.check();
+      await c.download();
+      c.cancel();
+
+      await c.download();
+
+      expect(c.state.status, UpdateStatus.readyToInstall);
+      expect(File(c.state.downloadedPath!).existsSync(), isTrue);
+      dir?.deleteSync(recursive: true);
+    });
+
+    // Installing is the one state with no way back: the detached script is
+    // already running and the bundle is still being read.
+    test('does nothing once installing has begun', () async {
+      final Directory dir = _tempDir();
+      addTearDown(() {
+        if (dir.existsSync()) dir.deleteSync(recursive: true);
+      });
+      // Held in `installing` by an unpack that has not returned yet --
+      // reached through the real install path, not by publishing the state
+      // directly, so nothing here depends on a test-only hook.
+      final Completer<ProcessRunResult> unpacking =
+          Completer<ProcessRunResult>();
+      final UpdateController c = _controller(
+        result: _release('v9.9.9'),
+        downloader: _FakeDownloader(),
+        createDownloadDir: () => dir,
+        installer: _blockingInstaller(unpacking.future),
+      );
+      await c.check();
+      await c.download();
+      final String bundle = c.state.downloadedPath!;
+      unawaited(c.install(beforeExit: () async {}));
+      await pumpEventQueue();
+      expect(c.state.status, UpdateStatus.installing);
+
+      c.cancel();
+
+      expect(c.state.status, UpdateStatus.installing);
+      expect(File(bundle).existsSync(), isTrue);
     });
   });
 

@@ -214,10 +214,6 @@ class UpdateController extends StateNotifier<UpdateState> {
     }
   }
 
-  /// Asks an in-flight download to stop.
-  ///
-  /// Only meaningful while [UpdateState.isCancellable]; once the updater
-  /// script is detached there is nothing left to stop.
   /// Unpacks the verified download and hands over to the updater script.
   ///
   /// One-way, and the only state with no way back: [cancel] stops at
@@ -278,8 +274,34 @@ class UpdateController extends StateNotifier<UpdateState> {
     }
   }
 
+  /// Backs out of an update the user has not committed to yet.
+  ///
+  /// Two different jobs, because "cancel" means two different things
+  /// depending on where the flow is. Mid-transfer it raises a flag the
+  /// download loop polls, and that loop is what publishes the new state.
+  /// At [UpdateStatus.readyToInstall] the transfer has already returned, so
+  /// nothing is left to poll -- setting the flag alone would leave the
+  /// button inert. Cancelling there has to undo the download itself.
+  ///
+  /// Either way the flow lands back on the offer rather than on idle: the
+  /// user declined *this install*, not the update, and Download has to be
+  /// able to start over. [dismiss] is the one that closes the offer.
+  ///
+  /// A no-op once [UpdateStatus.installing] -- the detached script is
+  /// already running and is still reading the bundle.
   void cancel() {
     _cancelRequested = true;
+    final UpdateState current = state;
+    if (current.status != UpdateStatus.readyToInstall) {
+      return;
+    }
+    // Clears `_downloadDir` too, so the next download creates a fresh one
+    // instead of writing into a directory that has just been deleted.
+    _removeDownloadDir();
+    state = UpdateState.available(
+      release: current.release!,
+      asset: current.asset,
+    );
   }
 
   /// Drops a pending result and returns to idle.

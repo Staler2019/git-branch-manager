@@ -12,6 +12,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/base_folder_record.dart';
 import 'package:gbm_flutter/data/models/repo_record.dart';
+import 'package:gbm_flutter/data/repositories/app_preferences_repository.dart';
 import 'package:gbm_flutter/data/repositories/discovery_repository.dart';
 import 'package:gbm_flutter/features/dialogs/preferences/preferences_dialog.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
@@ -70,6 +71,7 @@ _pump(
   WidgetTester tester, {
   List<BaseFolderRecord> folders = const <BaseFolderRecord>[],
   Map<String, Object> initialPrefs = const <String, Object>{},
+  String section = 'Repository sources',
 }) async {
   SharedPreferences.setMockInitialValues(initialPrefs);
   final SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -96,15 +98,65 @@ _pump(
   );
   await tester.pumpAndSettle();
 
-  // Repository sources is the section every new field in this round lives
-  // under (except the gitignore label, which switches section itself).
-  await tester.tap(find.text('Repository sources'));
+  // Repository sources is the section most fields in this round live under
+  // (except the gitignore label, which switches section itself).
+  await tester.tap(find.text(section));
   await tester.pumpAndSettle();
 
   return (container: container, discovery: discovery);
 }
 
 void main() {
+  group('PreferencesDialogContent - General, updates', () {
+    testWidgets('the startup check is on until it is turned off', (
+      tester,
+    ) async {
+      final result = await _pump(tester, section: 'General');
+
+      expect(find.text('Check for updates at startup'), findsOneWidget);
+
+      await tester.ensureVisible(find.text('Check for updates at startup'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Check for updates at startup'));
+      await tester.pumpAndSettle();
+
+      expect(
+        result.container.read(appPreferencesProvider).autoUpdateCheckEnabled,
+        isFalse,
+      );
+    });
+
+    // A suppression the user can neither see nor undo is hidden material
+    // state -- the same class this app's own UX rubric flags. The row only
+    // appears once something is actually being skipped, so it costs nothing
+    // in the common case.
+    testWidgets('says nothing about skipping when nothing is skipped', (
+      tester,
+    ) async {
+      await _pump(tester, section: 'General');
+
+      expect(find.textContaining('skipping'), findsNothing);
+    });
+
+    testWidgets('names the skipped version and offers to stop', (tester) async {
+      final result = await _pump(
+        tester,
+        section: 'General',
+        initialPrefs: <String, Object>{'appPrefs.skippedVersion': '9.9.9'},
+      );
+
+      expect(find.textContaining('9.9.9'), findsOneWidget);
+
+      await tester.ensureVisible(find.text('Stop skipping'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Stop skipping'));
+      await tester.pumpAndSettle();
+
+      expect(result.container.read(appPreferencesProvider).skippedVersion, '');
+      expect(find.text('Stop skipping'), findsNothing);
+    });
+  });
+
   group('PreferencesDialogContent - Repository sources', () {
     testWidgets(
       'editing the depth field and submitting calls setBaseFolderDepth',

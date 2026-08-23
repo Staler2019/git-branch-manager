@@ -42,6 +42,7 @@ import 'app_preferences_repository.dart';
 import 'gbm_bindings_provider.dart';
 import 'pending_operation_tracker.dart';
 import 'recents_repository.dart';
+import 'open_repo_sessions.dart';
 import 'repo_identity.dart';
 
 /// Mirrors `gbm::ResetMode` (src/core/git/ops/ResetOps.h) -- ordinal order
@@ -803,15 +804,23 @@ class RepoSessionState {
 /// its events, and closes it on dispose. One instance per open repository
 /// (`workspaceScreen`'s route scope owns the provider lifetime -- see the
 /// routing table in the plan).
-class RepoSessionController extends StateNotifier<RepoSessionState> {
+class RepoSessionController extends StateNotifier<RepoSessionState>
+    implements ClosableRepoSession {
   RepoSessionController(
     this._bindings,
     this._identity,
     this._recents, {
     this.maxOperationLogEntries = _kDefaultMaxOperationLogEntries,
+    this._openSessions,
   }) : super(const RepoSessionState()) {
+    _openSessions?.register(this);
     _open();
   }
+
+  /// Null in tests that do not care. Registration happens before
+  /// [_open] so a session that fails to open is still unregistered by
+  /// [dispose] rather than lingering in the registry forever.
+  final OpenRepoSessions? _openSessions;
 
   final GbmBindings _bindings;
   final RepoIdentity _identity;
@@ -3481,14 +3490,25 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     }
   }
 
+  /// Releases the `gbm_capi` handle without tearing down this notifier.
+  ///
+  /// Separate from [dispose] because the self-install flow needs the native
+  /// side released while the widget tree is still standing -- disposing a
+  /// notifier that is still being watched would be a different, worse
+  /// problem. Idempotent, so the registry and [dispose] can both call it.
+  @override
+  void closeNativeSession() {
+    if (_session == nullptr) return;
+    _bindings.sessionClose(_session);
+    _session = nullptr;
+  }
+
   @override
   void dispose() {
+    _openSessions?.unregister(this);
     unawaited(_subscription?.cancel());
     _events?.dispose();
-    if (_session != nullptr) {
-      _bindings.sessionClose(_session);
-      _session = nullptr;
-    }
+    closeNativeSession();
     // No further GBM_EVENT_OPERATION_FINISHED events will arrive to consume
     // whatever is still pending.
     _pending.clear();
@@ -3522,5 +3542,6 @@ repoSessionProvider =
         identity,
         recents,
         maxOperationLogEntries: maxOperationLogEntries,
+        openSessions: ref.read(openRepoSessionsProvider),
       );
     });

@@ -41,7 +41,30 @@ flutter test integration_test/context_menu_flows_test.dart -d macos
 flutter test integration_test/rename_branch_flow_test.dart -d macos
 flutter test integration_test/multi_push_flow_test.dart -d macos
 flutter test integration_test/commit_file_counts_test.dart -d macos
+flutter test integration_test/update_check_flow_test.dart -d macos
 ```
+
+`update_check_flow_test.dart` is the one file here that **needs network**:
+it hits the real GitHub Releases API and downloads the real ~24MB asset for
+the current platform, so it is both the slowest and the only one that can
+fail for a reason outside this repository. It fails loudly rather than
+skipping when offline -- a network test that passes with no network reports
+nothing, and its whole job is to catch the live release drifting away from
+what `assetSuffixForAbi` expects. It stops at `readyToInstall` and never
+presses "Install and restart"; the self-install pass is manual-only, against
+a throwaway pre-release tag.
+
+### `Failed to foreground app; open returned 1` is not always fatal
+
+This line appears in the output of a perfectly healthy run: it was printed
+by both `update_check_flow_test.dart` runs, after a clean
+`pkill -f "gbm_flutter.app/Contents/MacOS/gbm_flutter"`, and the tests ran
+to completion either side of it. The *fatal* variant -- a stale debug
+instance still holding the app, recorded in the project root `CLAUDE.md` --
+looks different: there the run dies immediately with `did not complete` and
+**no test ever starts**. Tell them apart by whether a `+0:` test line
+follows, not by this message, or you will spend a run chasing a pkill loop
+that was never the problem.
 
 (`-d linux` / `-d windows` on those platforms.)
 

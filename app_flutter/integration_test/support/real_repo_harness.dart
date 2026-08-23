@@ -13,6 +13,8 @@ import 'dart:ui' show Size;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/app.dart';
+import 'package:gbm_flutter/features/update/auto_update_check.dart';
+import 'package:gbm_flutter/features/update/update_leftover_sweep.dart';
 import 'package:gbm_flutter/theme/theme_mode_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -75,6 +77,40 @@ Future<SharedPreferences> pumpRealAppOn(
   WidgetTester tester,
   String workDir, {
   List<Override> extraOverrides = const <Override>[],
+}) => _pumpRealApp(
+  tester,
+  recents: <Map<String, Object?>>[
+    <String, Object?>{'workDir': workDir, 'lastOpenedEpochMs': 0},
+  ],
+  extraOverrides: extraOverrides,
+);
+
+/// Boots the real [GbmApp] with **no** repository open, landing on
+/// `WelcomeScreen`.
+///
+/// The recents list is written as an explicit empty array rather than left
+/// alone: these tests share the machine's real `shared_preferences`, so
+/// skipping the write would let the developer's own last-opened repository
+/// decide `appRouterProvider`'s `initialLocation` and open a workspace
+/// instead.
+///
+/// `WelcomeScreen` renders no menu bar (`MenuBarRow`/`PlatformMenuBarHost`
+/// are built inside `WorkspaceScreen`), so this is the state where the
+/// About dialog's own button is the only route to the update check -- which
+/// is the reason that button exists.
+Future<SharedPreferences> pumpRealAppWithNoRepo(
+  WidgetTester tester, {
+  List<Override> extraOverrides = const <Override>[],
+}) => _pumpRealApp(
+  tester,
+  recents: const <Map<String, Object?>>[],
+  extraOverrides: extraOverrides,
+);
+
+Future<SharedPreferences> _pumpRealApp(
+  WidgetTester tester, {
+  required List<Map<String, Object?>> recents,
+  List<Override> extraOverrides = const <Override>[],
 }) async {
   // The desktop test window otherwise defaults to a size narrow enough to
   // overflow ordinary rows (e.g. a commit row's ref-chip badges) -- a
@@ -106,17 +142,37 @@ Future<SharedPreferences> pumpRealAppOn(
     await prefs.remove(key);
   }
 
-  await prefs.setString(
-    'recents.repos',
-    jsonEncode(<Map<String, Object?>>[
-      <String, Object?>{'workDir': workDir, 'lastOpenedEpochMs': 0},
-    ]),
-  );
+  await prefs.setString('recents.repos', jsonEncode(recents));
 
   await tester.pumpWidget(
     ProviderScope(
       overrides: <Override>[
         sharedPreferencesProvider.overrideWithValue(prefs),
+        // Neutralises the startup update check for the whole device tier.
+        // Without it every test here would reach the real GitHub API a few
+        // seconds in and could have the update dialog pushed over whatever
+        // it was driving.
+        //
+        // Done as an override rather than by writing
+        // `appPrefs.autoUpdateCheckEnabled = false`, because these tests
+        // share the machine's real shared_preferences: turning the setting
+        // off here would silently turn it off in the developer's own app.
+        // Clearing splitter and column keys is already accepted collateral
+        // (see above); switching off a setting the user chose is not.
+        //
+        // The manual path is untouched, so a test that drives Help → Check
+        // for updates… still exercises the real gateway. `extraOverrides`
+        // comes after, so a test can override this back.
+        autoUpdateCheckDelayProvider.overrideWithValue(const Duration(days: 1)),
+        // Same reasoning, different job. The leftover sweep is not gated on
+        // the update preference at all, so nothing in the app would stop it
+        // reaching the machine's real `Directory.systemTemp` and deleting
+        // from it a few seconds into every device test. Its age guard makes
+        // that bounded rather than dangerous, but a test still has no
+        // business deleting anything outside its own fixtures.
+        updateLeftoverSweepDelayProvider.overrideWithValue(
+          const Duration(days: 1),
+        ),
         ...extraOverrides,
       ],
       child: const GbmApp(),

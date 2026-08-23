@@ -354,6 +354,53 @@ class _GeneralSection extends ConsumerWidget {
             (AppPreferences p) => p.copyWith(recordManualOpens: v),
           ),
         ),
+        const SizedBox(height: GbmSpacing.space4),
+        // Not from the spec -- the 21-page design predates the update
+        // feature. Placed in General beside the other two background
+        // activities (automatic fetch, scanning) for the same reason they
+        // are here: things the app does on its own without being asked.
+        const _SectionHeading('UPDATES'),
+        _SettingSwitch(
+          title: 'Check for updates at startup',
+          subtitle:
+              'Asks GitHub once a day, a few seconds after launch. Nothing '
+              'is shown unless there is a new release — a check that fails, '
+              'or finds nothing, is silent. Turning this off stops the '
+              'request entirely; Help → Check for updates… still works.',
+          value: prefs.autoUpdateCheckEnabled,
+          onChanged: (bool v) => notifier.update(
+            (AppPreferences p) => p.copyWith(autoUpdateCheckEnabled: v),
+          ),
+        ),
+        // Only rendered while something is actually skipped. A suppression
+        // the user can neither see nor undo is hidden material state.
+        if (prefs.skippedVersion.isNotEmpty) ...<Widget>[
+          const SizedBox(height: GbmSpacing.space2),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  'The startup check is skipping version '
+                  '${prefs.skippedVersion}. Help → Check for updates… '
+                  'reports it regardless.',
+                  style: TextStyle(
+                    fontSize: GbmTypography.textXs,
+                    color: context.gbmColors.textTertiary,
+                    height: GbmTypography.leadingNormal,
+                  ),
+                ),
+              ),
+              const SizedBox(width: GbmSpacing.space2),
+              GbmButton(
+                label: 'Stop skipping',
+                kind: GbmButtonKind.secondary,
+                onPressed: () => notifier.update(
+                  (AppPreferences p) => p.copyWith(skippedVersion: ''),
+                ),
+              ),
+            ],
+          ),
+        ],
       ],
     );
   }

@@ -345,6 +345,14 @@ const List<GbmMenuModel> gbmMenus = <GbmMenuModel>[
         id: GbmActionId.helpReportAnIssue,
         label: 'Report an issue',
       ),
+      // Not in the spec at all -- the 21-page design predates this app
+      // having any update mechanism. Help is where every desktop client puts
+      // it, and it opens a dialog, so it takes the ellipsis P14 reserves for
+      // dialog-openers.
+      GbmMenuItemModel(
+        id: GbmActionId.helpCheckForUpdates,
+        label: 'Check for updates…',
+      ),
       GbmMenuItemModel(id: GbmActionId.helpAbout, label: 'About'),
     ],
   ),

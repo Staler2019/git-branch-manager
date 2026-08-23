@@ -41,6 +41,11 @@ dependencies:
   flutter_svg: ^2.3.0
   shared_preferences: ^2.3.3
   file_selector: ^1.1.0
+  # SHA-256 for the update download. `dart:io` has no digest of its own, and
+  # the published bundles are neither code-signed nor notarized (release.yml's
+  # signing steps no-op without their secrets), so comparing against the
+  # release's own sha256sums.txt is the only integrity check there is.
+  crypto: ^3.0.6
 
 dev_dependencies:
   flutter_test:

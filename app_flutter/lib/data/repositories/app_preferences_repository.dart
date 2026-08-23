@@ -33,6 +33,8 @@ class AppPreferences {
     this.confirmForcePush = true,
     this.logMemoryLimit = 2000,
     this.logRetentionDays = 7,
+    this.autoUpdateCheckEnabled = true,
+    this.skippedVersion = '',
   });
 
   /// General. Spec page 11 item 9: "只針對目前開啟的 repository，預設每 10
@@ -80,6 +82,30 @@ class AppPreferences {
   final int logMemoryLimit;
   final int logRetentionDays;
 
+  /// General. Not from the spec -- the 21-page design predates the update
+  /// feature entirely. On by default because an update the user never hears
+  /// about is the state this exists to fix; off is a real setting that is
+  /// really honoured (the check never reaches the network).
+  final bool autoUpdateCheckEnabled;
+
+  /// The one release the user asked not to be reminded about, as
+  /// [AppVersion.toString] renders it (`9.9.9`, no `v`), or `''` for none.
+  ///
+  /// An equality match, deliberately not an ordering. The two rules only
+  /// disagree when the offered release is *older* than the skipped one --
+  /// reachable when a skipped release is unpublished and
+  /// `/releases/latest` rolls back to an earlier one that is still newer
+  /// than the installed build. An ordering would silence that forever.
+  /// Only the *automatic* check consults it -- a
+  /// manual Check for updates… always reports what it found, or the user
+  /// would have no way to reach a release they once skipped.
+  ///
+  /// Stored here rather than under a raw key so the Preferences dialog can
+  /// show it and offer to clear it. A suppression the user cannot see or
+  /// undo is exactly the hidden material state this app's own UX rubric
+  /// flags.
+  final String skippedVersion;
+
   AppPreferences copyWith({
     bool? autoFetchEnabled,
     int? autoFetchMinutes,
@@ -94,6 +120,8 @@ class AppPreferences {
     bool? confirmForcePush,
     int? logMemoryLimit,
     int? logRetentionDays,
+    bool? autoUpdateCheckEnabled,
+    String? skippedVersion,
   }) {
     return AppPreferences(
       autoFetchEnabled: autoFetchEnabled ?? this.autoFetchEnabled,
@@ -112,6 +140,9 @@ class AppPreferences {
       confirmForcePush: confirmForcePush ?? this.confirmForcePush,
       logMemoryLimit: logMemoryLimit ?? this.logMemoryLimit,
       logRetentionDays: logRetentionDays ?? this.logRetentionDays,
+      autoUpdateCheckEnabled:
+          autoUpdateCheckEnabled ?? this.autoUpdateCheckEnabled,
+      skippedVersion: skippedVersion ?? this.skippedVersion,
     );
   }
 }
@@ -164,6 +195,12 @@ class AppPreferencesRepository {
       logRetentionDays:
           _prefs.getInt('${_kPrefix}logRetentionDays') ??
           defaults.logRetentionDays,
+      autoUpdateCheckEnabled:
+          _prefs.getBool('${_kPrefix}autoUpdateCheckEnabled') ??
+          defaults.autoUpdateCheckEnabled,
+      skippedVersion:
+          _prefs.getString('${_kPrefix}skippedVersion') ??
+          defaults.skippedVersion,
     );
   }
 
@@ -193,6 +230,11 @@ class AppPreferencesRepository {
     await _prefs.setBool('${_kPrefix}confirmForcePush', p.confirmForcePush);
     await _prefs.setInt('${_kPrefix}logMemoryLimit', p.logMemoryLimit);
     await _prefs.setInt('${_kPrefix}logRetentionDays', p.logRetentionDays);
+    await _prefs.setBool(
+      '${_kPrefix}autoUpdateCheckEnabled',
+      p.autoUpdateCheckEnabled,
+    );
+    await _prefs.setString('${_kPrefix}skippedVersion', p.skippedVersion);
   }
 }
 

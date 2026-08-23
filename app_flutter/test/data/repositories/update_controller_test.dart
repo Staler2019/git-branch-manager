@@ -1,0 +1,856 @@
+import 'dart:async';
+import 'dart:ffi' show Abi;
+import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/app_version.dart';
+import 'package:gbm_flutter/data/models/release_asset.dart';
+import 'package:gbm_flutter/data/models/update_state.dart';
+import 'package:gbm_flutter/data/repositories/update_repository.dart';
+import 'package:gbm_flutter/data/services/github_release_gateway.dart';
+import 'package:gbm_flutter/data/services/update_downloader.dart';
+import 'package:gbm_flutter/data/services/update_installer.dart';
+
+LatestRelease _release(String tag, {List<ReleaseAsset>? assets}) {
+  return LatestRelease(
+    version: AppVersion.tryParse(tag)!,
+    tagName: tag,
+    htmlUrl: 'https://example.test/releases/tag/$tag',
+    notes: 'notes for $tag',
+    assets:
+        assets ??
+        const <ReleaseAsset>[
+          ReleaseAsset(
+            name: 'git-branch-manager-9.9.9-macos-arm64.dmg',
+            downloadUrl: 'https://example.test/macos.dmg',
+            sizeBytes: 100,
+          ),
+          ReleaseAsset(
+            name: 'sha256sums.txt',
+            downloadUrl: 'https://example.test/sha256sums.txt',
+            sizeBytes: 10,
+          ),
+        ],
+  );
+}
+
+/// Replays a canned answer and counts calls, so "checked exactly once" is
+/// assertable — `.any(...)` cannot see a double fetch.
+class _FakeGateway implements GithubReleaseGateway {
+  _FakeGateway({this.result, this.error});
+
+  final LatestRelease? result;
+  final Object? error;
+  int calls = 0;
+
+  @override
+  Future<LatestRelease> fetchLatest() async {
+    calls++;
+    if (error != null) {
+      throw error!;
+    }
+    return result!;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('${invocation.memberName} is not faked');
+}
+
+/// Replays a scripted download: progress ticks, then either the file, or a
+/// throw. Records the arguments so "verified the right asset against the
+/// right manifest" is assertable.
+class _FakeDownloader implements UpdateDownloader {
+  _FakeDownloader({this.error, this.ticks = const <int>[]});
+
+  final Object? error;
+  final List<int> ticks;
+  ReleaseAsset? requestedAsset;
+  ReleaseAsset? requestedManifest;
+  int calls = 0;
+
+  @override
+  Future<File> download({
+    required ReleaseAsset asset,
+    required ReleaseAsset manifest,
+    required Directory into,
+    void Function(int, int?)? onProgress,
+    void Function()? onVerifying,
+    bool Function()? isCancelled,
+  }) async {
+    calls++;
+    requestedAsset = asset;
+    requestedManifest = manifest;
+    for (final int tick in ticks) {
+      if (isCancelled?.call() ?? false) {
+        throw const UpdateDownloadCancelled();
+      }
+      onProgress?.call(tick, asset.sizeBytes);
+    }
+    if (error != null) {
+      throw error!;
+    }
+    onVerifying?.call();
+    final File file = File('${into.path}${Platform.pathSeparator}${asset.name}')
+      // Deliberately NOT `createSync(recursive: true)`: the real downloader
+      // calls `file.openWrite()` and creates no directory, so handing it an
+      // `into` that has been deleted throws. A fixture that recreates the
+      // directory would repair the very defect it is meant to catch.
+      ..writeAsStringSync('bundle');
+    return file;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('${invocation.memberName} is not faked');
+}
+
+Directory _tempDir() => Directory.systemTemp.createTempSync('gbm-ctl-test');
+
+/// An installer pointed at a throwaway directory it can genuinely write.
+///
+/// The default `UpdateInstaller` probes `Platform.resolvedExecutable`'s
+/// directory -- under `flutter test` that is the Flutter SDK's own `bin`,
+/// so whether a check reports "not writable" would depend on how the SDK
+/// happens to be installed on the machine running the suite. A fixture that
+/// answers differently per machine cannot falsify anything.
+UpdateInstaller _installableInstaller({
+  List<String>? events,
+  bool startSucceeds = true,
+  ProcessRunResult unpack = const ProcessRunResult(0, ''),
+}) {
+  final Directory install = Directory('${_tempDir().path}/opt/gbm')
+    ..createSync(recursive: true);
+  return UpdateInstaller(
+    operatingSystem: 'linux',
+    executablePath: '${install.path}/gbm_flutter',
+    abi: Abi.linuxX64,
+    run: (String exe, List<String> args) async {
+      events?.add('unpack');
+      return unpack;
+    },
+    start: (String e, List<String> a, {String? workingDirectory}) async {
+      events?.add('start');
+      return startSucceeds;
+    },
+    exitProcess: (int code) => events?.add('exit'),
+  );
+}
+
+/// Pointed at a directory whose parent this user cannot write, so
+/// `selfInstallBlocker()` reaches its real answer rather than a stubbed one.
+UpdateInstaller _blockedInstaller() {
+  final Directory parent = Directory('${_tempDir().path}/readonly')
+    ..createSync(recursive: true);
+  final Directory install = Directory('${parent.path}/gbm')
+    ..createSync(recursive: true);
+  Process.runSync('chmod', <String>['555', parent.path]);
+  // A 555 parent cannot be emptied, so without this the directory survives
+  // every run and accumulates in the system temp directory forever.
+  addTearDown(() {
+    Process.runSync('chmod', <String>['u+w', parent.path]);
+    parent.deleteSync(recursive: true);
+  });
+  return UpdateInstaller(
+    operatingSystem: 'linux',
+    executablePath: '${install.path}/gbm_flutter',
+    abi: Abi.linuxX64,
+  );
+}
+
+/// Like [_installableInstaller], but its unpack step does not return until
+/// [unpack] completes -- the only way to observe [UpdateStatus.installing]
+/// from outside, since `install()` otherwise runs straight through.
+UpdateInstaller _blockingInstaller(Future<ProcessRunResult> unpack) {
+  final Directory install = Directory('${_tempDir().path}/opt/gbm')
+    ..createSync(recursive: true);
+  return UpdateInstaller(
+    operatingSystem: 'linux',
+    executablePath: '${install.path}/gbm_flutter',
+    abi: Abi.linuxX64,
+    run: (String exe, List<String> args) => unpack,
+    start: (String e, List<String> a, {String? workingDirectory}) async => true,
+    exitProcess: (int code) {},
+  );
+}
+
+UpdateController _controller({
+  LatestRelease? result,
+  Object? error,
+  AppVersion? current = const AppVersion(0, 30, 0),
+  Abi? abi,
+  UpdateDownloader? downloader,
+  UpdateInstaller? installer,
+  Directory Function()? createDownloadDir,
+  String skipped = '',
+}) {
+  return UpdateController(
+    gateway: _FakeGateway(result: result, error: error),
+    currentVersion: current,
+    abi: abi ?? Abi.macosArm64,
+    downloader: downloader,
+    installer: installer ?? _installableInstaller(),
+    createDownloadDir: createDownloadDir ?? _tempDir,
+    skippedVersion: () => skipped,
+  );
+}
+
+void main() {
+  group('check', () {
+    test('starts idle', () {
+      expect(
+        _controller(result: _release('v9.9.9')).state.status,
+        UpdateStatus.idle,
+      );
+    });
+
+    test(
+      'a newer release becomes available with its notes and asset',
+      () async {
+        final UpdateController c = _controller(result: _release('v9.9.9'));
+        await c.check();
+
+        expect(c.state.status, UpdateStatus.available);
+        expect(c.state.release?.tagName, 'v9.9.9');
+        expect(c.state.asset?.name, endsWith('-macos-arm64.dmg'));
+        expect(c.state.isUpdateAvailable, isTrue);
+        expect(c.state.canSelfInstall, isTrue);
+      },
+    );
+
+    test('the same version is up to date', () async {
+      final UpdateController c = _controller(result: _release('v0.30.0'));
+      await c.check();
+
+      expect(c.state.status, UpdateStatus.upToDate);
+      expect(c.state.isUpdateAvailable, isFalse);
+    });
+
+    // A published release older than the running build must never be
+    // offered: that is a downgrade, not an update.
+    test('an older release is up to date, not an offer to downgrade', () async {
+      final UpdateController c = _controller(result: _release('v0.29.0'));
+      await c.check();
+
+      expect(c.state.status, UpdateStatus.upToDate);
+      expect(c.state.isUpdateAvailable, isFalse);
+    });
+
+    test('a developer build never checks and never offers', () async {
+      final _FakeGateway gateway = _FakeGateway(result: _release('v9.9.9'));
+      final UpdateController c = UpdateController(
+        gateway: gateway,
+        currentVersion: null,
+        abi: Abi.macosArm64,
+        installer: _installableInstaller(),
+      );
+      await c.check();
+
+      expect(c.state.status, UpdateStatus.developmentBuild);
+      expect(
+        gateway.calls,
+        0,
+        reason: 'a developer build must not even reach the network',
+      );
+    });
+
+    test('a failure carries its message', () async {
+      final UpdateController c = _controller(
+        error: const UpdateCheckException('GitHub returned 403'),
+      );
+      await c.check();
+
+      expect(c.state.status, UpdateStatus.failed);
+      expect(c.state.errorMessage, contains('403'));
+    });
+
+    test('an unexpected error is still reported, not thrown', () async {
+      final UpdateController c = _controller(error: StateError('boom'));
+      await c.check();
+
+      expect(c.state.status, UpdateStatus.failed);
+      expect(c.state.errorMessage, isNotEmpty);
+    });
+
+    // The bug `copyWith` with `??` would have produced: re-checking after a
+    // failure keeps the stale message and the dialog shows a fresh success
+    // beside an old error.
+    test('re-checking after a failure clears the previous error', () async {
+      final UpdateController failing = _controller(
+        error: const UpdateCheckException('offline'),
+      );
+      await failing.check();
+      expect(failing.state.errorMessage, isNotNull);
+
+      final UpdateController c = _controller(result: _release('v0.30.0'));
+      await c.check();
+      expect(c.state.errorMessage, isNull);
+    });
+
+    test('passes through checking on the way', () async {
+      final UpdateController c = _controller(result: _release('v9.9.9'));
+      final List<UpdateStatus> seen = <UpdateStatus>[];
+      c.addListener((UpdateState s) => seen.add(s.status));
+
+      await c.check();
+
+      expect(
+        seen,
+        containsAllInOrder(<UpdateStatus>[
+          UpdateStatus.checking,
+          UpdateStatus.available,
+        ]),
+      );
+    });
+
+    test('a concurrent check does not fetch twice', () async {
+      final _FakeGateway gateway = _FakeGateway(result: _release('v9.9.9'));
+      final UpdateController c = UpdateController(
+        gateway: gateway,
+        currentVersion: const AppVersion(0, 30, 0),
+        abi: Abi.macosArm64,
+        installer: _installableInstaller(),
+      );
+
+      await Future.wait<void>(<Future<void>>[c.check(), c.check()]);
+
+      expect(gateway.calls, 1);
+    });
+  });
+
+  group('blocked platforms', () {
+    // An Intel Mac: the update is real and must be reported, but there is
+    // no bundle for it, so the way forward is the release page.
+    test(
+      'an unpublished ABI reports the update and explains the block',
+      () async {
+        final UpdateController c = _controller(
+          result: _release('v9.9.9'),
+          abi: Abi.macosX64,
+        );
+        await c.check();
+
+        expect(c.state.status, UpdateStatus.available);
+        expect(c.state.isUpdateAvailable, isTrue);
+        expect(c.state.canSelfInstall, isFalse);
+        expect(c.state.blockedReason, isNotEmpty);
+      },
+    );
+
+    test(
+      'a release missing this platform asset is blocked, not failed',
+      () async {
+        final UpdateController c = _controller(
+          result: _release(
+            'v9.9.9',
+            assets: const <ReleaseAsset>[
+              ReleaseAsset(
+                name: 'sha256sums.txt',
+                downloadUrl: 'https://example.test/sha256sums.txt',
+                sizeBytes: 10,
+              ),
+            ],
+          ),
+        );
+        await c.check();
+
+        expect(c.state.status, UpdateStatus.available);
+        expect(c.state.canSelfInstall, isFalse);
+      },
+    );
+
+    // Verification is the only integrity check there is -- the published
+    // bundles are neither signed nor notarized -- so a release without the
+    // manifest must not be installable.
+    test(
+      'a release with no checksum manifest cannot be self-installed',
+      () async {
+        final UpdateController c = _controller(
+          result: _release(
+            'v9.9.9',
+            assets: const <ReleaseAsset>[
+              ReleaseAsset(
+                name: 'git-branch-manager-9.9.9-macos-arm64.dmg',
+                downloadUrl: 'https://example.test/macos.dmg',
+                sizeBytes: 100,
+              ),
+            ],
+          ),
+        );
+        await c.check();
+
+        expect(c.state.canSelfInstall, isFalse);
+        expect(c.state.blockedReason, contains(kChecksumManifestName));
+      },
+    );
+  });
+
+  group('self-install degradation', () {
+    // The machine's answer, not the release's -- and it has to arrive with
+    // the offer, not when the Install button is pressed. Downloading 24MB
+    // and only then discovering the directory is read-only is the failure
+    // this check exists to avoid.
+    test(
+      'an unwritable install directory is reported with the offer',
+      () async {
+        final UpdateController c = _controller(
+          result: _release('v9.9.9'),
+          installer: _blockedInstaller(),
+        );
+        await c.check();
+
+        expect(c.state.status, UpdateStatus.available);
+        expect(c.state.canSelfInstall, isFalse);
+        expect(c.state.blockedReason, contains('not writable'));
+        expect(
+          c.state.asset,
+          isNull,
+          reason:
+              'an asset present with a blockedReason would let a caller '
+              'start a download that can never be installed',
+        );
+      },
+    );
+  });
+
+  group('install', () {
+    late List<String> events;
+
+    setUp(() => events = <String>[]);
+
+    Future<UpdateController> ready({
+      bool startSucceeds = true,
+      ProcessRunResult unpack = const ProcessRunResult(0, ''),
+    }) async {
+      final UpdateController c = _controller(
+        result: _release('v9.9.9'),
+        downloader: _FakeDownloader(ticks: <int>[50, 100]),
+        installer: _installableInstaller(
+          events: events,
+          startSucceeds: startSucceeds,
+          unpack: unpack,
+        ),
+      );
+      await c.check();
+      await c.download();
+      return c;
+    }
+
+    // The ordering is the whole safety argument: unpack first, so a bad
+    // archive is an error the running app can still show; close the FFI
+    // sessions next, so no git process is left holding an index lock; and
+    // only then hand over to the detached script.
+    test('unpacks, closes down, and only then hands over', () async {
+      final UpdateController c = await ready();
+
+      await c.install(beforeExit: () async => events.add('beforeExit'));
+
+      expect(events, <String>['unpack', 'beforeExit', 'start', 'exit']);
+    });
+
+    test('a corrupt archive fails while the app is still running', () async {
+      final UpdateController c = await ready(
+        unpack: const ProcessRunResult(1, 'tar: unexpected end of file'),
+      );
+
+      await c.install(beforeExit: () async => events.add('beforeExit'));
+
+      expect(c.state.status, UpdateStatus.failed);
+      expect(c.state.errorMessage, contains('unexpected end of file'));
+      expect(
+        events,
+        isNot(contains('beforeExit')),
+        reason:
+            'unpacking after the sessions closed would leave nothing '
+            'able to report the failure',
+      );
+    });
+
+    test('an updater that will not start leaves the app running', () async {
+      final UpdateController c = await ready(startSucceeds: false);
+
+      await c.install(beforeExit: () async => events.add('beforeExit'));
+
+      expect(c.state.status, UpdateStatus.failed);
+      expect(c.state.errorMessage, contains('releases page'));
+      expect(events, isNot(contains('exit')));
+    });
+
+    test('does nothing from a state that is not ready to install', () async {
+      final UpdateController c = _controller(
+        result: _release('v9.9.9'),
+        installer: _installableInstaller(events: events),
+      );
+      await c.check();
+
+      await c.install(beforeExit: () async => events.add('beforeExit'));
+
+      expect(c.state.status, UpdateStatus.available);
+      expect(events, isEmpty);
+    });
+  });
+
+  group('download', () {
+    late Directory dir;
+
+    setUp(() => dir = _tempDir());
+    tearDown(() {
+      if (dir.existsSync()) {
+        dir.deleteSync(recursive: true);
+      }
+    });
+
+    Future<UpdateController> available({UpdateDownloader? downloader}) async {
+      final UpdateController c = _controller(
+        result: _release('v9.9.9'),
+        downloader: downloader,
+        createDownloadDir: () => dir,
+      );
+      await c.check();
+      return c;
+    }
+
+    test('ends ready to install with the file on disk', () async {
+      final _FakeDownloader d = _FakeDownloader(ticks: <int>[50, 100]);
+      final UpdateController c = await available(downloader: d);
+
+      await c.download();
+
+      expect(c.state.status, UpdateStatus.readyToInstall);
+      expect(c.state.downloadedPath, endsWith('-macos-arm64.dmg'));
+      expect(File(c.state.downloadedPath!).existsSync(), isTrue);
+    });
+
+    test('verifies the platform asset against the release manifest', () async {
+      final _FakeDownloader d = _FakeDownloader();
+      final UpdateController c = await available(downloader: d);
+
+      await c.download();
+
+      expect(d.requestedAsset?.name, endsWith('-macos-arm64.dmg'));
+      expect(d.requestedManifest?.name, kChecksumManifestName);
+    });
+
+    test('passes through downloading and verifying', () async {
+      final _FakeDownloader d = _FakeDownloader(ticks: <int>[50, 100]);
+      final UpdateController c = await available(downloader: d);
+
+      final List<UpdateStatus> seen = <UpdateStatus>[];
+      c.addListener((UpdateState s) => seen.add(s.status));
+      await c.download();
+
+      expect(
+        seen,
+        containsAllInOrder(<UpdateStatus>[
+          UpdateStatus.downloading,
+          UpdateStatus.verifying,
+          UpdateStatus.readyToInstall,
+        ]),
+      );
+    });
+
+    test('reports progress against the asset size', () async {
+      final _FakeDownloader d = _FakeDownloader(ticks: <int>[50]);
+      final UpdateController c = await available(downloader: d);
+
+      final List<double?> progress = <double?>[];
+      c.addListener((UpdateState s) {
+        if (s.status == UpdateStatus.downloading) {
+          progress.add(s.progress);
+        }
+      });
+      await c.download();
+
+      expect(progress, contains(0.5));
+    });
+
+    // A cancel returns to the offer, not to an error: the user chose this.
+    test('cancelling returns to available, not failed', () async {
+      final _FakeDownloader d = _FakeDownloader(ticks: <int>[50, 100]);
+      final UpdateController c = await available(downloader: d);
+      // Cancelled mid-transfer, not before it starts: `download()` resets
+      // the flag on entry, so a stale cancel cannot pre-empt the next run.
+      c.addListener((UpdateState s) {
+        if (s.status == UpdateStatus.downloading && s.downloadedBytes >= 50) {
+          c.cancel();
+        }
+      });
+
+      await c.download();
+
+      expect(c.state.status, UpdateStatus.available);
+      expect(c.state.errorMessage, isNull);
+    });
+
+    // The assertion that matters most in this group: a verification failure
+    // must not land anywhere near readyToInstall.
+    test(
+      'a verification failure fails the flow and never becomes ready',
+      () async {
+        final _FakeDownloader d = _FakeDownloader(
+          error: const UpdateDownloadException('does not match the SHA-256'),
+        );
+        final UpdateController c = await available(downloader: d);
+
+        await c.download();
+
+        expect(c.state.status, UpdateStatus.failed);
+        expect(c.state.errorMessage, contains('SHA-256'));
+        expect(c.state.downloadedPath, isNull);
+      },
+    );
+
+    test('a second call while not available does nothing', () async {
+      final _FakeDownloader d = _FakeDownloader();
+      final UpdateController c = await available(downloader: d);
+
+      await c.download();
+      await c.download();
+
+      expect(d.calls, 1);
+    });
+
+    test('a blocked platform cannot start a download', () async {
+      final _FakeDownloader d = _FakeDownloader();
+      final UpdateController c = _controller(
+        result: _release('v9.9.9'),
+        abi: Abi.macosX64,
+        downloader: d,
+        createDownloadDir: () => dir,
+      );
+      await c.check();
+
+      await c.download();
+
+      expect(d.calls, 0);
+      expect(c.state.status, UpdateStatus.available);
+    });
+  });
+
+  // One rule, not a case per outcome: an automatic check ends on
+  // `available` (there is something to offer) or on `idle` (everything
+  // else). Landing back on idle is what keeps the dialog coherent -- its
+  // own mount-check only fires from idle, so a user who opens it after a
+  // silently-failed automatic check gets a fresh check rather than a stale
+  // banner from a check they never ran.
+  group('checkAutomatically', () {
+    test(
+      'leaves an available update standing for the host to surface',
+      () async {
+        final UpdateController c = _controller(result: _release('v9.9.9'));
+
+        await c.checkAutomatically();
+
+        expect(c.state.status, UpdateStatus.available);
+        expect(c.state.release?.tagName, 'v9.9.9');
+      },
+    );
+
+    test('falls silent when already up to date', () async {
+      final UpdateController c = _controller(result: _release('v0.30.0'));
+
+      await c.checkAutomatically();
+
+      expect(c.state.status, UpdateStatus.idle);
+    });
+
+    test('falls silent when the check fails', () async {
+      final UpdateController c = _controller(
+        error: const UpdateCheckException('offline'),
+      );
+
+      await c.checkAutomatically();
+
+      // A laptop that starts up on a train must not be met with an error
+      // about a check it never asked for.
+      expect(c.state.status, UpdateStatus.idle);
+      expect(c.state.errorMessage, isNull);
+    });
+
+    test('falls silent for a release the user skipped', () async {
+      final UpdateController c = _controller(
+        result: _release('v9.9.9'),
+        skipped: '9.9.9',
+      );
+
+      await c.checkAutomatically();
+
+      expect(c.state.status, UpdateStatus.idle);
+    });
+
+    test('still surfaces a release newer than the skipped one', () async {
+      final UpdateController c = _controller(
+        result: _release('v10.0.0'),
+        skipped: '9.9.9',
+      );
+
+      await c.checkAutomatically();
+
+      expect(c.state.status, UpdateStatus.available);
+    });
+
+    // The case that actually separates equality from an ordering, and the
+    // only one that does: for a release *newer* than the skipped version
+    // both rules agree, so a test using one proves nothing about the other.
+    // Here they disagree -- 9.9.9 <= 10.0.0, so a `<=` rule would silence
+    // it forever, while the equality rule offers it.
+    //
+    // Reachable in practice: skip 10.0.0, GitHub unpublishes it, and
+    // `/releases/latest` rolls back to 9.9.9, which is still newer than the
+    // installed build. Under an ordering the user would never be told again.
+    test('surfaces a release older than the skipped one', () async {
+      final UpdateController c = _controller(
+        result: _release('v9.9.9'),
+        skipped: '10.0.0',
+      );
+
+      await c.checkAutomatically();
+
+      expect(c.state.status, UpdateStatus.available);
+    });
+
+    test('falls silent on a development build', () async {
+      final UpdateController c = _controller(
+        result: _release('v9.9.9'),
+        current: null,
+      );
+
+      await c.checkAutomatically();
+
+      expect(c.state.status, UpdateStatus.idle);
+    });
+
+    // The user got there first -- a background timer must not reset a flow
+    // they are in the middle of.
+    test('does nothing unless the flow is idle', () async {
+      final UpdateController c = _controller(result: _release('v9.9.9'));
+      await c.check();
+      final UpdateState before = c.state;
+
+      await c.checkAutomatically();
+
+      expect(c.state, same(before));
+    });
+  });
+
+  group('cancel from readyToInstall', () {
+    // The download has already returned by then, so the flag `cancel` sets
+    // is read by nothing -- the button was inert. Cancelling here has to
+    // undo the download itself, not ask a finished loop to stop.
+    test('returns to the offer instead of staying ready', () async {
+      final Directory dir = _tempDir();
+      final UpdateController c = _controller(
+        result: _release('v9.9.9'),
+        downloader: _FakeDownloader(),
+        createDownloadDir: () => dir,
+      );
+      await c.check();
+      await c.download();
+      expect(c.state.status, UpdateStatus.readyToInstall);
+
+      c.cancel();
+
+      expect(c.state.status, UpdateStatus.available);
+      // Still offered, not lost: the user declined the install, not the
+      // update. Pressing Download again must be able to start over.
+      expect(c.state.release?.tagName, 'v9.9.9');
+      expect(c.state.canSelfInstall, isTrue);
+    });
+
+    test('discards the verified bundle', () async {
+      final Directory dir = _tempDir();
+      final UpdateController c = _controller(
+        result: _release('v9.9.9'),
+        downloader: _FakeDownloader(),
+        createDownloadDir: () => dir,
+      );
+      await c.check();
+      await c.download();
+      expect(File(c.state.downloadedPath!).existsSync(), isTrue);
+
+      c.cancel();
+
+      expect(dir.existsSync(), isFalse);
+    });
+
+    // Cancelling and downloading again must not reuse a directory that was
+    // just deleted -- `_downloadDir` is created lazily and cached, so
+    // clearing it is part of the discard, not an afterthought.
+    test('can download again afterwards', () async {
+      Directory? dir;
+      final UpdateController c = _controller(
+        result: _release('v9.9.9'),
+        downloader: _FakeDownloader(),
+        createDownloadDir: () => dir = _tempDir(),
+      );
+      await c.check();
+      await c.download();
+      c.cancel();
+
+      await c.download();
+
+      expect(c.state.status, UpdateStatus.readyToInstall);
+      expect(File(c.state.downloadedPath!).existsSync(), isTrue);
+      dir?.deleteSync(recursive: true);
+    });
+
+    // Installing is the one state with no way back: the detached script is
+    // already running and the bundle is still being read.
+    test('does nothing once installing has begun', () async {
+      final Directory dir = _tempDir();
+      addTearDown(() {
+        if (dir.existsSync()) dir.deleteSync(recursive: true);
+      });
+      // Held in `installing` by an unpack that has not returned yet --
+      // reached through the real install path, not by publishing the state
+      // directly, so nothing here depends on a test-only hook.
+      final Completer<ProcessRunResult> unpacking =
+          Completer<ProcessRunResult>();
+      final UpdateController c = _controller(
+        result: _release('v9.9.9'),
+        downloader: _FakeDownloader(),
+        createDownloadDir: () => dir,
+        installer: _blockingInstaller(unpacking.future),
+      );
+      await c.check();
+      await c.download();
+      final String bundle = c.state.downloadedPath!;
+      unawaited(c.install(beforeExit: () async {}));
+      await pumpEventQueue();
+      expect(c.state.status, UpdateStatus.installing);
+
+      c.cancel();
+
+      expect(c.state.status, UpdateStatus.installing);
+      expect(File(bundle).existsSync(), isTrue);
+    });
+  });
+
+  group('dismiss', () {
+    test('returns to idle and drops the pending release', () async {
+      final UpdateController c = _controller(result: _release('v9.9.9'));
+      await c.check();
+      c.dismiss();
+
+      expect(c.state.status, UpdateStatus.idle);
+      expect(c.state.release, isNull);
+      expect(c.state.isUpdateAvailable, isFalse);
+    });
+
+    test('removes the downloaded bundle', () async {
+      final Directory dir = _tempDir();
+      final UpdateController c = _controller(
+        result: _release('v9.9.9'),
+        downloader: _FakeDownloader(),
+        createDownloadDir: () => dir,
+      );
+      await c.check();
+      await c.download();
+      expect(File(c.state.downloadedPath!).existsSync(), isTrue);
+
+      c.dismiss();
+
+      expect(dir.existsSync(), isFalse);
+    });
+  });
+}

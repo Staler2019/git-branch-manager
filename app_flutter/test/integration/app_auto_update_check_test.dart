@@ -11,6 +11,7 @@ import 'package:gbm_flutter/data/repositories/build_version_repository.dart';
 import 'package:gbm_flutter/data/services/github_release_gateway.dart';
 import 'package:gbm_flutter/data/services/update_installer.dart';
 import 'package:gbm_flutter/features/update/auto_update_check.dart';
+import 'package:gbm_flutter/features/update/update_leftover_sweep.dart';
 import 'package:gbm_flutter/routing/app_router.dart';
 import 'package:gbm_flutter/routing/dialog_route.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
@@ -18,9 +19,9 @@ import 'package:gbm_flutter/theme/theme_mode_provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Crosses the one seam the widget tier cannot: `GbmApp` really mounts
-/// [AutoUpdateCheck], and the callback it hands over really reaches the
-/// update dialog's route.
+/// Crosses the one seam the widget tier cannot: `GbmApp` really mounts the
+/// two startup update widgets, and the callback it hands [AutoUpdateCheck]
+/// really reaches the update dialog's route.
 ///
 /// Without this, `AutoUpdateCheck` could pass every test it owns while
 /// nothing under `lib/` mounted it -- the orphan-wiring shape this repo has
@@ -56,11 +57,31 @@ class _StubGateway extends GithubReleaseGateway {
   }
 }
 
+/// Installable, and inert when swept.
+///
+/// `UpdateLeftoverSweep` is mounted here too, and the real sweep reads the
+/// machine's actual `Directory.systemTemp` -- so leaving it live would give
+/// this test side effects on the developer's own temp directory. What the
+/// sweep does is pinned by its own unit tests.
+class _InertSweepInstaller extends UpdateInstaller {
+  const _InertSweepInstaller({
+    required super.operatingSystem,
+    required super.executablePath,
+    required super.abi,
+  });
+
+  @override
+  Future<void> sweepUpdateLeftovers({
+    Directory? tempDir,
+    DateTime Function()? now,
+  }) async {}
+}
+
 UpdateInstaller _installable() {
   final Directory install = Directory(
     '${Directory.systemTemp.createTempSync('gbm-app-auto').path}/opt/gbm',
   )..createSync(recursive: true);
-  return UpdateInstaller(
+  return _InertSweepInstaller(
     operatingSystem: 'linux',
     executablePath: '${install.path}/gbm_flutter',
     abi: Abi.linuxX64,
@@ -122,6 +143,10 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(AutoUpdateCheck), findsOneWidget);
+      // Unconditional housekeeping, mounted alongside the check rather than
+      // inside it -- turning off update *checking* says nothing about the
+      // leftovers of an update that already happened.
+      expect(find.byType(UpdateLeftoverSweep), findsOneWidget);
       // Above the router, so it is there on the welcome screen too -- the
       // screen with no menu bar and therefore no manual entry point.
       expect(find.text('welcome'), findsOneWidget);

@@ -65,6 +65,27 @@ class UpdateInstallException implements Exception {
 /// inside the script: an archive that will not open is then an error the
 /// running app can still report, rather than a broken install discovered when
 /// there is nothing left to report it with.
+/// Prefix of the system-temp directory one update downloads into.
+///
+/// Shared between the code that creates it (`UpdateController`) and the
+/// sweep below, because a sweep matching a prefix nobody writes any more
+/// would silently stop cleaning up.
+const String kUpdateDownloadDirPrefix = 'gbm-update-';
+
+/// Suffix the updater script renames the outgoing install to.
+const String kPreviousInstallSuffix = '.gbm-old';
+
+/// How old a `gbm-update-*` directory must be before the sweep takes it.
+///
+/// A second instance of the app may be downloading right now into a
+/// directory that is indistinguishable by name from a leftover, so age is
+/// the only thing separating "abandoned" from "in use". The cost is that
+/// the directory from the update that just completed survives until the
+/// launch after next -- system temp on macOS and Linux is purged anyway,
+/// and on Windows, where it is not, one extra launch is a cheap price for
+/// never deleting a transfer in progress.
+const Duration kUpdateLeftoverMinAge = Duration(hours: 1);
+
 class UpdateInstaller {
   const UpdateInstaller({
     ProcessStarter? start,
@@ -141,6 +162,61 @@ class UpdateInstaller {
       return Directory(exe.parent.parent.parent.path);
     }
     return exe.parent;
+  }
+
+  /// Removes what a completed update left behind: the previous install kept
+  /// for rollback, and abandoned download directories.
+  ///
+  /// Run shortly after launch, and only from the build that replaced the
+  /// old one -- reaching this code at all is the proof the swap worked. The
+  /// updater script keeps [kPreviousInstallSuffix] precisely so a failed
+  /// copy can be undone; once the new build is running there is nothing
+  /// left to undo, and the script's own `rm -rf` of the backup only happens
+  /// at the *start* of the next update, which may never come.
+  ///
+  /// Never throws. Housekeeping must not be the reason the app fails to
+  /// start, and every failure here is something the user can delete by hand.
+  Future<void> sweepUpdateLeftovers({
+    Directory? tempDir,
+    DateTime Function()? now,
+  }) async {
+    _deleteQuietly(Directory('${installTarget().path}$kPreviousInstallSuffix'));
+
+    final Directory temp = tempDir ?? Directory.systemTemp;
+    final DateTime cutoff = (now ?? DateTime.now).call().subtract(
+      kUpdateLeftoverMinAge,
+    );
+    final List<FileSystemEntity> entries;
+    try {
+      entries = temp.listSync(followLinks: false);
+    } on FileSystemException {
+      return;
+    }
+    for (final FileSystemEntity entry in entries) {
+      // Directories only: a *file* carrying the prefix was not written by
+      // this app's downloader, and deleting by name alone would reach past
+      // what this sweep owns.
+      if (entry is! Directory) continue;
+      final String name = entry.path.split(Platform.pathSeparator).last;
+      if (!name.startsWith(kUpdateDownloadDirPrefix)) continue;
+      try {
+        if (entry.statSync().modified.isAfter(cutoff)) continue;
+      } on FileSystemException {
+        continue;
+      }
+      _deleteQuietly(entry);
+    }
+  }
+
+  static void _deleteQuietly(Directory dir) {
+    try {
+      if (dir.existsSync()) {
+        dir.deleteSync(recursive: true);
+      }
+    } on FileSystemException {
+      // Read-only, gone, or on a volume that has been unmounted. All three
+      // are the user's to resolve, and none is worth a dialog on launch.
+    }
   }
 
   /// Why this machine cannot replace its own installation, or null if it can.

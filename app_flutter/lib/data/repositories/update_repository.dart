@@ -39,7 +39,7 @@ class UpdateController extends StateNotifier<UpdateState> {
   /// macOS build does not run under App Sandbox. Same reasoning as the
   /// open-file-at-revision temp copy.
   static Directory _createSystemTempDownloadDir() =>
-      Directory.systemTemp.createTempSync('gbm-update-');
+      Directory.systemTemp.createTempSync(kUpdateDownloadDirPrefix);
 
   final GithubReleaseGateway _gateway;
   final UpdateDownloader _downloader;

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'features/update/auto_update_check.dart';
+import 'features/update/update_leftover_sweep.dart';
 import 'routing/app_router.dart';
 import 'routing/route_paths.dart';
 import 'theme/gbm_theme.dart';
@@ -26,7 +27,9 @@ class GbmApp extends ConsumerWidget {
         // so its context has no GoRouter of its own to reach.
         onUpdateAvailable: () =>
             ref.read(appRouterProvider).push(RoutePaths.updateDialog),
-        child: child ?? const SizedBox.shrink(),
+        // Nested rather than a second builder: the sweep is unconditional
+        // where the check is not, so they are two jobs, not one.
+        child: UpdateLeftoverSweep(child: child ?? const SizedBox.shrink()),
       ),
     );
   }

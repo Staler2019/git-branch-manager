@@ -357,6 +357,7 @@ class RepoSessionState {
     this.compareResults = const <String, CompareResult>{},
     this.compareFileDiffResults = const <String, CompareFileDiffResult>{},
     this.lastRemotePrunePreview,
+    this.gonePendingByRemote = const <String, List<String>>{},
     this.compareWithWorkingCopyResults =
         const <String, CompareWithWorkingCopyResult>{},
     this.originalOperationMessage,
@@ -474,6 +475,31 @@ class RepoSessionState {
   /// dialog can be open at a time.
   final RemotePrunePreview? lastRemotePrunePreview;
 
+  /// Remote name -> the full ref names on that remote which `git remote
+  /// prune --dry-run` says no longer exist upstream.
+  ///
+  /// Spec page 02's "遠端分支被刪除時怎麼看得到" is explicitly three-staged:
+  /// a fetch marks the row (半透明 + 刪除線 + cloud-off, plus a pending count
+  /// in the section header), the local branch tracking it gets a `gone`
+  /// badge, and only an explicit Remote -> Prune remote branches actually
+  /// removes the ref. Git will not report `[gone]` in `%(upstream:track)`
+  /// until the remote-tracking ref is already deleted locally, so stage 1
+  /// and 2 need a source of truth that does *not* delete anything -- which
+  /// is what the dry-run preview is.
+  ///
+  /// Keyed per remote, and replaced per remote by [withGonePendingFor],
+  /// because `git fetch --all` fires one preview per remote and the replies
+  /// arrive independently: a whole-map overwrite would let the second reply
+  /// erase the first. Distinct from [lastRemotePrunePreview], which stays a
+  /// single last-write-wins field for the Prune dialog -- one dialog, one
+  /// remote, no accumulation wanted there.
+  final Map<String, List<String>> gonePendingByRemote;
+
+  /// Every gone-pending ref across all remotes, flattened -- the only thing
+  /// UI code should read.
+  Set<String> get gonePendingRefs =>
+      gonePendingByRemote.values.expand((refs) => refs).toSet();
+
   /// Every GBM_EVENT_COMPARE_WITH_WORKING_COPY_READY reply received this
   /// session, keyed by [CompareWithWorkingCopyResult.key]. Same
   /// accumulate-not-replace reasoning as [compareResults] -- several
@@ -551,6 +577,7 @@ class RepoSessionState {
     Map<String, CompareResult>? compareResults,
     Map<String, CompareFileDiffResult>? compareFileDiffResults,
     RemotePrunePreview? lastRemotePrunePreview,
+    Map<String, List<String>>? gonePendingByRemote,
     Map<String, CompareWithWorkingCopyResult>? compareWithWorkingCopyResults,
     String? originalOperationMessage,
     bool clearOriginalOperationMessage = false,
@@ -605,6 +632,7 @@ class RepoSessionState {
           compareFileDiffResults ?? this.compareFileDiffResults,
       lastRemotePrunePreview:
           lastRemotePrunePreview ?? this.lastRemotePrunePreview,
+      gonePendingByRemote: gonePendingByRemote ?? this.gonePendingByRemote,
       compareWithWorkingCopyResults:
           compareWithWorkingCopyResults ?? this.compareWithWorkingCopyResults,
       originalOperationMessage: clearOriginalOperationMessage
@@ -619,6 +647,30 @@ class RepoSessionState {
   /// dropping the oldest entries in insertion order, the same sublist
   /// pattern [operationLog]'s cap uses (though that one's cap is
   /// configurable via [AppPreferences.logMemoryLimit]; this one is not).
+  /// Replaces [remote]'s slice of [gonePendingByRemote] with [entries],
+  /// normalised to full ref names via [RemotePrunePreviewEntry.fullRefName].
+  ///
+  /// An empty [entries] drops the remote from the map instead of storing an
+  /// empty list: a ref the user pruned in a terminal must stop being marked,
+  /// and a remote that contributes nothing should not keep an entry that
+  /// later reads as "this remote has been checked".
+  RepoSessionState withGonePendingFor(
+    String remote,
+    List<RemotePrunePreviewEntry> entries,
+  ) {
+    final Map<String, List<String>> next = <String, List<String>>{
+      ...gonePendingByRemote,
+    };
+    if (entries.isEmpty) {
+      next.remove(remote);
+    } else {
+      next[remote] = entries.map((e) => e.fullRefName).toList(growable: false);
+    }
+    return copyWith(
+      gonePendingByRemote: Map<String, List<String>>.unmodifiable(next),
+    );
+  }
+
   RepoSessionState withCommitMeta(List<CommitMeta> metas) {
     final Map<String, CommitMeta> merged = <String, CommitMeta>{
       ...commitMetaCache,
@@ -937,9 +989,17 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
       case GbmEventType.remotePrunePreviewReady:
         final Object? payload = decodeEventPayload(event.payload);
         if (payload is Map<String, dynamic>) {
-          state = state.copyWith(
-            lastRemotePrunePreview: RemotePrunePreview.fromJson(payload),
+          final RemotePrunePreview preview = RemotePrunePreview.fromJson(
+            payload,
           );
+          // Two consumers with different lifetimes, both written here:
+          // lastRemotePrunePreview is the Prune dialog's last-write-wins
+          // view of one remote, gonePendingByRemote accumulates across
+          // remotes so the sidebar can mark rows without deleting any ref
+          // (spec page 02's three-stage gone flow, stages 1 and 2).
+          state = state
+              .copyWith(lastRemotePrunePreview: preview)
+              .withGonePendingFor(preview.remote, preview.refs);
         }
       case GbmEventType.compareWithWorkingCopyReady:
         final Object? payload = decodeEventPayload(event.payload);
@@ -1249,6 +1309,15 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
         break;
     }
   }
+
+  /// Test-only entry point to [_onEvent], so a reducer-level test can feed a
+  /// real native event payload without an open session. Takes the event in
+  /// its wire form (raw JSON bytes) deliberately -- a hook that accepted an
+  /// already-decoded map would skip [decodeEventPayload] and could not
+  /// catch a payload-shape mismatch, which is most of what such a test is
+  /// for.
+  @visibleForTesting
+  void debugHandleEvent(GbmEvent event) => _onEvent(event);
 
   /// Test-only entry point to [_handleOperationOutcome], for a reducer-level
   /// regression test that can't drive the real GBM_EVENT_OPERATION_FINISHED

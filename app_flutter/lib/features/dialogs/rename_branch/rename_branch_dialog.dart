@@ -9,7 +9,6 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
-import '../../sidebar/branch_tree_builder.dart';
 import '../branch_name_validation.dart';
 
 /// Which of spec page 13's two "遠端連帶處理" options is selected.

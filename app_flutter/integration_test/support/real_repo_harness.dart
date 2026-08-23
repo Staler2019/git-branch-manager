@@ -13,6 +13,7 @@ import 'dart:ui' show Size;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/app.dart';
+import 'package:gbm_flutter/features/update/auto_update_check.dart';
 import 'package:gbm_flutter/theme/theme_mode_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -117,6 +118,22 @@ Future<SharedPreferences> pumpRealAppOn(
     ProviderScope(
       overrides: <Override>[
         sharedPreferencesProvider.overrideWithValue(prefs),
+        // Neutralises the startup update check for the whole device tier.
+        // Without it every test here would reach the real GitHub API a few
+        // seconds in and could have the update dialog pushed over whatever
+        // it was driving.
+        //
+        // Done as an override rather than by writing
+        // `appPrefs.autoUpdateCheckEnabled = false`, because these tests
+        // share the machine's real shared_preferences: turning the setting
+        // off here would silently turn it off in the developer's own app.
+        // Clearing splitter and column keys is already accepted collateral
+        // (see above); switching off a setting the user chose is not.
+        //
+        // The manual path is untouched, so a test that drives Help → Check
+        // for updates… still exercises the real gateway. `extraOverrides`
+        // comes after, so a test can override this back.
+        autoUpdateCheckDelayProvider.overrideWithValue(const Duration(days: 1)),
         ...extraOverrides,
       ],
       child: const GbmApp(),

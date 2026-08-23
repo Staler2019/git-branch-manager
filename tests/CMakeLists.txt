@@ -12,6 +12,7 @@ add_executable(gbm_core_tests
     unit/ConflictBatchTest.cpp
     unit/ConflictMarkerParserTest.cpp
     unit/CoreBasicsTest.cpp
+    unit/DelayTimerTest.cpp
     unit/DiscoveryTest.cpp
     unit/GitCliTest.cpp
     unit/GitExecutableTest.cpp

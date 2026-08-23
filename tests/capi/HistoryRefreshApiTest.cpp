@@ -56,6 +56,39 @@ struct EventLog {
         std::unique_lock<std::mutex> lock(mutex);
         return cv.wait_for(lock, timeout, [&] { return completedWalksLocked() >= target; });
     }
+
+    /// Blocks until no new event has arrived for `quiet`, or `timeout`
+    /// elapses. A refresh burst has a tail -- the walk that the coalescing
+    /// window eventually dispatches, plus its log records -- and asserting
+    /// on the absence of something requires waiting for that tail rather
+    /// than for the first arrival.
+    void waitUntilQuiet(std::chrono::milliseconds quiet = std::chrono::milliseconds(600),
+                        std::chrono::milliseconds timeout = std::chrono::seconds(10)) {
+        const auto deadline = std::chrono::steady_clock::now() + timeout;
+        std::unique_lock<std::mutex> lock(mutex);
+        for (;;) {
+            const std::size_t before = events.size();
+            if (cv.wait_for(lock, quiet, [&] { return events.size() != before; })) {
+                if (std::chrono::steady_clock::now() >= deadline) return;
+                continue;
+            }
+            return;
+        }
+    }
+
+    /// Operation-log records (event 12) whose payload says the git
+    /// invocation was cancelled.
+    std::vector<std::string> cancelledRecords() {
+        std::lock_guard<std::mutex> lock(mutex);
+        std::vector<std::string> out;
+        for (const auto& [type, payload] : events) {
+            if (type == GBM_EVENT_OPERATION_LOG_RECORD &&
+                payload.find("\"cancelled\":true") != std::string::npos) {
+                out.push_back(payload);
+            }
+        }
+        return out;
+    }
 };
 
 void logCallback(GbmSessionHandle,
@@ -151,6 +184,77 @@ TEST_F(HistoryRefreshApiTest, ConcurrentRefreshesDoNotRaceOnTheCancellationSourc
     EXPECT_TRUE(log_.waitForCompletedWalks(1))
         << "no walk ever completed after " << (kThreads * kCallsPerThread)
         << " concurrent refreshes";
+}
+
+// The defect the user actually reported: a `for-each-ref` line in the log
+// drawer carrying exit 143 (= 128 + SIGTERM). refreshHistory() used to cancel
+// whatever walk was in flight before posting its own, so every refresh that
+// landed on a busy session terminated a perfectly healthy git process and
+// left a record behind saying so.
+//
+// The calls are spaced rather than fired in a tight loop on purpose: each one
+// needs a chance to actually start its `for-each-ref` child before the next
+// arrives, which is what the shipping app does (an operation finishes, then
+// another, then the user hits Refresh) and is what makes the cancelled
+// records appear at all.
+TEST_F(HistoryRefreshApiTest, ABurstOfRefreshesTerminatesNoGitProcess) {
+    for (int i = 0; i < 8; ++i) {
+        gbm_history_refresh(session_);
+        std::this_thread::sleep_for(std::chrono::milliseconds(15));
+    }
+
+    ASSERT_TRUE(log_.waitForCompletedWalks(1)) << "the burst produced no refresh at all";
+    log_.waitUntilQuiet();
+
+    const std::vector<std::string> cancelled = log_.cancelledRecords();
+    std::string detail;
+    for (const std::string& payload : cancelled) {
+        detail += "\n  " + payload;
+    }
+    EXPECT_TRUE(cancelled.empty())
+        << cancelled.size()
+        << " git invocation(s) were terminated by a superseding refresh:" << detail;
+}
+
+// The coalescing claim itself, stated positively. Fired in a tight loop with
+// no spacing so the whole burst is inside RefreshCoalescer::kDelay (150 ms)
+// by construction rather than by the scheduler's goodwill -- the spaced
+// variant above is deliberately shaped for the cancellation question, not
+// this one.
+TEST_F(HistoryRefreshApiTest, ABurstOfRefreshesYieldsOneWalkNotOnePerCall) {
+    for (int i = 0; i < 8; ++i) {
+        gbm_history_refresh(session_);
+    }
+
+    ASSERT_TRUE(log_.waitForCompletedWalks(1)) << "the burst produced no refresh at all";
+    log_.waitUntilQuiet();
+
+    std::lock_guard<std::mutex> lock(log_.mutex);
+    EXPECT_EQ(log_.completedWalksLocked(), 1u) << "the burst was not collapsed into one walk";
+}
+
+// The failure mode this whole mechanism can produce that the old code could
+// not: miss a single terminal path in dispatchRefresh() and the coalescer
+// stays running_ forever, so every later request folds into a batch nothing
+// will ever drive and refreshes stop happening at all -- silently, with no
+// error anywhere. Deleting dispatchRefresh()'s ScopeExit turns this red by
+// timeout; the two tests above stay green.
+TEST_F(HistoryRefreshApiTest, RefreshesStillWorkAfterABurstHasSettled) {
+    for (int i = 0; i < 8; ++i) {
+        gbm_history_refresh(session_);
+    }
+    ASSERT_TRUE(log_.waitForCompletedWalks(1));
+    log_.waitUntilQuiet();
+
+    const std::size_t before = [this] {
+        std::lock_guard<std::mutex> lock(log_.mutex);
+        return log_.completedWalksLocked();
+    }();
+
+    gbm_history_refresh(session_);
+
+    EXPECT_TRUE(log_.waitForCompletedWalks(before + 1))
+        << "a refresh after a settled burst never ran -- the coalescer is wedged";
 }
 
 }  // namespace

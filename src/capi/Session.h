@@ -54,6 +54,8 @@
 #include "core/git/ops/UndoOps.h"
 #include "core/git/ops/WorktreeOps.h"
 #include "core/graph/GraphSnapshot.h"
+#include "core/workers/DelayTimer.h"
+#include "core/workers/RefreshCoalescer.h"
 #include "core/workers/ThreadPool.h"
 
 #include <functional>
@@ -465,7 +467,32 @@ public:
 private:
     Session(GitInstallation installation, RepoPaths paths, std::unique_ptr<IProcessRunner> runner);
 
-    void publishGraph(GraphSnapshotPtr snapshot);
+    /// Publishes a chunk of the walk that `generation` dispatched, dropping
+    /// it if a newer dispatch has already superseded that one. See
+    /// dispatchRefresh().
+    void publishGraph(GraphSnapshotPtr snapshot, RefreshCoalescer::Generation generation);
+
+    /// Posts the actual refs + history read for the dispatch identified by
+    /// `generation` onto sharedReadPool(), and guarantees exactly one
+    /// finishRefresh(generation) on every terminal path the read can take.
+    void dispatchRefresh(RefreshCoalescer::Generation generation, CancellationToken token);
+
+    /// Reports the dispatch identified by `generation` as complete, and
+    /// re-drives the timer immediately when a request folded in while it was
+    /// running (RefreshCoalescer::onFinished()'s contract).
+    void finishRefresh(RefreshCoalescer::Generation generation);
+
+    /// Called on the refresh timer's own thread once the coalescing window
+    /// has settled: takes the merged batch and dispatches it.
+    void onRefreshTimerFired();
+
+    /// Whether `generation` may still publish into refs_/graph_. Caller must
+    /// hold graphMutex_. Monotonic, not merely an equality check against the
+    /// current generation: that alone leaves a window between the check and
+    /// the store in which a newer dispatch can land, and a stale snapshot
+    /// overwriting a newer one is worse than the log noise this whole
+    /// mechanism exists to remove.
+    bool claimPublishLocked(RefreshCoalescer::Generation generation);
 
     /// Runs `operation` on operations_, emits
     /// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED with its outcome, calls
@@ -581,13 +608,16 @@ private:
     mutable std::mutex workingCopyMutex_;
     WorkingCopyStatusPtr workingCopyStatus_;
 
-    /// Guards historyCancel_ below. refreshHistory() is reached from at
-    /// least two threads in the shipping app -- gbm_history_refresh() on
-    /// Dart's FFI thread, and the refreshHistory() call inside
-    /// submitOperation()/submitWorkingCopyOperation()'s completion callback,
-    /// which runs on OperationRunner's worker thread -- and its
-    /// cancel-then-replace of historyCancel_ is a plain shared_ptr
-    /// assignment. Unguarded, two concurrent calls tear the callback list in
+    /// Guards refreshCoalescer_ and historyCancel_ below. refreshHistory() is
+    /// reached from at least two threads in the shipping app --
+    /// gbm_history_refresh() on Dart's FFI thread, and the refreshHistory()
+    /// call inside submitOperation()/submitWorkingCopyOperation()'s
+    /// completion callback, which runs on OperationRunner's worker thread --
+    /// plus refreshTimer_'s own thread, and RefreshCoalescer is deliberately
+    /// not thread-safe (it was written for a Qt UI thread).
+    ///
+    /// historyCancel_'s cancel-then-replace is a plain shared_ptr assignment;
+    /// unguarded, two concurrent calls tear the callback list in
     /// CancellationState apart and one of them invokes a freed
     /// std::function: ThreadSanitizer reports the race and then a SEGV in
     /// CancellationSource::cancel(). See
@@ -598,11 +628,32 @@ private:
     /// ProcessRunner::execute()'s `child->terminate()` (ProcessRunner.cpp),
     /// which sends a signal and returns -- it takes no lock of ours and
     /// cannot re-enter Session.
-    mutable std::mutex historyCancelMutex_;
+    mutable std::mutex refreshMutex_;
 
-    /// Cancels the in-flight history walk when a newer refreshHistory() call
-    /// supersedes it -- mirrors RepositorySession::historyCancel_.
+    /// Collapses a burst of refreshHistory() calls into one walk. See
+    /// refreshHistory() for why this replaced "cancel whatever is running,
+    /// then start mine".
+    RefreshCoalescer refreshCoalescer_;
+
+    /// Cancels the in-flight history walk. Only two callers cancel it now:
+    /// setHistoryFilter(), which genuinely supersedes a walk whose filter is
+    /// already wrong, and ~Session(). Routine refreshes fold instead, which
+    /// is what stops them terminating each other's git processes.
     CancellationSource historyCancel_;
+
+    /// Which dispatch last wrote refs_/graph_, so a superseded walk cannot
+    /// publish over a newer one's snapshot. Guarded by graphMutex_ (not
+    /// refreshMutex_) because it is read and written in the same critical
+    /// section as the snapshots it orders.
+    RefreshCoalescer::Generation publishedGeneration_ = 0;
+
+    /// Drives refreshCoalescer_'s delay window. Declared last of the refresh
+    /// members on purpose: its constructor starts a thread that can call back
+    /// into this Session, so everything that call touches must already be
+    /// built. The thread parks until the first arm(), and ~Session() stops it
+    /// explicitly rather than waiting for member destruction -- see the
+    /// ordering comment there.
+    DelayTimer refreshTimer_;
 
     /// Stash/worktree/remote/submodule/bisect/LFS state all change far less
     /// often than the graph or working-copy status, and independently of

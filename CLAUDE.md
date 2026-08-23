@@ -179,17 +179,32 @@ applies to the Flutter layer too).
 | `lastRemotePrunePreview` | `RemotePrunePreview?` | `git remote prune --dry-run` preview |
 | `compareWithWorkingCopyResults` | `Map<String, CompareWithWorkingCopyResult>` | Compare tab results against the working copy |
 | `originalOperationMessage` | `String?` | original commit message read mid-conflict (see `gbm_*_continue_with_message`) |
+| `gonePendingByRemote` | `Map<String, List<String>>` | remote name → full names of its remote-tracking refs that no longer exist upstream; accumulated per remote from `git remote prune --dry-run` (never replaced wholesale — `fetch --all` fires one preview per remote and the replies race). Distinct from `lastRemotePrunePreview`, which stays last-write-wins for the Prune dialog |
 
-Plus one derived getter, not a field — the single source of truth for conflict
-state, read by every conflict-aware surface and by
-`lib/actions/gbm_action_availability.dart` (see "Action availability state
-machine" below):
+Plus two derived getters, not fields.
+
+The single source of truth for conflict state, read by every conflict-aware
+surface and by `lib/actions/gbm_action_availability.dart` (see "Action
+availability state machine" below):
 
 ```dart
 bool get conflictActive =>
     (repoState?.isSequencerOperation ?? false) ||
     workingCopyStatus.conflicted.isNotEmpty;
 ```
+
+And the flattened gone-pending set — the only form UI code should read, since
+no surface cares which remote a stale ref came from:
+
+```dart
+Set<String> get gonePendingRefs =>
+    gonePendingByRemote.values.expand((refs) => refs).toSet();
+```
+
+Neither `gonePendingRefs` nor `RefInfo.isGone` is read directly by a render
+site: both go through `features/sidebar/gone_marking.dart`'s
+`isEffectivelyGone()`, so the sidebar rows, the bulk-select set and the status
+bar cannot disagree about whether a branch is gone.
 
 ### Lifecycle
 
@@ -2478,3 +2493,178 @@ from callbacks. `working_copy_selection_state.prune()` has no caller at all.
 - **Comparing iterators from two separate `toRevListArgs()` calls compares
   iterators into two different vectors.** The first `--no-merges` test did that
   and failed for that reason rather than for the reason it was written.
+
+### Gone marking after fetch, and log levels (fix/fetch-gone-marking-and-log-levels)
+
+Two symptoms from one user session — 「刪掉遠端分支，然後 fetch」 — that turned out
+to be unrelated, and both root causes were confirmed by *running*, not by reading.
+Ten sequential commits, each green and independently revertible.
+
+#### Symptom 1: the sidebar never marks anything gone
+
+**`RefInfo.isGone` can only ever be true after a prune.** It comes solely from
+git's `%(upstream:track)` reporting `[gone]` (`RefStore.cpp`'s `parseTrack()`),
+and **git only reports that once the remote-tracking ref is already deleted
+locally**. `FetchOperation::run()` emits `git fetch --all` with no `--prune`
+(`FetchRequest.prune` defaults false and no Flutter call site passes it), so the
+ref survives, git stays silent, and there is nothing for the sidebar to render.
+The refresh itself *does* run (`Session::fetchRemote`'s `onSuccess →
+refreshHistory()`) — the reported "no auto-refresh" was a correct observation
+with a wrong cause.
+
+**Adding `--prune` is the wrong fix and the spec says so.** P02's
+〈遠端分支被刪除時怎麼看得到〉 is explicitly three-stage: mark (half-opacity,
+strikethrough, cloud-off, a pending count in the section header) → badge the
+tracking local branch and show `upstream gone` in the status bar → **only an
+explicit Remote → Prune remote branches actually removes**. `--prune` deletes
+the ref silently, which skips straight to stage 3 and makes stage 3 pointless.
+P10's mockup does draw `git fetch --prune origin`, but the same panel then reads
+「標記為 gone（尚未 prune）」 — it contradicts itself, and per the **Tier 5
+precedent the prose wins over the mockup**.
+
+So stages 1–2 need a source of truth that deletes nothing. `git remote prune
+--dry-run` is exactly that, and the capi for it already existed
+(`gbm_remote_prune_preview` / event 31, previously used only by the Prune
+dialog). No new capi function; the whole C++ delta this round is **two
+`kind()` overrides**.
+
+**Attribution goes through `Operation::kind()`, never through `describe()`.**
+"The next completion event is my fetch" is wrong whenever any of the ~thirty
+other methods on the shared channel is submitted in between — which is what
+`PendingOperationTracker` exists for, and `OperationRunner.h`'s `kind()` doc
+comment names that tracker explicitly. Only `checkout` and `delete-branch` had
+overrides; `fetch` and `prune-remote` gained them. Matching on `describe()`'s
+`"Fetch all remotes"` would be taking user-facing English as a protocol.
+
+- **Fetch rides event 5, prune-remote rides event 3.** `Session::fetchRemote`
+  goes through `submitWorkingCopyOperation`, `pruneRemote` through
+  `submitOperation`. One `OperationRunner` queue, one stamping path, two capi
+  events — so one kind vocabulary is correct, but the two arms live in different
+  handlers. `_handleOperationOutcome`'s switch carries an explicit
+  `case PendingOperationKind.fetch: break;` with a comment: popping the fetch
+  queue there as well would double-pop and misattribute the next fetch.
+- **The exhaustiveness check is the mechanism, not a formality.** Adding
+  `pruneRemote` to the enum made that switch a compile error at exactly the
+  place the new arm belongs. Neither switch has a `default`, deliberately.
+
+**Preview scope must match what was actually fetched**, so
+`remotesToPreviewAfterFetch()` returns `[name]` for a single-remote fetch and
+fans out only for `fetch --all`. It derives the remote list from
+`refs.remoteBranches` via `remoteBranchParts`, **not** from `state.remotes`:
+`_open()` never calls `refreshRemotes()`, so that field is routinely empty and a
+`state.remotes`-based fan-out would silently preview nothing.
+
+**The background preview must not be able to raise a banner, and that needed a
+mechanism rather than a promise.** `requestRemotePrunePreview` fires
+`GBM_EVENT_ERROR_OCCURRED` on failure → `state.lastError` →
+`workspace_screen.dart` draws `GbmWarningBanner`; and it has **no askpass
+wiring** (`CancellationToken{}`, no `askpassDir`), so an HTTPS remote without
+cached credentials fails every time. Left alone, every fetch would flash an
+error the user did not ask for, against P10's low-priority-background rule.
+`_isSuppressedAutoPrunePreviewError()` matches `GitError.argv` for
+`remote`/`prune`/`--dry-run` **plus the remote name**, counted per remote and in
+flight only — so the Prune dialog's own failure for a *different* remote still
+shows. Recorded limit rather than papered over: an automatic and a
+dialog-initiated preview of the **same** remote overlapping produce identical
+argv and the dialog's failure is swallowed once; fixing that needs the capi to
+carry a request origin.
+
+Costs written into doc comments rather than discovered later: `git remote prune
+--dry-run` **contacts the remote**, so each fetch now costs one extra network
+round-trip per remote; and `requestRemotePrunePreview` uses `postFront`, which
+was meant for the dialog's interactive latency and now jumps N network jobs
+ahead of already-queued viewport reads.
+
+#### Symptom 2: a cancelled `for-each-ref` read as a failure
+
+The user's log row was **exit 143** = 128 + SIGTERM.
+`Session::refreshHistory()` calls `historyCancel_.cancel()` before posting a new
+refresh, so a superseded read is terminated and leaves a
+`cancelled: true, exitCode: 143` record. Not a git failure at all.
+
+Three display defects made it read as one, and **the middle one is the real
+bug**: `_filteredRecords`' warning predicate (`failed && !cancelled &&
+!timedOut`) was a strict **subset** of its error predicate (`cancelled ||
+timedOut || exitCode != 0`), so LOGRULES' three levels were not three sets —
+picking *error* also showed every warning. Classification is now one function
+(`OperationRecord.level`), and **`cancelled` is checked before `exitCode`**
+because a terminated child carries both.
+
+**Cancelled is warning, not error** — deliberate: a read superseded by a newer
+one is not a fault, and treating it as one is precisely this misreport.
+LOGRULES' own error example is a genuinely rejected `git push`.
+
+`escapeControlChars()` renders `\x1f` field separators visibly. It is applied to
+the **export** as well as the row, which is in tension with "log records the
+command verbatim": the escape is reversible and unambiguous, and the user's own
+report arrived with the separators silently deleted by copy-paste, which is what
+made the command look corrupt. It deliberately does **not** touch backslashes —
+`OperationRecord::commandLine()` (`Logging.cpp:36-38`) already doubles them
+inside quoted args, and escaping twice would corrupt what it is trying to make
+readable.
+
+#### Things worth knowing before touching this again
+
+- **`RemotePrunePreviewEntry.ref` is a short name** (`origin/x`) while
+  `RefInfo.upstream` and a remote row's `fullName` are full
+  (`refs/remotes/origin/x`). Comparing the two forms directly never matches and
+  the marking would silently never appear. `fullRemoteRefName()` is the one
+  idempotent normaliser both directions go through.
+- **The two `pruneRemote` call sites disagree on ref form and always have**:
+  `prune_remote_branches_dialog.dart` sends short names (`preview.refs.map((e) =>
+  e.ref)`), `sidebar_panel.dart`'s `_pruneRemoteRef`/`_pruneGoneUpstream` send
+  full ones. An un-normalised removal no-ops for the **dialog** path, which is
+  the common one. Mutation-checked: dropping `.map(fullRemoteRefName)` reddens
+  five tests.
+- **The header count is derived from the rendered tree, not from
+  `gonePendingRefs.length`.** A ref the user pruned in a terminal leaves the refs
+  snapshot while the pending set still holds it, so the raw count would claim
+  「3 待清理」 above zero marked rows. Counting effective-gone rows also means a
+  missed B5 cleanup degrades to one stale round rather than a wrong number.
+- **Assert prune-clearing on `state.gonePendingByRemote`, never on the sidebar.**
+  A really-pruned ref also vanishes from the refs snapshot, so the row
+  disappears either way and a rendering assertion goes green with the removal
+  logic deleted entirely.
+- **A failed prune must still pop its queue entry.** The queue tracks
+  submissions, not successes; skipping the pop lets a failed request answer for
+  the *next* prune's outcome and clear marks that prune never touched. Same rule
+  as fetch, and each has its own test.
+- **`_readUndoJournal()` was missing the `_session == nullptr` guard** every
+  sibling has, which is why a reducer-level test tripped
+  `FakeGbmBindings.noSuchMethod`. The fake seam failing loudly found a real
+  robustness hole, exactly as documented.
+
+#### Two defects this round introduced and then closed
+
+- **A non-flex `Text` in the BRANCHES header overflowed by 13px** — the same
+  `RenderFlex` rule the narrow-window round is entirely about, repeated one
+  round later. **B3's own widget tests could not see it**: they pump
+  `SidebarPanel` on the 800px default test canvas, where nothing is tight. It
+  surfaced only once `pumpWorkspace` gave the sidebar its real width. Now a
+  `GbmBadge` (truer to spec's 「待清理數量」 anyway), with a regression test
+  pinned at `GbmLayout.sidebarMinWidth` and mutation-checked at 116px overflow.
+  **Rule: a widget test that sizes its own canvas proves nothing about layout
+  under real constraints.**
+- The status-bar semantics test needed `find.bySemanticsLabel`, not
+  `find.byType(Semantics).first` — `MaterialApp` has its own. And a
+  `SemanticsHandle` must be disposed **inline at the end of the test body**, not
+  via `addTearDown`: teardown runs after `flutter_test`'s handle verification.
+
+#### Process notes
+
+- **`clang-format` is version-sensitive the same way `dart format` is.** CI pins
+  version 18 (`cq.yml`); a local 22 reformats pre-existing lines in
+  `RemoteApiTest.cpp` that 18 left alone. Running it wholesale swept 40 unrelated
+  lines into the diff. Fix: restore the file, re-apply only the intended edit,
+  and verify the *new lines* survive the local formatter byte-for-byte. Never
+  `git checkout --` a file whose work is uncommitted — copy it to the scratchpad
+  first, as this repo already records.
+- Deferred to their own issues with evidence, per the approved plan: **#102**
+  (Preferences' three `autoFetch*` settings have no consumer at all —
+  `Timer.periodic` appears nowhere, so P11 item 9's auto-fetch does not exist),
+  **#103** (`RefreshCoalescer` is written but `Session` never connects it, which
+  is the *source* of the exit-143 noise this round only stopped misreporting),
+  **#104** (`historyCancel_` is rewritten from the worker thread while the UI
+  thread calls the same function, unlocked), **#105** (LOGRULES' app-level events
+  — 「開啟 repo、切分支、prune 掉哪些 ref」 — cannot be expressed by
+  `OperationRecord`, which is git-invocation-shaped and produced C++-side).

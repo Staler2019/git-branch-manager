@@ -561,6 +561,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   /// - remotePruneRemoteBranches: prune remote branches dialog (M6)
   /// - remoteFetchAllRemotes: fetch (same as repositoryFetch)
   /// - helpKeyboardShortcuts: keyboard shortcuts dialog
+  /// - helpCheckForUpdates: update dialog
   /// - helpAbout: about dialog
   /// - editFilterBranches: reveals the sidebar (if hidden) and focuses
   ///   SidebarPanel's filter field
@@ -912,6 +913,8 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
           context.push(RoutePaths.keyboardShortcutsDialog),
       GbmActionId.helpReportAnIssue: () =>
           ref.read(desktopLauncherProvider).openUrl(GbmUrls.reportAnIssue),
+      GbmActionId.helpCheckForUpdates: () =>
+          context.push(RoutePaths.updateDialog),
       GbmActionId.helpAbout: () => context.push(RoutePaths.aboutDialog),
     };
   }

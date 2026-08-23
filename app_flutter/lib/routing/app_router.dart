@@ -7,6 +7,7 @@ import '../features/compare/compare_page.dart';
 import '../features/panels/panel_page.dart';
 import '../features/conflict_resolution/conflict_resolve_window.dart';
 import '../features/dialogs/about/about_dialog.dart';
+import '../features/dialogs/update/update_dialog.dart';
 import '../features/dialogs/checkout/checkout_dialog.dart';
 import '../features/dialogs/checkout_recovery/checkout_recovery_dialog.dart';
 import '../features/dialogs/cherry_pick/cherry_pick_dialog.dart';
@@ -155,6 +156,10 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
       dialogRoute(
         path: RoutePaths.aboutDialog,
         builder: (context, state) => const AboutDialogContent(),
+      ),
+      dialogRoute(
+        path: RoutePaths.updateDialog,
+        builder: (context, state) => const UpdateDialogContent(),
       ),
       dialogRoute(
         path: RoutePaths.keyboardShortcutsDialog,

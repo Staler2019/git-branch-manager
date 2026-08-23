@@ -26,6 +26,11 @@ abstract final class RoutePaths {
   /// has to open from the repo list, where there is no `:repoId` to scope to.
   static const String preferencesDialog = '/dialogs/preferences';
 
+  /// App-level, not repo-scoped: an update is not a property of any open
+  /// repository, and this must be reachable from `WelcomeScreen`, which has
+  /// none. Same reasoning as [aboutDialog] and [preferencesDialog].
+  static const String updateDialog = '/dialogs/update';
+
   /// Repo-scoped, per the plan's `/repo/:repoId/dialogs/<name>` design.
   static const String resetBranchDialog = '/repo/:repoId/dialogs/reset-branch';
   static const String mergeDialog = '/repo/:repoId/dialogs/merge';

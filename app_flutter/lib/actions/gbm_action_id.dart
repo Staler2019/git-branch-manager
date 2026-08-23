@@ -91,5 +91,6 @@ enum GbmActionId {
   helpDocumentation,
   helpKeyboardShortcuts,
   helpReportAnIssue,
+  helpCheckForUpdates,
   helpAbout,
 }

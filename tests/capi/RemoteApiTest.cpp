@@ -219,6 +219,37 @@ TEST_F(RemoteApiTest, FetchWithRefsBringsInOnlyTheNamedBranch) {
     EXPECT_NE(runGit({"rev-parse", "--verify", "origin/unwanted"}), 0);
 }
 
+TEST_F(RemoteApiTest, FetchStampsItsOutcomeWithAKindSoDartCanAttributeIt) {
+    // Roughly thirty controller methods share GBM_EVENT_WORKING_COPY_OPERATION_FINISHED
+    // and OperationRunner's queue can hold more than one operation, so
+    // "the next completion event is my fetch" is wrong whenever anything
+    // else is submitted in between. Operation::kind() exists precisely so
+    // Dart's PendingOperationTracker can pair an outcome with the request
+    // that produced it (see OperationRunner.h's doc comment); fetch had no
+    // override, which is why the post-fetch gone-marking had nothing stable
+    // to hang off.
+    gbm_remote_fetch(session_, "origin", nullptr, 0, /*prune=*/0, /*tags=*/0);
+    ASSERT_TRUE(waitForWorkingCopyOperationFinished(log_));
+
+    const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_WORKING_COPY_OPERATION_FINISHED);
+    EXPECT_NE(outcome.find("\"kind\":\"fetch\""), std::string::npos) << outcome;
+}
+
+TEST_F(RemoteApiTest, AFailedFetchIsStampedToo) {
+    // The stamp is applied by OperationRunner on the single path every
+    // completion funnels through, so it must survive a failure. Dart pops
+    // its FIFO on any outcome, success or not -- an unstamped failure would
+    // leave the queue misaligned and attribute the *next* fetch's outcome
+    // to this request.
+    const char* refs[] = {"main"};
+    gbm_remote_fetch(session_, "", refs, 1, /*prune=*/0, /*tags=*/0);
+    ASSERT_TRUE(waitForWorkingCopyOperationFinished(log_));
+
+    const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_WORKING_COPY_OPERATION_FINISHED);
+    EXPECT_NE(outcome.find("\"succeeded\":false"), std::string::npos) << outcome;
+    EXPECT_NE(outcome.find("\"kind\":\"fetch\""), std::string::npos) << outcome;
+}
+
 TEST_F(RemoteApiTest, FetchWithRefsButNoRemoteNameFailsCleanly) {
     const char* refs[] = {"main"};
     gbm_remote_fetch(session_, "", refs, 1, /*prune=*/0, /*tags=*/0);

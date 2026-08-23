@@ -116,4 +116,84 @@ void main() {
       expect(tracker.takeDeleteBranch(), isNull);
     });
   });
+
+  group('fetch queue', () {
+    test('a fetch outcome carries back the remote that was fetched', () {
+      // The post-fetch gone-marking has to preview exactly the remotes this
+      // fetch touched -- previewing all of them after a single-remote fetch
+      // would fire network calls the user did not ask for.
+      final tracker = PendingOperationTracker();
+      tracker.recordFetch(const PendingFetchRequest(remoteName: 'origin'));
+
+      expect(tracker.takeFetch()?.remoteName, 'origin');
+    });
+
+    test('an empty remote name means fetch --all', () {
+      // FetchOperation appends --all when remoteName is empty
+      // (RemoteOps.cpp), so the empty string is meaningful, not missing.
+      final tracker = PendingOperationTracker();
+      tracker.recordFetch(const PendingFetchRequest(remoteName: ''));
+
+      final PendingFetchRequest? taken = tracker.takeFetch();
+      expect(taken, isNotNull);
+      expect(taken!.remoteName, '');
+    });
+
+    test('outcomes are attributed in submission order', () {
+      final tracker = PendingOperationTracker();
+      tracker.recordFetch(const PendingFetchRequest(remoteName: 'origin'));
+      tracker.recordFetch(const PendingFetchRequest(remoteName: 'upstream'));
+
+      expect(tracker.takeFetch()?.remoteName, 'origin');
+      expect(tracker.takeFetch()?.remoteName, 'upstream');
+    });
+
+    test('another kind completing in between does not disturb it', () {
+      // The whole reason this tracker exists: fetch shares
+      // GBM_EVENT_WORKING_COPY_OPERATION_FINISHED with roughly thirty other
+      // methods, so "the next completion event" is not a valid pairing.
+      final tracker = PendingOperationTracker();
+      tracker.recordFetch(const PendingFetchRequest(remoteName: 'origin'));
+      tracker.recordCheckout(_checkoutA);
+      tracker.recordFetch(const PendingFetchRequest(remoteName: 'upstream'));
+
+      expect(tracker.takeCheckout()?.target, 'branch-a');
+      expect(tracker.takeFetch()?.remoteName, 'origin');
+      expect(tracker.takeFetch()?.remoteName, 'upstream');
+    });
+
+    test('takeFetch on an empty queue is null, not a throw', () {
+      expect(PendingOperationTracker().takeFetch(), isNull);
+    });
+
+    test('clear() drops pending fetches too', () {
+      // A session that closes mid-fetch will never deliver the outcome, so
+      // leaving the request queued would misattribute the first fetch of
+      // the next session.
+      final tracker = PendingOperationTracker();
+      tracker.recordFetch(const PendingFetchRequest(remoteName: 'origin'));
+
+      tracker.clear();
+
+      expect(tracker.takeFetch(), isNull);
+    });
+  });
+
+  group('PendingOperationKind wire names', () {
+    test('fetch round-trips through the wire name', () {
+      // Must match FetchOperation::kind() in RemoteOps.cpp exactly -- the
+      // two sides are joined by this string and nothing checks them
+      // together at compile time.
+      expect(PendingOperationKind.fetch.wireName, 'fetch');
+      expect(
+        PendingOperationKind.fromWireName('fetch'),
+        PendingOperationKind.fetch,
+      );
+    });
+
+    test('an unknown kind is null, not a guess', () {
+      expect(PendingOperationKind.fromWireName('pull'), isNull);
+      expect(PendingOperationKind.fromWireName(''), isNull);
+    });
+  });
 }

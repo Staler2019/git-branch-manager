@@ -1305,6 +1305,15 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
         state = state.copyWith(
           deleteBranchChoices: succeeded ? const <OperationChoice>[] : choices,
         );
+      case PendingOperationKind.fetch:
+        // Unreachable, and the exhaustiveness check is what keeps it that
+        // way. Fetch goes through Session::submitWorkingCopyOperation, so
+        // its outcome arrives on GBM_EVENT_WORKING_COPY_OPERATION_FINISHED
+        // and is consumed there -- popping the fetch queue *here* as well
+        // would double-pop and misattribute the next fetch. If the capi
+        // ever moves fetch onto this channel, this arm is where the change
+        // has to be made deliberately rather than absorbed by a default.
+        break;
       case null:
         break;
     }

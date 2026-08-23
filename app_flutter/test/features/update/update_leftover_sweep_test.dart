@@ -37,12 +37,10 @@ Future<List<String>> _pump(
     ProviderScope(
       overrides: <Override>[
         updateInstallerProvider.overrideWithValue(_RecordingInstaller(calls)),
+        updateLeftoverSweepDelayProvider.overrideWithValue(delay),
       ],
-      child: MaterialApp(
-        home: UpdateLeftoverSweep(
-          delay: delay,
-          child: const Scaffold(body: Text('app')),
-        ),
+      child: const MaterialApp(
+        home: UpdateLeftoverSweep(child: Scaffold(body: Text('app'))),
       ),
     ),
   );
@@ -72,6 +70,24 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('app'), findsOneWidget);
+    });
+
+    // The device-tier harness pushes this past every test's lifetime so a
+    // real app run under `integration_test/` never reaches the developer's
+    // own `Directory.systemTemp`. A constructor parameter could not do that:
+    // `GbmApp` builds the widget itself, and no ancestor can reach in.
+    testWidgets('an ancestor scope can push the sweep out of reach', (
+      WidgetTester tester,
+    ) async {
+      final List<String> calls = await _pump(
+        tester,
+        delay: const Duration(days: 1),
+      );
+
+      await tester.pump(const Duration(minutes: 10));
+      await tester.pumpAndSettle();
+
+      expect(calls, isEmpty);
     });
 
     testWidgets('closing before the delay cancels the sweep', (

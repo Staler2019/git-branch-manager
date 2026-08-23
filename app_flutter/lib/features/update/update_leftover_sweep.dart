@@ -5,6 +5,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/services/update_installer.dart';
 
+/// How long after launch [UpdateLeftoverSweep] runs.
+///
+/// A provider rather than a constructor parameter, mirroring
+/// `autoUpdateCheckDelayProvider`: `GbmApp` builds the widget itself, so an
+/// ancestor scope is the only place that can reach it. The device-tier
+/// harness overrides this past every test's lifetime -- without it, running
+/// the real app under `integration_test/` would sweep the developer's own
+/// `Directory.systemTemp`.
+final Provider<Duration> updateLeftoverSweepDelayProvider = Provider<Duration>(
+  (Ref ref) => const Duration(seconds: 3),
+);
+
 /// Deletes what a completed update left behind, shortly after launch.
 ///
 /// Separate from [AutoUpdateCheck] on purpose, and not gated on the same
@@ -20,17 +32,9 @@ import '../../data/services/update_installer.dart';
 ///
 /// Renders [child] unchanged -- this widget contributes no layout.
 class UpdateLeftoverSweep extends ConsumerStatefulWidget {
-  const UpdateLeftoverSweep({
-    super.key,
-    required this.child,
-    this.delay = const Duration(seconds: 3),
-  });
+  const UpdateLeftoverSweep({super.key, required this.child});
 
   final Widget child;
-
-  /// A plain parameter rather than a provider: nothing outside a test ever
-  /// changes it, and the sweep has no other configuration to carry.
-  final Duration delay;
 
   @override
   ConsumerState<UpdateLeftoverSweep> createState() =>
@@ -43,7 +47,7 @@ class _UpdateLeftoverSweepState extends ConsumerState<UpdateLeftoverSweep> {
   @override
   void initState() {
     super.initState();
-    _timer = Timer(widget.delay, _sweep);
+    _timer = Timer(ref.read(updateLeftoverSweepDelayProvider), _sweep);
   }
 
   @override

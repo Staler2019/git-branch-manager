@@ -14,6 +14,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/app.dart';
 import 'package:gbm_flutter/features/update/auto_update_check.dart';
+import 'package:gbm_flutter/features/update/update_leftover_sweep.dart';
 import 'package:gbm_flutter/theme/theme_mode_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -134,6 +135,15 @@ Future<SharedPreferences> pumpRealAppOn(
         // for updates… still exercises the real gateway. `extraOverrides`
         // comes after, so a test can override this back.
         autoUpdateCheckDelayProvider.overrideWithValue(const Duration(days: 1)),
+        // Same reasoning, different job. The leftover sweep is not gated on
+        // the update preference at all, so nothing in the app would stop it
+        // reaching the machine's real `Directory.systemTemp` and deleting
+        // from it a few seconds into every device test. Its age guard makes
+        // that bounded rather than dangerous, but a test still has no
+        // business deleting anything outside its own fixtures.
+        updateLeftoverSweepDelayProvider.overrideWithValue(
+          const Duration(days: 1),
+        ),
         ...extraOverrides,
       ],
       child: const GbmApp(),

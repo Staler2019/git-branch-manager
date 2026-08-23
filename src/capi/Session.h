@@ -581,6 +581,25 @@ private:
     mutable std::mutex workingCopyMutex_;
     WorkingCopyStatusPtr workingCopyStatus_;
 
+    /// Guards historyCancel_ below. refreshHistory() is reached from at
+    /// least two threads in the shipping app -- gbm_history_refresh() on
+    /// Dart's FFI thread, and the refreshHistory() call inside
+    /// submitOperation()/submitWorkingCopyOperation()'s completion callback,
+    /// which runs on OperationRunner's worker thread -- and its
+    /// cancel-then-replace of historyCancel_ is a plain shared_ptr
+    /// assignment. Unguarded, two concurrent calls tear the callback list in
+    /// CancellationState apart and one of them invokes a freed
+    /// std::function: ThreadSanitizer reports the race and then a SEGV in
+    /// CancellationSource::cancel(). See
+    /// HistoryRefreshApiTest.ConcurrentRefreshesDoNotRaceOnTheCancellationSource.
+    ///
+    /// Held across cancel() itself, not just across the assignment. That is
+    /// safe because the only callback ever registered on this source is
+    /// ProcessRunner::execute()'s `child->terminate()` (ProcessRunner.cpp),
+    /// which sends a signal and returns -- it takes no lock of ours and
+    /// cannot re-enter Session.
+    mutable std::mutex historyCancelMutex_;
+
     /// Cancels the in-flight history walk when a newer refreshHistory() call
     /// supersedes it -- mirrors RepositorySession::historyCancel_.
     CancellationSource historyCancel_;

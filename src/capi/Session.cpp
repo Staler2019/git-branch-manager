@@ -191,7 +191,10 @@ Session::~Session() {
     // cancellation scope instead of a pool-wide drain. Still required here:
     // without it, a task queued or running on the shared pool could call
     // back into this Session after its destructor returns.
-    historyCancel_.cancel();
+    {
+        std::lock_guard<std::mutex> lock(historyCancelMutex_);
+        historyCancel_.cancel();
+    }
     sharedReadPool().cancelQueuedAndDrain();
 
     askpass_.stop();
@@ -213,9 +216,17 @@ RepoState Session::repoState() const {
 }
 
 void Session::refreshHistory() {
-    historyCancel_.cancel();
-    historyCancel_ = CancellationSource();
-    const CancellationToken token = historyCancel_.token();
+    CancellationToken token;
+    {
+        // Both statements under one lock: cancelling and then replacing the
+        // source is a single logical step, and a concurrent caller that
+        // observed the old source between them would cancel a walk this one
+        // is about to start. See historyCancelMutex_'s doc comment.
+        std::lock_guard<std::mutex> lock(historyCancelMutex_);
+        historyCancel_.cancel();
+        historyCancel_ = CancellationSource();
+        token = historyCancel_.token();
+    }
 
     sharedReadPool().post([this, token]() {
         const GitResult<RefSnapshotPtr> refsResult = refStore_->load(token);

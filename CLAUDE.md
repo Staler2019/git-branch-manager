@@ -2662,9 +2662,178 @@ readable.
 - Deferred to their own issues with evidence, per the approved plan: **#102**
   (Preferences' three `autoFetch*` settings have no consumer at all —
   `Timer.periodic` appears nowhere, so P11 item 9's auto-fetch does not exist),
-  **#103** (`RefreshCoalescer` is written but `Session` never connects it, which
-  is the *source* of the exit-143 noise this round only stopped misreporting),
-  **#104** (`historyCancel_` is rewritten from the worker thread while the UI
-  thread calls the same function, unlocked), **#105** (LOGRULES' app-level events
-  — 「開啟 repo、切分支、prune 掉哪些 ref」 — cannot be expressed by
-  `OperationRecord`, which is git-invocation-shaped and produced C++-side).
+  ~~**#103**~~, ~~**#104**~~, ~~**#105**~~ — **all three fixed in the very next
+  round**, see "Refresh coalescing and app-level log events" below. **#102 is
+  still open.** Note that #105's issue text as written here (「cannot be
+  expressed by `OperationRecord`, which is git-invocation-shaped and produced
+  C++-side」) was half wrong: the shape claim held, the "produced C++-side"
+  claim did not, and it changed where the fix went entirely.
+
+### Refresh coalescing and app-level log events (fix/refresh-coalescing-and-app-log-events) — issues #103–#105
+
+The three issues the previous round filed rather than fixed, closed in one
+branch. Two of the three turned out to be a different problem than their issue
+text described — read this before re-reading them. Six sequential commits, each
+green and independently revertible.
+
+#### #104 was not a race, it was a crash — and this repo can prove that
+
+The issue said 「`historyCancel_` 在 worker thread 被改寫，UI thread 同時呼叫
+同一個函式，無鎖保護」, which reads as a benign-until-proven-otherwise data
+race. It is not benign. `HistoryRefreshApiTest.ConcurrentRefreshesDoNotRaceOn
+TheCancellationSource` (4 threads × 25 `gbm_history_refresh` calls) reports,
+under ThreadSanitizer, a data race **and then a SEGV** inside
+`CancellationSource::cancel()` (`CancellationToken.h:146`, reached from
+`Session.cpp:216`): two threads tear `CancellationState`'s callback list apart
+and one of them invokes a freed `std::function`.
+
+**`build/tsan` already existed and nothing in these docs said so.** `CMakeLists.txt`
+has `option(GBM_SANITIZE "…address,undefined | thread")` and the tree carries
+configured `build/tsan` and `build/asan-ubsan` presets. That is what turns "a
+race, in principle" into a **falsifiable** test — the exact thing the #77 note
+said was unavailable for a scheduling bug. It is not a substitute for #77's
+reasoning (a *timing* race still cannot be reproduced on demand), but a
+**memory-ordering** race can be, and should be:
+
+```
+cmake --build build/tsan --target gbm_capi_tests
+./build/tsan/tests/gbm_capi_tests --gtest_filter=HistoryRefreshApiTest.*
+```
+
+The fix holds `historyCancelMutex_` (now `refreshMutex_`) across the whole
+`cancel()` + replace + `token()` step, not just the assignment: a caller that
+observed the old source *between* them would cancel a walk the other one is
+about to start. Holding a lock across `cancel()` is safe because the only
+callback ever registered on that source is `ProcessRunner::execute()`'s
+`child->terminate()` — a signal send that takes no lock of ours.
+
+#### #103: the class was fine, its driver did not exist
+
+`RefreshCoalescer`'s own doc comment names the driver: 「RepositorySession owns
+one single-shot QTimer, restarted (`QTimer::start(kDelay)`, which Qt restarts
+if already running) on every request() call that returns Arm」. That Qt
+`RepositorySession` is gone from this tree, capi has no event loop of its own
+(the same reason `AskpassPoller` runs its own thread), and `ThreadPool` has no
+delayed post. So connecting the coalescer meant **building the timer first**:
+`src/core/workers/DelayTimer.{h,cpp}`, whose `arm()` deliberately reproduces
+`QTimer::start()`'s restart-if-running semantics rather than inventing new
+ones.
+
+**The symptom reproduces deterministically**, which is worth knowing because
+the user reported it from a real session and it looked untestable:
+`ABurstOfRefreshesTerminatesNoGitProcess` fires eight `gbm_history_refresh`
+calls 15 ms apart and, before the fix, logs **7 records with `exitCode: 143`,
+`cancelled: true`**. The spacing is the whole trick — each call needs a chance
+to actually start its child before the next one arrives, which is what the
+shipping app does and what a tight loop does not.
+
+Three things about the integration are worth keeping:
+
+- **Publishing needs a monotonic gate, not an equality check.** Once superseded
+  walks are no longer cancelled, a stale one can still be streaming chunks —
+  and its `complete:true` would tell Dart the *newer* walk had finished.
+  `publishedGeneration_` is compared and written inside the same `graphMutex_`
+  critical section as `refs_`/`graph_` (`claimPublishLocked`). Comparing
+  against `RefreshCoalescer::currentGeneration()` alone leaves a window between
+  the check and the store, and a stale snapshot overwriting a newer one is
+  worse than the log noise this whole change exists to remove.
+- **`onFinished()` on every terminal path, via a scope guard.** Miss one and
+  the coalescer stays `running_` forever, every later request folds into a
+  batch nothing will drive, and **refreshes stop happening at all — silently,
+  with no error anywhere.** `dispatchRefresh()`'s lambda has three early
+  returns, so it uses a `ScopeExit` rather than a call per path. Same lesson as
+  Tier 0c's `submitOperation` `onAlways` hook.
+  `RefreshesStillWorkAfterABurstHasSettled` is the lock, and it goes red *by
+  timeout* when the guard is deleted — mutation-checked, and the other three
+  cases stay green.
+- **`setHistoryFilter()` is now the only routine caller that cancels anything.**
+  It uses `fireNow()` because the Flutter side already debounces the filter box
+  by 250 ms, and it genuinely supersedes a walk whose filter is already wrong.
+  A deliberate, user-initiated filter change leaving one `cancelled` record is
+  honest; the per-operation churn was not.
+
+**Cost, measured**: `ctest` went 124 s → 134 s, entirely from the 150 ms window
+now sitting in front of every refresh. Worth watching against **#70**, whose
+budgets are 10 s — 150 ms is far inside them, but the direction is the wrong
+one.
+
+`~Session()`'s ordering gained a step, and the position is not arbitrary:
+`refreshTimer_.stop()` goes **after** `operations_->drain()` (those completion
+callbacks are one of the two things that arm the timer) and **before**
+`sharedReadPool().cancelQueuedAndDrain()` (firing the timer posts a *new* task
+onto that pool). `DelayTimer::arm()` is a no-op after `stop()`, so a late arm
+from a still-unwinding completion path cannot resurrect it.
+
+#### #105's premise was wrong: there is no C++-side log at all
+
+The issue said app-level events 「需要新的記錄型別 + capi 改動」. Checked
+directly before designing anything: `src/core/base/Logging.{h,cpp}` has
+**sinks and nothing else** — no file writing, no rotation, no storage (`grep
+ofstream|fopen|rotat src/` hits only blob/askpass/rebase paths). The entire log
+is `RepoSessionState.operationLog`, fed by `GBM_EVENT_OPERATION_LOG_RECORD`. So
+an app-level event needs **no capi whatsoever**; the whole fix is Dart-side.
+
+`GbmLogEntry` is the sealed supertype of `OperationRecord` (one git invocation)
+and the new `AppLogEntry` (an event with no process). Sealed so the drawer's
+rendering *and* its plain-text export must both handle every kind — those two
+already drifted apart once, which is what the previous round's `level` fix was
+about. Both members live in `operation_record.dart` because a sealed type's
+subtypes must be in the same library.
+
+`AppLogEvents` (`data/models/app_log_events.dart`) is a factory rather than
+four constructor calls scattered through the controller, for two reasons that
+are not style: the **wording is a product surface** (`LOGRULES` 匯出:
+「回報問題時附這份即可，不需要另外重現」), and `LOGRULES`' 不記什麼 rule
+(認證資訊、remote URL 中的 token、檔案內容) is easier to keep when one place
+builds every line. Note what the four take: a work-tree path, a branch name, a
+remote **name**, ref names — never a URL, which is where a token would live.
+
+Two decisions recorded rather than left to be re-derived:
+
+- **The lines are English.** The spec's wording is Chinese because the spec is;
+  every string in this app is English, and page 10's mockup row is describing
+  content, not dictating language.
+- **The gone-marking log diffs against what is already marked.** An automatic
+  prune preview runs after *every* fetch (previous round), so logging the whole
+  preview would repeat the same warning on every fetch until the user pruned.
+  `_logNewlyGoneRefs()` therefore runs **before** the state update and is
+  judged per remote — `gonePendingByRemote` is per remote, and a shared set
+  would swallow `upstream/a` because `origin/a` was seen first.
+
+#### The one emit site no widget test can reach, and how to see it anyway
+
+「開啟 repo」 is emitted in `_open()` right after `isOpen: true`, which
+`FakeRepoSessionController` **never executes**: its `FakeGbmBindings.sessionOpen()`
+returns `nullptr` by design, so `_open()` returns before allocating a handle.
+The factory pins the wording at unit tier; the emit site is covered by
+`integration_test/repo_lifecycle_test.dart` at device tier, and getting that
+assertion to work taught two things:
+
+- **`find.text` cannot see the oldest entry in the log drawer.** The list is
+  `reverse: true` with a `ListView.builder`, so by the time the git records for
+  open + checkout exist, 「Opened repository …」 has been scrolled out of the
+  viewport and was never built. Reading `tester.widget<LogDrawer>(…).records`
+  asserts the data instead — which is also what the widget-tier reachability
+  test already does, for a different reason.
+- **Do not assert a temp path verbatim on macOS.** `/var/folders/…` and
+  `/private/var/folders/…` are the same directory, and which one arrives
+  depends on who canonicalised it. `startsWith('Opened repository ')` is the
+  claim being made anyway.
+
+#### Smaller things
+
+- `shortRemoteRefName()` joins `fullRemoteRefName()` in
+  `remote_prune_preview_entry.dart`, equally idempotent. Display only — every
+  *comparison* in this codebase is on the full form.
+- `RepoSessionState.operationLog` is now `List<GbmLogEntry>`. Its cap is
+  unchanged and shared: `LOGRULES` 保留 caps the log, not each kind of entry
+  separately, so an app event and a git record compete for the same 500 slots.
+- **`clang-format` version drift fired again, and the config decided it.** A
+  local v22 wanted a blank line between `ScopeExit`'s one-line constructor and
+  its destructor. That is `SeparateDefinitionBlocks: Always` in `.clang-format`
+  — an option that exists since v14, so CI's pinned v18 applies it too and the
+  change was safe to take. **Check whether a formatter suggestion comes from
+  the repo's own config before assuming it is a version artifact**; the
+  previous round's rule ("never run it wholesale") still holds for everything
+  that does not.
+

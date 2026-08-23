@@ -133,6 +133,204 @@ void main() {
     });
   });
 
+  group('RepoSessionState.withGonePendingRemoved', () {
+    test('drops exactly the refs that were pruned', () {
+      final RepoSessionState state = const RepoSessionState()
+          .withGonePendingFor('origin', const <RemotePrunePreviewEntry>[
+            RemotePrunePreviewEntry(ref: 'origin/a'),
+            RemotePrunePreviewEntry(ref: 'origin/b'),
+          ])
+          .withGonePendingRemoved('origin', const <String>[
+            'refs/remotes/origin/a',
+          ]);
+
+      expect(state.gonePendingRefs, <String>{'refs/remotes/origin/b'});
+    });
+
+    test('accepts the short form the Prune dialog sends', () {
+      // The two call sites disagree on form and always have:
+      // prune_remote_branches_dialog.dart passes `preview.refs.map((e) =>
+      // e.ref)` -- short names -- while sidebar_panel.dart's
+      // _pruneRemoteRef/_pruneGoneUpstream pass full `refs/remotes/...`
+      // names. The map stores full names, so an un-normalised removal
+      // would silently no-op for every dialog-initiated prune, which is
+      // the common path.
+      final RepoSessionState state = const RepoSessionState()
+          .withGonePendingFor('origin', const <RemotePrunePreviewEntry>[
+            RemotePrunePreviewEntry(ref: 'origin/a'),
+            RemotePrunePreviewEntry(ref: 'origin/b'),
+          ])
+          .withGonePendingRemoved('origin', const <String>['origin/a']);
+
+      expect(state.gonePendingRefs, <String>{'refs/remotes/origin/b'});
+    });
+
+    test('drops the remote entirely once nothing is left', () {
+      // Same reasoning as withGonePendingFor's empty reply: an empty list
+      // left behind would later read as "this remote has been checked".
+      final RepoSessionState state = const RepoSessionState()
+          .withGonePendingFor('origin', const <RemotePrunePreviewEntry>[
+            RemotePrunePreviewEntry(ref: 'origin/a'),
+          ])
+          .withGonePendingRemoved('origin', const <String>['origin/a']);
+
+      expect(state.gonePendingByRemote, isEmpty);
+    });
+
+    test('leaves other remotes alone', () {
+      final RepoSessionState state = const RepoSessionState()
+          .withGonePendingFor('origin', const <RemotePrunePreviewEntry>[
+            RemotePrunePreviewEntry(ref: 'origin/a'),
+          ])
+          .withGonePendingFor('upstream', const <RemotePrunePreviewEntry>[
+            RemotePrunePreviewEntry(ref: 'upstream/c'),
+          ])
+          .withGonePendingRemoved('origin', const <String>['origin/a']);
+
+      expect(state.gonePendingRefs, <String>{'refs/remotes/upstream/c'});
+    });
+
+    test('a remote with nothing recorded is a no-op, not a crash', () {
+      final RepoSessionState state = const RepoSessionState()
+          .withGonePendingRemoved('origin', const <String>['origin/a']);
+
+      expect(state.gonePendingByRemote, isEmpty);
+    });
+
+    test('does not mutate the state it was called on', () {
+      final RepoSessionState first = const RepoSessionState()
+          .withGonePendingFor('origin', const <RemotePrunePreviewEntry>[
+            RemotePrunePreviewEntry(ref: 'origin/a'),
+          ]);
+      first.withGonePendingRemoved('origin', const <String>['origin/a']);
+
+      expect(first.gonePendingRefs, <String>{'refs/remotes/origin/a'});
+    });
+  });
+
+  group('a successful prune clears its own gone-pending marks', () {
+    test('the pruned refs leave the set, the rest stay', () {
+      final FakeRepoSessionController controller = FakeRepoSessionController(
+        _identity,
+        const RepoSessionState(),
+      );
+      addTearDown(controller.dispose);
+
+      controller.debugHandleEvent(
+        _prunePreviewEvent('origin', <String>[
+          'origin/gone-a',
+          'origin/gone-b',
+        ]),
+      );
+      controller.debugRecordPruneRemote(
+        remoteName: 'origin',
+        refs: <String>['origin/gone-a'],
+      );
+
+      controller.debugHandleOperationOutcome(<String, dynamic>{
+        'succeeded': true,
+        'kind': 'prune-remote',
+      });
+
+      // Asserted on the state, not on what the sidebar renders: once a ref
+      // is really pruned it also vanishes from the refs snapshot, so a
+      // rendering assertion goes green even with the removal deleted.
+      expect(controller.state.gonePendingRefs, <String>{
+        'refs/remotes/origin/gone-b',
+      });
+    });
+
+    test('a failed prune leaves the marks in place', () {
+      // The ref is still there, so it is still gone-pending. Clearing on
+      // failure would hide a row the user still has to act on.
+      final FakeRepoSessionController controller = FakeRepoSessionController(
+        _identity,
+        const RepoSessionState(),
+      );
+      addTearDown(controller.dispose);
+
+      controller.debugHandleEvent(
+        _prunePreviewEvent('origin', <String>['origin/gone-a']),
+      );
+      controller.debugRecordPruneRemote(
+        remoteName: 'origin',
+        refs: <String>['origin/gone-a'],
+      );
+
+      controller.debugHandleOperationOutcome(<String, dynamic>{
+        'succeeded': false,
+        'kind': 'prune-remote',
+        'summary': 'nope',
+      });
+
+      expect(controller.state.gonePendingRefs, <String>{
+        'refs/remotes/origin/gone-a',
+      });
+    });
+
+    test('a failed prune still pops its queue entry', () {
+      // The queue tracks submissions, not successes. Skipping the pop would
+      // let this failed request answer for the *next* prune's outcome and
+      // clear marks that prune never touched.
+      final FakeRepoSessionController controller = FakeRepoSessionController(
+        _identity,
+        const RepoSessionState(),
+      );
+      addTearDown(controller.dispose);
+
+      controller.debugHandleEvent(
+        _prunePreviewEvent('origin', <String>[
+          'origin/gone-a',
+          'origin/gone-b',
+        ]),
+      );
+      controller.debugRecordPruneRemote(
+        remoteName: 'origin',
+        refs: <String>['origin/gone-a'],
+      );
+      controller.debugRecordPruneRemote(
+        remoteName: 'origin',
+        refs: <String>['origin/gone-b'],
+      );
+
+      controller.debugHandleOperationOutcome(<String, dynamic>{
+        'succeeded': false,
+        'kind': 'prune-remote',
+        'summary': 'nope',
+      });
+      controller.debugHandleOperationOutcome(<String, dynamic>{
+        'succeeded': true,
+        'kind': 'prune-remote',
+      });
+
+      // The second (successful) outcome must answer for gone-b, not gone-a.
+      expect(controller.state.gonePendingRefs, <String>{
+        'refs/remotes/origin/gone-a',
+      });
+    });
+
+    test('an outcome with no matching request changes nothing', () {
+      final FakeRepoSessionController controller = FakeRepoSessionController(
+        _identity,
+        const RepoSessionState(),
+      );
+      addTearDown(controller.dispose);
+
+      controller.debugHandleEvent(
+        _prunePreviewEvent('origin', <String>['origin/gone-a']),
+      );
+
+      controller.debugHandleOperationOutcome(<String, dynamic>{
+        'succeeded': true,
+        'kind': 'prune-remote',
+      });
+
+      expect(controller.state.gonePendingRefs, <String>{
+        'refs/remotes/origin/gone-a',
+      });
+    });
+  });
+
   group('GBM_EVENT_REMOTE_PRUNE_PREVIEW_READY accumulates', () {
     test('a reply lands in both the dialog field and the gone-pending set', () {
       // lastRemotePrunePreview stays last-write-wins for the Prune dialog;

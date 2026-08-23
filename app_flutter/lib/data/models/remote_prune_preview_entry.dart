@@ -31,8 +31,17 @@ class RemotePrunePreviewEntry {
   /// Idempotent by design: an input that already carries the prefix is
   /// returned unchanged rather than doubled, so this stays correct if the
   /// C++ side's chosen form ever moves.
-  String get fullRefName =>
-      ref.startsWith(_kRemotePrefix) ? ref : '$_kRemotePrefix$ref';
+  String get fullRefName => fullRemoteRefName(ref);
 }
+
+/// Idempotently expands a remote-tracking ref to its full name.
+///
+/// Shared rather than private to [RemotePrunePreviewEntry] because the two
+/// forms meet outside a preview entry as well: `pruneRemote`'s `refs`
+/// argument carries short names from the Prune dialog and full names from
+/// `sidebar_panel.dart`, and anything comparing either against stored state
+/// has to agree on one form first.
+String fullRemoteRefName(String ref) =>
+    ref.startsWith(_kRemotePrefix) ? ref : '$_kRemotePrefix$ref';
 
 const String _kRemotePrefix = 'refs/remotes/';

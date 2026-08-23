@@ -706,6 +706,44 @@ class RepoSessionState {
     );
   }
 
+  /// Drops [refs] from [remote]'s slice of [gonePendingByRemote] -- what a
+  /// *successful* `pruneRemote` means for the marking.
+  ///
+  /// Removal rather than a whole-slice clear because the Prune dialog lets
+  /// the user deselect entries: the refs actually pruned are a subset of
+  /// what was previewed, and the ones left behind are still gone-pending.
+  ///
+  /// [refs] is normalised through [fullRemoteRefName] because the call
+  /// sites disagree on form -- `prune_remote_branches_dialog.dart` sends
+  /// git's short names, `sidebar_panel.dart` sends full ones -- and this
+  /// map stores full names. Comparing without normalising would silently
+  /// no-op for every dialog-initiated prune.
+  ///
+  /// A real prune also makes git start reporting `[gone]` in
+  /// `%(upstream:track)`, so the existing [RefInfo.isGone] path takes over
+  /// the display for any local branch that tracked one of these refs; that
+  /// is why this removes rather than leaving both sources lit at once.
+  RepoSessionState withGonePendingRemoved(String remote, List<String> refs) {
+    final List<String>? current = gonePendingByRemote[remote];
+    if (current == null) return this;
+    final Set<String> removed = refs.map(fullRemoteRefName).toSet();
+    final List<String> kept = current
+        .where((String ref) => !removed.contains(ref))
+        .toList(growable: false);
+    if (kept.length == current.length) return this;
+    final Map<String, List<String>> next = <String, List<String>>{
+      ...gonePendingByRemote,
+    };
+    if (kept.isEmpty) {
+      next.remove(remote);
+    } else {
+      next[remote] = kept;
+    }
+    return copyWith(
+      gonePendingByRemote: Map<String, List<String>>.unmodifiable(next),
+    );
+  }
+
   RepoSessionState withCommitMeta(List<CommitMeta> metas) {
     final Map<String, CommitMeta> merged = <String, CommitMeta>{
       ...commitMetaCache,
@@ -1358,6 +1396,11 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
         // ever moves fetch onto this channel, this arm is where the change
         // has to be made deliberately rather than absorbed by a default.
         break;
+      case PendingOperationKind.pruneRemote:
+        final PendingPruneRemoteRequest? request = _pending.takePruneRemote();
+        if (request == null) break;
+        if (!succeeded) break;
+        state = state.withGonePendingRemoved(request.remoteName, request.refs);
       case null:
         break;
     }
@@ -1459,6 +1502,16 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   @visibleForTesting
   void debugRecordFetch({String remoteName = ''}) =>
       _pending.recordFetch(PendingFetchRequest(remoteName: remoteName));
+
+  /// Test-only: records a pending prune-remote request without going through
+  /// [pruneRemote], for the same reason [debugRecordFetch] exists.
+  @visibleForTesting
+  void debugRecordPruneRemote({
+    required String remoteName,
+    required List<String> refs,
+  }) => _pending.recordPruneRemote(
+    PendingPruneRemoteRequest(remoteName: remoteName, refs: refs),
+  );
 
   /// Test-only entry point to [_onEvent], so a reducer-level test can feed a
   /// real native event payload without an open session. Takes the event in
@@ -2713,6 +2766,12 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
   /// refreshes history.
   void pruneRemote(String remoteName, List<String> refs) {
     if (_session == nullptr || refs.isEmpty) return;
+    // Recorded before the call so the outcome can be attributed to *this*
+    // request -- see PendingOperationTracker's doc comment. Only a
+    // successful prune clears the gone-pending marks it answers for.
+    _pending.recordPruneRemote(
+      PendingPruneRemoteRequest(remoteName: remoteName, refs: refs),
+    );
     final Pointer<Utf8> remotePtr = remoteName.toNativeUtf8();
     try {
       _withNativeStringArray(

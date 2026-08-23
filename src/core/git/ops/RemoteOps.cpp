@@ -209,6 +209,12 @@ public:
                                            : "Prune " + request_.remoteName;
     }
 
+    /// Stamped so Dart can pair this outcome with the pruneRemote() call
+    /// that produced it -- see Operation::kind() in OperationRunner.h. The
+    /// gone-marking clears the pruned refs from its pending set on success,
+    /// and describe()'s user-facing English is not a protocol.
+    std::string kind() const override { return "prune-remote"; }
+
     OperationOutcome run(IProcessRunner& runner,
                          const RepoPaths& paths,
                          CancellationToken token) override {

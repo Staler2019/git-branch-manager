@@ -360,6 +360,38 @@ TEST_F(RemoteApiTest, PruneDeletesExactlyTheSelectedRemoteTrackingRef) {
     EXPECT_EQ(runGit({"rev-parse", "--verify", "origin/main"}), 0);
 }
 
+TEST_F(RemoteApiTest, PruneStampsItsOutcomeWithAKindSoDartCanAttributeIt) {
+    // Same reasoning as FetchStampsItsOutcomeWithAKindSoDartCanAttributeIt
+    // above, on the other completion channel: Dart clears its gone-pending
+    // marks when a prune succeeds, and "the next OPERATION_FINISHED is my
+    // prune" is wrong whenever any of the ~thirty other methods sharing
+    // that channel is submitted in between.
+    ASSERT_EQ(runIn(remote_, {"branch", "gone", "main"}), 0);
+    gbm_remote_fetch(session_, "origin", nullptr, 0, /*prune=*/0, /*tags=*/0);
+    ASSERT_TRUE(waitForWorkingCopyOperationFinished(log_));
+
+    const char* refs[] = {"origin/gone"};
+    gbm_remote_prune(session_, "origin", refs, 1);
+    ASSERT_TRUE(waitForOperationFinished(log_));
+
+    const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_OPERATION_FINISHED);
+    EXPECT_NE(outcome.find("\"kind\":\"prune-remote\""), std::string::npos) << outcome;
+}
+
+TEST_F(RemoteApiTest, AFailedPruneIsStampedToo) {
+    // The stamp comes from OperationRunner's single completion path, so it
+    // must survive a failure. Dart pops its FIFO on any outcome -- an
+    // unstamped failure would misalign the queue and let a *failed* prune
+    // clear gone marks the next prune was supposed to answer for.
+    const char* refs[] = {"origin/never-existed"};
+    gbm_remote_prune(session_, "origin", refs, 1);
+    ASSERT_TRUE(waitForOperationFinished(log_));
+
+    const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_OPERATION_FINISHED);
+    EXPECT_NE(outcome.find("\"succeeded\":false"), std::string::npos) << outcome;
+    EXPECT_NE(outcome.find("\"kind\":\"prune-remote\""), std::string::npos) << outcome;
+}
+
 TEST_F(RemoteApiTest, AddRemoteAddsANewRemote) {
     const std::filesystem::path upstream = remote_.parent_path() / "gbm-capi-remote-upstream";
     std::error_code ec;

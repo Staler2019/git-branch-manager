@@ -179,6 +179,79 @@ void main() {
     });
   });
 
+  group('prune-remote queue', () {
+    test('a prune outcome carries back the remote and the exact refs', () {
+      // Clearing the gone-pending marks needs both: which remote's slice to
+      // touch, and which refs inside it the user actually pruned (the Prune
+      // dialog lets them deselect entries, so "everything previewed" is not
+      // the same set).
+      final tracker = PendingOperationTracker();
+      tracker.recordPruneRemote(
+        const PendingPruneRemoteRequest(
+          remoteName: 'origin',
+          refs: <String>['origin/gone-a'],
+        ),
+      );
+
+      final PendingPruneRemoteRequest? taken = tracker.takePruneRemote();
+      expect(taken?.remoteName, 'origin');
+      expect(taken?.refs, <String>['origin/gone-a']);
+    });
+
+    test('outcomes are attributed in submission order', () {
+      final tracker = PendingOperationTracker();
+      tracker.recordPruneRemote(
+        const PendingPruneRemoteRequest(
+          remoteName: 'origin',
+          refs: <String>['origin/a'],
+        ),
+      );
+      tracker.recordPruneRemote(
+        const PendingPruneRemoteRequest(
+          remoteName: 'upstream',
+          refs: <String>['upstream/b'],
+        ),
+      );
+
+      expect(tracker.takePruneRemote()?.remoteName, 'origin');
+      expect(tracker.takePruneRemote()?.remoteName, 'upstream');
+    });
+
+    test('another kind completing in between does not disturb it', () {
+      // pruneRemote shares GBM_EVENT_OPERATION_FINISHED with deleteBranch
+      // and ~thirty others, which is the whole reason for this tracker.
+      final tracker = PendingOperationTracker();
+      tracker.recordPruneRemote(
+        const PendingPruneRemoteRequest(
+          remoteName: 'origin',
+          refs: <String>['origin/a'],
+        ),
+      );
+      tracker.recordCheckout(_checkoutA);
+
+      expect(tracker.takeCheckout()?.target, 'branch-a');
+      expect(tracker.takePruneRemote()?.remoteName, 'origin');
+    });
+
+    test('takePruneRemote on an empty queue is null, not a throw', () {
+      expect(PendingOperationTracker().takePruneRemote(), isNull);
+    });
+
+    test('clear() drops pending prunes too', () {
+      final tracker = PendingOperationTracker();
+      tracker.recordPruneRemote(
+        const PendingPruneRemoteRequest(
+          remoteName: 'origin',
+          refs: <String>['origin/a'],
+        ),
+      );
+
+      tracker.clear();
+
+      expect(tracker.takePruneRemote(), isNull);
+    });
+  });
+
   group('PendingOperationKind wire names', () {
     test('fetch round-trips through the wire name', () {
       // Must match FetchOperation::kind() in RemoteOps.cpp exactly -- the
@@ -188,6 +261,15 @@ void main() {
       expect(
         PendingOperationKind.fromWireName('fetch'),
         PendingOperationKind.fetch,
+      );
+    });
+
+    test('prune-remote round-trips through the wire name', () {
+      // Must match PruneRemoteOperation::kind() in RemoteOps.cpp exactly.
+      expect(PendingOperationKind.pruneRemote.wireName, 'prune-remote');
+      expect(
+        PendingOperationKind.fromWireName('prune-remote'),
+        PendingOperationKind.pruneRemote,
       );
     });
 

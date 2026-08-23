@@ -108,12 +108,36 @@ jobs:
       # directory (verified in this repository's own sandbox): the install
       # step looks for build/native_assets/linux before anything else has
       # created it. Unrelated to gbm_capi's own CMake integration.
+      # --- version stamping -------------------------------------------
+      # `new_version` reaches the built app three ways, and all three are
+      # needed for different readers:
+      #
+      #   --build-name    the OS-visible version (CFBundleShortVersionString
+      #                   on macOS, FileVersion on Windows). Without it every
+      #                   build inherits pubspec.yaml's `1.0.0+1`, which no
+      #                   release has ever updated -- release.yml derives the
+      #                   real version from Conventional Commits and, before
+      #                   the update feature, used it only to name artifacts.
+      #   --build-number  CFBundleVersion. `github.run_number` is monotonic
+      #                   across the repository, which is the only property
+      #                   this field needs here.
+      #   --dart-define   the Dart-readable copy, since reading --build-name
+      #                   back at runtime would take a `package_info_plus`
+      #                   plugin dependency this app does not otherwise want.
+      #                   `lib/data/models/app_version.dart` reads it.
+      #
+      # The update checker compares the third one against the newest tag, so
+      # dropping it does not fail the build -- it silently ships an app that
+      # believes it is a developer build and never offers an update.
       - name: flutter build linux
         if: runner.os == 'Linux'
         working-directory: app_flutter
         run: |
           mkdir -p build/native_assets/linux
-          flutter build linux --release
+          flutter build linux --release \
+            --build-name="${{ needs.tag.outputs.new_version }}" \
+            --build-number="${{ github.run_number }}" \
+            --dart-define=GBM_VERSION="${{ needs.tag.outputs.new_version }}"
 
       - name: Package (Linux)
         if: runner.os == 'Linux'
@@ -133,7 +157,11 @@ jobs:
       - name: flutter build windows
         if: runner.os == 'Windows'
         working-directory: app_flutter
-        run: flutter build windows --release
+        run: >
+          flutter build windows --release
+          --build-name="${{ needs.tag.outputs.new_version }}"
+          --build-number="${{ github.run_number }}"
+          --dart-define=GBM_VERSION="${{ needs.tag.outputs.new_version }}"
 
       # Signed before packaging, not after: the zip just archives whatever is
       # on disk, so the binary has to already be signed for the zip to carry
@@ -187,7 +215,11 @@ jobs:
       - name: flutter build macos
         if: runner.os == 'macOS'
         working-directory: app_flutter
-        run: flutter build macos --release
+        run: >
+          flutter build macos --release
+          --build-name="${{ needs.tag.outputs.new_version }}"
+          --build-number="${{ github.run_number }}"
+          --dart-define=GBM_VERSION="${{ needs.tag.outputs.new_version }}"
 
       # native_library.dart's second lookup candidate is "next to the running
       # executable" -- for a macOS .app that means Contents/MacOS/, alongside

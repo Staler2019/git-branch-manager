@@ -27,6 +27,12 @@ void main() {
       // Nothing has been imported yet -- see the field's own doc comment for
       // why detection is not wired up this round.
       expect(p.globalGitignoreSource, '');
+      // The startup update check is on until the user turns it off.
+      expect(p.autoUpdateCheckEnabled, isTrue);
+      // No release has been skipped. Empty rather than null: `copyWith`
+      // cannot clear a nullable field, and `AppVersion.tryParse('')` is
+      // already null, so '' is the honest "none" for both readers.
+      expect(p.skippedVersion, '');
     });
 
     test('round-trips every field through SharedPreferences', () async {
@@ -48,6 +54,8 @@ void main() {
         confirmForcePush: false,
         logMemoryLimit: 500,
         logRetentionDays: 30,
+        autoUpdateCheckEnabled: false,
+        skippedVersion: '9.9.9',
       );
       await repo.write(written);
 
@@ -65,6 +73,8 @@ void main() {
       expect(read.confirmForcePush, isFalse);
       expect(read.logMemoryLimit, 500);
       expect(read.logRetentionDays, 30);
+      expect(read.autoUpdateCheckEnabled, isFalse);
+      expect(read.skippedVersion, '9.9.9');
     });
 
     test('copyWith changes one field and leaves the rest alone', () {

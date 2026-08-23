@@ -9,6 +9,7 @@ import '../models/update_state.dart';
 import '../services/github_release_gateway.dart';
 import '../services/update_downloader.dart';
 import '../services/update_installer.dart';
+import 'app_preferences_repository.dart';
 import 'build_version_repository.dart';
 
 /// Drives the update flow and publishes one [UpdateState] snapshot per
@@ -25,7 +26,9 @@ class UpdateController extends StateNotifier<UpdateState> {
     UpdateInstaller? installer,
     Directory Function()? createDownloadDir,
     Abi? abi,
-  }) : _downloader = downloader ?? const UpdateDownloader(),
+    String Function()? skippedVersion,
+  }) : _skippedVersion = skippedVersion ?? _nothingSkipped,
+       _downloader = downloader ?? const UpdateDownloader(),
        _installer = installer ?? const UpdateInstaller(),
        _createDownloadDir = createDownloadDir ?? _createSystemTempDownloadDir,
        _abi = abi ?? Abi.current(),
@@ -42,6 +45,14 @@ class UpdateController extends StateNotifier<UpdateState> {
   final UpdateDownloader _downloader;
   final UpdateInstaller _installer;
   final Directory Function() _createDownloadDir;
+
+  /// Read through a function rather than taken as a value, so the answer is
+  /// whatever the preference says *now*. Taking it by value would mean
+  /// rebuilding this controller whenever any preference changed, which
+  /// would throw away a download in flight.
+  final String Function() _skippedVersion;
+
+  static String _nothingSkipped() => '';
 
   /// Created lazily on the first download and reused, so cancelling and
   /// retrying does not leave a trail of empty temp directories.
@@ -143,6 +154,34 @@ class UpdateController extends StateNotifier<UpdateState> {
     }
 
     return UpdateState.available(release: release, asset: asset);
+  }
+
+  /// The startup check: silent unless there is something to offer.
+  ///
+  /// Ends in exactly two states. [UpdateStatus.available] means there is a
+  /// release worth showing, and the caller decides how to surface it.
+  /// Everything else -- up to date, unreachable, a development build, a
+  /// release the user skipped -- ends back on [UpdateStatus.idle].
+  ///
+  /// Idle rather than the outcome's own state, because the update dialog
+  /// checks on mount only when idle: a user who opens it after a
+  /// silently-failed automatic check would otherwise be met with an error
+  /// banner from a check they never ran.
+  ///
+  /// A no-op unless the flow is already idle, so a background timer cannot
+  /// reset a flow the user is in the middle of.
+  Future<void> checkAutomatically() async {
+    if (state.status != UpdateStatus.idle) {
+      return;
+    }
+    await check();
+    final UpdateState result = state;
+    final bool worthShowing =
+        result.status == UpdateStatus.available &&
+        result.release?.version.toString() != _skippedVersion();
+    if (!worthShowing) {
+      state = const UpdateState.idle();
+    }
   }
 
   /// Fetches the platform bundle and verifies it, leaving the flow at
@@ -344,5 +383,9 @@ final StateNotifierProvider<UpdateController, UpdateState> updateProvider =
         currentVersion: ref.watch(buildVersionProvider),
         downloader: ref.watch(updateDownloaderProvider),
         installer: ref.watch(updateInstallerProvider),
+        // `read` inside the closure, not `watch` at build time: this
+        // controller must not be rebuilt every time an unrelated preference
+        // changes, and the skip only matters at the moment a check ends.
+        skippedVersion: () => ref.read(appPreferencesProvider).skippedVersion,
       );
     });

@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/app_version.dart';
 import 'package:gbm_flutter/data/models/release_asset.dart';
 import 'package:gbm_flutter/data/models/update_state.dart';
+import 'package:gbm_flutter/data/repositories/app_preferences_repository.dart';
 import 'package:gbm_flutter/data/repositories/open_repo_sessions.dart';
 import 'package:gbm_flutter/data/repositories/update_repository.dart';
 import 'package:gbm_flutter/data/services/desktop_launcher.dart';
@@ -71,14 +72,19 @@ class _RecordingLauncher extends DesktopLauncher {
   }
 }
 
-Future<_FakeUpdate> _pumpDialog(
+/// Returns the container alongside the fake: the Skip button writes to
+/// `appPreferencesProvider`, which is a different provider from the one the
+/// dialog is driven by, so asserting it needs a way to read the container.
+typedef _PumpedDialog = ({_FakeUpdate fake, ProviderContainer container});
+
+Future<_PumpedDialog> _pumpDialog(
   WidgetTester tester,
   UpdateState state, {
   DesktopLauncher? launcher,
   OpenRepoSessions? sessions,
 }) async {
   final _FakeUpdate fake = _FakeUpdate(state);
-  await pumpGbmWidget(
+  final ProviderContainer container = await pumpGbmWidget(
     tester,
     child: const UpdateDialogContent(),
     overrides: <Override>[
@@ -89,7 +95,7 @@ Future<_FakeUpdate> _pumpDialog(
     ],
   );
   await tester.pump();
-  return fake;
+  return (fake: fake, container: container);
 }
 
 void main() {
@@ -97,10 +103,10 @@ void main() {
     testWidgets('checks once when opened with nothing in flight', (
       WidgetTester tester,
     ) async {
-      final _FakeUpdate fake = await _pumpDialog(
+      final _FakeUpdate fake = (await _pumpDialog(
         tester,
         const UpdateState.idle(),
-      );
+      )).fake;
 
       expect(fake.calls, <String>['check']);
     });
@@ -110,7 +116,7 @@ void main() {
     testWidgets('does not re-check while an update is already in flight', (
       WidgetTester tester,
     ) async {
-      final _FakeUpdate fake = await _pumpDialog(
+      final _FakeUpdate fake = (await _pumpDialog(
         tester,
         UpdateState.downloading(
           release: _release,
@@ -118,7 +124,7 @@ void main() {
           downloadedBytes: 100,
           totalBytes: 200,
         ),
-      );
+      )).fake;
 
       expect(fake.calls, isEmpty);
     });
@@ -144,10 +150,10 @@ void main() {
     testWidgets('offers the download and shows the release notes', (
       WidgetTester tester,
     ) async {
-      final _FakeUpdate fake = await _pumpDialog(
+      final _FakeUpdate fake = (await _pumpDialog(
         tester,
         UpdateState.available(release: _release, asset: _asset),
-      );
+      )).fake;
 
       expect(
         find.textContaining('Faster blame on very large repositories.'),
@@ -184,7 +190,7 @@ void main() {
     });
 
     testWidgets('cancels a download in progress', (WidgetTester tester) async {
-      final _FakeUpdate fake = await _pumpDialog(
+      final _FakeUpdate fake = (await _pumpDialog(
         tester,
         UpdateState.downloading(
           release: _release,
@@ -192,7 +198,7 @@ void main() {
           downloadedBytes: 120,
           totalBytes: 240,
         ),
-      );
+      )).fake;
 
       await tester.tap(find.text('Cancel'));
       await tester.pump();
@@ -208,7 +214,7 @@ void main() {
       WidgetTester tester,
     ) async {
       final _CountingSessions sessions = _CountingSessions();
-      final _FakeUpdate fake = await _pumpDialog(
+      final _FakeUpdate fake = (await _pumpDialog(
         tester,
         UpdateState.readyToInstall(
           release: _release,
@@ -216,13 +222,58 @@ void main() {
           downloadedPath: '/tmp/x.dmg',
         ),
         sessions: sessions,
-      );
+      )).fake;
 
       await tester.tap(find.text('Install and restart'));
       await tester.pump();
 
       expect(fake.calls, contains('install'));
       expect(sessions.closeAllCalls, 1);
+    });
+
+    // Without this button `skippedVersion` would be a stored setting
+    // nothing can set -- the present-but-ignored shape AppPreferences' own
+    // doc comment forbids.
+    testWidgets('skipping a version records it and closes the offer', (
+      WidgetTester tester,
+    ) async {
+      final _PumpedDialog pumped = await _pumpDialog(
+        tester,
+        UpdateState.available(release: _release, asset: _asset),
+      );
+
+      await tester.tap(find.text('Skip this version'));
+      await tester.pumpAndSettle();
+
+      // Recorded without the `v`: AppVersion.toString's form, which is what
+      // checkAutomatically compares against.
+      expect(
+        pumped.container.read(appPreferencesProvider).skippedVersion,
+        '9.9.9',
+      );
+      expect(pumped.fake.calls, contains('dismiss'));
+    });
+
+    // Skipping is about future *automatic* checks. Offering it only from a
+    // manual check would be the only way to reach it, so it is offered
+    // whenever there is something to skip.
+    testWidgets('offers nothing to skip when there is no update', (
+      WidgetTester tester,
+    ) async {
+      await _pumpDialog(tester, UpdateState.upToDate(_release));
+
+      expect(find.text('Skip this version'), findsNothing);
+    });
+
+    // Nothing to skip that the user could ever install: the offer here is
+    // the releases page, and suppressing it would suppress the only route
+    // they have.
+    testWidgets('offers nothing to skip on a development build', (
+      WidgetTester tester,
+    ) async {
+      await _pumpDialog(tester, const UpdateState.developmentBuild());
+
+      expect(find.text('Skip this version'), findsNothing);
     });
 
     // The last point a user can still back out. `cancel` there does not
@@ -232,14 +283,14 @@ void main() {
     testWidgets('backs out of a finished download without dismissing', (
       WidgetTester tester,
     ) async {
-      final _FakeUpdate fake = await _pumpDialog(
+      final _FakeUpdate fake = (await _pumpDialog(
         tester,
         UpdateState.readyToInstall(
           release: _release,
           asset: _asset,
           downloadedPath: '/tmp/x.dmg',
         ),
-      );
+      )).fake;
 
       await tester.tap(find.text('Cancel'));
       await tester.pump();
@@ -268,10 +319,10 @@ void main() {
     testWidgets('shows a failure and offers to try again', (
       WidgetTester tester,
     ) async {
-      final _FakeUpdate fake = await _pumpDialog(
+      final _FakeUpdate fake = (await _pumpDialog(
         tester,
         const UpdateState.failed('The update check failed: no network.'),
-      );
+      )).fake;
 
       expect(find.textContaining('no network'), findsOneWidget);
       await tester.tap(find.text('Try again'));

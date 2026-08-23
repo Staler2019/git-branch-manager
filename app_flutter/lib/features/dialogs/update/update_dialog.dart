@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../data/models/release_asset.dart';
 import '../../../data/models/update_state.dart';
+import '../../../data/repositories/app_preferences_repository.dart';
 import '../../../data/repositories/open_repo_sessions.dart';
 import '../../../data/repositories/update_repository.dart';
 import '../../../data/services/desktop_launcher.dart';
@@ -163,6 +164,23 @@ class _UpdateDialogContentState extends ConsumerState<UpdateDialogContent> {
 
   static String _mb(int bytes) => (bytes / (1024 * 1024)).toStringAsFixed(1);
 
+  /// Records the offered release as skipped and closes the offer.
+  ///
+  /// Stored as [AppVersion.toString] renders it (`9.9.9`, no `v`), which is
+  /// the form `UpdateController.checkAutomatically` compares against -- a
+  /// tag string would silently never match.
+  void _skip(WidgetRef ref, UpdateState state) {
+    final LatestRelease? release = state.release;
+    if (release == null) return;
+    ref
+        .read(appPreferencesProvider.notifier)
+        .update(
+          (AppPreferences p) =>
+              p.copyWith(skippedVersion: release.version.toString()),
+        );
+    ref.read(updateProvider.notifier).dismiss();
+  }
+
   List<Widget> _actions(
     BuildContext context,
     UpdateState state,
@@ -188,6 +206,17 @@ class _UpdateDialogContentState extends ConsumerState<UpdateDialogContent> {
       case UpdateStatus.available:
         return <Widget>[
           close(),
+          gap,
+          // Suppresses only the *automatic* check, and only for this exact
+          // version -- Help → Check for updates… still reports it, and the
+          // Preferences → General row names it and offers to undo. Without
+          // this button `skippedVersion` would be a setting nothing could
+          // ever set.
+          GbmButton(
+            label: 'Skip this version',
+            kind: GbmButtonKind.secondary,
+            onPressed: () => _skip(ref, state),
+          ),
           gap,
           if (state.canSelfInstall)
             GbmButton(

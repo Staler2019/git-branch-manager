@@ -182,6 +182,7 @@ UpdateController _controller({
   UpdateDownloader? downloader,
   UpdateInstaller? installer,
   Directory Function()? createDownloadDir,
+  String skipped = '',
 }) {
   return UpdateController(
     gateway: _FakeGateway(result: result, error: error),
@@ -190,6 +191,7 @@ UpdateController _controller({
     downloader: downloader,
     installer: installer ?? _installableInstaller(),
     createDownloadDir: createDownloadDir ?? _tempDir,
+    skippedVersion: () => skipped,
   );
 }
 
@@ -622,6 +624,112 @@ void main() {
 
       expect(d.calls, 0);
       expect(c.state.status, UpdateStatus.available);
+    });
+  });
+
+  // One rule, not a case per outcome: an automatic check ends on
+  // `available` (there is something to offer) or on `idle` (everything
+  // else). Landing back on idle is what keeps the dialog coherent -- its
+  // own mount-check only fires from idle, so a user who opens it after a
+  // silently-failed automatic check gets a fresh check rather than a stale
+  // banner from a check they never ran.
+  group('checkAutomatically', () {
+    test(
+      'leaves an available update standing for the host to surface',
+      () async {
+        final UpdateController c = _controller(result: _release('v9.9.9'));
+
+        await c.checkAutomatically();
+
+        expect(c.state.status, UpdateStatus.available);
+        expect(c.state.release?.tagName, 'v9.9.9');
+      },
+    );
+
+    test('falls silent when already up to date', () async {
+      final UpdateController c = _controller(result: _release('v0.30.0'));
+
+      await c.checkAutomatically();
+
+      expect(c.state.status, UpdateStatus.idle);
+    });
+
+    test('falls silent when the check fails', () async {
+      final UpdateController c = _controller(
+        error: const UpdateCheckException('offline'),
+      );
+
+      await c.checkAutomatically();
+
+      // A laptop that starts up on a train must not be met with an error
+      // about a check it never asked for.
+      expect(c.state.status, UpdateStatus.idle);
+      expect(c.state.errorMessage, isNull);
+    });
+
+    test('falls silent for a release the user skipped', () async {
+      final UpdateController c = _controller(
+        result: _release('v9.9.9'),
+        skipped: '9.9.9',
+      );
+
+      await c.checkAutomatically();
+
+      expect(c.state.status, UpdateStatus.idle);
+    });
+
+    test('still surfaces a release newer than the skipped one', () async {
+      final UpdateController c = _controller(
+        result: _release('v10.0.0'),
+        skipped: '9.9.9',
+      );
+
+      await c.checkAutomatically();
+
+      expect(c.state.status, UpdateStatus.available);
+    });
+
+    // The case that actually separates equality from an ordering, and the
+    // only one that does: for a release *newer* than the skipped version
+    // both rules agree, so a test using one proves nothing about the other.
+    // Here they disagree -- 9.9.9 <= 10.0.0, so a `<=` rule would silence
+    // it forever, while the equality rule offers it.
+    //
+    // Reachable in practice: skip 10.0.0, GitHub unpublishes it, and
+    // `/releases/latest` rolls back to 9.9.9, which is still newer than the
+    // installed build. Under an ordering the user would never be told again.
+    test('surfaces a release older than the skipped one', () async {
+      final UpdateController c = _controller(
+        result: _release('v9.9.9'),
+        skipped: '10.0.0',
+      );
+
+      await c.checkAutomatically();
+
+      expect(c.state.status, UpdateStatus.available);
+    });
+
+    test('falls silent on a development build', () async {
+      final UpdateController c = _controller(
+        result: _release('v9.9.9'),
+        current: null,
+      );
+
+      await c.checkAutomatically();
+
+      expect(c.state.status, UpdateStatus.idle);
+    });
+
+    // The user got there first -- a background timer must not reset a flow
+    // they are in the middle of.
+    test('does nothing unless the flow is idle', () async {
+      final UpdateController c = _controller(result: _release('v9.9.9'));
+      await c.check();
+      final UpdateState before = c.state;
+
+      await c.checkAutomatically();
+
+      expect(c.state, same(before));
     });
   });
 

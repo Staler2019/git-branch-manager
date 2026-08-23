@@ -864,12 +864,17 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
         );
       case GbmEventType.errorOccurred:
         final Object? payload = decodeEventPayload(event.payload);
-        state = state.copyWith(
-          isRefreshing: false,
-          lastError: payload is Map<String, dynamic>
-              ? GitError.fromJson(payload)
-              : null,
-        );
+        final GitError? error = payload is Map<String, dynamic>
+            ? GitError.fromJson(payload)
+            : null;
+        // Suppression means "do not write", not "write null": an unrelated
+        // failure already on screen must survive a background preview
+        // failing behind it.
+        if (error != null && _isSuppressedAutoPrunePreviewError(error)) {
+          state = state.copyWith(isRefreshing: false);
+        } else {
+          state = state.copyWith(isRefreshing: false, lastError: error);
+        }
       case GbmEventType.operationFinished:
         _readRepoState();
         _readUndoJournal();
@@ -1035,6 +1040,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
           // view of one remote, gonePendingByRemote accumulates across
           // remotes so the sidebar can mark rows without deleting any ref
           // (spec page 02's three-stage gone flow, stages 1 and 2).
+          _consumeAutoPrunePreview(preview.remote);
           state = state
               .copyWith(lastRemotePrunePreview: preview)
               .withGonePendingFor(preview.remote, preview.refs);
@@ -1357,6 +1363,58 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     }
   }
 
+  /// Remote name -> how many automatic post-fetch prune previews for that
+  /// remote are still awaiting a reply.
+  ///
+  /// A count rather than a set because `fetch --all` on a repository with the
+  /// same remote previewed twice in quick succession would otherwise have one
+  /// reply clear a marker that still covers another request in flight.
+  final Map<String, int> _autoPrunePreviewsInFlight = <String, int>{};
+
+  /// True when [error] is a failed `git remote prune --dry-run` for a remote
+  /// this class asked about itself, in which case it must not reach
+  /// [RepoSessionState.lastError] -- `workspace_screen.dart` renders that as
+  /// a banner, and a background task the user did not initiate has no
+  /// business interrupting them (spec page 10). Consumes one in-flight
+  /// marker, so a *second* failure for the same remote (the Prune dialog's)
+  /// still surfaces.
+  ///
+  /// Matched on [GitError.argv] because that is the only discriminator the
+  /// capi provides: GBM_EVENT_ERROR_OCCURRED carries no request identity.
+  /// Per remote, not "any preview is in flight" -- opening the Prune dialog
+  /// for `upstream` during a post-fetch preview of `origin` must still show
+  /// the dialog's own failure.
+  ///
+  /// Known limit, recorded rather than papered over: an automatic and a
+  /// dialog-initiated preview of the *same* remote overlapping produce
+  /// identical argv, so the dialog's failure would be swallowed once.
+  /// Fixing that properly means the capi carrying a request origin, which is
+  /// out of scope here.
+  bool _isSuppressedAutoPrunePreviewError(GitError error) {
+    if (_autoPrunePreviewsInFlight.isEmpty) return false;
+    final List<String> argv = error.argv;
+    if (!argv.contains('remote') ||
+        !argv.contains('prune') ||
+        !argv.contains('--dry-run')) {
+      return false;
+    }
+    for (final String remote in _autoPrunePreviewsInFlight.keys) {
+      if (!argv.contains(remote)) continue;
+      _consumeAutoPrunePreview(remote);
+      return true;
+    }
+    return false;
+  }
+
+  void _consumeAutoPrunePreview(String remote) {
+    final int remaining = (_autoPrunePreviewsInFlight[remote] ?? 0) - 1;
+    if (remaining <= 0) {
+      _autoPrunePreviewsInFlight.remove(remote);
+    } else {
+      _autoPrunePreviewsInFlight[remote] = remaining;
+    }
+  }
+
   /// Consumes the `kind` stamp on a working-copy completion outcome.
   ///
   /// Separate from [_handleOperationOutcome] because the two ride different
@@ -1388,6 +1446,8 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
       request.remoteName,
       state.refs,
     )) {
+      _autoPrunePreviewsInFlight[remote] =
+          (_autoPrunePreviewsInFlight[remote] ?? 0) + 1;
       requestRemotePrunePreview(remote);
     }
   }
@@ -3303,6 +3363,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState> {
     // No further GBM_EVENT_OPERATION_FINISHED events will arrive to consume
     // whatever is still pending.
     _pending.clear();
+    _autoPrunePreviewsInFlight.clear();
     super.dispose();
   }
 }

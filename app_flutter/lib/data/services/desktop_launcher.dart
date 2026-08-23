@@ -205,4 +205,15 @@ abstract final class GbmUrls {
       'https://github.com/staler2019/git-branch-manager#readme';
   static const String reportAnIssue =
       'https://github.com/staler2019/git-branch-manager/issues/new';
+
+  /// The REST endpoint the update check reads. `/releases/latest` excludes
+  /// drafts and pre-releases on GitHub's side, which is the whole
+  /// pre-release policy -- there is no client-side filter to keep in step.
+  static const String latestReleaseApi =
+      'https://api.github.com/repos/Staler2019/git-branch-manager/releases/latest';
+
+  /// Where the user is sent when self-installing is not possible (an
+  /// unsupported CPU, an install directory this process cannot write).
+  static const String releasesPage =
+      'https://github.com/Staler2019/git-branch-manager/releases/latest';
 }

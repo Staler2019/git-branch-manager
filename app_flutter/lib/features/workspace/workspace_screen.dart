@@ -36,6 +36,7 @@ import '../history_graph/widgets/graph_columns_selector.dart';
 import '../log_drawer/log_drawer.dart';
 import '../repo_switcher/repo_switcher_popover.dart';
 import '../panels/add_remote_prompt.dart';
+import '../sidebar/gone_marking.dart';
 import '../sidebar/sidebar_panel.dart';
 import '../status_bar/background_task.dart';
 import '../status_bar/status_bar.dart';
@@ -455,6 +456,19 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
                   : 'Detached',
               ahead: _headTrackingRef(session)?.ahead ?? 0,
               behind: _headTrackingRef(session)?.behind ?? 0,
+              // Spec page 02 stage 2. Goes through the same
+              // isEffectivelyGone() the sidebar rows use, so the two
+              // surfaces cannot disagree about whether HEAD's upstream is
+              // gone -- and so the status bar picks up the post-fetch
+              // pending set as well as git's own `[gone]`, which it did not
+              // show at all before.
+              upstreamGone: switch (_headTrackingRef(session)) {
+                final RefInfo head? => isEffectivelyGone(
+                  head,
+                  session.gonePendingRefs,
+                ),
+                null => false,
+              },
               commitCount: session.graph.rows.length,
               lastScanDuration: _lastScanDuration ?? Duration.zero,
               graphLaneCapacity: session.graph.laneCount,

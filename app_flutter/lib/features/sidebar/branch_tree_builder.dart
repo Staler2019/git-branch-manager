@@ -1,4 +1,5 @@
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
+import 'branch_filter.dart';
 
 /// Base class for a node in the branch tree (folder or leaf).
 sealed class BranchTreeNode {
@@ -9,12 +10,26 @@ sealed class BranchTreeNode {
 final class BranchTreeFolder extends BranchTreeNode {
   const BranchTreeFolder({
     required this.folderName,
+    required this.folderPath,
     required this.children,
     required this.isExpanded,
   });
 
   /// Display name of the folder (e.g., 'feature' from 'feature/auth').
+  ///
+  /// A single segment, so it is **not** unique in the tree: two different
+  /// parents may each have a `sub`. Use [folderPath] to identify a folder.
   final String folderName;
+
+  /// Full path from the root (e.g. 'feature/sub'), which is what
+  /// `buildBranchTree`'s `expandedFolders` set is keyed by.
+  ///
+  /// This exists because `sidebar_panel.dart` keyed its expand/collapse
+  /// state on [folderName] while the builder keyed [isExpanded] on the
+  /// path -- the two agree only at depth one, so a nested folder's chevron
+  /// and its children could disagree, and toggling one `sub` toggled every
+  /// `sub`. Anything touching the expanded set must use this field.
+  final String folderPath;
 
   /// Child nodes (folders or leaves).
   final List<BranchTreeNode> children;
@@ -42,11 +57,20 @@ final class BranchTreeLeaf extends BranchTreeNode {
 /// 'feature/sub') that should be expanded; folders not in this set are
 /// collapsed by default.
 ///
+/// [expandAll] opens every folder regardless of [expandedFolders], for spec
+/// P02-14's 「有輸入時資料夾全展開，清空後回到原本收合狀態」. It is a
+/// parameter rather than something the caller achieves by adding folder
+/// names to [expandedFolders], precisely so that clearing the query restores
+/// the user's own collapse state -- both halves of it. A caller that wrote
+/// into the set and undid it afterwards would have to remember which folders
+/// were already open, and would collapse them if it forgot.
+///
 /// Returns an immutable list of root-level nodes, ordered by branch name.
 List<BranchTreeNode> buildBranchTree(
   List<RefInfo> branches,
-  Set<String> expandedFolders,
-) {
+  Set<String> expandedFolders, {
+  bool expandAll = false,
+}) {
   if (branches.isEmpty) {
     return const <BranchTreeNode>[];
   }
@@ -75,7 +99,7 @@ List<BranchTreeNode> buildBranchTree(
           final folder = _FolderNode(
             folderName: segment,
             folderPath: currentPath,
-            isExpanded: expandedFolders.contains(currentPath),
+            isExpanded: expandAll || expandedFolders.contains(currentPath),
           );
           folderIndex[currentPath] = folder;
 
@@ -171,22 +195,24 @@ List<RefInfo> mergeLocalAndRemoteBranches(
   return <RefInfo>[...localBranches, ...remoteOnly];
 }
 
-/// Filters [branches] to those whose [RefInfo.shortName] contains [query]
-/// as a case-insensitive substring (Cmd/Ctrl+Shift+E "Filter branches", see
+/// Filters [branches] to those whose [RefInfo.shortName] matches [query]
+/// under [matchesBranchFilter] (Cmd/Ctrl+Shift+E "Filter branches", see
 /// gbm_action_id.dart's `editFilterBranches`). Matching is flat against the
 /// full slash-delimited name (e.g. 'docs' matches 'chore/docs'), independent
 /// of [buildBranchTree]'s folder grouping -- callers building a filtered
 /// tree should pass the filtered list into [buildBranchTree] afterward.
 ///
+/// This used to inline a bare `contains`, which failed spec P02-14's own
+/// worked example; the rule now lives in `branch_filter.dart` because tags
+/// and stashes are filtered by the same box and must share it.
+///
 /// A blank (empty or whitespace-only) [query] returns [branches] unchanged.
 List<RefInfo> filterBranches(List<RefInfo> branches, String query) {
-  final String trimmed = query.trim();
-  if (trimmed.isEmpty) {
+  if (query.trim().isEmpty) {
     return branches;
   }
-  final String needle = trimmed.toLowerCase();
   return branches
-      .where((ref) => ref.shortName.toLowerCase().contains(needle))
+      .where((ref) => matchesBranchFilter(ref.shortName, query))
       .toList(growable: false);
 }
 
@@ -217,6 +243,7 @@ BranchTreeFolder _folderNodeToTree(_FolderNode node) {
 
   return BranchTreeFolder(
     folderName: node.folderName,
+    folderPath: node.folderPath,
     children: convertedChildren.toList(growable: false),
     isExpanded: node.isExpanded,
   );

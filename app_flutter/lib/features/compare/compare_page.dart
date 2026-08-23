@@ -16,6 +16,7 @@ import '../../theme/tokens.dart';
 import '../../widgets/file_list_mode_switcher.dart';
 import '../../widgets/file_list_mode_toggle_button.dart';
 import '../../widgets/gbm_badge.dart';
+import '../../widgets/gbm_row.dart';
 import '../diff/diff_page.dart';
 import 'widgets/compare_ref_picker.dart';
 
@@ -536,34 +537,38 @@ class _RefCompareFileList extends StatelessWidget {
   Widget _buildFileRow(BuildContext context, DiffFile file) {
     final GbmColors colors = context.gbmColors;
     final bool isSelected = file.displayPath == selectedPath;
-    return Container(
-      color: isSelected ? colors.surfaceSelected : null,
-      child: ListTile(
-        dense: true,
-        title: Text(
-          file.displayPath,
-          style: TextStyle(
-            fontSize: GbmTypography.textSm,
-            color: colors.textPrimary,
-          ),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            if (file.addedLines > 0)
-              GbmBadge(label: '+${file.addedLines}', kind: GbmBadgeKind.added),
-            if (file.removedLines > 0) ...<Widget>[
-              const SizedBox(width: GbmSpacing.space1),
-              GbmBadge(
-                label: '-${file.removedLines}',
-                kind: GbmBadgeKind.removed,
+    // `GbmRow` at the same compact height as History's Changed files, for
+    // the same reason: `ListTile(dense: true)` keeps Material's own list
+    // metrics and reads loose beside a 26px commit row. Spec page 03 item 10
+    // already makes these two lists one surface as far as List/Tree mode is
+    // concerned; the row metrics should not disagree either.
+    return GbmRow(
+      height: GbmSpacing.rowHeightCompact,
+      selected: isSelected,
+      onTap: () => onSelect(file.displayPath),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Text(
+              file.displayPath,
+              style: TextStyle(
+                fontSize: GbmTypography.textSm,
+                color: colors.textPrimary,
               ),
-            ],
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (file.addedLines > 0)
+            GbmBadge(label: '+${file.addedLines}', kind: GbmBadgeKind.added),
+          if (file.removedLines > 0) ...<Widget>[
+            const SizedBox(width: GbmSpacing.space1),
+            GbmBadge(
+              label: '-${file.removedLines}',
+              kind: GbmBadgeKind.removed,
+            ),
           ],
-        ),
-        onTap: () => onSelect(file.displayPath),
+        ],
       ),
     );
   }
@@ -685,29 +690,38 @@ class _WorkingCopyFileList extends StatelessWidget {
   Widget _buildFileRow(BuildContext context, DiffFile file) {
     final GbmColors colors = context.gbmColors;
     final bool isSelected = file.displayPath == selectedPath;
-    return Container(
-      color: isSelected ? colors.surfaceSelected : null,
-      child: ListTile(
-        dense: true,
-        title: Text(
-          file.displayPath,
-          style: TextStyle(
-            fontSize: GbmTypography.textSm,
-            color: colors.textPrimary,
+    return GbmRow(
+      height: GbmSpacing.rowHeightCompact,
+      selected: isSelected,
+      onTap: () => onSelect(file.displayPath),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Text(
+              file.displayPath,
+              style: TextStyle(
+                fontSize: GbmTypography.textSm,
+                color: colors.textPrimary,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        trailing: IconButton(
-          tooltip: 'Checkout (overwrite working copy)',
-          icon: Icon(
-            Icons.settings_backup_restore,
-            size: 16,
-            color: colors.textSecondary,
+          IconButton(
+            tooltip: 'Checkout (overwrite working copy)',
+            // The row is 26px tall now, so the button cannot keep
+            // IconButton's default 48px hit target -- it would force the row
+            // taller and put this list back where it started.
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints.tightFor(width: 24, height: 24),
+            icon: Icon(
+              Icons.settings_backup_restore,
+              size: 16,
+              color: colors.textSecondary,
+            ),
+            onPressed: () => onCheckout(file.displayPath),
           ),
-          onPressed: () => onCheckout(file.displayPath),
-        ),
-        onTap: () => onSelect(file.displayPath),
+        ],
       ),
     );
   }

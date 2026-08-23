@@ -14,6 +14,7 @@ import '../../data/repositories/panel_tabs_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../actions/gbm_selection_gesture.dart';
 import '../../data/models/list_selection.dart';
+import '../../data/repositories/branch_filter_repository.dart';
 import '../../data/repositories/branch_selection_repository.dart';
 import '../../data/repositories/repo_session_repository.dart';
 import '../../routing/route_paths.dart';
@@ -27,6 +28,7 @@ import 'widgets/branch_folder_menu_items.dart';
 import 'widgets/branch_tree_item.dart';
 import 'widgets/multi_branch_menu_items.dart';
 import 'widgets/stash_menu_items.dart';
+import 'branch_filter.dart';
 
 /// Local branches for the open repository, with checkout-on-tap, plus
 /// create/rename/delete and the multi-select "gone" bulk-delete flow (see
@@ -81,7 +83,28 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
       ref.read(branchSelectionProvider(widget.identity).notifier);
   final Set<String> _expandedFolders = <String>{};
   final TextEditingController _filterController = TextEditingController();
-  String _filterQuery = '';
+
+  /// P02-14's one filter box. The value lives in
+  /// [branchFilterQueryProvider], not here, because the History graph
+  /// converges on it -- see that provider's doc comment. `build()` watches it
+  /// explicitly so this stays a plain read.
+  String get _filterQuery =>
+      ref.read(branchFilterQueryProvider(widget.identity));
+
+  set _filterQuery(String value) =>
+      ref.read(branchFilterQueryProvider(widget.identity).notifier).state =
+          value;
+
+  @override
+  void initState() {
+    super.initState();
+    // The sidebar is hideable, so this State can be rebuilt while the query
+    // is still set. Seeding the controller is what makes the box show the
+    // filter that is actually in force rather than looking empty.
+    _filterController.text = ref.read(
+      branchFilterQueryProvider(widget.identity),
+    );
+  }
 
   @override
   void dispose() {
@@ -145,18 +168,25 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
   bool _isGoneAndBulkSelectable(RefInfo branch) =>
       branch.isGone && !branch.isHead && branch.worktreePath.isEmpty;
 
-  /// Drops selected names that no longer exist (a branch was deleted or
-  /// renamed under the selection).
-  void _pruneSelection(List<RefInfo> branches) {
-    final Set<String> names = branches.map((b) => b.shortName).toSet();
+  /// Set while a prune is scheduled but has not run yet, so a burst of
+  /// rebuilds between the frame and its callback schedules exactly one.
+  bool _prunePending = false;
+
+  /// The selection with names that no longer exist dropped, or null when
+  /// every selected name is still live -- the early return that keeps this
+  /// from writing an equal value on every build and rebuilding forever.
+  ///
+  /// [names] is the *short* names of the merged local + remote-only list, the
+  /// same keys the selection itself uses.
+  ListSelection<String>? _prunedSelection(Set<String> names) {
     final ListSelection<String> current = _selection;
     final List<String> survivors = <String>[
       for (final String name in current.items)
         if (names.contains(name)) name,
     ];
-    if (survivors.length == current.length) return;
+    if (survivors.length == current.length) return null;
     final String? anchor = current.anchor;
-    _selectionController.state = ListSelection<String>(
+    return ListSelection<String>(
       items: survivors,
       anchor: survivors.isEmpty
           ? null
@@ -164,6 +194,53 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                 ? anchor
                 : survivors.last),
     );
+  }
+
+  Set<String> _liveBranchNames() {
+    final RefSnapshot refs = ref.read(repoRefsProvider(widget.identity));
+    return mergeLocalAndRemoteBranches(
+      refs.localBranches,
+      refs.remoteBranches,
+    ).map((RefInfo b) => b.shortName).toSet();
+  }
+
+  /// Drops selected names that no longer exist (a branch was deleted or
+  /// renamed under the selection).
+  ///
+  /// **The write is deferred to after the frame, and must stay that way.**
+  /// This is called from `build()`, and `_selectionController.state = ...`
+  /// reaches Riverpod's `_debugCanModifyProviders`, which throws
+  /// `Tried to modify a provider while the widget tree was building`. That
+  /// throw is `assert`-guarded, so a release build strips it and lets the
+  /// write land mid-build instead -- the inconsistent-state risk the message
+  /// describes. Both halves are wrong; only the debug half is loud.
+  ///
+  /// Deferring rather than moving the whole thing to a `ref.listen` on
+  /// `repoRefsProvider` is deliberate. A listener covers *changes* only, and
+  /// `branchSelectionProvider` is not autoDispose, so a selection outlives
+  /// the repository it was made in and can already be stale at the first
+  /// build -- with no change event to hang a prune on. Deferring keeps one
+  /// path for all three entry cases (mount, refs change, identity change),
+  /// because `build()` always sees the current pair. Same trap, opposite
+  /// resolution, as `WorkspaceScreen._syncHistoryFilter`, which needed a
+  /// post-frame arm *alongside* its listener for exactly this reason.
+  ///
+  /// The callback recomputes from the then-current refs rather than from
+  /// [branches]: refs can change again between this frame and the callback,
+  /// and a captured list would write a stale answer.
+  void _pruneSelection(List<RefInfo> branches) {
+    if (_prunePending) return;
+    final Set<String> names = branches.map((b) => b.shortName).toSet();
+    if (_prunedSelection(names) == null) return;
+
+    _prunePending = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _prunePending = false;
+      if (!mounted) return;
+      final ListSelection<String>? next = _prunedSelection(_liveBranchNames());
+      if (next == null) return;
+      _selectionController.state = next;
+    });
   }
 
   Future<void> _createBranch() async {
@@ -226,6 +303,50 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
       SelectionGesture.toggle => current.toggle(name),
       SelectionGesture.range => current.range(name, all),
     };
+  }
+
+  /// The first *result* row in rendered order, or null when the filter
+  /// matched nothing. Written during `build` because rendered order is the
+  /// tree's, and the tree sorts its children -- recomputing it in the key
+  /// handler would mean a second copy of that ordering.
+  ///
+  /// Deliberately not `_selectableBranchNames().first`: that list is in ref
+  /// order, so it would name whichever branch git happened to list first
+  /// rather than the row directly under the filter box.
+  String? _firstResultName;
+
+  /// P02-14 rule 8. Also the clear button's action, so the two cannot drift.
+  void _clearFilter() {
+    _filterController.clear();
+    _filterQuery = '';
+  }
+
+  /// P02-14 rule 9: 「↓ 直接跳進第一個結果」.
+  ///
+  /// Selects rather than merely focusing, so ↑/↓ and Shift+↑/↓ continue from
+  /// there -- the point of the key is to hand the keyboard over to the
+  /// results. A no-op when nothing matched; the pinned current branch (rule
+  /// 7) is not a result and is skipped, since landing on it would select
+  /// something the query excluded.
+  void _enterFirstResult() {
+    final String? first = _firstResultName;
+    if (first == null) return;
+    _onBranchSelect(first, SelectionGesture.single);
+  }
+
+  /// The first selectable leaf in render order, skipping remote-only rows --
+  /// `BranchTreeItem` draws those with `selected: false`, so selecting one
+  /// would look like the key did nothing.
+  String? _firstLeafName(List<BranchTreeNode> nodes) {
+    for (final BranchTreeNode node in nodes) {
+      if (node is BranchTreeLeaf) {
+        if (node.ref.kind != RefKind.remoteBranch) return node.ref.shortName;
+      } else if (node is BranchTreeFolder) {
+        final String? nested = _firstLeafName(node.children);
+        if (nested != null) return nested;
+      }
+    }
+    return null;
   }
 
   /// The rows a range can span: the merged tree as currently filtered,
@@ -542,12 +663,14 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     return refs;
   }
 
-  Set<String> _collectFolderNames(List<BranchTreeNode> nodes) {
+  /// Full paths, not display names -- `_expandedFolders` is keyed the way
+  /// `buildBranchTree` reads it (see [BranchTreeFolder.folderPath]).
+  Set<String> _collectFolderPaths(List<BranchTreeNode> nodes) {
     final Set<String> names = <String>{};
     for (final BranchTreeNode node in nodes) {
       if (node is BranchTreeFolder) {
-        names.add(node.folderName);
-        names.addAll(_collectFolderNames(node.children));
+        names.add(node.folderPath);
+        names.addAll(_collectFolderPaths(node.children));
       }
     }
     return names;
@@ -559,12 +682,12 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
   // of their own recorded expand state.
   void _toggleFolderExpand(BranchTreeFolder folder) {
     setState(() {
-      if (_expandedFolders.contains(folder.folderName)) {
-        _expandedFolders.remove(folder.folderName);
+      if (_expandedFolders.contains(folder.folderPath)) {
+        _expandedFolders.remove(folder.folderPath);
       } else {
         _expandedFolders
-          ..add(folder.folderName)
-          ..addAll(_collectFolderNames(folder.children));
+          ..add(folder.folderPath)
+          ..addAll(_collectFolderPaths(folder.children));
       }
     });
   }
@@ -619,10 +742,10 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
       context,
       details.globalPosition,
       branchFolderMenuItems(
-        isExpanded: _expandedFolders.contains(folder.folderName),
+        isExpanded: folder.isExpanded,
         onToggleExpand: () => _toggleFolderExpand(folder),
         onCopyPrefix: () =>
-            Clipboard.setData(ClipboardData(text: '${folder.folderName}/')),
+            Clipboard.setData(ClipboardData(text: '${folder.folderPath}/')),
         onDeleteMerged: () => _deleteMergedInFolder(folder),
         onFetchFolder: fetchable == null ? null : () => _fetchFolder(folder),
       ),
@@ -736,6 +859,10 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     final ListSelection<String> selection = ref.watch(
       branchSelectionProvider(widget.identity),
     );
+    // Subscribes this widget to the filter box; the `_filterQuery` getter
+    // below is a plain read, so without this line typing would change the
+    // provider and nothing would repaint.
+    ref.watch(branchFilterQueryProvider(widget.identity));
     final GbmColors colors = context.gbmColors;
     final List<RefInfo> branches = mergeLocalAndRemoteBranches(
       refs.localBranches,
@@ -754,17 +881,57 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     final bool anyGoneSelectable = filteredBranches.any(
       _isGoneAndBulkSelectable,
     );
+    // P02-14 rule 7: 「目前分支永遠置頂顯示，即使不符合條件也不會被濾掉」.
+    //
+    // Read as "regardless of the query", not "restructure the sidebar
+    // permanently": with no query the tree is exactly what buildBranchTree
+    // produced, folders and all. A filter is the only state in which the
+    // current branch can vanish, and the sidebar must always be able to
+    // answer "where am I".
+    //
+    // The pin *replaces* the tree row rather than joining it -- rendering
+    // both would show `main` twice whenever it does match. `filterBranches`
+    // itself is left alone: it is a pure name-matching rule and has no
+    // business knowing which ref is HEAD, which is also why the hit count
+    // below still counts only genuine matches.
+    final bool isFiltering = _filterQuery.trim().isNotEmpty;
+    final RefInfo? pinnedHead = isFiltering
+        ? branches.where((RefInfo b) => b.isHead).firstOrNull
+        : null;
     final List<BranchTreeNode> branchTree = buildBranchTree(
-      filteredBranches,
+      pinnedHead == null
+          ? filteredBranches
+          : filteredBranches
+                .where((RefInfo b) => !b.isHead)
+                .toList(growable: false),
       _expandedFolders,
+      // P02-14 rule 4. Read-only: the user's own set is never written to
+      // here, so clearing the query restores exactly what they had.
+      expandAll: isFiltering,
     );
+    _firstResultName = _firstLeafName(branchTree);
     final List<RefInfo> filteredTags = filterBranches(refs.tags, _filterQuery);
-    final String filterNeedle = _filterQuery.trim().toLowerCase();
-    final List<StashEntry> filteredStashes = filterNeedle.isEmpty
+    // Stashes go through the same rule as branches and tags: P02-14 is one
+    // box over three sections, so a query that finds a branch by its
+    // initials must find a stash the same way.
+    final List<StashEntry> filteredStashes = _filterQuery.trim().isEmpty
         ? session.stashes
         : session.stashes
-              .where((s) => s.message.toLowerCase().contains(filterNeedle))
+              .where((s) => matchesBranchFilter(s.message, _filterQuery))
               .toList(growable: false);
+
+    // P02-14 rule 6: 「右側顯示 命中/總數」. One ratio across all three
+    // sections, matching the one box that produced it -- a per-section
+    // breakdown would be three numbers for a control that does not
+    // distinguish them.
+    //
+    // `filteredBranches`, not the rendered rows: rule 7 puts the current
+    // branch on screen whether or not it matched, and counting what is drawn
+    // would quietly redefine 命中 as "visible".
+    final int filterHits =
+        filteredBranches.length + filteredTags.length + filteredStashes.length;
+    final int filterTotal =
+        branches.length + refs.tags.length + session.stashes.length;
 
     return Container(
       decoration: BoxDecoration(
@@ -848,7 +1015,7 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
           ),
           // Filter field -- Cmd/Ctrl+Shift+E (editFilterBranches) focuses
           // this via widget.filterFocusNode. Matches branches, tags and
-          // stashes by substring (see filterBranches's doc comment).
+          // stashes through matchesBranchFilter (see branch_filter.dart).
           Padding(
             padding: const EdgeInsets.fromLTRB(
               GbmSpacing.space3,
@@ -856,69 +1023,104 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
               GbmSpacing.space3,
               GbmSpacing.space2,
             ),
-            child: SizedBox(
-              height: 28,
-              child: TextField(
-                controller: _filterController,
-                focusNode: widget.filterFocusNode,
-                style: TextStyle(
-                  fontSize: GbmTypography.textSm,
-                  color: colors.textPrimary,
-                ),
-                onChanged: (value) => setState(() => _filterQuery = value),
-                decoration: InputDecoration(
-                  isDense: true,
-                  hintText: 'Filter branches',
-                  hintStyle: TextStyle(
-                    fontSize: GbmTypography.textSm,
-                    color: colors.textTertiary,
-                  ),
-                  prefixIcon: Icon(
-                    Icons.search,
-                    size: 14,
-                    color: colors.textTertiary,
-                  ),
-                  prefixIconConstraints: const BoxConstraints(
-                    minWidth: 28,
-                    minHeight: 28,
-                  ),
-                  suffixIcon: _filterQuery.isEmpty
-                      ? null
-                      : IconButton(
-                          icon: Icon(
-                            Icons.close,
+            child: Row(
+              children: <Widget>[
+                Expanded(
+                  child: SizedBox(
+                    height: 28,
+                    // P02-14 rules 8 and 9. Placed here rather than on the
+                    // panel: this is the innermost `Shortcuts` above the
+                    // field, so it resolves Esc and ↓ before the app-level
+                    // `DefaultTextEditingShortcuts` gets them -- and it is
+                    // scoped to the field, so the tree's own Esc (MULTIKEYS'
+                    // collapse) is untouched. Same focus-scope reasoning as
+                    // Ctrl/Cmd+A being bound to the tree only.
+                    child: CallbackShortcuts(
+                      bindings: <ShortcutActivator, VoidCallback>{
+                        const SingleActivator(LogicalKeyboardKey.escape):
+                            _clearFilter,
+                        const SingleActivator(LogicalKeyboardKey.arrowDown):
+                            _enterFirstResult,
+                      },
+                      child: TextField(
+                        controller: _filterController,
+                        focusNode: widget.filterFocusNode,
+                        style: TextStyle(
+                          fontSize: GbmTypography.textSm,
+                          color: colors.textPrimary,
+                        ),
+                        onChanged: (value) => _filterQuery = value,
+                        decoration: InputDecoration(
+                          isDense: true,
+                          hintText: 'Filter branches',
+                          hintStyle: TextStyle(
+                            fontSize: GbmTypography.textSm,
+                            color: colors.textTertiary,
+                          ),
+                          prefixIcon: Icon(
+                            Icons.search,
                             size: 14,
                             color: colors.textTertiary,
                           ),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(
+                          prefixIconConstraints: const BoxConstraints(
                             minWidth: 28,
                             minHeight: 28,
                           ),
-                          onPressed: () => setState(() {
-                            _filterController.clear();
-                            _filterQuery = '';
-                          }),
+                          suffixIcon: _filterQuery.isEmpty
+                              ? null
+                              : IconButton(
+                                  icon: Icon(
+                                    Icons.close,
+                                    size: 14,
+                                    color: colors.textTertiary,
+                                  ),
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(
+                                    minWidth: 28,
+                                    minHeight: 28,
+                                  ),
+                                  onPressed: _clearFilter,
+                                ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            vertical: GbmSpacing.space1,
+                          ),
+                          filled: true,
+                          fillColor: colors.surfaceSunken,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(4),
+                            borderSide: BorderSide(color: colors.borderSubtle),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(4),
+                            borderSide: BorderSide(color: colors.borderSubtle),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(4),
+                            borderSide: BorderSide(color: colors.borderFocus),
+                          ),
                         ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    vertical: GbmSpacing.space1,
-                  ),
-                  filled: true,
-                  fillColor: colors.surfaceSunken,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(4),
-                    borderSide: BorderSide(color: colors.borderSubtle),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(4),
-                    borderSide: BorderSide(color: colors.borderSubtle),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(4),
-                    borderSide: BorderSide(color: colors.borderFocus),
+                      ),
+                    ),
                   ),
                 ),
-              ),
+                // Only while filtering: "6/6" on an untouched sidebar is
+                // noise, and spec describes the count as part of the
+                // filter's behaviour rather than as a permanent counter.
+                if (isFiltering)
+                  Padding(
+                    padding: const EdgeInsets.only(left: GbmSpacing.space2),
+                    child: Text(
+                      '$filterHits/$filterTotal',
+                      style: TextStyle(
+                        fontSize: GbmTypography.textXs,
+                        color: colors.textTertiary,
+                        fontFeatures: const <FontFeature>[
+                          FontFeature.tabularFigures(),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
           // Selection action bar
@@ -984,19 +1186,6 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                       ),
                     ),
                   )
-                : filterNeedle.isNotEmpty &&
-                      branchTree.isEmpty &&
-                      filteredTags.isEmpty &&
-                      filteredStashes.isEmpty
-                ? Center(
-                    child: Text(
-                      'No matches',
-                      style: TextStyle(
-                        color: colors.textTertiary,
-                        fontSize: GbmTypography.textSm,
-                      ),
-                    ),
-                  )
                 : _BranchSelectionShortcuts(
                     focusNode: _treeFocus,
                     onSelectAll: _selectAllBranches,
@@ -1006,7 +1195,37 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: <Widget>[
+                          // Routed through the same _buildTreeNode as any
+                          // other leaf, so the pinned row keeps checkout,
+                          // selection and the 05-B menu rather than becoming
+                          // a second, thinner rendering of a branch.
+                          if (pinnedHead != null)
+                            _buildTreeNode(
+                              BranchTreeLeaf(ref: pinnedHead),
+                              context,
+                            ),
                           _buildTreeNodes(branchTree, context),
+                          // Inside the scroll column rather than replacing
+                          // it, because the pinned current branch (rule 7)
+                          // lives here too -- a centred label swapped in for
+                          // the whole tree took the pin down with it, in
+                          // exactly the state where "where am I" is hardest
+                          // to answer.
+                          if (isFiltering &&
+                              branchTree.isEmpty &&
+                              filteredTags.isEmpty &&
+                              filteredStashes.isEmpty)
+                            Padding(
+                              padding: const EdgeInsets.all(GbmSpacing.space3),
+                              child: Text(
+                                'No matches',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: colors.textTertiary,
+                                  fontSize: GbmTypography.textSm,
+                                ),
+                              ),
+                            ),
                           if (filteredTags.isNotEmpty) ...<Widget>[
                             Padding(
                               padding: const EdgeInsets.fromLTRB(
@@ -1206,10 +1425,10 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
   // _toggleFolderExpand's doc comment for why that one recurses).
   void _toggleFolderExpandedSingleLevel(BranchTreeFolder folder) {
     setState(() {
-      if (_expandedFolders.contains(folder.folderName)) {
-        _expandedFolders.remove(folder.folderName);
+      if (_expandedFolders.contains(folder.folderPath)) {
+        _expandedFolders.remove(folder.folderPath);
       } else {
-        _expandedFolders.add(folder.folderName);
+        _expandedFolders.add(folder.folderPath);
       }
     });
   }
@@ -1238,7 +1457,12 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     int depth = 0,
   }) {
     final colors = context.gbmColors;
-    final isExpanded = _expandedFolders.contains(folder.folderName);
+    // From the node, not re-derived from _expandedFolders: buildBranchTree
+    // already decided this, and while a filter is active it decides
+    // `expandAll` -- a second reading of the set here would draw a closed
+    // chevron over an open folder and, worse, gate the children on the
+    // stale answer.
+    final bool isExpanded = folder.isExpanded;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,

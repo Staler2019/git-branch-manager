@@ -498,6 +498,26 @@ TEST(GraphAsciiRenderer, RendersLinearHistoryWithoutConnectors) {
     EXPECT_EQ(renderGraphAscii(*snapshot, options), "*\n*\n*\n");
 }
 
+TEST(GraphAsciiRenderer, ShowsWhatHistoryProvidersBridgeIsFor) {
+    // The reference renderer's counterpart to
+    // RealRepoTest.LinearWalkBridgesOverTheMergesItFiltersOut. `--no-merges`
+    // leaves each surviving row pointing at a merge git never emits, which is
+    // the "unbridged" snapshot below; HistoryProvider rewrites those parents
+    // to the next row emitted, which is the "bridged" one. Written as a pair
+    // so the difference is visible rather than described.
+    AsciiRenderOptions options;
+    options.showShortOid = false;
+
+    auto unbridged = build({{1, {10}}, {2, {20}}, {3, {}}});
+    auto bridged = build({{1, {2}}, {2, {3}}, {3, {}}});
+
+    EXPECT_EQ(renderGraphAscii(*bridged, options), "*\n*\n*\n");
+    EXPECT_NE(renderGraphAscii(*unbridged, options), renderGraphAscii(*bridged, options))
+        << "unbridged: " << renderGraphAscii(*unbridged, options);
+    EXPECT_TRUE(unbridged->rows[0].isBoundary());
+    EXPECT_FALSE(bridged->rows[0].isBoundary());
+}
+
 TEST(GraphAsciiRenderer, MarksMergeCommitsDistinctly) {
     auto snapshot = build({{1, {2, 3}}, {2, {4}}, {3, {4}}, {4, {}}});
     AsciiRenderOptions options;

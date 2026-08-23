@@ -21,11 +21,33 @@ import 'dart:math' as math;
 /// here and pinned by `graph_column_test.dart` rather than derived from the
 /// enum's own name.
 enum GbmGraphColumnId {
-  graph('graph', 'Graph', defaultWidth: 0, minWidth: 0, maxWidth: 0),
+  // Graph is the one column whose *content* width is not a preference: it is
+  // `laneWidth * (laneCount + 1)`, so a busy repository can ask for any width
+  // at all. These three numbers turn that open-ended demand into a budget.
+  //
+  //  * `defaultWidth` 153 is a **cap, not a size**: the column takes its
+  //    natural width and stops there, so a two-lane history still draws two
+  //    lanes and leaves the rest to the message. 153 = 17 x 9, i.e. eight
+  //    parallel lanes plus the trailing half-slot. **Eight is ours, not
+  //    spec's** -- the spec has nothing to say about how thick the graph may
+  //    get. It is the point where the column stops reading as "where am I"
+  //    and starts reading as a wall, and it is a single constant to change if
+  //    that judgement is wrong.
+  //  * `minWidth` 34 = 17 x 2 is one lane. **The column is never removable**
+  //    (it stays `isLocked`, per spec's "Graph 與 Message 固定不可關"); this
+  //    is how far a drag may collapse it, and one lane is still a graph.
+  //  * `maxWidth` 425 = 17 x 25 is twenty-four lanes, past which the row is
+  //    all graph on any ordinary window.
+  //
+  // Literals rather than `GbmLayout.graphLaneWidth * 9`: this file has no
+  // imports at all, which is what lets the repository depend on it instead of
+  // the reverse. `graph_column_test.dart` asserts all three stay exact lane
+  // multiples, so the derivation is checked even though it is not expressed.
+  graph('graph', 'Graph', defaultWidth: 153, minWidth: 34, maxWidth: 425),
   message('message', 'Message', defaultWidth: 0, minWidth: 0, maxWidth: 0),
-  // 92 is not a round number and not a guess: it is the *only* value that
-  // satisfies both of this column's constraints, each measured rather than
-  // reasoned about.
+  // 104, and the corridor it sits in was re-measured this round after the
+  // lane pitch went from 18 to 17. Both bounds are measured, not reasoned
+  // about.
   //
   //  * Floor 91. The HEAD chip is the sole thing in the row that says where
   //    you are, and spec labels it `HEAD → main` (`spec_logic.js:439`).
@@ -33,37 +55,50 @@ enum GbmGraphColumnId {
   //    chip renders `HEAD → ` and nothing useful. Measured off the bundled
   //    `assets/fonts/JetBrainsMono-Medium.ttf` -- the font `GbmTagChip`
   //    actually sets -- at `GbmTypography.textXs`: 72.6px of text plus 16px
-  //    of horizontal padding plus 2px of border = 90.6px. (Same method
-  //    reproduces the repo's recorded "8 hex characters ≈ 53px on device"
-  //    datum exactly, which is why it is trusted here. A widget test cannot
-  //    check this: the Ahem test font makes every glyph one em wide and puts
-  //    the same chip at 141.75px.)
-  //  * Ceiling 92, found by bisection against
+  //    of horizontal padding plus 2px of border = 90.6px. (A widget test
+  //    cannot check this: the Ahem test font makes every glyph one em wide
+  //    and puts the same chip at 141.75px.)
+  //  * **Ceiling 287**, bisected against
   //    `workspace_narrow_window_test.dart`'s twelve-lane case at 1280x720 --
-  //    the app's own default window size. At 93 the ladder starts giving up
-  //    the Author column there, which that test exists to forbid.
+  //    the app's own default window size, where the row gets exactly 834px.
+  //    At 288 the ladder starts giving up the Date column there, which that
+  //    test exists to forbid.
   //
-  // So the two hold together with 1.4px to spare and no more. **That
-  // corridor is the finding, not the number**: this column cannot get any
-  // roomier without either clipping spec's own example chip or eating a
-  // regression lock, and the honest reading is that at twelve lanes and
-  // 1280x720 there is genuinely no room for both. Anything longer than a
-  // four-character branch name (`HEAD → develop` needs 110px) still clips at
-  // the default and needs a drag -- up to `maxWidth`, and remembered after.
+  // **That ceiling has moved three times, and 104 stopped being near it at
+  // the second.** It was 92 while the lane pitch was 18 (twelve lanes cost
+  // `18 x 13 = 234`), then 105 once the pitch became spec's 17 (`17 x 13 =
+  // 221`) -- a corridor 91..105. Then the Graph column gained a 153px cap,
+  // which is what paid for the headroom: twelve lanes now cost 153 rather
+  // than 221, and all 68 of those px land here, taking the ceiling to 173.
+  // Then History's panes were recomposed to spec (Changed files right,
+  // Commit detail below), so the commit list stopped losing 38% of its
+  // *width* to the detail pane and went from ~632px to 834px -- ceiling
+  // 287. **104 is therefore nowhere near the ceiling and is not chosen for
+  // being near one** -- it is `ceil(103.1)`, the width of the one chip
+  // below.
+  //
+  // What that bought is a defect closed rather than merely more room. At 92 a
+  // HEAD **synced with its upstream** did not fit: that chip is `HEAD → main`
+  // plus a 3px gap and a 9.5px cloud icon (`GbmTagChip`), i.e. 103.1px, and
+  // the strip clips left-aligned -- so the cloud was the first thing lost and
+  // what remained was glow-without-cloud, which is precisely the signature
+  // spec assigns to the *opposite* state ("目前 HEAD，且遠端不在這裡",
+  // `spec_raw.html:1392`). 104 is `ceil(103.1)`, so the synced chip now
+  // renders whole at the default width.
+  //
+  // The default now gives up **nothing** at that window. It did give up Date
+  // while the commit list was ~632px, and that was never a cost of widening
+  // refs -- the ladder had dropped it before refs moved at all. The pane
+  // recomposition took the list to 834px and Date came back, which is why
+  // `workspace_narrow_window_test.dart`'s twelve-lane case asserts Date
+  // alongside Author and hash. Read its own comment before trusting its
+  // title: that assertion set has been right, then wrong, then right again.
+  //
+  // Anything longer than a four-character branch name still clips at the
+  // default and needs a drag -- up to `maxWidth`, and remembered after.
   // `graph_column_test.dart` pins the floor; the narrow-window test pins the
   // ceiling; neither is free to move quietly.
-  //
-  // One consequence of the ceiling worth knowing before reading a screenshot:
-  // a HEAD **synced with its upstream** does not fit either. That chip is
-  // `HEAD → main` plus a 3px gap and a 9.5px cloud icon (`GbmTagChip`), i.e.
-  // ~103px, and the strip clips left-aligned -- so the cloud is the first
-  // thing lost and what remains is glow-without-cloud, which is precisely
-  // the signature spec assigns to the *opposite* state ("目前 HEAD，且遠端不
-  // 在這裡", `spec_raw.html:1392`). The absent dashed origin chip elsewhere
-  // in the list still distinguishes the two, and widening the column
-  // restores it, but the chip alone reads wrong at the default width. Not
-  // fixable by choosing a different default: 103 is past the ceiling.
-  refs('refs', 'Refs', defaultWidth: 92, minWidth: 48, maxWidth: 400),
+  refs('refs', 'Refs', defaultWidth: 104, minWidth: 48, maxWidth: 400),
   author('author', 'Author', defaultWidth: 110, minWidth: 48, maxWidth: 320),
   date('date', 'Date', defaultWidth: 80, minWidth: 48, maxWidth: 240),
   // Spec spells these "Commit hash" and "Changed files"; the picker they
@@ -139,12 +174,16 @@ enum GbmGraphColumnId {
   /// word, so a locked column is also a pinned one.
   bool get isMovable => !isLocked;
 
-  /// The same six columns again, and not a third independent fact: graph's
-  /// width is derived from the snapshot's lane count and message is the sole
-  /// flex column, so neither has a "column width" to drag or remember. Spec's
-  /// "欄寬各自可拖曳並記憶" is read against the same "其餘" as the sentence
-  /// before it.
-  bool get isResizable => !isLocked;
+  /// Seven columns -- everything except Message, which is the sole flex
+  /// column and so has no width of its own to drag or remember.
+  ///
+  /// **Graph is resizable but still locked**, and that combination is
+  /// deliberate rather than an oversight. Spec's "其餘可開關並拖曳排序" keeps
+  /// it unclosable, which [isLocked] honours; what a drag changes is the cap
+  /// on how many lanes it will draw before clipping, not whether the column
+  /// exists. Collapsing it to [minWidth] still leaves one lane, so the
+  /// "Graph 固定不可關" guarantee holds at every width.
+  bool get isResizable => this != GbmGraphColumnId.message;
 }
 
 /// The spec's own order, from `GRAPH_COLS` (`spec_logic.js:451`).

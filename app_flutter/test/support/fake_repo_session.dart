@@ -93,6 +93,24 @@ class FakeRepoSessionController extends RepoSessionController {
   /// firing native events.
   void emit(RepoSessionState next) => state = next;
 
+  /// Recorded rather than left to the base class: an unoverridden method
+  /// hits the real `_session == nullptr` guard and silently no-ops, so a
+  /// test could not tell a dead dispatch path from a working one.
+  @override
+  void setHistoryFilter({
+    required List<String> includeRefs,
+    bool firstParentOnly = false,
+    bool noMerges = false,
+  }) {
+    commandLog.add(
+      FakeCommand('setHistoryFilter', <String, Object?>{
+        'includeRefs': includeRefs,
+        'firstParentOnly': firstParentOnly,
+        'noMerges': noMerges,
+      }),
+    );
+  }
+
   @override
   void resolveConflict(
     String path,

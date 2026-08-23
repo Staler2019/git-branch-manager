@@ -1,4 +1,6 @@
 import 'package:flutter/gestures.dart';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -360,42 +362,76 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
       );
     }
 
-    return Column(
-      children: <Widget>[
-        _CommitSearchField(
-          controller: _searchController,
-          focusNode: ref.watch(historySearchFocusNodeProvider(widget.identity)),
-          matchCount: visibleRows.length,
-          totalCount: graph.rows.length,
-          onChanged: (String value) =>
-              ref
-                      .read(commitSearchQueryProvider(widget.identity).notifier)
-                      .state =
-                  value,
-        ),
-        Expanded(
-          child: visibleRows.isEmpty
-              ? Center(
-                  child: Text(
-                    'No commit matches "$query".',
-                    style: TextStyle(
-                      fontSize: GbmTypography.textSm,
-                      color: colors.textTertiary,
-                    ),
+    // The search field is a non-flex child and `RenderFlex` lays those out
+    // first, so left to its own intrinsic height it overflows the moment the
+    // pane is shorter than it -- `Expanded` is handed zero and cannot rescue
+    // anything. That is the vertical twin of the narrow-window round's rule,
+    // and it is what threw `A RenderFlex overflowed by 2.3 pixels on the
+    // bottom` on a real run.
+    //
+    // Clamping here rather than raising `splitterMainFiles.minExtent`: that
+    // splitter's 140px minimum is spec'd (`main.files`, min 140px) and
+    // already protects the filling pane, so the heights that reach this code
+    // come from the *window* or from a transient first-frame constraint --
+    // neither of which a splitter minimum can bound.
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final double searchHeight = math.min(
+          kHistorySearchFieldHeight,
+          constraints.maxHeight,
+        );
+        return Column(
+          children: <Widget>[
+            SizedBox(
+              height: searchHeight,
+              // Below its natural height the field's own row is squeezed;
+              // clipping keeps that silent instead of painting outside the
+              // pane. It is only reachable in the degenerate sizes above.
+              child: ClipRect(
+                child: _CommitSearchField(
+                  controller: _searchController,
+                  focusNode: ref.watch(
+                    historySearchFocusNodeProvider(widget.identity),
                   ),
-                )
-              : _buildList(
-                  graph,
-                  visibleRows,
-                  query,
-                  metaCache,
-                  selection,
-                  refs,
-                  effectiveEmail,
-                  conflictActive,
+                  matchCount: visibleRows.length,
+                  totalCount: graph.rows.length,
+                  onChanged: (String value) =>
+                      ref
+                              .read(
+                                commitSearchQueryProvider(
+                                  widget.identity,
+                                ).notifier,
+                              )
+                              .state =
+                          value,
                 ),
-        ),
-      ],
+              ),
+            ),
+            Expanded(
+              child: visibleRows.isEmpty
+                  ? Center(
+                      child: Text(
+                        'No commit matches "$query".',
+                        style: TextStyle(
+                          fontSize: GbmTypography.textSm,
+                          color: colors.textTertiary,
+                        ),
+                      ),
+                    )
+                  : _buildList(
+                      graph,
+                      visibleRows,
+                      query,
+                      metaCache,
+                      selection,
+                      refs,
+                      effectiveEmail,
+                      conflictActive,
+                    ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -484,7 +520,14 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
                   ),
                   handle: handle,
                   onDragStart: () {
-                    _resizeStartWidth = columnLayout.widthOf(handle.id);
+                    // The width on screen, not the width in storage. For
+                    // every column but Graph they are the same; Graph's
+                    // stored value is a cap, so starting from it would mean
+                    // a leftward drag moved nothing until the cursor caught
+                    // up with the cap. See `renderedWidthOf`.
+                    _resizeStartWidth =
+                        plan.renderedWidthOf(handle.id) ??
+                        columnLayout.widthOf(handle.id);
                     _resizeTravel = 0;
                   },
                   onDragUpdate: (double dx) {
@@ -687,6 +730,16 @@ class _ColumnResizeStrip extends StatelessWidget {
   }
 }
 
+/// The height of History's filter row.
+///
+/// Spec's own compact row (`--row-h-compact:26px`), not a number invented
+/// here. Before this was pinned, the row took whatever
+/// `TextField(isDense: true)` came to -- **37px** under the test font, which
+/// was both 11px of vertical space spent on a control nobody reads and the
+/// exact threshold below which the History pane overflowed. A predictable
+/// height fixes the density and the assertion together.
+const double kHistorySearchFieldHeight = GbmSpacing.rowHeightCompact;
+
 /// The in-place commit filter (spec page 02 item 3, Edit → Find in history).
 ///
 /// Shows `matches/total` on the right the way the sidebar's branch filter
@@ -714,10 +767,9 @@ class _CommitSearchField extends StatelessWidget {
     final bool filtering = controller.text.isNotEmpty;
 
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: GbmSpacing.space2,
-        vertical: GbmSpacing.space1,
-      ),
+      key: const ValueKey<String>('history-search-field'),
+      height: kHistorySearchFieldHeight,
+      padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
       decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: colors.borderSubtle)),
       ),
@@ -750,6 +802,11 @@ class _CommitSearchField extends StatelessWidget {
                   ),
                   decoration: InputDecoration(
                     isDense: true,
+                    // Zero, not the dense default: `isDense` still reserves
+                    // 8px top and bottom, which is what pushed the row to
+                    // 37px. The Row centres the field, so the text stays
+                    // vertically centred without it.
+                    contentPadding: EdgeInsets.zero,
                     border: InputBorder.none,
                     hintText: 'Filter by message, author or hash prefix',
                     hintStyle: TextStyle(

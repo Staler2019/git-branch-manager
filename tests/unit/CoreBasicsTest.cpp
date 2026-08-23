@@ -869,6 +869,52 @@ TEST(HistoryQuery, NarrowsToIncludeRefsWithoutAll) {
     EXPECT_NE(std::find(args.begin(), args.end(), "refs/heads/feature-b"), args.end());
 }
 
+TEST(HistoryQuery, NoMergesDropsMergeCommitsFromTheWalk) {
+    // The sidebar branch filter narrowing to exactly one branch asks for "one
+    // line, no merge rows" -- --first-parent alone still emits the merge
+    // commits themselves, so --no-merges is a separate flag rather than an
+    // implication of it.
+    HistoryQuery query;
+    // One vector, not two calls: toRevListArgs() returns by value, so
+    // iterators taken from separate temporaries are not comparable at all.
+    const auto byDefault = query.toRevListArgs();
+    EXPECT_EQ(std::find(byDefault.begin(), byDefault.end(), "--no-merges"), byDefault.end())
+        << "--no-merges must be opt-in; the default walk shows merges";
+
+    query.noMerges = true;
+    const auto args = query.toRevListArgs();
+    EXPECT_NE(std::find(args.begin(), args.end(), "--no-merges"), args.end());
+}
+
+TEST(HistoryQuery, LinearWalkNeedsASingleTipAndNoMerges) {
+    // isLinearWalk() is what turns on parent bridging in the walk loop. It does
+    // *not* require --first-parent: that flag drops every commit that landed
+    // through a merge, which is most of a real branch's history, and the mode
+    // exists to show that work as one line with only the merge rows gone.
+    HistoryQuery query;
+    query.includeRefs = {"refs/heads/main"};
+    query.noMerges = true;
+    EXPECT_TRUE(query.isLinearWalk());
+
+    HistoryQuery twoTips = query;
+    twoTips.includeRefs = {"refs/heads/main", "refs/heads/feature"};
+    EXPECT_FALSE(twoTips.isLinearWalk());
+
+    HistoryQuery allRefs = query;
+    allRefs.includeRefs.clear();
+    EXPECT_FALSE(allRefs.isLinearWalk());
+
+    HistoryQuery mergesKept = query;
+    mergesKept.noMerges = false;
+    EXPECT_FALSE(mergesKept.isLinearWalk());
+
+    // --first-parent is neither required nor forbidden: a caller that wants
+    // both still gets one bridged line, it just gets far fewer rows.
+    HistoryQuery firstParentToo = query;
+    firstParentToo.firstParentOnly = true;
+    EXPECT_TRUE(firstParentToo.isLinearWalk());
+}
+
 TEST(HistoryQuery, PushesFilteringDownIntoGit) {
     HistoryQuery query;
     query.author = "someone";

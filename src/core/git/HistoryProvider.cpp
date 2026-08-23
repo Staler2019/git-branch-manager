@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <span>
 #include <utility>
 
 namespace gbm {
@@ -24,6 +25,9 @@ std::vector<std::string> HistoryQuery::toRevListArgs() const {
 
     if (firstParentOnly) {
         args.emplace_back("--first-parent");
+    }
+    if (noMerges) {
+        args.emplace_back("--no-merges");
     }
     if (includeReflog) {
         args.emplace_back("--reflog");
@@ -156,6 +160,12 @@ GitResult<GraphSnapshotPtr> HistoryProvider::walk(const HistoryQuery& query,
     GraphBuilder builder;
     std::size_t malformedLines = 0;
 
+    // Linear mode holds each record back by one row so its parents can be
+    // rewritten to whatever actually comes next -- see the lambda below and
+    // HistoryQuery::isLinearWalk().
+    const bool bridgeFilteredParents = query.isLinearWalk();
+    Record held;
+
     // Geometric schedule: publish at 256 rows, then 512, 1024, ... Because each
     // publish costs O(rows), doubling keeps the total work linear overall.
     std::size_t nextPublishAt = kFirstChunkRows;
@@ -171,7 +181,33 @@ GitResult<GraphSnapshotPtr> HistoryProvider::walk(const HistoryQuery& query,
             ++malformedLines;
             return true;  // Skip the row; do not abandon the whole walk.
         }
-        builder.add(record.oid, record.parents, record.commitTime);
+        if (bridgeFilteredParents) {
+            // `--no-merges` removes rows from the middle of the history, so a
+            // row's recorded parent is often a commit git never emits.
+            // GraphBuilder would leave that edge pending and finish() would
+            // turn it into a boundary stub -- a line that arrives from above
+            // and stops halfway -- so a branch with three merges in it would be
+            // drawn broken in three places, which is the opposite of the single
+            // unbroken line this mode exists to show. The side branches the
+            // merges brought in would also still be drawn as parallel lanes.
+            //
+            // Rewriting the parent to the next row emitted **is** a deliberate
+            // simplification, not a reconstruction of the real edge: this mode
+            // draws a list, and the segment means "the next row". See
+            // isLinearWalk() for what that does and does not claim.
+            //
+            // The last record is emitted unbridged on purpose. A complete walk
+            // ends at a root (no parents, correctly drawn as a root); a walk
+            // cut short by --max-count keeps its real parent and so becomes a
+            // boundary stub, which there is the true statement.
+            if (held.valid) {
+                const std::span<const ObjectId> bridged(&record.oid, 1);
+                builder.add(held.oid, bridged, held.commitTime);
+            }
+            held = record;
+        } else {
+            builder.add(record.oid, record.parents, record.commitTime);
+        }
 
         if (builder.truncated()) {
             return false;  // Row cap reached.
@@ -209,6 +245,10 @@ GitResult<GraphSnapshotPtr> HistoryProvider::walk(const HistoryQuery& query,
         // A cancelled walk is not an error the UI should show; the caller simply
         // discards the partial result.
         return fail(std::move(result).error());
+    }
+
+    if (bridgeFilteredParents && held.valid) {
+        builder.add(held.oid, held.parents, held.commitTime);
     }
 
     // `--max-count` stops rev-list itself rather than the builder's own row

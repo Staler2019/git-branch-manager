@@ -24,7 +24,20 @@ import 'graph_ref_chips.dart';
 /// painter and every graph test already import it by this name; what
 /// changes is where the number comes from.
 const double kGraphLaneWidth = GbmLayout.graphLaneWidth;
-const double kCommitRowHeight = GbmSpacing.rowHeightComfortable;
+
+/// One commit row's height.
+///
+/// **26, spec's compact row -- not the comfortable 34 this used to be.**
+/// The mockup draws History's rows at `height:26px`
+/// (`spec_raw.html:1311`), its graph SVG is `height="182"` for seven rows
+/// (182 ÷ 7 = 26), and the geometry constants behind those lines say so
+/// outright: `const L0 = 15, L1 = 32, RH = 26` (`spec_logic.js:428`).
+///
+/// So the 34 was a pre-existing drift, and shrinking the list is a
+/// conformance fix rather than a density preference. `rowHeightCompact` is
+/// spec's own token (`--row-h-compact:26px`) and is already what the sidebar
+/// and the working copy lists use, so nothing new is invented here.
+const double kCommitRowHeight = GbmSpacing.rowHeightCompact;
 
 /// `graph · subject · refs · author · date · hash`, spec page 02's own
 /// column order -- see [planCommitRowColumns], which decides which of them

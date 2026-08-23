@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
@@ -29,6 +30,7 @@ import '../../theme/tokens.dart';
 import '../../widgets/gbm_banner.dart';
 import '../../widgets/split_pane.dart';
 import '../history_graph/commit_search.dart';
+import '../history_graph/graph_filter_convergence.dart';
 import '../history_graph/commit_selection_summary.dart';
 import '../history_graph/widgets/graph_columns_selector.dart';
 import '../log_drawer/log_drawer.dart';
@@ -100,10 +102,77 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   DateTime? _scanStartedAt;
   Duration? _lastScanDuration;
 
+  /// The last filter actually handed to the core, so an unrelated rebuild
+  /// cannot restart a history walk. Null until the first dispatch, which is
+  /// deliberately *not* the same as [HistoryFilterRequest.none]: the session
+  /// opens unfiltered already, so there is nothing to send for that state.
+  HistoryFilterRequest? _lastSentHistoryFilter;
+  Timer? _historyFilterDebounce;
+
+  @override
+  void initState() {
+    super.initState();
+    // branchFilterQueryProvider outlives the session it was typed into (it is
+    // not autoDispose), but a freshly opened C++ session is always unfiltered
+    // and `ref.listen` never fires for the value already present when it
+    // registers. So leaving a repository with a filter set and coming back
+    // showed one branch in the sidebar and every branch in the graph. Sync
+    // after the first frame rather than here, so the dispatch does not land
+    // mid-build.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncHistoryFilter());
+  }
+
   @override
   void dispose() {
+    _historyFilterDebounce?.cancel();
     _branchFilterFocusNode.dispose();
     super.dispose();
+  }
+
+  /// Typing in the sidebar's filter box changes this on every keystroke, and
+  /// each dispatch is a full `git rev-list`. Debounced so "graph-lanes" is
+  /// one walk rather than eleven; compared against the last one *sent* so a
+  /// query that lands back on a filter already in force costs nothing.
+  void _dispatchHistoryFilter(
+    RepoIdentity identity,
+    HistoryFilterRequest next,
+  ) {
+    _historyFilterDebounce?.cancel();
+    _historyFilterDebounce = Timer(kHistoryFilterDebounce, () {
+      if (!mounted || next == _lastSentHistoryFilter) return;
+      _lastSentHistoryFilter = next;
+      ref
+          .read(repoSessionProvider(identity).notifier)
+          .setHistoryFilter(
+            includeRefs: next.includeRefs,
+            firstParentOnly: next.firstParentOnly,
+            noMerges: next.noMerges,
+          );
+    });
+  }
+
+  /// Makes the core agree with the filter currently in force, immediately and
+  /// without debouncing -- this is not a keystroke, it is a session that has
+  /// no filter and a query that says it should have one.
+  void _syncHistoryFilter() {
+    if (!mounted) return;
+    final HistoryFilterRequest current = ref.read(
+      historyFilterRequestProvider(widget.identity),
+    );
+    // `none` is what a fresh session already is, so there is nothing to send.
+    if (current == HistoryFilterRequest.none ||
+        current == _lastSentHistoryFilter) {
+      return;
+    }
+    _historyFilterDebounce?.cancel();
+    _lastSentHistoryFilter = current;
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .setHistoryFilter(
+          includeRefs: current.includeRefs,
+          firstParentOnly: current.firstParentOnly,
+          noMerges: current.noMerges,
+        );
   }
 
   void _showGraphColumnsDialog(BuildContext context) {
@@ -166,6 +235,29 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         }
       },
     );
+
+    // The graph converges on the sidebar's branch filter: exactly one match
+    // collapses it to a single line with no merge rows (see
+    // historyFilterFor). Listened here rather than in SidebarPanel because
+    // the sidebar is hideable and the graph is not.
+    ref.listen<HistoryFilterRequest>(
+      historyFilterRequestProvider(identity),
+      (HistoryFilterRequest? previous, HistoryFilterRequest next) =>
+          _dispatchHistoryFilter(identity, next),
+    );
+
+    // A session can be recreated under a mounted WorkspaceScreen (reopen after
+    // an error), and the new one carries no filter -- so the last-sent record
+    // has to be dropped before re-syncing, or the comparison in
+    // _syncHistoryFilter would decide the core already knows.
+    ref.listen<bool>(repoSessionProvider(identity).select((s) => s.isOpen), (
+      bool? previous,
+      bool next,
+    ) {
+      if (!next) return;
+      _lastSentHistoryFilter = null;
+      _syncHistoryFilter();
+    });
 
     // Pushed automatically -- a credential prompt is not something the user
     // chose to open, unlike every other dialog route. See
@@ -325,6 +417,8 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
               axis: Axis.vertical,
               spec: GbmLayout.splitterMainLog,
               storageId: 'main.log',
+              // The drawer is pinned to the bottom; the workspace fills above.
+              fixedPaneEnd: GbmFixedPaneEnd.trailing,
               controller: _logDrawerController,
               children: <Widget>[
                 LogDrawer(records: session.operationLog),

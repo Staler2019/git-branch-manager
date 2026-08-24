@@ -201,15 +201,44 @@ List<String> _menuLabels(WidgetTester tester) => tester
     .toList();
 
 void main() {
-  testWidgets('a plain click on a branch row is still a checkout, not a '
-      'selection -- MULTIKEYS is not applied to the sidebar\'s primary '
-      'interaction', (WidgetTester tester) async {
+  testWidgets('a plain click selects the row and does not check it out '
+      '(MULTIKEYS 單擊)', (WidgetTester tester) async {
+    // This test used to assert the exact opposite, on the premise that
+    // MULTIKEYS did not govern the sidebar's primary interaction. P13's table
+    // says it does -- 「單擊 ＝ 只選這一項，anchor 移到這一項」 -- and with the
+    // checkbox gone this is also the only way to start a selection by mouse.
     final _Harness h = await _pump(tester);
+    await tester.tap(_row('alpha'));
+    await tester.pump(kDoubleTapTimeout);
+
+    expect(h.selection.items, <String>['alpha']);
+    expect(h.commands('checkout'), isEmpty);
+  });
+
+  testWidgets('a double click checks the row out exactly once '
+      '(BRANCH_STATES 點兩下即 checkout)', (WidgetTester tester) async {
+    final _Harness h = await _pump(tester);
+    await tester.tap(_row('alpha'));
+    await tester.pump(const Duration(milliseconds: 100));
     await tester.tap(_row('alpha'));
     await tester.pumpAndSettle();
 
-    expect(h.selection.items, isEmpty);
+    // Counted rather than `any`: the first press of a double-click also runs
+    // the selection path, so a double dispatch here is a live possibility
+    // rather than a theoretical one.
     expect(h.commands('checkout'), hasLength(1));
+  });
+
+  testWidgets('a double click on HEAD checks nothing out', (
+    WidgetTester tester,
+  ) async {
+    final _Harness h = await _pump(tester);
+    await tester.tap(_row('main'));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(_row('main'));
+    await tester.pumpAndSettle();
+
+    expect(h.commands('checkout'), isEmpty);
   });
 
   testWidgets('Ctrl/Cmd-click toggles rows into the selection', (
@@ -237,11 +266,70 @@ void main() {
     await _modifierClick(tester, 'alpha', LogicalKeyboardKey.controlLeft);
     await _modifierClick(tester, 'gamma', LogicalKeyboardKey.shiftLeft);
 
-    expect(h.selection.items, containsAll(<String>['alpha', 'beta', 'gamma']));
+    // Set equality, not containsAll. The rows render in tree order --
+    // buildBranchTree sorts leaves alphabetically, so the sidebar shows
+    // alpha, beta, delta, gamma, main -- which puts `delta` *between* the
+    // two clicked rows even though the ref list orders it after `gamma`.
+    // A containsAll(['alpha','beta','gamma']) assertion is satisfied by both
+    // the rendered-order answer (4 rows) and the ref-order one (3 rows), so
+    // it could never fail on the very thing this test is named for.
+    expect(h.selection.items.toSet(), <String>{
+      'alpha',
+      'beta',
+      'delta',
+      'gamma',
+    });
     expect(
       h.selection.items,
       isNot(contains('main')),
       reason: 'HEAD is excluded from the selectable rows',
+    );
+  });
+
+  testWidgets('Shift-picking the two rows either side of a gap still leaves '
+      'Compare enabled (COMPARES 1)', (WidgetTester tester) async {
+    // The user-visible symptom of measuring a range in ref order: Compare is
+    // gated on exactly two branches, so a range that silently picks up a
+    // third -- or drops one -- greys it out for no reason the user can see.
+    // alpha and beta are adjacent *as painted*, which is the only adjacency
+    // the user can act on.
+    final _Harness h = await _pump(tester);
+    await _modifierClick(tester, 'alpha', LogicalKeyboardKey.controlLeft);
+    await _modifierClick(tester, 'beta', LogicalKeyboardKey.shiftLeft);
+
+    expect(h.selection.items.toSet(), <String>{'alpha', 'beta'});
+
+    await _rightClick(tester, 'alpha');
+    expect(
+      find.byTooltip('Compare takes exactly two branches'),
+      findsNothing,
+      reason: 'exactly two rows selected, so Compare must be live',
+    );
+    await tester.tap(find.text('Compare'));
+    await tester.pumpAndSettle();
+
+    final List<CompareTabSpec> tabs = h.container.read(
+      compareTabsProvider(_identity),
+    );
+    expect(tabs, hasLength(1));
+  });
+
+  testWidgets('a three-row Shift range disables Compare, with the reason '
+      'shown', (WidgetTester tester) async {
+    // alpha -> delta spans three *painted* rows (alpha, beta, delta). In ref
+    // order the same two clicks would span all four, so this also pins the
+    // ordering from the other side.
+    final _Harness h = await _pump(tester);
+    await _modifierClick(tester, 'alpha', LogicalKeyboardKey.controlLeft);
+    await _modifierClick(tester, 'delta', LogicalKeyboardKey.shiftLeft);
+
+    expect(h.selection.items.toSet(), <String>{'alpha', 'beta', 'delta'});
+
+    await _rightClick(tester, 'alpha');
+    // Disabled-with-a-reason, never hidden -- spec page 13's rule.
+    expect(
+      find.byTooltip('Compare takes exactly two branches'),
+      findsOneWidget,
     );
   });
 
@@ -367,6 +455,35 @@ void main() {
       isEmpty,
       reason: 'no upstream means no remote-tracking ref to update',
     );
+  });
+
+  testWidgets('no branch row carries a checkbox; the row itself is the '
+      'selection control', (WidgetTester tester) async {
+    // MULTIKEYS defines the sidebar's selection model entirely in modifier
+    // clicks and keys -- there is no checkbox anywhere in the spec. The row
+    // used to carry one, and it was also the only thing that *showed*
+    // selection, which is why removing it had to wait for the row background.
+    await _pump(tester);
+    expect(find.byType(Checkbox), findsNothing);
+  });
+
+  testWidgets('Shift+arrow extends the selection over the rendered rows '
+      '(MULTIKEYS Shift+↑/↓)', (WidgetTester tester) async {
+    final _Harness h = await _pump(tester);
+
+    // Clicking also hands focus to the tree, which is what lets the
+    // Shortcuts block below see the key at all.
+    await tester.tap(_row('alpha'));
+    await tester.pump(kDoubleTapTimeout);
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pumpAndSettle();
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+
+    // beta, not delta or gamma: the extension walks the painted order, the
+    // same list Shift-click ranges over.
+    expect(h.selection.items.toSet(), <String>{'alpha', 'beta'});
   });
 
   testWidgets('Ctrl/Cmd+A selects every selectable row, and Esc collapses '

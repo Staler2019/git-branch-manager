@@ -1,5 +1,6 @@
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
 import 'branch_filter.dart';
+import 'branch_selection_rules.dart';
 
 /// Base class for a node in the branch tree (folder or leaf).
 sealed class BranchTreeNode {
@@ -40,10 +41,26 @@ final class BranchTreeFolder extends BranchTreeNode {
 
 /// A leaf node representing an actual branch ref.
 final class BranchTreeLeaf extends BranchTreeNode {
-  const BranchTreeLeaf({required this.ref});
+  const BranchTreeLeaf({required this.ref, this.label});
 
   /// The underlying branch reference.
   final RefInfo ref;
+
+  /// What the row should *print*, when that differs from the ref's own name.
+  ///
+  /// P02 item 12: 「名稱中的斜線自動摺成資料夾」. A branch sitting inside a
+  /// folder shows only the segment below it -- the spec's BRANCH_TREE mock
+  /// lists `graph-lanes` under `feature`, not `feature/graph-lanes`, because
+  /// the folder row above already prints the prefix.
+  ///
+  /// Null for a root-level leaf, which has no folder to carry its prefix.
+  /// Only rendering uses this: filtering (P02-14 treats `/` as a separator
+  /// and matches the whole path), sorting, selection keys and the a11y label
+  /// all stay on [ref]'s full slash-separated name.
+  final String? label;
+
+  /// [label] when the leaf sits under a folder, the ref's own name otherwise.
+  String get displayLabel => label ?? ref.shortName;
 }
 
 /// Builds a hierarchical tree from a flat list of branch refs, grouping by
@@ -113,7 +130,7 @@ List<BranchTreeNode> buildBranchTree(
       }
 
       // Add the leaf to its immediate parent folder
-      final leaf = BranchTreeLeaf(ref: ref);
+      final leaf = BranchTreeLeaf(ref: ref, label: parts.last);
       folderIndex[currentPath]!.children.add(leaf);
     }
   }
@@ -233,9 +250,27 @@ BranchTreeFolder _folderNodeToTree(_FolderNode node) {
   );
 }
 
-/// Comparison function for sorting tree nodes: folders first (alphabetically),
-/// then leaves (alphabetically).
+/// Comparison function for sorting tree nodes: the current branch first, then
+/// folders (alphabetically), then leaves (alphabetically).
+///
+/// `BRANCH_STATES`' 目前分支 row: 「永遠置頂於所屬資料夾內」. The pin is scoped
+/// to the parent, which is why it lives in the comparator rather than in the
+/// panel: sorting a level is the only place that knows what "its own folder"
+/// means, and every level is sorted by this one function. `BRANCH_TREE` draws
+/// `main` (`current: true`, `depth: 0`) above the `feature` / `bugfix` /
+/// `release` folders at the same depth, so at any level the pin outranks the
+/// folders-before-leaves rule rather than yielding to it.
+///
+/// Only one ref can be HEAD, so this never has to order two pinned nodes
+/// against each other, and a folder is never [RefInfo.isHead] -- a detached
+/// HEAD simply pins nothing and the tree sorts as it always did.
 int _compareTreeNodes(BranchTreeNode a, BranchTreeNode b) {
+  final aIsHead = a is BranchTreeLeaf && a.ref.isHead;
+  final bIsHead = b is BranchTreeLeaf && b.ref.isHead;
+
+  if (aIsHead && !bIsHead) return -1;
+  if (!aIsHead && bIsHead) return 1;
+
   final aIsFolder = a is BranchTreeFolder;
   final bIsFolder = b is BranchTreeFolder;
 
@@ -255,6 +290,95 @@ int _compareTreeNodes(BranchTreeNode a, BranchTreeNode b) {
   };
 
   return aName.compareTo(bName);
+}
+
+/// The first selectable leaf in render order, skipping remote-only rows --
+/// `BranchTreeItem` draws those with `selected: false`, so selecting one
+/// would look like the key did nothing.
+///
+/// [skip] is the current branch when it is on screen only because rule 7
+/// pinned it. It sits *in* the tree now rather than above it, so without
+/// this the first "result" could be a row the query excluded -- and since
+/// the pin leads its own folder, that is precisely the row this would
+/// otherwise reach first.
+String? firstLeafName(List<BranchTreeNode> nodes, {RefInfo? skip}) {
+  for (final BranchTreeNode node in nodes) {
+    if (node is BranchTreeLeaf) {
+      if (node.ref.kind != RefKind.remoteBranch &&
+          node.ref.fullName != skip?.fullName) {
+        return node.ref.shortName;
+      }
+    } else if (node is BranchTreeFolder) {
+      final String? nested = firstLeafName(node.children, skip: skip);
+      if (nested != null) return nested;
+    }
+  }
+  return null;
+}
+
+/// The rows a range can span, walked out of the tree in paint order:
+/// minus HEAD and remote-only rows (neither is bulk-selectable), and
+/// minus anything inside a collapsed folder.
+///
+/// Collapsed children are excluded because `BranchFolderRow`'s caller does not
+/// render them at all. A range that spanned them would select branches
+/// with no visible row, and a later Shift+arrow could not step onto one --
+/// so all three selection entry points read the same list and cannot
+/// disagree about what "the current list" means.
+List<String> selectableLeafNames(List<BranchTreeNode> nodes) {
+  final List<String> names = <String>[];
+  void walk(List<BranchTreeNode> level) {
+    for (final BranchTreeNode node in level) {
+      if (node is BranchTreeLeaf) {
+        if (node.ref.kind != RefKind.remoteBranch &&
+            isBulkSelectable(node.ref)) {
+          names.add(node.ref.shortName);
+        }
+      } else if (node is BranchTreeFolder && node.isExpanded) {
+        walk(node.children);
+      }
+    }
+  }
+
+  walk(nodes);
+  return names;
+}
+
+/// Spec page 13's `MULTIBRANCHMENU`, opened by right-clicking any row
+/// while more than one branch is selected. Right-clicking a row that is
+/// *not* in the selection collapses to it first and gets the ordinary
+/// 05-B menu instead -- see [_onBranchContextMenu].
+
+/// Every leaf ref under [nodes], at any depth.
+///
+/// Used by the folder-scoped actions (05-J's "Delete merged in folder" and
+/// "Fetch branches in folder"), which act on a whole subtree rather than on
+/// one row.
+List<RefInfo> collectFolderLeafRefs(List<BranchTreeNode> nodes) {
+  final List<RefInfo> refs = <RefInfo>[];
+  for (final BranchTreeNode node in nodes) {
+    if (node is BranchTreeLeaf) {
+      refs.add(node.ref);
+    } else if (node is BranchTreeFolder) {
+      refs.addAll(collectFolderLeafRefs(node.children));
+    }
+  }
+  return refs;
+}
+
+/// Every folder path under [nodes], at any depth.
+///
+/// Full paths, not display names -- the panel's expanded-folder set is keyed
+/// the way [buildBranchTree] reads it (see [BranchTreeFolder.folderPath]).
+Set<String> collectFolderPaths(List<BranchTreeNode> nodes) {
+  final Set<String> names = <String>{};
+  for (final BranchTreeNode node in nodes) {
+    if (node is BranchTreeFolder) {
+      names.add(node.folderPath);
+      names.addAll(collectFolderPaths(node.children));
+    }
+  }
+  return names;
 }
 
 /// What 05-J's "Fetch branches in folder" needs to call

@@ -65,6 +65,23 @@ final RefSnapshot _testRefs = RefSnapshot(
   totalRefCount: 5,
 );
 
+/// One branch nested deeper than [_kMaxIndentedDepth] (3), so its row gets
+/// no indent at all: a/b/c/d/leaf puts `leaf` at depth 4.
+final RefSnapshot _tooDeepRefs = RefSnapshot(
+  head: HeadInfo(
+    kind: HeadKind.branch,
+    branchName: 'main',
+    fullRef: 'refs/heads/main',
+    target: 'a' * 40,
+  ),
+  refs: <RefInfo>[
+    _localBranch('main', isHead: true),
+    _localBranch('a/b/c/d/leaf'),
+  ],
+  refCountGuardTripped: false,
+  totalRefCount: 2,
+);
+
 // Same shape, but every "release/*" branch tracks an "origin" upstream --
 // used by the enabled-fetch tests below, since fetchableRefsInFolder()
 // requires every leaf's upstream to resolve to the same single remote.
@@ -146,6 +163,9 @@ Future<void> _rightClick(WidgetTester tester, Finder finder) async {
   await tester.pumpAndSettle();
 }
 
+// A leaf under a folder prints only its last segment (P02 item 12: 「名稱中的
+// 斜線自動摺成資料夾」), so rows are found by segment -- `alpha`, not
+// `feature/sub/alpha`. The folder row above carries the prefix.
 void main() {
   group('folder identity is the path, not the display segment', () {
     // Two folders that share a *segment* under different parents. The panel
@@ -177,7 +197,7 @@ void main() {
       await tester.tap(find.text('sub'));
       await tester.pumpAndSettle();
 
-      expect(find.text('feature/sub/alpha'), findsOneWidget);
+      expect(find.text('alpha'), findsOneWidget);
 
       await tester.tap(find.text('chore'));
       await tester.pumpAndSettle();
@@ -243,13 +263,13 @@ void main() {
       // BranchTreeItem renders a leaf's full shortName, not a
       // folder-stripped segment (see branch_tree_item.dart's `ref.shortName`
       // usage) -- so "release/v1" is the actual rendered text, not "v1".
-      expect(find.text('release/v1'), findsNothing);
+      expect(find.text('v1'), findsNothing);
 
       await tester.tap(find.text('release'));
       await tester.pumpAndSettle();
 
-      expect(find.text('release/v1'), findsOneWidget);
-      expect(find.text('release/v2'), findsOneWidget);
+      expect(find.text('v1'), findsOneWidget);
+      expect(find.text('v2'), findsOneWidget);
     });
 
     testWidgets(
@@ -258,16 +278,16 @@ void main() {
       (tester) async {
         await _pump(tester);
 
-        expect(find.text('feature/nested/deep'), findsNothing);
+        expect(find.text('deep'), findsNothing);
 
         await _rightClick(tester, find.text('feature'));
         await tester.tap(find.text('Expand all'));
         await tester.pumpAndSettle();
 
-        expect(find.text('feature/auth'), findsOneWidget);
+        expect(find.text('auth'), findsOneWidget);
         // "nested" is itself a subfolder under "feature" -- Expand all
         // should open it too, revealing "deep" without a second click.
-        expect(find.text('feature/nested/deep'), findsOneWidget);
+        expect(find.text('deep'), findsOneWidget);
       },
     );
 
@@ -348,5 +368,33 @@ void main() {
         expect(cmd.args['refs'], <String>['release/v1', 'release/v2']);
       },
     );
+  });
+
+  group('leaf labels past the indent cap', () {
+    testWidgets('a row deeper than the indent cap prints its full name '
+        'again', (tester) async {
+      await _pump(tester, refs: _tooDeepRefs);
+      for (final String folder in <String>['a', 'b', 'c', 'd']) {
+        await tester.tap(find.text(folder));
+        await tester.pumpAndSettle();
+      }
+
+      // Depth 4 gets no indent (see _kMaxIndentedDepth), so the prefix is the
+      // only thing left that can place the row. Shortening it to `leaf` would
+      // leave the row with neither.
+      expect(find.text('a/b/c/d/leaf'), findsOneWidget);
+      expect(find.text('leaf'), findsNothing);
+    });
+
+    testWidgets('a row inside the indent cap prints only its last segment', (
+      tester,
+    ) async {
+      await _pump(tester);
+      await tester.tap(find.text('feature'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('auth'), findsOneWidget);
+      expect(find.text('feature/auth'), findsNothing);
+    });
   });
 }

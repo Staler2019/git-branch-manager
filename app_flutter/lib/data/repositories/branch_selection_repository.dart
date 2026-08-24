@@ -15,10 +15,16 @@ import 'repo_identity.dart';
 /// from bleeding between lists (「選取狀態跨 scope 不混用」), so the two share
 /// [ListSelection]'s transitions without sharing a value.
 ///
-/// **The checkbox and Ctrl/Cmd-click write the same state.** The sidebar has
-/// had a checkbox-based bulk selection since the "delete gone branches"
-/// work; ticking a box is exactly [ListSelection.toggle], so both affordances
-/// go through here rather than growing a second, drifting selection set.
+/// **All five selection affordances write this one state.** Spec page 13's
+/// `MULTIKEYS` has no checkbox, so the branch row's own gestures are the
+/// whole model: a plain click is [ListSelection.single], Ctrl/Cmd-click is
+/// [ListSelection.toggle], Shift-click is [ListSelection.range], plus
+/// Ctrl/Cmd+A and Shift+arrow from `BranchSelectionShortcuts`. They all go
+/// through here rather than growing a second, drifting selection set.
+///
+/// This comment used to say "the checkbox and Ctrl/Cmd-click"; the checkbox
+/// was removed with the `MULTIKEYS` conformance pass and the clicks took
+/// over as the primary path.
 final StateProviderFamily<ListSelection<String>, RepoIdentity>
 branchSelectionProvider =
     StateProvider.family<ListSelection<String>, RepoIdentity>(

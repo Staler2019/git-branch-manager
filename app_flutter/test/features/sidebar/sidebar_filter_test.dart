@@ -249,7 +249,9 @@ void main() {
       // version of this test used a plain tap and failed for that reason --
       // the code was right and the premise was not.
       await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
-      await tester.tap(find.text('feature/graph-lanes'));
+      // The row prints its last segment now (P02 item 12); the filter
+      // still matches on the full path.
+      await tester.tap(find.text('graph-lanes'));
       await tester.pumpAndSettle();
       await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
 

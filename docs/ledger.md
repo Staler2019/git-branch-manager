@@ -2711,3 +2711,336 @@ Same mechanism as the column-picker popover that shipped off-screen.
   tests respectively. **Rule**: a commit that adds a `required` field to a
   model must carry every fixture that constructs *or feeds* it, including raw
   JSON fixtures, which grep for the constructor name will not find.
+
+### Sidebar branch rows: P02 item 12 and P13 (fix/sidebar-p02-branch-rows)
+
+Five complaints about the sidebar's branch rows — a checkbox that should not
+exist, checkout on single click, hover that never shows, a ragged actions
+column, and branch names still carrying their folder prefix. Unpacking the
+spec (`python3 tools/extract_design_spec.py`; the HTML is a gzip+base64
+bundle) showed four of the five are one change seen from four sides, and the
+fifth is independent and small.
+
+**P02 item 12** (`spec_logic.js:490`): 「Local 與 remote 不再分兩段…名稱中的斜線
+自動摺成資料夾。」 Its companion mock `BRANCH_TREE` (`spec_logic.js:337-347`)
+lists `graph-lanes`, `lfs-prune`, `worktrees` under a `feature` folder — the
+last segment, not the full path.
+
+**P13 `MULTIKEYS`** (`spec_logic.js:295-304`) defines the branch list's
+selection model, and it is **entirely modifier clicks and keys — there is no
+checkbox anywhere in the spec**. Its first row is 「單擊 ＝ 只選這一項，anchor
+移到這一項」. The app had it the other way round: single click checked out, and
+selection was driven by a `Checkbox` the spec never asks for.
+
+#### Why removing the checkbox could not be done on its own
+
+`branch_tree_item.dart`'s `selected` parameter had exactly **one** consumer in
+the entire widget — the checkbox's `value:`. The row background keyed off
+`ref.isHead` alone. So deleting the checkbox without first giving selection a
+background would have made selection a completely invisible state, which is
+the `material_state_hidden` violation the UX rubric's D dimension exists to
+catch. The commits are ordered so no intermediate revision is ever in that
+shape.
+
+#### Premises that did not survive the source
+
+- **`sidebar_panel.dart:305-307` claimed the Shift range was measured over
+  「the rows as rendered」. It was measured over git's ref order.** The same
+  file, ~20 lines later, said so outright about the same function: 「Deliberately
+  not `_selectableBranchNames().first`: that list is **in ref order**」. Two
+  contradictory claims about one function, with the code backing the second.
+  With branches `alpha, beta, delta, gamma` the sidebar paints them
+  alphabetically, so Shift-clicking alpha then gamma must take `delta` with it —
+  and the ref-ordered list silently dropped it. `_extendBranchSelection`
+  (Shift+↑/↓) had the identical defect. Fixed by walking the built tree during
+  `build`, exactly as the neighbouring `_firstResultName` already does for the
+  same reason.
+- **The existing Shift test could not fail on this.** It was named 'Shift-click
+  takes a range over the rendered rows' and asserted
+  `containsAll(['alpha','beta','gamma'])` — a superset check satisfied by both
+  the rendered-order answer (4 rows) and the ref-order one (3). A test named
+  for the very property it cannot observe.
+- **`sidebar_narrow_width_test.dart`'s fixture comment asserted the bug as
+  fact**: 「a leaf nested under folders still shows the whole slash-separated
+  path… the obvious guess ("the leaf shows its last segment") is **wrong**」. The
+  obvious guess is what the spec's own mock draws; the comment was describing
+  the defect, discovered by dumping rendered Texts and then written up as
+  intended behaviour.
+- **`_kMaxIndentedDepth`'s justification was consumed by this round.** Its doc
+  comment capped the indent at depth 3 partly because 「a branch leaf renders its
+  *full* slash-separated name anyway, so the indent is not the only thing
+  expressing the hierarchy」. Printing only the last segment removes precisely
+  that fallback, leaving a depth-4 row with neither indent nor prefix. Rows past
+  the cap now print the full name again, which is the compensation the cap was
+  already leaning on. Its 「~93px … on a checkbox, an icon and the actions
+  button」 measurement was re-stated too, since the checkbox is gone and the
+  button became a fixed slot.
+
+#### Found by running, not by reading: the gesture arena
+
+The plan said to wire selection to `GbmRow.onTap` and accept the delay. That
+did not survive contact.
+
+An `InkWell` carrying **both** `onTap` and `onDoubleTap` makes Flutter's
+gesture arena withhold the tap until `kDoubleTapTimeout` (~300ms) — the
+`DoubleTapGestureRecognizer` does not concede before then. First measurement:
+11 sidebar tests failed, and `Ctrl/Cmd-click toggles rows` reported
+`Actual: []` because `pumpAndSettle()` returns before the window closes. The
+fix would have been to teach ~11 tests to pump 300ms — i.e. to encode a lag
+as if it were behaviour, on the sidebar's most-used interaction. Selection
+moved to `Listener(onPointerDown:)`, which never enters the arena; the timing
+failures vanished in one step. This is not a second source of truth: select
+and checkout are two different actions on two different triggers.
+
+Two further consequences only a run would surface:
+
+- **A double-tap recognizer anywhere on the ancestor path taxes every child
+  button.** With `onDoubleTap` on `GbmRow`, pressing a row's ⋯ button waited
+  ~300ms for its own menu, and two gone-row tests failed because the second
+  menu never opened. Both primary gestures moved down onto the row *body*,
+  where the button is a sibling rather than a descendant. Hover survives that
+  because `InkResponse.isWidgetEnabled` is
+  `_primaryButtonEnabled || _secondaryButtonEnabled` (read from the SDK source,
+  not assumed) and every row always passes `onSecondaryTapDown`.
+- **Selecting from a whole-row Listener made opening a menu mutate the
+  selection.** Instrumenting the failing test printed `1 selected` after a mere
+  ⋯ press: the action bar appeared and pushed every row down. The Listener now
+  wraps only the row body, so the body selects and the actions button does not.
+
+`GbmRow.onDoubleTap`, added in this round's first commit, ended up with no
+caller under `lib/` once the double-tap moved to the body — orphan wiring of
+exactly the shape CLAUDE.md names — and was removed again in the same branch.
+
+#### The alignment is structural, not tuned
+
+The folder indent is `EdgeInsets.only(left:)` (`sidebar_panel.dart`), so it can
+never touch a row's right edge: every leaf's right inset is already constant at
+any depth. What actually broke the column was the ⋯ button rendering only when
+one of four branch callbacks was set — which a **tag** row never has. The TAGS
+section had a hole in the column, and a tag's 05-D menu had no visible entry
+point at all. Every row kind's `_buildMenuItems()` is non-empty, so every row
+now gets the button, inside a fixed-width slot.
+
+The alignment test measures the slot rather than `find.byTooltip`, because a
+`Tooltip` measures the icon's painted box and sits a pixel inside the tap
+target. The panel-edge inset is three nameable terms — `space2` + `space1` +
+the 1px right border the panel paints — with no slack left over. Mutating the
+indent to `EdgeInsets.symmetric` fails the depth-invariance test and nothing
+else, which is what makes that test worth having.
+
+#### Deliberately not done
+
+- ~~**`BRANCH_STATES` says the current branch is 「永遠置頂於所屬資料夾內」.**~~
+  ~~`sidebar_panel.dart` pins it above the whole tree, and only while
+  filtering.~~ **Done in the continuation below**, at the user's request.
+- ~~**`sidebar_panel.dart` is ~1,700 lines**, past the project's own 800
+  ceiling.~~ **Done in the continuation below**, as a behaviour-free move
+  after the pinning fix landed.
+- **Tag rows moved to double-click checkout** along with branches. No test
+  covered a tag row tap either way; the context-menu path is unchanged.
+- This round partially audits **P13 section B** (`MULTIKEYS`, `MULTIACTS`,
+  `MULTIBRANCHMENU`), which **#76** still lists as unaudited.
+
+#### What the verification does and does not cover
+
+`flutter analyze` clean, 1,970 widget/unit/integration tests green,
+`dart format --set-exit-if-changed` clean on all 14 touched files. Every new
+test was mutation-checked and the red was recorded; two are worth keeping:
+reverting the range to ref order fails exactly the two order-dependent tests
+and leaves the alpha→beta Compare test green (2 items either way), and
+mutating the folder indent to `EdgeInsets.symmetric` fails the depth-invariance
+test and nothing else.
+
+**The device tier earned its keep this round.** `repo_lifecycle_test.dart`'s
+「switch branch via sidebar updates HEAD」 failed with `Expected: 'feature',
+Actual: 'main'` — the old single-click contract, asserted against a real git
+repository. `flutter test` never runs `integration_test/`, so the widget tier's
+green said nothing about it. **All nine macOS device files pass**, one file at
+a time, after updating that one to a double-click: `repo_lifecycle`,
+`commit_flow`, `rename_branch_flow`, `context_menu_flows`,
+`commit_file_counts`, `conflict_flow`, `history_filter`, `multi_push_flow`,
+`update_check_flow`. The last five were run even though grepping their finders
+showed none of them taps a branch row, because this round adds a `Material` and
+an always-painted `IconButton` to **every** sidebar row — a widget-tree shape
+change, which is precisely the class the ledger already records as breaking a
+finder two files away from the edit. `commit_flow_test.dart:54`'s
+`find.byType(Checkbox).first` was a live risk — the sidebar's checkbox used to
+sit earlier in the tree than the working copy's — and removing it made that
+finder unambiguous rather than breaking it.
+
+**Hover needed two tests, and neither subsumes the other.** Mutating
+`hoverColor` to `Colors.transparent` fails only the new pixel-diff test
+(`branch_tree_item_hover_paint_test.dart`, which rasterises the row before and
+after a real mouse move). Dropping `hoverColor` entirely — *the bug this round
+fixed* — fails only the token-identity assertion in
+`branch_tree_item_row_chrome_test.dart`, because ThemeData's ~4% fallback does
+change the pixels, just not perceptibly. A pixel diff alone would have called
+the original bug fixed.
+
+**Removing the checkbox removed the row's only keyboard-focusable control, and
+that is the spec's model rather than an oversight.** `GbmRow`'s `InkWell` now
+has no primary tap callback (selection runs off `Listener`), so nothing in a
+branch row takes focus by Tab. `Ctrl/Cmd+A` and `Shift+↑/↓` still work, but only
+after a mouse click has handed focus to the tree — which is exactly what
+`MULTIKEYS` describes, since every entry in it is a pointer gesture or a
+modifier on one. Recorded so the next round reads it as a decision; if
+keyboard-only selection is ever wanted it is a new spec question, not a
+regression of this one.
+
+**No human looked at it.** The plan asked for a `flutter run -d macos` eyeball
+pass on hover and on the 等距 column, and that was not performed; it is recorded
+here rather than left implied by a green suite. The device runs do launch the
+real app, and the two hover tests bracket "paints nothing" and "paints the
+wrong colour" between them, but neither is a person confirming the highlight
+reads as a highlight at a normal viewing distance.
+
+### Sidebar continuation: pinning, and the 800-line split (fix/sidebar-p02-branch-rows)
+
+Same branch, second pass. The user picked three of the four items the section
+above listed as deliberately not done — the `BRANCH_STATES` pinning drift, the
+1,700-line panel, and back-filling **#76** — and asked for `main` to be merged
+in on the way. Only the human visual pass was left, because it cannot be
+delegated to a test.
+
+#### `main` merged first, and the conflict was two appends
+
+`main` had moved six commits ahead (`feat/changed-files-line-counts`, PR #111).
+The only conflict was `docs/ledger.md`, and it was structural rather than
+semantic: both branches append a new section at the end, so git saw one region
+replaced two ways. Resolved by keeping both, `main`'s first — it landed on
+`main` first, and the file is chronological. Merging before touching code was
+deliberate: the merge brought capi JSON changes across the FFI seam, and every
+later verification run should be measuring the merged tree, not this branch's
+older one.
+
+#### The pinning rule is two rules, and they were both wrong in different ways
+
+`BRANCH_STATES`' 目前分支 row reads 「名稱加粗、整列以 selected 底色標示，**永遠
+置頂於所屬資料夾內**，且**不受 filter 影響**」. The code pinned the current branch
+above the *entire* tree, and only while a filter was active — so it failed the
+folder clause always, and the "永遠" clause whenever no query was typed.
+
+**`BRANCH_TREE` settles the folders-vs-pin question**, which the prose alone
+does not: the mock draws `main` (`current: true`, `depth: 0`) *above* the
+`feature` / `bugfix` / `release` folders at the same depth. So at any level the
+pin outranks the folders-before-leaves rule rather than yielding to it. (The
+mock's own folder ordering is *not* alphabetical — `feature`, `bugfix`,
+`release` — and was deliberately not read as a requirement; "a mockup shows
+what the user sees, not who draws it".)
+
+**The ordering half went into the comparator, not the panel.** Sorting a level
+is the only place that knows what "its own folder" means, and every level goes
+through `_compareTreeNodes`, so one `isHead` clause covers the whole tree at
+every depth. A detached HEAD pins nothing and the tree sorts as it always did;
+only one ref can be HEAD, so two pinned nodes never have to be ordered against
+each other.
+
+**The filter half turned out to be a deletion, not an addition.** The old code
+removed HEAD from `filteredBranches` and prepended a separate row above the
+tree — and a row rendered outside the tree *has no folder to sit in*, which is
+precisely why it had to be hoisted. Adding HEAD back into `buildBranchTree`'s
+input instead makes the whole special case disappear: the builder recreates the
+ancestor folders the query had dropped (a pinned row cannot appear inside a
+folder that is not drawn), and the comparator then puts it first inside them.
+Two consequences had to be chased down, and each is now its own mutation-checked
+test:
+
+- `_firstLeafName` gained a `skip`, because P02-14 rule 9's ↓ must not land on
+  a row the query excluded — and now that the pin leads its own folder, that is
+  exactly the row the walk reaches first.
+- the `No matches` empty state was keyed on `branchTree.isEmpty`, which stops
+  being a test for "nothing matched" the moment the tree always carries HEAD.
+  It reads `filteredBranches.isEmpty` now.
+
+Matched on `fullName` rather than identity: `RefInfo` has no `operator ==`, so
+`contains` compares object references and would silently start re-adding a HEAD
+that *did* match if `filterBranches` ever stopped returning the caller's own
+instances.
+
+**Rule 7 and `BRANCH_STATES` disagree on paper, and the reading is recorded on
+purpose.** P02-14 rule 7 says a bare 「目前分支永遠置頂顯示」. Under the fix, a
+matching folder that sorts before HEAD's folder renders *above* it — the test
+asserts `['chore/docs', 'feature/zeta']`, HEAD second. `BRANCH_STATES` is the
+specific rule and it scopes 置頂 to the folder, so this is conformant, not a
+regression; it is written into the matrix and CLAUDE.md because an auditor
+reading rule 7 literally would otherwise file it as one. That is the #45/#60
+precedent: an unrecorded reading becomes a stale issue.
+
+**The fixture is the point.** Every test here puts HEAD *inside* a folder and
+names it so it sorts last among its siblings (`feature/zeta`, in a folder that
+sorts after `chore`). A fixture with HEAD at the root cannot tell the two
+readings apart — root *is* its folder, so 「置頂於所屬資料夾內」 and 「置頂於整棵
+樹」 name the same row. That is exactly why `sidebar_filter_test.dart`'s `main`
+fixture stayed green through the entire bug, and why its rule-7 tests still pass
+unchanged after the fix.
+
+`branch_tree_builder_test.dart`'s very first test had to be corrected: it
+asserted `develop` above `main` with `main` carrying `isHead: true`, i.e. it
+stated the pre-fix ordering as the expected one.
+
+#### The split: 1,782 → 741, in four commits, no behaviour change
+
+The panel was more than double the project's 800-line ceiling. Split along two
+different seams depending on what each piece owns, rather than one rule applied
+uniformly:
+
+- **Presentational** (`features/workspace/widgets/` precedent — plain callbacks,
+  no Riverpod): `BranchSelectionActionBar`, `BranchesSectionHeader`,
+  `SidebarFilterField`, `BranchFolderRow`, `SidebarSectionLabel`,
+  `BranchSelectionShortcuts`.
+- **`ConsumerWidget`**: `SidebarTagSection`, `SidebarStashSection`. Their
+  actions are the *only* callers of the controller methods behind them, so
+  routing ten callbacks up through the panel would add a hop and leave the
+  panel holding state it does not otherwise use. The branch tree is the
+  opposite case — its selection *is* panel state — so that half stayed.
+- **Collaborator objects**: `BranchBulkActions` (page 13's `MULTIBRANCHMENU`
+  over a selection) and `BranchRowActions` (05-B / 05-C / 05-J per-row menus),
+  split along the line the spec itself draws. Both are built fresh at each call
+  site and never stored: the selection is the panel's, and a stored second copy
+  is the shape this repo keeps finding bugs in.
+- **Pure functions**: `branch_selection_rules.dart` (`isBulkSelectable`,
+  `isInMultiSelection`, `isGoneAndBulkSelectable`, `prunedSelection`,
+  `extendedSelection`, `liveBranchNames`) and two more tree walks moved into
+  `branch_tree_builder.dart` beside `collectFolderLeafRefs`.
+
+**What stayed, and why.** Expand/collapse (`_expandedFolders`) is the panel's
+own `setState`; moving it would put tree state in two places. `firstLeafName`
+and `selectableLeafNames` moved as *functions* but their calls stay in
+`build()`, walking the same `branchTree` instance — pushing the walk itself
+into a child widget would recreate the second-copy-of-render-order bug the
+first pass had just fixed. Batch delete stayed with the panel's routing because
+spec page 13 requires item-by-item confirmation, so it opens a dialog.
+
+**One real finding fell out of the move.** Extracting the filter field exposed
+that the clear button was keyed on `_filterQuery.isEmpty` while the 命中/總數
+readout was keyed on `trim().isNotEmpty`. For a whitespace-only query those
+disagree: nothing is filtered, no count shows, but the clear button *does* —
+and it is the only way to get rid of the text. Collapsing them into one
+`isFiltering` flag would have stranded the user. Preserved faithfully as two
+parameters, `hasQuery` and `isFiltering`, with the reason written on the field.
+
+#### Verification
+
+`flutter analyze` clean throughout, `dart format` limited to the touched
+directory. The suite ran green after **every** extraction, not just at the end:
+1,988 tests. Both new panel behaviours were mutation-checked and the red was
+narrow *and* doubled — reverting the `No matches` key and dropping the ↓ skip
+each failed both the new pin test and the pre-existing `sidebar_filter_test.dart`
+tests that were already guarding those contracts.
+
+**All nine macOS device files were rerun, one at a time**, not the four the
+first pass needed. The split changed the widget-tree shape of every sidebar
+row, and the merge changed the capi JSON across the FFI seam — the fake-backed
+suite attests to neither. The dylib is rebuilt and re-copied by the macOS
+Runner's own build phase on every `flutter test -d macos`, so the stale-copy
+trap does not apply here.
+
+#### Deliberately not done, still
+
+- **No human visual pass.** Unchanged from the first pass, and now covering the
+  pinned row's position as well as hover and the 等距 column.
+- **`branch_selection_rules.dart` has no dedicated unit test file.** Its six
+  functions are covered transitively by the panel and builder suites, which is
+  how they were covered as private methods too — extracting them makes a direct
+  test *possible*, and that is worth doing, but writing one was not part of what
+  was asked.

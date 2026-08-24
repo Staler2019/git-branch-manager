@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -7,6 +8,7 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/ref_chip_colors.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_menu.dart';
+import '../../../widgets/gbm_row.dart';
 import '../../../widgets/lucide_icon.dart';
 import 'local_branch_menu_items.dart';
 import 'tag_menu_items.dart';
@@ -15,9 +17,9 @@ class BranchTreeItem extends StatelessWidget {
   const BranchTreeItem({
     super.key,
     required this.ref,
+    this.displayName,
     required this.onCheckout,
     this.selected = false,
-    this.onSelectedChanged,
     this.onSelect,
     this.multiSelectMenuBuilder,
     this.multiSelectMenuTitle,
@@ -70,9 +72,13 @@ class BranchTreeItem extends StatelessWidget {
   /// the truth hands over from one source to the other.
   bool get _gone => ref.isGone || isGonePending;
 
-  /// Null hides the selection checkbox entirely (HEAD can't be
-  /// multi-selected for deletion -- see SidebarPanel's doc comment).
-  final ValueChanged<bool>? onSelectedChanged;
+  /// What to print instead of `ref.shortName`.
+  ///
+  /// P02 item 12: a branch inside a folder shows only its last segment,
+  /// because the folder row above already carries the prefix. Null prints
+  /// the ref's own name. Rendering only -- the a11y label below, the filter
+  /// and every comparison stay on the full slash-separated name.
+  final String? displayName;
 
   /// Reports a modifier-carrying click for spec page 13's multi-select.
   ///
@@ -148,6 +154,11 @@ class BranchTreeItem extends StatelessWidget {
 
   bool get _isTag => ref.kind == RefKind.tag;
 
+  /// Width of the trailing actions slot. Fixed so the ⋯ buttons form one
+  /// straight column down the sidebar regardless of a row's folder depth,
+  /// name length, or tracking badge.
+  static const double _kActionsSlotWidth = 32;
+
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
@@ -182,115 +193,153 @@ class BranchTreeItem extends StatelessWidget {
         ? colors.textTertiary
         : (chip.text == colors.textOnAccent ? colors.accent : chip.text);
 
-    final Widget row = Container(
-      height: GbmSpacing.rowHeightCompact,
-      padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
-      decoration: BoxDecoration(
-        color: ref.isHead ? colors.surfaceSelected : null,
-        borderRadius: BorderRadius.circular(GbmSpacing.radiusSm),
-      ),
-      child: Row(
-        children: <Widget>[
-          if (onSelectedChanged != null)
-            Semantics(
-              label: 'Select ${ref.shortName} for bulk delete',
-              child: Checkbox(
-                value: selected,
-                onChanged: (value) => onSelectedChanged!(value ?? false),
-                visualDensity: VisualDensity.compact,
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
+    final Widget row = Row(
+      children: <Widget>[
+        LucideIcon(iconName, size: 13, color: iconColor),
+        const SizedBox(width: GbmSpacing.space2),
+        // 4:1 against the tracking label below. The label used to be a
+        // plain non-flex Text: RenderFlex sizes non-flex children first,
+        // so "up 1234 down 5678" took whatever it wanted and left the name
+        // whatever remained -- which at the sidebar's 180px minimum, with
+        // a few levels of folder indent in front, is close to nothing. The
+        // name is what the row is for and it has no icon or tooltip
+        // standing in for it, so it is the half that keeps the space.
+        Expanded(
+          flex: 4,
+          child: Text(
+            displayName ?? ref.shortName,
+            style: TextStyle(
+              fontSize: GbmTypography.textSm,
+              fontWeight: ref.isHead
+                  ? GbmTypography.weightSemibold
+                  : GbmTypography.weightRegular,
+              color: colors.textPrimary,
+              // Spec page 02 stage 1: 「該列轉半透明、名稱加刪除線」.
+              decoration: _gone ? TextDecoration.lineThrough : null,
+              decorationColor: colors.textPrimary,
             ),
-          LucideIcon(iconName, size: 13, color: iconColor),
-          const SizedBox(width: GbmSpacing.space2),
-          // 4:1 against the tracking label below. The label used to be a
-          // plain non-flex Text: RenderFlex sizes non-flex children first,
-          // so "up 1234 down 5678" took whatever it wanted and left the name
-          // whatever remained -- which at the sidebar's 180px minimum, with
-          // a few levels of folder indent in front, is close to nothing. The
-          // name is what the row is for and it has no icon or tooltip
-          // standing in for it, so it is the half that keeps the space.
-          Expanded(
-            flex: 4,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        if (_gone)
+          Flexible(
             child: Text(
-              ref.shortName,
+              'gone',
               style: TextStyle(
-                fontSize: GbmTypography.textSm,
-                fontWeight: ref.isHead
-                    ? GbmTypography.weightSemibold
-                    : GbmTypography.weightRegular,
-                color: colors.textPrimary,
-                // Spec page 02 stage 1: 「該列轉半透明、名稱加刪除線」.
-                decoration: _gone ? TextDecoration.lineThrough : null,
-                decorationColor: colors.textPrimary,
+                fontSize: GbmTypography.textXs,
+                color: colors.danger,
               ),
               overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+            ),
+          )
+        else if (ref.hasTrackingInfo && (ref.ahead > 0 || ref.behind > 0))
+          Flexible(
+            child: Text(
+              '${ref.ahead > 0 ? '↑${ref.ahead}' : ''}${ref.behind > 0 ? ' ↓${ref.behind}' : ''}',
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                color: colors.textTertiary,
+              ),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
             ),
           ),
-          if (_gone)
-            Flexible(
-              child: Text(
-                'gone',
-                style: TextStyle(
-                  fontSize: GbmTypography.textXs,
-                  color: colors.danger,
-                ),
-                overflow: TextOverflow.ellipsis,
-                maxLines: 1,
-              ),
-            )
-          else if (ref.hasTrackingInfo && (ref.ahead > 0 || ref.behind > 0))
-            Flexible(
-              child: Text(
-                '${ref.ahead > 0 ? '↑${ref.ahead}' : ''}${ref.behind > 0 ? ' ↓${ref.behind}' : ''}',
-                style: TextStyle(
-                  fontSize: GbmTypography.textXs,
-                  color: colors.textTertiary,
-                ),
-                overflow: TextOverflow.ellipsis,
-                maxLines: 1,
-              ),
+      ],
+    );
+
+    // The body selects; the actions button does not. Wrapping the whole row
+    // instead would mean opening a row's ⋯ menu also selected it, which pops
+    // the "N selected" action bar out of nowhere and shifts every row down --
+    // a menu should not mutate the selection it is about to act on.
+    final Widget rowWithActions = Row(
+      children: <Widget>[
+        Expanded(
+          child: Listener(
+            // MULTIKEYS: 「單擊 ＝ 只選這一項，anchor 移到這一項」. Plain,
+            // Ctrl/Cmd and Shift clicks all arrive here.
+            //
+            // On pointer-down rather than through GbmRow.onTap because an
+            // InkWell carrying both onTap and onDoubleTap makes Flutter's
+            // gesture arena withhold the tap for kDoubleTapTimeout (~300ms).
+            // The row would then highlight a third of a second after the
+            // click, on the sidebar's most-used interaction. Desktop file
+            // lists select on the first press and open on the second; a
+            // Listener expresses that because it never enters the arena.
+            // Ancestors stay on the hit-test path, so GbmRow still sees the
+            // double tap.
+            //
+            // Not a second source of truth: select and checkout are two
+            // different actions on two different triggers. The second press
+            // of a double-click re-selects the row it is already on, which
+            // is idempotent.
+            behavior: HitTestBehavior.opaque,
+            onPointerDown: onSelect == null
+                ? null
+                : (PointerDownEvent event) {
+                    if (event.buttons != kPrimaryButton) return;
+                    onSelect!(currentSelectionGesture());
+                  },
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              // BRANCH_STATES: 「點兩下即 checkout」. HEAD is already checked
+              // out and spec page 07 forbids moving HEAD mid-sequencer, so
+              // both are inert rather than ignored on arrival.
+              onDoubleTap: ref.isHead || conflictActive ? null : onCheckout,
+              child: row,
             ),
-          if (onRename != null ||
-              onDelete != null ||
-              onPruneRef != null ||
-              onDeleteOnRemote != null)
-            Builder(
-              builder: (buttonContext) => IconButton(
-                tooltip: 'Branch actions',
-                icon: Icon(
-                  Icons.more_vert,
-                  size: 16,
-                  color: colors.textTertiary,
-                ),
-                iconSize: 16,
-                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                padding: EdgeInsets.zero,
-                onPressed: () {
-                  final RenderBox renderBox =
-                      buttonContext.findRenderObject()! as RenderBox;
-                  final Offset globalPos = renderBox.localToGlobal(Offset.zero);
-                  showGbmContextMenu(
-                    buttonContext,
-                    globalPos,
-                    _buildMenuItems(),
-                  );
-                },
+          ),
+        ),
+        // Every row kind's _buildMenuItems() returns a non-empty list, so
+        // every row gets the button -- and it lives in a fixed-width slot so
+        // the column is straight by construction rather than by luck.
+        //
+        // It used to appear only when one of four specific branch callbacks
+        // was set, which a tag row never has: the TAGS section had a hole in
+        // the column, and a tag's own 05-D menu had no visible entry point at
+        // all. The folder indent is EdgeInsets.only(left:), so nothing else
+        // can move this edge.
+        SizedBox(
+          width: _kActionsSlotWidth,
+          child: Builder(
+            builder: (buttonContext) => IconButton(
+              tooltip: 'Branch actions',
+              icon: Icon(Icons.more_vert, size: 16, color: colors.textTertiary),
+              iconSize: 16,
+              constraints: const BoxConstraints(
+                minWidth: _kActionsSlotWidth,
+                minHeight: _kActionsSlotWidth,
               ),
+              padding: EdgeInsets.zero,
+              onPressed: () {
+                final RenderBox renderBox =
+                    buttonContext.findRenderObject()! as RenderBox;
+                final Offset globalPos = renderBox.localToGlobal(Offset.zero);
+                showGbmContextMenu(buttonContext, globalPos, _buildMenuItems());
+              },
             ),
-        ],
-      ),
+          ),
+        ),
+      ],
     );
 
     final Widget maybeTooltip = _gone && ref.upstream.isNotEmpty
-        ? Tooltip(message: 'Upstream gone: ${ref.upstream}', child: row)
-        : row;
+        ? Tooltip(
+            message: 'Upstream gone: ${ref.upstream}',
+            child: rowWithActions,
+          )
+        : rowWithActions;
 
     // Spec's BRANCH_STATES: remote-only rows render at .62 opacity --
     // "本機還沒有這條分支" (the local machine doesn't have this branch yet).
     // Spec page 02 stage 1 dims a gone row for a different reason ("this no
     // longer exists on the remote"); the strikethrough on the name is what
     // tells the two apart, since a remote-only row can be either.
+    //
+    // Wraps the *content* only. It used to sit inside the row's own
+    // Container, which dimmed the selected background along with it -- so a
+    // dimmed row also got dimmed hover and selection feedback, i.e. the
+    // states the user needs most on the rows that are hardest to read.
     final Widget maybeDim = _isRemoteOnly || _gone
         ? Opacity(opacity: 0.62, child: maybeTooltip)
         : maybeTooltip;
@@ -298,24 +347,29 @@ class BranchTreeItem extends StatelessWidget {
     return Semantics(
       button: !ref.isHead,
       label: label.toString(),
-      child: GestureDetector(
+      child: GbmRow(
+        height: GbmSpacing.rowHeightCompact,
+        padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
+        // Two rows share one background token by design. BRANCH_STATES draws
+        // 目前分支 as 「整列以 selected 底色標示」 and a bulk-selected row uses
+        // the same surface; the bold name is what still tells HEAD apart.
+        //
+        // Before this, `selected` had exactly one consumer in the whole
+        // widget -- the checkbox's `value:` -- so a selected row was
+        // otherwise indistinguishable from an idle one.
+        selected: ref.isHead || selected,
         onSecondaryTapDown: (details) => _openContextMenu(context, details),
-        child: InkWell(
-          onTap: _isRemoteOnly
-              ? null
-              : () {
-                  final SelectionGesture gesture = currentSelectionGesture();
-                  if (gesture != SelectionGesture.single && onSelect != null) {
-                    onSelect!(gesture);
-                    return;
-                  }
-                  if (ref.isHead || conflictActive) return;
-                  onCheckout();
-                },
-          onDoubleTap: _isRemoteOnly && !conflictActive ? onCheckout : null,
-          borderRadius: BorderRadius.circular(GbmSpacing.radiusSm),
-          child: maybeDim,
-        ),
+        // No primary tap callback on purpose. A DoubleTapGestureRecognizer
+        // anywhere on the row's ancestor path holds the gesture arena open
+        // for kDoubleTapTimeout, which would make every press of the trailing
+        // ⋯ button wait ~300ms for its own menu. Both primary gestures live
+        // on the row *body* below instead, where the button is a sibling
+        // rather than a descendant and competes with nothing.
+        //
+        // Hover survives this: InkResponse.isWidgetEnabled is
+        // `_primaryButtonEnabled || _secondaryButtonEnabled`, and
+        // onSecondaryTapDown satisfies the second half.
+        child: maybeDim,
       ),
     );
   }

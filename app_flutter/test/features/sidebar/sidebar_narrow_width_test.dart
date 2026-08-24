@@ -19,6 +19,7 @@
 // where every glyph is one em wide, so text measures wider here than on a
 // real device and a hardcoded threshold would encode the harness instead of
 // the behaviour.
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -78,13 +79,18 @@ RefSnapshot _refs(List<RefInfo> refs) => RefSnapshot(
 
 const String _longSegment = 'an-extremely-long-name-that-will-not-fit-at-all';
 
-// BranchTreeItem renders `ref.shortName`, which is the *full* branch name --
-// a leaf nested under folders still shows the whole slash-separated path, on
-// top of the indent those folders add. Found by dumping the rendered Texts;
-// the obvious guess ("the leaf shows its last segment") is wrong and would
-// make every finder below miss.
-const String _deepLeaf = '$_longSegment/team/subsystem/$_longSegment';
+// A leaf under folders prints only its last segment (P02 item 12), so the
+// finders below match the segment, not the whole path. This comment used to
+// say the opposite and called the last-segment reading "wrong" -- it was
+// describing the bug, which the spec's own BRANCH_TREE mock contradicts.
+//
+// The last segment is deliberately *not* `_longSegment`: that is also the
+// root folder's name, and an exact-text finder would then match two rows.
+const String _deepLeafLabel =
+    'a-second-extremely-long-name-that-also-will-not-fit';
+const String _deepLeaf = '$_longSegment/team/subsystem/$_deepLeafLabel';
 const String _siblingLeaf = '$_longSegment/team/subsystem/sibling';
+const String _siblingLabel = 'sibling';
 
 /// A four-level tree whose deepest leaf also carries a long name and a
 /// tracking label -- B1, B2 and B4 all at once. Two children per folder so
@@ -97,7 +103,7 @@ final RefSnapshot _deepRefs = _refs(<RefInfo>[
     ahead: 1234,
     behind: 5678,
   ),
-  _branch('$_longSegment/team/subsystem/sibling'),
+  _branch(_siblingLeaf),
   _branch('$_longSegment/team/other'),
   _branch('$_longSegment/second'),
 ]);
@@ -226,10 +232,10 @@ void main() {
       // "No overflow" alone would pass with the name's Expanded collapsed to
       // zero by the non-flex tracking label beside it -- which is exactly
       // the failure this row had.
-      // Deliberately the leaf, not `find.text(_longSegment).last` -- that
-      // matches the folder row (exact-text finder), so it would have
-      // asserted the wrong widget's width entirely.
-      expect(tester.getSize(find.text(_deepLeaf)).width, greaterThan(0));
+      // Deliberately the leaf's own label, not `find.text(_longSegment)` --
+      // that matches the root folder row (exact-text finder), so it would
+      // have asserted the wrong widget's width entirely.
+      expect(tester.getSize(find.text(_deepLeafLabel)).width, greaterThan(0));
     });
   });
 
@@ -240,7 +246,7 @@ void main() {
       await _expand(tester, 'team');
       await _expand(tester, 'subsystem');
 
-      final Rect leaf = tester.getRect(find.text(_siblingLeaf));
+      final Rect leaf = tester.getRect(find.text(_siblingLabel));
       expect(leaf.left, lessThan(GbmLayout.sidebarMinWidth));
       expect(leaf.width, greaterThan(0));
     });
@@ -250,8 +256,12 @@ void main() {
     testWidgets('does not overflow with a selection at 180px', (tester) async {
       await _pump(tester, refs: _flatRefs);
 
-      await tester.tap(find.byType(Checkbox).first);
-      await tester.pump();
+      // A plain click is the selection gesture now (MULTIKEYS 單擊); the
+      // row no longer carries a checkbox to tick.
+      await tester.tap(find.text('feature-one'));
+      // Lets the double-tap window close so the recognizer's timer does not
+      // outlive the test. The selection itself already landed on pointer-down.
+      await tester.pump(kDoubleTapTimeout);
 
       expect(find.textContaining('selected'), findsOneWidget);
       expect(tester.takeException(), isNull);
@@ -266,7 +276,7 @@ void main() {
       await _expand(tester, 'subsystem');
 
       expect(tester.takeException(), isNull);
-      expect(find.text(_siblingLeaf), findsOneWidget);
+      expect(find.text(_siblingLabel), findsOneWidget);
       expect(find.text('main'), findsOneWidget);
     });
   });

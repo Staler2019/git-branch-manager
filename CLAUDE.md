@@ -618,9 +618,27 @@ you are touching, not by when it was learned.
   overflow" while collapsing its child to zero, so assert visibility, not
   absence of exception.
 - Tapping an `InkWell` does **not** give it focus — call `requestFocus()`
-  first if a focus-scoped shortcut has to work after a click. And a test for
-  that must use a *modifier* click, since a plain click on a branch row
-  routes through checkout.
+  first if a focus-scoped shortcut has to work after a click. In the sidebar
+  that call lives in `_onBranchSelect`, so it now runs on *every* click; the
+  clause that used to be here ("a plain click on a branch row routes through
+  checkout") stopped being true when single-click became selection.
+- **A hand-rolled `InkWell` silently inherits `ThemeData.hoverColor`** — about
+  4% black/white, invisible on a real display. `lib/widgets/gbm_row.dart`
+  exists to pass `surfaceHover`/`surfaceSelected` for you; the sidebar shipped
+  with no visible hover for months because its row built its own `Container` +
+  `InkWell` instead (ledger: "Sidebar branch rows"). Reach for `GbmRow` for
+  anything row-shaped, and assert the token by identity — hover cannot be
+  proven by a widget test that only checks for no exception.
+- **The gesture arena taxes double-clickable rows, and it is not local.** An
+  `InkWell` holding both `onTap` and `onDoubleTap` withholds the tap for
+  `kDoubleTapTimeout` (~300ms), and a `DoubleTapGestureRecognizer` anywhere on
+  the *ancestor* path does the same to every child button underneath it — a
+  row's own ⋯ button waits out the row's double-tap timer. Put an immediate
+  action on `Listener(onPointerDown:)` (never enters the arena) and keep the
+  double-tap on the narrowest subtree that needs it. `InkResponse` stays
+  hover-enabled with no primary callback at all, because `isWidgetEnabled` is
+  `_primaryButtonEnabled || _secondaryButtonEnabled` and `onSecondaryTapDown`
+  satisfies the second half.
 - **`Ctrl/Cmd+A` must be bound inside the list's own focus scope**, never
   app-wide: a `Shortcuts` closer to a focused editor than
   `DefaultTextEditingShortcuts` steals text select-all.
@@ -655,6 +673,20 @@ you are touching, not by when it was learned.
 - **`RefInfo.ahead` means nothing when `upstream` is empty** — a branch that
   never had one reports `0`, which rendered literally claims the opposite of
   the truth.
+- **The current branch is pinned inside its own folder, by the tree's
+  comparator.** `BRANCH_STATES`: 「永遠置頂於所屬資料夾內，且不受 filter
+  影響」 — first among its *siblings*, not hoisted to row zero, and not only
+  while filtering. It lives in `branch_tree_builder.dart`'s
+  `_compareTreeNodes` because sorting a level is the only place that knows
+  what "its own folder" means, and it outranks the folders-before-leaves rule
+  (`BRANCH_TREE` draws `main` above the folders at its depth). The filter
+  half is `sidebar_panel.dart` adding HEAD *back into the builder's input*
+  when a query drops it — a row rendered outside the tree has no folder to
+  sit in, which is exactly why the previous version had to hoist it. **P02-14
+  rule 7's bare 「永遠置頂顯示」 does not overrule this**: `BRANCH_STATES` is
+  the specific rule, so when a matching folder sorts before HEAD's folder,
+  HEAD renders *second* and that is correct
+  (`sidebar_current_branch_pin_test.dart` asserts it).
 - **`RefInfo.isGone` can only be true after a prune** (git reports `[gone]`
   only once the remote-tracking ref is already deleted). Gone *marking* comes
   from `git remote prune --dry-run`, deliberately not from `fetch --prune` —
@@ -740,6 +772,18 @@ you are touching, not by when it was learned.
   spec wanted (#60, closed as not-planned). The same rule settled the
   fetch/prune contradiction: P10's mockup draws `--prune`, its own prose says
   「標記為 gone（尚未 prune）」, and the prose wins.
+- **P13's `MULTIKEYS` is the authority for the branch list's selection
+  model, and it contains no checkbox** — 「單擊 ＝ 只選這一項」, Ctrl/Cmd toggles,
+  Shift ranges, Ctrl/Cmd+A, Esc. Checkout is a *double* click
+  (`BRANCH_STATES`). A selection UI that needs a checkbox to be visible is a
+  sign the row is missing its selected background, not that the spec wants a
+  box (ledger: "Sidebar branch rows").
+- **Any "range" over a list must be measured in the order the rows are
+  painted**, not the order the model happens to hold them. The sidebar's tree
+  sorts folders before leaves and each group alphabetically, so ref order and
+  render order disagree the moment a folder exists; Shift-click and Shift+↑/↓
+  both spanned the wrong rows until they read a list walked out of the built
+  tree. A `containsAll` assertion cannot see this — use set equality.
 - **The spec HTML has 21 pages**
   (`docs/claude-design-demo/Flutter Desktop Spec (standalone).html`), and
   `docs/reports/spec-conformance-matrix.md` was written against 12. **P16's

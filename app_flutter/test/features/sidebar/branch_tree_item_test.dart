@@ -1,5 +1,7 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/actions/gbm_selection_gesture.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
 import 'package:gbm_flutter/features/sidebar/widgets/branch_tree_item.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
@@ -20,6 +22,22 @@ RefInfo _remoteOnlyRef({String shortName = 'worktrees'}) => RefInfo(
   isSymbolic: false,
   worktreePath: '',
 );
+
+/// The row's own tappable area. Every row now carries a trailing actions
+/// button, and that button has an InkWell of its own, so `find.byType(InkWell)`
+/// is ambiguous. The row centre is inside the body, which is the half that
+/// selects and double-clicks.
+final Finder _rowBody = find.byType(BranchTreeItem);
+
+/// Checkout is a double-click now (BRANCH_STATES 「點兩下即 checkout」), so a
+/// test that still single-taps would pass for the wrong reason: a single tap
+/// never checks out anything any more.
+Future<void> _doubleTap(WidgetTester tester) async {
+  await tester.tap(_rowBody);
+  await tester.pump(const Duration(milliseconds: 100));
+  await tester.tap(_rowBody);
+  await tester.pumpAndSettle();
+}
 
 void main() {
   testWidgets('checkout is disabled when conflictActive is true', (
@@ -54,15 +72,13 @@ void main() {
       ),
     );
 
-    // Try to tap the branch item
-    await tester.tap(find.byType(InkWell));
-    await tester.pumpAndSettle();
+    await _doubleTap(tester);
 
     // Checkout should not have been called
     expect(checkoutCount, 0);
   });
 
-  testWidgets('checkout is enabled when conflictActive is false', (
+  testWidgets('a double tap checks out when conflictActive is false', (
     tester,
   ) async {
     int checkoutCount = 0;
@@ -94,11 +110,8 @@ void main() {
       ),
     );
 
-    // Tap the branch item
-    await tester.tap(find.byType(InkWell));
-    await tester.pumpAndSettle();
+    await _doubleTap(tester);
 
-    // Checkout should have been called
     expect(checkoutCount, 1);
   });
 
@@ -132,11 +145,52 @@ void main() {
       ),
     );
 
-    // Try to tap the branch item (which is HEAD)
-    await tester.tap(find.byType(InkWell));
-    await tester.pumpAndSettle();
+    await _doubleTap(tester);
 
-    // Checkout should not have been called
+    expect(checkoutCount, 0);
+  });
+
+  testWidgets('a single tap on a local branch selects, and does not check '
+      'out (MULTIKEYS 單擊)', (tester) async {
+    // The behaviour this round inverted. It used to be the other way round --
+    // a plain click was the checkout -- which is what P13's MULTIKEYS table
+    // contradicts: 「單擊 ＝ 只選這一項，anchor 移到這一項」.
+    int checkoutCount = 0;
+    final List<SelectionGesture> gestures = <SelectionGesture>[];
+    final testRef = RefInfo(
+      fullName: 'refs/heads/feature',
+      shortName: 'feature',
+      kind: RefKind.localBranch,
+      target: 'abc123',
+      isHead: false,
+      isGone: false,
+      upstream: '',
+      ahead: 0,
+      behind: 0,
+      hasTrackingInfo: false,
+      isSymbolic: false,
+      worktreePath: '',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+        home: Scaffold(
+          body: BranchTreeItem(
+            ref: testRef,
+            onCheckout: () => checkoutCount++,
+            onSelect: gestures.add,
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(_rowBody);
+    await tester.pump(kDoubleTapTimeout);
+
+    // Counted, not `any`: a row that both selected *and* checked out would
+    // satisfy a truthy assertion on either one.
+    expect(gestures, <SelectionGesture>[SelectionGesture.single]);
     expect(checkoutCount, 0);
   });
 
@@ -155,7 +209,7 @@ void main() {
         ),
       );
 
-      await tester.tap(find.byType(InkWell));
+      await tester.tap(_rowBody);
       await tester.pumpAndSettle();
 
       expect(checkoutCount, 0);
@@ -175,9 +229,9 @@ void main() {
         ),
       );
 
-      await tester.tap(find.byType(InkWell));
+      await tester.tap(_rowBody);
       await tester.pump(const Duration(milliseconds: 100));
-      await tester.tap(find.byType(InkWell));
+      await tester.tap(_rowBody);
       await tester.pumpAndSettle();
 
       expect(checkoutCount, 1);
@@ -200,9 +254,9 @@ void main() {
         ),
       );
 
-      await tester.tap(find.byType(InkWell));
+      await tester.tap(_rowBody);
       await tester.pump(const Duration(milliseconds: 100));
-      await tester.tap(find.byType(InkWell));
+      await tester.tap(_rowBody);
       await tester.pumpAndSettle();
 
       expect(checkoutCount, 0);

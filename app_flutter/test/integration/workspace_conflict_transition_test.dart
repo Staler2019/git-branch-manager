@@ -17,14 +17,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:gbm_flutter/data/models/git_error.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
 import 'package:gbm_flutter/data/models/repo_state.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
+import 'package:gbm_flutter/features/workspace/widgets/action_toolbar.dart';
 import 'package:gbm_flutter/features/workspace/workspace_screen.dart'
     show ConflictBanner;
+import 'package:gbm_flutter/widgets/gbm_button.dart';
+import 'package:gbm_flutter/routing/dialog_route.dart';
+import 'package:gbm_flutter/routing/route_paths.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
 
@@ -152,9 +157,60 @@ Future<void> _pressCtrlShiftF(WidgetTester tester) async {
 /// through, `colors.textPrimary`/hover color otherwise. Leaves the menu
 /// open; callers only need one read per pumped tree.
 Color _repositoryMenuItemColor(WidgetTester tester, String label) {
-  final Text text = tester.widget<Text>(find.text(label));
+  // The P02-2 toolbar renders 'Fetch'/'Pull'/'Push' as well, so an unscoped
+  // find.text() matches two widgets once the menu is open. The menu row is
+  // the one that is *not* inside ActionToolbar -- _GbmMenuPanel/_GbmMenuRow
+  // are both private, so there is no public type to scope to positively.
+  final Set<Element> inToolbar = find
+      .descendant(of: find.byType(ActionToolbar), matching: find.text(label))
+      .evaluate()
+      .toSet();
+  final Text text =
+      find
+              .text(label)
+              .evaluate()
+              .firstWhere((Element e) => !inToolbar.contains(e))
+              .widget
+          as Text;
   return text.style!.color!;
 }
+
+/// The [ActionToolbar] button labelled [label]. Scoped to the toolbar
+/// because the Repository / Branch menus carry the same words, and an
+/// unscoped finder would silently start matching one of those instead the
+/// moment a menu is open.
+GbmButton _toolbarButton(WidgetTester tester, String label) =>
+    tester.widget<GbmButton>(
+      find.descendant(
+        of: find.byType(ActionToolbar),
+        matching: find.widgetWithText(GbmButton, label),
+      ),
+    );
+
+const List<String> _toolbarLabels = <String>[
+  'Fetch',
+  'Pull',
+  'Push',
+  'Branch',
+  'Stash',
+];
+
+/// Sentinel destinations for the two toolbar buttons that navigate rather
+/// than dispatch a command. Branch and Stash are gated identically and both
+/// only `context.push(...)`, so asserting `onPressed != null` alone cannot
+/// tell them apart -- swapping the two handlers would leave every such
+/// assertion green (verified by mutation). These routes are what makes the
+/// two distinguishable.
+List<RouteBase> _branchAndStashDialogRoutes() => <RouteBase>[
+  dialogRoute(
+    path: RoutePaths.newBranchDialog,
+    builder: (context, state) => const Text('NEW-BRANCH-DIALOG'),
+  ),
+  dialogRoute(
+    path: RoutePaths.stashChangesDialog,
+    builder: (context, state) => const Text('STASH-CHANGES-DIALOG'),
+  ),
+];
 
 void main() {
   final GbmColors colors = buildGbmTheme(
@@ -414,5 +470,161 @@ void main() {
         );
       },
     );
+  });
+
+  // Spec P02 item 2 is the toolbar row itself, and spec P07's STATES table
+  // gates it: 「Fetch / Pull / Push 全部可用」when clean, 「三顆停用，改由
+  // banner 提供 Abort / Skip / Continue / Resolve…」when not. Until this
+  // round the row did not exist, so every check of that rule -- including
+  // this file's own header, which already claimed to drive "Toolbar
+  // Fetch·Pull·Push" -- was really checking isActionEnabled(), the gate,
+  // rather than the surface being gated. These tests go through the real
+  // buttons.
+  group('spec P02-2 toolbar', () {
+    testWidgets('clean: all five buttons are enabled', (tester) async {
+      await pumpWorkspace(
+        tester,
+        identity: _identity,
+        initialState: _cleanSession(),
+      );
+
+      for (final String label in _toolbarLabels) {
+        expect(
+          _toolbarButton(tester, label).onPressed,
+          isNotNull,
+          reason: '$label must be pressable while the work tree is clean',
+        );
+      }
+    });
+
+    testWidgets('clean: tapping Fetch/Pull/Push dispatches exactly once each', (
+      tester,
+    ) async {
+      final pumped = await pumpWorkspace(
+        tester,
+        identity: _identity,
+        initialState: _cleanSession(),
+      );
+
+      for (final (String label, String command) in <(String, String)>[
+        ('Fetch', 'fetchRemote'),
+        ('Pull', 'pullChanges'),
+        ('Push', 'pushChanges'),
+      ]) {
+        await tester.tap(
+          find.descendant(
+            of: find.byType(ActionToolbar),
+            matching: find.widgetWithText(GbmButton, label),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Counted, not `.any()` -- a second tappable layered over the button
+        // would double-dispatch, and `.any()` cannot see that.
+        expect(
+          pumped.controller.commandLog.where((c) => c.name == command).length,
+          1,
+          reason: 'the toolbar $label button must reach $command() once',
+        );
+      }
+    });
+
+    testWidgets(
+      'conflict: all five buttons are disabled and dispatch nothing',
+      (tester) async {
+        final pumped = await pumpWorkspace(
+          tester,
+          identity: _identity,
+          initialState: _conflictSession(),
+        );
+
+        for (final String label in _toolbarLabels) {
+          expect(
+            _toolbarButton(tester, label).onPressed,
+            isNull,
+            reason:
+                '$label moves HEAD or starts a second sequencer operation, so '
+                'spec P07 disables it while conflictActive is true',
+          );
+        }
+
+        final int before = pumped.controller.commandLog.length;
+        for (final String label in _toolbarLabels) {
+          await tester.tap(
+            find.descendant(
+              of: find.byType(ActionToolbar),
+              matching: find.widgetWithText(GbmButton, label),
+            ),
+            warnIfMissed: false,
+          );
+          await tester.pumpAndSettle();
+        }
+        expect(
+          pumped.controller.commandLog.length,
+          before,
+          reason: 'a greyed button must also be inert, not merely grey',
+        );
+      },
+    );
+
+    testWidgets('conflict -> clean reopens every toolbar button', (
+      tester,
+    ) async {
+      // The round trip, not just the conflict half: a gate that latches
+      // closed looks identical to a correct one until the conflict clears.
+      final pumped = await pumpWorkspace(
+        tester,
+        identity: _identity,
+        initialState: _conflictSession(),
+      );
+      expect(_toolbarButton(tester, 'Fetch').onPressed, isNull);
+
+      pumped.controller.emit(_cleanSession());
+      await tester.pumpAndSettle();
+
+      for (final String label in _toolbarLabels) {
+        expect(
+          _toolbarButton(tester, label).onPressed,
+          isNotNull,
+          reason: '$label must come back once the conflict is resolved',
+        );
+      }
+    });
+
+    testWidgets('Branch and Stash open their own dialogs, not each other\'s', (
+      tester,
+    ) async {
+      await pumpWorkspace(
+        tester,
+        identity: _identity,
+        initialState: _cleanSession(),
+        topLevelRoutes: _branchAndStashDialogRoutes(),
+      );
+
+      await tester.tap(
+        find.descendant(
+          of: find.byType(ActionToolbar),
+          matching: find.widgetWithText(GbmButton, 'Branch'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('NEW-BRANCH-DIALOG'), findsOneWidget);
+      expect(find.text('STASH-CHANGES-DIALOG'), findsNothing);
+
+      // Back to the workspace before the second half, or the first dialog
+      // stays on the stack and the second assertion reads a stale tree.
+      Navigator.of(tester.element(find.text('NEW-BRANCH-DIALOG'))).pop();
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.descendant(
+          of: find.byType(ActionToolbar),
+          matching: find.widgetWithText(GbmButton, 'Stash'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('STASH-CHANGES-DIALOG'), findsOneWidget);
+      expect(find.text('NEW-BRANCH-DIALOG'), findsNothing);
+    });
   });
 }

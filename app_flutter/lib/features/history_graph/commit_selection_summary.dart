@@ -9,11 +9,18 @@ import '../../data/models/list_selection.dart';
 /// user looking at three greyed-out menu items needs somewhere that says why.
 ///
 /// **Reduced deliberately: no 合計 diff.** The spec's own mock reads
-/// `4 commits · 連續 · 9 files changed · +311 −54`, but `ChangedFile` carries
-/// no added/removed line counts, and the only path in the core that runs
-/// `--numstat` is `CompareOps.cpp`'s range diff — so a running total would
-/// mean firing a range diff on every selection change. Absent rather than
-/// faked, same convention as `MULTIACTS`' `Squash`.
+/// `4 commits · 連續 · 9 files changed · +311 −54`. Half the original reason
+/// is gone: `ChangedFile` now *does* carry added/removed line counts, because
+/// `DiffService::changedFiles()` joins `diff-tree --numstat` onto the raw list
+/// for spec page 02 item 10's per-file badge (see docs/ledger.md's "Changed
+/// files line counts").
+///
+/// The other half stands, and is why this is still absent. A *total* spans a
+/// selection, so it needs the counts for every selected commit, not for the
+/// one whose panel is open — that means a `changedFiles()` call per commit on
+/// every selection change, each of which now runs two git invocations rather
+/// than one. Absent rather than faked, same convention as `MULTIACTS`'
+/// `Squash`.
 ///
 /// Returns null below two items rather than `1 commit · contiguous`: a single
 /// commit has nothing to be contiguous *with*, so the phrase would be filler,

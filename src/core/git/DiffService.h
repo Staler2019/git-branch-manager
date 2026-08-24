@@ -18,8 +18,13 @@
 
 namespace gbm {
 
-/// One entry in a commit's changed-file list, from `diff-tree --raw`. Cheap: no
-/// content is read, so clicking through commits stays instant.
+/// One entry in a commit's changed-file list, from `diff-tree --raw` plus a
+/// second `diff-tree --numstat` pass for the line counts.
+///
+/// No file *content* is read either way -- both are summaries -- but the
+/// numstat pass does make git compute the diff, so this is no longer as close
+/// to free as the raw pass alone was. `fileListCache_` covers the repeat cost
+/// of clicking back to a commit already visited.
 struct ChangedFile {
     std::string path;
     std::string oldPath;  ///< Set for renames and copies.
@@ -29,6 +34,12 @@ struct ChangedFile {
     std::string oldBlob;
     std::string newBlob;
     int similarity = 0;
+
+    /// Spec page 02 item 10's "+12" badge. Both stay 0 for a binary blob,
+    /// which numstat reports as "-" rather than a number -- no badge is the
+    /// honest rendering for something that has no lines.
+    std::uint32_t addedLines = 0;
+    std::uint32_t removedLines = 0;
 };
 
 /// How many files one commit changed. The Changed files column's whole

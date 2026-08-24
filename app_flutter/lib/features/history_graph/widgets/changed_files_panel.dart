@@ -20,6 +20,7 @@ import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_row.dart';
 import '../../../widgets/file_list_mode_switcher.dart';
 import '../../../widgets/file_list_mode_toggle_button.dart';
+import '../../../widgets/gbm_badge.dart';
 import '../../../widgets/gbm_menu.dart';
 
 /// What to do with an export once its bytes land on disk. The capi echoes
@@ -427,14 +428,37 @@ class ChangedFilesPanelCore extends StatelessWidget {
       onTap: onFileTap == null ? null : () => onFileTap!(file.path),
       onSecondaryTapDown: (TapDownDetails details) =>
           _openContextMenu(context, details, file.path),
-      child: Text(
-        file.path,
-        style: TextStyle(
-          fontSize: GbmTypography.textSm,
-          color: colors.textPrimary,
-        ),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
+      // Spec page 02 item 10 draws each row as `檔名 + 綠色 +12 badge`. Same
+      // shape and the same source as `compare_page.dart`'s file rows -- both
+      // read counts that `DiffService` gets from `git diff-tree --numstat` --
+      // so History and Compare cannot disagree about a file's size.
+      //
+      // A zero draws nothing rather than "+0": binary blobs and mode-only
+      // changes both arrive as 0/0, and a badge there would claim a
+      // measurement that was never made.
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Text(
+              file.path,
+              style: TextStyle(
+                fontSize: GbmTypography.textSm,
+                color: colors.textPrimary,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (file.addedLines > 0)
+            GbmBadge(label: '+${file.addedLines}', kind: GbmBadgeKind.added),
+          if (file.removedLines > 0) ...<Widget>[
+            const SizedBox(width: GbmSpacing.space1),
+            GbmBadge(
+              label: '-${file.removedLines}',
+              kind: GbmBadgeKind.removed,
+            ),
+          ],
+        ],
       ),
     );
   }

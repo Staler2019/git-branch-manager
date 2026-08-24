@@ -123,7 +123,7 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
   /// `MULTIKEYS`' Ctrl/Cmd+A over the rows as currently rendered, so a
   /// filtered tree selects what the user can actually see.
   void _selectAllBranches() {
-    final List<String> all = _selectableBranchNames();
+    final List<String> all = _selectableNamesInRenderOrder;
     if (all.isEmpty) return;
     _treeFocus.requestFocus();
     _selectionController.state = _selection.selectAll(all);
@@ -138,7 +138,7 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
   /// anchor, which is what makes Shift+↑ after Shift+↓ shrink the range
   /// back instead of growing it the other way.
   void _extendBranchSelection(int delta) {
-    final List<String> all = _selectableBranchNames();
+    final List<String> all = _selectableNamesInRenderOrder;
     final ListSelection<String> current = _selection;
     final String? anchor = current.anchor;
     if (all.isEmpty || anchor == null) return;
@@ -302,16 +302,16 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
   /// Ctrl/Cmd-click and Shift-click on a branch row. A plain click is
   /// deliberately not routed here -- see [BranchTreeItem.onSelect].
   ///
-  /// A Shift range is measured over [_selectableBranchNames], the rows as
-  /// rendered (filter applied, HEAD and remote-only rows excluded), so the
-  /// range never quietly picks up a branch the user cannot see or act on.
+  /// A Shift range is measured over [_selectableNamesInRenderOrder] -- the
+  /// rows in the order they are actually painted -- so the range never
+  /// quietly picks up a branch the user cannot see or act on.
   void _onBranchSelect(String name, SelectionGesture gesture) {
     // Focus first: a row's InkWell is focusable for traversal but a tap does
     // not request focus, and without focus inside the tree the keyboard half
     // of MULTIKEYS (Shift+↑/↓, Ctrl/Cmd+A, Esc) never reaches
     // [_BranchSelectionShortcuts].
     _treeFocus.requestFocus();
-    final List<String> all = _selectableBranchNames();
+    final List<String> all = _selectableNamesInRenderOrder;
     final ListSelection<String> current = _selection;
     _selectionController.state = switch (gesture) {
       SelectionGesture.single => current.single(name),
@@ -325,10 +325,25 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
   /// tree's, and the tree sorts its children -- recomputing it in the key
   /// handler would mean a second copy of that ordering.
   ///
-  /// Deliberately not `_selectableBranchNames().first`: that list is in ref
-  /// order, so it would name whichever branch git happened to list first
-  /// rather than the row directly under the filter box.
+  /// Deliberately not [_selectableNamesInRenderOrder]`.first`. Both are now
+  /// in paint order, but that list drops the rows a *selection* cannot use
+  /// (HEAD, remote-only), while ↓ should land on whatever row sits directly
+  /// under the filter box regardless of whether it can be bulk-selected.
   String? _firstResultName;
+
+  /// The selectable rows **in the order they are painted**, written during
+  /// `build` from the tree for the same reason [_firstResultName] is: the
+  /// tree sorts folders before leaves and each group alphabetically, so
+  /// rendered order is the tree's and rebuilding it inside a key handler
+  /// would be a second copy of that ordering.
+  ///
+  /// This used to be derived on demand from the *ref* list, which is a
+  /// different order entirely -- git's. Every Shift range and every
+  /// Shift+arrow step was therefore measured over rows that are not the ones
+  /// on screen: with branches alpha, beta, delta, gamma the sidebar paints
+  /// them alphabetically, so Shift-clicking alpha then gamma has to take
+  /// `delta` with it, and the ref-ordered list silently left it out.
+  List<String> _selectableNamesInRenderOrder = const <String>[];
 
   /// P02-14 rule 8. Also the clear button's action, so the two cannot drift.
   void _clearFilter() {
@@ -364,18 +379,32 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     return null;
   }
 
-  /// The rows a range can span: the merged tree as currently filtered,
-  /// minus HEAD and remote-only rows (neither is bulk-selectable).
-  List<String> _selectableBranchNames() {
-    final RefSnapshot refs = ref.read(repoRefsProvider(widget.identity));
-    final List<RefInfo> visible = filterBranches(
-      mergeLocalAndRemoteBranches(refs.localBranches, refs.remoteBranches),
-      _filterQuery,
-    );
-    return <String>[
-      for (final RefInfo b in visible)
-        if (_isBulkSelectable(b) && b.kind != RefKind.remoteBranch) b.shortName,
-    ];
+  /// The rows a range can span, walked out of the tree in paint order:
+  /// minus HEAD and remote-only rows (neither is bulk-selectable), and
+  /// minus anything inside a collapsed folder.
+  ///
+  /// Collapsed children are excluded because `_buildFolderNode` does not
+  /// render them at all. A range that spanned them would select branches
+  /// with no visible row, and a later Shift+arrow could not step onto one --
+  /// so all three selection entry points read the same list and cannot
+  /// disagree about what "the current list" means.
+  List<String> _selectableLeafNames(List<BranchTreeNode> nodes) {
+    final List<String> names = <String>[];
+    void walk(List<BranchTreeNode> level) {
+      for (final BranchTreeNode node in level) {
+        if (node is BranchTreeLeaf) {
+          if (node.ref.kind != RefKind.remoteBranch &&
+              _isBulkSelectable(node.ref)) {
+            names.add(node.ref.shortName);
+          }
+        } else if (node is BranchTreeFolder && node.isExpanded) {
+          walk(node.children);
+        }
+      }
+    }
+
+    walk(nodes);
+    return names;
   }
 
   /// Spec page 13's `MULTIBRANCHMENU`, opened by right-clicking any row
@@ -931,6 +960,7 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
       expandAll: isFiltering,
     );
     _firstResultName = _firstLeafName(branchTree);
+    _selectableNamesInRenderOrder = _selectableLeafNames(branchTree);
     final List<RefInfo> filteredTags = filterBranches(refs.tags, _filterQuery);
     // Stashes go through the same rule as branches and tags: P02-14 is one
     // box over three sections, so a query that finds a branch by its

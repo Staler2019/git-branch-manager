@@ -10,7 +10,6 @@ import '../../data/models/remote_info.dart';
 import '../../data/models/stash_entry.dart';
 import '../../data/repositories/branch_repository.dart';
 import '../../data/repositories/compare_tabs_repository.dart';
-import '../../data/repositories/panel_tabs_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../actions/gbm_selection_gesture.dart';
 import '../../data/models/list_selection.dart';
@@ -27,9 +26,11 @@ import '../repo_switcher/repo_switcher_popover.dart';
 import 'branch_tree_builder.dart';
 import 'gone_marking.dart';
 import 'widgets/branch_folder_menu_items.dart';
+import 'widgets/branch_selection_action_bar.dart';
 import 'widgets/branch_tree_item.dart';
 import 'widgets/multi_branch_menu_items.dart';
-import 'widgets/stash_menu_items.dart';
+import 'widgets/sidebar_stash_section.dart';
+import 'widgets/sidebar_tag_section.dart';
 import 'branch_filter.dart';
 
 /// Local branches for the open repository, with checkout-on-tap, plus
@@ -594,89 +595,6 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
         .deleteBranch(names: <String>[branch.shortName]);
   }
 
-  void _applyStash(StashEntry stash) {
-    ref
-        .read(repoSessionProvider(widget.identity).notifier)
-        .applyStash(stash.index);
-  }
-
-  void _popStash(StashEntry stash) {
-    ref
-        .read(repoSessionProvider(widget.identity).notifier)
-        .applyStash(stash.index, pop: true);
-  }
-
-  Future<void> _createBranchFromStash(StashEntry stash) async {
-    final String? name = await promptText(
-      context,
-      title: 'New Branch from Stash',
-      label: 'Branch name',
-    );
-    if (name == null || !mounted) return;
-    ref
-        .read(repoSessionProvider(widget.identity).notifier)
-        .branchFromStash(stash.index, name);
-  }
-
-  /// 05-H "View diff" -- opens the Stashes panel with this stash selected.
-  ///
-  /// Was the manage-stashes *dialog* until Tier 6c moved that panel to a tab
-  /// (spec page 14 `IAMAP`). `context.go`, not `push`: a panel is a tab
-  /// beside History/Working Copy and replaces the shell's child. The stash
-  /// index rides in the query rather than the tab id, so asking twice for
-  /// two different stashes focuses one tab instead of opening two.
-  void _viewStashDiff(StashEntry stash) {
-    final String repoId = Uri.encodeComponent(widget.identity.workDir);
-    final String tabId = ref
-        .read(panelTabsProvider(widget.identity).notifier)
-        .open(GbmPanelKind.manageStashes);
-    context.go(
-      RoutePaths.panelFor(
-        repoId,
-        tabId,
-        query: <String, String>{'select': '${stash.index}'},
-      ),
-    );
-  }
-
-  // Uses the stash's own commit oid as the Compare tab's left ref -- a
-  // stash entry is a real commit (`git stash` creates one even though it
-  // never gets a branch), so this is the same `left: <ref string>`
-  // mechanism repositoryCompare already uses, not a new capability.
-  void _compareStash(StashEntry stash) {
-    final String repoId = Uri.encodeComponent(widget.identity.workDir);
-    final String tabId = ref
-        .read(compareTabsProvider(widget.identity).notifier)
-        .open(left: stash.oid);
-    context.go(RoutePaths.compareFor(repoId, tabId));
-  }
-
-  void _dropStash(StashEntry stash) {
-    ref
-        .read(repoSessionProvider(widget.identity).notifier)
-        .dropStash(stash.index);
-  }
-
-  void _checkoutTagDetached(RefInfo tag) {
-    checkoutBranch(ref, widget.identity, tag.shortName, detach: true);
-  }
-
-  void _pushTag(RefInfo tag, RemoteInfo remote) {
-    ref
-        .read(repoSessionProvider(widget.identity).notifier)
-        .pushTag(remote.name, name: tag.shortName);
-  }
-
-  // Same `left: <ref string>` mechanism as _compareStash -- a tag name is
-  // already a valid ref on its own.
-  void _compareTag(RefInfo tag) {
-    final String repoId = Uri.encodeComponent(widget.identity.workDir);
-    final String tabId = ref
-        .read(compareTabsProvider(widget.identity).notifier)
-        .open(left: tag.shortName);
-    context.go(RoutePaths.compareFor(repoId, tabId));
-  }
-
   // 05-B "Compare with…" -- same `left: <ref string>` mechanism as
   // _compareTag and _compareStash. A branch name is already a valid ref, so
   // no per-branch compare dialog is needed; the Compare page's own picker
@@ -697,12 +615,6 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     context.push(
       RoutePaths.rebaseOntoDialogFor(repoId, target: branch.shortName),
     );
-  }
-
-  void _deleteTag(RefInfo tag) {
-    ref
-        .read(repoSessionProvider(widget.identity).notifier)
-        .deleteTag(tag.shortName);
   }
 
   List<RefInfo> _collectFolderLeafRefs(List<BranchTreeNode> nodes) {
@@ -802,28 +714,6 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
             Clipboard.setData(ClipboardData(text: '${folder.folderPath}/')),
         onDeleteMerged: () => _deleteMergedInFolder(folder),
         onFetchFolder: fetchable == null ? null : () => _fetchFolder(folder),
-      ),
-    );
-  }
-
-  void _openStashContextMenu(
-    BuildContext context,
-    TapDownDetails details,
-    StashEntry stash,
-    bool conflictActive,
-  ) {
-    showGbmContextMenu(
-      context,
-      details.globalPosition,
-      stashMenuItems(
-        onApply: conflictActive ? null : () => _applyStash(stash),
-        onPop: conflictActive ? null : () => _popStash(stash),
-        onCreateBranch: conflictActive
-            ? null
-            : () => _createBranchFromStash(stash),
-        onViewDiff: () => _viewStashDiff(stash),
-        onCompare: () => _compareStash(stash),
-        onDrop: () => _dropStash(stash),
       ),
     );
   }
@@ -1233,54 +1123,11 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
           ),
           // Selection action bar
           if (selection.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: GbmSpacing.space3,
-                vertical: GbmSpacing.space1,
-              ),
-              child: Row(
-                children: <Widget>[
-                  Expanded(
-                    child: Text(
-                      '${selection.length} selected',
-                      style: TextStyle(
-                        fontSize: GbmTypography.textXs,
-                        color: colors.textSecondary,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                      maxLines: 1,
-                    ),
-                  ),
-                  // Default TextButton padding plus its 64px minimum width
-                  // put the pair at ~150px, which does not leave the count
-                  // label anything at the sidebar's 180px minimum. The
-                  // buttons stay full-width targets vertically; only the
-                  // horizontal padding and the minimum are given up.
-                  TextButton(
-                    style: _compactActionStyle,
-                    onPressed: () => _selectionController.state =
-                        const ListSelection<String>(),
-                    child: Text(
-                      'Clear',
-                      style: TextStyle(
-                        fontSize: GbmTypography.textXs,
-                        color: colors.textSecondary,
-                      ),
-                    ),
-                  ),
-                  TextButton(
-                    style: _compactActionStyle,
-                    onPressed: _deleteSelected,
-                    child: Text(
-                      'Delete',
-                      style: TextStyle(
-                        fontSize: GbmTypography.textXs,
-                        color: colors.danger,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+            BranchSelectionActionBar(
+              count: selection.length,
+              onClear: () =>
+                  _selectionController.state = const ListSelection<String>(),
+              onDelete: _deleteSelected,
             ),
           // Branch tree list
           Expanded(
@@ -1335,87 +1182,14 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                                 ),
                               ),
                             ),
-                          if (filteredTags.isNotEmpty) ...<Widget>[
-                            Padding(
-                              padding: const EdgeInsets.fromLTRB(
-                                GbmSpacing.space3,
-                                GbmSpacing.space2,
-                                GbmSpacing.space1,
-                                GbmSpacing.space1,
-                              ),
-                              child: Text(
-                                'TAGS',
-                                style: TextStyle(
-                                  fontSize: GbmTypography.textXs,
-                                  fontWeight: GbmTypography.weightSemibold,
-                                  color: colors.textTertiary,
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
-                            ),
-                            ...filteredTags.map((tag) {
-                              return Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: GbmSpacing.space1,
-                                ),
-                                child: BranchTreeItem(
-                                  ref: tag,
-                                  onCheckout: () => _checkoutTagDetached(tag),
-                                  onPushTag: session.remotes.length == 1
-                                      ? () => _pushTag(
-                                          tag,
-                                          session.remotes.single,
-                                        )
-                                      : null,
-                                  onCompareRef: () => _compareTag(tag),
-                                  onDeleteTag: () => _deleteTag(tag),
-                                  // Sourced from isActionEnabled(), not
-                                  // session.conflictActive directly -- single
-                                  // source of truth for checkout availability.
-                                  conflictActive: !isActionEnabled(
-                                    GbmActionId.branchCheckout,
-                                    session,
-                                  ),
-                                ),
-                              );
-                            }),
-                          ],
-                          if (filteredStashes.isNotEmpty) ...<Widget>[
-                            Padding(
-                              padding: const EdgeInsets.fromLTRB(
-                                GbmSpacing.space3,
-                                GbmSpacing.space2,
-                                GbmSpacing.space1,
-                                GbmSpacing.space1,
-                              ),
-                              child: Text(
-                                'STASH',
-                                style: TextStyle(
-                                  fontSize: GbmTypography.textXs,
-                                  fontWeight: GbmTypography.weightSemibold,
-                                  color: colors.textTertiary,
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
-                            ),
-                            ...filteredStashes.map((stash) {
-                              return _buildStashRow(
-                                stash,
-                                colors,
-                                // Sourced from isActionEnabled(), not
-                                // session.conflictActive directly -- same
-                                // pattern as every other conflict-sensitive
-                                // gate in this file. branchStashChanges is
-                                // the closest existing id (stash apply/pop
-                                // mutate the working tree/index the same way
-                                // creating a stash would).
-                                !isActionEnabled(
-                                  GbmActionId.branchStashChanges,
-                                  session,
-                                ),
-                              );
-                            }),
-                          ],
+                          SidebarTagSection(
+                            identity: widget.identity,
+                            tags: filteredTags,
+                          ),
+                          SidebarStashSection(
+                            identity: widget.identity,
+                            stashes: filteredStashes,
+                          ),
                         ],
                       ),
                     ),
@@ -1565,14 +1339,6 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
   /// a row with neither indent nor prefix cannot be placed at all.
   static const int _kMaxIndentedDepth = 3;
 
-  /// Shared by the selection action bar's two TextButtons -- see the comment
-  /// at their call site for why the defaults do not fit a 180px sidebar.
-  static final ButtonStyle _compactActionStyle = TextButton.styleFrom(
-    padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
-    minimumSize: Size.zero,
-    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-  );
-
   Widget _buildFolderNode(
     BranchTreeFolder folder,
     BuildContext context, {
@@ -1642,73 +1408,6 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
             child: _buildTreeNodes(folder.children, context, depth: depth + 1),
           ),
       ],
-    );
-  }
-
-  Widget _buildStashRow(
-    StashEntry stash,
-    GbmColors colors,
-    bool conflictActive,
-  ) {
-    final now = DateTime.now();
-    final stashTime = DateTime.fromMillisecondsSinceEpoch(stash.timestamp);
-    final diff = now.difference(stashTime);
-
-    String timeStr;
-    if (diff.inMinutes < 1) {
-      timeStr = 'just now';
-    } else if (diff.inHours < 1) {
-      timeStr = '${diff.inMinutes}m ago';
-    } else if (diff.inDays < 1) {
-      timeStr = '${diff.inHours}h ago';
-    } else {
-      timeStr = '${diff.inDays}d ago';
-    }
-
-    return GestureDetector(
-      onSecondaryTapDown: (TapDownDetails details) =>
-          _openStashContextMenu(context, details, stash, conflictActive),
-      child: Container(
-        // No fixed height, unlike a branch row -- this row shows two lines
-        // (message + relative time) rather than one, and rowHeightCompact
-        // (26px) is too short for both at GbmTypography's textSm/textXs
-        // sizes, overflowing the Column below by several pixels. Vertical
-        // padding gives it breathing room instead of pinning a height that
-        // would need recalibrating by hand every time either text style
-        // changes.
-        padding: const EdgeInsets.symmetric(
-          horizontal: GbmSpacing.space2,
-          vertical: GbmSpacing.space1,
-        ),
-        child: Row(
-          children: <Widget>[
-            const SizedBox(width: GbmSpacing.space2),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    stash.message,
-                    style: TextStyle(
-                      fontSize: GbmTypography.textSm,
-                      color: colors.textPrimary,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  Text(
-                    timeStr,
-                    style: TextStyle(
-                      fontSize: GbmTypography.textXs,
-                      color: colors.textTertiary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

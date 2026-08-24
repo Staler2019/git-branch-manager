@@ -1,5 +1,6 @@
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
 import 'branch_filter.dart';
+import 'branch_selection_rules.dart';
 
 /// Base class for a node in the branch tree (folder or leaf).
 sealed class BranchTreeNode {
@@ -290,6 +291,63 @@ int _compareTreeNodes(BranchTreeNode a, BranchTreeNode b) {
 
   return aName.compareTo(bName);
 }
+
+/// The first selectable leaf in render order, skipping remote-only rows --
+/// `BranchTreeItem` draws those with `selected: false`, so selecting one
+/// would look like the key did nothing.
+///
+/// [skip] is the current branch when it is on screen only because rule 7
+/// pinned it. It sits *in* the tree now rather than above it, so without
+/// this the first "result" could be a row the query excluded -- and since
+/// the pin leads its own folder, that is precisely the row this would
+/// otherwise reach first.
+String? firstLeafName(List<BranchTreeNode> nodes, {RefInfo? skip}) {
+  for (final BranchTreeNode node in nodes) {
+    if (node is BranchTreeLeaf) {
+      if (node.ref.kind != RefKind.remoteBranch &&
+          node.ref.fullName != skip?.fullName) {
+        return node.ref.shortName;
+      }
+    } else if (node is BranchTreeFolder) {
+      final String? nested = firstLeafName(node.children, skip: skip);
+      if (nested != null) return nested;
+    }
+  }
+  return null;
+}
+
+/// The rows a range can span, walked out of the tree in paint order:
+/// minus HEAD and remote-only rows (neither is bulk-selectable), and
+/// minus anything inside a collapsed folder.
+///
+/// Collapsed children are excluded because `BranchFolderRow`'s caller does not
+/// render them at all. A range that spanned them would select branches
+/// with no visible row, and a later Shift+arrow could not step onto one --
+/// so all three selection entry points read the same list and cannot
+/// disagree about what "the current list" means.
+List<String> selectableLeafNames(List<BranchTreeNode> nodes) {
+  final List<String> names = <String>[];
+  void walk(List<BranchTreeNode> level) {
+    for (final BranchTreeNode node in level) {
+      if (node is BranchTreeLeaf) {
+        if (node.ref.kind != RefKind.remoteBranch &&
+            isBulkSelectable(node.ref)) {
+          names.add(node.ref.shortName);
+        }
+      } else if (node is BranchTreeFolder && node.isExpanded) {
+        walk(node.children);
+      }
+    }
+  }
+
+  walk(nodes);
+  return names;
+}
+
+/// Spec page 13's `MULTIBRANCHMENU`, opened by right-clicking any row
+/// while more than one branch is selected. Right-clicking a row that is
+/// *not* in the selection collapses to it first and gets the ordinary
+/// 05-B menu instead -- see [_onBranchContextMenu].
 
 /// Every leaf ref under [nodes], at any depth.
 ///

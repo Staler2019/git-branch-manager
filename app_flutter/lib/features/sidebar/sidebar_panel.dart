@@ -19,10 +19,13 @@ import '../../widgets/gbm_menu.dart';
 import '../repo_switcher/repo_switcher_popover.dart';
 import 'branch_bulk_actions.dart';
 import 'branch_row_actions.dart';
+import 'branch_selection_rules.dart';
 import 'branch_tree_builder.dart';
 import 'gone_marking.dart';
 import 'widgets/branch_folder_menu_items.dart';
+import 'widgets/branch_folder_row.dart';
 import 'widgets/branch_selection_action_bar.dart';
+import 'widgets/branch_selection_shortcuts.dart';
 import 'widgets/branches_section_header.dart';
 import 'widgets/sidebar_filter_field.dart';
 import 'widgets/branch_tree_item.dart';
@@ -134,90 +137,20 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
   void _collapseSelection() =>
       _selectionController.state = _selection.collapseToAnchor();
 
-  /// `MULTIKEYS`' Shift+↑/↓. The edge that moves is the one *opposite* the
-  /// anchor, which is what makes Shift+↑ after Shift+↓ shrink the range
-  /// back instead of growing it the other way.
+  /// `MULTIKEYS`' Shift+↑/↓, over the rows as currently rendered.
   void _extendBranchSelection(int delta) {
-    final List<String> all = _selectableNamesInRenderOrder;
-    final ListSelection<String> current = _selection;
-    final String? anchor = current.anchor;
-    if (all.isEmpty || anchor == null) return;
-    final int anchorIndex = all.indexOf(anchor);
-    if (anchorIndex < 0) return;
-    final List<int> indices = <int>[
-      for (final String name in current.items)
-        if (all.contains(name)) all.indexOf(name),
-    ]..sort();
-    if (indices.isEmpty) return;
-    final int movingEdge = indices.first == anchorIndex
-        ? indices.last
-        : indices.first;
-    final int next = (movingEdge + delta).clamp(0, all.length - 1);
-    _selectionController.state = current.range(all[next], all);
+    final ListSelection<String>? next = extendedSelection(
+      _selection,
+      _selectableNamesInRenderOrder,
+      delta,
+    );
+    if (next == null) return;
+    _selectionController.state = next;
   }
-
-  bool _isBulkSelectable(RefInfo branch) => !branch.isHead;
-
-  /// Whether right-clicking [branch] should open `MULTIBRANCHMENU` rather
-  /// than the per-row 05-B menu: it must be a bulk-selectable local row that
-  /// is *already* part of a selection of more than one.
-  bool _isInMultiSelection(RefInfo branch, {required bool isRemoteOnly}) =>
-      !isRemoteOnly &&
-      _isBulkSelectable(branch) &&
-      _selection.length > 1 &&
-      _selection.items.contains(branch.shortName);
-
-  /// [gonePendingRefs] is threaded in rather than read from the session
-  /// here so this stays a pure predicate over one row -- a branch whose
-  /// upstream the dry-run preview reports as gone belongs in the bulk-delete
-  /// selection exactly as much as one git already reports `[gone]` for.
-  ///
-  /// `RefKind` is not widened: a remote-only row is not a local branch and
-  /// "delete gone branches" deletes local branches. [isEffectivelyGone]
-  /// would return true for one, so the `!branch.isHead` /
-  /// `worktreePath.isEmpty` guards are joined by [_isBulkSelectable]'s own
-  /// kind check at every call site.
-  bool _isGoneAndBulkSelectable(RefInfo branch, Set<String> gonePendingRefs) =>
-      isEffectivelyGone(branch, gonePendingRefs) &&
-      branch.kind == RefKind.localBranch &&
-      !branch.isHead &&
-      branch.worktreePath.isEmpty;
 
   /// Set while a prune is scheduled but has not run yet, so a burst of
   /// rebuilds between the frame and its callback schedules exactly one.
   bool _prunePending = false;
-
-  /// The selection with names that no longer exist dropped, or null when
-  /// every selected name is still live -- the early return that keeps this
-  /// from writing an equal value on every build and rebuilding forever.
-  ///
-  /// [names] is the *short* names of the merged local + remote-only list, the
-  /// same keys the selection itself uses.
-  ListSelection<String>? _prunedSelection(Set<String> names) {
-    final ListSelection<String> current = _selection;
-    final List<String> survivors = <String>[
-      for (final String name in current.items)
-        if (names.contains(name)) name,
-    ];
-    if (survivors.length == current.length) return null;
-    final String? anchor = current.anchor;
-    return ListSelection<String>(
-      items: survivors,
-      anchor: survivors.isEmpty
-          ? null
-          : (anchor != null && names.contains(anchor)
-                ? anchor
-                : survivors.last),
-    );
-  }
-
-  Set<String> _liveBranchNames() {
-    final RefSnapshot refs = ref.read(repoRefsProvider(widget.identity));
-    return mergeLocalAndRemoteBranches(
-      refs.localBranches,
-      refs.remoteBranches,
-    ).map((RefInfo b) => b.shortName).toSet();
-  }
 
   /// Drops selected names that no longer exist (a branch was deleted or
   /// renamed under the selection).
@@ -246,13 +179,16 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
   void _pruneSelection(List<RefInfo> branches) {
     if (_prunePending) return;
     final Set<String> names = branches.map((b) => b.shortName).toSet();
-    if (_prunedSelection(names) == null) return;
+    if (prunedSelection(_selection, names) == null) return;
 
     _prunePending = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _prunePending = false;
       if (!mounted) return;
-      final ListSelection<String>? next = _prunedSelection(_liveBranchNames());
+      final ListSelection<String>? next = prunedSelection(
+        _selection,
+        liveBranchNames(ref.read(repoRefsProvider(widget.identity))),
+      );
       if (next == null) return;
       _selectionController.state = next;
     });
@@ -323,62 +259,6 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     _onBranchSelect(first, SelectionGesture.single);
   }
 
-  /// The first selectable leaf in render order, skipping remote-only rows --
-  /// `BranchTreeItem` draws those with `selected: false`, so selecting one
-  /// would look like the key did nothing.
-  ///
-  /// [skip] is the current branch when it is on screen only because rule 7
-  /// pinned it. It sits *in* the tree now rather than above it, so without
-  /// this the first "result" could be a row the query excluded -- and since
-  /// the pin leads its own folder, that is precisely the row this would
-  /// otherwise reach first.
-  String? _firstLeafName(List<BranchTreeNode> nodes, {RefInfo? skip}) {
-    for (final BranchTreeNode node in nodes) {
-      if (node is BranchTreeLeaf) {
-        if (node.ref.kind != RefKind.remoteBranch &&
-            node.ref.fullName != skip?.fullName) {
-          return node.ref.shortName;
-        }
-      } else if (node is BranchTreeFolder) {
-        final String? nested = _firstLeafName(node.children, skip: skip);
-        if (nested != null) return nested;
-      }
-    }
-    return null;
-  }
-
-  /// The rows a range can span, walked out of the tree in paint order:
-  /// minus HEAD and remote-only rows (neither is bulk-selectable), and
-  /// minus anything inside a collapsed folder.
-  ///
-  /// Collapsed children are excluded because `_buildFolderNode` does not
-  /// render them at all. A range that spanned them would select branches
-  /// with no visible row, and a later Shift+arrow could not step onto one --
-  /// so all three selection entry points read the same list and cannot
-  /// disagree about what "the current list" means.
-  List<String> _selectableLeafNames(List<BranchTreeNode> nodes) {
-    final List<String> names = <String>[];
-    void walk(List<BranchTreeNode> level) {
-      for (final BranchTreeNode node in level) {
-        if (node is BranchTreeLeaf) {
-          if (node.ref.kind != RefKind.remoteBranch &&
-              _isBulkSelectable(node.ref)) {
-            names.add(node.ref.shortName);
-          }
-        } else if (node is BranchTreeFolder && node.isExpanded) {
-          walk(node.children);
-        }
-      }
-    }
-
-    walk(nodes);
-    return names;
-  }
-
-  /// Spec page 13's `MULTIBRANCHMENU`, opened by right-clicking any row
-  /// while more than one branch is selected. Right-clicking a row that is
-  /// *not* in the selection collapses to it first and gets the ordinary
-  /// 05-B menu instead -- see [_onBranchContextMenu].
   /// Built per call, never stored -- same reasoning as [_bulk].
   BranchRowActions get _rowActions =>
       BranchRowActions(ref: ref, identity: widget.identity);
@@ -481,7 +361,7 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     );
     final Set<String> gonePendingRefs = session.gonePendingRefs;
     final bool anyGoneSelectable = filteredBranches.any(
-      (RefInfo b) => _isGoneAndBulkSelectable(b, gonePendingRefs),
+      (RefInfo b) => isGoneAndBulkSelectable(b, gonePendingRefs),
     );
     // Spec page 02 stage 1: 「在區塊標題右邊顯示待清理數量」. Counted over
     // the unfiltered merged list -- how many refs are waiting to be pruned
@@ -534,8 +414,8 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
       // here, so clearing the query restores exactly what they had.
       expandAll: isFiltering,
     );
-    _firstResultName = _firstLeafName(branchTree, skip: unmatchedHead);
-    _selectableNamesInRenderOrder = _selectableLeafNames(branchTree);
+    _firstResultName = firstLeafName(branchTree, skip: unmatchedHead);
+    _selectableNamesInRenderOrder = selectableLeafNames(branchTree);
     final List<RefInfo> filteredTags = filterBranches(refs.tags, _filterQuery);
     // Stashes go through the same rule as branches and tags: P02-14 is one
     // box over three sections, so a query that finds a branch by its
@@ -581,7 +461,7 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
             onSelectAllGone: () => _selectionController.state =
                 const ListSelection<String>().selectAll(<String>[
                   for (final RefInfo b in filteredBranches)
-                    if (_isGoneAndBulkSelectable(b, gonePendingRefs))
+                    if (isGoneAndBulkSelectable(b, gonePendingRefs))
                       b.shortName,
                 ]),
             onNewBranch: () => _rowActions.createBranch(context),
@@ -618,7 +498,7 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                       ),
                     ),
                   )
-                : _BranchSelectionShortcuts(
+                : BranchSelectionShortcuts(
                     focusNode: _treeFocus,
                     onSelectAll: _selectAllBranches,
                     onCollapse: _collapseSelection,
@@ -725,7 +605,7 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
           // None of the local-branch-only actions below apply to a
           // remote-only leaf -- there is no local branch to select for bulk
           // delete, rename, branch-from, or merge.
-          onSelect: isRemoteOnly || !_isBulkSelectable(node.ref)
+          onSelect: isRemoteOnly || !isBulkSelectable(node.ref)
               ? null
               : (SelectionGesture gesture) =>
                     _onBranchSelect(node.ref.shortName, gesture),
@@ -734,12 +614,15 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
           // row collapses the selection onto itself first, so the 05-B menu
           // that opens can never act on branches scrolled out of view.
           multiSelectMenuBuilder:
-              _isInMultiSelection(node.ref, isRemoteOnly: isRemoteOnly)
+              isInMultiSelection(
+                node.ref,
+                isRemoteOnly: isRemoteOnly,
+                selection: _selection,
+              )
               ? () => _multiBranchMenuItems(session)
               : null,
           multiSelectMenuTitle: '${_selection.length} branches selected',
-          onCollapseSelectionToThis:
-              isRemoteOnly || !_isBulkSelectable(node.ref)
+          onCollapseSelectionToThis: isRemoteOnly || !isBulkSelectable(node.ref)
               ? null
               : () => _selectionController.state = _selection.single(
                   node.ref.shortName,
@@ -828,7 +711,6 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     BuildContext context, {
     int depth = 0,
   }) {
-    final colors = context.gbmColors;
     // From the node, not re-derived from _expandedFolders: buildBranchTree
     // already decided this, and while a filter is active it decides
     // `expandAll` -- a second reading of the set here would draw a closed
@@ -839,50 +721,12 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        GestureDetector(
+        BranchFolderRow(
+          folderName: folder.folderName,
+          isExpanded: isExpanded,
+          onToggle: () => _toggleFolderExpandedSingleLevel(folder),
           onSecondaryTapDown: (TapDownDetails details) =>
               _openFolderContextMenu(context, details, folder),
-          child: Container(
-            height: GbmSpacing.rowHeightCompact,
-            padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
-            child: Row(
-              children: <Widget>[
-                IconButton(
-                  icon: Icon(
-                    isExpanded ? Icons.expand_more : Icons.chevron_right,
-                    size: 18,
-                    color: colors.textSecondary,
-                  ),
-                  onPressed: () => _toggleFolderExpandedSingleLevel(folder),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(
-                    minWidth: 32,
-                    minHeight: 32,
-                  ),
-                ),
-                Expanded(
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () => _toggleFolderExpandedSingleLevel(folder),
-                    child: Text(
-                      folder.folderName,
-                      style: TextStyle(
-                        fontSize: GbmTypography.textSm,
-                        color: colors.textSecondary,
-                      ),
-                      // Without these the Text soft-wraps to a second line
-                      // inside a fixed-height rowHeightCompact (26px)
-                      // Container. That is a *cross-axis* overflow, which
-                      // RenderFlex does not report -- so it never threw, it
-                      // just silently painted over the neighbouring rows.
-                      overflow: TextOverflow.ellipsis,
-                      maxLines: 1,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
         ),
         if (isExpanded)
           Padding(
@@ -892,74 +736,6 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
             child: _buildTreeNodes(folder.children, context, depth: depth + 1),
           ),
       ],
-    );
-  }
-}
-
-/// Keyboard half of spec page 13's `MULTIKEYS`, scoped to the branch tree.
-///
-/// Deliberately **not** wrapped around the whole sidebar: the filter
-/// `TextField` sits above this subtree, and a `Shortcuts` closer to a
-/// focused editor than `DefaultTextEditingShortcuts` would take Ctrl/Cmd+A
-/// away from "select all text". Same shape and same reasoning as
-/// `commit_graph_view.dart`'s `_SelectionShortcuts`, including the
-/// Shortcuts/Actions-above-Focus ordering: a key event dispatches to the
-/// primary focus and then walks its *ancestors*, so a `Shortcuts` nested
-/// inside the focused node would never see anything.
-class _BranchSelectionShortcuts extends StatelessWidget {
-  const _BranchSelectionShortcuts({
-    required this.focusNode,
-    required this.onSelectAll,
-    required this.onCollapse,
-    required this.onExtend,
-    required this.child,
-  });
-
-  final FocusNode focusNode;
-  final VoidCallback onSelectAll;
-  final VoidCallback onCollapse;
-  final ValueChanged<int> onExtend;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Shortcuts(
-      shortcuts: <ShortcutActivator, Intent>{
-        const SingleActivator(LogicalKeyboardKey.arrowUp, shift: true):
-            const GbmExtendSelectionIntent(-1),
-        const SingleActivator(LogicalKeyboardKey.arrowDown, shift: true):
-            const GbmExtendSelectionIntent(1),
-        // Both modifiers registered rather than branching on platform: an
-        // unheld modifier simply never matches.
-        const SingleActivator(LogicalKeyboardKey.keyA, meta: true):
-            const GbmSelectAllIntent(),
-        const SingleActivator(LogicalKeyboardKey.keyA, control: true):
-            const GbmSelectAllIntent(),
-        const SingleActivator(LogicalKeyboardKey.escape): const DismissIntent(),
-      },
-      child: Actions(
-        actions: <Type, Action<Intent>>{
-          GbmExtendSelectionIntent: CallbackAction<GbmExtendSelectionIntent>(
-            onInvoke: (GbmExtendSelectionIntent intent) {
-              onExtend(intent.delta);
-              return null;
-            },
-          ),
-          GbmSelectAllIntent: CallbackAction<GbmSelectAllIntent>(
-            onInvoke: (GbmSelectAllIntent intent) {
-              onSelectAll();
-              return null;
-            },
-          ),
-          DismissIntent: CallbackAction<DismissIntent>(
-            onInvoke: (DismissIntent intent) {
-              onCollapse();
-              return null;
-            },
-          ),
-        },
-        child: Focus(focusNode: focusNode, child: child),
-      ),
     );
   }
 }

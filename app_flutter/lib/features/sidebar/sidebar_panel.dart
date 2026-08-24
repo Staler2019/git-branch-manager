@@ -6,7 +6,6 @@ import 'package:go_router/go_router.dart';
 import '../../actions/gbm_action_availability.dart';
 import '../../actions/gbm_action_id.dart';
 import '../../data/models/ref_snapshot.dart';
-import '../../data/models/remote_info.dart';
 import '../../data/models/stash_entry.dart';
 import '../../data/repositories/branch_repository.dart';
 import '../../data/repositories/compare_tabs_repository.dart';
@@ -19,14 +18,16 @@ import '../../data/repositories/repo_session_repository.dart';
 import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
-import '../../widgets/gbm_badge.dart';
 import '../../widgets/gbm_menu.dart';
 import '../../widgets/prompt_text_dialog.dart';
 import '../repo_switcher/repo_switcher_popover.dart';
+import 'branch_bulk_actions.dart';
 import 'branch_tree_builder.dart';
 import 'gone_marking.dart';
 import 'widgets/branch_folder_menu_items.dart';
 import 'widgets/branch_selection_action_bar.dart';
+import 'widgets/branches_section_header.dart';
+import 'widgets/sidebar_filter_field.dart';
 import 'widgets/branch_tree_item.dart';
 import 'widgets/multi_branch_menu_items.dart';
 import 'widgets/sidebar_stash_section.dart';
@@ -422,171 +423,30 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
   /// while more than one branch is selected. Right-clicking a row that is
   /// *not* in the selection collapses to it first and gets the ordinary
   /// 05-B menu instead -- see [_onBranchContextMenu].
+  /// Built per call, never stored: `BranchBulkActions` is a pure function of
+  /// the selection, and a stored copy would be a second source of truth for
+  /// it.
+  BranchBulkActions get _bulk => BranchBulkActions(
+    ref: ref,
+    identity: widget.identity,
+    selectedNames: _selection.items,
+  );
+
   List<GbmMenuItem> _multiBranchMenuItems(RepoSessionState session) {
     final List<String> names = _selection.items;
+    final BranchBulkActions bulk = _bulk;
     return multiBranchMenuItems(
       count: names.length,
       conflictActive: !isActionEnabled(GbmActionId.branchDeleteBranch, session),
       onCopyNames: () =>
           Clipboard.setData(ClipboardData(text: names.join('\n'))),
-      onFetch: _fetchSelectedBranches,
-      onPush: _pushSelectedBranches,
-      fetchBlockedReason: _fetchBlockedReason(),
-      pushBlockedReason: _pushBlockedReason(),
-      onCompare: names.length == 2 ? _compareSelectedBranches : null,
+      onFetch: bulk.fetch,
+      onPush: bulk.push,
+      fetchBlockedReason: bulk.fetchBlockedReason(),
+      pushBlockedReason: bulk.pushBlockedReason(),
+      onCompare: names.length == 2 ? () => bulk.compare(context) : null,
       onDelete: _deleteSelected,
     );
-  }
-
-  /// The selected branches that still exist in the ref snapshot, as
-  /// [RefInfo] rather than bare names -- Fetch and Push both need each
-  /// branch's `upstream` to work out which remote it belongs to.
-  List<RefInfo> _selectedBranchRefs() {
-    final RefSnapshot refs = ref.read(repoRefsProvider(widget.identity));
-    final Set<String> names = _selection.items.toSet();
-    return <RefInfo>[
-      for (final RefInfo b in refs.localBranches)
-        if (names.contains(b.shortName)) b,
-    ];
-  }
-
-  /// Groups [branches] by the remote their upstream lives on.
-  ///
-  /// `RefInfo.upstream` is the **full** ref name (`%(upstream)`, e.g.
-  /// `refs/remotes/origin/main`), so the remote comes from
-  /// [remoteBranchParts] -- never from splitting on the first slash, which
-  /// yields `"refs"` and is the live bug #74 records in
-  /// `delete_branch_dialog.dart`. `upstream.isEmpty` is the "no upstream"
-  /// test, **not** `hasTrackingInfo`: the latter mirrors
-  /// `%(upstream:track)`, which is an empty string for a branch exactly in
-  /// sync with its upstream (the Tier 0c trap).
-  Map<String, List<RefInfo>> _groupByUpstreamRemote(List<RefInfo> branches) {
-    final Map<String, List<RefInfo>> byRemote = <String, List<RefInfo>>{};
-    for (final RefInfo b in branches) {
-      if (b.upstream.isEmpty) continue;
-      final (String remote, String _) = remoteBranchParts(b.upstream);
-      if (remote.isEmpty) continue;
-      byRemote.putIfAbsent(remote, () => <RefInfo>[]).add(b);
-    }
-    return byRemote;
-  }
-
-  /// MULTIBRANCHMENU's `Fetch N branches`.
-  ///
-  /// Spec page 13 says nothing about which remote a multi-branch fetch
-  /// targets, so the rule here is the only one that needs no guessing: a
-  /// branch is fetched through the remote its own upstream names. One
-  /// `gbm_remote_fetch` call per distinct remote, each carrying that
-  /// remote's refspecs -- `gbm_capi.h` rejects a non-empty `refs` with an
-  /// empty `remoteName`, so a single batched call is not available, and a
-  /// selection spanning two remotes is genuinely two fetches.
-  ///
-  /// A branch with no upstream has no remote-tracking ref to update and is
-  /// skipped; when *none* of the selection has one, the menu row is
-  /// disabled with [_fetchBlockedReason] rather than silently doing nothing.
-  void _fetchSelectedBranches() {
-    final Map<String, List<RefInfo>> byRemote = _groupByUpstreamRemote(
-      _selectedBranchRefs(),
-    );
-    final RepoSessionController session = ref.read(
-      repoSessionProvider(widget.identity).notifier,
-    );
-    byRemote.forEach((String remote, List<RefInfo> branches) {
-      session.fetchRemote(
-        remoteName: remote,
-        refs: <String>[
-          for (final RefInfo b in branches) remoteBranchParts(b.upstream).$2,
-        ],
-      );
-    });
-  }
-
-  /// MULTIBRANCHMENU's `Push N branches`.
-  ///
-  /// Published branches go to the remote their upstream names, one
-  /// `gbm_push` per remote -- and because `gbm_push` now takes a branch
-  /// list, that is one `git push <remote> a b c` per remote rather than one
-  /// per branch, which is what keeps a same-remote batch a single
-  /// background task (spec page 10).
-  ///
-  /// Unpublished branches (spec's `local` badge state, "還沒 push 過…Push
-  /// 後 badge 自動消失") are the case Push exists for, but they name no
-  /// remote. They are pushed to the repository's sole remote with
-  /// `--set-upstream` when there is exactly one; with several remotes there
-  /// is nothing to infer from, so they are excluded and the row explains
-  /// that via [_pushBlockedReason]. They are also kept in their own call
-  /// rather than folded into a same-remote published group: `push -u` would
-  /// otherwise repoint a branch that tracks a differently-named upstream.
-  void _pushSelectedBranches() {
-    final List<RefInfo> selected = _selectedBranchRefs();
-    final Map<String, List<RefInfo>> byRemote = _groupByUpstreamRemote(
-      selected,
-    );
-    final List<RefInfo> unpublished = <RefInfo>[
-      for (final RefInfo b in selected)
-        if (b.upstream.isEmpty) b,
-    ];
-    final RepoSessionController session = ref.read(
-      repoSessionProvider(widget.identity).notifier,
-    );
-    byRemote.forEach((String remote, List<RefInfo> branches) {
-      session.pushChanges(
-        remoteName: remote,
-        branches: <String>[for (final RefInfo b in branches) b.shortName],
-      );
-    });
-    final String? sole = _soleRemoteName();
-    if (unpublished.isNotEmpty && sole != null) {
-      session.pushChanges(
-        remoteName: sole,
-        branches: <String>[for (final RefInfo b in unpublished) b.shortName],
-        setUpstream: true,
-      );
-    }
-  }
-
-  /// The repository's only remote, or null when it has none or several.
-  String? _soleRemoteName() {
-    final List<RemoteInfo> remotes = ref
-        .read(repoSessionProvider(widget.identity))
-        .remotes;
-    return remotes.length == 1 ? remotes.single.name : null;
-  }
-
-  /// Why `Fetch N branches` is off, or null when it is available.
-  String? _fetchBlockedReason() =>
-      _groupByUpstreamRemote(_selectedBranchRefs()).isEmpty
-      ? 'None of the selected branches has an upstream to fetch from'
-      : null;
-
-  /// Why `Push N branches` is off, or null when it is available. See
-  /// [_pushSelectedBranches] for why an unpublished branch needs a sole
-  /// remote.
-  String? _pushBlockedReason() {
-    final List<RefInfo> selected = _selectedBranchRefs();
-    final bool anyPublished = _groupByUpstreamRemote(selected).isNotEmpty;
-    final bool anyUnpublished = selected.any((RefInfo b) => b.upstream.isEmpty);
-    if (anyUnpublished && _soleRemoteName() == null) {
-      return anyPublished
-          ? 'Some selected branches have no upstream, and this repository '
-                'has no single remote to push them to'
-          : 'The selected branches have no upstream, and this repository '
-                'has no single remote to push them to';
-    }
-    return anyPublished || anyUnpublished ? null : 'Nothing to push';
-  }
-
-  /// COMPARES 1: 「同時選兩個分支 → 右鍵 Compare」. Both sides are known, so
-  /// unlike 05-B's single-branch "Compare with…" this fills the tab
-  /// outright instead of leaving the right to the ref picker.
-  void _compareSelectedBranches() {
-    final List<String> names = _selection.items;
-    if (names.length != 2) return;
-    final String repoId = Uri.encodeComponent(widget.identity.workDir);
-    final String tabId = ref
-        .read(compareTabsProvider(widget.identity).notifier)
-        .open(left: names.first, right: names.last);
-    context.go(RoutePaths.compareFor(repoId, tabId));
   }
 
   void _deleteSingle(RefInfo branch) {
@@ -918,208 +778,27 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
             currentWorkDir: widget.identity.workDir,
             controller: widget.switcherController,
           ),
-          // BRANCHES section header
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              GbmSpacing.space3,
-              GbmSpacing.space3,
-              GbmSpacing.space1,
-              GbmSpacing.space1,
-            ),
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  child: Text(
-                    'BRANCHES',
-                    style: TextStyle(
-                      fontSize: GbmTypography.textXs,
-                      fontWeight: GbmTypography.weightSemibold,
-                      color: colors.textTertiary,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ),
-                // A bare count, not a sentence: spec asks for 「待清理數量」,
-                // and prose here is what made this header overflow. A
-                // RenderFlex sizes non-flex children first, so a wider label
-                // beside two 28px icon buttons pushed past the sidebar's
-                // width instead of letting the Expanded 'BRANCHES' yield --
-                // the same shape as the narrow-window round's findings. The
-                // meaning lives in the tooltip.
-                if (pendingCleanup > 0)
-                  Padding(
-                    padding: const EdgeInsets.only(right: GbmSpacing.space1),
-                    child: Tooltip(
-                      message:
-                          '$pendingCleanup remote-tracking '
-                          '${pendingCleanup == 1 ? 'ref no longer exists' : 'refs no longer exist'} '
-                          'upstream. Remote → Prune remote branches removes '
-                          '${pendingCleanup == 1 ? 'it' : 'them'}.',
-                      child: Semantics(
-                        label: '$pendingCleanup branches pending cleanup',
-                        child: GbmBadge(
-                          label: '$pendingCleanup',
-                          kind: GbmBadgeKind.removed,
-                        ),
-                      ),
-                    ),
-                  ),
-                Tooltip(
-                  message: 'Select all branches with a gone upstream',
-                  child: IconButton(
-                    icon: Icon(
-                      Icons.playlist_add_check,
-                      size: 16,
-                      color: anyGoneSelectable
-                          ? colors.textSecondary
-                          : colors.textTertiary,
-                    ),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(
-                      minWidth: 28,
-                      minHeight: 28,
-                    ),
-                    onPressed: anyGoneSelectable
-                        ? () => _selectionController.state =
-                              const ListSelection<String>().selectAll(<String>[
-                                for (final RefInfo b in filteredBranches)
-                                  if (_isGoneAndBulkSelectable(
-                                    b,
-                                    gonePendingRefs,
-                                  ))
-                                    b.shortName,
-                              ])
-                        : null,
-                  ),
-                ),
-                Tooltip(
-                  message: 'New branch…',
-                  child: IconButton(
-                    icon: Icon(
-                      Icons.add,
-                      size: 16,
-                      color: colors.textSecondary,
-                    ),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(
-                      minWidth: 28,
-                      minHeight: 28,
-                    ),
-                    onPressed: _createBranch,
-                  ),
-                ),
-              ],
-            ),
+          BranchesSectionHeader(
+            pendingCleanup: pendingCleanup,
+            canSelectAllGone: anyGoneSelectable,
+            onSelectAllGone: () => _selectionController.state =
+                const ListSelection<String>().selectAll(<String>[
+                  for (final RefInfo b in filteredBranches)
+                    if (_isGoneAndBulkSelectable(b, gonePendingRefs))
+                      b.shortName,
+                ]),
+            onNewBranch: _createBranch,
           ),
-          // Filter field -- Cmd/Ctrl+Shift+E (editFilterBranches) focuses
-          // this via widget.filterFocusNode. Matches branches, tags and
-          // stashes through matchesBranchFilter (see branch_filter.dart).
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              GbmSpacing.space3,
-              0,
-              GbmSpacing.space3,
-              GbmSpacing.space2,
-            ),
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  child: SizedBox(
-                    height: 28,
-                    // P02-14 rules 8 and 9. Placed here rather than on the
-                    // panel: this is the innermost `Shortcuts` above the
-                    // field, so it resolves Esc and ↓ before the app-level
-                    // `DefaultTextEditingShortcuts` gets them -- and it is
-                    // scoped to the field, so the tree's own Esc (MULTIKEYS'
-                    // collapse) is untouched. Same focus-scope reasoning as
-                    // Ctrl/Cmd+A being bound to the tree only.
-                    child: CallbackShortcuts(
-                      bindings: <ShortcutActivator, VoidCallback>{
-                        const SingleActivator(LogicalKeyboardKey.escape):
-                            _clearFilter,
-                        const SingleActivator(LogicalKeyboardKey.arrowDown):
-                            _enterFirstResult,
-                      },
-                      child: TextField(
-                        controller: _filterController,
-                        focusNode: widget.filterFocusNode,
-                        style: TextStyle(
-                          fontSize: GbmTypography.textSm,
-                          color: colors.textPrimary,
-                        ),
-                        onChanged: (value) => _filterQuery = value,
-                        decoration: InputDecoration(
-                          isDense: true,
-                          hintText: 'Filter branches',
-                          hintStyle: TextStyle(
-                            fontSize: GbmTypography.textSm,
-                            color: colors.textTertiary,
-                          ),
-                          prefixIcon: Icon(
-                            Icons.search,
-                            size: 14,
-                            color: colors.textTertiary,
-                          ),
-                          prefixIconConstraints: const BoxConstraints(
-                            minWidth: 28,
-                            minHeight: 28,
-                          ),
-                          suffixIcon: _filterQuery.isEmpty
-                              ? null
-                              : IconButton(
-                                  icon: Icon(
-                                    Icons.close,
-                                    size: 14,
-                                    color: colors.textTertiary,
-                                  ),
-                                  padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints(
-                                    minWidth: 28,
-                                    minHeight: 28,
-                                  ),
-                                  onPressed: _clearFilter,
-                                ),
-                          contentPadding: const EdgeInsets.symmetric(
-                            vertical: GbmSpacing.space1,
-                          ),
-                          filled: true,
-                          fillColor: colors.surfaceSunken,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(4),
-                            borderSide: BorderSide(color: colors.borderSubtle),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(4),
-                            borderSide: BorderSide(color: colors.borderSubtle),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(4),
-                            borderSide: BorderSide(color: colors.borderFocus),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                // Only while filtering: "6/6" on an untouched sidebar is
-                // noise, and spec describes the count as part of the
-                // filter's behaviour rather than as a permanent counter.
-                if (isFiltering)
-                  Padding(
-                    padding: const EdgeInsets.only(left: GbmSpacing.space2),
-                    child: Text(
-                      '$filterHits/$filterTotal',
-                      style: TextStyle(
-                        fontSize: GbmTypography.textXs,
-                        color: colors.textTertiary,
-                        fontFeatures: const <FontFeature>[
-                          FontFeature.tabularFigures(),
-                        ],
-                      ),
-                    ),
-                  ),
-              ],
-            ),
+          SidebarFilterField(
+            controller: _filterController,
+            focusNode: widget.filterFocusNode,
+            isFiltering: isFiltering,
+            hasQuery: _filterQuery.isNotEmpty,
+            hits: filterHits,
+            total: filterTotal,
+            onChanged: (String value) => _filterQuery = value,
+            onClear: _clearFilter,
+            onEnterFirstResult: _enterFirstResult,
           ),
           // Selection action bar
           if (selection.isNotEmpty)

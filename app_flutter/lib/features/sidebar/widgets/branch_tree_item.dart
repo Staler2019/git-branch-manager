@@ -19,7 +19,6 @@ class BranchTreeItem extends StatelessWidget {
     required this.ref,
     required this.onCheckout,
     this.selected = false,
-    this.onSelectedChanged,
     this.onSelect,
     this.multiSelectMenuBuilder,
     this.multiSelectMenuTitle,
@@ -71,10 +70,6 @@ class BranchTreeItem extends StatelessWidget {
   /// `ref.isGone`, so a row stays marked continuously across a real prune as
   /// the truth hands over from one source to the other.
   bool get _gone => ref.isGone || isGonePending;
-
-  /// Null hides the selection checkbox entirely (HEAD can't be
-  /// multi-selected for deletion -- see SidebarPanel's doc comment).
-  final ValueChanged<bool>? onSelectedChanged;
 
   /// Reports a modifier-carrying click for spec page 13's multi-select.
   ///
@@ -186,16 +181,6 @@ class BranchTreeItem extends StatelessWidget {
 
     final Widget row = Row(
       children: <Widget>[
-        if (onSelectedChanged != null)
-          Semantics(
-            label: 'Select ${ref.shortName} for bulk delete',
-            child: Checkbox(
-              value: selected,
-              onChanged: (value) => onSelectedChanged!(value ?? false),
-              visualDensity: VisualDensity.compact,
-              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-          ),
         LucideIcon(iconName, size: 13, color: iconColor),
         const SizedBox(width: GbmSpacing.space2),
         // 4:1 against the tracking label below. The label used to be a

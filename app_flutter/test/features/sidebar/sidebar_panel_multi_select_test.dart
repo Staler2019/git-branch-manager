@@ -457,6 +457,35 @@ void main() {
     );
   });
 
+  testWidgets('no branch row carries a checkbox; the row itself is the '
+      'selection control', (WidgetTester tester) async {
+    // MULTIKEYS defines the sidebar's selection model entirely in modifier
+    // clicks and keys -- there is no checkbox anywhere in the spec. The row
+    // used to carry one, and it was also the only thing that *showed*
+    // selection, which is why removing it had to wait for the row background.
+    await _pump(tester);
+    expect(find.byType(Checkbox), findsNothing);
+  });
+
+  testWidgets('Shift+arrow extends the selection over the rendered rows '
+      '(MULTIKEYS Shift+↑/↓)', (WidgetTester tester) async {
+    final _Harness h = await _pump(tester);
+
+    // Clicking also hands focus to the tree, which is what lets the
+    // Shortcuts block below see the key at all.
+    await tester.tap(_row('alpha'));
+    await tester.pump(kDoubleTapTimeout);
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pumpAndSettle();
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+
+    // beta, not delta or gamma: the extension walks the painted order, the
+    // same list Shift-click ranges over.
+    expect(h.selection.items.toSet(), <String>{'alpha', 'beta'});
+  });
+
   testWidgets('Ctrl/Cmd+A selects every selectable row, and Esc collapses '
       'back to the anchor (MULTIKEYS)', (WidgetTester tester) async {
     final _Harness h = await _pump(tester);

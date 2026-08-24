@@ -76,8 +76,9 @@ class SidebarPanel extends ConsumerStatefulWidget {
 class _SidebarPanelState extends ConsumerState<SidebarPanel> {
   /// Reads through to [branchSelectionProvider] -- the selection lives in a
   /// provider, not here, so `WorkspaceScreen` and the row that was
-  /// right-clicked can both see it. Ticking a checkbox and Ctrl/Cmd-clicking
-  /// a row write the same value; see the provider's doc comment.
+  /// right-clicked can both see it. Every MULTIKEYS gesture -- plain,
+  /// Ctrl/Cmd and Shift clicks, Ctrl/Cmd+A, Shift+↑/↓ -- writes the same
+  /// value; see the provider's doc comment.
   ListSelection<String> get _selection =>
       ref.read(branchSelectionProvider(widget.identity));
 
@@ -1433,15 +1434,6 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
           // None of the local-branch-only actions below apply to a
           // remote-only leaf -- there is no local branch to select for bulk
           // delete, rename, branch-from, or merge.
-          // Ticking the box is exactly a Ctrl/Cmd-click, so both go through
-          // the same transition rather than growing a second selection set.
-          onSelectedChanged: isRemoteOnly
-              ? null
-              : _isBulkSelectable(node.ref)
-              ? (_) => _selectionController.state = _selection.toggle(
-                  node.ref.shortName,
-                )
-              : null,
           onSelect: isRemoteOnly || !_isBulkSelectable(node.ref)
               ? null
               : (SelectionGesture gesture) =>

@@ -103,7 +103,7 @@ final RefSnapshot _deepRefs = _refs(<RefInfo>[
     ahead: 1234,
     behind: 5678,
   ),
-  _branch('$_longSegment/team/subsystem/sibling'),
+  _branch(_siblingLeaf),
   _branch('$_longSegment/team/other'),
   _branch('$_longSegment/second'),
 ]);

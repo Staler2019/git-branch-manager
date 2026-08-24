@@ -673,6 +673,20 @@ you are touching, not by when it was learned.
 - **`RefInfo.ahead` means nothing when `upstream` is empty** — a branch that
   never had one reports `0`, which rendered literally claims the opposite of
   the truth.
+- **The current branch is pinned inside its own folder, by the tree's
+  comparator.** `BRANCH_STATES`: 「永遠置頂於所屬資料夾內，且不受 filter
+  影響」 — first among its *siblings*, not hoisted to row zero, and not only
+  while filtering. It lives in `branch_tree_builder.dart`'s
+  `_compareTreeNodes` because sorting a level is the only place that knows
+  what "its own folder" means, and it outranks the folders-before-leaves rule
+  (`BRANCH_TREE` draws `main` above the folders at its depth). The filter
+  half is `sidebar_panel.dart` adding HEAD *back into the builder's input*
+  when a query drops it — a row rendered outside the tree has no folder to
+  sit in, which is exactly why the previous version had to hoist it. **P02-14
+  rule 7's bare 「永遠置頂顯示」 does not overrule this**: `BRANCH_STATES` is
+  the specific rule, so when a matching folder sorts before HEAD's folder,
+  HEAD renders *second* and that is correct
+  (`sidebar_current_branch_pin_test.dart` asserts it).
 - **`RefInfo.isGone` can only be true after a prune** (git reports `[gone]`
   only once the remote-tracking ref is already deleted). Gone *marking* comes
   from `git remote prune --dry-run`, deliberately not from `fetch --prune` —
@@ -848,10 +862,6 @@ you are touching, not by when it was learned.
   drifted ones left**. The `*_menu_items.dart` pure-function extraction is the
   template to follow. The catalog itself can drift from the spec, which the
   per-render-site audit method cannot detect (**#71**).
-- **The current branch's pinning does not match `BRANCH_STATES`**, which says
-  it is 「永遠置頂於所屬資料夾內」 — pinned at the top of *its own folder*,
-  always. `sidebar_panel.dart` pins it above the entire tree, and only while a
-  filter is active (ledger: "Sidebar branch rows").
 - **Absent for lack of a capi entry point**: per-object transfer counts for
   fetch/pull/push, `git init` / clone, removing a *scanned* repository from
   the switcher, squashing N commits, per-remote Pull/Push, and seven

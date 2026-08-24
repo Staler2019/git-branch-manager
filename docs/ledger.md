@@ -2830,11 +2830,12 @@ else, which is what makes that test worth having.
 
 #### Deliberately not done
 
-- **`BRANCH_STATES` says the current branch is 「永遠置頂於所屬資料夾內」.**
-  `sidebar_panel.dart` pins it above the whole tree, and only while filtering.
-  Different rule, independent of this round's five items; left as drift.
-- **`sidebar_panel.dart` is ~1,700 lines**, past the project's own 800 ceiling.
-  Not split here, to keep behaviour changes out of a large move.
+- ~~**`BRANCH_STATES` says the current branch is 「永遠置頂於所屬資料夾內」.**~~
+  ~~`sidebar_panel.dart` pins it above the whole tree, and only while
+  filtering.~~ **Done in the continuation below**, at the user's request.
+- ~~**`sidebar_panel.dart` is ~1,700 lines**, past the project's own 800
+  ceiling.~~ **Done in the continuation below**, as a behaviour-free move
+  after the pinning fix landed.
 - **Tag rows moved to double-click checkout** along with branches. No test
   covered a tag row tap either way; the context-menu path is unchanged.
 - This round partially audits **P13 section B** (`MULTIKEYS`, `MULTIACTS`,
@@ -2892,3 +2893,154 @@ here rather than left implied by a green suite. The device runs do launch the
 real app, and the two hover tests bracket "paints nothing" and "paints the
 wrong colour" between them, but neither is a person confirming the highlight
 reads as a highlight at a normal viewing distance.
+
+### Sidebar continuation: pinning, and the 800-line split (fix/sidebar-p02-branch-rows)
+
+Same branch, second pass. The user picked three of the four items the section
+above listed as deliberately not done — the `BRANCH_STATES` pinning drift, the
+1,700-line panel, and back-filling **#76** — and asked for `main` to be merged
+in on the way. Only the human visual pass was left, because it cannot be
+delegated to a test.
+
+#### `main` merged first, and the conflict was two appends
+
+`main` had moved six commits ahead (`feat/changed-files-line-counts`, PR #111).
+The only conflict was `docs/ledger.md`, and it was structural rather than
+semantic: both branches append a new section at the end, so git saw one region
+replaced two ways. Resolved by keeping both, `main`'s first — it landed on
+`main` first, and the file is chronological. Merging before touching code was
+deliberate: the merge brought capi JSON changes across the FFI seam, and every
+later verification run should be measuring the merged tree, not this branch's
+older one.
+
+#### The pinning rule is two rules, and they were both wrong in different ways
+
+`BRANCH_STATES`' 目前分支 row reads 「名稱加粗、整列以 selected 底色標示，**永遠
+置頂於所屬資料夾內**，且**不受 filter 影響**」. The code pinned the current branch
+above the *entire* tree, and only while a filter was active — so it failed the
+folder clause always, and the "永遠" clause whenever no query was typed.
+
+**`BRANCH_TREE` settles the folders-vs-pin question**, which the prose alone
+does not: the mock draws `main` (`current: true`, `depth: 0`) *above* the
+`feature` / `bugfix` / `release` folders at the same depth. So at any level the
+pin outranks the folders-before-leaves rule rather than yielding to it. (The
+mock's own folder ordering is *not* alphabetical — `feature`, `bugfix`,
+`release` — and was deliberately not read as a requirement; "a mockup shows
+what the user sees, not who draws it".)
+
+**The ordering half went into the comparator, not the panel.** Sorting a level
+is the only place that knows what "its own folder" means, and every level goes
+through `_compareTreeNodes`, so one `isHead` clause covers the whole tree at
+every depth. A detached HEAD pins nothing and the tree sorts as it always did;
+only one ref can be HEAD, so two pinned nodes never have to be ordered against
+each other.
+
+**The filter half turned out to be a deletion, not an addition.** The old code
+removed HEAD from `filteredBranches` and prepended a separate row above the
+tree — and a row rendered outside the tree *has no folder to sit in*, which is
+precisely why it had to be hoisted. Adding HEAD back into `buildBranchTree`'s
+input instead makes the whole special case disappear: the builder recreates the
+ancestor folders the query had dropped (a pinned row cannot appear inside a
+folder that is not drawn), and the comparator then puts it first inside them.
+Two consequences had to be chased down, and each is now its own mutation-checked
+test:
+
+- `_firstLeafName` gained a `skip`, because P02-14 rule 9's ↓ must not land on
+  a row the query excluded — and now that the pin leads its own folder, that is
+  exactly the row the walk reaches first.
+- the `No matches` empty state was keyed on `branchTree.isEmpty`, which stops
+  being a test for "nothing matched" the moment the tree always carries HEAD.
+  It reads `filteredBranches.isEmpty` now.
+
+Matched on `fullName` rather than identity: `RefInfo` has no `operator ==`, so
+`contains` compares object references and would silently start re-adding a HEAD
+that *did* match if `filterBranches` ever stopped returning the caller's own
+instances.
+
+**Rule 7 and `BRANCH_STATES` disagree on paper, and the reading is recorded on
+purpose.** P02-14 rule 7 says a bare 「目前分支永遠置頂顯示」. Under the fix, a
+matching folder that sorts before HEAD's folder renders *above* it — the test
+asserts `['chore/docs', 'feature/zeta']`, HEAD second. `BRANCH_STATES` is the
+specific rule and it scopes 置頂 to the folder, so this is conformant, not a
+regression; it is written into the matrix and CLAUDE.md because an auditor
+reading rule 7 literally would otherwise file it as one. That is the #45/#60
+precedent: an unrecorded reading becomes a stale issue.
+
+**The fixture is the point.** Every test here puts HEAD *inside* a folder and
+names it so it sorts last among its siblings (`feature/zeta`, in a folder that
+sorts after `chore`). A fixture with HEAD at the root cannot tell the two
+readings apart — root *is* its folder, so 「置頂於所屬資料夾內」 and 「置頂於整棵
+樹」 name the same row. That is exactly why `sidebar_filter_test.dart`'s `main`
+fixture stayed green through the entire bug, and why its rule-7 tests still pass
+unchanged after the fix.
+
+`branch_tree_builder_test.dart`'s very first test had to be corrected: it
+asserted `develop` above `main` with `main` carrying `isHead: true`, i.e. it
+stated the pre-fix ordering as the expected one.
+
+#### The split: 1,782 → 741, in four commits, no behaviour change
+
+The panel was more than double the project's 800-line ceiling. Split along two
+different seams depending on what each piece owns, rather than one rule applied
+uniformly:
+
+- **Presentational** (`features/workspace/widgets/` precedent — plain callbacks,
+  no Riverpod): `BranchSelectionActionBar`, `BranchesSectionHeader`,
+  `SidebarFilterField`, `BranchFolderRow`, `SidebarSectionLabel`,
+  `BranchSelectionShortcuts`.
+- **`ConsumerWidget`**: `SidebarTagSection`, `SidebarStashSection`. Their
+  actions are the *only* callers of the controller methods behind them, so
+  routing ten callbacks up through the panel would add a hop and leave the
+  panel holding state it does not otherwise use. The branch tree is the
+  opposite case — its selection *is* panel state — so that half stayed.
+- **Collaborator objects**: `BranchBulkActions` (page 13's `MULTIBRANCHMENU`
+  over a selection) and `BranchRowActions` (05-B / 05-C / 05-J per-row menus),
+  split along the line the spec itself draws. Both are built fresh at each call
+  site and never stored: the selection is the panel's, and a stored second copy
+  is the shape this repo keeps finding bugs in.
+- **Pure functions**: `branch_selection_rules.dart` (`isBulkSelectable`,
+  `isInMultiSelection`, `isGoneAndBulkSelectable`, `prunedSelection`,
+  `extendedSelection`, `liveBranchNames`) and two more tree walks moved into
+  `branch_tree_builder.dart` beside `collectFolderLeafRefs`.
+
+**What stayed, and why.** Expand/collapse (`_expandedFolders`) is the panel's
+own `setState`; moving it would put tree state in two places. `firstLeafName`
+and `selectableLeafNames` moved as *functions* but their calls stay in
+`build()`, walking the same `branchTree` instance — pushing the walk itself
+into a child widget would recreate the second-copy-of-render-order bug the
+first pass had just fixed. Batch delete stayed with the panel's routing because
+spec page 13 requires item-by-item confirmation, so it opens a dialog.
+
+**One real finding fell out of the move.** Extracting the filter field exposed
+that the clear button was keyed on `_filterQuery.isEmpty` while the 命中/總數
+readout was keyed on `trim().isNotEmpty`. For a whitespace-only query those
+disagree: nothing is filtered, no count shows, but the clear button *does* —
+and it is the only way to get rid of the text. Collapsing them into one
+`isFiltering` flag would have stranded the user. Preserved faithfully as two
+parameters, `hasQuery` and `isFiltering`, with the reason written on the field.
+
+#### Verification
+
+`flutter analyze` clean throughout, `dart format` limited to the touched
+directory. The suite ran green after **every** extraction, not just at the end:
+1,988 tests. Both new panel behaviours were mutation-checked and the red was
+narrow *and* doubled — reverting the `No matches` key and dropping the ↓ skip
+each failed both the new pin test and the pre-existing `sidebar_filter_test.dart`
+tests that were already guarding those contracts.
+
+**All nine macOS device files were rerun, one at a time**, not the four the
+first pass needed. The split changed the widget-tree shape of every sidebar
+row, and the merge changed the capi JSON across the FFI seam — the fake-backed
+suite attests to neither. The dylib is rebuilt and re-copied by the macOS
+Runner's own build phase on every `flutter test -d macos`, so the stale-copy
+trap does not apply here.
+
+#### Deliberately not done, still
+
+- **No human visual pass.** Unchanged from the first pass, and now covering the
+  pinned row's position as well as hover and the 等距 column.
+- **`branch_selection_rules.dart` has no dedicated unit test file.** Its six
+  functions are covered transitively by the panel and builder suites, which is
+  how they were covered as private methods too — extracting them makes a direct
+  test *possible*, and that is worth doing, but writing one was not part of what
+  was asked.

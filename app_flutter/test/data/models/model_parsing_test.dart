@@ -185,7 +185,8 @@ void main() {
   test('ChangedFile.fromJson decodes every field', () {
     final Map<String, dynamic> json = jsonDecode(
       '{"path":"b.txt","oldPath":"a.txt","kind":3,"oldMode":"100644",'
-      '"newMode":"100644","oldBlob":"aaa","newBlob":"bbb","similarity":92}',
+      '"newMode":"100644","oldBlob":"aaa","newBlob":"bbb","similarity":92,'
+      '"addedLines":12,"removedLines":3}',
     );
     final ChangedFile file = ChangedFile.fromJson(json);
 
@@ -197,14 +198,20 @@ void main() {
     expect(file.oldBlob, 'aaa');
     expect(file.newBlob, 'bbb');
     expect(file.similarity, 92);
+    // Spec page 02 item 10's badge. Two different non-zero numbers, so a
+    // decoder that read one key into both fields fails here.
+    expect(file.addedLines, 12);
+    expect(file.removedLines, 3);
   });
 
   test('ChangedFile.listFromJson decodes an array in order', () {
     final List<dynamic> json = jsonDecode(
       '[{"path":"a.txt","oldPath":"","kind":1,"oldMode":"","newMode":"100644",'
-      '"oldBlob":"","newBlob":"aaa","similarity":0},'
+      '"oldBlob":"","newBlob":"aaa","similarity":0,'
+      '"addedLines":7,"removedLines":0},'
       '{"path":"b.txt","oldPath":"","kind":2,"oldMode":"100644","newMode":"",'
-      '"oldBlob":"bbb","newBlob":"","similarity":0}]',
+      '"oldBlob":"bbb","newBlob":"","similarity":0,'
+      '"addedLines":0,"removedLines":5}]',
     );
     final List<ChangedFile> files = ChangedFile.listFromJson(json);
 
@@ -213,6 +220,10 @@ void main() {
       FileChangeKind.added,
       FileChangeKind.deleted,
     ]);
+    // An add carries only additions and a delete only removals, so these
+    // also pin that the two entries did not get their counts swapped.
+    expect(files.map((f) => f.addedLines), <int>[7, 0]);
+    expect(files.map((f) => f.removedLines), <int>[0, 5]);
   });
 
   test('ParsedDiff.fromJson decodes nested files/hunks/lines', () {

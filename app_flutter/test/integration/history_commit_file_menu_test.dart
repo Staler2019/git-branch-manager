@@ -49,6 +49,11 @@ ChangedFile _file(String path) => ChangedFile(
   oldBlob: 'aaa',
   newBlob: 'bbb',
   similarity: 0,
+  // 0/0 draws no badge, so these rows render exactly as they did before
+  // spec P02-10's line counts existed -- this file is about something
+  // else and should not start depending on them.
+  addedLines: 0,
+  removedLines: 0,
 );
 
 /// Records launch attempts instead of spawning anything, mirroring

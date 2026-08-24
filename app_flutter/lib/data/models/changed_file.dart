@@ -12,6 +12,8 @@ class ChangedFile {
     required this.oldBlob,
     required this.newBlob,
     required this.similarity,
+    required this.addedLines,
+    required this.removedLines,
   });
 
   factory ChangedFile.fromJson(Map<String, dynamic> json) {
@@ -24,6 +26,8 @@ class ChangedFile {
       oldBlob: json['oldBlob'] as String,
       newBlob: json['newBlob'] as String,
       similarity: json['similarity'] as int,
+      addedLines: json['addedLines'] as int,
+      removedLines: json['removedLines'] as int,
     );
   }
 
@@ -41,4 +45,12 @@ class ChangedFile {
   final String oldBlob;
   final String newBlob;
   final int similarity;
+
+  /// Spec page 02 item 10's "+12" badge, from `git diff-tree --numstat`
+  /// joined onto the raw file list in `DiffService::changedFiles()`. Both
+  /// read 0 for a binary blob -- numstat reports "-" rather than a number
+  /// there -- and the Changed files panel draws no badge for a 0, which is
+  /// the honest rendering for something that has no lines.
+  final int addedLines;
+  final int removedLines;
 }

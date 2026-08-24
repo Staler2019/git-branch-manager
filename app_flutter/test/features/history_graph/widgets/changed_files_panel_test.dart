@@ -13,16 +13,22 @@ import 'package:gbm_flutter/widgets/file_tree_folder_row.dart';
 
 import '../../../support/pump_app.dart';
 
-ChangedFile _file(String path) => ChangedFile(
-  path: path,
-  oldPath: path,
-  kind: FileChangeKind.modified,
-  oldMode: '100644',
-  newMode: '100644',
-  oldBlob: 'aaa',
-  newBlob: 'bbb',
-  similarity: 0,
-);
+ChangedFile _file(String path, {int addedLines = 0, int removedLines = 0}) =>
+    ChangedFile(
+      path: path,
+      oldPath: path,
+      kind: FileChangeKind.modified,
+      oldMode: '100644',
+      newMode: '100644',
+      oldBlob: 'aaa',
+      newBlob: 'bbb',
+      similarity: 0,
+      // Defaulted so the cases that predate spec P02-10's badge keep
+      // asserting what they always did; every badge case passes both
+      // explicitly, so none of them can pass on a default.
+      addedLines: addedLines,
+      removedLines: removedLines,
+    );
 
 void main() {
   testWidgets('shows "No files changed" when no commit is selected', (

@@ -163,6 +163,8 @@ ChangedFile _changedFile({String path = 'lib/main.dart'}) {
     oldBlob: '',
     newBlob: '',
     similarity: 0,
+    addedLines: 0,
+    removedLines: 0,
   );
 }
 

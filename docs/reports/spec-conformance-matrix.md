@@ -335,7 +335,7 @@ flex ratio verbatim. Persistence goes through
 | # | Item | Verdict | Evidence | Reason |
 |---|---|---|---|---|
 | 1 | Menu bar (Alt/Ctrl+F2 opens first menu) | 符合 | `workspace_screen.dart:385` | — |
-| 2 | Fetch/Pull/Push disabled during conflict | 符合 | `gbm_action_availability.dart:33-45` | All 3 gated on `!conflictActive`. |
+| 2 | Toolbar: Fetch/Pull/Push (Push primary) + Branch/Stash, all disabled during conflict | ~~符合~~ → **符合** (feat/p02-action-toolbar) | `features/workspace/widgets/action_toolbar.dart`, `workspace_screen.dart`, `gbm_action_availability.dart:33-45` | **This row checked the gate and passed for it, while the surface being gated did not exist.** The old verdict's title ("Fetch/Pull/Push disabled during conflict") is not what item 2 says: item 2 *is* the toolbar row under the menu bar (`spec_raw.html:1245-1255`), and 「三顆同組。Push 為主要樣式。」describes buttons, not a permission rule. Nothing under `lib/` rendered them — Fetch/Pull/Push had exactly two entry points, the keyboard shortcut and the Repository menu — so `gbm_action_availability.dart` was greying out a bar that was never drawn. Same shape as rows 11, 12 and 14 below. `ActionToolbar` now renders all five buttons on all three platforms, wired from the same `Map<GbmActionId, VoidCallback?>` the keyboard/system-menu/in-window-menu paths dispatch through, so the conflict gate arrives through `isActionEnabled()` with no second source. Branch/Stash are mockup-only (no prose names them) but the spec's own icon choices — `git-branch-plus`, `inbox` — name their actions, and no prose contradicts them, so the prose-wins rule had nothing to overrule. **Recorded reduction**: P17 wants Alt+click on toolbar Pull to open a Pull dialog with the apply mode pre-selected; `route_paths.dart` has no pull dialog route, so only the plain click (「直接用 Preferences 的預設套用方式走」) is wired. |
 | 3 | Search commits (Ctrl/Cmd+F) | 符合 | `commit_search.dart:8-28` | message/author/hash-prefix. |
 | 4 | Sidebar: 3 sections, branches merged into ONE tree | 符合 | `sidebar_panel.dart:32-38,417-420`, `branch_tree_builder.dart:127-171` | `mergeLocalAndRemoteBranches()`. |
 | 5 | Splitter A | 符合 | `workspace_screen.dart:326-331` | — |
@@ -351,7 +351,7 @@ flex ratio verbatim. Persistence goes through
 | 15 | Repo switcher popover | 符合 | `repo_switcher_popover.dart` | — |
 | 16 | Graph column picker, Date hybrid format + ISO tooltip | 符合 | `graph_columns_selector.dart:56,61`, `graph_date_format.dart:5-26` | Graph/Message locked; relative/absolute date switch + full-ISO tooltip both present. |
 
-**15/16 符合, 1 real rendering gap (item 6's chip-merge rule).**
+**15/16 符合, 1 real rendering gap (item 6's chip-merge rule).** Item 2's original 符合 was withdrawn and re-earned by feat/p02-action-toolbar; the count is unchanged because the row was already counted as passing when it was not.
 
 ---
 
@@ -378,7 +378,7 @@ context-menu labels (05-F) reachable at all.
 |---|---|---|---|
 | 判定條件 | 符合 | `repo_session_repository.dart`'s `conflictActive` getter (documented in CLAUDE.md) | — |
 | Banner | 符合 | `workspace_screen.dart:289-296` | `ConflictBanner` shown only when `conflictActive`. |
-| Toolbar Fetch/Pull/Push disabled | 符合 | `gbm_action_availability.dart:33-45` | — |
+| Toolbar Fetch/Pull/Push disabled | ~~符合~~ → **符合** (feat/p02-action-toolbar) | `action_toolbar.dart`, `gbm_action_availability.dart:33-45` | **Same defect as P02 row 2, and for the same reason**: this row's evidence proved the three ids were gated, not that a toolbar existed to gate. It did not. The row now names the widget that renders 「三顆」, and `workspace_conflict_transition_test.dart`'s `spec P02-2 toolbar` group asserts the buttons themselves flip across the conflict↔clean transition (and back), rather than asserting the predicate that decides it. |
 | 切分支 disabled | 符合 | `gbm_action_availability.dart:40` | `branchCheckout` gated same way. |
 | Working copy gains a Conflicted section | **符合 — corrected** | `working_copy_view.dart:136-138,171-245` | The discovery agent initially reported this as missing. Direct spot-check disproves that: `_buildConflictedSection()` exists, is pinned at the top, rendered only `if (status.conflicted.isNotEmpty)`, capped-height scrolling list with a count badge — matches spec exactly. Recorded here as a concrete example of why this audit spot-checks agent output rather than transcribing it verbatim. |
 | Commit disabled until resolved | 符合 | `gbm_action_availability.dart:37` | — |

@@ -129,8 +129,9 @@ lib/
   features/
     welcome/         WelcomeScreen (route `/`, no repository open)
     repo_switcher/   RepoSwitcherButton (sidebar top) + popover + RepoSwitcherList
-    workspace/       WorkspaceScreen (shell) + widgets/ (MenuBarRow, TopBar,
-                      TabRow — presentational, no Riverpod dependency)
+    workspace/       WorkspaceScreen (shell) + widgets/ (MenuBarRow,
+                      ActionToolbar, TopBar, TabRow — presentational, no
+                      Riverpod dependency)
     history_graph/   CommitGraphView, commit_row.dart
     working_copy/    WorkingCopyView
     sidebar/         SidebarPanel
@@ -146,9 +147,9 @@ lib/
     dialogs/         The 34 repo-scoped dialog contents listed above, plus the 4 app-wide ones
 ```
 
-Presentational/container split: `MenuBarRow`, `TopBar`, `TabRow`
-(`features/workspace/widgets/`) take plain callbacks/values and hold no
-Riverpod dependency, so they're tested directly against a bare `GoRouter`
+Presentational/container split: `MenuBarRow`, `ActionToolbar`, `TopBar`,
+`TabRow` (`features/workspace/widgets/`) take plain callbacks/values and hold
+no Riverpod dependency, so they're tested directly against a bare `GoRouter`
 (see `test/features/workspace/*_test.dart`). `WorkspaceScreen` is the
 container: it watches `repoSessionProvider` and wires the callbacks in.
 
@@ -341,8 +342,9 @@ RepoSessionState)` is the single source of truth for which actions a
 state-dependent gate disables — every other call site (`workspace_screen.dart`'s
 `_buildActionHandlers()`, `sidebar_panel.dart`'s `BranchTreeItem.conflictActive`,
 `working_copy_view.dart`'s commit-box `canCommit`, `MenuBarRow`'s
-`GbmMenuItem.enabled` grey-out) reads through this function rather than
-re-deriving `session.conflictActive` locally.
+`GbmMenuItem.enabled` grey-out, and `ActionToolbar`'s five buttons, which take
+their `null`-means-disabled straight out of the handler map) reads through this
+function rather than re-deriving `session.conflictActive` locally.
 
 Twelve ids are gated straight off spec page 07's STATES table — disabled
 whenever `RepoSessionState.conflictActive` is true, because each would move
@@ -511,8 +513,12 @@ you are touching, not by when it was learned.
   test whose subject contradicts yours (`_mergeState()`'s
   `isSequencerOperation`, cancel-surface round); one that *cannot express*
   the case at all (a single shared `GraphRow` instance, graph-edge round);
-  and one that *cannot shrink* (a `repoRefsProvider` override pinned to one
-  snapshot, so no selected branch can ever vanish).
+  one that *cannot shrink* (a `repoRefsProvider` override pinned to one
+  snapshot, so no selected branch can ever vanish); and one whose *two
+  subjects are indistinguishable to the assertion* — `ActionToolbar`'s Branch
+  and Stash share a gate and both only `context.push(...)`, so asserting
+  `onPressed != null` stayed green with the two handlers swapped (P02-2
+  round). Sentinel `dialogRoute`s are what told them apart.
 - **Mutation-check every new test**, and check the red is *narrow* — a broad
   red means the test is pinning something else. Copy the file to the
   scratchpad first (`cp file "$SCRATCH/x.bak"` → mutate → `cp` back);
@@ -539,6 +545,12 @@ you are touching, not by when it was learned.
   parallel load) — read the failure text before picking a family.
 - `StatusBar` lingers a finished task for 3 seconds (`_lingerTimer`), so
   "the task cleared" cannot be asserted on the next frame.
+- **Real async inside `testWidgets` needs `tester.runAsync()`.**
+  `Picture.toImage()` (and asset decoding through `vg.loadPicture`) never
+  completes in flutter_test's fake-async zone: no output, no timeout of its
+  own, just a hang — eight minutes of silence in the recorded case. This is
+  how an asset-rendering check is written when a string-level "it ships and
+  parses" assertion is not enough (`docs/ledger.md`, P02 item 2's toolbar).
 - **The fake seam fails loudly on purpose.** `FakeGbmBindings` /
   `FakeRecentsRepository` throw via `noSuchMethod` for anything not
   explicitly implemented, so a provider a test forgot to override never
@@ -714,6 +726,14 @@ you are touching, not by when it was learned.
   `REVISIONS` table revises earlier pages**, so check whether a later page
   overrules a verdict written before it — two issues went stale exactly that
   way. P13 B and P14–P16 remain unaudited (**#76**), as do P17–P21.
+- **A conformance cell whose evidence is `isActionEnabled()` proves the gate
+  exists, never the gated surface.** P02 item 2 and P07's `Toolbar` row both
+  read 符合 off `gbm_action_availability.dart` while the toolbar they describe
+  was drawn by nothing — Fetch/Pull/Push had only a shortcut and a menu item
+  (feat/p02-action-toolbar). Items 11, 12 and 14 on the same page fell the same
+  way. Check the row's *title* against the spec's own wording before trusting
+  its evidence: 「三顆同組。Push 為主要樣式。」 describes buttons, and the
+  disabled-during-conflict clause hangs off them.
 - **When an issue's premise does not survive the source, correct the issue
   text in place and record the evidence** — close as not-planned rather than
   quietly retitle (#45/#50/#51/#60 precedent). Several rounds found the
@@ -766,9 +786,12 @@ you are touching, not by when it was learned.
 - `lfs_pattern_match.dart` is an **approximation** of gitattributes matching,
   not a port of `wildmatch()`; a pattern it cannot parse matches nothing, so
   a group reads 0 rather than a wrong number.
+- **No pull dialog route exists**, so P17's 「選單的 Pull… 或 Alt + 點工具列才
+  開」 has nothing to open: `ActionToolbar`'s Pull only runs `pullChanges()`
+  with the configured default (**#109**).
 - **Open issues**: **#62** (TabRow overflow menu), **#67**–**#71**,
   **#74**–**#76**, **#84**–**#89** (Tier 6 spec blockers), **#92**–**#95**
-  (capi with no spec entry point), **#99**, **#101**, **#102**. `gh issue
+  (capi with no spec entry point), **#99**, **#101**, **#102**, **#109**. `gh issue
   list` is authoritative; the ledger's mentions are historical.
 
 ## Engineering ledger

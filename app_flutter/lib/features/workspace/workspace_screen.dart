@@ -40,6 +40,7 @@ import '../sidebar/gone_marking.dart';
 import '../sidebar/sidebar_panel.dart';
 import '../status_bar/background_task.dart';
 import '../status_bar/status_bar.dart';
+import 'widgets/action_toolbar.dart';
 import 'widgets/menu_bar_row.dart';
 import 'widgets/platform_menu_bar_host.dart';
 import 'widgets/tab_row.dart';
@@ -359,6 +360,25 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
               // state agrees with what those two paths will actually do.
               actionHandlers: actionHandlers,
             ),
+          // Spec page 02's numbered item 2. Unlike MenuBarRow above, this
+          // row is drawn on all three platforms -- page 01 says only the
+          // menu bar's *position* follows the system, and macOS moving its
+          // menus to the system bar says nothing about the toolbar.
+          //
+          // Every callback is read back out of the same actionHandlers map
+          // the keyboard, the macOS system menu and the in-window menu
+          // dispatch through. Reaching past it for a toolbar-only handler
+          // is precisely the bug workspace_intent_dispatch_parity_test.dart
+          // exists to catch, and null here (from isActionEnabled()) is what
+          // greys a button out mid-conflict -- spec page 07's STATES row
+          // 「三顆停用，改由 banner 提供 Abort / Skip / Continue / Resolve…」.
+          ActionToolbar(
+            onFetch: actionHandlers[GbmActionId.repositoryFetch],
+            onPull: actionHandlers[GbmActionId.repositoryPull],
+            onPush: actionHandlers[GbmActionId.repositoryPush],
+            onBranch: actionHandlers[GbmActionId.branchNewBranch],
+            onStash: actionHandlers[GbmActionId.branchStashChanges],
+          ),
           TopBar(
             repoName: _displayName(identity.workDir),
             repoState: session.repoState,

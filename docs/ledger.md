@@ -2722,9 +2722,15 @@ test and nothing else.
 「switch branch via sidebar updates HEAD」 failed with `Expected: 'feature',
 Actual: 'main'` — the old single-click contract, asserted against a real git
 repository. `flutter test` never runs `integration_test/`, so the widget tier's
-green said nothing about it. All four macOS device files pass after updating
-that one to a double-click: `repo_lifecycle`, `commit_flow`,
-`rename_branch_flow`, `context_menu_flows`. `commit_flow_test.dart:54`'s
+green said nothing about it. **All nine macOS device files pass**, one file at
+a time, after updating that one to a double-click: `repo_lifecycle`,
+`commit_flow`, `rename_branch_flow`, `context_menu_flows`,
+`commit_file_counts`, `conflict_flow`, `history_filter`, `multi_push_flow`,
+`update_check_flow`. The last five were run even though grepping their finders
+showed none of them taps a branch row, because this round adds a `Material` and
+an always-painted `IconButton` to **every** sidebar row — a widget-tree shape
+change, which is precisely the class the ledger already records as breaking a
+finder two files away from the edit. `commit_flow_test.dart:54`'s
 `find.byType(Checkbox).first` was a live risk — the sidebar's checkbox used to
 sit earlier in the tree than the working copy's — and removing it made that
 finder unambiguous rather than breaking it.
@@ -2737,6 +2743,16 @@ fixed* — fails only the token-identity assertion in
 `branch_tree_item_row_chrome_test.dart`, because ThemeData's ~4% fallback does
 change the pixels, just not perceptibly. A pixel diff alone would have called
 the original bug fixed.
+
+**Removing the checkbox removed the row's only keyboard-focusable control, and
+that is the spec's model rather than an oversight.** `GbmRow`'s `InkWell` now
+has no primary tap callback (selection runs off `Listener`), so nothing in a
+branch row takes focus by Tab. `Ctrl/Cmd+A` and `Shift+↑/↓` still work, but only
+after a mouse click has handed focus to the tree — which is exactly what
+`MULTIKEYS` describes, since every entry in it is a pointer gesture or a
+modifier on one. Recorded so the next round reads it as a decision; if
+keyboard-only selection is ever wanted it is a new spec question, not a
+regression of this one.
 
 **No human looked at it.** The plan asked for a `flutter run -d macos` eyeball
 pass on hover and on the 等距 column, and that was not performed; it is recorded

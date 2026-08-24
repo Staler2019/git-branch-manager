@@ -41,9 +41,11 @@ void main() {
       expect(tree.length, 2);
       expect(tree[0] is BranchTreeLeaf, true);
       expect(tree[1] is BranchTreeLeaf, true);
-      // Sorted alphabetically: develop comes before main
-      expect((tree[0] as BranchTreeLeaf).ref.shortName, 'develop');
-      expect((tree[1] as BranchTreeLeaf).ref.shortName, 'main');
+      // `headRef` is `main` with `isHead: true`, so BRANCH_STATES' 「永遠置頂於
+      // 所屬資料夾內」 puts it above `develop` despite the alphabetical rule --
+      // which this assertion used to state the other way round.
+      expect((tree[0] as BranchTreeLeaf).ref.shortName, 'main');
+      expect((tree[1] as BranchTreeLeaf).ref.shortName, 'develop');
     });
 
     test('builds nested tree for slash-delimited branches', () {
@@ -562,6 +564,122 @@ void main() {
         leafAt(tree, <String>['feature']).ref.shortName,
         'feature/graph-lanes',
       );
+    });
+  });
+
+  group('current branch pinning (BRANCH_STATES: 永遠置頂於所屬資料夾內)', () {
+    RefInfo branch(String name, {bool isHead = false}) => RefInfo(
+      fullName: 'refs/heads/$name',
+      shortName: name,
+      kind: RefKind.localBranch,
+      target: 'a' * 40,
+      upstream: '',
+      ahead: 0,
+      behind: 0,
+      hasTrackingInfo: false,
+      isGone: false,
+      isHead: isHead,
+      isSymbolic: isHead,
+      worktreePath: '',
+    );
+
+    /// The names of one level's children, folders included, in the order the
+    /// sidebar paints them.
+    List<String> namesAt(List<BranchTreeNode> nodes, List<String> folders) {
+      List<BranchTreeNode> level = nodes;
+      for (final String name in folders) {
+        level = level
+            .whereType<BranchTreeFolder>()
+            .firstWhere((BranchTreeFolder f) => f.folderName == name)
+            .children;
+      }
+      return level
+          .map(
+            (BranchTreeNode n) => switch (n) {
+              BranchTreeFolder(:final folderName) => folderName,
+              BranchTreeLeaf(:final ref) => ref.shortName,
+              _ => throw StateError('unexpected node $n'),
+            },
+          )
+          .toList();
+    }
+
+    test('a current branch inside a folder leads that folder', () {
+      // The falsifying case: alphabetically `zeta` is last of the three, so
+      // any ordering that ignores isHead puts it there. Nothing about this
+      // tree is order-neutral.
+      final List<BranchTreeNode> tree = buildBranchTree(
+        <RefInfo>[
+          branch('feature/alpha'),
+          branch('feature/beta'),
+          branch('feature/zeta', isHead: true),
+        ],
+        <String>{},
+        expandAll: true,
+      );
+
+      expect(namesAt(tree, <String>['feature']), <String>[
+        'feature/zeta',
+        'feature/alpha',
+        'feature/beta',
+      ]);
+    });
+
+    test('it does not escape to the root', () {
+      // 置頂**於所屬資料夾內** -- the pin is scoped to the parent. Hoisting it
+      // to row zero of the whole tree is the behaviour this replaces.
+      final List<BranchTreeNode> tree = buildBranchTree(
+        <RefInfo>[branch('chore/docs'), branch('feature/zeta', isHead: true)],
+        <String>{},
+        expandAll: true,
+      );
+
+      expect(namesAt(tree, const <String>[]), <String>['chore', 'feature']);
+      expect(namesAt(tree, <String>['feature']), <String>['feature/zeta']);
+    });
+
+    test('a root-level current branch outranks sibling folders', () {
+      // BRANCH_TREE draws `main` (current: true, depth 0) above the
+      // `feature` / `bugfix` / `release` folders at the same depth, so at
+      // root the pin beats the folders-before-leaves rule rather than
+      // yielding to it.
+      final List<BranchTreeNode> tree = buildBranchTree(
+        <RefInfo>[branch('feature/alpha'), branch('main', isHead: true)],
+        <String>{},
+        expandAll: true,
+      );
+
+      expect(namesAt(tree, const <String>[]), <String>['main', 'feature']);
+    });
+
+    test('CONTROL: with no current branch, folders still lead', () {
+      final List<BranchTreeNode> tree = buildBranchTree(
+        <RefInfo>[branch('feature/alpha'), branch('main')],
+        <String>{},
+        expandAll: true,
+      );
+
+      expect(namesAt(tree, const <String>[]), <String>['feature', 'main']);
+    });
+
+    test('CONTROL: siblings of the current branch stay alphabetical', () {
+      final List<BranchTreeNode> tree = buildBranchTree(
+        <RefInfo>[
+          branch('feature/gamma'),
+          branch('feature/alpha'),
+          branch('feature/head', isHead: true),
+          branch('feature/beta'),
+        ],
+        <String>{},
+        expandAll: true,
+      );
+
+      expect(namesAt(tree, <String>['feature']), <String>[
+        'feature/head',
+        'feature/alpha',
+        'feature/beta',
+        'feature/gamma',
+      ]);
     });
   });
 }

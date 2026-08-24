@@ -249,9 +249,27 @@ BranchTreeFolder _folderNodeToTree(_FolderNode node) {
   );
 }
 
-/// Comparison function for sorting tree nodes: folders first (alphabetically),
-/// then leaves (alphabetically).
+/// Comparison function for sorting tree nodes: the current branch first, then
+/// folders (alphabetically), then leaves (alphabetically).
+///
+/// `BRANCH_STATES`' 目前分支 row: 「永遠置頂於所屬資料夾內」. The pin is scoped
+/// to the parent, which is why it lives in the comparator rather than in the
+/// panel: sorting a level is the only place that knows what "its own folder"
+/// means, and every level is sorted by this one function. `BRANCH_TREE` draws
+/// `main` (`current: true`, `depth: 0`) above the `feature` / `bugfix` /
+/// `release` folders at the same depth, so at any level the pin outranks the
+/// folders-before-leaves rule rather than yielding to it.
+///
+/// Only one ref can be HEAD, so this never has to order two pinned nodes
+/// against each other, and a folder is never [RefInfo.isHead] -- a detached
+/// HEAD simply pins nothing and the tree sorts as it always did.
 int _compareTreeNodes(BranchTreeNode a, BranchTreeNode b) {
+  final aIsHead = a is BranchTreeLeaf && a.ref.isHead;
+  final bIsHead = b is BranchTreeLeaf && b.ref.isHead;
+
+  if (aIsHead && !bIsHead) return -1;
+  if (!aIsHead && bIsHead) return 1;
+
   final aIsFolder = a is BranchTreeFolder;
   final bIsFolder = b is BranchTreeFolder;
 

@@ -18,23 +18,21 @@ import 'package:gbm_flutter/widgets/gbm_row.dart';
 const GbmThemeVariant _variant = GbmThemeVariant.darkTechnical;
 final GbmColors _colors = tokensFor(_variant);
 
-RefInfo _localRef({
-  String shortName = 'feature',
-  bool isHead = false,
-}) => RefInfo(
-  fullName: 'refs/heads/$shortName',
-  shortName: shortName,
-  kind: RefKind.localBranch,
-  target: 'abc123',
-  isHead: isHead,
-  isGone: false,
-  upstream: '',
-  ahead: 0,
-  behind: 0,
-  hasTrackingInfo: false,
-  isSymbolic: false,
-  worktreePath: '',
-);
+RefInfo _localRef({String shortName = 'feature', bool isHead = false}) =>
+    RefInfo(
+      fullName: 'refs/heads/$shortName',
+      shortName: shortName,
+      kind: RefKind.localBranch,
+      target: 'abc123',
+      isHead: isHead,
+      isGone: false,
+      upstream: '',
+      ahead: 0,
+      behind: 0,
+      hasTrackingInfo: false,
+      isSymbolic: false,
+      worktreePath: '',
+    );
 
 Future<void> _pumpRow(
   WidgetTester tester, {
@@ -71,8 +69,12 @@ void main() {
   testWidgets('hover is wired to the surfaceHover token', (tester) async {
     await _pumpRow(tester, ref: _localRef());
 
+    // `.first`: the trailing actions button has an InkWell too, and it sits
+    // below GbmRow's own in tree order.
     final InkWell ink = tester.widget<InkWell>(
-      find.descendant(of: find.byType(GbmRow), matching: find.byType(InkWell)),
+      find
+          .descendant(of: find.byType(GbmRow), matching: find.byType(InkWell))
+          .first,
     );
 
     // The whole point of the round: a null hoverColor means Material's

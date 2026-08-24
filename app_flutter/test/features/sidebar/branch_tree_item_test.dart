@@ -23,13 +23,19 @@ RefInfo _remoteOnlyRef({String shortName = 'worktrees'}) => RefInfo(
   worktreePath: '',
 );
 
+/// The row's own tappable area. Every row now carries a trailing actions
+/// button, and that button has an InkWell of its own, so `find.byType(InkWell)`
+/// is ambiguous. The row centre is inside the body, which is the half that
+/// selects and double-clicks.
+final Finder _rowBody = find.byType(BranchTreeItem);
+
 /// Checkout is a double-click now (BRANCH_STATES 「點兩下即 checkout」), so a
 /// test that still single-taps would pass for the wrong reason: a single tap
 /// never checks out anything any more.
 Future<void> _doubleTap(WidgetTester tester) async {
-  await tester.tap(find.byType(InkWell));
+  await tester.tap(_rowBody);
   await tester.pump(const Duration(milliseconds: 100));
-  await tester.tap(find.byType(InkWell));
+  await tester.tap(_rowBody);
   await tester.pumpAndSettle();
 }
 
@@ -179,7 +185,7 @@ void main() {
       ),
     );
 
-    await tester.tap(find.byType(InkWell));
+    await tester.tap(_rowBody);
     await tester.pump(kDoubleTapTimeout);
 
     // Counted, not `any`: a row that both selected *and* checked out would
@@ -203,7 +209,7 @@ void main() {
         ),
       );
 
-      await tester.tap(find.byType(InkWell));
+      await tester.tap(_rowBody);
       await tester.pumpAndSettle();
 
       expect(checkoutCount, 0);
@@ -223,9 +229,9 @@ void main() {
         ),
       );
 
-      await tester.tap(find.byType(InkWell));
+      await tester.tap(_rowBody);
       await tester.pump(const Duration(milliseconds: 100));
-      await tester.tap(find.byType(InkWell));
+      await tester.tap(_rowBody);
       await tester.pumpAndSettle();
 
       expect(checkoutCount, 1);
@@ -248,9 +254,9 @@ void main() {
         ),
       );
 
-      await tester.tap(find.byType(InkWell));
+      await tester.tap(_rowBody);
       await tester.pump(const Duration(milliseconds: 100));
-      await tester.tap(find.byType(InkWell));
+      await tester.tap(_rowBody);
       await tester.pumpAndSettle();
 
       expect(checkoutCount, 0);

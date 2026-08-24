@@ -154,6 +154,11 @@ class BranchTreeItem extends StatelessWidget {
 
   bool get _isTag => ref.kind == RefKind.tag;
 
+  /// Width of the trailing actions slot. Fixed so the ⋯ buttons form one
+  /// straight column down the sidebar regardless of a row's folder depth,
+  /// name length, or tracking badge.
+  static const double _kActionsSlotWidth = 32;
+
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
@@ -285,16 +290,26 @@ class BranchTreeItem extends StatelessWidget {
             ),
           ),
         ),
-        if (onRename != null ||
-            onDelete != null ||
-            onPruneRef != null ||
-            onDeleteOnRemote != null)
-          Builder(
+        // Every row kind's _buildMenuItems() returns a non-empty list, so
+        // every row gets the button -- and it lives in a fixed-width slot so
+        // the column is straight by construction rather than by luck.
+        //
+        // It used to appear only when one of four specific branch callbacks
+        // was set, which a tag row never has: the TAGS section had a hole in
+        // the column, and a tag's own 05-D menu had no visible entry point at
+        // all. The folder indent is EdgeInsets.only(left:), so nothing else
+        // can move this edge.
+        SizedBox(
+          width: _kActionsSlotWidth,
+          child: Builder(
             builder: (buttonContext) => IconButton(
               tooltip: 'Branch actions',
               icon: Icon(Icons.more_vert, size: 16, color: colors.textTertiary),
               iconSize: 16,
-              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              constraints: const BoxConstraints(
+                minWidth: _kActionsSlotWidth,
+                minHeight: _kActionsSlotWidth,
+              ),
               padding: EdgeInsets.zero,
               onPressed: () {
                 final RenderBox renderBox =
@@ -304,6 +319,7 @@ class BranchTreeItem extends StatelessWidget {
               },
             ),
           ),
+        ),
       ],
     );
 

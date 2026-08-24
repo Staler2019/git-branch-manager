@@ -7,6 +7,7 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/ref_chip_colors.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_menu.dart';
+import '../../../widgets/gbm_row.dart';
 import '../../../widgets/lucide_icon.dart';
 import 'local_branch_menu_items.dart';
 import 'tag_menu_items.dart';
@@ -182,104 +183,88 @@ class BranchTreeItem extends StatelessWidget {
         ? colors.textTertiary
         : (chip.text == colors.textOnAccent ? colors.accent : chip.text);
 
-    final Widget row = Container(
-      height: GbmSpacing.rowHeightCompact,
-      padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
-      decoration: BoxDecoration(
-        color: ref.isHead ? colors.surfaceSelected : null,
-        borderRadius: BorderRadius.circular(GbmSpacing.radiusSm),
-      ),
-      child: Row(
-        children: <Widget>[
-          if (onSelectedChanged != null)
-            Semantics(
-              label: 'Select ${ref.shortName} for bulk delete',
-              child: Checkbox(
-                value: selected,
-                onChanged: (value) => onSelectedChanged!(value ?? false),
-                visualDensity: VisualDensity.compact,
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-            ),
-          LucideIcon(iconName, size: 13, color: iconColor),
-          const SizedBox(width: GbmSpacing.space2),
-          // 4:1 against the tracking label below. The label used to be a
-          // plain non-flex Text: RenderFlex sizes non-flex children first,
-          // so "up 1234 down 5678" took whatever it wanted and left the name
-          // whatever remained -- which at the sidebar's 180px minimum, with
-          // a few levels of folder indent in front, is close to nothing. The
-          // name is what the row is for and it has no icon or tooltip
-          // standing in for it, so it is the half that keeps the space.
-          Expanded(
-            flex: 4,
-            child: Text(
-              ref.shortName,
-              style: TextStyle(
-                fontSize: GbmTypography.textSm,
-                fontWeight: ref.isHead
-                    ? GbmTypography.weightSemibold
-                    : GbmTypography.weightRegular,
-                color: colors.textPrimary,
-                // Spec page 02 stage 1: 「該列轉半透明、名稱加刪除線」.
-                decoration: _gone ? TextDecoration.lineThrough : null,
-                decorationColor: colors.textPrimary,
-              ),
-              overflow: TextOverflow.ellipsis,
+    final Widget row = Row(
+      children: <Widget>[
+        if (onSelectedChanged != null)
+          Semantics(
+            label: 'Select ${ref.shortName} for bulk delete',
+            child: Checkbox(
+              value: selected,
+              onChanged: (value) => onSelectedChanged!(value ?? false),
+              visualDensity: VisualDensity.compact,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
           ),
-          if (_gone)
-            Flexible(
-              child: Text(
-                'gone',
-                style: TextStyle(
-                  fontSize: GbmTypography.textXs,
-                  color: colors.danger,
-                ),
-                overflow: TextOverflow.ellipsis,
-                maxLines: 1,
-              ),
-            )
-          else if (ref.hasTrackingInfo && (ref.ahead > 0 || ref.behind > 0))
-            Flexible(
-              child: Text(
-                '${ref.ahead > 0 ? '↑${ref.ahead}' : ''}${ref.behind > 0 ? ' ↓${ref.behind}' : ''}',
-                style: TextStyle(
-                  fontSize: GbmTypography.textXs,
-                  color: colors.textTertiary,
-                ),
-                overflow: TextOverflow.ellipsis,
-                maxLines: 1,
-              ),
+        LucideIcon(iconName, size: 13, color: iconColor),
+        const SizedBox(width: GbmSpacing.space2),
+        // 4:1 against the tracking label below. The label used to be a
+        // plain non-flex Text: RenderFlex sizes non-flex children first,
+        // so "up 1234 down 5678" took whatever it wanted and left the name
+        // whatever remained -- which at the sidebar's 180px minimum, with
+        // a few levels of folder indent in front, is close to nothing. The
+        // name is what the row is for and it has no icon or tooltip
+        // standing in for it, so it is the half that keeps the space.
+        Expanded(
+          flex: 4,
+          child: Text(
+            ref.shortName,
+            style: TextStyle(
+              fontSize: GbmTypography.textSm,
+              fontWeight: ref.isHead
+                  ? GbmTypography.weightSemibold
+                  : GbmTypography.weightRegular,
+              color: colors.textPrimary,
+              // Spec page 02 stage 1: 「該列轉半透明、名稱加刪除線」.
+              decoration: _gone ? TextDecoration.lineThrough : null,
+              decorationColor: colors.textPrimary,
             ),
-          if (onRename != null ||
-              onDelete != null ||
-              onPruneRef != null ||
-              onDeleteOnRemote != null)
-            Builder(
-              builder: (buttonContext) => IconButton(
-                tooltip: 'Branch actions',
-                icon: Icon(
-                  Icons.more_vert,
-                  size: 16,
-                  color: colors.textTertiary,
-                ),
-                iconSize: 16,
-                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                padding: EdgeInsets.zero,
-                onPressed: () {
-                  final RenderBox renderBox =
-                      buttonContext.findRenderObject()! as RenderBox;
-                  final Offset globalPos = renderBox.localToGlobal(Offset.zero);
-                  showGbmContextMenu(
-                    buttonContext,
-                    globalPos,
-                    _buildMenuItems(),
-                  );
-                },
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        if (_gone)
+          Flexible(
+            child: Text(
+              'gone',
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                color: colors.danger,
               ),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
             ),
-        ],
-      ),
+          )
+        else if (ref.hasTrackingInfo && (ref.ahead > 0 || ref.behind > 0))
+          Flexible(
+            child: Text(
+              '${ref.ahead > 0 ? '↑${ref.ahead}' : ''}${ref.behind > 0 ? ' ↓${ref.behind}' : ''}',
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                color: colors.textTertiary,
+              ),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+            ),
+          ),
+        if (onRename != null ||
+            onDelete != null ||
+            onPruneRef != null ||
+            onDeleteOnRemote != null)
+          Builder(
+            builder: (buttonContext) => IconButton(
+              tooltip: 'Branch actions',
+              icon: Icon(Icons.more_vert, size: 16, color: colors.textTertiary),
+              iconSize: 16,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              padding: EdgeInsets.zero,
+              onPressed: () {
+                final RenderBox renderBox =
+                    buttonContext.findRenderObject()! as RenderBox;
+                final Offset globalPos = renderBox.localToGlobal(Offset.zero);
+                showGbmContextMenu(buttonContext, globalPos, _buildMenuItems());
+              },
+            ),
+          ),
+      ],
     );
 
     final Widget maybeTooltip = _gone && ref.upstream.isNotEmpty
@@ -291,6 +276,11 @@ class BranchTreeItem extends StatelessWidget {
     // Spec page 02 stage 1 dims a gone row for a different reason ("this no
     // longer exists on the remote"); the strikethrough on the name is what
     // tells the two apart, since a remote-only row can be either.
+    //
+    // Wraps the *content* only. It used to sit inside the row's own
+    // Container, which dimmed the selected background along with it -- so a
+    // dimmed row also got dimmed hover and selection feedback, i.e. the
+    // states the user needs most on the rows that are hardest to read.
     final Widget maybeDim = _isRemoteOnly || _gone
         ? Opacity(opacity: 0.62, child: maybeTooltip)
         : maybeTooltip;
@@ -298,24 +288,31 @@ class BranchTreeItem extends StatelessWidget {
     return Semantics(
       button: !ref.isHead,
       label: label.toString(),
-      child: GestureDetector(
+      child: GbmRow(
+        height: GbmSpacing.rowHeightCompact,
+        padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
+        // Two rows share one background token by design. BRANCH_STATES draws
+        // 目前分支 as 「整列以 selected 底色標示」 and a bulk-selected row uses
+        // the same surface; the bold name is what still tells HEAD apart.
+        //
+        // Before this, `selected` had exactly one consumer in the whole
+        // widget -- the checkbox's `value:` -- so a selected row was
+        // otherwise indistinguishable from an idle one.
+        selected: ref.isHead || selected,
         onSecondaryTapDown: (details) => _openContextMenu(context, details),
-        child: InkWell(
-          onTap: _isRemoteOnly
-              ? null
-              : () {
-                  final SelectionGesture gesture = currentSelectionGesture();
-                  if (gesture != SelectionGesture.single && onSelect != null) {
-                    onSelect!(gesture);
-                    return;
-                  }
-                  if (ref.isHead || conflictActive) return;
-                  onCheckout();
-                },
-          onDoubleTap: _isRemoteOnly && !conflictActive ? onCheckout : null,
-          borderRadius: BorderRadius.circular(GbmSpacing.radiusSm),
-          child: maybeDim,
-        ),
+        onTap: _isRemoteOnly
+            ? null
+            : () {
+                final SelectionGesture gesture = currentSelectionGesture();
+                if (gesture != SelectionGesture.single && onSelect != null) {
+                  onSelect!(gesture);
+                  return;
+                }
+                if (ref.isHead || conflictActive) return;
+                onCheckout();
+              },
+        onDoubleTap: _isRemoteOnly && !conflictActive ? onCheckout : null,
+        child: maybeDim,
       ),
     );
   }

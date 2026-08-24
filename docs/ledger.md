@@ -2430,3 +2430,114 @@ assertion to work taught two things:
   previous round's rule ("never run it wholesale") still holds for everything
   that does not.
 
+
+### P02 item 2's toolbar (feat/p02-action-toolbar)
+
+Spec page 02's numbered item **2** is the toolbar row directly under the menu
+bar: `Fetch` / `Pull` / `Push` with Push carrying the primary emphasis, a
+divider, then `Branch` / `Stash` (`spec_raw.html:1245-1255`). **None of it
+existed under `lib/`.** Fetch/Pull/Push had exactly two entry points — the
+keyboard shortcut and the Repository menu — and `top_bar.dart` held only the
+back button, the repository name, the state label, `Refresh` and the three
+theme swatches.
+
+#### The premise that did not survive: what row 2 of the matrix was measuring
+
+`docs/reports/spec-conformance-matrix.md` recorded P02 item 2 as **符合**,
+titled 「Fetch/Pull/Push disabled during conflict」, with
+`gbm_action_availability.dart:33-45` as its evidence. Both halves of that are
+about the *gate*. Item 2 is about the *surface*: 「三顆同組。Push 為主要樣式。」
+describes buttons, and 「conflict 狀態全部停用（見 07）」 is a clause attached to
+them, not the item itself. So the row proved that three action ids would be
+greyed out, in a bar nothing drew. The P07 STATES section carried the identical
+defect one screen further down (「Toolbar Fetch/Pull/Push disabled」, same
+evidence, same 符合).
+
+This is the fourth time on this page alone that a row passed by checking a
+different claim than the one written next to it — items 11, 12 and 14 were all
+overturned the same way in earlier rounds. The distilled form is now in
+CLAUDE.md: **a matrix cell whose evidence is `isActionEnabled()` proves the
+gate exists, never the gated surface.**
+
+#### Three vs five buttons
+
+Only Fetch/Pull/Push have prose behind them — item 2's own note, P07's STATES
+row (「三顆停用」) and P16's REVISIONS (「工具列 F / P / P 三顆同組，不能拆」).
+Branch and Stash appear only in the mockup, which by this repo's own rule
+(「A mockup shows what the user sees, not who draws it」) is not by itself a
+requirement.
+
+Built all five anyway, and the reasoning matters more than the outcome: the
+prose-wins rule exists to settle **contradictions** (P10's `--prune` mockup vs
+its own 「尚未 prune」 prose is the recorded case). Here there is nothing to
+overrule — the prose is silent about Branch/Stash rather than against them, and
+the spec's own icon choices name what they do: `git-branch-plus` is New branch,
+`inbox` is Stash changes. Both handlers (`branchNewBranch`,
+`branchStashChanges`) already existed in `_buildActionHandlers()`.
+
+#### Why a new row rather than folding it into TopBar
+
+`TopBar` occupies the same slot the spec gives the toolbar, so merging was the
+obvious-looking move. It was rejected for two reasons already written down
+here: `TopBar` is the one piece of chrome with **no** `Expanded >
+SingleChildScrollView` guard (the narrow-window round found that by grepping
+all four rows for the pattern the other three shared), and its ~327px non-flex
+floor is a **measured** number carried in a source comment — anything added
+upstream of it obliges a re-measurement. A separate `ActionToolbar` copies
+`menu_bar_row.dart:97`'s guard, leaves `top_bar.dart` and its four
+narrow-window tests untouched, and stays independently testable like
+`MenuBarRow`/`TabRow`. Cost: one more 38px chrome row (three on macOS, where
+`MenuBarRow` is not drawn). The extra row does not disturb
+`workspace_narrow_window_test.dart`'s 800×600 chrome control.
+
+`ActionToolbar` is drawn on **all three platforms**. Page 01 says only the menu
+bar's *position* follows the system; macOS moving its menus into the system bar
+says nothing about a toolbar.
+
+#### The assertion that could not fail, and the one that replaced it
+
+Branch and Stash are gated by the identical predicate and both do nothing but
+`context.push(...)`. So the natural integration assertion — `onPressed` is
+non-null when clean, null when conflicted, for all five — **stays green when
+the two handlers are swapped**. Mutation-checking caught it: wiring `onStash`
+to `GbmActionId.branchNewBranch` produced no red at all. That is the
+「fixture that cannot disagree with the code」 shape again, in its fifth recorded
+form: *two subjects the assertion cannot tell apart*. Registering sentinel
+`dialogRoute`s for `newBranchDialog` and `stashChangesDialog` and asserting
+which one opens is what makes the swap visible.
+
+Three more mutations behaved: `onFetch: null` reddened the three clean-state
+tests; `onFetch` bypassing the handler map straight to
+`RepoSessionController.fetchRemote` (the orphan-wiring shape
+`workspace_intent_dispatch_parity_test.dart` exists for) reddened both
+conflict-state tests; removing the scroll guard reddened only the two 320px
+tests.
+
+#### Smaller things
+
+- **The four new Lucide SVGs were fetched, not hand-authored.** The standalone
+  spec renders them through `window.lucide.icons` (`spec_logic.js:706-715`) and
+  embeds no path data (grep: 0 hits), so there was nothing to copy out of it.
+  The normalisation applied to `lucide-static` v1.34.0 (drop the `@license`
+  comment and the `class` attribute, `stroke` → `#000000`) was **verified by
+  running it on `cloud-download.svg` and diffing against the copy already in
+  the repo** — byte-identical, which is also how the version was pinned.
+  Recalling a path from memory would have been a coin flip on
+  `git-branch-plus` specifically.
+- **Spec's `download-cloud` is Lucide's `cloud-download`**, already bundled;
+  Fetch reuses it rather than adding a second copy of the same glyph.
+- Icons go into `app_flutter/assets/icons/` only. `resources/icons/` is a stale
+  16-file copy — `cloud-off`, `columns-3` and `grip-vertical` exist only on the
+  app side, and `pubspec.yaml` packages only the app side.
+- **Adding a widget can break an unscoped `find.text` two files away.**
+  `_repositoryMenuItemColor()` in `workspace_conflict_transition_test.dart` read
+  `find.text('Fetch')` with no scope, which was unambiguous only while the menu
+  was the sole place that word appeared. `_GbmMenuPanel`/`_GbmMenuRow` are both
+  private, so there is no type to scope to positively; the helper now excludes
+  the `ActionToolbar` subtree instead.
+- **Recorded reduction — Alt+click on toolbar Pull.** P17's Pull dialog note
+  says 「這張預設不出現 — 工具列的 Pull 直接用 Preferences 的預設套用方式走。
+  只有選單的 Pull… 或 Alt + 點工具列才開。」 `route_paths.dart` has no pull
+  dialog route at all, so there is nothing for Alt+click to open. The plain
+  click implements the first half (`pullChanges()` with the configured default);
+  the modifier path is absent and tracked on **#109**, not faked.

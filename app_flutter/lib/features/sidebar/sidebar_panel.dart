@@ -368,12 +368,21 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
   /// The first selectable leaf in render order, skipping remote-only rows --
   /// `BranchTreeItem` draws those with `selected: false`, so selecting one
   /// would look like the key did nothing.
-  String? _firstLeafName(List<BranchTreeNode> nodes) {
+  ///
+  /// [skip] is the current branch when it is on screen only because rule 7
+  /// pinned it. It sits *in* the tree now rather than above it, so without
+  /// this the first "result" could be a row the query excluded -- and since
+  /// the pin leads its own folder, that is precisely the row this would
+  /// otherwise reach first.
+  String? _firstLeafName(List<BranchTreeNode> nodes, {RefInfo? skip}) {
     for (final BranchTreeNode node in nodes) {
       if (node is BranchTreeLeaf) {
-        if (node.ref.kind != RefKind.remoteBranch) return node.ref.shortName;
+        if (node.ref.kind != RefKind.remoteBranch &&
+            node.ref.fullName != skip?.fullName) {
+          return node.ref.shortName;
+        }
       } else if (node is BranchTreeFolder) {
-        final String? nested = _firstLeafName(node.children);
+        final String? nested = _firstLeafName(node.children, skip: skip);
         if (nested != null) return nested;
       }
     }
@@ -932,35 +941,53 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     // is a fact about the repository, not about what the filter box happens
     // to be showing.
     final int pendingCleanup = gonePendingCount(branches, gonePendingRefs);
-    // P02-14 rule 7: 「目前分支永遠置頂顯示，即使不符合條件也不會被濾掉」.
+    // P02-14 rule 7: 「目前分支永遠置頂顯示，即使不符合條件也不會被濾掉」, and
+    // BRANCH_STATES' 目前分支 row: 「永遠置頂於所屬資料夾內，且不受 filter
+    // 影響」.
     //
-    // Read as "regardless of the query", not "restructure the sidebar
-    // permanently": with no query the tree is exactly what buildBranchTree
-    // produced, folders and all. A filter is the only state in which the
-    // current branch can vanish, and the sidebar must always be able to
-    // answer "where am I".
+    // Two rules, one mechanism. *Where* the pinned row sits is the tree's
+    // business -- `buildBranchTree`'s comparator puts HEAD first within its
+    // own level -- so all this has to do is make sure the row exists to be
+    // sorted. A filter is the only state in which the current branch can
+    // vanish, and the sidebar must always be able to answer "where am I".
     //
-    // The pin *replaces* the tree row rather than joining it -- rendering
-    // both would show `main` twice whenever it does match. `filterBranches`
-    // itself is left alone: it is a pure name-matching rule and has no
-    // business knowing which ref is HEAD, which is also why the hit count
-    // below still counts only genuine matches.
+    // Adding HEAD *back into the input* rather than prepending a row above
+    // the tree is what makes 置頂於**所屬資料夾內** possible: a row rendered
+    // outside the tree has no folder to sit in, and the previous version
+    // hoisted it to the very top for exactly that reason. Feeding it through
+    // the builder also creates its ancestor folders, which the query had
+    // otherwise dropped -- a pinned row cannot appear inside a folder that
+    // is not drawn.
+    //
+    // Matched on `fullName`, not on identity: `RefInfo` has no `operator ==`,
+    // so `contains` would be comparing object references and would silently
+    // start re-adding a HEAD that *did* match the moment `filterBranches`
+    // stopped returning the caller's own instances.
+    //
+    // `filterBranches` itself is left alone: it is a pure name-matching rule
+    // and has no business knowing which ref is HEAD, which is also why the
+    // hit count below still counts only genuine matches.
     final bool isFiltering = _filterQuery.trim().isNotEmpty;
-    final RefInfo? pinnedHead = isFiltering
-        ? branches.where((RefInfo b) => b.isHead).firstOrNull
+    final Set<String> matchedNames = filteredBranches
+        .map((RefInfo b) => b.fullName)
+        .toSet();
+    final RefInfo? unmatchedHead = isFiltering
+        ? branches
+              .where(
+                (RefInfo b) => b.isHead && !matchedNames.contains(b.fullName),
+              )
+              .firstOrNull
         : null;
     final List<BranchTreeNode> branchTree = buildBranchTree(
-      pinnedHead == null
+      unmatchedHead == null
           ? filteredBranches
-          : filteredBranches
-                .where((RefInfo b) => !b.isHead)
-                .toList(growable: false),
+          : <RefInfo>[...filteredBranches, unmatchedHead],
       _expandedFolders,
       // P02-14 rule 4. Read-only: the user's own set is never written to
       // here, so clearing the query restores exactly what they had.
       expandAll: isFiltering,
     );
-    _firstResultName = _firstLeafName(branchTree);
+    _firstResultName = _firstLeafName(branchTree, skip: unmatchedHead);
     _selectableNamesInRenderOrder = _selectableLeafNames(branchTree);
     final List<RefInfo> filteredTags = filterBranches(refs.tags, _filterQuery);
     // Stashes go through the same rule as branches and tags: P02-14 is one
@@ -1276,15 +1303,10 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: <Widget>[
-                          // Routed through the same _buildTreeNode as any
-                          // other leaf, so the pinned row keeps checkout,
-                          // selection and the 05-B menu rather than becoming
-                          // a second, thinner rendering of a branch.
-                          if (pinnedHead != null)
-                            _buildTreeNode(
-                              BranchTreeLeaf(ref: pinnedHead),
-                              context,
-                            ),
+                          // The pinned current branch is one of these now,
+                          // not a row above them, so it goes through the same
+                          // _buildTreeNode as any other leaf and keeps
+                          // checkout, selection and the 05-B menu.
                           _buildTreeNodes(branchTree, context),
                           // Inside the scroll column rather than replacing
                           // it, because the pinned current branch (rule 7)
@@ -1292,8 +1314,14 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                           // the whole tree took the pin down with it, in
                           // exactly the state where "where am I" is hardest
                           // to answer.
+                          //
+                          // Keyed on the *matches*, not on `branchTree`:
+                          // since the pin was moved into the tree, the tree
+                          // is never empty while a repository has a current
+                          // branch, and an emptiness check written against it
+                          // would stop reporting zero matches entirely.
                           if (isFiltering &&
-                              branchTree.isEmpty &&
+                              filteredBranches.isEmpty &&
                               filteredTags.isEmpty &&
                               filteredStashes.isEmpty)
                             Padding(

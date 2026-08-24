@@ -1,4 +1,6 @@
-// Device-tier E2E for the Changed files column (spec page 02 item 16).
+// Device-tier E2E for the two places a commit's file changes are counted:
+// the Changed files *column* (spec page 02 item 16) and the Changed files
+// *panel*'s per-row +N/-N badge (spec page 02 item 10).
 //
 // Why this file has to exist, and why a widget test cannot replace it:
 // `gbm_request_commit_file_counts` is a new C entry point with a matching
@@ -17,6 +19,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/features/history_graph/widgets/changed_files_panel.dart';
 import 'package:gbm_flutter/features/history_graph/widgets/commit_row.dart';
 import 'package:integration_test/integration_test.dart';
 
@@ -114,4 +117,52 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets(
+    'the Changed files panel badges a selected commit\'s line counts',
+    (tester) async {
+      // Spec page 02 item 10. The counts reach the badge through a chain no
+      // other tier crosses end to end: DiffService joins `diff-tree --numstat`
+      // onto the raw list, capi serialises two new JSON keys, and the Dart
+      // model decodes them with a hard `as int`. test/** runs on
+      // FakeGbmBindings and tests/capi/** stops at the C++ side, so a payload
+      // the two halves disagree about is invisible everywhere but here -- and
+      // a stale libgbm_capi would surface as a Dart decode error rather than
+      // as a missing badge.
+      //
+      // Its own commit rather than one of _buildMergeHistory's: +7/-3 is
+      // asymmetric and appears nowhere else on screen, where the fixture's
+      // one-line files would give a "+1" that half the UI could produce.
+      File('$repo/counts.txt').writeAsStringSync('l1\nl2\nl3\nl4\nl5\n');
+      runGit(repo, <String>['add', 'counts.txt']);
+      runGit(repo, <String>['commit', '-m', 'add counts']);
+      File(
+        '$repo/counts.txt',
+      ).writeAsStringSync('l1\nA\nB\nC\nD\nE\nF\nG\nl5\n');
+      runGit(repo, <String>['add', 'counts.txt']);
+      runGit(repo, <String>['commit', '-m', 'edit counts']);
+
+      await pumpRealAppOn(tester, repo);
+
+      expect(_rowFor('edit counts'), findsOneWidget);
+      await tester.tap(_rowFor('edit counts'));
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      final Finder panel = find.byType(ChangedFilesPanelCore);
+      expect(
+        find.descendant(of: panel, matching: find.text('counts.txt')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: panel, matching: find.text('+7')),
+        findsOneWidget,
+        reason: 'the added-line badge must carry the real numstat count',
+      );
+      expect(
+        find.descendant(of: panel, matching: find.text('-3')),
+        findsOneWidget,
+        reason: 'the removed-line badge must not repeat the added count',
+      );
+    },
+  );
 }

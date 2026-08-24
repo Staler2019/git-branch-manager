@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
 import 'package:gbm_flutter/features/history_graph/widgets/commit_row.dart';
+import 'package:gbm_flutter/widgets/gbm_badge.dart';
 import 'package:gbm_flutter/widgets/gbm_row.dart';
 import 'package:gbm_flutter/data/models/changed_file.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
@@ -13,16 +14,22 @@ import 'package:gbm_flutter/widgets/file_tree_folder_row.dart';
 
 import '../../../support/pump_app.dart';
 
-ChangedFile _file(String path) => ChangedFile(
-  path: path,
-  oldPath: path,
-  kind: FileChangeKind.modified,
-  oldMode: '100644',
-  newMode: '100644',
-  oldBlob: 'aaa',
-  newBlob: 'bbb',
-  similarity: 0,
-);
+ChangedFile _file(String path, {int addedLines = 0, int removedLines = 0}) =>
+    ChangedFile(
+      path: path,
+      oldPath: path,
+      kind: FileChangeKind.modified,
+      oldMode: '100644',
+      newMode: '100644',
+      oldBlob: 'aaa',
+      newBlob: 'bbb',
+      similarity: 0,
+      // Defaulted so the cases that predate spec P02-10's badge keep
+      // asserting what they always did; every badge case passes both
+      // explicitly, so none of them can pass on a default.
+      addedLines: addedLines,
+      removedLines: removedLines,
+    );
 
 void main() {
   testWidgets('shows "No files changed" when no commit is selected', (
@@ -93,6 +100,116 @@ void main() {
     // `ListTile` as its finder.
     expect(tester.getSize(find.byType(GbmRow).first).height, kCommitRowHeight);
     expect(kCommitRowHeight, GbmSpacing.rowHeightCompact);
+  });
+
+  // --- spec page 02 item 10: the "+12" badge -----------------------------
+  //
+  // The mockup row is `檔名 + 綠色 +12 badge`. Compare's file rows already
+  // draw the same pair from the same numstat data, so these pin that History
+  // now agrees with it rather than pinning a new invention.
+
+  testWidgets('a changed file shows its added and removed line counts', (
+    tester,
+  ) async {
+    await pumpGbmWidget(
+      tester,
+      child: ChangedFilesPanelCore(
+        hasSelectedCommit: true,
+        files: <ChangedFile>[
+          _file('lib/a.dart', addedLines: 12, removedLines: 3),
+        ],
+        selectedPath: null,
+        onFileTap: (_) {},
+      ),
+    );
+
+    // Both signs asserted, and with different numbers: a widget that wired
+    // the same field to both badges, or swapped them, still renders two
+    // badges and would pass an either-or check.
+    expect(find.text('+12'), findsOneWidget);
+    expect(find.text('-3'), findsOneWidget);
+  });
+
+  testWidgets('a pure addition shows no removed badge', (tester) async {
+    await pumpGbmWidget(
+      tester,
+      child: ChangedFilesPanelCore(
+        hasSelectedCommit: true,
+        files: <ChangedFile>[
+          _file('lib/new.dart', addedLines: 40, removedLines: 0),
+        ],
+        selectedPath: null,
+        onFileTap: (_) {},
+      ),
+    );
+
+    expect(find.text('+40'), findsOneWidget);
+    // Not "-0". A zero is not a change, and drawing it would put a red badge
+    // on every added file in the list.
+    expect(find.text('-0'), findsNothing);
+  });
+
+  testWidgets('a file with no line counts shows no badge at all', (
+    tester,
+  ) async {
+    // Binary blobs and mode-only changes both land here: numstat reports "-"
+    // for a binary file and the core leaves both counts at 0, so the row has
+    // nothing truthful to put in a badge.
+    await pumpGbmWidget(
+      tester,
+      child: ChangedFilesPanelCore(
+        hasSelectedCommit: true,
+        files: <ChangedFile>[_file('assets/logo.png')],
+        selectedPath: null,
+        onFileTap: (_) {},
+      ),
+    );
+
+    expect(find.text('assets/logo.png'), findsOneWidget);
+    expect(find.byType(GbmBadge), findsNothing);
+  });
+
+  testWidgets('a long path and both badges fit the real 186px column', (
+    tester,
+  ) async {
+    // Non-null by construction: splitterMainFiles is a
+    // GbmSplitterSpec.extent, whose defaultExtent is always set.
+    final double columnWidth = GbmLayout.splitterMainFiles.defaultExtent!;
+    // GbmLayout.splitterMainFiles' own default width, not a canvas this test
+    // picked. The badges are non-flex children, so RenderFlex lays them out
+    // first and divides what is left among the Expanded path -- a placement
+    // that overflows here would be invisible at the 800px default canvas,
+    // which is the shape CLAUDE.md records the column-picker popover
+    // shipping off-screen for.
+    await pumpGbmWidget(
+      tester,
+      child: SizedBox(
+        width: columnWidth,
+        child: ChangedFilesPanelCore(
+          hasSelectedCommit: true,
+          files: <ChangedFile>[
+            _file(
+              'lib/features/history_graph/widgets/changed_files_panel.dart',
+              addedLines: 1234,
+              removedLines: 5678,
+            ),
+          ],
+          selectedPath: null,
+          onFileTap: (_) {},
+        ),
+      ),
+    );
+
+    expect(tester.takeException(), isNull);
+    // Not just "no exception": Expanded satisfies that while collapsing its
+    // child to zero width, so the badges have to be shown to be on screen.
+    expect(find.text('+1234'), findsOneWidget);
+    expect(find.text('-5678'), findsOneWidget);
+    for (final String label in <String>['+1234', '-5678']) {
+      final Rect rect = tester.getRect(find.text(label));
+      expect(rect.width, greaterThan(0));
+      expect(rect.right, lessThanOrEqualTo(columnWidth));
+    }
   });
 
   testWidgets('tapping a file invokes onFileTap with its path', (tester) async {

@@ -2,6 +2,8 @@
 
 #include "core/base/ThreadCheck.h"
 
+#include <charconv>
+#include <unordered_map>
 #include <utility>
 
 namespace gbm {
@@ -200,6 +202,109 @@ LineSink collectFields(std::vector<std::string>& records) {
     };
 }
 
+/// Joins `diff-tree --numstat` line counts onto an already-parsed `--raw`
+/// list, keyed by path.
+///
+/// Two invocations rather than one because git's diff-options output-format
+/// field is a single slot: `--raw` and `--numstat` cannot both take effect in
+/// the same command. `CompareOps.cpp`'s readFiles() works around the same
+/// constraint for the Compare tab, and the record shapes below match its
+/// parser deliberately.
+///
+/// Every flag the raw call passes is repeated here. They are not decorative:
+/// without `--root` a parentless commit numstats to nothing, without
+/// `--diff-merges=first-parent` a *merge* numstats to nothing, and with a
+/// different rename flag the two outputs disagree about which paths exist --
+/// each of which shows up as a file listed with no badge rather than as an
+/// error.
+GitResult<void> attachLineCounts(IProcessRunner& runner,
+                                 const RepoPaths& paths,
+                                 const ObjectId& commit,
+                                 const DiffOptions& options,
+                                 std::vector<ChangedFile>& files,
+                                 CancellationToken token) {
+    if (files.empty()) {
+        return {};
+    }
+
+    std::vector<std::string> args{"diff-tree", "-r", "--numstat", "-z", "--no-commit-id", "--root"};
+    args.emplace_back(rawRenameFlag(options));
+    if (options.firstParentOnly) {
+        args.emplace_back("--diff-merges=first-parent");
+    }
+    args.push_back(commit.hex());
+
+    GitCommand command(paths.commandDir(), std::move(args));
+    command.timeout = std::chrono::seconds(120);
+
+    std::vector<std::string> records;
+    auto result = runner.streamSeparated(
+        command, IProcessRunner::Separator::Nul, collectFields(records), nullptr, token);
+    if (!result) {
+        return fail(std::move(result).error());
+    }
+
+    // Keyed on `path` because it is the one field parseRawRecords() fills for
+    // every change kind: the new path for a rename or copy, and the single
+    // path for everything else including a delete. (`oldPath` is empty unless
+    // the kind has two paths, so it cannot serve as the key.) numstat prints
+    // that same path in each case, which is what makes the join total.
+    std::unordered_map<std::string_view, ChangedFile*> byPath;
+    byPath.reserve(files.size());
+    for (ChangedFile& file : files) {
+        byPath.emplace(file.path, &file);
+    }
+
+    for (std::size_t i = 0; i < records.size();) {
+        const std::string_view record = records[i++];
+        const std::size_t firstTab = record.find('\t');
+        if (firstTab == std::string_view::npos) {
+            continue;
+        }
+        const std::size_t secondTab = record.find('\t', firstTab + 1);
+        if (secondTab == std::string_view::npos) {
+            continue;
+        }
+        const std::string_view addedField = record.substr(0, firstTab);
+        const std::string_view removedField = record.substr(firstTab + 1, secondTab - firstTab - 1);
+        std::string_view pathField = record.substr(secondTab + 1);
+
+        if (pathField.empty()) {
+            // Rename or copy: under -z the path field is empty and the next
+            // two records are the old and the new path. Only the new one is
+            // needed -- it is what byPath is keyed on -- but both must be
+            // consumed or the loop reads the old path as the next entry's
+            // counts and every count after this point is wrong.
+            if (i < records.size()) {
+                ++i;  // old path, unused
+            }
+            if (i >= records.size()) {
+                break;
+            }
+            pathField = records[i++];
+        }
+
+        const auto found = byPath.find(pathField);
+        if (found == byPath.end()) {
+            continue;
+        }
+        // "-" for either field means a binary blob. Left at 0 rather than
+        // parsed: std::from_chars would leave the value untouched anyway, but
+        // saying so here is what stops a later reader treating 0 as measured.
+        if (addedField == "-" || removedField == "-") {
+            continue;
+        }
+        std::uint32_t added = 0;
+        std::uint32_t removed = 0;
+        std::from_chars(addedField.data(), addedField.data() + addedField.size(), added);
+        std::from_chars(removedField.data(), removedField.data() + removedField.size(), removed);
+        found->second->addedLines = added;
+        found->second->removedLines = removed;
+    }
+
+    return {};
+}
+
 }  // namespace
 
 GitResult<DiffService::ChangedFilesPtr> DiffService::changedFiles(const ObjectId& commit,
@@ -234,6 +339,14 @@ GitResult<DiffService::ChangedFilesPtr> DiffService::changedFiles(const ObjectId
 
     auto files =
         std::make_shared<std::vector<ChangedFile>>(parseRawRecords(records, 0, records.size()));
+
+    // Before the cache write, so a cached list is never one that is missing
+    // its badges. A numstat failure fails the whole call rather than
+    // returning a half-filled list -- the panel would otherwise render every
+    // row as "0 lines changed" with nothing anywhere saying why.
+    if (auto counts = attachLineCounts(runner_, paths_, commit, options, *files, token); !counts) {
+        return fail(std::move(counts).error());
+    }
 
     fileListCache_.put(cacheKey, files, estimateBytes(*files));
     return ChangedFilesPtr(files);

@@ -469,6 +469,10 @@ std::string toJson(const ChangedFile& file) {
     jsonAppendEscaped(out, file.newBlob);
     out += ",\"similarity\":";
     jsonAppendInt(out, file.similarity);
+    out += ",\"addedLines\":";
+    jsonAppendInt(out, file.addedLines);
+    out += ",\"removedLines\":";
+    jsonAppendInt(out, file.removedLines);
     out += '}';
     return out;
 }

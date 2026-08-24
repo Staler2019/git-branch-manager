@@ -123,6 +123,15 @@ protected:
     /// `name` is UTF-8, matching how the rest of the codebase treats a path in a
     /// std::string -- ProcessRunner widens argv with CP_UTF8, so this is the same
     /// name git will be given.
+    /// Writes a file without staging or committing it, for the tests that
+    /// need several kinds of change in one commit. Same char8_t construction
+    /// as commitFile() below, and for the same reason.
+    void writeFile(const std::string& name, const std::string& contents) {
+        const std::u8string utf8(reinterpret_cast<const char8_t*>(name.data()), name.size());
+        std::ofstream out(repo_ / std::filesystem::path(utf8), std::ios::binary | std::ios::trunc);
+        out << contents;
+    }
+
     void commitFile(const std::string& name,
                     const std::string& contents,
                     const std::string& message) {
@@ -565,6 +574,134 @@ TEST_F(RealRepoTest, HandlesAddedAndDeletedFilesInDiffs) {
     EXPECT_EQ((*files)->at(0).path, "gone.txt");
 }
 
+// ---------------------------------------------------------------------------
+// Spec page 02 item 10: the Changed files panel draws a "+12" badge per row,
+// so `changedFiles()` has to carry line counts. `diff-tree --raw` cannot --
+// raw records hold modes, blobs and a status letter and nothing else -- so a
+// second `--numstat` invocation is joined onto the list by path. These four
+// tests pin the join rather than the arithmetic: each case is one where a
+// dropped flag or a mis-stepped record still produces a plausible-looking
+// file list, so only the counts can tell the difference.
+// ---------------------------------------------------------------------------
+
+TEST_F(RealRepoTest, ReportsAddedAndRemovedLineCountsPerChangedFile) {
+    commitFile("mod.txt", "a\nb\nc\n", "c1");
+    commitFile("gone.txt", "1\n2\n", "c2");
+
+    // One commit touching all three change kinds at once, because each fills
+    // the counts from a different direction and a join can be right about one
+    // while wrong about another. The delete is the one worth spelling out:
+    // numstat reports it as "0\t2\tgone.txt", so the row that carries the
+    // *only* interesting number carries it on the removed side. A join that
+    // silently dropped deletes would leave 0/0 there -- which reads exactly
+    // like a file whose lines did not change, and draws no badge either way.
+    writeFile("mod.txt", "a\nB\nc\n");
+    writeFile("new.txt", "x\ny\n");
+    ASSERT_TRUE(run({"rm", "--quiet", "gone.txt"}));
+    ASSERT_TRUE(run({"add", "-A"}));
+    ASSERT_TRUE(run({"commit", "--quiet", "-m", "touch all three kinds"}));
+
+    auto head = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(head);
+
+    DiffService diffs(*runner_, paths_);
+    auto files =
+        diffs.changedFiles(ObjectId::fromHex(head->out), DiffOptions{}, CancellationToken{});
+    ASSERT_TRUE(files) << files.error().message;
+    ASSERT_EQ((*files)->size(), 3u);
+
+    std::map<std::string, const ChangedFile*> byPath;
+    for (const ChangedFile& file : **files) {
+        byPath[file.path] = &file;
+    }
+    ASSERT_EQ(byPath.count("mod.txt"), 1u);
+    ASSERT_EQ(byPath.count("new.txt"), 1u);
+    ASSERT_EQ(byPath.count("gone.txt"), 1u);
+
+    // A one-line edit is +1/-1, not +1/-0. Asserting both halves is what
+    // separates a real join from a list whose counts all defaulted to zero
+    // on one side.
+    EXPECT_EQ(byPath["mod.txt"]->addedLines, 1u);
+    EXPECT_EQ(byPath["mod.txt"]->removedLines, 1u);
+
+    EXPECT_EQ(byPath["new.txt"]->addedLines, 2u);
+    EXPECT_EQ(byPath["new.txt"]->removedLines, 0u);
+
+    EXPECT_EQ(byPath["gone.txt"]->addedLines, 0u);
+    EXPECT_EQ(byPath["gone.txt"]->removedLines, 2u);
+}
+
+TEST_F(RealRepoTest, ReportsLineCountsForARootCommit) {
+    // --root, for the same reason changedFiles()' raw call passes it: without
+    // the flag diff-tree prints nothing at all for a parentless commit, so
+    // the counts would come back 0 beside a file list that is not empty --
+    // the badge silently vanishing on exactly one commit per repository.
+    commitFile("first.txt", "1\n2\n3\n", "root");
+
+    auto head = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(head);
+
+    DiffService diffs(*runner_, paths_);
+    auto files =
+        diffs.changedFiles(ObjectId::fromHex(head->out), DiffOptions{}, CancellationToken{});
+    ASSERT_TRUE(files) << files.error().message;
+    ASSERT_EQ((*files)->size(), 1u);
+    EXPECT_EQ((*files)->at(0).path, "first.txt");
+    EXPECT_EQ((*files)->at(0).addedLines, 3u);
+    EXPECT_EQ((*files)->at(0).removedLines, 0u);
+}
+
+TEST_F(RealRepoTest, JoinsLineCountsOntoARenamedFileByItsNewPath) {
+    // The record shape that breaks a naive parser. Under -z, numstat prints a
+    // rename as *three* NUL records -- "added\tremoved\t" with an empty path
+    // field, then the old path, then the new path -- where every other kind
+    // is one record. A loop that assumes one record per file reads the old
+    // path as the next entry's counts, and everything after this point in the
+    // output is wrong. Five lines with one edited leaves similarity at 80%,
+    // comfortably inside --find-renames' default threshold.
+    commitFile("old.txt", "l1\nl2\nl3\nl4\nl5\n", "c1");
+
+    ASSERT_TRUE(run({"mv", "old.txt", "new.txt"}));
+    writeFile("new.txt", "l1\nEDITED\nl3\nl4\nl5\n");
+    ASSERT_TRUE(run({"add", "new.txt"}));
+    ASSERT_TRUE(run({"commit", "--quiet", "-m", "rename and edit"}));
+
+    auto head = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(head);
+
+    DiffService diffs(*runner_, paths_);
+    auto files =
+        diffs.changedFiles(ObjectId::fromHex(head->out), DiffOptions{}, CancellationToken{});
+    ASSERT_TRUE(files) << files.error().message;
+    ASSERT_EQ((*files)->size(), 1u);
+    EXPECT_EQ((*files)->at(0).kind, FileChangeKind::Renamed);
+    EXPECT_EQ((*files)->at(0).oldPath, "old.txt");
+    EXPECT_EQ((*files)->at(0).path, "new.txt");
+    EXPECT_EQ((*files)->at(0).addedLines, 1u);
+    EXPECT_EQ((*files)->at(0).removedLines, 1u);
+}
+
+TEST_F(RealRepoTest, ReportsZeroLineCountsForABinaryFile) {
+    // numstat writes "-\t-\t<path>" for a binary blob. std::from_chars leaves
+    // its output untouched on a non-numeric field rather than erroring, so a
+    // missing binary check produces 0/0 by accident and looks correct here;
+    // what this pins is that the file is still *listed* while both counts
+    // read 0. No badge is the honest rendering for a blob that has no lines.
+    commitFile("bin.dat", std::string("\x00\x01\x02\x03", 4), "add binary");
+
+    auto head = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(head);
+
+    DiffService diffs(*runner_, paths_);
+    auto files =
+        diffs.changedFiles(ObjectId::fromHex(head->out), DiffOptions{}, CancellationToken{});
+    ASSERT_TRUE(files) << files.error().message;
+    ASSERT_EQ((*files)->size(), 1u);
+    EXPECT_EQ((*files)->at(0).path, "bin.dat");
+    EXPECT_EQ((*files)->at(0).addedLines, 0u);
+    EXPECT_EQ((*files)->at(0).removedLines, 0u);
+}
+
 TEST_F(RealRepoTest, ReportsAMergeCommitAgainstItsFirstParent) {
     // `diff-tree` prints nothing at all for a merge unless told which parent
     // to diff against, so before --diff-merges=first-parent this whole test
@@ -613,6 +750,14 @@ TEST_F(RealRepoTest, ReportsAMergeCommitAgainstItsFirstParent) {
     ASSERT_EQ((*files)->size(), 1u) << "a merge must diff against its first parent only";
     EXPECT_EQ((*files)->at(0).path, "side.txt");
     EXPECT_EQ((*files)->at(0).kind, FileChangeKind::Added);
+
+    // The line counts have to survive the same flag. `--numstat` is a second
+    // diff-tree invocation, and it needs --diff-merges=first-parent just as
+    // much as the raw one does -- without it numstat prints nothing for a
+    // merge, so the panel would list side.txt with no badge beside it while
+    // every non-merge commit showed one.
+    EXPECT_EQ((*files)->at(0).addedLines, 1u);
+    EXPECT_EQ((*files)->at(0).removedLines, 0u);
 
     // The other half. Listing the files while every one of them opens an
     // empty diff would be worse than honestly reporting nothing, so the list

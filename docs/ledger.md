@@ -2579,3 +2579,135 @@ One trap worth carrying: **`Picture.toImage()` inside `testWidgets` hangs
 forever without `tester.runAsync()`**, with no output and no timeout of its
 own — the first attempt was killed at eight minutes having printed nothing.
 flutter_test's fake-async zone never completes it.
+
+### Changed files line counts (feat/changed-files-line-counts)
+
+Spec P02 item 10's mockup draws each Changed files row as `檔名 + 綠色 +12
+badge`. The panel drew only the檔名. This round carried added/removed line
+counts from git to that badge, through all four layers.
+
+#### The gap was already written down — as the reason for a *different* cut
+
+`commit_selection_summary.dart` explains why P13's status-bar 合計 diff was cut:
+
+> **Reduced deliberately: no 合計 diff.** … `ChangedFile` carries no
+> added/removed line counts, and the only path in the core that runs
+> `--numstat` is `CompareOps.cpp`'s range diff — so a running total would mean
+> firing a range diff on every selection change.
+
+That was accurate about the cause and it named the fix, but the *other* feature
+sitting on the same missing field — P02-10's badge, which needs no running
+total and no range diff, only the counts for one commit — was never filed. The
+note is now corrected in place to say the field exists; the 合計 diff stays
+absent for its own separate reason (it would still have to sum across a
+selection). **A reduction note names one victim of a missing capability; it is
+not a survey of them.** Grep for other readers of the thing being called absent
+before assuming the note covers the whole blast radius.
+
+#### `--raw` and `--numstat` cannot be the same invocation
+
+git's diff-options output-format is a single slot, so `diff-tree --raw
+--numstat` silently honours one of them. `CompareOps.cpp`'s `readFiles()`
+already worked around this for the Compare tab by running two commands and
+joining by path; `DiffService::attachLineCounts()` is the same shape for
+`changedFiles()`. What that costs and what pays for it:
+
+- The numstat pass makes git actually compute the diff, so `changedFiles()` is
+  no longer as close to free as `diff-tree --raw` alone. `ChangedFile`'s own
+  「Cheap: no content is read, so clicking through commits stays instant」
+  comment was rewritten rather than left standing — **a comment asserting a
+  performance property is a claim, and the round that invalidates it owns it.**
+- The join happens *before* `fileListCache_.put()`, so a cached list is never
+  one missing its badges, and clicking back to a visited commit re-runs
+  nothing.
+
+#### Every flag on the raw call had to be repeated, and each one fails silently
+
+This is the whole risk of the change, and all three failure modes look
+identical on screen — a file listed with no badge, no error anywhere:
+
+| Missing flag | What numstat returns | Which commits lose their badge |
+|---|---|---|
+| `--root` | nothing | the first commit of every repository |
+| `--diff-merges=first-parent` | nothing | every merge |
+| matching `rawRenameFlag()` | a different path set | renames, which then join to nothing |
+
+Each is pinned by a test that fails *alone* under that mutation:
+`ReportsLineCountsForARootCommit`, the line-count assertion added to
+`ReportsAMergeCommitAgainstItsFirstParent`, and
+`JoinsLineCountsOntoARenamedFileByItsNewPath`. Measured, not reasoned about —
+each flag was removed in turn and the red confirmed narrow.
+
+#### `-z` numstat spends three records on a rename
+
+Every other change kind is one record (`added\tremoved\tpath`). A rename is
+`added\tremoved\t` with an **empty** path field, then the old path, then the
+new path. A loop that assumes one record per entry reads the old path as the
+next entry's counts and every count after that point is wrong — not missing,
+*wrong*, which is worse. Mutation-checked by collapsing the three-step to two:
+only the rename test went red.
+
+#### The join key is `path`, and the reason is narrower than it first looks
+
+The implementation comment first claimed a join on `oldPath` would break
+deletes. Mutating the key to `oldPath` proved otherwise: `parseRawRecords()`
+leaves `oldPath` **empty** for everything except renames and copies, so such a
+join breaks nearly everything and the delete case is not special at all. Both
+the comment and the test's rationale were corrected to the true reason —
+`path` is the only field populated for every kind. **A mutation that fails to
+land where the comment predicted is the comment being wrong, not the mutation.**
+
+#### Binary reads 0/0 and no `binary` flag was added
+
+numstat prints `-` for a binary blob. `std::from_chars` leaves its output
+untouched on a non-numeric field, so a missing check produces 0/0 *by
+accident*; the guard is explicit anyway so a later reader cannot mistake the
+zero for a measurement. A `ChangedFile::binary` field was deliberately **not**
+added: no UI would have read it, which is exactly the orphan-wiring shape this
+repo has shipped at least five times (**#102**).
+
+#### The 186px test is the only one that could see the layout bug
+
+Four widget tests cover the badge. Removing the `Expanded` around the path
+`Text` — a real overflow at the column's true width — was caught by **only**
+the test that sizes itself to `GbmLayout.splitterMainFiles.defaultExtent`.
+The other three, on the default 800×600 canvas, passed with the broken layout.
+Same mechanism as the column-picker popover that shipped off-screen.
+
+#### Deliberately not done
+
+- **No file icon.** P02-10's mockup row is `icFile + 檔名 + badge`; only the
+  badge was added. Compare's file rows are also icon-less, and matching the
+  shipped precedent beat matching the illustration. Recorded here so the next
+  conformance audit reads it as a decision rather than filing it as a bug.
+- **Working Copy (P03) still has no counts.** Its `+34` comes from
+  `StatusService`/`WorkingCopyEntry`, an entirely separate data path needing
+  its own numstat runs against index and worktree. Out of this round's scope
+  by explicit decision, not oversight.
+
+#### Smaller things
+
+- `JsonCodec.cpp` has **two** serializers emitting `addedLines` — `DiffFile`'s
+  (pre-existing, for Compare) and `ChangedFile`'s (new). A mutation script
+  anchored on the field name alone matched both and the `count(old) == 1`
+  guard caught it. That guard earns its keep; the anchor had to include the
+  neighbouring `similarity` line to be unique.
+- The Dart fields are `required` with no default. Five fixtures broke and were
+  updated by hand, which is the point: a default of 0 would have made every
+  one of them silently assert "no badge".
+- `model_parsing_test.dart`'s ChangedFile case is named 「decodes every field」
+  and did not decode the new two. A test whose name is a completeness claim
+  has to be revisited whenever the shape it covers grows.
+- **The commit that made those fields `required` was red on its own**, and the
+  full-suite run that would have shown it happened one commit later. Commit 3
+  shipped the model plus five of the six fixture sites; the sixth,
+  `model_parsing_test.dart`, was filed with commit 4 because that is where its
+  *assertions* belonged. But `fromJson` reads `json['addedLines'] as int`, so a
+  fixture without the key is `null as int` — checking out commit 3 alone fails
+  two tests. Caught by review, not by any run, because every run was at the
+  branch tip. Commits 3–6 were rewritten to move the file (the resulting tree
+  is byte-identical: `git diff` against a backup branch was empty), and each of
+  3 and 4 was then checked out detached and verified green — 1930 and 1934
+  tests respectively. **Rule**: a commit that adds a `required` field to a
+  model must carry every fixture that constructs *or feeds* it, including raw
+  JSON fixtures, which grep for the constructor name will not find.

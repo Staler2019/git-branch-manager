@@ -525,7 +525,10 @@ you are touching, not by when it was learned.
   **never `git checkout -- <file>`** to revert a mutation, which once
   discarded an entire uncommitted implementation. Have the mutation script
   assert `count(old) == 1` before writing — two mutations in one round
-  silently matched nothing after a formatter reflowed an argument list.
+  silently matched nothing after a formatter reflowed an argument list, and a
+  `JsonCodec.cpp` anchor named only by its field matched **two** serializers
+  (`DiffFile`'s and `ChangedFile`'s both emit `addedLines`). Anchor on a
+  neighbouring line that is actually unique.
 - **Count, don't `any`.** `commandLog.where((c) => c.name == …).length` —
   `.any(...)` is blind to a double dispatch, which is exactly what several
   of these fixes could regress into.
@@ -533,7 +536,10 @@ you are touching, not by when it was learned.
   it is silently clamped. A widget test that sizes its own canvas proves
   nothing about layout under real constraints, and a placement bug is
   invisible to any tier whose canvas is bigger than the real window (the
-  column-picker popover shipped off-screen for exactly this reason).
+  column-picker popover shipped off-screen for exactly this reason; later, a
+  deliberate overflow in the Changed files row was caught **only** by the one
+  test sized to `GbmLayout.splitterMainFiles.defaultExtent` — three others on
+  the default canvas passed with the broken layout).
 - **`RenderFlex` reports only main-axis overflow**, so a `takeException()`
   test cannot see a cross-axis defect. Check which axis the defect is on
   before writing a no-exception test.
@@ -667,6 +673,20 @@ you are touching, not by when it was learned.
   `diff.renames` while `git diff-tree --raw` ignores it entirely, so the
   rename flag is passed **explicitly on both** from one shared
   `rawRenameFlag()`.
+- **git's diff output-format is a single slot**: `--raw` and `--numstat`
+  cannot both take effect in one invocation, so a file list that needs kinds
+  *and* line counts runs two commands and joins them by path
+  (`DiffService::attachLineCounts()`, `CompareOps.cpp`'s `readFiles()`). The
+  second command must repeat **every** flag the first passed — drop `--root`
+  and root commits return nothing, drop `--diff-merges=first-parent` and
+  merges return nothing, use a different rename flag and the two disagree
+  about which paths exist. All three land as a row with no count and no error
+  anywhere. Under `-z`, numstat spends **three** records on a rename (empty
+  path field, old path, new path) where every other kind spends one, so a
+  one-record-per-entry loop mis-reads every count after the first rename. Join
+  on `path`, the only field `parseRawRecords()` fills for all kinds; `oldPath`
+  is empty except for renames and copies. `-` means binary, not a number.
+  Ledger: "Changed files line counts".
 - `git log --no-walk` sorts by commit date, not by the order the oids were
   given, so a batch reply must echo each oid rather than be index-aligned.
   And **absent is not zero**: a commit git never answered for is omitted, not
@@ -759,15 +779,35 @@ you are touching, not by when it was learned.
 - **Nothing is silently dropped.** A capability removed for spec conformance
   gets its reason recorded (the operation-log dialog's `Clear`, the
   per-remote Pull/Push), and a reduction made for a cap or a missing capi is
-  written down rather than left for the next audit to file as a bug.
+  written down rather than left for the next audit to file as a bug. But
+  **a reduction note names one victim of a missing capability, not all of
+  them**: `commit_selection_summary.dart` recorded P13's 合計 diff as absent
+  because `ChangedFile` had no line counts, and P02-10's badge — same missing
+  field, no running total needed — went unfiled for rounds. Grep for other
+  readers of whatever a note calls absent before trusting its blast radius
+  (ledger: "Changed files line counts").
 - **A note explaining why a test avoids a code path deserves the same
   scrutiny as the code path itself** — one correct observation with a wrong
   cause became a permanent workaround and hid a real defect for months.
+  A mutation is how you check one: **a mutation that fails to land where the
+  comment predicted means the comment is wrong**, not the mutation. Keying
+  `attachLineCounts()` on `oldPath` was supposed to break deletes and broke
+  only renames — `oldPath` is empty for every kind but rename/copy — so both
+  the comment and the test's rationale were corrected.
 - **A comment claiming its bounds are measured must be re-measured when
   anything upstream of the measurement moves.** A page recomposition is
-  upstream of every width in the row.
+  upstream of every width in the row. The same holds for a comment claiming a
+  *performance* property: `ChangedFile`'s 「Cheap: no content is read, so
+  clicking through commits stays instant」 stopped being true the round a
+  second git invocation was added, and that round owned rewriting it.
 - Stage by file when two changes are live in one directory: `git add -A <dir>`
-  once swept an unrelated in-progress change into a `refactor:` commit.
+  once swept an unrelated in-progress change into a `refactor:` commit. The
+  opposite error is filing a file by where its *assertions* belong rather than
+  where its *compilation* does: a commit that adds a `required` field to a
+  model must carry every fixture that constructs **or feeds** it — a raw-JSON
+  fixture is invisible to a grep for the constructor name, and a missing key
+  is `null as int` at runtime. Only a per-commit checkout sees this; every
+  run at the branch tip is green (line-counts round).
 
 ### Current known drift
 

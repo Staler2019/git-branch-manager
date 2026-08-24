@@ -11,11 +11,27 @@ traps. This file is the evidence behind them: when a distilled rule needs its
 original measurement, its counter-example, or the issue number it came from,
 it is in the section below that names the same branch.
 
-Sections are in the order they were written, and they cross-reference each
-other with "above"/"below" — that ordering is preserved, so those still
-resolve. Source comments across `app_flutter/` cite these sections by name
-("CLAUDE.md's Tier 0c note", "Known gaps", "Tier 6c"); those names live here
-now, and the pointer in CLAUDE.md says so.
+Sections are in the order they were written and cross-reference each other
+with "above"/"below". That ordering is preserved, so those resolve — with one
+exception: a handful of "above"s name a section that *stayed* in CLAUDE.md
+("Action availability state machine", "Testing tiers", the route tree, the
+Intent / Action layer). Grep the heading text there. Nothing in the body below
+was edited to fix them, deliberately: the block is byte-identical to what it
+was in CLAUDE.md, and a record you can checksum is worth more than a corrected
+cross-reference.
+
+Source comments across `app_flutter/` cite these sections by name ("CLAUDE.md's
+Tier 0c note", "Known gaps", "Tier 6c"); those names live here now, and the
+pointer at the end of CLAUDE.md says so.
+
+## Adding a round
+
+Append a new `###` section at the end, named for its branch, in the shape the
+sections below use. Length is free here — nothing auto-loads this file. Then
+distil only what a future session must know *before* it starts into
+CLAUDE.md's "Invariants and traps", anchored back to your section's name. Do
+not append a round-shaped section to CLAUDE.md; that is what this file exists
+to prevent.
 
 ## Rounds (chronological)
 

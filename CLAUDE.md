@@ -3,8 +3,33 @@
 Root-level guide for Claude Code (and other AI assistants) working in this
 repo. Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
 [docs/FEATURES.md](docs/FEATURES.md) first — this file adds the Flutter UI's
-structure, its session state machine, and the UX acceptance bar
-`app_flutter/` changes are held to.
+structure, its session state machine, the UX acceptance bar `app_flutter/`
+changes are held to, and the invariants and traps that keep being rediscovered.
+
+## Where a round's write-up goes
+
+**This file is auto-loaded into every session; [docs/ledger.md](docs/ledger.md)
+is not.** That difference is the whole filing rule, and it exists because every
+round used to append its narrative here until the file reached ~176KB.
+
+When you finish a round of work:
+
+1. **The narrative goes to `docs/ledger.md`** — a new section at the end, named
+   for its branch, in the shape the sections already there use: what changed,
+   which premises did not survive the source, what was found by *running*
+   rather than reading, and what was deliberately reduced or left open.
+   Length is free there.
+2. **Only what a future session must know *before* it starts comes back here**,
+   and only as a distilled entry under "Invariants and traps" — a rule, its
+   consequence, and an anchor (issue number or ledger section) pointing at the
+   evidence. If an existing entry already covers it, add the new shape to that
+   entry rather than a second one.
+3. **Current-state facts belong here too** — a route, a field, a state
+   transition, a CI constraint, a still-open drift. History does not: if the
+   sentence only makes sense as "what happened in round N", it is ledger
+   material.
+
+Adding a round-shaped section to this file is the thing that broke it before.
 
 ## Structure
 
@@ -50,7 +75,7 @@ src/core/   headless C++20, no Qt/Dart (docs/ARCHITECTURE.md)
 
 **Twelve former dialogs are now `/panel/:tabId` tabs**, not dialog routes —
 spec page 14's `IAMAP` reassigns every large management panel to the tab
-carrier (see "Tier 6c" below). `manage-stashes`, `manage-worktrees`,
+carrier (see docs/ledger.md's "Tier 6c"). `manage-stashes`, `manage-worktrees`,
 `manage-remotes`, `manage-submodules`, `manage-lfs`, `patches`, `reflog`,
 `interactive-rebase`, `bisect`, `blame`, `file-history` and `line-history`
 were deleted along with their routes and helpers; a `RoutePaths.<name>DialogFor`
@@ -99,8 +124,8 @@ lib/
   theme/             gbm_theme.dart, tokens.dart, theme_mode_provider.dart, ref_chip_colors.dart
   widgets/           Design-system components shared across features
                       (GbmBadge, GbmButton, GbmPanel, GbmRow, ...) — reach for
-                      one of these before hand-rolling a Container; see the
-                      "known gaps" note below for a case where that was missed.
+                      one of these before hand-rolling a Container; see
+                      docs/ledger.md's "Known gaps" for a case where that was missed.
   features/
     welcome/         WelcomeScreen (route `/`, no repository open)
     repo_switcher/   RepoSwitcherButton (sidebar top) + popover + RepoSwitcherList
@@ -748,11 +773,9 @@ you are touching, not by when it was learned.
 
 ## Engineering ledger
 
-Every round of work on this repo used to append its narrative here, which is
-how this file reached ~176KB — ~2,400 of its 2,839 lines were chronological
-history, auto-loaded into every session. That history now lives in
-[docs/ledger.md](docs/ledger.md), moved verbatim (the moved block is
-byte-identical; nothing was reworded, dropped, or summarised away).
+[docs/ledger.md](docs/ledger.md) holds every round's narrative, moved here
+verbatim (the moved block is byte-identical; nothing was reworded, dropped, or
+summarised away). Filing rule for a new round: see the top of this file.
 
 **Everything a source comment cites as "CLAUDE.md's Tier 0c note",
 "Known gaps", "Tier 6c", "Spec conformance audit" or any other `Tier N` /

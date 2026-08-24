@@ -42,7 +42,9 @@ void main() {
       expect(initialBranch, 'main');
       expect(find.text('main'), findsWidgets);
 
-      // Switch branch: tap the "feature" row in the sidebar's branch tree.
+      // Switch branch: double-click the "feature" row in the sidebar's
+      // branch tree. A single click only selects it (P13 MULTIKEYS 單擊);
+      // checkout is the second click (BRANCH_STATES 「點兩下即 checkout」).
       // "feature" also renders as a ref-chip badge on the History row that
       // carries it, so this must be scoped to the sidebar specifically.
       final Finder featureRow = find.descendant(
@@ -55,6 +57,8 @@ void main() {
         reason: 'sidebar should list the feature branch created in setUp',
       );
       await tester.tap(featureRow);
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(featureRow);
       await tester.pumpAndSettle(const Duration(seconds: 1));
 
       final String branchAfterSwitch = runGit(repoPath, <String>[
@@ -64,7 +68,9 @@ void main() {
       expect(
         branchAfterSwitch,
         'feature',
-        reason: 'tapping the branch row should have run a real checkout',
+        reason:
+            'double-clicking the branch row should have run a real '
+            'checkout',
       );
       expect(find.text('feature'), findsWidgets);
 

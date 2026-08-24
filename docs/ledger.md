@@ -2579,3 +2579,168 @@ One trap worth carrying: **`Picture.toImage()` inside `testWidgets` hangs
 forever without `tester.runAsync()`**, with no output and no timeout of its
 own — the first attempt was killed at eight minutes having printed nothing.
 flutter_test's fake-async zone never completes it.
+
+### Sidebar branch rows: P02 item 12 and P13 (fix/sidebar-p02-branch-rows)
+
+Five complaints about the sidebar's branch rows — a checkbox that should not
+exist, checkout on single click, hover that never shows, a ragged actions
+column, and branch names still carrying their folder prefix. Unpacking the
+spec (`python3 tools/extract_design_spec.py`; the HTML is a gzip+base64
+bundle) showed four of the five are one change seen from four sides, and the
+fifth is independent and small.
+
+**P02 item 12** (`spec_logic.js:490`): 「Local 與 remote 不再分兩段…名稱中的斜線
+自動摺成資料夾。」 Its companion mock `BRANCH_TREE` (`spec_logic.js:337-347`)
+lists `graph-lanes`, `lfs-prune`, `worktrees` under a `feature` folder — the
+last segment, not the full path.
+
+**P13 `MULTIKEYS`** (`spec_logic.js:295-304`) defines the branch list's
+selection model, and it is **entirely modifier clicks and keys — there is no
+checkbox anywhere in the spec**. Its first row is 「單擊 ＝ 只選這一項，anchor
+移到這一項」. The app had it the other way round: single click checked out, and
+selection was driven by a `Checkbox` the spec never asks for.
+
+#### Why removing the checkbox could not be done on its own
+
+`branch_tree_item.dart`'s `selected` parameter had exactly **one** consumer in
+the entire widget — the checkbox's `value:`. The row background keyed off
+`ref.isHead` alone. So deleting the checkbox without first giving selection a
+background would have made selection a completely invisible state, which is
+the `material_state_hidden` violation the UX rubric's D dimension exists to
+catch. The commits are ordered so no intermediate revision is ever in that
+shape.
+
+#### Premises that did not survive the source
+
+- **`sidebar_panel.dart:305-307` claimed the Shift range was measured over
+  「the rows as rendered」. It was measured over git's ref order.** The same
+  file, ~20 lines later, said so outright about the same function: 「Deliberately
+  not `_selectableBranchNames().first`: that list is **in ref order**」. Two
+  contradictory claims about one function, with the code backing the second.
+  With branches `alpha, beta, delta, gamma` the sidebar paints them
+  alphabetically, so Shift-clicking alpha then gamma must take `delta` with it —
+  and the ref-ordered list silently dropped it. `_extendBranchSelection`
+  (Shift+↑/↓) had the identical defect. Fixed by walking the built tree during
+  `build`, exactly as the neighbouring `_firstResultName` already does for the
+  same reason.
+- **The existing Shift test could not fail on this.** It was named 'Shift-click
+  takes a range over the rendered rows' and asserted
+  `containsAll(['alpha','beta','gamma'])` — a superset check satisfied by both
+  the rendered-order answer (4 rows) and the ref-order one (3). A test named
+  for the very property it cannot observe.
+- **`sidebar_narrow_width_test.dart`'s fixture comment asserted the bug as
+  fact**: 「a leaf nested under folders still shows the whole slash-separated
+  path… the obvious guess ("the leaf shows its last segment") is **wrong**」. The
+  obvious guess is what the spec's own mock draws; the comment was describing
+  the defect, discovered by dumping rendered Texts and then written up as
+  intended behaviour.
+- **`_kMaxIndentedDepth`'s justification was consumed by this round.** Its doc
+  comment capped the indent at depth 3 partly because 「a branch leaf renders its
+  *full* slash-separated name anyway, so the indent is not the only thing
+  expressing the hierarchy」. Printing only the last segment removes precisely
+  that fallback, leaving a depth-4 row with neither indent nor prefix. Rows past
+  the cap now print the full name again, which is the compensation the cap was
+  already leaning on. Its 「~93px … on a checkbox, an icon and the actions
+  button」 measurement was re-stated too, since the checkbox is gone and the
+  button became a fixed slot.
+
+#### Found by running, not by reading: the gesture arena
+
+The plan said to wire selection to `GbmRow.onTap` and accept the delay. That
+did not survive contact.
+
+An `InkWell` carrying **both** `onTap` and `onDoubleTap` makes Flutter's
+gesture arena withhold the tap until `kDoubleTapTimeout` (~300ms) — the
+`DoubleTapGestureRecognizer` does not concede before then. First measurement:
+11 sidebar tests failed, and `Ctrl/Cmd-click toggles rows` reported
+`Actual: []` because `pumpAndSettle()` returns before the window closes. The
+fix would have been to teach ~11 tests to pump 300ms — i.e. to encode a lag
+as if it were behaviour, on the sidebar's most-used interaction. Selection
+moved to `Listener(onPointerDown:)`, which never enters the arena; the timing
+failures vanished in one step. This is not a second source of truth: select
+and checkout are two different actions on two different triggers.
+
+Two further consequences only a run would surface:
+
+- **A double-tap recognizer anywhere on the ancestor path taxes every child
+  button.** With `onDoubleTap` on `GbmRow`, pressing a row's ⋯ button waited
+  ~300ms for its own menu, and two gone-row tests failed because the second
+  menu never opened. Both primary gestures moved down onto the row *body*,
+  where the button is a sibling rather than a descendant. Hover survives that
+  because `InkResponse.isWidgetEnabled` is
+  `_primaryButtonEnabled || _secondaryButtonEnabled` (read from the SDK source,
+  not assumed) and every row always passes `onSecondaryTapDown`.
+- **Selecting from a whole-row Listener made opening a menu mutate the
+  selection.** Instrumenting the failing test printed `1 selected` after a mere
+  ⋯ press: the action bar appeared and pushed every row down. The Listener now
+  wraps only the row body, so the body selects and the actions button does not.
+
+`GbmRow.onDoubleTap`, added in this round's first commit, ended up with no
+caller under `lib/` once the double-tap moved to the body — orphan wiring of
+exactly the shape CLAUDE.md names — and was removed again in the same branch.
+
+#### The alignment is structural, not tuned
+
+The folder indent is `EdgeInsets.only(left:)` (`sidebar_panel.dart`), so it can
+never touch a row's right edge: every leaf's right inset is already constant at
+any depth. What actually broke the column was the ⋯ button rendering only when
+one of four branch callbacks was set — which a **tag** row never has. The TAGS
+section had a hole in the column, and a tag's 05-D menu had no visible entry
+point at all. Every row kind's `_buildMenuItems()` is non-empty, so every row
+now gets the button, inside a fixed-width slot.
+
+The alignment test measures the slot rather than `find.byTooltip`, because a
+`Tooltip` measures the icon's painted box and sits a pixel inside the tap
+target. The panel-edge inset is three nameable terms — `space2` + `space1` +
+the 1px right border the panel paints — with no slack left over. Mutating the
+indent to `EdgeInsets.symmetric` fails the depth-invariance test and nothing
+else, which is what makes that test worth having.
+
+#### Deliberately not done
+
+- **`BRANCH_STATES` says the current branch is 「永遠置頂於所屬資料夾內」.**
+  `sidebar_panel.dart` pins it above the whole tree, and only while filtering.
+  Different rule, independent of this round's five items; left as drift.
+- **`sidebar_panel.dart` is ~1,700 lines**, past the project's own 800 ceiling.
+  Not split here, to keep behaviour changes out of a large move.
+- **Tag rows moved to double-click checkout** along with branches. No test
+  covered a tag row tap either way; the context-menu path is unchanged.
+- This round partially audits **P13 section B** (`MULTIKEYS`, `MULTIACTS`,
+  `MULTIBRANCHMENU`), which **#76** still lists as unaudited.
+
+#### What the verification does and does not cover
+
+`flutter analyze` clean, 1,970 widget/unit/integration tests green,
+`dart format --set-exit-if-changed` clean on all 14 touched files. Every new
+test was mutation-checked and the red was recorded; two are worth keeping:
+reverting the range to ref order fails exactly the two order-dependent tests
+and leaves the alpha→beta Compare test green (2 items either way), and
+mutating the folder indent to `EdgeInsets.symmetric` fails the depth-invariance
+test and nothing else.
+
+**The device tier earned its keep this round.** `repo_lifecycle_test.dart`'s
+「switch branch via sidebar updates HEAD」 failed with `Expected: 'feature',
+Actual: 'main'` — the old single-click contract, asserted against a real git
+repository. `flutter test` never runs `integration_test/`, so the widget tier's
+green said nothing about it. All four macOS device files pass after updating
+that one to a double-click: `repo_lifecycle`, `commit_flow`,
+`rename_branch_flow`, `context_menu_flows`. `commit_flow_test.dart:54`'s
+`find.byType(Checkbox).first` was a live risk — the sidebar's checkbox used to
+sit earlier in the tree than the working copy's — and removing it made that
+finder unambiguous rather than breaking it.
+
+**Hover needed two tests, and neither subsumes the other.** Mutating
+`hoverColor` to `Colors.transparent` fails only the new pixel-diff test
+(`branch_tree_item_hover_paint_test.dart`, which rasterises the row before and
+after a real mouse move). Dropping `hoverColor` entirely — *the bug this round
+fixed* — fails only the token-identity assertion in
+`branch_tree_item_row_chrome_test.dart`, because ThemeData's ~4% fallback does
+change the pixels, just not perceptibly. A pixel diff alone would have called
+the original bug fixed.
+
+**No human looked at it.** The plan asked for a `flutter run -d macos` eyeball
+pass on hover and on the 等距 column, and that was not performed; it is recorded
+here rather than left implied by a green suite. The device runs do launch the
+real app, and the two hover tests bracket "paints nothing" and "paints the
+wrong colour" between them, but neither is a person confirming the highlight
+reads as a highlight at a normal viewing distance.

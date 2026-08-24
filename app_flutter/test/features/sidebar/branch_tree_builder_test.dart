@@ -486,4 +486,82 @@ void main() {
       expect(fetchableRefsInFolder(const []), isNull);
     });
   });
+
+  group('leaf labels (P02 item 12: 名稱中的斜線自動摺成資料夾)', () {
+    RefInfo local(String name) => RefInfo(
+      fullName: 'refs/heads/$name',
+      shortName: name,
+      kind: RefKind.localBranch,
+      target: 'a' * 40,
+      upstream: '',
+      ahead: 0,
+      behind: 0,
+      hasTrackingInfo: false,
+      isGone: false,
+      isHead: false,
+      isSymbolic: false,
+      worktreePath: '',
+    );
+
+    /// Walks to the single leaf under [path], failing loudly rather than
+    /// returning null so a wrong tree shape reads as a wrong tree shape.
+    BranchTreeLeaf leafAt(List<BranchTreeNode> nodes, List<String> folders) {
+      List<BranchTreeNode> level = nodes;
+      for (final String name in folders) {
+        final BranchTreeFolder folder = level
+            .whereType<BranchTreeFolder>()
+            .firstWhere((BranchTreeFolder f) => f.folderName == name);
+        level = folder.children;
+      }
+      return level.whereType<BranchTreeLeaf>().single;
+    }
+
+    test('a branch inside a folder shows only its last segment', () {
+      // The spec's own BRANCH_TREE mock lists `graph-lanes` under a
+      // `feature` folder, not `feature/graph-lanes`.
+      final List<BranchTreeNode> tree = buildBranchTree(
+        <RefInfo>[local('feature/graph-lanes')],
+        <String>{},
+        expandAll: true,
+      );
+
+      expect(leafAt(tree, <String>['feature']).displayLabel, 'graph-lanes');
+    });
+
+    test('a root-level branch keeps its whole name', () {
+      final List<BranchTreeNode> tree = buildBranchTree(
+        <RefInfo>[local('main')],
+        <String>{},
+        expandAll: true,
+      );
+
+      expect(tree.whereType<BranchTreeLeaf>().single.displayLabel, 'main');
+    });
+
+    test('a nested branch shows only the segment below its own folder', () {
+      final List<BranchTreeNode> tree = buildBranchTree(
+        <RefInfo>[local('feature/auth/ui')],
+        <String>{},
+        expandAll: true,
+      );
+
+      expect(leafAt(tree, <String>['feature', 'auth']).displayLabel, 'ui');
+    });
+
+    test('the full name stays on the ref, for filtering and semantics', () {
+      final List<BranchTreeNode> tree = buildBranchTree(
+        <RefInfo>[local('feature/graph-lanes')],
+        <String>{},
+        expandAll: true,
+      );
+
+      // Only the *rendered* label is shortened. Everything that compares --
+      // the filter (P02-14 「斜線視為分隔」), selection keys, the a11y label --
+      // still works off the full slash-separated name.
+      expect(
+        leafAt(tree, <String>['feature']).ref.shortName,
+        'feature/graph-lanes',
+      );
+    });
+  });
 }

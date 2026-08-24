@@ -17,6 +17,7 @@ class BranchTreeItem extends StatelessWidget {
   const BranchTreeItem({
     super.key,
     required this.ref,
+    this.displayName,
     required this.onCheckout,
     this.selected = false,
     this.onSelect,
@@ -70,6 +71,14 @@ class BranchTreeItem extends StatelessWidget {
   /// `ref.isGone`, so a row stays marked continuously across a real prune as
   /// the truth hands over from one source to the other.
   bool get _gone => ref.isGone || isGonePending;
+
+  /// What to print instead of `ref.shortName`.
+  ///
+  /// P02 item 12: a branch inside a folder shows only its last segment,
+  /// because the folder row above already carries the prefix. Null prints
+  /// the ref's own name. Rendering only -- the a11y label below, the filter
+  /// and every comparison stay on the full slash-separated name.
+  final String? displayName;
 
   /// Reports a modifier-carrying click for spec page 13's multi-select.
   ///
@@ -193,7 +202,7 @@ class BranchTreeItem extends StatelessWidget {
         Expanded(
           flex: 4,
           child: Text(
-            ref.shortName,
+            displayName ?? ref.shortName,
             style: TextStyle(
               fontSize: GbmTypography.textSm,
               fontWeight: ref.isHead

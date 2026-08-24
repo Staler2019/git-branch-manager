@@ -79,13 +79,18 @@ RefSnapshot _refs(List<RefInfo> refs) => RefSnapshot(
 
 const String _longSegment = 'an-extremely-long-name-that-will-not-fit-at-all';
 
-// BranchTreeItem renders `ref.shortName`, which is the *full* branch name --
-// a leaf nested under folders still shows the whole slash-separated path, on
-// top of the indent those folders add. Found by dumping the rendered Texts;
-// the obvious guess ("the leaf shows its last segment") is wrong and would
-// make every finder below miss.
-const String _deepLeaf = '$_longSegment/team/subsystem/$_longSegment';
+// A leaf under folders prints only its last segment (P02 item 12), so the
+// finders below match the segment, not the whole path. This comment used to
+// say the opposite and called the last-segment reading "wrong" -- it was
+// describing the bug, which the spec's own BRANCH_TREE mock contradicts.
+//
+// The last segment is deliberately *not* `_longSegment`: that is also the
+// root folder's name, and an exact-text finder would then match two rows.
+const String _deepLeafLabel =
+    'a-second-extremely-long-name-that-also-will-not-fit';
+const String _deepLeaf = '$_longSegment/team/subsystem/$_deepLeafLabel';
 const String _siblingLeaf = '$_longSegment/team/subsystem/sibling';
+const String _siblingLabel = 'sibling';
 
 /// A four-level tree whose deepest leaf also carries a long name and a
 /// tracking label -- B1, B2 and B4 all at once. Two children per folder so
@@ -227,10 +232,10 @@ void main() {
       // "No overflow" alone would pass with the name's Expanded collapsed to
       // zero by the non-flex tracking label beside it -- which is exactly
       // the failure this row had.
-      // Deliberately the leaf, not `find.text(_longSegment).last` -- that
-      // matches the folder row (exact-text finder), so it would have
-      // asserted the wrong widget's width entirely.
-      expect(tester.getSize(find.text(_deepLeaf)).width, greaterThan(0));
+      // Deliberately the leaf's own label, not `find.text(_longSegment)` --
+      // that matches the root folder row (exact-text finder), so it would
+      // have asserted the wrong widget's width entirely.
+      expect(tester.getSize(find.text(_deepLeafLabel)).width, greaterThan(0));
     });
   });
 
@@ -241,7 +246,7 @@ void main() {
       await _expand(tester, 'team');
       await _expand(tester, 'subsystem');
 
-      final Rect leaf = tester.getRect(find.text(_siblingLeaf));
+      final Rect leaf = tester.getRect(find.text(_siblingLabel));
       expect(leaf.left, lessThan(GbmLayout.sidebarMinWidth));
       expect(leaf.width, greaterThan(0));
     });
@@ -271,7 +276,7 @@ void main() {
       await _expand(tester, 'subsystem');
 
       expect(tester.takeException(), isNull);
-      expect(find.text(_siblingLeaf), findsOneWidget);
+      expect(find.text(_siblingLabel), findsOneWidget);
       expect(find.text('main'), findsOneWidget);
     });
   });

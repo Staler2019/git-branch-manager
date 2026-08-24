@@ -40,10 +40,26 @@ final class BranchTreeFolder extends BranchTreeNode {
 
 /// A leaf node representing an actual branch ref.
 final class BranchTreeLeaf extends BranchTreeNode {
-  const BranchTreeLeaf({required this.ref});
+  const BranchTreeLeaf({required this.ref, this.label});
 
   /// The underlying branch reference.
   final RefInfo ref;
+
+  /// What the row should *print*, when that differs from the ref's own name.
+  ///
+  /// P02 item 12: 「名稱中的斜線自動摺成資料夾」. A branch sitting inside a
+  /// folder shows only the segment below it -- the spec's BRANCH_TREE mock
+  /// lists `graph-lanes` under `feature`, not `feature/graph-lanes`, because
+  /// the folder row above already prints the prefix.
+  ///
+  /// Null for a root-level leaf, which has no folder to carry its prefix.
+  /// Only rendering uses this: filtering (P02-14 treats `/` as a separator
+  /// and matches the whole path), sorting, selection keys and the a11y label
+  /// all stay on [ref]'s full slash-separated name.
+  final String? label;
+
+  /// [label] when the leaf sits under a folder, the ref's own name otherwise.
+  String get displayLabel => label ?? ref.shortName;
 }
 
 /// Builds a hierarchical tree from a flat list of branch refs, grouping by
@@ -113,7 +129,7 @@ List<BranchTreeNode> buildBranchTree(
       }
 
       // Add the leaf to its immediate parent folder
-      final leaf = BranchTreeLeaf(ref: ref);
+      final leaf = BranchTreeLeaf(ref: ref, label: parts.last);
       folderIndex[currentPath]!.children.add(leaf);
     }
   }

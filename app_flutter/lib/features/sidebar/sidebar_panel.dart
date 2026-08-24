@@ -1425,6 +1425,17 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
         padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space1),
         child: BranchTreeItem(
           ref: node.ref,
+          // P02 item 12: 「名稱中的斜線自動摺成資料夾」 -- the folder row above
+          // prints the prefix, so the leaf prints only its last segment.
+          //
+          // Except once the indent stops. Past [_kMaxIndentedDepth] rows are
+          // painted flush, and the full name is what that cap has always
+          // leaned on to keep the hierarchy readable -- see its doc comment.
+          // Shortening those rows too would leave them with neither indent
+          // nor prefix.
+          displayName: depth > _kMaxIndentedDepth
+              ? node.ref.shortName
+              : node.displayLabel,
           onCheckout: isRemoteOnly
               ? () => _checkoutRemoteAsNewLocal(node.ref)
               : () => checkoutBranch(ref, widget.identity, node.ref.shortName),
@@ -1512,13 +1523,18 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
   }
 
   /// How many folder levels still get the 12px indent. The sidebar's own
-  /// minimum is 180px (GbmLayout.sidebarMinWidth) and a leaf row already
-  /// spends ~93px of that on a checkbox, an icon and the actions button, so
-  /// an uncapped indent runs the branch name out of room after a handful of
-  /// levels -- and a branch leaf renders its *full* slash-separated name
-  /// anyway, so the indent is not the only thing expressing the hierarchy.
-  /// Past this depth the rows stay flush; expansion state still shows where
-  /// they sit.
+  /// minimum is 180px (GbmLayout.sidebarMinWidth) and a leaf row spends a
+  /// fixed part of that on its icon, its gap, the tracking badge and the
+  /// trailing actions slot before the name gets anything, so an uncapped
+  /// indent runs the name out of room after a handful of levels. Past this
+  /// depth the rows stay flush.
+  ///
+  /// The old wording justified the cap with "a branch leaf renders its
+  /// *full* slash-separated name anyway, so the indent is not the only thing
+  /// expressing the hierarchy". That stopped being true when leaves started
+  /// printing only their last segment (P02 item 12), which is why
+  /// [_buildTreeNode] hands the full name back to any row deeper than this:
+  /// a row with neither indent nor prefix cannot be placed at all.
   static const int _kMaxIndentedDepth = 3;
 
   /// Shared by the selection action bar's two TextButtons -- see the comment

@@ -135,6 +135,39 @@ TEST_F(CommitFilesApiTest, RequestCommitFilesReturnsAddedFile) {
     EXPECT_NE(payload.find("\"files\":["), std::string::npos) << payload;
     EXPECT_NE(payload.find("\"path\":\"file.txt\""), std::string::npos) << payload;
     EXPECT_NE(payload.find("\"kind\":1"), std::string::npos) << payload;  // FileChangeKind::Added = 1
+
+    // Spec page 02 item 10's badge reads these two. file.txt is one line, so
+    // an added file is +1/-0; a JSON writer that emitted the pair in the
+    // wrong order would produce 0/1 and fail here.
+    EXPECT_NE(payload.find("\"addedLines\":1"), std::string::npos) << payload;
+    EXPECT_NE(payload.find("\"removedLines\":0"), std::string::npos) << payload;
+}
+
+TEST_F(CommitFilesApiTest, RequestCommitFilesReportsAsymmetricLineCounts) {
+    // The +1/-0 above cannot tell a real count from a constant, and its two
+    // numbers are 1 and 0 -- which also appear in this payload as "kind" and
+    // "similarity". A second commit with counts that are non-zero, unequal,
+    // and not otherwise present in the JSON is what makes the assertion mean
+    // "the numstat join survived the capi boundary".
+    std::ofstream(repo_ / "file.txt", std::ios::trunc) << "a\nb\nc\nd\n";
+    ASSERT_EQ(runGit({"add", "file.txt"}), 0);
+    ASSERT_EQ(runGit({"commit", "--quiet", "-m", "rewrite file"}), 0);
+    const std::string oid = revParseHead();
+    ASSERT_FALSE(oid.empty());
+
+    gbm_request_commit_files(session_, oid.c_str());
+
+    ASSERT_TRUE(log_.waitFor([](const auto& events) {
+        for (const auto& [type, payload] : events) {
+            if (type == GBM_EVENT_COMMIT_FILES_READY) return true;
+        }
+        return false;
+    }));
+
+    const std::string payload = log_.lastPayloadOfType(GBM_EVENT_COMMIT_FILES_READY);
+    EXPECT_NE(payload.find("\"path\":\"file.txt\""), std::string::npos) << payload;
+    EXPECT_NE(payload.find("\"addedLines\":4"), std::string::npos) << payload;
+    EXPECT_NE(payload.find("\"removedLines\":1"), std::string::npos) << payload;
 }
 
 TEST_F(CommitFilesApiTest, RequestCommitFileDiffReturnsFileDiff) {

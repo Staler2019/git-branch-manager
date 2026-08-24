@@ -442,6 +442,310 @@ deliberately rather than let the number imply more work happened than did:
    branches" at 3–4 steps. Reading `sidebar_panel.dart` showed it's 2 steps
    (select-all-gone icon → Delete), with no intermediate confirmation dialog.
 
+## Invariants and traps
+
+Distilled from [docs/ledger.md](docs/ledger.md) — every entry here happened,
+and the round that found it is named so the original measurement, the
+counter-example and the issue number stay one grep away. Organised by what
+you are touching, not by when it was learned.
+
+### Toolchain and CI
+
+- Flutter with **Dart ≥ 3.12.2** (`app_flutter/pubspec.yaml`'s `sdk: ^3.12.2`);
+  Flutter 3.44.x ships it.
+- **`flutter analyze` must stay at zero issues.** CI runs it with no tolerance
+  flags and it exits non-zero on *info*-level lints too.
+- CI is split: `ci.yml` builds and tests (the Flutter UI job sits behind
+  `needs: capi-build`, so it does not run at all while any capi job is red —
+  a green capi run can surface Flutter problems that were previously
+  invisible rather than absent); `cq.yml` holds the two pure static checks,
+  `dart format --set-exit-if-changed .` and `clang-format`, so a format
+  failure surfaces on its own check instead of aborting the build job.
+- **Both formatters drift by version, in both directions.** `dart format`'s
+  output is not stable across Dart SDKs and `subosito/flutter-action@v2`'s
+  `channel: stable` floats with no SDK pinned, so a file can flap between two
+  valid formattings. `clang-format` is pinned to v18 in `cq.yml` and
+  `.pre-commit-config.yaml`; a local v22 reformats lines v18 left alone.
+  Never run either wholesale — restore the file, re-apply only the intended
+  edit, and check the new lines survive byte-for-byte. But check
+  `.clang-format` first: a suggestion coming from the repo's own config
+  (e.g. `SeparateDefinitionBlocks: Always`, an option since v14) applies to
+  CI's v18 too and is safe to take.
+- **PR CI compiles Linux only** (`flutter build linux --debug`).
+  `windows/runner/` and `macos/Runner/` are built by nothing until a release
+  tag — assume any edit there reaches `main` uncompiled (**#69**).
+  `test/platform/window_title_test.dart` asserts those runner sources as
+  strings, which catches a drifting literal but never a compile error.
+
+### Tests and fixtures
+
+- **A fixture that cannot disagree with the code proves nothing.** Four
+  recorded shapes, each of which passed identically before and after a real
+  fix: a fixture that *derives* one field from another
+  (`hasTrackingInfo: upstream.isNotEmpty`, Tier 0c); one *borrowed* from a
+  test whose subject contradicts yours (`_mergeState()`'s
+  `isSequencerOperation`, cancel-surface round); one that *cannot express*
+  the case at all (a single shared `GraphRow` instance, graph-edge round);
+  and one that *cannot shrink* (a `repoRefsProvider` override pinned to one
+  snapshot, so no selected branch can ever vanish).
+- **Mutation-check every new test**, and check the red is *narrow* — a broad
+  red means the test is pinning something else. Copy the file to the
+  scratchpad first (`cp file "$SCRATCH/x.bak"` → mutate → `cp` back);
+  **never `git checkout -- <file>`** to revert a mutation, which once
+  discarded an entire uncommitted implementation. Have the mutation script
+  assert `count(old) == 1` before writing — two mutations in one round
+  silently matched nothing after a formatter reflowed an argument list.
+- **Count, don't `any`.** `commandLog.where((c) => c.name == …).length` —
+  `.any(...)` is blind to a double dispatch, which is exactly what several
+  of these fixes could regress into.
+- **The default widget-test canvas is 800×600**, and a `SizedBox` wider than
+  it is silently clamped. A widget test that sizes its own canvas proves
+  nothing about layout under real constraints, and a placement bug is
+  invisible to any tier whose canvas is bigger than the real window (the
+  column-picker popover shipped off-screen for exactly this reason).
+- **`RenderFlex` reports only main-axis overflow**, so a `takeException()`
+  test cannot see a cross-axis defect. Check which axis the defect is on
+  before writing a no-exception test.
+- **Never `pumpAndSettle()` while `isRefreshing` is true.** `top_bar.dart`
+  renders a bare indeterminate `CircularProgressIndicator` for that flag,
+  which schedules frames forever, so `pumpAndSettle` can only time out. This
+  is the confirmed mechanism behind the device-tier batch flake (**#101**),
+  and it is *not* **#70** (a fixed 10s C++ `waitFor` budget losing to
+  parallel load) — read the failure text before picking a family.
+- `StatusBar` lingers a finished task for 3 seconds (`_lingerTimer`), so
+  "the task cleared" cannot be asserted on the next frame.
+- **The fake seam fails loudly on purpose.** `FakeGbmBindings` /
+  `FakeRecentsRepository` throw via `noSuchMethod` for anything not
+  explicitly implemented, so a provider a test forgot to override never
+  silently reaches a real `.dylib`. The opposite risk is inside
+  `RepoSessionController`: a method the fake does not override hits its own
+  `if (_session == nullptr) return;` guard and **no-ops silently**, so a
+  test cannot tell a dead button from a dispatched one until that method is
+  overridden to record into `commandLog`.
+- **Device tier (`integration_test/`) runs one file at a time per platform**
+  (`-d macos` / `-d linux` / `-d windows`); the whole directory in one
+  command is unreliable. Never reduce a device batch's output to `tail -1` —
+  on failure the last line is the *test name*, not the error. Never edit
+  `lib/` while a device run is in flight: each run recompiles from the
+  working tree, so a green from such a run attests nothing. A stale
+  `gbm_flutter` process blocks the entire tier and looks exactly like a
+  broken test — `pkill -f "gbm_flutter.app/Contents/MacOS/gbm_flutter"`, and
+  run one pre-existing device test as a control before believing a new one.
+- `build/native/libgbm_capi.dylib` is a **copy**: a stale one loads happily,
+  and a new capi entry point then appears to be a Dart bug.
+- **`dart:ffi`'s `lookupFunction` matches by symbol name only, never by
+  signature.** Changing a capi parameter list and its Dart typedef in
+  lockstep is checked by nothing — it compiles, analyzes and unit-tests
+  clean, then corrupts the stack at runtime. Only a device-tier test crosses
+  that seam.
+- `pumpRealAppOn` clears `panelLayout.*` and `graphColumns.*`, because device
+  tests share the machine's real `shared_preferences` — a splitter ratio or a
+  hidden column the developer once set silently changes what later tests
+  render.
+- **A memory-ordering race *is* falsifiable here.** `CMakeLists.txt`'s
+  `GBM_SANITIZE` option and the configured `build/tsan` / `build/asan-ubsan`
+  presets turn "a race in principle" into a test:
+  `cmake --build build/tsan --target gbm_capi_tests`. A *timing* race
+  (**#70**, **#77**) still cannot be reproduced on demand — its evidence is a
+  deterministic mechanism test plus the causal chain, never an A/B.
+- Swapping a widget for a design-system one can break device-tier finders
+  nothing else uses (`find.byType(ListTile)` → `GbmRow`), so a round touching
+  shared row widgets has to rerun all device tests, one at a time.
+
+### Flutter, Riverpod and widgets
+
+- **`ref` inside a `ConsumerState.dispose()` always throws.**
+  `_assertNotDisposed()` gates every `ref` member on `context.mounted`, and
+  the element is already unmounted by then. Capture the notifier in
+  `initState()` into a field and guard on `StateNotifier.mounted`.
+- **Never write a provider from `build()`.** Riverpod's guard is
+  `assert`-wrapped, so debug crashes but **release strips it and lets the
+  write land mid-frame**. Defer to a post-frame callback and recompute from
+  then-current state, not from a captured list.
+- **`ref.listen` never fires for the value already present when it
+  registers.** Every `ref.listen`-driven piece of session state needs
+  something else covering the value that was already there — a filter query
+  surviving a repository close is the recorded case. The test that sees it is
+  the one that seeds the provider *before* pumping.
+- **`RenderFlex` lays out non-flex children first**, then divides what is
+  left — so a `Flexible` child can never rescue an overflow that non-flex
+  children caused. Six surfaces overflowed at the app's own default 1280×720
+  for exactly this. Related: `Spacer` is itself a flex child and competes for
+  the space it looks like it is donating; and `Expanded` satisfies "no
+  overflow" while collapsing its child to zero, so assert visibility, not
+  absence of exception.
+- Tapping an `InkWell` does **not** give it focus — call `requestFocus()`
+  first if a focus-scoped shortcut has to work after a click. And a test for
+  that must use a *modifier* click, since a plain click on a branch row
+  routes through checkout.
+- **`Ctrl/Cmd+A` must be bound inside the list's own focus scope**, never
+  app-wide: a `Shortcuts` closer to a focused editor than
+  `DefaultTextEditingShortcuts` steals text select-all.
+- **`GbmMenuItem.enabled: false` is only a visual signal** — set `onTap: null`
+  too, or a "disabled" item still fires. Disabled-with-a-tooltip beats
+  hidden: 隱藏會讓人以為功能不存在.
+- `showGbmMenu` is built on Material's `showMenu`, whose modal barrier makes
+  a hover-opened flyout unhoverable from its own parent — submenus open on
+  tap, and the parent is popped *before* the child's action runs (menu items
+  routinely push a dialog). **#87**.
+- `RadioListTile` needs a `Material` ancestor; `Container(color:)` builds an
+  opaque hit-test box while `Listener` defaults to `deferToChild`;
+  `ReorderableDragStartListener` accepts at `kPrecisePointerHitSlop` (**1.0px**
+  for a mouse), so a whole-row drag handle loses ordinary clicks.
+- `Paint.color` quantises on read-back — compare `.toARGB32()`, or a mismatch
+  prints Expected and Actual identically.
+- **Changing a `GbmSplitPane`'s axis obliges you to decide what happens to its
+  stored value**; only ratio mode survives the change, extent mode persists a
+  raw pixel number and must be re-keyed. Its fixed pane's end is the explicit
+  `fixedPaneEnd`, not implied by the axis.
+
+### Refs, git and the core's own vocabulary
+
+- **`RefInfo.upstream` is the full ref name** (`refs/remotes/origin/x`), from
+  `%(upstream)` not `%(upstream:short)`. Splitting on the first slash yields
+  `"refs"` — use `remoteBranchParts()`. `delete_branch_dialog.dart`'s
+  `_remoteOf()` still does the wrong split (**#74**).
+- **`RefInfo.hasTrackingInfo` does not mean "has an upstream"** — it mirrors
+  `%(upstream:track)`, which is *empty* for a branch exactly in sync. Ask
+  "does this track a remote?" with `upstream`; reserve `hasTrackingInfo` for
+  "did git report ahead/behind numbers".
+- **`RefInfo.ahead` means nothing when `upstream` is empty** — a branch that
+  never had one reports `0`, which rendered literally claims the opposite of
+  the truth.
+- **`RefInfo.isGone` can only be true after a prune** (git reports `[gone]`
+  only once the remote-tracking ref is already deleted). Gone *marking* comes
+  from `git remote prune --dry-run`, deliberately not from `fetch --prune` —
+  the spec's three stages are mark → badge → explicit Prune, and `--prune`
+  skips to the end. Read gone-ness through
+  `features/sidebar/gone_marking.dart`'s `isEffectivelyGone()`, never
+  `isGone` or `gonePendingRefs` directly.
+- `RemotePrunePreviewEntry.ref` is a **short** name while `upstream` and a
+  remote row's `fullName` are full — normalise through `fullRemoteRefName()`.
+  Every *comparison* in this codebase is on the full form; the short form is
+  display only.
+- `git branch -m` **keeps** `branch.<name>.remote/.merge`, so a local-only
+  rename needs an explicit `git branch --unset-upstream`.
+- **`git diff-tree` silently ignores `--first-parent`** — the correct spelling
+  is `--diff-merges=first-parent` (git 2.31+). `git log --raw` honours
+  `diff.renames` while `git diff-tree --raw` ignores it entirely, so the
+  rename flag is passed **explicitly on both** from one shared
+  `rawRenameFlag()`.
+- `git log --no-walk` sorts by commit date, not by the order the oids were
+  given, so a batch reply must echo each oid rather than be index-aligned.
+  And **absent is not zero**: a commit git never answered for is omitted, not
+  cached as `0`.
+- `git push` with no refspec pushes through the configured upstream and
+  *refuses* when there is none — not equivalent to naming the current branch.
+- `--topo-order` / `--date-order` stay unconditional in `toRevListArgs()`;
+  the History branch filter's single-line rendering depends on a parent never
+  being printed before its children.
+
+### C++ core
+
+- **`IProcessRunner::run()` is not byte-exact.** It reassembles stdout from
+  the line splitter, dropping the final separator and stripping `\r` before
+  every `\n` — a text blob comes back one byte short and a binary blob is
+  silently corrupted. For verbatim bytes use `CatFileBatch`, which reads
+  exactly the count `cat-file --batch`'s header declares.
+- **Reads and writes are not serialised against each other.** Background
+  status/diff runs on `sharedReadPool()` while writes run on
+  `OperationRunner`'s single serial worker, and a plain `git status` rewrites
+  the index and takes `.git/index.lock`. `GitCommand::globalFlags()` carries
+  `--no-optional-locks` globally for this (**#77**).
+- **Attribution goes through `Operation::kind()` and
+  `PendingOperationTracker`** — never "the next completion event is mine",
+  and never a match on `describe()`, whose user-facing English is not a
+  protocol. The `PendingOperationKind` switches carry no `default` so a new
+  kind is a compile error at the place the new arm belongs.
+- Anything paired unconditionally (`beginAskpass`/`endAskpass`) needs the
+  `onAlways` hook on `submitOperation` / `submitWorkingCopyOperation`, not
+  `onSuccess`.
+- **`RefreshCoalescer` needs `onFinished()` on every terminal path** — use a
+  `ScopeExit`. Miss one and it stays `running_` forever, every later request
+  folds into a batch nothing drives, and **refreshes stop happening at all,
+  silently, with no error anywhere.** Publishing needs the monotonic
+  generation gate inside the same mutex as the snapshot write, or a stale
+  walk's `complete:true` answers for a newer one.
+- `~Session()` ordering is load-bearing: `operations_->drain()` →
+  `refreshTimer_.stop()` → `sharedReadPool().cancelQueuedAndDrain()`.
+- **`GraphAsciiRenderer.cpp` is the reference renderer** — when it and the
+  Dart painter disagree, the C++ one is right. `edge.lane ==
+  rows[parentRow].lane` is a **false** invariant: `patchIncoming()` never
+  rewrites `edge.lane`, so bending an arriving edge into the parent's lane is
+  the renderer's job, not the builder's.
+- A `std::span<const ObjectId>` does not accept a braced list in C++20.
+
+### Reading the spec
+
+- **A mockup shows what the user sees, not who draws it.** A conformance
+  verdict has to rest on the spec's prose — reading an illustration as a
+  requirement is what produced an issue asking for the *opposite* of what the
+  spec wanted (#60, closed as not-planned). The same rule settled the
+  fetch/prune contradiction: P10's mockup draws `--prune`, its own prose says
+  「標記為 gone（尚未 prune）」, and the prose wins.
+- **The spec HTML has 21 pages**
+  (`docs/claude-design-demo/Flutter Desktop Spec (standalone).html`), and
+  `docs/reports/spec-conformance-matrix.md` was written against 12. **P16's
+  `REVISIONS` table revises earlier pages**, so check whether a later page
+  overrules a verdict written before it — two issues went stale exactly that
+  way. P13 B and P14–P16 remain unaudited (**#76**), as do P17–P21.
+- **When an issue's premise does not survive the source, correct the issue
+  text in place and record the evidence** — close as not-planned rather than
+  quietly retitle (#45/#50/#51/#60 precedent). Several rounds found the
+  premise wrong in a way that moved the work; that correction is the most
+  valuable thing the ledger carries.
+- **Where a spec row cannot be honoured, the feature is absent and recorded,
+  never faked.** Conversely, where working capi has no spec entry point it
+  stays rather than being orphaned (**#92**–**#95**).
+- 標題列 means four different things across this spec (**#68**) — settle the
+  reading before moving code.
+
+### Repo culture
+
+- **Orphan wiring is the recurring defect shape here**: a route, provider,
+  preference or capi field with no caller under `lib/`. It has shipped at
+  least five times (`deleteRemoteBranchDialog`, `readVisibility()`,
+  `readOrder()`/`readWidths()`, `RefreshCoalescer`, the `autoFetch*`
+  settings — **#102**). Grep for a caller before adding a field, and before
+  deleting the last one.
+- **A second source of truth for a computed fact is how a bug hides** — it
+  cannot disagree with itself. Folder identity, column order, selection sets
+  and `conflictActive` are each deliberately single-sourced.
+- **Nothing is silently dropped.** A capability removed for spec conformance
+  gets its reason recorded (the operation-log dialog's `Clear`, the
+  per-remote Pull/Push), and a reduction made for a cap or a missing capi is
+  written down rather than left for the next audit to file as a bug.
+- **A note explaining why a test avoids a code path deserves the same
+  scrutiny as the code path itself** — one correct observation with a wrong
+  cause became a permanent workaround and hid a real defect for months.
+- **A comment claiming its bounds are measured must be re-measured when
+  anything upstream of the measurement moves.** A page recomposition is
+  upstream of every width in the row.
+- Stage by file when two changes are live in one directory: `git add -A <dir>`
+  once swept an unrelated in-progress change into a `refactor:` commit.
+
+### Current known drift
+
+- **Context menus**: `features/context_menus/gbm_context_menus.dart` declares
+  all 11 of spec page 05's groups and is the parity test's acceptance
+  baseline, but no file under `lib/` imports it — each render site
+  hand-writes its list. Nine groups now conform; **05-B and 05-E are the only
+  drifted ones left**. The `*_menu_items.dart` pure-function extraction is the
+  template to follow. The catalog itself can drift from the spec, which the
+  per-render-site audit method cannot detect (**#71**).
+- **Absent for lack of a capi entry point**: per-object transfer counts for
+  fetch/pull/push, `git init` / clone, removing a *scanned* repository from
+  the switcher, squashing N commits, per-remote Pull/Push, and seven
+  `PANELSPEC` detail fields (待提交數, 最後 fetch, 預期 commit, 大小,
+  剩餘步數, 自訂測試指令, 欄位選擇器). All tracked on **#76**.
+- `lfs_pattern_match.dart` is an **approximation** of gitattributes matching,
+  not a port of `wildmatch()`; a pattern it cannot parse matches nothing, so
+  a group reads 0 rather than a wrong number.
+- **Open issues**: **#62** (TabRow overflow menu), **#67**–**#71**,
+  **#74**–**#76**, **#84**–**#89** (Tier 6 spec blockers), **#92**–**#95**
+  (capi with no spec entry point), **#99**, **#101**, **#102**. `gh issue
+  list` is authoritative; the ledger's mentions are historical.
+
 ## Engineering ledger
 
 Every round of work on this repo used to append its narrative here, which is

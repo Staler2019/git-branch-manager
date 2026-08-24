@@ -545,6 +545,12 @@ you are touching, not by when it was learned.
   parallel load) — read the failure text before picking a family.
 - `StatusBar` lingers a finished task for 3 seconds (`_lingerTimer`), so
   "the task cleared" cannot be asserted on the next frame.
+- **Real async inside `testWidgets` needs `tester.runAsync()`.**
+  `Picture.toImage()` (and asset decoding through `vg.loadPicture`) never
+  completes in flutter_test's fake-async zone: no output, no timeout of its
+  own, just a hang — eight minutes of silence in the recorded case. This is
+  how an asset-rendering check is written when a string-level "it ships and
+  parses" assertion is not enough (`docs/ledger.md`, P02 item 2's toolbar).
 - **The fake seam fails loudly on purpose.** `FakeGbmBindings` /
   `FakeRecentsRepository` throw via `noSuchMethod` for anything not
   explicitly implemented, so a provider a test forgot to override never

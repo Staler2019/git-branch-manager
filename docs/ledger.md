@@ -2541,3 +2541,41 @@ tests.
   dialog route at all, so there is nothing for Alt+click to open. The plain
   click implements the first half (`pullChanges()` with the configured default);
   the modifier path is absent and tracked on **#109**, not faked.
+
+#### What the verification does and does not cover
+
+The plan's 驗證 section ended with 「實機：`flutter run -d macos`…肉眼確認工具列
+位置/樣式/圖示」. **That human visual pass was not performed, and is recorded here
+rather than left implied by the green suite.** Two substitutes were run instead,
+and they cover different halves of the risk:
+
+- **Device-tier finder ambiguity: checked, nothing to do.** Adding five
+  permanently-rendered words (`Fetch`, `Pull`, `Push`, `Branch`, `Stash`) is
+  exactly what broke `_repositoryMenuItemColor()` in the widget tier, and
+  `flutter test` never runs `integration_test/`, so its green says nothing about
+  the device tier. Grepping every finder in `integration_test/` for those five
+  words and for un-scoped `byType(GbmButton)` / `byType(LucideIcon)` returned
+  one hit — `rename_branch_flow_test.dart:137`'s `find.text('Rename Branch')`,
+  which is a dialog title and does not collide (`find.text` is exact-match, so
+  `'Rename Branch'` never matches `'Branch'`). No device file needed rerunning.
+- **Icon rendering: rasterised, not just bundled.** The earlier check only
+  proved the four SVGs ship in the asset bundle and parse as strings — which a
+  file drawing nothing would also pass. A temporary test (run, mutation-checked,
+  then deleted) loaded each of the five toolbar icons through
+  `vg.loadPicture(SvgAssetLoader(...))` — the exact path `LucideIcon` uses —
+  called `Picture.toImage()`, and counted non-transparent pixels. All five
+  painted. Replacing `inbox.svg` with a well-formed but empty `<svg/>` reddened
+  that one test and only that one, so the assertion is falsifiable and narrow.
+
+What neither covers, and what the deferred pass would have: that each glyph is
+the *intended* one (a rasterised heart passes a "painted something" test), and
+that the row's position, height and spacing look right in a real 1280×720
+window. The first is mitigated by provenance rather than by assertion — the
+files came from `lucide-static` v1.34.0 and the transform was proven
+byte-identical on an icon already in the repo — and the second is what the
+800×600 and 320px widget tests approximate.
+
+One trap worth carrying: **`Picture.toImage()` inside `testWidgets` hangs
+forever without `tester.runAsync()`**, with no output and no timeout of its
+own — the first attempt was killed at eight minutes having printed nothing.
+flutter_test's fake-async zone never completes it.

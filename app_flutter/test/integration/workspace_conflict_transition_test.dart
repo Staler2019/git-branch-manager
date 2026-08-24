@@ -212,6 +212,15 @@ List<RouteBase> _branchAndStashDialogRoutes() => <RouteBase>[
   ),
 ];
 
+/// Checkout is a double-click on the branch row (BRANCH_STATES 「點兩下即
+/// checkout」); a single click only selects (MULTIKEYS 單擊).
+Future<void> _doubleTapRow(WidgetTester tester, String name) async {
+  await tester.tap(find.text(name));
+  await tester.pump(const Duration(milliseconds: 100));
+  await tester.tap(find.text(name));
+  await tester.pumpAndSettle();
+}
+
 void main() {
   final GbmColors colors = buildGbmTheme(
     GbmThemeVariant.darkTechnical,
@@ -236,13 +245,12 @@ void main() {
         isTrue,
       );
 
-      await tester.tap(find.text('feature'));
-      await tester.pumpAndSettle();
+      await _doubleTapRow(tester, 'feature');
       expect(
-        pumped.controller.commandLog.any(
-          (c) => c.name == 'checkout' && c.args['target'] == 'feature',
-        ),
-        isTrue,
+        pumped.controller.commandLog
+            .where((c) => c.name == 'checkout' && c.args['target'] == 'feature')
+            .length,
+        1,
       );
     });
 
@@ -316,13 +324,17 @@ void main() {
               'clears -- no stale null captured from the conflicted build.',
         );
 
-        await tester.tap(find.text('feature'));
-        await tester.pumpAndSettle();
+        await _doubleTapRow(tester, 'feature');
         expect(
-          pumped.controller.commandLog.any(
-            (c) => c.name == 'checkout' && c.args['target'] == 'feature',
-          ),
-          isTrue,
+          pumped.controller.commandLog
+              .where(
+                (c) => c.name == 'checkout' && c.args['target'] == 'feature',
+              )
+              .length,
+          1,
+          reason:
+              'the checkout path must reopen the moment the gate clears -- '
+              'no stale null captured from the conflicted build.',
         );
       },
     );

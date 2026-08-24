@@ -201,15 +201,44 @@ List<String> _menuLabels(WidgetTester tester) => tester
     .toList();
 
 void main() {
-  testWidgets('a plain click on a branch row is still a checkout, not a '
-      'selection -- MULTIKEYS is not applied to the sidebar\'s primary '
-      'interaction', (WidgetTester tester) async {
+  testWidgets('a plain click selects the row and does not check it out '
+      '(MULTIKEYS 單擊)', (WidgetTester tester) async {
+    // This test used to assert the exact opposite, on the premise that
+    // MULTIKEYS did not govern the sidebar's primary interaction. P13's table
+    // says it does -- 「單擊 ＝ 只選這一項，anchor 移到這一項」 -- and with the
+    // checkbox gone this is also the only way to start a selection by mouse.
     final _Harness h = await _pump(tester);
+    await tester.tap(_row('alpha'));
+    await tester.pump(kDoubleTapTimeout);
+
+    expect(h.selection.items, <String>['alpha']);
+    expect(h.commands('checkout'), isEmpty);
+  });
+
+  testWidgets('a double click checks the row out exactly once '
+      '(BRANCH_STATES 點兩下即 checkout)', (WidgetTester tester) async {
+    final _Harness h = await _pump(tester);
+    await tester.tap(_row('alpha'));
+    await tester.pump(const Duration(milliseconds: 100));
     await tester.tap(_row('alpha'));
     await tester.pumpAndSettle();
 
-    expect(h.selection.items, isEmpty);
+    // Counted rather than `any`: the first press of a double-click also runs
+    // the selection path, so a double dispatch here is a live possibility
+    // rather than a theoretical one.
     expect(h.commands('checkout'), hasLength(1));
+  });
+
+  testWidgets('a double click on HEAD checks nothing out', (
+    WidgetTester tester,
+  ) async {
+    final _Harness h = await _pump(tester);
+    await tester.tap(_row('main'));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(_row('main'));
+    await tester.pumpAndSettle();
+
+    expect(h.commands('checkout'), isEmpty);
   });
 
   testWidgets('Ctrl/Cmd-click toggles rows into the selection', (

@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -245,6 +246,51 @@ class BranchTreeItem extends StatelessWidget {
               maxLines: 1,
             ),
           ),
+      ],
+    );
+
+    // The body selects; the actions button does not. Wrapping the whole row
+    // instead would mean opening a row's ⋯ menu also selected it, which pops
+    // the "N selected" action bar out of nowhere and shifts every row down --
+    // a menu should not mutate the selection it is about to act on.
+    final Widget rowWithActions = Row(
+      children: <Widget>[
+        Expanded(
+          child: Listener(
+            // MULTIKEYS: 「單擊 ＝ 只選這一項，anchor 移到這一項」. Plain,
+            // Ctrl/Cmd and Shift clicks all arrive here.
+            //
+            // On pointer-down rather than through GbmRow.onTap because an
+            // InkWell carrying both onTap and onDoubleTap makes Flutter's
+            // gesture arena withhold the tap for kDoubleTapTimeout (~300ms).
+            // The row would then highlight a third of a second after the
+            // click, on the sidebar's most-used interaction. Desktop file
+            // lists select on the first press and open on the second; a
+            // Listener expresses that because it never enters the arena.
+            // Ancestors stay on the hit-test path, so GbmRow still sees the
+            // double tap.
+            //
+            // Not a second source of truth: select and checkout are two
+            // different actions on two different triggers. The second press
+            // of a double-click re-selects the row it is already on, which
+            // is idempotent.
+            behavior: HitTestBehavior.opaque,
+            onPointerDown: onSelect == null
+                ? null
+                : (PointerDownEvent event) {
+                    if (event.buttons != kPrimaryButton) return;
+                    onSelect!(currentSelectionGesture());
+                  },
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              // BRANCH_STATES: 「點兩下即 checkout」. HEAD is already checked
+              // out and spec page 07 forbids moving HEAD mid-sequencer, so
+              // both are inert rather than ignored on arrival.
+              onDoubleTap: ref.isHead || conflictActive ? null : onCheckout,
+              child: row,
+            ),
+          ),
+        ),
         if (onRename != null ||
             onDelete != null ||
             onPruneRef != null ||
@@ -268,8 +314,11 @@ class BranchTreeItem extends StatelessWidget {
     );
 
     final Widget maybeTooltip = _gone && ref.upstream.isNotEmpty
-        ? Tooltip(message: 'Upstream gone: ${ref.upstream}', child: row)
-        : row;
+        ? Tooltip(
+            message: 'Upstream gone: ${ref.upstream}',
+            child: rowWithActions,
+          )
+        : rowWithActions;
 
     // Spec's BRANCH_STATES: remote-only rows render at .62 opacity --
     // "本機還沒有這條分支" (the local machine doesn't have this branch yet).
@@ -300,18 +349,16 @@ class BranchTreeItem extends StatelessWidget {
         // otherwise indistinguishable from an idle one.
         selected: ref.isHead || selected,
         onSecondaryTapDown: (details) => _openContextMenu(context, details),
-        onTap: _isRemoteOnly
-            ? null
-            : () {
-                final SelectionGesture gesture = currentSelectionGesture();
-                if (gesture != SelectionGesture.single && onSelect != null) {
-                  onSelect!(gesture);
-                  return;
-                }
-                if (ref.isHead || conflictActive) return;
-                onCheckout();
-              },
-        onDoubleTap: _isRemoteOnly && !conflictActive ? onCheckout : null,
+        // No primary tap callback on purpose. A DoubleTapGestureRecognizer
+        // anywhere on the row's ancestor path holds the gesture arena open
+        // for kDoubleTapTimeout, which would make every press of the trailing
+        // ⋯ button wait ~300ms for its own menu. Both primary gestures live
+        // on the row *body* below instead, where the button is a sibling
+        // rather than a descendant and competes with nothing.
+        //
+        // Hover survives this: InkResponse.isWidgetEnabled is
+        // `_primaryButtonEnabled || _secondaryButtonEnabled`, and
+        // onSecondaryTapDown satisfies the second half.
         child: maybeDim,
       ),
     );

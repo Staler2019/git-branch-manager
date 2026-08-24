@@ -19,6 +19,7 @@
 // where every glyph is one em wide, so text measures wider here than on a
 // real device and a hardcoded threshold would encode the harness instead of
 // the behaviour.
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -250,8 +251,12 @@ void main() {
     testWidgets('does not overflow with a selection at 180px', (tester) async {
       await _pump(tester, refs: _flatRefs);
 
-      await tester.tap(find.byType(Checkbox).first);
-      await tester.pump();
+      // A plain click is the selection gesture now (MULTIKEYS 單擊); the
+      // row no longer carries a checkbox to tick.
+      await tester.tap(find.text('feature-one'));
+      // Lets the double-tap window close so the recognizer's timer does not
+      // outlive the test. The selection itself already landed on pointer-down.
+      await tester.pump(kDoubleTapTimeout);
 
       expect(find.textContaining('selected'), findsOneWidget);
       expect(tester.takeException(), isNull);

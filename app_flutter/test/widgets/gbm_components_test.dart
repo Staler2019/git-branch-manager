@@ -2,6 +2,7 @@
 // variants against docs/design/tokens-reference.md's components.css, across
 // all three theme variants -- colors are read from `tokensFor()` rather than
 // hardcoded so a token change doesn't silently desync these assertions.
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
@@ -189,6 +190,72 @@ void main() {
         await _pump(tester, variant, const GbmRow(child: Text('row')));
         final Size size = tester.getSize(find.byType(GbmRow));
         expect(size.height, GbmSpacing.rowHeightComfortable);
+      });
+
+      testWidgets('double tap invokes onDoubleTap exactly once', (
+        tester,
+      ) async {
+        int doubleTaps = 0;
+        await _pump(
+          tester,
+          variant,
+          GbmRow(onDoubleTap: () => doubleTaps++, child: const Text('row')),
+        );
+
+        await tester.tap(find.byType(GbmRow));
+        await tester.pump(kDoubleTapMinTime);
+        await tester.tap(find.byType(GbmRow));
+        await tester.pump(kDoubleTapTimeout);
+
+        // Counted rather than asserted truthy: a double dispatch is exactly
+        // the regression a boolean flag cannot see.
+        expect(doubleTaps, 1);
+      });
+
+      testWidgets('a row with only onTap is unaffected by the new param', (
+        tester,
+      ) async {
+        int taps = 0;
+        await _pump(
+          tester,
+          variant,
+          GbmRow(onTap: () => taps++, child: const Text('row')),
+        );
+
+        await tester.tap(find.byType(GbmRow));
+        await tester.pump();
+
+        // No onDoubleTap means no DoubleTapGestureRecognizer in the arena, so
+        // onTap still resolves on the first pump -- this is what keeps the
+        // three existing GbmRow call sites (commit list, repo list, ...)
+        // behaving exactly as before.
+        expect(taps, 1);
+      });
+
+      testWidgets('with both callbacks a single tap still reaches onTap', (
+        tester,
+      ) async {
+        int taps = 0;
+        int doubleTaps = 0;
+        await _pump(
+          tester,
+          variant,
+          GbmRow(
+            onTap: () => taps++,
+            onDoubleTap: () => doubleTaps++,
+            child: const Text('row'),
+          ),
+        );
+
+        await tester.tap(find.byType(GbmRow));
+        await tester.pump(kDoubleTapTimeout);
+
+        // Pins the cost documented at BranchTreeItem's call site: once both
+        // callbacks are present the gesture arena holds onTap until the
+        // double-tap window closes. It still arrives -- just not on the next
+        // frame -- and it must not be mistaken for a double tap.
+        expect(taps, 1);
+        expect(doubleTaps, 0);
       });
     });
   }

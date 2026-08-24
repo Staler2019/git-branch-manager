@@ -16,6 +16,7 @@ class GbmRow extends StatelessWidget {
     this.selected = false,
     this.height = GbmSpacing.rowHeightComfortable,
     this.onTap,
+    this.onDoubleTap,
     this.onSecondaryTapDown,
     this.padding = const EdgeInsets.symmetric(horizontal: GbmSpacing.space3),
   });
@@ -24,6 +25,14 @@ class GbmRow extends StatelessWidget {
   final bool selected;
   final double height;
   final VoidCallback? onTap;
+
+  /// Opting into this costs the row its immediate [onTap]: with both
+  /// callbacks present the gesture arena holds the single tap until the
+  /// double-tap window closes (~`kDoubleTapTimeout`). Leave it null unless
+  /// the row genuinely has a second, heavier action -- see
+  /// `BranchTreeItem`, where single-click selects and double-click checks
+  /// out (spec P13 `MULTIKEYS` + `BRANCH_STATES`).
+  final VoidCallback? onDoubleTap;
   final void Function(TapDownDetails)? onSecondaryTapDown;
   final EdgeInsetsGeometry padding;
 
@@ -34,6 +43,7 @@ class GbmRow extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
+        onDoubleTap: onDoubleTap,
         onSecondaryTapDown: onSecondaryTapDown,
         hoverColor: colors.surfaceHover,
         splashFactory: NoSplash.splashFactory,

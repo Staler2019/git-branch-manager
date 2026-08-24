@@ -291,6 +291,38 @@ int _compareTreeNodes(BranchTreeNode a, BranchTreeNode b) {
   return aName.compareTo(bName);
 }
 
+/// Every leaf ref under [nodes], at any depth.
+///
+/// Used by the folder-scoped actions (05-J's "Delete merged in folder" and
+/// "Fetch branches in folder"), which act on a whole subtree rather than on
+/// one row.
+List<RefInfo> collectFolderLeafRefs(List<BranchTreeNode> nodes) {
+  final List<RefInfo> refs = <RefInfo>[];
+  for (final BranchTreeNode node in nodes) {
+    if (node is BranchTreeLeaf) {
+      refs.add(node.ref);
+    } else if (node is BranchTreeFolder) {
+      refs.addAll(collectFolderLeafRefs(node.children));
+    }
+  }
+  return refs;
+}
+
+/// Every folder path under [nodes], at any depth.
+///
+/// Full paths, not display names -- the panel's expanded-folder set is keyed
+/// the way [buildBranchTree] reads it (see [BranchTreeFolder.folderPath]).
+Set<String> collectFolderPaths(List<BranchTreeNode> nodes) {
+  final Set<String> names = <String>{};
+  for (final BranchTreeNode node in nodes) {
+    if (node is BranchTreeFolder) {
+      names.add(node.folderPath);
+      names.addAll(collectFolderPaths(node.children));
+    }
+  }
+  return names;
+}
+
 /// What 05-J's "Fetch branches in folder" needs to call
 /// `RepoSessionController.fetchRemote(remoteName:, refs:)`: the single
 /// remote every fetchable branch in [refs] tracks, and the branch names

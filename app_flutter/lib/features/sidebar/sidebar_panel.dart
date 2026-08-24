@@ -1,27 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../actions/gbm_action_availability.dart';
 import '../../actions/gbm_action_id.dart';
 import '../../data/models/ref_snapshot.dart';
 import '../../data/models/stash_entry.dart';
 import '../../data/repositories/branch_repository.dart';
-import '../../data/repositories/compare_tabs_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../actions/gbm_selection_gesture.dart';
 import '../../data/models/list_selection.dart';
 import '../../data/repositories/branch_filter_repository.dart';
 import '../../data/repositories/branch_selection_repository.dart';
 import '../../data/repositories/repo_session_repository.dart';
-import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/gbm_menu.dart';
-import '../../widgets/prompt_text_dialog.dart';
 import '../repo_switcher/repo_switcher_popover.dart';
 import 'branch_bulk_actions.dart';
+import 'branch_row_actions.dart';
 import 'branch_tree_builder.dart';
 import 'gone_marking.dart';
 import 'widgets/branch_folder_menu_items.dart';
@@ -261,47 +258,6 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     });
   }
 
-  Future<void> _createBranch() async {
-    final String? name = await promptText(
-      context,
-      title: 'New Branch',
-      label: 'Branch name',
-    );
-    if (name == null || !mounted) return;
-    ref
-        .read(repoSessionProvider(widget.identity).notifier)
-        .createBranch(name: name);
-  }
-
-  Future<void> _createBranchFrom(RefInfo branch) async {
-    final String? name = await promptText(
-      context,
-      title: 'New Branch from ${branch.shortName}',
-      label: 'Branch name',
-    );
-    if (name == null || !mounted) return;
-    ref
-        .read(repoSessionProvider(widget.identity).notifier)
-        .createBranch(name: name, startPoint: branch.shortName);
-  }
-
-  void _openMergeDialog() {
-    context.push(
-      RoutePaths.mergeDialogFor(Uri.encodeComponent(widget.identity.workDir)),
-    );
-  }
-
-  /// 05-B's "Rename branch". Unlike the Branch menu and F2, this names the
-  /// clicked branch rather than letting the dialog fall back to HEAD.
-  void _renameBranch(RefInfo branch) {
-    context.push(
-      RoutePaths.renameBranchDialogFor(
-        Uri.encodeComponent(widget.identity.workDir),
-        branch: branch.shortName,
-      ),
-    );
-  }
-
   /// Ctrl/Cmd-click and Shift-click on a branch row. A plain click is
   /// deliberately not routed here -- see [BranchTreeItem.onSelect].
   ///
@@ -423,6 +379,10 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
   /// while more than one branch is selected. Right-clicking a row that is
   /// *not* in the selection collapses to it first and gets the ordinary
   /// 05-B menu instead -- see [_onBranchContextMenu].
+  /// Built per call, never stored -- same reasoning as [_bulk].
+  BranchRowActions get _rowActions =>
+      BranchRowActions(ref: ref, identity: widget.identity);
+
   /// Built per call, never stored: `BranchBulkActions` is a pure function of
   /// the selection, and a stored copy would be a second source of truth for
   /// it.
@@ -445,61 +405,8 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
       fetchBlockedReason: bulk.fetchBlockedReason(),
       pushBlockedReason: bulk.pushBlockedReason(),
       onCompare: names.length == 2 ? () => bulk.compare(context) : null,
-      onDelete: _deleteSelected,
+      onDelete: () => _rowActions.deleteSelected(context, names),
     );
-  }
-
-  void _deleteSingle(RefInfo branch) {
-    ref
-        .read(repoSessionProvider(widget.identity).notifier)
-        .deleteBranch(names: <String>[branch.shortName]);
-  }
-
-  // 05-B "Compare with…" -- same `left: <ref string>` mechanism as
-  // _compareTag and _compareStash. A branch name is already a valid ref, so
-  // no per-branch compare dialog is needed; the Compare page's own picker
-  // chooses the right-hand side.
-  void _compareRef(String refName) {
-    final String repoId = Uri.encodeComponent(widget.identity.workDir);
-    final String tabId = ref
-        .read(compareTabsProvider(widget.identity).notifier)
-        .open(left: refName);
-    context.go(RoutePaths.compareFor(repoId, tabId));
-  }
-
-  // 05-B "Rebase current onto here" -- the repository-level rebase dialog,
-  // pre-selected on this branch, rather than a second per-branch dialog
-  // that would duplicate its stash-first handling and commit-count preview.
-  void _rebaseOntoBranch(RefInfo branch) {
-    final String repoId = Uri.encodeComponent(widget.identity.workDir);
-    context.push(
-      RoutePaths.rebaseOntoDialogFor(repoId, target: branch.shortName),
-    );
-  }
-
-  List<RefInfo> _collectFolderLeafRefs(List<BranchTreeNode> nodes) {
-    final List<RefInfo> refs = <RefInfo>[];
-    for (final BranchTreeNode node in nodes) {
-      if (node is BranchTreeLeaf) {
-        refs.add(node.ref);
-      } else if (node is BranchTreeFolder) {
-        refs.addAll(_collectFolderLeafRefs(node.children));
-      }
-    }
-    return refs;
-  }
-
-  /// Full paths, not display names -- `_expandedFolders` is keyed the way
-  /// `buildBranchTree` reads it (see [BranchTreeFolder.folderPath]).
-  Set<String> _collectFolderPaths(List<BranchTreeNode> nodes) {
-    final Set<String> names = <String>{};
-    for (final BranchTreeNode node in nodes) {
-      if (node is BranchTreeFolder) {
-        names.add(node.folderPath);
-        names.addAll(_collectFolderPaths(node.children));
-      }
-    }
-    return names;
   }
 
   // "Expand all" opens this folder and every nested subfolder beneath it,
@@ -513,47 +420,9 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
       } else {
         _expandedFolders
           ..add(folder.folderPath)
-          ..addAll(_collectFolderPaths(folder.children));
+          ..addAll(collectFolderPaths(folder.children));
       }
     });
-  }
-
-  // Reuses deleteBranch's existing safe-delete default (force: false,
-  // i.e. plain `git branch -d`) rather than a new "is this merged" capi
-  // capability: git itself refuses any branch here that isn't merged, and
-  // that refusal already surfaces through the existing delete-branch-
-  // recovery flow (checkoutChoices/deleteBranchChoices), the same path a
-  // single unmerged branch delete goes through today. Excludes HEAD and
-  // any branch checked out in a linked worktree, matching
-  // _isGoneAndBulkSelectable's exclusions for the same reason -- deleting
-  // either would fail loudly or move the current session's HEAD.
-  void _deleteMergedInFolder(BranchTreeFolder folder) {
-    final List<String> names = _collectFolderLeafRefs(folder.children)
-        .where(
-          (RefInfo ref) =>
-              ref.kind == RefKind.localBranch &&
-              !ref.isHead &&
-              ref.worktreePath.isEmpty,
-        )
-        .map((RefInfo ref) => ref.shortName)
-        .toList(growable: false);
-    if (names.isEmpty) return;
-    ref
-        .read(repoSessionProvider(widget.identity).notifier)
-        .deleteBranch(names: names);
-  }
-
-  // Only offered when every leaf ref in the folder resolves to the same
-  // remote (see fetchableRefsInFolder's doc comment) -- there's no "default
-  // remote" to fall back to for a folder mixing refs from more than one,
-  // unlike a repository-level fetch.
-  void _fetchFolder(BranchTreeFolder folder) {
-    final (String remote, List<String> branches)? fetchable =
-        fetchableRefsInFolder(_collectFolderLeafRefs(folder.children));
-    if (fetchable == null) return;
-    ref
-        .read(repoSessionProvider(widget.identity).notifier)
-        .fetchRemote(remoteName: fetchable.$1, refs: fetchable.$2);
   }
 
   void _openFolderContextMenu(
@@ -562,94 +431,22 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     BranchTreeFolder folder,
   ) {
     final (String, List<String>)? fetchable = fetchableRefsInFolder(
-      _collectFolderLeafRefs(folder.children),
+      collectFolderLeafRefs(folder.children),
     );
+    final BranchRowActions actions = _rowActions;
     showGbmContextMenu(
       context,
       details.globalPosition,
       branchFolderMenuItems(
         isExpanded: folder.isExpanded,
+        // Expand/collapse stays here: it is this panel's setState.
         onToggleExpand: () => _toggleFolderExpand(folder),
         onCopyPrefix: () =>
             Clipboard.setData(ClipboardData(text: '${folder.folderPath}/')),
-        onDeleteMerged: () => _deleteMergedInFolder(folder),
-        onFetchFolder: fetchable == null ? null : () => _fetchFolder(folder),
-      ),
-    );
-  }
-
-  /// Spec page 13 requires a batch delete to be confirmed item by item
-  /// (「逐項列出名稱與未 push 的 commit 數」), not fired straight off the
-  /// action bar as this used to do.
-  void _deleteSelected() {
-    final List<String> names = _selection.items;
-    if (names.isEmpty) return;
-    final String repoId = Uri.encodeComponent(widget.identity.workDir);
-    context.push(RoutePaths.deleteBranchesDialogFor(repoId, names: names));
-  }
-
-  /// 05-C "Checkout as new local…" / double-tap on a remote-only row --
-  /// [remoteRef.fullName] is an unambiguous git ref
-  /// (`refs/remotes/origin/...`), unlike its already-prefix-stripped
-  /// `shortName`, so it's used as the checkout target; the stripped
-  /// `shortName` becomes the new local branch's name.
-  void _checkoutRemoteAsNewLocal(RefInfo remoteRef) {
-    ref
-        .read(repoSessionProvider(widget.identity).notifier)
-        .checkout(
-          target: remoteRef.fullName,
-          createBranch: true,
-          newBranchName: remoteRef.shortName,
-        );
-  }
-
-  /// 05-C "Prune this ref" -- removes just this one remote-tracking ref
-  /// locally (`git branch --delete --remotes`), independent of whether the
-  /// branch is still live on the actual remote.
-  void _pruneRemoteRef(RefInfo remoteRef) {
-    final (String remoteName, String _) = remoteBranchParts(remoteRef.fullName);
-    ref.read(repoSessionProvider(widget.identity).notifier).pruneRemote(
-      remoteName,
-      <String>[remoteRef.fullName],
-    );
-  }
-
-  /// 05-C "Prune this ref" for a *gone* row -- [goneRef] is the local
-  /// branch itself (`refs/heads/...`), so the ref to prune is its vanished
-  /// upstream (`goneRef.upstream`, e.g. `refs/remotes/origin/feature`), not
-  /// [goneRef.fullName]. This clears the stale remote-tracking ref and
-  /// leaves the local branch untouched -- see BRANCH_STATES's note: "真正
-  /// 移除 remote-tracking ref 要執行 Prune".
-  void _pruneGoneUpstream(RefInfo goneRef) {
-    final (String remoteName, String _) = remoteBranchParts(goneRef.upstream);
-    ref.read(repoSessionProvider(widget.identity).notifier).pruneRemote(
-      remoteName,
-      <String>[goneRef.upstream],
-    );
-  }
-
-  /// 05-C "Fetch this branch" -- a remote-only row's own ref is already an
-  /// unambiguous single remote + branch (unlike 05-J's folder-wide fetch,
-  /// which needs fetchableRefsInFolder()'s "single remote across every
-  /// leaf" check), so this always fetches exactly the one branch.
-  void _fetchRemoteRef(RefInfo remoteRef) {
-    final (String remoteName, String branch) = remoteBranchParts(
-      remoteRef.fullName,
-    );
-    ref
-        .read(repoSessionProvider(widget.identity).notifier)
-        .fetchRemote(remoteName: remoteName, refs: <String>[branch]);
-  }
-
-  /// 05-C "Delete on remote…" -- opens the existing dialog
-  /// (`deleteRemoteBranchDialogFor`), previously unreachable from any UI.
-  void _openDeleteRemoteBranchDialog(RefInfo remoteRef) {
-    final (String remoteName, String _) = remoteBranchParts(remoteRef.fullName);
-    context.push(
-      RoutePaths.deleteRemoteBranchDialogFor(
-        Uri.encodeComponent(widget.identity.workDir),
-        remote: remoteName,
-        branch: remoteRef.shortName,
+        onDeleteMerged: () => actions.deleteMergedInFolder(folder),
+        onFetchFolder: fetchable == null
+            ? null
+            : () => actions.fetchFolder(folder),
       ),
     );
   }
@@ -787,7 +584,7 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                     if (_isGoneAndBulkSelectable(b, gonePendingRefs))
                       b.shortName,
                 ]),
-            onNewBranch: _createBranch,
+            onNewBranch: () => _rowActions.createBranch(context),
           ),
           SidebarFilterField(
             controller: _filterController,
@@ -806,7 +603,8 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
               count: selection.length,
               onClear: () =>
                   _selectionController.state = const ListSelection<String>(),
-              onDelete: _deleteSelected,
+              onDelete: () =>
+                  _rowActions.deleteSelected(context, selection.items),
             ),
           // Branch tree list
           Expanded(
@@ -902,6 +700,7 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     );
     if (node is BranchTreeLeaf) {
       final bool isRemoteOnly = node.ref.kind == RefKind.remoteBranch;
+      final BranchRowActions actions = _rowActions;
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space1),
         child: BranchTreeItem(
@@ -918,7 +717,7 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
               ? node.ref.shortName
               : node.displayLabel,
           onCheckout: isRemoteOnly
-              ? () => _checkoutRemoteAsNewLocal(node.ref)
+              ? () => actions.checkoutRemoteAsNewLocal(node.ref)
               : () => checkoutBranch(ref, widget.identity, node.ref.shortName),
           selected: isRemoteOnly
               ? false
@@ -945,28 +744,34 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
               : () => _selectionController.state = _selection.single(
                   node.ref.shortName,
                 ),
-          onRename: isRemoteOnly ? null : () => _renameBranch(node.ref),
+          onRename: isRemoteOnly
+              ? null
+              : () => actions.renameBranch(context, node.ref),
           onDelete: isRemoteOnly || node.ref.isHead
               ? null
-              : () => _deleteSingle(node.ref),
+              : () => actions.deleteSingle(node.ref),
           onNewBranchFromHere: isRemoteOnly
               ? null
-              : () => _createBranchFrom(node.ref),
-          onMerge: isRemoteOnly || node.ref.isHead ? null : _openMergeDialog,
+              : () => actions.createBranchFrom(context, node.ref),
+          onMerge: isRemoteOnly || node.ref.isHead
+              ? null
+              : () => actions.openMergeDialog(context),
           onPruneRef: isRemoteOnly
-              ? () => _pruneRemoteRef(node.ref)
+              ? () => actions.pruneRemoteRef(node.ref)
               // Effective gone, not `isGone`: a row marked from the dry-run
               // preview is exactly the row whose upstream Prune should
               // remove, and it is the only way that menu item is reachable
               // before a real prune has happened.
               : isEffectivelyGone(node.ref, session.gonePendingRefs) &&
                     node.ref.upstream.isNotEmpty
-              ? () => _pruneGoneUpstream(node.ref)
+              ? () => actions.pruneGoneUpstream(node.ref)
               : null,
           onDeleteOnRemote: isRemoteOnly
-              ? () => _openDeleteRemoteBranchDialog(node.ref)
+              ? () => actions.openDeleteRemoteBranchDialog(context, node.ref)
               : null,
-          onFetchRef: isRemoteOnly ? () => _fetchRemoteRef(node.ref) : null,
+          onFetchRef: isRemoteOnly
+              ? () => actions.fetchRemoteRef(node.ref)
+              : null,
           // 05-B's two previously-missing items. Neither needed a new
           // dialog: Compare reuses the same open-a-tab-with-this-ref-on-the
           // -left mechanism _compareTag/_compareStash already use, and
@@ -974,10 +779,10 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
           // its `target` query parameter.
           onCompareRef: isRemoteOnly
               ? null
-              : () => _compareRef(node.ref.shortName),
+              : () => actions.compareRef(context, node.ref.shortName),
           onRebaseOntoHere: isRemoteOnly || node.ref.isHead
               ? null
-              : () => _rebaseOntoBranch(node.ref),
+              : () => actions.rebaseOnto(context, node.ref),
           // Sourced from isActionEnabled(), not session.conflictActive
           // directly -- single source of truth for checkout availability.
           conflictActive: !isActionEnabled(GbmActionId.branchCheckout, session),

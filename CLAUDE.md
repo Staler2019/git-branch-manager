@@ -602,7 +602,14 @@ you are touching, not by when it was learned.
   which point the same bytes meant *one* scope and the line-granularity test
   was silently testing something else (C18). **When a rule about how input is
   grouped changes, every fixture that encodes a gap, a count or an adjacency
-  has to be re-read against the new rule** — nothing else will notice.
+  has to be re-read against the new rule** — nothing else will notice. An
+  eighth is not a fixture at all but the *assertion*: one weak enough that
+  both candidate implementations satisfy it. «the controls are to the right
+  of the status text» is true under `WrapAlignment.spaceBetween` **and**
+  under `start`, so the mutation between them stayed green; «the controls'
+  right edge equals the Wrap's right edge» is the same claim stated tightly
+  enough to fail (conflict-banner round). A mutation that comes back green
+  is as often a weak assertion as a missing one.
 - **Mutation-check every new test**, and check the red is *narrow* — a broad
   red means the test is pinning something else. Copy the file to the
   scratchpad first (`cp file "$SCRATCH/x.bak"` → mutate → `cp` back);
@@ -623,7 +630,17 @@ you are touching, not by when it was learned.
   column-picker popover shipped off-screen for exactly this reason; later, a
   deliberate overflow in the Changed files row was caught **only** by the one
   test sized to `GbmLayout.splitterMainFiles.defaultExtent` — three others on
-  the default canvas passed with the broken layout).
+  the default canvas passed with the broken layout). Compounding it:
+  **`flutter_test`'s default font draws every glyph `fontSize` wide**, so a
+  42-character status line measures 548px in a test where the real
+  proportional font is far narrower. Any width a widget test measures or
+  asserts is in test-font terms; say so next to the number, and pick which
+  direction the distortion is safe in (a banner asserted to wrap at 440px
+  wraps at a *narrower* real window, which is the harmless direction).
+  A recorded pixel figure taken this way is not portable between fixtures
+  either — an audit's «overflows by 6.3px» measured 27px on a different
+  session shape, and the gap changed the fix from «move one child to its own
+  run» to «both levels have to wrap».
 - **`RenderFlex` reports only main-axis overflow**, so a `takeException()`
   test cannot see a cross-axis defect. Check which axis the defect is on
   before writing a no-exception test.

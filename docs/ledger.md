@@ -3328,3 +3328,139 @@ repo 記錄過的 orphan wiring 第八次，也是第一次它假扮成一格 co
 這件事會直接落在同一格上；寫成 helper 的存在之後，拿掉 checkbox 反而讓那格看起來
 沒有變化。`getCheckState` / `CheckState` 與 `WorkingCopySelectionState` 那六個
 只服務 checkbox 的方法排在 C18 刪除。
+
+#### C18：重用與快取稽核
+
+計畫列了五個快取候選。**兩個的前提沒有撐過原始碼**，一個早在 C11 就做完了，
+剩下兩個實作了。逐項攤開如下，順序照計畫。
+
+**(a) 未追蹤檔案的行數 —— 實作了。** `WorkingCopyStatusReader` 那三個 git 子行程
+維持不快取，理由沒變（誠實的 key 得包含每個檔案的 mtime 與 size，那個 stat 掃描
+比它省下的還貴）；但未追蹤檔案這一半可以，因為 1 MiB 上限本來就得先問 size，那個
+stat 已經付過了。`UntrackedLineCountCache`，key 是 path + size + mtime。
+
+三件事寫在它的類別註解裡，一件都不省：key 是什麼（三個欄位各擋掉哪一種漏判）、
+什麼會讓它失效（**沒有外部事件**——編輯器存檔不會發出任何 `GBM_EVENT_*`，key 本身
+就是失效機制，另外每一輪用 `retainOnly` 掃掉已經不是 untracked 的項目）、漏掉失效
+會看到什麼症狀（unstaged 欄位顯示編輯前的行數，也就是一個**錯的**數字，而不是缺
+一個數字——正是這個檔案裡 byte cap 與 binary 判定都拒絕的那種失敗）。
+
+另外套了 git 自己的 **racily clean** 規則：mtime 不比本輪開始時間嚴格更舊的檔案
+不進快取。同一個時間戳刻度內，「改過」與「沒改過」無法分辨，記下去會讓錯的數字
+黏住到下次編輯為止，而不是下次 refresh 就清掉。`passStartedAt` 在第一個 stat 之前
+就讀一次，不是每檔讀一次——每檔讀會讓「本輪讀取期間被改寫」的檔案仍然看起來比自己
+的檢查點更舊。
+
+**(b) scope 切分 —— 實作了，但 key 不是計畫寫的那個。** 計畫寫
+`(path, staged, diff identity)`；實際用的是 **`DiffFile` 的物件識別加上 `maxGap`**。
+識別在這裡是誠實的 key，正因為這些是每次 `workingCopyDiffReady` 重新解析出來的
+不可變 DTO：沒有人原地改 `DiffFile`，所以同一個實例不可能有不同內容。而
+`scoped_diff_view.dart` 的 `didUpdateWidget` 本來就用
+`!identical(oldWidget.file, widget.file)` 當「換了一份 diff」的訊號 —— 同一個訊號
+用在同一個檔案的另一個決定上，不是新發明一個。
+
+值得的理由是量出來的，不是猜的（debug JIT，`Stopwatch`）：一個 40 hunks × 200 行
+的檔案切一次 **197µs**，典型的 10 hunks × 80 行 **21µs**。拖曳文字選取會讓
+`ScopedDiffView` 每一幀重 build，所以那 197µs 是每幀都在燒的純浪費；換成一次
+`identical` 比較。`temporary` / `touchedChangedLines` **沒有**快取，它們在同一份
+diff 內就會變。
+
+**(c) `workingCopyDiffs` 的成長 —— C11 就做完了，這一輪只是確認。**
+`repo_session_repository.dart` 的 `_readWorkingCopyStatus()` 把它整個重設成
+`const {}`，而且已經帶著三段式註解。順帶記一筆計畫的重載時機表裡那列
+「單一檔案 stage/unstage 只清該檔的兩側」**是多餘的**：這張 map 的上限就是一個
+選定檔案的兩側，所以「全清」和「只清那個檔」是同一個動作。寫下來，免得日後有人
+去補一個更細的失效機制。
+
+**(d) `sameLogicalFile` 的兩兩配對 —— 前提不成立。** 計畫說它做 O(n²) 配對、要
+改成建一次索引。實際上它**在 `lib/` 底下一個呼叫端都沒有**：board 用
+`logicalFileKey` 當 key，從不直接比較兩個 entry，也就是說以 key 為主的做法早就
+取代了兩兩比較。它沒有被刪，而是搬進 `working_copy_file_identity_test.dart` 當
+**oracle** —— 「key 與關係必須一致」那支測試需要一個獨立寫成的「同一個檔案」敘述，
+才不會讓 key 的 bug 躲進檢查它的東西裡。留在 `lib/` 才是問題，因為下一次孤兒稽核
+會再把它標一次。
+
+**(e) `FileTree.fromPaths` —— 前提不成立，而且底下藏著一個真的 bug。**
+計畫說用 path list identity memoize。那個 key **永遠不可能命中**：兩個呼叫端都是
+每次 build 現做 `items.map(pathOf).toList()`。但追下去發現的東西比快取重要得多。
+
+`working_copy_board.dart` 的 `_keysInRenderOrder` 無條件建一棵樹取葉子順序，理由
+寫在它自己的註解裡：「list 與 tree 兩種模式都經過 `FileTree.fromPaths`」。**那句話
+是錯的。** `FileListModeSwitcher.build` 在 list 模式直接把 `items` 交給
+`ListView.builder`，根本沒有樹。跑出來確認（pump 兩種模式、按 y 座標排序畫面上的
+文字）：
+
+| 模式 | entries 為 `lib/a.dart, zz.txt, lib/b.dart` 時畫出來的順序 |
+|---|---|
+| list | `lib/a.dart`、`zz.txt`、`lib/b.dart` |
+| tree | 資料夾 `lib`、`zz.txt`（葉子預設收合） |
+
+所以在**預設的 list 模式**下，使用者從 `lib/a.dart` 拖到 `lib/b.dart`，畫面上明明
+夾在中間的 `zz.txt` 不會被選中 —— 「範圍要用畫成的順序量」這條規則被自己的實作
+違反了。而原本那支測試用預設（list）模式 pump 卻斷言 tree 順序，並在註解裡重述那句
+錯的前提，所以它**把 bug 釘住當成正確行為**。現在拆成兩支，一種模式一支，兩個方向
+的變異各自只讓對應的那支變紅。
+
+修法讓快取候選 (e) 直接消失：list 模式現在完全不建樹，比快取它更省。tree 模式量
+到每次點擊 100 個檔案約 **41µs**（500 個檔案 174µs），不值得為它把
+`FileListModeSwitcher` 從 `StatelessWidget` 改成有 State 的版本——`listEquals` 本身
+也是 O(n) 字串比較。**這是一個量出來的取捨，不是「本輪不做」**，數字留在這裡以便
+下一輪重新裁定。
+
+#### 重載時機表（照計畫逐列核對）
+
+| 時機 | 誰負責 | 怎麼確認的 |
+|---|---|---|
+| `workingCopyStatusUpdated` | `_readWorkingCopyStatus()` 把 `workingCopyDiffs` 重設成 `const {}`；scope 快取隨之失效（新的 reply 必然是新物件） | C11 既有註解 + `DiffScopeCache` 測試 |
+| 單一檔案 stage/unstage | 同上，且**不需要更細的機制**——map 的上限就是一個檔案的兩側 | 讀 `_readWorkingCopyStatus()` |
+| `workingCopyDiffReady` | 覆寫該 key；`DiffScopeCache` 因為物件換人而重切 | `'splits again when a new reply arrives for the same path'` |
+| 切換 repo | 結構性：`repoSessionProvider` 是 `RepoIdentity` family；C++ 側 `UntrackedLineCountCache` 掛在 per-repo 的 `Session` 上 | 讀型別，非測試 |
+| session 關閉 | 結構性：provider 自動 dispose；`~Session()` 帶走 reader | 讀型別，非測試 |
+| 未追蹤檔案 mtime/size 改變 | `UntrackedLineCountCache` 的 key 本身 | 三支 `Rereads...` 測試 |
+
+#### C18 的重用稽核：兩筆，都是同一個陷阱的重演
+
+1. **`FileTreeFolderRow` 手刻了 `InkWell`**，所以繼承的是 `ThemeData.hoverColor`
+   （約 4% 黑/白，真實螢幕上看不見），而它同一份清單裡上下相鄰的檔案列是 `GbmRow`、
+   hover 正常。一份清單裡兩種行為。改成 `GbmRow`（水平 padding 設零，因為
+   `FileTreeList` 已經用 `EdgeInsets.only(left: level * 16)` 做了縮排）。
+2. **`working_copy_view.dart` 的私有 `_MiniButton`** 手刻了
+   `GbmButton(secondary, sm)` 已經有的 borderDefault 外框、textXs、space2 內距，
+   而且同樣沒有 hoverColor —— 全 app 唯三沒有 hover 的按鈕。
+
+兩筆都用 identity 斷言 token（`ink.hoverColor == colors.surfaceHover`），不是
+「沒有丟例外」：錯的 hover 顏色不會丟任何例外，這正是它們躲過所有測試的方式。
+
+`GbmSegmentedControl` 查過了，沒有重複既有元件，而且它自己有明確傳
+`hoverColor: colors.surfaceHover`。
+
+#### 量出來、沒有修掉的一件事
+
+衝突橫幅在 **440px 寬**以下會 `RenderFlex` 溢出。三顆按鈕是 non-flex，旁邊的
+`Expanded` 救不了它們造成的溢出（本 repo 踩過六次的那條規則）。這一輪**沒有修**，
+但也不是沒動：換成 `GbmButton` 之後 440px 的溢出從 **17px 降到 6.3px**，也就是說
+這一輪縮小了它而非造成它。要讓它消失需要設計上的答案（改圖示？收進溢出選單？），
+不是排版微調。已加一支 500px 的守門測試把量到的餘裕釘住，斷言的是文字寬度大於零
+而不是「沒有丟例外」——`Expanded` 會一邊滿足「沒有溢出」一邊把子節點壓成零寬。
+
+#### 裝置層：交接時留的第一個未完項目
+
+C1 的四個 capi 欄位補了 `integration_test/working_copy_line_counts_test.dart`。
+fixture 刻意做成半 staged 的單一檔案，四個數字互不相同（unstaged +7/-3、
+staged +2/-1），因為這四個欄位存在的理由就是「一個檔案同時有四個數字」，而讀錯
+欄位（拿另一欄的那一對）是真實的風險——數字若相同，讀錯也會過。
+
+**驗過會紅**：把 `JsonCodec.cpp` 的 `stagedAdded` 改成送 `unstagedAdded`、重建
+dylib 後，「+7」變成兩個、「+2」一個都沒有。還原後綠。
+
+順帶踩到一次 CLAUDE.md 記過的陷阱：`app_flutter/build/native/libgbm_capi.dylib`
+當時是 **8/23 的舊複本**，早於 C1。跑裝置測試前若沒重跑 `build_capi.sh`，測到的
+是舊 dylib，而新欄位會表現成「badge 沒出現」，不是任何一種錯誤。
+
+#### 一支假的測試，抓法是變異
+
+「同尺寸編輯必須重讀」那支 C++ 測試第一版寫了 8 bytes 再寫 7 bytes —— 不是同尺寸。
+把 key 的 mtime 拿掉（只剩 size）的變異照樣綠，因為 size 真的變了。改成 8 bytes
+兩行對 8 bytes 三行之後變異才紅。這件事寫進那支測試的註解裡，因為它是
+「**夾具無法與程式碼意見不合就什麼都沒證明**」的第五種形狀：夾具的**內容與它自己
+的名字不符**。

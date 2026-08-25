@@ -127,18 +127,30 @@ class _WorkingCopyBoardState extends State<WorkingCopyBoard> {
     ..._keysInRenderOrder(widget.stagedEntries),
   }.toList(growable: false);
 
-  /// One column's keys **in the order its rows are painted**, which is not
-  /// the order [entries] happens to hold them: both list and tree mode
-  /// render through [FileTree.fromPaths], which groups a folder's files
-  /// together even when the status listed them apart. Shift-ranging over the
-  /// raw entry order would therefore span rows the user never dragged
-  /// across -- the same defect the sidebar's branch list had.
+  /// One column's keys **in the order its rows are painted**, which depends
+  /// on the display mode -- the two modes paint different orders, and a range
+  /// that spans the wrong one sweeps in rows the user never dragged across.
   ///
-  /// Known limit: in tree mode a range can still include leaves inside a
+  /// List mode paints [entries] as they come: [FileListModeSwitcher] hands
+  /// them straight to a `ListView.builder` and never builds a tree. Tree mode
+  /// paints [FileTree.fromPaths]'s leaf order, which groups a folder's files
+  /// together even when the status listed them apart.
+  ///
+  /// This used to build the tree unconditionally, on a comment asserting that
+  /// both modes rendered through it. They do not, and in list mode the result
+  /// was a range measured in tree order over rows painted in entry order:
+  /// dragging from `lib/a.dart` to `lib/b.dart` skipped the `zz.txt` sitting
+  /// visibly between them. Not building the tree in list mode is also the
+  /// cheaper half -- it is the default mode, and this runs on every click.
+  ///
+  /// Known limit, tree mode only: a range can still include leaves inside a
   /// collapsed folder, which are not on screen. Ranging over rows nobody can
   /// see is a smaller wrong than ranging over the wrong rows, and fixing it
   /// needs the expand state that [FileTreeList] keeps to itself.
   List<String> _keysInRenderOrder(List<WorkingCopyEntry> entries) {
+    if (widget.mode == FileListViewMode.list) {
+      return entries.map(logicalFileKey).toList(growable: false);
+    }
     final Map<String, String> keyByPath = <String, String>{
       for (final WorkingCopyEntry entry in entries)
         entry.path: logicalFileKey(entry),

@@ -417,16 +417,20 @@ void main() {
       );
     });
 
-    testWidgets('Shift+click ranges over the order the rows are painted in, '
-        'not the order the status listed them', (tester) async {
-      // FileTree.fromPaths groups lib/ together, so the painted order is
-      // lib/a.dart, lib/b.dart, zz.txt -- while `entries` interleaves them.
-      final List<WorkingCopyEntry> interleaved = <WorkingCopyEntry>[
-        _entry(path: 'lib/a.dart', hasUnstagedChange: true),
-        _entry(path: 'zz.txt', hasUnstagedChange: true),
-        _entry(path: 'lib/b.dart', hasUnstagedChange: true),
-      ];
+    // The two tests below are one claim in two modes: a range spans the rows
+    // as *painted*, and the two modes paint different orders. They replace a
+    // single test that pumped the default (list) mode while asserting tree
+    // order, on the strength of a comment claiming both modes rendered
+    // through FileTree.fromPaths. They do not: list mode hands `items`
+    // straight to a ListView (see FileListModeSwitcher.build).
+    final List<WorkingCopyEntry> interleaved = <WorkingCopyEntry>[
+      _entry(path: 'lib/a.dart', hasUnstagedChange: true),
+      _entry(path: 'zz.txt', hasUnstagedChange: true),
+      _entry(path: 'lib/b.dart', hasUnstagedChange: true),
+    ];
 
+    testWidgets('in list mode a range spans the entry order, which is what '
+        'list mode paints', (tester) async {
       await pumpGbmWidget(
         tester,
         child: SizedBox(
@@ -450,10 +454,49 @@ void main() {
 
       expect(
         _selectedPaths(tester),
+        <String>{'lib/a.dart', 'zz.txt', 'lib/b.dart'},
+        reason:
+            'zz.txt is painted between the two the user dragged across, so '
+            'it is inside the range they drew; ranging over tree order here '
+            'would skip a row that is visibly between them',
+      );
+    });
+
+    testWidgets('in tree mode a range spans the tree order, which is what '
+        'tree mode paints', (tester) async {
+      await pumpGbmWidget(
+        tester,
+        child: SizedBox(
+          width: 800,
+          height: 600,
+          child: WorkingCopyBoard(
+            mode: FileListViewMode.tree,
+            unstagedEntries: interleaved,
+            stagedEntries: const <WorkingCopyEntry>[],
+            onStageRequested: (_) {},
+            onUnstageRequested: (_) {},
+          ),
+        ),
+      );
+
+      // lib/ collapses to one folder row, so open it before ranging -- the
+      // leaves have to be on screen for a range across them to mean anything.
+      await tester.tap(find.byType(FileTreeFolderRow));
+      await tester.pumpAndSettle();
+
+      await _tapWithModifier(tester, find.text('lib/a.dart'), null);
+      await _tapWithModifier(
+        tester,
+        find.text('lib/b.dart'),
+        LogicalKeyboardKey.shiftLeft,
+      );
+
+      expect(
+        _selectedPaths(tester),
         <String>{'lib/a.dart', 'lib/b.dart'},
         reason:
-            'zz.txt sits between them in `entries` but is painted after '
-            'both; ranging over entry order would sweep it in',
+            'the tree groups lib/ together, so zz.txt is painted after both '
+            'and sits outside the range the user drew',
       );
     });
 

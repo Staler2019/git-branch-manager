@@ -54,6 +54,9 @@ class WorkingCopyDraft {
     this.summary = '',
     this.description = '',
     this.diffScrollOffset = 0.0,
+    this.amending = false,
+    this.preAmendSummary = '',
+    this.preAmendDescription = '',
   });
 
   /// First line of the commit message (typically treated separately by Git).
@@ -66,16 +69,36 @@ class WorkingCopyDraft {
   /// switching between history and working-copy tabs.
   final double diffScrollOffset;
 
+  /// Whether the message box is amending the last commit rather than
+  /// writing a new one.
+  ///
+  /// A mode, not a second button: the box shows HEAD's message so it can be
+  /// edited, and the only way to see what you are about to rewrite is for
+  /// the box to hold it. Never persisted -- coming back tomorrow to a box
+  /// silently poised to rewrite a commit you no longer remember is the one
+  /// thing this mode must not do.
+  final bool amending;
+
+  /// What the box held before [amending] began, restored by cancelling.
+  final String preAmendSummary;
+  final String preAmendDescription;
+
   /// Creates a copy with any fields optionally replaced.
   WorkingCopyDraft copyWith({
     String? summary,
     String? description,
     double? diffScrollOffset,
+    bool? amending,
+    String? preAmendSummary,
+    String? preAmendDescription,
   }) {
     return WorkingCopyDraft(
       summary: summary ?? this.summary,
       description: description ?? this.description,
       diffScrollOffset: diffScrollOffset ?? this.diffScrollOffset,
+      amending: amending ?? this.amending,
+      preAmendSummary: preAmendSummary ?? this.preAmendSummary,
+      preAmendDescription: preAmendDescription ?? this.preAmendDescription,
     );
   }
 }
@@ -109,6 +132,45 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
   /// Memory only -- see [WorkingCopyDraftRepository]'s doc comment.
   void updateDiffScrollOffset(double value) {
     state = state.copyWith(diffScrollOffset: value);
+  }
+
+  /// Enters amend mode, keeping what the box held so cancelling can put it
+  /// back.
+  ///
+  /// Does **not** fill in HEAD's message: that arrives asynchronously and is
+  /// applied by [applyAmendedMessage]. Assuming it is already in
+  /// `commitMetaCache` would give an empty box whenever the user has not
+  /// scrolled History far enough to have loaded it.
+  void beginAmend() {
+    if (state.amending) return;
+    state = state.copyWith(
+      amending: true,
+      preAmendSummary: state.summary,
+      preAmendDescription: state.description,
+    );
+  }
+
+  /// Fills the box in from HEAD's commit message.
+  void applyAmendedMessage({
+    required String summary,
+    required String description,
+  }) {
+    if (!state.amending) return;
+    state = state.copyWith(summary: summary, description: description);
+    _persist();
+  }
+
+  /// Leaves amend mode, putting back whatever the box held before it.
+  void cancelAmend() {
+    if (!state.amending) return;
+    state = state.copyWith(
+      amending: false,
+      summary: state.preAmendSummary,
+      description: state.preAmendDescription,
+      preAmendSummary: '',
+      preAmendDescription: '',
+    );
+    _persist();
   }
 
   /// Resets all fields to their defaults, on disk as well as in memory.

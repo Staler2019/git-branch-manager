@@ -309,4 +309,133 @@ void main() {
       expect(draft.summary, 'keystroke 19');
     });
   });
+
+  group('amend is a mode', () {
+    test('entering snapshots what the box held', () {
+      final ProviderContainer c = container();
+      final WorkingCopyDraftController notifier = c.read(
+        workingCopyDraftProvider(_repo1).notifier,
+      );
+      notifier.updateSummary('a new thought');
+      notifier.updateDescription('with a body');
+
+      notifier.beginAmend();
+
+      final WorkingCopyDraft draft = c.read(workingCopyDraftProvider(_repo1));
+      expect(draft.amending, isTrue);
+      expect(draft.preAmendSummary, 'a new thought');
+      expect(draft.preAmendDescription, 'with a body');
+    });
+
+    test('entering does not itself fill in a message', () {
+      // HEAD's message arrives asynchronously. Filling anything in here
+      // would mean guessing.
+      final ProviderContainer c = container();
+      final WorkingCopyDraftController notifier = c.read(
+        workingCopyDraftProvider(_repo1).notifier,
+      );
+      notifier.updateSummary('mine');
+
+      notifier.beginAmend();
+
+      expect(c.read(workingCopyDraftProvider(_repo1)).summary, 'mine');
+    });
+
+    test('the message arriving replaces the box contents', () {
+      final ProviderContainer c = container();
+      final WorkingCopyDraftController notifier = c.read(
+        workingCopyDraftProvider(_repo1).notifier,
+      );
+      notifier.updateSummary('mine');
+      notifier.beginAmend();
+
+      notifier.applyAmendedMessage(
+        summary: 'HEAD subject',
+        description: 'body',
+      );
+
+      final WorkingCopyDraft draft = c.read(workingCopyDraftProvider(_repo1));
+      expect(draft.summary, 'HEAD subject');
+      expect(draft.description, 'body');
+      expect(
+        draft.preAmendSummary,
+        'mine',
+        reason:
+            'the snapshot is what cancelling restores, so filling the box '
+            'must not touch it',
+      );
+    });
+
+    test('a message arriving outside the mode is ignored', () {
+      // The reply can land after the user has already cancelled; applying it
+      // then would overwrite the message they went back to.
+      final ProviderContainer c = container();
+      final WorkingCopyDraftController notifier = c.read(
+        workingCopyDraftProvider(_repo1).notifier,
+      );
+      notifier.updateSummary('mine');
+
+      notifier.applyAmendedMessage(summary: 'HEAD subject', description: '');
+
+      expect(c.read(workingCopyDraftProvider(_repo1)).summary, 'mine');
+    });
+
+    test('cancelling puts back exactly what was there', () {
+      final ProviderContainer c = container();
+      final WorkingCopyDraftController notifier = c.read(
+        workingCopyDraftProvider(_repo1).notifier,
+      );
+      notifier.updateSummary('mine');
+      notifier.updateDescription('my body');
+      notifier.beginAmend();
+      notifier.applyAmendedMessage(summary: 'HEAD subject', description: 'hb');
+
+      notifier.cancelAmend();
+
+      final WorkingCopyDraft draft = c.read(workingCopyDraftProvider(_repo1));
+      expect(draft.amending, isFalse);
+      expect(draft.summary, 'mine');
+      expect(draft.description, 'my body');
+      expect(draft.preAmendSummary, isEmpty);
+    });
+
+    test(
+      'entering twice does not overwrite the snapshot with HEADs message',
+      () {
+        // A second beginAmend() after the box has been filled in would snapshot
+        // the commit's own message as "what the user was writing".
+        final ProviderContainer c = container();
+        final WorkingCopyDraftController notifier = c.read(
+          workingCopyDraftProvider(_repo1).notifier,
+        );
+        notifier.updateSummary('mine');
+        notifier.beginAmend();
+        notifier.applyAmendedMessage(summary: 'HEAD subject', description: '');
+
+        notifier.beginAmend();
+        notifier.cancelAmend();
+
+        expect(c.read(workingCopyDraftProvider(_repo1)).summary, 'mine');
+      },
+    );
+
+    test('the mode is not persisted across a restart', () async {
+      // Coming back to a box silently poised to rewrite a commit nobody
+      // remembers is the one thing this must not do.
+      final ProviderContainer c = container();
+      final WorkingCopyDraftController notifier = c.read(
+        workingCopyDraftProvider(_repo1).notifier,
+      );
+      notifier.beginAmend();
+      notifier.applyAmendedMessage(summary: 'HEAD subject', description: '');
+      await Future<void>.delayed(Duration.zero);
+      c.dispose();
+
+      final WorkingCopyDraft draft = container().read(
+        workingCopyDraftProvider(_repo1),
+      );
+      expect(draft.summary, 'HEAD subject');
+      expect(draft.amending, isFalse);
+    });
+  });
 }

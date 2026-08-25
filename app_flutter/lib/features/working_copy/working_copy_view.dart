@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../actions/gbm_action_availability.dart';
 import '../../actions/gbm_action_id.dart';
+import '../../data/models/commit_meta.dart';
+import '../../data/models/git_error.dart';
 import '../../data/models/parsed_diff.dart';
 import '../../data/models/working_copy_status.dart';
 import '../../data/repositories/file_list_view_mode_repository.dart';
@@ -47,6 +49,10 @@ import 'widgets/working_copy_file_menu_items.dart';
 /// - Display mode (List/Tree): [fileListViewModeProvider] (global, all views)
 /// - Tree-mode expanded folders: owned by [FileTreeList] itself, like every
 ///   other tree-mode file list
+/// Wide enough for `Cancel amend` at the button font, and fixed so the
+/// message box's width does not change when the mode does.
+const double _kCommitButtonColumnWidth = 132;
+
 class WorkingCopyView extends ConsumerStatefulWidget {
   const WorkingCopyView({super.key, required this.identity});
 
@@ -58,6 +64,22 @@ class WorkingCopyView extends ConsumerStatefulWidget {
 
 class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
   String? _selectedPath;
+
+  /// HEAD's oid at the moment a commit was submitted, or null when none is
+  /// outstanding.
+  ///
+  /// The draft is cleared when HEAD moves off it, **not** when the button is
+  /// pressed. Clearing on press is what the box used to do, and a commit
+  /// that failed -- nothing staged, a rejecting hook, a bad identity -- took
+  /// the message with it; now that the message is also on disk, that would
+  /// have destroyed the saved copy too.
+  String? _pendingCommitFrom;
+
+  /// The oid whose message has already been pulled into the box for
+  /// amending, so a rebuild does not overwrite the user's edits with HEAD's
+  /// original text every time the cache is touched.
+  String? _amendPrefilledFor;
+
   late TextEditingController _summaryController;
   late TextEditingController _descriptionController;
   late ScrollController _diffScrollController;
@@ -136,6 +158,9 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     ) {
       _requestBothSides(next);
     });
+
+    _watchCommitOutcome();
+    _watchAmendPrefill(session);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -540,9 +565,19 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
         _summaryController.text.trim().isNotEmpty &&
         isActionEnabled(GbmActionId.repositoryCommit, session);
 
+    final WorkingCopyDraft draft = ref.watch(
+      workingCopyDraftProvider(widget.identity),
+    );
+
     return Padding(
       padding: const EdgeInsets.all(GbmSpacing.space3),
-      child: Column(
+      // Buttons in a fixed-width column at the right of the fields, which is
+      // where spec P03's mockup draws them. The width is explicit and the
+      // fields are Expanded rather than the other way round: RenderFlex lays
+      // its non-flex children out first and divides only what is left, so a
+      // button column that sized itself to its labels would decide how much
+      // of the row the message box gets.
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           Expanded(
@@ -561,57 +596,139 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
               },
             ),
           ),
-          const SizedBox(height: GbmSpacing.space2),
-          Row(
-            children: <Widget>[
-              GbmButton(
-                label: 'Commit',
-                kind: GbmButtonKind.primary,
-                onPressed: canCommit ? () => _onCommit() : null,
-              ),
-              const SizedBox(width: GbmSpacing.space2),
-              GbmButton(
-                label: 'Amend',
-                kind: GbmButtonKind.secondary,
-                onPressed: canCommit ? () => _onAmend() : null,
-              ),
-            ],
+          const SizedBox(width: GbmSpacing.space2),
+          SizedBox(
+            width: _kCommitButtonColumnWidth,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                if (draft.amending) ...<Widget>[
+                  GbmButton(
+                    label: 'Amend',
+                    kind: GbmButtonKind.primary,
+                    onPressed: canCommit ? () => _onSubmit(amend: true) : null,
+                  ),
+                  const SizedBox(height: GbmSpacing.space2),
+                  GbmButton(
+                    label: 'Cancel amend',
+                    kind: GbmButtonKind.ghost,
+                    onPressed: _onCancelAmend,
+                  ),
+                ] else ...<Widget>[
+                  GbmButton(
+                    label: 'Commit',
+                    kind: GbmButtonKind.primary,
+                    onPressed: canCommit ? () => _onSubmit(amend: false) : null,
+                  ),
+                  const SizedBox(height: GbmSpacing.space2),
+                  // Enters the mode; it does not amend. The box has to show
+                  // what is about to be rewritten before there is anything
+                  // to press Amend on.
+                  GbmButton(
+                    label: 'Amend…',
+                    kind: GbmButtonKind.secondary,
+                    onPressed:
+                        isActionEnabled(
+                          GbmActionId.repositoryAmendLastCommit,
+                          session,
+                        )
+                        ? () => wc.beginAmendMode(ref, widget.identity)
+                        : null,
+                  ),
+                ],
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 
-  /// Commits changes with the current message.
-  void _onCommit() {
-    final message = _summaryController.text.trim();
-    final description = _descriptionController.text.trim();
-    final fullMessage = description.isEmpty
-        ? message
-        : '$message\n\n$description';
-
-    wc.commitChanges(ref, widget.identity, fullMessage);
-
-    // Reset draft immediately (success confirmation arrives async)
-    _summaryController.clear();
-    _descriptionController.clear();
-    ref.read(workingCopyDraftProvider(widget.identity).notifier).reset();
+  /// Clears the box once HEAD has actually moved off where it was when the
+  /// commit was submitted.
+  ///
+  /// A commit -- amend included -- always produces a new oid, so HEAD moving
+  /// is the success signal, and no capi addition is needed to get one.
+  void _watchCommitOutcome() {
+    ref.listen(
+      repoSessionProvider(widget.identity).select((s) => s.refs.head.target),
+      (String? previous, String next) {
+        // No `next != _pendingCommitFrom` check: `select` only notifies when
+        // the selected value actually changes, so arriving here already
+        // means HEAD moved. Status refreshes republish the session
+        // constantly during a commit and must not be mistaken for one.
+        if (_pendingCommitFrom == null) return;
+        _pendingCommitFrom = null;
+        _summaryController.clear();
+        _descriptionController.clear();
+        ref.read(workingCopyDraftProvider(widget.identity).notifier).reset();
+      },
+    );
+    // Any error cancels the wait. **Not attributed to the commit** -- a
+    // fetch failing mid-commit cancels it too, and this repo's own rule is
+    // that "the next event is mine" is never a safe attribution. The
+    // reduction is deliberate and fail-safe in the direction that matters:
+    // the cost of a false cancel is a message that outlives a commit that
+    // did succeed, while the cost of not cancelling is clearing a message
+    // the user wrote *after* a failure, when some later checkout moves HEAD.
+    ref.listen<GitError?>(
+      repoSessionProvider(widget.identity).select((s) => s.lastError),
+      (GitError? previous, GitError? next) {
+        if (next != null) _pendingCommitFrom = null;
+      },
+    );
   }
 
-  /// Amends the last commit with the current message.
-  void _onAmend() {
-    final message = _summaryController.text.trim();
-    final description = _descriptionController.text.trim();
-    final fullMessage = description.isEmpty
-        ? message
-        : '$message\n\n$description';
+  /// Pulls HEAD's message into the box once it arrives, exactly once per oid.
+  void _watchAmendPrefill(RepoSessionState session) {
+    final WorkingCopyDraft draft = ref.watch(
+      workingCopyDraftProvider(widget.identity),
+    );
+    if (!draft.amending) {
+      _amendPrefilledFor = null;
+      return;
+    }
+    final String head = session.refs.head.target;
+    if (head.isEmpty || _amendPrefilledFor == head) return;
+    final CommitMeta? meta = session.commitMetaCache[head];
+    if (meta == null) return;
 
-    wc.commitChanges(ref, widget.identity, fullMessage, amend: true);
+    _amendPrefilledFor = head;
+    // Post-frame: this runs from build(), and both the controllers and the
+    // draft provider are written here.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _summaryController.text = meta.subject;
+      _descriptionController.text = meta.body;
+      ref
+          .read(workingCopyDraftProvider(widget.identity).notifier)
+          .applyAmendedMessage(summary: meta.subject, description: meta.body);
+    });
+  }
 
-    // Reset draft immediately (success confirmation arrives async)
-    _summaryController.clear();
-    _descriptionController.clear();
-    ref.read(workingCopyDraftProvider(widget.identity).notifier).reset();
+  void _onCancelAmend() {
+    final WorkingCopyDraftController notifier = ref.read(
+      workingCopyDraftProvider(widget.identity).notifier,
+    );
+    notifier.cancelAmend();
+    final WorkingCopyDraft restored = ref.read(
+      workingCopyDraftProvider(widget.identity),
+    );
+    _summaryController.text = restored.summary;
+    _descriptionController.text = restored.description;
+    _amendPrefilledFor = null;
+  }
+
+  /// Submits, through the one shared entry point the menu and the shortcut
+  /// also use.
+  void _onSubmit({required bool amend}) {
+    final String from = ref
+        .read(repoSessionProvider(widget.identity))
+        .refs
+        .head
+        .target;
+    if (!wc.submitCommit(ref, widget.identity, amend: amend)) return;
+    _pendingCommitFrom = from;
   }
 
   /// Context menu 05-F for a working-copy file.

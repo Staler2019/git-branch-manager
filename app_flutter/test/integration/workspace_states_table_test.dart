@@ -246,8 +246,10 @@ void main() {
         );
         expect(commitButton.onPressed, isNull);
 
+        // `Amend…` with the ellipsis: it enters amend mode rather than
+        // amending, and the gate is the same one either way.
         final GbmButton amendButton = tester.widget<GbmButton>(
-          find.widgetWithText(GbmButton, 'Amend'),
+          find.widgetWithText(GbmButton, 'Amend\u2026'),
         );
         expect(amendButton.onPressed, isNull);
       },

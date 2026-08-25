@@ -176,7 +176,7 @@ void main() {
       // Check for commit box elements
       expect(find.text('Commit summary'), findsOneWidget);
       expect(find.text('Commit'), findsOneWidget);
-      expect(find.text('Amend'), findsOneWidget);
+      expect(find.text('Amend\u2026'), findsOneWidget);
     });
 
     testWidgets('shows empty state when no changes', (tester) async {

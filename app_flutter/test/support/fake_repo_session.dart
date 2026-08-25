@@ -119,6 +119,20 @@ class FakeRepoSessionController extends RepoSessionController {
   /// `_session == nullptr` guard would swallow both calls silently -- a
   /// test could not then tell "asked for both sides" from "asked for
   /// nothing".
+  /// Recorded, not left to the null-session guard: an unoverridden method
+  /// no-ops silently, so a test could not tell a dead Commit button from a
+  /// dispatched one.
+  @override
+  void commit(String message, {bool amend = false, bool signOff = false}) {
+    commandLog.add(
+      FakeCommand('commit', <String, Object?>{
+        'message': message,
+        'amend': amend,
+        'signOff': signOff,
+      }),
+    );
+  }
+
   @override
   void requestDiff(String path, {bool staged = false}) {
     commandLog.add(

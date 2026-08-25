@@ -7,6 +7,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../actions/gbm_action_availability.dart';
 import '../../actions/gbm_action_id.dart';
+import '../../data/repositories/working_copy_draft_repository.dart';
+import '../../data/repositories/working_copy_repository.dart' as wc;
 import '../diff/temporary_scope_provider.dart';
 import '../../actions/gbm_menu_model.dart';
 import '../../actions/gbm_selection_gesture.dart';
@@ -810,20 +812,29 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
           : null,
       GbmActionId.repositoryCompare: () =>
           _openCompareTab(context, ref, identity, repoId, session),
-      // Commit/Amend/Stage-all all act on the Working Copy view, so they
-      // navigate there first -- firing Ctrl/Cmd+Enter from History would
-      // otherwise commit a draft the user cannot see. Commit/Amend are
-      // disabled mid-conflict (spec page 07: "Commit：停用，直到全部標記
-      // resolved 才由 Continue 代為 commit"), matching the Commit button in
-      // that view; Stage-all is disabled independently, while nothing is
-      // unstaged (see gbm_action_availability.dart).
+      // Commit/Amend act on the Working Copy view. **On that view they now
+      // really submit**; from anywhere else they navigate there first,
+      // because the draft they would commit is one the user cannot see --
+      // Ctrl/Cmd+Enter from History used to commit it sight unseen, and
+      // navigating instead of committing was the fix. Once the box is on
+      // screen that reason has expired, so the same keystroke finishes the
+      // job rather than going somewhere the user already is.
+      //
+      // Submitting goes through `wc.submitCommit`, the same function the
+      // box's own buttons call, reading the draft out of its provider --
+      // there is no second copy of "how a commit is made" to drift.
+      //
+      // Commit/Amend are disabled mid-conflict (spec page 07: "Commit：停用，
+      // 直到全部標記 resolved 才由 Continue 代為 commit"), matching the
+      // Commit button in that view; Stage-all is disabled independently,
+      // while nothing is unstaged (see gbm_action_availability.dart).
       GbmActionId.repositoryCommit:
           isActionEnabled(GbmActionId.repositoryCommit, session)
-          ? () => context.go(RoutePaths.workingCopyFor(repoId))
+          ? () => _commitOrGoToWorkingCopy(context, ref, identity, repoId)
           : null,
       GbmActionId.repositoryAmendLastCommit:
           isActionEnabled(GbmActionId.repositoryAmendLastCommit, session)
-          ? () => context.go(RoutePaths.workingCopyFor(repoId))
+          ? () => _amendOrGoToWorkingCopy(context, ref, identity, repoId)
           : null,
       GbmActionId.repositoryStageAll:
           isActionEnabled(GbmActionId.repositoryStageAll, session)
@@ -1308,6 +1319,68 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     }
     ref.read(compareTabsProvider(identity).notifier).close(tabId);
   }
+}
+
+/// Navigates to the Working Copy when it is not the current route, and
+/// reports whether it did.
+///
+/// The split it enables is the whole point of the two callers below: a
+/// commit is only safe to run blind once the user can see what they are
+/// about to commit.
+bool _goToWorkingCopyIfElsewhere(BuildContext context, String repoId) {
+  final String workingCopy = RoutePaths.workingCopyFor(repoId);
+  if (GoRouterState.of(context).uri.path == Uri.parse(workingCopy).path) {
+    return false;
+  }
+  context.go(workingCopy);
+  return true;
+}
+
+/// `Ctrl/Cmd+Enter` and Repository -> Commit.
+///
+/// **Reads `amending` rather than hardcoding `amend: false`**: amend is a
+/// mode (spec P03's 修訂模式), so while it is on, the box's primary button
+/// says `Amend` and this shortcut has to do the same thing. Hardcoding it
+/// would make the keyboard commit a *second* commit carrying HEAD's
+/// backfilled message while the button in front of the user said otherwise
+/// -- the three-dispatch-path divergence CLAUDE.md's Intent/Action section
+/// exists to prevent, arrived at through the draft instead of the map.
+///
+/// An empty message no-ops deliberately: [wc.submitCommit] returns false and
+/// the Commit button beside the box is greyed for the same reason, so the
+/// user is already looking at the explanation. The menu item is *not* gated
+/// on the draft, because off this route it means "go to the message box" --
+/// greying that would hide the box behind the emptiness it is there to fix.
+void _commitOrGoToWorkingCopy(
+  BuildContext context,
+  WidgetRef ref,
+  RepoIdentity identity,
+  String repoId,
+) {
+  if (_goToWorkingCopyIfElsewhere(context, repoId)) return;
+  final bool amending = ref.read(workingCopyDraftProvider(identity)).amending;
+  wc.submitCommit(ref, identity, amend: amending);
+}
+
+/// Repository -> Amend last commit.
+///
+/// Outside the mode this *enters* it (snapshot the draft, ask for HEAD's
+/// message) rather than rewriting HEAD sight-unseen; inside it, it submits,
+/// same as the box's button. Rewriting published history is exactly the
+/// operation that should never happen without the user having read what
+/// they are replacing.
+void _amendOrGoToWorkingCopy(
+  BuildContext context,
+  WidgetRef ref,
+  RepoIdentity identity,
+  String repoId,
+) {
+  if (_goToWorkingCopyIfElsewhere(context, repoId)) return;
+  if (ref.read(workingCopyDraftProvider(identity)).amending) {
+    wc.submitCommit(ref, identity, amend: true);
+    return;
+  }
+  wc.beginAmendMode(ref, identity);
 }
 
 /// Resolves the `:repoId` route segment for `identity` -- the inverse of

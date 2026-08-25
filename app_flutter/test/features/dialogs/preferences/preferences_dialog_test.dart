@@ -10,11 +10,15 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:gbm_flutter/data/models/base_folder_record.dart';
 import 'package:gbm_flutter/data/models/repo_record.dart';
 import 'package:gbm_flutter/data/repositories/app_preferences_repository.dart';
 import 'package:gbm_flutter/data/repositories/discovery_repository.dart';
 import 'package:gbm_flutter/features/dialogs/preferences/preferences_dialog.dart';
+import 'package:gbm_flutter/features/update/auto_update_check.dart';
+import 'package:gbm_flutter/routing/dialog_route.dart';
+import 'package:gbm_flutter/routing/route_paths.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/theme_mode_provider.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
@@ -124,6 +128,86 @@ void main() {
         result.container.read(appPreferencesProvider).autoUpdateCheckEnabled,
         isFalse,
       );
+    });
+
+    // The once-a-day gate used to be invisible: nothing in the app could
+    // tell "the startup check found nothing" from "the startup check is not
+    // due for another 23 hours", which is how a working automatic check
+    // reads as a broken one.
+    testWidgets('says never before any automatic check has run', (
+      tester,
+    ) async {
+      await _pump(tester, section: 'General');
+
+      expect(find.text('Last automatic check: never.'), findsOneWidget);
+    });
+
+    testWidgets('names when the last automatic check ran', (tester) async {
+      await _pump(
+        tester,
+        section: 'General',
+        initialPrefs: <String, Object>{
+          kLastAutoUpdateCheckKey: DateTime(
+            2026,
+            8,
+            25,
+            9,
+            4,
+          ).toIso8601String(),
+        },
+      );
+
+      expect(
+        find.text('Last automatic check: 2026-08-25 09:04.'),
+        findsOneWidget,
+      );
+    });
+
+    // Routed, not a callback: Preferences opens with no repository at all,
+    // and this has to reach the same dialog About's button does. Replacement
+    // rather than a push -- leaving Preferences stacked underneath is not
+    // what "now" means.
+    testWidgets('offers a route to check right now', (tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final GoRouter router = GoRouter(
+        initialLocation: RoutePaths.preferencesDialog,
+        routes: <RouteBase>[
+          dialogRoute(
+            path: RoutePaths.preferencesDialog,
+            builder: (BuildContext context, GoRouterState state) =>
+                const PreferencesDialogContent(),
+          ),
+          dialogRoute(
+            path: RoutePaths.updateDialog,
+            builder: (BuildContext context, GoRouterState state) =>
+                const Text('update-dialog'),
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: <Override>[
+            sharedPreferencesProvider.overrideWithValue(prefs),
+          ],
+          child: MaterialApp.router(
+            theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+            routerConfig: router,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('General'));
+      await tester.pumpAndSettle();
+      expect(find.text('update-dialog'), findsNothing);
+
+      await tester.ensureVisible(find.text('Check for updates now'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Check for updates now'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('update-dialog'), findsOneWidget);
     });
 
     // A suppression the user can neither see nor undo is hidden material

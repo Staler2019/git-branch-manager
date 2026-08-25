@@ -503,6 +503,24 @@ you are touching, not by when it was learned.
   tag — assume any edit there reaches `main` uncompiled (**#69**).
   `test/platform/window_title_test.dart` asserts those runner sources as
   strings, which catches a drifting literal but never a compile error.
+- **Windows refuses to rename or delete any process's current working
+  directory**, and `Process.start` inherits the parent's when given no
+  `workingDirectory`. An app launched by double-clicking its `.exe` has the
+  install directory as its CWD, so the detached updater stood inside the very
+  folder it then tried to move aside — `Move-Item` lost every retry and the
+  self-install died silently with the app already gone. POSIX permits the
+  rename, so macOS and Linux never showed it. Any detached process that will
+  touch the install tree must be given an explicit `workingDirectory` outside
+  it; inside a PowerShell script, `Set-Location` alone is **not** enough —
+  it moves the provider location while the Win32 process directory (the one
+  holding the handle) stays put, so `[System.Environment]::CurrentDirectory`
+  has to be assigned too (ledger: 更新流程的三個缺陷).
+- **`powershell.exe` reads a BOM-less `.ps1` as ANSI, not UTF-8.** Windows
+  PowerShell 5.1 is what `-File` resolves to on a stock machine, and the
+  updater bakes its three paths in as literals — a user name in Chinese was
+  enough to mojibake all of them into the same silent failure. Write generated
+  `.ps1` as UTF-8 **with** a BOM; `sh` needs the opposite (a BOM on line 1 is
+  a syntax error), so the two generators differ deliberately.
 
 ### Tests and fixtures
 
@@ -610,6 +628,19 @@ you are touching, not by when it was learned.
   something else covering the value that was already there — a filter query
   surviving a repository close is the recorded case. The test that sees it is
   the one that seeds the provider *before* pumping.
+- **An entry point gated on one resting state replays stale answers forever
+  once the machine has terminal states.** The update dialog checked on mount
+  only from `idle`, but `upToDate` / `failed` / `developmentBuild` are
+  terminal — nothing returns them to `idle` — so re-opening it re-showed the
+  previous answer for the rest of the session. Gate on a *named predicate*
+  over the whole enum (`UpdateState.wantsFreshCheck`) rather than on one
+  value, and check whether every state the machine can rest in has a way
+  out. Note the partition is rarely two-way: a **standing offer** the user
+  has not acted on is neither stale nor in-flight, and refreshing it costs an
+  API call on the commonest path. Where a `ref.listen` fills the remaining
+  gap, key it on the specific *transition*, never on "arrived at X" — `idle`
+  is also where `dismiss()` lands, and re-checking there re-offers the very
+  thing the user just declined (ledger: 更新流程的三個缺陷).
 - **`RenderFlex` lays out non-flex children first**, then divides what is
   left — so a `Flexible` child can never rescue an overflow that non-flex
   children caused. Six surfaces overflowed at the app's own default 1280×720
@@ -816,7 +847,9 @@ you are touching, not by when it was learned.
   least five times (`deleteRemoteBranchDialog`, `readVisibility()`,
   `readOrder()`/`readWidths()`, `RefreshCoalescer`, the `autoFetch*`
   settings — **#102**). Grep for a caller before adding a field, and before
-  deleting the last one.
+  deleting the last one. The sixth instance was worse than dead weight:
+  `ProcessStarter`'s `workingDirectory` parameter existed and no caller ever
+  passed it, and passing it was the whole fix for the Windows self-install.
 - **A second source of truth for a computed fact is how a bug hides** — it
   cannot disagree with itself. Folder identity, column order, selection sets
   and `conflictActive` are each deliberately single-sourced.
@@ -873,6 +906,15 @@ you are touching, not by when it was learned.
 - **No pull dialog route exists**, so P17's 「選單的 Pull… 或 Alt + 點工具列才
   開」 has nothing to open: `ActionToolbar`'s Pull only runs `pullChanges()`
   with the configured default (**#109**).
+- **The updater script's Windows half is text-asserted only.** The `sh` half
+  is genuinely *executed* by `update_installer_script_test.dart`; PowerShell
+  cannot be, and PR CI compiles no Windows at all (**#69**). The real
+  install-and-restart still has no automated coverage on any platform — the
+  device-tier test deliberately stops at `readyToInstall`. What does exist
+  now is `<systemTemp>/gbm-update.log` (`updateLogPath()`), which every arm
+  of both scripts writes its exit code to, and a relaunch on every failure
+  path reached after the app has exited — so the next failure is diagnosable
+  rather than a vanished window (ledger: 更新流程的三個缺陷).
 - **Open issues**: **#62** (TabRow overflow menu), **#67**–**#71**,
   **#74**–**#76**, **#84**–**#89** (Tier 6 spec blockers), **#92**–**#95**
   (capi with no spec entry point), **#99**, **#101**, **#102**, **#109**. `gh issue

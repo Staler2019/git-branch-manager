@@ -12,10 +12,31 @@ import '../../theme/theme_mode_provider.dart';
 /// When the last automatic check was attempted, as an ISO-8601 string.
 ///
 /// A raw key rather than an [AppPreferences] field: this is state, not a
-/// setting. Nothing in Preferences shows or edits it, and putting it there
-/// would make the dialog's own "every field here is a setting the user can
-/// see" shape untrue. Same call as `panelLayout.*`.
+/// setting. Preferences renders it -- through [lastAutoCheckLabel] -- as a
+/// read-only status line rather than as an editable row, so the dialog's own
+/// "every field here is a setting the user can see" shape still holds. Same
+/// call as `panelLayout.*`.
 const String kLastAutoUpdateCheckKey = 'update.lastAutoCheck';
+
+/// How Preferences renders [kLastAutoUpdateCheckKey].
+///
+/// A pure function of the stored string, so the wording lives in one place
+/// and can be pinned without a widget. Local time in a fixed 24-hour form
+/// rather than `intl`: this app carries no localization dependency.
+///
+/// An unparsable stamp reads as never -- the same call [_isDue] makes, for
+/// the same reason: a corrupt value must not throw, and must not be
+/// presented as a real time either.
+String lastAutoCheckLabel(String? raw) {
+  final DateTime? at = raw == null ? null : DateTime.tryParse(raw);
+  if (at == null) {
+    return 'Last automatic check: never.';
+  }
+  final DateTime local = at.toLocal();
+  String two(int value) => value.toString().padLeft(2, '0');
+  return 'Last automatic check: ${local.year}-${two(local.month)}-'
+      '${two(local.day)} ${two(local.hour)}:${two(local.minute)}.';
+}
 
 /// How long a recorded attempt suppresses the next one.
 ///
@@ -95,16 +116,30 @@ class _AutoUpdateCheckState extends ConsumerState<AutoUpdateCheck> {
       return;
     }
 
-    // Recorded before the check, not after. A failed check therefore uses
-    // up the day, which costs an offline launch its check -- accepted,
-    // because the alternative needs the controller to report whether the
-    // network answered, and `checkAutomatically` deliberately collapses
-    // "up to date" and "unreachable" into the same silent outcome. Marking
-    // afterwards would mean reopening that distinction for a marginal gain.
+    // Still recorded *before* the check: two launches in quick succession
+    // must not both reach GitHub, and only a stamp written up front stops
+    // that. What is new is the rollback below.
+    final String? previous = store.getString(kLastAutoUpdateCheckKey);
     await store.setString(kLastAutoUpdateCheckKey, now.toIso8601String());
-    if (!mounted) return;
+    if (!mounted) {
+      await _restore(store, previous);
+      return;
+    }
 
-    await ref.read(updateProvider.notifier).checkAutomatically();
+    final AutoCheckOutcome outcome = await ref
+        .read(updateProvider.notifier)
+        .checkAutomatically();
+
+    // A check that never asked, or asked and learned nothing, has not used
+    // the day up. This reverses a deliberate trade in the original design
+    // ("a failed check therefore uses up the day -- accepted"): the cost
+    // turned out to be that one offline launch, or one build with no
+    // version identity, silences the next 24 hours with nothing on screen
+    // saying so and no way to make it try again. `AutoCheckOutcome` is what
+    // reopens the distinction the on-screen state had collapsed.
+    if (outcome != AutoCheckOutcome.concluded) {
+      await _restore(store, previous);
+    }
     if (!mounted) return;
 
     // Read straight back rather than through `ref.listen`. The credential
@@ -115,6 +150,18 @@ class _AutoUpdateCheckState extends ConsumerState<AutoUpdateCheck> {
     if (ref.read(updateProvider).status == UpdateStatus.available) {
       widget.onUpdateAvailable();
     }
+  }
+
+  /// Puts the gate back exactly as it was, rather than clearing it: wiping
+  /// an older stamp would hand a machine that is offline every morning an
+  /// unlimited number of requests the moment it came back.
+  ///
+  /// Touches only [store], never `ref`, so it is safe after this widget has
+  /// been unmounted.
+  static Future<void> _restore(SharedPreferences store, String? previous) {
+    return previous == null
+        ? store.remove(kLastAutoUpdateCheckKey)
+        : store.setString(kLastAutoUpdateCheckKey, previous);
   }
 
   bool _isDue(SharedPreferences store, DateTime now) {

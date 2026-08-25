@@ -109,6 +109,38 @@ UpdateInstaller _installable() {
 }
 
 void main() {
+  // The gate is state, not a setting, and it used to be invisible: nothing
+  // in the app could tell "the check found nothing" from "the check is not
+  // due for another 23 hours". Preferences renders this string.
+  group('lastAutoCheckLabel', () {
+    test('says never when nothing has been recorded', () {
+      expect(lastAutoCheckLabel(null), 'Last automatic check: never.');
+    });
+
+    // Same call `_isDue` makes: a corrupt value must not throw, and must not
+    // read as a real time either.
+    test('says never for a stamp that will not parse', () {
+      expect(lastAutoCheckLabel('not a date'), 'Last automatic check: never.');
+    });
+
+    // A local DateTime serialises without a zone suffix, so `toLocal()` is a
+    // no-op on it and this assertion holds on any machine.
+    test('renders a recorded stamp in local time, zero padded', () {
+      expect(
+        lastAutoCheckLabel(DateTime(2026, 8, 25, 9, 4).toIso8601String()),
+        'Last automatic check: 2026-08-25 09:04.',
+      );
+    });
+
+    test('converts a UTC stamp to local time', () {
+      final DateTime utc = DateTime.utc(2026, 8, 25, 9, 4);
+      expect(
+        lastAutoCheckLabel(utc.toIso8601String()),
+        lastAutoCheckLabel(utc.toLocal().toIso8601String()),
+      );
+    });
+  });
+
   group('AutoUpdateCheck', () {
     testWidgets('surfaces an available update after the delay', (
       WidgetTester tester,
@@ -265,6 +297,66 @@ void main() {
           store.getString(kLastAutoUpdateCheckKey),
           noon.toIso8601String(),
         );
+      });
+
+      // Still recorded *before* the request, so two launches in quick
+      // succession cannot both reach GitHub -- but rolled back when the
+      // check never asked, or asked and learned nothing. Otherwise one
+      // offline launch silences the next 24 hours for free, with no UI
+      // anywhere that says so and no way to make it try again.
+      testWidgets('an answered check spends the day', (
+        WidgetTester tester,
+      ) async {
+        await _pump(tester, tag: 'v0.30.0', now: noon);
+        await tester.pumpAndSettle();
+
+        final SharedPreferences store = await SharedPreferences.getInstance();
+        expect(
+          store.getString(kLastAutoUpdateCheckKey),
+          noon.toIso8601String(),
+        );
+      });
+
+      testWidgets('a development build does not spend the day', (
+        WidgetTester tester,
+      ) async {
+        await _pump(tester, current: null, now: noon);
+        await tester.pumpAndSettle();
+
+        final SharedPreferences store = await SharedPreferences.getInstance();
+        expect(store.getString(kLastAutoUpdateCheckKey), isNull);
+      });
+
+      testWidgets('a failed check does not spend the day', (
+        WidgetTester tester,
+      ) async {
+        final _Pumped p = await _pump(tester, tag: 'nightly', now: noon);
+        await tester.pumpAndSettle();
+
+        expect(p.gateway.calls, 1, reason: 'the request really was made');
+        final SharedPreferences store = await SharedPreferences.getInstance();
+        expect(store.getString(kLastAutoUpdateCheckKey), isNull);
+      });
+
+      // Restored, not cleared: a rollback that wiped an older stamp would
+      // hand a machine that is offline every morning an unlimited number of
+      // requests the moment it came back.
+      testWidgets('restores the earlier stamp rather than clearing it', (
+        WidgetTester tester,
+      ) async {
+        final String earlier = noon
+            .subtract(const Duration(hours: 30))
+            .toIso8601String();
+        await _pump(
+          tester,
+          tag: 'nightly',
+          now: noon,
+          prefs: <String, Object>{kLastAutoUpdateCheckKey: earlier},
+        );
+        await tester.pumpAndSettle();
+
+        final SharedPreferences store = await SharedPreferences.getInstance();
+        expect(store.getString(kLastAutoUpdateCheckKey), earlier);
       });
     });
 

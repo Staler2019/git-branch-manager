@@ -123,6 +123,118 @@ void main() {
     });
   });
 
+  // Belt and braces behind `launchUpdater`'s `workingDirectory`. On Windows
+  // the inherited directory is what blocked the rename; on Unix it is
+  // harmless, but a script that stands inside the directory it is about to
+  // move has no business doing so on any platform.
+  group('where it runs from', () {
+    test('steps out of whatever directory it inherited', () {
+      final String script = buildUnixUpdaterScript(
+        pid: 999999,
+        targetPath: '/tmp/install',
+        stagedPath: '/tmp/staged',
+        copyCommand: 'cp -a',
+        relaunchCommand: ':',
+      );
+
+      expect(script, contains(r'cd "$(dirname "$0")"'));
+    });
+
+    // Executed, not just asserted: `cd` failing must abort rather than let
+    // the swap run from an unknown directory.
+    test('still swaps when it runs from the target\'s own parent', () async {
+      final Directory target = dirWithMarker('install', 'old');
+      final Directory staged = dirWithMarker('staged', 'new');
+
+      final int code = await runScript(
+        buildUnixUpdaterScript(
+          pid: 999999,
+          targetPath: target.path,
+          stagedPath: staged.path,
+          copyCommand: 'cp -a',
+          relaunchCommand: ':',
+        ),
+      );
+
+      expect(code, 0);
+      expect(File('${target.path}/marker.txt').readAsStringSync(), 'new');
+    });
+  });
+
+  // Once the app has exited there is no channel left to report anything on,
+  // so a failed update is otherwise entirely undiagnosable -- which is
+  // exactly the position the Windows report left this feature in.
+  group('the transcript', () {
+    test('records the outcome of a successful swap', () async {
+      final Directory target = dirWithMarker('install', 'old');
+      final Directory staged = dirWithMarker('staged', 'new');
+
+      final int code = await runScript(
+        buildUnixUpdaterScript(
+          pid: 999999,
+          targetPath: target.path,
+          stagedPath: staged.path,
+          copyCommand: 'cp -a',
+          relaunchCommand: ':',
+        ),
+      );
+
+      expect(code, 0);
+      final String log = File(
+        '${root.path}/$kUpdateLogName',
+      ).readAsStringSync();
+      expect(log, contains(target.path));
+      expect(log, contains('exit 0'));
+    });
+
+    // The code that matters most: this is the arm nobody could see.
+    test('records a rename that could not happen', () async {
+      final Directory lock = Directory('${root.path}/lock')
+        ..createSync(recursive: true);
+      final Directory target = Directory('${lock.path}/install')
+        ..createSync(recursive: true);
+      final Directory staged = dirWithMarker('staged', 'new');
+      await Process.run('chmod', <String>['555', lock.path]);
+      addTearDown(() => Process.run('chmod', <String>['755', lock.path]));
+
+      await runScript(
+        buildUnixUpdaterScript(
+          pid: 999999,
+          targetPath: target.path,
+          stagedPath: staged.path,
+          copyCommand: 'cp -a',
+          relaunchCommand: ':',
+        ),
+      );
+
+      expect(
+        File('${root.path}/$kUpdateLogName').readAsStringSync(),
+        contains('exit 3'),
+      );
+    });
+
+    // Truncated, not appended to: a transcript that accumulated every update
+    // ever run would bury the one the user is being asked about.
+    test('starts fresh rather than appending to the last run', () async {
+      final File log = File('${root.path}/$kUpdateLogName')
+        ..writeAsStringSync('LEFTOVER FROM AN OLDER UPDATE\n');
+      final Directory target = dirWithMarker('install', 'old');
+      final Directory staged = dirWithMarker('staged', 'new');
+
+      await runScript(
+        buildUnixUpdaterScript(
+          pid: 999999,
+          targetPath: target.path,
+          stagedPath: staged.path,
+          copyCommand: 'cp -a',
+          relaunchCommand: ':',
+        ),
+      );
+
+      expect(log.readAsStringSync(), isNot(contains('LEFTOVER')));
+    });
+  });
+
   group('the abort arms', () {
     // The arm that matters most: falling through to the swap while the app
     // is still running would leave two instances over a half-replaced
@@ -151,6 +263,72 @@ void main() {
         expect(Directory('${target.path}.gbm-old').existsSync(), isFalse);
       },
     );
+
+    // The arm that produced the reported Windows symptom: by the time the
+    // rename is attempted the app has already exited, so a script that just
+    // gives up leaves the user with no running application and no
+    // explanation. Nothing here changes the install -- only that a working
+    // build is put back on screen.
+    //
+    // The read-only directory has to be the target's *parent* (renaming
+    // needs write permission there, not on the target), which is why the
+    // target is nested one level down and the sentinel stays out in `root`:
+    // a sentinel written inside the locked directory could not be created
+    // either, and the test would pass for the wrong reason.
+    test('relaunches the old build when the rename fails', () async {
+      final Directory lock = Directory('${root.path}/lock')
+        ..createSync(recursive: true);
+      final Directory target = Directory('${lock.path}/install')
+        ..createSync(recursive: true);
+      File('${target.path}/marker.txt').writeAsStringSync('old');
+      final Directory staged = dirWithMarker('staged', 'new');
+      final File sentinel = File('${root.path}/relaunched');
+      await Process.run('chmod', <String>['555', lock.path]);
+      addTearDown(() => Process.run('chmod', <String>['755', lock.path]));
+
+      final int code = await runScript(
+        buildUnixUpdaterScript(
+          pid: 999999,
+          targetPath: target.path,
+          stagedPath: staged.path,
+          copyCommand: 'cp -a',
+          relaunchCommand: 'touch ${_shq(sentinel.path)}',
+          waitTimeout: const Duration(seconds: 2),
+        ),
+      );
+
+      expect(code, 3, reason: 'the rename really must have failed');
+      expect(File('${target.path}/marker.txt').readAsStringSync(), 'old');
+      expect(
+        sentinel.existsSync(),
+        isTrue,
+        reason: 'the app has already exited; something has to bring it back',
+      );
+    });
+
+    // The one arm that must NOT relaunch: the app never exited, so it is
+    // still on screen and a second instance would be worse than nothing.
+    test('does not relaunch when the app never exited', () async {
+      final Directory target = dirWithMarker('install', 'old');
+      final Directory staged = dirWithMarker('staged', 'new');
+      final File sentinel = File('${root.path}/relaunched');
+      final Process victim = await longLivedProcess();
+      addTearDown(() => victim.kill());
+
+      final int code = await runScript(
+        buildUnixUpdaterScript(
+          pid: victim.pid,
+          targetPath: target.path,
+          stagedPath: staged.path,
+          copyCommand: 'cp -a',
+          relaunchCommand: 'touch ${_shq(sentinel.path)}',
+          waitTimeout: const Duration(milliseconds: 600),
+        ),
+      );
+
+      expect(code, 2);
+      expect(sentinel.existsSync(), isFalse);
+    });
 
     // The whole reason the old install is renamed rather than deleted.
     test('restores the old install when the copy fails', () async {

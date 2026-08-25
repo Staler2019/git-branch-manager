@@ -52,14 +52,17 @@ class UpdateInstallException implements Exception {
 ///
 /// The script's shape is the same on all three platforms:
 ///
-/// 1. wait for this process to exit -- and **abort if it never does**, since
+/// 1. step out of whatever directory it inherited -- on Windows, standing in
+///    the install directory is by itself enough to make step 2 impossible;
+/// 2. wait for this process to exit -- and **abort if it never does**, since
 ///    swapping underneath a live app leaves two instances over a
 ///    half-replaced install;
-/// 2. rename the current install to `<name>.gbm-old` -- a rename, never a
+/// 3. rename the current install to `<name>.gbm-old` -- a rename, never a
 ///    delete, because that copy *is* the rollback;
-/// 3. copy the staged build into the vacated path;
-/// 4. on failure, undo the rename and relaunch the old build, so the user is
-///    never left without a working application.
+/// 4. copy the staged build into the vacated path;
+/// 5. on any failure past the wait, put a working build back -- undoing the
+///    rename where one happened -- so the user is never left without an
+///    application.
 ///
 /// Extraction deliberately happens **before** the app quits ([stage]), not
 /// inside the script: an archive that will not open is then an error the
@@ -71,6 +74,101 @@ class UpdateInstallException implements Exception {
 /// sweep below, because a sweep matching a prefix nobody writes any more
 /// would silently stop cleaning up.
 const String kUpdateDownloadDirPrefix = 'gbm-update-';
+
+/// Folders a user keeps other things in, which an install must therefore
+/// never *be*.
+///
+/// Windows is the live risk: its release artifact is a **flat** zip
+/// (`release.yml`'s `Compress-Archive .../Release/*`), so extracting it
+/// straight into Downloads puts `gbm_flutter.exe` directly there and makes
+/// Downloads the install directory -- which the updater would then rename to
+/// `Downloads.gbm-old` wholesale. macOS cannot reach this, because the
+/// target is the `.app` bundle itself, and the Linux tarball carries its own
+/// wrapper directory.
+const List<String> kSharedUserFolders = <String>[
+  'Desktop',
+  'Documents',
+  'Downloads',
+  'Music',
+  'OneDrive',
+  'Pictures',
+  'Public',
+  'Videos',
+];
+
+/// Whether [targetPath] is a folder that must not be replaced wholesale: a
+/// filesystem or drive root, the home directory itself, or one of
+/// [kSharedUserFolders] directly inside it.
+///
+/// Pure and separator-agnostic -- it splits on both, and compares case
+/// insensitively -- rather than going through `Directory.parent`, which
+/// follows the *host's* path rules and would make a `C:\...` fixture
+/// meaningless on the macOS and Linux machines this is tested on.
+///
+/// Answers false when [homePath] is null. An environment with no home
+/// variable is not evidence that anything is wrong, and a guard that fired
+/// on missing information would block installs it knows nothing about.
+bool isSharedUserFolder(String targetPath, String? homePath) {
+  final List<String> target = _pathSegments(targetPath);
+  // Nothing above it, so "rename it aside" would mean the whole volume.
+  if (target.isEmpty || (target.length == 1 && target.single.endsWith(':'))) {
+    return true;
+  }
+  if (homePath == null) {
+    return false;
+  }
+  final List<String> home = _pathSegments(homePath);
+  if (home.isEmpty) {
+    return false;
+  }
+  if (_sameSegments(target, home)) {
+    return true;
+  }
+  // A *direct* child only: `D:\Backup\Downloads` is somebody's own folder
+  // that happens to share a name.
+  if (target.length != home.length + 1) {
+    return false;
+  }
+  if (!_sameSegments(target.sublist(0, home.length), home)) {
+    return false;
+  }
+  final String name = target.last.toLowerCase();
+  return kSharedUserFolders.any((String f) => f.toLowerCase() == name);
+}
+
+List<String> _pathSegments(String path) => path
+    .split(RegExp(r'[/\\]+'))
+    .where((String segment) => segment.isNotEmpty)
+    .toList();
+
+bool _sameSegments(List<String> a, List<String> b) {
+  if (a.length != b.length) {
+    return false;
+  }
+  for (int i = 0; i < a.length; i++) {
+    if (a[i].toLowerCase() != b[i].toLowerCase()) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/// Name of the transcript the updater script writes beside itself.
+///
+/// The script runs after the process has exited, so nothing in the app can
+/// report what it did. Without a file on disk a failed update is entirely
+/// undiagnosable -- the position the Windows report left this feature in.
+const String kUpdateLogName = 'gbm-update.log';
+
+/// Where that transcript ends up.
+///
+/// Composed here, next to the generator, so the script and the sentence that
+/// tells the user where to look cannot drift apart. It resolves to the
+/// script's own directory because `UpdateController.install` passes
+/// `Directory.systemTemp` as `scriptDir` -- the script writes the log beside
+/// itself.
+String updateLogPath() =>
+    '${Directory.systemTemp.path}${Platform.pathSeparator}$kUpdateLogName';
 
 /// Suffix the updater script renames the outgoing install to.
 const String kPreviousInstallSuffix = '.gbm-old';
@@ -94,6 +192,7 @@ class UpdateInstaller {
     this.operatingSystem,
     this.executablePath,
     this.abi,
+    this.homeDirectory,
   }) : _start = start ?? _startDetached,
        _run = run ?? _runToCompletion,
        _exitProcess = exitProcess ?? _realExit;
@@ -116,9 +215,16 @@ class UpdateInstaller {
   /// Overridden in tests; null means [Abi.current].
   final Abi? abi;
 
+  /// Overridden in tests; null means the platform's own home variable.
+  final String? homeDirectory;
+
   String get _os => operatingSystem ?? Platform.operatingSystem;
   String get _exe => executablePath ?? Platform.resolvedExecutable;
   Abi get _abi => abi ?? Abi.current();
+
+  String? get _home =>
+      homeDirectory ??
+      Platform.environment[_os == 'windows' ? 'USERPROFILE' : 'HOME'];
 
   static Future<bool> _startDetached(
     String executable,
@@ -238,6 +344,16 @@ class UpdateInstaller {
     if (target.path.contains('/AppTranslocation/')) {
       return 'This app is running from a temporary location. Move it to your '
           'Applications folder first, then check again.';
+    }
+    // Not the reported failure -- that install was in a folder of its own --
+    // but the same flat Windows zip makes this one plausible, and its blast
+    // radius is the user's whole Downloads folder rather than a failed
+    // update.
+    if (isSharedUserFolder(target.path, _home)) {
+      return 'This app is installed directly in ${target.path}, alongside '
+          'whatever else is in there. Updating replaces the whole folder, so '
+          'it will not do that. Move the app into a folder of its own, or '
+          'download from the releases page.';
     }
     if (!_isWritable(target.parent)) {
       return 'The install directory (${target.parent.path}) is not writable '
@@ -385,25 +501,45 @@ class UpdateInstaller {
       'gbm-update.${isWindows ? 'ps1' : 'sh'}',
     );
 
-    script.writeAsStringSync(
-      isWindows
-          ? buildWindowsUpdaterScript(
-              pid: processId ?? pid,
-              targetPath: target.path,
-              stagedPath: staged.path,
-              relaunchCommand: _windowsRelaunch(),
-            )
-          : buildUnixUpdaterScript(
-              pid: processId ?? pid,
-              targetPath: target.path,
-              stagedPath: staged.path,
-              copyCommand: _os == 'macos' ? 'ditto' : 'cp -a',
-              relaunchCommand: _unixRelaunch(),
-            ),
-    );
+    final String body = isWindows
+        ? buildWindowsUpdaterScript(
+            pid: processId ?? pid,
+            targetPath: target.path,
+            stagedPath: staged.path,
+            relaunchCommand: _windowsRelaunch(),
+          )
+        : buildUnixUpdaterScript(
+            pid: processId ?? pid,
+            targetPath: target.path,
+            stagedPath: staged.path,
+            copyCommand: _os == 'macos' ? 'ditto' : 'cp -a',
+            relaunchCommand: _unixRelaunch(),
+          );
+
+    // UTF-8 with a BOM on Windows, without one everywhere else, and the
+    // asymmetry is not cosmetic. `powershell.exe` -- Windows PowerShell 5.1,
+    // which is what `-File` resolves to on a stock machine -- reads a
+    // BOM-less .ps1 as ANSI rather than UTF-8. All three paths are baked
+    // into the script as literals, so a user name in Chinese is enough to
+    // mojibake every one of them and leave the rename and the copy pointing
+    // nowhere: the same silent exit 3 an inherited working directory
+    // produced. `sh` has the opposite requirement -- a BOM on the first line
+    // is a syntax error, not a hint.
+    script.writeAsStringSync(isWindows ? '\uFEFF$body' : body);
 
     await beforeExit();
 
+    // `workingDirectory` is load-bearing on Windows, not tidiness.
+    // `Process.start` inherits the parent's current directory when none is
+    // given, and an app launched by double-clicking its .exe has the install
+    // directory as its own -- so the detached updater stood inside the very
+    // folder it then tried to rename. Windows refuses to rename or delete
+    // any process's current directory (that handle carries no
+    // FILE_SHARE_DELETE), so `Move-Item` failed every retry and the script
+    // gave up having already closed the app and changed nothing. POSIX
+    // permits it, which is why only Windows broke. `scriptDir` is outside
+    // the target by construction -- the script is deliberately never written
+    // into the directory being replaced.
     final bool started = isWindows
         ? await _start('powershell', <String>[
             '-NoProfile',
@@ -411,8 +547,10 @@ class UpdateInstaller {
             'Bypass',
             '-File',
             script.path,
-          ])
-        : await _start('sh', <String>[script.path]);
+          ], workingDirectory: scriptDir.path)
+        : await _start('sh', <String>[
+            script.path,
+          ], workingDirectory: scriptDir.path);
 
     if (!started) {
       return 'The updater could not be started. Your current version is '
@@ -433,8 +571,10 @@ class UpdateInstaller {
     return '"\$TARGET/${_executableName()}" >/dev/null 2>&1 &';
   }
 
+  /// `-WorkingDirectory` so the new build starts in its own install
+  /// directory rather than in system temp, where this script is standing.
   String _windowsRelaunch() =>
-      r'Start-Process -FilePath (Join-Path $target '
+      r'Start-Process -WorkingDirectory $target -FilePath (Join-Path $target '
       "'${_executableName()}')";
 
   String _executableName() => _exe.split(Platform.pathSeparator).last;
@@ -451,6 +591,12 @@ class UpdateInstaller {
 /// Exit codes: 0 swapped, 2 the app never exited (nothing changed), 3 could
 /// not rename the old install (nothing changed), 4 the copy failed and the
 /// old install was restored.
+///
+/// **Every code except 2 relaunches.** 2 is the one arm reached with the app
+/// still on screen, where a second instance would be worse than nothing;
+/// each of the others runs after the process has gone, so leaving without
+/// starting something is what makes a failed update look like the app
+/// vanishing.
 String buildUnixUpdaterScript({
   required int pid,
   required String targetPath,
@@ -468,11 +614,33 @@ String buildUnixUpdaterScript({
 # parent process was running from, once that process has exited.
 set -u
 
+# Out of whatever directory this was started in, before touching anything.
+# Belt and braces behind launchUpdater's own `workingDirectory`: a script
+# standing inside the directory it is about to move has no business doing so
+# on any platform, and on Windows the equivalent is what broke the update.
+cd "\$(dirname "\$0")" || exit 1
+
+# Beside the script, truncated on every run: a transcript that accumulated
+# every update ever run would bury the one being asked about. Failures to
+# write are swallowed -- losing the log must never be what fails the update.
+LOG="\$PWD/$kUpdateLogName"
+: > "\$LOG" 2>/dev/null || true
+log() {
+  printf '%s %s\\n' "\$(date '+%Y-%m-%dT%H:%M:%S')" "\$*" >> "\$LOG" 2>/dev/null || true
+}
+finish() {
+  log "exit \$1"
+  exit "\$1"
+}
+
 PID=$pid
 TARGET=${_shQuote(targetPath)}
 STAGED=${_shQuote(stagedPath)}
 BACKUP=${_shQuote('$targetPath.gbm-old')}
 ATTEMPTS=$attempts
+
+log "target=\$TARGET"
+log "staged=\$STAGED"
 
 # Timing out must leave everything untouched. Falling through while the app
 # is still running would put two instances over a half-replaced install.
@@ -480,25 +648,39 @@ i=0
 while kill -0 "\$PID" 2>/dev/null; do
   i=\$((i + 1))
   if [ "\$i" -ge "\$ATTEMPTS" ]; then
-    exit 2
+    log "the app was still running at the deadline; nothing was changed"
+    finish 2
   fi
   sleep 0.2
 done
 
+# Everything past the wait runs with the app already gone, so every arm has
+# to put a working build back -- including the ones that change nothing. A
+# script that simply gave up is what turned a failed rename into "the app
+# closed and never came back".
+relaunch() {
+  $relaunchCommand
+}
+
 rm -rf "\$BACKUP"
-mv "\$TARGET" "\$BACKUP" || exit 3
+if ! mv "\$TARGET" "\$BACKUP"; then
+  log "could not rename the install aside; nothing was changed"
+  relaunch
+  finish 3
+fi
 
 if $copyCommand "\$STAGED" "\$TARGET"; then
   rm -rf "\$STAGED"
-  $relaunchCommand
-  exit 0
+  relaunch
+  finish 0
 fi
 
 # The rename above is the only reason this is recoverable.
+log "the copy failed; restoring the old install"
 rm -rf "\$TARGET"
 mv "\$BACKUP" "\$TARGET"
-$relaunchCommand
-exit 4
+relaunch
+finish 4
 ''';
 }
 
@@ -522,16 +704,53 @@ String buildWindowsUpdaterScript({
 # parent process was running from, once that process has exited.
 \$ErrorActionPreference = 'Stop'
 
+# Both lines, not just the first. `Set-Location` moves PowerShell's provider
+# location while the Win32 process directory -- the one holding the handle
+# that blocks renaming it -- stays where the process was created. Only
+# assigning CurrentDirectory calls SetCurrentDirectory and releases it.
+Set-Location -LiteralPath \$PSScriptRoot
+[System.Environment]::CurrentDirectory = \$PSScriptRoot
+
+# Beside the script, truncated on every run: a transcript that accumulated
+# every update ever run would bury the one being asked about. Failures to
+# write are swallowed -- losing the log must never be what fails the update.
+\$log = Join-Path \$PSScriptRoot '$kUpdateLogName'
+Set-Content -LiteralPath \$log -Value '' -ErrorAction SilentlyContinue
+function Write-Log(\$message) {
+  try {
+    Add-Content -LiteralPath \$log -Value "\$(Get-Date -Format s) \$message"
+  } catch { }
+}
+function Stop-Updater(\$code) {
+  Write-Log "exit \$code"
+  exit \$code
+}
+
+# Everything past the wait runs with the app already gone, so every arm has
+# to put a working build back -- including the ones that change nothing.
+# Wrapped in its own try: with ErrorActionPreference = 'Stop' a relaunch of
+# something that is not there would otherwise take the script down before it
+# could set an exit code.
+function Restart-App {
+  try { $relaunchCommand } catch { }
+}
+
 \$parentPid = $pid
 \$target = ${_psQuote(targetPath)}
 \$staged = ${_psQuote(stagedPath)}
 \$backup = ${_psQuote('$targetPath.gbm-old')}
 
+Write-Log "target=\$target"
+Write-Log "staged=\$staged"
+
 # Polled rather than Wait-Process, whose timeout surfaces as an error record
 # rather than a distinguishable exception type.
 \$deadline = (Get-Date).AddSeconds(${waitTimeout.inSeconds})
 while (Get-Process -Id \$parentPid -ErrorAction SilentlyContinue) {
-  if ((Get-Date) -gt \$deadline) { exit 2 }
+  if ((Get-Date) -gt \$deadline) {
+    Write-Log 'the app was still running at the deadline; nothing was changed'
+    Stop-Updater 2
+  }
   Start-Sleep -Milliseconds 200
 }
 
@@ -550,18 +769,28 @@ for (\$i = 0; \$i -lt 20; \$i++) {
     Start-Sleep -Milliseconds 500
   }
 }
-if (-not \$renamed) { exit 3 }
+if (-not \$renamed) {
+  Write-Log 'could not rename the install aside; nothing was changed'
+  Restart-App
+  Stop-Updater 3
+}
 
 try {
   Copy-Item -LiteralPath \$staged -Destination \$target -Recurse -Force
   Remove-Item -LiteralPath \$staged -Recurse -Force -ErrorAction SilentlyContinue
-  $relaunchCommand
-  exit 0
+  Restart-App
+  Stop-Updater 0
 } catch {
-  Remove-Item -LiteralPath \$target -Recurse -Force -ErrorAction SilentlyContinue
-  Move-Item -LiteralPath \$backup -Destination \$target -Force
-  $relaunchCommand
-  exit 4
+  Write-Log "the copy failed: \$_"
+
+  # The restore is itself guarded: an unhandled throw here would end the
+  # script with the install gone and nothing running.
+  try {
+    Remove-Item -LiteralPath \$target -Recurse -Force -ErrorAction SilentlyContinue
+    Move-Item -LiteralPath \$backup -Destination \$target -Force
+  } catch { }
+  Restart-App
+  Stop-Updater 4
 }
 ''';
 }

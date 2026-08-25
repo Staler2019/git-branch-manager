@@ -58,6 +58,11 @@ class _FakeUpdate extends UpdateController {
 
   final List<String> calls = <String>[];
 
+  /// Publishes a new state exactly as a real transition would.
+  /// `StateNotifier.state` is `@protected`, so a test cannot assign it from
+  /// outside -- the same seam `FakeRepoSessionController.emit` provides.
+  void emit(UpdateState next) => state = next;
+
   @override
   Future<void> check() async => calls.add('check');
 
@@ -142,6 +147,92 @@ void main() {
           totalBytes: 200,
         ),
       )).fake;
+
+      expect(fake.calls, isEmpty);
+    });
+
+    // The mount gate used to read `status == idle`, which also excluded the
+    // three *terminal* answers below. Nothing in the flow returns them to
+    // idle, so re-opening the dialog replayed the last answer for the rest
+    // of the session -- the reported "not checking update again".
+    final Map<String, UpdateState> settledAnswers = <String, UpdateState>{
+      'already up to date': UpdateState.upToDate(_release),
+      'a failed check': const UpdateState.failed('The check failed.'),
+      'a development build': const UpdateState.developmentBuild(),
+    };
+    settledAnswers.forEach((String name, UpdateState settled) {
+      testWidgets('re-checks when re-opened on $name', (
+        WidgetTester tester,
+      ) async {
+        final _FakeUpdate fake = (await _pumpDialog(tester, settled)).fake;
+
+        expect(fake.calls, <String>['check']);
+      });
+    });
+
+    // A standing offer is not a stale answer: it is the thing the user has
+    // not acted on yet, and the startup check pushes this dialog *at* it. A
+    // re-check would spend an API call on the commonest path, flash
+    // "Checking…" over the offer, and let a second failure replace a release
+    // that had already been found.
+    testWidgets('leaves a standing offer alone', (WidgetTester tester) async {
+      final _FakeUpdate fake = (await _pumpDialog(
+        tester,
+        UpdateState.available(release: _release, asset: _asset),
+      )).fake;
+
+      expect(fake.calls, isEmpty);
+    });
+
+    testWidgets('does not re-check with a verified bundle waiting', (
+      WidgetTester tester,
+    ) async {
+      final _FakeUpdate fake = (await _pumpDialog(
+        tester,
+        UpdateState.readyToInstall(
+          release: _release,
+          asset: _asset,
+          downloadedPath: '/tmp/x.dmg',
+        ),
+      )).fake;
+
+      expect(fake.calls, isEmpty);
+    });
+
+    // The one transition the mount check cannot cover: opening the dialog
+    // while the *automatic* check is still in flight skips it, and
+    // `checkAutomatically` then returns the flow to idle when it has nothing
+    // to offer -- leaving the dialog on idle's "Checking for updates…"
+    // headline with no buttons at all, forever.
+    testWidgets('checks when an automatic check settles back to idle', (
+      WidgetTester tester,
+    ) async {
+      final _FakeUpdate fake = (await _pumpDialog(
+        tester,
+        const UpdateState.checking(),
+      )).fake;
+      expect(fake.calls, isEmpty);
+
+      fake.emit(const UpdateState.idle());
+      await tester.pump();
+
+      expect(fake.calls, <String>['check']);
+    });
+
+    // Keyed on `checking -> idle` specifically, not on "landed on idle":
+    // `dismiss()` (what Skip this version calls) also lands on idle, and
+    // bouncing straight into a new check would re-offer the very version the
+    // user just declined.
+    testWidgets('does not re-check when a standing offer is dismissed', (
+      WidgetTester tester,
+    ) async {
+      final _FakeUpdate fake = (await _pumpDialog(
+        tester,
+        UpdateState.available(release: _release, asset: _asset),
+      )).fake;
+
+      fake.emit(const UpdateState.idle());
+      await tester.pump();
 
       expect(fake.calls, isEmpty);
     });

@@ -224,6 +224,38 @@ class UpdateState {
       status == UpdateStatus.verifying ||
       status == UpdateStatus.readyToInstall;
 
+  /// Whether opening the update dialog on this state should start a new
+  /// check.
+  ///
+  /// Three groups, not two, and the middle one is the reason this is a named
+  /// getter rather than `status != idle` inline at the call site:
+  ///
+  /// - **Work in flight** -- [UpdateStatus.downloading],
+  ///   [UpdateStatus.verifying], [UpdateStatus.readyToInstall] and
+  ///   [UpdateStatus.installing] -- must not be restarted: a re-check would
+  ///   discard bytes already fetched, or race a detached updater.
+  ///   [UpdateStatus.checking] already has a request out.
+  /// - **A standing offer** ([UpdateStatus.available]) is not a stale
+  ///   answer; it is the thing the user has not acted on yet, and the
+  ///   startup check pushes the dialog *at* it. Re-checking would spend an
+  ///   API call on the commonest path, flash "Checking…" over the offer, and
+  ///   let a second, failing check replace a release that was already found.
+  /// - **Everything else really is stale.** [UpdateStatus.upToDate],
+  ///   [UpdateStatus.failed] and [UpdateStatus.developmentBuild] are
+  ///   terminal -- nothing in the flow returns them to [UpdateStatus.idle],
+  ///   so a gate written as "only from idle" made the dialog replay its own
+  ///   last answer for the rest of the session.
+  ///
+  /// Deliberately not the inverse of [isCancellable]: the two partition the
+  /// enum differently. [UpdateStatus.readyToInstall] can be cancelled but
+  /// must not be restarted, and [UpdateStatus.failed] is the other way
+  /// round.
+  bool get wantsFreshCheck =>
+      status == UpdateStatus.idle ||
+      status == UpdateStatus.upToDate ||
+      status == UpdateStatus.failed ||
+      status == UpdateStatus.developmentBuild;
+
   /// 0.0-1.0, or null while the total is unknown -- a server that sends no
   /// `Content-Length` must render as indeterminate rather than as 0%.
   double? get progress {

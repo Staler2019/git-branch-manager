@@ -43,9 +43,11 @@ class _UpdateDialogContentState extends ConsumerState<UpdateDialogContent> {
     // this repo has already fixed once in sidebar_panel.dart.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      // Only from rest. Re-opening the dialog mid-download must not restart
-      // the check and discard the bytes already fetched.
-      if (ref.read(updateProvider).status == UpdateStatus.idle) {
+      // Only when the last answer is worth replacing. Re-opening mid-download
+      // must not restart the check and discard the bytes already fetched, and
+      // a standing offer is not a stale answer -- see
+      // `UpdateState.wantsFreshCheck` for the full partition.
+      if (ref.read(updateProvider).wantsFreshCheck) {
         ref.read(updateProvider.notifier).check();
       }
     });
@@ -61,6 +63,28 @@ class _UpdateDialogContentState extends ConsumerState<UpdateDialogContent> {
 
   @override
   Widget build(BuildContext context) {
+    // The one transition the mount check above cannot cover: opening this
+    // dialog while the *automatic* check is still in flight finds
+    // `checking`, and `checkAutomatically` then returns the flow to idle
+    // when it has nothing to offer -- which renders idle's "Checking for
+    // updates…" headline with no buttons at all, forever.
+    //
+    // Narrowly keyed on `checking -> idle` rather than on "arrived at idle":
+    // `dismiss()` -- what Skip this version calls -- also lands on idle, and
+    // bouncing into a new check there would re-offer the very version the
+    // user just declined. The already-idle case needs no listener, because
+    // `ref.listen` never fires for the value present when it registers and
+    // the mount check owns it.
+    ref.listen<UpdateState>(updateProvider, (
+      UpdateState? previous,
+      UpdateState next,
+    ) {
+      if (previous?.status == UpdateStatus.checking &&
+          next.status == UpdateStatus.idle) {
+        ref.read(updateProvider.notifier).check();
+      }
+    });
+
     final GbmColors colors = context.gbmColors;
     final UpdateState state = ref.watch(updateProvider);
     final UpdateController controller = ref.read(updateProvider.notifier);

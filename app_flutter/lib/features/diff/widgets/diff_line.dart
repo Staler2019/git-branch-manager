@@ -20,6 +20,7 @@ class DiffLineView extends StatelessWidget {
     this.onStageHunk,
     this.onDiscardLine,
     this.selectionCount = 1,
+    this.touched = false,
   });
 
   final DiffLine line;
@@ -46,6 +47,17 @@ class DiffLineView extends StatelessWidget {
   /// passes that block's size so the labels read "Stage 12 lines" /
   /// "Discard 12 lines…" per spec 05-G.
   final int selectionCount;
+
+  /// This row is inside the current one-shot scope.
+  ///
+  /// A drag gets its highlight free from [SelectionArea], which paints the
+  /// glyphs it covers. The other two inputs `SCOPES` names -- 「點 hunk 標頭
+  /// 列」 and 「Shift + ↑ ↓」 -- select no *text* at all, so without this the
+  /// user would be told what they had selected only by a count on a button.
+  /// Drawn for the drag too, deliberately: one selection, one appearance,
+  /// and a diff line's glyphs are far narrower than its row, so the native
+  /// highlight alone is easy to miss.
+  final bool touched;
 
   @override
   Widget build(BuildContext context) {
@@ -74,6 +86,13 @@ class DiffLineView extends StatelessWidget {
         label: '$kindLabel line ${line.text}',
         child: Container(
           color: background,
+          // `foregroundDecoration`, not a blended background: these rows sit
+          // on two different backdrops (the well's surfaceSunken and a scope
+          // card's surfacePanel), and an overlay composites over whichever
+          // is actually there instead of having to know which.
+          foregroundDecoration: touched
+              ? BoxDecoration(color: colors.accent.withValues(alpha: 0.18))
+              : null,
           padding: const EdgeInsets.symmetric(
             horizontal: GbmSpacing.space3,
             vertical: 1,

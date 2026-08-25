@@ -85,6 +85,28 @@ class SelectionTouchTracker extends ChangeNotifier {
     _scheduleNotify();
   }
 
+  /// Replaces the touched set from something other than a drag, and latches.
+  ///
+  /// Spec `SCOPES` gives 任意連續行 two inputs (「按住拖過多行，或 Shift + ↑
+  /// ↓」) and 單一 hunk one more (「點 hunk 標頭列」), and only the drag
+  /// produces a [SelectionListener] report at all -- a keyboard extension
+  /// and a heading click emit no pointer events, so the row delegates never
+  /// speak. Those two paths compute the set themselves and hand it here.
+  ///
+  /// Latching afterwards is the same guarantee [endGesture] gives: the set
+  /// stays exactly what the caller asked for until the next pointer down in
+  /// the well, so the row delegates -- which are still reporting whatever
+  /// the *text* selection is, and for these two inputs that is nothing --
+  /// cannot immediately erase it.
+  void setTouched(Set<String> rows) {
+    _latched = true;
+    if (_touched.length == rows.length && _touched.containsAll(rows)) return;
+    _touched
+      ..clear()
+      ..addAll(rows);
+    _scheduleNotify();
+  }
+
   /// A pointer went down in the diff: whatever was selected is being
   /// replaced, so start over and start listening.
   void beginGesture() {
@@ -112,9 +134,21 @@ class SelectionTouchTracker extends ChangeNotifier {
   /// `setState` from there would be writing to a widget mid-frame. Coalesced
   /// to one notification per frame as well, since dragging across ten rows
   /// fires ten times.
+  ///
+  /// **[SchedulerBinding.ensureVisualUpdate] is not optional here**, even
+  /// though every caller before [setTouched] happened not to need it:
+  /// `addPostFrameCallback` registers a callback for the end of the next
+  /// frame and *does not ask for one*. A drag hides that, because the drag
+  /// itself keeps frames coming; a single click does not, so the
+  /// notification simply never arrived and the scope a hunk-heading click
+  /// had already recorded stayed invisible until something else happened to
+  /// draw. In a widget test the same gap is total rather than intermittent,
+  /// since `tester.pump()` runs a frame only `if (hasScheduledFrame)` -- six
+  /// pumps in a row did nothing at all.
   void _scheduleNotify() {
     if (_notifyScheduled || _disposed) return;
     _notifyScheduled = true;
+    SchedulerBinding.instance.ensureVisualUpdate();
     SchedulerBinding.instance.addPostFrameCallback((_) {
       _notifyScheduled = false;
       if (_disposed) return;

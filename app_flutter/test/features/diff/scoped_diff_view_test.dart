@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/parsed_diff.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/features/diff/scoped_diff_view.dart';
+import 'package:gbm_flutter/features/diff/widgets/diff_line.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
 import 'package:gbm_flutter/widgets/gbm_badge.dart';
 import 'package:gbm_flutter/widgets/gbm_button.dart';
@@ -186,6 +187,115 @@ void main() {
 
       expect(badges.length, 1);
       expect(badges.single.label, '+1');
+    });
+
+    /// Three pumps, and each one is a real hop. The click's own handler
+    /// defers to a post-frame callback (it must not race the row delegates
+    /// still settling from the tap collapsing the text selection); that
+    /// callback calls `setTouched`, whose notification is itself coalesced
+    /// to one per frame; only then does `setState` rebuild with the card.
+    Future<void> tapHeading(WidgetTester tester, Finder heading) async {
+      await tester.tap(heading);
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+    }
+
+    // `SCOPES` row 6's own `how` column is 「點 hunk 標頭列（@@ …）」, and the
+    // heading was a bare Text with no gesture on it at all -- the row's
+    // *note* (right-click Stage hunk) was implemented and its `how` was not.
+    // A conformance cell that reads 符合 off "the granularity is reachable"
+    // cannot see that: reachable by some other input is not the input the
+    // spec names.
+    testWidgets('clicking the hunk heading selects every row in that hunk', (
+      WidgetTester tester,
+    ) async {
+      // Two scopes in one hunk: what the click buys over the cards is a
+      // single press that moves both.
+      await pump(tester, file: _file(<String>['.+...+.']));
+      expect(
+        find.byKey(const ValueKey<String>('temporary-scope-card')),
+        findsNothing,
+      );
+
+      await tapHeading(tester, find.textContaining('@@ '));
+
+      expect(
+        find.byKey(const ValueKey<String>('temporary-scope-card')),
+        findsOneWidget,
+      );
+
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const ValueKey<String>('temporary-scope-card')),
+          matching: find.textContaining('Stage '),
+        ),
+      );
+
+      expect(staged.length, 1);
+      expect(staged.single.hunkIndex, 0);
+      expect(
+        staged.single.lines,
+        <int>[1, 5],
+        reason:
+            'the click frames the whole hunk, but only its changed lines may '
+            'be sent to git',
+      );
+    });
+
+    testWidgets('clicking one heading leaves the other hunk alone', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, file: _file(<String>['.+.', '.-.']));
+
+      await tapHeading(tester, find.textContaining('@@ ').last);
+
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const ValueKey<String>('temporary-scope-card')),
+          matching: find.textContaining('Stage '),
+        ),
+      );
+
+      expect(staged.length, 1);
+      expect(
+        staged.single.hunkIndex,
+        1,
+        reason: 'the second heading was clicked, so the second hunk moves',
+      );
+    });
+
+    // The two inputs `SCOPES` names besides the drag select no *text*, so
+    // SelectionArea paints nothing and the count on a button would be the
+    // only word the user got about what they had selected. Asserting the
+    // overlay by identity: a wrong colour throws no exception.
+    testWidgets('the rows in the scope are tinted, so the selection is '
+        'visible without a text highlight', (WidgetTester tester) async {
+      await pump(tester, file: _file(<String>['.+.', '.-.']));
+
+      Iterable<Container> rowBoxes() => tester
+          .widgetList<Container>(
+            find.descendant(
+              of: find.byType(DiffLineView),
+              matching: find.byType(Container),
+            ),
+          )
+          .where((Container c) => c.foregroundDecoration != null);
+
+      expect(rowBoxes(), isEmpty, reason: 'nothing is selected yet');
+
+      await tapHeading(tester, find.textContaining('@@ ').first);
+
+      final List<Container> tinted = rowBoxes().toList();
+      expect(
+        tinted.length,
+        3,
+        reason: 'the first hunk has three rows and all of them were framed',
+      );
+      expect(
+        (tinted.first.foregroundDecoration! as BoxDecoration).color,
+        tokensFor(GbmThemeVariant.darkTechnical).accent.withValues(alpha: 0.18),
+      );
     });
 
     testWidgets('the head counts the cards below it', (

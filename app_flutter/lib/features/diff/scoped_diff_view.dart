@@ -6,6 +6,7 @@ import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/gbm_badge.dart';
 import '../../widgets/gbm_button.dart';
+import '../../widgets/gbm_row.dart';
 import 'diff_scopes.dart';
 import 'selection_touch.dart';
 import 'widgets/diff_line.dart';
@@ -329,6 +330,31 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     );
   }
 
+  /// `SCOPES` row 6: selects every row of [hunkIndex] as the one-shot scope,
+  /// so one press moves 「該段所有變更行」.
+  ///
+  /// Every row, context included, for the same reason [_GapBlock] tracks
+  /// context rows during a drag: the button's primary number is how many
+  /// lines the user framed, and a hunk click frames the whole hunk.
+  /// `touchedChangedLines` drops the context again before anything is sent
+  /// to git, so this cannot ask git to stage an unchanged line.
+  ///
+  /// Deferred to after the frame because the click's own pointer-down has
+  /// already called [SelectionTouchTracker.beginGesture] (which clears and
+  /// unlatches) and its pointer-up [SelectionTouchTracker.endGesture]; doing
+  /// this inline would race the row delegates that are still settling from
+  /// the tap's own collapse of the text selection.
+  void _selectHunk(DiffFile diffFile, int hunkIndex) {
+    final Set<String> rows = <String>{
+      for (int i = 0; i < diffFile.hunks[hunkIndex].lines.length; i++)
+        selectionRowKey(hunkIndex, i),
+    };
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _tracker.setTouched(rows);
+    });
+  }
+
   /// Built imperatively rather than as one nested collection-for, because
   /// the loop carries a running scope ordinal across hunks.
   ///
@@ -366,7 +392,9 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
 
     for (int hunkIndex = 0; hunkIndex < diffFile.hunks.length; hunkIndex++) {
       final DiffHunk hunk = diffFile.hunks[hunkIndex];
-      children.add(_HunkHeading(hunk: hunk));
+      children.add(
+        _HunkHeading(hunk: hunk, onTap: () => _selectHunk(diffFile, hunkIndex)),
+      );
 
       for (final DiffSegment segment in hunkSegments(
         hunk,
@@ -382,6 +410,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
                 lineIndices: segment.lineIndices,
                 staged: widget.staged,
                 tracker: _tracker,
+                touched: _tracker.touched,
               ),
             );
           case DiffScopeSegment(:final DiffScope scope):
@@ -396,6 +425,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
                 staged: widget.staged,
                 hunkIndex: hunkIndex,
                 tracker: _tracker,
+                touched: _tracker.touched,
                 superseded: superseded,
                 onStage: () =>
                     widget.onStageScope(hunkIndex, scope.changedLineIndices),
@@ -482,27 +512,48 @@ class _ColumnHead extends StatelessWidget {
   }
 }
 
+/// The `@@ -a,b +c,d @@` line, and spec `SCOPES` row 6's own input:
+/// 「點 hunk 標頭列（@@ …）」, 「該段所有變更行一起處理」.
+///
+/// Clicking it *selects* the hunk rather than staging it. That is what the
+/// row says -- 處理 comes after the selection, and the row's own note sends
+/// staging to the right-click menu ([diffLineMenuItems]'s Stage hunk, which
+/// already existed). In 變體 B's vocabulary a selection is the one-shot
+/// card, so the click raises exactly the card a drag over the whole hunk
+/// would, and one press then moves every change in it -- which the per-scope
+/// cards alone cannot do in a hunk that holds more than one.
+///
+/// A [GbmRow] rather than a hand-rolled [InkWell]: it is row-shaped and
+/// clickable, and a hand-rolled one inherits `ThemeData.hoverColor` (~4%,
+/// invisible on a real display) -- the defect the sidebar and the tree-mode
+/// folder rows both shipped with.
 class _HunkHeading extends StatelessWidget {
-  const _HunkHeading({required this.hunk});
+  const _HunkHeading({required this.hunk, required this.onTap});
 
   final DiffHunk hunk;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
-    return Padding(
-      padding: const EdgeInsets.only(
-        top: GbmSpacing.space1,
-        bottom: GbmSpacing.space1,
-      ),
-      child: Text(
-        '@@ -${hunk.oldStart},${hunk.oldCount} '
-        '+${hunk.newStart},${hunk.newCount} @@ ${hunk.heading}',
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontFamily: GbmTypography.fontMono,
-          fontSize: GbmTypography.textXs,
-          color: colors.textTertiary,
+    return GbmRow(
+      onTap: onTap,
+      // The heading used to be a bare Text with 4px of padding above and
+      // below; keeping that height stops the click target from re-spacing
+      // every diff in the app.
+      height: 22,
+      padding: EdgeInsets.zero,
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(
+          '@@ -${hunk.oldStart},${hunk.oldCount} '
+          '+${hunk.newStart},${hunk.newCount} @@ ${hunk.heading}',
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontFamily: GbmTypography.fontMono,
+            fontSize: GbmTypography.textXs,
+            color: colors.textTertiary,
+          ),
         ),
       ),
     );
@@ -519,6 +570,7 @@ class _GapBlock extends StatelessWidget {
     required this.lineIndices,
     required this.staged,
     required this.tracker,
+    required this.touched,
   });
 
   final DiffHunk hunk;
@@ -526,6 +578,12 @@ class _GapBlock extends StatelessWidget {
   final List<int> lineIndices;
   final bool staged;
   final SelectionTouchTracker tracker;
+
+  /// Row keys currently in the one-shot scope. Passed down rather than read
+  /// off [tracker] here so both row builders and the card head agree with
+  /// the very same set the button was computed from -- a second read could
+  /// be a frame behind it.
+  final Set<String> touched;
 
   @override
   Widget build(BuildContext context) {
@@ -549,7 +607,11 @@ class _GapBlock extends StatelessWidget {
               SelectionTouchRow(
                 tracker: tracker,
                 rowKey: selectionRowKey(hunkIndex, index),
-                child: DiffLineView(line: hunk.lines[index], staged: staged),
+                child: DiffLineView(
+                  line: hunk.lines[index],
+                  staged: staged,
+                  touched: touched.contains(selectionRowKey(hunkIndex, index)),
+                ),
               ),
           ],
         ),
@@ -567,6 +629,7 @@ class _ScopeCard extends StatelessWidget {
     required this.staged,
     required this.hunkIndex,
     required this.tracker,
+    required this.touched,
     required this.superseded,
     required this.onStage,
     required this.onDiscard,
@@ -578,6 +641,9 @@ class _ScopeCard extends StatelessWidget {
   final bool staged;
   final int hunkIndex;
   final SelectionTouchTracker tracker;
+
+  /// Row keys currently in the one-shot scope -- see [_GapBlock.touched].
+  final Set<String> touched;
 
   /// A live text selection covers some of this card's changed lines, so the
   /// temporary scope has taken over. The button stays drawn -- struck
@@ -645,6 +711,7 @@ class _ScopeCard extends StatelessWidget {
                   selectionCount: moving,
                   onStageLine: onStage,
                   onDiscardLine: onDiscard,
+                  touched: touched.contains(selectionRowKey(hunkIndex, index)),
                 ),
               ),
           ],

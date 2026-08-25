@@ -111,7 +111,16 @@ GitResult<void> attachNumstat(IProcessRunner& runner,
         return {};
     }
 
-    std::vector<std::string> args{"diff", "--numstat", "-z", "-M"};
+    // The unstaged pass compares the work tree against the index, so it needs
+    // GitCommand::worktreeReadFlags() -- see that function for the measured
+    // regression it prevents. The staged pass is index-vs-HEAD, never looks at
+    // the work tree, and measured 0 of 12 failures without the flags, so it
+    // does not pay for them.
+    std::vector<std::string> args;
+    if (!staged) {
+        args = GitCommand::worktreeReadFlags();
+    }
+    args.insert(args.end(), {"diff", "--numstat", "-z", "-M"});
     if (staged) {
         args.emplace_back("--cached");
     }

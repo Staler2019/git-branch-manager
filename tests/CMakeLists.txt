@@ -27,6 +27,7 @@ add_executable(gbm_core_tests
     unit/RemoteOpsTest.cpp
     unit/RepoStateTest.cpp
     unit/SideBySideDiffTest.cpp
+    unit/WorktreeReadFlagsTest.cpp
     unit/TextTraitsTest.cpp
     unit/UnifiedDiffParserTest.cpp
 )

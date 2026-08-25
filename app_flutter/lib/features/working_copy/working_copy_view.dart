@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../actions/gbm_action_availability.dart';
 import '../../actions/gbm_action_id.dart';
+import '../../data/models/parsed_diff.dart';
 import '../../data/models/working_copy_status.dart';
 import '../../data/repositories/file_list_view_mode_repository.dart';
 import '../../data/repositories/panel_tabs_repository.dart';
@@ -27,12 +28,11 @@ import '../../widgets/gbm_badge.dart' show GbmBadge, GbmBadgeKind;
 import '../../widgets/gbm_button.dart';
 import '../../widgets/gbm_menu.dart';
 import '../../widgets/split_pane.dart';
-import '../diff/diff_page.dart';
-import '../diff/side_by_side_diff_view.dart';
 import '../workspace/workspace_screen.dart' show repoIdForRoute;
 import 'working_copy_file_identity.dart';
 import 'widgets/commit_message_box.dart';
 import 'widgets/working_copy_board.dart';
+import 'widgets/working_copy_diff_pane.dart';
 import 'widgets/working_copy_file_menu_items.dart';
 
 /// Changed-file list (staged/unstaged/untracked) + diff pane + commit box.
@@ -57,10 +57,6 @@ class WorkingCopyView extends ConsumerStatefulWidget {
 
 class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
   String? _selectedPath;
-  bool _selectedStaged = false;
-  // Side-by-side is read-only here, mirroring Qt's own WorkingCopyView --
-  // see side_by_side_diff_view.dart's doc comment.
-  bool _sideBySide = false;
   late TextEditingController _summaryController;
   late TextEditingController _descriptionController;
   late ScrollController _diffScrollController;
@@ -343,11 +339,13 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
       unstagedEntries: unstagedAndUntracked,
       stagedEntries: status.staged,
       mode: viewMode,
-      onFileActivated: (path, fromStaged) {
-        setState(() {
-          _selectedPath = path;
-          _selectedStaged = fromStaged;
-        });
+      // `fromStaged` says which column was clicked, which no longer selects
+      // anything: the pane below draws both sides of the file at once, so
+      // there is no "side I am looking at" left to record. The board still
+      // reports it because its own row context menu (05-F) needs to know
+      // whether the row it was opened on can be staged or unstaged.
+      onFileActivated: (String path, bool fromStaged) {
+        setState(() => _selectedPath = path);
         _requestBothSides(status);
       },
       onStageRequested: (paths) {
@@ -391,90 +389,60 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     }
 
     final ({String? unstaged, String? staged}) sides = _selectedSides(status);
-    final String? shownPath = _selectedStaged ? sides.staged : sides.unstaged;
-    final WorkingCopyDiffReply? diffReply = shownPath == null
+    final WorkingCopyDiffReply? unstagedReply = sides.unstaged == null
         ? null
-        : diffs[workingCopyDiffKey(shownPath, staged: _selectedStaged)];
+        : diffs[workingCopyDiffKey(sides.unstaged!, staged: false)];
+    final WorkingCopyDiffReply? stagedReply = sides.staged == null
+        ? null
+        : diffs[workingCopyDiffKey(sides.staged!, staged: true)];
 
-    if (diffReply == null) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        // Side-by-side toggle
-        if (_selectedPath != null)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: <Widget>[
-                Checkbox(
-                  value: _sideBySide,
-                  onChanged: (value) =>
-                      setState(() => _sideBySide = value ?? false),
-                  visualDensity: VisualDensity.compact,
-                ),
-                Text(
-                  'Side by side',
-                  style: TextStyle(
-                    fontSize: GbmTypography.textSm,
-                    color: colors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        // Diff view
-        Expanded(
-          child: _sideBySide
-              ? SideBySideDiffView(diff: diffReply.diff)
-              : DiffPage(
-                  diff: diffReply.diff,
-                  staged: _selectedStaged,
-                  scrollController: _diffScrollController,
-                  onStageHunk: (_, hunkIndex) {
-                    final RepoSessionController notifier = ref.read(
-                      repoSessionProvider(widget.identity).notifier,
-                    );
-                    if (_selectedStaged) {
-                      notifier.unstageHunk(_selectedPath!, hunkIndex);
-                    } else {
-                      notifier.stageHunk(_selectedPath!, hunkIndex);
-                    }
-                  },
-                  onStageLines: (_, hunkIndex, lineIndices) {
-                    final RepoSessionController notifier = ref.read(
-                      repoSessionProvider(widget.identity).notifier,
-                    );
-                    if (_selectedStaged) {
-                      notifier.unstageLines(
-                        _selectedPath!,
-                        hunkIndex,
-                        lineIndices,
-                      );
-                    } else {
-                      notifier.stageLines(
-                        _selectedPath!,
-                        hunkIndex,
-                        lineIndices,
-                      );
-                    }
-                  },
-                  // Only on the unstaged side: discarding rewrites the work
-                  // tree, which a staged-side line has nothing to do with.
-                  // Never calls discardLines straight -- spec page 06
-                  // requires the confirmation dialog first.
-                  onDiscardLines: _selectedStaged
-                      ? null
-                      : (_, hunkIndex, lineIndices) =>
-                            _discardLines(hunkIndex, lineIndices),
-                ),
-        ),
-      ],
+    return WorkingCopyDiffPane(
+      // Two paths when a rename is half-staged: the work tree still calls it
+      // the old name while the index already calls it the new one, and
+      // showing only one of them would make the pane look like it is
+      // describing a file the board is not selecting.
+      displayPath: _displayPath(sides),
+      unstagedFile: _fileOf(unstagedReply),
+      stagedFile: _fileOf(stagedReply),
+      // Pending means the side exists but its reply has not landed. A side
+      // that does not exist at all is not loading; it is empty, and
+      // ScopedDiffView says so.
+      unstagedLoading: sides.unstaged != null && unstagedReply == null,
+      stagedLoading: sides.staged != null && stagedReply == null,
+      scrollController: _diffScrollController,
+      onStageScope: (bool staged, int hunkIndex, List<int> lineIndices) {
+        final String? path = staged ? sides.staged : sides.unstaged;
+        if (path == null) return;
+        final RepoSessionController notifier = ref.read(
+          repoSessionProvider(widget.identity).notifier,
+        );
+        if (staged) {
+          notifier.unstageLines(path, hunkIndex, lineIndices);
+        } else {
+          notifier.stageLines(path, hunkIndex, lineIndices);
+        }
+      },
+      onDiscardScope: (int hunkIndex, List<int> lineIndices) =>
+          _discardLines(hunkIndex, lineIndices),
     );
   }
+
+  /// What the diff titlebar names for the current selection.
+  String _displayPath(({String? unstaged, String? staged}) sides) {
+    final String? unstaged = sides.unstaged;
+    final String? staged = sides.staged;
+    if (unstaged != null && staged != null && unstaged != staged) {
+      return '$unstaged \u2192 $staged';
+    }
+    return unstaged ?? staged ?? _selectedPath ?? '';
+  }
+
+  /// A working-copy diff describes exactly one path, because the request
+  /// that produced it named one path -- so the reply's single file is the
+  /// whole of it, and an empty `files` means git reported no change on that
+  /// side rather than an error.
+  DiffFile? _fileOf(WorkingCopyDiffReply? reply) =>
+      reply == null || reply.diff.files.isEmpty ? null : reply.diff.files.first;
 
   /// The path each column uses for the selected file, which is **not**
   /// always the same string: a staged rename is `new` on the staged side

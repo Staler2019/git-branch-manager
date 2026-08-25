@@ -127,3 +127,70 @@ DiffScope _scopeFrom(DiffHunk hunk, List<int> changedIndices) {
     removedCount: removed,
   );
 }
+
+/// One drawable block of a hunk: either a run of context lines that no scope
+/// claimed, or a scope.
+///
+/// Rendering reads this list straight through, so the "which lines are in a
+/// card and which are the code around it" decision stays in one pure place
+/// instead of being re-derived by a widget's build method.
+sealed class DiffSegment {
+  const DiffSegment();
+
+  /// The hunk-line indices this segment draws, in order.
+  List<int> get lineIndices;
+}
+
+/// Context lines outside every scope -- the code a change sits in.
+final class DiffGapSegment extends DiffSegment {
+  const DiffGapSegment(this.lineIndices);
+
+  @override
+  final List<int> lineIndices;
+}
+
+/// A scope, plus its 1-based position among the scopes of the same side, so
+/// the card can be labelled 「變更 2」 without the widget counting for itself.
+final class DiffScopeSegment extends DiffSegment {
+  const DiffScopeSegment({required this.scope, required this.ordinal});
+
+  final DiffScope scope;
+  final int ordinal;
+
+  @override
+  List<int> get lineIndices => scope.lineIndices;
+}
+
+/// Interleaves [scopes] with the context runs between them, covering every
+/// line of [hunk] exactly once and in order.
+///
+/// [firstOrdinal] is where this hunk's scope numbering continues from, so a
+/// file's cards read 變更 1, 2, 3… across hunk boundaries rather than
+/// restarting at every `@@`.
+List<DiffSegment> hunkSegments(
+  DiffHunk hunk,
+  List<DiffScope> scopes, {
+  int firstOrdinal = 1,
+}) {
+  final List<DiffSegment> segments = <DiffSegment>[];
+  int cursor = 0;
+  int ordinal = firstOrdinal;
+
+  void gapUpTo(int end) {
+    if (end <= cursor) return;
+    segments.add(
+      DiffGapSegment(
+        List<int>.unmodifiable(<int>[for (int i = cursor; i < end; i++) i]),
+      ),
+    );
+  }
+
+  for (final DiffScope scope in scopes) {
+    gapUpTo(scope.lineIndices.first);
+    segments.add(DiffScopeSegment(scope: scope, ordinal: ordinal++));
+    cursor = scope.lineIndices.last + 1;
+  }
+  gapUpTo(hunk.lines.length);
+
+  return List<DiffSegment>.unmodifiable(segments);
+}

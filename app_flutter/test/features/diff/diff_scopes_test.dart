@@ -163,6 +163,91 @@ void main() {
     });
   });
 
+  group('hunkSegments', () {
+    List<String> shape(List<DiffSegment> segments) => segments
+        .map(
+          (DiffSegment s) => switch (s) {
+            DiffGapSegment() => 'gap${s.lineIndices}',
+            DiffScopeSegment(:final int ordinal) =>
+              'scope$ordinal${s.lineIndices}',
+          },
+        )
+        .toList(growable: false);
+
+    List<DiffSegment> segmentsOf(String sketch, {int firstOrdinal = 1}) {
+      final DiffHunk hunk = _hunk(sketch);
+      return hunkSegments(
+        hunk,
+        splitHunkIntoScopes(hunk),
+        firstOrdinal: firstOrdinal,
+      );
+    }
+
+    test('every line of the hunk is drawn exactly once, in order', () {
+      // The property the rendering loop depends on: it walks segments and
+      // paints their lines, so a line in neither segment kind vanishes from
+      // the screen and a line in both is painted twice.
+      for (final String sketch in <String>[
+        '...+-...',
+        '+...+...+',
+        '....',
+        '---+++',
+        '.+..-.',
+        '+',
+      ]) {
+        final List<int> painted = <int>[
+          for (final DiffSegment s in segmentsOf(sketch)) ...s.lineIndices,
+        ];
+        expect(painted, <int>[
+          for (int i = 0; i < sketch.length; i++) i,
+        ], reason: 'sketch "$sketch" did not cover its own lines');
+      }
+    });
+
+    test('context before, between and after the scopes becomes gaps', () {
+      expect(shape(segmentsOf('..+...+..')), <String>[
+        'gap[0, 1]',
+        'scope1[2]',
+        'gap[3, 4, 5]',
+        'scope2[6]',
+        'gap[7, 8]',
+      ]);
+    });
+
+    test('a scope touching the start or the end of the hunk has no gap beside '
+        'it', () {
+      expect(shape(segmentsOf('+..')), <String>['scope1[0]', 'gap[1, 2]']);
+      expect(shape(segmentsOf('..+')), <String>['gap[0, 1]', 'scope1[2]']);
+      expect(shape(segmentsOf('+')), <String>['scope1[0]']);
+    });
+
+    test('a hunk with no change at all is one gap, not zero segments', () {
+      expect(shape(segmentsOf('....')), <String>['gap[0, 1, 2, 3]']);
+    });
+
+    test('the context the gap rule swallowed stays inside the scope, not in a '
+        'gap', () {
+      // '.+..-.' merges across two unchanged lines, so 2 and 3 belong to the
+      // card. Emitting them as a gap would draw a card, a slab of context and
+      // a second card for what is one change.
+      expect(shape(segmentsOf('.+..-.')), <String>[
+        'gap[0]',
+        'scope1[1, 2, 3, 4]',
+        'gap[5]',
+      ]);
+    });
+
+    test('firstOrdinal continues the numbering instead of restarting it', () {
+      // Cards are numbered per file, not per hunk, so 變更 N is unique in the
+      // pane -- the second hunk's first card must not also say 變更 1.
+      expect(shape(segmentsOf('+...+', firstOrdinal: 4)), <String>[
+        'scope4[0]',
+        'gap[1, 2, 3]',
+        'scope5[4]',
+      ]);
+    });
+  });
+
   group('splitDiffFileIntoScopes', () {
     test('scopes never span two hunks', () {
       final DiffFile file = DiffFile(

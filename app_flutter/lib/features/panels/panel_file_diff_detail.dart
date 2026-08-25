@@ -27,8 +27,10 @@ import '../diff/diff_page.dart';
 /// Conflict) rather than hardcoding a flat list -- the mistake Tier 0e
 /// existed to fix.
 ///
-/// Read-only by construction: [DiffPage]'s three mutation callbacks are left
-/// null, so no staging or discarding is reachable from a panel detail pane.
+/// Read-only by construction: [DiffPage] itself is now read-only -- staging
+/// moved to `features/diff/scoped_diff_view.dart` when spec P03's 變體 B
+/// replaced per-line checkboxes with per-scope cards -- so no staging or
+/// discarding is reachable from a panel detail pane.
 class PanelFileDiffDetail extends ConsumerStatefulWidget {
   const PanelFileDiffDetail({
     super.key,

@@ -5,6 +5,7 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_segmented_control.dart';
 import '../../diff/scoped_diff_view.dart';
+import '../../diff/temporary_scope_provider.dart';
 
 /// Spec P03's 變體 B titlebar switch: how the two sides of one file are laid
 /// out below it.
@@ -35,6 +36,7 @@ class WorkingCopyDiffPane extends StatefulWidget {
     required this.stagedLoading,
     required this.onStageScope,
     required this.onDiscardScope,
+    required this.onTemporaryScopeChanged,
     this.scrollController,
   });
 
@@ -57,6 +59,11 @@ class WorkingCopyDiffPane extends StatefulWidget {
   /// spec page 06's confirmation dialog by the caller.
   final void Function(int hunkIndex, List<int> changedLineIndices)
   onDiscardScope;
+
+  /// Forwarded from the **unstaged** column only -- see
+  /// [temporaryScopeSubmitProvider] for why the staged one does not
+  /// register.
+  final void Function(void Function()? submit) onTemporaryScopeChanged;
 
   /// Attached to the unstaged pane in `2 file` mode and to the single scroll
   /// view in `unified` mode.
@@ -143,6 +150,7 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
     // Discard is a work-tree rewrite, so it exists on the unstaged side
     // only -- there is nothing about a staged line to throw away.
     onDiscardScope: staged ? null : widget.onDiscardScope,
+    onTemporaryScopeChanged: staged ? null : widget.onTemporaryScopeChanged,
   );
 }
 

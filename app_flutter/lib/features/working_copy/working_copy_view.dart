@@ -28,6 +28,7 @@ import '../../widgets/gbm_badge.dart' show GbmBadge, GbmBadgeKind;
 import '../../widgets/gbm_button.dart';
 import '../../widgets/gbm_menu.dart';
 import '../../widgets/split_pane.dart';
+import '../diff/temporary_scope_provider.dart';
 import '../workspace/workspace_screen.dart' show repoIdForRoute;
 import 'working_copy_file_identity.dart';
 import 'widgets/commit_message_box.dart';
@@ -424,6 +425,12 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
       },
       onDiscardScope: (int hunkIndex, List<int> lineIndices) =>
           _discardLines(hunkIndex, lineIndices),
+      // Already inside a post-frame callback when it arrives (see
+      // ScopedDiffView.onTemporaryScopeChanged), so this is not a provider
+      // write from build().
+      onTemporaryScopeChanged: (void Function()? submit) {
+        ref.read(temporaryScopeSubmitProvider.notifier).state = submit;
+      },
     );
   }
 

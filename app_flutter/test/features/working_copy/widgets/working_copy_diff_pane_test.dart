@@ -46,8 +46,11 @@ void main() {
   group('WorkingCopyDiffPane', () {
     late List<({bool staged, int hunkIndex, List<int> lines})> stageCalls;
 
+    late List<void Function()?> submitters;
+
     setUp(() {
       stageCalls = <({bool staged, int hunkIndex, List<int> lines})>[];
+      submitters = <void Function()?>[];
     });
 
     Future<void> pump(
@@ -69,6 +72,8 @@ void main() {
           onStageScope: (bool s, int h, List<int> l) =>
               stageCalls.add((staged: s, hunkIndex: h, lines: l)),
           onDiscardScope: (_, _) {},
+          onTemporaryScopeChanged: (void Function()? submit) =>
+              submitters.add(submit),
         ),
       );
     }

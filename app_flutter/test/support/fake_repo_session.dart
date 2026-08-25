@@ -114,6 +114,21 @@ class FakeRepoSessionController extends RepoSessionController {
     );
   }
 
+  /// Recorded, not no-op'd: `requestDiff` is what the Working Copy view
+  /// fires once per side of the selected file, and the real method's
+  /// `_session == nullptr` guard would swallow both calls silently -- a
+  /// test could not then tell "asked for both sides" from "asked for
+  /// nothing".
+  @override
+  void requestDiff(String path, {bool staged = false}) {
+    commandLog.add(
+      FakeCommand('requestDiff', <String, Object?>{
+        'path': path,
+        'staged': staged,
+      }),
+    );
+  }
+
   @override
   void resolveConflict(
     String path,

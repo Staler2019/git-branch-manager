@@ -15,7 +15,8 @@ import '../../data/repositories/repo_session_repository.dart'
         RepoSessionController,
         RepoSessionState,
         WorkingCopyDiffReply,
-        repoSessionProvider;
+        repoSessionProvider,
+        workingCopyDiffKey;
 import '../../data/repositories/working_copy_draft_repository.dart';
 import '../../data/repositories/working_copy_repository.dart' as wc;
 import '../../data/services/desktop_launcher.dart';
@@ -29,6 +30,7 @@ import '../../widgets/split_pane.dart';
 import '../diff/diff_page.dart';
 import '../diff/side_by_side_diff_view.dart';
 import '../workspace/workspace_screen.dart' show repoIdForRoute;
+import 'working_copy_file_identity.dart';
 import 'widgets/commit_message_box.dart';
 import 'widgets/working_copy_board.dart';
 import 'widgets/working_copy_file_menu_items.dart';
@@ -114,8 +116,8 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     final WorkingCopyStatus status = ref.watch(
       wc.repoWorkingCopyStatusProvider(widget.identity),
     );
-    final WorkingCopyDiffReply? diffReply = ref.watch(
-      wc.repoLastDiffProvider(widget.identity),
+    final Map<String, WorkingCopyDiffReply> diffs = ref.watch(
+      wc.repoWorkingCopyDiffsProvider(widget.identity),
     );
     final FileListViewMode viewMode = ref.watch(fileListViewModeProvider);
     final GbmColors colors = context.gbmColors;
@@ -133,17 +135,9 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     // whole-file stage/unstage too, which has the same staleness).
     ref.listen(wc.repoWorkingCopyStatusProvider(widget.identity), (
       previous,
-      next,
+      WorkingCopyStatus next,
     ) {
-      final String? path = _selectedPath;
-      if (path != null) {
-        wc.requestWorkingCopyDiff(
-          ref,
-          widget.identity,
-          path,
-          staged: _selectedStaged,
-        );
-      }
+      _requestBothSides(next);
     });
 
     return Column(
@@ -168,7 +162,7 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
                 viewMode: viewMode,
               ),
               // Diff pane
-              _buildDiffPane(context, status: status, diffReply: diffReply),
+              _buildDiffPane(context, status: status, diffs: diffs),
             ],
           ),
         ),
@@ -354,12 +348,7 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
           _selectedPath = path;
           _selectedStaged = fromStaged;
         });
-        wc.requestWorkingCopyDiff(
-          ref,
-          widget.identity,
-          path,
-          staged: fromStaged,
-        );
+        _requestBothSides(status);
       },
       onStageRequested: (paths) {
         wc.stageFiles(ref, widget.identity, paths);
@@ -388,7 +377,7 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
   Widget _buildDiffPane(
     BuildContext context, {
     required WorkingCopyStatus status,
-    required WorkingCopyDiffReply? diffReply,
+    required Map<String, WorkingCopyDiffReply> diffs,
   }) {
     final GbmColors colors = context.gbmColors;
 
@@ -401,9 +390,13 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
       );
     }
 
-    if (diffReply == null ||
-        diffReply.path != _selectedPath ||
-        diffReply.staged != _selectedStaged) {
+    final ({String? unstaged, String? staged}) sides = _selectedSides(status);
+    final String? shownPath = _selectedStaged ? sides.staged : sides.unstaged;
+    final WorkingCopyDiffReply? diffReply = shownPath == null
+        ? null
+        : diffs[workingCopyDiffKey(shownPath, staged: _selectedStaged)];
+
+    if (diffReply == null) {
       return const Center(child: CircularProgressIndicator());
     }
 
@@ -482,6 +475,84 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
       ],
     );
   }
+
+  /// The path each column uses for the selected file, which is **not**
+  /// always the same string: a staged rename is `new` on the staged side
+  /// while the work tree still talks about `old`. Both are resolved through
+  /// [logicalFileKey], the one definition of "the same file" the board's
+  /// selection also uses.
+  ({String? unstaged, String? staged}) _selectedSides(
+    WorkingCopyStatus status,
+  ) {
+    final String? path = _selectedPath;
+    if (path == null) return (unstaged: null, staged: null);
+
+    String? keyOf(List<WorkingCopyEntry> side) {
+      for (final WorkingCopyEntry entry in side) {
+        if (entry.path == path) return logicalFileKey(entry);
+      }
+      return null;
+    }
+
+    final String key =
+        keyOf(status.entries) ?? logicalFileKey(_syntheticEntry(path));
+
+    String? pathIn(List<WorkingCopyEntry> side) {
+      for (final WorkingCopyEntry entry in side) {
+        if (logicalFileKey(entry) == key) return entry.path;
+      }
+      return null;
+    }
+
+    return (
+      unstaged: pathIn(<WorkingCopyEntry>[
+        ...status.unstaged,
+        ...status.untrackedFiles,
+      ]),
+      staged: pathIn(status.staged),
+    );
+  }
+
+  /// Fires one diff request per side of the selected file.
+  ///
+  /// Both, not just the side that was clicked: spec page 03 shows the
+  /// unstaged and the staged diff of one file at the same time, and each
+  /// side has to be asked for under its own path. A single request is why
+  /// the pane used to go stale on whichever side the user was not looking
+  /// at when a line was staged.
+  void _requestBothSides(WorkingCopyStatus status) {
+    final ({String? unstaged, String? staged}) sides = _selectedSides(status);
+    if (sides.unstaged case final String path) {
+      wc.requestWorkingCopyDiff(ref, widget.identity, path, staged: false);
+    }
+    if (sides.staged case final String path) {
+      wc.requestWorkingCopyDiff(ref, widget.identity, path, staged: true);
+    }
+  }
+
+  /// A stand-in for a path that is no longer in the status at all (the file
+  /// was staged away between the click and this rebuild). It keys to the
+  /// path itself, so both lookups above simply come back null.
+  WorkingCopyEntry _syntheticEntry(String path) => WorkingCopyEntry(
+    path: path,
+    oldPath: '',
+    untracked: false,
+    staged: false,
+    indexStatus: FileChangeKind.modified,
+    hasUnstagedChange: false,
+    worktreeStatus: FileChangeKind.modified,
+    unstagedAdded: 0,
+    unstagedRemoved: 0,
+    stagedAdded: 0,
+    stagedRemoved: 0,
+    conflict: ConflictKind.none,
+    ancestorBlob: '',
+    oursBlob: '',
+    theirsBlob: '',
+    similarity: 0,
+    isSubmodule: false,
+    isConflicted: false,
+  );
 
   /// Builds the commit message box.
   Widget _buildCommitBox(

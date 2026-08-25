@@ -18,13 +18,20 @@ repoWorkingCopyStatusProvider =
       );
     });
 
-/// The most recent diff reply, selected the same way. `features/diff`
-/// checks `reply.path`/`reply.staged` against what it asked for, since a
-/// newer request for a different file can race an in-flight one.
-final ProviderFamily<WorkingCopyDiffReply?, RepoIdentity> repoLastDiffProvider =
-    Provider.family<WorkingCopyDiffReply?, RepoIdentity>((ref, identity) {
+/// Every diff currently fetched for the selected file, keyed by
+/// [workingCopyDiffKey] -- selected the same way.
+///
+/// Not "the last diff": the Working Copy view asks for the unstaged and the
+/// staged side of one file at once and paints both, so a single slot always
+/// hid one of them behind whichever reply happened to land second.
+final ProviderFamily<Map<String, WorkingCopyDiffReply>, RepoIdentity>
+repoWorkingCopyDiffsProvider =
+    Provider.family<Map<String, WorkingCopyDiffReply>, RepoIdentity>((
+      ref,
+      identity,
+    ) {
       return ref.watch(
-        repoSessionProvider(identity).select((state) => state.lastDiff),
+        repoSessionProvider(identity).select((state) => state.workingCopyDiffs),
       );
     });
 

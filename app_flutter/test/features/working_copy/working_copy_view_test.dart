@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart'
-    show RepoSessionState, repoSessionProvider;
+    show RepoSessionState, WorkingCopyDiffReply, repoSessionProvider;
 import 'package:gbm_flutter/data/repositories/working_copy_draft_repository.dart'
     show workingCopyDraftProvider;
 import 'package:gbm_flutter/data/repositories/working_copy_repository.dart'
@@ -83,7 +83,9 @@ void main() {
               .overrideWithValue(
                 WorkingCopyStatus(entries: [stagedEntry, unstagedEntry]),
               ),
-          wc.repoLastDiffProvider(identity).overrideWithValue(null),
+          wc
+              .repoWorkingCopyDiffsProvider(identity)
+              .overrideWithValue(const <String, WorkingCopyDiffReply>{}),
         ],
       );
 
@@ -133,7 +135,9 @@ void main() {
           wc
               .repoWorkingCopyStatusProvider(identity)
               .overrideWithValue(WorkingCopyStatus(entries: [conflictedEntry])),
-          wc.repoLastDiffProvider(identity).overrideWithValue(null),
+          wc
+              .repoWorkingCopyDiffsProvider(identity)
+              .overrideWithValue(const <String, WorkingCopyDiffReply>{}),
         ],
       );
 
@@ -163,7 +167,9 @@ void main() {
           wc
               .repoWorkingCopyStatusProvider(identity)
               .overrideWithValue(WorkingCopyStatus(entries: [stagedEntry])),
-          wc.repoLastDiffProvider(identity).overrideWithValue(null),
+          wc
+              .repoWorkingCopyDiffsProvider(identity)
+              .overrideWithValue(const <String, WorkingCopyDiffReply>{}),
         ],
       );
 
@@ -189,7 +195,9 @@ void main() {
           wc
               .repoWorkingCopyStatusProvider(identity)
               .overrideWithValue(WorkingCopyStatus(entries: [])),
-          wc.repoLastDiffProvider(identity).overrideWithValue(null),
+          wc
+              .repoWorkingCopyDiffsProvider(identity)
+              .overrideWithValue(const <String, WorkingCopyDiffReply>{}),
         ],
       );
 
@@ -237,7 +245,9 @@ void main() {
               .overrideWithValue(
                 WorkingCopyStatus(entries: [unstagedEntry, untrackedEntry]),
               ),
-          wc.repoLastDiffProvider(identity).overrideWithValue(null),
+          wc
+              .repoWorkingCopyDiffsProvider(identity)
+              .overrideWithValue(const <String, WorkingCopyDiffReply>{}),
         ],
       );
 
@@ -263,7 +273,9 @@ void main() {
           wc
               .repoWorkingCopyStatusProvider(identity)
               .overrideWithValue(WorkingCopyStatus(entries: [stagedEntry])),
-          wc.repoLastDiffProvider(identity).overrideWithValue(null),
+          wc
+              .repoWorkingCopyDiffsProvider(identity)
+              .overrideWithValue(const <String, WorkingCopyDiffReply>{}),
         ],
       );
 
@@ -310,6 +322,100 @@ void main() {
 
       expect(find.text('my summary'), findsOneWidget);
       expect(find.text('my description'), findsOneWidget);
+    });
+
+    testWidgets('selecting a file asks for both sides, each under its own '
+        'path', (tester) async {
+      // A staged rename plus the old name back in the work tree: the two
+      // sides of one logical file are not the same string, so a single
+      // request under "the path that was clicked" would leave one pane
+      // permanently empty.
+      const WorkingCopyEntry stagedRename = WorkingCopyEntry(
+        path: 'lib/new.dart',
+        oldPath: 'lib/old.dart',
+        untracked: false,
+        staged: true,
+        indexStatus: FileChangeKind.renamed,
+        hasUnstagedChange: false,
+        worktreeStatus: FileChangeKind.modified,
+        unstagedAdded: 0,
+        unstagedRemoved: 0,
+        stagedAdded: 0,
+        stagedRemoved: 0,
+        conflict: ConflictKind.none,
+        ancestorBlob: '',
+        oursBlob: '',
+        theirsBlob: '',
+        similarity: 100,
+        isSubmodule: false,
+        isConflicted: false,
+      );
+      const WorkingCopyEntry worktreeOld = WorkingCopyEntry(
+        path: 'lib/old.dart',
+        oldPath: '',
+        untracked: true,
+        staged: false,
+        indexStatus: FileChangeKind.modified,
+        hasUnstagedChange: true,
+        worktreeStatus: FileChangeKind.added,
+        unstagedAdded: 0,
+        unstagedRemoved: 0,
+        stagedAdded: 0,
+        stagedRemoved: 0,
+        conflict: ConflictKind.none,
+        ancestorBlob: '',
+        oursBlob: '',
+        theirsBlob: '',
+        similarity: 0,
+        isSubmodule: false,
+        isConflicted: false,
+      );
+
+      final FakeRepoSessionController fake = FakeRepoSessionController(
+        identity,
+        const RepoSessionState(),
+      );
+
+      await pumpGbmWidget(
+        tester,
+        child: SizedBox(
+          width: 800,
+          height: 600,
+          child: WorkingCopyView(identity: identity),
+        ),
+        overrides: [
+          repoSessionProvider(identity).overrideWith((ref) => fake),
+          wc
+              .repoWorkingCopyStatusProvider(identity)
+              .overrideWithValue(
+                const WorkingCopyStatus(
+                  entries: <WorkingCopyEntry>[stagedRename, worktreeOld],
+                ),
+              ),
+          wc
+              .repoWorkingCopyDiffsProvider(identity)
+              .overrideWithValue(const <String, WorkingCopyDiffReply>{}),
+        ],
+      );
+
+      await tester.tap(find.text('lib/new.dart'));
+      await tester.pump();
+
+      // Counted, not `.any`: a double dispatch is a regression this repo has
+      // shipped before, and `.any` is blind to it.
+      final List<FakeCommand> diffs = fake.commandLog
+          .where((FakeCommand c) => c.name == 'requestDiff')
+          .toList(growable: false);
+      expect(diffs.length, 2);
+      expect(
+        diffs
+            .map((FakeCommand c) => '${c.args['staged']}:${c.args['path']}')
+            .toSet(),
+        <String>{'false:lib/old.dart', 'true:lib/new.dart'},
+        reason:
+            'the unstaged side is asked for under the old name and the '
+            'staged side under the new one',
+      );
     });
   });
 }

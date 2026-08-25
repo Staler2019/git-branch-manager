@@ -322,6 +322,35 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       session,
     );
 
+    // Spec P02-13 / P03-9: the tab row belongs at the top of the *centre
+    // column*, not spanning the window above the sidebar. Both pages' prose
+    // says 「中央區最上方」 and both mockups draw `gbm-tabs` inside the
+    // `mkpane flex:1` that sits to the right of the sidebar. It used to be a
+    // child of the outer Column, which put it over the sidebar too.
+    //
+    // Built here rather than inline so the two layout branches below (sidebar
+    // shown / hidden) carry the same instance instead of two copies that can
+    // drift apart.
+    final TabRow tabRow = TabRow(
+      repoId: repoId,
+      pendingChangeCount: session.workingCopyStatus.entries.length,
+      compareTabs: ref.watch(compareTabsProvider(identity)),
+      onCloseCompareTab: (String tabId) =>
+          _closeCompareTab(context, ref, identity, repoId, tabId),
+      panelTabs: ref.watch(panelTabsProvider(identity)),
+      onClosePanelTab: (String tabId) =>
+          _closePanelTab(context, ref, identity, repoId, tabId),
+      // Sourced from isActionEnabled(), not session.conflictActive
+      // directly -- single source of truth, same pattern as
+      // BranchTreeItem/CommitGraphView. Cherry-pick/Reset have no
+      // GbmActionId of their own yet, so they share Merge's gate --
+      // see TabRow.conflictActive's doc comment.
+      conflictActive: !isActionEnabled(
+        GbmActionId.branchMergeIntoCurrent,
+        session,
+      ),
+    );
+
     // Track whether log has unread entries (newest entry > lastSeen index)
     final bool hasUnreadLog =
         session.operationLog.isNotEmpty &&
@@ -386,25 +415,6 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
             onRefresh: () => refreshRepoHistory(ref, identity),
             onBack: () => context.go(RoutePaths.welcome),
           ),
-          TabRow(
-            repoId: repoId,
-            pendingChangeCount: session.workingCopyStatus.entries.length,
-            compareTabs: ref.watch(compareTabsProvider(identity)),
-            onCloseCompareTab: (String tabId) =>
-                _closeCompareTab(context, ref, identity, repoId, tabId),
-            panelTabs: ref.watch(panelTabsProvider(identity)),
-            onClosePanelTab: (String tabId) =>
-                _closePanelTab(context, ref, identity, repoId, tabId),
-            // Sourced from isActionEnabled(), not session.conflictActive
-            // directly -- single source of truth, same pattern as
-            // BranchTreeItem/CommitGraphView. Cherry-pick/Reset have no
-            // GbmActionId of their own yet, so they share Merge's gate --
-            // see TabRow.conflictActive's doc comment.
-            conflictActive: !isActionEnabled(
-              GbmActionId.branchMergeIntoCurrent,
-              session,
-            ),
-          ),
           if (session.conflictActive)
             ConflictBanner(
               repoId: repoId,
@@ -454,7 +464,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
                         filterFocusNode: _branchFilterFocusNode,
                         switcherController: _switcherController,
                       ),
-                      widget.child,
+                      _centreColumn(tabRow),
                     ],
                   )
                 else
@@ -464,8 +474,9 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
                   // second Expanded directly around it throws Flutter's
                   // "Incorrect use of ParentDataWidget" error, since two
                   // ParentDataWidgets of the same type can't stack without
-                  // an intervening Flex.
-                  widget.child,
+                  // an intervening Flex. _centreColumn's own Expanded is a
+                  // child of its own Column, so it is not a second one here.
+                  _centreColumn(tabRow),
               ],
             ),
           ),
@@ -543,6 +554,26 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         isMacOSOverride: isMacOS,
         child: scaffoldContent,
       ),
+    );
+  }
+
+  /// The centre column: the tab row pinned above whatever route is showing.
+  ///
+  /// Spec P02-13 / P03-9 put the tabs at the top of this column rather than
+  /// across the whole window, so the sidebar sits *beside* the tab row, not
+  /// under it. Callers hand in one shared TabRow instance; see where it is
+  /// built in build().
+  ///
+  /// `Expanded` around the route is what gives the route a bounded height
+  /// inside this Column. It is safe here for the reason the call sites' own
+  /// comment gives: it is a child of this Column, not a second Expanded
+  /// stacked on the enclosing GbmSplitPane's internal one.
+  Widget _centreColumn(TabRow tabRow) {
+    return Column(
+      children: <Widget>[
+        tabRow,
+        Expanded(child: widget.child),
+      ],
     );
   }
 

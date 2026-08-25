@@ -61,13 +61,21 @@ void main() {
     test('no two shortcuts produce equal keyboard combinations on macOS', () {
       final shortcuts = gbmActionShortcuts(true);
 
-      // Convert all to a comparable key. `alt` belongs here for the same
-      // reason `shift` does -- it was left out while no shortcut used it,
-      // which made the test unable to tell Ctrl/Cmd+Shift+A from
-      // Ctrl/Cmd+Alt+A. The moment the first alt binding landed
-      // (repositoryStageAll) this reported a collision that does not exist.
+      // Convert all to a comparable key. Two rules for what belongs in this
+      // tuple, both learned the hard way:
+      //
+      // Every modifier, including ones nothing uses yet. `alt` was left out
+      // while no shortcut set it, so the test could not tell Ctrl/Cmd+Shift+A
+      // from Ctrl/Cmd+Alt+A; the moment the first alt binding landed
+      // (repositoryStageAll) it reported a collision that does not exist.
+      //
+      // The key itself, not `trigger.keyLabel`. keyLabel is a display string:
+      // today it does separate Digit 1 ("1") from Numpad 1 ("Numpad 1"), so
+      // no two bindings currently collapse onto one label -- but that is
+      // Flutter's presentation choice, not an identity guarantee, and identity
+      // is what this test needs.
       final comparableKeys = shortcuts.values.map((s) {
-        return (s.trigger.keyLabel, s.shift, s.alt, s.meta, s.control);
+        return (s.trigger, s.shift, s.alt, s.meta, s.control);
       }).toList();
 
       final uniqueKeys = comparableKeys.toSet();
@@ -90,13 +98,10 @@ void main() {
       () {
         final shortcuts = gbmActionShortcuts(false);
 
-        // Convert all to a comparable key. `alt` belongs here for the same
-        // reason `shift` does -- it was left out while no shortcut used it,
-        // which made the test unable to tell Ctrl/Cmd+Shift+A from
-        // Ctrl/Cmd+Alt+A. The moment the first alt binding landed
-        // (repositoryStageAll) this reported a collision that does not exist.
+        // Same comparable key as the macOS test above; its comment explains
+        // why every modifier is in the tuple and why this is the key itself.
         final comparableKeys = shortcuts.values.map((s) {
-          return (s.trigger.keyLabel, s.shift, s.alt, s.meta, s.control);
+          return (s.trigger, s.shift, s.alt, s.meta, s.control);
         }).toList();
 
         final uniqueKeys = comparableKeys.toSet();

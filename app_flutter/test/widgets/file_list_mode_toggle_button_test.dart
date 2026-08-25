@@ -1,54 +1,90 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/theme_mode_provider.dart';
+import 'package:gbm_flutter/theme/tokens.dart';
 import 'package:gbm_flutter/widgets/file_list_mode_toggle_button.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  Future<_FakeSharedPreferences> pump(WidgetTester tester) async {
+    final _FakeSharedPreferences fakePrefs = _FakeSharedPreferences();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [sharedPreferencesProvider.overrideWithValue(fakePrefs)],
+        child: MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: const Scaffold(body: FileListModeToggleButton()),
+        ),
+      ),
+    );
+    return fakePrefs;
+  }
+
   group('FileListModeToggleButton', () {
-    testWidgets('renders button with list icon initially', (
+    testWidgets('renders both keys of P03-10\'s two-key switch', (
       WidgetTester tester,
     ) async {
-      final fakePrefs = _FakeSharedPreferences();
+      await pump(tester);
 
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [sharedPreferencesProvider.overrideWithValue(fakePrefs)],
-          child: const MaterialApp(
-            home: Scaffold(body: FileListModeToggleButton()),
-          ),
-        ),
-      );
-
-      // Should render the button
-      expect(find.byType(FileListModeToggleButton), findsOneWidget);
-      expect(find.byType(IconButton), findsWidgets);
+      // A single toggling button showed the mode you were *not* in, so the
+      // control contradicted the list it sat above. Both keys are always
+      // present; which one is lit is the state.
+      expect(find.byIcon(Icons.list), findsOneWidget);
+      expect(find.byIcon(Icons.account_tree), findsOneWidget);
     });
 
-    testWidgets('toggles mode when button is tapped', (
+    testWidgets('the key for the current mode is the lit one', (
       WidgetTester tester,
     ) async {
-      final fakePrefs = _FakeSharedPreferences();
+      await pump(tester);
+      final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
 
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [sharedPreferencesProvider.overrideWithValue(fakePrefs)],
-          child: const MaterialApp(
-            home: Scaffold(body: FileListModeToggleButton()),
-          ),
-        ),
+      Color? fillBehind(IconData icon) {
+        final Container box = tester.widget<Container>(
+          find
+              .ancestor(of: find.byIcon(icon), matching: find.byType(Container))
+              .first,
+        );
+        return (box.decoration as BoxDecoration?)?.color;
+      }
+
+      // Default mode is list.
+      expect(fillBehind(Icons.list)?.toARGB32(), colors.accent.toARGB32());
+      expect(
+        fillBehind(Icons.account_tree),
+        isNull,
+        reason: 'only the active key carries the accent fill',
       );
+    });
 
-      // Find and tap the toggle button
-      final buttons = find.byType(IconButton);
-      expect(buttons, findsWidgets);
+    testWidgets('tapping the other key switches and persists the mode', (
+      WidgetTester tester,
+    ) async {
+      final _FakeSharedPreferences fakePrefs = await pump(tester);
 
-      await tester.tap(buttons.first);
+      await tester.tap(find.byIcon(Icons.account_tree));
       await tester.pumpAndSettle();
 
-      // Default mode is list, so one tap should flip to tree.
       expect(fakePrefs.data['fileListViewMode'], 'tree');
+    });
+
+    testWidgets('tapping the key you are already on does nothing', (
+      WidgetTester tester,
+    ) async {
+      final _FakeSharedPreferences fakePrefs = await pump(tester);
+
+      await tester.tap(find.byIcon(Icons.list));
+      await tester.pumpAndSettle();
+
+      expect(
+        fakePrefs.data.containsKey('fileListViewMode'),
+        isFalse,
+        reason:
+            'the list key is already active -- with a single toggling button '
+            'this same tap flipped the mode instead',
+      );
     });
   });
 }

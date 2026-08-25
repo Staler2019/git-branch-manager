@@ -88,8 +88,8 @@ void main() {
       );
 
       // Check that board renders
-      expect(find.text('UNSTAGED'), findsOneWidget);
-      expect(find.text('STAGED'), findsOneWidget);
+      expect(find.textContaining('Unstaged \u00b7'), findsOneWidget);
+      expect(find.textContaining('Staged \u00b7'), findsOneWidget);
       expect(find.text('lib/main.dart'), findsOneWidget);
       expect(find.text('pubspec.yaml'), findsOneWidget);
     });

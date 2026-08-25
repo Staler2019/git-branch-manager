@@ -6,6 +6,7 @@ import 'package:gbm_flutter/data/repositories/file_list_view_mode_repository.dar
 import 'package:gbm_flutter/features/working_copy/widgets/working_copy_board.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
 import 'package:gbm_flutter/widgets/gbm_badge.dart';
+import 'package:gbm_flutter/widgets/file_list_mode_toggle_button.dart';
 import 'package:gbm_flutter/widgets/file_tree_folder_row.dart';
 import 'package:gbm_flutter/widgets/gbm_row.dart';
 
@@ -160,14 +161,15 @@ void main() {
         ),
       );
 
-      expect(find.text('UNSTAGED'), findsOneWidget);
-      expect(find.text('STAGED'), findsOneWidget);
+      expect(find.text('Unstaged \u00b7 2'), findsOneWidget);
+      expect(find.text('Staged \u00b7 1'), findsOneWidget);
       expect(find.text('lib/main.dart'), findsOneWidget);
       expect(find.text('lib/utils.dart'), findsOneWidget);
       expect(find.text('pubspec.yaml'), findsOneWidget);
     });
 
-    testWidgets('shows file count in headers', (tester) async {
+    testWidgets('the list/tree switch sits on the Unstaged header, once for '
+        'the whole board', (tester) async {
       await pumpGbmWidget(
         tester,
         child: SizedBox(
@@ -182,8 +184,38 @@ void main() {
         ),
       );
 
-      expect(find.text('2'), findsWidgets); // 2 unstaged + 1 staged
-      expect(find.text('1'), findsWidgets);
+      // P03-10's note enumerates "Working Copy 兩欄" as one subject of the
+      // one shared preference, and the mockup draws the switch on the
+      // Unstaged header only -- a second copy would be two controls for one
+      // global setting.
+      expect(find.byType(FileListModeToggleButton), findsOneWidget);
+      expect(
+        tester.getRect(find.byType(FileListModeToggleButton)).center.dx,
+        lessThan(tester.getRect(find.byType(WorkingCopyBoard)).center.dx),
+        reason: 'it belongs to the left (Unstaged) column',
+      );
+    });
+
+    testWidgets('the Unstaged column says how files change side, since no row '
+        'has a checkbox any more', (tester) async {
+      await pumpGbmWidget(
+        tester,
+        child: SizedBox(
+          width: 800,
+          height: 600,
+          child: WorkingCopyBoard(
+            unstagedEntries: unstagedEntries,
+            stagedEntries: stagedEntries,
+            onStageRequested: (_) {},
+            onUnstageRequested: (_) {},
+          ),
+        ),
+      );
+
+      expect(
+        find.text('\u62d6\u66f3\u6a94\u6848\u5230\u53f3\u6b04 = stage'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('empty column shows placeholder', (tester) async {

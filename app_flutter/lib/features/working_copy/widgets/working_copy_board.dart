@@ -8,6 +8,7 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/file_list_mode_switcher.dart';
 import '../../../widgets/file_tree_folder_row.dart';
+import '../../../widgets/file_list_mode_toggle_button.dart';
 import '../../../widgets/gbm_badge.dart';
 import '../../../widgets/gbm_row.dart';
 import '../../../widgets/split_pane.dart';
@@ -39,8 +40,10 @@ import '../working_copy_selection_state.dart';
 /// - List/Tree display mode, rendered by the shared [FileListModeSwitcher]
 ///   every other file list in the app uses.
 ///
-/// This is a presentational widget with no Riverpod dependencies.
-/// All stage/unstage operations are delegated to callbacks.
+/// Presentational apart from the one shared [FileListModeToggleButton] in
+/// its header, which reads the app-wide list/tree preference for itself (the
+/// same arrangement `changed_files_panel.dart` uses). Everything else arrives
+/// as a plain value or callback, and every stage/unstage is delegated.
 class WorkingCopyBoard extends StatefulWidget {
   const WorkingCopyBoard({
     super.key,
@@ -208,14 +211,14 @@ class _WorkingCopyBoardState extends State<WorkingCopyBoard> {
       children: <Widget>[
         _buildColumn(
           context,
-          header: 'UNSTAGED',
+          header: 'Unstaged',
           entries: widget.unstagedEntries,
           onDragAccept: _onUnstagedDragAccept,
           fromStaged: false,
         ),
         _buildColumn(
           context,
-          header: 'STAGED',
+          header: 'Staged',
           entries: widget.stagedEntries,
           onDragAccept: _onStagedDragAccept,
           fromStaged: true,
@@ -242,23 +245,28 @@ class _WorkingCopyBoardState extends State<WorkingCopyBoard> {
           padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
           child: Row(
             children: <Widget>[
+              // `Unstaged · 2`, one string, exactly as spec page 03's mockup
+              // writes it -- the count is part of the title, not a separate
+              // number floated to the far end of the row.
               Expanded(
                 child: Text(
-                  header,
+                  '$header \u00b7 ${entries.length}',
                   style: TextStyle(
                     fontSize: GbmTypography.textXs,
                     color: colors.textSecondary,
                     fontWeight: FontWeight.bold,
                   ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-              Text(
-                '${entries.length}',
-                style: TextStyle(
-                  fontSize: GbmTypography.textXs,
-                  color: colors.textTertiary,
-                ),
-              ),
+              // P03-10 puts the list/tree switch at the right of a file
+              // list's header. One switch serves the whole board: the note
+              // enumerates its subjects as "Working Copy 兩欄、History 的
+              // Changed files、Compare 的 Files、Conflict 視窗的檔案清單" --
+              // the two columns as one item -- and the mockup draws it on
+              // the Unstaged header only. A second copy would be two
+              // controls for one global preference.
+              if (!fromStaged) const FileListModeToggleButton(),
             ],
           ),
         ),
@@ -278,7 +286,39 @@ class _WorkingCopyBoardState extends State<WorkingCopyBoard> {
                   fromStaged: fromStaged,
                 ),
         ),
+        // The mockup's dashed hint, pinned to the bottom of the Unstaged
+        // column. With no checkbox on any row, dragging is the only way a
+        // file changes side, so the column has to say so somewhere.
+        if (!fromStaged) _dropHint(context),
       ],
+    );
+  }
+
+  /// 「拖曳檔案到右欄 = stage」 -- spec page 03's dashed panel.
+  Widget _dropHint(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        GbmSpacing.space2,
+        0,
+        GbmSpacing.space2,
+        GbmSpacing.space2,
+      ),
+      child: Container(
+        padding: const EdgeInsets.all(GbmSpacing.space2),
+        decoration: BoxDecoration(
+          border: Border.all(color: colors.borderDefault),
+          borderRadius: BorderRadius.circular(GbmSpacing.radiusMd),
+        ),
+        child: Text(
+          '\u62d6\u66f3\u6a94\u6848\u5230\u53f3\u6b04 = stage',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: GbmTypography.textXs,
+            color: colors.textTertiary,
+          ),
+        ),
+      ),
     );
   }
 

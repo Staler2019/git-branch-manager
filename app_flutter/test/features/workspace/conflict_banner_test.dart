@@ -42,18 +42,25 @@ Future<void> _pump(
   VoidCallback? onAbort,
   VoidCallback? onSkip,
   VoidCallback? onContinue,
+  double? width,
 }) {
+  final Widget banner = ConflictBanner(
+    repoId: 'repo1',
+    session: session,
+    onAbort: onAbort ?? () {},
+    onSkip: onSkip ?? () {},
+    onContinue: onContinue ?? () {},
+  );
   return tester.pumpWidget(
     MaterialApp(
       theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
       home: Scaffold(
-        body: ConflictBanner(
-          repoId: 'repo1',
-          session: session,
-          onAbort: onAbort ?? () {},
-          onSkip: onSkip ?? () {},
-          onContinue: onContinue ?? () {},
-        ),
+        body: width == null
+            ? banner
+            : Align(
+                alignment: Alignment.topLeft,
+                child: SizedBox(width: width, child: banner),
+              ),
       ),
     ),
   );
@@ -330,5 +337,113 @@ void main() {
         expect(continueCount, 1);
       },
     );
+
+    // The banner's four controls are non-flex children, and RenderFlex lays
+    // non-flex children out *first* -- so the Expanded on the status text
+    // could never rescue an overflow the buttons caused.
+    //
+    // The overflow at 440px measured **27px** here, not the 6.3px the audit
+    // recorded: that earlier figure was taken from a different session
+    // shape, and it mattered, because 6.3px is small enough that moving the
+    // controls to their own run would obviously fix it while 27px is not.
+    // The controls are 435px wide on their own at this font, against a
+    // 408px content box -- so the fix had to be a Wrap *within* the controls
+    // as well, not only between them and the text.
+    //
+    // The ruling was to wrap, not to shrink the controls: the status text
+    // takes one run and the controls take the next (and, at this width in
+    // the test font, split across two runs of their own).
+    testWidgets('at 440px the controls drop to their own row', (tester) async {
+      final session = RepoSessionState(
+        repoState: RepoState(
+          flags: RepoStateFlags.rebaseMerge,
+          isClean: false,
+          isSequencerOperation: true,
+          rebaseStep: 3,
+          rebaseTotal: 8,
+          rebaseOntoLabel: 'main',
+          indexLocked: false,
+          indexLockAgeSeconds: null,
+          describe: 'rebasing',
+        ),
+        workingCopyStatus: _conflictedStatus(1),
+      );
+
+      await _pump(tester, session: session, width: 440);
+
+      expect(tester.takeException(), isNull);
+
+      final Rect status = tester.getRect(
+        find.text('Rebase in progress (3/8): 1 file conflicted'),
+      );
+      final Rect abort = tester.getRect(find.text('Abort'));
+
+      // Two runs, not one squeezed row: the controls start below the text.
+      expect(
+        abort.top,
+        greaterThanOrEqualTo(status.bottom),
+        reason:
+            'the controls are still on the status text\'s row, so 440px is '
+            'either overflowing again or the text has been crushed',
+      );
+
+      // Everything still fits horizontally on its own run. Asserting
+      // visibility, not merely the absence of an exception: a child collapsed
+      // to zero width throws nothing.
+      final Rect resolve = tester.getRect(find.text('Resolve…'));
+      expect(resolve.width, greaterThan(0));
+      expect(resolve.right, lessThanOrEqualTo(440));
+    });
+
+    // The wrap must be a *narrow-width* behaviour, not the new normal: a
+    // banner that always spends two rows costs vertical space on every
+    // window, and the same assertion shape is the only thing that can tell
+    // the two apart.
+    //
+    // The canvas is set explicitly for two reasons. The default is 800x600
+    // and a wider SizedBox is silently clamped to it, so `width: 1280` alone
+    // would have measured 768. And the widths here are in *test-font* terms:
+    // flutter_test's font draws every glyph fontSize wide, so this status
+    // text measures 548px where the real app's proportional font is far
+    // narrower. That makes the pair of tests conservative in the right
+    // direction -- the real banner wraps at a narrower window than 440px
+    // suggests, and shares a run at a narrower window than this one does.
+    testWidgets('with room for both, the status text and controls share one '
+        'row', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1400, 600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final session = RepoSessionState(
+        repoState: RepoState(
+          flags: RepoStateFlags.rebaseMerge,
+          isClean: false,
+          isSequencerOperation: true,
+          rebaseStep: 3,
+          rebaseTotal: 8,
+          rebaseOntoLabel: 'main',
+          indexLocked: false,
+          indexLockAgeSeconds: null,
+          describe: 'rebasing',
+        ),
+        workingCopyStatus: _conflictedStatus(1),
+      );
+
+      await _pump(tester, session: session, width: 1280);
+
+      final Rect status = tester.getRect(
+        find.text('Rebase in progress (3/8): 1 file conflicted'),
+      );
+      final Rect abort = tester.getRect(find.text('Abort'));
+
+      expect(abort.top, lessThan(status.bottom));
+
+      // Controls stay pinned to the trailing edge, as they were before the
+      // wrap. `right` against the outer Wrap's own right edge, not merely
+      // "to the right of the status text" -- that weaker form is true under
+      // WrapAlignment.start too, so it could not tell the two apart. (It
+      // was written that way first, and the mutation stayed green.)
+      final Rect outer = tester.getRect(find.byType(Wrap).first);
+      final Rect controls = tester.getRect(find.byType(Wrap).last);
+      expect(controls.right, outer.right);
+    });
   });
 }

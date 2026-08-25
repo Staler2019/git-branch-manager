@@ -1463,94 +1463,120 @@ class ConflictBanner extends StatelessWidget {
         color: colors.diffDelBg,
         border: Border(bottom: BorderSide(color: colors.borderSubtle)),
       ),
-      child: Row(
+      // A Wrap, not a Row. The four controls are non-flex children, and
+      // RenderFlex lays non-flex children out *first* -- so the Expanded the
+      // status text used to sit in could never rescue an overflow the
+      // controls caused, and at 440px the row overflowed by 27px. The ruling
+      // was to wrap rather than shrink the controls: the text takes one run
+      // and the controls take the next, and at any ordinary window width
+      // they still share one run with the controls on the trailing edge.
+      //
+      // Same shape as `scoped_diff_view.dart`'s scope-card head, which
+      // solved the same problem: spaceBetween puts the two ends apart on one
+      // run and left-aligns a lone run, and the controls keep their own
+      // `Row(mainAxisSize: min)` so they never split across runs
+      // individually.
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: GbmSpacing.space2,
+        runSpacing: GbmSpacing.space1,
         children: <Widget>[
           if (statusText.isNotEmpty)
-            Expanded(
-              child: Text(
-                statusText,
-                style: TextStyle(
-                  fontSize: GbmTypography.textSm,
-                  color: colors.diffDelText,
-                ),
+            Text(
+              statusText,
+              style: TextStyle(
+                fontSize: GbmTypography.textSm,
+                color: colors.diffDelText,
               ),
             ),
-          // Abort button
-          if (kind != null)
-            Tooltip(
-              message: kind.canAbort
-                  ? ''
-                  : 'Revert has no abort (use Resolve…)',
-              child: TextButton(
-                onPressed: kind.canAbort ? onAbort : null,
-                child: Text(
-                  'Abort',
-                  style: TextStyle(
-                    fontSize: GbmTypography.textSm,
-                    color: colors.diffDelText,
-                    fontWeight: GbmTypography.weightSemibold,
+          // The controls wrap among themselves too, not just away from the
+          // status text. At 440px the four of them are wider than the
+          // banner's content box on their own, so moving them to their own
+          // run does not by itself stop the overflow -- and a control that
+          // has overflowed off the right edge is a control the user cannot
+          // reach. Wrapping here means the banner cannot overflow at any
+          // width; it only gets taller.
+          Wrap(
+            spacing: GbmSpacing.space2,
+            runSpacing: GbmSpacing.space1,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: <Widget>[
+              // Abort button
+              if (kind != null)
+                Tooltip(
+                  message: kind.canAbort
+                      ? ''
+                      : 'Revert has no abort (use Resolve…)',
+                  child: TextButton(
+                    onPressed: kind.canAbort ? onAbort : null,
+                    child: Text(
+                      'Abort',
+                      style: TextStyle(
+                        fontSize: GbmTypography.textSm,
+                        color: colors.diffDelText,
+                        fontWeight: GbmTypography.weightSemibold,
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
-          const SizedBox(width: GbmSpacing.space2),
-          // Skip button
-          if (kind != null)
-            Tooltip(
-              message: kind.canSkip
-                  ? ''
-                  : 'Skip not available for ${isRevert ? 'revert' : 'merge'}',
-              child: TextButton(
-                onPressed: kind.canSkip ? onSkip : null,
-                child: Text(
-                  'Skip',
-                  style: TextStyle(
-                    fontSize: GbmTypography.textSm,
-                    color: colors.diffDelText,
-                    fontWeight: GbmTypography.weightSemibold,
+              // Skip button
+              if (kind != null)
+                Tooltip(
+                  message: kind.canSkip
+                      ? ''
+                      : 'Skip not available for ${isRevert ? 'revert' : 'merge'}',
+                  child: TextButton(
+                    onPressed: kind.canSkip ? onSkip : null,
+                    child: Text(
+                      'Skip',
+                      style: TextStyle(
+                        fontSize: GbmTypography.textSm,
+                        color: colors.diffDelText,
+                        fontWeight: GbmTypography.weightSemibold,
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
-          const SizedBox(width: GbmSpacing.space2),
-          // Continue button
-          if (kind != null)
-            Tooltip(
-              message: kind.canContinue
-                  ? ''
-                  : 'Continue not available for '
-                        '${isRevert ? 'revert' : 'merge'} yet -- resolve via '
-                        'Resolve…',
-              child: TextButton(
-                onPressed: kind.canContinue ? onContinue : null,
-                child: Text(
-                  'Continue',
-                  style: TextStyle(
-                    fontSize: GbmTypography.textSm,
-                    color: colors.diffDelText,
-                    fontWeight: GbmTypography.weightSemibold,
+              // Continue button
+              if (kind != null)
+                Tooltip(
+                  message: kind.canContinue
+                      ? ''
+                      : 'Continue not available for '
+                            '${isRevert ? 'revert' : 'merge'} yet -- resolve via '
+                            'Resolve…',
+                  child: TextButton(
+                    onPressed: kind.canContinue ? onContinue : null,
+                    child: Text(
+                      'Continue',
+                      style: TextStyle(
+                        fontSize: GbmTypography.textSm,
+                        color: colors.diffDelText,
+                        fontWeight: GbmTypography.weightSemibold,
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
-          const SizedBox(width: GbmSpacing.space2),
-          // Resolve… button -- the actual route into ConflictResolveWindow's
-          // three-pane editor. Independent of [kind] so it's reachable
-          // during a real rebase/cherry-pick/merge/revert conflict, not
-          // just the git-apply --3way edge case that has no sequencer
-          // state; only Abort/Skip/Continue are sequencer-gated.
-          if (session.workingCopyStatus.conflicted.isNotEmpty)
-            TextButton(
-              onPressed: () => context.go(RoutePaths.conflictsFor(repoId)),
-              child: Text(
-                'Resolve…',
-                style: TextStyle(
-                  fontSize: GbmTypography.textSm,
-                  color: colors.diffDelText,
-                  fontWeight: GbmTypography.weightSemibold,
+              // Resolve… button -- the actual route into ConflictResolveWindow's
+              // three-pane editor. Independent of [kind] so it's reachable
+              // during a real rebase/cherry-pick/merge/revert conflict, not
+              // just the git-apply --3way edge case that has no sequencer
+              // state; only Abort/Skip/Continue are sequencer-gated.
+              if (session.workingCopyStatus.conflicted.isNotEmpty)
+                TextButton(
+                  onPressed: () => context.go(RoutePaths.conflictsFor(repoId)),
+                  child: Text(
+                    'Resolve…',
+                    style: TextStyle(
+                      fontSize: GbmTypography.textSm,
+                      color: colors.diffDelText,
+                      fontWeight: GbmTypography.weightSemibold,
+                    ),
+                  ),
                 ),
-              ),
-            ),
+            ],
+          ),
         ],
       ),
     );

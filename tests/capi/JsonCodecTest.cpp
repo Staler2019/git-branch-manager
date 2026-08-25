@@ -74,6 +74,53 @@ TEST(JsonCodecTest, OperationOutcomeEncodesFailureWithChoices) {
     EXPECT_NE(json.find("\"summary\":\"checkout failed\""), std::string::npos);
 }
 
+// The four line-count fields are independent on purpose: a partially staged
+// file has real numbers on *both* sides at once, and that pair of pairs is
+// exactly what the file list uses to say "part of this file is staged". A
+// serializer that emitted one shared pair, or that reused another struct's
+// `addedLines` key, would still look right in a repository-backed test where
+// only one side is ever non-zero.
+TEST(JsonCodecTest, WorkingCopyEntryEncodesAllFourLineCountsIndependently) {
+    WorkingCopyEntry partiallyStaged;
+    partiallyStaged.path = "both-sides.txt";
+    partiallyStaged.staged = true;
+    partiallyStaged.hasUnstagedChange = true;
+    partiallyStaged.unstagedAdded = 34;
+    partiallyStaged.unstagedRemoved = 12;
+    partiallyStaged.stagedAdded = 7;
+    partiallyStaged.stagedRemoved = 3;
+
+    WorkingCopyStatus status;
+    status.entries.push_back(partiallyStaged);
+
+    const std::string json = toJson(status);
+
+    EXPECT_NE(json.find("\"unstagedAdded\":34"), std::string::npos) << json;
+    EXPECT_NE(json.find("\"unstagedRemoved\":12"), std::string::npos) << json;
+    EXPECT_NE(json.find("\"stagedAdded\":7"), std::string::npos) << json;
+    EXPECT_NE(json.find("\"stagedRemoved\":3"), std::string::npos) << json;
+}
+
+// Zero is "not measured", never "measured zero" -- binary files, mode-only
+// changes and oversized untracked files all arrive here as 0 and the UI draws
+// no badge for them. The keys still have to be present: a missing key becomes
+// `null as int` on the Dart side, which is a crash rather than a blank badge.
+TEST(JsonCodecTest, WorkingCopyEntryStillEmitsTheKeysWhenEveryCountIsZero) {
+    WorkingCopyEntry binary;
+    binary.path = "logo.png";
+    binary.hasUnstagedChange = true;
+
+    WorkingCopyStatus status;
+    status.entries.push_back(binary);
+
+    const std::string json = toJson(status);
+
+    EXPECT_NE(json.find("\"unstagedAdded\":0"), std::string::npos) << json;
+    EXPECT_NE(json.find("\"unstagedRemoved\":0"), std::string::npos) << json;
+    EXPECT_NE(json.find("\"stagedAdded\":0"), std::string::npos) << json;
+    EXPECT_NE(json.find("\"stagedRemoved\":0"), std::string::npos) << json;
+}
+
 TEST(JsonCodecTest, RepoRecordArrayEncodesMultipleEntries) {
     RepoRecord a;
     a.id = 1;

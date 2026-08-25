@@ -181,6 +181,33 @@ TEST_F(WorkingCopyApiTest, RefreshReportsModifiedAndUntrackedFiles) {
     EXPECT_NE(json.find("\"untracked\":true"), std::string::npos) << json;
 }
 
+TEST_F(WorkingCopyApiTest, StatusJsonCarriesPerFileLineCounts) {
+    gbm_working_copy_refresh(session_);
+    ASSERT_TRUE(log_.waitFor([](const auto& events) {
+        return !events.empty() && events.back().first == GBM_EVENT_WORKING_COPY_STATUS_UPDATED;
+    }));
+
+    const std::string json = statusJson();
+
+    // committed.txt gained "line2" in the work tree and nothing is staged.
+    const std::size_t committed = json.find("\"path\":\"committed.txt\"");
+    ASSERT_NE(committed, std::string::npos) << json;
+    const std::size_t committedEnd = json.find("}", committed);
+    const std::string committedEntry = json.substr(committed, committedEnd - committed);
+    EXPECT_NE(committedEntry.find("\"unstagedAdded\":1"), std::string::npos) << committedEntry;
+    EXPECT_NE(committedEntry.find("\"unstagedRemoved\":0"), std::string::npos) << committedEntry;
+    EXPECT_NE(committedEntry.find("\"stagedAdded\":0"), std::string::npos) << committedEntry;
+    EXPECT_NE(committedEntry.find("\"stagedRemoved\":0"), std::string::npos) << committedEntry;
+
+    // untracked.txt is one line, counted by reading the file.
+    const std::size_t untracked = json.find("\"path\":\"untracked.txt\"");
+    ASSERT_NE(untracked, std::string::npos) << json;
+    const std::size_t untrackedEnd = json.find("}", untracked);
+    const std::string untrackedEntry = json.substr(untracked, untrackedEnd - untracked);
+    EXPECT_NE(untrackedEntry.find("\"unstagedAdded\":1"), std::string::npos) << untrackedEntry;
+    EXPECT_NE(untrackedEntry.find("\"unstagedRemoved\":0"), std::string::npos) << untrackedEntry;
+}
+
 TEST_F(WorkingCopyApiTest, WorkingCopyDiffReportsAddedLine) {
     gbm_working_copy_diff(session_, "committed.txt", /*staged=*/0);
 

@@ -324,6 +324,19 @@ std::string workingCopyEntryJson(const WorkingCopyEntry& entry) {
     jsonAppendEscaped(out, entry.oursBlob);
     out += ",\"theirsBlob\":";
     jsonAppendEscaped(out, entry.theirsBlob);
+    // Spec page 03's `+34 -12` badges. Four fields, not two: a file can have
+    // staged and unstaged changes at once, and the file list needs both
+    // numbers to say how much of it is already in the index. 0 means "not
+    // measured" (binary, mode-only, or an untracked file over the byte cap),
+    // which is why the UI draws no badge for it rather than "+0".
+    out += ",\"unstagedAdded\":";
+    jsonAppendInt(out, entry.unstagedAdded);
+    out += ",\"unstagedRemoved\":";
+    jsonAppendInt(out, entry.unstagedRemoved);
+    out += ",\"stagedAdded\":";
+    jsonAppendInt(out, entry.stagedAdded);
+    out += ",\"stagedRemoved\":";
+    jsonAppendInt(out, entry.stagedRemoved);
     out += ",\"similarity\":";
     jsonAppendInt(out, entry.similarity);
     out += ",\"isSubmodule\":";

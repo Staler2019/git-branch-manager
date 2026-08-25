@@ -18,10 +18,10 @@ void main() {
       GbmActionId.viewRefresh,
     };
 
-    test('macOS shortcuts has exactly 38 entries, and every one but the '
+    test('macOS shortcuts has exactly 40 entries, and every one but the '
         'bare-key group uses meta=true, control=false', () {
       final shortcuts = gbmActionShortcuts(true);
-      expect(shortcuts.length, 38);
+      expect(shortcuts.length, 40);
       shortcuts.forEach((id, shortcut) {
         if (bareKeyActions.contains(id)) return;
         expect(
@@ -37,10 +37,10 @@ void main() {
       });
     });
 
-    test('non-macOS shortcuts has exactly 38 entries, and every one but the '
+    test('non-macOS shortcuts has exactly 40 entries, and every one but the '
         'bare-key group uses meta=false, control=true', () {
       final shortcuts = gbmActionShortcuts(false);
-      expect(shortcuts.length, 38);
+      expect(shortcuts.length, 40);
       for (final MapEntry<GbmActionId, GbmKeyboardShortcut> entry
           in shortcuts.entries) {
         if (bareKeyActions.contains(entry.key)) continue;
@@ -61,9 +61,13 @@ void main() {
     test('no two shortcuts produce equal keyboard combinations on macOS', () {
       final shortcuts = gbmActionShortcuts(true);
 
-      // Convert all to a comparable key
+      // Convert all to a comparable key. `alt` belongs here for the same
+      // reason `shift` does -- it was left out while no shortcut used it,
+      // which made the test unable to tell Ctrl/Cmd+Shift+A from
+      // Ctrl/Cmd+Alt+A. The moment the first alt binding landed
+      // (repositoryStageAll) this reported a collision that does not exist.
       final comparableKeys = shortcuts.values.map((s) {
-        return (s.trigger.keyLabel, s.shift, s.meta, s.control);
+        return (s.trigger.keyLabel, s.shift, s.alt, s.meta, s.control);
       }).toList();
 
       final uniqueKeys = comparableKeys.toSet();
@@ -74,31 +78,61 @@ void main() {
       );
     });
 
-    test('repositoryFetch has shift+F, editFindInFiles is absent', () {
+    // Was 'editFindInFiles is absent' -- it recorded the #75-1 gap rather
+    // than a requirement, and that gap is closed. REVISIONS assigns
+    // Ctrl/Cmd+Shift+H.
+    test('repositoryFetch has shift+F and editFindInFiles has shift+H', () {
       final shortcuts = gbmActionShortcuts(false);
 
-      // repositoryFetch should exist and have keyF with shift
       expect(shortcuts.containsKey(GbmActionId.repositoryFetch), isTrue);
       final repoFetch = shortcuts[GbmActionId.repositoryFetch]!;
       expect(repoFetch.trigger, LogicalKeyboardKey.keyF);
       expect(repoFetch.shift, isTrue);
 
-      // editFindInFiles should not exist in the map
-      expect(shortcuts.containsKey(GbmActionId.editFindInFiles), isFalse);
+      final findInFiles = shortcuts[GbmActionId.editFindInFiles];
+      expect(findInFiles, isNotNull);
+      expect(findInFiles!.trigger, LogicalKeyboardKey.keyH);
+      expect(findInFiles.shift, isTrue);
+      expect(findInFiles.alt, isFalse);
     });
 
-    test('viewFileListAsTree has shift+T, branchStashChanges is absent', () {
-      final shortcuts = gbmActionShortcuts(false);
+    // Was 'branchStashChanges is absent' -- same story as above (#75-2).
+    // REVISIONS assigns Ctrl/Cmd+Shift+S, which repositoryStageAll used to
+    // occupy; Stage all moved to Ctrl/Cmd+Alt+A to free it.
+    test(
+      'viewFileListAsTree has shift+T and branchStashChanges has shift+S',
+      () {
+        final shortcuts = gbmActionShortcuts(false);
 
-      // viewFileListAsTree should exist and have keyT with shift
-      expect(shortcuts.containsKey(GbmActionId.viewFileListAsTree), isTrue);
-      final viewTree = shortcuts[GbmActionId.viewFileListAsTree]!;
-      expect(viewTree.trigger, LogicalKeyboardKey.keyT);
-      expect(viewTree.shift, isTrue);
+        expect(shortcuts.containsKey(GbmActionId.viewFileListAsTree), isTrue);
+        final asTree = shortcuts[GbmActionId.viewFileListAsTree]!;
+        expect(asTree.trigger, LogicalKeyboardKey.keyT);
+        expect(asTree.shift, isTrue);
 
-      // branchStashChanges should not exist in the map
-      expect(shortcuts.containsKey(GbmActionId.branchStashChanges), isFalse);
-    });
+        final stash = shortcuts[GbmActionId.branchStashChanges];
+        expect(stash, isNotNull);
+        expect(stash!.trigger, LogicalKeyboardKey.keyS);
+        expect(stash.shift, isTrue);
+        expect(stash.alt, isFalse);
+
+        // The other half of the swap: asserted here so a future edit cannot
+        // quietly put Stage all back on Shift+S and take the stash binding
+        // away again.
+        final stageAll = shortcuts[GbmActionId.repositoryStageAll]!;
+        expect(stageAll.trigger, LogicalKeyboardKey.keyA);
+        expect(stageAll.alt, isTrue);
+        expect(stageAll.shift, isFalse);
+
+        // REVISIONS' Ctrl/Cmd+Alt+S for stage-selected-lines (#75-3). The spec
+        // also writes Ctrl/Cmd+Shift+Enter for the same action on P03-5 and in
+        // SCOPES row 7; that reading survives as a diff-area-scoped binding,
+        // not as this global one.
+        final stageLines = shortcuts[GbmActionId.repositoryStageSelectedLines]!;
+        expect(stageLines.trigger, LogicalKeyboardKey.keyS);
+        expect(stageLines.alt, isTrue);
+        expect(stageLines.shift, isFalse);
+      },
+    );
 
     test('fileExit is absent from shortcuts entirely', () {
       final shortcutsMacOS = gbmActionShortcuts(true);

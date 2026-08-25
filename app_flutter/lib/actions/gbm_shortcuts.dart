@@ -232,10 +232,14 @@ Map<GbmActionId, GbmKeyboardShortcut> gbmActionShortcuts(bool isMacOS) {
       isMacOS,
       shift: true,
     ),
+    // Moved off Ctrl/Cmd+Shift+S to free it for branchStashChanges, which the
+    // spec's REVISIONS table actually assigns to that combination (#75-2).
+    // Stage all has no spec-assigned key of its own, so it is the one that
+    // yields. Ctrl/Cmd+Alt+A is a product decision, not a spec quote.
     GbmActionId.repositoryStageAll: _makeShortcut(
-      LogicalKeyboardKey.keyS,
+      LogicalKeyboardKey.keyA,
       isMacOS,
-      shift: true,
+      alt: true,
     ),
     GbmActionId.branchNewBranch: _makeShortcut(
       LogicalKeyboardKey.keyB,
@@ -257,8 +261,25 @@ Map<GbmActionId, GbmKeyboardShortcut> gbmActionShortcuts(bool isMacOS) {
       isMacOS,
       shift: true,
     ),
+    // REVISIONS assigns Ctrl/Cmd+Alt+S here (#75-3). P03-5 and SCOPES row 7
+    // both still write Ctrl/Cmd+Shift+Enter for the same action -- the spec
+    // contradicts itself. Both readings are honoured: this is the global
+    // binding, and the diff area keeps Shift+Enter inside its own focus scope
+    // (see the diff area's own Shortcuts block).
     GbmActionId.repositoryStageSelectedLines: _makeShortcut(
-      LogicalKeyboardKey.enter,
+      LogicalKeyboardKey.keyS,
+      isMacOS,
+      alt: true,
+    ),
+    // Previously unbound although the handler existed (#75-2).
+    GbmActionId.branchStashChanges: _makeShortcut(
+      LogicalKeyboardKey.keyS,
+      isMacOS,
+      shift: true,
+    ),
+    // Previously unbound although the handler existed (#75-1).
+    GbmActionId.editFindInFiles: _makeShortcut(
+      LogicalKeyboardKey.keyH,
       isMacOS,
       shift: true,
     ),
@@ -282,11 +303,13 @@ GbmKeyboardShortcut _makeShortcut(
   LogicalKeyboardKey trigger,
   bool isMacOS, {
   bool shift = false,
+  bool alt = false,
 }) {
   return GbmKeyboardShortcut(
     trigger: trigger,
     meta: isMacOS,
     control: !isMacOS,
     shift: shift,
+    alt: alt,
   );
 }

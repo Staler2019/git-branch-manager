@@ -753,6 +753,13 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       // reach it; see this method's doc comment for the bug that rule exists
       // to prevent.
       GbmActionId.viewRefresh: () => refreshRepoHistory(ref, identity),
+      // Explicitly null, not merely absent: the shortcut (Ctrl/Cmd+Alt+S) and
+      // the menu item both exist now, but the thing they would act on -- a
+      // selected scope in the diff area -- does not exist until the diff area
+      // is rebuilt. An entry here is what makes that a stated gap rather than
+      // a lookup that happens to miss, and it is what greys the menu item out
+      // instead of letting it silently no-op.
+      GbmActionId.repositoryStageSelectedLines: null,
       GbmActionId.viewToggleSidebar: () =>
           setState(() => _sidebarVisible = !_sidebarVisible),
       GbmActionId.viewStatusBar: () =>

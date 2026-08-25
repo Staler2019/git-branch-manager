@@ -294,11 +294,13 @@ void main() {
 
   group('launchUpdater', () {
     late List<String> events;
+    late List<String?> startedIn;
     late Directory staged;
     late Directory scriptDir;
 
     setUp(() {
       events = <String>[];
+      startedIn = <String?>[];
       staged = Directory('${root.path}/staged')..createSync(recursive: true);
       scriptDir = Directory('${root.path}/script')..createSync(recursive: true);
     });
@@ -314,6 +316,7 @@ void main() {
         start:
             (String exe, List<String> args, {String? workingDirectory}) async {
               events.add('start:$exe');
+              startedIn.add(workingDirectory);
               return startSucceeds;
             },
       );
@@ -361,6 +364,13 @@ void main() {
         isNot(startsWith('${root.path}/install')),
         reason: 'a script inside the target would be moved aside mid-run',
       );
+      expect(
+        startedIn.single,
+        isNot(startsWith('${root.path}/install')),
+        reason:
+            'nor may the updater stand inside it -- on Windows that '
+            'alone is enough to make the rename impossible',
+      );
     });
 
     test('uses ditto and a Finder relaunch on macOS', () async {
@@ -406,6 +416,36 @@ void main() {
       expect(events, contains('start:powershell'));
       expect(File('${scriptDir.path}/gbm-update.ps1').existsSync(), isTrue);
     });
+
+    // THE Windows bug. `Process.start` with no `workingDirectory` inherits
+    // the parent's, and an app launched by double-clicking its .exe has the
+    // install directory as its own -- so the detached updater was standing
+    // inside the very folder it then tried to rename. Windows refuses to
+    // rename or delete any process's current directory (the handle carries
+    // no FILE_SHARE_DELETE), so `Move-Item` failed all 20 retries and the
+    // script exited having closed the app and changed nothing. POSIX allows
+    // it, which is why only Windows broke.
+    for (final String os in <String>['windows', 'linux', 'macos']) {
+      test('starts the updater from the script directory on $os', () async {
+        await run(installerWith(startSucceeds: true, os: os));
+
+        expect(startedIn, <String>[scriptDir.path]);
+      });
+    }
+
+    // The relaunched build must land back in its install directory rather
+    // than in system temp, where the script itself now stands.
+    test(
+      'relaunches the new Windows build from the install directory',
+      () async {
+        await run(installerWith(startSucceeds: true, os: 'windows'));
+
+        expect(
+          File('${scriptDir.path}/gbm-update.ps1').readAsStringSync(),
+          contains(r'Start-Process -WorkingDirectory $target'),
+        );
+      },
+    );
   });
 
   // No Windows machine runs this suite, so this half is text only and the
@@ -421,6 +461,20 @@ void main() {
           relaunchCommand: 'Start-Process x',
           waitTimeout: const Duration(seconds: 30),
         );
+
+    // Belt and braces behind the `workingDirectory` fix above. `Set-Location`
+    // alone is NOT enough: it moves PowerShell's *provider* location while
+    // the Win32 process directory -- the one holding the handle that blocks
+    // the rename -- stays where the process was created. Only assigning
+    // [System.Environment]::CurrentDirectory calls SetCurrentDirectory and
+    // releases it.
+    test('steps out of whatever directory it inherited', () {
+      expect(script(), contains(r'Set-Location -LiteralPath $PSScriptRoot'));
+      expect(
+        script(),
+        contains(r'[System.Environment]::CurrentDirectory = $PSScriptRoot'),
+      );
+    });
 
     test('never assigns PowerShell\'s read-only \$pid', () {
       // `$pid` is an automatic variable; assigning it fails at runtime, and

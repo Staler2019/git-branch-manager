@@ -123,6 +123,44 @@ void main() {
     });
   });
 
+  // Belt and braces behind `launchUpdater`'s `workingDirectory`. On Windows
+  // the inherited directory is what blocked the rename; on Unix it is
+  // harmless, but a script that stands inside the directory it is about to
+  // move has no business doing so on any platform.
+  group('where it runs from', () {
+    test('steps out of whatever directory it inherited', () {
+      final String script = buildUnixUpdaterScript(
+        pid: 999999,
+        targetPath: '/tmp/install',
+        stagedPath: '/tmp/staged',
+        copyCommand: 'cp -a',
+        relaunchCommand: ':',
+      );
+
+      expect(script, contains(r'cd "$(dirname "$0")"'));
+    });
+
+    // Executed, not just asserted: `cd` failing must abort rather than let
+    // the swap run from an unknown directory.
+    test('still swaps when it runs from the target\'s own parent', () async {
+      final Directory target = dirWithMarker('install', 'old');
+      final Directory staged = dirWithMarker('staged', 'new');
+
+      final int code = await runScript(
+        buildUnixUpdaterScript(
+          pid: 999999,
+          targetPath: target.path,
+          stagedPath: staged.path,
+          copyCommand: 'cp -a',
+          relaunchCommand: ':',
+        ),
+      );
+
+      expect(code, 0);
+      expect(File('${target.path}/marker.txt').readAsStringSync(), 'new');
+    });
+  });
+
   group('the abort arms', () {
     // The arm that matters most: falling through to the swap while the app
     // is still running would leave two instances over a half-replaced

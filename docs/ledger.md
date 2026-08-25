@@ -3044,3 +3044,129 @@ trap does not apply here.
   how they were covered as private methods too — extracting them makes a direct
   test *possible*, and that is worth doing, but writing one was not part of what
   was asked.
+
+### 更新流程的三個缺陷 (fix/update-flow-windows-and-recheck)
+
+使用者回報三件事：Windows 上更新不了、自動更新「第一次進入沒有作用」、
+重開更新對話框不會重新檢查。三件都落在 PR #107（`feat/github-auto-update`，
+v0.32.0 首次出貨）自己在 test plan 裡標成**未驗證**的那一塊 ——「真正的自我安裝
+＋ 重啟」與 Windows leg。`release.yml` 的檔頭也早就寫著 macOS 與 Windows 兩腳
+從未在真機驗證過，而 **#69** 記著 PR CI 根本不編譯 `windows/runner/`。
+
+#### 最誘人的假設在第一個問題就死了
+
+「Windows 建置沒有拿到 `GBM_VERSION`」可以一次解釋全部三個症狀：沒有版本身分
+⇒ `check()` 直接停在 `developmentBuild` ⇒ 自動檢查靜默、手動檢查說 updates are
+disabled、而 `developmentBuild` 又是終端狀態所以重開不會再查。三個症狀，一個成因，
+而且 `release.yml` 的 Windows 那一步是 `run: >` 沒有指定 `shell`，在
+windows-latest 上預設落到 PowerShell，引號處理是經典地雷。
+
+**問使用者 About 對話框那一行顯示什麼，就把它推翻了：顯示的是版本號。**
+`GBM_VERSION` 有進去。統一解釋不存在，三個問題必須分開診斷 —— 事後看，這是這一輪
+最有價值的一次提問，因為那個假設漂亮到很容易直接動手。
+
+#### Windows：更新腳本站在它自己要搬走的資料夾裡
+
+`launchUpdater` 呼叫 `Process.start` 時沒有傳 `workingDirectory`。沒有指定時
+它**繼承父行程的**，而從 Explorer 雙擊 exe 啟動的 app，CWD 就是安裝資料夾本身
+—— 也就是 `installTarget()`。於是 detached 的 `powershell.exe` 站在它接下來要
+`Move-Item` 的那個資料夾裡。
+
+**Windows 不允許改名或刪除任何行程的目前工作目錄**：CWD 的 handle 開啟時不帶
+`FILE_SHARE_DELETE`，而對目錄做 `MoveFile` 需要 DELETE access，結果是
+sharing violation。腳本 20 次重試全部失敗 → `exit 3`，而 `exit 3` 這條路當時
+**沒有任何 relaunch**，app 早在 `_exitProcess(0)` 就走了。使用者看到的正是
+「按了安裝並重啟，畫面關掉，然後什麼都沒有，版本也沒變」。
+
+POSIX 允許改名一個正在被當成 CWD 的目錄 —— 這就是為什麼 macOS 與 Linux 一路正常，
+只有 Windows 壞。
+
+`ProcessStarter` 這個 typedef **本來就有 `workingDirectory` 具名參數**
+（`desktop_launcher.dart:14-19`），只是 `launchUpdater` 從沒傳過。又一次
+orphan wiring，而且這一次那個沒人用的參數就是修法本身。
+
+腳本自身也補了雙保險，而 PowerShell 需要兩行而不是一行：`Set-Location` 只移動
+PowerShell 的 provider location，真正握著 handle 的 **Win32 行程目錄不會動**；
+必須指派 `[System.Environment]::CurrentDirectory` 才會呼叫 `SetCurrentDirectory`
+把舊的 handle 放掉。只寫 `Set-Location` 會看起來對但完全沒有效果。
+
+#### 第二個 Windows 缺陷，修好第一個才會浮出來
+
+`script.writeAsStringSync(...)` 預設寫出**無 BOM 的 UTF-8**，而
+`powershell.exe`（Windows PowerShell 5.1，`-File` 在原廠機器上就是解析到它）
+在沒有 BOM 時把 `.ps1` 當 **ANSI** 讀。`$target` / `$staged` / `$backup` 三個
+路徑是以字面值烤進腳本的，所以使用者名稱含中文就足以讓三個一起變成亂碼，
+`Move-Item` 指到不存在的地方 —— 產生**與 CWD 問題一模一樣的無聲 `exit 3`**。
+兩個一起修，因為第二個會被第一個完全遮住。
+
+`sh` 的要求正好相反：第一行的 BOM 是語法錯誤而不是提示，所以 BOM 只加在 Windows 端。
+
+#### 「自動更新第一次進入沒有作用」的直接成因是一個看不見的閘門
+
+`SharedPreferences` 存在 `%APPDATA%`，**在安裝資料夾之外**，所以
+`update.lastAutoCheck` 會跨過版本置換活下來。剛裝好的新版第一次啟動之所以靜默，
+極可能是同一天稍早的某次啟動（甚至是前一版的啟動）已經把閘門用掉了 —— 這在設計上
+是對的（你才剛更新完），但畫面上**沒有任何地方說得出來**，也沒有辦法叫它再試一次。
+
+加上 `checkAutomatically()` 刻意把「已是最新」與「連不上」收斂成同一個靜默的
+`idle`，使用者無從分辨自動檢查是跑了沒事、被閘門擋掉、被 `skippedVersion` 消音、
+還是失敗了。這正是本專案 UX rubric D 標記的 hidden material state，而同一個
+Preferences 對話框早就為 `skippedVersion` 立好了「指名 + 可撤銷」的先例。
+
+**這一輪明確反轉了 PR #107 一個刻意的取捨。** 原始碼寫著「a failed check
+therefore uses up the day, which costs an offline launch its check -- accepted,
+because the alternative needs the controller to report whether the network
+answered」。代價實測下來是：一次離線啟動、或一個沒有版本身分的建置，就能讓接下來
+24 小時完全靜默。`AutoCheckOutcome` 就是把當初被收斂掉的那個 distinction 重新
+打開 —— 但只打開給呼叫端，不外洩到 `UpdateState`，所以畫面上的靜默規則一字未改。
+時間戳仍然**在檢查之前**寫入（兩次快速啟動不能都打 GitHub），只是在非 `concluded`
+時**還原**成先前的值；還原而不是清除，否則每天早上都離線的機器一連上網就有無限次請求。
+
+#### 「重開不會再查」是實作對不上自己的測試名
+
+`update_dialog.dart` 的 mount 閘門寫成 `status == UpdateStatus.idle`，但既有測試
+的名字是 `checks once when opened with nothing in flight` —— 說的是正確意圖。
+`upToDate`、`failed`、`developmentBuild` 三個都是終端狀態，流程裡沒有任何東西把
+它們收回 `idle`，所以手動檢查過一次之後，重開只是重播同一個答案。
+
+修法不是把閘門反過來寫成「不是在途就查」，而是切成**三組**：在途工作不重啟；
+**`available` 也不重查**（那是使用者還沒處理的提議，而且啟動時自動檢查推出來的
+對話框正是這個狀態 —— 重查會在最常見的路徑上多花一次 API，還可能讓第二次失敗
+蓋掉已經找到的版本）；其餘才是過期的答案。
+
+順帶關掉一個既有的卡死邊角：對話框在自動檢查**進行中**被打開時 mount 閘門會跳過，
+而靜默結束的自動檢查會把狀態收回 `idle`，畫面就永遠停在「Checking for updates…」
+且沒有任何按鈕。補的 `ref.listen` 刻意只認 `checking → idle` 這一條轉移，
+而不是「落在 idle」—— `dismiss()`（Skip this version 呼叫的就是它）也會落在 idle，
+在那裡重查會把使用者剛拒絕的版本又端出來。
+
+#### 靠「跑」而不是靠「讀」才拿到的三件事
+
+1. **第一版的共用資料夾測試殺不掉 mutation。** 把 `target.length != home.length + 1`
+   放寬成 `<` 之後，全部測試照樣綠。原因是三個「不該擋」的案例各自因為**別的**理由
+   回 false（家目錄根本不匹配、或最後一段不在清單裡），沒有一個踩在那條長度規則上。
+   補上 `C:\Users\jane\Apps\Downloads` —— 位於家目錄底下、名字也叫 Downloads、
+   卻是使用者自己的資料夾 —— 之後才殺得掉。
+2. **exit-3 relaunch 的測試佈局差一點為了錯的理由變綠。** 要讓 `mv` 失敗必須把
+   target 的**父目錄**設成唯讀（改名要的是父目錄的寫入權），而 sentinel 檔如果也
+   寫在那個唯讀目錄裡就一起失敗，測試會看到「沒有 relaunch」而通過。所以 target
+   多埋一層（`root/lock/install`，chmod 555 在 `lock` 上），sentinel 留在 `root`。
+3. **`isSharedUserFolder` 不能走 `Directory.parent`。** 那個 API 依**主機**的路徑
+   規則走，所以 `C:\Users\jane\Downloads` 在 macOS 上是一整個沒有分隔符的字串，
+   fixture 完全沒有意義。改成自己切 `[/\]` 之後，同一個測試才真的涵蓋到 Windows 拼法。
+
+#### 刻意不做，記錄下來
+
+- **Windows PowerShell 腳本仍然只有文字斷言。** 這台是 macOS，`ci.yml` 的 Flutter
+  job 是 ubuntu-only，`windows/runner/` 只有 tag 才編譯（**#69**）。sh 腳本是**真的
+  被執行**的（`update_installer_script_test.dart` 跑 `sh`），PowerShell 這一半不是。
+  曾考慮在 `cq.yml` 加一個 `windows-latest` 的純靜態 job，用
+  `[Management.Automation.Language.Parser]::ParseInput()` 檢查語法 —— 沒有做，
+  代價是 CI 多一個平台 job，留給使用者決定。
+- **真正的「安裝並重啟」全程仍未驗證**，與 PR #107 當初的狀態相同，只能等下一個
+  正式 release 用舊版實測。差別是這一輪之後，失敗**會留下 `gbm-update.log`**，
+  而且 app 會自己回來 —— 下一次失敗第一次變成可診斷的。
+- **`Copy-Item -LiteralPath $staged -Destination $target -Recurse` 沒有改寫。**
+  目標在改名之後必然不存在，這是 PowerShell 「destination 不存在就把 source 的
+  內容複製進去」的記載行為。想過改成先 `New-Item` 再複製 `$staged\*`，但那會把
+  wildcard 帶回一個刻意全用 `-LiteralPath` 的腳本裡。

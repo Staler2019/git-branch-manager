@@ -38,6 +38,96 @@ WorkingCopyStatus _createConflictedStatus(List<String> conflictedPaths) {
 
 void main() {
   group('StatusBar', () {
+    // Deleting TopBar moved RepoState.describe here. It is empty for an
+    // ordinary repository, and the only signal it carries that no other
+    // surface in the window carries is `indexLocked` -- ConflictBanner
+    // renders on conflictActive, which indexLocked does not set. Without
+    // these two tests the deletion would have dropped it silently, which is
+    // exactly the shape of loss this repo keeps finding after the fact.
+    testWidgets('shows the repo state label when git reports one', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: Scaffold(
+            body: StatusBar(
+              currentBranch: 'main',
+              ahead: 0,
+              behind: 0,
+              commitCount: 3,
+              lastScanDuration: const Duration(milliseconds: 10),
+              graphLaneCapacity: 4,
+              backgroundTasks: const [],
+              hasUnreadLog: false,
+              onOpenLog: () {},
+              onCancelTask: (_) {},
+              repoState: const RepoState(
+                flags: 0,
+                isClean: true,
+                isSequencerOperation: false,
+                rebaseStep: 0,
+                rebaseTotal: 0,
+                rebaseOntoLabel: '',
+                indexLocked: true,
+                indexLockAgeSeconds: 2,
+                describe: 'another Git process appears to be running',
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.pump();
+
+      expect(
+        find.text('another Git process appears to be running'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('shows nothing extra when the repo state label is empty', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: Scaffold(
+            body: StatusBar(
+              currentBranch: 'main',
+              ahead: 0,
+              behind: 0,
+              commitCount: 3,
+              lastScanDuration: const Duration(milliseconds: 10),
+              graphLaneCapacity: 4,
+              backgroundTasks: const [],
+              hasUnreadLog: false,
+              onOpenLog: () {},
+              onCancelTask: (_) {},
+              // describe is '' for an ordinary repository -- the common case,
+              // where this must add no noise to the status bar.
+              repoState: const RepoState(
+                flags: 0,
+                isClean: true,
+                isSequencerOperation: false,
+                rebaseStep: 0,
+                rebaseTotal: 0,
+                rebaseOntoLabel: '',
+                indexLocked: false,
+                indexLockAgeSeconds: 0,
+                describe: '',
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.pump();
+
+      expect(find.text(''), findsNothing);
+      expect(find.text('main'), findsWidgets);
+    });
+
     testWidgets('renders repo status zone when no task is running', (
       tester,
     ) async {

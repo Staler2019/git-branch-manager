@@ -44,7 +44,6 @@ import 'widgets/action_toolbar.dart';
 import 'widgets/menu_bar_row.dart';
 import 'widgets/platform_menu_bar_host.dart';
 import 'widgets/tab_row.dart';
-import 'widgets/top_bar.dart';
 import 'widgets/workspace_action_shortcuts.dart';
 import 'widgets/workspace_tab.dart';
 
@@ -408,13 +407,6 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
             onBranch: actionHandlers[GbmActionId.branchNewBranch],
             onStash: actionHandlers[GbmActionId.branchStashChanges],
           ),
-          TopBar(
-            repoName: _displayName(identity.workDir),
-            repoState: session.repoState,
-            isRefreshing: session.isRefreshing,
-            onRefresh: () => refreshRepoHistory(ref, identity),
-            onBack: () => context.go(RoutePaths.welcome),
-          ),
           if (session.conflictActive)
             ConflictBanner(
               repoId: repoId,
@@ -575,14 +567,6 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         Expanded(child: widget.child),
       ],
     );
-  }
-
-  String _displayName(String workDir) {
-    final List<String> segments = workDir
-        .split(RegExp(r'[\\/]'))
-        .where((s) => s.isNotEmpty)
-        .toList();
-    return segments.isEmpty ? workDir : segments.last;
   }
 
   /// The [RefInfo] HEAD currently points to, or null if detached/unknown --
@@ -763,6 +747,12 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       // No state-dependent gate (see gbm_action_availability.dart) --
       // always a real callback, read back out for MenuBarRow's own
       // onToggleSidebar param (see the build() call site).
+      // TopBar used to be the only way to reach this. Wired into the handler
+      // map (not into a widget's own callback) so all three dispatch paths --
+      // keyboard F5, the in-window View menu, and the macOS system menu --
+      // reach it; see this method's doc comment for the bug that rule exists
+      // to prevent.
+      GbmActionId.viewRefresh: () => refreshRepoHistory(ref, identity),
       GbmActionId.viewToggleSidebar: () =>
           setState(() => _sidebarVisible = !_sidebarVisible),
       GbmActionId.viewStatusBar: () =>

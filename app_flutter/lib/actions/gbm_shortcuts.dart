@@ -146,6 +146,14 @@ Map<GbmActionId, GbmKeyboardShortcut> gbmActionShortcuts(bool isMacOS) {
       LogicalKeyboardKey.keyF,
       isMacOS,
     ),
+    // Bare F5, not Ctrl/Cmd+something: refresh is F5 on every desktop Git
+    // client, and _makeShortcut() would force a Ctrl/Cmd it does not want.
+    // Both modifier flags false is a valid GbmKeyboardShortcut.
+    GbmActionId.viewRefresh: const GbmKeyboardShortcut(
+      trigger: LogicalKeyboardKey.f5,
+      control: false,
+      meta: false,
+    ),
     GbmActionId.viewHistory: _makeShortcut(LogicalKeyboardKey.digit1, isMacOS),
     GbmActionId.viewWorkingCopy: _makeShortcut(
       LogicalKeyboardKey.digit2,

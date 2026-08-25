@@ -4,8 +4,8 @@
 /// Grouped by menu for readability:
 /// - File (8): new repo, open, clone, switch, add local, close window, preferences, exit
 /// - Edit (8): undo, redo, cut, copy, paste, find-in-history, find-in-files, filter-branches
-/// - View (11): history, working-copy, next-tab, file-list-as-tree, graph-columns, commit-detail,
-///   toggle-sidebar, status-bar, log, reset-panel-sizes, theme
+/// - View (12): history, working-copy, next-tab, file-list-as-tree, graph-columns, commit-detail,
+///   toggle-sidebar, status-bar, log, reset-panel-sizes, refresh, theme
 /// - Repository (10): fetch, pull, push, compare, commit, amend-last, stage-all, open-in-terminal, settings, stage-selected-lines
 /// - Branch (7): new, checkout, rename-current, merge-into-current, rebase-onto, stash, delete
 /// - Remote (4): add, fetch-all, prune, manage
@@ -43,6 +43,12 @@ enum GbmActionId {
   viewStatusBar,
   viewLog,
   viewResetPanelSizes,
+
+  /// Not from spec page 04's MENUS table. TopBar carried the only Refresh
+  /// affordance in the window and this round deletes it, so the action needs
+  /// a home rather than disappearing; View is where the other whole-window
+  /// view operations already live. Recorded as a deliberate deviation.
+  viewRefresh,
   viewTheme,
 
   // Repository (10)

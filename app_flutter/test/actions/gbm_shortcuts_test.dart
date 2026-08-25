@@ -12,12 +12,16 @@ void main() {
     // of this group.
     const Set<GbmActionId> bareKeyActions = <GbmActionId>{
       GbmActionId.branchRenameCurrentBranch,
+      // Bare F5. Refresh is F5 on every desktop Git client, and this round
+      // gave it a binding because deleting TopBar removed the only Refresh
+      // affordance in the window.
+      GbmActionId.viewRefresh,
     };
 
-    test('macOS shortcuts has exactly 37 entries, and every one but the '
+    test('macOS shortcuts has exactly 38 entries, and every one but the '
         'bare-key group uses meta=true, control=false', () {
       final shortcuts = gbmActionShortcuts(true);
-      expect(shortcuts.length, 37);
+      expect(shortcuts.length, 38);
       shortcuts.forEach((id, shortcut) {
         if (bareKeyActions.contains(id)) return;
         expect(
@@ -33,10 +37,10 @@ void main() {
       });
     });
 
-    test('non-macOS shortcuts has exactly 37 entries, and every one but the '
+    test('non-macOS shortcuts has exactly 38 entries, and every one but the '
         'bare-key group uses meta=false, control=true', () {
       final shortcuts = gbmActionShortcuts(false);
-      expect(shortcuts.length, 37);
+      expect(shortcuts.length, 38);
       for (final MapEntry<GbmActionId, GbmKeyboardShortcut> entry
           in shortcuts.entries) {
         if (bareKeyActions.contains(entry.key)) continue;

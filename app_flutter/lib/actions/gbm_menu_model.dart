@@ -171,7 +171,8 @@ const List<GbmMenuModel> gbmMenus = <GbmMenuModel>[
     ],
   ),
 
-  // View (11 items)
+  // View (12 items -- 11 from the spec's MENUS table plus Refresh, which
+  // has no spec entry: see GbmActionId.viewRefresh's doc comment.)
   GbmMenuModel(
     title: 'View',
     items: <GbmMenuItemModel>[
@@ -201,6 +202,7 @@ const List<GbmMenuModel> gbmMenus = <GbmMenuModel>[
         id: GbmActionId.viewResetPanelSizes,
         label: 'Reset panel sizes',
       ),
+      GbmMenuItemModel(id: GbmActionId.viewRefresh, label: 'Refresh'),
       GbmMenuItemModel(
         id: GbmActionId.viewTheme,
         label: 'Theme',

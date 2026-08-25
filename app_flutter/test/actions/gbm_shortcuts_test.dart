@@ -78,6 +78,36 @@ void main() {
       );
     });
 
+    // The non-macOS map got no duplicate check at all until now. That was
+    // safe only by coincidence: `_makeShortcut()` differs between the two
+    // platforms solely in which of meta/control it sets, so the two maps are
+    // structurally identical and a collision on one shows on the other. The
+    // first binding written as `isMacOS ? keyX : keyY` breaks that coincidence
+    // and leaves this map unwatched -- the same way `alt` was unwatched for as
+    // long as no shortcut used it.
+    test(
+      'no two shortcuts produce equal keyboard combinations on non-macOS',
+      () {
+        final shortcuts = gbmActionShortcuts(false);
+
+        // Convert all to a comparable key. `alt` belongs here for the same
+        // reason `shift` does -- it was left out while no shortcut used it,
+        // which made the test unable to tell Ctrl/Cmd+Shift+A from
+        // Ctrl/Cmd+Alt+A. The moment the first alt binding landed
+        // (repositoryStageAll) this reported a collision that does not exist.
+        final comparableKeys = shortcuts.values.map((s) {
+          return (s.trigger.keyLabel, s.shift, s.alt, s.meta, s.control);
+        }).toList();
+
+        final uniqueKeys = comparableKeys.toSet();
+        expect(
+          uniqueKeys.length,
+          comparableKeys.length,
+          reason: 'No two shortcuts should have identical key combinations',
+        );
+      },
+    );
+
     // Was 'editFindInFiles is absent' -- it recorded the #75-1 gap rather
     // than a requirement, and that gap is closed. REVISIONS assigns
     // Ctrl/Cmd+Shift+H.

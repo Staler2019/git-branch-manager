@@ -12,6 +12,27 @@ import '../services/update_installer.dart';
 import 'app_preferences_repository.dart';
 import 'build_version_repository.dart';
 
+/// What one automatic check actually managed to do.
+///
+/// Exists because [UpdateController.checkAutomatically] deliberately
+/// collapses "already up to date" and "unreachable" into the same silent
+/// [UpdateStatus.idle] outcome on screen -- correct for the UI, useless for
+/// the caller that has to decide whether the once-a-day gate was really
+/// spent. The distinction lives here rather than leaking into
+/// [UpdateState].
+enum AutoCheckOutcome {
+  /// GitHub answered. Whatever the answer was, the day's check happened.
+  concluded,
+
+  /// No request was made at all -- a build with no version identity, or a
+  /// flow that was already busy. Nothing was learned.
+  notPerformed,
+
+  /// A request was made and produced no answer: offline, rate limited, or a
+  /// payload that would not parse. Also nothing learned.
+  failed,
+}
+
 /// Drives the update flow and publishes one [UpdateState] snapshot per
 /// transition.
 ///
@@ -170,9 +191,13 @@ class UpdateController extends StateNotifier<UpdateState> {
   ///
   /// A no-op unless the flow is already idle, so a background timer cannot
   /// reset a flow the user is in the middle of.
-  Future<void> checkAutomatically() async {
+  ///
+  /// Returns what the attempt was actually worth, which the on-screen state
+  /// can no longer say once it has been collapsed back to idle. The caller
+  /// owns the once-a-day gate and needs the distinction; nothing else does.
+  Future<AutoCheckOutcome> checkAutomatically() async {
     if (state.status != UpdateStatus.idle) {
-      return;
+      return AutoCheckOutcome.notPerformed;
     }
     await check();
     final UpdateState result = state;
@@ -182,6 +207,24 @@ class UpdateController extends StateNotifier<UpdateState> {
     if (!worthShowing) {
       state = const UpdateState.idle();
     }
+
+    // A release the user skipped still counts as concluded: GitHub was
+    // asked and answered, and the suppression is the user's own.
+    return switch (result.status) {
+      UpdateStatus.upToDate ||
+      UpdateStatus.available => AutoCheckOutcome.concluded,
+      UpdateStatus.failed => AutoCheckOutcome.failed,
+      // `check()` cannot leave the flow anywhere else. Written out rather
+      // than defaulted so a status added to UpdateStatus is a compile error
+      // here, instead of silently deciding whether it spends the day.
+      UpdateStatus.developmentBuild ||
+      UpdateStatus.idle ||
+      UpdateStatus.checking ||
+      UpdateStatus.downloading ||
+      UpdateStatus.verifying ||
+      UpdateStatus.readyToInstall ||
+      UpdateStatus.installing => AutoCheckOutcome.notPerformed,
+    };
   }
 
   /// Fetches the platform bundle and verifies it, leaving the flow at

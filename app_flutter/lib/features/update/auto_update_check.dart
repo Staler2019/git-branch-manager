@@ -95,16 +95,30 @@ class _AutoUpdateCheckState extends ConsumerState<AutoUpdateCheck> {
       return;
     }
 
-    // Recorded before the check, not after. A failed check therefore uses
-    // up the day, which costs an offline launch its check -- accepted,
-    // because the alternative needs the controller to report whether the
-    // network answered, and `checkAutomatically` deliberately collapses
-    // "up to date" and "unreachable" into the same silent outcome. Marking
-    // afterwards would mean reopening that distinction for a marginal gain.
+    // Still recorded *before* the check: two launches in quick succession
+    // must not both reach GitHub, and only a stamp written up front stops
+    // that. What is new is the rollback below.
+    final String? previous = store.getString(kLastAutoUpdateCheckKey);
     await store.setString(kLastAutoUpdateCheckKey, now.toIso8601String());
-    if (!mounted) return;
+    if (!mounted) {
+      await _restore(store, previous);
+      return;
+    }
 
-    await ref.read(updateProvider.notifier).checkAutomatically();
+    final AutoCheckOutcome outcome = await ref
+        .read(updateProvider.notifier)
+        .checkAutomatically();
+
+    // A check that never asked, or asked and learned nothing, has not used
+    // the day up. This reverses a deliberate trade in the original design
+    // ("a failed check therefore uses up the day -- accepted"): the cost
+    // turned out to be that one offline launch, or one build with no
+    // version identity, silences the next 24 hours with nothing on screen
+    // saying so and no way to make it try again. `AutoCheckOutcome` is what
+    // reopens the distinction the on-screen state had collapsed.
+    if (outcome != AutoCheckOutcome.concluded) {
+      await _restore(store, previous);
+    }
     if (!mounted) return;
 
     // Read straight back rather than through `ref.listen`. The credential
@@ -115,6 +129,18 @@ class _AutoUpdateCheckState extends ConsumerState<AutoUpdateCheck> {
     if (ref.read(updateProvider).status == UpdateStatus.available) {
       widget.onUpdateAvailable();
     }
+  }
+
+  /// Puts the gate back exactly as it was, rather than clearing it: wiping
+  /// an older stamp would hand a machine that is offline every morning an
+  /// unlimited number of requests the moment it came back.
+  ///
+  /// Touches only [store], never `ref`, so it is safe after this widget has
+  /// been unmounted.
+  static Future<void> _restore(SharedPreferences store, String? previous) {
+    return previous == null
+        ? store.remove(kLastAutoUpdateCheckKey)
+        : store.setString(kLastAutoUpdateCheckKey, previous);
   }
 
   bool _isDue(SharedPreferences store, DateTime now) {

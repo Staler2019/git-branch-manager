@@ -266,6 +266,66 @@ void main() {
           noon.toIso8601String(),
         );
       });
+
+      // Still recorded *before* the request, so two launches in quick
+      // succession cannot both reach GitHub -- but rolled back when the
+      // check never asked, or asked and learned nothing. Otherwise one
+      // offline launch silences the next 24 hours for free, with no UI
+      // anywhere that says so and no way to make it try again.
+      testWidgets('an answered check spends the day', (
+        WidgetTester tester,
+      ) async {
+        await _pump(tester, tag: 'v0.30.0', now: noon);
+        await tester.pumpAndSettle();
+
+        final SharedPreferences store = await SharedPreferences.getInstance();
+        expect(
+          store.getString(kLastAutoUpdateCheckKey),
+          noon.toIso8601String(),
+        );
+      });
+
+      testWidgets('a development build does not spend the day', (
+        WidgetTester tester,
+      ) async {
+        await _pump(tester, current: null, now: noon);
+        await tester.pumpAndSettle();
+
+        final SharedPreferences store = await SharedPreferences.getInstance();
+        expect(store.getString(kLastAutoUpdateCheckKey), isNull);
+      });
+
+      testWidgets('a failed check does not spend the day', (
+        WidgetTester tester,
+      ) async {
+        final _Pumped p = await _pump(tester, tag: 'nightly', now: noon);
+        await tester.pumpAndSettle();
+
+        expect(p.gateway.calls, 1, reason: 'the request really was made');
+        final SharedPreferences store = await SharedPreferences.getInstance();
+        expect(store.getString(kLastAutoUpdateCheckKey), isNull);
+      });
+
+      // Restored, not cleared: a rollback that wiped an older stamp would
+      // hand a machine that is offline every morning an unlimited number of
+      // requests the moment it came back.
+      testWidgets('restores the earlier stamp rather than clearing it', (
+        WidgetTester tester,
+      ) async {
+        final String earlier = noon
+            .subtract(const Duration(hours: 30))
+            .toIso8601String();
+        await _pump(
+          tester,
+          tag: 'nightly',
+          now: noon,
+          prefs: <String, Object>{kLastAutoUpdateCheckKey: earlier},
+        );
+        await tester.pumpAndSettle();
+
+        final SharedPreferences store = await SharedPreferences.getInstance();
+        expect(store.getString(kLastAutoUpdateCheckKey), earlier);
+      });
     });
 
     // The window can close inside the delay. A timer that outlives its

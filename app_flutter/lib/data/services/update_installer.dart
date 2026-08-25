@@ -385,22 +385,31 @@ class UpdateInstaller {
       'gbm-update.${isWindows ? 'ps1' : 'sh'}',
     );
 
-    script.writeAsStringSync(
-      isWindows
-          ? buildWindowsUpdaterScript(
-              pid: processId ?? pid,
-              targetPath: target.path,
-              stagedPath: staged.path,
-              relaunchCommand: _windowsRelaunch(),
-            )
-          : buildUnixUpdaterScript(
-              pid: processId ?? pid,
-              targetPath: target.path,
-              stagedPath: staged.path,
-              copyCommand: _os == 'macos' ? 'ditto' : 'cp -a',
-              relaunchCommand: _unixRelaunch(),
-            ),
-    );
+    final String body = isWindows
+        ? buildWindowsUpdaterScript(
+            pid: processId ?? pid,
+            targetPath: target.path,
+            stagedPath: staged.path,
+            relaunchCommand: _windowsRelaunch(),
+          )
+        : buildUnixUpdaterScript(
+            pid: processId ?? pid,
+            targetPath: target.path,
+            stagedPath: staged.path,
+            copyCommand: _os == 'macos' ? 'ditto' : 'cp -a',
+            relaunchCommand: _unixRelaunch(),
+          );
+
+    // UTF-8 with a BOM on Windows, without one everywhere else, and the
+    // asymmetry is not cosmetic. `powershell.exe` -- Windows PowerShell 5.1,
+    // which is what `-File` resolves to on a stock machine -- reads a
+    // BOM-less .ps1 as ANSI rather than UTF-8. All three paths are baked
+    // into the script as literals, so a user name in Chinese is enough to
+    // mojibake every one of them and leave the rename and the copy pointing
+    // nowhere: the same silent exit 3 an inherited working directory
+    // produced. `sh` has the opposite requirement -- a BOM on the first line
+    // is a syntax error, not a hint.
+    script.writeAsStringSync(isWindows ? '\uFEFF$body' : body);
 
     await beforeExit();
 

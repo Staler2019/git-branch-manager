@@ -1,5 +1,6 @@
 import 'dart:ffi';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/services/update_installer.dart';
@@ -432,6 +433,55 @@ void main() {
         expect(startedIn, <String>[scriptDir.path]);
       });
     }
+
+    // `powershell.exe` -- Windows PowerShell 5.1, which is what `-File`
+    // resolves to on a stock machine -- reads a BOM-less .ps1 as ANSI, not
+    // UTF-8. The three paths are baked into the script as literals, so a
+    // user name in Chinese is enough to mojibake all of them and leave every
+    // Move-Item and Copy-Item pointing nowhere: the same silent exit 3 the
+    // inherited working directory produced.
+    test('writes the Windows script as UTF-8 with a BOM', () async {
+      await run(installerWith(startSucceeds: true, os: 'windows'));
+
+      final Uint8List bytes = File(
+        '${scriptDir.path}/gbm-update.ps1',
+      ).readAsBytesSync();
+      expect(bytes.take(3), <int>[0xEF, 0xBB, 0xBF]);
+    });
+
+    // `sh` has the opposite requirement: a BOM on the first line is a syntax
+    // error, not a hint.
+    test('writes the sh script without a BOM', () async {
+      await run(installerWith(startSucceeds: true));
+
+      final Uint8List bytes = File(
+        '${scriptDir.path}/gbm-update.sh',
+      ).readAsBytesSync();
+      expect(bytes.first, 0x23, reason: 'must start with the shebang #');
+    });
+
+    test('a non-ASCII install path survives the round trip', () async {
+      final Directory nonAscii = Directory('${root.path}/使用者/gbm')
+        ..createSync(recursive: true);
+      await UpdateInstaller(
+        operatingSystem: 'windows',
+        executablePath: '${nonAscii.path}/gbm_flutter.exe',
+        exitProcess: (int code) => events.add('exit:$code'),
+        start:
+            (String exe, List<String> args, {String? workingDirectory}) async =>
+                true,
+      ).launchUpdater(
+        staged: staged,
+        scriptDir: scriptDir,
+        processId: 999999,
+        beforeExit: () async {},
+      );
+
+      expect(
+        File('${scriptDir.path}/gbm-update.ps1').readAsStringSync(),
+        contains(nonAscii.path),
+      );
+    });
 
     // The relaunched build must land back in its install directory rather
     // than in system temp, where the script itself now stands.

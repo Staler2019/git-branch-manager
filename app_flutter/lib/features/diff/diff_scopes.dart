@@ -194,3 +194,29 @@ List<DiffSegment> hunkSegments(
 
   return List<DiffSegment>.unmodifiable(segments);
 }
+
+/// The text on a scope's Stage/Unstage button.
+///
+/// [spanned] is how many lines the block covers -- the card's own height, or
+/// how many rows a text selection touched. [changed] is how many of them
+/// actually move.
+///
+/// The two differ whenever the gap rule swallowed context into a card, or a
+/// drag crossed unchanged lines, and the primary number is the **spanned**
+/// one: that is what the user framed, and `gbm_stage_lines` lets context
+/// through whether or not it was included, so naming the smaller number
+/// first would make the button look like it is doing less than the block it
+/// sits on. The parenthetical exists to disclose the gap -- so when there is
+/// no gap it is dropped, because then it is only noise.
+///
+/// (User-ratified 2026-08-25 for the shape `Stage 3 lines (1 changed)`; the
+/// omit-when-equal half is an implementation judgement, not their verdict.)
+String scopeButtonLabel({
+  required bool staged,
+  required int spanned,
+  required int changed,
+}) {
+  final String verb = staged ? 'Unstage' : 'Stage';
+  final String base = '$verb $spanned line${spanned == 1 ? '' : 's'}';
+  return spanned == changed ? base : '$base ($changed changed)';
+}

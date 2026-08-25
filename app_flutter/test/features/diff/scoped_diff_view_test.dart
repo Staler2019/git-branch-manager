@@ -105,7 +105,7 @@ void main() {
       // '.+..-.' is one card spanning indices 1..4, but only 1 and 4 change.
       await pump(tester, file: _file(<String>['.+..-.']));
 
-      await tester.tap(find.text('Stage 2 lines'));
+      await tester.tap(find.text('Stage 4 lines (2 changed)'));
 
       expect(staged.length, 1);
       expect(staged.single.hunkIndex, 0);

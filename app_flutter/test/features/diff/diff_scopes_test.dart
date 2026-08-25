@@ -248,6 +248,44 @@ void main() {
     });
   });
 
+  group('scopeButtonLabel', () {
+    test('names the spanned count first and the changed count in parens', () {
+      // The user's own worked example: 1 added line plus 2 context lines the
+      // gap rule swallowed.
+      expect(
+        scopeButtonLabel(staged: false, spanned: 3, changed: 1),
+        'Stage 3 lines (1 changed)',
+      );
+    });
+
+    test('drops the parenthetical when the two numbers agree', () {
+      expect(
+        scopeButtonLabel(staged: false, spanned: 2, changed: 2),
+        'Stage 2 lines',
+        reason:
+            'the parens exist to disclose a gap; with no gap they are noise',
+      );
+    });
+
+    test('singularises on the spanned count, not the changed one', () {
+      expect(
+        scopeButtonLabel(staged: false, spanned: 1, changed: 1),
+        'Stage 1 line',
+      );
+      expect(
+        scopeButtonLabel(staged: false, spanned: 1, changed: 0),
+        'Stage 1 line (0 changed)',
+      );
+    });
+
+    test('the staged side unstages', () {
+      expect(
+        scopeButtonLabel(staged: true, spanned: 3, changed: 1),
+        'Unstage 3 lines (1 changed)',
+      );
+    });
+  });
+
   group('splitDiffFileIntoScopes', () {
     test('scopes never span two hunks', () {
       final DiffFile file = DiffFile(

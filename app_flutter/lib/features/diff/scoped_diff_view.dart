@@ -349,12 +349,11 @@ class _ScopeCard extends StatelessWidget {
               ordinal: ordinal,
               scope: scope,
               staged: staged,
-              // The label counts the lines that move, which is what the press
-              // does -- not the card's height, which includes the context the
-              // gap rule swallowed.
-              label:
-                  '${staged ? 'Unstage' : 'Stage'} $moving '
-                  'line${moving == 1 ? '' : 's'}',
+              label: scopeButtonLabel(
+                staged: staged,
+                spanned: scope.lineIndices.length,
+                changed: moving,
+              ),
               onStage: onStage,
             ),
             for (final int index in scope.lineIndices)

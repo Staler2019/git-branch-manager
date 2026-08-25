@@ -9,6 +9,7 @@ import 'package:gbm_flutter/data/repositories/open_repo_sessions.dart';
 import 'package:gbm_flutter/data/repositories/update_repository.dart';
 import 'package:gbm_flutter/data/services/desktop_launcher.dart';
 import 'package:gbm_flutter/data/services/github_release_gateway.dart';
+import 'package:gbm_flutter/data/services/update_installer.dart';
 import 'package:gbm_flutter/features/dialogs/update/update_dialog.dart';
 
 import '../../support/pump_app.dart';
@@ -182,6 +183,24 @@ void main() {
       )).fake;
 
       expect(fake.calls, isEmpty);
+    });
+
+    // The swap happens after this process is gone, so nothing here can
+    // report it failing. Naming the transcript before handing over is the
+    // only way a user ever finds out why an update did not take.
+    testWidgets('says where to look if the new build never comes back', (
+      WidgetTester tester,
+    ) async {
+      await _pumpDialog(
+        tester,
+        UpdateState.readyToInstall(
+          release: _release,
+          asset: _asset,
+          downloadedPath: '/tmp/x.dmg',
+        ),
+      );
+
+      expect(find.textContaining(kUpdateLogName), findsOneWidget);
     });
 
     testWidgets('does not re-check with a verified bundle waiting', (

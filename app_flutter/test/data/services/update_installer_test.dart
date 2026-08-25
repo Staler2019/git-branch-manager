@@ -543,6 +543,29 @@ void main() {
       expect(s, contains('if (-not \$renamed) {'));
     });
 
+    // Nothing in the app can report what the script did -- it runs after the
+    // process has exited -- so the transcript is the only channel a failed
+    // update has. Every exit goes through Stop-Updater so no arm can leave
+    // without recording its code.
+    test('records every arm it can end on', () {
+      final String s = script();
+
+      expect(s, contains("Join-Path \$PSScriptRoot '$kUpdateLogName'"));
+      expect(s, contains('function Stop-Updater'));
+      for (final int code in <int>[0, 2, 3, 4]) {
+        expect(
+          s,
+          contains('Stop-Updater $code'),
+          reason: 'exit $code must be recorded, not silent',
+        );
+      }
+      expect(
+        RegExp(r'^\s*exit \d', multiLine: true).hasMatch(s),
+        isFalse,
+        reason: 'a bare exit would skip the transcript',
+      );
+    });
+
     // With \$ErrorActionPreference = 'Stop', a rollback whose own Move-Item
     // throws would leave the catch block with no handler: the install gone
     // and the script dead.
@@ -559,7 +582,7 @@ void main() {
 
     test('aborts rather than swapping when the app outlives the deadline', () {
       expect(script(), contains(r'AddSeconds(30)'));
-      expect(script(), contains('exit 2'));
+      expect(script(), contains('Stop-Updater 2'));
     });
 
     test('retries the rename against a lingering antivirus handle', () {
@@ -573,7 +596,7 @@ void main() {
       final int restoreAt = text.indexOf(r'Move-Item -LiteralPath $backup');
       expect(copyAt, greaterThan(0));
       expect(restoreAt, greaterThan(copyAt));
-      expect(text, contains('exit 4'));
+      expect(text, contains('Stop-Updater 4'));
     });
 
     test(

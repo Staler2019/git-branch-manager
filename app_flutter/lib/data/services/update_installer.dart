@@ -75,6 +75,23 @@ class UpdateInstallException implements Exception {
 /// would silently stop cleaning up.
 const String kUpdateDownloadDirPrefix = 'gbm-update-';
 
+/// Name of the transcript the updater script writes beside itself.
+///
+/// The script runs after the process has exited, so nothing in the app can
+/// report what it did. Without a file on disk a failed update is entirely
+/// undiagnosable -- the position the Windows report left this feature in.
+const String kUpdateLogName = 'gbm-update.log';
+
+/// Where that transcript ends up.
+///
+/// Composed here, next to the generator, so the script and the sentence that
+/// tells the user where to look cannot drift apart. It resolves to the
+/// script's own directory because `UpdateController.install` passes
+/// `Directory.systemTemp` as `scriptDir` -- the script writes the log beside
+/// itself.
+String updateLogPath() =>
+    '${Directory.systemTemp.path}${Platform.pathSeparator}$kUpdateLogName';
+
 /// Suffix the updater script renames the outgoing install to.
 const String kPreviousInstallSuffix = '.gbm-old';
 
@@ -507,11 +524,27 @@ set -u
 # on any platform, and on Windows the equivalent is what broke the update.
 cd "\$(dirname "\$0")" || exit 1
 
+# Beside the script, truncated on every run: a transcript that accumulated
+# every update ever run would bury the one being asked about. Failures to
+# write are swallowed -- losing the log must never be what fails the update.
+LOG="\$PWD/$kUpdateLogName"
+: > "\$LOG" 2>/dev/null || true
+log() {
+  printf '%s %s\\n' "\$(date '+%Y-%m-%dT%H:%M:%S')" "\$*" >> "\$LOG" 2>/dev/null || true
+}
+finish() {
+  log "exit \$1"
+  exit "\$1"
+}
+
 PID=$pid
 TARGET=${_shQuote(targetPath)}
 STAGED=${_shQuote(stagedPath)}
 BACKUP=${_shQuote('$targetPath.gbm-old')}
 ATTEMPTS=$attempts
+
+log "target=\$TARGET"
+log "staged=\$STAGED"
 
 # Timing out must leave everything untouched. Falling through while the app
 # is still running would put two instances over a half-replaced install.
@@ -519,7 +552,8 @@ i=0
 while kill -0 "\$PID" 2>/dev/null; do
   i=\$((i + 1))
   if [ "\$i" -ge "\$ATTEMPTS" ]; then
-    exit 2
+    log "the app was still running at the deadline; nothing was changed"
+    finish 2
   fi
   sleep 0.2
 done
@@ -534,21 +568,23 @@ relaunch() {
 
 rm -rf "\$BACKUP"
 if ! mv "\$TARGET" "\$BACKUP"; then
+  log "could not rename the install aside; nothing was changed"
   relaunch
-  exit 3
+  finish 3
 fi
 
 if $copyCommand "\$STAGED" "\$TARGET"; then
   rm -rf "\$STAGED"
   relaunch
-  exit 0
+  finish 0
 fi
 
 # The rename above is the only reason this is recoverable.
+log "the copy failed; restoring the old install"
 rm -rf "\$TARGET"
 mv "\$BACKUP" "\$TARGET"
 relaunch
-exit 4
+finish 4
 ''';
 }
 
@@ -579,6 +615,21 @@ String buildWindowsUpdaterScript({
 Set-Location -LiteralPath \$PSScriptRoot
 [System.Environment]::CurrentDirectory = \$PSScriptRoot
 
+# Beside the script, truncated on every run: a transcript that accumulated
+# every update ever run would bury the one being asked about. Failures to
+# write are swallowed -- losing the log must never be what fails the update.
+\$log = Join-Path \$PSScriptRoot '$kUpdateLogName'
+Set-Content -LiteralPath \$log -Value '' -ErrorAction SilentlyContinue
+function Write-Log(\$message) {
+  try {
+    Add-Content -LiteralPath \$log -Value "\$(Get-Date -Format s) \$message"
+  } catch { }
+}
+function Stop-Updater(\$code) {
+  Write-Log "exit \$code"
+  exit \$code
+}
+
 # Everything past the wait runs with the app already gone, so every arm has
 # to put a working build back -- including the ones that change nothing.
 # Wrapped in its own try: with ErrorActionPreference = 'Stop' a relaunch of
@@ -593,11 +644,17 @@ function Restart-App {
 \$staged = ${_psQuote(stagedPath)}
 \$backup = ${_psQuote('$targetPath.gbm-old')}
 
+Write-Log "target=\$target"
+Write-Log "staged=\$staged"
+
 # Polled rather than Wait-Process, whose timeout surfaces as an error record
 # rather than a distinguishable exception type.
 \$deadline = (Get-Date).AddSeconds(${waitTimeout.inSeconds})
 while (Get-Process -Id \$parentPid -ErrorAction SilentlyContinue) {
-  if ((Get-Date) -gt \$deadline) { exit 2 }
+  if ((Get-Date) -gt \$deadline) {
+    Write-Log 'the app was still running at the deadline; nothing was changed'
+    Stop-Updater 2
+  }
   Start-Sleep -Milliseconds 200
 }
 
@@ -617,16 +674,19 @@ for (\$i = 0; \$i -lt 20; \$i++) {
   }
 }
 if (-not \$renamed) {
+  Write-Log 'could not rename the install aside; nothing was changed'
   Restart-App
-  exit 3
+  Stop-Updater 3
 }
 
 try {
   Copy-Item -LiteralPath \$staged -Destination \$target -Recurse -Force
   Remove-Item -LiteralPath \$staged -Recurse -Force -ErrorAction SilentlyContinue
   Restart-App
-  exit 0
+  Stop-Updater 0
 } catch {
+  Write-Log "the copy failed: \$_"
+
   # The restore is itself guarded: an unhandled throw here would end the
   # script with the install gone and nothing running.
   try {
@@ -634,7 +694,7 @@ try {
     Move-Item -LiteralPath \$backup -Destination \$target -Force
   } catch { }
   Restart-App
-  exit 4
+  Stop-Updater 4
 }
 ''';
 }

@@ -8,6 +8,7 @@ import '../../../data/repositories/app_preferences_repository.dart';
 import '../../../data/repositories/open_repo_sessions.dart';
 import '../../../data/repositories/update_repository.dart';
 import '../../../data/services/desktop_launcher.dart';
+import '../../../data/services/update_installer.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_banner.dart';
@@ -170,9 +171,13 @@ class _UpdateDialogContentState extends ConsumerState<UpdateDialogContent> {
             'available.',
       UpdateStatus.downloading => 'Downloading ${state.release?.version}…',
       UpdateStatus.verifying => 'Verifying the download…',
+      // The swap runs in a detached script after this process has exited,
+      // so nothing here can report it failing. Naming the transcript before
+      // handing over is the only channel a failed update ever has.
       UpdateStatus.readyToInstall =>
         'Version ${state.release?.version} is ready. The app will close and '
-            'reopen on the new version.',
+            'reopen on the new version. If it does not come back, '
+            '${updateLogPath()} says why.',
       UpdateStatus.installing => 'Installing…',
       UpdateStatus.failed => 'The update did not complete.',
     };

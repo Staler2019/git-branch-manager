@@ -161,6 +161,80 @@ void main() {
     });
   });
 
+  // Once the app has exited there is no channel left to report anything on,
+  // so a failed update is otherwise entirely undiagnosable -- which is
+  // exactly the position the Windows report left this feature in.
+  group('the transcript', () {
+    test('records the outcome of a successful swap', () async {
+      final Directory target = dirWithMarker('install', 'old');
+      final Directory staged = dirWithMarker('staged', 'new');
+
+      final int code = await runScript(
+        buildUnixUpdaterScript(
+          pid: 999999,
+          targetPath: target.path,
+          stagedPath: staged.path,
+          copyCommand: 'cp -a',
+          relaunchCommand: ':',
+        ),
+      );
+
+      expect(code, 0);
+      final String log = File(
+        '${root.path}/$kUpdateLogName',
+      ).readAsStringSync();
+      expect(log, contains(target.path));
+      expect(log, contains('exit 0'));
+    });
+
+    // The code that matters most: this is the arm nobody could see.
+    test('records a rename that could not happen', () async {
+      final Directory lock = Directory('${root.path}/lock')
+        ..createSync(recursive: true);
+      final Directory target = Directory('${lock.path}/install')
+        ..createSync(recursive: true);
+      final Directory staged = dirWithMarker('staged', 'new');
+      await Process.run('chmod', <String>['555', lock.path]);
+      addTearDown(() => Process.run('chmod', <String>['755', lock.path]));
+
+      await runScript(
+        buildUnixUpdaterScript(
+          pid: 999999,
+          targetPath: target.path,
+          stagedPath: staged.path,
+          copyCommand: 'cp -a',
+          relaunchCommand: ':',
+        ),
+      );
+
+      expect(
+        File('${root.path}/$kUpdateLogName').readAsStringSync(),
+        contains('exit 3'),
+      );
+    });
+
+    // Truncated, not appended to: a transcript that accumulated every update
+    // ever run would bury the one the user is being asked about.
+    test('starts fresh rather than appending to the last run', () async {
+      final File log = File('${root.path}/$kUpdateLogName')
+        ..writeAsStringSync('LEFTOVER FROM AN OLDER UPDATE\n');
+      final Directory target = dirWithMarker('install', 'old');
+      final Directory staged = dirWithMarker('staged', 'new');
+
+      await runScript(
+        buildUnixUpdaterScript(
+          pid: 999999,
+          targetPath: target.path,
+          stagedPath: staged.path,
+          copyCommand: 'cp -a',
+          relaunchCommand: ':',
+        ),
+      );
+
+      expect(log.readAsStringSync(), isNot(contains('LEFTOVER')));
+    });
+  });
+
   group('the abort arms', () {
     // The arm that matters most: falling through to the swap while the app
     // is still running would leave two instances over a half-replaced

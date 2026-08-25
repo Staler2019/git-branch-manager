@@ -8,6 +8,7 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/file_list_mode_switcher.dart';
 import '../../../widgets/file_tree_folder_row.dart';
+import '../../../widgets/gbm_badge.dart';
 import '../../../widgets/gbm_row.dart';
 import '../../../widgets/split_pane.dart';
 import '../working_copy_file_identity.dart';
@@ -369,6 +370,7 @@ class _WorkingCopyBoardState extends State<WorkingCopyBoard> {
               overflow: TextOverflow.ellipsis,
             ),
           ),
+          ..._lineCountBadges(entry, fromStaged: fromStaged),
         ],
       ),
     );
@@ -396,6 +398,40 @@ class _WorkingCopyBoardState extends State<WorkingCopyBoard> {
     }
 
     return draggableChild;
+  }
+
+  /// The `+N` / `-N` pair at the end of a row, each column reading **its own
+  /// side's** counts -- a partly-staged file has four independent numbers and
+  /// showing the wrong pair would say the opposite of the truth. This is what
+  /// replaced the tri-state checkbox's "half-selected" look: a number says
+  /// how much is on this side, where an indeterminate dash only said "some".
+  ///
+  /// A zero draws nothing rather than `+0`. Zero means *not measured* (binary
+  /// blob, mode-only change, untracked file over the byte cap -- see
+  /// `WorkingCopyEntry`'s own doc comment), and a badge there would claim a
+  /// measurement that never happened. Same rule and same reason as
+  /// `changed_files_panel.dart`, which is also where the ASCII `-` comes
+  /// from: two different minus glyphs across the app's file lists would read
+  /// as two different things.
+  List<Widget> _lineCountBadges(
+    WorkingCopyEntry entry, {
+    required bool fromStaged,
+  }) {
+    final int added = fromStaged ? entry.stagedAdded : entry.unstagedAdded;
+    final int removed = fromStaged
+        ? entry.stagedRemoved
+        : entry.unstagedRemoved;
+
+    return <Widget>[
+      if (added > 0) ...<Widget>[
+        const SizedBox(width: GbmSpacing.space1),
+        GbmBadge(label: '+$added', kind: GbmBadgeKind.added),
+      ],
+      if (removed > 0) ...<Widget>[
+        const SizedBox(width: GbmSpacing.space1),
+        GbmBadge(label: '-$removed', kind: GbmBadgeKind.removed),
+      ],
+    ];
   }
 
   /// Builds a folder row for tree mode: the shared read-only

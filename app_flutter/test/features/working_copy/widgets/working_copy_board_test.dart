@@ -4,10 +4,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/data/repositories/file_list_view_mode_repository.dart';
 import 'package:gbm_flutter/features/working_copy/widgets/working_copy_board.dart';
+import 'package:gbm_flutter/theme/tokens.dart';
+import 'package:gbm_flutter/widgets/gbm_badge.dart';
 import 'package:gbm_flutter/widgets/file_tree_folder_row.dart';
 import 'package:gbm_flutter/widgets/gbm_row.dart';
 
 import '../../../support/pump_app.dart';
+
+/// A const-friendly no-op, so a test case can build the board with `const`
+/// and still pass the two required callbacks.
+void _ignorePaths(List<String> _) {}
 
 WorkingCopyEntry _entry({
   required String path,
@@ -41,14 +47,22 @@ WorkingCopyEntry _entry({
 /// The paths whose row currently renders selected, read straight off the
 /// [GbmRow]s -- set equality against this is the only assertion that can see
 /// a range spanning the wrong rows. `containsAll` cannot.
-Set<String> _selectedPaths(WidgetTester tester) => <String>{
-  for (final GbmRow row in tester.widgetList<GbmRow>(find.byType(GbmRow)))
-    if (row.selected)
-      ((row.child as Row).children.first as Expanded).child is Text
-          ? (((row.child as Row).children.first as Expanded).child as Text)
-                .data!
-          : '',
-};
+Set<String> _selectedPaths(WidgetTester tester) {
+  final Set<String> paths = <String>{};
+  for (final GbmRow row in tester.widgetList<GbmRow>(find.byType(GbmRow))) {
+    if (!row.selected) continue;
+    // Read the first Text under the row rather than casting through the
+    // row's widget shape: a layout change should red the layout test, not
+    // every selection test at once.
+    final Text label = tester
+        .widgetList<Text>(
+          find.descendant(of: find.byWidget(row), matching: find.byType(Text)),
+        )
+        .first;
+    paths.add(label.data!);
+  }
+  return paths;
+}
 
 Future<void> _tapWithModifier(
   WidgetTester tester,
@@ -440,6 +454,141 @@ void main() {
         reason:
             'there is no range between two independent columns; a silent '
             'no-op leaves the user with nothing on screen to explain it',
+      );
+    });
+
+    testWidgets('each column reads its own side of a partly-staged file', (
+      tester,
+    ) async {
+      // Four independent numbers on one entry: the work tree has +3/-1 that
+      // is not staged yet, the index has +7/-2 that is.
+      const WorkingCopyEntry partly = WorkingCopyEntry(
+        path: 'lib/main.dart',
+        oldPath: '',
+        untracked: false,
+        staged: true,
+        indexStatus: FileChangeKind.modified,
+        hasUnstagedChange: true,
+        worktreeStatus: FileChangeKind.modified,
+        unstagedAdded: 3,
+        unstagedRemoved: 1,
+        stagedAdded: 7,
+        stagedRemoved: 2,
+        conflict: ConflictKind.none,
+        ancestorBlob: '',
+        oursBlob: '',
+        theirsBlob: '',
+        similarity: 0,
+        isSubmodule: false,
+        isConflicted: false,
+      );
+
+      await pumpGbmWidget(
+        tester,
+        child: const SizedBox(
+          width: 800,
+          height: 600,
+          child: WorkingCopyBoard(
+            unstagedEntries: <WorkingCopyEntry>[partly],
+            stagedEntries: <WorkingCopyEntry>[partly],
+            onStageRequested: _ignorePaths,
+            onUnstageRequested: _ignorePaths,
+          ),
+        ),
+      );
+
+      expect(find.text('+3'), findsOneWidget);
+      expect(find.text('-1'), findsOneWidget);
+      expect(find.text('+7'), findsOneWidget);
+      expect(find.text('-2'), findsOneWidget);
+    });
+
+    testWidgets('a zero count draws no badge at all', (tester) async {
+      // Binary blobs, mode-only changes and over-cap untracked files all
+      // arrive as 0, which means "not measured" -- a `+0` would claim a
+      // measurement that never happened.
+      await pumpGbmWidget(
+        tester,
+        child: SizedBox(
+          width: 800,
+          height: 600,
+          child: WorkingCopyBoard(
+            unstagedEntries: unstagedEntries,
+            stagedEntries: stagedEntries,
+            onStageRequested: (_) {},
+            onUnstageRequested: (_) {},
+          ),
+        ),
+      );
+
+      expect(find.byType(GbmBadge), findsNothing);
+      expect(find.textContaining('+0'), findsNothing);
+      expect(find.textContaining('-0'), findsNothing);
+    });
+
+    testWidgets('badges still fit at the column splitter\'s minExtent', (
+      tester,
+    ) async {
+      // The default 800x600 test canvas hides width overflow: the real floor
+      // is GbmLayout.splitterWcColumns.minExtent per column, and the rows now
+      // carry two badges they did not before.
+      const WorkingCopyEntry longPath = WorkingCopyEntry(
+        path: 'lib/features/working_copy/widgets/working_copy_board.dart',
+        oldPath: '',
+        untracked: false,
+        staged: false,
+        indexStatus: FileChangeKind.modified,
+        hasUnstagedChange: true,
+        worktreeStatus: FileChangeKind.modified,
+        unstagedAdded: 128,
+        unstagedRemoved: 256,
+        stagedAdded: 0,
+        stagedRemoved: 0,
+        conflict: ConflictKind.none,
+        ancestorBlob: '',
+        oursBlob: '',
+        theirsBlob: '',
+        similarity: 0,
+        isSubmodule: false,
+        isConflicted: false,
+      );
+
+      final double boardWidth = GbmLayout.splitterWcColumns.minExtent * 2;
+      await pumpGbmWidget(
+        tester,
+        child: SizedBox(
+          width: boardWidth,
+          height: 600,
+          child: const WorkingCopyBoard(
+            unstagedEntries: <WorkingCopyEntry>[longPath],
+            stagedEntries: <WorkingCopyEntry>[],
+            onStageRequested: _ignorePaths,
+            onUnstageRequested: _ignorePaths,
+          ),
+        ),
+      );
+
+      expect(tester.takeException(), isNull);
+
+      // Not just "no exception": Expanded happily collapses its child to zero
+      // and calls that a fit. And the bound has to be the *row*, not the
+      // board -- a badge can run off the end of a 200px column and still sit
+      // well inside a 400px board, so board.right would pass with the layout
+      // broken.
+      final Rect row = tester.getRect(find.byType(GbmRow));
+      for (final String label in <String>['+128', '-256']) {
+        final Rect badge = tester.getRect(find.text(label));
+        expect(badge.width, greaterThan(0), reason: '$label collapsed to zero');
+        expect(
+          badge.right,
+          lessThanOrEqualTo(row.right),
+          reason: '$label is painted past the right edge of its own row',
+        );
+      }
+      expect(
+        tester.getRect(find.text(longPath.path)).width,
+        greaterThan(0),
+        reason: 'the file name must not be squeezed out by the two badges',
       );
     });
   });

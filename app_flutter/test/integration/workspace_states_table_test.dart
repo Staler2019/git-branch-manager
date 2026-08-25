@@ -169,9 +169,12 @@ Future<PumpedWorkspace> _pumpAtWorkingCopy(
 /// tell "gate logic is right" apart from "typing rebuilds it", and a
 /// regression in either should fail independently of the other.
 Override _draftWithSummary(String summary) {
-  return workingCopyDraftProvider(
-    _identity,
-  ).overrideWith((ref) => WorkingCopyDraftController()..updateSummary(summary));
+  return workingCopyDraftProvider(_identity).overrideWith(
+    (ref) => WorkingCopyDraftController(
+      ref.watch(workingCopyDraftRepositoryProvider),
+      _identity,
+    )..updateSummary(summary),
+  );
 }
 
 void main() {

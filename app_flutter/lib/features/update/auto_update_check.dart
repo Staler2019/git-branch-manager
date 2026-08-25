@@ -12,10 +12,31 @@ import '../../theme/theme_mode_provider.dart';
 /// When the last automatic check was attempted, as an ISO-8601 string.
 ///
 /// A raw key rather than an [AppPreferences] field: this is state, not a
-/// setting. Nothing in Preferences shows or edits it, and putting it there
-/// would make the dialog's own "every field here is a setting the user can
-/// see" shape untrue. Same call as `panelLayout.*`.
+/// setting. Preferences renders it -- through [lastAutoCheckLabel] -- as a
+/// read-only status line rather than as an editable row, so the dialog's own
+/// "every field here is a setting the user can see" shape still holds. Same
+/// call as `panelLayout.*`.
 const String kLastAutoUpdateCheckKey = 'update.lastAutoCheck';
+
+/// How Preferences renders [kLastAutoUpdateCheckKey].
+///
+/// A pure function of the stored string, so the wording lives in one place
+/// and can be pinned without a widget. Local time in a fixed 24-hour form
+/// rather than `intl`: this app carries no localization dependency.
+///
+/// An unparsable stamp reads as never -- the same call [_isDue] makes, for
+/// the same reason: a corrupt value must not throw, and must not be
+/// presented as a real time either.
+String lastAutoCheckLabel(String? raw) {
+  final DateTime? at = raw == null ? null : DateTime.tryParse(raw);
+  if (at == null) {
+    return 'Last automatic check: never.';
+  }
+  final DateTime local = at.toLocal();
+  String two(int value) => value.toString().padLeft(2, '0');
+  return 'Last automatic check: ${local.year}-${two(local.month)}-'
+      '${two(local.day)} ${two(local.hour)}:${two(local.minute)}.';
+}
 
 /// How long a recorded attempt suppresses the next one.
 ///

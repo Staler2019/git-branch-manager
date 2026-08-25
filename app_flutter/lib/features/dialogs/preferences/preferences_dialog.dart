@@ -11,12 +11,14 @@ import '../../../data/models/base_folder_record.dart';
 import '../../../data/repositories/app_preferences_repository.dart';
 import '../../../data/repositories/discovery_repository.dart';
 import '../../../data/repositories/recents_repository.dart';
+import '../../../routing/route_paths.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/theme_mode_provider.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
 import '../../../widgets/theme_switcher_buttons.dart';
+import '../../update/auto_update_check.dart';
 
 /// The six sections of spec page 11's `PREFNAV`, in the spec's own order.
 enum PreferencesSection {
@@ -371,6 +373,48 @@ class _GeneralSection extends ConsumerWidget {
           onChanged: (bool v) => notifier.update(
             (AppPreferences p) => p.copyWith(autoUpdateCheckEnabled: v),
           ),
+        ),
+        // Read-only status, not a setting -- `update.lastAutoCheck` is
+        // state, and this row neither edits nor offers to reset it. It is
+        // here for the same reason the skipped-version row below is: without
+        // it, "the startup check found nothing" and "the startup check is
+        // not due for another 23 hours" look identical from the outside,
+        // which is how a working automatic check reads as a broken one.
+        //
+        // Read rather than watched: the stamp is written once, a few seconds
+        // after launch, and this dialog is normally opened long after that.
+        // A check that lands while Preferences is already open leaves the
+        // line one reopen behind, which is cheaper than rebuilding the whole
+        // section off a store that publishes nothing.
+        const SizedBox(height: GbmSpacing.space2),
+        Row(
+          children: <Widget>[
+            Expanded(
+              child: Text(
+                lastAutoCheckLabel(
+                  ref
+                      .read(sharedPreferencesProvider)
+                      .getString(kLastAutoUpdateCheckKey),
+                ),
+                style: TextStyle(
+                  fontSize: GbmTypography.textXs,
+                  color: context.gbmColors.textTertiary,
+                  height: GbmTypography.leadingNormal,
+                ),
+              ),
+            ),
+            const SizedBox(width: GbmSpacing.space2),
+            // Routed rather than a callback, so it reaches the same dialog
+            // About's button does with no repository open. Replacement, not
+            // a push: leaving Preferences stacked underneath is not what
+            // "now" means -- and the update dialog runs a fresh check on
+            // mount, so this really is a check rather than a replay.
+            GbmButton(
+              label: 'Check for updates now',
+              kind: GbmButtonKind.secondary,
+              onPressed: () => context.pushReplacement(RoutePaths.updateDialog),
+            ),
+          ],
         ),
         // Only rendered while something is actually skipped. A suppression
         // the user can neither see nor undo is hidden material state.

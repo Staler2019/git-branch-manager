@@ -109,6 +109,38 @@ UpdateInstaller _installable() {
 }
 
 void main() {
+  // The gate is state, not a setting, and it used to be invisible: nothing
+  // in the app could tell "the check found nothing" from "the check is not
+  // due for another 23 hours". Preferences renders this string.
+  group('lastAutoCheckLabel', () {
+    test('says never when nothing has been recorded', () {
+      expect(lastAutoCheckLabel(null), 'Last automatic check: never.');
+    });
+
+    // Same call `_isDue` makes: a corrupt value must not throw, and must not
+    // read as a real time either.
+    test('says never for a stamp that will not parse', () {
+      expect(lastAutoCheckLabel('not a date'), 'Last automatic check: never.');
+    });
+
+    // A local DateTime serialises without a zone suffix, so `toLocal()` is a
+    // no-op on it and this assertion holds on any machine.
+    test('renders a recorded stamp in local time, zero padded', () {
+      expect(
+        lastAutoCheckLabel(DateTime(2026, 8, 25, 9, 4).toIso8601String()),
+        'Last automatic check: 2026-08-25 09:04.',
+      );
+    });
+
+    test('converts a UTC stamp to local time', () {
+      final DateTime utc = DateTime.utc(2026, 8, 25, 9, 4);
+      expect(
+        lastAutoCheckLabel(utc.toIso8601String()),
+        lastAutoCheckLabel(utc.toLocal().toIso8601String()),
+      );
+    });
+  });
+
   group('AutoUpdateCheck', () {
     testWidgets('surfaces an available update after the delay', (
       WidgetTester tester,

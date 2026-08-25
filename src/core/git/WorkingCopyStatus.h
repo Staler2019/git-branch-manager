@@ -50,6 +50,25 @@ struct WorkingCopyEntry {
     FileChangeKind worktreeStatus =
         FileChangeKind::Modified;  ///< Valid only when hasUnstagedChange.
 
+    /// Line counts for each of the two sides, from `git diff --numstat` and
+    /// `git diff --cached --numstat`. Deliberately **not** named `addedLines`:
+    /// `DiffFile` and `ChangedFile` already both serialize a field by that
+    /// name, and a third would make any mutation test anchored on the field
+    /// name match three serializers instead of one.
+    ///
+    /// Zero means "no measurement", never "measured zero". numstat prints `-`
+    /// for a binary blob, a mode-only change touches no lines, and an
+    /// untracked file over the byte cap is skipped -- all three land here as
+    /// 0, and the UI draws no badge for 0 rather than claiming `+0`.
+    ///
+    /// For an untracked file `git diff` reports nothing at all (the path is in
+    /// neither the index nor HEAD), so `unstagedAdded` is the file's own line
+    /// count, read from disk, and `unstagedRemoved` is always 0.
+    std::uint32_t unstagedAdded = 0;
+    std::uint32_t unstagedRemoved = 0;
+    std::uint32_t stagedAdded = 0;
+    std::uint32_t stagedRemoved = 0;
+
     ConflictKind conflict = ConflictKind::None;
 
     /// Blob object ids for each side of a conflict, valid only when
@@ -83,15 +102,36 @@ struct WorkingCopyStatus {
 
 using WorkingCopyStatusPtr = std::shared_ptr<const WorkingCopyStatus>;
 
-/// Reads working-copy status via `git status --porcelain=v2`.
+/// How many bytes of an untracked file are worth reading just to count its
+/// lines. `git status --untracked-files=all` enumerates every file in an
+/// unbuilt output directory, so an uncapped read turns one status refresh into
+/// however much disk that directory happens to hold. Over the cap the file
+/// gets no count at all rather than a partial one -- a partial count is a
+/// wrong number, not a missing one, and the UI cannot tell the two apart.
+inline constexpr std::uintmax_t kUntrackedLineCountByteCap = 1u << 20;  // 1 MiB
+
+/// Reads working-copy status via `git status --porcelain=v2`, plus the two
+/// `--numstat` passes that carry the per-file line counts spec page 03's
+/// `+34 -12` badges need.
+///
+/// **Three git invocations, not one.** `git status` reports no line counts at
+/// all, and git's diff output-format field is a single slot -- `--numstat`
+/// cannot be combined with a status read, so the counts come from
+/// `git diff --numstat` (work tree vs index) and `git diff --cached --numstat`
+/// (index vs HEAD), joined onto the status entries by path. Untracked files
+/// are in neither of those diffs, so their line count is read from the file
+/// itself, capped by [kUntrackedLineCountByteCap].
 ///
 /// Deliberately uncached, like DiffService::workingTreeDiff: the work tree
 /// changes under us on every keystroke and every build, and the only honest
-/// cache key would have to include every file's mtime and size. Speed instead
-/// comes from git itself -- `core.fsmonitor` (>= 2.37, see
+/// cache key would have to include every file's mtime and size. git itself
+/// still does most of the work cheaply -- `core.fsmonitor` (>= 2.37, see
 /// GitCapabilities::fsMonitor) lets git skip the lstat() of every file in a
 /// large work tree and answer from its daemon's change list, which this class
-/// gets for free by not passing anything that would defeat it.
+/// gets for free by not passing anything that would defeat it -- but the
+/// per-refresh cost is now three processes and, in a tree with many untracked
+/// files, one bounded read each. The byte cap is what stops an unbuilt output
+/// directory from turning one refresh into hundreds of megabytes of reads.
 class WorkingCopyStatusReader {
 public:
     WorkingCopyStatusReader(IProcessRunner& runner, RepoPaths paths);

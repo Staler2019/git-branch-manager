@@ -1526,6 +1526,223 @@ TEST_F(RealRepoTest, WorkingCopyStatusDetectsARenameStagedForCommit) {
     EXPECT_GT(entry.similarity, 0);
 }
 
+// ---------------------------------------------------------------------------
+// Per-file line counts (spec page 03's `+34 −12` badges).
+//
+// `git status --porcelain=v2` carries no line counts at all, so read() runs two
+// extra `--numstat` passes and joins them onto the status entries by path. The
+// tests below pin the four ways that join can silently produce a wrong number
+// rather than an error: a file that is on both sides at once, a rename (whose
+// `-z` output spends three records where every other kind spends one), a binary
+// blob (numstat prints `-`, not a number), and an untracked file (which `git
+// diff` cannot see at all, so its count comes from reading the file).
+// ---------------------------------------------------------------------------
+
+TEST_F(RealRepoTest, WorkingCopyStatusCountsUnstagedLines) {
+    commitFile("a.txt", "l1\nl2\nl3\n", "base");
+    {
+        std::ofstream out(repo_ / "a.txt", std::ios::trunc);
+        out << "l1\nl2 changed\nl3\nl4\n";
+    }
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status) << status.error().message;
+    ASSERT_EQ((*status)->entries.size(), 1u);
+
+    const WorkingCopyEntry& e = (*status)->entries.front();
+    EXPECT_EQ(e.unstagedAdded, 2u);    // "l2 changed" and "l4"
+    EXPECT_EQ(e.unstagedRemoved, 1u);  // "l2"
+    EXPECT_EQ(e.stagedAdded, 0u);
+    EXPECT_EQ(e.stagedRemoved, 0u);
+}
+
+TEST_F(RealRepoTest, WorkingCopyStatusCountsStagedLines) {
+    commitFile("a.txt", "l1\nl2\nl3\n", "base");
+    {
+        std::ofstream out(repo_ / "a.txt", std::ios::trunc);
+        out << "l1\nl2\nl3\nl4\nl5\n";
+    }
+    ASSERT_TRUE(run({"add", "a.txt"}));
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status) << status.error().message;
+    ASSERT_EQ((*status)->entries.size(), 1u);
+
+    const WorkingCopyEntry& e = (*status)->entries.front();
+    EXPECT_EQ(e.stagedAdded, 2u);
+    EXPECT_EQ(e.stagedRemoved, 0u);
+    EXPECT_EQ(e.unstagedAdded, 0u);
+    EXPECT_EQ(e.unstagedRemoved, 0u);
+}
+
+/// The data source for the file list's "partly staged" signal: one path, one
+/// status entry, but two independent pairs of counts. A single pair of fields
+/// could not express this at all, which is why there are four.
+TEST_F(RealRepoTest, WorkingCopyStatusCountsBothSidesOfAPartiallyStagedFile) {
+    commitFile("a.txt", "l1\nl2\nl3\n", "base");
+    {
+        std::ofstream out(repo_ / "a.txt", std::ios::trunc);
+        out << "l1\nl2\nl3\nstaged1\nstaged2\n";
+    }
+    ASSERT_TRUE(run({"add", "a.txt"}));
+    {
+        std::ofstream out(repo_ / "a.txt", std::ios::app);
+        out << "unstaged1\n";
+    }
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status) << status.error().message;
+    ASSERT_EQ((*status)->entries.size(), 1u);
+
+    const WorkingCopyEntry& e = (*status)->entries.front();
+    EXPECT_TRUE(e.staged);
+    EXPECT_TRUE(e.hasUnstagedChange);
+    EXPECT_EQ(e.stagedAdded, 2u);
+    EXPECT_EQ(e.stagedRemoved, 0u);
+    EXPECT_EQ(e.unstagedAdded, 1u);
+    EXPECT_EQ(e.unstagedRemoved, 0u);
+}
+
+/// The one that catches a one-record-per-entry loop. Under `-z`, numstat spends
+/// **three** records on a rename (an empty path field, then the old path, then
+/// the new one) where every other kind spends one. A loop that advances by a
+/// single record reads the old path as the *next* entry's counts, so every
+/// count after the first rename is wrong -- and wrong silently, as a plausible
+/// number rather than an error.
+///
+/// `zzz.txt` exists purely to sort after the renamed path, so there is
+/// something for a mis-advanced loop to corrupt.
+TEST_F(RealRepoTest, WorkingCopyStatusCountsLinesAfterARenameInTheSameBatch) {
+    commitFile("aaa.txt", "l1\nl2\nl3\nl4\nl5\n", "c1");
+    commitFile("zzz.txt", "z1\nz2\nz3\n", "c2");
+
+    ASSERT_TRUE(run({"mv", "aaa.txt", "bbb.txt"}));
+    {
+        std::ofstream out(repo_ / "bbb.txt", std::ios::app);
+        out << "l6\nl7\n";
+    }
+    {
+        std::ofstream out(repo_ / "zzz.txt", std::ios::app);
+        out << "z4\nz5\nz6\n";
+    }
+    ASSERT_TRUE(run({"add", "-A"}));
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status) << status.error().message;
+
+    const WorkingCopyEntry* renamed = nullptr;
+    const WorkingCopyEntry* trailing = nullptr;
+    for (const WorkingCopyEntry& e : (*status)->entries) {
+        if (e.path == "bbb.txt") renamed = &e;
+        if (e.path == "zzz.txt") trailing = &e;
+    }
+    ASSERT_NE(renamed, nullptr);
+    ASSERT_NE(trailing, nullptr);
+
+    EXPECT_EQ(renamed->oldPath, "aaa.txt");
+    EXPECT_EQ(renamed->stagedAdded, 2u);
+    EXPECT_EQ(renamed->stagedRemoved, 0u);
+
+    // The assertion the mis-advanced loop fails.
+    EXPECT_EQ(trailing->stagedAdded, 3u)
+        << "the entry after a rename got the wrong count -- numstat's -z output "
+           "spends three records on a rename, and the join loop consumed only one";
+    EXPECT_EQ(trailing->stagedRemoved, 0u);
+}
+
+/// numstat prints `-` for both fields of a binary blob. Left at 0 rather than
+/// parsed, and the UI draws no badge for 0 -- a `+0` would claim a measurement
+/// that was never made.
+TEST_F(RealRepoTest, WorkingCopyStatusLeavesBinaryFileCountsAtZero) {
+    {
+        std::ofstream out(repo_ / "blob.bin", std::ios::binary);
+        const char bytes[] = {'\x00', '\x01', '\x02', '\x00', '\xff'};
+        out.write(bytes, sizeof(bytes));
+    }
+    ASSERT_TRUE(run({"add", "blob.bin"}));
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status) << status.error().message;
+    ASSERT_EQ((*status)->entries.size(), 1u);
+
+    const WorkingCopyEntry& e = (*status)->entries.front();
+    EXPECT_EQ(e.stagedAdded, 0u);
+    EXPECT_EQ(e.stagedRemoved, 0u);
+}
+
+/// `git diff` cannot see an untracked file at all -- it is in neither the index
+/// nor HEAD -- so numstat reports nothing for one and the count has to come
+/// from reading the file. "Added lines" is its line count; nothing is removed.
+TEST_F(RealRepoTest, WorkingCopyStatusCountsAnUntrackedTextFilesLines) {
+    commitFile("a.txt", "l1\n", "base");
+    {
+        std::ofstream out(repo_ / "fresh.txt");
+        out << "n1\nn2\nn3\nn4\n";
+    }
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status) << status.error().message;
+
+    const auto untracked = (*status)->untracked();
+    ASSERT_EQ(untracked.size(), 1u);
+    EXPECT_EQ(untracked[0]->path, "fresh.txt");
+    EXPECT_EQ(untracked[0]->unstagedAdded, 4u);
+    EXPECT_EQ(untracked[0]->unstagedRemoved, 0u);
+}
+
+/// Same rule as a tracked binary blob: no number rather than a wrong one.
+/// Detected with detectTextTraits(), the same NUL-byte test the conflict
+/// surfaces already use.
+TEST_F(RealRepoTest, WorkingCopyStatusLeavesAnUntrackedBinaryFileAtZero) {
+    commitFile("a.txt", "l1\n", "base");
+    {
+        std::ofstream out(repo_ / "fresh.bin", std::ios::binary);
+        const char bytes[] = {'n', '1', '\n', '\x00', 'n', '2', '\n'};
+        out.write(bytes, sizeof(bytes));
+    }
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status) << status.error().message;
+
+    const auto untracked = (*status)->untracked();
+    ASSERT_EQ(untracked.size(), 1u);
+    EXPECT_EQ(untracked[0]->unstagedAdded, 0u);
+    EXPECT_EQ(untracked[0]->unstagedRemoved, 0u);
+}
+
+/// The size cap exists so that `--untracked-files=all` in a repository with an
+/// unbuilt output directory cannot turn one status refresh into hundreds of
+/// megabytes of reads. Over the cap the file gets no count, exactly like a
+/// binary one.
+TEST_F(RealRepoTest, WorkingCopyStatusLeavesAnOversizedUntrackedFileAtZero) {
+    commitFile("a.txt", "l1\n", "base");
+    {
+        std::ofstream out(repo_ / "huge.txt");
+        const std::string line(63, 'x');
+        // kUntrackedLineCountByteCap is 1 MiB; 20k * 64B = 1.28 MiB.
+        for (int i = 0; i < 20000; ++i) {
+            out << line << "\n";
+        }
+    }
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status) << status.error().message;
+
+    const auto untracked = (*status)->untracked();
+    ASSERT_EQ(untracked.size(), 1u);
+    EXPECT_EQ(untracked[0]->unstagedAdded, 0u)
+        << "an untracked file over the byte cap must get no count at all, not a "
+           "partial one -- a partial count is a wrong number, not a missing one";
+}
+
 TEST_F(RealRepoTest, WorkingCopyStatusReportsWhichSideOfAConflictEachFileIsOn) {
     commitFile("shared.txt", "base\n", "base");
     ASSERT_TRUE(run({"switch", "--quiet", "-c", "left"}));

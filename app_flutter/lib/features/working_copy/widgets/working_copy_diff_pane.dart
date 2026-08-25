@@ -4,6 +4,7 @@ import '../../../data/models/parsed_diff.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_segmented_control.dart';
+import '../../../widgets/split_pane.dart';
 import '../../diff/scoped_diff_view.dart';
 import '../../diff/temporary_scope_provider.dart';
 
@@ -11,7 +12,10 @@ import '../../diff/temporary_scope_provider.dart';
 /// out below it.
 enum WorkingCopyDiffMode {
   /// Left unstaged, right staged, each scrolling on its own -- the shape the
-  /// two-column board above it already teaches.
+  /// two-column board above it already teaches. The divider between them is
+  /// a real [GbmSplitPane] (`wc.diffSides`), for the same reason the board's
+  /// own columns are: a visible divider that refuses to move reads as
+  /// broken, and every other two-pane surface in the app resizes.
   twoFile,
 
   /// One column, unstaged above staged. For a narrow window, where two
@@ -103,21 +107,18 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
         ),
         Expanded(
           child: switch (_mode) {
-            WorkingCopyDiffMode.twoFile => Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+            WorkingCopyDiffMode.twoFile => GbmSplitPane(
+              axis: Axis.horizontal,
+              spec: GbmLayout.splitterWcDiffSides,
+              storageId: 'wc.diffSides',
               children: <Widget>[
-                Expanded(
-                  child: SingleChildScrollView(
-                    controller: widget.scrollController,
-                    child: _side(staged: false),
-                  ),
+                SingleChildScrollView(
+                  controller: widget.scrollController,
+                  child: _side(staged: false),
                 ),
-                Container(width: 1, color: colors.borderDefault),
-                Expanded(
-                  child: SingleChildScrollView(
-                    controller: _stagedScroll,
-                    child: _side(staged: true),
-                  ),
+                SingleChildScrollView(
+                  controller: _stagedScroll,
+                  child: _side(staged: true),
                 ),
               ],
             ),

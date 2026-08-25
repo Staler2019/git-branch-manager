@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/parsed_diff.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/features/working_copy/widgets/working_copy_diff_pane.dart';
+import 'package:gbm_flutter/widgets/split_pane.dart';
 
 import '../../../support/pump_app.dart';
 
@@ -147,6 +148,60 @@ void main() {
             'unified is one column, so the sides stack rather than sit '
             'beside each other',
       );
+    });
+
+    // C18's reuse audit: the two sides were a fixed 50/50 `Row` with a
+    // hairline `Container` divider -- a hand-rolled GbmSplitPane. Every
+    // other two-pane surface in the app is a real splitter, including
+    // `wc.columns` in the board directly above this pane, so this was the
+    // one place where a divider the user could see refused to move.
+    testWidgets('2 file mode: the divider between the two sides drags', (
+      WidgetTester tester,
+    ) async {
+      await pump(
+        tester,
+        unstaged: _file('still editing', added: true),
+        staged: _file('already staged', added: true),
+      );
+
+      final double before = tester.getCenter(find.text('already staged')).dx;
+
+      await tester.drag(
+        find.byKey(const Key('gbm-split-divider-0')),
+        const Offset(80, 0),
+      );
+      // Past kDoubleTapTimeout: the divider carries a double-tap recogniser
+      // (double-click resets the split), whose timer is still pending after
+      // a drag. pumpAndSettle is avoided on principle here (#101).
+      await tester.pump(const Duration(milliseconds: 400));
+
+      // Assert the content moved, not the persisted flex: a stored number
+      // no layout reads would satisfy the latter and change nothing on
+      // screen.
+      expect(
+        tester.getCenter(find.text('already staged')).dx,
+        greaterThan(before),
+        reason:
+            'dragging right widens the unstaged side, pushing the '
+            'staged side right',
+      );
+    });
+
+    testWidgets('unified mode has no splitter between the sides', (
+      WidgetTester tester,
+    ) async {
+      // Deliberate, not an oversight: unified is one scrollable holding
+      // both sides, so there is no second pane to size.
+      await pump(
+        tester,
+        unstaged: _file('still editing', added: true),
+        staged: _file('already staged', added: true),
+      );
+
+      await tester.tap(find.text('unified'));
+      await tester.pump();
+
+      expect(find.byType(GbmSplitPane), findsNothing);
     });
 
     testWidgets('a half-staged rename names both of its paths', (

@@ -537,6 +537,19 @@ abstract final class GbmLayout {
     minExtent: 150,
   );
 
+  /// Working Copy diff pane: unstaged side <-> staged side, in `2 file`
+  /// mode. Not in spec page 09's SPLITTERS table -- that table predates the
+  /// ratified 變體 B, whose diff pane shows both sides of one file at once
+  /// where the original P03 showed a single column -- so these numbers
+  /// follow [splitterWcColumns], the other 1:1 two-column split in the same
+  /// view, rather than inventing a different feel. The lower `minExtent` is
+  /// deliberate: this pane is nested inside [splitterWcDiff]'s 54% share,
+  /// so it starts from roughly half the width the board columns get.
+  static const GbmSplitterSpec splitterWcDiffSides = GbmSplitterSpec.flex(
+    flexRatio: <double>[1, 1],
+    minExtent: 140,
+  );
+
   /// Main content <-> log drawer. Collapsed by default so it takes no
   /// space until the user opens it.
   static const GbmSplitterSpec splitterMainLog = GbmSplitterSpec.extent(

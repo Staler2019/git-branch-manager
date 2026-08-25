@@ -595,7 +595,14 @@ you are touching, not by when it was learned.
   *content contradicts its own name* — a "same-size edit must be re-read" test
   wrote 8 bytes then 7, so the mutation that removes mtime from the cache key
   stayed green because size really had changed (C18). Count the bytes the
-  fixture actually writes, not the bytes the test's name claims.
+  fixture actually writes, not the bytes the test's name claims. A seventh:
+  one whose *premise a later decision revoked* — 05-G's device fixture put
+  its two insertions one line apart, which was "two separate changes" until
+  變體 B made the default scope merge anything ≤ 2 unchanged lines apart, at
+  which point the same bytes meant *one* scope and the line-granularity test
+  was silently testing something else (C18). **When a rule about how input is
+  grouped changes, every fixture that encodes a gap, a count or an adjacency
+  has to be re-read against the new rule** — nothing else will notice.
 - **Mutation-check every new test**, and check the red is *narrow* — a broad
   red means the test is pinning something else. Copy the file to the
   scratchpad first (`cp file "$SCRATCH/x.bak"` → mutate → `cp` back);
@@ -656,6 +663,13 @@ you are touching, not by when it was learned.
   `gbm_flutter` process blocks the entire tier and looks exactly like a
   broken test — `pkill -f "gbm_flutter.app/Contents/MacOS/gbm_flutter"`, and
   run one pre-existing device test as a control before believing a new one.
+- **The device tier is in no CI job and is not part of `flutter test`**, so a
+  UI redesign can leave it broken for rounds with every other tier green. C18
+  swept all ten files and found two red — neither from that round's own
+  commits, both from the Working Copy redesign four rounds earlier: a test
+  still tapping a deleted checkbox, and two finders that a new titlebar had
+  made ambiguous. **A round that removes or replaces a user affordance owns
+  grepping `integration_test/` for it**, the same way it owns `lib/`.
 - `build/native/libgbm_capi.dylib` is a **copy**: a stale one loads happily,
   and a new capi entry point then appears to be a Dart bug. A stale one is
   *three days old and silent* in practice — C18 found one predating that
@@ -680,6 +694,15 @@ you are touching, not by when it was learned.
 - Swapping a widget for a design-system one can break device-tier finders
   nothing else uses (`find.byType(ListTile)` → `GbmRow`), so a round touching
   shared row widgets has to rerun all device tests, one at a time.
+- **Asserting that a `Draggable` exists is not asserting that a drop works**,
+  and the gap between them is where a shipped defect lived: the Working Copy
+  board's empty column drew its "No staged changes" placeholder *instead of*
+  the `DragTarget`, so the one column every repository starts with could not
+  be dropped on — and with 變體 B's checkboxes gone, dragging is the only way
+  a file changes side. An empty-state placeholder belongs **inside** the
+  target's builder, never in place of it. The gesture recipe that actually
+  drops in a widget test is `startGesture` → `pump()` → `moveTo(target)` →
+  `pump()` → `up()` → `pump()`; extra intermediate moves are not needed.
 
 ### Flutter, Riverpod and widgets
 

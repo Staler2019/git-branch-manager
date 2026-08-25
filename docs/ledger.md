@@ -3418,7 +3418,7 @@ diff 內就會變。
 | session 關閉 | 結構性：provider 自動 dispose；`~Session()` 帶走 reader | 讀型別，非測試 |
 | 未追蹤檔案 mtime/size 改變 | `UntrackedLineCountCache` 的 key 本身 | 三支 `Rereads...` 測試 |
 
-#### C18 的重用稽核：兩筆，都是同一個陷阱的重演
+#### C18 的重用稽核：三筆，都是同一個陷阱的重演
 
 1. **`FileTreeFolderRow` 手刻了 `InkWell`**，所以繼承的是 `ThemeData.hoverColor`
    （約 4% 黑/白，真實螢幕上看不見），而它同一份清單裡上下相鄰的檔案列是 `GbmRow`、
@@ -3428,11 +3428,36 @@ diff 內就會變。
    `GbmButton(secondary, sm)` 已經有的 borderDefault 外框、textXs、space2 內距，
    而且同樣沒有 hoverColor —— 全 app 唯三沒有 hover 的按鈕。
 
-兩筆都用 identity 斷言 token（`ink.hoverColor == colors.surfaceHover`），不是
-「沒有丟例外」：錯的 hover 顏色不會丟任何例外，這正是它們躲過所有測試的方式。
+3. **`WorkingCopyDiffPane` 的 `2 file` 模式手刻了 `GbmSplitPane`**：寫死 1:1 的
+   `Row` 加一條 1px `Container` 分隔線。應用裡其餘八個雙欄／三欄面向全部是真的
+   splitter，包含**正上方那塊 board 自己的 `wc.columns`**——所以使用者拖得動 board
+   的欄寬、拖不動 diff 的欄寬，兩條分隔線長得一模一樣。
+   新增 `GbmLayout.splitterWcDiffSides`（storageId `wc.diffSides`）。規格 P09 的
+   SPLITTERS 表只有八列、沒有這一條，因為那張表早於已裁定的變體 B（原本的 P03 只有
+   單欄 diff）；比照 `splitterPanelList` / `splitterPanelDetailFiles` 的先例，數字
+   跟隨同一個 view 裡另一組 1:1 雙欄的 `splitterWcColumns`，並把「規格沒有、跟隨誰、
+   為什麼」寫在常數的註解裡。`minExtent` 取 140 而非 200，因為這塊 pane 巢狀在
+   `splitterWcDiff` 的 54% 之內。
+   flex 模式的 `minExtent` 只夾拖曳、不夾 layout（面板是 `Flexible`），所以窄視窗
+   不會因此溢出——這件事是讀 `split_pane.dart` 確認的，不是假設的。
 
-`GbmSegmentedControl` 查過了，沒有重複既有元件，而且它自己有明確傳
-`hoverColor: colors.surfaceHover`。
+前兩筆都用 identity 斷言 token（`ink.hoverColor == colors.surfaceHover`），不是
+「沒有丟例外」：錯的 hover 顏色不會丟任何例外，這正是它們躲過所有測試的方式。
+第三筆斷言的是**內容真的移動了**（拖完之後 staged 側的文字中心 x 變大），不是
+`onFlexChanged` 有被呼叫：一個沒有任何 layout 會讀的持久化數字也能通過後者。
+
+#### 查過、沒有動的三項
+
+- **`GbmSegmentedControl`** 沒有重複既有元件，而且它自己有明確傳
+  `hoverColor: colors.surfaceHover`。
+- **`GbmBadge`** 在計畫指定的位置（C9 的檔案列尾）確實用了。但 `scoped_diff_view`
+  的 scope 卡片標頭把 `+N` / `−M` 畫成裸的等寬彩色文字而不是藥丸，於是同一個畫面
+  上同一件事有兩種畫法（左邊 board 是藥丸、右邊 scope 標頭是文字）。**規格對此沒有
+  答案**：SCOPES 第 7 列只規定「按鈕文字寫出實際數量」，計畫的 C13 也只寫按鈕。因此
+  這是一個待裁定的設計問題，不是一筆稽核缺失——依本輪的工作規則，規格與決策紀錄裡
+  沒有答案的就丟出來問，而不是自行產生「本輪不做」。
+- **`FileListModeSwitcher` / `FileTreeList`** 見上面候選 (e) 那一段：本輪不但沒有
+  重複它們，還把 list 模式對 `FileTree` 的多餘依賴整個拿掉了。
 
 #### 量出來、沒有修掉的一件事
 
@@ -3456,6 +3481,49 @@ dylib 後，「+7」變成兩個、「+2」一個都沒有。還原後綠。
 順帶踩到一次 CLAUDE.md 記過的陷阱：`app_flutter/build/native/libgbm_capi.dylib`
 當時是 **8/23 的舊複本**，早於 C1。跑裝置測試前若沒重跑 `build_capi.sh`，測到的
 是舊 dylib，而新欄位會表現成「badge 沒出現」，不是任何一種錯誤。
+
+#### 裝置層全掃：兩支紅，其中一支是真的產品缺陷
+
+依 CLAUDE.md 那條「動到共用列元件的一輪，十支裝置測試要一支一支重跑」，
+`FileTreeFolderRow` 換成 `GbmRow`、`_MiniButton` 換成 `GbmButton` 之後把
+`integration_test/` 十支全跑過。八綠兩紅，而兩紅都不是這兩個 commit 造成的
+——是 **C7–C13 的重做在四輪之前就打壞的**，而裝置層不在任何 CI job 裡、也
+不屬於 `flutter test`，所以沒有任何一層看得見。
+
+1. **`commit_flow_test` 還在點 `find.byType(Checkbox).first`。** 變體 B 把
+   checkbox 全刪了。改寫成拖曳之後，才浮出下面那個真的缺陷。
+2. **`context_menu_flows_test` 05-F 的 `find.text('fixture.txt')` 中兩個。**
+   C10 讓 diff pane 的標題列也寫出選中的檔名，而 `tap()` 拒絕含糊的 finder。
+   finder 收斂到 `WorkingCopyBoard` 之內。
+3. **同檔 05-G 的夾具前提過期。** 兩處插入之間只隔一行，而變體 B 的預設
+   scope 會把「相隔 ≤ 2 行」的變更併起來——選單因此寫的是
+   `Discard 2 lines…`（測試找的是 `Discard…`，找不到），而且真的按下去會把
+   兩行一起丟掉。夾具改成隔三行：仍在同一個 hunk 內（`-U3` 的合併門檻是
+   2×context），但落在兩個 scope，這支測試才重新是它宣稱的「行粒度」測試。
+   **這一項不是測試壞了，是測試描述的行為已經被裁定改掉了**——夾具沒跟上
+   規則，於是它悄悄改測了另一件事。
+
+#### 空欄位不是 drop target：拖曳是唯一的路，而那條路在起點就斷了
+
+把 (1) 改寫成拖曳之後裝置測試仍然紅：拖進 Staged 欄什麼也沒發生。原因在
+`_buildColumn`——`entries.isEmpty` 時它畫的是 `Center(Text('No staged
+changes'))`，**取代**了 `_buildFilesContent`，於是那一欄整個沒有
+`DragTarget`。一個什麼都還沒 stage 的 repo（每個 repo 的起點）因此拖不進
+任何東西；而變體 B 刪光了 checkbox，拖曳是唯一換邊的方式，所以那等於
+**完全 stage 不了**。
+
+會躲到現在，是因為**拖放從來沒有被任何一層真的執行過**：元件測試只斷言
+`Draggable` 存在（`find.byWidgetPredicate((w) => w is Draggable)`），裝置層
+那支則還在點已經不存在的 checkbox。「有 Draggable」和「拖得動」之間的距離，
+就是這個缺陷活著的地方。
+
+修法是把 placeholder 移進 `DragTarget` 的 builder。兩支新元件測試：拖到有
+內容的欄、拖到空欄，都用 `staged.length == 1` 計次。
+
+**變異的第一版沒有紅**，因為我把 `Center` 改回去時仍然留在 builder 內部，
+`DragTarget` 還在。要還原 `_buildColumn` 的短路才紅，而且只紅那一支。這是
+CLAUDE.md 那條「變異沒有落在註解預測的地方，錯的是註解不是變異」的實例：
+缺陷在欄位的組裝處，不在 builder 裡，我第一次找錯了位置。
 
 #### 一支假的測試，抓法是變異
 

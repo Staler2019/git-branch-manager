@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../data/models/parsed_diff.dart';
 import '../../theme/gbm_theme.dart';
@@ -264,16 +265,57 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
               // these two, which is also the only window in which reading
               // them does not feed back into itself -- see
               // SelectionTouchTracker's `_latched`.
-              child: Listener(
-                onPointerDown: (_) => _tracker.beginGesture(),
-                onPointerUp: (_) => _tracker.endGesture(),
-                onPointerCancel: (_) => _tracker.endGesture(),
-                child: SelectionArea(
-                  key: _selectionAreaKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    mainAxisSize: MainAxisSize.min,
-                    children: _wellChildren(diffFile, byHunk, temporary),
+              //
+              // `Ctrl/Cmd+Shift+Enter` is bound **here**, not in
+              // `gbm_shortcuts.dart`. The spec contradicts itself about this
+              // key: P16's REVISIONS assigns Stage selected lines
+              // `Ctrl/Cmd+Alt+S` while P03-5 and `SCOPES` row 7 both say
+              // `Ctrl/Cmd+Shift+Enter`. #75 settled it by keeping *both*
+              // readings -- the global binding is the revision's, and this
+              // one lives inside the diff's own focus scope, which is what
+              // the earlier pages describe. Scoped rather than global for
+              // the same reason `Ctrl/Cmd+A` is (CLAUDE.md): a binding
+              // closer to a focused editor than `DefaultTextEditingShortcuts`
+              // would steal that editor's own Enter.
+              child: CallbackShortcuts(
+                bindings: <ShortcutActivator, VoidCallback>{
+                  for (final bool meta in const <bool>[false, true])
+                    SingleActivator(
+                      LogicalKeyboardKey.enter,
+                      shift: true,
+                      control: !meta,
+                      meta: meta,
+                    ): () {
+                      // **Unpinned by any test, deliberately.** A written
+                      // one was deleted rather than kept: with no selection
+                      // nothing inside the diff holds focus, so the key
+                      // never reaches this callback at all and the
+                      // assertion passed with the guard removed *and* with
+                      // the callback replaced by an unconditional stage --
+                      // a fixture that cannot disagree with the code. What
+                      // the guard actually prevents is the *second* press
+                      // after one has already spent the scope: an empty
+                      // submit whose only effect is a redundant
+                      // `clearSelection()`, which is the call that throws
+                      // ConcurrentModificationError when the tree is
+                      // mid-restructure. That is the same
+                      // read-the-selection-back limitation recorded on
+                      // `_dropSelection`.
+                      if (temporary.isEmpty) return;
+                      _submitTemporary(temporary);
+                    },
+                },
+                child: Listener(
+                  onPointerDown: (_) => _tracker.beginGesture(),
+                  onPointerUp: (_) => _tracker.endGesture(),
+                  onPointerCancel: (_) => _tracker.endGesture(),
+                  child: SelectionArea(
+                    key: _selectionAreaKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      mainAxisSize: MainAxisSize.min,
+                      children: _wellChildren(diffFile, byHunk, temporary),
+                    ),
                   ),
                 ),
               ),

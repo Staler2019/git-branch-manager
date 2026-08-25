@@ -5,6 +5,7 @@
 // context the gap rule swallowed into the same card.
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/parsed_diff.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
@@ -395,6 +396,26 @@ void main() {
       expect(staged[0].lines, <int>[1]);
       expect(staged[1].hunkIndex, 1);
       expect(staged[1].lines, <int>[0]);
+    });
+
+    testWidgets('Ctrl+Shift+Enter stages the selection without touching the '
+        'card', (WidgetTester tester) async {
+      // #75 kept both readings of this key: `Ctrl/Cmd+Alt+S` globally (P16's
+      // REVISIONS) and `Ctrl/Cmd+Shift+Enter` inside the diff's own focus
+      // scope (P03-5 / SCOPES row 7). This is the scoped half.
+      await pump(tester, _file(<String>['.++.']));
+      await dragSelect(tester, 'h0 l1', 'h0 l2');
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.control);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shift);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shift);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.control);
+      await tester.pump();
+
+      expect(staged.length, 1);
+      expect(staged.single.hunkIndex, 0);
+      expect(staged.single.lines, <int>[1, 2]);
     });
 
     testWidgets('one press spends it', (WidgetTester tester) async {

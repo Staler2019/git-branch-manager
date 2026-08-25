@@ -50,7 +50,8 @@ src/core/   headless C++20, no Qt/Dart (docs/ARCHITECTURE.md)
 ```
 /                                  WelcomeScreen (only when no repo is open)
 /repo/:repoId                      redirect -> /repo/:repoId/history
-/repo/:repoId  (ShellRoute: WorkspaceScreen = menu bar + top bar + tab row + sidebar)
+/repo/:repoId  (ShellRoute: WorkspaceScreen = menu bar + action toolbar +
+                 sidebar | 〈tab row + route content〉)
   /history                         CommitGraphView
   /working-copy                    WorkingCopyView
   /compare/:tabId                  ComparePage (one ShellRoute child per open Compare tab)
@@ -130,12 +131,13 @@ lib/
     welcome/         WelcomeScreen (route `/`, no repository open)
     repo_switcher/   RepoSwitcherButton (sidebar top) + popover + RepoSwitcherList
     workspace/       WorkspaceScreen (shell) + widgets/ (MenuBarRow,
-                      ActionToolbar, TopBar, TabRow — presentational, no
+                      ActionToolbar, TabRow — presentational, no
                       Riverpod dependency)
     history_graph/   CommitGraphView, commit_row.dart
     working_copy/    WorkingCopyView
     sidebar/         SidebarPanel
-    diff/            DiffPage, side-by-side diff
+    diff/            DiffPage (read-only), ScopedDiffView + diff_scopes.dart
+                      + selection_touch.dart (Working Copy's staging diff)
     conflict_resolution/  ConflictResolveWindow (standalone window, not a dialog)
     compare/         ComparePage
     panels/          PanelPage + GbmPanelTabShell (spec P19's shared
@@ -147,11 +149,54 @@ lib/
     dialogs/         The 34 repo-scoped dialog contents listed above, plus the 4 app-wide ones
 ```
 
-Presentational/container split: `MenuBarRow`, `ActionToolbar`, `TopBar`,
-`TabRow` (`features/workspace/widgets/`) take plain callbacks/values and hold
+Presentational/container split: `MenuBarRow`, `ActionToolbar`, `TabRow`
+(`features/workspace/widgets/`) take plain callbacks/values and hold
 no Riverpod dependency, so they're tested directly against a bare `GoRouter`
 (see `test/features/workspace/*_test.dart`). `WorkspaceScreen` is the
 container: it watches `repoSessionProvider` and wires the callbacks in.
+
+**`TopBar` no longer exists**, and the tab row is inside the centre column,
+not spanning the window. Both are spec (P02-13 and P03-9 both say 「中央區
+最上方」; P02's component table has no row for a top bar at all). Where its
+five elements went, so a future round does not re-add them:
+
+| Was on `TopBar` | Now |
+|---|---|
+| Repository name | `RepoSwitcherButton` at the top of the sidebar (P02-15) |
+| Back-to-welcome | `File → Close window` — its handler was already `go(welcome)` |
+| Theme switch | `View → Theme` |
+| In-progress spinner | Status bar's background-task zone |
+| `Refresh` | **`View → Refresh` + bare F5**, a deliberate deviation (P04's `MENUS` has no such item) — `refreshRepoHistory()` had exactly one caller in all of `lib/` and it was `TopBar` |
+
+Repo state (`RepoState::describe()`) is also on the status bar now — it was
+*not* there before, despite a note claiming so: `describe()` is non-empty for
+sequencer operations **and `indexLocked`**, and nothing rendered the latter.
+
+### Working Copy (spec P03), as it now stands
+
+**There is no checkbox anywhere in the two columns** — not on a row, not in a
+column header, not on a tree-mode folder row. This is a **user-ratified
+deviation** from P03-1 / P03-3 / P03-10 and `SCOPES` rows 1/4/5, which all
+specify one; do not "fix" it back. Files move side by **dragging** (a folder
+row is itself draggable and takes its whole subtree); a whole column goes
+through `Repository → Stage all` (`Ctrl/Cmd+Alt+A`) or the context menu;
+half-staged is expressed by the `+34 −12` line counts, which say more than a
+tri-state box could. The reasoning and what replaced each removed affordance
+is in the ledger under "Working Copy 重新設計".
+
+Below the columns, the diff area has **two modes** (`2 file`: unstaged left /
+staged right, and `unified`) and stages by **scope**, not by line-checkbox:
+`diff_scopes.dart` merges changes separated by ≤ `kDefaultScopeGap` (2)
+unchanged lines, never crossing a hunk, and each scope card carries its own
+end-of-run button. An ordinary text selection is a **one-shot temporary
+scope** rendered in a fixed slot at the top. Button text is
+`scopeButtonLabel()`'s and only its: 匡選行數 primary, 實際變動行數 in
+parentheses (`Stage 3 lines (1 changed)`), parentheses omitted when equal —
+that last half is an implementation judgement, not the user's verdict.
+
+`DiffPage` is **read-only** and has no staging callbacks; the Working Copy's
+diff is `ScopedDiffView`. Selecting a file selects the same *logical* file in
+both columns, renames included (`logicalFileKey`).
 
 ## State Machine
 
@@ -171,7 +216,7 @@ applies to the Flutter layer too).
 | `isRefreshing` | `bool` | history/graph fetch in flight |
 | `lastError` | `GitError?` | most recent operation error |
 | `workingCopyStatus` | `WorkingCopyStatus` | staged/unstaged/untracked/conflicted paths |
-| `lastDiff` | `WorkingCopyDiffReply?` | most recently requested diff |
+| `workingCopyDiffs` | `Map<String, WorkingCopyDiffReply>` | diffs keyed by `workingCopyDiffKey(path, staged:)`; merged, never replaced wholesale. **Not reducible back to a single `lastDiff` slot** — P03 shows unstaged and staged at once, and two replies to one selection race |
 | `lastWorkingTreeContent` | `WorkingTreeContentReply?` | file content incl. conflict markers |
 | `stashes` | `List<StashEntry>` | all stash entries |
 | `lastStashDiff` | `StashDiffReply?` | diff of a stash |
@@ -335,6 +380,16 @@ wiring or changing what a `GbmActionId` does, change
 `_buildActionHandlers()` (or the policy function below it calls) — never
 add a fix that only touches `MenuBarRow`'s named params.
 
+**An action whose meaning depends on a mode must read the mode, not assume
+it.** Amend is a mode (`WorkingCopyDraft.amending`), so `repositoryCommit`
+passes `amend: amending` rather than a hardcoded `false` — otherwise
+`Ctrl/Cmd+Enter` writes a second commit while the button in front of the user
+says `Amend`. The mirror case matters more: `repositoryAmendLastCommit`
+*enters* the mode when it is off, instead of rewriting HEAD sight-unseen.
+Both live in `workspace_screen.dart`; `beginAmendMode()` and `submitCommit()`
+in `working_copy_repository.dart` are the single sources the box's buttons
+call too.
+
 ### Action availability state machine
 
 `lib/actions/gbm_action_availability.dart`'s `isActionEnabled(GbmActionId,
@@ -456,7 +511,7 @@ deliberately rather than let the number imply more work happened than did:
    `session.workingCopyStatus.entries.length`. Extracted
    `_TabRow`/`_Tab`/`_MoreMenu` into
    `features/workspace/widgets/tab_row.dart` (mirroring the
-   `MenuBarRow`/`TopBar` presentational split) so it's independently
+   `MenuBarRow`/`ActionToolbar` presentational split) so it's independently
    testable; 4 new widget tests in `tab_row_test.dart`.
 2. *Corrected assumption (A, +2)*: Round 0 assumed a missing "checkout
    commit" affordance from History cost points. Grepping `history_graph/`
@@ -561,12 +616,17 @@ you are touching, not by when it was learned.
 - **`RenderFlex` reports only main-axis overflow**, so a `takeException()`
   test cannot see a cross-axis defect. Check which axis the defect is on
   before writing a no-exception test.
-- **Never `pumpAndSettle()` while `isRefreshing` is true.** `top_bar.dart`
-  renders a bare indeterminate `CircularProgressIndicator` for that flag,
-  which schedules frames forever, so `pumpAndSettle` can only time out. This
-  is the confirmed mechanism behind the device-tier batch flake (**#101**),
-  and it is *not* **#70** (a fixed 10s C++ `waitFor` budget losing to
-  parallel load) — read the failure text before picking a family.
+- **Never `pumpAndSettle()` while an indeterminate `CircularProgressIndicator`
+  is on screen** — it schedules frames forever, so `pumpAndSettle` can only
+  time out. This is the confirmed mechanism behind the device-tier batch
+  flake (**#101**), and it is *not* **#70** (a fixed 10s C++ `waitFor` budget
+  losing to parallel load) — read the failure text before picking a family.
+  The rule used to name `top_bar.dart`'s `isRefreshing` spinner; that file is
+  deleted and the trap is now **narrower and elsewhere** —
+  `CommitGraphView` draws one only while `isRefreshing && graph.rows.isEmpty`,
+  `ScopedDiffView` while a diff request is in flight, and eight panels for
+  their own loads. `StatusBar` is *not* one of them: `BackgroundTask.progress`
+  is never null, so its `LinearProgressIndicator` is always determinate.
 - `StatusBar` lingers a finished task for 3 seconds (`_lingerTimer`), so
   "the task cleared" cannot be asserted on the next frame.
 - **Real async inside `testWidgets` needs `tester.runAsync()`.**
@@ -641,6 +701,12 @@ you are touching, not by when it was learned.
   gap, key it on the specific *transition*, never on "arrived at X" — `idle`
   is also where `dismiss()` lands, and re-checking there re-offers the very
   thing the user just declined (ledger: 更新流程的三個缺陷).
+- **A finder proves existence, never position.** `TabRow` shipped spanning
+  the whole window, covering the sidebar, and all **2039** tests stayed green
+  through the fix — not one asserted where it was. Assert `getRect()` against
+  a *neighbour's* rect (「left edge not before the sidebar's right edge」),
+  never against a pixel constant, and never `findsOneWidget` for a layout
+  claim (ledger: "Working Copy 重新設計").
 - **`RenderFlex` lays out non-flex children first**, then divides what is
   left — so a `Flexible` child can never rescue an overflow that non-flex
   children caused. Six surfaces overflowed at the app's own default 1280×720
@@ -670,6 +736,17 @@ you are touching, not by when it was learned.
   hover-enabled with no primary callback at all, because `isWidgetEnabled` is
   `_primaryButtonEnabled || _secondaryButtonEnabled` and `onSecondaryTapDown`
   satisfies the second half.
+- **`SelectionArea` tells you the selected *string*, not which widgets it
+  covers.** `selection_touch.dart` asks each row's own subtree via a
+  `SelectionListener`, which brings three traps: a row moving between subtrees
+  builds its new listener before the old unmounts (two listeners, one
+  notifier, framework assert — give each row a stable `GlobalKey` so Flutter
+  reparents one element); inserting a widget *among* keyed rows reparents
+  everything below it and perturbs the selection, so a derived card takes a
+  **fixed slot**; and reacting to every report is a feedback loop
+  (`setState` → geometry moves → delegates re-report), so listen only between
+  pointer-down and pointer-up. All three are 「first frame right, later
+  frames wrong」 — a one-frame assertion cannot see any of them.
 - **`Ctrl/Cmd+A` must be bound inside the list's own focus scope**, never
   app-wide: a `Shortcuts` closer to a focused editor than
   `DefaultTextEditingShortcuts` steals text select-all.
@@ -750,6 +827,26 @@ you are touching, not by when it was learned.
   on `path`, the only field `parseRawRecords()` fills for all kinds; `oldPath`
   is empty except for renames and copies. `-` means binary, not a number.
   Ledger: "Changed files line counts".
+- **`WorkingCopyEntry`'s four line-count fields: `0` always means "not
+  measured", never "measured zero".** `git status --porcelain=v2` reports no
+  counts and git's diff output-format is a single slot, so they come from two
+  extra `git diff --numstat -z` passes (work tree↔index, `--cached`) joined by
+  path — and from **reading the file** for untracked paths, which `git diff`
+  cannot see at all. Binary, mode-only, and untracked over **1 MiB** all land
+  as 0 (the cap exists because `--untracked-files=all` enumerates every file
+  in an unbuilt output directory). The UI draws no badge at 0 for exactly
+  this reason. `-M` is passed explicitly to both passes rather than trusting
+  `diff.renames`, or the rename detection drifts from the one
+  `--porcelain=v2` already did.
+- **A background `git diff` that reads the work tree needs
+  `GitCommand::worktreeReadFlags()`** (`-c core.fsmonitor=false`), or on a
+  machine with `core.fsmonitor=true` the user's own writes start losing
+  `.git/index.lock` — measured at 12 runs / 9 failures. Deliberately *not* in
+  `globalFlags()`: that would disable fsmonitor for `git status` too, on
+  exactly the machines that opted into it. The `--cached` side never reads the
+  work tree and does not pay it. **The process creating that lock was never
+  identified** (ledger: "Working Copy 重新設計"); if anyone ever identifies it,
+  the flag can be deleted — the comment says so.
 - `git log --no-walk` sorts by commit date, not by the order the oids were
   given, so a batch reply must echo each oid rather than be index-aligned.
   And **absent is not zero**: a commit git never answered for is omitted, not
@@ -820,7 +917,10 @@ you are touching, not by when it was learned.
   `docs/reports/spec-conformance-matrix.md` was written against 12. **P16's
   `REVISIONS` table revises earlier pages**, so check whether a later page
   overrules a verdict written before it — two issues went stale exactly that
-  way. P13 B and P14–P16 remain unaudited (**#76**), as do P17–P21.
+  way. P13 B, P15 and P17–P21 remain unaudited (**#76**). **P16's
+  `REVISIONS` is now fully honoured** (its four shortcut rows, #75) and
+  **P14's `IAMAP` was checked** — the twelve management panels share the one
+  tab row, and the tab row's own placement gap is fixed.
 - **A conformance cell whose evidence is `isActionEnabled()` proves the gate
   exists, never the gated surface.** P02 item 2 and P07's `Toolbar` row both
   read 符合 off `gbm_action_availability.dart` while the toolbar they describe
@@ -828,7 +928,15 @@ you are touching, not by when it was learned.
   (feat/p02-action-toolbar). Items 11, 12 and 14 on the same page fell the same
   way. Check the row's *title* against the spec's own wording before trusting
   its evidence: 「三顆同組。Push 為主要樣式。」 describes buttons, and the
-  disabled-during-conflict clause hangs off them.
+  disabled-during-conflict clause hangs off them. **The trap is not specific
+  to `isActionEnabled()`** — any helper can stand in for the surface. P03's
+  「all 7 `SCOPES` granularities implemented」 rested on
+  `WorkingCopySelectionState.getCheckState()` and `FileTreeNode.getCheckState()`,
+  which exist, are correct and are unit-tested, and which **nothing under
+  `lib/` has ever called** — orphan wiring dressed as evidence. The tell is
+  the same every time: the cell names a *capability* instead of the widget
+  that draws it. It also cuts the other way — removing the surface then
+  leaves the cell looking unchanged (ledger: "Working Copy 重新設計").
 - **When an issue's premise does not survive the source, correct the issue
   text in place and record the evidence** — close as not-planned rather than
   quietly retitle (#45/#50/#51/#60 precedent). Several rounds found the
@@ -842,6 +950,18 @@ you are touching, not by when it was learned.
 
 ### Repo culture
 
+**Three standing rules about how a round is run** (set by the user, not
+derived from the code — they outrank convenience every time):
+
+1. **Hitting a related issue means reading the spec and the decision record
+   and *fixing it*.** Ask only when neither has the answer. An issue number
+   is not permission to stop.
+2. **Never produce a 「本輪不做」 without the user's decision.** A reduction
+   is the user's call to make, not the implementer's; where something truly
+   cannot be done, say what blocks it and finish everything else.
+3. **Never open an issue without the user's consent.** Existing issues may be
+   updated or closed; a new one is a decision, not a filing action.
+
 - **Orphan wiring is the recurring defect shape here**: a route, provider,
   preference or capi field with no caller under `lib/`. It has shipped at
   least five times (`deleteRemoteBranchDialog`, `readVisibility()`,
@@ -851,8 +971,10 @@ you are touching, not by when it was learned.
   `ProcessStarter`'s `workingDirectory` parameter existed and no caller ever
   passed it, and passing it was the whole fix for the Windows self-install.
 - **A second source of truth for a computed fact is how a bug hides** — it
-  cannot disagree with itself. Folder identity, column order, selection sets
-  and `conflictActive` are each deliberately single-sourced.
+  cannot disagree with itself. Folder identity, column order, selection sets,
+  `conflictActive`, `submitCommit()` (the only place a commit message is
+  composed and dispatched) and `scopeButtonLabel()` are each deliberately
+  single-sourced.
 - **Nothing is silently dropped.** A capability removed for spec conformance
   gets its reason recorded (the operation-log dialog's `Clear`, the
   per-remote Pull/Push), and a reduction made for a cap or a missing capi is
@@ -916,9 +1038,11 @@ you are touching, not by when it was learned.
   path reached after the app has exited — so the next failure is diagnosable
   rather than a vanished window (ledger: 更新流程的三個缺陷).
 - **Open issues**: **#62** (TabRow overflow menu), **#67**–**#71**,
-  **#74**–**#76**, **#84**–**#89** (Tier 6 spec blockers), **#92**–**#95**
-  (capi with no spec entry point), **#99**, **#101**, **#102**, **#109**. `gh issue
-  list` is authoritative; the ledger's mentions are historical.
+  **#74**, **#76**, **#84**–**#89** (Tier 6 spec blockers), **#92**–**#95**
+  (capi with no spec entry point), **#99**, **#101**, **#102**, **#109**.
+  **#75 is closed** (all four 260820 `REVISIONS` shortcut gaps landed in
+  feat/p03-working-copy-redesign). `gh issue list` is authoritative; the
+  ledger's mentions are historical.
 
 ## Engineering ledger
 

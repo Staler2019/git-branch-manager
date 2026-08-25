@@ -3170,3 +3170,161 @@ answered」。代價實測下來是：一次離線啟動、或一個沒有版本
   目標在改名之後必然不存在，這是 PowerShell 「destination 不存在就把 source 的
   內容複製進去」的記載行為。想過改成先 `New-Item` 再複製 `$staged\*`，但那會把
   wildcard 帶回一個刻意全用 `-LiteralPath` 的腳本裡。
+
+### Working Copy 重新設計：行數、兩欄、scope 與草稿 (feat/p03-working-copy-redesign)
+
+規格 P03 的整頁重做，外加 P02 的兩處版面落差與 **#75** 的四項快捷鍵。二十一個
+commit 橫跨 `src/core/` → `src/capi/` → `data/ffi/` → `features/**` 五層。
+
+#### 沒有撐過原始碼的前提
+
+計畫表格裡有幾格是讀規格與讀舊註解得出的，實作時被原始碼推翻，修正它們才是那些
+commit 的主要內容：
+
+1. **「Close repository → 新增 `File → Close repository`」是多餘的。**
+   `_buildActionHandlers()` 裡 `GbmActionId.fileCloseWindow` 的 handler 本來就是
+   `context.go(RoutePaths.welcome)`。`TopBar` 那顆返回鍵早就等於既有的
+   `File → Close window`，不必新增 action id，也就不必為此偏離 P04 的 `MENUS` 表。
+
+2. **「repo 狀態（MERGING…）已在狀態列，直接刪」是錯的。** `RepoState::describe()`
+   對正常 repo 回傳空字串，只在 sequencer 操作與 **`indexLocked`** 時有內容；而
+   `StatusBar` 只在 conflict label 裡顯示 sequencer 狀態，`ConflictBanner` 又只在
+   `conflictActive` 時出現 —— `indexLocked` **不會**設 `conflictActive`。照計畫刪
+   會安靜丟掉「另一個 git 行程正在執行」這個訊號。狀態列因此真的接下 `describe`
+   （非空才畫）。
+
+3. **`FileListModeSwitcher` 的 doc 自己記著一個已經過期的理由**：「`working_copy_board`
+   需要三態資料夾 checkbox，所以自己直接建 `FileTreeList`」。checkbox 一走那個理由
+   就不成立，`_buildFlatList` 與 `_buildTreeList` 是純重複。給 switcher 一個可選的
+   `folderBuilder` 就收斂掉了。CLAUDE.md 記過「一段解釋自己為什麼繞開某條路徑的註解，
+   值得和那條路徑本身一樣的審視」—— 這是第二次。
+
+4. **規格從來沒有要求 side-by-side diff。** 動手刪 `lastDiff` 單槽之前 grep 全部
+   讀者，才發現 `side_by_side_diff.dart` / `side_by_side_diff_view.dart` 的規格依據
+   只有一個 mockup 裡的**假 commit 訊息**字串。兩個檔案連同測試隨 C13 刪除。
+
+5. **`docs/reports/spec-conformance-matrix.md` 的 P03 段落有兩格是錯的**，方向相反：
+   item 10（List/Tree 共用偏好）記為「唯一的真缺口」，但 History、Compare、Conflict
+   window 與 panels **早就都** `ref.watch(fileListViewModeProvider)` 了，這格已經過期；
+   反過來，「7 個 `SCOPES` granularity 全部實作」那句所依據的欄／資料夾三態，靠的是
+   `WorkingCopySelectionState.getCheckState` 與 `FileTreeNode.getCheckState` ——
+   grep 全 `lib/` 後確認**兩者在宣告它們的檔案之外沒有任何呼叫端**。詳見下面的
+   「矩陣的新案例」。
+
+#### 「跑」出來、不是「讀」出來的
+
+- **`core.fsmonitor=true` 的機器上，多一趟背景 `git diff --numstat` 會讓使用者的
+  寫入以 12 次 9 敗的比率死在 `index.lock`。** CI 上沒有 fsmonitor，所以 CI 看不見；
+  讀 diff 的人也看不見。三個各自獨立的開關都能壓回 12 次 0 敗（拿掉那一趟、讓全域
+  git config 失效、給那一趟加 `-c core.fsmonitor=false`）。
+  **建立那個鎖的行程始終沒有被指認出來。** 被直接觀測排除掉的包括：git 的讀取指令
+  根本不會建立 `.git/index.lock`（一支能正向抓到 `git add` 拿鎖、單次取樣 8162 次的
+  poller，對 status、兩趟 numstat 與 `-U3` 工作區 diff 在 daemon 冷啟動／暖機／stat
+  過期／別的行程剛改寫過 index 之後，全都是 0），因此 `--no-optional-locks` 是有效的，
+  而兩個本來能解釋一切的機制（fsmonitor token 寫入、`diff.autoRefreshIndex` 的收尾
+  refresh）也隨之死亡。任何觀測手段 —— `GIT_TRACE2_EVENT`、exec shim、甚至只做一次
+  `write()` 的 shim —— 都會讓它完全消失。修法（`GitCommand::worktreeReadFlags()`）
+  有效且以 argv 斷言釘住，**但機制未明，註解裡沒有假裝有**；若日後有人指認出兇手，
+  那個 flag 就可以刪，註解裡寫了這句。
+- **分頁列的位置 bug 出貨的原因是沒有任何測試分辨得出它。** 改完之後整套 2039 支
+  測試依然全綠 —— 沒有一支斷言過分頁列在哪。新測試因此每一條都斷言 **rect**：
+  `find.byType(TabRow)` 在錯的位置一樣找得到。
+- **臨時 scope 的三個 bug 全都是「第一幀正確、之後才壞」**，只有把手勢做完再多 pump
+  幾幀才看得到：GlobalKey 重複註冊、插入位置造成的 reparent 閃爍，以及真正的迴圈
+  「touched 一變就 `setState` → 重建擾動選取幾何 → delegate 再回報 → touched 又變」。
+  第三個的解法是只在 pointer down 到 pointer up 之間聽（`_latched`）。
+  `scope stays put on idle frames` 那支測試專門釘它 —— 一幀的斷言看不到，因為第一幀
+  從來都是對的。
+- **選取拖曳錨在 `getCenter` 會選不到任何東西。** diff 列的 `Text` 坐在一個遠比字形寬
+  的 `Expanded` 裡，方框中心早就過了字串尾端。改錨在 `rect.left + 1` / `rect.right - 1`。
+- **C16 有兩個 mutation 回綠**，追下去各有收穫：一個補出「同一個 HEAD 的無關 refresh
+  不該清掉訊息」這支測試；另一個證明 `next == _pendingCommitFrom` 這道防護
+  **不可能到達** —— `select` 只在選到的值真的改變時才通知 —— 於是刪掉防護、把理由寫成
+  註解。
+
+#### 刻意偏離規格的四項
+
+每一項都是使用者拍板，不是實作自行縮減：
+
+1. **兩欄完全沒有 checkbox**（偏離 P03-1 / P03-3 / P03-10 與 `SCOPES` 第 1、4、5 列）。
+   檔案改用**拖曳**在左右切換。刪掉的是列上的 `drag_handle` 裝飾圖示、標題列的三態
+   `Checkbox`、樹狀模式資料夾列的三態 `Checkbox`，以及只服務它們的三個 helper。
+   **沒有任何 scope 因此失去入口**：整欄走 `Repository → Stage all`
+   （Ctrl/Cmd+Alt+A）與右鍵選單；整個資料夾改成**資料夾列本身可拖曳**，一次帶走底下
+   所有葉節點。半暫存狀態改由行數（`+34 −12`）表達，那正是 checkbox 的三態原本要說
+   的事，而且說得更精確。
+2. **`repositoryStageAll` 的鍵位從 `Ctrl/Cmd+Shift+S` 改為 `Ctrl/Cmd+Alt+A`。**
+   規格沒有指定 Stage all 的鍵位，但 260820 的 `REVISIONS` 指定 `branchStashChanges`
+   要 `Ctrl/Cmd+Shift+S`；兩者相撞，使用者裁定讓路的是 Stage all。
+3. **新增 `GbmActionId.viewRefresh` ＋ `View → Refresh` ＋ 裸 F5**，P04 的 `MENUS` 表
+   沒有這一項。`refreshRepoHistory()` 全 `lib/` 只有 `TopBar` 一個呼叫點，刪掉 TopBar
+   之後它是唯一真的沒有別的家的元素。F5 不走 `_makeShortcut()` —— 那會硬塞一個這裡
+   不要的 Ctrl/Cmd；兩個修飾鍵旗標都 false 是合法的 `GbmKeyboardShortcut`。
+4. **scope 按鈕的文字以「匡選行數」為主、括號寫「實際會變動的行數」**
+   （`Stage 3 lines (1 changed)`）。這是使用者的裁定。**「兩數相等時省略括號」那一半
+   是實作判斷，不是使用者的裁定** —— 相等時括號恆為冗詞，但這件事沒有被裁定過，
+   在此標明。實作在 `diff_scopes.dart` 的 `scopeButtonLabel()`，是唯一一處。
+
+#### 刻意做的取捨，記錄下來
+
+- **草稿寫入用「飛行中合併」而不是計畫寫的 500ms debounce timer。** timer 會讓每一支
+  「在輸入框打字」的 widget test 都得負責把它排乾，否則死在 pending timer —— 就是
+  C14 踩到的那種傳染性義務。合併版本不需要 timer，硬當機掉的東西還更少：只掉一次
+  磁碟寫入期間打的字，而不是固定 500ms 份。
+- **草稿只存 summary / description，`diffScrollOffset` 留在記憶體。** 那是某個檔案
+  diff 裡的位移，重開後根本沒有選檔案，還原它只會把不相干的東西捲到奇怪的地方。
+- **存成長度 2 的 `StringList` 而不是兩把 key。** 訊息是一個東西，兩次 `setString`
+  可能只落地一半，留下配錯主旨的內文；讀到長度不對就當空草稿。
+- **`2 file` 模式下 staged 那一欄的捲動位移不保留。** 一個 controller 驅動不了兩個
+  scrollable，而草稿只有一個 `diffScrollOffset`。
+- **`_dropSelection` 的 `alsoClearHighlight` 只有視覺意義，沒有測試釘住。** widget
+  test 讀不回 `SelectableRegion` 的選取內容。它只從送出路徑呼叫：在 diff 換掉的時機
+  呼叫 `clearSelection()` 會撞上還在變動的 `selectables`，丟
+  `ConcurrentModificationError`。
+- **送出後等待期間任何錯誤都取消等待，且不做歸因。** fetch 失敗也會取消它 ——
+  這個 repo 自己的規則就是「下一個事件是我的」永遠不是安全的歸因。取捨方向是刻意的：
+  誤取消的代價是訊息比成功的 commit 多活一會，不取消的代價是之後某次 checkout 移動
+  HEAD 時，清掉使用者在失敗後才寫的訊息。
+- **untracked 檔案的行數是讀檔算出來的，不是 git 算的**（`git diff` 完全看不見它們），
+  binary 或超過 **1 MiB** 就不給數字。上限存在的理由是 `--untracked-files=all` 會列舉
+  未建置輸出目錄裡的每一個檔案。四個行數欄位的 **0 一律代表「沒量到」**，不是「量到
+  0」，UI 據此不畫 badge。
+- **`WorkingCopyEntry` 的四個新欄位都是 `required`**（20 個測試檔、31 個建構點一併補），
+  `fromJson` 用嚴格的 `as int` 而不是 `?? 0`：capi 與 model 同一次建置一起出貨，少一個鍵
+  代表兩側漂開了，那要大聲壞掉。用 `?? 0` 兜底會讓漂開偽裝成「這些檔案剛好都沒變動」。
+
+#### C17 追加：一句沒有兌現的承諾
+
+寫 C17 的文件時重讀 **#75** 的結案留言，發現它對第 3 項的處置寫著
+「`Ctrl/Cmd+Shift+Enter` 之後留在 diff 區自己的 focus scope 內」—— 那句是承諾，
+而 grep 之後確認**沒有兌現**：全 `lib/` 沒有任何地方綁它。規格與決策紀錄兩邊都
+寫得很清楚（P16 的 `REVISIONS` 給 `Ctrl/Cmd+Alt+S`、P03-5 與 `SCOPES` 第 7 列給
+`Ctrl/Cmd+Shift+Enter`，#75 裁定兩種讀法都保留），所以照長期規則第 1 條直接補完，
+沒有丟出來問。`ScopedDiffView` 內加一層 `CallbackShortcuts`。
+
+寫測試時遇到一個**無法和程式碼意見不合的夾具**，處置是刪掉它而不是留著：
+「沒有選取時按這個鍵不會 stage 任何東西」這支測試，把空值防護拿掉是綠的，把整個
+callback 換成無條件 stage 也是綠的 —— 因為沒有選取時 diff 區內根本沒有東西持有
+焦點，鍵事件從來就到不了那個 callback。防護真正擋的是**已經花掉 scope 之後的第
+二次按鍵**：一次空送出，唯一的效果是多呼叫一次 `clearSelection()`，也就是樹還在
+重組時會丟 `ConcurrentModificationError` 的那一呼叫。widget test 讀不回
+`SelectableRegion` 的選取內容，所以它和 `alsoClearHighlight` 一樣沒有測試釘住 ——
+這句寫在防護旁邊，而不是留一支假裝有涵蓋到的測試。
+
+#### 矩陣的新案例：evidence 證明的是 gate，不是被 gate 的那個東西
+
+CLAUDE.md 那條陷阱原本的形狀是「一格 conformance cell 拿 `isActionEnabled()`
+當證據，證到的是 gate 存在，不是被 gate 的介面存在」。這一輪撞到**同型的第三次**，
+換了一個外殼：
+
+P03 段落開頭那句「7 個 `SCOPES` granularity 全部實作 —— 包含 column tri-state /
+folder tri-state」，靠的是 `WorkingCopySelectionState.getCheckState()` 與
+`FileTreeNode.getCheckState()` 存在且有單元測試。兩者確實存在、確實正確、確實被
+測試 —— 但 grep 全 `lib/` 之後，**它們在宣告自己的檔案之外沒有任何呼叫端**。
+被算成「已實作」的那個 granularity，靠的是一個沒有人畫出來的 helper。這是這個
+repo 記錄過的 orphan wiring 第八次，也是第一次它假扮成一格 conformance 證據。
+
+實務上的差別：如果那句話當初寫的是「哪個 widget 畫出這個三態」，checkbox 被拿掉
+這件事會直接落在同一格上；寫成 helper 的存在之後，拿掉 checkbox 反而讓那格看起來
+沒有變化。`getCheckState` / `CheckState` 與 `WorkingCopySelectionState` 那六個
+只服務 checkbox 的方法排在 C18 刪除。

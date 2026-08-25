@@ -114,6 +114,95 @@ void main() {
       expect(installer.selfInstallBlocker(), contains('Applications folder'));
     });
 
+    // Windows is the live risk. Its release artifact is a **flat** zip
+    // (release.yml's `Compress-Archive .../Release/*`), so extracting it
+    // straight into Downloads puts gbm_flutter.exe directly there and makes
+    // Downloads the "install directory" -- which the updater would rename to
+    // `Downloads.gbm-old` wholesale. macOS cannot reach this (the target is
+    // the .app bundle) and the Linux tarball carries its own wrapper.
+    group('isSharedUserFolder', () {
+      const String home = r'C:\Users\jane';
+
+      test('takes a well-known folder whatever the separator or case', () {
+        for (final String path in <String>[
+          r'C:\Users\jane\Downloads',
+          'C:/Users/jane/Downloads',
+          r'C:\Users\jane\desktop',
+          r'C:\Users\jane\Documents\',
+        ]) {
+          expect(isSharedUserFolder(path, home), isTrue, reason: path);
+        }
+      });
+
+      test('takes the home directory itself and a drive root', () {
+        expect(isSharedUserFolder(home, home), isTrue);
+        expect(isSharedUserFolder(r'C:\', home), isTrue);
+        expect(isSharedUserFolder('/', '/home/jane'), isTrue);
+      });
+
+      test('leaves a folder of its own alone', () {
+        for (final String path in <String>[
+          r'C:\Users\jane\Apps\gbm',
+          r'C:\Users\jane\git-branch-manager-0.35.0-windows-x64',
+          r'C:\Program Files\gbm',
+          '/home/jane/Downloads/gbm',
+        ]) {
+          expect(isSharedUserFolder(path, home), isFalse, reason: path);
+        }
+      });
+
+      // A name that merely looks like one is not one: only a *direct* child
+      // of home counts.
+      test('does not take a Downloads nested somewhere else', () {
+        expect(isSharedUserFolder(r'D:\Backup\Downloads', home), isFalse);
+        // The case a "sits under home and ends with a known name" rule gets
+        // wrong: it is under home and it is called Downloads, and it is
+        // still somebody's own folder.
+        expect(
+          isSharedUserFolder(r'C:\Users\jane\Apps\Downloads', home),
+          isFalse,
+        );
+      });
+
+      test('decides nothing when the home directory is unknown', () {
+        expect(isSharedUserFolder(r'C:\Users\jane\Downloads', null), isFalse);
+      });
+    });
+
+    test('blocks installing directly in a shared folder', () {
+      final Directory home = Directory('${root.path}/home/jane')
+        ..createSync(recursive: true);
+      final Directory install = Directory('${home.path}/Downloads')
+        ..createSync(recursive: true);
+
+      final String? reason = UpdateInstaller(
+        operatingSystem: 'linux',
+        executablePath: '${install.path}/gbm_flutter',
+        abi: Abi.linuxX64,
+        homeDirectory: home.path,
+      ).selfInstallBlocker();
+
+      expect(reason, isNotNull);
+      expect(reason, contains('folder of its own'));
+    });
+
+    test('leaves a dedicated folder inside a shared one alone', () {
+      final Directory home = Directory('${root.path}/home/jane')
+        ..createSync(recursive: true);
+      final Directory install = Directory('${home.path}/Downloads/gbm')
+        ..createSync(recursive: true);
+
+      expect(
+        UpdateInstaller(
+          operatingSystem: 'linux',
+          executablePath: '${install.path}/gbm_flutter',
+          abi: Abi.linuxX64,
+          homeDirectory: home.path,
+        ).selfInstallBlocker(),
+        isNull,
+      );
+    });
+
     test('leaves no probe file behind', () {
       final Directory install = Directory('${root.path}/opt/gbm')
         ..createSync(recursive: true);

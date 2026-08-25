@@ -75,6 +75,84 @@ class UpdateInstallException implements Exception {
 /// would silently stop cleaning up.
 const String kUpdateDownloadDirPrefix = 'gbm-update-';
 
+/// Folders a user keeps other things in, which an install must therefore
+/// never *be*.
+///
+/// Windows is the live risk: its release artifact is a **flat** zip
+/// (`release.yml`'s `Compress-Archive .../Release/*`), so extracting it
+/// straight into Downloads puts `gbm_flutter.exe` directly there and makes
+/// Downloads the install directory -- which the updater would then rename to
+/// `Downloads.gbm-old` wholesale. macOS cannot reach this, because the
+/// target is the `.app` bundle itself, and the Linux tarball carries its own
+/// wrapper directory.
+const List<String> kSharedUserFolders = <String>[
+  'Desktop',
+  'Documents',
+  'Downloads',
+  'Music',
+  'OneDrive',
+  'Pictures',
+  'Public',
+  'Videos',
+];
+
+/// Whether [targetPath] is a folder that must not be replaced wholesale: a
+/// filesystem or drive root, the home directory itself, or one of
+/// [kSharedUserFolders] directly inside it.
+///
+/// Pure and separator-agnostic -- it splits on both, and compares case
+/// insensitively -- rather than going through `Directory.parent`, which
+/// follows the *host's* path rules and would make a `C:\...` fixture
+/// meaningless on the macOS and Linux machines this is tested on.
+///
+/// Answers false when [homePath] is null. An environment with no home
+/// variable is not evidence that anything is wrong, and a guard that fired
+/// on missing information would block installs it knows nothing about.
+bool isSharedUserFolder(String targetPath, String? homePath) {
+  final List<String> target = _pathSegments(targetPath);
+  // Nothing above it, so "rename it aside" would mean the whole volume.
+  if (target.isEmpty || (target.length == 1 && target.single.endsWith(':'))) {
+    return true;
+  }
+  if (homePath == null) {
+    return false;
+  }
+  final List<String> home = _pathSegments(homePath);
+  if (home.isEmpty) {
+    return false;
+  }
+  if (_sameSegments(target, home)) {
+    return true;
+  }
+  // A *direct* child only: `D:\Backup\Downloads` is somebody's own folder
+  // that happens to share a name.
+  if (target.length != home.length + 1) {
+    return false;
+  }
+  if (!_sameSegments(target.sublist(0, home.length), home)) {
+    return false;
+  }
+  final String name = target.last.toLowerCase();
+  return kSharedUserFolders.any((String f) => f.toLowerCase() == name);
+}
+
+List<String> _pathSegments(String path) => path
+    .split(RegExp(r'[/\\]+'))
+    .where((String segment) => segment.isNotEmpty)
+    .toList();
+
+bool _sameSegments(List<String> a, List<String> b) {
+  if (a.length != b.length) {
+    return false;
+  }
+  for (int i = 0; i < a.length; i++) {
+    if (a[i].toLowerCase() != b[i].toLowerCase()) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /// Name of the transcript the updater script writes beside itself.
 ///
 /// The script runs after the process has exited, so nothing in the app can
@@ -114,6 +192,7 @@ class UpdateInstaller {
     this.operatingSystem,
     this.executablePath,
     this.abi,
+    this.homeDirectory,
   }) : _start = start ?? _startDetached,
        _run = run ?? _runToCompletion,
        _exitProcess = exitProcess ?? _realExit;
@@ -136,9 +215,16 @@ class UpdateInstaller {
   /// Overridden in tests; null means [Abi.current].
   final Abi? abi;
 
+  /// Overridden in tests; null means the platform's own home variable.
+  final String? homeDirectory;
+
   String get _os => operatingSystem ?? Platform.operatingSystem;
   String get _exe => executablePath ?? Platform.resolvedExecutable;
   Abi get _abi => abi ?? Abi.current();
+
+  String? get _home =>
+      homeDirectory ??
+      Platform.environment[_os == 'windows' ? 'USERPROFILE' : 'HOME'];
 
   static Future<bool> _startDetached(
     String executable,
@@ -258,6 +344,16 @@ class UpdateInstaller {
     if (target.path.contains('/AppTranslocation/')) {
       return 'This app is running from a temporary location. Move it to your '
           'Applications folder first, then check again.';
+    }
+    // Not the reported failure -- that install was in a folder of its own --
+    // but the same flat Windows zip makes this one plausible, and its blast
+    // radius is the user's whole Downloads folder rather than a failed
+    // update.
+    if (isSharedUserFolder(target.path, _home)) {
+      return 'This app is installed directly in ${target.path}, alongside '
+          'whatever else is in there. Updating replaces the whole folder, so '
+          'it will not do that. Move the app into a folder of its own, or '
+          'download from the releases page.';
     }
     if (!_isWritable(target.parent)) {
       return 'The install directory (${target.parent.path}) is not writable '

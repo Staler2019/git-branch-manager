@@ -52,14 +52,17 @@ class UpdateInstallException implements Exception {
 ///
 /// The script's shape is the same on all three platforms:
 ///
-/// 1. wait for this process to exit -- and **abort if it never does**, since
+/// 1. step out of whatever directory it inherited -- on Windows, standing in
+///    the install directory is by itself enough to make step 2 impossible;
+/// 2. wait for this process to exit -- and **abort if it never does**, since
 ///    swapping underneath a live app leaves two instances over a
 ///    half-replaced install;
-/// 2. rename the current install to `<name>.gbm-old` -- a rename, never a
+/// 3. rename the current install to `<name>.gbm-old` -- a rename, never a
 ///    delete, because that copy *is* the rollback;
-/// 3. copy the staged build into the vacated path;
-/// 4. on failure, undo the rename and relaunch the old build, so the user is
-///    never left without a working application.
+/// 4. copy the staged build into the vacated path;
+/// 5. on any failure past the wait, put a working build back -- undoing the
+///    rename where one happened -- so the user is never left without an
+///    application.
 ///
 /// Extraction deliberately happens **before** the app quits ([stage]), not
 /// inside the script: an archive that will not open is then an error the
@@ -475,6 +478,12 @@ class UpdateInstaller {
 /// Exit codes: 0 swapped, 2 the app never exited (nothing changed), 3 could
 /// not rename the old install (nothing changed), 4 the copy failed and the
 /// old install was restored.
+///
+/// **Every code except 2 relaunches.** 2 is the one arm reached with the app
+/// still on screen, where a second instance would be worse than nothing;
+/// each of the others runs after the process has gone, so leaving without
+/// starting something is what makes a failed update look like the app
+/// vanishing.
 String buildUnixUpdaterScript({
   required int pid,
   required String targetPath,
@@ -515,19 +524,30 @@ while kill -0 "\$PID" 2>/dev/null; do
   sleep 0.2
 done
 
+# Everything past the wait runs with the app already gone, so every arm has
+# to put a working build back -- including the ones that change nothing. A
+# script that simply gave up is what turned a failed rename into "the app
+# closed and never came back".
+relaunch() {
+  $relaunchCommand
+}
+
 rm -rf "\$BACKUP"
-mv "\$TARGET" "\$BACKUP" || exit 3
+if ! mv "\$TARGET" "\$BACKUP"; then
+  relaunch
+  exit 3
+fi
 
 if $copyCommand "\$STAGED" "\$TARGET"; then
   rm -rf "\$STAGED"
-  $relaunchCommand
+  relaunch
   exit 0
 fi
 
 # The rename above is the only reason this is recoverable.
 rm -rf "\$TARGET"
 mv "\$BACKUP" "\$TARGET"
-$relaunchCommand
+relaunch
 exit 4
 ''';
 }
@@ -559,6 +579,15 @@ String buildWindowsUpdaterScript({
 Set-Location -LiteralPath \$PSScriptRoot
 [System.Environment]::CurrentDirectory = \$PSScriptRoot
 
+# Everything past the wait runs with the app already gone, so every arm has
+# to put a working build back -- including the ones that change nothing.
+# Wrapped in its own try: with ErrorActionPreference = 'Stop' a relaunch of
+# something that is not there would otherwise take the script down before it
+# could set an exit code.
+function Restart-App {
+  try { $relaunchCommand } catch { }
+}
+
 \$parentPid = $pid
 \$target = ${_psQuote(targetPath)}
 \$staged = ${_psQuote(stagedPath)}
@@ -587,17 +616,24 @@ for (\$i = 0; \$i -lt 20; \$i++) {
     Start-Sleep -Milliseconds 500
   }
 }
-if (-not \$renamed) { exit 3 }
+if (-not \$renamed) {
+  Restart-App
+  exit 3
+}
 
 try {
   Copy-Item -LiteralPath \$staged -Destination \$target -Recurse -Force
   Remove-Item -LiteralPath \$staged -Recurse -Force -ErrorAction SilentlyContinue
-  $relaunchCommand
+  Restart-App
   exit 0
 } catch {
-  Remove-Item -LiteralPath \$target -Recurse -Force -ErrorAction SilentlyContinue
-  Move-Item -LiteralPath \$backup -Destination \$target -Force
-  $relaunchCommand
+  # The restore is itself guarded: an unhandled throw here would end the
+  # script with the install gone and nothing running.
+  try {
+    Remove-Item -LiteralPath \$target -Recurse -Force -ErrorAction SilentlyContinue
+    Move-Item -LiteralPath \$backup -Destination \$target -Force
+  } catch { }
+  Restart-App
   exit 4
 }
 ''';

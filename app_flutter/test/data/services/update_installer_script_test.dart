@@ -190,6 +190,72 @@ void main() {
       },
     );
 
+    // The arm that produced the reported Windows symptom: by the time the
+    // rename is attempted the app has already exited, so a script that just
+    // gives up leaves the user with no running application and no
+    // explanation. Nothing here changes the install -- only that a working
+    // build is put back on screen.
+    //
+    // The read-only directory has to be the target's *parent* (renaming
+    // needs write permission there, not on the target), which is why the
+    // target is nested one level down and the sentinel stays out in `root`:
+    // a sentinel written inside the locked directory could not be created
+    // either, and the test would pass for the wrong reason.
+    test('relaunches the old build when the rename fails', () async {
+      final Directory lock = Directory('${root.path}/lock')
+        ..createSync(recursive: true);
+      final Directory target = Directory('${lock.path}/install')
+        ..createSync(recursive: true);
+      File('${target.path}/marker.txt').writeAsStringSync('old');
+      final Directory staged = dirWithMarker('staged', 'new');
+      final File sentinel = File('${root.path}/relaunched');
+      await Process.run('chmod', <String>['555', lock.path]);
+      addTearDown(() => Process.run('chmod', <String>['755', lock.path]));
+
+      final int code = await runScript(
+        buildUnixUpdaterScript(
+          pid: 999999,
+          targetPath: target.path,
+          stagedPath: staged.path,
+          copyCommand: 'cp -a',
+          relaunchCommand: 'touch ${_shq(sentinel.path)}',
+          waitTimeout: const Duration(seconds: 2),
+        ),
+      );
+
+      expect(code, 3, reason: 'the rename really must have failed');
+      expect(File('${target.path}/marker.txt').readAsStringSync(), 'old');
+      expect(
+        sentinel.existsSync(),
+        isTrue,
+        reason: 'the app has already exited; something has to bring it back',
+      );
+    });
+
+    // The one arm that must NOT relaunch: the app never exited, so it is
+    // still on screen and a second instance would be worse than nothing.
+    test('does not relaunch when the app never exited', () async {
+      final Directory target = dirWithMarker('install', 'old');
+      final Directory staged = dirWithMarker('staged', 'new');
+      final File sentinel = File('${root.path}/relaunched');
+      final Process victim = await longLivedProcess();
+      addTearDown(() => victim.kill());
+
+      final int code = await runScript(
+        buildUnixUpdaterScript(
+          pid: victim.pid,
+          targetPath: target.path,
+          stagedPath: staged.path,
+          copyCommand: 'cp -a',
+          relaunchCommand: 'touch ${_shq(sentinel.path)}',
+          waitTimeout: const Duration(milliseconds: 600),
+        ),
+      );
+
+      expect(code, 2);
+      expect(sentinel.existsSync(), isFalse);
+    });
+
     // The whole reason the old install is renamed rather than deleted.
     test('restores the old install when the copy fails', () async {
       final Directory target = dirWithMarker('install', 'old');

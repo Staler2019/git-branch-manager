@@ -526,6 +526,30 @@ void main() {
       );
     });
 
+    // Same three arms the executed sh tests pin, asserted as text because no
+    // Windows machine runs this suite. Every arm reached after the app has
+    // exited must put a working build back -- a script that simply gives up
+    // is what turned a failed rename into "the app closed and never came
+    // back".
+    test('puts a build back on every arm that runs after the app exits', () {
+      final String s = script();
+
+      expect(s, contains('function Restart-App'));
+      expect(
+        'Restart-App'.allMatches(s).length,
+        4,
+        reason: 'one definition plus the rename, success and rollback arms',
+      );
+      expect(s, contains('if (-not \$renamed) {'));
+    });
+
+    // With \$ErrorActionPreference = 'Stop', a rollback whose own Move-Item
+    // throws would leave the catch block with no handler: the install gone
+    // and the script dead.
+    test('cannot be killed by its own rollback failing', () {
+      expect(script(), contains('catch { }'));
+    });
+
     test('never assigns PowerShell\'s read-only \$pid', () {
       // `$pid` is an automatic variable; assigning it fails at runtime, and
       // the failure would land after the app has already exited.

@@ -591,7 +591,11 @@ you are touching, not by when it was learned.
   subjects are indistinguishable to the assertion* — `ActionToolbar`'s Branch
   and Stash share a gate and both only `context.push(...)`, so asserting
   `onPressed != null` stayed green with the two handlers swapped (P02-2
-  round). Sentinel `dialogRoute`s are what told them apart.
+  round). Sentinel `dialogRoute`s are what told them apart. A sixth: one whose
+  *content contradicts its own name* — a "same-size edit must be re-read" test
+  wrote 8 bytes then 7, so the mutation that removes mtime from the cache key
+  stayed green because size really had changed (C18). Count the bytes the
+  fixture actually writes, not the bytes the test's name claims.
 - **Mutation-check every new test**, and check the red is *narrow* — a broad
   red means the test is pinning something else. Copy the file to the
   scratchpad first (`cp file "$SCRATCH/x.bak"` → mutate → `cp` back);
@@ -653,7 +657,11 @@ you are touching, not by when it was learned.
   broken test — `pkill -f "gbm_flutter.app/Contents/MacOS/gbm_flutter"`, and
   run one pre-existing device test as a control before believing a new one.
 - `build/native/libgbm_capi.dylib` is a **copy**: a stale one loads happily,
-  and a new capi entry point then appears to be a Dart bug.
+  and a new capi entry point then appears to be a Dart bug. A stale one is
+  *three days old and silent* in practice — C18 found one predating that
+  round's own capi fields, where the symptom was a badge that simply never
+  rendered, not an error of any kind. Run `app_flutter/scripts/build_capi.sh`
+  before any device-tier run that is meant to attest a capi change.
 - **`dart:ffi`'s `lookupFunction` matches by symbol name only, never by
   signature.** Changing a capi parameter list and its Dart typedef in
   lockstep is checked by nothing — it compiles, analyzes and unit-tests
@@ -725,7 +733,13 @@ you are touching, not by when it was learned.
   with no visible hover for months because its row built its own `Container` +
   `InkWell` instead (ledger: "Sidebar branch rows"). Reach for `GbmRow` for
   anything row-shaped, and assert the token by identity — hover cannot be
-  proven by a widget test that only checks for no exception.
+  proven by a widget test that only checks for no exception. It recurred twice
+  more in C18, both found by *sweeping every `InkWell(`/`GestureDetector(` in
+  the round's changed files*: `FileTreeFolderRow` (folder rows had no hover
+  while the file rows around them in the same list did) and a private
+  `_MiniButton` in `working_copy_view.dart` that also re-implemented
+  `GbmButton(secondary, sm)`'s border, text size and padding by hand. That
+  grep is worth running at the end of any round that touches widgets.
 - **The gesture arena taxes double-clickable rows, and it is not local.** An
   `InkWell` holding both `onTap` and `onDoubleTap` withholds the tap for
   `kDoubleTapTimeout` (~300ms), and a `DoubleTapGestureRecognizer` anywhere on
@@ -911,7 +925,11 @@ you are touching, not by when it was learned.
   sorts folders before leaves and each group alphabetically, so ref order and
   render order disagree the moment a folder exists; Shift-click and Shift+↑/↓
   both spanned the wrong rows until they read a list walked out of the built
-  tree. A `containsAll` assertion cannot see this — use set equality.
+  tree. A `containsAll` assertion cannot see this — use set equality. **The
+  painted order is per display mode, not per widget**: the Working Copy board
+  failed the same clause a second time because `FileListModeSwitcher` builds a
+  tree only in tree mode and hands `items` straight to a `ListView` in list
+  mode — the default — so one range implementation cannot serve both (C18).
 - **The spec HTML has 21 pages**
   (`docs/claude-design-demo/Flutter Desktop Spec (standalone).html`), and
   `docs/reports/spec-conformance-matrix.md` was written against 12. **P16's
@@ -962,6 +980,26 @@ derived from the code — they outrank convenience every time):
 3. **Never open an issue without the user's consent.** Existing issues may be
    updated or closed; a new one is a decision, not a filing action.
 
+- **Every cache in this repo documents three things in source, and needs a
+  test that invalidation really recomputes.** The three: what the key is *and
+  why it distinguishes every case it must*; which named events invalidate it;
+  what symptom appears if invalidation is missed. Note that "which events"
+  can legitimately be **none** — `UntrackedLineCountCache` has no event to
+  subscribe to because an editor saving a file emits no `GBM_EVENT_*`, so the
+  key *is* the invalidation, and saying so is part of the documentation rather
+  than a gap in it. The test must count (`hits()`/`misses()`, an injected
+  counting stand-in), never assert on the result alone: **a cache that
+  recomputed every time and answered correctly is indistinguishable from a
+  working one by its output.** And prefer removing the recomputation to
+  caching it — C18's `FileTree` candidate turned out to be a code path that
+  should not have run at all in the default mode.
+- **Measure before caching, and put the number in the ledger.** C18's two
+  numbers, debug JIT: splitting a 40×200 `DiffFile` into scopes is 197µs and
+  ran *every frame* of a selection drag (cached); `FileTree.fromPaths` over
+  100 paths is 41µs and runs per click (not cached). The second is written
+  down precisely so the next round re-decides from a number rather than from
+  the same guess.
+
 - **Orphan wiring is the recurring defect shape here**: a route, provider,
   preference or capi field with no caller under `lib/`. It has shipped at
   least five times (`deleteRemoteBranchDialog`, `readVisibility()`,
@@ -970,6 +1008,14 @@ derived from the code — they outrank convenience every time):
   deleting the last one. The sixth instance was worse than dead weight:
   `ProcessStarter`'s `workingDirectory` parameter existed and no caller ever
   passed it, and passing it was the whole fix for the Windows self-install.
+  The seventh and eighth were checkbox-era leftovers deleted in C18 — nine
+  methods across `WorkingCopySelectionState` and `file_tree.dart`, all
+  unit-tested and all uncalled, one of which was standing in as a conformance
+  cell's evidence. **Not every uncalled function is an orphan**: the same
+  sweep kept `sameLogicalFile` by moving it into its test file, because it is
+  the independently-written *oracle* `logicalFileKey` is checked against —
+  keeping it in `lib/` was the actual defect, since a bug in the key could
+  otherwise hide inside the thing that checks it.
 - **A second source of truth for a computed fact is how a bug hides** — it
   cannot disagree with itself. Folder identity, column order, selection sets,
   `conflictActive`, `submitCommit()` (the only place a commit message is
@@ -987,7 +1033,16 @@ derived from the code — they outrank convenience every time):
   (ledger: "Changed files line counts").
 - **A note explaining why a test avoids a code path deserves the same
   scrutiny as the code path itself** — one correct observation with a wrong
-  cause became a permanent workaround and hid a real defect for months.
+  cause became a permanent workaround and hid a real defect for months. The
+  same holds for a comment explaining why the *implementation* is shaped as it
+  is: `_keysInRenderOrder` built a `FileTree` unconditionally on a comment
+  claiming 「both list and tree mode render through `FileTree.fromPaths`」, and
+  list mode does not — so Shift-ranging in the default mode spanned tree order
+  over rows painted in entry order, and the test that should have caught it
+  pumped the default mode while asserting tree order, repeating the same wrong
+  premise in its own comment (C18). **When a comment states what two code
+  paths have in common, pump both and look**, rather than trusting the
+  sentence.
   A mutation is how you check one: **a mutation that fails to land where the
   comment predicted means the comment is wrong**, not the mutation. Keying
   `attachLineCounts()` on `oldPath` was supposed to break deletes and broke

@@ -11,6 +11,7 @@ import 'package:gbm_flutter/data/models/parsed_diff.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/features/diff/scoped_diff_view.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
+import 'package:gbm_flutter/widgets/gbm_badge.dart';
 import 'package:gbm_flutter/widgets/gbm_button.dart';
 
 import '../../support/pump_app.dart';
@@ -149,6 +150,42 @@ void main() {
 
       expect(find.text('變更 1'), findsOneWidget);
       expect(find.text('變更 2'), findsOneWidget);
+    });
+
+    // The two columns' file rows already draw this exact fact as a GbmBadge
+    // pill (`working_copy_board.dart`'s `_lineCountBadges`). Bare mono text
+    // in the card head meant one screen drew one fact two ways. Asserting
+    // the *kind*, not only the label: a neutral pill in the added slot looks
+    // wrong and throws nothing.
+    testWidgets('the card head draws +N/-M as GbmBadges, as the file rows do', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, file: _file(<String>['.+-.']));
+
+      final List<GbmBadge> badges = tester
+          .widgetList<GbmBadge>(find.byType(GbmBadge))
+          .toList();
+
+      expect(badges.length, 2);
+      expect(badges[0].label, '+1');
+      expect(badges[0].kind, GbmBadgeKind.added);
+      expect(badges[1].label, '\u22121');
+      expect(badges[1].kind, GbmBadgeKind.removed);
+    });
+
+    // Same rule the file rows follow: a zero is *not measured*, and a `+0`
+    // pill would claim a measurement that never happened.
+    testWidgets('a card with no removals draws no removed badge', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, file: _file(<String>['.+.']));
+
+      final List<GbmBadge> badges = tester
+          .widgetList<GbmBadge>(find.byType(GbmBadge))
+          .toList();
+
+      expect(badges.length, 1);
+      expect(badges.single.label, '+1');
     });
 
     testWidgets('the head counts the cards below it', (

@@ -712,26 +712,35 @@ class _CardHead extends StatelessWidget {
                   ),
                 ),
               ),
+              // Pills, not bare mono text: the two columns' file rows draw
+              // this same fact as a [GbmBadge]
+              // (`working_copy_board.dart`'s `_lineCountBadges`), and both
+              // are on screen at once, so one fact drawn two ways read as
+              // two facts.
+              //
+              // The glyph deliberately stays U+2212 rather than the file
+              // rows' ASCII `-`. That split is by surface, not by accident:
+              // the file lists share one glyph with `changed_files_panel`,
+              // and the diff surfaces share the other with
+              // `panel_file_diff_detail`. Unifying the *shape* was the
+              // ruling; unifying the glyph would drag a third surface along
+              // with it.
+              //
+              // A zero draws nothing, same rule and same reason as the file
+              // rows: zero means not measured, and a `+0` pill would claim a
+              // measurement that never happened.
               if (scope.addedCount > 0) ...<Widget>[
                 const SizedBox(width: GbmSpacing.space2),
-                Text(
-                  '+${scope.addedCount}',
-                  style: TextStyle(
-                    fontFamily: GbmTypography.fontMono,
-                    fontSize: GbmTypography.textXs,
-                    color: colors.diffAddText,
-                  ),
+                GbmBadge(
+                  label: '+${scope.addedCount}',
+                  kind: GbmBadgeKind.added,
                 ),
               ],
               if (scope.removedCount > 0) ...<Widget>[
-                const SizedBox(width: 4),
-                Text(
-                  '\u2212${scope.removedCount}',
-                  style: TextStyle(
-                    fontFamily: GbmTypography.fontMono,
-                    fontSize: GbmTypography.textXs,
-                    color: colors.diffDelText,
-                  ),
+                const SizedBox(width: GbmSpacing.space1),
+                GbmBadge(
+                  label: '\u2212${scope.removedCount}',
+                  kind: GbmBadgeKind.removed,
                 ),
               ],
             ],

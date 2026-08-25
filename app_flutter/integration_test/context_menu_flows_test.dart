@@ -21,20 +21,30 @@ import 'package:gbm_flutter/data/services/desktop_launcher.dart';
 import 'package:gbm_flutter/data/services/file_save_picker.dart';
 import 'package:gbm_flutter/features/compare/compare_page.dart';
 import 'package:gbm_flutter/features/history_graph/commit_graph_view.dart';
+import 'package:gbm_flutter/features/working_copy/widgets/working_copy_board.dart';
 import 'package:gbm_flutter/widgets/gbm_row.dart';
 import 'package:integration_test/integration_test.dart';
 
 import 'support/real_repo_harness.dart';
 
-/// Committed content of the fixture file. Three short lines, so a
+/// Committed content of the fixture file. Five short lines, so a
 /// single-line discard has an unambiguous expected result and its
 /// neighbours are visible in the same hunk.
-const String _committed = 'alpha\nbravo\ncharlie\n';
+const String _committed = 'alpha\nbravo\ncharlie\ndelta\necho\n';
 
 /// Two separate insertions. Discarding only the first must leave the second
 /// exactly where it is -- that is what makes this a line-granularity test
 /// rather than a "something changed" one.
-const String _modified = 'alpha\nINSERTED_ONE\nbravo\nINSERTED_TWO\ncharlie\n';
+///
+/// **Three unchanged lines between them, not one.** Spec P03 變體 B's
+/// default scope merges changes separated by <= 2 unchanged lines, so the
+/// original one-line gap put both insertions in the *same* scope: the
+/// context menu then read `Discard 2 lines…` and discarding really would
+/// have taken both. A gap of 3 is the smallest that keeps them two separate
+/// scopes -- and still inside one hunk, since `-U3` merges hunks whose gap
+/// is at most 2x the context.
+const String _modified =
+    'alpha\nINSERTED_ONE\nbravo\ncharlie\ndelta\nINSERTED_TWO\necho\n';
 
 /// Records what would have been launched instead of spawning it.
 class _RecordingStarter {
@@ -87,13 +97,22 @@ void main() {
 
   tearDown(() => deleteTempGitRepo(repoPath));
 
+  /// A file row in the two-column board, and only there: since 變體 B the
+  /// diff pane's titlebar names the selected file as well, so a bare
+  /// `find.text('fixture.txt')` matches two widgets the moment the file is
+  /// selected, and `tap()` refuses an ambiguous finder.
+  Finder boardRow(String name) => find.descendant(
+    of: find.byType(WorkingCopyBoard),
+    matching: find.text(name),
+  );
+
   /// Working Copy tab -> select fixture.txt -> its unstaged diff is on
   /// screen. Shared by the 05-G and 05-F tests below.
   Future<void> openFixtureDiff(WidgetTester tester) async {
     await tester.tap(find.text('Working Copy'));
     await tester.pumpAndSettle(const Duration(seconds: 1));
-    expect(find.text('fixture.txt'), findsOneWidget);
-    await tester.tap(find.text('fixture.txt'));
+    expect(boardRow('fixture.txt'), findsOneWidget);
+    await tester.tap(boardRow('fixture.txt'));
     await tester.pumpAndSettle(const Duration(seconds: 1));
   }
 
@@ -127,7 +146,7 @@ void main() {
 
     expect(
       File('$repoPath/fixture.txt').readAsStringSync(),
-      'alpha\nbravo\nINSERTED_TWO\ncharlie\n',
+      'alpha\nbravo\ncharlie\ndelta\nINSERTED_TWO\necho\n',
       reason:
           'INSERTED_ONE reverted, INSERTED_TWO and every committed line '
           'left alone -- a whole-file discard would have removed both',
@@ -166,7 +185,7 @@ void main() {
     );
     await openFixtureDiff(tester);
 
-    await tester.tap(find.text('fixture.txt'), buttons: kSecondaryMouseButton);
+    await tester.tap(boardRow('fixture.txt'), buttons: kSecondaryMouseButton);
     await tester.pumpAndSettle();
     expect(find.text('Open file'), findsOneWidget);
     expect(find.text('Show in file manager'), findsOneWidget);

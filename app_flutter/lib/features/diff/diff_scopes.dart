@@ -98,6 +98,69 @@ Map<int, List<DiffScope>> splitDiffFileIntoScopes(
   };
 }
 
+/// The signature [DiffScopeCache] splits with, so a test can hand it a
+/// counting stand-in. [splitDiffFileIntoScopes] is the only production value.
+typedef DiffFileScopeSplitter =
+    Map<int, List<DiffScope>> Function(DiffFile file, {int maxGap});
+
+/// Remembers the scope split of the [DiffFile] it was last asked about.
+///
+/// The diff pane re-splits on every build, and it builds far more often than
+/// the diff changes: dragging a text selection rebuilds it once per frame, and
+/// every one of those frames re-walked every line of every hunk of the file to
+/// arrive at exactly the answer it already had.
+///
+/// **Key: the [DiffFile] object's identity, plus [maxGap].** Identity is the
+/// honest key here precisely because these are immutable DTOs parsed fresh out
+/// of each `workingCopyDiffReady` payload -- nothing edits a [DiffFile] in
+/// place, so the same instance cannot have different content, and different
+/// content cannot arrive on the same instance. A structural key (path + staged
+/// + a hash of the hunks) would cost more to compute than the split it saves.
+///
+/// **Invalidated by**: a new object arriving in `widget.file`. That happens on
+/// `workingCopyDiffReady` (the controller stores a new reply under that key),
+/// on `workingCopyStatusUpdated` (which clears `workingCopyDiffs` entirely, so
+/// the next reply is necessarily a new object), and on selecting a different
+/// file. There is nothing to unsubscribe from and nothing to clear by hand.
+///
+/// **Symptom if invalidation were missed**: the pane would keep drawing the
+/// cards of the previous diff over the current file's lines, and a card's
+/// Stage button would hand `gbm_stage_lines` a hunk index and line indices
+/// that now point at different lines -- so pressing "Stage 3 lines" would
+/// stage three other lines. That is the same failure
+/// `RepoSessionController._readWorkingCopyStatus()` records for the diff map
+/// itself, one layer up.
+class DiffScopeCache {
+  DiffScopeCache({DiffFileScopeSplitter? split})
+    : _split = split ?? splitDiffFileIntoScopes;
+
+  final DiffFileScopeSplitter _split;
+
+  DiffFile? _file;
+  int _maxGap = kDefaultScopeGap;
+  Map<int, List<DiffScope>> _scopes = const <int, List<DiffScope>>{};
+
+  /// The scopes of [file], split at most once per distinct [file] instance.
+  ///
+  /// A null [file] is the pane's "nothing selected" state and yields an empty
+  /// map without consulting the splitter.
+  Map<int, List<DiffScope>> scopesOf(
+    DiffFile? file, {
+    int maxGap = kDefaultScopeGap,
+  }) {
+    if (file == null) {
+      _file = null;
+      _scopes = const <int, List<DiffScope>>{};
+      return _scopes;
+    }
+    if (identical(file, _file) && maxGap == _maxGap) return _scopes;
+    _file = file;
+    _maxGap = maxGap;
+    _scopes = _split(file, maxGap: maxGap);
+    return _scopes;
+  }
+}
+
 /// Only added and removed lines move. Context passes through a rebuilt patch
 /// either way, and so does the no-newline marker (see
 /// `UnifiedDiffParser::buildLineSelectionPatch`) -- which is also why the

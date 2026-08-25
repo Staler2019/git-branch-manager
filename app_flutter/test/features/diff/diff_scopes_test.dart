@@ -28,6 +28,26 @@ DiffHunk _hunk(String sketch) => DiffHunk(
   ],
 );
 
+DiffFile _file({
+  String path = 'a.dart',
+  bool binary = false,
+  List<DiffHunk> hunks = const <DiffHunk>[],
+}) => DiffFile(
+  oldPath: path,
+  newPath: path,
+  kind: FileChangeKind.modified,
+  oldMode: '',
+  newMode: '',
+  oldBlob: '',
+  newBlob: '',
+  binary: binary,
+  similarity: 0,
+  addedLines: 0,
+  removedLines: 0,
+  displayPath: path,
+  hunks: hunks,
+);
+
 List<List<int>> _spans(List<DiffScope> scopes) =>
     scopes.map((DiffScope s) => s.lineIndices).toList(growable: false);
 
@@ -339,6 +359,88 @@ void main() {
       );
 
       expect(splitDiffFileIntoScopes(file), isEmpty);
+    });
+  });
+
+  group('DiffScopeCache', () {
+    // A counting stand-in for splitDiffFileIntoScopes. Counted, not `any`-ed:
+    // the whole claim is "exactly once per file instance", and a cache that
+    // split twice would answer every question about the *result* correctly.
+    late int calls;
+    late DiffScopeCache cache;
+
+    setUp(() {
+      calls = 0;
+      cache = DiffScopeCache(
+        split: (DiffFile file, {int maxGap = kDefaultScopeGap}) {
+          calls++;
+          return splitDiffFileIntoScopes(file, maxGap: maxGap);
+        },
+      );
+    });
+
+    test('splits once and reuses the answer for the same instance', () {
+      final DiffFile file = _file(hunks: <DiffHunk>[_hunk('.+.')]);
+
+      final Map<int, List<DiffScope>> first = cache.scopesOf(file);
+      final Map<int, List<DiffScope>> second = cache.scopesOf(file);
+
+      expect(calls, 1, reason: 'a rebuild that changed nothing must not split');
+      expect(identical(first, second), isTrue);
+      expect(_spans(first[0]!), <List<int>>[
+        <int>[1],
+      ]);
+    });
+
+    test('splits again when a new reply arrives for the same path', () {
+      // Same path, same content, different object -- which is exactly what a
+      // fresh `workingCopyDiffReady` payload produces. The cache must not
+      // treat it as unchanged: only object identity can tell the two apart,
+      // and the second parse is the one carrying the new staging state.
+      final DiffFile before = _file(hunks: <DiffHunk>[_hunk('.+.')]);
+      final DiffFile after = _file(hunks: <DiffHunk>[_hunk('.+.')]);
+
+      cache.scopesOf(before);
+      cache.scopesOf(after);
+
+      expect(calls, 2);
+    });
+
+    test('splits again when the selected file changes', () {
+      cache.scopesOf(_file(path: 'a.dart', hunks: <DiffHunk>[_hunk('.+.')]));
+      cache.scopesOf(_file(path: 'b.dart', hunks: <DiffHunk>[_hunk('.-.')]));
+
+      expect(calls, 2);
+    });
+
+    test('splits again when maxGap changes', () {
+      final DiffFile file = _file(hunks: <DiffHunk>[_hunk('.+..+.')]);
+
+      final Map<int, List<DiffScope>> merged = cache.scopesOf(file);
+      final Map<int, List<DiffScope>> split = cache.scopesOf(file, maxGap: 1);
+
+      expect(calls, 2, reason: 'maxGap is part of the key, not a hint');
+      expect(_spans(merged[0]!), <List<int>>[
+        <int>[1, 2, 3, 4],
+      ]);
+      expect(_spans(split[0]!), <List<int>>[
+        <int>[1],
+        <int>[4],
+      ]);
+    });
+
+    test('a null file empties the cache without consulting the splitter', () {
+      final DiffFile file = _file(hunks: <DiffHunk>[_hunk('.+.')]);
+      cache.scopesOf(file);
+
+      expect(cache.scopesOf(null), isEmpty);
+      expect(calls, 1);
+
+      // And the same instance coming back is a miss, not a hit -- otherwise a
+      // file deselected and reselected would be answered from a map the
+      // deselect was supposed to have dropped.
+      cache.scopesOf(file);
+      expect(calls, 2);
     });
   });
 }

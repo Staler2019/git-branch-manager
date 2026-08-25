@@ -97,6 +97,12 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
       GlobalKey<SelectionAreaState>();
   late final SelectionTouchTracker _tracker;
 
+  /// Splitting the file into scopes is the one expensive thing this build
+  /// does, and `_tracker`'s listener rebuilds on every frame of a selection
+  /// drag. The cache's key is `widget.file`'s identity -- the same signal
+  /// [didUpdateWidget] already treats as "a new diff".
+  final DiffScopeCache _scopeCache = DiffScopeCache();
+
   @override
   void initState() {
     super.initState();
@@ -201,9 +207,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
     final DiffFile? diffFile = widget.file;
-    final Map<int, List<DiffScope>> byHunk = diffFile == null
-        ? const <int, List<DiffScope>>{}
-        : splitDiffFileIntoScopes(diffFile);
+    final Map<int, List<DiffScope>> byHunk = _scopeCache.scopesOf(diffFile);
     final int scopeCount = byHunk.values.fold<int>(
       0,
       (int sum, List<DiffScope> scopes) => sum + scopes.length,

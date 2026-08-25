@@ -168,6 +168,82 @@ void main() {
       expect(find.text('pubspec.yaml'), findsOneWidget);
     });
 
+    // Nothing anywhere asserted that a drop actually stages: the widget
+    // tests only checked that a `Draggable` exists, and the device-tier
+    // commit flow was still tapping a checkbox that 變體 B deleted. With
+    // dragging now the *only* way a file changes side, an unexercised drop
+    // is an unexercised product.
+    testWidgets('dropping a row on the Staged column stages that file', (
+      tester,
+    ) async {
+      final List<List<String>> staged = <List<String>>[];
+      await pumpGbmWidget(
+        tester,
+        child: SizedBox(
+          width: 800,
+          height: 600,
+          child: WorkingCopyBoard(
+            unstagedEntries: unstagedEntries,
+            stagedEntries: stagedEntries,
+            onStageRequested: (List<String> paths) => staged.add(paths),
+            onUnstageRequested: _ignorePaths,
+          ),
+        ),
+      );
+
+      final Offset from = tester.getCenter(find.text('lib/main.dart'));
+      final Offset to = tester.getCenter(find.text('pubspec.yaml'));
+
+      final TestGesture gesture = await tester.startGesture(from);
+      await tester.pump();
+      await gesture.moveTo(to);
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+
+      // Counted, not `.any`: a drop dispatched twice would stage the file
+      // and then stage it again, which is the regression shape this repo
+      // has recorded before.
+      expect(staged.length, 1);
+      expect(staged.single, <String>['lib/main.dart']);
+    });
+
+    // The case a real repository starts in: nothing staged yet. The empty
+    // column used to render its "No staged changes" placeholder *instead of*
+    // the DragTarget, so with no checkbox anywhere there was no way at all
+    // to stage the first file by dragging -- the only way 變體 B leaves.
+    testWidgets('an empty Staged column still accepts a drop', (tester) async {
+      final List<List<String>> staged = <List<String>>[];
+      await pumpGbmWidget(
+        tester,
+        child: SizedBox(
+          width: 800,
+          height: 600,
+          child: WorkingCopyBoard(
+            unstagedEntries: unstagedEntries,
+            stagedEntries: const <WorkingCopyEntry>[],
+            onStageRequested: (List<String> paths) => staged.add(paths),
+            onUnstageRequested: _ignorePaths,
+          ),
+        ),
+      );
+
+      expect(find.text('No staged changes'), findsOneWidget);
+
+      final Offset from = tester.getCenter(find.text('lib/main.dart'));
+      final Offset to = tester.getCenter(find.text('No staged changes'));
+
+      final TestGesture gesture = await tester.startGesture(from);
+      await tester.pump();
+      await gesture.moveTo(to);
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+
+      expect(staged.length, 1);
+      expect(staged.single, <String>['lib/main.dart']);
+    });
+
     testWidgets('the list/tree switch sits on the Unstaged header, once for '
         'the whole board', (tester) async {
       await pumpGbmWidget(

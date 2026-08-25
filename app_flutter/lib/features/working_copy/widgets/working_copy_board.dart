@@ -19,6 +19,11 @@ import '../working_copy_selection_state.dart';
 ///
 /// Left column: unstaged files. Right column: staged files.
 ///
+/// - **An empty column is still a drop target.** Its placeholder text is
+///   drawn inside the `DragTarget`, not in place of it -- the shape that
+///   shipped first drew the placeholder *instead of* the target, so a
+///   repository with nothing staged had no way to stage anything by
+///   dragging, and with no checkbox anywhere that meant no way at all.
 /// - **Dragging is the only way a file changes columns.** There is no
 ///   checkbox anywhere in this widget -- not on a file row, not on the
 ///   column header, not on a tree-mode folder row. That is a deliberate
@@ -282,21 +287,16 @@ class _WorkingCopyBoardState extends State<WorkingCopyBoard> {
             ],
           ),
         ),
-        // Files list
+        // Files list. The empty case lives *inside* [_buildFilesContent], not
+        // instead of it: an empty column that is not a drop target cannot be
+        // dropped on, and dragging is the only way a file changes side now.
         Expanded(
-          child: entries.isEmpty
-              ? Center(
-                  child: Text(
-                    fromStaged ? 'No staged changes' : 'No unstaged changes',
-                    style: TextStyle(color: colors.textTertiary),
-                  ),
-                )
-              : _buildFilesContent(
-                  context,
-                  entries: entries,
-                  onDragAccept: onDragAccept,
-                  fromStaged: fromStaged,
-                ),
+          child: _buildFilesContent(
+            context,
+            entries: entries,
+            onDragAccept: onDragAccept,
+            fromStaged: fromStaged,
+          ),
         ),
         // The mockup's dashed hint, pinned to the bottom of the Unstaged
         // column. With no checkbox on any row, dragging is the only way a
@@ -352,6 +352,16 @@ class _WorkingCopyBoardState extends State<WorkingCopyBoard> {
         onDragAccept(details.data.paths, details.data.fromStaged);
       },
       builder: (context, candidateData, rejectedData) {
+        if (entries.isEmpty) {
+          return Container(
+            color: candidateData.isNotEmpty ? colors.surfaceHover : null,
+            alignment: Alignment.center,
+            child: Text(
+              fromStaged ? 'No staged changes' : 'No unstaged changes',
+              style: TextStyle(color: colors.textTertiary),
+            ),
+          );
+        }
         return Container(
           color: candidateData.isNotEmpty ? colors.surfaceHover : null,
           child: FileListModeSwitcher<WorkingCopyEntry>(

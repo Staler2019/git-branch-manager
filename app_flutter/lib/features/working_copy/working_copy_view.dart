@@ -42,7 +42,8 @@ import 'widgets/working_copy_file_menu_items.dart';
 /// - Commit message draft: [workingCopyDraftProvider] (survives tab switches)
 /// - Diff scroll position: [workingCopyDraftProvider] (survives tab switches)
 /// - Display mode (List/Tree): [fileListViewModeProvider] (global, all views)
-/// - Tree-mode expanded folders: local Widget state (per-view)
+/// - Tree-mode expanded folders: owned by [FileTreeList] itself, like every
+///   other tree-mode file list
 class WorkingCopyView extends ConsumerStatefulWidget {
   const WorkingCopyView({super.key, required this.identity});
 
@@ -61,7 +62,6 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
   late TextEditingController _summaryController;
   late TextEditingController _descriptionController;
   late ScrollController _diffScrollController;
-  late Set<String> _expandedFolders;
 
   @override
   void initState() {
@@ -73,7 +73,6 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     _diffScrollController = ScrollController(
       initialScrollOffset: draft.diffScrollOffset,
     )..addListener(_onDiffScroll);
-    _expandedFolders = <String>{};
   }
 
   @override
@@ -350,7 +349,6 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
       unstagedEntries: unstagedAndUntracked,
       stagedEntries: status.staged,
       mode: viewMode,
-      expandedFolders: _expandedFolders,
       onFileActivated: (path, fromStaged) {
         setState(() {
           _selectedPath = path;

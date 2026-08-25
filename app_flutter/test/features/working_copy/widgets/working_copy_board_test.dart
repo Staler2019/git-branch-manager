@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
+import 'package:gbm_flutter/data/repositories/file_list_view_mode_repository.dart';
 import 'package:gbm_flutter/features/working_copy/widgets/working_copy_board.dart';
+import 'package:gbm_flutter/widgets/file_tree_folder_row.dart';
+import 'package:gbm_flutter/widgets/gbm_row.dart';
 
 import '../../../support/pump_app.dart';
 
@@ -135,69 +138,39 @@ void main() {
       expect(find.text('pubspec.yaml'), findsOneWidget);
     });
 
-    testWidgets('render test with Checkbox widget', (tester) async {
-      await pumpGbmWidget(
-        tester,
-        child: SizedBox(
-          width: 800,
-          height: 600,
-          child: WorkingCopyBoard(
-            unstagedEntries: unstagedEntries,
-            stagedEntries: stagedEntries,
-            onStageRequested: (_) {},
-            onUnstageRequested: (_) {},
-          ),
-        ),
-      );
-
-      // Check that checkboxes are present
-      expect(find.byType(Checkbox), findsWidgets);
-    });
-
     testWidgets(
-      'header checkbox shows indeterminate (not unchecked) when only some '
-      'files in the column are selected -- regression test: tristate:true '
-      'is useless if value collapses indeterminate into false',
+      'no checkbox anywhere -- not on a row, a column header, or a folder row',
       (tester) async {
-        await pumpGbmWidget(
-          tester,
-          child: SizedBox(
-            width: 800,
-            height: 600,
-            child: WorkingCopyBoard(
-              unstagedEntries: unstagedEntries,
-              stagedEntries: stagedEntries,
-              onStageRequested: (_) {},
-              onUnstageRequested: (_) {},
+        for (final FileListViewMode mode in FileListViewMode.values) {
+          await pumpGbmWidget(
+            tester,
+            child: SizedBox(
+              width: 800,
+              height: 600,
+              child: WorkingCopyBoard(
+                unstagedEntries: unstagedEntries,
+                stagedEntries: stagedEntries,
+                mode: mode,
+                onStageRequested: (_) {},
+                onUnstageRequested: (_) {},
+              ),
             ),
-          ),
-        );
+          );
 
-        final headerCheckbox = find.byKey(
-          const Key('wc-header-checkbox-unstaged'),
-        );
-        expect(
-          tester.widget<Checkbox>(headerCheckbox).value,
-          false,
-          reason: 'nothing selected yet -> unchecked',
-        );
-
-        // Select exactly one of the two unstaged files, leaving the column
-        // partially (not fully) selected.
-        await tester.tap(find.text('lib/main.dart'));
-        await tester.pump();
-
-        expect(
-          tester.widget<Checkbox>(headerCheckbox).value,
-          null,
-          reason:
-              'one of two files selected must render the indeterminate dash, '
-              'not silently look identical to the empty-selection state',
-        );
+          expect(
+            find.byType(Checkbox),
+            findsNothing,
+            reason:
+                'files change column by dragging; a checkbox reintroduces a '
+                'second way to say the same thing (mode: $mode)',
+          );
+          expect(find.byIcon(Icons.drag_handle), findsNothing);
+        }
       },
     );
 
-    testWidgets('drag handle icon visible on file rows', (tester) async {
+    testWidgets('rows are GbmRow, so hover and selected come from the design '
+        'system rather than a hand-rolled InkWell', (tester) async {
       await pumpGbmWidget(
         tester,
         child: SizedBox(
@@ -212,8 +185,57 @@ void main() {
         ),
       );
 
-      // Drag handle icon should be present
-      expect(find.byIcon(Icons.drag_handle), findsWidgets);
+      expect(find.byType(GbmRow), findsNWidgets(3));
+
+      final Finder mainRow = find.ancestor(
+        of: find.text('lib/main.dart'),
+        matching: find.byType(GbmRow),
+      );
+      expect(tester.widget<GbmRow>(mainRow).selected, isFalse);
+
+      await tester.tap(find.text('lib/main.dart'));
+      await tester.pump();
+
+      expect(
+        tester.widget<GbmRow>(mainRow).selected,
+        isTrue,
+        reason:
+            'a plain click selects the row it hit -- with the checkbox gone '
+            'the selected background is the only thing that says so',
+      );
+    });
+
+    testWidgets('tree mode makes the folder row itself draggable, carrying '
+        'every file underneath it', (tester) async {
+      await pumpGbmWidget(
+        tester,
+        child: SizedBox(
+          width: 800,
+          height: 600,
+          child: WorkingCopyBoard(
+            unstagedEntries: unstagedEntries,
+            stagedEntries: stagedEntries,
+            mode: FileListViewMode.tree,
+            onStageRequested: (_) {},
+            onUnstageRequested: (_) {},
+          ),
+        ),
+      );
+
+      // `byType` cannot name this one: the payload class is private to
+      // working_copy_board.dart, and Draggable<_DraggedFiles> is a different
+      // runtimeType from Draggable<Object>.
+      final Finder folderRow = find.ancestor(
+        of: find.byType(FileTreeFolderRow),
+        matching: find.byWidgetPredicate((Widget w) => w is Draggable),
+      );
+      expect(
+        folderRow,
+        findsOneWidget,
+        reason:
+            'dragging a whole folder is what replaced the tri-state folder '
+            'checkbox; without it the folder scope has no entry point at all',
+      );
     });
   });
 }

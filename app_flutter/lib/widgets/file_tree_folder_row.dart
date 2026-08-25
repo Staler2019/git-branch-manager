@@ -4,12 +4,13 @@ import '../data/models/file_tree.dart';
 import '../theme/gbm_theme.dart';
 import '../theme/tokens.dart';
 
-/// A read-only folder row for [FileTreeList]'s tree mode: an expand/collapse
-/// chevron plus the folder's display name, no checkbox. For views whose file
-/// list has no staging semantics (History's Changed files panel, Compare's
-/// Files, the Conflict window's file rail) -- unlike
-/// `working_copy_board.dart`'s own folder row, which needs a tri-state
-/// checkbox for bulk stage/unstage and so isn't reused here.
+/// A folder row for [FileTreeList]'s tree mode: an expand/collapse chevron
+/// plus the folder's display name, no checkbox.
+///
+/// Used by every tree-mode file list in the app, including the Working Copy
+/// board -- which wraps this row in a `Draggable` rather than replacing it,
+/// since dropping the tri-state folder checkbox left the chevron and the
+/// name as the whole row.
 class FileTreeFolderRow extends StatelessWidget {
   const FileTreeFolderRow({super.key, required this.node, this.onToggle});
 

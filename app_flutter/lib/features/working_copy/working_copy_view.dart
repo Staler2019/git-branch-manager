@@ -309,7 +309,9 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
                 ),
               ),
               const SizedBox(width: GbmSpacing.space2),
-              _MiniButton(
+              GbmButton(
+                kind: GbmButtonKind.secondary,
+                size: GbmButtonSize.sm,
                 label: 'Take Ours',
                 onPressed: () {
                   notifier.resolveConflict(
@@ -320,7 +322,9 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
                 },
               ),
               const SizedBox(width: GbmSpacing.space1),
-              _MiniButton(
+              GbmButton(
+                kind: GbmButtonKind.secondary,
+                size: GbmButtonSize.sm,
                 label: 'Take Theirs',
                 onPressed: () {
                   notifier.resolveConflict(
@@ -331,7 +335,9 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
                 },
               ),
               const SizedBox(width: GbmSpacing.space1),
-              _MiniButton(
+              GbmButton(
+                kind: GbmButtonKind.secondary,
+                size: GbmButtonSize.sm,
                 label: 'Mark Resolved',
                 onPressed: () {
                   notifier.resolveConflict(
@@ -848,43 +854,6 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
         path: _selectedPath!,
         hunkIndex: hunkIndex,
         lineIndices: lineIndices,
-      ),
-    );
-  }
-}
-
-/// Compact button widget for conflict resolution actions.
-class _MiniButton extends StatelessWidget {
-  const _MiniButton({required this.label, required this.onPressed});
-
-  final String label;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final GbmColors colors = context.gbmColors;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onPressed,
-        child: Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: GbmSpacing.space2,
-            vertical: GbmSpacing.space1,
-          ),
-          decoration: BoxDecoration(
-            border: Border.all(color: colors.borderDefault),
-            borderRadius: const BorderRadius.all(Radius.circular(4)),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: GbmTypography.textXs,
-              color: colors.textPrimary,
-            ),
-          ),
-        ),
       ),
     );
   }

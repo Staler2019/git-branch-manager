@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/widgets/gbm_button.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart'
@@ -149,6 +150,95 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.text('CONFLICTED'), findsOneWidget);
       expect(find.text('lib/conflicted.dart'), findsOneWidget);
+
+      // The three actions are design-system buttons, not a private
+      // hand-rolled one. The row used a local `_MiniButton` whose bare
+      // InkWell carried no hoverColor at all -- so the only three buttons in
+      // the conflict banner were also the only three in the app with no
+      // hover, while duplicating GbmButton(secondary, sm)'s border, text
+      // size and padding by hand.
+      for (final String label in const <String>[
+        'Take Ours',
+        'Take Theirs',
+        'Mark Resolved',
+      ]) {
+        final Finder button = find.ancestor(
+          of: find.text(label),
+          matching: find.byType(GbmButton),
+        );
+        expect(button, findsOneWidget, reason: '$label must be a GbmButton');
+        expect(tester.widget<GbmButton>(button).size, GbmButtonSize.sm);
+        expect(tester.widget<GbmButton>(button).kind, GbmButtonKind.secondary);
+      }
+    });
+
+    // Measured, not guessed: the banner's three buttons are non-flex, so the
+    // Expanded path beside them cannot rescue an overflow they cause (the
+    // RenderFlex rule this repo has hit six times). The three fit down to
+    // 500px and start overflowing at ~440. 500 is far below any width the
+    // Working Copy pane can actually be given -- the point of pinning it is
+    // that a wider button, or a fourth one, has to be a deliberate decision
+    // rather than a silent overflow at the app's own default window size.
+    //
+    // The overflow below 440 predates this test and is not fixed here: the
+    // hand-rolled buttons it replaced overflowed by 17px at 440 where these
+    // overflow by 6.3, so the round narrowed it. Making it disappear needs a
+    // design answer (icons? an overflow menu?), not a layout tweak.
+    testWidgets('the conflict banner still fits at 500px wide', (tester) async {
+      const WorkingCopyEntry conflicted = WorkingCopyEntry(
+        path: 'lib/conflicted.dart',
+        oldPath: '',
+        untracked: false,
+        staged: false,
+        indexStatus: FileChangeKind.modified,
+        hasUnstagedChange: false,
+        worktreeStatus: FileChangeKind.modified,
+        unstagedAdded: 0,
+        unstagedRemoved: 0,
+        stagedAdded: 0,
+        stagedRemoved: 0,
+        conflict: ConflictKind.bothModified,
+        ancestorBlob: '',
+        oursBlob: '',
+        theirsBlob: '',
+        similarity: 0,
+        isSubmodule: false,
+        isConflicted: true,
+      );
+
+      await pumpGbmWidget(
+        tester,
+        child: SizedBox(
+          width: 500,
+          height: 600,
+          child: WorkingCopyView(identity: identity),
+        ),
+        overrides: [
+          repoSessionProvider(identity).overrideWith(
+            (ref) =>
+                FakeRepoSessionController(identity, const RepoSessionState()),
+          ),
+          wc
+              .repoWorkingCopyStatusProvider(identity)
+              .overrideWithValue(
+                const WorkingCopyStatus(entries: [conflicted]),
+              ),
+          wc
+              .repoWorkingCopyDiffsProvider(identity)
+              .overrideWithValue(const <String, WorkingCopyDiffReply>{}),
+        ],
+      );
+
+      expect(tester.takeException(), isNull);
+      // Visibility, not just absence of exception: an Expanded satisfies
+      // "no overflow" while collapsing its child to nothing.
+      for (final String label in const <String>[
+        'Take Ours',
+        'Take Theirs',
+        'Mark Resolved',
+      ]) {
+        expect(tester.getSize(find.text(label)).width, greaterThan(0));
+      }
     });
 
     testWidgets('commit message box is visible', (tester) async {

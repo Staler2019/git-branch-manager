@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/data/repositories/file_list_view_mode_repository.dart';
@@ -7,6 +8,58 @@ import 'package:gbm_flutter/widgets/file_tree_folder_row.dart';
 import 'package:gbm_flutter/widgets/gbm_row.dart';
 
 import '../../../support/pump_app.dart';
+
+WorkingCopyEntry _entry({
+  required String path,
+  String oldPath = '',
+  bool staged = false,
+  bool hasUnstagedChange = false,
+  bool untracked = false,
+}) => WorkingCopyEntry(
+  path: path,
+  oldPath: oldPath,
+  untracked: untracked,
+  staged: staged,
+  indexStatus: oldPath.isEmpty
+      ? FileChangeKind.modified
+      : FileChangeKind.renamed,
+  hasUnstagedChange: hasUnstagedChange,
+  worktreeStatus: FileChangeKind.modified,
+  unstagedAdded: 0,
+  unstagedRemoved: 0,
+  stagedAdded: 0,
+  stagedRemoved: 0,
+  conflict: ConflictKind.none,
+  ancestorBlob: '',
+  oursBlob: '',
+  theirsBlob: '',
+  similarity: 0,
+  isSubmodule: false,
+  isConflicted: false,
+);
+
+/// The paths whose row currently renders selected, read straight off the
+/// [GbmRow]s -- set equality against this is the only assertion that can see
+/// a range spanning the wrong rows. `containsAll` cannot.
+Set<String> _selectedPaths(WidgetTester tester) => <String>{
+  for (final GbmRow row in tester.widgetList<GbmRow>(find.byType(GbmRow)))
+    if (row.selected)
+      ((row.child as Row).children.first as Expanded).child is Text
+          ? (((row.child as Row).children.first as Expanded).child as Text)
+                .data!
+          : '',
+};
+
+Future<void> _tapWithModifier(
+  WidgetTester tester,
+  Finder target,
+  LogicalKeyboardKey? modifier,
+) async {
+  if (modifier != null) await tester.sendKeyDownEvent(modifier);
+  await tester.tap(target);
+  await tester.pump();
+  if (modifier != null) await tester.sendKeyUpEvent(modifier);
+}
 
 void main() {
   group('WorkingCopyBoard', () {
@@ -235,6 +288,158 @@ void main() {
         reason:
             'dragging a whole folder is what replaced the tri-state folder '
             'checkbox; without it the folder scope has no entry point at all',
+      );
+    });
+
+    testWidgets('one file on both sides lights up in both columns at once', (
+      tester,
+    ) async {
+      // A partly-staged file is a single entry that appears in both lists.
+      final WorkingCopyEntry both = _entry(
+        path: 'lib/main.dart',
+        staged: true,
+        hasUnstagedChange: true,
+      );
+
+      await pumpGbmWidget(
+        tester,
+        child: SizedBox(
+          width: 800,
+          height: 600,
+          child: WorkingCopyBoard(
+            unstagedEntries: <WorkingCopyEntry>[both],
+            stagedEntries: <WorkingCopyEntry>[both],
+            onStageRequested: (_) {},
+            onUnstageRequested: (_) {},
+          ),
+        ),
+      );
+
+      await _tapWithModifier(tester, find.text('lib/main.dart').first, null);
+
+      final Iterable<GbmRow> rows = tester.widgetList<GbmRow>(
+        find.byType(GbmRow),
+      );
+      expect(rows.length, 2);
+      expect(
+        rows.where((GbmRow r) => r.selected).length,
+        2,
+        reason:
+            'one selection set means clicking either row selects the file, '
+            'not the row -- two per-column sets is how the sides disagree',
+      );
+    });
+
+    testWidgets("a rename's two differently-named rows select together", (
+      tester,
+    ) async {
+      // `git mv old new` staged, then the old name reappears in the work
+      // tree: two rows, two names, one logical file.
+      final WorkingCopyEntry stagedRename = _entry(
+        path: 'lib/new.dart',
+        oldPath: 'lib/old.dart',
+        staged: true,
+      );
+      final WorkingCopyEntry worktreeOld = _entry(
+        path: 'lib/old.dart',
+        untracked: true,
+        hasUnstagedChange: true,
+      );
+
+      await pumpGbmWidget(
+        tester,
+        child: SizedBox(
+          width: 800,
+          height: 600,
+          child: WorkingCopyBoard(
+            unstagedEntries: <WorkingCopyEntry>[worktreeOld],
+            stagedEntries: <WorkingCopyEntry>[stagedRename],
+            onStageRequested: (_) {},
+            onUnstageRequested: (_) {},
+          ),
+        ),
+      );
+
+      await _tapWithModifier(tester, find.text('lib/new.dart'), null);
+
+      expect(
+        _selectedPaths(tester),
+        <String>{'lib/new.dart', 'lib/old.dart'},
+        reason:
+            'path equality alone calls these two different files; only '
+            'logicalFileKey pairs them',
+      );
+    });
+
+    testWidgets('Shift+click ranges over the order the rows are painted in, '
+        'not the order the status listed them', (tester) async {
+      // FileTree.fromPaths groups lib/ together, so the painted order is
+      // lib/a.dart, lib/b.dart, zz.txt -- while `entries` interleaves them.
+      final List<WorkingCopyEntry> interleaved = <WorkingCopyEntry>[
+        _entry(path: 'lib/a.dart', hasUnstagedChange: true),
+        _entry(path: 'zz.txt', hasUnstagedChange: true),
+        _entry(path: 'lib/b.dart', hasUnstagedChange: true),
+      ];
+
+      await pumpGbmWidget(
+        tester,
+        child: SizedBox(
+          width: 800,
+          height: 600,
+          child: WorkingCopyBoard(
+            unstagedEntries: interleaved,
+            stagedEntries: const <WorkingCopyEntry>[],
+            onStageRequested: (_) {},
+            onUnstageRequested: (_) {},
+          ),
+        ),
+      );
+
+      await _tapWithModifier(tester, find.text('lib/a.dart'), null);
+      await _tapWithModifier(
+        tester,
+        find.text('lib/b.dart'),
+        LogicalKeyboardKey.shiftLeft,
+      );
+
+      expect(
+        _selectedPaths(tester),
+        <String>{'lib/a.dart', 'lib/b.dart'},
+        reason:
+            'zz.txt sits between them in `entries` but is painted after '
+            'both; ranging over entry order would sweep it in',
+      );
+    });
+
+    testWidgets('Shift+click with the anchor in the other column selects the '
+        'clicked row instead of doing nothing', (tester) async {
+      await pumpGbmWidget(
+        tester,
+        child: SizedBox(
+          width: 800,
+          height: 600,
+          child: WorkingCopyBoard(
+            unstagedEntries: unstagedEntries,
+            stagedEntries: stagedEntries,
+            onStageRequested: (_) {},
+            onUnstageRequested: (_) {},
+          ),
+        ),
+      );
+
+      await _tapWithModifier(tester, find.text('lib/main.dart'), null);
+      await _tapWithModifier(
+        tester,
+        find.text('pubspec.yaml'),
+        LogicalKeyboardKey.shiftLeft,
+      );
+
+      expect(
+        _selectedPaths(tester),
+        <String>{'pubspec.yaml'},
+        reason:
+            'there is no range between two independent columns; a silent '
+            'no-op leaves the user with nothing on screen to explain it',
       );
     });
   });

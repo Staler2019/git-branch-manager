@@ -10,6 +10,7 @@ import '../../../widgets/file_list_mode_switcher.dart';
 import '../../../widgets/file_tree_folder_row.dart';
 import '../../../widgets/gbm_row.dart';
 import '../../../widgets/split_pane.dart';
+import '../working_copy_file_identity.dart';
 import '../working_copy_selection_state.dart';
 
 /// A two-column drag-and-drop board for staging/unstaging files in working copy.
@@ -27,6 +28,11 @@ import '../working_copy_selection_state.dart';
 ///   a whole folder is dragged as one row in tree mode.
 /// - Click to select a single file; Ctrl/Cmd+click accumulates, Shift+click
 ///   ranges, Shift+Ctrl/Cmd+click extends a range (spec P13 `MULTIKEYS`).
+/// - **Selection is shared by both columns.** A partly-staged file is one
+///   row on each side and both light up together, because there is exactly
+///   one selection set and it is keyed by [logicalFileKey] rather than by
+///   raw path -- which is also what makes a rename's two differently-named
+///   rows highlight as the one file they are.
 /// - Optional file activation callback (for diff view selection).
 /// - Optional row widget wrapper for context menus.
 /// - List/Tree display mode, rendered by the shared [FileListModeSwitcher]
@@ -89,49 +95,79 @@ class WorkingCopyBoard extends StatefulWidget {
 }
 
 class _WorkingCopyBoardState extends State<WorkingCopyBoard> {
-  late WorkingCopySelectionState _unstagedSelection;
-  late WorkingCopySelectionState _stagedSelection;
+  /// The board's one selection, holding [logicalFileKey]s. Both columns read
+  /// it; neither owns it. A second per-column set is how the two sides would
+  /// come to disagree about whether a partly-staged file is selected.
+  late WorkingCopySelectionState _selection;
 
   @override
   void initState() {
     super.initState();
-    final unstagedPaths = widget.unstagedEntries.map((e) => e.path).toList();
-    final stagedPaths = widget.stagedEntries.map((e) => e.path).toList();
-    _unstagedSelection = WorkingCopySelectionState(allPaths: unstagedPaths);
-    _stagedSelection = WorkingCopySelectionState(allPaths: stagedPaths);
+    _selection = WorkingCopySelectionState(allPaths: _allKeys());
   }
 
   @override
   void didUpdateWidget(WorkingCopyBoard oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Re-sync selections if entries changed (e.g., after stage/unstage)
+    // Re-sync selection if entries changed (e.g., after stage/unstage)
     if (oldWidget.unstagedEntries != widget.unstagedEntries ||
         oldWidget.stagedEntries != widget.stagedEntries) {
-      _initializeSelections();
+      _selection = _selection.syncWithPaths(_allKeys());
     }
   }
 
-  void _initializeSelections() {
-    final unstagedPaths = widget.unstagedEntries.map((e) => e.path).toList();
-    final stagedPaths = widget.stagedEntries.map((e) => e.path).toList();
+  /// Every key on the board, used only to prune a selection after a
+  /// stage/unstage made some rows disappear.
+  List<String> _allKeys() => <String>{
+    ..._keysInRenderOrder(widget.unstagedEntries),
+    ..._keysInRenderOrder(widget.stagedEntries),
+  }.toList(growable: false);
 
-    _unstagedSelection = _unstagedSelection.syncWithPaths(unstagedPaths);
-    _stagedSelection = _stagedSelection.syncWithPaths(stagedPaths);
+  /// One column's keys **in the order its rows are painted**, which is not
+  /// the order [entries] happens to hold them: both list and tree mode
+  /// render through [FileTree.fromPaths], which groups a folder's files
+  /// together even when the status listed them apart. Shift-ranging over the
+  /// raw entry order would therefore span rows the user never dragged
+  /// across -- the same defect the sidebar's branch list had.
+  ///
+  /// Known limit: in tree mode a range can still include leaves inside a
+  /// collapsed folder, which are not on screen. Ranging over rows nobody can
+  /// see is a smaller wrong than ranging over the wrong rows, and fixing it
+  /// needs the expand state that [FileTreeList] keeps to itself.
+  List<String> _keysInRenderOrder(List<WorkingCopyEntry> entries) {
+    final Map<String, String> keyByPath = <String, String>{
+      for (final WorkingCopyEntry entry in entries)
+        entry.path: logicalFileKey(entry),
+    };
+    return FileTree.fromPaths(
+          entries.map((WorkingCopyEntry e) => e.path).toList(growable: false),
+        )
+        .getAllLeafPaths()
+        .map((String path) => keyByPath[path]!)
+        .toList(growable: false);
   }
 
-  void _onUnstagedTap(String path) {
+  void _onTap(WorkingCopyEntry entry, bool fromStaged) {
+    final List<String> order = _keysInRenderOrder(
+      fromStaged ? widget.stagedEntries : widget.unstagedEntries,
+    );
     setState(() {
-      _unstagedSelection = _applyClick(_unstagedSelection, path);
+      _selection = _applyClick(
+        _selection.withOrder(order),
+        logicalFileKey(entry),
+      );
     });
-    widget.onFileActivated?.call(path, false);
+    widget.onFileActivated?.call(entry.path, fromStaged);
   }
 
-  void _onStagedTap(String path) {
-    setState(() {
-      _stagedSelection = _applyClick(_stagedSelection, path);
-    });
-    widget.onFileActivated?.call(path, true);
-  }
+  /// The paths in [entries] whose logical file is currently selected -- what
+  /// a drag or a context menu acts on. Converted back to paths here because
+  /// git only ever takes a path, and each column has to hand over *its own*
+  /// name for a renamed file.
+  Set<String> _selectedPathsIn(List<WorkingCopyEntry> entries) => <String>{
+    for (final WorkingCopyEntry entry in entries)
+      if (_selection.selected.contains(logicalFileKey(entry))) entry.path,
+  };
 
   /// P13 `MULTIKEYS`, read off the modifiers held at click time: plain click
   /// replaces the selection, Ctrl/Cmd toggles one row, Shift spans a range
@@ -139,17 +175,17 @@ class _WorkingCopyBoardState extends State<WorkingCopyBoard> {
   /// selected.
   WorkingCopySelectionState _applyClick(
     WorkingCopySelectionState selection,
-    String path,
+    String key,
   ) {
     final bool isCtrlCmd =
         HardwareKeyboard.instance.isControlPressed ||
         HardwareKeyboard.instance.isMetaPressed;
     final bool isShift = HardwareKeyboard.instance.isShiftPressed;
 
-    if (isCtrlCmd && isShift) return selection.shiftControlSelectPath(path);
-    if (isShift) return selection.shiftSelectPath(path);
-    if (isCtrlCmd) return selection.togglePath(path);
-    return selection.selectSinglePath(path);
+    if (isCtrlCmd && isShift) return selection.shiftControlSelectPath(key);
+    if (isShift) return selection.shiftSelectPath(key);
+    if (isCtrlCmd) return selection.togglePath(key);
+    return selection.selectSinglePath(key);
   }
 
   void _onUnstagedDragAccept(List<String> draggedPaths, bool fromStaged) {
@@ -173,8 +209,6 @@ class _WorkingCopyBoardState extends State<WorkingCopyBoard> {
           context,
           header: 'UNSTAGED',
           entries: widget.unstagedEntries,
-          selection: _unstagedSelection,
-          onTap: _onUnstagedTap,
           onDragAccept: _onUnstagedDragAccept,
           fromStaged: false,
         ),
@@ -182,8 +216,6 @@ class _WorkingCopyBoardState extends State<WorkingCopyBoard> {
           context,
           header: 'STAGED',
           entries: widget.stagedEntries,
-          selection: _stagedSelection,
-          onTap: _onStagedTap,
           onDragAccept: _onStagedDragAccept,
           fromStaged: true,
         ),
@@ -195,8 +227,6 @@ class _WorkingCopyBoardState extends State<WorkingCopyBoard> {
     BuildContext context, {
     required String header,
     required List<WorkingCopyEntry> entries,
-    required WorkingCopySelectionState selection,
-    required ValueChanged<String> onTap,
     required Function(List<String>, bool) onDragAccept,
     required bool fromStaged,
   }) {
@@ -243,8 +273,6 @@ class _WorkingCopyBoardState extends State<WorkingCopyBoard> {
               : _buildFilesContent(
                   context,
                   entries: entries,
-                  selection: selection,
-                  onTap: onTap,
                   onDragAccept: onDragAccept,
                   fromStaged: fromStaged,
                 ),
@@ -257,8 +285,6 @@ class _WorkingCopyBoardState extends State<WorkingCopyBoard> {
   Widget _buildFilesContent(
     BuildContext context, {
     required List<WorkingCopyEntry> entries,
-    required WorkingCopySelectionState selection,
-    required ValueChanged<String> onTap,
     required Function(List<String>, bool) onDragAccept,
     required bool fromStaged,
   }) {
@@ -283,9 +309,7 @@ class _WorkingCopyBoardState extends State<WorkingCopyBoard> {
                 _buildFileRow(
                   context,
                   entry: entry,
-                  isSelected: selection.selected.contains(entry.path),
-                  onTap: onTap,
-                  selection: selection,
+                  entries: entries,
                   fromStaged: fromStaged,
                 ),
             folderBuilder:
@@ -309,13 +333,15 @@ class _WorkingCopyBoardState extends State<WorkingCopyBoard> {
   Widget _buildFileRow(
     BuildContext context, {
     required WorkingCopyEntry entry,
-    required bool isSelected,
-    required ValueChanged<String> onTap,
-    required WorkingCopySelectionState selection,
+    required List<WorkingCopyEntry> entries,
     required bool fromStaged,
   }) {
     final GbmColors colors = context.gbmColors;
-    final draggedPaths = _getDraggedPaths(entry.path, selection);
+    final Set<String> selectedPaths = _selectedPathsIn(entries);
+    final bool isSelected = selectedPaths.contains(entry.path);
+    final List<String> draggedPaths = isSelected
+        ? selectedPaths.toList(growable: false)
+        : <String>[entry.path];
 
     // `GbmRow`, not a hand-rolled `Container` + `InkWell`: an InkWell with no
     // explicit hoverColor silently inherits `ThemeData.hoverColor` (~4%
@@ -329,7 +355,7 @@ class _WorkingCopyBoardState extends State<WorkingCopyBoard> {
       ),
       height: GbmSpacing.rowHeightCompact,
       selected: isSelected,
-      onTap: () => onTap(entry.path),
+      onTap: () => _onTap(entry, fromStaged),
       padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
       child: Row(
         children: <Widget>[
@@ -364,7 +390,7 @@ class _WorkingCopyBoardState extends State<WorkingCopyBoard> {
         context,
         entry,
         fromStaged,
-        fromStaged ? _stagedSelection.selected : _unstagedSelection.selected,
+        selectedPaths,
         draggableChild,
       );
     }
@@ -416,18 +442,6 @@ class _WorkingCopyBoardState extends State<WorkingCopyBoard> {
         ),
       ),
     );
-  }
-
-  /// Get the paths to drag: if the dragged file is selected, drag all selected files.
-  /// Otherwise, drag just this file.
-  List<String> _getDraggedPaths(
-    String draggedPath,
-    WorkingCopySelectionState selection,
-  ) {
-    if (selection.selected.contains(draggedPath)) {
-      return selection.selected.toList();
-    }
-    return <String>[draggedPath];
   }
 }
 

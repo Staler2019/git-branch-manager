@@ -290,5 +290,47 @@ void main() {
         expect(newState.selected, equals({'file.txt'}));
       });
     });
+
+    group('withOrder (the board re-points it at the clicked column)', () {
+      test('keeps the selection made in the other column', () {
+        final WorkingCopySelectionState selection =
+            const WorkingCopySelectionState(
+              allPaths: <String>['a.dart', 'b.dart'],
+            ).selectSinglePath('a.dart').withOrder(<String>[
+              'x.dart',
+              'y.dart',
+            ]);
+
+        expect(
+          selection.selected,
+          <String>{'a.dart'},
+          reason:
+              'withOrder is not syncWithPaths -- pruning here would clear the '
+              'other column every time the user clicked in this one',
+        );
+        expect(selection.allPaths, <String>['x.dart', 'y.dart']);
+        expect(selection.lastClickedPath, 'a.dart');
+      });
+
+      test('an anchor left in the other column degrades Shift+click to a '
+          'plain click rather than to nothing', () {
+        final WorkingCopySelectionState selection =
+            const WorkingCopySelectionState(
+              allPaths: <String>['a.dart', 'b.dart'],
+            ).selectSinglePath('a.dart').withOrder(<String>[
+              'x.dart',
+              'y.dart',
+            ]);
+
+        expect(selection.shiftSelectPath('y.dart').selected, <String>{
+          'y.dart',
+        });
+        expect(
+          selection.shiftControlSelectPath('y.dart').selected,
+          <String>{'a.dart', 'y.dart'},
+          reason: 'Shift+Ctrl/Cmd still adds, it just has no range to add',
+        );
+      });
+    });
   });
 }

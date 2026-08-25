@@ -1,21 +1,15 @@
 import '../../data/models/working_copy_status.dart';
 
-/// "The same file" for the Working Copy board's two columns.
+/// The single string that stands for an entry's logical file, used as the key
+/// of the Working Copy board's one shared selection set.
 ///
-/// Selecting a file has to light it up on **both** sides at once, and the two
+/// Selecting a file has to light it up on **both** columns at once, and the two
 /// sides do not always agree on what it is called. A staged rename is one
 /// [WorkingCopyEntry] whose `path` is the new name and whose `oldPath` is the
 /// old one; if the old name then reappears in the work tree it arrives as a
 /// second entry named after the old path. Those two rows are the same file to
 /// the person looking at them, and comparing `path` alone would never say so.
 ///
-/// `oldPath` is empty for everything but a rename or a copy, so for ordinary
-/// files this degenerates to plain path equality.
-bool sameLogicalFile(WorkingCopyEntry a, WorkingCopyEntry b) =>
-    a.path == b.path || a.oldPath == b.path || a.path == b.oldPath;
-
-/// The single string that stands for [entry]'s logical file, used as the key
-/// of the board's one shared selection set.
 ///
 /// Canonicalises on `oldPath` when there is one, so a rename's two rows
 /// produce the same key. That is enough precisely because a

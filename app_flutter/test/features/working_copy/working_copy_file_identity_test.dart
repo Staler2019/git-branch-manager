@@ -2,6 +2,18 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/features/working_copy/working_copy_file_identity.dart';
 
+/// The pairwise relation [logicalFileKey] has to agree with.
+///
+/// It lived in `lib/` until the C18 orphan sweep found it had no caller there:
+/// the board keys its one selection set by [logicalFileKey] and never compares
+/// two entries directly. It is kept here rather than deleted because it is the
+/// *oracle* the key is checked against below -- an independently-written
+/// statement of "the same file", so a bug in the key cannot hide by also being
+/// in the thing that checks it. `oldPath` is empty for everything but a rename
+/// or a copy, so for ordinary files this degenerates to plain path equality.
+bool sameLogicalFile(WorkingCopyEntry a, WorkingCopyEntry b) =>
+    a.path == b.path || a.oldPath == b.path || a.path == b.oldPath;
+
 WorkingCopyEntry _entry({
   required String path,
   String oldPath = '',

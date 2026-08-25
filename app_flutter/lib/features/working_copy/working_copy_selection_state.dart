@@ -1,5 +1,3 @@
-import '../../data/models/file_tree.dart';
-
 /// Manages the Working Copy board's file selection.
 ///
 /// This is a pure immutable Dart class that does not depend on Flutter or Riverpod,
@@ -23,6 +21,14 @@ import '../../data/models/file_tree.dart';
 /// Whole-column and whole-folder selection are absent on purpose: both were
 /// checkbox-only in the spec, and the board has no checkboxes (see
 /// `working_copy_board.dart`). Hunk and line scopes belong to the diff pane.
+///
+/// `selectAll`/`deselectAll`/`toggleSelectAll`/`selectPaths`/`deselectPaths`
+/// and a tri-state `getCheckState` used to live here and were deleted rather
+/// than left for a future caller: every one of them was written for the
+/// checkbox column that the board no longer has, and none had a caller under
+/// `lib/` -- only tests, which is orphan wiring with a green tick on it. The
+/// `Ctrl/Cmd+A` that P13 `MULTIKEYS` does ask for is a *different* thing and
+/// belongs to whichever list holds focus, not to a column-wide method here.
 class WorkingCopySelectionState {
   /// Creates a new selection state.
   const WorkingCopySelectionState({
@@ -155,59 +161,6 @@ class WorkingCopySelectionState {
     );
   }
 
-  /// Select all files in the column.
-  WorkingCopySelectionState selectAll() {
-    return WorkingCopySelectionState(
-      allPaths: allPaths,
-      selected: allPaths.toSet(),
-      lastClickedPath: lastClickedPath,
-    );
-  }
-
-  /// Deselect all files in the column.
-  WorkingCopySelectionState deselectAll() {
-    return WorkingCopySelectionState(
-      allPaths: allPaths,
-      selected: const {},
-      lastClickedPath: lastClickedPath,
-    );
-  }
-
-  /// Toggle select-all: if nothing or partial is selected, select all.
-  /// If all are selected, deselect all.
-  WorkingCopySelectionState toggleSelectAll() {
-    final checkState = getCheckState();
-    if (checkState == CheckState.checked) {
-      return deselectAll();
-    } else {
-      return selectAll();
-    }
-  }
-
-  /// Add multiple paths to selection (for folder checkbox in tree mode).
-  WorkingCopySelectionState selectPaths(Iterable<String> paths) {
-    final valid = paths.where((p) => allPaths.contains(p));
-    if (valid.isEmpty) return this;
-    return WorkingCopySelectionState(
-      allPaths: allPaths,
-      selected: {...selected, ...valid},
-      lastClickedPath: lastClickedPath,
-    );
-  }
-
-  /// Remove multiple paths from selection.
-  WorkingCopySelectionState deselectPaths(Iterable<String> paths) {
-    final newSelected = {...selected};
-    for (final path in paths) {
-      newSelected.remove(path);
-    }
-    return WorkingCopySelectionState(
-      allPaths: allPaths,
-      selected: newSelected,
-      lastClickedPath: lastClickedPath,
-    );
-  }
-
   /// Sync selection with a new list of paths (e.g., after a stage/unstage operation).
   /// Prunes selected paths that are no longer in allPaths, and prunes anchor if removed.
   WorkingCopySelectionState syncWithPaths(List<String> newPaths) {
@@ -225,22 +178,5 @@ class WorkingCopySelectionState {
       selected: prunedSelected,
       lastClickedPath: newAnchor,
     );
-  }
-
-  /// Get the three-state checkbox state for this column.
-  /// Uses [CheckState] from file_tree.dart for consistency with tree implementation.
-  CheckState getCheckState() {
-    if (allPaths.isEmpty) {
-      return CheckState.unchecked;
-    }
-
-    final selectedCount = selected.length;
-    if (selectedCount == 0) {
-      return CheckState.unchecked;
-    } else if (selectedCount == allPaths.length) {
-      return CheckState.checked;
-    } else {
-      return CheckState.indeterminate;
-    }
   }
 }

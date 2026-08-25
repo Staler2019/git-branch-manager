@@ -106,93 +106,6 @@ void main() {
       });
     });
 
-    group('three-state checkbox calculation', () {
-      test('all files unchecked returns unchecked', () {
-        const paths = [
-          'lib/app/views/a.dart',
-          'lib/app/views/b.dart',
-          'README.md',
-        ];
-
-        final tree = FileTree.fromPaths(paths);
-        final selected = <String>{};
-
-        final state = tree.getCheckState(selected);
-        expect(state, CheckState.unchecked);
-      });
-
-      test('all files checked returns checked', () {
-        const paths = [
-          'lib/app/views/a.dart',
-          'lib/app/views/b.dart',
-          'README.md',
-        ];
-
-        final tree = FileTree.fromPaths(paths);
-        final selected = <String>{
-          'lib/app/views/a.dart',
-          'lib/app/views/b.dart',
-          'README.md',
-        };
-
-        final state = tree.getCheckState(selected);
-        expect(state, CheckState.checked);
-      });
-
-      test('some files checked returns indeterminate', () {
-        const paths = [
-          'lib/app/views/a.dart',
-          'lib/app/views/b.dart',
-          'README.md',
-        ];
-
-        final tree = FileTree.fromPaths(paths);
-        final selected = <String>{'lib/app/views/a.dart', 'README.md'};
-
-        final state = tree.getCheckState(selected);
-        expect(state, CheckState.indeterminate);
-      });
-
-      test('node returns indeterminate when some children checked', () {
-        const paths = ['lib/a.dart', 'lib/b.dart'];
-
-        final tree = FileTree.fromPaths(paths);
-        final selected = <String>{'lib/a.dart'};
-
-        final libNode = tree.children.firstWhere(
-          (node) => node.name.startsWith('lib'),
-        );
-
-        expect(libNode.getCheckState(selected), CheckState.indeterminate);
-      });
-
-      test('node returns checked when all children checked', () {
-        const paths = ['lib/a.dart', 'lib/b.dart'];
-
-        final tree = FileTree.fromPaths(paths);
-        final selected = <String>{'lib/a.dart', 'lib/b.dart'};
-
-        final libNode = tree.children.firstWhere(
-          (node) => node.name.startsWith('lib'),
-        );
-
-        expect(libNode.getCheckState(selected), CheckState.checked);
-      });
-
-      test('node returns unchecked when no children checked', () {
-        const paths = ['lib/a.dart', 'lib/b.dart'];
-
-        final tree = FileTree.fromPaths(paths);
-        final selected = <String>{};
-
-        final libNode = tree.children.firstWhere(
-          (node) => node.name.startsWith('lib'),
-        );
-
-        expect(libNode.getCheckState(selected), CheckState.unchecked);
-      });
-    });
-
     group('hierarchy and path operations', () {
       test('leaf node reports correct displayPath', () {
         const paths = ['lib/app/views/a.dart'];
@@ -310,47 +223,53 @@ void main() {
         );
       });
 
-      test('getCheckState is indeterminate for a folder with only some '
-          'descendants selected, and checked for a fully-selected subtree', () {
-        const allPaths = [
-          'lib/app/views/home.dart',
-          'lib/app/views/settings.dart',
-          'lib/models/user.dart',
-          'README.md',
-        ];
+      // Was a tri-state getCheckState test until that method was deleted with
+      // the board's checkboxes. The structural claims it made are the part
+      // worth keeping -- which node is a folder, which one collapsed into a
+      // leaf, and what sits under each -- so they are asserted through
+      // getAllLeafPaths(), the one accessor the folder drag still uses.
+      test(
+        'a partly-collapsed tree reports the right leaves at every level',
+        () {
+          const allPaths = [
+            'lib/app/views/home.dart',
+            'lib/app/views/settings.dart',
+            'lib/models/user.dart',
+            'README.md',
+          ];
 
-        final tree = FileTree.fromPaths(allPaths);
+          final tree = FileTree.fromPaths(allPaths);
 
-        // Select only the two files under lib/app/views -- lib/models/user.dart
-        // and README.md are deliberately left unchecked.
-        final selected = <String>{
-          'lib/app/views/home.dart',
-          'lib/app/views/settings.dart',
-        };
+          expect(tree.getAllLeafPaths().toSet(), allPaths.toSet());
 
-        // Whole tree: 2 of 4 leaves selected -> indeterminate.
-        expect(tree.getCheckState(selected), CheckState.indeterminate);
+          final FileTreeNode libNode = tree.children.singleWhere(
+            (n) => n.name == 'lib',
+          );
+          expect(libNode.getAllLeafPaths().toSet(), <String>{
+            'lib/app/views/home.dart',
+            'lib/app/views/settings.dart',
+            'lib/models/user.dart',
+          });
 
-        final FileTreeNode libNode = tree.children.singleWhere(
-          (n) => n.name == 'lib',
-        );
-        // lib/: both lib/app/views leaves selected, lib/models/user.dart not
-        // -> indeterminate.
-        expect(libNode.getCheckState(selected), CheckState.indeterminate);
+          final FileTreeNode viewsNode = libNode.children.singleWhere(
+            (n) => n.displayPath == 'app/views',
+          );
+          expect(viewsNode.getAllLeafPaths().toSet(), <String>{
+            'lib/app/views/home.dart',
+            'lib/app/views/settings.dart',
+          });
 
-        final FileTreeNode viewsNode = libNode.children.singleWhere(
-          (n) => n.displayPath == 'app/views',
-        );
-        // app/views/: both of its own leaves are selected -> checked.
-        expect(viewsNode.getCheckState(selected), CheckState.checked);
-
-        final FileTreeNode modelsLeaf = libNode.children.singleWhere(
-          (n) => n.displayPath == 'lib/models/user.dart',
-        );
-        // lib/models/ collapses into its single leaf child; that leaf is
-        // not selected -> unchecked.
-        expect(modelsLeaf.getCheckState(selected), CheckState.unchecked);
-      });
+          // lib/models/ collapses into its single leaf child, so it is a file
+          // node whose only leaf is itself.
+          final FileTreeNode modelsLeaf = libNode.children.singleWhere(
+            (n) => n.displayPath == 'lib/models/user.dart',
+          );
+          expect(modelsLeaf.isDirectory, isFalse);
+          expect(modelsLeaf.getAllLeafPaths(), <String>[
+            'lib/models/user.dart',
+          ]);
+        },
+      );
 
       test('collapses a full single-child chain (lib -> app -> views) into '
           'one top-level display path, matching the spec p.03 example', () {

@@ -9,8 +9,10 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <optional>
 #include <system_error>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 namespace gbm {
@@ -213,14 +215,32 @@ GitResult<void> attachNumstat(IProcessRunner& runner,
 /// it is binary (detectTextTraits()'s NUL-byte test, the same one the conflict
 /// surfaces use), it is over [kUntrackedLineCountByteCap], or it could not be
 /// read at all (deleted between the status read and here, or unreadable).
-void countUntrackedLines(const RepoPaths& paths, std::vector<WorkingCopyEntry>& entries) {
+///
+/// [cache] turns the second and every later refresh of an unedited file into
+/// the stat this loop already performs; see [UntrackedLineCountCache] for what
+/// its key is and why nothing invalidates it from outside.
+void countUntrackedLines(const RepoPaths& paths,
+                         std::vector<WorkingCopyEntry>& entries,
+                         UntrackedLineCountCache& cache) {
     if (paths.isBare()) {
         return;
     }
+
+    // Read once, before the first file is stat()ed, so that every file this
+    // pass caches is compared against a moment that is already in the past by
+    // the time the comparison happens. Reading it per file would let a file
+    // edited *during* the pass still look strictly older than its own check.
+    const std::filesystem::file_time_type passStartedAt =
+        std::filesystem::file_time_type::clock::now();
+
+    std::unordered_set<std::string> live;
+
     for (WorkingCopyEntry& entry : entries) {
         if (!entry.untracked) {
             continue;
         }
+        live.insert(entry.path);
+
         const std::filesystem::path file =
             paths.workDir() /
             std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(entry.path.data()),
@@ -231,6 +251,17 @@ void countUntrackedLines(const RepoPaths& paths, std::vector<WorkingCopyEntry>& 
         if (ec || size > kUntrackedLineCountByteCap) {
             continue;
         }
+        const auto modified = std::filesystem::last_write_time(file, ec);
+        if (ec) {
+            continue;
+        }
+
+        const UntrackedLineCountCache::Stat stat{size, modified};
+        if (const std::optional<std::uint32_t> remembered = cache.lookup(entry.path, stat)) {
+            entry.unstagedAdded = *remembered;
+            entry.unstagedRemoved = 0;
+            continue;
+        }
 
         std::ifstream in(file, std::ios::binary);
         if (!in) {
@@ -238,27 +269,82 @@ void countUntrackedLines(const RepoPaths& paths, std::vector<WorkingCopyEntry>& 
         }
         std::string contents((std::istreambuf_iterator<char>(in)),
                              std::istreambuf_iterator<char>());
-        if (detectTextTraits(contents).encoding == EncodingKind::Binary) {
-            continue;
-        }
-
+        // Cached as 0 rather than skipped: a binary file that stays binary
+        // would otherwise be read in full on every single refresh, which is
+        // the one case where the read is guaranteed to be wasted.
         std::uint32_t lines = 0;
-        for (const char c : contents) {
-            if (c == '\n') {
+        if (detectTextTraits(contents).encoding != EncodingKind::Binary) {
+            for (const char c : contents) {
+                if (c == '\n') {
+                    ++lines;
+                }
+            }
+            // A final line with no trailing newline still counts, the same way
+            // `git diff --numstat` counts it once the file is tracked.
+            if (!contents.empty() && contents.back() != '\n') {
                 ++lines;
             }
         }
-        // A final line with no trailing newline still counts, the same way
-        // `git diff --numstat` counts it once the file is tracked.
-        if (!contents.empty() && contents.back() != '\n') {
-            ++lines;
-        }
+
+        cache.store(entry.path, stat, lines, passStartedAt);
         entry.unstagedAdded = lines;
         entry.unstagedRemoved = 0;
     }
+
+    cache.retainOnly(live);
 }
 
 }  // namespace
+
+std::optional<std::uint32_t> UntrackedLineCountCache::lookup(const std::string& path,
+                                                             const Stat& stat) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto found = entries_.find(path);
+    if (found == entries_.end() || !(found->second.stat == stat)) {
+        ++misses_;
+        return std::nullopt;
+    }
+    ++hits_;
+    return found->second.lines;
+}
+
+void UntrackedLineCountCache::store(const std::string& path,
+                                    const Stat& stat,
+                                    std::uint32_t lines,
+                                    std::filesystem::file_time_type passStartedAt) {
+    // git's "racily clean" rule. A file whose mtime is not strictly older than
+    // the start of this pass may have been written again after this pass read
+    // it, and the two writes are indistinguishable through a timestamp of that
+    // resolution. Declining to remember it costs one more read next refresh;
+    // remembering it would pin a wrong number until the file is edited again.
+    if (!(stat.modified < passStartedAt)) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    entries_[path] = Entry{stat, lines};
+}
+
+void UntrackedLineCountCache::retainOnly(const std::unordered_set<std::string>& live) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (auto it = entries_.begin(); it != entries_.end();) {
+        it = live.count(it->first) == 0 ? entries_.erase(it) : std::next(it);
+    }
+}
+
+std::size_t UntrackedLineCountCache::hits() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return hits_;
+}
+
+std::size_t UntrackedLineCountCache::misses() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return misses_;
+}
+
+std::size_t UntrackedLineCountCache::size() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return entries_.size();
+}
 
 std::vector<const WorkingCopyEntry*> WorkingCopyStatus::staged() const {
     std::vector<const WorkingCopyEntry*> result;
@@ -431,7 +517,7 @@ GitResult<WorkingCopyStatusPtr> WorkingCopyStatusReader::read(CancellationToken 
         !counts) {
         return fail(std::move(counts).error());
     }
-    countUntrackedLines(paths_, status->entries);
+    countUntrackedLines(paths_, status->entries, untrackedLineCounts_);
 
     return WorkingCopyStatusPtr(status);
 }

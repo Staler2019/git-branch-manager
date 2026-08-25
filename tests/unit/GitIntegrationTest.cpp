@@ -54,6 +54,19 @@
 namespace gbm {
 namespace {
 
+using FileClock = std::filesystem::file_time_type::clock;
+
+/// Moves [file]'s mtime [offset] away from now.
+///
+/// The untracked-line-count tests all need a file whose mtime is definitely
+/// older (or definitely newer) than the pass that reads it, and "definitely"
+/// cannot come from letting real time pass: a filesystem that rounds
+/// timestamps to the second would make the outcome depend on where in the
+/// second the test happened to start.
+void setMtimeOffset(const std::filesystem::path& file, std::chrono::seconds offset) {
+    std::filesystem::last_write_time(file, FileClock::now() + offset);
+}
+
 /// Creates a small real repository using the generator plus `git fast-import`.
 class RealRepoTest : public ::testing::Test {
 protected:
@@ -1741,6 +1754,172 @@ TEST_F(RealRepoTest, WorkingCopyStatusLeavesAnOversizedUntrackedFileAtZero) {
     EXPECT_EQ(untracked[0]->unstagedAdded, 0u)
         << "an untracked file over the byte cap must get no count at all, not a "
            "partial one -- a partial count is a wrong number, not a missing one";
+}
+
+/// The cache exists so a refresh that changes nothing about an untracked file
+/// does not read that file again. Counted, not `any`-ed: a cache that read the
+/// file twice and answered correctly both times is indistinguishable from a
+/// working one by the line count alone.
+///
+/// The mtime is pushed into the past on purpose. Every filesystem this runs on
+/// has sub-second timestamps, but `store()` refuses a file whose mtime is not
+/// strictly older than the start of the pass, and a test that relies on three
+/// git subprocesses taking longer than one timestamp tick is a test that fails
+/// on whatever filesystem rounds to a second.
+TEST_F(RealRepoTest, WorkingCopyStatusReusesAnUnchangedUntrackedFilesLineCount) {
+    commitFile("a.txt", "l1\n", "base");
+    const std::filesystem::path fresh = repo_ / "fresh.txt";
+    {
+        std::ofstream out(fresh);
+        out << "n1\nn2\nn3\n";
+    }
+    setMtimeOffset(fresh, std::chrono::seconds(-10));
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+
+    auto first = reader.read(CancellationToken{});
+    ASSERT_TRUE(first) << first.error().message;
+    ASSERT_EQ((*first)->untracked().size(), 1u);
+    EXPECT_EQ((*first)->untracked()[0]->unstagedAdded, 3u);
+    EXPECT_EQ(reader.untrackedLineCounts().misses(), 1u);
+    EXPECT_EQ(reader.untrackedLineCounts().hits(), 0u);
+
+    auto second = reader.read(CancellationToken{});
+    ASSERT_TRUE(second) << second.error().message;
+    ASSERT_EQ((*second)->untracked().size(), 1u);
+    EXPECT_EQ((*second)->untracked()[0]->unstagedAdded, 3u)
+        << "a cache hit must produce the same number the read produced";
+    EXPECT_EQ(reader.untrackedLineCounts().hits(), 1u)
+        << "the second read of an unchanged file must come from the cache";
+    EXPECT_EQ(reader.untrackedLineCounts().misses(), 1u) << "the file was not read again";
+}
+
+/// The other half, and the one that matters: a cache nothing invalidates is a
+/// cache that reports last week's number forever. Editing the file has to
+/// produce a miss *and* the new count.
+TEST_F(RealRepoTest, WorkingCopyStatusRereadsAnUntrackedFileAfterItChanges) {
+    commitFile("a.txt", "l1\n", "base");
+    const std::filesystem::path fresh = repo_ / "fresh.txt";
+    const auto backdate = [&fresh]() { setMtimeOffset(fresh, std::chrono::seconds(-10)); };
+    {
+        std::ofstream out(fresh);
+        out << "n1\nn2\nn3\n";
+    }
+    backdate();
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto first = reader.read(CancellationToken{});
+    ASSERT_TRUE(first) << first.error().message;
+    ASSERT_EQ((*first)->untracked().size(), 1u);
+    EXPECT_EQ((*first)->untracked()[0]->unstagedAdded, 3u);
+
+    {
+        std::ofstream out(fresh);
+        out << "n1\nn2\nn3\nn4\nn5\n";
+    }
+    backdate();
+
+    auto second = reader.read(CancellationToken{});
+    ASSERT_TRUE(second) << second.error().message;
+    ASSERT_EQ((*second)->untracked().size(), 1u);
+    EXPECT_EQ((*second)->untracked()[0]->unstagedAdded, 5u)
+        << "an edited file must be counted again, not answered from the cache";
+    EXPECT_EQ(reader.untrackedLineCounts().misses(), 2u);
+    EXPECT_EQ(reader.untrackedLineCounts().hits(), 0u);
+}
+
+/// A same-size edit is the case a size-only key would miss, which is why the
+/// key carries the mtime as well. Three lines in, three lines out, different
+/// text.
+TEST_F(RealRepoTest, WorkingCopyStatusRereadsAnUntrackedFileEditedToTheSameSize) {
+    commitFile("a.txt", "l1\n", "base");
+    const std::filesystem::path fresh = repo_ / "fresh.txt";
+    const auto backdate = [&fresh]() { setMtimeOffset(fresh, std::chrono::seconds(-10)); };
+    {
+        // 8 bytes, 2 lines.
+        std::ofstream out(fresh);
+        out << "aaa\nbbb\n";
+    }
+    backdate();
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto first = reader.read(CancellationToken{});
+    ASSERT_TRUE(first) << first.error().message;
+    ASSERT_EQ((*first)->untracked().size(), 1u);
+    ASSERT_EQ((*first)->untracked()[0]->unstagedAdded, 2u);
+
+    {
+        // 8 bytes again, 3 lines. Counting the bytes here is the whole point:
+        // a first draft of this test wrote 8 bytes and then 7, which a
+        // size-only key catches -- so it passed with the mtime removed from
+        // the key and proved nothing about the thing it is named for.
+        std::ofstream out(fresh);
+        out << "a\nb\nccc\n";
+    }
+    setMtimeOffset(fresh, std::chrono::seconds(-5));
+
+    auto second = reader.read(CancellationToken{});
+    ASSERT_TRUE(second) << second.error().message;
+    ASSERT_EQ((*second)->untracked().size(), 1u);
+    EXPECT_EQ((*second)->untracked()[0]->unstagedAdded, 3u)
+        << "an edit that keeps the size must still be counted again";
+    EXPECT_EQ(reader.untrackedLineCounts().misses(), 2u);
+    EXPECT_EQ(reader.untrackedLineCounts().hits(), 0u);
+}
+
+/// git's "racily clean" rule, which is the whole reason [store] takes the
+/// pass's start time. A file whose mtime is not strictly older than the pass
+/// may have been written again after this pass read it, so it must not be
+/// remembered -- otherwise the number it was read at would stick until the
+/// next edit rather than clear on the next refresh.
+TEST_F(RealRepoTest, WorkingCopyStatusDoesNotCacheAnUntrackedFileWrittenDuringThePass) {
+    commitFile("a.txt", "l1\n", "base");
+    const std::filesystem::path fresh = repo_ / "fresh.txt";
+    {
+        std::ofstream out(fresh);
+        out << "n1\nn2\n";
+    }
+    // Strictly newer than any pass that starts from now on, which is the same
+    // relation "written in this pass's tick" produces, without depending on a
+    // race to reproduce it.
+    setMtimeOffset(fresh, std::chrono::hours(1));
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto first = reader.read(CancellationToken{});
+    ASSERT_TRUE(first) << first.error().message;
+    ASSERT_EQ((*first)->untracked().size(), 1u);
+    EXPECT_EQ((*first)->untracked()[0]->unstagedAdded, 2u)
+        << "the count itself is still correct -- only remembering it is refused";
+    EXPECT_EQ(reader.untrackedLineCounts().size(), 0u);
+
+    auto second = reader.read(CancellationToken{});
+    ASSERT_TRUE(second) << second.error().message;
+    EXPECT_EQ(reader.untrackedLineCounts().hits(), 0u)
+        << "a racily-written file must be read again every pass";
+    EXPECT_EQ(reader.untrackedLineCounts().misses(), 2u);
+}
+
+/// The sweep is what bounds the map to the current untracked set rather than
+/// to every file the session has ever seen. Staging the file is the commonest
+/// way one stops being untracked.
+TEST_F(RealRepoTest, WorkingCopyStatusForgetsAnUntrackedFileOnceItIsStaged) {
+    commitFile("a.txt", "l1\n", "base");
+    const std::filesystem::path fresh = repo_ / "fresh.txt";
+    {
+        std::ofstream out(fresh);
+        out << "n1\nn2\n";
+    }
+    setMtimeOffset(fresh, std::chrono::seconds(-10));
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    ASSERT_TRUE(reader.read(CancellationToken{}));
+    EXPECT_EQ(reader.untrackedLineCounts().size(), 1u);
+
+    ASSERT_TRUE(run({"add", "fresh.txt"}));
+
+    ASSERT_TRUE(reader.read(CancellationToken{}));
+    EXPECT_EQ(reader.untrackedLineCounts().size(), 0u)
+        << "a file that stopped being untracked must not stay in the map";
 }
 
 TEST_F(RealRepoTest, WorkingCopyStatusReportsWhichSideOfAConflictEachFileIsOn) {

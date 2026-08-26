@@ -530,19 +530,19 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
       0,
       (int sum, List<int> lines) => sum + lines.length,
     );
+    final String temporaryLabel = scopeButtonLabel(
+      staged: widget.staged,
+      spanned: _tracker.touched.length,
+      changed: temporaryChanged,
+    );
+    // The head goes on the first card the selection reaches, and only that
+    // one: it is one scope and one press, however many cards it spans. The
+    // rows it reaches in later cards still carry the dashed body and the
+    // touched tint, so the extent stays visible without a second button
+    // claiming to be a second action.
+    bool temporaryHeadPlaced = false;
 
-    final List<Widget> children = <Widget>[
-      if (temporary.isEmpty)
-        const SizedBox.shrink()
-      else
-        _TemporaryCard(
-          staged: widget.staged,
-          spanned: _tracker.touched.length,
-          changed: temporaryChanged,
-          hunkCount: temporary.length,
-          onStage: () => _submitTemporary(temporary),
-        ),
-    ];
+    final List<Widget> children = <Widget>[];
     int ordinal = 1;
 
     for (int hunkIndex = 0; hunkIndex < diffFile.hunks.length; hunkIndex++) {
@@ -572,6 +572,11 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
             final bool superseded = (temporary[hunkIndex] ?? const <int>[]).any(
               scope.changedLineIndices.contains,
             );
+            final Set<int> temporaryLines = superseded
+                ? (temporary[hunkIndex] ?? const <int>[]).toSet()
+                : const <int>{};
+            final bool showTemporaryHead = superseded && !temporaryHeadPlaced;
+            if (showTemporaryHead) temporaryHeadPlaced = true;
             children.add(
               _ScopeCard(
                 hunk: hunk,
@@ -581,6 +586,11 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
                 hunkIndex: hunkIndex,
                 tracker: _tracker,
                 touched: _tracker.touched,
+                temporaryLines: temporaryLines,
+                showTemporaryHead: showTemporaryHead,
+                temporaryLabel: temporaryLabel,
+                temporaryHunkCount: temporary.length,
+                onSubmitTemporary: () => _submitTemporary(temporary),
                 superseded: superseded,
                 onStage: () =>
                     widget.onStageScope(hunkIndex, scope.changedLineIndices),
@@ -785,6 +795,11 @@ class _ScopeCard extends StatelessWidget {
     required this.hunkIndex,
     required this.tracker,
     required this.touched,
+    required this.temporaryLines,
+    required this.showTemporaryHead,
+    required this.temporaryLabel,
+    required this.temporaryHunkCount,
+    required this.onSubmitTemporary,
     required this.superseded,
     required this.onStage,
     required this.onDiscard,
@@ -800,10 +815,29 @@ class _ScopeCard extends StatelessWidget {
   /// Row keys currently in the one-shot scope -- see [_GapBlock.touched].
   final Set<String> touched;
 
+  /// Which of this card's own line indices the one-shot scope covers.
+  ///
+  /// The demo nests `.variant-B-temp` **inside** `.variant-B-card`, wrapping
+  /// the selected rows where they already are, so the card has to know which
+  /// of its rows those are rather than being told only that it is
+  /// superseded.
+  final Set<int> temporaryLines;
+
+  /// This is the first card in render order that the selection reaches, so
+  /// it carries the one-shot head and its button. One scope, one press,
+  /// however many cards it spans.
+  final bool showTemporaryHead;
+
+  final String temporaryLabel;
+  final int temporaryHunkCount;
+  final VoidCallback onSubmitTemporary;
+
   /// A live text selection covers some of this card's changed lines, so the
   /// temporary scope has taken over. The button stays drawn -- struck
   /// through and inert -- rather than disappearing, because a control that
-  /// vanishes reads as "this is no longer possible".
+  /// vanishes reads as "this is no longer possible". The card itself goes
+  /// muted (`.variant-B-card-muted`): grey left edge, no shadow, sunken
+  /// head.
   final bool superseded;
 
   final VoidCallback onStage;
@@ -825,7 +859,9 @@ class _ScopeCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: colors.surfacePanel,
         borderRadius: BorderRadius.circular(GbmSpacing.radiusMd),
-        boxShadow: GbmEffects.shadowSm(context.gbmThemeVariant),
+        boxShadow: superseded
+            ? null
+            : GbmEffects.shadowSm(context.gbmThemeVariant),
       ),
       clipBehavior: Clip.antiAlias,
       child: Container(
@@ -835,7 +871,11 @@ class _ScopeCard extends StatelessWidget {
             right: BorderSide(color: colors.borderDefault),
             bottom: BorderSide(color: colors.borderDefault),
             left: BorderSide(
-              color: staged ? colors.success : colors.accent,
+              // `.variant-B-card-muted` drops the accent for a neutral edge
+              // while the one-shot scope holds the action.
+              color: superseded
+                  ? colors.borderStrong
+                  : (staged ? colors.success : colors.accent),
               width: 3,
             ),
           ),
@@ -856,24 +896,69 @@ class _ScopeCard extends StatelessWidget {
               superseded: superseded,
               onStage: onStage,
             ),
-            for (final int index in scope.lineIndices)
-              SelectionTouchRow(
-                tracker: tracker,
-                rowKey: selectionRowKey(hunkIndex, index),
-                child: DiffLineView(
-                  line: hunk.lines[index],
-                  staged: staged,
-                  selectionCount: moving,
-                  onStageLine: onStage,
-                  onDiscardLine: onDiscard,
-                  touched: touched.contains(selectionRowKey(hunkIndex, index)),
-                ),
-              ),
+            ..._body(context),
           ],
         ),
       ),
     );
   }
+
+  /// The card's rows, with any run of them the one-shot scope covers wrapped
+  /// in a [_TemporaryBlock] **in place**.
+  ///
+  /// Grouped into runs rather than assuming one contiguous block: the range
+  /// a drag or `Shift + ↑ ↓` produces is contiguous over *painted* rows, and
+  /// a card's `lineIndices` are contiguous too, so in practice there is one
+  /// run -- but a gap here would silently draw two rows' worth of dashes
+  /// around rows that are not selected, and grouping costs one comparison
+  /// per row.
+  List<Widget> _body(BuildContext context) {
+    final List<Widget> out = <Widget>[];
+    final List<int> indices = scope.lineIndices;
+    bool headPlaced = !showTemporaryHead;
+
+    int i = 0;
+    while (i < indices.length) {
+      final bool inTemporary = temporaryLines.contains(indices[i]);
+      final int start = i;
+      while (i < indices.length &&
+          temporaryLines.contains(indices[i]) == inTemporary) {
+        i++;
+      }
+      final List<Widget> rows = <Widget>[
+        for (final int index in indices.sublist(start, i)) _row(index),
+      ];
+      if (!inTemporary) {
+        out.addAll(rows);
+        continue;
+      }
+      out.add(
+        _TemporaryBlock(
+          showHead: !headPlaced,
+          staged: staged,
+          label: temporaryLabel,
+          hunkCount: temporaryHunkCount,
+          onStage: onSubmitTemporary,
+          children: rows,
+        ),
+      );
+      headPlaced = true;
+    }
+    return out;
+  }
+
+  Widget _row(int index) => SelectionTouchRow(
+    tracker: tracker,
+    rowKey: selectionRowKey(hunkIndex, index),
+    child: DiffLineView(
+      line: hunk.lines[index],
+      staged: staged,
+      selectionCount: scope.changedLineIndices.length,
+      onStageLine: onStage,
+      onDiscardLine: onDiscard,
+      touched: touched.contains(selectionRowKey(hunkIndex, index)),
+    ),
+  );
 }
 
 /// `.variant-B-cardhead`: 變更 N, the +/- tally, and the button.
@@ -983,84 +1068,114 @@ class _CardHead extends StatelessWidget {
   }
 }
 
-/// `.variant-B-temp`: the one-shot scope a text selection makes.
+/// `.variant-B-temp`: the one-shot scope a text selection makes, drawn
+/// **inside** the scope card and wrapping the selected rows where they
+/// already are.
 ///
-/// Dashed in the demo and accent-bordered here, and carrying a 一次性 pill,
-/// because it is not a thing that persists -- one press spends it. It
-/// sits at the top of the column, always in the same place, so it cannot
-/// shift the rows whose selection produced it (see [_wellChildren]).
-class _TemporaryCard extends StatelessWidget {
-  const _TemporaryCard({
+/// Dashed accent border and an accent-subtle head, as in the demo, because
+/// it is not a thing that persists -- one press spends it.
+///
+/// **It used to be an extra row pinned to the top of the column**, which was
+/// an implementation convenience rather than the design: a fixed slot cannot
+/// reparent the keyed rows below it, and inserting among them was recorded
+/// as a hazard (the rows carry [SelectionListener]s whose reports decide
+/// whether this block should exist at all, so perturbing them is a feedback
+/// loop). What makes the nested form safe is the very thing that hazard note
+/// pointed at: those keys are [GlobalKey]s, so Flutter *moves* the one
+/// element into its new parent instead of unmounting and rebuilding it, and
+/// the registration survives the move. The tracker's `keyFor` doc has said
+/// so all along -- 「a row moves between subtrees as the diff changes ... a
+/// global key makes Flutter reparent the one element instead」.
+class _TemporaryBlock extends StatelessWidget {
+  const _TemporaryBlock({
+    required this.showHead,
     required this.staged,
-    required this.spanned,
-    required this.changed,
+    required this.label,
     required this.hunkCount,
     required this.onStage,
+    required this.children,
   });
+
+  /// This block carries the head and the button. False for the second and
+  /// later cards a selection spanning more than one reaches: the dashed body
+  /// still shows how far it got, but one scope gets one button.
+  final bool showHead;
 
   final bool staged;
 
-  /// Every row the drag covered, context included -- what the user framed.
-  final int spanned;
-
-  /// How many of those actually move.
-  final int changed;
+  /// Already composed by the caller, because the counts are the *whole*
+  /// selection's and not this block's -- one press moves all of it.
+  final String label;
 
   /// How many hunks the selection spans, and so how many `stageLines` calls
   /// one press makes.
   final int hunkCount;
 
   final VoidCallback onStage;
+  final List<Widget> children;
 
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
 
     return Container(
-      key: const ValueKey<String>('temporary-scope-card'),
+      key: showHead ? const ValueKey<String>('temporary-scope-card') : null,
       margin: const EdgeInsets.symmetric(vertical: GbmSpacing.space1),
       decoration: BoxDecoration(
-        color: colors.accentSubtle,
         border: Border.all(color: colors.accent),
-        borderRadius: BorderRadius.circular(GbmSpacing.radiusMd),
+        borderRadius: BorderRadius.circular(GbmSpacing.radiusSm),
       ),
-      padding: const EdgeInsets.symmetric(
-        horizontal: GbmSpacing.space2,
-        vertical: 3,
-      ),
-      child: Wrap(
-        alignment: WrapAlignment.spaceBetween,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        spacing: GbmSpacing.space2,
-        runSpacing: 4,
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              const GbmBadge(label: '一次性'),
-              const SizedBox(width: GbmSpacing.space2),
-              Flexible(
-                child: Text(
-                  hunkCount > 1 ? '選取範圍 · 跨 $hunkCount 個 hunk' : '選取範圍',
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: GbmTypography.textXs,
-                    color: colors.textSecondary,
-                  ),
-                ),
+          if (showHead)
+            Container(
+              color: colors.accentSubtle,
+              padding: const EdgeInsets.symmetric(
+                horizontal: GbmSpacing.space2,
+                vertical: 3,
               ),
-            ],
-          ),
-          GbmButton(
-            label: scopeButtonLabel(
-              staged: staged,
-              spanned: spanned,
-              changed: changed,
+              // A Wrap for the same reason [_CardHead] is one: in `2 file`
+              // mode this sits inside a card inside half a diff pane, and a
+              // Row there does not shrink, it overflows.
+              child: Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: GbmSpacing.space2,
+                runSpacing: 4,
+                children: <Widget>[
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Flexible(
+                        child: Text(
+                          hunkCount > 1 ? '臨時選取 · 跨 $hunkCount 個 hunk' : '臨時選取',
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: GbmTypography.textXs,
+                            fontWeight: FontWeight.bold,
+                            color: colors.textSecondary,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: GbmSpacing.space2),
+                      const GbmBadge(label: '一次性'),
+                    ],
+                  ),
+                  GbmButton(
+                    label: label,
+                    onPressed: onStage,
+                    size: GbmButtonSize.sm,
+                    kind: staged
+                        ? GbmButtonKind.secondary
+                        : GbmButtonKind.primary,
+                  ),
+                ],
+              ),
             ),
-            onPressed: onStage,
-            size: GbmButtonSize.sm,
-            kind: staged ? GbmButtonKind.secondary : GbmButtonKind.primary,
-          ),
+          ...children,
         ],
       ),
     );

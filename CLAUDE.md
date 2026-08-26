@@ -811,7 +811,14 @@ you are touching, not by when it was learned.
   **fixed slot**; and reacting to every report is a feedback loop
   (`setState` → geometry moves → delegates re-report), so listen only between
   pointer-down and pointer-up. All three are 「first frame right, later
-  frames wrong」 — a one-frame assertion cannot see any of them. A fourth is
+  frames wrong」 — a one-frame assertion cannot see any of them. But note
+  what the second one is *not* an argument for: the one-shot block's fixed
+  slot at the top of the column was justified by it and **was not the
+  design** (the demo nests it inside the scope card, wrapping the selected
+  rows in place). What makes the nested form safe is the same sentence the
+  hazard note rests on — those keys are `GlobalKey`s, so Flutter *moves* the
+  element into its new parent rather than rebuilding it. A recorded hazard
+  is a reason to solve the problem, not a licence to change the design. A fourth is
   not about frames at all: **the submit path is a diff-change path, one
   dispatch later.** `_dropSelection` documented that clearing the highlight
   is unsafe while the tree restructures, and staging *is* what restructures
@@ -979,6 +986,14 @@ you are touching, not by when it was learned.
   surface, twice over — the same row had already been rewritten once for the
   same class of error. Related: a row's `note` conforming says nothing about
   its `how` (row 6's right-click Stage hunk was implemented all along).
+- **The style demo is a spec too, and its DOM is the readable part.** The
+  artifact at `claude.ai/code/artifact/bd3d9fdf-…` ("Diff Scope Studies")
+  carries 變體 B's real structure — `.variant-B-temp` nested inside
+  `.variant-B-card`, `.variant-B-card-muted`, `.variant-B-btn-off` — and the
+  class names already appear in `scoped_diff_view.dart`'s comments. Fetch it
+  with WebFetch and read the HTML, not only the CSS: the CSS says what a
+  block looks like and only the DOM says **where it goes**, which is the half
+  that shipped wrong.
 - **A mockup shows what the user sees, not who draws it.** A conformance
   verdict has to rest on the spec's prose — reading an illustration as a
   requirement is what produced an issue asking for the *opposite* of what the

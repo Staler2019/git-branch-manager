@@ -3671,3 +3671,51 @@ Shift+↑↓ 是 anchor/focus 的**範圍**，不是只增不減的集合：往�
 `working_copy_line_counts` 三支迴歸（`DiffLineView` 是共用列元件）。七次
 mutation，只有「種子改成第一列」紅三支（種子位置會位移後面每一個斷言，是對
 的），其餘每次只紅該紅的那一支。
+
+### 一次性 scope 的按鈕位置：實作方便壓過了設計稿
+
+使用者指出「一次性選取範圍的按鈕位置跟設計稿不一樣，應該在 scope 上套，而不是
+最上方多一列」。去讀 demo（`Diff Scope Studies`，變體 B 第 3 塊「臨時 scope」）
+的原始 HTML，設計是明確的：
+
+```
+.variant-B-card .variant-B-card-muted
+├ .variant-B-cardhead   變更 1  +2 −1   [Stage 3 lines] ← .variant-B-btn-off（disabled + 刪節線）
+├ .variant-B-cardbody   ← 選取「之前」的行
+├ .variant-B-temp       ← 虛線 accent 外框，**就在卡片裡**
+│  ├ .variant-B-temphead  臨時選取 [一次性]  [Stage 3 lines] ← 活的
+│  └ .variant-B-cardbody  ← 被選取的那幾行本身
+└ .variant-B-cardbody   ← 選取「之後」的行
+```
+
+而出貨的是一張釘在欄位最上方的獨立卡片。
+
+**那不是一個設計決定，是一個實作方便。** 原本的註解寫得很誠實：把卡片插進列與列
+之間會 reparent 底下每一列，而那些列身上掛著 `SelectionListener`，它們的回報正是
+「這張卡片該不該存在」的依據——所以擾動它們是一個回饋迴圈。固定槽位可以完全避開。
+
+**讓巢狀形式安全的，正是那條註解自己指到的東西。** 那些 key 是 `GlobalKey`，
+Flutter 會把同一個 element **搬**進新的父節點，而不是卸載重建，註冊因此存活。
+tracker 的 `keyFor` 文件從一開始就寫了這句：「a row moves between subtrees as the
+diff changes … a global key makes Flutter reparent the one element instead」。當初
+只是沒有把那句話用在這裡。
+
+順帶一提，巢狀之後 `_wellChildren` 的清單長度**根本不會變**了——不再需要那個
+`SizedBox.shrink()` 佔位。原本為了保持定長而存在的東西，在正確的結構下自動消失。
+
+#### 一個 scope、一顆按鈕
+
+選取跨越兩張卡片時，只有**第一張**（畫面順序）帶頭與按鈕；後面的卡片只有虛線
+body，讓延伸範圍看得見。兩顆按鈕會讀成兩個動作，而它其實是一次。把
+`showHead` 改成永遠 true 的 mutation 紅了五支——寬，但那正是「多一顆按鈕會弄壞
+一堆 finder」的真實訊號；另外補了一支直接針對「只有一顆頭」的測試。
+
+#### 位置測試的夾具要能falsify「就地」
+
+第一版夾具是 `.+..-.` 配 l1→l2 選取，而那兩列剛好在卡片列的**開頭**——所以
+「就地」和「釘在卡片最上面」在那個夾具下無法分辨。換成 `.+++.` 只選中間那一列，
+上面一列、下面一列都在，`temp.top > 上一列.bottom` 與 `temp.bottom < 下一列.top`
+才是能被 falsify 的主張。把區塊挪到卡片內最上面的 mutation 因此只紅那一支。
+
+muted 的左邊框顏色本來沒有任何測試在看——一張保留 accent 條紋的卡片不會丟例外，
+只會同時有兩個東西宣稱自己是活的 scope。補上以身分比對的斷言。

@@ -592,6 +592,122 @@ void main() {
       );
     });
 
+    // The demo's 變體 B nests `.variant-B-temp` **inside**
+    // `.variant-B-card`, wrapping the selected rows in place; the card goes
+    // `.variant-B-card-muted` and its own button `.variant-B-btn-off`. This
+    // shipped instead as an extra row pinned to the top of the column --
+    // an implementation convenience (a fixed slot cannot reparent the keyed
+    // rows below it), not a design decision, and the user called it out.
+    //
+    // Asserting the ancestor, not the presence: a finder proves existence,
+    // never position, and the top-slot version passed every existing
+    // assertion in this file.
+    testWidgets('the one-shot block is nested inside the scope card it '
+        'covers, not pinned above the column', (WidgetTester tester) async {
+      // Three added rows in one scope, with only the middle one selected --
+      // so the card has a row before the block and a row after it, and
+      // "in place" is a claim the fixture can actually falsify.
+      await pump(tester, _file(<String>['.+++.']));
+      await dragSelect(tester, 'h0 l2', 'h0 l2');
+
+      final Finder temp = find.byKey(
+        const ValueKey<String>('temporary-scope-card'),
+      );
+      expect(temp, findsOneWidget);
+      expect(
+        find.ancestor(
+          of: temp,
+          matching: find.byKey(const ValueKey<String>('scope-card-1')),
+        ),
+        findsOneWidget,
+        reason: 'the block must live inside the card whose rows it covers',
+      );
+
+      // In place within that card: after the row above it, before the row
+      // below it. Pinned to the top of anything -- the column or the card --
+      // fails both.
+      final Rect block = tester.getRect(temp);
+      expect(tester.getRect(find.text('h0 l1')).bottom, lessThan(block.top));
+      expect(tester.getRect(find.text('h0 l3')).top, greaterThan(block.bottom));
+    });
+
+    testWidgets('the covered card is muted and its own button is dead', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, _file(<String>['.+..-.']));
+      await dragSelect(tester, 'h0 l1', 'h0 l2');
+
+      final GbmButton off = tester.widget<GbmButton>(
+        find
+            .descendant(
+              of: find.byKey(const ValueKey<String>('scope-card-1')),
+              matching: find.byType(GbmButton),
+            )
+            .first,
+      );
+      expect(off.onPressed, isNull);
+      expect(off.lineThrough, isTrue);
+
+      // `.variant-B-card-muted`: the accent edge goes neutral while the
+      // one-shot block holds the action. Asserted by identity, because a
+      // card that kept its accent stripe throws no exception -- it just
+      // shows two things claiming to be the live scope.
+      final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+      // By predicate, not by index: the card is two nested Containers (the
+      // radius/fill/shadow outside, the four border sides inside, because
+      // Flutter forbids a borderRadius on a non-uniform border), and an
+      // index into the descendants would silently follow that structure.
+      final Container inner = tester.widget<Container>(
+        find
+            .descendant(
+              of: find.byKey(const ValueKey<String>('scope-card-1')),
+              matching: find.byWidgetPredicate(
+                (Widget w) =>
+                    w is Container &&
+                    w.decoration is BoxDecoration &&
+                    (w.decoration! as BoxDecoration).border is Border,
+              ),
+            )
+            .first,
+      );
+      expect(
+        ((inner.decoration! as BoxDecoration).border! as Border).left.color,
+        colors.borderStrong,
+      );
+    });
+
+    // One scope, one press -- however many cards it reaches. The second and
+    // later cards get the dashed body so the extent stays visible, but a
+    // second head would be a second button claiming to be a second action.
+    testWidgets('a selection spanning two cards still shows exactly one '
+        'one-shot button', (WidgetTester tester) async {
+      await pump(tester, _file(<String>['.+...+.']));
+      await dragSelect(tester, 'h0 l1', 'h0 l5');
+
+      expect(
+        find.byKey(const ValueKey<String>('temporary-scope-card')),
+        findsOneWidget,
+      );
+      expect(find.text('一次性'), findsOneWidget);
+
+      // Both cards are covered, so both go muted and both own buttons die --
+      // it is the extent that is shared, not the action.
+      for (final String card in const <String>[
+        'scope-card-1',
+        'scope-card-2',
+      ]) {
+        final GbmButton off = tester.widget<GbmButton>(
+          find
+              .descendant(
+                of: find.byKey(ValueKey<String>(card)),
+                matching: find.byType(GbmButton),
+              )
+              .first,
+        );
+        expect(off.onPressed, isNull, reason: '$card should be superseded');
+      }
+    });
+
     testWidgets('the scope stays put on idle frames after the drag ends', (
       WidgetTester tester,
     ) async {

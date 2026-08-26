@@ -808,6 +808,11 @@ class _GapBlock extends StatelessWidget {
                 tracker: tracker,
                 rowKey: selectionRowKey(hunkIndex, index),
                 child: DiffLineView(
+                  // C1 placeholder: this surface keeps its
+                  // current always-wrap behaviour until C2 wires the
+                  // preference through. Not a default on the parameter --
+                  // an explicit value here is what makes the gap visible.
+                  softWrap: true,
                   line: hunk.lines[index],
                   staged: staged,
                   touched: touched.contains(selectionRowKey(hunkIndex, index)),
@@ -986,6 +991,11 @@ class _ScopeCard extends StatelessWidget {
     tracker: tracker,
     rowKey: selectionRowKey(hunkIndex, index),
     child: DiffLineView(
+      // C1 placeholder: this surface keeps its
+      // current always-wrap behaviour until C2 wires the
+      // preference through. Not a default on the parameter --
+      // an explicit value here is what makes the gap visible.
+      softWrap: true,
       line: hunk.lines[index],
       staged: staged,
       selectionCount: scope.changedLineIndices.length,

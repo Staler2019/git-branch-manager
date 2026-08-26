@@ -54,6 +54,7 @@ void main() {
           theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
           home: Scaffold(
             body: DiffLineView(
+              softWrap: true,
               line: line,
               staged: staged,
               onStageLine: onStageLine,

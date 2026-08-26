@@ -33,6 +33,10 @@ void main() {
       // cannot clear a nullable field, and `AppVersion.tryParse('')` is
       // already null, so '' is the honest "none" for both readers.
       expect(p.skippedVersion, '');
+      // Off, and that is the flip: every file view wrapped unconditionally
+      // before this field existed, because a bare `Text` defaults to
+      // `softWrap: true`. See the field's own doc comment.
+      expect(p.softWrapEnabled, isFalse);
     });
 
     test('round-trips every field through SharedPreferences', () async {
@@ -56,6 +60,7 @@ void main() {
         logRetentionDays: 30,
         autoUpdateCheckEnabled: false,
         skippedVersion: '9.9.9',
+        softWrapEnabled: true,
       );
       await repo.write(written);
 
@@ -75,6 +80,7 @@ void main() {
       expect(read.logRetentionDays, 30);
       expect(read.autoUpdateCheckEnabled, isFalse);
       expect(read.skippedVersion, '9.9.9');
+      expect(read.softWrapEnabled, isTrue);
     });
 
     test('copyWith changes one field and leaves the rest alone', () {

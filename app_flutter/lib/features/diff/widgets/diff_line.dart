@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../../data/models/parsed_diff.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
+import '../../../widgets/gbm_code_hscroll.dart';
 import '../../../widgets/gbm_menu.dart';
 import 'diff_line_menu_items.dart';
 
@@ -11,6 +12,27 @@ import 'diff_line_menu_items.dart';
 /// (docs/design/tokens-reference.md's components.css). One monospace row per
 /// [DiffLine], with old/new line numbers in a fixed-width gutter like every
 /// git diff viewer.
+/// Width of the pinned gutter: the row's left padding plus the two
+/// line-number cells and the `+`/`-` marker.
+///
+/// The left padding is *inside* the gutter rather than outside it on purpose.
+/// With soft wrap off the code slides sideways underneath the gutter, and
+/// anything the gutter does not cover shows the scrolled line text to the left
+/// of its own line numbers.
+const double kDiffGutterWidth = GbmSpacing.space3 + 36 + 36 + 14;
+
+/// The style a diff line's code is drawn in, colour aside.
+///
+/// Single-sourced because the horizontal scroll extent is *measured* in it
+/// (`widestLineWidth`) and then *drawn* in it. If the two ever drifted apart
+/// the pane would scroll to the wrong place -- short by the difference, which
+/// clips the end of the longest line.
+const TextStyle kDiffCodeTextStyle = TextStyle(
+  fontFamily: GbmTypography.fontMono,
+  fontSize: GbmTypography.textSm,
+  height: 1.6,
+);
+
 class DiffLineView extends StatelessWidget {
   const DiffLineView({
     super.key,
@@ -21,6 +43,7 @@ class DiffLineView extends StatelessWidget {
     this.onDiscardLine,
     this.selectionCount = 1,
     this.touched = false,
+    required this.softWrap,
   });
 
   final DiffLine line;
@@ -59,6 +82,15 @@ class DiffLineView extends StatelessWidget {
   /// highlight alone is easy to miss.
   final bool touched;
 
+  /// Whether a line too long for the pane wraps onto further visual lines
+  /// (`AppPreferences.softWrapEnabled`), or runs off to the right inside the
+  /// enclosing [GbmCodeHScroll] with the gutter pinned.
+  ///
+  /// **No default, deliberately.** Every call site has to say which it wants,
+  /// so none can silently keep the old unconditional wrap after the preference
+  /// exists.
+  final bool softWrap;
+
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
@@ -93,45 +125,47 @@ class DiffLineView extends StatelessWidget {
           foregroundDecoration: touched
               ? BoxDecoration(color: colors.accent.withValues(alpha: 0.18))
               : null,
-          padding: const EdgeInsets.symmetric(
-            horizontal: GbmSpacing.space3,
-            vertical: 1,
+          padding: EdgeInsets.only(
+            left: softWrap ? GbmSpacing.space3 : 0,
+            right: GbmSpacing.space3,
+            top: 1,
+            bottom: 1,
           ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              SizedBox(
-                width: 36,
-                child: _lineNumberText(line.oldLine, colors.textTertiary),
-              ),
-              SizedBox(
-                width: 36,
-                child: _lineNumberText(line.newLine, colors.textTertiary),
-              ),
-              SizedBox(
-                width: 14,
-                child: Text(
-                  marker,
-                  style: TextStyle(
-                    fontFamily: GbmTypography.fontMono,
-                    fontSize: GbmTypography.textSm,
-                    color: textColor,
-                  ),
+          child: softWrap
+              ? Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    _gutterCells(colors, textColor, marker),
+                    Expanded(child: _codeText(textColor)),
+                  ],
+                )
+              // Not a Row: the gutter has to leave the flow entirely so it can
+              // be counter-translated back to the viewport edge while the code
+              // scrolls. It is painted *after* the code, and opaquely, because
+              // the code passes underneath it rather than stopping at it.
+              : Stack(
+                  children: <Widget>[
+                    Padding(
+                      padding: const EdgeInsets.only(left: kDiffGutterWidth),
+                      child: _codeText(textColor),
+                    ),
+                    Positioned(
+                      left: 0,
+                      top: 0,
+                      bottom: 0,
+                      child: GbmPinnedGutter(
+                        width: kDiffGutterWidth,
+                        background: background,
+                        child: Padding(
+                          padding: const EdgeInsets.only(
+                            left: GbmSpacing.space3,
+                          ),
+                          child: _gutterCells(colors, textColor, marker),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-              Expanded(
-                child: Text(
-                  line.text,
-                  style: TextStyle(
-                    fontFamily: GbmTypography.fontMono,
-                    fontSize: GbmTypography.textSm,
-                    color: textColor,
-                    height: 1.6,
-                  ),
-                ),
-              ),
-            ],
-          ),
         ),
       ),
     );
@@ -154,6 +188,43 @@ class DiffLineView extends StatelessWidget {
         onCopyLines: () => Clipboard.setData(ClipboardData(text: line.text)),
         onDiscardLines: isAddedOrRemoved ? onDiscardLine : null,
       ),
+    );
+  }
+
+  Widget _codeText(Color textColor) {
+    return Text(
+      line.text,
+      softWrap: softWrap,
+      overflow: softWrap ? TextOverflow.clip : TextOverflow.visible,
+      style: kDiffCodeTextStyle.copyWith(color: textColor),
+    );
+  }
+
+  Widget _gutterCells(GbmColors colors, Color textColor, String marker) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        SizedBox(
+          width: 36,
+          child: _lineNumberText(line.oldLine, colors.textTertiary),
+        ),
+        SizedBox(
+          width: 36,
+          child: _lineNumberText(line.newLine, colors.textTertiary),
+        ),
+        SizedBox(
+          width: 14,
+          child: Text(
+            marker,
+            style: TextStyle(
+              fontFamily: GbmTypography.fontMono,
+              fontSize: GbmTypography.textSm,
+              color: textColor,
+            ),
+          ),
+        ),
+      ],
     );
   }
 

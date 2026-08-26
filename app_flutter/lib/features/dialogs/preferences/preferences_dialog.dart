@@ -931,6 +931,10 @@ class _AppearanceSection extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final GbmColors colors = context.gbmColors;
     final GbmThemeVariant variant = ref.watch(themeVariantProvider);
+    final AppPreferences prefs = ref.watch(appPreferencesProvider);
+    final AppPreferencesNotifier notifier = ref.read(
+      appPreferencesProvider.notifier,
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -961,6 +965,20 @@ class _AppearanceSection extends ConsumerWidget {
             fontSize: GbmTypography.textXs,
             color: colors.textTertiary,
             height: GbmTypography.leadingNormal,
+          ),
+        ),
+        const SizedBox(height: GbmSpacing.space4),
+        const _SectionHeading('CODE'),
+        _SettingSwitch(
+          title: 'Soft wrap long lines',
+          subtitle:
+              'Applies to every file view: diffs, blame, patches and the '
+              'conflict window. Off by default -- a long line then gets a '
+              'horizontal scrollbar, and the line-number gutter stays pinned '
+              'at the left edge instead of scrolling away with the code.',
+          value: prefs.softWrapEnabled,
+          onChanged: (bool v) => notifier.update(
+            (AppPreferences p) => p.copyWith(softWrapEnabled: v),
           ),
         ),
       ],

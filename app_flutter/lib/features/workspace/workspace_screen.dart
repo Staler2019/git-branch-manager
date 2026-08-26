@@ -213,7 +213,54 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   @override
   Widget build(BuildContext context) {
     final RepoIdentity identity = widget.identity;
-    final RepoSessionState session = ref.watch(repoSessionProvider(identity));
+    // Rebuild on the nine session fields this shell actually consumes --
+    // NOT on the whole RepoSessionState.
+    //
+    // Scrolling History prefetches commit metadata on every scroll tick
+    // (CommitGraphView._onScroll), and each reply republishes state through
+    // `copyWith(commitMetaCache: ...)`. An unfiltered `ref.watch` here
+    // rebuilt the entire shell -- MenuBarRow, PlatformMenuBarHost,
+    // ActionToolbar, TabRow and _buildActionHandlers() -- once per reply,
+    // for the whole duration of a scroll. On macOS that rebuilds a real
+    // native PlatformMenuBar, which is the flicker the user reported.
+    // Nothing on this screen reads commitMetaCache, so all of it was waste
+    // on the app's hottest path. See workspace_meta_cache_rebuild_test.dart.
+    //
+    // `copyWith` keeps the *same instance* for every field it is not given,
+    // and none of these types override `==`, so this record compares by
+    // identity: cheap, and it changes exactly when one of these fields is
+    // genuinely republished.
+    //
+    // Two derived getters are deliberately absent. `conflictActive` and
+    // `gonePendingRefs` are computed, and `gonePendingRefs` builds a fresh
+    // Set on every call -- a Set has no value equality, so including it
+    // would make this record unequal every time and restore the very
+    // rebuild storm being removed here. Both are derived from fields that
+    // *are* listed (`repoState` + `workingCopyStatus`, and
+    // `gonePendingByRemote`), so reading them off `session` below stays
+    // correct.
+    //
+    // The full state is then read rather than watched: `session` is passed
+    // whole to isActionEnabled(), _backgroundTasks(), _headTrackingRef()
+    // and _ConflictBanner, so it has to stay a RepoSessionState. `read`
+    // adds no second subscription, and it runs during a build the `watch`
+    // above already decided to run, so the value is current.
+    ref.watch(
+      repoSessionProvider(identity).select(
+        (RepoSessionState s) => (
+          s.isOpen,
+          s.repoState,
+          s.refs,
+          s.graph,
+          s.isRefreshing,
+          s.lastError,
+          s.workingCopyStatus,
+          s.operationLog,
+          s.gonePendingByRemote,
+        ),
+      ),
+    );
+    final RepoSessionState session = ref.read(repoSessionProvider(identity));
     final String repoId = repoIdForRoute(identity);
     final ChromeVisibility chrome = ref.watch(chromeVisibilityProvider);
     // Resolved once per build so every branch below (in-window menu bar

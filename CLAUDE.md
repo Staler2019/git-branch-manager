@@ -119,7 +119,10 @@ line-history panels), `BlamePanel` and `ConflictResolveWindow`; the
 commit-message box is deliberately untouched. **`SideBySideDiffView` pins
 neither gutter** — two columns have two, only the left one is at the
 viewport's edge, and freezing that one alone desynchronises the pair; its
-two columns share one scroller so a pair stays aligned. The
+two columns share one scroller so a pair stays aligned. That last one is
+the implementer's judgement, **not the user's ruling**, and the user's
+standing position on pinning is the opposite — it is open on **#119**
+pending a real-hardware check, so do not read it as settled either way. The
 machinery is `lib/widgets/gbm_code_hscroll.dart` (`GbmCodeHScroll`,
 `GbmPinnedGutter`, `GbmPinnedGutterClip`) plus `lib/widgets/code_line_metrics.dart`,
 which measures the widest line with one `TextPainter.layout` and memoises it —
@@ -1498,7 +1501,9 @@ derived from the code — they outrank convenience every time):
   rather than a vanished window (ledger: 更新流程的三個缺陷).
 - **Open issues**: **#62** (TabRow overflow menu), **#68**–**#71**,
   **#74**, **#76**, **#84**–**#89** (Tier 6 spec blockers), **#92**–**#95**
-  (capi with no spec entry point), **#99**, **#101**, **#102**, **#109**.
+  (capi with no spec entry point), **#99**, **#101**, **#102**, **#109**,
+  **#119** (side-by-side pins neither gutter — awaiting a real-hardware
+  check by the user).
   **#75 is closed** (all four 260820 `REVISIONS` shortcut gaps landed in
   feat/p03-working-copy-redesign); **#67 is closed** (macOS `CFBundleName` is
   the literal `git-branch-manager`, candidate fix 1, in

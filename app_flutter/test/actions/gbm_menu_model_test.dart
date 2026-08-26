@@ -85,6 +85,31 @@ void main() {
       );
     });
 
+    test('Help menu matches spec page 04 MENUS verbatim', () {
+      final GbmMenuModel help = gbmMenus.firstWhere(
+        (GbmMenuModel m) => m.title == 'Help',
+      );
+
+      // Spec's MENUS table gives Help four items
+      // (docs/reports/spec-conformance-matrix.md's page-04 section records
+      // the count). The implementation carried a fifth, `Check for
+      // updates…`, which the spec never asked for -- About's own primary
+      // button, Preferences' "Check for updates now" and the startup
+      // AutoUpdateCheck are the update entry points, so the menu item was
+      // a fourth route to the same dialog rather than the only one.
+      //
+      // Asserted on labels, not ids, deliberately: once the id is deleted
+      // from GbmActionId, a test naming `GbmActionId.helpCheckForUpdates`
+      // stops compiling, which is a broken test rather than a failing one.
+      // Labels keep this readable as a RED.
+      expect(help.items.map((GbmMenuItemModel i) => i.label).toList(), <String>[
+        'Documentation',
+        'Keyboard shortcuts',
+        'Report an issue',
+        'About',
+      ]);
+    });
+
     test('the three submenu parents are the only ones', () {
       final Iterable<GbmMenuItemModel> parents = _allItems().where(
         (GbmMenuItemModel item) => item.isSubmenuParent,

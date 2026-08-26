@@ -119,4 +119,74 @@ void main() {
       );
     });
   });
+
+  // A different surface from the window title above, and one the title fix
+  // (#66) deliberately left alone: the *application* name, which macOS reads
+  // for the Apple menu, the native About panel, the Quit item, the
+  // Force-Quit list and the Dock tooltip. MainMenu.xib writes those as the
+  // literal placeholder `APP_NAME`, which AppKit resolves from the bundle at
+  // load time -- so the name shown there is whatever Info.plist says, never
+  // MainFlutterWindow's NSWindow title.
+  //
+  // It stayed `gbm_flutter` because CFBundleName was `$(PRODUCT_NAME)`, and
+  // PRODUCT_NAME is also the built artifact's name, which release.yml
+  // hardcodes as gbm_flutter.app. Writing the literal into Info.plist
+  // decouples the two: the display name changes, the artifact name does not.
+  // (#67, candidate fix 1 of the two that issue lists.)
+  //
+  // Source-asserted for the same reason as the group above -- no Dart tier
+  // can read a bundle's Info.plist, and PR CI compiles no macOS at all
+  // (#69), so nothing else would notice this regress.
+  group('macOS application name (#67)', () {
+    test('Info.plist carries the literal name, not \$(PRODUCT_NAME)', () {
+      final String plist = readRunnerSource('macos/Runner/Info.plist');
+      final int key = plist.indexOf('<key>CFBundleName</key>');
+
+      expect(key, isNot(-1), reason: 'Info.plist should declare CFBundleName');
+      expect(
+        plist.substring(key).split('\n')[1].trim(),
+        '<string>$expectedTitle</string>',
+        reason:
+            'CFBundleName must hold the literal display name. Left as '
+            '\$(PRODUCT_NAME) it inherits the artifact name '
+            '($scaffoldDefault), which is what the Apple menu then shows.',
+      );
+    });
+
+    test('PRODUCT_NAME is left alone so the artifact name does not move', () {
+      final String xcconfig = readRunnerSource(
+        'macos/Runner/Configs/AppInfo.xcconfig',
+      );
+
+      // The other half of the decoupling, and the reason #67's candidate
+      // fix 2 was not taken: release.yml bundles, signs and notarises
+      // gbm_flutter.app by name in four places. Renaming the artifact is a
+      // tag-build-only change that PR CI cannot prove out.
+      expect(
+        xcconfig,
+        contains('PRODUCT_NAME = $scaffoldDefault'),
+        reason:
+            'Renaming the artifact needs release.yml updated in lockstep; '
+            'this fix deliberately changes only the display name.',
+      );
+    });
+
+    test('MainMenu.xib still defers the name to the bundle', () {
+      final String xib = readRunnerSource(
+        'macos/Runner/Base.lproj/MainMenu.xib',
+      );
+
+      // If someone ever hardcodes the name here instead, the Info.plist
+      // assertion above stops meaning anything -- the xib would win for the
+      // menu items while the Dock and Force-Quit list kept reading the
+      // bundle. Keep the single source of truth.
+      expect(
+        xib,
+        contains('<menuItem title="About APP_NAME"'),
+        reason:
+            'The app menu should keep the APP_NAME placeholder so the '
+            'bundle stays the one source of the display name.',
+      );
+    });
+  });
 }

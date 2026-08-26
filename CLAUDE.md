@@ -113,9 +113,13 @@ means it wraps. **Off is a change from what shipped before it**: nothing was
 configurable and every surface wrapped unconditionally, because a bare `Text`
 defaults to `softWrap: true` inside an `Expanded`. The surfaces are
 `DiffLineView`/`DiffPage` (History detail, Compare, file-history and stashes
-panels all render through `DiffPage`), `ScopedDiffView` (Working Copy),
-`PanelDiffText` (patches and line-history panels), `BlamePanel` and
-`ConflictResolveWindow`; the commit-message box is deliberately untouched. The
+panels all render through `DiffPage`), `SideBySideDiffView` (History's 並排
+mode), `ScopedDiffView` (Working Copy), `PanelDiffText` (patches and
+line-history panels), `BlamePanel` and `ConflictResolveWindow`; the
+commit-message box is deliberately untouched. **`SideBySideDiffView` pins
+neither gutter** — two columns have two, only the left one is at the
+viewport's edge, and freezing that one alone desynchronises the pair; its
+two columns share one scroller so a pair stays aligned. The
 machinery is `lib/widgets/gbm_code_hscroll.dart` (`GbmCodeHScroll`,
 `GbmPinnedGutter`, `GbmPinnedGutterClip`) plus `lib/widgets/code_line_metrics.dart`,
 which measures the widest line with one `TextPainter.layout` and memoises it —

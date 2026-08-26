@@ -4492,6 +4492,48 @@ mutation 變成窄紅（ambient 捲軸右緣 975，pane 右緣 660.5）。
 順帶再次踩到記載過的陷阱：`dart format` 重排參數列之後 mutation 的 anchor 對不
 上，Python 的 `assert count == 1` 當場擋下來，證明那個規矩不是多餘的。
 
+### merge 帶進來一個沒接 soft wrap 的檔案介面
+
+`origin/main` 上的 side-by-side 那輪加了 `SideBySideDiffView`，而它的 doc
+comment 寫著：
+
+> Lines wrap, exactly as `DiffPage`'s do. Cross-column alignment survives it
+> for free… no `softWrap: false` and no synchronised horizontal scrolling
+> needed.
+
+**寫的當下是對的，兩條分支相遇的那一刻就不對了**——這輪讓 `DiffPage` 預設不換行。
+兩條分支平行開發，各自的前提在對方那邊被推翻，而 merge 不會告訴你這件事。這是
+「有關 file 的都要」在合併後的樹上還沒關閉的最後一個缺口。
+
+接法與其他四個介面同型（`ListView` 已經把高度收界，所以 `GbmCodeHScroll` 直接
+可用），但有兩件事是這個介面特有的：
+
+1. **一個 well 蓋住兩欄，寬度是「一欄 × 2 + 分隔線」。** 兩欄一起捲，所以一對
+   永遠對齊。而且關掉換行之後**對齊反而更容易**：每個 cell 都剛好一行高，
+   `IntrinsicHeight` 沒有東西要拉平。
+2. **兩欄都不釘行號欄，這是決定不是遺漏。** 兩欄有兩個行號欄，只有左邊那個在
+   viewport 邊緣。只釘它會讓左欄的號碼凍住、右欄的號碼滑過去，讀起來像壞掉而
+   不像貼心。所以 `GbmPinnedGutter` 在這裡刻意缺席，與 `DiffLineView` 的單欄
+   列不同。
+
+順帶更正一條既有測試的前提：`side_by_side_diff_view_test.dart` 那條
+「blank padding cell 要跟旁邊換行的那一列等高」是在「換行是唯一行為」的年代寫的，
+現在預設翻轉了，所以它改成**明確傳 `softWrap: true`**。其餘測試則明確跑在
+出貨的預設值下。這正是 CLAUDE.md 那則的第二次應驗：規則變了，每個編碼了該規則的
+fixture 都要重讀一次，別的東西都不會發現。
+
+#### 兩則 mutation，第二則抓到四條測試的共同盲點
+
+| mutation | 結果 |
+|---|---|
+| cell 的 `softWrap` 硬寫成 `true`（pane 仍讀偏好） | 窄紅，只有「每個 cell 都帶著旗標」那條 |
+| 寬度算成一欄（`* 2 + 1` → `+ 1`） | **前四條全綠** |
+
+第二則值得記：**半寬的 well 仍然會產生 scroller、仍然溢出 pane**，所以每一條
+「有沒有 scroller」的測試都看不見它——看得見的是「右欄的文字被切掉」。補的那條
+用測試裡**獨立量出來**的最寬行當 oracle，而不是重述實作的算式，mutation 之後
+是 513.75 對上需要的 1086.5。
+
 ### 規格狀態
 
 P11 的 Appearance 段只有主題切換，21 頁規格全文沒有任何 wrap／自動換行／水平

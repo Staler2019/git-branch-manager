@@ -14,12 +14,15 @@
 // constants: "the two columns are level" is the requirement, and a finder
 // proves existence, never position.
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/parsed_diff.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/features/diff/side_by_side_diff_view.dart';
 import 'package:gbm_flutter/features/diff/widgets/side_by_side_cell.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
+import 'package:gbm_flutter/theme/theme_mode_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
 
 DiffLine _context(String text, {required int oldLine, required int newLine}) =>
@@ -80,11 +83,29 @@ ParsedDiff _diffOf(
   inputBytes: 0,
 );
 
-Future<void> _pump(WidgetTester tester, ParsedDiff diff) async {
+/// [softWrap] defaults to the shipped default (off), so every test below
+/// that does not name it is exercising the mode users actually get. The one
+/// test whose subject *is* wrapping passes `true` explicitly rather than
+/// relying on a default that flipped underneath it -- the two branches were
+/// developed in parallel, and that test was written when wrapping was the
+/// only behaviour there was.
+Future<void> _pump(
+  WidgetTester tester,
+  ParsedDiff diff, {
+  bool softWrap = false,
+}) async {
+  SharedPreferences.setMockInitialValues(<String, Object>{
+    'appPrefs.softWrapEnabled': softWrap,
+  });
+  final SharedPreferences prefs = await SharedPreferences.getInstance();
+
   await tester.pumpWidget(
-    MaterialApp(
-      theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
-      home: Scaffold(body: SideBySideDiffView(diff: diff)),
+    ProviderScope(
+      overrides: <Override>[sharedPreferencesProvider.overrideWithValue(prefs)],
+      child: MaterialApp(
+        theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+        home: Scaffold(body: SideBySideDiffView(diff: diff)),
+      ),
     ),
   );
   await tester.pumpAndSettle();
@@ -123,7 +144,7 @@ void main() {
       // line wraps at the default 800px canvas (halved, minus the gutter),
       // so the real row is several lines tall and the constant fell short.
       final String long = List<String>.filled(60, 'wrap').join(' ');
-      await _pump(tester, _diffOf(<DiffLine>[_removed(long)]));
+      await _pump(tester, _diffOf(<DiffLine>[_removed(long)]), softWrap: true);
 
       final Rect left = tester.getRect(_cell(SideBySideSide.left, text: long));
       final Rect right = tester.getRect(_cell(SideBySideSide.right));

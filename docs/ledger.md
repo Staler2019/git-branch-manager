@@ -3806,3 +3806,130 @@ Shift+↑↓ 加的 `Focus` 節點在每次 pointerDown 都無條件 `requestFoc
 與程式碼意見不合就什麼都沒證明」，那支從主機層刪掉，改寫進裝置層
 （`stage_lines_flow_test`）；主機層留下的是**能**被證偽的那個不變式：指標按著時
 不畫。
+
+### macOS 的 About 是原生面板，Help 的 Check for updates 是規格外的第五項 (fix/macos-about-dialog-parity)
+
+使用者的回報只有兩句：「macOS 上的 Help > About 樣式與 Windows 上不同」、「Windows
+版有包含 check for update，因此要把 Help > Check for update 拿掉」。兩句都成立，
+而且第一句的成因不是主題、字型或視窗裝飾，是一條明確的程式碼分支。
+
+#### 一個 action id，兩個不同的視窗
+
+`platform_menu_bar_host.dart` 有一個叫 `_systemProvided` 的集合，裡面放
+`fileExit` 與 `helpAbout`；落在集合裡的 id 不會被掛成一般的 `PlatformMenuItem`，
+而是在選單尾端補一個 `PlatformProvidedMenuItem`。Quit 那半是對的——它屬於 Apple
+應用程式選單，macOS 確實自己提供。About 那半不是：`PlatformProvidedMenuItemType
+.about` 叫的是 `orderFrontStandardAboutPanel:`，也就是**原生 About 面板**，而
+Windows / Linux 走的是 `_buildActionHandlers()` 裡的
+`context.push(RoutePaths.aboutDialog)`，開的是 `AboutDialogContent`。同一個
+`helpAbout`，兩個平台兩個不同的視窗。
+
+規格頁 01 的散文把這件事判乾淨了：意圖行寫「三平台統一樣式，只有 menu bar 位置與
+標題列跟隨系統」，自繪清單把範圍寫死在「視窗**內**所有內容」，而「依平台不同的部分
+（僅三項）」列的是 menu bar 的**位置**、標題列按鈕樣式、系統檔案選擇器——沒有一項
+是「選單項的行為」。About dialog 是視窗內內容。
+
+#### 為什麼三條 dispatch path 的 parity 測試看不見它
+
+這才是值得記的部分。CLAUDE.md 有一條既有的不變式：鍵盤、macOS 系統選單、in-window
+選單三條路徑必須共讀 `_buildActionHandlers()` 那張 map，而且 repo 裡有一支
+`workspace_intent_dispatch_parity_test.dart` 專門守它。這個缺陷從那張網底下穿過去
+了，原因是：
+
+**system-provided 的項目根本不從 map 取 handler。** parity 測試問的是「handler 是不
+是非 null」，而一個 `PlatformProvidedMenuItem` 連 `onSelected` 欄位都沒有——它不是
+「handler 為 null」，它是「不在被問的那組東西裡」。同時 in-window 的點擊測試只跑
+非 macOS 那條路徑，所以它看到的一直是正確行為。兩邊都綠，缺陷在中間。
+
+修法對應的測試因此不能只斷存在：`workspace_about_dialog_test.dart` 拿到真
+`WorkspaceScreen` 建出來的 `PlatformMenuItem` 之後，**呼叫 `onSelected!()` 再斷言
+渲染出什麼**。而且路由表裡放了 `keyboardShortcutsDialog` 當**誘餌**——沒有它，接錯
+線會失敗在「找不到 route」，那是比「內容不對」弱的紅，會讓測試看起來證明了比實際更
+多的東西。
+
+突變檢查把這兩層分開量了：
+
+| 突變 | 變紅的 |
+|---|---|
+| `helpAbout` 放回 `_systemProvided` | `platform_menu_bar_host_test` 的結構斷言 + macOS 的呼叫斷言（in-window 那條維持綠，正確——突變只影響 macOS） |
+| `helpAbout` 的 handler 改指 `keyboardShortcutsDialog` | **兩條渲染斷言都紅**（突變落在兩者共讀的 map）。而只斷 `onSelected != null` 的那半在同一個突變下維持綠 |
+
+第二列的後半是這一輪真正的收穫：**「非 null」與「指向正確的 route」是兩個不同的
+命題，而前者一直被當成後者的證據。**
+
+#### Apple 選單那個 About 沒有被動到，而那是對的
+
+一開始擔心拿掉 Help 的原生 About 會讓 macOS 一個原生 About 都不剩。查證後不會：
+Flutter 的 `PlatformMenuBar` 只取代 index 0 之後的選單，`MainMenu.xib` 裡
+`systemMenu="apple"` 的那個應用程式選單原封不動保留，`About APP_NAME` /
+`Hide` / `Quit` 一直都在。macOS 慣例本來就把 About 放在應用程式選單，所以 Help 裡
+再放一個原生的是**重複**而不是必要。`fileExit` 留在 `_systemProvided` 也是同一個
+理由。
+
+#### 第二句：Help 的第五項
+
+`Check for updates…` 坐在 `Report an issue` 與 `About` 之間，原始碼註解自己寫著
+「Not in the spec at all」。而規格 P04 `MENUS` 給 Help **四項**，
+`spec-conformance-matrix.md` 記的是 `Help 4`，`gbm_menu_model.dart` 自己的
+`// Help (4 items)` 與 `gbm_action_id.dart` 的 `// Help (4)` 也都寫四——**三處宣稱
+四，清單裡有五，沒有任何測試看過 Help 的內容**。所以移除它不是 deviation，是回歸
+符合；三處註解也才名副其實。
+
+移除前先照 orphan 規則查了 `RoutePaths.updateDialog` 的生產者，扣掉要刪的那個還有
+三個：`about_dialog.dart` 的 primary 按鈕、`preferences_dialog.dart` 的
+「Check for updates now」、`app.dart` 的 `AutoUpdateCheck` 開機檢查。About 那顆是
+關鍵的一個——`WelcomeScreen` 完全不建 menu bar，所以沒開 repository 時它是**唯一**
+到得了更新檢查的路。因此 `GbmActionId.helpCheckForUpdates` 連 enum 值一起刪，
+`gbm_shortcuts.dart` 本來就沒有它的綁定。
+
+裝置層也 grep 過了：`update_check_flow_test.dart` 走的是 WelcomeScreen 的 About
+tooltip → About dialog 的按鈕，不是 Help 選單，所以不受影響。**而且真的跑了**
+（`flutter test integration_test/update_check_flow_test.dart -d macos`，先跑
+`scripts/build_capi.sh` 免得載到過期的 dylib）：2/2 綠，2 分 37 秒，含向真的
+GitHub Releases 下載資產並比對已發布的 sha256。這是「拿掉選單項之後更新檢查仍然
+到得了」在實機上的證據，不只是 grep 的推論。
+
+新測試斷的是 **label 不是 id**：enum 值刪掉之後，引用 `GbmActionId
+.helpCheckForUpdates` 的測試會編不過，那是壞掉不是變紅。而既有的
+「every GbmActionId appears exactly once」斷言 `idSet == GbmActionId.values
+.toSet()`，兩邊同時縮小會自動維持綠——它**看不到**這次移除，這正是新測試不是重複的
+原因。
+
+突變檢查在這裡踩到一個自己造成的假訊號：第一版突變是「把第五項塞回去」，但任何新增
+的項目都得複用一個既有 id（每個 id 依設計恰好出現一次），於是重複 id 也讓
+「appears exactly once」變紅，紅得比預期寬。改成「把 `About` 的 label 改成
+`About…`」之後只有目標那條紅。**紅得太寬時先懷疑突變本身，再懷疑測試。**
+
+#### 順手了結 #67
+
+修好 Help → About 之後，Apple 選單裡仍寫著 `About gbm_flutter`。`MainMenu.xib` 把
+Apple 選單、About、Hide、Quit 都寫成字面 placeholder `APP_NAME`，由 AppKit 在載入
+時從 bundle 解析（`CFBundleDisplayName` → `CFBundleName`），跟
+`MainFlutterWindow` 設的 `NSWindow.title` 完全無關——#66 修的是後者，所以前者留著。
+
+使用者裁定採 #67 的候選修法 1：`Info.plist` 的 `CFBundleName` 從 `$(PRODUCT_NAME)`
+改成字面 `git-branch-manager`。不動 `PRODUCT_NAME`，因為它同時是**產出物**的名字，
+`release.yml:161,204,226,254` 硬編 `gbm_flutter.app` / `.exe`，改它要連簽章、公證、
+DMG 三步一起動，而那只有 tag build 驗得了。
+
+這一段是本輪唯一沒有任何 Dart tier 到得了的東西，所以真的跑了一次
+`flutter build macos --debug` 取證。產出物層面確認了三件事：bundle 仍叫
+`gbm_flutter.app`、`CFBundleExecutable` 仍是 `gbm_flutter`（`release.yml` 不受影
+響）、而 `Contents/Info.plist` 的 `CFBundleName` 已是 `git-branch-manager`。
+
+**照實記一個限度**：畫面上的 Apple 選單文字沒有被程式化地讀到。`osascript` 走
+System Events 需要輔助使用權限（未授予），而截圖驗證會拍到使用者整個桌面，做了一次
+之後就停手並刪除了。所以「Apple 選單顯示 git-branch-manager」這句的證據是
+**因果鏈**（#67 觀察到實機顯示 `gbm_flutter` → AppKit 解析 app 名稱的唯一來源是
+bundle → bundle 現在是對的），不是直接觀察。要直接觀察得由人在機器前看一眼。
+#67 原文自己留了退路：若還有地方顯示舊名（Dock tooltip 最可能），補一行
+`CFBundleDisplayName` 同樣的字面值即可——目前的 bundle 沒有這個鍵。
+
+#### 一句過期的註解
+
+`MainFlutterWindow.swift` 那段「同步指派會被還原成 `CFBundleName`，也就是
+`gbm_flutter`」在 `CFBundleName` 改掉之後就過期了。機制沒變（同步指派仍然會被還
+原），變的是後果：現在還原到的是同一個字串，所以那行延後指派**單看起來變成可以刪
+的**。它沒有被刪，而且註解裡寫明了理由：`CFBundleName` 是 *application* 名稱，
+`self.title` 是 *window* 標題，兩者現在只是碰巧相同，沒有任何機制讓它們保持同步；
+因為「還原本來就會落在正確值」而刪掉它，等於把兩者悄悄耦合起來。

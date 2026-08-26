@@ -58,10 +58,11 @@ src/core/   headless C++20, no Qt/Dart (docs/ARCHITECTURE.md)
   /panel/:tabId                    PanelPage (one per open management-panel tab, spec P14)
 /repo/:repoId/conflicts            ConflictResolveWindow (standalone window, not a dialog overlay)
 
-/dialogs/about                            \  app-wide (not repo-scoped: discovery
-/dialogs/keyboard-shortcuts                > and app settings aren't tied to any
-/dialogs/manage-base-folders               > one open repository, see gbm_capi.h's
-/dialogs/preferences                      /  Discovery section, and spec page 11)
+/dialogs/about                            \  app-wide (not repo-scoped: discovery,
+/dialogs/keyboard-shortcuts                | app settings and the update check
+/dialogs/manage-base-folders               > aren't tied to any one open repository
+/dialogs/preferences                       | -- see gbm_capi.h's Discovery section
+/dialogs/update                           /  and spec page 11)
 
 /repo/:repoId/dialogs/<name>       22 repo-scoped dialogs: reset-branch, merge,
                                     cherry-pick, stash-changes, create-tag,
@@ -84,6 +85,15 @@ for any of them no longer exists.
 
 Dialog routes are top-level (pushed over whatever's underneath), not
 `ShellRoute` children — see `dialog_route.dart`.
+
+**`/dialogs/update` has no menu-bar entry, by design.** Its three producers
+are `about_dialog.dart`'s primary button, `preferences_dialog.dart`'s
+「Check for updates now」 (Advanced), and `app.dart`'s `AutoUpdateCheck` at
+startup. A `Help → Check for updates…` item existed and was removed — the
+spec's P04 `MENUS` gives Help four items and that was a fifth, so the menu
+is now conformant rather than deviating. About's button is the one that
+matters: `WelcomeScreen` renders no menu bar at all, so with no repository
+open it is the only reachable route to the check.
 
 **Preferences vs Repository settings.** These are two different dialogs and
 the split is deliberate (spec pages 11 and 06): `/dialogs/preferences` is
@@ -148,7 +158,7 @@ lib/
     status_bar/      StatusBar, BackgroundTask
     log_drawer/      LogDrawer
     context_menus/   Shared GbmContextMenuItemSpec builders (9 right-click targets)
-    dialogs/         The 34 repo-scoped dialog contents listed above, plus the 4 app-wide ones
+    dialogs/         The 22 repo-scoped dialog contents listed above, plus the 5 app-wide ones
 ```
 
 Presentational/container split: `MenuBarRow`, `ActionToolbar`, `TabRow`
@@ -368,7 +378,7 @@ per-event-type interpretation — which of the 34 event types updates which
 ### Intent / Action layer
 
 `lib/actions/` holds three pure-data files with no Riverpod/FFI dependency:
-`gbm_action_id.dart` (the `GbmActionId` enum, 64 values), `gbm_menu_model.dart`
+`gbm_action_id.dart` (the `GbmActionId` enum, 65 values), `gbm_menu_model.dart`
 (the menu-bar/label/shortcut-string model `MenuBarRow` and the keyboard
 shortcuts dialog both read), and `gbm_shortcuts.dart`
 (`GbmActionId -> GbmKeyboardShortcut`, platform-aware Cmd/Ctrl binding).
@@ -901,6 +911,37 @@ you are touching, not by when it was learned.
 - **`GbmMenuItem.enabled: false` is only a visual signal** — set `onTap: null`
   too, or a "disabled" item still fires. Disabled-with-a-tooltip beats
   hidden: 隱藏會讓人以為功能不存在.
+- **A `PlatformProvidedMenuItem` silently forks one action id into two
+  different windows, and the dispatch-parity test cannot see it.** `helpAbout`
+  was wired in `_buildActionHandlers()` *and* listed in
+  `PlatformMenuBarHost._systemProvided`, so Windows/Linux opened
+  `AboutDialogContent` while macOS got the native About panel — for months,
+  with every tier green. The reason no test caught it: a system-provided item
+  takes **no handler from the map at all**, so «the handler is non-null» was
+  vacuously true, and the in-window click test only ever exercised the
+  non-macOS path. **Assert what a menu handler renders, not that it exists** —
+  `item.onSelected!()` then a finder on the route's content
+  (`workspace_about_dialog_test.dart`), with a second dialog route present as a
+  decoy so a mis-wire fails on content rather than on a missing route. Spec
+  page 01 is the rule being enforced: only the menu bar's *position* follows
+  the OS; every window's *contents* are Flutter's on all three platforms. Note
+  `PlatformMenuBar` replaces menus from index 1 only, so `MainMenu.xib`'s
+  `systemMenu="apple"` menu survives untouched — macOS already has a native
+  About/Quit/Hide there, which is what makes a second one under Help redundant
+  rather than required. Quit stays system-provided for exactly that reason.
+- **macOS reads the *application* name from the bundle, never from
+  `NSWindow.title`.** `MainMenu.xib` writes the Apple menu, About, Hide and
+  Quit items as the literal placeholder `APP_NAME`, which AppKit resolves from
+  `CFBundleDisplayName` → `CFBundleName` at load time; the Dock tooltip and
+  Force-Quit list read the same. It said `gbm_flutter` because `CFBundleName`
+  was `$(PRODUCT_NAME)` and `PRODUCT_NAME` is also the built artifact's name,
+  which `release.yml` hardcodes as `gbm_flutter.app` in four places. Writing
+  the literal into `Info.plist` decouples the two (#67 candidate fix 1);
+  renaming `PRODUCT_NAME` does not, and is a tag-build-only change. **No Dart
+  tier reads a bundle's Info.plist and PR CI compiles no macOS (#69)**, so
+  `test/platform/window_title_test.dart` asserts the plist as source text —
+  and the value it asserts must be checked against a real
+  `flutter build macos` at least once per change.
 - `showGbmMenu` is built on Material's `showMenu`, whose modal barrier makes
   a hover-opened flyout unhoverable from its own parent — submenus open on
   tap, and the parent is popped *before* the child's action runs (menu items
@@ -929,20 +970,28 @@ you are touching, not by when it was learned.
 - **`RefInfo.ahead` means nothing when `upstream` is empty** — a branch that
   never had one reports `0`, which rendered literally claims the opposite of
   the truth.
-- **The current branch is pinned inside its own folder, by the tree's
-  comparator.** `BRANCH_STATES`: 「永遠置頂於所屬資料夾內，且不受 filter
-  影響」 — first among its *siblings*, not hoisted to row zero, and not only
-  while filtering. It lives in `branch_tree_builder.dart`'s
-  `_compareTreeNodes` because sorting a level is the only place that knows
-  what "its own folder" means, and it outranks the folders-before-leaves rule
-  (`BRANCH_TREE` draws `main` above the folders at its depth). The filter
-  half is `sidebar_panel.dart` adding HEAD *back into the builder's input*
-  when a query drops it — a row rendered outside the tree has no folder to
-  sit in, which is exactly why the previous version had to hoist it. **P02-14
-  rule 7's bare 「永遠置頂顯示」 does not overrule this**: `BRANCH_STATES` is
-  the specific rule, so when a matching folder sorts before HEAD's folder,
-  HEAD renders *second* and that is correct
-  (`sidebar_current_branch_pin_test.dart` asserts it).
+- **The current branch has no sorting or filtering privilege in the sidebar,
+  and this is a user-ratified deviation — do not "fix" it back.**
+  `BRANCH_STATES` (「永遠置頂於所屬資料夾內，且不受 filter 影響」), P02-14
+  rule 7 (「即使不符合條件也不會被濾掉」) and `BRANCH_TREE`'s mock (which
+  draws `main` above the folders at its own depth) all specify otherwise, and
+  all three were implemented and passing before the user ruled against them:
+  a pin makes the first row of every level jump around depending on where
+  HEAD happens to be, and an exempt row makes a filtered sidebar draw a
+  folder with no matching child in it. Same precedent as the Working Copy's
+  removed checkboxes. What is left is `_compareTreeNodes`' plain 「folders
+  (alphabetically) → leaves (alphabetically)」 — folders-before-leaves stays
+  because it is tree *structure*, not branch priority, which is the
+  distinction the user drew. **The visual half of `BRANCH_STATES` survives
+  untouched** (bold name + full-row `surfaceSelected`), and it is now the
+  only thing marking HEAD, which is also what keeps
+  `branch_selection_rules.dart`'s 「HEAD is never bulk-selectable」 rationale
+  intact. 「Where am I」 is answered instead by `sidebar_panel.dart` seeding
+  `_expandedFolders` with `ancestorFolderPaths(refs.head.branchName)`, so the
+  folders on the way to HEAD are open on the first frame — seeded on mount
+  *and* on every checkout through one `_seededExpansionForHead` gate, and
+  `addAll`-only so nothing the user collapsed is forced back open. Ledger:
+  「側邊欄目前分支不再置頂」.
 - **`RefInfo.isGone` can only be true after a prune** (git reports `[gone]`
   only once the remote-tracking ref is already deleted). Gone *marking* comes
   from `git remote prune --dry-run`, deliberately not from `fetch --prune` —
@@ -1274,11 +1323,13 @@ derived from the code — they outrank convenience every time):
   of both scripts writes its exit code to, and a relaunch on every failure
   path reached after the app has exited — so the next failure is diagnosable
   rather than a vanished window (ledger: 更新流程的三個缺陷).
-- **Open issues**: **#62** (TabRow overflow menu), **#67**–**#71**,
+- **Open issues**: **#62** (TabRow overflow menu), **#68**–**#71**,
   **#74**, **#76**, **#84**–**#89** (Tier 6 spec blockers), **#92**–**#95**
   (capi with no spec entry point), **#99**, **#101**, **#102**, **#109**.
   **#75 is closed** (all four 260820 `REVISIONS` shortcut gaps landed in
-  feat/p03-working-copy-redesign). `gh issue list` is authoritative; the
+  feat/p03-working-copy-redesign); **#67 is closed** (macOS `CFBundleName` is
+  the literal `git-branch-manager`, candidate fix 1, in
+  fix/macos-about-dialog-parity). `gh issue list` is authoritative; the
   ledger's mentions are historical.
 
 ## Engineering ledger

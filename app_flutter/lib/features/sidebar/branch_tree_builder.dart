@@ -250,27 +250,22 @@ BranchTreeFolder _folderNodeToTree(_FolderNode node) {
   );
 }
 
-/// Comparison function for sorting tree nodes: the current branch first, then
-/// folders (alphabetically), then leaves (alphabetically).
+/// Comparison function for sorting tree nodes: folders (alphabetically), then
+/// leaves (alphabetically). **The current branch has no priority here.**
 ///
-/// `BRANCH_STATES`' 目前分支 row: 「永遠置頂於所屬資料夾內」. The pin is scoped
-/// to the parent, which is why it lives in the comparator rather than in the
-/// panel: sorting a level is the only place that knows what "its own folder"
-/// means, and every level is sorted by this one function. `BRANCH_TREE` draws
-/// `main` (`current: true`, `depth: 0`) above the `feature` / `bugfix` /
-/// `release` folders at the same depth, so at any level the pin outranks the
-/// folders-before-leaves rule rather than yielding to it.
+/// That is a *user-ratified deviation* from `BRANCH_STATES`' 目前分支 row
+/// (「永遠置頂於所屬資料夾內」) and from `BRANCH_TREE`'s mock, which draws
+/// `main` (`current: true`, `depth: 0`) above the folders at its own depth.
+/// The user asked for a plain alphabetical tree: a pin makes the first row of
+/// every level jump around depending on where HEAD happens to be, and it is
+/// the sort order the whole sidebar is read through. Finding the current
+/// branch is `sidebar_panel.dart`'s job instead -- it seeds the expanded set
+/// with [ancestorFolderPaths] so the row is already on screen. Do not
+/// reinstate the pin; see docs/ledger.md.
 ///
-/// Only one ref can be HEAD, so this never has to order two pinned nodes
-/// against each other, and a folder is never [RefInfo.isHead] -- a detached
-/// HEAD simply pins nothing and the tree sorts as it always did.
+/// Folders-before-leaves stays, because it is tree *structure* rather than
+/// branch priority -- the same distinction the user drew.
 int _compareTreeNodes(BranchTreeNode a, BranchTreeNode b) {
-  final aIsHead = a is BranchTreeLeaf && a.ref.isHead;
-  final bIsHead = b is BranchTreeLeaf && b.ref.isHead;
-
-  if (aIsHead && !bIsHead) return -1;
-  if (!aIsHead && bIsHead) return 1;
-
   final aIsFolder = a is BranchTreeFolder;
   final bIsFolder = b is BranchTreeFolder;
 
@@ -296,20 +291,19 @@ int _compareTreeNodes(BranchTreeNode a, BranchTreeNode b) {
 /// `BranchTreeItem` draws those with `selected: false`, so selecting one
 /// would look like the key did nothing.
 ///
-/// [skip] is the current branch when it is on screen only because rule 7
-/// pinned it. It sits *in* the tree now rather than above it, so without
-/// this the first "result" could be a row the query excluded -- and since
-/// the pin leads its own folder, that is precisely the row this would
-/// otherwise reach first.
-String? firstLeafName(List<BranchTreeNode> nodes, {RefInfo? skip}) {
+/// Every leaf in the tree is a genuine match now, so the first one *is* the
+/// first result. This used to take a `skip` for the current branch, which
+/// P02-14 rule 7 forced onto the screen whether or not it matched; that
+/// exemption is gone (see `sidebar_panel.dart`), and with it the only caller
+/// that ever passed the parameter.
+String? firstLeafName(List<BranchTreeNode> nodes) {
   for (final BranchTreeNode node in nodes) {
     if (node is BranchTreeLeaf) {
-      if (node.ref.kind != RefKind.remoteBranch &&
-          node.ref.fullName != skip?.fullName) {
+      if (node.ref.kind != RefKind.remoteBranch) {
         return node.ref.shortName;
       }
     } else if (node is BranchTreeFolder) {
-      final String? nested = firstLeafName(node.children, skip: skip);
+      final String? nested = firstLeafName(node.children);
       if (nested != null) return nested;
     }
   }
@@ -364,6 +358,26 @@ List<RefInfo> collectFolderLeafRefs(List<BranchTreeNode> nodes) {
     }
   }
   return refs;
+}
+
+/// Every ancestor folder of [shortName], as the full paths
+/// [BranchTreeFolder.folderPath] uses -- `a/b/c` yields `{a, a/b}`, not
+/// `{a, b}`. `buildBranchTree` keys `expandedFolders` on the path, and two
+/// different parents may each own a `sub`, so names would open the wrong ones.
+///
+/// This is what puts the current branch on screen without a sort pin:
+/// `sidebar_panel.dart` seeds its expanded set with the ancestors of HEAD.
+/// A root-level branch and a detached HEAD (`''`) both have none, so both
+/// correctly expand nothing.
+Set<String> ancestorFolderPaths(String shortName) {
+  final List<String> parts = shortName.split('/');
+  final Set<String> paths = <String>{};
+  String current = '';
+  for (int i = 0; i < parts.length - 1; i++) {
+    current = current.isEmpty ? parts[i] : '$current/${parts[i]}';
+    paths.add(current);
+  }
+  return paths;
 }
 
 /// Every folder path under [nodes], at any depth.

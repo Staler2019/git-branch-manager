@@ -13,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/commit_meta.dart';
 import 'package:gbm_flutter/data/models/graph_snapshot.dart';
 import 'package:gbm_flutter/data/models/signature.dart';
+import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/features/history_graph/commit_search.dart';
 
 CommitMeta _meta({required String oid, String subject = ''}) {
@@ -175,6 +176,62 @@ void main() {
           'the unfiltered answer is UnfilteredRowIndices, which computes '
           'nothing and so has nothing to cache',
     );
+  });
+
+  test('a real withCommitMeta transition is a miss -- pins the producer the '
+      'memo key depends on', () {
+    // Every other test here builds the "new" metadata cache by hand. This
+    // one goes through the real producer, because the key's honesty rests
+    // entirely on `withCommitMeta` spreading into a **new** map rather than
+    // mutating the old one in place. Were that ever "optimised" to mutate,
+    // the memo would keep serving pre-metadata answers and no other test
+    // in this file would notice -- they would all still construct their own
+    // fresh maps and pass.
+    // The seed map below is a plain growable literal, deliberately not
+    // `const` and deliberately not built by calling `withCommitMeta`
+    // itself. `RepoSessionState`'s default cache is a `const` map, which is
+    // unmodifiable -- an in-place mutation would throw on it, and this test
+    // would go red without any of its own assertions being what caught the
+    // defect. A growable map is also what the app really holds from the
+    // first metadata reply onwards, so the mutation succeeds here and the
+    // three assertions below are what stand between it and the user.
+    final RepoSessionState seeded = RepoSessionState(
+      isOpen: true,
+      commitMetaCache: <String, CommitMeta>{
+        'ccc3': _meta(oid: 'ccc3', subject: 'Fix lane overflow'),
+      },
+    );
+    expect(
+      matchingRowIndices(
+        query: 'lane',
+        graph: graph,
+        metaCache: seeded.commitMetaCache,
+      ),
+      <int>[2],
+    );
+    final int misses = MatchMemoStats.misses;
+
+    final RepoSessionState next = seeded.withCommitMeta(<CommitMeta>[
+      _meta(oid: 'aaa1', subject: 'Add lane allocator'),
+    ]);
+
+    expect(
+      identical(next.commitMetaCache, seeded.commitMetaCache),
+      isFalse,
+      reason: 'withCommitMeta must not mutate the cache in place',
+    );
+    expect(
+      matchingRowIndices(
+        query: 'lane',
+        graph: graph,
+        metaCache: next.commitMetaCache,
+      ),
+      <int>[0, 2],
+      reason:
+          'in-place mutation would leave the memo serving the pre-batch '
+          'answer under an unchanged key',
+    );
+    expect(MatchMemoStats.misses - misses, 1);
   });
 
   test('the shared result cannot be mutated by one caller under another', () {

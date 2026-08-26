@@ -4035,3 +4035,16 @@ entry 裡再存 `metaCache` 實例與 `query` 字串。三者缺一不可，各�
 「非空查詢那條刻意不動，是使用者的裁決」，memo 一落地那句就成了假的。這正是本檔
 一再記載的「註解與程式碼互相矛盾」形狀，所以跟著這次改動一起改掉，而不是留給下一輪
 當成真話讀。
+
+以及一個補上的縫：memo 的 key 誠不誠實，整個押在 `withCommitMeta` 用展開語法生成
+**新** map 而不是就地改。這件事原本只有讀原始碼確認過，**沒有任何測試釘住**——
+memo 測試裡那幾個「新的 metaCache」全是測試自己用展開語法造的，從來沒有經過真正的
+生產者。哪天有人把 `withCommitMeta` 「優化」成就地改，過濾就會一直回舊答案，而現有
+測試沒有一支會紅。補了一支跨過真生產者的測試。
+
+這支測試自己踩了一次「紅得不是原因」：第一版用 `const RepoSessionState(isOpen: true)`
+當起點，而它的 `commitMetaCache` 預設是 **`const` map、不可修改**，所以就地改的變異會在
+那裡直接丟 `UnsupportedError`——測試是紅的，但紅的是「丟例外」，不是我寫的那三行斷言。
+換成明確的 growable map literal（也才是 app 從第一批 metadata 之後真正持有的東西）之後
+變異才成功執行，紅的位置也才變成 `withCommitMeta must not mutate the cache in place`
+那一句。**測試紅了不等於測試有承重**，得看紅在哪一行。

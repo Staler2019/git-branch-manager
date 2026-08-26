@@ -121,9 +121,9 @@ void main() {
     testWidgets('the current branch sorts alphabetically in its folder', (
       tester,
     ) async {
+      // No tap: `feature` is open on the first frame because HEAD lives in
+      // it. `chore` is not, so these are the only rows.
       await _pump(tester);
-      await tester.tap(find.text('feature'));
-      await tester.pumpAndSettle();
 
       // `zeta` is alphabetically last of its siblings and renders there. A
       // reinstated pin reverses these two rows.
@@ -136,8 +136,12 @@ void main() {
       await tester.pumpAndSettle();
 
       // `chore` sorts before `feature`; nothing hoists the current branch
-      // above it.
-      expect(_rows(tester), <String>['chore/docs']);
+      // above it, so `feature/zeta` renders last rather than first.
+      expect(_rows(tester), <String>[
+        'chore/docs',
+        'feature/alpha',
+        'feature/zeta',
+      ]);
     });
   });
 

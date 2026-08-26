@@ -87,6 +87,15 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
   StateController<ListSelection<String>> get _selectionController =>
       ref.read(branchSelectionProvider(widget.identity).notifier);
   final Set<String> _expandedFolders = <String>{};
+
+  /// The branch name the expanded set was last seeded for, so mount and every
+  /// later checkout run through one path -- `null -> 'main'` is a change too.
+  ///
+  /// A `ref.listen` on [repoRefsProvider] would cover the checkout but not the
+  /// mount: it never fires for the value already present when it registers,
+  /// and refs are typically already loaded by the time this panel builds. Same
+  /// trap, same resolution, as [_pruneSelection]'s doc comment describes.
+  String? _seededExpansionForHead;
   final TextEditingController _filterController = TextEditingController();
 
   /// P02-14's one filter box. The value lives in
@@ -368,6 +377,25 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     // is a fact about the repository, not about what the filter box happens
     // to be showing.
     final int pendingCleanup = gonePendingCount(branches, gonePendingRefs);
+    // 「Where am I」, with no sort pin to answer it: open the folders on the
+    // way to the current branch, so its row is already on screen.
+    //
+    // Deliberately **not** deferred to a post-frame callback and deliberately
+    // no `setState`: [_expandedFolders] is this State's own field rather than
+    // a provider, so writing it here reaches none of the guards
+    // [_pruneSelection] has to respect, and `buildBranchTree` a few lines
+    // below reads it in this same build -- so the first frame is already
+    // expanded, with no flash of a collapsed tree.
+    //
+    // Only ever `addAll`: 「不自動收合」 is what makes a checkout leave the
+    // folder the user was in open, and a folder they collapsed themselves
+    // stays collapsed until HEAD actually moves.
+    final String headBranch = refs.head.branchName;
+    if (headBranch != _seededExpansionForHead) {
+      _seededExpansionForHead = headBranch;
+      _expandedFolders.addAll(ancestorFolderPaths(headBranch));
+    }
+
     // A query filters the current branch exactly like any other row.
     //
     // P02-14 rule 7 (「目前分支永遠置頂顯示，即使不符合條件也不會被濾掉」) and

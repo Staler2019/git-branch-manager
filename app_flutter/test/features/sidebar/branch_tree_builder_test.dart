@@ -567,6 +567,29 @@ void main() {
     });
   });
 
+  // How the sidebar answers 「where am I」 now that no pin does: the panel
+  // seeds its expanded-folder set with the ancestors of HEAD, so the row is
+  // already on screen. These must be `folderPath`s (`a/b`), not folder
+  // *names* (`b`) -- `buildBranchTree` keys `expandedFolders` on the path,
+  // and two different parents may each own a `sub`.
+  group('ancestorFolderPaths', () {
+    test('a one-level branch yields its single folder', () {
+      expect(ancestorFolderPaths('feature/zeta'), <String>{'feature'});
+    });
+
+    test('a nested branch yields every level, as full paths', () {
+      expect(ancestorFolderPaths('a/b/c'), <String>{'a', 'a/b'});
+    });
+
+    test('a root-level branch has no ancestors', () {
+      expect(ancestorFolderPaths('main'), isEmpty);
+    });
+
+    test('an empty name (detached HEAD) has no ancestors', () {
+      expect(ancestorFolderPaths(''), isEmpty);
+    });
+  });
+
   // The current branch is sorted like any other leaf. This is a
   // **user-ratified deviation** from BRANCH_STATES' 「永遠置頂於所屬資料夾
   // 內」 and P02-14 rule 7 -- see docs/ledger.md. Every fixture below keeps

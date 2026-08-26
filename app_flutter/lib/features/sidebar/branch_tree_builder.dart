@@ -360,6 +360,26 @@ List<RefInfo> collectFolderLeafRefs(List<BranchTreeNode> nodes) {
   return refs;
 }
 
+/// Every ancestor folder of [shortName], as the full paths
+/// [BranchTreeFolder.folderPath] uses -- `a/b/c` yields `{a, a/b}`, not
+/// `{a, b}`. `buildBranchTree` keys `expandedFolders` on the path, and two
+/// different parents may each own a `sub`, so names would open the wrong ones.
+///
+/// This is what puts the current branch on screen without a sort pin:
+/// `sidebar_panel.dart` seeds its expanded set with the ancestors of HEAD.
+/// A root-level branch and a detached HEAD (`''`) both have none, so both
+/// correctly expand nothing.
+Set<String> ancestorFolderPaths(String shortName) {
+  final List<String> parts = shortName.split('/');
+  final Set<String> paths = <String>{};
+  String current = '';
+  for (int i = 0; i < parts.length - 1; i++) {
+    current = current.isEmpty ? parts[i] : '$current/${parts[i]}';
+    paths.add(current);
+  }
+  return paths;
+}
+
 /// Every folder path under [nodes], at any depth.
 ///
 /// Full paths, not display names -- the panel's expanded-folder set is keyed

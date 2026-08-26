@@ -41,11 +41,11 @@ void main() {
       expect(tree.length, 2);
       expect(tree[0] is BranchTreeLeaf, true);
       expect(tree[1] is BranchTreeLeaf, true);
-      // `headRef` is `main` with `isHead: true`, so BRANCH_STATES' 「永遠置頂於
-      // 所屬資料夾內」 puts it above `develop` despite the alphabetical rule --
-      // which this assertion used to state the other way round.
-      expect((tree[0] as BranchTreeLeaf).ref.shortName, 'main');
-      expect((tree[1] as BranchTreeLeaf).ref.shortName, 'develop');
+      // `headRef` is `main` with `isHead: true` and still sorts *after*
+      // `develop`: the current branch has no ordering priority at all -- see
+      // docs/ledger.md, 「側邊欄目前分支不再置頂」.
+      expect((tree[0] as BranchTreeLeaf).ref.shortName, 'develop');
+      expect((tree[1] as BranchTreeLeaf).ref.shortName, 'main');
     });
 
     test('builds nested tree for slash-delimited branches', () {
@@ -567,7 +567,35 @@ void main() {
     });
   });
 
-  group('current branch pinning (BRANCH_STATES: 永遠置頂於所屬資料夾內)', () {
+  // How the sidebar answers 「where am I」 now that no pin does: the panel
+  // seeds its expanded-folder set with the ancestors of HEAD, so the row is
+  // already on screen. These must be `folderPath`s (`a/b`), not folder
+  // *names* (`b`) -- `buildBranchTree` keys `expandedFolders` on the path,
+  // and two different parents may each own a `sub`.
+  group('ancestorFolderPaths', () {
+    test('a one-level branch yields its single folder', () {
+      expect(ancestorFolderPaths('feature/zeta'), <String>{'feature'});
+    });
+
+    test('a nested branch yields every level, as full paths', () {
+      expect(ancestorFolderPaths('a/b/c'), <String>{'a', 'a/b'});
+    });
+
+    test('a root-level branch has no ancestors', () {
+      expect(ancestorFolderPaths('main'), isEmpty);
+    });
+
+    test('an empty name (detached HEAD) has no ancestors', () {
+      expect(ancestorFolderPaths(''), isEmpty);
+    });
+  });
+
+  // The current branch is sorted like any other leaf. This is a
+  // **user-ratified deviation** from BRANCH_STATES' 「永遠置頂於所屬資料夾
+  // 內」 and P02-14 rule 7 -- see docs/ledger.md. Every fixture below keeps
+  // HEAD alphabetically last among its siblings, so a reinstated pin fails
+  // them rather than passing by coincidence.
+  group('current branch has no sort priority', () {
     RefInfo branch(String name, {bool isHead = false}) => RefInfo(
       fullName: 'refs/heads/$name',
       shortName: name,
@@ -604,10 +632,9 @@ void main() {
           .toList();
     }
 
-    test('a current branch inside a folder leads that folder', () {
-      // The falsifying case: alphabetically `zeta` is last of the three, so
-      // any ordering that ignores isHead puts it there. Nothing about this
-      // tree is order-neutral.
+    test('a current branch inside a folder sorts alphabetically', () {
+      // The falsifying case: `zeta` is alphabetically last of the three, and
+      // that is exactly where it must land. A pin puts it first.
       final List<BranchTreeNode> tree = buildBranchTree(
         <RefInfo>[
           branch('feature/alpha'),
@@ -619,15 +646,15 @@ void main() {
       );
 
       expect(namesAt(tree, <String>['feature']), <String>[
-        'feature/zeta',
         'feature/alpha',
         'feature/beta',
+        'feature/zeta',
       ]);
     });
 
-    test('it does not escape to the root', () {
-      // 置頂**於所屬資料夾內** -- the pin is scoped to the parent. Hoisting it
-      // to row zero of the whole tree is the behaviour this replaces.
+    test('CONTROL: it stays inside its own folder', () {
+      // Nothing hoists the current branch out of its folder any more, and
+      // nothing ever should -- the row is reached by expanding to it.
       final List<BranchTreeNode> tree = buildBranchTree(
         <RefInfo>[branch('chore/docs'), branch('feature/zeta', isHead: true)],
         <String>{},
@@ -638,18 +665,17 @@ void main() {
       expect(namesAt(tree, <String>['feature']), <String>['feature/zeta']);
     });
 
-    test('a root-level current branch outranks sibling folders', () {
-      // BRANCH_TREE draws `main` (current: true, depth 0) above the
-      // `feature` / `bugfix` / `release` folders at the same depth, so at
-      // root the pin beats the folders-before-leaves rule rather than
-      // yielding to it.
+    test('a root-level current branch still sorts after sibling folders', () {
+      // The folders-before-leaves rule is structure, not priority, so it is
+      // the half that stays: `main` is HEAD and still renders below
+      // `feature`. BRANCH_TREE's mock draws it the other way round.
       final List<BranchTreeNode> tree = buildBranchTree(
         <RefInfo>[branch('feature/alpha'), branch('main', isHead: true)],
         <String>{},
         expandAll: true,
       );
 
-      expect(namesAt(tree, const <String>[]), <String>['main', 'feature']);
+      expect(namesAt(tree, const <String>[]), <String>['feature', 'main']);
     });
 
     test('CONTROL: with no current branch, folders still lead', () {
@@ -662,7 +688,7 @@ void main() {
       expect(namesAt(tree, const <String>[]), <String>['feature', 'main']);
     });
 
-    test('CONTROL: siblings of the current branch stay alphabetical', () {
+    test('the current branch takes its alphabetical place among siblings', () {
       final List<BranchTreeNode> tree = buildBranchTree(
         <RefInfo>[
           branch('feature/gamma'),
@@ -675,10 +701,10 @@ void main() {
       );
 
       expect(namesAt(tree, <String>['feature']), <String>[
-        'feature/head',
         'feature/alpha',
         'feature/beta',
         'feature/gamma',
+        'feature/head',
       ]);
     });
   });

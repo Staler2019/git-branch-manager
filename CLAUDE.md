@@ -934,20 +934,28 @@ you are touching, not by when it was learned.
 - **`RefInfo.ahead` means nothing when `upstream` is empty** — a branch that
   never had one reports `0`, which rendered literally claims the opposite of
   the truth.
-- **The current branch is pinned inside its own folder, by the tree's
-  comparator.** `BRANCH_STATES`: 「永遠置頂於所屬資料夾內，且不受 filter
-  影響」 — first among its *siblings*, not hoisted to row zero, and not only
-  while filtering. It lives in `branch_tree_builder.dart`'s
-  `_compareTreeNodes` because sorting a level is the only place that knows
-  what "its own folder" means, and it outranks the folders-before-leaves rule
-  (`BRANCH_TREE` draws `main` above the folders at its depth). The filter
-  half is `sidebar_panel.dart` adding HEAD *back into the builder's input*
-  when a query drops it — a row rendered outside the tree has no folder to
-  sit in, which is exactly why the previous version had to hoist it. **P02-14
-  rule 7's bare 「永遠置頂顯示」 does not overrule this**: `BRANCH_STATES` is
-  the specific rule, so when a matching folder sorts before HEAD's folder,
-  HEAD renders *second* and that is correct
-  (`sidebar_current_branch_pin_test.dart` asserts it).
+- **The current branch has no sorting or filtering privilege in the sidebar,
+  and this is a user-ratified deviation — do not "fix" it back.**
+  `BRANCH_STATES` (「永遠置頂於所屬資料夾內，且不受 filter 影響」), P02-14
+  rule 7 (「即使不符合條件也不會被濾掉」) and `BRANCH_TREE`'s mock (which
+  draws `main` above the folders at its own depth) all specify otherwise, and
+  all three were implemented and passing before the user ruled against them:
+  a pin makes the first row of every level jump around depending on where
+  HEAD happens to be, and an exempt row makes a filtered sidebar draw a
+  folder with no matching child in it. Same precedent as the Working Copy's
+  removed checkboxes. What is left is `_compareTreeNodes`' plain 「folders
+  (alphabetically) → leaves (alphabetically)」 — folders-before-leaves stays
+  because it is tree *structure*, not branch priority, which is the
+  distinction the user drew. **The visual half of `BRANCH_STATES` survives
+  untouched** (bold name + full-row `surfaceSelected`), and it is now the
+  only thing marking HEAD, which is also what keeps
+  `branch_selection_rules.dart`'s 「HEAD is never bulk-selectable」 rationale
+  intact. 「Where am I」 is answered instead by `sidebar_panel.dart` seeding
+  `_expandedFolders` with `ancestorFolderPaths(refs.head.branchName)`, so the
+  folders on the way to HEAD are open on the first frame — seeded on mount
+  *and* on every checkout through one `_seededExpansionForHead` gate, and
+  `addAll`-only so nothing the user collapsed is forced back open. Ledger:
+  「側邊欄目前分支不再置頂」.
 - **`RefInfo.isGone` can only be true after a prune** (git reports `[gone]`
   only once the remote-tracking ref is already deleted). Gone *marking* comes
   from `git remote prune --dry-run`, deliberately not from `fetch --prune` —

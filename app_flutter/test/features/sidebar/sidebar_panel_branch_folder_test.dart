@@ -166,7 +166,167 @@ Future<void> _rightClick(WidgetTester tester, Finder finder) async {
 // A leaf under a folder prints only its last segment (P02 item 12: 「名稱中的
 // 斜線自動摺成資料夾」), so rows are found by segment -- `alpha`, not
 // `feature/sub/alpha`. The folder row above carries the prefix.
+RefSnapshot _refsWithHead(String headBranch, List<String> names) => RefSnapshot(
+  head: HeadInfo(
+    kind: headBranch.isEmpty ? HeadKind.detached : HeadKind.branch,
+    branchName: headBranch,
+    fullRef: headBranch.isEmpty ? '' : 'refs/heads/$headBranch',
+    target: 'a' * 40,
+  ),
+  refs: <RefInfo>[
+    for (final String name in names)
+      _localBranch(name, isHead: name == headBranch),
+  ],
+  refCountGuardTripped: false,
+  totalRefCount: names.length,
+);
+
+/// Like [_pump], but hands back the container so a test can swap the refs
+/// override and simulate a checkout.
+Future<ProviderContainer> _pumpWithContainer(
+  WidgetTester tester,
+  RefSnapshot refs,
+) async {
+  SharedPreferences.setMockInitialValues(<String, Object>{});
+  final SharedPreferences prefs = await SharedPreferences.getInstance();
+
+  final ProviderContainer container = ProviderContainer(
+    overrides: <Override>[
+      sharedPreferencesProvider.overrideWithValue(prefs),
+      repoRefsProvider(_testIdentity).overrideWithValue(refs),
+      repoSessionProvider(_testIdentity).overrideWith(
+        (ref) =>
+            FakeRepoSessionController(_testIdentity, const RepoSessionState()),
+      ),
+    ],
+  );
+  addTearDown(container.dispose);
+
+  await tester.pumpWidget(
+    UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp(
+        theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+        home: Scaffold(
+          body: SidebarPanel(identity: _testIdentity, filterFocusNode: null),
+        ),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+  return container;
+}
+
+Future<void> _setRefs(
+  WidgetTester tester,
+  ProviderContainer container,
+  RefSnapshot refs,
+) async {
+  container.updateOverrides(<Override>[
+    sharedPreferencesProvider.overrideWithValue(
+      await SharedPreferences.getInstance(),
+    ),
+    repoRefsProvider(_testIdentity).overrideWithValue(refs),
+    repoSessionProvider(_testIdentity).overrideWith(
+      (ref) =>
+          FakeRepoSessionController(_testIdentity, const RepoSessionState()),
+    ),
+  ]);
+  await tester.pumpAndSettle();
+}
+
 void main() {
+  // Every folder starts collapsed *except* the ones on the way to the current
+  // branch. This is how the sidebar answers 「where am I」 now that the branch
+  // list carries no sort pin -- see docs/ledger.md.
+  group('the folders leading to the current branch open by default', () {
+    testWidgets('a one-level current branch is on screen with no clicks', (
+      tester,
+    ) async {
+      await _pumpWithContainer(
+        tester,
+        _refsWithHead('feature/zeta', <String>[
+          'feature/alpha',
+          'feature/zeta',
+          'chore/docs',
+        ]),
+      );
+
+      // The leaf prints its last segment, so `zeta` visible == `feature` open.
+      expect(find.text('zeta'), findsOneWidget);
+      // And only the folders on the way: `chore` stays shut.
+      expect(find.text('docs'), findsNothing);
+    });
+
+    testWidgets('every level of a nested current branch opens', (tester) async {
+      await _pumpWithContainer(
+        tester,
+        _refsWithHead('a/b/c', <String>['a/b/c', 'a/other']),
+      );
+
+      expect(find.text('c'), findsOneWidget);
+    });
+
+    testWidgets('a root-level current branch opens nothing', (tester) async {
+      await _pumpWithContainer(
+        tester,
+        _refsWithHead('main', <String>['main', 'feature/alpha']),
+      );
+
+      expect(find.text('main'), findsOneWidget);
+      expect(find.text('alpha'), findsNothing);
+    });
+
+    testWidgets('a detached HEAD opens nothing', (tester) async {
+      await _pumpWithContainer(
+        tester,
+        _refsWithHead('', <String>['feature/alpha', 'chore/docs']),
+      );
+
+      expect(find.text('alpha'), findsNothing);
+      expect(find.text('docs'), findsNothing);
+    });
+
+    testWidgets('a checkout opens the new folder and collapses nothing', (
+      tester,
+    ) async {
+      final ProviderContainer container = await _pumpWithContainer(
+        tester,
+        _refsWithHead('feature/zeta', <String>['feature/zeta', 'chore/docs']),
+      );
+      expect(find.text('zeta'), findsOneWidget);
+
+      await _setRefs(
+        tester,
+        container,
+        _refsWithHead('chore/docs', <String>['feature/zeta', 'chore/docs']),
+      );
+
+      expect(find.text('docs'), findsOneWidget);
+      // 「不自動收合」: the folder the user was in stays open.
+      expect(find.text('zeta'), findsOneWidget);
+    });
+
+    testWidgets('a folder the user collapsed is not forced back open', (
+      tester,
+    ) async {
+      await _pumpWithContainer(
+        tester,
+        _refsWithHead('feature/zeta', <String>['feature/zeta', 'chore/docs']),
+      );
+      expect(find.text('zeta'), findsOneWidget);
+
+      await tester.tap(find.text('feature'));
+      await tester.pumpAndSettle();
+
+      // HEAD has not moved, so nothing re-seeds the set -- a rebuild that
+      // re-expanded every frame would make this row reappear.
+      expect(find.text('zeta'), findsNothing);
+      await tester.pump();
+      expect(find.text('zeta'), findsNothing);
+    });
+  });
+
   group('folder identity is the path, not the display segment', () {
     // Two folders that share a *segment* under different parents. The panel
     // used to key `_expandedFolders` on `folderName` ('sub') while

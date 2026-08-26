@@ -16,6 +16,7 @@ import 'package:gbm_flutter/data/repositories/repo_session_repository.dart'
         WorkingTreeContentReply,
         repoSessionProvider;
 import 'package:gbm_flutter/features/conflict_resolution/conflict_resolve_window.dart';
+import 'package:gbm_flutter/widgets/gbm_code_hscroll.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/theme_mode_provider.dart';
@@ -133,6 +134,66 @@ void main() {
       workDir: '/test/repo',
       gitDir: '/test/repo/.git',
     );
+
+    group('soft wrap', () {
+      // A line far wider than a 220px-min pane in test-font terms
+      // (`flutter_test` draws every glyph `fontSize` wide).
+      const String longOurs =
+          'final ours = compute(alpha, beta, gamma, delta, epsilon, zeta);';
+      const String longTheirs =
+          'final theirs = compute(alpha, beta, gamma, delta, epsilon, eta);';
+
+      ParsedConflictFile longParsed() => ParsedConflictFile(
+        segments: <ConflictSegment>[
+          _regionSegment(
+            ours: <String>[longOurs],
+            theirs: <String>[longTheirs],
+          ),
+        ],
+        regionCount: 1,
+        wellFormed: true,
+      );
+
+      Future<void> pumpWrap(WidgetTester tester, {required bool on}) async {
+        await _pumpWindow(
+          tester,
+          identity,
+          _sessionWith(_conflictEntry),
+          longParsed(),
+          initialPrefs: <String, Object>{'appPrefs.softWrapEnabled': on},
+        );
+        await _selectConflictFile(tester);
+      }
+
+      testWidgets('all three columns scroll sideways by default', (
+        tester,
+      ) async {
+        await pumpWrap(tester, on: false);
+
+        // Counted, not `any`: the three columns are built by three separate
+        // methods and each takes its own copy of the flag, so a finder that
+        // only asked whether *a* scroller existed would stay green with two
+        // of the three still wrapping.
+        expect(find.byType(GbmCodeHScroll), findsNWidgets(3));
+      });
+
+      testWidgets('turning soft wrap on removes all three', (tester) async {
+        await pumpWrap(tester, on: true);
+
+        expect(find.byType(GbmCodeHScroll), findsNWidgets(3));
+        expect(find.byType(GbmPinnedGutter), findsNothing);
+      });
+
+      testWidgets('the side columns stop wrapping their lines', (tester) async {
+        await pumpWrap(tester, on: false);
+        expect(tester.widget<Text>(find.text(longOurs)).softWrap, isFalse);
+        expect(tester.widget<Text>(find.text(longTheirs)).softWrap, isFalse);
+
+        await pumpWrap(tester, on: true);
+        expect(tester.widget<Text>(find.text(longOurs)).softWrap, isTrue);
+        expect(tester.widget<Text>(find.text(longTheirs)).softWrap, isTrue);
+      });
+    });
 
     testWidgets('renders three-column layout with split panes', (tester) async {
       final parsed = ParsedConflictFile(

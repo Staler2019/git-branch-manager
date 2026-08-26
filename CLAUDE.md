@@ -136,7 +136,9 @@ lib/
     history_graph/   CommitGraphView, commit_row.dart
     working_copy/    WorkingCopyView
     sidebar/         SidebarPanel
-    diff/            DiffPage (read-only), ScopedDiffView + diff_scopes.dart
+    diff/            DiffPage (read-only, unified), SideBySideDiffView
+                      (read-only, 舊/新 two-column) + side_by_side_diff.dart,
+                      ScopedDiffView + diff_scopes.dart
                       + selection_touch.dart (Working Copy's staging diff)
     conflict_resolution/  ConflictResolveWindow (standalone window, not a dialog)
     compare/         ComparePage
@@ -197,6 +199,29 @@ that last half is an implementation judgement, not the user's verdict.
 `DiffPage` is **read-only** and has no staging callbacks; the Working Copy's
 diff is `ScopedDiffView`. Selecting a file selects the same *logical* file in
 both columns, renames included (`logicalFileKey`).
+
+### Three two-column switches that look alike and are not
+
+Two views now carry a `GbmSegmentedControl` in a diff titlebar, and a third
+surface is two-column with no switch at all. They mean different things, and
+conflating them is the easy mistake:
+
+| Where | Enum / storage | Left ↔ right means |
+|---|---|---|
+| Working Copy diff pane | `WorkingCopyDiffMode` (`2 file` / `unified`), **widget state, not persisted** | unstaged ↔ staged |
+| History commit detail | `DiffViewMode` (`side by side` / `unified`), persisted app-wide under the flat key `diffViewMode`, default `unified` | 變更前 (old) ↔ 變更後 (new) |
+| Conflict window | no switch; always three panes | ours ↔ result ↔ theirs |
+
+They deliberately **do not share a preference** — one setting flipping both
+would surprise the user in whichever view they were not looking at. History's
+switch is the only entry point to its mode: no menu item, no shortcut, which
+matches the Working Copy's switch exactly and is an alignment, not an
+omission. Scope is History only; Compare, the panels and the Working Copy
+render `DiffPage` as before, and `DiffPage` itself was not modified.
+
+Side-by-side pairing is `pairHunkForSideBySide` (`side_by_side_diff.dart`),
+a line-for-line Dart port of the still-live C++ reference implementation —
+see the two orphan-wiring entries under "Repo culture" before deleting either.
 
 ## State Machine
 
@@ -701,7 +726,12 @@ you are touching, not by when it was learned.
 - `pumpRealAppOn` clears `panelLayout.*` and `graphColumns.*`, because device
   tests share the machine's real `shared_preferences` — a splitter ratio or a
   hidden column the developer once set silently changes what later tests
-  render.
+  render. **It also clears the flat keys `fileListViewMode` and
+  `diffViewMode`**, which the two prefix filters had never covered: Tree mode
+  nests rows under folder rows and side-by-side draws two columns of cells
+  where there was one, both of which are exactly the shape that makes a
+  finder ambiguous or miss. A new app-wide preference means adding its key
+  here — a prefix filter will not catch a flat one.
 - **A memory-ordering race *is* falsifiable here.** `CMakeLists.txt`'s
   `GBM_SANITIZE` option and the configured `build/tsan` / `build/asan-ubsan`
   presets turn "a race in principle" into a test:
@@ -1132,7 +1162,36 @@ derived from the code — they outrank convenience every time):
   sweep kept `sameLogicalFile` by moving it into its test file, because it is
   the independently-written *oracle* `logicalFileKey` is checked against —
   keeping it in `lib/` was the actual defect, since a bug in the key could
-  otherwise hide inside the thing that checks it.
+  otherwise hide inside the thing that checks it. `pairHunkForSideBySide` in
+  `src/core/git/SideBySideDiff.cpp` is the second such keeper and the reason
+  is different again: it has no caller and never will, because the Dart port
+  that *is* called mirrors it line for line — it is the **reference
+  implementation**, exactly as `GraphAsciiRenderer.cpp` is for the graph.
+  Both headers now say so; deleting it would take the reference with it.
+- **Deleting code as an orphan obliges you to correct the record that
+  justified it, or the deletion repeats.** `side_by_side_diff.dart` was
+  deleted in C13 on a correct reading — the spec really does not ask for a
+  side-by-side diff — and the verdict was filed in
+  `docs/reports/spec-conformance-matrix.md` as 「orphaned code answering no
+  requirement」. When the user later ruled the feature *in*, that row would
+  have justified deleting the restored files a second time on grounds already
+  overruled. The fix is two-sided and both halves are load-bearing: strike
+  and rewrite the row **in place** (the #45/#50/#51/#60 precedent), *and*
+  put the citation in the restored files' own doc comments, because an
+  orphan sweep starts from the code and may never open the report. Note what
+  survives the correction: the spec claim was true then and is true now —
+  what stopped being true is that 「no spec basis」 is sufficient grounds
+  (ledger: History 的並排 diff).
+- **Deriving a quantity you already have is how a bug hides in the majority
+  case.** The restored side-by-side view read a line's number as
+  `kind == removed ? oldLine : newLine` — right for a removed line and an
+  added one, and wrong for every *context* line in the left column, which is
+  neither and so fell through to `newLine`. It is invisible whenever a hunk
+  starts at the same number in both files, so it only appears once an earlier
+  hunk has added or removed lines. The cure was to move the decision one
+  level up, to the thing that actually knows: the **column** picks the
+  number (`SideBySideSide.left => oldLine`), not an inference from the row.
+  A fixture that does not set `oldStart != newStart` cannot see it.
 - **A second source of truth for a computed fact is how a bug hides** — it
   cannot disagree with itself. Folder identity, column order, selection sets,
   `conflictActive`, `submitCommit()` (the only place a commit message is

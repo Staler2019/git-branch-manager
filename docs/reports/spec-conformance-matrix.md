@@ -392,10 +392,32 @@ checkbox), 1 符合-corrected (item 10's shared preference, which was stale).
 Zero open gaps on this page; the deviation is not a gap and is not counted
 as one.
 
-**Deliberately absent, recorded rather than faked**: side-by-side diff. The
+~~**Deliberately absent, recorded rather than faked**: side-by-side diff. The
 only occurrence of the phrase anywhere in the spec is a **fake commit message
 inside a mockup**, so `side_by_side_diff.dart` / `side_by_side_diff_view.dart`
-were orphaned code answering no requirement, and were deleted with their test.
+were orphaned code answering no requirement, and were deleted with their
+test.~~ → **使用者裁定加入（2026-08-26）**, corrected in place.
+
+**The spec half of that sentence is still true and stays true**: no page asks
+for a side-by-side diff, and the only occurrence of the phrase is still a fake
+commit message inside a mockup. What changed is that 「no spec basis」 stopped
+being sufficient grounds for deletion — the user ruled side-by-side into
+**History's commit detail**, so it is now a user-ratified extension in exactly
+the sense P03 item 8's `wc.diffSides` is, and is recorded here rather than
+faked or hidden. `side_by_side_diff.dart` and its test were restored verbatim
+from `7abb728^`; the view was rewritten, because the deleted one had three
+defects no test at any tier could see (a context line took its number from
+`kind` rather than from its column, so the *left* column printed the *new*
+file's line numbers; blank padding was a fixed 20px beside a wrapped line; and
+there was no `SelectionArea`). Scope is History only — Compare, the panels and
+the Working Copy are unchanged, and `DiffPage` was not touched.
+
+**The reason this correction is written here and not only in the ledger**: an
+orphan sweep reads this table. Left as it was, the row would have justified
+deleting the restored files a second time on grounds the user had already
+overruled, which is the trap 「orphan wiring」 rounds keep re-entering. Both
+restored `.dart` files carry the same citation in their own doc comments, so
+the correction is reachable from the code as well as from here.
 
 ---
 

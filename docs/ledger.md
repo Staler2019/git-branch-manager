@@ -3806,3 +3806,120 @@ Shift+↑↓ 加的 `Focus` 節點在每次 pointerDown 都無條件 `requestFoc
 與程式碼意見不合就什麼都沒證明」，那支從主機層刪掉，改寫進裝置層
 （`stage_lines_flow_test`）；主機層留下的是**能**被證偽的那個不變式：指標按著時
 不畫。
+
+### History 的並排 diff：把刪掉的東西請回來 (feature/history-split-view)
+
+使用者要 History 選檔案後的 diff 能左右並排看 舊/新。裁定兩件事：並排的意思是
+side-by-side（不是「檔案清單與 diff 左右分割」），而且檢視模式要持久化到
+shared_preferences（不是只存在 widget state）。
+
+#### 這一輪最值錢的一句話，在紀錄裡而不在程式碼裡
+
+開工前 grep 規格，得到的答案是「規格從來沒有要求 side-by-side diff」——這句話本身
+到今天都還是對的。但同一次 grep 也翻出上面第 4 點：`side_by_side_diff.dart` 與
+`side_by_side_diff_view.dart` **曾經存在，而且是被刻意刪掉的**，理由正是「規格依據
+只有 mockup 裡一個假 commit 訊息」。
+
+於是這一輪不是「新做一個功能」，是**在使用者裁定下把它請回來**。而請回來這件事，
+真正的工作量不在寫程式，在**當場更正那筆判定**：
+
+- `docs/reports/spec-conformance-matrix.md` 那段「orphaned code answering no
+  requirement」已就地劃掉並改寫（比照 #45/#50/#51/#60 的先例：更正並留證據，不是
+  悄悄改標題）。規格那半句保留——規格確實沒要求；改變的是「規格沒依據」不再足以
+  構成刪除理由。
+- 兩個還原的 `.dart` 檔各自在 doc comment 裡帶上同一段引述與裁定日期，所以下一次
+  orphan 清掃**從程式碼就讀得到**，不必先想到要去翻 ledger。
+
+不做這件事的後果很具體：orphan 清掃讀的就是那張表。原樣留著，它會用使用者已經
+推翻過的理由，把同樣兩個檔案再刪一次。
+
+#### C++ 那半邊還活著，而且沒有呼叫者
+
+`src/core/git/SideBySideDiff.{h,cpp}` 連同 `tests/unit/SideBySideDiffTest.cpp`
+**都還在**，只有 Dart 那半被刪。查證後確認 C++ 版沒有任何呼叫者。
+
+決定是**保留**，並把「這是決定不是疏忽」寫進 `SideBySideDiff.h`：需要配對的是
+Flutter 那一側，它手上已經有解好的 `DiffHunk`，為了一次同步的重新排版繞一趟 capi
+是純粹的額外成本。所以活的實作是 Dart 版，C++ 版留作它逐行鏡射的**參考實作**——
+與 `GraphAsciiRenderer.cpp` 對 commit graph 的地位相同。CLAUDE.md 已經記過
+「不是每個沒被呼叫的函式都是 orphan」（`sameLogicalFile` 那個 oracle 的案例），
+這是同一類的第二例。
+
+#### 兩份 suite 都沒走到的那個分支
+
+還原後逐案比對，六個案子與 C++ 版一對一無誤。但 `pairHunkForSideBySide` 的
+`noNewlineMarker` 那一臂**兩邊都沒有測試走到**——而它就緊接在 Context 案下面，是
+最容易被後人「順手簡化」成同樣 `rows.add(row(line, line))` 的一段。兩邊各補兩案
+（marker 接在 removed 之後只留左側、接在 added 之後只留右側），維持逐案鏡射，並在
+兩個檔案裡都寫下「改一邊就要改另一邊」。
+
+Mutation：把該分支改成無條件雙側，恰好只有這兩支新測試轉紅（+6 −2）。
+
+#### 還原的 view 有三個缺陷，都是任何一層測試都看不見的
+
+這是「刪掉的程式碼不能原封照抄」的具體理由。三個都在還原時逐行讀出來，不是跑出來的：
+
+1. **行號取錯邊**，最嚴重。原版是 `kind == removed ? oldLine : newLine`：對 removed
+   （左欄）與 added（右欄）都對，但 **context 行兩者皆非**，於是一律落到 `newLine`
+   ——左欄替「變更前」標上了「變更後」的行號。只要 hunk 的 `oldStart == newStart`
+   就完全看不出來；前面一有增刪，整個左欄的行號就是錯的。
+   改法把歸屬換了個層級：行號由 `SideBySideSide` 決定（左讀 `oldLine`、右讀
+   `newLine`），也就是**欄位的性質**，而不是從行別去推論。這一類 bug 的形狀值得記
+   ——用「衍生量」去推「本來就有的量」，在多數樣本上剛好相等，於是不相等的那少數
+   永遠沒人看見。
+2. **空白補位格寫死 `height: 20`**。對面那格一換行，空白側下方就露出沒上色的區域。
+   改成配對的 `Row` 走 `CrossAxisAlignment.stretch`，外面包 `IntrinsicHeight` 給它
+   一個撐得到的高度；空白格自己不再宣告任何高度。
+3. **少了 `SelectionArea`**。現行 `DiffPage` 在 ListView 外包了一層，並排版沒有，
+   換個模式就不能拉選複製。
+
+三個各補一支測試，各自 mutation 過，每次都恰好只有對應那一支轉紅。
+
+#### 換行不需要處理，這點一開始想錯了
+
+原本擔心兩欄換行會讓左右錯位，準備上 `softWrap: false` 加同步水平捲動。實際上不必：
+**一組配對就是一個 `Row`**，跨欄對齊由結構保證，某一格換成三行，它的夥伴跟著長高，
+兩欄永遠是齊的。於是換行維持與 `DiffPage` 一致。
+
+代價是另一件事：兩欄共用一個選取範圍，跨欄拉選會複製到 舊+新 交錯的文字。Working
+Copy 的 `2 file` 模式是同樣形狀的先例，05-G 的 `Copy` 是單側逃生口。分成兩個選取
+範圍會修好複製、但弄壞「選一整段變動」這個遠遠更常見的情況，所以是**選擇的取捨**，
+已寫進 doc comment，不假裝沒有。
+
+#### 量到的數字：預設為什麼是 unified
+
+1280×720（app 自己的預設視窗）下中央欄約 834px = 1280 − 側邊欄 250 − Changed files
+186 − 兩條分隔線。commit detail 橫跨整欄。對切後每側再扣掉 36px 行號槽與 padding，
+只剩約 360px 等寬字，**約 48–52 字元**。
+
+並排在預設視窗是偏窄的，所以預設 `unified`，而持久化的意義正在這裡：想用的人切一次
+就好。這個數字寫下來，是為了下一輪重新決定時能對著數字而不是對著同一個猜測。
+
+#### 三層測試各自證明什麼，用 mutation 劃清界線
+
+- `diff_view_mode_repository_test.dart`：store 會來回，但什麼都沒畫。
+- `commit_detail_panel_test.dart`：兩個 renderer 接對了 enum，但**對 provider 一無
+  所知**——容器就算什麼都沒接，這 12 支照樣全綠。
+- `history_diff_view_mode_test.dart`：兩者之間的接縫。
+
+界線是量出來的而不是宣稱的：把容器的 `onDiffViewModeChanged` 改成空 callback
+（切換鍵照畫、照回報，就是什麼都沒寫回去），**integration 轉紅、widget 層 12 支
+全綠**。那一層看不見這個缺陷，這支測試因此有存在的理由。
+
+#### 順手補掉的一個既有缺口
+
+`real_repo_harness.dart` 的 prefs 清除清單只涵蓋 `panelLayout.` 與 `graphColumns.`
+兩個**前綴**，平鍵一律漏掉。新的 `diffViewMode` 是平鍵——開發者在真機切過一次並排，
+之後每支裝置層測試畫出來的東西就都變了，而且只在他機器上變。
+
+`fileListViewMode` 早就有一模一樣的暴露（Tree 模式會把列塞進資料夾列底下，正是讓
+finder 失準或落空的形狀），一併補上。既然踩到就補掉，不留給下一輪當 flake 重新發現。
+
+#### 刻意沒做的事，逐項寫明
+
+- **範圍只有 History 的 `CommitDetailPanel`。** Compare、管理面板、Working Copy 的
+  diff 區、Conflict 視窗都不動，`DiffPage` 本身一行未改——它是四個介面共用的。
+- **不加選單項目與快捷鍵。** Working Copy 的同型切換也只有標題列這一個入口，比照
+  辦理；這是刻意對齊，不是漏掉。
+- **不與 Working Copy 共用同一筆偏好設定。** 那組的兩欄是 unstaged／staged，這組是
+  old／new。長得像，意思不同；一個偏好翻兩邊，會在使用者沒在看的那個視圖造成意外。

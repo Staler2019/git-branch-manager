@@ -510,23 +510,20 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: <Widget>[
-                          // The pinned current branch is one of these now,
-                          // not a row above them, so it goes through the same
-                          // _buildTreeNode as any other leaf and keeps
+                          // The current branch is one of these, with no
+                          // special row of its own, so it goes through the
+                          // same _buildTreeNode as any other leaf and keeps
                           // checkout, selection and the 05-B menu.
                           _buildTreeNodes(branchTree, context),
                           // Inside the scroll column rather than replacing
-                          // it, because the pinned current branch (rule 7)
-                          // lives here too -- a centred label swapped in for
-                          // the whole tree took the pin down with it, in
-                          // exactly the state where "where am I" is hardest
-                          // to answer.
-                          //
-                          // Keyed on the *matches*, not on `branchTree`:
-                          // since the pin was moved into the tree, the tree
-                          // is never empty while a repository has a current
-                          // branch, and an emptiness check written against it
-                          // would stop reporting zero matches entirely.
+                          // it. `branchTree` and `filteredBranches` are both
+                          // empty together now that rule 7's exemption is
+                          // gone, so the two keyings agree again -- but this
+                          // stays on the *matches*, because 「no matches」 is
+                          // a fact about the query and reading it off the
+                          // tree would make it a fact about the rendering.
+                          // A centred label swapped in for the whole tree is
+                          // what once took the exempt row down with it.
                           if (isFiltering &&
                               filteredBranches.isEmpty &&
                               filteredTags.isEmpty &&

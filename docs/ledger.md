@@ -3806,3 +3806,98 @@ Shift+↑↓ 加的 `Focus` 節點在每次 pointerDown 都無條件 `requestFoc
 與程式碼意見不合就什麼都沒證明」，那支從主機層刪掉，改寫進裝置層
 （`stage_lines_flow_test`）；主機層留下的是**能**被證偽的那個不變式：指標按著時
 不畫。
+
+## feature/head-branch-removal — 側邊欄目前分支不再置頂
+
+使用者要求三件事：側邊欄不要顯示 head branch、不要把目前分支釘在上面、改成預設展開
+到它所在的資料夾，而且不改分支優先權、純字母排序就好。
+
+### 三個特殊待遇必須先被拆開，才知道要拿掉哪些
+
+「不要顯示 head branch」讀不出唯一解，所以先把 HEAD 在側邊欄實際享有的待遇逐一列
+出來，再讓使用者裁定：① 過濾時就算不符合查詢也被強制加回樹裡（P02-14 rule 7）
+② 在所屬資料夾內置頂（`BRANCH_STATES`）③ 名稱粗體加整列 `surfaceSelected` 底色。
+
+裁定是 **①② 拿掉、③ 保留**。這個切法不是折衷：③ 是位置消失之後唯一還在說「我在
+哪」的訊號，而且 `branch_selection_rules.dart` 的 `isBulkSelectable(ref) =>
+!ref.isHead` 的理由整條就架在它上面——目前分支永久畫著 selected 底色，如果它同時
+還能被多選，兩種狀態會畫得一模一樣。拿掉 ③ 會連帶讓那條註解變成謊話。
+
+另外兩個問題也一併問了：資料夾在前算不算「branch priority」（不算，樹狀結構慣例，
+保留），以及展開的觸發時機（開啟時加上每次 HEAD 變動，且不自動收合）。
+
+### 沒有活下來的前提
+
+**「一併把視覺標示也拿掉」不成立**，理由如上。
+
+**`origin/HEAD` 不是使用者說的 head branch**：`mergeLocalAndRemoteBranches` 早就用
+`!r.isSymbolic` 排除掉符號性遠端 ref 了，這個讀法在改任何東西之前就被原始碼駁回。
+
+**「側邊欄有一個樹以外的目前分支列」也不成立**：`TopBar` 拆掉之後，側邊欄從上到下
+是 `RepoSwitcherButton` → `BranchesSectionHeader` → 過濾框 → 動作列 → 樹，沒有任何
+一個地方單獨畫 HEAD。所以①才是「顯示了不該顯示的東西」的唯一候選。
+
+### 由跑出來、而不是讀出來的事
+
+**Commit 1 如果照原訂範圍切，它單獨 checkout 是紅的。** 原本打算把
+`sidebar_current_branch_pin_test.dart` 整個留到 Commit 2 再改，但那個檔的 no-filter
+兩條測的是 comparator 而不是過濾——置頂子句一刪就紅，跟 rule 7 還在不在無關。這正是
+CLAUDE.md 那條「每次都在分支頂端跑就永遠是綠的，只有逐 commit checkout 才看得到」的
+同一個形狀，所以那兩條被移進 Commit 1。
+
+**順序的影響範圍比展開大，而且我一開始只掃了展開的那一半。** 事前 grep 找的是
+「shortName 帶斜線的 HEAD fixture」，那界定的是自動展開會多畫幾列；但 Commit 1 同時
+改了 **root 層**的順序（HEAD leaf 原本壓過同層資料夾，現在資料夾一律在前），受影響
+的是「HEAD 在 root、同層又有資料夾」的 fixture——`sidebar_filter_test.dart` 的
+`main` 就是。跑整個 `test/features/sidebar/` 才看到那兩條紅。掃描條件要對著**改動
+的性質**寫，不是對著改動的檔案寫。
+
+**`skip` 不是被順手刪的，是刪不掉才有問題。** `firstLeafName(nodes, {RefInfo? skip})`
+的 `skip` 存在的唯一理由，就是 rule 7 硬塞進樹裡、↓ 不該落上去的那一列。那一列消失
+之後它必然沒有呼叫端——留著就是 CLAUDE.md 列了八次的 orphan wiring。
+
+### 自動展開為什麼不需要 post-frame
+
+`_pruneSelection` 的 doc comment 花很長篇幅說明它為什麼一定要延後到 frame 之後：它
+寫的是 provider，會撞上 Riverpod 的 `_debugCanModifyProviders`，而那個 assert 在
+release 版被剝掉，寫入會直接落在 build 中間。
+
+自動展開**沒有這個問題**：`_expandedFolders` 是 `_SidebarPanelState` 自己的欄位，不是
+provider，也不需要 `setState`——因為同一個 build 在幾行之後就把它讀進
+`buildBranchTree`。所以第一幀畫出來就是展開的，不會先閃一下收合的樹。兩者的差別是
+「寫的東西歸誰管」，不是「在 build 裡寫東西安不安全」，這個區分值得寫下來，免得下一輪
+照抄 `_pruneSelection` 的結論。
+
+閘門 `_seededExpansionForHead` 讓 mount 與 checkout 走同一條路徑（`null → 'main'` 也
+算一次變動）。這是 `ref.listen` 做不到的那一半：它不會為註冊當下就已經存在的值觸發，
+而 refs 通常在這個面板 build 之前就載好了。只 `addAll` 不 `remove`，「不自動收合」就
+是靠這個成立。
+
+### Mutation check
+
+- `_compareTreeNodes` 的「資料夾在前」翻成 `return 1`：紅在 4 條，全部是斷言同層順序
+  的，其餘 245 條綠。
+- 把 rule 7 的豁免整段加回 `buildBranchTree` 的輸入：紅在 10 條，全部在新改寫的兩個
+  檔案裡。
+- `if (headBranch != _seededExpansionForHead)` 改成永遠不成立：4 條展開測試紅，兩條
+  「不展開」的 CONTROL 維持綠。
+- 只拿掉 `_seededExpansionForHead = headBranch;`（等於每幀重新種）：**只紅一條**，
+  就是「使用者手動收合的資料夾不會被強制重開」。這條的紅是窄的才有意義——它是「不自動
+  收合」這個承諾唯一的持有者。
+
+### 刻意留下的
+
+`sidebar_panel.dart` 空狀態的 `filteredBranches.isEmpty` 沒有改回 `branchTree.isEmpty`。
+兩者現在確實等價（樹不再永遠帶著 HEAD），但 0 命中是**查詢**的性質，從畫出來的東西
+反推會讓它變成**渲染**的性質——那正是它上一次出錯的方式。註解就地改寫成這個理由，
+而不是刪掉。
+
+命中/總數（rule 6）本來就只數真正的比對結果，這輪不該讓它動，所以那條測試原封保留
+當回歸測試——但它的敘述從「豁免的那列不算命中」改成「那列根本不在畫面上」。
+
+### 驗證
+
+`flutter analyze` 零問題、`dart format` 乾淨、`flutter test` 2166 條全綠。裝置層依
+CLAUDE.md 的規則一起掃了：`rename_branch_flow_test.dart` 的分支刻意不帶斜線
+（`lane-allocator`），自動展開對它無效，但 HEAD 那一列的位置會從置頂變成字母序；重建
+capi 之後跑過，綠。

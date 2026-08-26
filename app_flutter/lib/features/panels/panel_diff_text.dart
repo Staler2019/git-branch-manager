@@ -1,7 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/repositories/app_preferences_repository.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
+import '../../widgets/code_line_metrics.dart';
+import '../../widgets/gbm_code_hscroll.dart';
+
+/// The style this panel's lines are drawn in, colour aside. Single-sourced
+/// for the same reason `kDiffCodeTextStyle` is: the scroll extent is measured
+/// in it and then drawn in it, and a drift between the two clips the longest
+/// line by the difference.
+const TextStyle kPanelDiffTextStyle = TextStyle(
+  fontFamily: GbmTypography.fontMono,
+  fontSize: GbmTypography.textXs,
+);
 
 /// Renders raw unified-diff **text** with per-line colouring.
 ///
@@ -15,40 +28,69 @@ import '../../theme/tokens.dart';
 /// so nothing here can be staged, discarded or line-selected. That is the
 /// point — a panel's detail column is read-only, and a half-parse that
 /// looked stageable would be worse than none.
-class PanelDiffText extends StatelessWidget {
+class PanelDiffText extends ConsumerStatefulWidget {
   const PanelDiffText({super.key, required this.text});
 
   final String text;
 
   @override
+  ConsumerState<PanelDiffText> createState() => _PanelDiffTextState();
+}
+
+class _PanelDiffTextState extends ConsumerState<PanelDiffText> {
+  /// Keyed by the raw diff text itself -- this surface never parses one, so
+  /// the string *is* the content's identity. See [CodeWidthMemo] for the key,
+  /// the invalidation and the symptom.
+  final CodeWidthMemo _widthMemo = CodeWidthMemo();
+
+  @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
+    final String text = widget.text;
+    final bool softWrap = ref.watch(appPreferencesProvider).softWrapEnabled;
     final List<String> lines = text.split('\n');
 
+    // Nothing to pin here: a raw unified diff carries its own `+`/`-` in the
+    // line text and this surface draws no line-number gutter, so with soft
+    // wrap off the whole line simply scrolls.
+    final double contentWidth = softWrap
+        ? 0
+        : GbmSpacing.space3 * 2 +
+              _widthMemo.widthOf(
+                key: text,
+                text: () => text,
+                style: kPanelDiffTextStyle,
+              );
+
     return SelectionArea(
-      child: ListView.builder(
-        padding: const EdgeInsets.symmetric(vertical: GbmSpacing.space2),
-        itemCount: lines.length,
-        itemBuilder: (context, i) {
-          final String line = lines[i];
-          final (Color? background, Color foreground) = _styleOf(line, colors);
-          return Container(
-            width: double.infinity,
-            color: background,
-            padding: const EdgeInsets.symmetric(
-              horizontal: GbmSpacing.space3,
-              vertical: 1,
-            ),
-            child: Text(
-              line.isEmpty ? ' ' : line,
-              style: TextStyle(
-                fontFamily: GbmTypography.fontMono,
-                fontSize: GbmTypography.textXs,
-                color: foreground,
+      child: GbmCodeHScroll(
+        contentWidth: contentWidth,
+        backdrop: colors.surfacePanel,
+        child: ListView.builder(
+          padding: const EdgeInsets.symmetric(vertical: GbmSpacing.space2),
+          itemCount: lines.length,
+          itemBuilder: (context, i) {
+            final String line = lines[i];
+            final (Color? background, Color foreground) = _styleOf(
+              line,
+              colors,
+            );
+            return Container(
+              width: double.infinity,
+              color: background,
+              padding: const EdgeInsets.symmetric(
+                horizontal: GbmSpacing.space3,
+                vertical: 1,
               ),
-            ),
-          );
-        },
+              child: Text(
+                line.isEmpty ? ' ' : line,
+                softWrap: softWrap,
+                overflow: softWrap ? TextOverflow.clip : TextOverflow.visible,
+                style: kPanelDiffTextStyle.copyWith(color: foreground),
+              ),
+            );
+          },
+        ),
       ),
     );
   }

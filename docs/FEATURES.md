@@ -9,7 +9,9 @@ Everything below works end to end on Linux, macOS and Windows.
   explicit Refresh, so startup never waits on the filesystem.
 - **Branch switching**, including the dirty-work-tree case with Stash / Discard /
   Cancel rather than a raw Git error.
-- **Diff viewing** per commit and per file, with real text selection.
+- **Diff viewing** per commit and per file, with real text selection, in
+  either a unified single column or side-by-side old/new columns — the
+  choice is remembered across restarts.
 - **The working copy**: status, stage/unstage by file, hunk or line, commit and
   amend.
 - **Merge** (fast-forward-only / no-fast-forward / squash), **cherry-pick**

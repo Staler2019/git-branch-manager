@@ -136,8 +136,26 @@ Future<SharedPreferences> _pumpRealApp(
   // it: the History column set, their order and their dragged widths are all
   // persisted app-wide, so a developer who once switched Author off would
   // make an author-finding test fail on their machine and nowhere else.
+  // The two below are the same hazard arriving as *flat* keys rather than a
+  // prefix, which is why the prefix loop had never covered them:
+  // `fileListViewMode` (List vs Tree, read by five surfaces) and
+  // `diffViewMode` (History's diff, 並排 vs 統一). A developer who once
+  // switched either in the real app changes what every later device test
+  // renders -- a file list in Tree mode nests its rows under folder rows, and
+  // a diff in side-by-side draws two columns of cells instead of one -- and
+  // both are exactly the shape that makes a finder ambiguous or miss.
+  // `fileListViewMode` was already exposed this way before `diffViewMode`
+  // existed; both are cleared here rather than leaving the older one for a
+  // later round to rediscover as a flake.
+  const Set<String> flatKeysToClear = <String>{
+    'fileListViewMode',
+    'diffViewMode',
+  };
   for (final String key in prefs.getKeys().where(
-    (String k) => k.startsWith('panelLayout.') || k.startsWith('graphColumns.'),
+    (String k) =>
+        k.startsWith('panelLayout.') ||
+        k.startsWith('graphColumns.') ||
+        flatKeysToClear.contains(k),
   )) {
     await prefs.remove(key);
   }

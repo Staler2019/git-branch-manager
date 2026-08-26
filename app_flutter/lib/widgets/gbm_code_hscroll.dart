@@ -165,13 +165,29 @@ class GbmPinnedGutter extends StatelessWidget {
     required this.width,
     required this.background,
     required this.child,
+    this.opaque = true,
   });
 
   final double width;
 
   /// The row's own background (an added/removed line has one), or null to fall
   /// back to the pane's backdrop.
+  ///
+  /// Ignored entirely when [opaque] is false.
   final Color? background;
+
+  /// Whether the gutter paints a backdrop behind itself.
+  ///
+  /// **True** suits a row that paints its own full-width background, like a
+  /// diff line: the code passes under the gutter and something has to hide
+  /// it, and repainting the row's own colour is seamless.
+  ///
+  /// **False** suits a row whose background is drawn by an *ancestor* that
+  /// has to stay visible -- a `GbmRow`'s hover and selection tints, which an
+  /// opaque strip would cover even at scroll offset zero. Such a row pairs
+  /// this with [GbmPinnedGutterClip] around its content, so nothing ever
+  /// reaches the area under the gutter and there is nothing to hide.
+  final bool opaque;
 
   final Widget child;
 
@@ -180,14 +196,16 @@ class GbmPinnedGutter extends StatelessWidget {
     final ScrollController? controller = GbmCodeHScroll.maybeControllerOf(
       context,
     );
-    final Color color =
-        background ??
-        GbmCodeHScroll.maybeBackdropOf(context) ??
-        Theme.of(context).canvasColor;
-    final Widget gutter = SizedBox(
-      width: width,
-      child: ColoredBox(color: color, child: child),
-    );
+    final Widget inner = opaque
+        ? ColoredBox(
+            color:
+                background ??
+                GbmCodeHScroll.maybeBackdropOf(context) ??
+                Theme.of(context).canvasColor,
+            child: child,
+          )
+        : child;
+    final Widget gutter = SizedBox(width: width, child: inner);
     if (controller == null) return gutter;
     return AnimatedBuilder(
       animation: controller,
@@ -198,4 +216,54 @@ class GbmPinnedGutter extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Keeps a row's content out of the area a [GbmPinnedGutter] holds.
+///
+/// The companion to `opaque: false`. The clip is in *viewport* coordinates --
+/// its left edge is the scroll offset plus the gutter's width -- so the code
+/// disappears exactly at the gutter's right edge however far the pane has
+/// scrolled, and the row's own hover and selection tints stay visible
+/// underneath because nothing opaque is painted over them.
+class GbmPinnedGutterClip extends StatelessWidget {
+  const GbmPinnedGutterClip({
+    super.key,
+    required this.gutterWidth,
+    required this.child,
+  });
+
+  final double gutterWidth;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final ScrollController? controller = GbmCodeHScroll.maybeControllerOf(
+      context,
+    );
+    if (controller == null) {
+      return ClipRect(clipper: _RightOfGutter(gutterWidth), child: child);
+    }
+    return AnimatedBuilder(
+      animation: controller,
+      child: child,
+      builder: (BuildContext context, Widget? child) => ClipRect(
+        clipper: _RightOfGutter(
+          (controller.hasClients ? controller.offset : 0) + gutterWidth,
+        ),
+        child: child,
+      ),
+    );
+  }
+}
+
+class _RightOfGutter extends CustomClipper<Rect> {
+  const _RightOfGutter(this.left);
+
+  final double left;
+
+  @override
+  Rect getClip(Size size) => Rect.fromLTRB(left, 0, size.width, size.height);
+
+  @override
+  bool shouldReclip(_RightOfGutter oldClipper) => oldClipper.left != left;
 }

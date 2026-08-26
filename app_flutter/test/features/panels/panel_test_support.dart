@@ -49,13 +49,14 @@ Future<PumpedPanel> pumpPanel(
   List<Override> overrides = const <Override>[],
   List<RouteBase> extraRoutes = const <RouteBase>[],
   Size surfaceSize = const Size(1200, 800),
+  Map<String, Object> initialPrefs = const <String, Object>{},
 }) async {
   tester.view.physicalSize = surfaceSize;
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
-  SharedPreferences.setMockInitialValues(<String, Object>{});
+  SharedPreferences.setMockInitialValues(initialPrefs);
   final SharedPreferences prefs = await SharedPreferences.getInstance();
 
   final FakeRepoSessionController fake = FakeRepoSessionController(

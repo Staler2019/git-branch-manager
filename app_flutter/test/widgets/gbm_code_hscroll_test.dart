@@ -101,6 +101,63 @@ void main() {
     expect(gutterAfter, closeTo(gutterBefore, 0.5));
   });
 
+  testWidgets('the clip companion tracks the gutter in viewport coordinates', (
+    WidgetTester tester,
+  ) async {
+    // `GbmPinnedGutterClip` is what lets a row keep a *transparent* gutter --
+    // the mode a GbmRow needs, since its hover and selection tints are drawn
+    // by an ancestor an opaque strip would cover. Nothing is painted over the
+    // code; instead the code is clipped away exactly where the gutter ends,
+    // which means the clip's left edge has to move with the scroll offset.
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: viewportWidth,
+              height: 200,
+              child: GbmCodeHScroll(
+                contentWidth: 1000,
+                backdrop: const Color(0xFF101010),
+                child: const GbmPinnedGutterClip(
+                  gutterWidth: gutterWidth,
+                  child: Padding(
+                    padding: EdgeInsets.only(left: gutterWidth),
+                    child: Text('a very long line of code', softWrap: false),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    Rect clipOf(WidgetTester tester) {
+      // Scoped: the viewport draws its own ClipRect, so an unscoped finder
+      // matches more than one and picks the wrong geometry.
+      final ClipRect rect = tester.widget<ClipRect>(
+        find.descendant(
+          of: find.byType(GbmPinnedGutterClip),
+          matching: find.byType(ClipRect),
+        ),
+      );
+      return rect.clipper!.getClip(const Size(1000, 20));
+    }
+
+    expect(clipOf(tester).left, closeTo(gutterWidth, 0.5));
+
+    await tester.drag(
+      find.byType(SingleChildScrollView),
+      const Offset(-140, 0),
+    );
+    await tester.pump();
+
+    // Not `gutterWidth` any more: the row has moved 140 to the left, so the
+    // gutter now covers row-local 140..140+gutterWidth.
+    expect(clipOf(tester).left, closeTo(gutterWidth + 140, 0.5));
+  });
+
   testWidgets('a mouse drag does not scroll, so a selection drag survives', (
     WidgetTester tester,
   ) async {

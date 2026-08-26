@@ -58,6 +58,37 @@ DiffFile _file(List<String> sketches, {bool binary = false}) => DiffFile(
   ],
 );
 
+/// The one-shot card's own button text.
+///
+/// Scoped to the card on purpose: the scope card it supersedes keeps its
+/// button drawn (struck through and inert), and for a range that happens to
+/// cover exactly one scope the two labels are the same string -- so an
+/// unscoped `findsOneWidget` fails for a reason that has nothing to do with
+/// the behaviour under test.
+Finder temporaryLabel(String text) => find.descendant(
+  of: find.byKey(const ValueKey<String>('temporary-scope-card')),
+  matching: find.text(text),
+);
+
+/// Focuses the well without selecting anything, the way a user who intends to
+/// work by keyboard would: one click, then the arrows.
+Future<void> clickThen(WidgetTester tester, String row) async {
+  await tester.tap(find.text(row));
+  await tester.pump();
+}
+
+/// Three pumps because the handler defers to a post-frame callback, the
+/// tracker coalesces its notification to one per frame, and only then does
+/// `setState` rebuild.
+Future<void> shiftArrow(WidgetTester tester, LogicalKeyboardKey key) async {
+  await tester.sendKeyDownEvent(LogicalKeyboardKey.shift);
+  await tester.sendKeyEvent(key);
+  await tester.sendKeyUpEvent(LogicalKeyboardKey.shift);
+  await tester.pump();
+  await tester.pump();
+  await tester.pump();
+}
+
 void main() {
   group('ScopedDiffView', () {
     late List<({int hunkIndex, List<int> lines})> staged;
@@ -298,6 +329,97 @@ void main() {
       );
     });
 
+    // `SCOPES` row 7's `how` names two inputs -- 「diff 區按住拖過多行，或
+    // Shift + ↑ ↓」 -- and only the drag existed. Flutter's own
+    // SelectableRegion does not fill the gap: with the tracker's latch
+    // removed entirely, Shift+ArrowDown after a drag still left the card's
+    // count unchanged, so the region was not extending the selection either.
+    testWidgets('Shift+Down with nothing selected seeds at the first changed '
+        'row', (WidgetTester tester) async {
+      await pump(tester, file: _file(<String>['.+..-.']));
+      await clickThen(tester, 'h0 l0');
+
+      await shiftArrow(tester, LogicalKeyboardKey.arrowDown);
+
+      expect(
+        find.byKey(const ValueKey<String>('temporary-scope-card')),
+        findsOneWidget,
+      );
+      expect(
+        temporaryLabel('Stage 1 line'),
+        findsOneWidget,
+        reason:
+            'seeding on the first *changed* row, not the first row: a scope '
+            'holding one context line has nothing to stage and would show no '
+            'card at all',
+      );
+    });
+
+    testWidgets('each further Shift+Down grows the range by one row', (
+      WidgetTester tester,
+    ) async {
+      // '.+..-.': rows 1 and 4 move, 2 and 3 are context between them. The
+      // labels below are the proof the range steps over rows rather than
+      // over changed lines -- the middle two presses add nothing stageable
+      // and must still widen the frame.
+      await pump(tester, file: _file(<String>['.+..-.']));
+      await clickThen(tester, 'h0 l0');
+
+      await shiftArrow(tester, LogicalKeyboardKey.arrowDown);
+      await shiftArrow(tester, LogicalKeyboardKey.arrowDown);
+      expect(temporaryLabel('Stage 2 lines (1 changed)'), findsOneWidget);
+
+      await shiftArrow(tester, LogicalKeyboardKey.arrowDown);
+      await shiftArrow(tester, LogicalKeyboardKey.arrowDown);
+      expect(temporaryLabel('Stage 4 lines (2 changed)'), findsOneWidget);
+    });
+
+    testWidgets('Shift+Up shrinks the range back toward its anchor', (
+      WidgetTester tester,
+    ) async {
+      // Anchored at row 1 and grown down to row 4, Shift+Up must move the
+      // *focus* end back up rather than extend upward from row 1 -- which is
+      // the whole difference between a range and a grow-only set.
+      await pump(tester, file: _file(<String>['.+..-.']));
+      await clickThen(tester, 'h0 l0');
+
+      for (int i = 0; i < 4; i++) {
+        await shiftArrow(tester, LogicalKeyboardKey.arrowDown);
+      }
+      expect(temporaryLabel('Stage 4 lines (2 changed)'), findsOneWidget);
+
+      await shiftArrow(tester, LogicalKeyboardKey.arrowUp);
+      expect(temporaryLabel('Stage 3 lines (1 changed)'), findsOneWidget);
+    });
+
+    testWidgets('the range walks in render order, so it crosses into the next '
+        'hunk', (WidgetTester tester) async {
+      // Two hunks of three rows. Seeded at hunk 0's row 1, five more presses
+      // reach hunk 1's row 1 -- and a range measured in anything but the
+      // order the rows are painted would not get there at all.
+      await pump(tester, file: _file(<String>['.+.', '.-.']));
+      await clickThen(tester, 'h0 l0');
+
+      for (int i = 0; i < 6; i++) {
+        await shiftArrow(tester, LogicalKeyboardKey.arrowDown);
+      }
+
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const ValueKey<String>('temporary-scope-card')),
+          matching: find.textContaining('Stage '),
+        ),
+      );
+
+      expect(
+        staged.length,
+        2,
+        reason: 'a range spanning two hunks is one stageLines call per hunk',
+      );
+      expect(staged[0].hunkIndex, 0);
+      expect(staged[1].hunkIndex, 1);
+    });
+
     testWidgets('the head counts the cards below it', (
       WidgetTester tester,
     ) async {
@@ -447,6 +569,26 @@ void main() {
       expect(
         find.byKey(const ValueKey<String>('temporary-scope-card')),
         findsOneWidget,
+      );
+    });
+
+    testWidgets('Shift+Down after a drag continues from where the drag ended', (
+      WidgetTester tester,
+    ) async {
+      // The two inputs are alternatives for one granularity, so they have to
+      // share one range rather than each own a separate one.
+      await pump(tester, _file(<String>['.+..-.']));
+      await dragSelect(tester, 'h0 l1', 'h0 l2');
+      expect(temporaryLabel('Stage 2 lines (1 changed)'), findsOneWidget);
+
+      await shiftArrow(tester, LogicalKeyboardKey.arrowDown);
+
+      expect(
+        temporaryLabel('Stage 3 lines (1 changed)'),
+        findsOneWidget,
+        reason:
+            'restarting the range would drop back to one row instead of '
+            'growing the drag by one',
       );
     });
 

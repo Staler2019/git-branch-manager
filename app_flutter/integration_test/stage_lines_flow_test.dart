@@ -19,6 +19,7 @@
 import 'dart:io';
 
 import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/features/diff/scoped_diff_view.dart';
@@ -269,6 +270,80 @@ void main() {
       staged.contains('+INSERTED_ONE'),
       isTrue,
       reason: 'the selection framed one line; the other must stay staged',
+    );
+  });
+
+  // `SCOPES` row 6's own `how` -- 「點 hunk 標頭列（@@ …）」 -- and row 7's
+  // second one -- 「Shift + ↑ ↓」. Both were absent, which is what the report
+  // 「左右 diff view 沒辦法選取 line 去左或右」 was actually about: every
+  // *other* way of doing it worked (the four tests above), so what was
+  // missing was the two inputs that are not a mouse drag.
+  testWidgets('clicking the hunk heading stages the whole hunk in one press', (
+    tester,
+  ) async {
+    await _openDiff(tester, repo);
+
+    await tester.tap(
+      find.descendant(of: _unstagedPane, matching: find.textContaining('@@ ')),
+    );
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('temporary-scope-card')),
+        matching: find.textContaining('Stage '),
+      ),
+    );
+    await tester.pumpAndSettle(const Duration(seconds: 2));
+
+    final String staged = _stagedDiff(repo);
+    expect(staged.contains('+INSERTED_ONE'), isTrue, reason: staged);
+    expect(
+      staged.contains('+INSERTED_TWO'),
+      isTrue,
+      reason:
+          'the fixture\'s two insertions are in one hunk but two scopes, so '
+          'a heading click is the only single press that moves both',
+    );
+  });
+
+  testWidgets('Shift+Down builds a range the button then stages', (
+    tester,
+  ) async {
+    await _openDiff(tester, repo);
+
+    // One click to put focus in the diff -- on a context row, so the click
+    // itself selects nothing and only the arrows do.
+    await tester.tap(
+      find.descendant(of: _unstagedPane, matching: find.text('alpha')),
+    );
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+
+    // Seeds on INSERTED_ONE (the first changed row), then walks down to
+    // INSERTED_TWO -- across four context rows on the way.
+    for (int i = 0; i < 5; i++) {
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shift);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shift);
+      await tester.pumpAndSettle(const Duration(milliseconds: 200));
+    }
+
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('temporary-scope-card')),
+        matching: find.textContaining('Stage '),
+      ),
+    );
+    await tester.pumpAndSettle(const Duration(seconds: 2));
+
+    final String staged = _stagedDiff(repo);
+    expect(staged.contains('+INSERTED_ONE'), isTrue, reason: staged);
+    expect(
+      staged.contains('+INSERTED_TWO'),
+      isTrue,
+      reason:
+          'five presses from the seed reach the second insertion; a range '
+          'that stopped at the first changed row would not',
     );
   });
 }

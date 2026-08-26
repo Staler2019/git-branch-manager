@@ -104,6 +104,26 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   /// [didUpdateWidget] already treats as "a new diff".
   final DiffScopeCache _scopeCache = DiffScopeCache();
 
+  /// Focus for the well, so `SCOPES` row 7's 「Shift + ↑ ↓」 half reaches
+  /// [CallbackShortcuts] after a plain click.
+  ///
+  /// A drag already leaves [SelectionArea]'s own node focused and the key
+  /// event bubbles through this widget's shortcuts either way, so this node
+  /// exists for the case that has no drag at all: a user who clicks once and
+  /// then works by keyboard. Requested on pointer down, because tapping does
+  /// not grant focus by itself (CLAUDE.md's sidebar case).
+  final FocusNode _wellFocus = FocusNode(debugLabel: 'gbm-diff-well');
+
+  /// The two ends of the keyboard range, as row keys.
+  ///
+  /// A range, not a grow-only set: `Shift + ↑` after four `Shift + ↓`s has to
+  /// walk the *focus* end back toward the anchor, which is the whole
+  /// difference between extending a selection and accumulating one. Both are
+  /// null until something seeds them -- a drag ending, a hunk heading click,
+  /// or the first arrow press.
+  String? _anchorRow;
+  String? _focusRow;
+
   @override
   void initState() {
     super.initState();
@@ -127,6 +147,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   void dispose() {
     _tracker.removeListener(_onTouchChanged);
     _tracker.dispose();
+    _wellFocus.dispose();
     // Leaving a submitter behind would leave the menu item live pointing at
     // a column that is no longer on screen.
     if (_reportedScope) {
@@ -168,6 +189,12 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   /// `MultiSelectableSelectionContainerDelegate.handleClearSelection`.
   void _dropSelection({required bool alsoClearHighlight}) {
     _tracker.clear();
+    // The range ends with the selection it describes. Leaving the two row
+    // keys behind would let the next arrow press extend a range whose rows
+    // may not even exist in the diff that replaced this one -- the same
+    // stale-positional-key defect `clear()`'s own doc names.
+    _anchorRow = null;
+    _focusRow = null;
     if (!alsoClearHighlight) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -198,10 +225,28 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   /// (`GbmActionId.repositoryStageSelectedLines`) is not, and without this
   /// the scope would still be live afterwards and stage a second time.
   void _submitTemporary(Map<int, List<int>> byHunk) {
+    // The highlight goes **before** the dispatch, synchronously, and that
+    // order is the fix for a real crash the device tier found. Staging
+    // replaces the diff; a `clearSelection()` deferred to after the dispatch
+    // therefore lands while the tree restructure it caused is still mutating
+    // the delegate's `selectables`, and the framework throws
+    // ConcurrentModificationError out of `handleClearSelection`. This is the
+    // same hazard [_dropSelection] documents on the diff-change path -- what
+    // was not noticed is that the submit path *is* a diff-change path, one
+    // dispatch later. Nothing below the widget tier could see it: the fakes
+    // never actually restage, so the diff never changes and the clear always
+    // found a settled tree.
+    //
+    // Clearing here is not redundant with the tap. Pressing a card's own
+    // button is a tap inside the [SelectionArea], which collapses the
+    // selection by itself; the keyboard path
+    // (`GbmActionId.repositoryStageSelectedLines`) is not, and neither are
+    // the two inputs that select no text at all.
+    _selectionAreaKey.currentState?.selectableRegion.clearSelection();
     for (final MapEntry<int, List<int>> entry in byHunk.entries) {
       widget.onStageScope(entry.key, entry.value);
     }
-    _dropSelection(alsoClearHighlight: true);
+    _dropSelection(alsoClearHighlight: false);
   }
 
   @override
@@ -309,17 +354,50 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
                       if (temporary.isEmpty) return;
                       _submitTemporary(temporary);
                     },
+                  // `SCOPES` row 7's other half: 「diff 區按住拖過多行，或
+                  // Shift + ↑ ↓」. Bound here rather than globally for the
+                  // same reason Ctrl/Cmd+Shift+Enter is -- a bare arrow key
+                  // belongs to whatever has focus, and this only claims it
+                  // while focus is inside the diff.
+                  //
+                  // Flutter does not supply this for free. SelectableRegion
+                  // has keyboard selection intents, but with the tracker's
+                  // latch removed entirely a Shift+ArrowDown after a drag
+                  // still left the scope's count unchanged, so the region
+                  // was not extending anything here to begin with.
+                  const SingleActivator(
+                    LogicalKeyboardKey.arrowDown,
+                    shift: true,
+                  ): () =>
+                      _extendByRow(diffFile, 1),
+                  const SingleActivator(
+                    LogicalKeyboardKey.arrowUp,
+                    shift: true,
+                  ): () =>
+                      _extendByRow(diffFile, -1),
                 },
-                child: Listener(
-                  onPointerDown: (_) => _tracker.beginGesture(),
-                  onPointerUp: (_) => _tracker.endGesture(),
-                  onPointerCancel: (_) => _tracker.endGesture(),
-                  child: SelectionArea(
-                    key: _selectionAreaKey,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      mainAxisSize: MainAxisSize.min,
-                      children: _wellChildren(diffFile, byHunk, temporary),
+                child: Focus(
+                  focusNode: _wellFocus,
+                  child: Listener(
+                    onPointerDown: (_) {
+                      // Tapping does not grant focus by itself, and without
+                      // focus the arrow bindings above are unreachable for a
+                      // user who never drags.
+                      _wellFocus.requestFocus();
+                      _tracker.beginGesture();
+                    },
+                    onPointerUp: (_) {
+                      _tracker.endGesture();
+                      _adoptRangeFromTouched(diffFile);
+                    },
+                    onPointerCancel: (_) => _tracker.endGesture(),
+                    child: SelectionArea(
+                      key: _selectionAreaKey,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        mainAxisSize: MainAxisSize.min,
+                        children: _wellChildren(diffFile, byHunk, temporary),
+                      ),
                     ),
                   ),
                 ),
@@ -328,6 +406,76 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
           ),
       ],
     );
+  }
+
+  /// Every row of [diffFile], in the order they are painted.
+  ///
+  /// Painted order, not model order, because `SCOPES` row 7's range is a
+  /// range over what the user can see -- and it is the *only* order in which
+  /// 「跨 hunk 但不能跨檔」 has a meaning: the last row of one hunk is
+  /// adjacent to the first row of the next.
+  List<String> _rowsInRenderOrder(DiffFile diffFile) => <String>[
+    for (int h = 0; h < diffFile.hunks.length; h++)
+      for (int i = 0; i < diffFile.hunks[h].lines.length; i++)
+        selectionRowKey(h, i),
+  ];
+
+  /// `SCOPES` row 7's second input: 「Shift + ↑ ↓」.
+  ///
+  /// [delta] is +1 for ↓ and -1 for ↑, and it moves the *focus* end of the
+  /// range by one painted row -- context rows included, exactly as a drag
+  /// counts them, so the two inputs the row lists as alternatives produce
+  /// the same set for the same span.
+  ///
+  /// **The seed is the first (or last) *changed* row, not the first row.**
+  /// Stepping from row zero would spend the first few presses on context
+  /// that stages nothing and shows no card at all, so the opening press
+  /// would read as "the key does nothing".
+  void _extendByRow(DiffFile diffFile, int delta) {
+    final List<String> rows = _rowsInRenderOrder(diffFile);
+    if (rows.isEmpty) return;
+
+    int anchorIndex = _anchorRow == null ? -1 : rows.indexOf(_anchorRow!);
+    int focusIndex = _focusRow == null ? -1 : rows.indexOf(_focusRow!);
+
+    if (anchorIndex < 0 || focusIndex < 0) {
+      final Set<String> changed = <String>{
+        for (final MapEntry<int, List<DiffScope>> entry
+            in _scopeCache.scopesOf(diffFile).entries)
+          for (final DiffScope scope in entry.value)
+            for (final int line in scope.changedLineIndices)
+              selectionRowKey(entry.key, line),
+      };
+      final Iterable<String> ordered = delta >= 0 ? rows : rows.reversed;
+      final String? seed = ordered.where(changed.contains).firstOrNull;
+      // Nothing can move in this diff, so there is no range to open.
+      if (seed == null) return;
+      anchorIndex = focusIndex = rows.indexOf(seed);
+    } else {
+      focusIndex = (focusIndex + delta).clamp(0, rows.length - 1);
+    }
+
+    _anchorRow = rows[anchorIndex];
+    _focusRow = rows[focusIndex];
+    final int lo = anchorIndex < focusIndex ? anchorIndex : focusIndex;
+    final int hi = anchorIndex < focusIndex ? focusIndex : anchorIndex;
+    _tracker.setTouched(rows.sublist(lo, hi + 1).toSet());
+  }
+
+  /// Adopts whatever a finished drag framed as the keyboard range, so the
+  /// two inputs `SCOPES` row 7 lists share one range instead of each owning
+  /// its own. Without this, a `Shift + ↓` after a drag would re-seed and
+  /// collapse the drag back to a single row.
+  void _adoptRangeFromTouched(DiffFile? diffFile) {
+    if (diffFile == null) return;
+    final Set<String> touched = _tracker.touched;
+    if (touched.isEmpty) return;
+    final List<String> rows = _rowsInRenderOrder(
+      diffFile,
+    ).where(touched.contains).toList();
+    if (rows.isEmpty) return;
+    _anchorRow = rows.first;
+    _focusRow = rows.last;
   }
 
   /// `SCOPES` row 6: selects every row of [hunkIndex] as the one-shot scope,
@@ -352,6 +500,13 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _tracker.setTouched(rows);
+      // So a following Shift + ↑ ↓ grows or shrinks the hunk rather than
+      // re-seeding somewhere else.
+      _anchorRow = selectionRowKey(hunkIndex, 0);
+      _focusRow = selectionRowKey(
+        hunkIndex,
+        diffFile.hunks[hunkIndex].lines.length - 1,
+      );
     });
   }
 

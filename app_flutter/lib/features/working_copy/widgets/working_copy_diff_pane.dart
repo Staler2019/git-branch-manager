@@ -41,6 +41,7 @@ class WorkingCopyDiffPane extends StatefulWidget {
     required this.onStageScope,
     required this.onDiscardScope,
     required this.onTemporaryScopeChanged,
+    required this.softWrap,
     this.scrollController,
   });
 
@@ -68,6 +69,10 @@ class WorkingCopyDiffPane extends StatefulWidget {
   /// [temporaryScopeSubmitProvider] for why the staged one does not
   /// register.
   final void Function(void Function()? submit) onTemporaryScopeChanged;
+
+  /// `AppPreferences.softWrapEnabled`, passed straight through to both
+  /// sides' [ScopedDiffView].
+  final bool softWrap;
 
   /// Attached to the unstaged pane in `2 file` mode and to the single scroll
   /// view in `unified` mode.
@@ -152,6 +157,7 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
     // only -- there is nothing about a staged line to throw away.
     onDiscardScope: staged ? null : widget.onDiscardScope,
     onTemporaryScopeChanged: staged ? null : widget.onTemporaryScopeChanged,
+    softWrap: widget.softWrap,
   );
 }
 

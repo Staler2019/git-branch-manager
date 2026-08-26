@@ -9,6 +9,7 @@ import '../../data/models/commit_meta.dart';
 import '../../data/models/git_error.dart';
 import '../../data/models/parsed_diff.dart';
 import '../../data/models/working_copy_status.dart';
+import '../../data/repositories/app_preferences_repository.dart';
 import '../../data/repositories/file_list_view_mode_repository.dart';
 import '../../data/repositories/panel_tabs_repository.dart';
 import '../../data/repositories/repo_identity.dart';
@@ -429,6 +430,11 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
         : diffs[workingCopyDiffKey(sides.staged!, staged: true)];
 
     return WorkingCopyDiffPane(
+      // Read here rather than inside ScopedDiffView: this is the nearest
+      // container that already holds a Riverpod dependency, and keeping the
+      // diff widgets on plain values is what lets their tests pump them
+      // without a ProviderScope.
+      softWrap: ref.watch(appPreferencesProvider).softWrapEnabled,
       // Two paths when a rename is half-staged: the work tree still calls it
       // the old name while the index already calls it the new one, and
       // showing only one of them would make the pane look like it is

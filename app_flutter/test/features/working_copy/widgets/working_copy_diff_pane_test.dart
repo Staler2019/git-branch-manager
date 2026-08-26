@@ -65,6 +65,7 @@ void main() {
       await pumpGbmWidget(
         tester,
         child: WorkingCopyDiffPane(
+          softWrap: false,
           displayPath: displayPath,
           unstagedFile: unstaged,
           stagedFile: staged,

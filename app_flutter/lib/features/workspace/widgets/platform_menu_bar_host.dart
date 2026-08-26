@@ -46,11 +46,21 @@ class PlatformMenuBarHost extends StatelessWidget {
   bool get _isMacOS => isMacOSOverride ?? Platform.isMacOS;
 
   /// The actions macOS supplies itself, and which must therefore not be
-  /// duplicated as ordinary items: Quit lives in the application menu, and
-  /// About is the system's own panel.
+  /// duplicated as ordinary items. Quit is the only one: it lives in the
+  /// application menu, which `PlatformMenuBar` leaves alone (the embedder
+  /// replaces the menus *after* index 0, so `MainMenu.xib`'s
+  /// `systemMenu="apple"` entry survives).
+  ///
+  /// `helpAbout` used to be here too, and that was a bug rather than a
+  /// simplification: a `PlatformProvidedMenuItem(about)` opens the native
+  /// macOS About panel, so the one action id rendered a different window on
+  /// macOS than the `AboutDialogContent` Windows and Linux got. Spec page
+  /// 01 puts every window's *contents* under Flutter on all three
+  /// platforms -- only the menu bar's position follows the OS. The Apple
+  /// menu keeps its own native About, which is where macOS convention puts
+  /// one anyway.
   static const Set<GbmActionId> _systemProvided = <GbmActionId>{
     GbmActionId.fileExit,
-    GbmActionId.helpAbout,
   };
 
   @override
@@ -93,9 +103,8 @@ class PlatformMenuBarHost extends StatelessWidget {
                       shortcut: _activatorFor(shortcuts[item.id]),
                       onSelected: handlers[item.id],
                     ),
-              // Both system-provided roles are appended to the menu they
-              // belong to, so Quit still sits under File and About under
-              // Help even though macOS owns their behaviour.
+              // Quit is appended to the menu it belongs to, so it still
+              // sits under File even though macOS owns its behaviour.
               //
               // `hasMenu` is not optional: PlatformProvidedMenuItem throws
               // when the *running* platform has no such menu, and
@@ -110,13 +119,6 @@ class PlatformMenuBarHost extends StatelessWidget {
                   ))
                 const PlatformProvidedMenuItem(
                   type: PlatformProvidedMenuItemType.quit,
-                ),
-              if (menu.items.any((i) => i.id == GbmActionId.helpAbout) &&
-                  PlatformProvidedMenuItem.hasMenu(
-                    PlatformProvidedMenuItemType.about,
-                  ))
-                const PlatformProvidedMenuItem(
-                  type: PlatformProvidedMenuItemType.about,
                 ),
             ],
           ),

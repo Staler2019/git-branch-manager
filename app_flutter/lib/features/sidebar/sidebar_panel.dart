@@ -368,53 +368,28 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     // is a fact about the repository, not about what the filter box happens
     // to be showing.
     final int pendingCleanup = gonePendingCount(branches, gonePendingRefs);
-    // P02-14 rule 7: 「目前分支永遠置頂顯示，即使不符合條件也不會被濾掉」, and
-    // BRANCH_STATES' 目前分支 row: 「永遠置頂於所屬資料夾內，且不受 filter
-    // 影響」.
+    // A query filters the current branch exactly like any other row.
     //
-    // Two rules, one mechanism. *Where* the pinned row sits is the tree's
-    // business -- `buildBranchTree`'s comparator puts HEAD first within its
-    // own level -- so all this has to do is make sure the row exists to be
-    // sorted. A filter is the only state in which the current branch can
-    // vanish, and the sidebar must always be able to answer "where am I".
+    // P02-14 rule 7 (「目前分支永遠置頂顯示，即使不符合條件也不會被濾掉」) and
+    // BRANCH_STATES' 「不受 filter 影響」 both said otherwise, and both are a
+    // **user-ratified deviation** now -- see docs/ledger.md. The panel used to
+    // add HEAD back into the builder's input when the query dropped it, which
+    // also resurrected its ancestor folders (a row cannot sit inside a folder
+    // that is not drawn), so a filtered sidebar showed a folder with no
+    // matching child in it purely to carry one exempt row.
     //
-    // Adding HEAD *back into the input* rather than prepending a row above
-    // the tree is what makes 置頂於**所屬資料夾內** possible: a row rendered
-    // outside the tree has no folder to sit in, and the previous version
-    // hoisted it to the very top for exactly that reason. Feeding it through
-    // the builder also creates its ancestor folders, which the query had
-    // otherwise dropped -- a pinned row cannot appear inside a folder that
-    // is not drawn.
-    //
-    // Matched on `fullName`, not on identity: `RefInfo` has no `operator ==`,
-    // so `contains` would be comparing object references and would silently
-    // start re-adding a HEAD that *did* match the moment `filterBranches`
-    // stopped returning the caller's own instances.
-    //
-    // `filterBranches` itself is left alone: it is a pure name-matching rule
-    // and has no business knowing which ref is HEAD, which is also why the
-    // hit count below still counts only genuine matches.
+    // 「Where am I」 is answered by the expanded-to-HEAD default instead
+    // (`ancestorFolderPaths` below), which a query overrides anyway: rule 4's
+    // `expandAll` opens every folder while one is typed.
     final bool isFiltering = _filterQuery.trim().isNotEmpty;
-    final Set<String> matchedNames = filteredBranches
-        .map((RefInfo b) => b.fullName)
-        .toSet();
-    final RefInfo? unmatchedHead = isFiltering
-        ? branches
-              .where(
-                (RefInfo b) => b.isHead && !matchedNames.contains(b.fullName),
-              )
-              .firstOrNull
-        : null;
     final List<BranchTreeNode> branchTree = buildBranchTree(
-      unmatchedHead == null
-          ? filteredBranches
-          : <RefInfo>[...filteredBranches, unmatchedHead],
+      filteredBranches,
       _expandedFolders,
       // P02-14 rule 4. Read-only: the user's own set is never written to
       // here, so clearing the query restores exactly what they had.
       expandAll: isFiltering,
     );
-    _firstResultName = firstLeafName(branchTree, skip: unmatchedHead);
+    _firstResultName = firstLeafName(branchTree);
     _selectableNamesInRenderOrder = selectableLeafNames(branchTree);
     final List<RefInfo> filteredTags = filterBranches(refs.tags, _filterQuery);
     // Stashes go through the same rule as branches and tags: P02-14 is one
@@ -431,9 +406,9 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     // breakdown would be three numbers for a control that does not
     // distinguish them.
     //
-    // `filteredBranches`, not the rendered rows: rule 7 puts the current
-    // branch on screen whether or not it matched, and counting what is drawn
-    // would quietly redefine 命中 as "visible".
+    // `filteredBranches`, not the rendered rows: the two agree today, but
+    // 命中 means "matched the query", and reading it off what is drawn would
+    // make the number a property of the tree rather than of the filter.
     final int filterHits =
         filteredBranches.length + filteredTags.length + filteredStashes.length;
     final int filterTotal =

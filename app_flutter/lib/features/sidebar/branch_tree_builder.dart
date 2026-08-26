@@ -291,20 +291,19 @@ int _compareTreeNodes(BranchTreeNode a, BranchTreeNode b) {
 /// `BranchTreeItem` draws those with `selected: false`, so selecting one
 /// would look like the key did nothing.
 ///
-/// [skip] is the current branch when it is on screen only because rule 7
-/// pinned it. It sits *in* the tree now rather than above it, so without
-/// this the first "result" could be a row the query excluded -- and since
-/// the pin leads its own folder, that is precisely the row this would
-/// otherwise reach first.
-String? firstLeafName(List<BranchTreeNode> nodes, {RefInfo? skip}) {
+/// Every leaf in the tree is a genuine match now, so the first one *is* the
+/// first result. This used to take a `skip` for the current branch, which
+/// P02-14 rule 7 forced onto the screen whether or not it matched; that
+/// exemption is gone (see `sidebar_panel.dart`), and with it the only caller
+/// that ever passed the parameter.
+String? firstLeafName(List<BranchTreeNode> nodes) {
   for (final BranchTreeNode node in nodes) {
     if (node is BranchTreeLeaf) {
-      if (node.ref.kind != RefKind.remoteBranch &&
-          node.ref.fullName != skip?.fullName) {
+      if (node.ref.kind != RefKind.remoteBranch) {
         return node.ref.shortName;
       }
     } else if (node is BranchTreeFolder) {
-      final String? nested = firstLeafName(node.children, skip: skip);
+      final String? nested = firstLeafName(node.children);
       if (nested != null) return nested;
     }
   }

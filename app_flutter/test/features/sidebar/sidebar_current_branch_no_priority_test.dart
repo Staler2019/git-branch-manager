@@ -1,22 +1,21 @@
-// BRANCH_STATES' 目前分支 row: 「名稱加粗、整列以 selected 底色標示，永遠置頂於
-// 所屬資料夾內，且不受 filter 影響。」
-//
-// Two clauses, and the panel honoured neither. It pinned the current branch
-// above the *entire* tree, and only while a filter was active -- so with no
-// query the pin did not exist at all, and with one it sat outside the folder
-// it belongs to.
+// The current branch gets **no sorting and no filtering privilege** in the
+// sidebar. This is a user-ratified deviation from BRANCH_STATES' 目前分支 row
+// (「永遠置頂於所屬資料夾內，且不受 filter 影響」) and from P02-14 rule 7 --
+// see docs/ledger.md. What survives from that row is only the visual half:
+// 「名稱加粗、整列以 selected 底色標示」, which is what tells the user which
+// branch is checked out now that position no longer does.
 //
 // `branch_tree_builder_test.dart` owns the ordering half as a pure function.
-// This file owns what only the panel can answer: that the pin survives a query
-// it does not match (P02-14 rule 7, 「即使不符合條件也不會被濾掉」) *while
-// staying inside its folder*, and that being on screen for that reason still
-// does not make it a search result.
+// This file owns what only the panel can answer: that a query drops the
+// current branch exactly like any other row, and that nothing re-adds it
+// behind the filter's back.
 //
 // Every fixture here puts HEAD **inside a folder** and gives it a name that is
-// alphabetically last among its siblings. A fixture with HEAD at the root
-// cannot tell the two readings apart -- root *is* its folder, so 「置頂於所屬
-// 資料夾內」 and 「置頂於整棵樹」 name the same row, which is exactly why
-// `sidebar_filter_test.dart`'s `main` fixture stayed green through the bug.
+// alphabetically last among its siblings, so a reinstated pin fails them
+// rather than passing by coincidence. A fixture with HEAD at the root cannot
+// tell 「置頂於所屬資料夾內」 and 「置頂於整棵樹」 apart -- root *is* its
+// folder -- which is why `sidebar_filter_test.dart`'s `main` fixture once
+// stayed green through a real bug.
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -142,40 +141,28 @@ void main() {
     });
   });
 
-  group('while filtering (P02-14 rule 7)', () {
-    testWidgets('a current branch the query excludes still renders', (
+  group('while filtering', () {
+    testWidgets('a query the current branch does not match drops it', (
       tester,
     ) async {
       await _pump(tester);
       await _type(tester, 'docs');
 
-      expect(_rows(tester), contains('feature/zeta'));
+      expect(_rows(tester), <String>['chore/docs']);
     });
 
-    testWidgets('and renders inside its folder, not above the tree', (
+    testWidgets('its folder is not drawn when nothing in it matched', (
       tester,
     ) async {
       await _pump(tester);
       await _type(tester, 'docs');
 
-      // The whole point: `chore/docs` is the only match and `chore` sorts
-      // first, so a pin scoped to its own folder lands *second*. Hoisting it
-      // to the top -- the previous behaviour -- reverses these two rows.
-      expect(_rows(tester), <String>['chore/docs', 'feature/zeta']);
+      // The mirror of the old behaviour: `feature` used to be rendered with
+      // no matching child at all, purely to carry the exempt row.
+      expect(find.text('feature'), findsNothing);
     });
 
-    testWidgets('its folder is drawn even though nothing in it matched', (
-      tester,
-    ) async {
-      await _pump(tester);
-      await _type(tester, 'docs');
-
-      // A row cannot sit inside a folder that is not on screen. `feature` is
-      // present only to carry the pin.
-      expect(find.text('feature'), findsOneWidget);
-    });
-
-    testWidgets('it is not rendered twice when it does match', (tester) async {
+    testWidgets('a query it does match keeps it, exactly once', (tester) async {
       await _pump(tester);
       await _type(tester, 'zeta');
 
@@ -185,27 +172,24 @@ void main() {
       );
     });
 
-    testWidgets('it survives a query that matches nothing at all', (
+    testWidgets('a query that matches nothing at all leaves an empty tree', (
       tester,
     ) async {
       await _pump(tester);
       await _type(tester, 'zzz');
 
-      expect(_rows(tester), <String>['feature/zeta']);
-      expect(
-        find.text('No matches'),
-        findsOneWidget,
-        reason:
-            'the pin is now inside the tree, so an emptiness check written '
-            'against the tree would stop reporting zero matches',
-      );
+      expect(_rows(tester), isEmpty);
+      expect(find.text('No matches'), findsOneWidget);
     });
   });
 
-  group('being pinned is not being a result', () {
-    testWidgets('↓ skips the pinned branch and lands on a real match', (
+  group('being on screen is being a result', () {
+    testWidgets('↓ lands on the first match with nothing to step over', (
       tester,
     ) async {
+      // `firstLeafName` used to take a `skip` for the one row rule 7 forced
+      // into the tree. With no such row the first leaf in render order simply
+      // *is* the first result.
       await _pump(tester);
       await tester.tap(find.byType(TextField));
       await tester.pumpAndSettle();
@@ -220,15 +204,15 @@ void main() {
           i.ref.shortName: i.selected,
       };
       expect(selected['chore/docs'], isTrue);
-      expect(selected['feature/zeta'], isFalse);
+      expect(selected.containsKey('feature/zeta'), isFalse);
     });
 
-    testWidgets('the 命中/總數 count does not include it', (tester) async {
+    testWidgets('the 命中/總數 count is unchanged by any of this', (tester) async {
       await _pump(tester);
       await _type(tester, 'docs');
 
-      // One branch matched out of three refs. Counting the rendered rows
-      // instead would say 2/3.
+      // One branch matched out of three refs. The count always read genuine
+      // matches, so removing the exemption must not move it either way.
       expect(find.text('1/3'), findsOneWidget);
     });
   });

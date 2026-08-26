@@ -3923,3 +3923,34 @@ finder 失準或落空的形狀），一併補上。既然踩到就補掉，不�
   辦理；這是刻意對齊，不是漏掉。
 - **不與 Working Copy 共用同一筆偏好設定。** 那組的兩欄是 unstaged／staged，這組是
   old／new。長得像，意思不同；一個偏好翻兩邊，會在使用者沒在看的那個視圖造成意外。
+
+#### 裝置層：先誤判成「跑不成」，再被自己的重跑推翻
+
+第一次跑 `flutter test integration_test/... -d macos` 回的是
+`Failed to foreground app; open returned 1`，同時 `pgrep` 查到**另一個 Claude
+session 正在 `feature-soft-warp` 底下跑裝置層**，`gbm_flutter` 活著（PID 96171）。
+兩件事湊在一起，看起來因果分明：資源被佔用，所以前景化失敗。沒有 kill 它——
+CLAUDE.md 寫著「憑臆測殺掉會毀掉真正的工作」，而那確實是別人正在跑的工作——
+於是把「裝置層本輪未跑」連同代償的靜態稽核一起寫進了這一節。
+
+**那段結論是錯的，而且是這一節原本的內容。** 稍後那個 process 結束、重跑一次，
+`Failed to foreground app; open returned 1` **照樣印出來，然後測試照樣全綠**。
+這行字不是失敗訊號，它在完全綠燈的 run 上也會出現；真正能分辨的是它後面有沒有
+接上測試結果那幾行。當時只讀到那行就停了，於是把一個警告讀成了阻塞。
+
+蒸餾進 CLAUDE.md 的裝置層那條既有條目（不是新開一條）：**讀過那行、看到計數，
+再判斷 tier 是不是真的被擋住。**
+
+實際跑完的結果：先跑 `build_capi.sh`——**編譯無事可做（`ninja: no work to do`），但
+載入路徑上的 copy 原本並不存在**（`app_flutter/build/native/libgbm_capi.dylib` 那次 `ls`
+是失敗的），補的正是 copy 那一步，也就是「過期 dylib」那條陷阱真正防的東西。接著控制組
+`commit_file_counts_test.dart` 2/2 綠，其餘 10 支逐支重跑，**11 支檔案、26 個 test，全綠**（控制組 `commit_file_counts` 2 ＋ `commit_flow` 1 ＋ `conflict_flow` 1 ＋ `context_menu_flows` 5 ＋ `history_filter` 2 ＋ `multi_push_flow` 2 ＋ `rename_branch_flow` 2 ＋ `repo_lifecycle` 1 ＋ `stage_lines_flow` 7 ＋ `update_check_flow` 2 ＋ `working_copy_line_counts` 1）。
+
+靜態稽核本身仍然成立，而且後來補的一次 grep 讓它更硬：`integration_test/` 底下
+**沒有任何一支測試提到 `CommitDetailPanel`、`DiffPage`、`commitFile*` 或
+`selectedCommitFilePath`**，一個字都沒有。也就是說這輪新增的那條標題列，在整個裝置層
+的流程裡從頭到尾沒有被畫出來過——這解釋了為什麼全綠是預期中的結果，而不是運氣。
+
+還是要說清楚它證明的邊界：全綠證明「改動沒弄壞既有的裝置層測試」，**不證明
+「並排檢視在真機上長得對」**。後者沒有任何一層自動化測試涵蓋，只有人眼能確認，
+所以它仍然是使用者的一個手動步驟，不是已經發生過的事。

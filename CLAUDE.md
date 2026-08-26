@@ -705,6 +705,12 @@ you are touching, not by when it was learned.
   `gbm_flutter` process blocks the entire tier and looks exactly like a
   broken test — `pkill -f "gbm_flutter.app/Contents/MacOS/gbm_flutter"`, and
   run one pre-existing device test as a control before believing a new one.
+  But **`Failed to foreground app; open returned 1` is not itself the failure
+  signal** — it prints on fully green runs too, and what discriminates is
+  whether test-result lines follow it. Read past that line to the counts
+  before concluding the tier is blocked; taking it at face value cost the
+  side-by-side round a wrong 「裝置層跑不成」 verdict that had already been
+  written into the ledger before the re-run disproved it.
 - **The device tier is in no CI job and is not part of `flutter test`**, so a
   UI redesign can leave it broken for rounds with every other tier green. C18
   swept all ten files and found two red — neither from that round's own

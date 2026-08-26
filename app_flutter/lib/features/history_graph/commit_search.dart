@@ -106,13 +106,26 @@ List<int> matchingRowIndices({
 /// `List<int>.generate(graph.rows.length, (i) => i)` -- an N-element
 /// allocation whose i-th element is i, produced on **every scroll tick**
 /// (`CommitGraphView._onScroll` -> `_requestVisibleMeta` -> `_visibleOids`)
-/// and again in every `build()`. Measured in debug JIT with a `Stopwatch`:
-/// 5.6us/call at 703 commits, 44.4us at 10k, **682.6us at 100k**.
+/// and again in every `build()`. Measured in debug JIT with a `Stopwatch`,
+/// both paths warmed 20k iterations first (an unwarmed run reports the
+/// index getting *cheaper* as N grows, which is JIT warm-up, not a result):
+/// 4.0us/call at 703 commits, 41.2us at 10k, **669.9us at 100k**.
 ///
 /// Removed rather than cached, per this repo's own preference for deleting
 /// a recomputation over memoising it: with nothing filtered, a position in
 /// the rendered list *is* the snapshot row index, so there is nothing to
 /// compute and correspondingly no invalidation to get wrong.
+///
+/// **The non-empty-query branch above was deliberately left alone**, and is
+/// the more expensive one: 35.2us/call at 703, 489.7us at 10k, **5.03ms at
+/// 100k** (same conditions). It is not removable the way this branch is --
+/// the match set is a genuine function of the metadata cache -- and the memo
+/// that would cover it has to key on that cache's identity, which gets a new
+/// one on **every metadata reply**, i.e. exactly the scroll-streaming path
+/// it would need to serve. Deciding whether a roughly-half-hit-rate cache
+/// earns its invalidation contract is the user's call, not the
+/// implementer's; the number is recorded here and in docs/ledger.md so that
+/// call is made from a measurement.
 ///
 /// Read-only on purpose. Every element is derived from its own index, so a
 /// write has nowhere to go; mutating members throw [UnsupportedError]

@@ -8,8 +8,8 @@ import 'package:gbm_flutter/features/workspace/widgets/platform_menu_bar_host.da
 /// Runs [body] with the framework reporting macOS as the running platform.
 ///
 /// `PlatformProvidedMenuItem.hasMenu` consults `defaultTargetPlatform`, not
-/// `isMacOSOverride`, so the system-provided Quit/About items only appear
-/// under this. The override is reset inside the body rather than in a
+/// `isMacOSOverride`, so the system-provided Quit item only appears under
+/// this. The override is reset inside the body rather than in a
 /// `tearDown`, because the test binding asserts all foundation debug
 /// variables are unset at the end of the body, before tearDowns run.
 Future<void> _onMacOS(Future<void> Function() body) async {
@@ -96,9 +96,8 @@ void main() {
     });
   });
 
-  testWidgets('Exit and About become system-provided items, not plain ones', (
-    tester,
-  ) async {
+  testWidgets('Exit is the only system-provided item; About is an ordinary '
+      'one', (tester) async {
     await _onMacOS(() async {
       await _pump(tester, isMacOS: true);
       final List<String> labels = <String>[
@@ -109,20 +108,24 @@ void main() {
       expect(labels, contains('Open repository…'));
       expect(labels, contains('Keyboard shortcuts'));
 
-      // ...but macOS owns Quit and About, so they must not be duplicated as
-      // hand-rolled entries.
+      // ...macOS still owns Quit, which lives in the application menu, so it
+      // must not be duplicated as a hand-rolled entry.
       expect(labels, isNot(contains('Exit')));
-      expect(labels, isNot(contains('About')));
+
+      // ...but About is *not* system-provided. A
+      // PlatformProvidedMenuItem(about) opens the native About panel, which
+      // is a different window from the `AboutDialogContent` Windows and
+      // Linux get for the same action id -- and spec page 01 puts every
+      // window's *contents* under Flutter on all three platforms. Only the
+      // menu bar's position follows the OS.
+      expect(labels, contains('About'));
 
       expect(
         <PlatformProvidedMenuItemType>{
           for (final PlatformMenuItem i in _items(tester))
             if (i is PlatformProvidedMenuItem) i.type,
         },
-        <PlatformProvidedMenuItemType>{
-          PlatformProvidedMenuItemType.quit,
-          PlatformProvidedMenuItemType.about,
-        },
+        <PlatformProvidedMenuItemType>{PlatformProvidedMenuItemType.quit},
       );
     });
   });

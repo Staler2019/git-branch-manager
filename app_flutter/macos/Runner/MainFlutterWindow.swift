@@ -21,10 +21,19 @@ class MainFlutterWindow: NSWindow {
     // The deferred assignment is not cargo cult -- it was measured. Setting
     // the title synchronously here (and in MainMenu.xib, and in
     // AppDelegate.applicationDidFinishLaunching) is silently reverted to
-    // CFBundleName, i.e. `gbm_flutter`, by the time the window is on screen;
-    // only an assignment on the next main-queue turn survives. The xib below
-    // carries the same string so the two sources can never disagree, but the
-    // xib alone is not enough.
+    // CFBundleName by the time the window is on screen; only an assignment
+    // on the next main-queue turn survives. The xib below carries the same
+    // string so the two sources can never disagree, but the xib alone is
+    // not enough.
+    //
+    // That revert used to land on `gbm_flutter` and is now harmless on its
+    // own: #67 made Info.plist's CFBundleName the literal
+    // `git-branch-manager` too, so the two strings currently agree. They
+    // agree by coincidence, not by construction -- CFBundleName is the
+    // *application* name (Apple menu, About panel, Dock) and this is the
+    // *window* title, and nothing keeps them in step. Deleting the line
+    // below because "the revert lands on the right value anyway" would
+    // silently couple them.
     self.title = "git-branch-manager"
     DispatchQueue.main.async { self.title = "git-branch-manager" }
 

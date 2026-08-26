@@ -136,17 +136,30 @@ Future<SharedPreferences> _pumpRealApp(
   // it: the History column set, their order and their dragged widths are all
   // persisted app-wide, so a developer who once switched Author off would
   // make an author-finding test fail on their machine and nowhere else.
-  // `appPrefs.softWrapEnabled` joins them for the third instance of the same
-  // shape: it decides whether a long line wraps or scrolls sideways with a
-  // pinned gutter, which are two different widget trees and two different
-  // hit-test geometries. A developer who once turned wrapping on would make
-  // every row-position test on their machine disagree with CI -- except this
-  // tier has no CI, so it would simply be wrong locally and nowhere visible.
+  // The three below are the same hazard arriving as *flat* keys rather than
+  // a prefix, which is why the prefix loop had never covered them:
+  // `fileListViewMode` (List vs Tree, read by five surfaces),
+  // `diffViewMode` (History's diff, 並排 vs 統一) and
+  // `appPrefs.softWrapEnabled` (whether a long line wraps or scrolls
+  // sideways with a pinned gutter). A developer who once switched any of
+  // them in the real app changes what every later device test renders -- a
+  // file list in Tree mode nests its rows under folder rows, a diff in
+  // side-by-side draws two columns of cells instead of one, and an unwrapped
+  // line is a different widget tree with a different hit-test geometry --
+  // and all three are exactly the shape that makes a finder ambiguous or
+  // miss. `appPrefs.softWrapEnabled` is spelt out rather than swept by an
+  // `appPrefs.` prefix on purpose: that prefix also holds the theme and the
+  // rest of Preferences, and clearing those is not this harness's business.
+  const Set<String> flatKeysToClear = <String>{
+    'fileListViewMode',
+    'diffViewMode',
+    'appPrefs.softWrapEnabled',
+  };
   for (final String key in prefs.getKeys().where(
     (String k) =>
         k.startsWith('panelLayout.') ||
         k.startsWith('graphColumns.') ||
-        k == 'appPrefs.softWrapEnabled',
+        flatKeysToClear.contains(k),
   )) {
     await prefs.remove(key);
   }

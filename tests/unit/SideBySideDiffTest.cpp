@@ -147,5 +147,61 @@ TEST(SideBySideDiff, HandlesMultipleChangedRegionsInOneHunkIndependently) {
     EXPECT_EQ(rows[3].right->text, "B");
 }
 
+// The two cases below are this suite's newest, added together with their
+// mirrors in side_by_side_diff_test.dart. The NoNewlineMarker arm was the one
+// branch neither suite reached, and it is the arm most likely to be
+// "simplified" into the `{&line, &line}` of the Context case just above it.
+
+TEST(SideBySideDiff, ANoNewlineMarkerAfterARemovalStaysOnTheLeftSideOnly) {
+    const std::string diff =
+        "diff --git a/a.txt b/a.txt\n"
+        "index 1111111..2222222 100644\n"
+        "--- a/a.txt\n"
+        "+++ b/a.txt\n"
+        "@@ -1,2 +1,2 @@\n"
+        " keep\n"
+        "-old\n"
+        "\\ No newline at end of file\n"
+        "+new\n";
+    const ParsedDiff parsed = UnifiedDiffParser{}.parse(diff);
+    const auto rows = pairHunkForSideBySide(firstHunk(parsed));
+
+    ASSERT_EQ(rows.size(), 3u);
+    ASSERT_NE(rows[1].left, nullptr);
+    ASSERT_NE(rows[1].right, nullptr);
+    EXPECT_EQ(rows[1].left->text, "old");
+    EXPECT_EQ(rows[1].right->text, "new");
+    // The marker says the *old* file had no trailing newline. Putting it on
+    // both sides would claim the new file agrees, which is the opposite of
+    // what it means.
+    ASSERT_NE(rows[2].left, nullptr);
+    EXPECT_EQ(rows[2].left->kind, DiffLineKind::NoNewlineMarker);
+    EXPECT_EQ(rows[2].right, nullptr);
+}
+
+TEST(SideBySideDiff, ANoNewlineMarkerAfterAnAdditionStaysOnTheRightSideOnly) {
+    const std::string diff =
+        "diff --git a/a.txt b/a.txt\n"
+        "index 1111111..2222222 100644\n"
+        "--- a/a.txt\n"
+        "+++ b/a.txt\n"
+        "@@ -1,2 +1,2 @@\n"
+        " keep\n"
+        "-old\n"
+        "+new\n"
+        "\\ No newline at end of file\n";
+    const ParsedDiff parsed = UnifiedDiffParser{}.parse(diff);
+    const auto rows = pairHunkForSideBySide(firstHunk(parsed));
+
+    ASSERT_EQ(rows.size(), 3u);
+    ASSERT_NE(rows[1].left, nullptr);
+    ASSERT_NE(rows[1].right, nullptr);
+    EXPECT_EQ(rows[1].left->text, "old");
+    EXPECT_EQ(rows[1].right->text, "new");
+    EXPECT_EQ(rows[2].left, nullptr);
+    ASSERT_NE(rows[2].right, nullptr);
+    EXPECT_EQ(rows[2].right->kind, DiffLineKind::NoNewlineMarker);
+}
+
 }  // namespace
 }  // namespace gbm

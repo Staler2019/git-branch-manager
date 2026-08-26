@@ -92,6 +92,13 @@ class WorkspaceScreen extends ConsumerStatefulWidget {
   ConsumerState<WorkspaceScreen> createState() => _WorkspaceScreenState();
 }
 
+/// How long after a focus-regain refresh another one is suppressed.
+///
+/// Long enough that bouncing between two windows does not queue a history
+/// walk per bounce, short enough that a genuine return to the app after
+/// doing work elsewhere is treated as new.
+const Duration kFocusRefreshThrottle = Duration(seconds: 2);
+
 class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   bool _sidebarVisible = true;
   int _lastSeenOperationLogIndex = 0;
@@ -105,6 +112,13 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   /// UI-observed duration, which is what the number claims to be.
   DateTime? _scanStartedAt;
   Duration? _lastScanDuration;
+
+  /// Watches for the window regaining focus. See [_onWindowFocusRegained].
+  late final AppLifecycleListener _lifecycle;
+
+  /// Runs while a focus-regain refresh is still considered recent. Its
+  /// callback is deliberately empty: only `isActive` is read.
+  Timer? _focusRefreshCooldown;
 
   /// The last filter actually handed to the core, so an unrelated rebuild
   /// cannot restart a history walk. Null until the first dispatch, which is
@@ -124,11 +138,44 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     // after the first frame rather than here, so the dispatch does not land
     // mid-build.
     WidgetsBinding.instance.addPostFrameCallback((_) => _syncHistoryFilter());
+
+    // Nothing in this app used to react to the window regaining focus, so
+    // coming back from an editor or a terminal left both the working-copy
+    // diff and the history showing whatever they showed when the user left.
+    // Git state moves behind the app's back constantly -- a save, a commit
+    // from another window, a rebase, a force push -- and none of it emits a
+    // GBM event, because the core only reports what it was asked to do.
+    //
+    // `onResume` is edge-triggered by construction, which is what this
+    // needs: CLAUDE.md records that binding on "arrived at X" rather than
+    // on the transition into X is how a listener ends up re-firing for
+    // states it should ignore. On desktop the window losing focus parks the
+    // app in `inactive`, so the pair is exactly "left" and "came back".
+    _lifecycle = AppLifecycleListener(onResume: _onWindowFocusRegained);
+  }
+
+  /// Re-reads history and the working copy when the window comes back.
+  ///
+  /// Throttled: alt-tabbing back and forth would otherwise start one full
+  /// history walk per bounce, and a walk is the most expensive thing this
+  /// app does. A [Timer] is the clock rather than `DateTime.now()` because
+  /// it is the one a widget test can advance -- a wall-clock comparison
+  /// would make the "past the window, refresh again" case untestable.
+  void _onWindowFocusRegained() {
+    if (!mounted) return;
+    if (_focusRefreshCooldown?.isActive ?? false) return;
+    _focusRefreshCooldown = Timer(kFocusRefreshThrottle, () {});
+
+    final RepoIdentity identity = widget.identity;
+    refreshRepoHistory(ref, identity);
+    wc.refreshWorkingCopy(ref, identity);
   }
 
   @override
   void dispose() {
     _historyFilterDebounce?.cancel();
+    _focusRefreshCooldown?.cancel();
+    _lifecycle.dispose();
     _branchFilterFocusNode.dispose();
     super.dispose();
   }

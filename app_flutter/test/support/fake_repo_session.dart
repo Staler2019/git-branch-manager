@@ -349,6 +349,16 @@ class FakeRepoSessionController extends RepoSessionController {
     commandLog.add(const FakeCommand('refreshHistory'));
   }
 
+  /// Same reasoning as [refreshHistory] above, for the other half of a
+  /// window-focus regain: WorkspaceScreen's AppLifecycleListener dispatches
+  /// both, and an unoverridden method no-ops silently against the null
+  /// session -- a test could not tell "refreshed on focus" from "did
+  /// nothing".
+  @override
+  void refreshWorkingCopy() {
+    commandLog.add(const FakeCommand('refreshWorkingCopy'));
+  }
+
   @override
   void fetchRemote({
     String remoteName = '',

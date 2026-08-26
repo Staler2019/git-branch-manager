@@ -858,6 +858,20 @@ you are touching, not by when it was learned.
   `assert`-wrapped, so debug crashes but **release strips it and lets the
   write land mid-frame**. Defer to a post-frame callback and recompute from
   then-current state, not from a captured list.
+- **An unfiltered `ref.watch(repoSessionProvider(identity))` rebuilds the
+  whole shell on *every* state publish, including caches nothing on screen
+  reads.** Scrolling History prefetches commit metadata per scroll tick, so
+  each reply republished state and rebuilt `MenuBarRow`,
+  `PlatformMenuBarHost`, `ActionToolbar`, `TabRow` and
+  `_buildActionHandlers()` — on macOS that rebuilds a real native menu bar,
+  and the reported symptom was 「每次捲動 menubar 都會閃爍」. `WorkspaceScreen`
+  now watches a **record of the nine fields it consumes** and `read`s the
+  full state (it is passed whole to ~40 sites, which is what `grep
+  'session\.'` undercounts — bare `session` arguments do not match).
+  **Never put a derived getter that builds a new collection into such a
+  record**: `gonePendingRefs` returns a fresh `Set` and a `Set` has no value
+  equality, so including it makes the record unequal every time and silently
+  restores the storm it was meant to remove (ledger: History 捲動卡頓).
 - **`ref.listen` never fires for the value already present when it
   registers.** Every `ref.listen`-driven piece of session state needs
   something else covering the value that was already there — a filter query
@@ -1088,6 +1102,28 @@ you are touching, not by when it was learned.
 
 ### Refs, git and the core's own vocabulary
 
+- **`GraphSnapshotView.edgesSpanning()` is index-backed, not a scan.**
+  `GraphSpanIndex` (`lib/data/models/graph_span_index.dart`) is built once
+  per snapshot and cached on an `Expando` keyed by the snapshot instance —
+  no invalidation exists because none is needed (a new snapshot is a new
+  object; the old entry dies with its key). Its **extent comes from `edges`,
+  not `rows`**: `edgesSpanning` is contractually a pure function of `edges`,
+  and `graph_snapshot_test.dart` queries a view whose `rows` is empty while
+  its edges span rows 5..20. The brute-force scan now lives in
+  `graph_span_index_test.dart` as the oracle, deliberately not in `lib/`.
+- **`matchingRowIndices` returns an O(1) view, not a list, when the query is
+  empty.** `UnfilteredRowIndices` is read-only and computes element i as i;
+  it is the commonest state of the History list, and it used to be an
+  N-element allocation per scroll tick. Do not assume the result is mutable
+  or materialised. `_buildList` likewise hands back `graph.oidsHex` itself
+  rather than copying it when nothing is filtered.
+- **The window now refreshes on focus regain** — `WorkspaceScreen`'s
+  `AppLifecycleListener.onResume` calls `refreshRepoHistory()` +
+  `refreshWorkingCopy()`, throttled by `kFocusRefreshThrottle` (2s). The
+  throttle clock is a `Timer`, not `DateTime.now()`, because only the former
+  is advanced by `tester.pump()`. **Not verified on real hardware**: the
+  tests drive `handleAppLifecycleStateChanged` directly, which proves the
+  wiring but not that macOS emits inactive/resumed on window focus changes.
 - **`RefInfo.upstream` is the full ref name** (`refs/remotes/origin/x`), from
   `%(upstream)` not `%(upstream:short)`. Splitting on the first slash yields
   `"refs"` — use `remoteBranchParts()`. `delete_branch_dialog.dart`'s
@@ -1324,6 +1360,14 @@ derived from the code — they outrank convenience every time):
   working one by its output.** And prefer removing the recomputation to
   caching it — C18's `FileTree` candidate turned out to be a code path that
   should not have run at all in the default mode.
+- **Warm the JIT before timing, on every path being compared.** Timing
+  cases in one loop with N increasing puts the smallest N on the coldest
+  JIT. That produced a table where the *indexed* lookup got cheaper as the
+  graph grew (8.85µs → 2.08µs → 0.58µs per row) — an impossible shape for an
+  index, and it read as "the index is slower on small repos", nearly buying
+  a threshold nothing needed. After 20k warm-up iterations on both paths the
+  indexed cost is flat (~0.5µs) at every N. A per-N cost that *falls* as N
+  rises is the tell (ledger: History 捲動卡頓).
 - **Measure before caching, and put the number in the ledger.** C18's two
   numbers, debug JIT: splitting a 40×200 `DiffFile` into scopes is 197µs and
   ran *every frame* of a selection drag (cached); `FileTree.fromPaths` over

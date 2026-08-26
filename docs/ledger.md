@@ -4176,6 +4176,248 @@ CLAUDE.md 寫著「憑臆測殺掉會毀掉真正的工作」，而那確實是�
 還是要說清楚它證明的邊界：全綠證明「改動沒弄壞既有的裝置層測試」，**不證明
 「並排檢視在真機上長得對」**。後者沒有任何一層自動化測試涵蓋，只有人眼能確認，
 所以它仍然是使用者的一個手動步驟，不是已經發生過的事。
+### History 捲動卡頓：主因不是圖，是整個 shell 在重建 (fix/graph-scroll-issue)
+
+使用者的問題是「捲動 History 會頓」，並自己提了一個假設：**能不能先把線畫好再
+顯示**。方向是對的，但那不是主因，而找到主因靠的是使用者補的第二句話：
+**「每次捲動 menubar 都會閃爍」**。
+
+menubar 不在 `CommitGraphView` 裡，它在 `WorkspaceScreen`。它會閃，就代表整個
+shell 每次捲動都在重建。這也解釋了原本解釋不了的事：**這個 repo 只有 703 個
+commit，捲動一樣頓**。O(N) 掃描在 703 筆下太小，撐不起那個體感；重建風暴在任何
+repo 大小下都一樣發生。
+
+#### 主因：`ref.watch` 監聽整包 state
+
+`workspace_screen.dart:216` 原本是 `ref.watch(repoSessionProvider(identity))`。
+捲動的迴圈是這樣接起來的：
+
+```
+_onScroll（每個捲動 tick）
+  → _requestVisibleMeta → requestCommitMeta → FFI
+  → commitMetaReady
+  → state.copyWith(commitMetaCache: ...)   ← 新的 RepoSessionState 物件
+  → WorkspaceScreen.build() 整個跑一次
+  → MenuBarRow / PlatformMenuBarHost / ActionToolbar / TabRow
+    ＋ _buildActionHandlers() 全部重建
+```
+
+macOS 上 `PlatformMenuBarHost` 重建的是真的原生 `PlatformMenuBar`，那就是使用者
+看到在閃的東西。而 metadata 是隨捲動連續回來的，所以整段捲動期間這個迴圈不停。
+
+**最乾淨的佐證是欄位盤點**：`WorkspaceScreen` 全檔讀十個 session 欄位，
+`commitMetaCache` 一個都沒讀到——它是這個 shell 重建的唯一原因，卻不可能改變畫面
+上任何一個像素。
+
+修法是 record 版的單次 `.select()`，只挑真正消費的九個欄位。`copyWith` 對沒給的
+參數保留同一個實例，而這些型別都沒有覆寫 `==`，所以 record 以 identity 比較。
+
+**兩個 derived getter 刻意不放進 record**：`gonePendingRefs` 每次呼叫都
+`expand().toSet()` 生成新的 Set，Set 沒有值相等——放進去會讓 record 永遠不相等，
+等於把要修掉的重建風暴原封不動裝回來。這是那種「改了、測了、看起來對，其實什麼
+都沒修」的形狀。
+
+**沒有改四十個呼叫端**：`session` 是整包傳給 `isActionEnabled()`、
+`_backgroundTasks()`、`_headTrackingRef()` 與 `_ConflictBanner` 的。第一版想把
+record 傳下去，盤點後發現 `grep 'session\.'` **會漏掉整包傳遞的呼叫端**，真正的
+數字是約四十個而不是十個。所以改成 watch 一個 record、`read` 完整狀態：不增加第
+二個訂閱，而且跑在那次 watch 已經決定要跑的 build 裡，值是最新的。
+
+#### 量測：第一次量錯了，錯在 JIT 暖機
+
+四個數字全部用 debug JIT + `Stopwatch`，比照 `DiffScopeCache` 的先例。**第一輪的
+數字是錯的**，而且錯得很有教育意義：我在同一個迴圈裡依 N 遞增地量，於是最小的
+N 跑在最冷的 JIT 上。索引版看起來是這樣：
+
+| N | 索引版（未暖機） |
+|---|---|
+| 703 | 8.85us/列 |
+| 10,000 | 2.08us/列 |
+| 100,000 | 0.58us/列 |
+
+**成本隨 N 下降**——一個索引不可能有這種形狀。那不是資料，那是暖機。結論當時甚至
+是「703 筆下索引比暴力掃描還慢」，差點據此加一個沒必要的門檻。兩條路徑都先跑
+20,000 次暖機之後：
+
+| N | edges | 暴力 | 索引 | 25 列視窗 |
+|---|---|---|---|---|
+| 703 | 800 | 1.5us/列 | 0.79us/列 | 37us → 20us |
+| 10,000 | 11,561 | 25.7us/列 | 0.46us/列 | 644us → 12us |
+| 100,000 | 115,739 | 260.5us/列 | 0.49us/列 | 6,514us → 12us |
+
+索引後成本與 N 無關，這才是索引該有的形狀。建索引本身 100k 筆約 26ms，惰性建立。
+
+`matchingRowIndices`（空查詢）同樣重量：
+
+| N | 之前（generate） | 之後（視圖） |
+|---|---|---|
+| 703 | 4.0us | 0.30us |
+| 10,000 | 41.2us | 0.063us |
+| 100,000 | 669.9us | 0.073us |
+
+#### 使用者的想法，換成不推翻既有決定的形式
+
+「先把線畫好」如果照字面做成 per-row segment 清單，會直接撞上
+`graph_edge_geometry.dart:108-109` 白紙黑字拒絕過的東西（O(N x lanes) 記憶體）。
+所以做的是**每份 snapshot 一份 spanning 索引**：`_startsAt` 加上每 64 列一次的
+`_activeAtBlockStart`，記憶體仍是 O(N+E)，查詢從 O(E) 降到 O(該列實際有的邊)。
+
+**刻意不依賴 lane**：`_activeAtBlockStart` 是對真實 span 掃出來的結果，不是從圖形
+性質推導的。CLAUDE.md 記過一條被相信但為假的 lane 不變式
+（`edge.lane == rows[parentRow].lane`），任何靠 lane 結構的索引都會站在同一種前提上。
+
+快取掛在 `Expando` 上，key 是 snapshot 實例。不需要失效機制，而**那是設計不是缺口**：
+新的 snapshot 是新物件所以必然 miss，舊的 entry 隨 key 一起被回收（Expando 不會
+延長 key 的壽命）。
+
+#### 三個「夾具／斷言無法與程式碼意見不合」的當場實例
+
+這一輪踩到三次，全部是 CLAUDE.md 已經記載過的形狀，而且都是變異驗證抓出來的：
+
+1. **oid 前綴夾具**：`UnfilteredRowIndices` 的過濾測試用
+   `i.toRadixString(16).padLeft(40, '0')` 生成十個 oid，索引落在**尾端**，於是十筆
+   的前八個字元全是 `00000000`。前綴查詢是 `startsWith`，所以那個夾具無法分辨任何
+   兩列。改成把索引放在開頭。
+2. **`hits.sort()` 的變異是綠的**：拿掉排序，13 支全綠。原因不是斷言弱到看不見
+   順序（`orderedEquals` 看得見），而是**夾具生成的 edge 本來就照 childRow 排序**，
+   那個順序下區塊 carry-over 的串接剛好就是正確順序。補了一支把 edge 陣列反轉的
+   夾具，sort 才變成有承重，變異也才紅得只有那一支。
+3. **索引的 extent 取自 rows**：第一版用 `graph.rows.length` 定大小，讓三支**既有**
+   測試轉紅。追下去發現既有測試是對的：`edgesSpanning` 契約上是 `edges` 的純函數，
+   `graph_snapshot_test.dart` 就是拿 `rows` 為空、edge 橫跨 5..20 的 view 在問。
+   改的是實作，不是測試。
+
+第四個實例在別的地方：`FakeRepoSessionController` 原本**沒有**覆寫
+`refreshWorkingCopy`，所以它會撞上 `_session == nullptr` 的守衛安靜地什麼都不做，
+focus 測試分不出死掉的 listener 與活著的。補覆寫時又差點加重複的 `refreshHistory`
+——它早在 362 行就有了，我第一次 grep 被 `head -20` 截斷所以沒看到，77 支測試因此
+編譯失敗。
+
+#### focus 回來不更新：不是壞掉，是從來沒做
+
+`app_flutter/lib/` 底下 grep `AppLifecycleState`、`WidgetsBindingObserver`、
+`AppLifecycleListener`、`didChangeAppLifecycleState`——**零命中**。要接的兩個進入點
+（`refreshRepoHistory` / `refreshWorkingCopy`）本來就都在。
+
+節流用 `Timer` 而不是 `DateTime.now()`，理由是可測試性：牆鐘不受 `tester.pump()`
+推進，「超過節流視窗要再重整一次」那個案例會變成寫不出來。
+
+**誠實的限制**：測試用 `handleAppLifecycleStateChanged` 模擬轉換，證明了接線，
+**沒有**證明 macOS 真的會在視窗焦點變化時送出 inactive/resumed 這組轉換。那要在
+真的 app 上確認。
+
+#### 沒做的：載入期每個 chunk 重抄整張圖
+
+`repo_session_repository.dart` 每收到一個 `graphUpdated` chunk 就 `readGraphSnapshot()`
+把整張圖重新複製進 Dart，其中 `_readOids` 對每個 oid 跑 20 次 `toRadixString` +
+`padLeft` + `StringBuffer.write`。C++ 側是幾何級數分塊，所以一次 refresh 約
+log2(N/256) 個 chunk，每個都全抄。
+
+這是**載入期**成本不是捲動成本，而且量它需要真的 FFI 與大 repo，這一輪拿不到數字，
+所以照使用者「先量，需要再修」的裁決留著。
+
+**真要做的話有一個阻擋物先要處理**：walk 的 generation 在 C++ 側存在
+（`Session.cpp:375,438` 的 `RefreshCoalescer::Generation`），但**沒有經由 capi 曝露**
+——`gbm_capi.h` 完全沒有 generation，`GBM_EVENT_GRAPH_UPDATED` 的 payload 只有
+`{"complete": bool}`。沒有它，Dart 端分不出「同一次 walk 的第 5 個 chunk」與
+「force push 後新一次 walk 的第 1 個 chunk」，正是使用者自己點名的風險。走 payload
+加欄位而不是新增匯出函式，理由是簡單而非安全：新符號在舊 dylib 上是**大聲的**
+lookup 失敗，真正無聲的危險是改動**既有**函式的參數列。
+
+#### 沒做的（二）：有過濾字串時的 `matchingRowIndices`，以及 `isContiguousIn`
+
+核准的計畫 Phase 2 有兩項，只出了一項。空查詢那條**移除**了（`UnfilteredRowIndices`），
+非空查詢那條**原封不動**，這是一次縮減，所以連同數字寫在這裡讓使用者裁決，而不是
+安靜地做掉。
+
+同樣條件量（debug JIT、兩條路徑各先熱身 20k 次）：
+
+| N | 空查詢（已修） | 非空查詢（未修） | `isContiguousIn`（未修，單選一列） |
+|---|---|---|---|
+| 703 | 4.0 → 0.30 µs | 35.2 µs | 0.9 µs |
+| 10,000 | 41.2 → 0.063 µs | 489.7 µs | 12.5 µs |
+| 100,000 | 669.9 → 0.073 µs | **5.03 ms** | 121 µs |
+
+非空查詢是這三條裡最貴的，而且 100k 下一次 5ms、一幀最多呼叫兩次
+（`_visibleOids` 每個捲動 tick 一次、`build()` 每次重建一次），已經吃掉大半個
+16.7ms 預算。**但它不像空查詢那條可以直接刪掉**：比對的是 metadata 的
+subject/author，match 集合真的是 `commitMetaCache` 的函數。
+
+而計畫裡要 memo 它的那把 key（`(graph, metaCache, query)` 的物件識別）有個結構性
+問題：**`metaCache` 每收到一批 metadata 就換一個新實例**，而那正是捲動時它一直在
+發生的事。所以這個 memo 在最需要它的路徑上大約只有一半命中率（同一個 metaCache
+底下 `build()` 與下一個捲動 tick 共用），不是接近全中。要不要為此付一份三段式失效
+契約 + hits/misses 計數測試，是使用者的裁決。
+
+另外兩點誠實話：
+
+- 這條路徑**只有使用者在 History 過濾框打了字才會付**，而這一輪回報的症狀
+  （menubar 閃爍）是沒有過濾時的純捲動。兩者是不同情境。
+- `isContiguousIn` 慢在 `all.indexOf(item)`，是 O(選取數 × N)。但**沒有選取時它
+  第一行就回 false**，也就是捲動最常見的狀態下是 O(1)，所以量級雖然到 121µs
+  也排在最後面。
+
+##### 裁決結果：memo 做了
+
+使用者看過上面的數字後裁決「做，memo 加計數測試」，所以「沒做的（二）」的第一項
+已經不成立了，記在這裡而不是改寫上面那段——留著原本的推理，補上結論。
+
+memo 的形狀：`Expando` 掛在 `GraphSnapshotView` 上（跟 `GraphSpanIndex` 同一個模式），
+entry 裡再存 `metaCache` 實例與 `query` 字串。三者缺一不可，各自擋掉不同的錯答案：
+換 snapshot 是不同的列、換 metaCache 會讓原本不 match 的列開始 match、換 query 是
+完全不同的問題。前兩者用實例識別是誠實的，因為兩者都不可變且整份重建——snapshot 由
+`readGraphSnapshot()`，metaCache 由 `withCommitMeta()` 的展開語法（`{...old, ...new}`
+生成**新** map，不是就地改）。
+
+命中後的成本（同條件、熱身 20k 次）：
+
+| N | 未命中（＝原本的成本） | 命中 |
+|---|---|---|
+| 703 | 35.2 µs | 0.080 µs |
+| 10,000 | 489.7 µs | 0.046 µs |
+| 100,000 | **5.03 ms** | **0.012 µs** |
+
+命中是 O(1)（一次 Expando 查詢加兩個比較），所以隨 N 變大反而更快，那是量測噪音不是
+趨勢。量的時候順便斷言計時區間內 `MatchMemoStats.misses` 沒有增加，確認量到的真的是
+命中路徑而不是混了重算。
+
+回傳值改成 `List.unmodifiable`。原本每次都是新 list，呼叫端愛怎樣都行；memo 之後
+同一條 list 會被兩個呼叫點跨影格共用，所以把「不可以改」從「目前的呼叫端剛好都沒改」
+變成型別本身的性質。動手前確認過兩個呼叫點（`_visibleOids` 與 `build()`）都只有
+`.isEmpty` / `.length` / `[]` / 迭代。
+
+計數測試七支，斷言的是 hits/misses 的**差值**（計數器是 isolate 全域、不重置，跟
+`GraphSpanIndex.debugBuildCount` 同一個讀法）。三次變異驗證都紅得很窄，而且落點跟預測
+一致：
+
+| 變異 | 預測 | 實際 |
+|---|---|---|
+| 拿掉 memo | 只有「只算一次」那支 | ✅ 只有那支 |
+| key 漏掉 query | 「換 query 要重算」 | ✅ 那支，**外加** `commit_search_test.dart` 既有的「nothing matches」 |
+| key 漏掉 metaCache | 症狀測試 | ✅ 症狀測試 + 「同內容不同實例算 miss」 |
+
+第二項那個額外的紅是意外收穫：既有那組四支測試共用同一個 `graph` 實例、只換 query，
+所以 key 漏掉 query 時它們會互相拿到對方的答案。**既有測試免費守住了一個維度**，
+純屬夾具剛好長對，不是設計出來的。
+
+順帶修正了一段自己一個 commit 前才寫下的註解：`UnfilteredRowIndices` 的說明裡寫著
+「非空查詢那條刻意不動，是使用者的裁決」，memo 一落地那句就成了假的。這正是本檔
+一再記載的「註解與程式碼互相矛盾」形狀，所以跟著這次改動一起改掉，而不是留給下一輪
+當成真話讀。
+
+以及一個補上的縫：memo 的 key 誠不誠實，整個押在 `withCommitMeta` 用展開語法生成
+**新** map 而不是就地改。這件事原本只有讀原始碼確認過，**沒有任何測試釘住**——
+memo 測試裡那幾個「新的 metaCache」全是測試自己用展開語法造的，從來沒有經過真正的
+生產者。哪天有人把 `withCommitMeta` 「優化」成就地改，過濾就會一直回舊答案，而現有
+測試沒有一支會紅。補了一支跨過真生產者的測試。
+
+這支測試自己踩了一次「紅得不是原因」：第一版用 `const RepoSessionState(isOpen: true)`
+當起點，而它的 `commitMetaCache` 預設是 **`const` map、不可修改**，所以就地改的變異會在
+那裡直接丟 `UnsupportedError`——測試是紅的，但紅的是「丟例外」，不是我寫的那三行斷言。
+換成明確的 growable map literal（也才是 app 從第一批 metadata 之後真正持有的東西）之後
+變異才成功執行，紅的位置也才變成 `withCommitMeta must not mutate the cache in place`
+那一句。**測試紅了不等於測試有承重**，得看紅在哪一行。
+
 ## feature/soft-warp — soft wrap 偏好與長行水平捲動
 
 需求：Preferences 加一個 soft wrap 開關、預設關閉，關掉時長行改用水平捲動。

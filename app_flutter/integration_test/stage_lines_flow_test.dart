@@ -346,4 +346,80 @@ void main() {
           'that stopped at the first changed row would not',
     );
   });
+
+  // A drag that moves row by row, three sub-row steps each, against the real
+  // SelectionArea delegates.
+  //
+  // **Read what this does and does not attest.** It is a regression net for
+  // multi-row drags. It is *not* a reproduction of the reported
+  // 「只能選一行」: with the mid-drag gate deliberately removed -- both the
+  // `settledTouched` ternary and `_onTouchChanged`'s early return -- this
+  // test still passed, at row granularity and at sub-row granularity. So no
+  // synthetic gesture available here reproduces the symptom, and the fix
+  // that followed the report is not verified against it by anything in this
+  // repo. Do not cite this test as that verification.
+  testWidgets('a row-by-row drag keeps every changed line it crossed', (
+    tester,
+  ) async {
+    await _openDiff(tester, repo);
+
+    // From the first insertion down to the second, one row at a time, so
+    // every intermediate frame is a chance for the tree to move underneath
+    // the gesture.
+    const List<String> rows = <String>[
+      'INSERTED_ONE',
+      'bravo',
+      'charlie',
+      'delta',
+      'INSERTED_TWO',
+    ];
+
+    Rect rectOf(String text) => tester.getRect(
+      find.descendant(of: _unstagedPane, matching: find.text(text)),
+    );
+
+    final Rect first = rectOf(rows.first);
+    final TestGesture gesture = await tester.startGesture(
+      Offset(first.left + 1, first.center.dy),
+      kind: PointerDeviceKind.mouse,
+    );
+    addTearDown(gesture.removePointer);
+    await tester.pump();
+    // Sub-row increments, three per row: a real mouse emits far more move
+    // events than rows, so a tree restructure can land between two moves
+    // *within* a row rather than tidily between rows.
+    for (final String row in rows) {
+      final Rect rect = rectOf(row);
+      for (final double t in const <double>[0.25, 0.6, 1.0]) {
+        await gesture.moveTo(
+          Offset(rect.left + (rect.width - 1) * t, rect.center.dy),
+        );
+        await tester.pump(const Duration(milliseconds: 8));
+      }
+    }
+    await gesture.up();
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('temporary-scope-card')),
+        matching: find.textContaining('Stage '),
+      ),
+    );
+    await tester.pumpAndSettle(const Duration(seconds: 2));
+
+    final String staged = _stagedDiff(repo);
+    expect(
+      staged.contains('+INSERTED_ONE'),
+      isTrue,
+      reason: 'the drag started here\n$staged',
+    );
+    expect(
+      staged.contains('+INSERTED_TWO'),
+      isTrue,
+      reason:
+          'and ended here -- a scope that collapsed to the first row would '
+          'stage only one of the two',
+    );
+  });
 }

@@ -810,8 +810,16 @@ you are touching, not by when it was learned.
   everything below it and perturbs the selection, so a derived card takes a
   **fixed slot**; and reacting to every report is a feedback loop
   (`setState` → geometry moves → delegates re-report), so listen only between
-  pointer-down and pointer-up. All three are 「first frame right, later
-  frames wrong」 — a one-frame assertion cannot see any of them. But note
+  pointer-down and pointer-up. **Draw nothing derived from that set while the
+  pointer is down**: the one-shot block sits inside the scope card, so
+  drawing it mid-drag reparents the rows whose listeners are still reporting.
+  The live feedback during a drag is `SelectionArea`'s own text highlight;
+  the block is what the drag settles into, so `endGesture()` is what
+  notifies. Note the honest limit — **no synthetic gesture at either tier
+  reproduces the symptom this was reported for** (「只能選一行」): with the
+  gate removed, row-by-row and sub-row device drags both stayed green. The
+  invariant is pinned; the cure is not. All three are 「first frame right,
+  later frames wrong」 — a one-frame assertion cannot see any of them. But note
   what the second one is *not* an argument for: the one-shot block's fixed
   slot at the top of the column was justified by it and **was not the
   design** (the demo nests it inside the scope card, wrapping the selected
@@ -828,6 +836,14 @@ you are touching, not by when it was learned.
   synchronously **before** dispatching. Nothing below the device tier can see
   it: the fakes never restage, so the diff never changes and the clear always
   finds a settled tree.
+- **`SelectableRegion` clears its selection when it loses focus**
+  (`_handleFocusChanged`, non-web), and it requests focus for itself as a
+  drag begins — so an *ancestor* that calls `requestFocus()` on every pointer
+  down is a live way to wipe out the selection the gesture is still making.
+  Guard on `!node.hasFocus`: `hasFocus` is true for an ancestor of the
+  primary focus, so the guard already covers "the region below me is the one
+  holding it", and key events reach an ancestor `CallbackShortcuts` either
+  way.
 - **`Ctrl/Cmd+A` must be bound inside the list's own focus scope**, never
   app-wide: a `Shortcuts` closer to a focused editor than
   `DefaultTextEditingShortcuts` steals text select-all.

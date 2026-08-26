@@ -36,6 +36,17 @@ class SelectionTouchTracker extends ChangeNotifier {
   /// The keys of every row the selection currently covers.
   Set<String> get touched => Set<String>.unmodifiable(_touched);
 
+  /// A pointer is down in the well and the set is still moving.
+  ///
+  /// Callers must draw **nothing** derived from [touched] while this is
+  /// true. The one-shot block lives inside the scope card, wrapping the
+  /// selected rows in place, so drawing it mid-drag reparents the rows below
+  /// it -- and those rows carry the [SelectionListener]s whose reports are
+  /// deciding what [touched] holds. The drag then collapses to a single row.
+  /// SelectionArea's own text highlight is the live feedback; the block is
+  /// what the drag settles into.
+  bool get isDragging => !_latched;
+
   /// A stable [GlobalKey] for [rowKey]'s [SelectionListener].
   ///
   /// **Global, not a [ValueKey].** A row moves between subtrees as the diff
@@ -117,7 +128,15 @@ class SelectionTouchTracker extends ChangeNotifier {
   }
 
   /// The drag is over. What the set holds now is what the user framed.
-  void endGesture() => _latched = true;
+  ///
+  /// Notifies, because this is the transition the view draws on: with
+  /// [isDragging] suppressing every rebuild in between, the pointer coming
+  /// up is the only signal that the settled set is ready to render.
+  void endGesture() {
+    if (_latched) return;
+    _latched = true;
+    _scheduleNotify();
+  }
 
   void _onRowChanged(String rowKey, SelectionListenerNotifier notifier) {
     if (_disposed || _latched) return;

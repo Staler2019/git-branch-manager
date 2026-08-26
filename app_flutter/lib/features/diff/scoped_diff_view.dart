@@ -166,7 +166,17 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   bool _reportedScope = false;
 
   void _onTouchChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    // Not while the pointer is down. **This is a rebuild-cost measure, not
+    // the correctness one** -- `build`'s `settledTouched` gate is what
+    // guarantees nothing derived from the touched set is drawn mid-drag, and
+    // it has to be, because it is the only one that also covers a rebuild
+    // this widget did not originate. What this line saves is a rebuild of
+    // the whole column on every frame of a drag across twenty rows, for
+    // output that would be identical anyway. Verified by mutation: removing
+    // this line alone breaks nothing.
+    if (_tracker.isDragging) return;
+    setState(() {});
   }
 
   /// Forgets the temporary scope.
@@ -259,8 +269,15 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
       (int sum, List<DiffScope> scopes) => sum + scopes.length,
     );
 
+    // One read of the touched set, gated once: everything derived from it --
+    // the one-shot block, the row tint, the submitter published to
+    // `repositoryStageSelectedLines` -- has to agree about whether the drag
+    // has settled, and two reads could not.
+    final Set<String> settledTouched = _tracker.isDragging
+        ? const <String>{}
+        : _tracker.touched;
     final Map<int, List<int>> temporary = touchedChangedLines(
-      _tracker.touched,
+      settledTouched,
       <int, Set<int>>{
         for (final MapEntry<int, List<DiffScope>> entry in byHunk.entries)
           entry.key: <int>{
@@ -383,7 +400,19 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
                       // Tapping does not grant focus by itself, and without
                       // focus the arrow bindings above are unreachable for a
                       // user who never drags.
-                      _wellFocus.requestFocus();
+                      //
+                      // **Only when nothing here holds it already.**
+                      // [SelectableRegion] clears its selection when it
+                      // loses focus (`_handleFocusChanged`, non-web), and it
+                      // requests focus for itself as a drag begins -- so an
+                      // unconditional request from this ancestor is a live
+                      // way to wipe the selection out from under the gesture
+                      // that is making it. `hasFocus` is true for an
+                      // ancestor of the primary focus, so this node being
+                      // 「already focused」 covers the case where the region
+                      // below it is the one actually holding it, and the key
+                      // events reach [CallbackShortcuts] either way.
+                      if (!_wellFocus.hasFocus) _wellFocus.requestFocus();
                       _tracker.beginGesture();
                     },
                     onPointerUp: (_) {
@@ -396,7 +425,12 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         mainAxisSize: MainAxisSize.min,
-                        children: _wellChildren(diffFile, byHunk, temporary),
+                        children: _wellChildren(
+                          diffFile,
+                          byHunk,
+                          temporary,
+                          settledTouched,
+                        ),
                       ),
                     ),
                   ),
@@ -525,6 +559,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     DiffFile diffFile,
     Map<int, List<DiffScope>> byHunk,
     Map<int, List<int>> temporary,
+    Set<String> settledTouched,
   ) {
     final int temporaryChanged = temporary.values.fold<int>(
       0,
@@ -532,7 +567,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     );
     final String temporaryLabel = scopeButtonLabel(
       staged: widget.staged,
-      spanned: _tracker.touched.length,
+      spanned: settledTouched.length,
       changed: temporaryChanged,
     );
     // The head goes on the first card the selection reaches, and only that
@@ -565,7 +600,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
                 lineIndices: segment.lineIndices,
                 staged: widget.staged,
                 tracker: _tracker,
-                touched: _tracker.touched,
+                touched: settledTouched,
               ),
             );
           case DiffScopeSegment(:final DiffScope scope):
@@ -585,7 +620,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
                 staged: widget.staged,
                 hunkIndex: hunkIndex,
                 tracker: _tracker,
-                touched: _tracker.touched,
+                touched: settledTouched,
                 temporaryLines: temporaryLines,
                 showTemporaryHead: showTemporaryHead,
                 temporaryLabel: temporaryLabel,

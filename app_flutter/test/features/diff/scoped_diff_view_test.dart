@@ -558,6 +558,64 @@ void main() {
       await tester.pump();
     }
 
+    // **Nothing derived from the touched set is drawn while the pointer is
+    // down.** Once the one-shot block moved inside the card (where the demo
+    // puts it), drawing it mid-drag reparents the rows below it -- and those
+    // rows carry the SelectionListeners whose reports decide the block
+    // should exist, so the drag collapsed to a single row. The live feedback
+    // during a drag is SelectionArea's own text highlight; the block is what
+    // the drag *settles* into.
+    testWidgets('no one-shot block appears until the pointer comes up', (
+      WidgetTester tester,
+    ) async {
+      // The *same* DiffFile instance both times: `didUpdateWidget` drops the
+      // selection when the file changes by identity, so a fresh fixture
+      // would clear it for an unrelated reason and the assertion would pass
+      // for the wrong one.
+      final DiffFile file = _file(<String>['.++++.']);
+      await pump(tester, file);
+
+      final Rect first = tester.getRect(find.text('h0 l1'));
+      final Rect last = tester.getRect(find.text('h0 l4'));
+      final TestGesture gesture = await tester.startGesture(
+        Offset(first.left + 1, first.center.dy),
+        kind: PointerDeviceKind.mouse,
+      );
+      addTearDown(gesture.removePointer);
+      await tester.pump();
+      await gesture.moveTo(Offset(last.right - 1, last.center.dy));
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        find.byKey(const ValueKey<String>('temporary-scope-card')),
+        findsNothing,
+        reason: 'drawn mid-drag it moves the rows the delegates report on',
+      );
+
+      // Now force a rebuild that this widget did not originate -- a parent
+      // repainting mid-drag, which really happens (a status refresh, a
+      // hover on an ancestor). Suppressing `setState` in the tracker's
+      // listener cannot stop that one; only the gate inside `build` can, and
+      // without this line the mutation that removes it stays green.
+      await pump(tester, file);
+
+      expect(
+        find.byKey(const ValueKey<String>('temporary-scope-card')),
+        findsNothing,
+        reason: 'a rebuild from outside must not draw the block either',
+      );
+
+      await gesture.up();
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        find.byKey(const ValueKey<String>('temporary-scope-card')),
+        findsOneWidget,
+      );
+    });
+
     testWidgets('a drag across changed lines raises a temporary card', (
       WidgetTester tester,
     ) async {

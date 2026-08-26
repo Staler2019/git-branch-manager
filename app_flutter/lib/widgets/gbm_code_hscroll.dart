@@ -267,3 +267,144 @@ class _RightOfGutter extends CustomClipper<Rect> {
   @override
   bool shouldReclip(_RightOfGutter oldClipper) => oldClipper.left != left;
 }
+
+/// A code well that owns **both** axes, so both scrollbars land on the pane.
+///
+/// [GbmCodeHScroll] scrolls sideways and leaves the vertical axis to whoever
+/// is above it. That works while the ancestor bounds its height -- a
+/// `ListView` does -- and fails silently when the ancestor is itself a
+/// vertical `SingleChildScrollView`, because the child of one gets
+/// *unbounded* height. `Scrollbar` paints along the bottom edge of its own
+/// box, so the horizontal thumb ends up at the bottom of the whole diff
+/// rather than the bottom of the viewport: measured at y=1428 against a
+/// 300px pane. Scrolling still worked; the at-rest 「right of here there is
+/// more」 signal did not, which is the UX rubric's `material_state_hidden`.
+///
+/// This widget is the fix, and its shape is the point:
+///
+/// ```
+/// Scrollbar(vertical)          <- painted on *this* box, which is bounded
+///   Scrollbar(horizontal)      <- likewise
+///     SingleChildScrollView(horizontal)
+///       SizedBox(width: contentWidth)
+///         SingleChildScrollView(vertical)
+///           child
+/// ```
+///
+/// Horizontal outside, vertical inside, and **both scrollbars outside both**
+/// so each paints against the pane's own edges. Swapping the two scroll
+/// views over does not matter; moving either scrollbar inside does, and
+/// re-creates the bug on the other axis.
+///
+/// **Why not `TwoDimensionalScrollView`.** It is the textbook answer for two
+/// bounded axes and it is the wrong tool here twice over: Flutter core ships
+/// only the abstract halves (`TwoDimensionalViewport`,
+/// `RenderTwoDimensionalViewport`), so it means hand-writing
+/// `layoutChildEntries`; and it is a *lazy* viewport -- off-screen children
+/// are destroyed unless individually kept alive. `ScopedDiffView`'s rows
+/// cannot be unmounted: each one holds the `SelectionListener` that reports
+/// whether the live text selection touches it (see `selection_touch.dart`),
+/// which is how spec `SCOPES` row 7's drag-to-stage knows what it framed.
+/// Keeping every row alive to avoid that would pay for a custom render
+/// object and get a non-lazy list back. The structural property wanted from
+/// it -- both axes bounded by the pane -- is what the tree above delivers.
+///
+/// The scrollbars are drawn here and **suppressed on the inner scrollables**
+/// via `ScrollConfiguration(scrollbars: false)`: on desktop the ambient
+/// `ScrollBehavior` adds its own, and those would be painted against the
+/// inner boxes -- exactly the bug, back again and harder to see because a
+/// finder still reports one scrollbar per axis.
+class GbmCodeScrollWell extends StatefulWidget {
+  const GbmCodeScrollWell({
+    super.key,
+    required this.contentWidth,
+    required this.verticalController,
+    required this.backdrop,
+    required this.child,
+  });
+
+  /// Total width the content needs, gutter included. `0` (or anything not
+  /// wider than the viewport) means no horizontal axis is built at all, and
+  /// [GbmPinnedGutter] below sees a null controller and stays put.
+  final double contentWidth;
+
+  /// Owned by the caller, because the pane decides which sides share one
+  /// vertical position: `unified` mode scrolls both halves of the file
+  /// together and `2 file` mode gives each side its own.
+  final ScrollController verticalController;
+
+  /// Painted behind an opaque [GbmPinnedGutter]. See [GbmCodeHScroll.backdrop].
+  final Color backdrop;
+
+  final Widget child;
+
+  @override
+  State<GbmCodeScrollWell> createState() => _GbmCodeScrollWellState();
+}
+
+class _GbmCodeScrollWellState extends State<GbmCodeScrollWell> {
+  final ScrollController _horizontal = ScrollController();
+
+  @override
+  void dispose() {
+    _horizontal.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final double width = widget.contentWidth;
+        final bool needsHorizontal =
+            width.isFinite && width > constraints.maxWidth;
+
+        Widget inner = SingleChildScrollView(
+          controller: widget.verticalController,
+          child: GbmCodeHScrollScope(
+            controller: needsHorizontal ? _horizontal : null,
+            backdrop: widget.backdrop,
+            child: widget.child,
+          ),
+        );
+
+        if (needsHorizontal) {
+          inner = SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            controller: _horizontal,
+            child: SizedBox(width: width, child: inner),
+          );
+        }
+
+        inner = ScrollConfiguration(
+          behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+          child: inner,
+        );
+
+        if (needsHorizontal) {
+          inner = Scrollbar(
+            controller: _horizontal,
+            thumbVisibility: true,
+            notificationPredicate: _isHorizontal,
+            child: inner,
+          );
+        }
+
+        return Scrollbar(
+          controller: widget.verticalController,
+          notificationPredicate: _isVertical,
+          child: inner,
+        );
+      },
+    );
+  }
+
+  /// Both scrollbars sit above both scroll views, so each one sees the
+  /// other's notifications bubbling through and would otherwise track the
+  /// wrong axis' metrics.
+  static bool _isHorizontal(ScrollNotification n) =>
+      n.metrics.axis == Axis.horizontal;
+
+  static bool _isVertical(ScrollNotification n) =>
+      n.metrics.axis == Axis.vertical;
+}

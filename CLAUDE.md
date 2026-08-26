@@ -1004,6 +1004,38 @@ you are touching, not by when it was learned.
   for a mouse), so a whole-row drag handle loses ordinary clicks.
 - `Paint.color` quantises on read-back — compare `.toARGB32()`, or a mismatch
   prints Expected and Actual identically.
+- **A `Scrollbar` paints along the edges of *its own* box, so a scroller
+  whose box is unbounded puts its thumb where nobody can see it.** The
+  Working Copy's horizontal scrollbar sat at y=1428 against a 300px pane,
+  because `WorkingCopyDiffPane` put the scroller under a vertical
+  `SingleChildScrollView` and the child of one gets unbounded height.
+  Scrolling still worked (trackpad pan, Shift+wheel) — what was lost is the
+  at-rest 「there is more to the right」 signal, dimension D's
+  `material_state_hidden`. `GbmCodeScrollWell` is the fix and its shape is
+  the rule: **horizontal scroller outside, vertical inside, and both
+  `Scrollbar`s outside both** so each paints against the bounded pane;
+  moving either scrollbar inward re-creates the bug on the other axis. Two
+  traps come with it. **The ambient `ScrollBehavior` adds its own scrollbars
+  on desktop**, wrapped around the *inner* scrollables — the same bug back
+  again, and a finder still counts one per axis — so the inner tree needs
+  `ScrollConfiguration(scrollbars: false)`. And **`flutter_test` reports
+  `TargetPlatform.android` by default**, where Material adds no ambient
+  scrollbar at all, so any test about them must set
+  `debugDefaultTargetPlatformOverride` (reset it *in the test body* — the
+  no-debug-variable-outlived-the-test check runs before tearDowns) or it
+  passes with the suppression deleted. This app ships desktop-only, so the
+  test default is the one platform that never happens (ledger: soft-warp).
+- **`TwoDimensionalScrollView` is not the answer for a surface whose rows
+  must stay mounted.** Flutter core ships only the abstract halves, so it
+  means hand-writing `layoutChildEntries` — but the disqualifier is that it
+  is a *lazy* viewport: off-screen children are destroyed unless individually
+  kept alive. `ScopedDiffView`'s rows each hold the `SelectionListener` that
+  reports whether the live selection touches them, which is how `SCOPES`
+  row 7's drag-to-stage knows what it framed, so unmounting one silently
+  breaks staging across a scroll. Keeping every row alive pays for a custom
+  render object and gets a non-lazy list back. When the thing actually
+  wanted is 「both axes bounded by the pane」, build that with plain
+  scrollers (ledger: soft-warp).
 - **A widget that paints over a row to hide something has to know whose
   background it is covering.** `GbmPinnedGutter` holds a line-number gutter at
   the viewport edge while code scrolls under it, so it must be opaque — and
@@ -1374,16 +1406,6 @@ derived from the code — they outrank convenience every time):
 - `lfs_pattern_match.dart` is an **approximation** of gitattributes matching,
   not a port of `wildmatch()`; a pattern it cannot parse matches nothing, so
   a group reads 0 rather than a wrong number.
-- **`ScopedDiffView`'s horizontal scrollbar is off-screen on any diff taller
-  than its pane.** `WorkingCopyDiffPane` puts it under a vertical
-  `SingleChildScrollView`, so `GbmCodeHScroll`'s height is unbounded and
-  `Scrollbar` paints along the bottom of the *content*, not the viewport —
-  measured at rect bottom 1428 against a 300px viewport. Scrolling itself is
-  fine (trackpad pan, Shift+wheel); what is lost is the at-rest signal that
-  there is more to the right, which is dimension D's `material_state_hidden`.
-  **The other four file views are unaffected** — all bounded by a `ListView`.
-  The two candidate fixes and why neither is a drive-by are in the ledger
-  under 「一個量出來的缺陷」; awaiting the user's call.
 - **No pull dialog route exists**, so P17's 「選單的 Pull… 或 Alt + 點工具列才
   開」 has nothing to open: `ActionToolbar`'s Pull only runs `pullChanges()`
   with the configured default (**#109**).

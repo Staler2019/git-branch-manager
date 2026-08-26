@@ -4,7 +4,6 @@ import 'package:flutter/services.dart';
 import '../../data/models/parsed_diff.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
-import '../../widgets/code_line_metrics.dart';
 import '../../widgets/gbm_badge.dart';
 import '../../widgets/gbm_button.dart';
 import '../../widgets/gbm_code_hscroll.dart';
@@ -105,9 +104,6 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   final GlobalKey<SelectionAreaState> _selectionAreaKey =
       GlobalKey<SelectionAreaState>();
 
-  /// Keyed by the `DiffFile` on screen. See [CodeWidthMemo] for what the key
-  /// distinguishes and what a stale entry would look like.
-  final CodeWidthMemo _widthMemo = CodeWidthMemo();
   late final SelectionTouchTracker _tracker;
 
   /// Splitting the file into scopes is the one expensive thing this build
@@ -434,22 +430,22 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
                     onPointerCancel: (_) => _tracker.endGesture(),
                     child: SelectionArea(
                       key: _selectionAreaKey,
-                      // Inside the SelectionArea, not outside it: the region
-                      // has to stay the outermost thing the drag meets, and
-                      // the scroller's own recogniser never competes with it
-                      // anyway (see GbmCodeHScroll on `dragDevices`).
-                      child: GbmCodeHScroll(
-                        contentWidth: _contentWidth(diffFile),
-                        backdrop: colors.surfaceSunken,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          mainAxisSize: MainAxisSize.min,
-                          children: _wellChildren(
-                            diffFile,
-                            byHunk,
-                            temporary,
-                            settledTouched,
-                          ),
+                      // The scroll well is the *pane's*, not this
+                      // widget's: `unified` mode scrolls both sides on one
+                      // vertical position, and a well per side cannot
+                      // express that. Rows still find it -- GbmPinnedGutter
+                      // reads GbmCodeHScrollScope out of the context, so it
+                      // does not care who built it. What has to stay true
+                      // here is that the SelectionArea remains outside
+                      // everything the drag meets.
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        mainAxisSize: MainAxisSize.min,
+                        children: _wellChildren(
+                          diffFile,
+                          byHunk,
+                          temporary,
+                          settledTouched,
                         ),
                       ),
                     ),
@@ -460,24 +456,6 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
           ),
       ],
     );
-  }
-
-  /// How wide the well has to be for the longest line to fit unwrapped.
-  ///
-  /// Zero when soft wrap is on: a wrapped line never exceeds the pane, so
-  /// there is nothing to scroll and [GbmCodeHScroll] builds no scroller.
-  double _contentWidth(DiffFile diffFile) {
-    if (widget.softWrap) return 0;
-    return kDiffGutterWidth +
-        _widthMemo.widthOf(
-          key: diffFile,
-          text: () => <String>[
-            for (final DiffHunk hunk in diffFile.hunks)
-              for (final DiffLine line in hunk.lines) line.text,
-          ].join('\n'),
-          style: kDiffCodeTextStyle,
-        ) +
-        GbmSpacing.space3;
   }
 
   /// Every row of [diffFile], in the order they are painted.

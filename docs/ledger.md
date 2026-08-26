@@ -4424,6 +4424,74 @@ y=0..300。任何比一個畫面高的 diff，那條捲軸都在畫面外。
 依 repo 規矩，規格與決策記錄兩邊都沒有這題的答案（P11 根本沒有 wrap 條目，
 計畫也沒預期到），所以這是「問」的情況，不是我自己決定砍掉的情況。
 
+### 修掉那個捲軸缺陷——但沒有用 `TwoDimensionalScrollView`
+
+使用者選了 ledger 上列的第 2 條修法。動手前先驗工具，結論是**它在這個介面上不能
+用**，而且理由有兩層：
+
+1. **Flutter core 只給抽象半邊。** `TwoDimensionalScrollView`、
+   `TwoDimensionalViewport`、`RenderTwoDimensionalViewport` 全是 abstract，用它
+   等於自己實作 `layoutChildEntries`。這只是成本。
+2. **它是惰性 viewport。** 離開畫面的 child 會被銷毀（除非逐一 `keepAlive`，
+   `_keepAliveBucket`）。而 `ScopedDiffView` 的每一列**必須保持 mounted**：每列
+   持有自己的 `SelectionListener`，回報「目前的文字選取有沒有碰到我」，那正是
+   `SCOPES` row 7 的拖曳暫存知道自己框了什麼的唯一機制
+   （`selection_touch.dart` 開頭就寫死這個前提）。要靠 `keepAlive` 保住全部列，
+   等於付出一個自訂 render object 的代價換回一個非惰性列表。
+
+換句話說，**2D viewport 的唯一賣點正好是這個介面不能接受的性質**。
+
+真正要的是它承諾的那個**結構性質**——兩軸都被 pane 收界，所以兩條捲軸都畫在
+pane 自己的邊上。那個性質用普通 widget 就拿得到，新的 `GbmCodeScrollWell`：
+
+```
+Scrollbar(vertical)          <- 畫在「這個」盒子上，而它是有界的
+  Scrollbar(horizontal)      <- 同上
+    SingleChildScrollView(horizontal)
+      SizedBox(width: contentWidth)
+        SingleChildScrollView(vertical)
+          child
+```
+
+水平在外、垂直在內，而**兩條捲軸都在兩個 scroll view 之外**。兩個 scroll view
+對調沒差；把任何一條捲軸移進去就會在另一軸重現同一個 bug。
+
+還有一個只有在桌面平台才看得見的第三條：**ambient `ScrollBehavior` 會自己加
+捲軸**，而那些是包在內層 scrollable 上的——正是缺陷本身，只是更難發現，因為
+finder 仍然每軸只數到一條。所以內層用
+`ScrollConfiguration(scrollbars: false)` 抑制掉。
+
+#### well 上提到 pane，不是留在 ScopedDiffView
+
+`unified` 模式的整個意義就是兩側共用一個垂直位置，一側一個 well 表達不出來。
+所以 well 歸 `WorkingCopyDiffPane`，量測（`diffFileContentWidth`，搬到
+`diff_line.dart` 與 `kDiffGutterWidth`／`kDiffCodeTextStyle` 同住）也歸它，
+`unified` 取兩側的較大值。列仍然找得到 well——`GbmPinnedGutter` 是從 context 讀
+`GbmCodeHScrollScope`，不在乎誰建的。
+
+`ScopedDiffView` 因此不再自帶 scroller，`scoped_diff_view_wrap_test.dart` 的
+`_pump` 也改成把它包進 well 裡。**這比原本更誠實**：原本測的是一個不會出貨的
+組合，而且 well 搬走之後它會繼續綠——那正是「無法與程式碼相左的 fixture」。
+
+#### 兩則 mutation，其中一則抓到我自己留的空白
+
+| mutation | 結果 |
+|---|---|
+| pane 把 well 再包一層垂直 `SingleChildScrollView`（＝還原缺陷） | **窄紅**，拇指 1623 對 pane 底 460.5；只有這個檔的測試紅 |
+| 拿掉 `ScrollConfiguration(scrollbars: false)` | **第一次綠** |
+
+第二則綠的理由值得記下來：**`flutter_test` 預設回報
+`TargetPlatform.android`，而 Material 的 ambient 捲軸只在桌面平台加**。這個 app
+只出貨 macOS／Windows／Linux，所以測試的預設平台是唯一不會發生的情況。補了一條
+用 `debugDefaultTargetPlatformOverride = TargetPlatform.macOS` 的測試之後，同一則
+mutation 變成窄紅（ambient 捲軸右緣 975，pane 右緣 660.5）。
+
+那個 override 要在測試本體裡還原，不能用 `addTearDown`——flutter_test 檢查
+「沒有 foundation debug 變數活過這個測試」的時機**早於** tearDown。
+
+順帶再次踩到記載過的陷阱：`dart format` 重排參數列之後 mutation 的 anchor 對不
+上，Python 的 `assert count == 1` 當場擋下來，證明那個規矩不是多餘的。
+
 ### 規格狀態
 
 P11 的 Appearance 段只有主題切換，21 頁規格全文沒有任何 wrap／自動換行／水平

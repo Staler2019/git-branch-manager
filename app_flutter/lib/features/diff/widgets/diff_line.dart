@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../../data/models/parsed_diff.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
+import '../../../widgets/code_line_metrics.dart';
 import '../../../widgets/gbm_code_hscroll.dart';
 import '../../../widgets/gbm_menu.dart';
 import 'diff_line_menu_items.dart';
@@ -239,4 +240,35 @@ class DiffLineView extends StatelessWidget {
       ),
     );
   }
+}
+
+/// How wide a well has to be for [diffFile]'s longest line to fit unwrapped.
+///
+/// Lives next to [kDiffGutterWidth] and [kDiffCodeTextStyle] because it is
+/// the sum of exactly those two things and the measured text -- put it
+/// anywhere else and the three drift apart silently, which shows up as a
+/// scroll extent that stops a few characters short of the longest line.
+///
+/// `0` when [softWrap] is on: a wrapped line never exceeds its pane, so
+/// there is nothing to scroll.
+///
+/// [memo] is the caller's, not a global: the answer is keyed on the
+/// `DiffFile` identity and each pane holds its own file. See [CodeWidthMemo]
+/// for why measuring is worth caching at all.
+double diffFileContentWidth(
+  DiffFile? diffFile, {
+  required bool softWrap,
+  required CodeWidthMemo memo,
+}) {
+  if (softWrap || diffFile == null) return 0;
+  return kDiffGutterWidth +
+      memo.widthOf(
+        key: diffFile,
+        text: () => <String>[
+          for (final DiffHunk hunk in diffFile.hunks)
+            for (final DiffLine line in hunk.lines) line.text,
+        ].join('\n'),
+        style: kDiffCodeTextStyle,
+      ) +
+      GbmSpacing.space3;
 }

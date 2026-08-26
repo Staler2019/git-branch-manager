@@ -15,6 +15,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/parsed_diff.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/features/diff/scoped_diff_view.dart';
+import 'package:gbm_flutter/features/diff/widgets/diff_line.dart';
+import 'package:gbm_flutter/widgets/code_line_metrics.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
 import 'package:gbm_flutter/widgets/gbm_code_hscroll.dart';
@@ -71,20 +73,43 @@ Future<void> _pump(
   String text = _longLine,
   String contextText = _longContextLine,
 }) {
+  final DiffFile file = _fileWith(text, contextText);
   return pumpGbmWidget(
     tester,
+    // The well is the *pane's* in the real tree, so it is the pane's here
+    // too. Pumping `ScopedDiffView` bare would test a composition that never
+    // ships -- and would have kept passing after the well moved out of it,
+    // which is the shape of a fixture that cannot disagree with the code.
     child: SizedBox(
       width: 420,
-      child: ScopedDiffView(
-        softWrap: softWrap,
-        title: 'Unstaged',
-        file: _fileWith(text, contextText),
-        staged: false,
-        onStageScope: (int h, List<int> l) {},
+      height: 400,
+      child: GbmCodeScrollWell(
+        contentWidth: diffFileContentWidth(
+          file,
+          softWrap: softWrap,
+          memo: CodeWidthMemo(),
+        ),
+        verticalController: ScrollController(),
+        backdrop: const Color(0xFF000000),
+        child: ScopedDiffView(
+          softWrap: softWrap,
+          title: 'Unstaged',
+          file: file,
+          staged: false,
+          onStageScope: (int h, List<int> l) {},
+        ),
       ),
     ),
   );
 }
+
+/// The horizontal one specifically: [GbmCodeScrollWell] always builds a
+/// vertical scroll view, so `findsOneWidget` over every
+/// `SingleChildScrollView` would now be counting the wrong thing.
+Finder _horizontalScroller() => find.byWidgetPredicate(
+  (Widget w) =>
+      w is SingleChildScrollView && w.scrollDirection == Axis.horizontal,
+);
 
 void main() {
   testWidgets('a line too wide for the well gets a horizontal scroller', (
@@ -92,7 +117,7 @@ void main() {
   ) async {
     await _pump(tester, softWrap: false);
 
-    expect(find.byType(SingleChildScrollView), findsOneWidget);
+    expect(_horizontalScroller(), findsOneWidget);
     // Counted, not `any`: the two rows come from different builders -- one
     // from the scope card, one from the gap block -- and each carries its own
     // copy of the flag. A finder that only asked "is there a pinned gutter"
@@ -104,14 +129,14 @@ void main() {
     WidgetTester tester,
   ) async {
     await _pump(tester, softWrap: false, text: 'x', contextText: 'y');
-    expect(find.byType(SingleChildScrollView), findsNothing);
+    expect(_horizontalScroller(), findsNothing);
   });
 
   testWidgets('soft wrap on never scrolls sideways, however long the line', (
     WidgetTester tester,
   ) async {
     await _pump(tester, softWrap: true);
-    expect(find.byType(SingleChildScrollView), findsNothing);
+    expect(_horizontalScroller(), findsNothing);
     expect(find.byType(GbmPinnedGutter), findsNothing);
   });
 
@@ -134,7 +159,7 @@ void main() {
     final double gutterBefore = tester.getRect(gutter).left;
     final double codeBefore = tester.getRect(code).left;
 
-    await tester.drag(find.byType(SingleChildScrollView), const Offset(-90, 0));
+    await tester.drag(_horizontalScroller(), const Offset(-90, 0));
     await tester.pump();
 
     // The code moved -- without this the gutter assertion below is vacuous.

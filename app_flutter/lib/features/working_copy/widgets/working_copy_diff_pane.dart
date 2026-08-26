@@ -1,11 +1,16 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../../data/models/parsed_diff.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
+import '../../../widgets/code_line_metrics.dart';
+import '../../../widgets/gbm_code_hscroll.dart';
 import '../../../widgets/gbm_segmented_control.dart';
 import '../../../widgets/split_pane.dart';
 import '../../diff/scoped_diff_view.dart';
+import '../../diff/widgets/diff_line.dart';
 import '../../diff/temporary_scope_provider.dart';
 
 /// Spec P03's 變體 B titlebar switch: how the two sides of one file are laid
@@ -91,9 +96,30 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
   WorkingCopyDiffMode _mode = WorkingCopyDiffMode.twoFile;
   final ScrollController _stagedScroll = ScrollController();
 
+  /// Stands in when the caller passed no [WorkingCopyDiffPane.scrollController].
+  ///
+  /// [GbmCodeScrollWell] needs a real one either way: it is what the vertical
+  /// `Scrollbar` tracks, and a `Scrollbar` given none falls back to the
+  /// `PrimaryScrollController`, which on this pane is nothing at all.
+  final ScrollController _ownedUnstagedScroll = ScrollController();
+
+  ScrollController get _unstagedScroll =>
+      widget.scrollController ?? _ownedUnstagedScroll;
+
+  /// One memo per side, keyed on that side's `DiffFile`. Two are needed
+  /// rather than one shared: the sides hold different files and a single
+  /// memo would thrash between them on every rebuild, which is the one thing
+  /// [CodeWidthMemo] exists to stop -- 5,000 lines cost 46ms to measure.
+  final CodeWidthMemo _unstagedMemo = CodeWidthMemo();
+  final CodeWidthMemo _stagedMemo = CodeWidthMemo();
+
+  double _widthOf(DiffFile? file, CodeWidthMemo memo) =>
+      diffFileContentWidth(file, softWrap: widget.softWrap, memo: memo);
+
   @override
   void dispose() {
     _stagedScroll.dispose();
+    _ownedUnstagedScroll.dispose();
     super.dispose();
   }
 
@@ -117,18 +143,31 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
               spec: GbmLayout.splitterWcDiffSides,
               storageId: 'wc.diffSides',
               children: <Widget>[
-                SingleChildScrollView(
-                  controller: widget.scrollController,
+                GbmCodeScrollWell(
+                  contentWidth: _widthOf(widget.unstagedFile, _unstagedMemo),
+                  verticalController: _unstagedScroll,
+                  backdrop: colors.surfaceSunken,
                   child: _side(staged: false),
                 ),
-                SingleChildScrollView(
-                  controller: _stagedScroll,
+                GbmCodeScrollWell(
+                  contentWidth: _widthOf(widget.stagedFile, _stagedMemo),
+                  verticalController: _stagedScroll,
+                  backdrop: colors.surfaceSunken,
                   child: _side(staged: true),
                 ),
               ],
             ),
-            WorkingCopyDiffMode.unified => SingleChildScrollView(
-              controller: widget.scrollController,
+            // One well over both halves, because this mode's whole point is
+            // that they scroll as one column -- and therefore one width, the
+            // wider of the two, or the narrower side's rows would stop short
+            // of the shared scroll extent.
+            WorkingCopyDiffMode.unified => GbmCodeScrollWell(
+              contentWidth: math.max(
+                _widthOf(widget.unstagedFile, _unstagedMemo),
+                _widthOf(widget.stagedFile, _stagedMemo),
+              ),
+              verticalController: _unstagedScroll,
+              backdrop: colors.surfaceSunken,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 mainAxisSize: MainAxisSize.min,

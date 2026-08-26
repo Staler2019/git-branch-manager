@@ -350,14 +350,21 @@ void main() {
   // A drag that moves row by row, three sub-row steps each, against the real
   // SelectionArea delegates.
   //
-  // **Read what this does and does not attest.** It is a regression net for
-  // multi-row drags. It is *not* a reproduction of the reported
-  // 「只能選一行」: with the mid-drag gate deliberately removed -- both the
-  // `settledTouched` ternary and `_onTouchChanged`'s early return -- this
-  // test still passed, at row granularity and at sub-row granularity. So no
-  // synthetic gesture available here reproduces the symptom, and the fix
-  // that followed the report is not verified against it by anything in this
-  // repo. Do not cite this test as that verification.
+  // **`PointerDeviceKind.mouse` is not a narrowing choice here -- it is the
+  // only kind the framework permits for a drag, and it is also what a real
+  // trackpad click-drag arrives as.** The user who reported 「只能選一行」 was
+  // dragging on a trackpad, so this was parametrised over both kinds to test
+  // whether *that* was why every mutation of the mid-drag gate came back
+  // green. It is not, and it cannot be: `PointerDownEvent`, `PointerMoveEvent`
+  // and `PointerUpEvent` each assert `kind != PointerDeviceKind.trackpad`
+  // (`gestures/events.dart`), and `TestGesture.moveTo` asserts it a second
+  // time -- the trackpad variant died on that assertion, not on anything of
+  // ours. `PointerDeviceKind.trackpad` exists only for `PointerPanZoom*`
+  // events (two-finger pans), which is also the only route by which it can
+  // reach the `dragDevices` set it belongs to. A trackpad *click* and drag
+  // must therefore arrive as one of the permitted kinds -- `mouse`, on macOS
+  // -- so this test already walks the path the report came from, and the
+  // mid-drag gate's mutations staying green is still unexplained.
   testWidgets('a row-by-row drag keeps every changed line it crossed', (
     tester,
   ) async {
@@ -385,7 +392,7 @@ void main() {
     );
     addTearDown(gesture.removePointer);
     await tester.pump();
-    // Sub-row increments, three per row: a real mouse emits far more move
+    // Sub-row increments, three per row: a real pointer emits far more move
     // events than rows, so a tree restructure can land between two moves
     // *within* a row rather than tidily between rows.
     for (final String row in rows) {

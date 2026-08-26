@@ -3764,6 +3764,41 @@ Shift+↑↓ 加的 `Focus` 節點在每次 pointerDown 都無條件 `requestFoc
 
 這一條同樣沒有測試能證實它就是症狀的成因。兩個修法都是**有根據但未經驗證**的。
 
+#### 「因為我是用觸控板」——這條線索被框架自己駁回了
+
+使用者補了一個細節：他是用**觸控板**拖的。那看起來正好解釋了四次 mutation 為何
+全綠——我注入的一直是 `PointerDeviceKind.mouse`。而且有依據：`ScrollBehavior`
+預設的 `dragDevices`（`_kTouchLikeDeviceTypes`）**不含 mouse、含 trackpad**，所以
+可捲動區域可以搶走一個它絕不會從滑鼠手上搶走的拖曳。於是把裝置層那支拖曳測試改成
+在兩種 kind 上各跑一次。
+
+**跑出來是紅的，但紅在框架的斷言上，不在我們的行為上：**
+
+```
+'package:flutter_test/src/test_pointer.dart': Failed assertion: line 567 pos 12:
+'_pointer.kind != PointerDeviceKind.trackpad': is not true.
+  #2  TestGesture.moveTo
+```
+
+追到 `gestures/events.dart`：`PointerDownEvent`、`PointerMoveEvent`、
+`PointerUpEvent`、`PointerCancelEvent`、`PointerEnterEvent`、`PointerExitEvent`
+**六個類別的建構式各自都斷言 `kind != PointerDeviceKind.trackpad`**。也就是說，
+指標式的拖曳事件在這個框架裡**根本不可能**帶 trackpad 這個 kind——`trackpad` 專屬
+於 `PointerPanZoom*`（雙指平移／縮放），而那也是它能碰到 `dragDevices` 那個集合的
+唯一途徑。觸控板的**按下並拖曳**，引擎是當成一般滑鼠指標送上來的。
+
+所以：
+
+- 那支參數化測試是在測一條硬體不會產生、框架也不允許的路徑，已還原成單一 mouse 版。
+- **「合成手勢只說 mouse，所以看不見觸控板的路」這個假說是錯的**——原本那支測試
+  走的就是回報來源的那條路。
+- 上一節「四次 mutation 全綠、因果未被證實」的結論**不變**，而且現在少掉一個可以
+  推給裝置差異的藉口：仍然無法解釋。
+
+使用者後來在真機上確認修好了。那是這一輪唯一一份症狀層級的證據，但它**分不出**是
+兩個修法（拖曳中途不畫、`requestFocus` 加 `!hasFocus` 守衛）裡的哪一個治好的，
+也可能是兩個一起。這裡照實記著，不把它讀成任一個修法的驗證。
+
 #### 一支無法與程式碼意見不合的測試，刪掉
 
 我先在主機層寫了一支「一列一列拖，四列都要留住」，**它在缺陷還在的時候就是綠的**

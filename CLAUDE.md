@@ -720,6 +720,21 @@ you are touching, not by when it was learned.
   target's builder, never in place of it. The gesture recipe that actually
   drops in a widget test is `startGesture` → `pump()` → `moveTo(target)` →
   `pump()` → `up()` → `pump()`; extra intermediate moves are not needed.
+- **A pointer drag can never carry `PointerDeviceKind.trackpad`, so "test the
+  trackpad path" is not a thing you do by changing the kind.**
+  `PointerDownEvent`, `PointerMoveEvent`, `PointerUpEvent`, `PointerCancelEvent`
+  and the two hover events each assert `kind != PointerDeviceKind.trackpad` in
+  their own constructor, and `TestGesture.moveTo` asserts it again — the kind is
+  reserved for `PointerPanZoom*` (two-finger pan/zoom), which is also the only
+  route by which it reaches the `dragDevices` set (`_kTouchLikeDeviceTypes`)
+  it is a member of. A trackpad **click and drag** must therefore arrive as
+  one of the permitted kinds — `mouse`, on macOS — so a mouse-kind synthetic
+  drag already *is* the trackpad path. This killed an otherwise well-evidenced hypothesis — that four green
+  mutations of the Working Copy's mid-drag gate were green only because the
+  synthetic drag never said "trackpad" while the reporting user's did (ledger:
+  「因為我是用觸控板」). The kinds a drag *can* vary over change hit/pan slop
+  and scrollable claiming (`mouse` vs `touch`), and that is a different claim
+  from the one hardware makes.
 
 ### Flutter, Riverpod and widgets
 

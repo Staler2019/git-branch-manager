@@ -4343,6 +4343,23 @@ row 7 的拖曳選取）在裝置層被證否了一次**，只是我當時把整
 那是一條具體的線索，不是一句「環境不行」。教訓已蒸餾進 CLAUDE.md：先讀過那行
 訊息看後面的計數，再決定它是掛一條還是整層不通——兩者的下一步完全不同。
 
+**第二次就地更正：那條線索也結掉了。** 分支收尾時重跑同一個檔——先
+`pkill` 殘留的 `gbm_flutter`、再跑 `scripts/build_capi.sh` 重建 dylib（merge 帶進
+了 `src/core/git/SideBySideDiff.h`，而 `build/native/` 的那份是複製品）——結果是
+**7 條全綠，1 分 50 秒，`EXIT=0`**，第 4 條在 15 秒內通過。所以那個 7 分 50 秒
+不是缺陷，重現不了。
+
+誠實的界線：**沒有隔離出是三件事裡的哪一件**（重建 dylib、清掉殘留 process、
+樹上多了三個 commit）。能說的是「掛住在新的樹上重現不了」，不能說「原因是陳舊的
+dylib」——雖然那是嫌疑最大的一個，因為 CLAUDE.md 已經記過一份三天前的
+dylib 會靜默地讓新的 capi 欄位看起來像 Dart bug。
+
+因此計畫的驗收項目 `[ ] ScopedDiffView 的拖曳選取暫存沒有回歸（裝置層綠）`
+**在這輪最終的樹上是真的綠的**，不是靠上面那個「至少證否過一次」的部分證據。
+七條裡有三條直接就是這件事：「a text selection stages exactly the lines it
+framed」、「a selection on the staged side unstages what it framed」、
+「a row-by-row drag keeps every changed line it crossed」。
+
 `real_repo_harness.dart` 的 prefs 清除清單加上了 `appPrefs.softWrapEnabled`（merge
 後與 main 的 `fileListViewMode` / `diffViewMode` 併成同一組 flat key），
 理由與 `panelLayout.*` / `graphColumns.*` 同型：兩種模式是兩棵不同的 widget 樹、
@@ -4533,6 +4550,105 @@ fixture 都要重讀一次，別的東西都不會發現。
 「有沒有 scroller」的測試都看不見它——看得見的是「右欄的文字被切掉」。補的那條
 用測試裡**獨立量出來**的最寬行當 oracle，而不是重述實作的算式，mutation 之後
 是 513.75 對上需要的 1086.5。
+
+### 同一個機制，另一條軸：五個唯讀檔案介面的垂直捲軸
+
+上一節修的是 `GbmCodeScrollWell`（Working Copy 的水平捲軸）。修完之後回頭問了一
+句「同一個機制會不會出現在別的地方」，答案是會，而且早在 C1 就已經存在：
+
+`GbmCodeHScroll` 在關閉自動換行且檔案夠寬時，把 child 放進
+`SizedBox(width: contentWidth)`。桌面的 ambient `ScrollBehavior` 會替**裡面**那個
+`ListView` 包一層 `Scrollbar`，而 `Scrollbar` 是畫在自己盒子的邊上——於是垂直
+拇指落在 `x = contentWidth`。用 `DiffPage` 量：pane 190→610（寬 420），捲軸盒
+190→**1025**（寬 835 ＝ contentWidth）。C1 之前 `ListView` 的盒子就是 pane，所以
+這是這一輪自己帶進來的回歸。
+
+受影響的是 `GbmCodeHScroll` 的全部五個使用者：`DiffPage`、`SideBySideDiffView`、
+`PanelDiffText`、`BlamePanel`，以及 `ConflictResolveWindow` 的三欄。
+
+**為什麼整個套件都看不到**：跟上一節同一個理由，`flutter_test` 回報
+`TargetPlatform.android`，Material 在那裡根本不加 ambient 捲軸。這已經是同一個
+盲點第二次讓一則 mutation 假綠了；新測試
+（`diff_page_scrollbar_placement_test.dart`）因此開宗明義寫「本檔必須跑在桌面
+平台」。
+
+作法與 `GbmCodeScrollWell` 對齊：兩條捲軸都由 `GbmCodeHScroll` 自己畫在有界的盒
+子上，內層 `ScrollConfiguration(scrollbars: false)`。因此新增
+`required verticalController`——**刻意沒有預設值也沒有自備 fallback**。有考慮過讓
+它自己持有一個，但呼叫端的 `ListView` 才是那條軸真正的驅動者，兩者不同步的話會
+得到一條拖不動的捲軸，比原本的 bug 更糟；required 讓漏接的呼叫點變成編譯錯誤。
+六個呼叫點（三個在 `ConflictResolveWindow`，各一條 controller，因為三欄行數不同，
+共用一個垂直位置在其中兩欄是沒有意義的）都跟著改。
+
+順帶把兩個共用的 `notificationPredicate` 提成頂層函式
+（`isHorizontalScroll`／`isVerticalScroll`），因為兩個 widget 都需要——
+`defaultScrollNotificationPredicate` 濾的是 `depth == 0`，那是另一個問題，內層那
+條軸照樣穿過去。
+
+#### 三則 mutation
+
+| mutation | 結果 |
+|---|---|
+| 錨點只寫 `ScrollConfiguration(...)` 那一段 | **`count == 2`，當場擋下** |
+| 拿掉 `ScrollConfiguration(scrollbars: false)` | 窄紅，第 3 條 ambient 捲軸回來（2 條測試） |
+| 把垂直 `Scrollbar` 移進 `SizedBox` | 窄紅，只有 rect 那條，訊息正是「捲軸盒超出 pane 右緣」 |
+
+第一列是那條規矩第二次救場，而且這次的原因更值得記：**這兩個 widget 的這一段
+程式碼字面完全相同**，所以任何以它為錨的 mutation 都會同時命中兩個。錨要改成先
+切出 `_GbmCodeHScrollState` 的區段再取代。
+
+第三列存在的理由是第二列的紅**停在 count 斷言就結束了**，rect 迴圈根本沒被走
+到——一條沒被走過的斷言等於沒被驗證過。M-B 讓 count 維持 2 而只動組成順序，rect
+迴圈才第一次以偵測器的身分紅過。
+
+### 更正一條自己上一節才寫下的理由
+
+上一節把「不用 `TwoDimensionalScrollView`」的第一條理由寫成「core 只給抽象半
+邊」。那句話本身沒錯，但**它不是否決理由**：ledger 當初列的第 2 條修法點名的是
+`package:two_dimensional_scrollables`，而那個套件的 `TableView` 是具體類別，抽象
+與否在它面前不成立。
+
+真正跨得過套件形式的理由只有惰性那一條：`TableView` 也建在同一個
+`RenderTwoDimensionalViewport` 上，一樣按 vicinity 建 child、一樣銷毀離開畫面
+的。所以 doc comment 改成惰性為主、抽象為次要成本。
+
+**這是「拿一個成本冒充否決理由」的錯誤**，跟 CLAUDE.md 那則「conformance cell 的
+證據是 `isActionEnabled()`」同型：兩者都是拿一個真的、可查證的事實，去頂替真正該
+被檢驗的那個claim。
+
+### arena 那個前提比原本說的更強，而測試釘的是組成不是 arena
+
+`scoped_diff_view_test.dart` 的二十幾條拖曳測試是**裸 pump `ScopedDiffView`**
+的。well 上提到 `WorkingCopyDiffPane` 之後，那棵樹的 `SelectionArea` 上方沒有任何
+捲動器——一個使用者永遠看不到的形狀。那些測試所倚賴的「well 的兩個 `Scrollable`
+不會跟 mouse 拖曳搶 arena」，在 `GbmCodeScrollWell` 上沒有任何層級在檢查。
+
+補了 `diff_pane_drag_stage_test.dart`：先證明 fixture 真的兩軸都溢出（否則後面兩
+條會在**沒有競爭對象**的情況下假綠），再證明拖曳仍然升起一次性 scope，最後證明
+按下去送出的是「變動的行」而不是「匡選的行」。
+
+然後對前提本身下了一則 mutation——**把 `mouse` 加進 well 的 `dragDevices`**，也就
+是把 CLAUDE.md 那條「mouse 不在 `_kTouchLikeDeviceTypes` 裡，兩者根本不會相遇」
+反過來。結果**全綠**。
+
+沒有就此收下這個綠：另寫一支探針確認突變本身有效，同樣設定下一次 mouse 拖曳讓水
+平位移從 **0 變成 50**。所以結論不是「測試看不到」，而是：
+
+> **即使捲動器真的進了 arena，選取仍然贏。**
+
+這比原本的說法更強一層。原本的論證是「兩者不會相遇」；現在多一句「相遇了也是選取
+贏」。CLAUDE.md 那條「絕對不要為了保護選取而覆寫 `dragDevices`」的「不必要」那一半
+因此有了直接證據，而不再只是推理。
+
+**這也意味著本檔釘的是組成，不是 arena**，檔頭就這樣寫，不假裝它釘住了後者。它真
+正擋得住的是「有人在 pane 外面再包一層會吃手勢的東西」這類回歸，以及第三條那個
+payload：把 `onStageScope` 的參數換成 `const <int>[0]` 之後只有它紅
+（Expected `[1]`，Actual `[0]`）。
+
+順帶量到一個既有取捨的實際數字：內容比 pane 寬時，**scope 按鈕會跟著水平捲出可視
+區**（中心 x=638.8，pane 右緣 660），所以第三條得先 `ensureVisible`。這正是計畫裡
+明寫的「只有行號欄釘住，卡片／hunk 標頭／scope 按鈕都跟著捲」的後果，現在它有一
+條可執行的紀錄，而不只是一句散文。
 
 ### 規格狀態
 

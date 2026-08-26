@@ -751,7 +751,13 @@ you are touching, not by when it was learned.
   just on a different test: soft-warp's parent got only 1 test through where
   the branch got 3, which is the evidence that says 「這輪沒有弄壞它」 —
   it costs one detached-HEAD run and it is the half of the diagnosis the
-  foreground line can never give you.
+  foreground line can never give you. **And a hang is not yet a defect**: the
+  same soft-warp file, re-run at the end of the branch after a `pkill` and a
+  `scripts/build_capi.sh` rebuild, went **7/7 in 1m50s** with the previously
+  hanging test passing in 15s. Which of the three changes (fresh dylib, no
+  stale process, three more commits) cleared it was not isolated — so the
+  honest claim is 「not reproducible」, not a cause. Rebuild the dylib and
+  sweep stale processes *before* filing a device hang as a finding.
 - **The device tier is in no CI job and is not part of `flutter test`**, so a
   UI redesign can leave it broken for rounds with every other tier green. C18
   swept all ten files and found two red — neither from that round's own
@@ -821,7 +827,15 @@ you are touching, not by when it was learned.
   very set, so an empty set deletes the main scroll input and leaves only the
   scrollbar thumb and Shift+wheel. Never override `dragDevices` to guard a
   selection; `gbm_code_hscroll_test.dart` pins the premise with a mouse-kind
-  drag that must **not** scroll (ledger: soft-warp).
+  drag that must **not** scroll (ledger: soft-warp). **The 「unnecessary」 half
+  is stronger than 「they never meet」, and it was measured**: adding `mouse`
+  to a `GbmCodeScrollWell`'s `dragDevices` — the premise inverted — left
+  `diff_pane_drag_stage_test.dart` fully green, and a probe confirmed the
+  mutation was live (the same drag moved the horizontal offset 0 → 50 with no
+  selection in the way). So even when a scroller *does* enter the arena, the
+  `SelectableRegion` wins it. The corollary matters for what a test can
+  claim: a drag test under a scroller pins the **composition**, not the arena,
+  because no realistic mutation of the arena reddens it.
 
 ### Flutter, Riverpod and widgets
 
@@ -1029,11 +1043,27 @@ you are touching, not by when it was learned.
   no-debug-variable-outlived-the-test check runs before tearDowns) or it
   passes with the suppression deleted. This app ships desktop-only, so the
   test default is the one platform that never happens (ledger: soft-warp).
+  **It recurs on the other axis wherever a scroller sizes its child**, and
+  `GbmCodeHScroll` did: its child `ListView` sits inside
+  `SizedBox(width: contentWidth)`, so the ambient *vertical* scrollbar painted
+  at `x = contentWidth` — 1025 against a pane ending at 610 — on all five
+  read-only file surfaces at once. The fix is the same shape, and it forces
+  the composition owner to hold the other axis' controller: `GbmCodeHScroll`
+  takes a `required verticalController` with no default and no owned fallback,
+  because a null would mean a scrollbar that cannot be dragged, which is worse
+  than the bug. **Ask the recurrence question whenever you fix one of these**
+  — the two widgets' `ScrollConfiguration` blocks are now byte-identical,
+  which is also why a mutation anchored on that block matches twice.
 - **`TwoDimensionalScrollView` is not the answer for a surface whose rows
-  must stay mounted.** Flutter core ships only the abstract halves, so it
-  means hand-writing `layoutChildEntries` — but the disqualifier is that it
-  is a *lazy* viewport: off-screen children are destroyed unless individually
-  kept alive. `ScopedDiffView`'s rows each hold the `SelectionListener` that
+  must stay mounted.** The disqualifier is that it is a *lazy* viewport:
+  off-screen children are destroyed unless individually kept alive. Lead with
+  that, not with 「core ships only the abstract halves」 — that is a real cost
+  but not a disqualifier, and it does not survive the concrete form:
+  `package:two_dimensional_scrollables`' `TableView` is a concrete class built
+  on the same lazy viewport. **Passing off a cost as a disqualifier is the
+  same error as a conformance cell whose evidence is `isActionEnabled()`** —
+  a true, checkable fact standing in for the claim that actually needed
+  checking. `ScopedDiffView`'s rows each hold the `SelectionListener` that
   reports whether the live selection touches them, which is how `SCOPES`
   row 7's drag-to-stage knows what it framed, so unmounting one silently
   breaks staging across a scroll. Keeping every row alive pays for a custom

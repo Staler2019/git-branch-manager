@@ -797,7 +797,14 @@ you are touching, not by when it was learned.
   registers.** Every `ref.listen`-driven piece of session state needs
   something else covering the value that was already there — a filter query
   surviving a repository close is the recorded case. The test that sees it is
-  the one that seeds the provider *before* pumping.
+  the one that seeds the provider *before* pumping. **The mirror case is that
+  a seeded test is blind to the opposite defect**: a surface that reads a
+  provider once per *mount* instead of once per *build* answers correctly on
+  its only build, so `ref.watch` → `ref.read` stays green across every test
+  that seeds-then-pumps. Only flipping the notifier while the tree is on
+  screen tells the two apart — verified by exactly that mutation going red in
+  `test/integration/soft_wrap_preference_flow_test.dart` and green in the
+  four seeded wrap tests next door (ledger: soft warp round).
 - **An entry point gated on one resting state replays stale answers forever
   once the machine has terminal states.** The update dialog checked on mount
   only from `idle`, but `upToDate` / `failed` / `developmentBuild` are
@@ -1252,6 +1259,16 @@ derived from the code — they outrank convenience every time):
 - `lfs_pattern_match.dart` is an **approximation** of gitattributes matching,
   not a port of `wildmatch()`; a pattern it cannot parse matches nothing, so
   a group reads 0 rather than a wrong number.
+- **`ScopedDiffView`'s horizontal scrollbar is off-screen on any diff taller
+  than its pane.** `WorkingCopyDiffPane` puts it under a vertical
+  `SingleChildScrollView`, so `GbmCodeHScroll`'s height is unbounded and
+  `Scrollbar` paints along the bottom of the *content*, not the viewport —
+  measured at rect bottom 1428 against a 300px viewport. Scrolling itself is
+  fine (trackpad pan, Shift+wheel); what is lost is the at-rest signal that
+  there is more to the right, which is dimension D's `material_state_hidden`.
+  **The other four file views are unaffected** — all bounded by a `ListView`.
+  The two candidate fixes and why neither is a drive-by are in the ledger
+  under 「一個量出來的缺陷」; awaiting the user's call.
 - **No pull dialog route exists**, so P17's 「選單的 Pull… 或 Alt + 點工具列才
   開」 has nothing to open: `ActionToolbar`'s Pull only runs `pullChanges()`
   with the configured default (**#109**).

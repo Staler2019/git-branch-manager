@@ -3973,6 +3973,68 @@ fixture 必須讓兩邊都有長行，斷言也必須改用**計數**（`findsNW
    游標追蹤捲動與外層 scroller 是兩個獨立的捲動位置，所以打字超過右緣會讓游標
    移出視野而不是被追。打開換行沒有這個問題（就是以前那個盒子）。
 
+### 補上計畫承諾、但一開始漏掉的那條整合層測試
+
+計畫的「測試」段承諾過一條 `test/integration/` 的測試：「diff 在畫面上時切換偏好，
+版面確實改變」。實作完六個 commit 後回頭核對，發現它沒被寫出來——**這輪所有的
+wrap 測試都是先 seed 偏好再 pump**，每個模式都只在剛建好的樹上被證明過。
+
+補上的 `soft_wrap_preference_flow_test.dart` 有兩個測試，而它們的價值**不相等**，
+這點值得寫下來，因為 mutation 的紅寬窄直接說明了哪一條在守真正的縫：
+
+| mutation | 這個檔 | 套件其餘部分 | 讀法 |
+|---|---|---|---|
+| `PanelDiffText` 的 `ref.watch` → `ref.read` | **紅** | **全綠** | 這道縫本來完全沒人守 |
+| `selection_touch.dart` 的 row key memo 拿掉 | 紅 | `scoped_diff_view_test.dart` 也紅約 20 條 | 寬紅，別的測試早就釘著了 |
+
+第一條是真正的發現：**seed 過的測試對「只在 mount 時讀一次 provider」這個缺陷是
+盲的**，因為它那唯一一次 build 讀到的就是對的值。要分辨「每次 build 都讀」與
+「讀一次就記住」，只有在畫面上活著的樹上翻轉 notifier 這一種辦法。
+
+第二條依 repo 規矩（窄紅才算數）誠實降級為「守一條沒別人走過的路徑」而不是
+「唯一偵測者」，並且**寫進測試自己的註解**，免得下一輪把它讀成比實際更強的保證。
+
+### 一個量出來的缺陷，沒有修，交給使用者決定
+
+`ScopedDiffView` 的水平捲軸**在長檔案上看不見**。
+
+量測（測試字型，viewport 高 300px，60 行的 diff）：
+
+```
+viewport height = 300
+GbmCodeHScroll rect = Rect.fromLTRB(17.0, 42.0, 403.0, 1428.0)
+```
+
+`Scrollbar` 沿著自己盒子的下緣畫，而 `WorkingCopyDiffPane` 把 `ScopedDiffView`
+放在垂直 `SingleChildScrollView` 底下（`working_copy_diff_pane.dart:120/124/130`），
+所以它的高度是**無界**的——盒子高 1386px，拇指落在 y≈1428，使用者看到的是
+y=0..300。任何比一個畫面高的 diff，那條捲軸都在畫面外。
+
+**只有這個介面有這個問題。** 另外四個都被 bounded 的 `ListView` 收著：`DiffPage`、
+`BlamePanel`、衝突視窗三欄都是，`PanelDiffText` 的宿主也是。
+
+捲動本身沒壞——觸控板雙指與 Shift+滾輪都正常。壞的是**靜止時「右邊還有東西」
+這個訊號**，那正好是 UX 評分表 D 維度的 `material_state_hidden`。
+
+兩條候選修法，都不是 drive-by：
+
+1. **把水平 `ScrollController` 上提到 pane**，`GbmCodeHScroll` 收一個外部
+   controller 並在收到時不畫自己的 `Scrollbar`，改由 pane 用
+   `Scrollbar(controller: hCtrl, notificationPredicate: (n) => n.metrics.axis
+   == Axis.horizontal, child: <垂直 SCSV>)` 畫在 pane 的下緣（pane 是有界的）。
+   **卡住的地方**：`thumbVisibility: true` 在 controller 還沒 attach 時會 assert，
+   而「有沒有溢出」只有 layout 之後才知道，所以 pane 得靠一個 post-frame 回呼
+   才拿得到——那正是 CLAUDE.md 記載的 `addPostFrameCallback` 不會自己要求
+   一幀那一則，要配 `ensureVisualUpdate()`。
+2. **改用二維捲動**（`TwoDimensionalScrollView` / `two_dimensional_scrollables`），
+   兩軸各自有界。結構更正確，但等於重寫這個 pane 的捲動骨架。
+
+沒有零風險的第三條：`Scrollbar` 沒有「釘在 viewport 而非自己盒子」的模式，而
+內容本來就比 pane 高，所以無法靠收緊約束解決。
+
+依 repo 規矩，規格與決策記錄兩邊都沒有這題的答案（P11 根本沒有 wrap 條目，
+計畫也沒預期到），所以這是「問」的情況，不是我自己決定砍掉的情況。
+
 ### 規格狀態
 
 P11 的 Appearance 段只有主題切換，21 頁規格全文沒有任何 wrap／自動換行／水平

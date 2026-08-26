@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:ffi/ffi.dart' show malloc;
 
 import '../ffi/gbm_bindings.dart';
+import 'graph_span_index.dart';
 
 /// Row-index sentinel for "parent lies outside the walk" -- mirrors
 /// `gbm::kRowBoundary` (src/core/graph/GraphSnapshot.h).
@@ -121,17 +122,15 @@ class GraphSnapshotView {
   /// (src/core/graph/GraphSnapshot.h): a boundary parent ([kRowBoundary])
   /// draws as a short two-row stub (`childRow`..`childRow + 1`), not as
   /// spanning every row through the end of the graph.
-  List<GraphEdge> edgesSpanning(int rowIndex) {
-    return <GraphEdge>[
-      for (final GraphEdge edge in edges)
-        if (edge.childRow <= rowIndex &&
-            rowIndex <=
-                (edge.parentRow == kRowBoundary
-                    ? edge.childRow + 1
-                    : edge.parentRow))
-          edge,
-    ];
-  }
+  /// Answered through [GraphSpanIndex], which is built once per snapshot
+  /// and cached against this instance. This used to be the linear scan over
+  /// every edge that the index's doc comment quotes the cost of -- it runs
+  /// once per row per paint, so the scan was re-read 25 times a frame for a
+  /// typical viewport. The brute-force version now lives in
+  /// `test/data/models/graph_span_index_test.dart` as the oracle the index
+  /// is checked against, rather than in `lib/` with no caller.
+  List<GraphEdge> edgesSpanning(int rowIndex) =>
+      GraphSpanIndex.of(this).spanning(rowIndex);
 }
 
 /// Reads the current graph snapshot for `session` through [bindings],

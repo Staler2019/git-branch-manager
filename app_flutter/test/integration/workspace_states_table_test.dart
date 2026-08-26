@@ -76,6 +76,10 @@ const WorkingCopyEntry _stagedEntry = WorkingCopyEntry(
   indexStatus: FileChangeKind.modified,
   hasUnstagedChange: false,
   worktreeStatus: FileChangeKind.modified,
+  unstagedAdded: 0,
+  unstagedRemoved: 0,
+  stagedAdded: 0,
+  stagedRemoved: 0,
   conflict: ConflictKind.none,
   ancestorBlob: '',
   oursBlob: '',
@@ -93,6 +97,10 @@ const WorkingCopyEntry _conflictEntry = WorkingCopyEntry(
   indexStatus: FileChangeKind.modified,
   hasUnstagedChange: true,
   worktreeStatus: FileChangeKind.modified,
+  unstagedAdded: 0,
+  unstagedRemoved: 0,
+  stagedAdded: 0,
+  stagedRemoved: 0,
   conflict: ConflictKind.bothModified,
   ancestorBlob: '',
   oursBlob: 'ours-hash',
@@ -161,9 +169,12 @@ Future<PumpedWorkspace> _pumpAtWorkingCopy(
 /// tell "gate logic is right" apart from "typing rebuilds it", and a
 /// regression in either should fail independently of the other.
 Override _draftWithSummary(String summary) {
-  return workingCopyDraftProvider(
-    _identity,
-  ).overrideWith((ref) => WorkingCopyDraftController()..updateSummary(summary));
+  return workingCopyDraftProvider(_identity).overrideWith(
+    (ref) => WorkingCopyDraftController(
+      ref.watch(workingCopyDraftRepositoryProvider),
+      _identity,
+    )..updateSummary(summary),
+  );
 }
 
 void main() {
@@ -235,8 +246,10 @@ void main() {
         );
         expect(commitButton.onPressed, isNull);
 
+        // `Amend…` with the ellipsis: it enters amend mode rather than
+        // amending, and the gate is the same one either way.
         final GbmButton amendButton = tester.widget<GbmButton>(
-          find.widgetWithText(GbmButton, 'Amend'),
+          find.widgetWithText(GbmButton, 'Amend\u2026'),
         );
         expect(amendButton.onPressed, isNull);
       },

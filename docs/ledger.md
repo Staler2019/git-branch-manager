@@ -3170,3 +3170,639 @@ answered」。代價實測下來是：一次離線啟動、或一個沒有版本
   目標在改名之後必然不存在，這是 PowerShell 「destination 不存在就把 source 的
   內容複製進去」的記載行為。想過改成先 `New-Item` 再複製 `$staged\*`，但那會把
   wildcard 帶回一個刻意全用 `-LiteralPath` 的腳本裡。
+
+### Working Copy 重新設計：行數、兩欄、scope 與草稿 (feat/p03-working-copy-redesign)
+
+規格 P03 的整頁重做，外加 P02 的兩處版面落差與 **#75** 的四項快捷鍵。二十一個
+commit 橫跨 `src/core/` → `src/capi/` → `data/ffi/` → `features/**` 五層。
+
+#### 沒有撐過原始碼的前提
+
+計畫表格裡有幾格是讀規格與讀舊註解得出的，實作時被原始碼推翻，修正它們才是那些
+commit 的主要內容：
+
+1. **「Close repository → 新增 `File → Close repository`」是多餘的。**
+   `_buildActionHandlers()` 裡 `GbmActionId.fileCloseWindow` 的 handler 本來就是
+   `context.go(RoutePaths.welcome)`。`TopBar` 那顆返回鍵早就等於既有的
+   `File → Close window`，不必新增 action id，也就不必為此偏離 P04 的 `MENUS` 表。
+
+2. **「repo 狀態（MERGING…）已在狀態列，直接刪」是錯的。** `RepoState::describe()`
+   對正常 repo 回傳空字串，只在 sequencer 操作與 **`indexLocked`** 時有內容；而
+   `StatusBar` 只在 conflict label 裡顯示 sequencer 狀態，`ConflictBanner` 又只在
+   `conflictActive` 時出現 —— `indexLocked` **不會**設 `conflictActive`。照計畫刪
+   會安靜丟掉「另一個 git 行程正在執行」這個訊號。狀態列因此真的接下 `describe`
+   （非空才畫）。
+
+3. **`FileListModeSwitcher` 的 doc 自己記著一個已經過期的理由**：「`working_copy_board`
+   需要三態資料夾 checkbox，所以自己直接建 `FileTreeList`」。checkbox 一走那個理由
+   就不成立，`_buildFlatList` 與 `_buildTreeList` 是純重複。給 switcher 一個可選的
+   `folderBuilder` 就收斂掉了。CLAUDE.md 記過「一段解釋自己為什麼繞開某條路徑的註解，
+   值得和那條路徑本身一樣的審視」—— 這是第二次。
+
+4. **規格從來沒有要求 side-by-side diff。** 動手刪 `lastDiff` 單槽之前 grep 全部
+   讀者，才發現 `side_by_side_diff.dart` / `side_by_side_diff_view.dart` 的規格依據
+   只有一個 mockup 裡的**假 commit 訊息**字串。兩個檔案連同測試隨 C13 刪除。
+
+5. **`docs/reports/spec-conformance-matrix.md` 的 P03 段落有兩格是錯的**，方向相反：
+   item 10（List/Tree 共用偏好）記為「唯一的真缺口」，但 History、Compare、Conflict
+   window 與 panels **早就都** `ref.watch(fileListViewModeProvider)` 了，這格已經過期；
+   反過來，「7 個 `SCOPES` granularity 全部實作」那句所依據的欄／資料夾三態，靠的是
+   `WorkingCopySelectionState.getCheckState` 與 `FileTreeNode.getCheckState` ——
+   grep 全 `lib/` 後確認**兩者在宣告它們的檔案之外沒有任何呼叫端**。詳見下面的
+   「矩陣的新案例」。
+
+#### 「跑」出來、不是「讀」出來的
+
+- **`core.fsmonitor=true` 的機器上，多一趟背景 `git diff --numstat` 會讓使用者的
+  寫入以 12 次 9 敗的比率死在 `index.lock`。** CI 上沒有 fsmonitor，所以 CI 看不見；
+  讀 diff 的人也看不見。三個各自獨立的開關都能壓回 12 次 0 敗（拿掉那一趟、讓全域
+  git config 失效、給那一趟加 `-c core.fsmonitor=false`）。
+  **建立那個鎖的行程始終沒有被指認出來。** 被直接觀測排除掉的包括：git 的讀取指令
+  根本不會建立 `.git/index.lock`（一支能正向抓到 `git add` 拿鎖、單次取樣 8162 次的
+  poller，對 status、兩趟 numstat 與 `-U3` 工作區 diff 在 daemon 冷啟動／暖機／stat
+  過期／別的行程剛改寫過 index 之後，全都是 0），因此 `--no-optional-locks` 是有效的，
+  而兩個本來能解釋一切的機制（fsmonitor token 寫入、`diff.autoRefreshIndex` 的收尾
+  refresh）也隨之死亡。任何觀測手段 —— `GIT_TRACE2_EVENT`、exec shim、甚至只做一次
+  `write()` 的 shim —— 都會讓它完全消失。修法（`GitCommand::worktreeReadFlags()`）
+  有效且以 argv 斷言釘住，**但機制未明，註解裡沒有假裝有**；若日後有人指認出兇手，
+  那個 flag 就可以刪，註解裡寫了這句。
+- **分頁列的位置 bug 出貨的原因是沒有任何測試分辨得出它。** 改完之後整套 2039 支
+  測試依然全綠 —— 沒有一支斷言過分頁列在哪。新測試因此每一條都斷言 **rect**：
+  `find.byType(TabRow)` 在錯的位置一樣找得到。
+- **臨時 scope 的三個 bug 全都是「第一幀正確、之後才壞」**，只有把手勢做完再多 pump
+  幾幀才看得到：GlobalKey 重複註冊、插入位置造成的 reparent 閃爍，以及真正的迴圈
+  「touched 一變就 `setState` → 重建擾動選取幾何 → delegate 再回報 → touched 又變」。
+  第三個的解法是只在 pointer down 到 pointer up 之間聽（`_latched`）。
+  `scope stays put on idle frames` 那支測試專門釘它 —— 一幀的斷言看不到，因為第一幀
+  從來都是對的。
+- **選取拖曳錨在 `getCenter` 會選不到任何東西。** diff 列的 `Text` 坐在一個遠比字形寬
+  的 `Expanded` 裡，方框中心早就過了字串尾端。改錨在 `rect.left + 1` / `rect.right - 1`。
+- **C16 有兩個 mutation 回綠**，追下去各有收穫：一個補出「同一個 HEAD 的無關 refresh
+  不該清掉訊息」這支測試；另一個證明 `next == _pendingCommitFrom` 這道防護
+  **不可能到達** —— `select` 只在選到的值真的改變時才通知 —— 於是刪掉防護、把理由寫成
+  註解。
+
+#### 刻意偏離規格的四項
+
+每一項都是使用者拍板，不是實作自行縮減：
+
+1. **兩欄完全沒有 checkbox**（偏離 P03-1 / P03-3 / P03-10 與 `SCOPES` 第 1、4、5 列）。
+   檔案改用**拖曳**在左右切換。刪掉的是列上的 `drag_handle` 裝飾圖示、標題列的三態
+   `Checkbox`、樹狀模式資料夾列的三態 `Checkbox`，以及只服務它們的三個 helper。
+   **沒有任何 scope 因此失去入口**：整欄走 `Repository → Stage all`
+   （Ctrl/Cmd+Alt+A）與右鍵選單；整個資料夾改成**資料夾列本身可拖曳**，一次帶走底下
+   所有葉節點。半暫存狀態改由行數（`+34 −12`）表達，那正是 checkbox 的三態原本要說
+   的事，而且說得更精確。
+2. **`repositoryStageAll` 的鍵位從 `Ctrl/Cmd+Shift+S` 改為 `Ctrl/Cmd+Alt+A`。**
+   規格沒有指定 Stage all 的鍵位，但 260820 的 `REVISIONS` 指定 `branchStashChanges`
+   要 `Ctrl/Cmd+Shift+S`；兩者相撞，使用者裁定讓路的是 Stage all。
+3. **新增 `GbmActionId.viewRefresh` ＋ `View → Refresh` ＋ 裸 F5**，P04 的 `MENUS` 表
+   沒有這一項。`refreshRepoHistory()` 全 `lib/` 只有 `TopBar` 一個呼叫點，刪掉 TopBar
+   之後它是唯一真的沒有別的家的元素。F5 不走 `_makeShortcut()` —— 那會硬塞一個這裡
+   不要的 Ctrl/Cmd；兩個修飾鍵旗標都 false 是合法的 `GbmKeyboardShortcut`。
+4. **scope 按鈕的文字以「匡選行數」為主、括號寫「實際會變動的行數」**
+   （`Stage 3 lines (1 changed)`）。這是使用者的裁定。**「兩數相等時省略括號」那一半
+   是實作判斷，不是使用者的裁定** —— 相等時括號恆為冗詞，但這件事沒有被裁定過，
+   在此標明。實作在 `diff_scopes.dart` 的 `scopeButtonLabel()`，是唯一一處。
+
+#### 刻意做的取捨，記錄下來
+
+- **草稿寫入用「飛行中合併」而不是計畫寫的 500ms debounce timer。** timer 會讓每一支
+  「在輸入框打字」的 widget test 都得負責把它排乾，否則死在 pending timer —— 就是
+  C14 踩到的那種傳染性義務。合併版本不需要 timer，硬當機掉的東西還更少：只掉一次
+  磁碟寫入期間打的字，而不是固定 500ms 份。
+- **草稿只存 summary / description，`diffScrollOffset` 留在記憶體。** 那是某個檔案
+  diff 裡的位移，重開後根本沒有選檔案，還原它只會把不相干的東西捲到奇怪的地方。
+- **存成長度 2 的 `StringList` 而不是兩把 key。** 訊息是一個東西，兩次 `setString`
+  可能只落地一半，留下配錯主旨的內文；讀到長度不對就當空草稿。
+- **`2 file` 模式下 staged 那一欄的捲動位移不保留。** 一個 controller 驅動不了兩個
+  scrollable，而草稿只有一個 `diffScrollOffset`。
+- **`_dropSelection` 的 `alsoClearHighlight` 只有視覺意義，沒有測試釘住。** widget
+  test 讀不回 `SelectableRegion` 的選取內容。它只從送出路徑呼叫：在 diff 換掉的時機
+  呼叫 `clearSelection()` 會撞上還在變動的 `selectables`，丟
+  `ConcurrentModificationError`。
+- **送出後等待期間任何錯誤都取消等待，且不做歸因。** fetch 失敗也會取消它 ——
+  這個 repo 自己的規則就是「下一個事件是我的」永遠不是安全的歸因。取捨方向是刻意的：
+  誤取消的代價是訊息比成功的 commit 多活一會，不取消的代價是之後某次 checkout 移動
+  HEAD 時，清掉使用者在失敗後才寫的訊息。
+- **untracked 檔案的行數是讀檔算出來的，不是 git 算的**（`git diff` 完全看不見它們），
+  binary 或超過 **1 MiB** 就不給數字。上限存在的理由是 `--untracked-files=all` 會列舉
+  未建置輸出目錄裡的每一個檔案。四個行數欄位的 **0 一律代表「沒量到」**，不是「量到
+  0」，UI 據此不畫 badge。
+- **`WorkingCopyEntry` 的四個新欄位都是 `required`**（20 個測試檔、31 個建構點一併補），
+  `fromJson` 用嚴格的 `as int` 而不是 `?? 0`：capi 與 model 同一次建置一起出貨，少一個鍵
+  代表兩側漂開了，那要大聲壞掉。用 `?? 0` 兜底會讓漂開偽裝成「這些檔案剛好都沒變動」。
+
+#### C17 追加：一句沒有兌現的承諾
+
+寫 C17 的文件時重讀 **#75** 的結案留言，發現它對第 3 項的處置寫著
+「`Ctrl/Cmd+Shift+Enter` 之後留在 diff 區自己的 focus scope 內」—— 那句是承諾，
+而 grep 之後確認**沒有兌現**：全 `lib/` 沒有任何地方綁它。規格與決策紀錄兩邊都
+寫得很清楚（P16 的 `REVISIONS` 給 `Ctrl/Cmd+Alt+S`、P03-5 與 `SCOPES` 第 7 列給
+`Ctrl/Cmd+Shift+Enter`，#75 裁定兩種讀法都保留），所以照長期規則第 1 條直接補完，
+沒有丟出來問。`ScopedDiffView` 內加一層 `CallbackShortcuts`。
+
+寫測試時遇到一個**無法和程式碼意見不合的夾具**，處置是刪掉它而不是留著：
+「沒有選取時按這個鍵不會 stage 任何東西」這支測試，把空值防護拿掉是綠的，把整個
+callback 換成無條件 stage 也是綠的 —— 因為沒有選取時 diff 區內根本沒有東西持有
+焦點，鍵事件從來就到不了那個 callback。防護真正擋的是**已經花掉 scope 之後的第
+二次按鍵**：一次空送出，唯一的效果是多呼叫一次 `clearSelection()`，也就是樹還在
+重組時會丟 `ConcurrentModificationError` 的那一呼叫。widget test 讀不回
+`SelectableRegion` 的選取內容，所以它和 `alsoClearHighlight` 一樣沒有測試釘住 ——
+這句寫在防護旁邊，而不是留一支假裝有涵蓋到的測試。
+
+#### 矩陣的新案例：evidence 證明的是 gate，不是被 gate 的那個東西
+
+CLAUDE.md 那條陷阱原本的形狀是「一格 conformance cell 拿 `isActionEnabled()`
+當證據，證到的是 gate 存在，不是被 gate 的介面存在」。這一輪撞到**同型的第三次**，
+換了一個外殼：
+
+P03 段落開頭那句「7 個 `SCOPES` granularity 全部實作 —— 包含 column tri-state /
+folder tri-state」，靠的是 `WorkingCopySelectionState.getCheckState()` 與
+`FileTreeNode.getCheckState()` 存在且有單元測試。兩者確實存在、確實正確、確實被
+測試 —— 但 grep 全 `lib/` 之後，**它們在宣告自己的檔案之外沒有任何呼叫端**。
+被算成「已實作」的那個 granularity，靠的是一個沒有人畫出來的 helper。這是這個
+repo 記錄過的 orphan wiring 第八次，也是第一次它假扮成一格 conformance 證據。
+
+實務上的差別：如果那句話當初寫的是「哪個 widget 畫出這個三態」，checkbox 被拿掉
+這件事會直接落在同一格上；寫成 helper 的存在之後，拿掉 checkbox 反而讓那格看起來
+沒有變化。`getCheckState` / `CheckState` 與 `WorkingCopySelectionState` 那六個
+只服務 checkbox 的方法排在 C18 刪除。
+
+#### C18：重用與快取稽核
+
+計畫列了五個快取候選。**兩個的前提沒有撐過原始碼**，一個早在 C11 就做完了，
+剩下兩個實作了。逐項攤開如下，順序照計畫。
+
+**(a) 未追蹤檔案的行數 —— 實作了。** `WorkingCopyStatusReader` 那三個 git 子行程
+維持不快取，理由沒變（誠實的 key 得包含每個檔案的 mtime 與 size，那個 stat 掃描
+比它省下的還貴）；但未追蹤檔案這一半可以，因為 1 MiB 上限本來就得先問 size，那個
+stat 已經付過了。`UntrackedLineCountCache`，key 是 path + size + mtime。
+
+三件事寫在它的類別註解裡，一件都不省：key 是什麼（三個欄位各擋掉哪一種漏判）、
+什麼會讓它失效（**沒有外部事件**——編輯器存檔不會發出任何 `GBM_EVENT_*`，key 本身
+就是失效機制，另外每一輪用 `retainOnly` 掃掉已經不是 untracked 的項目）、漏掉失效
+會看到什麼症狀（unstaged 欄位顯示編輯前的行數，也就是一個**錯的**數字，而不是缺
+一個數字——正是這個檔案裡 byte cap 與 binary 判定都拒絕的那種失敗）。
+
+另外套了 git 自己的 **racily clean** 規則：mtime 不比本輪開始時間嚴格更舊的檔案
+不進快取。同一個時間戳刻度內，「改過」與「沒改過」無法分辨，記下去會讓錯的數字
+黏住到下次編輯為止，而不是下次 refresh 就清掉。`passStartedAt` 在第一個 stat 之前
+就讀一次，不是每檔讀一次——每檔讀會讓「本輪讀取期間被改寫」的檔案仍然看起來比自己
+的檢查點更舊。
+
+**(b) scope 切分 —— 實作了，但 key 不是計畫寫的那個。** 計畫寫
+`(path, staged, diff identity)`；實際用的是 **`DiffFile` 的物件識別加上 `maxGap`**。
+識別在這裡是誠實的 key，正因為這些是每次 `workingCopyDiffReady` 重新解析出來的
+不可變 DTO：沒有人原地改 `DiffFile`，所以同一個實例不可能有不同內容。而
+`scoped_diff_view.dart` 的 `didUpdateWidget` 本來就用
+`!identical(oldWidget.file, widget.file)` 當「換了一份 diff」的訊號 —— 同一個訊號
+用在同一個檔案的另一個決定上，不是新發明一個。
+
+值得的理由是量出來的，不是猜的（debug JIT，`Stopwatch`）：一個 40 hunks × 200 行
+的檔案切一次 **197µs**，典型的 10 hunks × 80 行 **21µs**。拖曳文字選取會讓
+`ScopedDiffView` 每一幀重 build，所以那 197µs 是每幀都在燒的純浪費；換成一次
+`identical` 比較。`temporary` / `touchedChangedLines` **沒有**快取，它們在同一份
+diff 內就會變。
+
+**(c) `workingCopyDiffs` 的成長 —— C11 就做完了，這一輪只是確認。**
+`repo_session_repository.dart` 的 `_readWorkingCopyStatus()` 把它整個重設成
+`const {}`，而且已經帶著三段式註解。順帶記一筆計畫的重載時機表裡那列
+「單一檔案 stage/unstage 只清該檔的兩側」**是多餘的**：這張 map 的上限就是一個
+選定檔案的兩側，所以「全清」和「只清那個檔」是同一個動作。寫下來，免得日後有人
+去補一個更細的失效機制。
+
+**(d) `sameLogicalFile` 的兩兩配對 —— 前提不成立。** 計畫說它做 O(n²) 配對、要
+改成建一次索引。實際上它**在 `lib/` 底下一個呼叫端都沒有**：board 用
+`logicalFileKey` 當 key，從不直接比較兩個 entry，也就是說以 key 為主的做法早就
+取代了兩兩比較。它沒有被刪，而是搬進 `working_copy_file_identity_test.dart` 當
+**oracle** —— 「key 與關係必須一致」那支測試需要一個獨立寫成的「同一個檔案」敘述，
+才不會讓 key 的 bug 躲進檢查它的東西裡。留在 `lib/` 才是問題，因為下一次孤兒稽核
+會再把它標一次。
+
+**(e) `FileTree.fromPaths` —— 前提不成立，而且底下藏著一個真的 bug。**
+計畫說用 path list identity memoize。那個 key **永遠不可能命中**：兩個呼叫端都是
+每次 build 現做 `items.map(pathOf).toList()`。但追下去發現的東西比快取重要得多。
+
+`working_copy_board.dart` 的 `_keysInRenderOrder` 無條件建一棵樹取葉子順序，理由
+寫在它自己的註解裡：「list 與 tree 兩種模式都經過 `FileTree.fromPaths`」。**那句話
+是錯的。** `FileListModeSwitcher.build` 在 list 模式直接把 `items` 交給
+`ListView.builder`，根本沒有樹。跑出來確認（pump 兩種模式、按 y 座標排序畫面上的
+文字）：
+
+| 模式 | entries 為 `lib/a.dart, zz.txt, lib/b.dart` 時畫出來的順序 |
+|---|---|
+| list | `lib/a.dart`、`zz.txt`、`lib/b.dart` |
+| tree | 資料夾 `lib`、`zz.txt`（葉子預設收合） |
+
+所以在**預設的 list 模式**下，使用者從 `lib/a.dart` 拖到 `lib/b.dart`，畫面上明明
+夾在中間的 `zz.txt` 不會被選中 —— 「範圍要用畫成的順序量」這條規則被自己的實作
+違反了。而原本那支測試用預設（list）模式 pump 卻斷言 tree 順序，並在註解裡重述那句
+錯的前提，所以它**把 bug 釘住當成正確行為**。現在拆成兩支，一種模式一支，兩個方向
+的變異各自只讓對應的那支變紅。
+
+修法讓快取候選 (e) 直接消失：list 模式現在完全不建樹，比快取它更省。tree 模式量
+到每次點擊 100 個檔案約 **41µs**（500 個檔案 174µs），不值得為它把
+`FileListModeSwitcher` 從 `StatelessWidget` 改成有 State 的版本——`listEquals` 本身
+也是 O(n) 字串比較。**這是一個量出來的取捨，不是「本輪不做」**，數字留在這裡以便
+下一輪重新裁定。
+
+#### 重載時機表（照計畫逐列核對）
+
+| 時機 | 誰負責 | 怎麼確認的 |
+|---|---|---|
+| `workingCopyStatusUpdated` | `_readWorkingCopyStatus()` 把 `workingCopyDiffs` 重設成 `const {}`；scope 快取隨之失效（新的 reply 必然是新物件） | C11 既有註解 + `DiffScopeCache` 測試 |
+| 單一檔案 stage/unstage | 同上，且**不需要更細的機制**——map 的上限就是一個檔案的兩側 | 讀 `_readWorkingCopyStatus()` |
+| `workingCopyDiffReady` | 覆寫該 key；`DiffScopeCache` 因為物件換人而重切 | `'splits again when a new reply arrives for the same path'` |
+| 切換 repo | 結構性：`repoSessionProvider` 是 `RepoIdentity` family；C++ 側 `UntrackedLineCountCache` 掛在 per-repo 的 `Session` 上 | 讀型別，非測試 |
+| session 關閉 | 結構性：provider 自動 dispose；`~Session()` 帶走 reader | 讀型別，非測試 |
+| 未追蹤檔案 mtime/size 改變 | `UntrackedLineCountCache` 的 key 本身 | 三支 `Rereads...` 測試 |
+
+#### C18 的重用稽核：三筆，都是同一個陷阱的重演
+
+1. **`FileTreeFolderRow` 手刻了 `InkWell`**，所以繼承的是 `ThemeData.hoverColor`
+   （約 4% 黑/白，真實螢幕上看不見），而它同一份清單裡上下相鄰的檔案列是 `GbmRow`、
+   hover 正常。一份清單裡兩種行為。改成 `GbmRow`（水平 padding 設零，因為
+   `FileTreeList` 已經用 `EdgeInsets.only(left: level * 16)` 做了縮排）。
+2. **`working_copy_view.dart` 的私有 `_MiniButton`** 手刻了
+   `GbmButton(secondary, sm)` 已經有的 borderDefault 外框、textXs、space2 內距，
+   而且同樣沒有 hoverColor —— 全 app 唯三沒有 hover 的按鈕。
+
+3. **`WorkingCopyDiffPane` 的 `2 file` 模式手刻了 `GbmSplitPane`**：寫死 1:1 的
+   `Row` 加一條 1px `Container` 分隔線。應用裡其餘八個雙欄／三欄面向全部是真的
+   splitter，包含**正上方那塊 board 自己的 `wc.columns`**——所以使用者拖得動 board
+   的欄寬、拖不動 diff 的欄寬，兩條分隔線長得一模一樣。
+   新增 `GbmLayout.splitterWcDiffSides`（storageId `wc.diffSides`）。規格 P09 的
+   SPLITTERS 表只有八列、沒有這一條，因為那張表早於已裁定的變體 B（原本的 P03 只有
+   單欄 diff）；比照 `splitterPanelList` / `splitterPanelDetailFiles` 的先例，數字
+   跟隨同一個 view 裡另一組 1:1 雙欄的 `splitterWcColumns`，並把「規格沒有、跟隨誰、
+   為什麼」寫在常數的註解裡。`minExtent` 取 140 而非 200，因為這塊 pane 巢狀在
+   `splitterWcDiff` 的 54% 之內。
+   flex 模式的 `minExtent` 只夾拖曳、不夾 layout（面板是 `Flexible`），所以窄視窗
+   不會因此溢出——這件事是讀 `split_pane.dart` 確認的，不是假設的。
+
+前兩筆都用 identity 斷言 token（`ink.hoverColor == colors.surfaceHover`），不是
+「沒有丟例外」：錯的 hover 顏色不會丟任何例外，這正是它們躲過所有測試的方式。
+第三筆斷言的是**內容真的移動了**（拖完之後 staged 側的文字中心 x 變大），不是
+`onFlexChanged` 有被呼叫：一個沒有任何 layout 會讀的持久化數字也能通過後者。
+
+#### 查過、沒有動的三項
+
+- **`GbmSegmentedControl`** 沒有重複既有元件，而且它自己有明確傳
+  `hoverColor: colors.surfaceHover`。
+- **`GbmBadge`** 在計畫指定的位置（C9 的檔案列尾）確實用了。但 `scoped_diff_view`
+  的 scope 卡片標頭把 `+N` / `−M` 畫成裸的等寬彩色文字而不是藥丸，於是同一個畫面
+  上同一件事有兩種畫法（左邊 board 是藥丸、右邊 scope 標頭是文字）。**規格對此沒有
+  答案**：SCOPES 第 7 列只規定「按鈕文字寫出實際數量」，計畫的 C13 也只寫按鈕。因此
+  這是一個待裁定的設計問題，不是一筆稽核缺失——依本輪的工作規則，規格與決策紀錄裡
+  沒有答案的就丟出來問，而不是自行產生「本輪不做」。
+- **`FileListModeSwitcher` / `FileTreeList`** 見上面候選 (e) 那一段：本輪不但沒有
+  重複它們，還把 list 模式對 `FileTree` 的多餘依賴整個拿掉了。
+
+#### 量出來、沒有修掉的一件事
+
+衝突橫幅在 **440px 寬**以下會 `RenderFlex` 溢出。三顆按鈕是 non-flex，旁邊的
+`Expanded` 救不了它們造成的溢出（本 repo 踩過六次的那條規則）。這一輪**沒有修**，
+但也不是沒動：換成 `GbmButton` 之後 440px 的溢出從 **17px 降到 6.3px**，也就是說
+這一輪縮小了它而非造成它。要讓它消失需要設計上的答案（改圖示？收進溢出選單？），
+不是排版微調。已加一支 500px 的守門測試把量到的餘裕釘住，斷言的是文字寬度大於零
+而不是「沒有丟例外」——`Expanded` 會一邊滿足「沒有溢出」一邊把子節點壓成零寬。
+
+#### 裝置層：交接時留的第一個未完項目
+
+C1 的四個 capi 欄位補了 `integration_test/working_copy_line_counts_test.dart`。
+fixture 刻意做成半 staged 的單一檔案，四個數字互不相同（unstaged +7/-3、
+staged +2/-1），因為這四個欄位存在的理由就是「一個檔案同時有四個數字」，而讀錯
+欄位（拿另一欄的那一對）是真實的風險——數字若相同，讀錯也會過。
+
+**驗過會紅**：把 `JsonCodec.cpp` 的 `stagedAdded` 改成送 `unstagedAdded`、重建
+dylib 後，「+7」變成兩個、「+2」一個都沒有。還原後綠。
+
+順帶踩到一次 CLAUDE.md 記過的陷阱：`app_flutter/build/native/libgbm_capi.dylib`
+當時是 **8/23 的舊複本**，早於 C1。跑裝置測試前若沒重跑 `build_capi.sh`，測到的
+是舊 dylib，而新欄位會表現成「badge 沒出現」，不是任何一種錯誤。
+
+#### 裝置層全掃：兩支紅，其中一支是真的產品缺陷
+
+依 CLAUDE.md 那條「動到共用列元件的一輪，十支裝置測試要一支一支重跑」，
+`FileTreeFolderRow` 換成 `GbmRow`、`_MiniButton` 換成 `GbmButton` 之後把
+`integration_test/` 十支全跑過。八綠兩紅，而兩紅都不是這兩個 commit 造成的
+——是 **C7–C13 的重做在四輪之前就打壞的**，而裝置層不在任何 CI job 裡、也
+不屬於 `flutter test`，所以沒有任何一層看得見。
+
+1. **`commit_flow_test` 還在點 `find.byType(Checkbox).first`。** 變體 B 把
+   checkbox 全刪了。改寫成拖曳之後，才浮出下面那個真的缺陷。
+2. **`context_menu_flows_test` 05-F 的 `find.text('fixture.txt')` 中兩個。**
+   C10 讓 diff pane 的標題列也寫出選中的檔名，而 `tap()` 拒絕含糊的 finder。
+   finder 收斂到 `WorkingCopyBoard` 之內。
+3. **同檔 05-G 的夾具前提過期。** 兩處插入之間只隔一行，而變體 B 的預設
+   scope 會把「相隔 ≤ 2 行」的變更併起來——選單因此寫的是
+   `Discard 2 lines…`（測試找的是 `Discard…`，找不到），而且真的按下去會把
+   兩行一起丟掉。夾具改成隔三行：仍在同一個 hunk 內（`-U3` 的合併門檻是
+   2×context），但落在兩個 scope，這支測試才重新是它宣稱的「行粒度」測試。
+   **這一項不是測試壞了，是測試描述的行為已經被裁定改掉了**——夾具沒跟上
+   規則，於是它悄悄改測了另一件事。
+
+#### 空欄位不是 drop target：拖曳是唯一的路，而那條路在起點就斷了
+
+把 (1) 改寫成拖曳之後裝置測試仍然紅：拖進 Staged 欄什麼也沒發生。原因在
+`_buildColumn`——`entries.isEmpty` 時它畫的是 `Center(Text('No staged
+changes'))`，**取代**了 `_buildFilesContent`，於是那一欄整個沒有
+`DragTarget`。一個什麼都還沒 stage 的 repo（每個 repo 的起點）因此拖不進
+任何東西；而變體 B 刪光了 checkbox，拖曳是唯一換邊的方式，所以那等於
+**完全 stage 不了**。
+
+會躲到現在，是因為**拖放從來沒有被任何一層真的執行過**：元件測試只斷言
+`Draggable` 存在（`find.byWidgetPredicate((w) => w is Draggable)`），裝置層
+那支則還在點已經不存在的 checkbox。「有 Draggable」和「拖得動」之間的距離，
+就是這個缺陷活著的地方。
+
+修法是把 placeholder 移進 `DragTarget` 的 builder。兩支新元件測試：拖到有
+內容的欄、拖到空欄，都用 `staged.length == 1` 計次。
+
+**變異的第一版沒有紅**，因為我把 `Center` 改回去時仍然留在 builder 內部，
+`DragTarget` 還在。要還原 `_buildColumn` 的短路才紅，而且只紅那一支。這是
+CLAUDE.md 那條「變異沒有落在註解預測的地方，錯的是註解不是變異」的實例：
+缺陷在欄位的組裝處，不在 builder 裡，我第一次找錯了位置。
+
+#### 一支假的測試，抓法是變異
+
+「同尺寸編輯必須重讀」那支 C++ 測試第一版寫了 8 bytes 再寫 7 bytes —— 不是同尺寸。
+把 key 的 mtime 拿掉（只剩 size）的變異照樣綠，因為 size 真的變了。改成 8 bytes
+兩行對 8 bytes 三行之後變異才紅。這件事寫進那支測試的註解裡，因為它是
+「**夾具無法與程式碼意見不合就什麼都沒證明**」的第五種形狀：夾具的**內容與它自己
+的名字不符**。
+
+### 三個待裁定問題的裁定（同一條分支）
+
+C18 依「規格與紀錄裡沒有答案才丟出來問」的規則留了三個問題給使用者。裁定回來
+之後，同一條分支上把它們做完。
+
+#### 1. scope 卡片標頭的行數：統一成 `GbmBadge`
+
+裁定是統一成藥丸。實作把 `scoped_diff_view.dart` 的兩段裸文字換成
+`GbmBadge(kind: added/removed)`，間距也對齊 board 的節奏（標題後 `space2`、
+兩顆藥丸之間 `space1`）。
+
+**glyph 刻意沒有一起統一。** 檔案列用 ASCII `-`（和 `changed_files_panel`
+同一種），diff 面用 U+2212（和 `panel_file_diff_detail` 同一種）——這個分裂是
+按「面」切的，不是意外。裁定的是形狀；統一 glyph 會把第三個面一起拖下水，
+那是另一個決定。使用者選的預覽裡寫的也是 `−`。
+
+兩支新測試都斷言 **kind 而不只是 label**：在 added 的位置放一顆 neutral 藥丸
+看起來就是錯的，但不丟例外。兩次變異各自只紅一支——`added`→`neutral` 只紅
+kind 那支，`> 0`→`>= 0` 只紅「零不畫」那支。
+
+#### 2. 樹狀模式的 `FileTree` 記憶化：不做
+
+裁定是不做。n=500 每次點擊 174µs，遠低於一幀 16.7ms，而少一個要維護、要寫
+失效測試的快取。**這一條沒有程式碼變更，只有這筆紀錄**——一個經過裁定的
+「不做」和一個自行產生的「本輪不做」不是同一件事，差別就在這裡有裁定。
+
+#### 3. 衝突橫幅：窄寬時換行——而稽核記的數字是錯的
+
+裁定是換兩行。但真正動手時第一件事就是這個前提垮了：
+
+**稽核記的 6.3px 溢出是錯的，實測 27px。** 而這個差別會改變修法。6.3px 小到
+「把控制搬到自己那一行」顯然就夠；27px 不是——控制列自己在測試字型下就有
+435px，而 440px 扣掉 padding 只剩 408px。所以外層 `Wrap`（文字一行、控制
+一行）之後仍然溢出 27px，一模一樣的數字，因為溢出從來就不是文字造成的。
+
+修法因此是**兩層 `Wrap`**：控制列自己也會斷行。橫幅於是在任何寬度都不會溢出，
+只會變高。一顆被推出右緣的按鈕就是使用者按不到的按鈕，這比多佔一行嚴重。
+形狀沿用 `scoped_diff_view.dart` 的 scope 卡片標頭，那裡解的是同一個問題。
+
+**寬版那支測試的第一版斷言是假的。** 我寫的是「控制在文字右邊」，然後把
+`WrapAlignment.spaceBetween` 變異成 `start` —— **綠的**，因為兩種對齊都讓
+它成立。改成拿控制列的 `right` 去比外層 `Wrap` 的 `right` 之後，同一個變異
+才只紅那一支。這是「夾具/斷言無法與程式碼意見不合就什麼都沒證明」的第六種
+形狀：**斷言弱到兩個候選實作都通過**。
+
+順帶記下一個量測陷阱，因為它直接害我第一次量錯：**`flutter_test` 的預設字型
+把每個字都畫成 fontSize 寬**，所以 `Rebase in progress (3/8): 1 file conflicted`
+在測試裡是 548px，真實的比例字型窄得多。再加上預設畫布 800×600 會把更寬的
+`SizedBox` 靜靜夾掉（CLAUDE.md 記過），寬版測試因此明確 `setSurfaceSize`。
+兩支測試在保守的方向上失真：真實橫幅比 440px 更窄才會斷行。
+
+裝置層跑了 `conflict_flow_test`（會 `tap('Resolve…')`，是唯一真的去打橫幅
+hit-test 的地方）與 `context_menu_flows_test`（scope 卡片標頭變高會推移列的
+位置），兩支都綠。
+
+### 「左右 diff view 沒辦法選取 line 去左或右」
+
+使用者回報。診斷先做**排除**，再做修正——因為報告描述的是症狀，不是原因。
+
+#### 先證明機制是通的，才知道問題不在那裡
+
+寫了 `integration_test/stage_lines_flow_test.dart`，四支測試把整條路跑完：
+文字選取 → 觸碰到的列 → scope → hunk index + line indices →
+`gbm_stage_lines` → `git apply --cached` → index，而且斷言的是
+`git diff --cached` 的輸出而不是 UI，所以一顆「按下去什麼都沒送出」的按鈕
+過不了。兩個方向各兩支（卡片按鈕／文字選取 × 往右 stage／往左 unstage）。
+
+**四支全綠。** 這一層之前完全沒有測試：`scoped_diff_view_test.dart` 把 view
+裸著 pump 然後斷言 callback 有被呼叫，`working_copy_diff_pane_test.dart` 在
+真的容器裡做同一件事，兩者都跑在 `FakeGbmBindings` 上，所以 `stageLines()`
+到 index 之間什麼都沒被執行過；C++ 那半有
+`WorkingCopyApiTest.StageLinesStagesOnlyTheSelectedAddedLines`，但它是從 C++
+呼叫的，從來沒有經過 `dart:ffi`。
+
+#### 真正的缺口：規格指名的**輸入法**，兩條非拖曳的路都不存在
+
+`SCOPES` 有一個 `how` 欄位，而「這個粒度搆得到」不等於「規格指名的那個輸入
+法存在」：
+
+- **第 6 列 how：「點 hunk 標頭列（@@ …）」**。`_HunkHeading` 是一個裸
+  `Text` 包在 `Padding` 裡，完全沒有手勢。它的 *note*（右鍵 Stage hunk）有
+  實作，`how` 沒有。
+- **第 7 列 how：「按住拖過多行，或 Shift + ↑ ↓」**。只有拖曳那半。
+
+也就是說，只要不是用滑鼠拖，就真的沒有路——這正是報告的內容。
+
+**Flutter 不會白送第 7 列的另一半。** 一開始的假設是「`SelectableRegion`
+有延伸選取，只是 tracker 的 `_latched` 讓報告進不來」。用一個能區辨的實驗
+證偽：把 `endGesture()` 改成什麼都不做（tracker 永不重新上鎖），拖曳後按
+Shift+ArrowDown，卡片上的數字**仍然一動不動**。所以 region 本來就沒有在這
+裡延伸選取，latch 不是（唯一的）阻礙。
+
+#### 兩個順帶挖出來的缺陷
+
+**(a) `addPostFrameCallback` 不會排 frame。** `_scheduleNotify` 把通知合併到
+一個 post-frame callback 上，而那個 API 只是登記「下一幀結束時跑」，**不會
+要求下一幀**。拖曳自己會源源不斷產生 frame，所以這個洞被藏了整輪；單擊不會，
+通知因此可能永遠不送達，標頭點擊已經記下的 scope 會停在看不見的狀態，直到
+別的東西剛好畫了一幀。widget test 裡更絕對：`tester.pump()` 只在
+`hasScheduledFrame` 時才跑一輪，**連按六次 pump 什麼都沒發生**。修法是加
+`SchedulerBinding.instance.ensureVisualUpdate()`。
+
+**(b) 送出本身就是「diff 變更」的路徑。** `_dropSelection` 的註解早就寫了
+「從 submit 路徑安全，從 diff 變更路徑不安全——後者會在樹重組還在改
+`selectables` 的時候走它，框架從 `handleClearSelection` 丟
+ConcurrentModificationError」。沒被注意到的是：**stage 會換掉 diff**，所以
+submit 路徑只差一個 dispatch 就是 diff 變更路徑。延後到 dispatch 之後的
+`clearSelection()` 正好落在它自己造成的重組裡。
+
+主機層以下看不見這個當機：fake 不會真的重新 stage，diff 從不改變，清除永遠
+碰到一棵安定的樹。**裝置層一跑就炸。** 修法是把 highlight 的清除搬到
+dispatch **之前**、同步做。
+
+#### 實作要點
+
+點標頭是**選取**而非直接 stage：規格寫「該段所有變更行一起處理」，處理在選取
+之後，而該列自己的 note 把 stage 交給右鍵選單。在變體 B 的語彙裡選取就是那張
+一次性卡片，所以點下去升起的正是「拖過整個 hunk」會升起的卡——一按搬走整個
+hunk，這是逐張 scope 卡片做不到的。
+
+Shift+↑↓ 是 anchor/focus 的**範圍**，不是只增不減的集合：往上按把 focus 那端
+走回 anchor。範圍走**畫面實際的順序**，也只有那個順序能讓「跨 hunk 但不能跨
+檔」有意義。種子放在第一個**有變動**的列而不是第一列，否則前幾次按鍵都花在
+連卡片都不會出現的 context 上，第一次按下去讀起來就是「這個鍵沒反應」。拖曳
+結束時把框到的範圍收成 anchor/focus，兩種輸入共用一個範圍。
+
+選取中的列現在會上色（`foregroundDecoration`，不是混色背景——這些列坐在兩種
+不同底色上，overlay 才不需要知道底下是哪一種）。拖曳的高亮是 SelectionArea
+免費給的，另外兩種輸入法完全沒有選到任何**文字**；沒有這層上色，使用者唯一
+的線索就只有按鈕上的數字。拖曳也一起畫：一種選取一種樣子。
+
+#### 驗證
+
+主機層 2154 全綠。裝置層九支：新檔六支（兩方向 × 卡片按鈕／文字選取，加標頭
+點擊與 Shift+↓），外加 `context_menu_flows` / `commit_flow` /
+`working_copy_line_counts` 三支迴歸（`DiffLineView` 是共用列元件）。七次
+mutation，只有「種子改成第一列」紅三支（種子位置會位移後面每一個斷言，是對
+的），其餘每次只紅該紅的那一支。
+
+### 一次性 scope 的按鈕位置：實作方便壓過了設計稿
+
+使用者指出「一次性選取範圍的按鈕位置跟設計稿不一樣，應該在 scope 上套，而不是
+最上方多一列」。去讀 demo（`Diff Scope Studies`，變體 B 第 3 塊「臨時 scope」）
+的原始 HTML，設計是明確的：
+
+```
+.variant-B-card .variant-B-card-muted
+├ .variant-B-cardhead   變更 1  +2 −1   [Stage 3 lines] ← .variant-B-btn-off（disabled + 刪節線）
+├ .variant-B-cardbody   ← 選取「之前」的行
+├ .variant-B-temp       ← 虛線 accent 外框，**就在卡片裡**
+│  ├ .variant-B-temphead  臨時選取 [一次性]  [Stage 3 lines] ← 活的
+│  └ .variant-B-cardbody  ← 被選取的那幾行本身
+└ .variant-B-cardbody   ← 選取「之後」的行
+```
+
+而出貨的是一張釘在欄位最上方的獨立卡片。
+
+**那不是一個設計決定，是一個實作方便。** 原本的註解寫得很誠實：把卡片插進列與列
+之間會 reparent 底下每一列，而那些列身上掛著 `SelectionListener`，它們的回報正是
+「這張卡片該不該存在」的依據——所以擾動它們是一個回饋迴圈。固定槽位可以完全避開。
+
+**讓巢狀形式安全的，正是那條註解自己指到的東西。** 那些 key 是 `GlobalKey`，
+Flutter 會把同一個 element **搬**進新的父節點，而不是卸載重建，註冊因此存活。
+tracker 的 `keyFor` 文件從一開始就寫了這句：「a row moves between subtrees as the
+diff changes … a global key makes Flutter reparent the one element instead」。當初
+只是沒有把那句話用在這裡。
+
+順帶一提，巢狀之後 `_wellChildren` 的清單長度**根本不會變**了——不再需要那個
+`SizedBox.shrink()` 佔位。原本為了保持定長而存在的東西，在正確的結構下自動消失。
+
+#### 一個 scope、一顆按鈕
+
+選取跨越兩張卡片時，只有**第一張**（畫面順序）帶頭與按鈕；後面的卡片只有虛線
+body，讓延伸範圍看得見。兩顆按鈕會讀成兩個動作，而它其實是一次。把
+`showHead` 改成永遠 true 的 mutation 紅了五支——寬，但那正是「多一顆按鈕會弄壞
+一堆 finder」的真實訊號；另外補了一支直接針對「只有一顆頭」的測試。
+
+#### 位置測試的夾具要能falsify「就地」
+
+第一版夾具是 `.+..-.` 配 l1→l2 選取，而那兩列剛好在卡片列的**開頭**——所以
+「就地」和「釘在卡片最上面」在那個夾具下無法分辨。換成 `.+++.` 只選中間那一列，
+上面一列、下面一列都在，`temp.top > 上一列.bottom` 與 `temp.bottom < 下一列.top`
+才是能被 falsify 的主張。把區塊挪到卡片內最上面的 mutation 因此只紅那一支。
+
+muted 的左邊框顏色本來沒有任何測試在看——一張保留 accent 條紋的卡片不會丟例外，
+只會同時有兩個東西宣稱自己是活的 scope。補上以身分比對的斷言。
+
+#### 巢狀之後的代價：拖曳中途不能畫
+
+使用者接著回報「要等我 mouse up 才畫自選 scope，不然只能選一行」。
+
+這正是原本那條註解擔心的事，只是它擔心的方向反了：問題不在**插入時 reparent 會
+不會把註冊弄丟**（`GlobalKey` 解決了那個），而在**拖曳進行中**那次 reparent 會移動
+底下每一列的幾何，而那些列身上的 `SelectionListener` 正在回報選取——選取因此被
+擾動，拖曳塌回一列。
+
+修法就是使用者說的那句：**指標還按著的時候，不畫任何從 touched 推導出來的東西。**
+拖曳期間的即時回饋是 `SelectionArea` 自己的文字高亮；一次性區塊是拖曳**沉澱**成的
+結果。`endGesture()` 因此要發通知——在所有中途重建都被抑制之後，指標放開是唯一
+還會觸發渲染的訊號。
+
+**第一次 mutation 又回綠了，而且指出我的因果講錯了。** 我把閘門做成兩層（`build()`
+裡 `settledTouched` 的三元式，加上 `_onTouchChanged` 在拖曳中提早 return），拿掉
+前者是綠的——因為後者根本不讓重建發生，測試碰不到前者。加了一行「從外部強制一次
+重建」（用**同一個** `DiffFile` 實例重 pump，否則 `didUpdateWidget` 會因為換檔而清
+掉選取，斷言就會因為錯的理由通過）之後，同一個 mutation 才紅。
+
+反過來拿掉 `_onTouchChanged` 的提早 return 是**綠的**。所以正確性只靠 `build()` 那道
+閘門，另一半純粹是重建成本——拖過二十列時每幀重建整欄、而輸出完全一樣。註解照這個
+事實改寫了，因為 CLAUDE.md 說註解宣稱的東西必須是真的。
+
+#### 沒有任何合成手勢重現得出那個症狀——這一點要講清楚
+
+**四次 mutation 全是綠的。** 把閘門完全拿掉（`settledTouched` 的三元式與
+`_onTouchChanged` 的提早 return 都拿掉），在裝置層一列一列拖是綠的，改成列內三段
+的次列移動也是綠的。所以**「畫在拖曳中途→reparent→選取塌成一列」這條因果，沒有
+被這個 repo 裡的任何東西證實**，修法也沒有被任何測試驗證對得上那份回報。
+
+被釘住的是那個**不變式本身**（指標按著時不畫），以及它在外部重建下也成立。使用者
+回報的症狀本身，只能由使用者在真機上確認。裝置層那支測試的註解裡直接寫了這句，
+免得未來有人把它讀成驗證。
+
+過程中找到第二個有根據的嫌疑犯，而且它有明確的框架行為當依據：**`SelectableRegion`
+失去焦點時會清掉自己的選取**（`_handleFocusChanged`，非 web），而上一輪為了
+Shift+↑↓ 加的 `Focus` 節點在每次 pointerDown 都無條件 `requestFocus()`——那是一條
+把選取從正在製造它的手勢底下抹掉的活路。改成只在 `!hasFocus` 時才要：`hasFocus`
+對 primary focus 的**祖先**也成立，所以「底下的 region 才是真正持有焦點的那個」
+這個情況已經被涵蓋，按鍵事件兩種情況下都到得了 `CallbackShortcuts`。
+
+這一條同樣沒有測試能證實它就是症狀的成因。兩個修法都是**有根據但未經驗證**的。
+
+#### 「因為我是用觸控板」——這條線索被框架自己駁回了
+
+使用者補了一個細節：他是用**觸控板**拖的。那看起來正好解釋了四次 mutation 為何
+全綠——我注入的一直是 `PointerDeviceKind.mouse`。而且有依據：`ScrollBehavior`
+預設的 `dragDevices`（`_kTouchLikeDeviceTypes`）**不含 mouse、含 trackpad**，所以
+可捲動區域可以搶走一個它絕不會從滑鼠手上搶走的拖曳。於是把裝置層那支拖曳測試改成
+在兩種 kind 上各跑一次。
+
+**跑出來是紅的，但紅在框架的斷言上，不在我們的行為上：**
+
+```
+'package:flutter_test/src/test_pointer.dart': Failed assertion: line 567 pos 12:
+'_pointer.kind != PointerDeviceKind.trackpad': is not true.
+  #2  TestGesture.moveTo
+```
+
+追到 `gestures/events.dart`：`PointerDownEvent`、`PointerMoveEvent`、
+`PointerUpEvent`、`PointerCancelEvent`、`PointerEnterEvent`、`PointerExitEvent`
+**六個類別的建構式各自都斷言 `kind != PointerDeviceKind.trackpad`**。也就是說，
+指標式的拖曳事件在這個框架裡**根本不可能**帶 trackpad 這個 kind——`trackpad` 專屬
+於 `PointerPanZoom*`（雙指平移／縮放），而那也是它能碰到 `dragDevices` 那個集合的
+唯一途徑。觸控板的**按下並拖曳**，引擎是當成一般滑鼠指標送上來的。
+
+所以：
+
+- 那支參數化測試是在測一條硬體不會產生、框架也不允許的路徑，已還原成單一 mouse 版。
+- **「合成手勢只說 mouse，所以看不見觸控板的路」這個假說是錯的**——原本那支測試
+  走的就是回報來源的那條路。
+- 上一節「四次 mutation 全綠、因果未被證實」的結論**不變**，而且現在少掉一個可以
+  推給裝置差異的藉口：仍然無法解釋。
+
+使用者後來在真機上確認修好了。那是這一輪唯一一份症狀層級的證據，但它**分不出**是
+兩個修法（拖曳中途不畫、`requestFocus` 加 `!hasFocus` 守衛）裡的哪一個治好的，
+也可能是兩個一起。這裡照實記著，不把它讀成任一個修法的驗證。
+
+#### 一支無法與程式碼意見不合的測試，刪掉
+
+我先在主機層寫了一支「一列一列拖，四列都要留住」，**它在缺陷還在的時候就是綠的**
+——主機層的選取幾何撐得過中途的樹重組，真實的撐不過。依 CLAUDE.md 那條「夾具無法
+與程式碼意見不合就什麼都沒證明」，那支從主機層刪掉，改寫進裝置層
+（`stage_lines_flow_test`）；主機層留下的是**能**被證偽的那個不變式：指標按著時
+不畫。

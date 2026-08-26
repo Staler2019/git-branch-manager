@@ -51,6 +51,10 @@ class WorkingCopyEntry {
     required this.indexStatus,
     required this.hasUnstagedChange,
     required this.worktreeStatus,
+    required this.unstagedAdded,
+    required this.unstagedRemoved,
+    required this.stagedAdded,
+    required this.stagedRemoved,
     required this.conflict,
     required this.ancestorBlob,
     required this.oursBlob,
@@ -69,6 +73,10 @@ class WorkingCopyEntry {
       indexStatus: FileChangeKind.fromValue(json['indexStatus'] as int),
       hasUnstagedChange: json['hasUnstagedChange'] as bool,
       worktreeStatus: FileChangeKind.fromValue(json['worktreeStatus'] as int),
+      unstagedAdded: json['unstagedAdded'] as int,
+      unstagedRemoved: json['unstagedRemoved'] as int,
+      stagedAdded: json['stagedAdded'] as int,
+      stagedRemoved: json['stagedRemoved'] as int,
       conflict: ConflictKind.fromValue(json['conflict'] as int),
       ancestorBlob: json['ancestorBlob'] as String,
       oursBlob: json['oursBlob'] as String,
@@ -86,6 +94,21 @@ class WorkingCopyEntry {
   final FileChangeKind indexStatus;
   final bool hasUnstagedChange;
   final FileChangeKind worktreeStatus;
+
+  /// Lines added/removed on each side, from the two `git diff --numstat` passes
+  /// (and, for untracked files, from reading the file). The two sides are
+  /// independent on purpose: a partially staged file has real numbers on both
+  /// at once, and that is what the file list uses to say so.
+  ///
+  /// Zero always means *not measured*, never "measured zero" -- binary files,
+  /// mode-only changes and untracked files over the byte cap all arrive as 0.
+  /// Draw no badge for 0 rather than a `+0`, which would claim a measurement
+  /// that never happened.
+  final int unstagedAdded;
+  final int unstagedRemoved;
+  final int stagedAdded;
+  final int stagedRemoved;
+
   final ConflictKind conflict;
   final String ancestorBlob;
   final String oursBlob;

@@ -3,76 +3,45 @@ import 'package:flutter/material.dart';
 import '../../data/models/parsed_diff.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
-import '../../widgets/gbm_button.dart';
 import 'widgets/diff_line.dart';
 
-/// Renders a [ParsedDiff]: one hunk header + line list per file, per hunk.
-/// Used embedded in `features/working_copy/working_copy_view.dart` for M2;
-/// a routed `/repo/:repoId/diff/:commitId` variant for commit history diffs
-/// is a later milestone (see the plan's routing table) but reuses this same
-/// widget.
+/// Renders a [ParsedDiff] **read-only**: one hunk header + line list per
+/// file, per hunk. Used by History's commit detail, Compare, the file- and
+/// line-history panels -- every surface that shows a diff you cannot act on.
 ///
-/// [onStageHunk]/[onStageLines] are null in read-only contexts (a future
-/// commit-diff view has nothing to stage); when set, each hunk gets a
-/// whole-hunk stage/unstage button plus per-line checkboxes on added/
-/// removed lines that reveal a "stage/unstage selected lines" button once
-/// any are checked -- the Dart analog of `DiffView`'s hunk/line context-menu
-/// actions (src/app/views/DiffView.cpp), just surfaced as buttons instead of
-/// a text-selection-driven context menu, since Flutter's `SelectionArea`
-/// (used here for copy -- see below) already owns click-drag selection.
-class DiffPage extends StatefulWidget {
+/// **Staging does not live here.** It used to: each hunk carried a
+/// stage/unstage button and every added/removed line an 18px checkbox, so a
+/// partial stage cost one tick per line before a button even appeared. Spec
+/// P03's 變體 B replaces all of it with
+/// [ScopedDiffView](scoped_diff_view.dart)'s cards, whose button is present
+/// from the start and acts on a whole run of changes; that widget is the
+/// Working Copy's diff and this one no longer has a mutating caller. The
+/// three callbacks and the checkbox selection set were removed rather than
+/// left behind, because a parameter no caller passes is this repo's
+/// recurring defect shape.
+class DiffPage extends StatelessWidget {
   const DiffPage({
     super.key,
     required this.diff,
     this.staged = false,
-    this.onStageHunk,
-    this.onStageLines,
-    this.onDiscardLines,
     this.scrollController,
   });
 
   final ParsedDiff diff;
-  final bool staged;
-  final void Function(int fileIndex, int hunkIndex)? onStageHunk;
-  final void Function(int fileIndex, int hunkIndex, List<int> lineIndices)?
-  onStageLines;
 
-  /// 05-G's "Discard N lines…" -- rewrites the work tree, so it is null
-  /// wherever [onStageLines] is (read-only diffs) and additionally null on
-  /// the staged side. Routed through a confirmation dialog by the caller,
-  /// never straight to `RepoSessionController.discardLines`.
-  final void Function(int fileIndex, int hunkIndex, List<int> lineIndices)?
-  onDiscardLines;
+  /// Whether this diff is the staged side, which only changes the wording of
+  /// context menu 05-G's Stage/Unstage item.
+  final bool staged;
 
   /// Optional scroll controller for the diff ListView.
   /// If provided, allows external code to save/restore scroll position.
   final ScrollController? scrollController;
 
   @override
-  State<DiffPage> createState() => _DiffPageState();
-}
-
-class _DiffPageState extends State<DiffPage> {
-  /// Keyed by "$fileIndex:$hunkIndex" -- line indices (within that hunk's
-  /// `lines` array) currently checked for line-level staging. Reset
-  /// wholesale whenever a new diff arrives (see `didUpdateWidget`), since a
-  /// stage/unstage action changes hunk boundaries and stale indices would
-  /// silently point at the wrong lines.
-  final Map<String, Set<int>> _selectedLines = <String, Set<int>>{};
-
-  @override
-  void didUpdateWidget(DiffPage oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (!identical(oldWidget.diff, widget.diff)) {
-      _selectedLines.clear();
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
 
-    if (widget.diff.files.isEmpty) {
+    if (diff.files.isEmpty) {
       return Center(
         child: Text('No changes', style: TextStyle(color: colors.textTertiary)),
       );
@@ -85,41 +54,10 @@ class _DiffPageState extends State<DiffPage> {
     // be their own selection island.
     return SelectionArea(
       child: ListView(
-        controller: widget.scrollController,
+        controller: scrollController,
         children: <Widget>[
-          for (
-            int fileIndex = 0;
-            fileIndex < widget.diff.files.length;
-            fileIndex++
-          )
-            _DiffFileSection(
-              file: widget.diff.files[fileIndex],
-              staged: widget.staged,
-              onStageHunk: widget.onStageHunk == null
-                  ? null
-                  : (hunkIndex) => widget.onStageHunk!(fileIndex, hunkIndex),
-              onStageLines: widget.onStageLines == null
-                  ? null
-                  : (hunkIndex, lineIndices) =>
-                        widget.onStageLines!(fileIndex, hunkIndex, lineIndices),
-              onDiscardLines: widget.onDiscardLines == null
-                  ? null
-                  : (hunkIndex, lineIndices) => widget.onDiscardLines!(
-                      fileIndex,
-                      hunkIndex,
-                      lineIndices,
-                    ),
-              selectedLinesFor: (hunkIndex) =>
-                  _selectedLines['$fileIndex:$hunkIndex'] ?? const <int>{},
-              onToggleLine: (hunkIndex, lineIndex) => setState(() {
-                final String key = '$fileIndex:$hunkIndex';
-                final Set<int> selected = _selectedLines.putIfAbsent(
-                  key,
-                  () => <int>{},
-                );
-                if (!selected.add(lineIndex)) selected.remove(lineIndex);
-              }),
-            ),
+          for (final DiffFile file in diff.files)
+            _DiffFileSection(file: file, staged: staged),
         ],
       ),
     );
@@ -127,23 +65,10 @@ class _DiffPageState extends State<DiffPage> {
 }
 
 class _DiffFileSection extends StatelessWidget {
-  const _DiffFileSection({
-    required this.file,
-    required this.staged,
-    required this.onStageHunk,
-    required this.onStageLines,
-    required this.onDiscardLines,
-    required this.selectedLinesFor,
-    required this.onToggleLine,
-  });
+  const _DiffFileSection({required this.file, required this.staged});
 
   final DiffFile file;
   final bool staged;
-  final void Function(int hunkIndex)? onStageHunk;
-  final void Function(int hunkIndex, List<int> lineIndices)? onStageLines;
-  final void Function(int hunkIndex, List<int> lineIndices)? onDiscardLines;
-  final Set<int> Function(int hunkIndex) selectedLinesFor;
-  final void Function(int hunkIndex, int lineIndex) onToggleLine;
 
   @override
   Widget build(BuildContext context) {
@@ -165,52 +90,18 @@ class _DiffFileSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        for (int hunkIndex = 0; hunkIndex < file.hunks.length; hunkIndex++)
-          _DiffHunkSection(
-            hunk: file.hunks[hunkIndex],
-            staged: staged,
-            onStageHunk: onStageHunk == null
-                ? null
-                : () => onStageHunk!(hunkIndex),
-            onStageLines: onStageLines == null
-                ? null
-                : (lineIndices) => onStageLines!(hunkIndex, lineIndices),
-            onDiscardLines: onDiscardLines == null
-                ? null
-                : (lineIndices) => onDiscardLines!(hunkIndex, lineIndices),
-            selectedLines: selectedLinesFor(hunkIndex),
-            onToggleLine: (lineIndex) => onToggleLine(hunkIndex, lineIndex),
-          ),
+        for (final DiffHunk hunk in file.hunks)
+          _DiffHunkSection(hunk: hunk, staged: staged),
       ],
     );
   }
 }
 
 class _DiffHunkSection extends StatelessWidget {
-  const _DiffHunkSection({
-    required this.hunk,
-    required this.staged,
-    required this.onStageHunk,
-    required this.onStageLines,
-    required this.onDiscardLines,
-    required this.selectedLines,
-    required this.onToggleLine,
-  });
+  const _DiffHunkSection({required this.hunk, required this.staged});
 
   final DiffHunk hunk;
   final bool staged;
-  final VoidCallback? onStageHunk;
-  final void Function(List<int> lineIndices)? onStageLines;
-  final void Function(List<int> lineIndices)? onDiscardLines;
-  final Set<int> selectedLines;
-  final ValueChanged<int> onToggleLine;
-
-  /// The line indices a right-click on [lineIndex] should act on: the whole
-  /// checkbox selection when that line is part of it, otherwise just it.
-  List<int> _targetsFor(int lineIndex) {
-    if (!selectedLines.contains(lineIndex)) return <int>[lineIndex];
-    return selectedLines.toList(growable: false)..sort();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -224,57 +115,18 @@ class _DiffHunkSection extends StatelessWidget {
             horizontal: GbmSpacing.space3,
             vertical: 2,
           ),
-          child: Row(
-            children: <Widget>[
-              Expanded(
-                child: Text(
-                  '@@ -${hunk.oldStart},${hunk.oldCount} +${hunk.newStart},${hunk.newCount} @@ ${hunk.heading}',
-                  style: TextStyle(
-                    fontFamily: GbmTypography.fontMono,
-                    fontSize: GbmTypography.textXs,
-                    color: colors.textTertiary,
-                  ),
-                ),
-              ),
-              if (selectedLines.isNotEmpty && onStageLines != null)
-                GbmButton(
-                  label:
-                      '${staged ? 'Unstage' : 'Stage'} ${selectedLines.length} Line${selectedLines.length == 1 ? '' : 's'}',
-                  onPressed: () => onStageLines!(
-                    selectedLines.toList(growable: false)..sort(),
-                  ),
-                ),
-              if (onStageHunk != null) ...<Widget>[
-                const SizedBox(width: GbmSpacing.space1),
-                GbmButton(
-                  label: staged ? 'Unstage Hunk' : 'Stage Hunk',
-                  onPressed: onStageHunk,
-                ),
-              ],
-            ],
+          child: Text(
+            '@@ -${hunk.oldStart},${hunk.oldCount} '
+            '+${hunk.newStart},${hunk.newCount} @@ ${hunk.heading}',
+            style: TextStyle(
+              fontFamily: GbmTypography.fontMono,
+              fontSize: GbmTypography.textXs,
+              color: colors.textTertiary,
+            ),
           ),
         ),
-        for (int lineIndex = 0; lineIndex < hunk.lines.length; lineIndex++)
-          DiffLineView(
-            line: hunk.lines[lineIndex],
-            selectable: onStageLines != null,
-            selected: selectedLines.contains(lineIndex),
-            onSelectedChanged: onStageLines == null
-                ? null
-                : () => onToggleLine(lineIndex),
-            staged: staged,
-            // Right-clicking a checked line acts on the whole checked set;
-            // right-clicking outside it acts on that line alone -- the same
-            // rule 05-F uses for a multi-file selection.
-            selectionCount: _targetsFor(lineIndex).length,
-            onStageLine: onStageLines == null
-                ? null
-                : () => onStageLines!(_targetsFor(lineIndex)),
-            onStageHunk: onStageHunk,
-            onDiscardLine: onDiscardLines == null
-                ? null
-                : () => onDiscardLines!(_targetsFor(lineIndex)),
-          ),
+        for (final DiffLine line in hunk.lines)
+          DiffLineView(line: line, staged: staged),
       ],
     );
   }

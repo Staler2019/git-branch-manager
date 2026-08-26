@@ -1,0 +1,285 @@
+import '../../data/models/parsed_diff.dart';
+
+/// How many unchanged lines may sit between two changed lines before they
+/// stop being "one change".
+///
+/// Two is a judgement, not a spec number: a blank line plus a closing brace
+/// is the commonest thing to find wedged between two edits to the same
+/// thought, and splitting there would make the user press two buttons for
+/// one intention. Three is where the second change starts reading as its own
+/// paragraph.
+const int kDefaultScopeGap = 2;
+
+/// One directly actionable block of a hunk: the lines a single
+/// Stage/Unstage press moves, plus whatever unchanged lines the gap rule
+/// swallowed so the block still reads as continuous code.
+///
+/// [lineIndices] is a contiguous run from the first changed line to the last,
+/// which is what gets drawn as one card. [changedLineIndices] is the subset
+/// that actually moves -- the only thing `gbm_stage_lines` may be handed, and
+/// the number the button writes out.
+class DiffScope {
+  const DiffScope({
+    required this.lineIndices,
+    required this.changedLineIndices,
+    required this.addedCount,
+    required this.removedCount,
+  });
+
+  /// Every line index in the block, in order, including the unchanged lines
+  /// the gap rule merged in. Indices are into the hunk's own `lines` array.
+  final List<int> lineIndices;
+
+  /// The added/removed line indices only, in order.
+  final List<int> changedLineIndices;
+
+  final int addedCount;
+  final int removedCount;
+}
+
+/// Splits one hunk into the blocks the diff pane draws as cards.
+///
+/// Two changed lines join one scope when at most [maxGap] unchanged lines
+/// separate them. Leading and trailing context stays outside every scope: it
+/// is what the change sits *in*, not part of it.
+///
+/// A hunk with no changed line at all yields no scopes rather than one empty
+/// one, so a caller can render "nothing to stage here" without a special
+/// case.
+List<DiffScope> splitHunkIntoScopes(
+  DiffHunk hunk, {
+  int maxGap = kDefaultScopeGap,
+}) {
+  final List<int> changed = <int>[
+    for (int i = 0; i < hunk.lines.length; i++)
+      if (_isChanged(hunk.lines[i].kind)) i,
+  ];
+  if (changed.isEmpty) return const <DiffScope>[];
+
+  final List<DiffScope> scopes = <DiffScope>[];
+  List<int> group = <int>[changed.first];
+
+  void close() {
+    scopes.add(_scopeFrom(hunk, group));
+  }
+
+  for (final int index in changed.skip(1)) {
+    // The unchanged lines strictly between this change and the previous one.
+    final int gap = index - group.last - 1;
+    if (gap <= maxGap) {
+      group.add(index);
+    } else {
+      close();
+      group = <int>[index];
+    }
+  }
+  close();
+
+  return List<DiffScope>.unmodifiable(scopes);
+}
+
+/// Every scope of every hunk in [file], keyed by hunk index.
+///
+/// Keyed rather than flattened because **a scope may never cross a hunk**:
+/// `gbm_stage_lines` takes one hunk index and line indices within it, so two
+/// changes that look adjacent on screen across a hunk boundary are still two
+/// separate patches. A flat list would lose the one piece of information the
+/// call needs.
+///
+/// A binary file has no hunks and so returns an empty map.
+Map<int, List<DiffScope>> splitDiffFileIntoScopes(
+  DiffFile file, {
+  int maxGap = kDefaultScopeGap,
+}) {
+  if (file.binary) return const <int, List<DiffScope>>{};
+  return <int, List<DiffScope>>{
+    for (int hunkIndex = 0; hunkIndex < file.hunks.length; hunkIndex++)
+      hunkIndex: splitHunkIntoScopes(file.hunks[hunkIndex], maxGap: maxGap),
+  };
+}
+
+/// The signature [DiffScopeCache] splits with, so a test can hand it a
+/// counting stand-in. [splitDiffFileIntoScopes] is the only production value.
+typedef DiffFileScopeSplitter =
+    Map<int, List<DiffScope>> Function(DiffFile file, {int maxGap});
+
+/// Remembers the scope split of the [DiffFile] it was last asked about.
+///
+/// The diff pane re-splits on every build, and it builds far more often than
+/// the diff changes: dragging a text selection rebuilds it once per frame, and
+/// every one of those frames re-walked every line of every hunk of the file to
+/// arrive at exactly the answer it already had.
+///
+/// **Key: the [DiffFile] object's identity, plus [maxGap].** Identity is the
+/// honest key here precisely because these are immutable DTOs parsed fresh out
+/// of each `workingCopyDiffReady` payload -- nothing edits a [DiffFile] in
+/// place, so the same instance cannot have different content, and different
+/// content cannot arrive on the same instance. A structural key (path + staged
+/// + a hash of the hunks) would cost more to compute than the split it saves.
+///
+/// **Invalidated by**: a new object arriving in `widget.file`. That happens on
+/// `workingCopyDiffReady` (the controller stores a new reply under that key),
+/// on `workingCopyStatusUpdated` (which clears `workingCopyDiffs` entirely, so
+/// the next reply is necessarily a new object), and on selecting a different
+/// file. There is nothing to unsubscribe from and nothing to clear by hand.
+///
+/// **Symptom if invalidation were missed**: the pane would keep drawing the
+/// cards of the previous diff over the current file's lines, and a card's
+/// Stage button would hand `gbm_stage_lines` a hunk index and line indices
+/// that now point at different lines -- so pressing "Stage 3 lines" would
+/// stage three other lines. That is the same failure
+/// `RepoSessionController._readWorkingCopyStatus()` records for the diff map
+/// itself, one layer up.
+class DiffScopeCache {
+  DiffScopeCache({DiffFileScopeSplitter? split})
+    : _split = split ?? splitDiffFileIntoScopes;
+
+  final DiffFileScopeSplitter _split;
+
+  DiffFile? _file;
+  int _maxGap = kDefaultScopeGap;
+  Map<int, List<DiffScope>> _scopes = const <int, List<DiffScope>>{};
+
+  /// The scopes of [file], split at most once per distinct [file] instance.
+  ///
+  /// A null [file] is the pane's "nothing selected" state and yields an empty
+  /// map without consulting the splitter.
+  Map<int, List<DiffScope>> scopesOf(
+    DiffFile? file, {
+    int maxGap = kDefaultScopeGap,
+  }) {
+    if (file == null) {
+      _file = null;
+      _scopes = const <int, List<DiffScope>>{};
+      return _scopes;
+    }
+    if (identical(file, _file) && maxGap == _maxGap) return _scopes;
+    _file = file;
+    _maxGap = maxGap;
+    _scopes = _split(file, maxGap: maxGap);
+    return _scopes;
+  }
+}
+
+/// Only added and removed lines move. Context passes through a rebuilt patch
+/// either way, and so does the no-newline marker (see
+/// `UnifiedDiffParser::buildLineSelectionPatch`) -- which is also why the
+/// marker must not be allowed to split a scope: it is not a change, but it
+/// is not a wall between changes either.
+bool _isChanged(DiffLineKind kind) =>
+    kind == DiffLineKind.added || kind == DiffLineKind.removed;
+
+DiffScope _scopeFrom(DiffHunk hunk, List<int> changedIndices) {
+  final int first = changedIndices.first;
+  final int last = changedIndices.last;
+  int added = 0;
+  int removed = 0;
+  for (final int index in changedIndices) {
+    if (hunk.lines[index].kind == DiffLineKind.added) {
+      added++;
+    } else {
+      removed++;
+    }
+  }
+  return DiffScope(
+    lineIndices: List<int>.unmodifiable(<int>[
+      for (int i = first; i <= last; i++) i,
+    ]),
+    changedLineIndices: List<int>.unmodifiable(changedIndices),
+    addedCount: added,
+    removedCount: removed,
+  );
+}
+
+/// One drawable block of a hunk: either a run of context lines that no scope
+/// claimed, or a scope.
+///
+/// Rendering reads this list straight through, so the "which lines are in a
+/// card and which are the code around it" decision stays in one pure place
+/// instead of being re-derived by a widget's build method.
+sealed class DiffSegment {
+  const DiffSegment();
+
+  /// The hunk-line indices this segment draws, in order.
+  List<int> get lineIndices;
+}
+
+/// Context lines outside every scope -- the code a change sits in.
+final class DiffGapSegment extends DiffSegment {
+  const DiffGapSegment(this.lineIndices);
+
+  @override
+  final List<int> lineIndices;
+}
+
+/// A scope, plus its 1-based position among the scopes of the same side, so
+/// the card can be labelled 「變更 2」 without the widget counting for itself.
+final class DiffScopeSegment extends DiffSegment {
+  const DiffScopeSegment({required this.scope, required this.ordinal});
+
+  final DiffScope scope;
+  final int ordinal;
+
+  @override
+  List<int> get lineIndices => scope.lineIndices;
+}
+
+/// Interleaves [scopes] with the context runs between them, covering every
+/// line of [hunk] exactly once and in order.
+///
+/// [firstOrdinal] is where this hunk's scope numbering continues from, so a
+/// file's cards read 變更 1, 2, 3… across hunk boundaries rather than
+/// restarting at every `@@`.
+List<DiffSegment> hunkSegments(
+  DiffHunk hunk,
+  List<DiffScope> scopes, {
+  int firstOrdinal = 1,
+}) {
+  final List<DiffSegment> segments = <DiffSegment>[];
+  int cursor = 0;
+  int ordinal = firstOrdinal;
+
+  void gapUpTo(int end) {
+    if (end <= cursor) return;
+    segments.add(
+      DiffGapSegment(
+        List<int>.unmodifiable(<int>[for (int i = cursor; i < end; i++) i]),
+      ),
+    );
+  }
+
+  for (final DiffScope scope in scopes) {
+    gapUpTo(scope.lineIndices.first);
+    segments.add(DiffScopeSegment(scope: scope, ordinal: ordinal++));
+    cursor = scope.lineIndices.last + 1;
+  }
+  gapUpTo(hunk.lines.length);
+
+  return List<DiffSegment>.unmodifiable(segments);
+}
+
+/// The text on a scope's Stage/Unstage button.
+///
+/// [spanned] is how many lines the block covers -- the card's own height, or
+/// how many rows a text selection touched. [changed] is how many of them
+/// actually move.
+///
+/// The two differ whenever the gap rule swallowed context into a card, or a
+/// drag crossed unchanged lines, and the primary number is the **spanned**
+/// one: that is what the user framed, and `gbm_stage_lines` lets context
+/// through whether or not it was included, so naming the smaller number
+/// first would make the button look like it is doing less than the block it
+/// sits on. The parenthetical exists to disclose the gap -- so when there is
+/// no gap it is dropped, because then it is only noise.
+///
+/// (User-ratified 2026-08-25 for the shape `Stage 3 lines (1 changed)`; the
+/// omit-when-equal half is an implementation judgement, not their verdict.)
+String scopeButtonLabel({
+  required bool staged,
+  required int spanned,
+  required int changed,
+}) {
+  final String verb = staged ? 'Unstage' : 'Stage';
+  final String base = '$verb $spanned line${spanned == 1 ? '' : 's'}';
+  return spanned == changed ? base : '$base ($changed changed)';
+}

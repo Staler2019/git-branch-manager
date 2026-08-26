@@ -21,6 +21,7 @@ class GbmButton extends StatelessWidget {
     this.kind = GbmButtonKind.secondary,
     this.size = GbmButtonSize.normal,
     this.icon,
+    this.lineThrough = false,
   });
 
   final String label;
@@ -28,6 +29,13 @@ class GbmButton extends StatelessWidget {
   final GbmButtonKind kind;
   final GbmButtonSize size;
   final Widget? icon;
+
+  /// Strikes the label through. Spec P03's 變體 B uses it on a scope card
+  /// whose button a live text selection has superseded: the button stays
+  /// visible so the user can see what it *would* have done, with
+  /// `onPressed: null` so it cannot fire -- struck-through-but-live is the
+  /// same trap as `GbmMenuItem.enabled: false` with a real `onTap`.
+  final bool lineThrough;
 
   @override
   Widget build(BuildContext context) {
@@ -115,6 +123,7 @@ class GbmButton extends StatelessWidget {
       style: TextStyle(
         fontSize: fontSize,
         fontWeight: GbmTypography.weightMedium,
+        decoration: lineThrough ? TextDecoration.lineThrough : null,
       ),
     );
 

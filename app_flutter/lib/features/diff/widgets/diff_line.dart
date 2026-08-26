@@ -15,26 +15,15 @@ class DiffLineView extends StatelessWidget {
   const DiffLineView({
     super.key,
     required this.line,
-    this.selectable = false,
-    this.selected = false,
-    this.onSelectedChanged,
     this.staged = false,
     this.onStageLine,
     this.onStageHunk,
     this.onDiscardLine,
     this.selectionCount = 1,
+    this.touched = false,
   });
 
   final DiffLine line;
-
-  /// Whether this line can be checked for line-level staging -- only added/
-  /// removed lines are ever selectable (context and no-newline-marker lines
-  /// always pass through a rebuilt patch regardless, see
-  /// UnifiedDiffParser::buildLineSelectionPatch's doc comment), so this is
-  /// false for those even when the caller passes true.
-  final bool selectable;
-  final bool selected;
-  final VoidCallback? onSelectedChanged;
 
   /// Whether this diff is in the staged section (true) or unstaged (false).
   /// Used to determine the label for the Stage/Unstage line menu item.
@@ -54,10 +43,21 @@ class DiffLineView extends StatelessWidget {
   final VoidCallback? onDiscardLine;
 
   /// How many lines the Stage/Discard items act on. 1 unless this row is
-  /// part of a multi-line checkbox selection, in which case the parent hunk
-  /// passes the whole selection's size so the labels read "Stage 12 lines"
-  /// / "Discard 12 lines…" per spec 05-G.
+  /// inside a scope or a temporary text selection, in which case the parent
+  /// passes that block's size so the labels read "Stage 12 lines" /
+  /// "Discard 12 lines…" per spec 05-G.
   final int selectionCount;
+
+  /// This row is inside the current one-shot scope.
+  ///
+  /// A drag gets its highlight free from [SelectionArea], which paints the
+  /// glyphs it covers. The other two inputs `SCOPES` names -- 「點 hunk 標頭
+  /// 列」 and 「Shift + ↑ ↓」 -- select no *text* at all, so without this the
+  /// user would be told what they had selected only by a count on a button.
+  /// Drawn for the drag too, deliberately: one selection, one appearance,
+  /// and a diff line's glyphs are far narrower than its row, so the native
+  /// highlight alone is easy to miss.
+  final bool touched;
 
   @override
   Widget build(BuildContext context) {
@@ -80,17 +80,19 @@ class DiffLineView extends StatelessWidget {
       DiffLineKind.context => 'unchanged',
     };
 
-    final bool showCheckbox =
-        selectable &&
-        onSelectedChanged != null &&
-        (line.kind == DiffLineKind.added || line.kind == DiffLineKind.removed);
-
     return GestureDetector(
       onSecondaryTapDown: (details) => _showContextMenu(context, details),
       child: Semantics(
         label: '$kindLabel line ${line.text}',
         child: Container(
           color: background,
+          // `foregroundDecoration`, not a blended background: these rows sit
+          // on two different backdrops (the well's surfaceSunken and a scope
+          // card's surfacePanel), and an overlay composites over whichever
+          // is actually there instead of having to know which.
+          foregroundDecoration: touched
+              ? BoxDecoration(color: colors.accent.withValues(alpha: 0.18))
+              : null,
           padding: const EdgeInsets.symmetric(
             horizontal: GbmSpacing.space3,
             vertical: 1,
@@ -98,22 +100,6 @@ class DiffLineView extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              SizedBox(
-                width: 18,
-                child: showCheckbox
-                    ? Semantics(
-                        label:
-                            '${selected ? 'Unselect' : 'Select'} line for partial staging',
-                        child: Checkbox(
-                          value: selected,
-                          onChanged: (_) => onSelectedChanged!(),
-                          visualDensity: VisualDensity.compact,
-                          materialTapTargetSize:
-                              MaterialTapTargetSize.shrinkWrap,
-                        ),
-                      )
-                    : null,
-              ),
               SizedBox(
                 width: 36,
                 child: _lineNumberText(line.oldLine, colors.textTertiary),

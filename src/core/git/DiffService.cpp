@@ -495,7 +495,15 @@ GitResult<DiffService::ParsedDiffPtr> DiffService::workingTreeDiff(
 
     // Deliberately uncached: the work tree changes under us, and the only honest
     // cache key would have to include every file's mtime and size.
-    std::vector<std::string> args{"diff"};
+    // Same shape as WorkingCopyStatus.cpp's unstaged --numstat pass, and it
+    // runs on the same background pool: when `staged` is false this compares
+    // the work tree against the index, so it carries the same flags for the
+    // same measured reason (GitCommand::worktreeReadFlags()).
+    std::vector<std::string> args;
+    if (!staged) {
+        args = GitCommand::worktreeReadFlags();
+    }
+    args.emplace_back("diff");
     if (staged) {
         args.emplace_back("--cached");
     }

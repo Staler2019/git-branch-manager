@@ -463,7 +463,7 @@ void main() {
         tester,
         DiffLineView(
           line: _diffLine(),
-          selectable: true,
+
           staged: false,
           onStageLine: () {},
           onStageHunk: () {},

@@ -23,6 +23,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/features/sidebar/sidebar_panel.dart';
 
+import '../support/fake_repo_session.dart';
 import '../support/pump_workspace.dart';
 
 Future<void> _pressCtrl(
@@ -95,6 +96,37 @@ void main() {
             'Ctrl+P should reach pushChanges() the same way clicking '
             'Repository > Push does.',
       );
+    });
+
+    // Refresh had no keyboard binding and no menu item at all until this
+    // round: TopBar's button was its only affordance in the whole window, and
+    // deleting TopBar would have removed the feature rather than moving it.
+    // Asserted here rather than in a widget test because the point is that the
+    // *real* dispatch path reaches the controller -- a widget test feeding a
+    // handler map directly cannot tell a wired id from an unwired one.
+    testWidgets('F5 (Refresh) reaches RepoSessionController.refreshHistory', (
+      WidgetTester tester,
+    ) async {
+      final PumpedWorkspace pumped = await pumpWorkspace(
+        tester,
+        identity: identity,
+      );
+      // Counted as a delta, not from zero: opening a session refreshes on its
+      // own, so `== 1` from zero would be asserting something else. And
+      // counted rather than `.any(...)`, which cannot see a double dispatch --
+      // the regression shape this file already exists for.
+      final int before = pumped.controller.commandLog
+          .where((FakeCommand c) => c.name == 'refreshHistory')
+          .length;
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.f5);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.f5);
+      await tester.pumpAndSettle();
+
+      final int after = pumped.controller.commandLog
+          .where((FakeCommand c) => c.name == 'refreshHistory')
+          .length;
+      expect(after - before, 1);
     });
 
     testWidgets('Ctrl+B (Toggle sidebar) actually hides SidebarPanel', (

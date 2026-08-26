@@ -8,6 +8,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/features/working_copy/widgets/commit_message_box.dart';
+import 'package:gbm_flutter/features/working_copy/widgets/working_copy_board.dart';
 import 'package:gbm_flutter/widgets/gbm_button.dart';
 import 'package:integration_test/integration_test.dart';
 
@@ -50,9 +51,42 @@ void main() {
       await tester.enterText(summaryField, 'E2E commit');
       await tester.pump();
 
-      // Stage the file via its row checkbox.
-      await tester.tap(find.byType(Checkbox).first);
+      // Stage the file by dragging its row into the Staged column. There
+      // is no checkbox to tap any more -- spec P03 變體 B removed every one
+      // of them and made the drag the only way a file changes side, and
+      // this test still tapped `find.byType(Checkbox).first` afterwards.
+      // Nothing caught it: the device tier runs in no CI job and is not
+      // part of `flutter test`.
+      final Finder unstagedRow = find.descendant(
+        of: find.byType(WorkingCopyBoard),
+        matching: find.text('README.md'),
+      );
+      final Rect board = tester.getRect(find.byType(WorkingCopyBoard));
+      final Offset from = tester.getCenter(unstagedRow);
+      // A quarter in from the board's right edge: inside the Staged
+      // column's DragTarget, and clear of the column header above it.
+      final Offset to = Offset(board.right - board.width * 0.25, from.dy);
+
+      final TestGesture drag = await tester.startGesture(from);
+      // Past kTouchSlop in two steps: a single moveTo can be consumed as
+      // the drag's own start and leave the Draggable never picked up.
+      await tester.pump(const Duration(milliseconds: 50));
+      await drag.moveTo(Offset(from.dx + 40, from.dy));
+      await tester.pump();
+      await drag.moveTo(to);
+      await tester.pump();
+      await drag.up();
       await tester.pumpAndSettle(const Duration(seconds: 1));
+
+      // The column headers carry their own counts, so this says "the file
+      // really crossed" without depending on the row key, which gains a
+      // `-selected` suffix while the row is selected.
+      expect(
+        find.text('Staged \u00b7 1'),
+        findsOneWidget,
+        reason: 'the drag moved the row into the Staged column',
+      );
+      expect(find.text('Unstaged \u00b7 0'), findsOneWidget);
 
       final Finder commitButton = find.widgetWithText(GbmButton, 'Commit');
       expect(commitButton, findsOneWidget);

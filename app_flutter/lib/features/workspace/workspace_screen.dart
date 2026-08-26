@@ -7,6 +7,9 @@ import 'package:go_router/go_router.dart';
 
 import '../../actions/gbm_action_availability.dart';
 import '../../actions/gbm_action_id.dart';
+import '../../data/repositories/working_copy_draft_repository.dart';
+import '../../data/repositories/working_copy_repository.dart' as wc;
+import '../diff/temporary_scope_provider.dart';
 import '../../actions/gbm_menu_model.dart';
 import '../../actions/gbm_selection_gesture.dart';
 import '../../actions/gbm_sequencer_operation.dart';
@@ -44,7 +47,6 @@ import 'widgets/action_toolbar.dart';
 import 'widgets/menu_bar_row.dart';
 import 'widgets/platform_menu_bar_host.dart';
 import 'widgets/tab_row.dart';
-import 'widgets/top_bar.dart';
 import 'widgets/workspace_action_shortcuts.dart';
 import 'widgets/workspace_tab.dart';
 
@@ -322,6 +324,35 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       session,
     );
 
+    // Spec P02-13 / P03-9: the tab row belongs at the top of the *centre
+    // column*, not spanning the window above the sidebar. Both pages' prose
+    // says 「中央區最上方」 and both mockups draw `gbm-tabs` inside the
+    // `mkpane flex:1` that sits to the right of the sidebar. It used to be a
+    // child of the outer Column, which put it over the sidebar too.
+    //
+    // Built here rather than inline so the two layout branches below (sidebar
+    // shown / hidden) carry the same instance instead of two copies that can
+    // drift apart.
+    final TabRow tabRow = TabRow(
+      repoId: repoId,
+      pendingChangeCount: session.workingCopyStatus.entries.length,
+      compareTabs: ref.watch(compareTabsProvider(identity)),
+      onCloseCompareTab: (String tabId) =>
+          _closeCompareTab(context, ref, identity, repoId, tabId),
+      panelTabs: ref.watch(panelTabsProvider(identity)),
+      onClosePanelTab: (String tabId) =>
+          _closePanelTab(context, ref, identity, repoId, tabId),
+      // Sourced from isActionEnabled(), not session.conflictActive
+      // directly -- single source of truth, same pattern as
+      // BranchTreeItem/CommitGraphView. Cherry-pick/Reset have no
+      // GbmActionId of their own yet, so they share Merge's gate --
+      // see TabRow.conflictActive's doc comment.
+      conflictActive: !isActionEnabled(
+        GbmActionId.branchMergeIntoCurrent,
+        session,
+      ),
+    );
+
     // Track whether log has unread entries (newest entry > lastSeen index)
     final bool hasUnreadLog =
         session.operationLog.isNotEmpty &&
@@ -379,32 +410,6 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
             onBranch: actionHandlers[GbmActionId.branchNewBranch],
             onStash: actionHandlers[GbmActionId.branchStashChanges],
           ),
-          TopBar(
-            repoName: _displayName(identity.workDir),
-            repoState: session.repoState,
-            isRefreshing: session.isRefreshing,
-            onRefresh: () => refreshRepoHistory(ref, identity),
-            onBack: () => context.go(RoutePaths.welcome),
-          ),
-          TabRow(
-            repoId: repoId,
-            pendingChangeCount: session.workingCopyStatus.entries.length,
-            compareTabs: ref.watch(compareTabsProvider(identity)),
-            onCloseCompareTab: (String tabId) =>
-                _closeCompareTab(context, ref, identity, repoId, tabId),
-            panelTabs: ref.watch(panelTabsProvider(identity)),
-            onClosePanelTab: (String tabId) =>
-                _closePanelTab(context, ref, identity, repoId, tabId),
-            // Sourced from isActionEnabled(), not session.conflictActive
-            // directly -- single source of truth, same pattern as
-            // BranchTreeItem/CommitGraphView. Cherry-pick/Reset have no
-            // GbmActionId of their own yet, so they share Merge's gate --
-            // see TabRow.conflictActive's doc comment.
-            conflictActive: !isActionEnabled(
-              GbmActionId.branchMergeIntoCurrent,
-              session,
-            ),
-          ),
           if (session.conflictActive)
             ConflictBanner(
               repoId: repoId,
@@ -454,7 +459,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
                         filterFocusNode: _branchFilterFocusNode,
                         switcherController: _switcherController,
                       ),
-                      widget.child,
+                      _centreColumn(tabRow),
                     ],
                   )
                 else
@@ -464,8 +469,9 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
                   // second Expanded directly around it throws Flutter's
                   // "Incorrect use of ParentDataWidget" error, since two
                   // ParentDataWidgets of the same type can't stack without
-                  // an intervening Flex.
-                  widget.child,
+                  // an intervening Flex. _centreColumn's own Expanded is a
+                  // child of its own Column, so it is not a second one here.
+                  _centreColumn(tabRow),
               ],
             ),
           ),
@@ -546,12 +552,24 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     );
   }
 
-  String _displayName(String workDir) {
-    final List<String> segments = workDir
-        .split(RegExp(r'[\\/]'))
-        .where((s) => s.isNotEmpty)
-        .toList();
-    return segments.isEmpty ? workDir : segments.last;
+  /// The centre column: the tab row pinned above whatever route is showing.
+  ///
+  /// Spec P02-13 / P03-9 put the tabs at the top of this column rather than
+  /// across the whole window, so the sidebar sits *beside* the tab row, not
+  /// under it. Callers hand in one shared TabRow instance; see where it is
+  /// built in build().
+  ///
+  /// `Expanded` around the route is what gives the route a bounded height
+  /// inside this Column. It is safe here for the reason the call sites' own
+  /// comment gives: it is a child of this Column, not a second Expanded
+  /// stacked on the enclosing GbmSplitPane's internal one.
+  Widget _centreColumn(TabRow tabRow) {
+    return Column(
+      children: <Widget>[
+        tabRow,
+        Expanded(child: widget.child),
+      ],
+    );
   }
 
   /// The [RefInfo] HEAD currently points to, or null if detached/unknown --
@@ -732,6 +750,21 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       // No state-dependent gate (see gbm_action_availability.dart) --
       // always a real callback, read back out for MenuBarRow's own
       // onToggleSidebar param (see the build() call site).
+      // TopBar used to be the only way to reach this. Wired into the handler
+      // map (not into a widget's own callback) so all three dispatch paths --
+      // keyboard F5, the in-window View menu, and the macOS system menu --
+      // reach it; see this method's doc comment for the bug that rule exists
+      // to prevent.
+      GbmActionId.viewRefresh: () => refreshRepoHistory(ref, identity),
+      // Null until a text selection makes a one-shot scope, which is what
+      // "the selected lines" means since every scope card grew its own
+      // button (a shortcut cannot say which card it meant). The diff column
+      // registers its submitter in [temporaryScopeSubmitProvider]; null
+      // there is what greys the menu item out instead of letting the
+      // shortcut silently no-op.
+      GbmActionId.repositoryStageSelectedLines: ref.watch(
+        temporaryScopeSubmitProvider,
+      ),
       GbmActionId.viewToggleSidebar: () =>
           setState(() => _sidebarVisible = !_sidebarVisible),
       GbmActionId.viewStatusBar: () =>
@@ -779,20 +812,29 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
           : null,
       GbmActionId.repositoryCompare: () =>
           _openCompareTab(context, ref, identity, repoId, session),
-      // Commit/Amend/Stage-all all act on the Working Copy view, so they
-      // navigate there first -- firing Ctrl/Cmd+Enter from History would
-      // otherwise commit a draft the user cannot see. Commit/Amend are
-      // disabled mid-conflict (spec page 07: "Commit：停用，直到全部標記
-      // resolved 才由 Continue 代為 commit"), matching the Commit button in
-      // that view; Stage-all is disabled independently, while nothing is
-      // unstaged (see gbm_action_availability.dart).
+      // Commit/Amend act on the Working Copy view. **On that view they now
+      // really submit**; from anywhere else they navigate there first,
+      // because the draft they would commit is one the user cannot see --
+      // Ctrl/Cmd+Enter from History used to commit it sight unseen, and
+      // navigating instead of committing was the fix. Once the box is on
+      // screen that reason has expired, so the same keystroke finishes the
+      // job rather than going somewhere the user already is.
+      //
+      // Submitting goes through `wc.submitCommit`, the same function the
+      // box's own buttons call, reading the draft out of its provider --
+      // there is no second copy of "how a commit is made" to drift.
+      //
+      // Commit/Amend are disabled mid-conflict (spec page 07: "Commit：停用，
+      // 直到全部標記 resolved 才由 Continue 代為 commit"), matching the
+      // Commit button in that view; Stage-all is disabled independently,
+      // while nothing is unstaged (see gbm_action_availability.dart).
       GbmActionId.repositoryCommit:
           isActionEnabled(GbmActionId.repositoryCommit, session)
-          ? () => context.go(RoutePaths.workingCopyFor(repoId))
+          ? () => _commitOrGoToWorkingCopy(context, ref, identity, repoId)
           : null,
       GbmActionId.repositoryAmendLastCommit:
           isActionEnabled(GbmActionId.repositoryAmendLastCommit, session)
-          ? () => context.go(RoutePaths.workingCopyFor(repoId))
+          ? () => _amendOrGoToWorkingCopy(context, ref, identity, repoId)
           : null,
       GbmActionId.repositoryStageAll:
           isActionEnabled(GbmActionId.repositoryStageAll, session)
@@ -1279,6 +1321,68 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   }
 }
 
+/// Navigates to the Working Copy when it is not the current route, and
+/// reports whether it did.
+///
+/// The split it enables is the whole point of the two callers below: a
+/// commit is only safe to run blind once the user can see what they are
+/// about to commit.
+bool _goToWorkingCopyIfElsewhere(BuildContext context, String repoId) {
+  final String workingCopy = RoutePaths.workingCopyFor(repoId);
+  if (GoRouterState.of(context).uri.path == Uri.parse(workingCopy).path) {
+    return false;
+  }
+  context.go(workingCopy);
+  return true;
+}
+
+/// `Ctrl/Cmd+Enter` and Repository -> Commit.
+///
+/// **Reads `amending` rather than hardcoding `amend: false`**: amend is a
+/// mode (spec P03's 修訂模式), so while it is on, the box's primary button
+/// says `Amend` and this shortcut has to do the same thing. Hardcoding it
+/// would make the keyboard commit a *second* commit carrying HEAD's
+/// backfilled message while the button in front of the user said otherwise
+/// -- the three-dispatch-path divergence CLAUDE.md's Intent/Action section
+/// exists to prevent, arrived at through the draft instead of the map.
+///
+/// An empty message no-ops deliberately: [wc.submitCommit] returns false and
+/// the Commit button beside the box is greyed for the same reason, so the
+/// user is already looking at the explanation. The menu item is *not* gated
+/// on the draft, because off this route it means "go to the message box" --
+/// greying that would hide the box behind the emptiness it is there to fix.
+void _commitOrGoToWorkingCopy(
+  BuildContext context,
+  WidgetRef ref,
+  RepoIdentity identity,
+  String repoId,
+) {
+  if (_goToWorkingCopyIfElsewhere(context, repoId)) return;
+  final bool amending = ref.read(workingCopyDraftProvider(identity)).amending;
+  wc.submitCommit(ref, identity, amend: amending);
+}
+
+/// Repository -> Amend last commit.
+///
+/// Outside the mode this *enters* it (snapshot the draft, ask for HEAD's
+/// message) rather than rewriting HEAD sight-unseen; inside it, it submits,
+/// same as the box's button. Rewriting published history is exactly the
+/// operation that should never happen without the user having read what
+/// they are replacing.
+void _amendOrGoToWorkingCopy(
+  BuildContext context,
+  WidgetRef ref,
+  RepoIdentity identity,
+  String repoId,
+) {
+  if (_goToWorkingCopyIfElsewhere(context, repoId)) return;
+  if (ref.read(workingCopyDraftProvider(identity)).amending) {
+    wc.submitCommit(ref, identity, amend: true);
+    return;
+  }
+  wc.beginAmendMode(ref, identity);
+}
+
 /// Resolves the `:repoId` route segment for `identity` -- the inverse of
 /// `repoIdentityFromRouteParam` in routing/app_router.dart. Kept here
 /// (rather than importing app_router.dart, which would create a routing ->
@@ -1359,94 +1463,120 @@ class ConflictBanner extends StatelessWidget {
         color: colors.diffDelBg,
         border: Border(bottom: BorderSide(color: colors.borderSubtle)),
       ),
-      child: Row(
+      // A Wrap, not a Row. The four controls are non-flex children, and
+      // RenderFlex lays non-flex children out *first* -- so the Expanded the
+      // status text used to sit in could never rescue an overflow the
+      // controls caused, and at 440px the row overflowed by 27px. The ruling
+      // was to wrap rather than shrink the controls: the text takes one run
+      // and the controls take the next, and at any ordinary window width
+      // they still share one run with the controls on the trailing edge.
+      //
+      // Same shape as `scoped_diff_view.dart`'s scope-card head, which
+      // solved the same problem: spaceBetween puts the two ends apart on one
+      // run and left-aligns a lone run, and the controls keep their own
+      // `Row(mainAxisSize: min)` so they never split across runs
+      // individually.
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: GbmSpacing.space2,
+        runSpacing: GbmSpacing.space1,
         children: <Widget>[
           if (statusText.isNotEmpty)
-            Expanded(
-              child: Text(
-                statusText,
-                style: TextStyle(
-                  fontSize: GbmTypography.textSm,
-                  color: colors.diffDelText,
-                ),
+            Text(
+              statusText,
+              style: TextStyle(
+                fontSize: GbmTypography.textSm,
+                color: colors.diffDelText,
               ),
             ),
-          // Abort button
-          if (kind != null)
-            Tooltip(
-              message: kind.canAbort
-                  ? ''
-                  : 'Revert has no abort (use Resolve…)',
-              child: TextButton(
-                onPressed: kind.canAbort ? onAbort : null,
-                child: Text(
-                  'Abort',
-                  style: TextStyle(
-                    fontSize: GbmTypography.textSm,
-                    color: colors.diffDelText,
-                    fontWeight: GbmTypography.weightSemibold,
+          // The controls wrap among themselves too, not just away from the
+          // status text. At 440px the four of them are wider than the
+          // banner's content box on their own, so moving them to their own
+          // run does not by itself stop the overflow -- and a control that
+          // has overflowed off the right edge is a control the user cannot
+          // reach. Wrapping here means the banner cannot overflow at any
+          // width; it only gets taller.
+          Wrap(
+            spacing: GbmSpacing.space2,
+            runSpacing: GbmSpacing.space1,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: <Widget>[
+              // Abort button
+              if (kind != null)
+                Tooltip(
+                  message: kind.canAbort
+                      ? ''
+                      : 'Revert has no abort (use Resolve…)',
+                  child: TextButton(
+                    onPressed: kind.canAbort ? onAbort : null,
+                    child: Text(
+                      'Abort',
+                      style: TextStyle(
+                        fontSize: GbmTypography.textSm,
+                        color: colors.diffDelText,
+                        fontWeight: GbmTypography.weightSemibold,
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
-          const SizedBox(width: GbmSpacing.space2),
-          // Skip button
-          if (kind != null)
-            Tooltip(
-              message: kind.canSkip
-                  ? ''
-                  : 'Skip not available for ${isRevert ? 'revert' : 'merge'}',
-              child: TextButton(
-                onPressed: kind.canSkip ? onSkip : null,
-                child: Text(
-                  'Skip',
-                  style: TextStyle(
-                    fontSize: GbmTypography.textSm,
-                    color: colors.diffDelText,
-                    fontWeight: GbmTypography.weightSemibold,
+              // Skip button
+              if (kind != null)
+                Tooltip(
+                  message: kind.canSkip
+                      ? ''
+                      : 'Skip not available for ${isRevert ? 'revert' : 'merge'}',
+                  child: TextButton(
+                    onPressed: kind.canSkip ? onSkip : null,
+                    child: Text(
+                      'Skip',
+                      style: TextStyle(
+                        fontSize: GbmTypography.textSm,
+                        color: colors.diffDelText,
+                        fontWeight: GbmTypography.weightSemibold,
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
-          const SizedBox(width: GbmSpacing.space2),
-          // Continue button
-          if (kind != null)
-            Tooltip(
-              message: kind.canContinue
-                  ? ''
-                  : 'Continue not available for '
-                        '${isRevert ? 'revert' : 'merge'} yet -- resolve via '
-                        'Resolve…',
-              child: TextButton(
-                onPressed: kind.canContinue ? onContinue : null,
-                child: Text(
-                  'Continue',
-                  style: TextStyle(
-                    fontSize: GbmTypography.textSm,
-                    color: colors.diffDelText,
-                    fontWeight: GbmTypography.weightSemibold,
+              // Continue button
+              if (kind != null)
+                Tooltip(
+                  message: kind.canContinue
+                      ? ''
+                      : 'Continue not available for '
+                            '${isRevert ? 'revert' : 'merge'} yet -- resolve via '
+                            'Resolve…',
+                  child: TextButton(
+                    onPressed: kind.canContinue ? onContinue : null,
+                    child: Text(
+                      'Continue',
+                      style: TextStyle(
+                        fontSize: GbmTypography.textSm,
+                        color: colors.diffDelText,
+                        fontWeight: GbmTypography.weightSemibold,
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
-          const SizedBox(width: GbmSpacing.space2),
-          // Resolve… button -- the actual route into ConflictResolveWindow's
-          // three-pane editor. Independent of [kind] so it's reachable
-          // during a real rebase/cherry-pick/merge/revert conflict, not
-          // just the git-apply --3way edge case that has no sequencer
-          // state; only Abort/Skip/Continue are sequencer-gated.
-          if (session.workingCopyStatus.conflicted.isNotEmpty)
-            TextButton(
-              onPressed: () => context.go(RoutePaths.conflictsFor(repoId)),
-              child: Text(
-                'Resolve…',
-                style: TextStyle(
-                  fontSize: GbmTypography.textSm,
-                  color: colors.diffDelText,
-                  fontWeight: GbmTypography.weightSemibold,
+              // Resolve… button -- the actual route into ConflictResolveWindow's
+              // three-pane editor. Independent of [kind] so it's reachable
+              // during a real rebase/cherry-pick/merge/revert conflict, not
+              // just the git-apply --3way edge case that has no sequencer
+              // state; only Abort/Skip/Continue are sequencer-gated.
+              if (session.workingCopyStatus.conflicted.isNotEmpty)
+                TextButton(
+                  onPressed: () => context.go(RoutePaths.conflictsFor(repoId)),
+                  child: Text(
+                    'Resolve…',
+                    style: TextStyle(
+                      fontSize: GbmTypography.textSm,
+                      color: colors.diffDelText,
+                      fontWeight: GbmTypography.weightSemibold,
+                    ),
+                  ),
                 ),
-              ),
-            ),
+            ],
+          ),
         ],
       ),
     );

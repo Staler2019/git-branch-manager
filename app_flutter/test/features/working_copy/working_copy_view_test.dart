@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/widgets/gbm_button.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart'
-    show RepoSessionState, repoSessionProvider;
+    show RepoSessionState, WorkingCopyDiffReply, repoSessionProvider;
 import 'package:gbm_flutter/data/repositories/working_copy_draft_repository.dart'
     show workingCopyDraftProvider;
 import 'package:gbm_flutter/data/repositories/working_copy_repository.dart'
@@ -29,6 +30,10 @@ void main() {
       indexStatus: FileChangeKind.modified,
       hasUnstagedChange: true,
       worktreeStatus: FileChangeKind.modified,
+      unstagedAdded: 0,
+      unstagedRemoved: 0,
+      stagedAdded: 0,
+      stagedRemoved: 0,
       conflict: ConflictKind.none,
       ancestorBlob: '',
       oursBlob: '',
@@ -46,6 +51,10 @@ void main() {
       indexStatus: FileChangeKind.modified,
       hasUnstagedChange: false,
       worktreeStatus: FileChangeKind.modified,
+      unstagedAdded: 0,
+      unstagedRemoved: 0,
+      stagedAdded: 0,
+      stagedRemoved: 0,
       conflict: ConflictKind.none,
       ancestorBlob: '',
       oursBlob: '',
@@ -75,13 +84,15 @@ void main() {
               .overrideWithValue(
                 WorkingCopyStatus(entries: [stagedEntry, unstagedEntry]),
               ),
-          wc.repoLastDiffProvider(identity).overrideWithValue(null),
+          wc
+              .repoWorkingCopyDiffsProvider(identity)
+              .overrideWithValue(const <String, WorkingCopyDiffReply>{}),
         ],
       );
 
       // Check that board renders
-      expect(find.text('UNSTAGED'), findsOneWidget);
-      expect(find.text('STAGED'), findsOneWidget);
+      expect(find.textContaining('Unstaged \u00b7'), findsOneWidget);
+      expect(find.textContaining('Staged \u00b7'), findsOneWidget);
       expect(find.text('lib/main.dart'), findsOneWidget);
       expect(find.text('pubspec.yaml'), findsOneWidget);
     });
@@ -97,6 +108,10 @@ void main() {
         indexStatus: FileChangeKind.modified,
         hasUnstagedChange: false,
         worktreeStatus: FileChangeKind.modified,
+        unstagedAdded: 0,
+        unstagedRemoved: 0,
+        stagedAdded: 0,
+        stagedRemoved: 0,
         conflict: ConflictKind.bothModified,
         ancestorBlob: '',
         oursBlob: '',
@@ -121,7 +136,9 @@ void main() {
           wc
               .repoWorkingCopyStatusProvider(identity)
               .overrideWithValue(WorkingCopyStatus(entries: [conflictedEntry])),
-          wc.repoLastDiffProvider(identity).overrideWithValue(null),
+          wc
+              .repoWorkingCopyDiffsProvider(identity)
+              .overrideWithValue(const <String, WorkingCopyDiffReply>{}),
         ],
       );
 
@@ -133,6 +150,95 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.text('CONFLICTED'), findsOneWidget);
       expect(find.text('lib/conflicted.dart'), findsOneWidget);
+
+      // The three actions are design-system buttons, not a private
+      // hand-rolled one. The row used a local `_MiniButton` whose bare
+      // InkWell carried no hoverColor at all -- so the only three buttons in
+      // the conflict banner were also the only three in the app with no
+      // hover, while duplicating GbmButton(secondary, sm)'s border, text
+      // size and padding by hand.
+      for (final String label in const <String>[
+        'Take Ours',
+        'Take Theirs',
+        'Mark Resolved',
+      ]) {
+        final Finder button = find.ancestor(
+          of: find.text(label),
+          matching: find.byType(GbmButton),
+        );
+        expect(button, findsOneWidget, reason: '$label must be a GbmButton');
+        expect(tester.widget<GbmButton>(button).size, GbmButtonSize.sm);
+        expect(tester.widget<GbmButton>(button).kind, GbmButtonKind.secondary);
+      }
+    });
+
+    // Measured, not guessed: the banner's three buttons are non-flex, so the
+    // Expanded path beside them cannot rescue an overflow they cause (the
+    // RenderFlex rule this repo has hit six times). The three fit down to
+    // 500px and start overflowing at ~440. 500 is far below any width the
+    // Working Copy pane can actually be given -- the point of pinning it is
+    // that a wider button, or a fourth one, has to be a deliberate decision
+    // rather than a silent overflow at the app's own default window size.
+    //
+    // The overflow below 440 predates this test and is not fixed here: the
+    // hand-rolled buttons it replaced overflowed by 17px at 440 where these
+    // overflow by 6.3, so the round narrowed it. Making it disappear needs a
+    // design answer (icons? an overflow menu?), not a layout tweak.
+    testWidgets('the conflict banner still fits at 500px wide', (tester) async {
+      const WorkingCopyEntry conflicted = WorkingCopyEntry(
+        path: 'lib/conflicted.dart',
+        oldPath: '',
+        untracked: false,
+        staged: false,
+        indexStatus: FileChangeKind.modified,
+        hasUnstagedChange: false,
+        worktreeStatus: FileChangeKind.modified,
+        unstagedAdded: 0,
+        unstagedRemoved: 0,
+        stagedAdded: 0,
+        stagedRemoved: 0,
+        conflict: ConflictKind.bothModified,
+        ancestorBlob: '',
+        oursBlob: '',
+        theirsBlob: '',
+        similarity: 0,
+        isSubmodule: false,
+        isConflicted: true,
+      );
+
+      await pumpGbmWidget(
+        tester,
+        child: SizedBox(
+          width: 500,
+          height: 600,
+          child: WorkingCopyView(identity: identity),
+        ),
+        overrides: [
+          repoSessionProvider(identity).overrideWith(
+            (ref) =>
+                FakeRepoSessionController(identity, const RepoSessionState()),
+          ),
+          wc
+              .repoWorkingCopyStatusProvider(identity)
+              .overrideWithValue(
+                const WorkingCopyStatus(entries: [conflicted]),
+              ),
+          wc
+              .repoWorkingCopyDiffsProvider(identity)
+              .overrideWithValue(const <String, WorkingCopyDiffReply>{}),
+        ],
+      );
+
+      expect(tester.takeException(), isNull);
+      // Visibility, not just absence of exception: an Expanded satisfies
+      // "no overflow" while collapsing its child to nothing.
+      for (final String label in const <String>[
+        'Take Ours',
+        'Take Theirs',
+        'Mark Resolved',
+      ]) {
+        expect(tester.getSize(find.text(label)).width, greaterThan(0));
+      }
     });
 
     testWidgets('commit message box is visible', (tester) async {
@@ -151,14 +257,16 @@ void main() {
           wc
               .repoWorkingCopyStatusProvider(identity)
               .overrideWithValue(WorkingCopyStatus(entries: [stagedEntry])),
-          wc.repoLastDiffProvider(identity).overrideWithValue(null),
+          wc
+              .repoWorkingCopyDiffsProvider(identity)
+              .overrideWithValue(const <String, WorkingCopyDiffReply>{}),
         ],
       );
 
       // Check for commit box elements
       expect(find.text('Commit summary'), findsOneWidget);
       expect(find.text('Commit'), findsOneWidget);
-      expect(find.text('Amend'), findsOneWidget);
+      expect(find.text('Amend\u2026'), findsOneWidget);
     });
 
     testWidgets('shows empty state when no changes', (tester) async {
@@ -177,7 +285,9 @@ void main() {
           wc
               .repoWorkingCopyStatusProvider(identity)
               .overrideWithValue(WorkingCopyStatus(entries: [])),
-          wc.repoLastDiffProvider(identity).overrideWithValue(null),
+          wc
+              .repoWorkingCopyDiffsProvider(identity)
+              .overrideWithValue(const <String, WorkingCopyDiffReply>{}),
         ],
       );
 
@@ -195,6 +305,10 @@ void main() {
         indexStatus: FileChangeKind.added,
         hasUnstagedChange: false,
         worktreeStatus: FileChangeKind.added,
+        unstagedAdded: 0,
+        unstagedRemoved: 0,
+        stagedAdded: 0,
+        stagedRemoved: 0,
         conflict: ConflictKind.none,
         ancestorBlob: '',
         oursBlob: '',
@@ -221,7 +335,9 @@ void main() {
               .overrideWithValue(
                 WorkingCopyStatus(entries: [unstagedEntry, untrackedEntry]),
               ),
-          wc.repoLastDiffProvider(identity).overrideWithValue(null),
+          wc
+              .repoWorkingCopyDiffsProvider(identity)
+              .overrideWithValue(const <String, WorkingCopyDiffReply>{}),
         ],
       );
 
@@ -247,7 +363,9 @@ void main() {
           wc
               .repoWorkingCopyStatusProvider(identity)
               .overrideWithValue(WorkingCopyStatus(entries: [stagedEntry])),
-          wc.repoLastDiffProvider(identity).overrideWithValue(null),
+          wc
+              .repoWorkingCopyDiffsProvider(identity)
+              .overrideWithValue(const <String, WorkingCopyDiffReply>{}),
         ],
       );
 
@@ -294,6 +412,100 @@ void main() {
 
       expect(find.text('my summary'), findsOneWidget);
       expect(find.text('my description'), findsOneWidget);
+    });
+
+    testWidgets('selecting a file asks for both sides, each under its own '
+        'path', (tester) async {
+      // A staged rename plus the old name back in the work tree: the two
+      // sides of one logical file are not the same string, so a single
+      // request under "the path that was clicked" would leave one pane
+      // permanently empty.
+      const WorkingCopyEntry stagedRename = WorkingCopyEntry(
+        path: 'lib/new.dart',
+        oldPath: 'lib/old.dart',
+        untracked: false,
+        staged: true,
+        indexStatus: FileChangeKind.renamed,
+        hasUnstagedChange: false,
+        worktreeStatus: FileChangeKind.modified,
+        unstagedAdded: 0,
+        unstagedRemoved: 0,
+        stagedAdded: 0,
+        stagedRemoved: 0,
+        conflict: ConflictKind.none,
+        ancestorBlob: '',
+        oursBlob: '',
+        theirsBlob: '',
+        similarity: 100,
+        isSubmodule: false,
+        isConflicted: false,
+      );
+      const WorkingCopyEntry worktreeOld = WorkingCopyEntry(
+        path: 'lib/old.dart',
+        oldPath: '',
+        untracked: true,
+        staged: false,
+        indexStatus: FileChangeKind.modified,
+        hasUnstagedChange: true,
+        worktreeStatus: FileChangeKind.added,
+        unstagedAdded: 0,
+        unstagedRemoved: 0,
+        stagedAdded: 0,
+        stagedRemoved: 0,
+        conflict: ConflictKind.none,
+        ancestorBlob: '',
+        oursBlob: '',
+        theirsBlob: '',
+        similarity: 0,
+        isSubmodule: false,
+        isConflicted: false,
+      );
+
+      final FakeRepoSessionController fake = FakeRepoSessionController(
+        identity,
+        const RepoSessionState(),
+      );
+
+      await pumpGbmWidget(
+        tester,
+        child: SizedBox(
+          width: 800,
+          height: 600,
+          child: WorkingCopyView(identity: identity),
+        ),
+        overrides: [
+          repoSessionProvider(identity).overrideWith((ref) => fake),
+          wc
+              .repoWorkingCopyStatusProvider(identity)
+              .overrideWithValue(
+                const WorkingCopyStatus(
+                  entries: <WorkingCopyEntry>[stagedRename, worktreeOld],
+                ),
+              ),
+          wc
+              .repoWorkingCopyDiffsProvider(identity)
+              .overrideWithValue(const <String, WorkingCopyDiffReply>{}),
+        ],
+      );
+
+      await tester.tap(find.text('lib/new.dart'));
+      await tester.pump();
+
+      // Counted, not `.any`: a double dispatch is a regression this repo has
+      // shipped before, and `.any` is blind to it.
+      final List<FakeCommand> diffs = fake.commandLog
+          .where((FakeCommand c) => c.name == 'requestDiff')
+          .toList(growable: false);
+      expect(diffs.length, 2);
+      expect(
+        diffs
+            .map((FakeCommand c) => '${c.args['staged']}:${c.args['path']}')
+            .toSet(),
+        <String>{'false:lib/old.dart', 'true:lib/new.dart'},
+        reason:
+            'the unstaged side is asked for under the old name and the '
+            'staged side under the new one',
+      );
     });
   });
 }

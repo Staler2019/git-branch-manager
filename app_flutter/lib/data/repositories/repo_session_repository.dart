@@ -82,6 +82,15 @@ class WorkingCopyDiffReply {
   final ParsedDiff diff;
 }
 
+/// Key of one entry in [RepoSessionState.workingCopyDiffs].
+///
+/// Both halves are load-bearing: the same path has two independent diffs
+/// (work tree vs index, index vs HEAD) and the Working Copy view shows them
+/// at the same time, so a key that dropped `staged` would make the two
+/// overwrite each other -- which is the single-slot behaviour this replaced.
+String workingCopyDiffKey(String path, {required bool staged}) =>
+    '$staged:$path';
+
 /// Reply to [RepoSessionController.requestWorkingTreeContent]: mirrors
 /// GBM_EVENT_WORKING_TREE_CONTENT_READY's payload shape.
 class WorkingTreeContentReply {
@@ -360,7 +369,7 @@ class RepoSessionState {
     this.isRefreshing = false,
     this.lastError,
     this.workingCopyStatus = WorkingCopyStatus.empty,
-    this.lastDiff,
+    this.workingCopyDiffs = const <String, WorkingCopyDiffReply>{},
     this.lastWorkingTreeContent,
     this.lastFileAtRevisionExport,
     this.stashes = const <StashEntry>[],
@@ -407,7 +416,16 @@ class RepoSessionState {
   final bool isRefreshing;
   final GitError? lastError;
   final WorkingCopyStatus workingCopyStatus;
-  final WorkingCopyDiffReply? lastDiff;
+
+  /// Every working-copy diff fetched for the currently selected file,
+  /// keyed by [workingCopyDiffKey] (`'<staged>:<path>'`).
+  ///
+  /// A map rather than the single `lastDiff` slot this replaced: the Working
+  /// Copy view asks for **both** sides of a file at once and shows them side
+  /// by side, and two replies to two in-flight requests race. Last-write-wins
+  /// meant one of the two was always the one you could not see. Same shape,
+  /// and the same reason, as [gonePendingByRemote].
+  final Map<String, WorkingCopyDiffReply> workingCopyDiffs;
   final WorkingTreeContentReply? lastWorkingTreeContent;
   final FileAtRevisionExport? lastFileAtRevisionExport;
   final List<StashEntry> stashes;
@@ -579,7 +597,7 @@ class RepoSessionState {
     GitError? lastError,
     bool clearError = false,
     WorkingCopyStatus? workingCopyStatus,
-    WorkingCopyDiffReply? lastDiff,
+    Map<String, WorkingCopyDiffReply>? workingCopyDiffs,
     WorkingTreeContentReply? lastWorkingTreeContent,
     FileAtRevisionExport? lastFileAtRevisionExport,
     List<StashEntry>? stashes,
@@ -627,7 +645,7 @@ class RepoSessionState {
       isRefreshing: isRefreshing ?? this.isRefreshing,
       lastError: clearError ? null : (lastError ?? this.lastError),
       workingCopyStatus: workingCopyStatus ?? this.workingCopyStatus,
-      lastDiff: lastDiff ?? this.lastDiff,
+      workingCopyDiffs: workingCopyDiffs ?? this.workingCopyDiffs,
       lastWorkingTreeContent:
           lastWorkingTreeContent ?? this.lastWorkingTreeContent,
       lastFileAtRevisionExport:
@@ -957,8 +975,17 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
       case GbmEventType.workingCopyDiffReady:
         final Object? payload = decodeEventPayload(event.payload);
         if (payload is Map<String, dynamic>) {
+          final WorkingCopyDiffReply reply = WorkingCopyDiffReply.fromJson(
+            payload,
+          );
+          // Merged, never replaced wholesale: the other side of the same
+          // file is usually in flight at the same moment and dropping it
+          // here is exactly the race the map exists to end.
           state = state.copyWith(
-            lastDiff: WorkingCopyDiffReply.fromJson(payload),
+            workingCopyDiffs: <String, WorkingCopyDiffReply>{
+              ...state.workingCopyDiffs,
+              workingCopyDiffKey(reply.path, staged: reply.staged): reply,
+            },
           );
         }
       case GbmEventType.fileAtRevisionExported:
@@ -1200,6 +1227,18 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     }
   }
 
+  /// Reads the new status **and drops every cached diff**.
+  ///
+  /// - Key: [workingCopyDiffKey], one entry per (path, side).
+  /// - Invalidated by: `GBM_EVENT_WORKING_COPY_STATUS_UPDATED`, the single
+  ///   event every stage/unstage/discard/commit ends with. Nothing finer is
+  ///   safe -- staging one hunk renumbers the *other* side's hunks too.
+  /// - If it were not invalidated: the pane would keep painting the diff
+  ///   from before the stage, with hunk indices that now point at different
+  ///   lines, so the next "Stage 3 lines" would stage three other lines.
+  ///
+  /// Clearing here is also what bounds the map: it cannot outgrow one
+  /// selected file's two sides.
   void _readWorkingCopyStatus() {
     if (_bindings.workingCopyStatusJson(_session) == 0) {
       final String json = readLastResultJson(_bindings);
@@ -1208,6 +1247,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
           workingCopyStatus: WorkingCopyStatus.fromJson(
             jsonDecode(json) as Map<String, dynamic>,
           ),
+          workingCopyDiffs: const <String, WorkingCopyDiffReply>{},
         );
       }
     }
@@ -2175,8 +2215,8 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   }
 
   /// Diff of one path: work tree vs index (staged=false) or index vs HEAD
-  /// (staged=true). Async: [state].lastDiff updates when
-  /// GBM_EVENT_WORKING_COPY_DIFF_READY arrives.
+  /// (staged=true). Async: [state].workingCopyDiffs gains an entry under
+  /// [workingCopyDiffKey] when GBM_EVENT_WORKING_COPY_DIFF_READY arrives.
   void requestDiff(String path, {bool staged = false}) {
     if (_session == nullptr) return;
     final Pointer<Utf8> pathPtr = path.toNativeUtf8();

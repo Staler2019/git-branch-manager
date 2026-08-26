@@ -168,10 +168,14 @@ void main() {
     final Map<String, dynamic> json = jsonDecode(
       '{"entries":['
       '{"path":"a.txt","oldPath":"","untracked":false,"staged":true,"indexStatus":0,'
-      '"hasUnstagedChange":false,"worktreeStatus":0,"conflict":0,"ancestorBlob":"",'
+      '"hasUnstagedChange":false,"worktreeStatus":0,'
+      '"unstagedAdded":34,"unstagedRemoved":12,"stagedAdded":7,"stagedRemoved":3,'
+      '"conflict":0,"ancestorBlob":"",'
       '"oursBlob":"","theirsBlob":"","similarity":0,"isSubmodule":false,"isConflicted":false},'
       '{"path":"b.txt","oldPath":"","untracked":true,"staged":false,"indexStatus":0,'
-      '"hasUnstagedChange":false,"worktreeStatus":0,"conflict":0,"ancestorBlob":"",'
+      '"hasUnstagedChange":false,"worktreeStatus":0,'
+      '"unstagedAdded":0,"unstagedRemoved":0,"stagedAdded":0,"stagedRemoved":0,'
+      '"conflict":0,"ancestorBlob":"",'
       '"oursBlob":"","theirsBlob":"","similarity":0,"isSubmodule":false,"isConflicted":false}'
       ']}',
     );
@@ -180,6 +184,44 @@ void main() {
     expect(status.isClean, isFalse);
     expect(status.staged.map((e) => e.path), <String>['a.txt']);
     expect(status.untrackedFiles.map((e) => e.path), <String>['b.txt']);
+  });
+
+  // Four different values on one entry, so the fixture can actually disagree
+  // with the code: all-zero counts would pass identically against a decoder
+  // that read the wrong key for every field, or that collapsed the two sides
+  // onto one pair.
+  test('WorkingCopyEntry.fromJson keeps the four line counts apart', () {
+    final Map<String, dynamic> json = jsonDecode(
+      '{"path":"a.txt","oldPath":"","untracked":false,"staged":true,"indexStatus":0,'
+      '"hasUnstagedChange":true,"worktreeStatus":0,'
+      '"unstagedAdded":34,"unstagedRemoved":12,"stagedAdded":7,"stagedRemoved":3,'
+      '"conflict":0,"ancestorBlob":"",'
+      '"oursBlob":"","theirsBlob":"","similarity":0,"isSubmodule":false,'
+      '"isConflicted":false}',
+    );
+    final WorkingCopyEntry entry = WorkingCopyEntry.fromJson(json);
+
+    expect(entry.unstagedAdded, 34);
+    expect(entry.unstagedRemoved, 12);
+    expect(entry.stagedAdded, 7);
+    expect(entry.stagedRemoved, 3);
+  });
+
+  // The keys are not optional. capi and this model ship from one build, so a
+  // missing key means the two sides have drifted -- that has to fail loudly
+  // rather than decode as 0, because 0 is a real value here meaning "not
+  // measured" and the UI silently draws no badge for it.
+  test('WorkingCopyEntry.fromJson throws when a line-count key is missing', () {
+    final Map<String, dynamic> json = jsonDecode(
+      '{"path":"a.txt","oldPath":"","untracked":false,"staged":true,"indexStatus":0,'
+      '"hasUnstagedChange":true,"worktreeStatus":0,'
+      '"unstagedAdded":34,"unstagedRemoved":12,"stagedAdded":7,'
+      '"conflict":0,"ancestorBlob":"",'
+      '"oursBlob":"","theirsBlob":"","similarity":0,"isSubmodule":false,'
+      '"isConflicted":false}',
+    );
+
+    expect(() => WorkingCopyEntry.fromJson(json), throwsA(isA<TypeError>()));
   });
 
   test('ChangedFile.fromJson decodes every field', () {

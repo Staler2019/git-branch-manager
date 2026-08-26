@@ -54,6 +54,19 @@
 namespace gbm {
 namespace {
 
+using FileClock = std::filesystem::file_time_type::clock;
+
+/// Moves [file]'s mtime [offset] away from now.
+///
+/// The untracked-line-count tests all need a file whose mtime is definitely
+/// older (or definitely newer) than the pass that reads it, and "definitely"
+/// cannot come from letting real time pass: a filesystem that rounds
+/// timestamps to the second would make the outcome depend on where in the
+/// second the test happened to start.
+void setMtimeOffset(const std::filesystem::path& file, std::chrono::seconds offset) {
+    std::filesystem::last_write_time(file, FileClock::now() + offset);
+}
+
 /// Creates a small real repository using the generator plus `git fast-import`.
 class RealRepoTest : public ::testing::Test {
 protected:
@@ -1524,6 +1537,389 @@ TEST_F(RealRepoTest, WorkingCopyStatusDetectsARenameStagedForCommit) {
     EXPECT_EQ(entry.oldPath, "original.txt");
     EXPECT_EQ(entry.path, "renamed.txt");
     EXPECT_GT(entry.similarity, 0);
+}
+
+// ---------------------------------------------------------------------------
+// Per-file line counts (spec page 03's `+34 −12` badges).
+//
+// `git status --porcelain=v2` carries no line counts at all, so read() runs two
+// extra `--numstat` passes and joins them onto the status entries by path. The
+// tests below pin the four ways that join can silently produce a wrong number
+// rather than an error: a file that is on both sides at once, a rename (whose
+// `-z` output spends three records where every other kind spends one), a binary
+// blob (numstat prints `-`, not a number), and an untracked file (which `git
+// diff` cannot see at all, so its count comes from reading the file).
+// ---------------------------------------------------------------------------
+
+TEST_F(RealRepoTest, WorkingCopyStatusCountsUnstagedLines) {
+    commitFile("a.txt", "l1\nl2\nl3\n", "base");
+    {
+        std::ofstream out(repo_ / "a.txt", std::ios::trunc);
+        out << "l1\nl2 changed\nl3\nl4\n";
+    }
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status) << status.error().message;
+    ASSERT_EQ((*status)->entries.size(), 1u);
+
+    const WorkingCopyEntry& e = (*status)->entries.front();
+    EXPECT_EQ(e.unstagedAdded, 2u);    // "l2 changed" and "l4"
+    EXPECT_EQ(e.unstagedRemoved, 1u);  // "l2"
+    EXPECT_EQ(e.stagedAdded, 0u);
+    EXPECT_EQ(e.stagedRemoved, 0u);
+}
+
+TEST_F(RealRepoTest, WorkingCopyStatusCountsStagedLines) {
+    commitFile("a.txt", "l1\nl2\nl3\n", "base");
+    {
+        std::ofstream out(repo_ / "a.txt", std::ios::trunc);
+        out << "l1\nl2\nl3\nl4\nl5\n";
+    }
+    ASSERT_TRUE(run({"add", "a.txt"}));
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status) << status.error().message;
+    ASSERT_EQ((*status)->entries.size(), 1u);
+
+    const WorkingCopyEntry& e = (*status)->entries.front();
+    EXPECT_EQ(e.stagedAdded, 2u);
+    EXPECT_EQ(e.stagedRemoved, 0u);
+    EXPECT_EQ(e.unstagedAdded, 0u);
+    EXPECT_EQ(e.unstagedRemoved, 0u);
+}
+
+/// The data source for the file list's "partly staged" signal: one path, one
+/// status entry, but two independent pairs of counts. A single pair of fields
+/// could not express this at all, which is why there are four.
+TEST_F(RealRepoTest, WorkingCopyStatusCountsBothSidesOfAPartiallyStagedFile) {
+    commitFile("a.txt", "l1\nl2\nl3\n", "base");
+    {
+        std::ofstream out(repo_ / "a.txt", std::ios::trunc);
+        out << "l1\nl2\nl3\nstaged1\nstaged2\n";
+    }
+    ASSERT_TRUE(run({"add", "a.txt"}));
+    {
+        std::ofstream out(repo_ / "a.txt", std::ios::app);
+        out << "unstaged1\n";
+    }
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status) << status.error().message;
+    ASSERT_EQ((*status)->entries.size(), 1u);
+
+    const WorkingCopyEntry& e = (*status)->entries.front();
+    EXPECT_TRUE(e.staged);
+    EXPECT_TRUE(e.hasUnstagedChange);
+    EXPECT_EQ(e.stagedAdded, 2u);
+    EXPECT_EQ(e.stagedRemoved, 0u);
+    EXPECT_EQ(e.unstagedAdded, 1u);
+    EXPECT_EQ(e.unstagedRemoved, 0u);
+}
+
+/// The one that catches a one-record-per-entry loop. Under `-z`, numstat spends
+/// **three** records on a rename (an empty path field, then the old path, then
+/// the new one) where every other kind spends one. A loop that advances by a
+/// single record reads the old path as the *next* entry's counts, so every
+/// count after the first rename is wrong -- and wrong silently, as a plausible
+/// number rather than an error.
+///
+/// `zzz.txt` exists purely to sort after the renamed path, so there is
+/// something for a mis-advanced loop to corrupt.
+TEST_F(RealRepoTest, WorkingCopyStatusCountsLinesAfterARenameInTheSameBatch) {
+    commitFile("aaa.txt", "l1\nl2\nl3\nl4\nl5\n", "c1");
+    commitFile("zzz.txt", "z1\nz2\nz3\n", "c2");
+
+    ASSERT_TRUE(run({"mv", "aaa.txt", "bbb.txt"}));
+    {
+        std::ofstream out(repo_ / "bbb.txt", std::ios::app);
+        out << "l6\nl7\n";
+    }
+    {
+        std::ofstream out(repo_ / "zzz.txt", std::ios::app);
+        out << "z4\nz5\nz6\n";
+    }
+    ASSERT_TRUE(run({"add", "-A"}));
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status) << status.error().message;
+
+    const WorkingCopyEntry* renamed = nullptr;
+    const WorkingCopyEntry* trailing = nullptr;
+    for (const WorkingCopyEntry& e : (*status)->entries) {
+        if (e.path == "bbb.txt") renamed = &e;
+        if (e.path == "zzz.txt") trailing = &e;
+    }
+    ASSERT_NE(renamed, nullptr);
+    ASSERT_NE(trailing, nullptr);
+
+    EXPECT_EQ(renamed->oldPath, "aaa.txt");
+    EXPECT_EQ(renamed->stagedAdded, 2u);
+    EXPECT_EQ(renamed->stagedRemoved, 0u);
+
+    // The assertion the mis-advanced loop fails.
+    EXPECT_EQ(trailing->stagedAdded, 3u)
+        << "the entry after a rename got the wrong count -- numstat's -z output "
+           "spends three records on a rename, and the join loop consumed only one";
+    EXPECT_EQ(trailing->stagedRemoved, 0u);
+}
+
+/// numstat prints `-` for both fields of a binary blob. Left at 0 rather than
+/// parsed, and the UI draws no badge for 0 -- a `+0` would claim a measurement
+/// that was never made.
+TEST_F(RealRepoTest, WorkingCopyStatusLeavesBinaryFileCountsAtZero) {
+    {
+        std::ofstream out(repo_ / "blob.bin", std::ios::binary);
+        const char bytes[] = {'\x00', '\x01', '\x02', '\x00', '\xff'};
+        out.write(bytes, sizeof(bytes));
+    }
+    ASSERT_TRUE(run({"add", "blob.bin"}));
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status) << status.error().message;
+    ASSERT_EQ((*status)->entries.size(), 1u);
+
+    const WorkingCopyEntry& e = (*status)->entries.front();
+    EXPECT_EQ(e.stagedAdded, 0u);
+    EXPECT_EQ(e.stagedRemoved, 0u);
+}
+
+/// `git diff` cannot see an untracked file at all -- it is in neither the index
+/// nor HEAD -- so numstat reports nothing for one and the count has to come
+/// from reading the file. "Added lines" is its line count; nothing is removed.
+TEST_F(RealRepoTest, WorkingCopyStatusCountsAnUntrackedTextFilesLines) {
+    commitFile("a.txt", "l1\n", "base");
+    {
+        std::ofstream out(repo_ / "fresh.txt");
+        out << "n1\nn2\nn3\nn4\n";
+    }
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status) << status.error().message;
+
+    const auto untracked = (*status)->untracked();
+    ASSERT_EQ(untracked.size(), 1u);
+    EXPECT_EQ(untracked[0]->path, "fresh.txt");
+    EXPECT_EQ(untracked[0]->unstagedAdded, 4u);
+    EXPECT_EQ(untracked[0]->unstagedRemoved, 0u);
+}
+
+/// Same rule as a tracked binary blob: no number rather than a wrong one.
+/// Detected with detectTextTraits(), the same NUL-byte test the conflict
+/// surfaces already use.
+TEST_F(RealRepoTest, WorkingCopyStatusLeavesAnUntrackedBinaryFileAtZero) {
+    commitFile("a.txt", "l1\n", "base");
+    {
+        std::ofstream out(repo_ / "fresh.bin", std::ios::binary);
+        const char bytes[] = {'n', '1', '\n', '\x00', 'n', '2', '\n'};
+        out.write(bytes, sizeof(bytes));
+    }
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status) << status.error().message;
+
+    const auto untracked = (*status)->untracked();
+    ASSERT_EQ(untracked.size(), 1u);
+    EXPECT_EQ(untracked[0]->unstagedAdded, 0u);
+    EXPECT_EQ(untracked[0]->unstagedRemoved, 0u);
+}
+
+/// The size cap exists so that `--untracked-files=all` in a repository with an
+/// unbuilt output directory cannot turn one status refresh into hundreds of
+/// megabytes of reads. Over the cap the file gets no count, exactly like a
+/// binary one.
+TEST_F(RealRepoTest, WorkingCopyStatusLeavesAnOversizedUntrackedFileAtZero) {
+    commitFile("a.txt", "l1\n", "base");
+    {
+        std::ofstream out(repo_ / "huge.txt");
+        const std::string line(63, 'x');
+        // kUntrackedLineCountByteCap is 1 MiB; 20k * 64B = 1.28 MiB.
+        for (int i = 0; i < 20000; ++i) {
+            out << line << "\n";
+        }
+    }
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status) << status.error().message;
+
+    const auto untracked = (*status)->untracked();
+    ASSERT_EQ(untracked.size(), 1u);
+    EXPECT_EQ(untracked[0]->unstagedAdded, 0u)
+        << "an untracked file over the byte cap must get no count at all, not a "
+           "partial one -- a partial count is a wrong number, not a missing one";
+}
+
+/// The cache exists so a refresh that changes nothing about an untracked file
+/// does not read that file again. Counted, not `any`-ed: a cache that read the
+/// file twice and answered correctly both times is indistinguishable from a
+/// working one by the line count alone.
+///
+/// The mtime is pushed into the past on purpose. Every filesystem this runs on
+/// has sub-second timestamps, but `store()` refuses a file whose mtime is not
+/// strictly older than the start of the pass, and a test that relies on three
+/// git subprocesses taking longer than one timestamp tick is a test that fails
+/// on whatever filesystem rounds to a second.
+TEST_F(RealRepoTest, WorkingCopyStatusReusesAnUnchangedUntrackedFilesLineCount) {
+    commitFile("a.txt", "l1\n", "base");
+    const std::filesystem::path fresh = repo_ / "fresh.txt";
+    {
+        std::ofstream out(fresh);
+        out << "n1\nn2\nn3\n";
+    }
+    setMtimeOffset(fresh, std::chrono::seconds(-10));
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+
+    auto first = reader.read(CancellationToken{});
+    ASSERT_TRUE(first) << first.error().message;
+    ASSERT_EQ((*first)->untracked().size(), 1u);
+    EXPECT_EQ((*first)->untracked()[0]->unstagedAdded, 3u);
+    EXPECT_EQ(reader.untrackedLineCounts().misses(), 1u);
+    EXPECT_EQ(reader.untrackedLineCounts().hits(), 0u);
+
+    auto second = reader.read(CancellationToken{});
+    ASSERT_TRUE(second) << second.error().message;
+    ASSERT_EQ((*second)->untracked().size(), 1u);
+    EXPECT_EQ((*second)->untracked()[0]->unstagedAdded, 3u)
+        << "a cache hit must produce the same number the read produced";
+    EXPECT_EQ(reader.untrackedLineCounts().hits(), 1u)
+        << "the second read of an unchanged file must come from the cache";
+    EXPECT_EQ(reader.untrackedLineCounts().misses(), 1u) << "the file was not read again";
+}
+
+/// The other half, and the one that matters: a cache nothing invalidates is a
+/// cache that reports last week's number forever. Editing the file has to
+/// produce a miss *and* the new count.
+TEST_F(RealRepoTest, WorkingCopyStatusRereadsAnUntrackedFileAfterItChanges) {
+    commitFile("a.txt", "l1\n", "base");
+    const std::filesystem::path fresh = repo_ / "fresh.txt";
+    const auto backdate = [&fresh]() { setMtimeOffset(fresh, std::chrono::seconds(-10)); };
+    {
+        std::ofstream out(fresh);
+        out << "n1\nn2\nn3\n";
+    }
+    backdate();
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto first = reader.read(CancellationToken{});
+    ASSERT_TRUE(first) << first.error().message;
+    ASSERT_EQ((*first)->untracked().size(), 1u);
+    EXPECT_EQ((*first)->untracked()[0]->unstagedAdded, 3u);
+
+    {
+        std::ofstream out(fresh);
+        out << "n1\nn2\nn3\nn4\nn5\n";
+    }
+    backdate();
+
+    auto second = reader.read(CancellationToken{});
+    ASSERT_TRUE(second) << second.error().message;
+    ASSERT_EQ((*second)->untracked().size(), 1u);
+    EXPECT_EQ((*second)->untracked()[0]->unstagedAdded, 5u)
+        << "an edited file must be counted again, not answered from the cache";
+    EXPECT_EQ(reader.untrackedLineCounts().misses(), 2u);
+    EXPECT_EQ(reader.untrackedLineCounts().hits(), 0u);
+}
+
+/// A same-size edit is the case a size-only key would miss, which is why the
+/// key carries the mtime as well. Three lines in, three lines out, different
+/// text.
+TEST_F(RealRepoTest, WorkingCopyStatusRereadsAnUntrackedFileEditedToTheSameSize) {
+    commitFile("a.txt", "l1\n", "base");
+    const std::filesystem::path fresh = repo_ / "fresh.txt";
+    const auto backdate = [&fresh]() { setMtimeOffset(fresh, std::chrono::seconds(-10)); };
+    {
+        // 8 bytes, 2 lines.
+        std::ofstream out(fresh);
+        out << "aaa\nbbb\n";
+    }
+    backdate();
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto first = reader.read(CancellationToken{});
+    ASSERT_TRUE(first) << first.error().message;
+    ASSERT_EQ((*first)->untracked().size(), 1u);
+    ASSERT_EQ((*first)->untracked()[0]->unstagedAdded, 2u);
+
+    {
+        // 8 bytes again, 3 lines. Counting the bytes here is the whole point:
+        // a first draft of this test wrote 8 bytes and then 7, which a
+        // size-only key catches -- so it passed with the mtime removed from
+        // the key and proved nothing about the thing it is named for.
+        std::ofstream out(fresh);
+        out << "a\nb\nccc\n";
+    }
+    setMtimeOffset(fresh, std::chrono::seconds(-5));
+
+    auto second = reader.read(CancellationToken{});
+    ASSERT_TRUE(second) << second.error().message;
+    ASSERT_EQ((*second)->untracked().size(), 1u);
+    EXPECT_EQ((*second)->untracked()[0]->unstagedAdded, 3u)
+        << "an edit that keeps the size must still be counted again";
+    EXPECT_EQ(reader.untrackedLineCounts().misses(), 2u);
+    EXPECT_EQ(reader.untrackedLineCounts().hits(), 0u);
+}
+
+/// git's "racily clean" rule, which is the whole reason [store] takes the
+/// pass's start time. A file whose mtime is not strictly older than the pass
+/// may have been written again after this pass read it, so it must not be
+/// remembered -- otherwise the number it was read at would stick until the
+/// next edit rather than clear on the next refresh.
+TEST_F(RealRepoTest, WorkingCopyStatusDoesNotCacheAnUntrackedFileWrittenDuringThePass) {
+    commitFile("a.txt", "l1\n", "base");
+    const std::filesystem::path fresh = repo_ / "fresh.txt";
+    {
+        std::ofstream out(fresh);
+        out << "n1\nn2\n";
+    }
+    // Strictly newer than any pass that starts from now on, which is the same
+    // relation "written in this pass's tick" produces, without depending on a
+    // race to reproduce it.
+    setMtimeOffset(fresh, std::chrono::hours(1));
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto first = reader.read(CancellationToken{});
+    ASSERT_TRUE(first) << first.error().message;
+    ASSERT_EQ((*first)->untracked().size(), 1u);
+    EXPECT_EQ((*first)->untracked()[0]->unstagedAdded, 2u)
+        << "the count itself is still correct -- only remembering it is refused";
+    EXPECT_EQ(reader.untrackedLineCounts().size(), 0u);
+
+    auto second = reader.read(CancellationToken{});
+    ASSERT_TRUE(second) << second.error().message;
+    EXPECT_EQ(reader.untrackedLineCounts().hits(), 0u)
+        << "a racily-written file must be read again every pass";
+    EXPECT_EQ(reader.untrackedLineCounts().misses(), 2u);
+}
+
+/// The sweep is what bounds the map to the current untracked set rather than
+/// to every file the session has ever seen. Staging the file is the commonest
+/// way one stops being untracked.
+TEST_F(RealRepoTest, WorkingCopyStatusForgetsAnUntrackedFileOnceItIsStaged) {
+    commitFile("a.txt", "l1\n", "base");
+    const std::filesystem::path fresh = repo_ / "fresh.txt";
+    {
+        std::ofstream out(fresh);
+        out << "n1\nn2\n";
+    }
+    setMtimeOffset(fresh, std::chrono::seconds(-10));
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    ASSERT_TRUE(reader.read(CancellationToken{}));
+    EXPECT_EQ(reader.untrackedLineCounts().size(), 1u);
+
+    ASSERT_TRUE(run({"add", "fresh.txt"}));
+
+    ASSERT_TRUE(reader.read(CancellationToken{}));
+    EXPECT_EQ(reader.untrackedLineCounts().size(), 0u)
+        << "a file that stopped being untracked must not stay in the map";
 }
 
 TEST_F(RealRepoTest, WorkingCopyStatusReportsWhichSideOfAConflictEachFileIsOn) {

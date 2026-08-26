@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gbm_flutter/data/models/file_tree.dart';
 import 'package:gbm_flutter/features/working_copy/working_copy_selection_state.dart';
 
 void main() {
@@ -138,69 +137,6 @@ void main() {
       });
     });
 
-    group('select/deselect all', () {
-      test('selectAll selects all paths', () {
-        final state = WorkingCopySelectionState(allPaths: testPaths);
-        final newState = state.selectAll();
-        expect(newState.selected, equals(testPaths.toSet()));
-      });
-
-      test('deselectAll clears selection', () {
-        final state = WorkingCopySelectionState(
-          allPaths: testPaths,
-        ).selectAll();
-        final newState = state.deselectAll();
-        expect(newState.selected, isEmpty);
-      });
-
-      test('toggleSelectAll with empty selection selects all', () {
-        final state = WorkingCopySelectionState(allPaths: testPaths);
-        final newState = state.toggleSelectAll();
-        expect(newState.selected, equals(testPaths.toSet()));
-      });
-
-      test('toggleSelectAll with all selected deselects all', () {
-        final state = WorkingCopySelectionState(
-          allPaths: testPaths,
-        ).selectAll();
-        final newState = state.toggleSelectAll();
-        expect(newState.selected, isEmpty);
-      });
-
-      test('toggleSelectAll with partial selection selects all', () {
-        var state = WorkingCopySelectionState(allPaths: testPaths);
-        state = state.selectSinglePath('file1.txt').togglePath('file3.txt');
-        final newState = state.toggleSelectAll();
-        expect(newState.selected, equals(testPaths.toSet()));
-      });
-    });
-
-    group('bulk operations', () {
-      test('selectPaths adds multiple paths', () {
-        final state = WorkingCopySelectionState(allPaths: testPaths);
-        final newState = state.selectPaths({
-          'file1.txt',
-          'file3.txt',
-          'file5.txt',
-        });
-        expect(
-          newState.selected,
-          equals({'file1.txt', 'file3.txt', 'file5.txt'}),
-        );
-      });
-
-      test('deselectPaths removes multiple paths', () {
-        final state = WorkingCopySelectionState(
-          allPaths: testPaths,
-        ).selectAll();
-        final newState = state.deselectPaths({'file1.txt', 'file3.txt'});
-        expect(
-          newState.selected,
-          equals({'file2.txt', 'file4.txt', 'file5.txt'}),
-        );
-      });
-    });
-
     group('syncWithPaths pruning', () {
       test('prunes selected paths that are no longer in list', () {
         final state = WorkingCopySelectionState(allPaths: testPaths)
@@ -238,36 +174,10 @@ void main() {
       test('handles empty new paths', () {
         final state = WorkingCopySelectionState(
           allPaths: testPaths,
-        ).selectAll();
+        ).selectSinglePath('file1.txt').togglePath('file2.txt');
         final newState = state.syncWithPaths(<String>[]);
         expect(newState.selected, isEmpty);
         expect(newState.allPaths, isEmpty);
-      });
-    });
-
-    group('tri-state checkbox logic', () {
-      test('unchecked when nothing selected', () {
-        final state = WorkingCopySelectionState(allPaths: testPaths);
-        expect(state.getCheckState(), equals(CheckState.unchecked));
-      });
-
-      test('checked when all selected', () {
-        final state = WorkingCopySelectionState(
-          allPaths: testPaths,
-        ).selectAll();
-        expect(state.getCheckState(), equals(CheckState.checked));
-      });
-
-      test('indeterminate when partial selection', () {
-        final state = WorkingCopySelectionState(
-          allPaths: testPaths,
-        ).selectSinglePath('file1.txt').togglePath('file3.txt');
-        expect(state.getCheckState(), equals(CheckState.indeterminate));
-      });
-
-      test('unchecked with empty paths', () {
-        final state = WorkingCopySelectionState(allPaths: <String>[]);
-        expect(state.getCheckState(), equals(CheckState.unchecked));
       });
     });
 
@@ -281,13 +191,55 @@ void main() {
       test('empty paths list', () {
         final state = WorkingCopySelectionState(allPaths: <String>[]);
         expect(state.selected, isEmpty);
-        expect(state.getCheckState(), equals(CheckState.unchecked));
+        expect(state.selectSinglePath('anything.txt').selected, isEmpty);
       });
 
       test('single path', () {
         final state = WorkingCopySelectionState(allPaths: const ['file.txt']);
         final newState = state.selectSinglePath('file.txt');
         expect(newState.selected, equals({'file.txt'}));
+      });
+    });
+
+    group('withOrder (the board re-points it at the clicked column)', () {
+      test('keeps the selection made in the other column', () {
+        final WorkingCopySelectionState selection =
+            const WorkingCopySelectionState(
+              allPaths: <String>['a.dart', 'b.dart'],
+            ).selectSinglePath('a.dart').withOrder(<String>[
+              'x.dart',
+              'y.dart',
+            ]);
+
+        expect(
+          selection.selected,
+          <String>{'a.dart'},
+          reason:
+              'withOrder is not syncWithPaths -- pruning here would clear the '
+              'other column every time the user clicked in this one',
+        );
+        expect(selection.allPaths, <String>['x.dart', 'y.dart']);
+        expect(selection.lastClickedPath, 'a.dart');
+      });
+
+      test('an anchor left in the other column degrades Shift+click to a '
+          'plain click rather than to nothing', () {
+        final WorkingCopySelectionState selection =
+            const WorkingCopySelectionState(
+              allPaths: <String>['a.dart', 'b.dart'],
+            ).selectSinglePath('a.dart').withOrder(<String>[
+              'x.dart',
+              'y.dart',
+            ]);
+
+        expect(selection.shiftSelectPath('y.dart').selected, <String>{
+          'y.dart',
+        });
+        expect(
+          selection.shiftControlSelectPath('y.dart').selected,
+          <String>{'a.dart', 'y.dart'},
+          reason: 'Shift+Ctrl/Cmd still adds, it just has no range to add',
+        );
       });
     });
   });

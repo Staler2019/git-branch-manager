@@ -23,12 +23,10 @@ void main() {
             body: FileTreeList(
               fileTree: fileTree,
               mode: FileListViewMode.list,
-              selectedPaths: const {},
               onItemBuilder: (context, node, level, onFolderToggle) {
                 renderedItems.add(node.displayPath);
                 return ListTile(title: Text(node.name));
               },
-              onFolderCheckStateChanged: (_) {},
             ),
           ),
         ),
@@ -54,7 +52,6 @@ void main() {
             body: FileTreeList(
               fileTree: fileTree,
               mode: FileListViewMode.tree,
-              selectedPaths: const {},
               onItemBuilder: (context, node, level, onFolderToggle) {
                 renderedNames.add(node.name);
                 return ListTile(
@@ -67,7 +64,6 @@ void main() {
                       : null,
                 );
               },
-              onFolderCheckStateChanged: (_) {},
             ),
           ),
         ),
@@ -83,39 +79,5 @@ void main() {
       expect(renderedNames, isNot(contains('a.dart')));
       expect(renderedNames, isNot(contains('b.dart')));
     });
-
-    testWidgets(
-      'folder checkbox is checked when all its children are selected, and '
-      'unchecked when none are',
-      (WidgetTester tester) async {
-        final fileTree = FileTree.fromPaths(testPaths);
-        final selectedPaths = {'lib/app/views/a.dart', 'lib/app/views/b.dart'};
-
-        CheckState? capturedState;
-
-        await tester.pumpWidget(
-          MaterialApp(
-            home: Scaffold(
-              body: FileTreeList(
-                fileTree: fileTree,
-                mode: FileListViewMode.tree,
-                selectedPaths: selectedPaths,
-                onItemBuilder: (context, node, level, onFolderToggle) {
-                  if (node.isDirectory) {
-                    capturedState = node.getCheckState(selectedPaths);
-                  }
-                  return ListTile(title: Text(node.name));
-                },
-                onFolderCheckStateChanged: (_) {},
-              ),
-            ),
-          ),
-        );
-
-        await tester.pumpAndSettle();
-        // lib/app/views's two leaves (a.dart, b.dart) are both selected.
-        expect(capturedState, CheckState.checked);
-      },
-    );
   });
 }

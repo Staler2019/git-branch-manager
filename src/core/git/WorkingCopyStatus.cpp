@@ -1,9 +1,18 @@
 #include "core/git/WorkingCopyStatus.h"
 
 #include "core/base/ThreadCheck.h"
+#include "core/git/TextTraits.h"
 
 #include <charconv>
 #include <chrono>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <optional>
+#include <system_error>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 namespace gbm {
@@ -78,7 +87,264 @@ int parseScore(std::string_view scoreField) {
     return value;
 }
 
+/// Joins one `git diff --numstat -z` pass onto `entries`, keyed by path.
+///
+/// Two passes rather than one command because git's diff output-format field is
+/// a single slot: `--numstat` cannot be combined with the `--porcelain=v2`
+/// status read that produced `entries`, and the two sides (work tree vs index,
+/// index vs HEAD) are two different diffs regardless. `DiffService.cpp`'s
+/// attachLineCounts() works around the same constraint for a commit's file
+/// list, and the record shapes parsed below match its parser deliberately.
+///
+/// `-M` is passed explicitly rather than left to `diff.renames`, so the rename
+/// detection here cannot drift away from what `git status --porcelain=v2`
+/// already did. If the two ever disagree, a renamed file's counts silently
+/// describe the wrong comparison -- so the flag is not decoration.
+///
+/// `staged` selects which pair of fields the counts land in, which is why a
+/// file that is on both sides at once (partly staged) ends up with four
+/// independent numbers rather than one pair.
+GitResult<void> attachNumstat(IProcessRunner& runner,
+                              const RepoPaths& paths,
+                              bool staged,
+                              std::vector<WorkingCopyEntry>& entries,
+                              CancellationToken token) {
+    if (entries.empty()) {
+        return {};
+    }
+
+    // The unstaged pass compares the work tree against the index, so it needs
+    // GitCommand::worktreeReadFlags() -- see that function for the measured
+    // regression it prevents. The staged pass is index-vs-HEAD, never looks at
+    // the work tree, and measured 0 of 12 failures without the flags, so it
+    // does not pay for them.
+    std::vector<std::string> args;
+    if (!staged) {
+        args = GitCommand::worktreeReadFlags();
+    }
+    args.insert(args.end(), {"diff", "--numstat", "-z", "-M"});
+    if (staged) {
+        args.emplace_back("--cached");
+    }
+    GitCommand command(paths.commandDir(), std::move(args));
+    command.timeout = std::chrono::seconds(120);
+
+    std::vector<std::string> records;
+    const LineSink sink = [&records](std::string_view record) {
+        records.emplace_back(record);
+        return true;
+    };
+    auto result =
+        runner.streamSeparated(command, IProcessRunner::Separator::Nul, sink, nullptr, token);
+    if (!result) {
+        return fail(std::move(result).error());
+    }
+
+    // Keyed on `path` -- the new path for a rename or copy, the single path for
+    // everything else -- because that is the field every entry has. `oldPath`
+    // is empty except for renames and copies, so it cannot serve as the key.
+    std::unordered_map<std::string_view, WorkingCopyEntry*> byPath;
+    byPath.reserve(entries.size());
+    for (WorkingCopyEntry& entry : entries) {
+        byPath.emplace(entry.path, &entry);
+    }
+
+    for (std::size_t i = 0; i < records.size();) {
+        const std::string_view record = records[i++];
+        const std::size_t firstTab = record.find('\t');
+        if (firstTab == std::string_view::npos) {
+            continue;
+        }
+        const std::size_t secondTab = record.find('\t', firstTab + 1);
+        if (secondTab == std::string_view::npos) {
+            continue;
+        }
+        const std::string_view addedField = record.substr(0, firstTab);
+        const std::string_view removedField = record.substr(firstTab + 1, secondTab - firstTab - 1);
+        std::string_view pathField = record.substr(secondTab + 1);
+
+        if (pathField.empty()) {
+            // Rename or copy: under -z the path field is empty and the next two
+            // records are the old and the new path. Only the new one is needed
+            // -- it is what byPath is keyed on -- but *both* must be consumed,
+            // or the loop reads the old path as the next entry's counts and
+            // every count after this point is wrong. Silently wrong: a
+            // plausible number, not an error.
+            if (i < records.size()) {
+                ++i;  // old path, unused
+            }
+            if (i >= records.size()) {
+                break;
+            }
+            pathField = records[i++];
+        }
+
+        const auto found = byPath.find(pathField);
+        if (found == byPath.end()) {
+            continue;
+        }
+        // "-" for either field means a binary blob. Left at 0 rather than
+        // parsed: std::from_chars would leave the value untouched anyway, but
+        // saying so here is what stops a later reader treating 0 as measured.
+        if (addedField == "-" || removedField == "-") {
+            continue;
+        }
+        std::uint32_t added = 0;
+        std::uint32_t removed = 0;
+        std::from_chars(addedField.data(), addedField.data() + addedField.size(), added);
+        std::from_chars(removedField.data(), removedField.data() + removedField.size(), removed);
+        if (staged) {
+            found->second->stagedAdded = added;
+            found->second->stagedRemoved = removed;
+        } else {
+            found->second->unstagedAdded = added;
+            found->second->unstagedRemoved = removed;
+        }
+    }
+    return {};
+}
+
+/// Counts the lines of every untracked entry by reading the file.
+///
+/// `git diff` cannot see an untracked path -- it is in neither the index nor
+/// HEAD -- so neither numstat pass reports one, and without this an entire
+/// newly-added file would render with no size at all, which is the commonest
+/// case in the unstaged column.
+///
+/// Three ways a file gets no count rather than a wrong one, all landing as 0:
+/// it is binary (detectTextTraits()'s NUL-byte test, the same one the conflict
+/// surfaces use), it is over [kUntrackedLineCountByteCap], or it could not be
+/// read at all (deleted between the status read and here, or unreadable).
+///
+/// [cache] turns the second and every later refresh of an unedited file into
+/// the stat this loop already performs; see [UntrackedLineCountCache] for what
+/// its key is and why nothing invalidates it from outside.
+void countUntrackedLines(const RepoPaths& paths,
+                         std::vector<WorkingCopyEntry>& entries,
+                         UntrackedLineCountCache& cache) {
+    if (paths.isBare()) {
+        return;
+    }
+
+    // Read once, before the first file is stat()ed, so that every file this
+    // pass caches is compared against a moment that is already in the past by
+    // the time the comparison happens. Reading it per file would let a file
+    // edited *during* the pass still look strictly older than its own check.
+    const std::filesystem::file_time_type passStartedAt =
+        std::filesystem::file_time_type::clock::now();
+
+    std::unordered_set<std::string> live;
+
+    for (WorkingCopyEntry& entry : entries) {
+        if (!entry.untracked) {
+            continue;
+        }
+        live.insert(entry.path);
+
+        const std::filesystem::path file =
+            paths.workDir() /
+            std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(entry.path.data()),
+                                                entry.path.size()));
+
+        std::error_code ec;
+        const std::uintmax_t size = std::filesystem::file_size(file, ec);
+        if (ec || size > kUntrackedLineCountByteCap) {
+            continue;
+        }
+        const auto modified = std::filesystem::last_write_time(file, ec);
+        if (ec) {
+            continue;
+        }
+
+        const UntrackedLineCountCache::Stat stat{size, modified};
+        if (const std::optional<std::uint32_t> remembered = cache.lookup(entry.path, stat)) {
+            entry.unstagedAdded = *remembered;
+            entry.unstagedRemoved = 0;
+            continue;
+        }
+
+        std::ifstream in(file, std::ios::binary);
+        if (!in) {
+            continue;
+        }
+        std::string contents((std::istreambuf_iterator<char>(in)),
+                             std::istreambuf_iterator<char>());
+        // Cached as 0 rather than skipped: a binary file that stays binary
+        // would otherwise be read in full on every single refresh, which is
+        // the one case where the read is guaranteed to be wasted.
+        std::uint32_t lines = 0;
+        if (detectTextTraits(contents).encoding != EncodingKind::Binary) {
+            for (const char c : contents) {
+                if (c == '\n') {
+                    ++lines;
+                }
+            }
+            // A final line with no trailing newline still counts, the same way
+            // `git diff --numstat` counts it once the file is tracked.
+            if (!contents.empty() && contents.back() != '\n') {
+                ++lines;
+            }
+        }
+
+        cache.store(entry.path, stat, lines, passStartedAt);
+        entry.unstagedAdded = lines;
+        entry.unstagedRemoved = 0;
+    }
+
+    cache.retainOnly(live);
+}
+
 }  // namespace
+
+std::optional<std::uint32_t> UntrackedLineCountCache::lookup(const std::string& path,
+                                                             const Stat& stat) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto found = entries_.find(path);
+    if (found == entries_.end() || !(found->second.stat == stat)) {
+        ++misses_;
+        return std::nullopt;
+    }
+    ++hits_;
+    return found->second.lines;
+}
+
+void UntrackedLineCountCache::store(const std::string& path,
+                                    const Stat& stat,
+                                    std::uint32_t lines,
+                                    std::filesystem::file_time_type passStartedAt) {
+    // git's "racily clean" rule. A file whose mtime is not strictly older than
+    // the start of this pass may have been written again after this pass read
+    // it, and the two writes are indistinguishable through a timestamp of that
+    // resolution. Declining to remember it costs one more read next refresh;
+    // remembering it would pin a wrong number until the file is edited again.
+    if (!(stat.modified < passStartedAt)) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    entries_[path] = Entry{stat, lines};
+}
+
+void UntrackedLineCountCache::retainOnly(const std::unordered_set<std::string>& live) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (auto it = entries_.begin(); it != entries_.end();) {
+        it = live.count(it->first) == 0 ? entries_.erase(it) : std::next(it);
+    }
+}
+
+std::size_t UntrackedLineCountCache::hits() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return hits_;
+}
+
+std::size_t UntrackedLineCountCache::misses() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return misses_;
+}
+
+std::size_t UntrackedLineCountCache::size() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return entries_.size();
+}
 
 std::vector<const WorkingCopyEntry*> WorkingCopyStatus::staged() const {
     std::vector<const WorkingCopyEntry*> result;
@@ -232,6 +498,26 @@ GitResult<WorkingCopyStatusPtr> WorkingCopyStatusReader::read(CancellationToken 
         // anything else unrecognised: skip rather than guess.
         ++i;
     }
+
+    // The line counts spec page 03's badges need. Both numstat passes run even
+    // when one side is empty -- deciding from the status flags which pass to
+    // skip would make the counts depend on a second reading of the same data,
+    // and the cost of a diff over an unchanged side is a git process that
+    // prints nothing.
+    //
+    // A numstat failure fails the whole read rather than silently returning
+    // entries with no counts: a file list with no badges is indistinguishable
+    // from a repository where nothing changed size, so a swallowed error here
+    // would surface as a UI that is quietly wrong rather than one that says so.
+    if (auto counts = attachNumstat(runner_, paths_, /*staged=*/false, status->entries, token);
+        !counts) {
+        return fail(std::move(counts).error());
+    }
+    if (auto counts = attachNumstat(runner_, paths_, /*staged=*/true, status->entries, token);
+        !counts) {
+        return fail(std::move(counts).error());
+    }
+    countUntrackedLines(paths_, status->entries, untrackedLineCounts_);
 
     return WorkingCopyStatusPtr(status);
 }

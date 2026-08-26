@@ -213,6 +213,28 @@ class _StatusBarState extends State<StatusBar> {
                             color: colors.textPrimary,
                           ),
                         ),
+                        // RepoState.describe used to be rendered by TopBar,
+                        // which this round deletes. It is empty for an
+                        // ordinary repository, so this adds no noise -- it
+                        // is non-empty only for a sequencer operation or,
+                        // crucially, for `indexLocked` ("another Git process
+                        // appears to be running"). The conflict branch above
+                        // covers the sequencer half already, but nothing in
+                        // the window covered index-locked: ConflictBanner
+                        // renders on conflictActive, which indexLocked does
+                        // not set. Deleting TopBar without this would have
+                        // dropped that signal silently.
+                        if (widget.repoState?.describe case final String label
+                            when label.isNotEmpty) ...<Widget>[
+                          const SizedBox(width: GbmSpacing.space2),
+                          Text(
+                            label,
+                            style: TextStyle(
+                              fontSize: GbmTypography.textXs,
+                              color: colors.warning,
+                            ),
+                          ),
+                        ],
                         if (widget.upstreamGone) ...<Widget>[
                           const SizedBox(width: GbmSpacing.space2),
                           Text(

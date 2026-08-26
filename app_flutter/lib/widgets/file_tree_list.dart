@@ -16,9 +16,6 @@ typedef FileTreeListItemBuilder =
       VoidCallback? onFolderToggle,
     );
 
-/// Callback for when a folder's checkbox state changes.
-typedef OnFolderCheckStateChanged = void Function(String folderPath);
-
 /// A widget that renders a file tree in either list mode (flat) or tree mode
 /// (hierarchical with collapsible folders).
 ///
@@ -29,9 +26,7 @@ class FileTreeList extends StatefulWidget {
   const FileTreeList({
     required this.fileTree,
     required this.mode,
-    required this.selectedPaths,
     required this.onItemBuilder,
-    required this.onFolderCheckStateChanged,
     this.expandedFolders = const {},
     super.key,
   });
@@ -42,17 +37,10 @@ class FileTreeList extends StatefulWidget {
   /// Current view mode: list (flat) or tree (hierarchical).
   final FileListViewMode mode;
 
-  /// Set of currently selected file paths (for checkbox/highlight logic).
-  final Set<String> selectedPaths;
-
   /// Builder callback for rendering each node.
   /// The callback receives the node, indentation level, and optionally
   /// a folder toggle callback for collapsible behavior.
   final FileTreeListItemBuilder onItemBuilder;
-
-  /// Callback when a folder's checkbox state changes.
-  /// Receives the folder's displayPath.
-  final OnFolderCheckStateChanged onFolderCheckStateChanged;
 
   /// Set of folder paths that are currently expanded (tree mode).
   final Set<String> expandedFolders;

@@ -1,10 +1,12 @@
-/// Three-state checkbox states for file tree nodes.
-enum CheckState { unchecked, indeterminate, checked }
-
 /// Represents a single node in the file tree.
 ///
 /// A node can be a file or directory. Directory nodes can have children.
 /// Single-child folders are automatically collapsed during tree construction.
+///
+/// A tri-state `CheckState` and a `getCheckState()` on both this and [FileTree]
+/// were deleted along with the Working Copy board's checkboxes: no surface
+/// under `lib/` ever called either one. [getAllLeafPaths] stayed, because the
+/// board's folder drag really does need every leaf under a folder.
 class FileTreeNode {
   /// Creates a file tree node.
   const FileTreeNode({
@@ -28,29 +30,6 @@ class FileTreeNode {
 
   /// The child nodes of this node (empty if this is a file).
   final List<FileTreeNode> children;
-
-  /// Calculates the three-state checkbox state for this node.
-  ///
-  /// Returns:
-  /// - [CheckState.unchecked] if no descendants are in [selected]
-  /// - [CheckState.checked] if all descendants are in [selected]
-  /// - [CheckState.indeterminate] if some but not all descendants are in [selected]
-  CheckState getCheckState(Set<String> selected) {
-    final leaves = getAllLeafPaths();
-    if (leaves.isEmpty) {
-      return CheckState.unchecked;
-    }
-
-    final checkedCount = leaves.where((path) => selected.contains(path)).length;
-
-    if (checkedCount == 0) {
-      return CheckState.unchecked;
-    } else if (checkedCount == leaves.length) {
-      return CheckState.checked;
-    } else {
-      return CheckState.indeterminate;
-    }
-  }
 
   /// Returns all leaf (file) paths under this node.
   ///
@@ -103,24 +82,6 @@ class FileTree {
     final displayedChildren = _buildDisplayNodes(rootChildren);
 
     return FileTree(children: displayedChildren);
-  }
-
-  /// Calculates the three-state checkbox state for the entire tree.
-  CheckState getCheckState(Set<String> selected) {
-    final leaves = getAllLeafPaths();
-    if (leaves.isEmpty) {
-      return CheckState.unchecked;
-    }
-
-    final checkedCount = leaves.where((path) => selected.contains(path)).length;
-
-    if (checkedCount == 0) {
-      return CheckState.unchecked;
-    } else if (checkedCount == leaves.length) {
-      return CheckState.checked;
-    } else {
-      return CheckState.indeterminate;
-    }
   }
 
   /// Returns all leaf (file) paths in this tree.

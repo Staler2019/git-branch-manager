@@ -5,6 +5,9 @@ import 'package:go_router/go_router.dart';
 
 import '../../actions/gbm_action_availability.dart';
 import '../../actions/gbm_action_id.dart';
+import '../../data/models/commit_meta.dart';
+import '../../data/models/git_error.dart';
+import '../../data/models/parsed_diff.dart';
 import '../../data/models/working_copy_status.dart';
 import '../../data/repositories/file_list_view_mode_repository.dart';
 import '../../data/repositories/panel_tabs_repository.dart';
@@ -15,7 +18,8 @@ import '../../data/repositories/repo_session_repository.dart'
         RepoSessionController,
         RepoSessionState,
         WorkingCopyDiffReply,
-        repoSessionProvider;
+        repoSessionProvider,
+        workingCopyDiffKey;
 import '../../data/repositories/working_copy_draft_repository.dart';
 import '../../data/repositories/working_copy_repository.dart' as wc;
 import '../../data/services/desktop_launcher.dart';
@@ -26,11 +30,12 @@ import '../../widgets/gbm_badge.dart' show GbmBadge, GbmBadgeKind;
 import '../../widgets/gbm_button.dart';
 import '../../widgets/gbm_menu.dart';
 import '../../widgets/split_pane.dart';
-import '../diff/diff_page.dart';
-import '../diff/side_by_side_diff_view.dart';
+import '../diff/temporary_scope_provider.dart';
 import '../workspace/workspace_screen.dart' show repoIdForRoute;
+import 'working_copy_file_identity.dart';
 import 'widgets/commit_message_box.dart';
 import 'widgets/working_copy_board.dart';
+import 'widgets/working_copy_diff_pane.dart';
 import 'widgets/working_copy_file_menu_items.dart';
 
 /// Changed-file list (staged/unstaged/untracked) + diff pane + commit box.
@@ -42,7 +47,12 @@ import 'widgets/working_copy_file_menu_items.dart';
 /// - Commit message draft: [workingCopyDraftProvider] (survives tab switches)
 /// - Diff scroll position: [workingCopyDraftProvider] (survives tab switches)
 /// - Display mode (List/Tree): [fileListViewModeProvider] (global, all views)
-/// - Tree-mode expanded folders: local Widget state (per-view)
+/// - Tree-mode expanded folders: owned by [FileTreeList] itself, like every
+///   other tree-mode file list
+/// Wide enough for `Cancel amend` at the button font, and fixed so the
+/// message box's width does not change when the mode does.
+const double _kCommitButtonColumnWidth = 132;
+
 class WorkingCopyView extends ConsumerStatefulWidget {
   const WorkingCopyView({super.key, required this.identity});
 
@@ -54,14 +64,25 @@ class WorkingCopyView extends ConsumerStatefulWidget {
 
 class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
   String? _selectedPath;
-  bool _selectedStaged = false;
-  // Side-by-side is read-only here, mirroring Qt's own WorkingCopyView --
-  // see side_by_side_diff_view.dart's doc comment.
-  bool _sideBySide = false;
+
+  /// HEAD's oid at the moment a commit was submitted, or null when none is
+  /// outstanding.
+  ///
+  /// The draft is cleared when HEAD moves off it, **not** when the button is
+  /// pressed. Clearing on press is what the box used to do, and a commit
+  /// that failed -- nothing staged, a rejecting hook, a bad identity -- took
+  /// the message with it; now that the message is also on disk, that would
+  /// have destroyed the saved copy too.
+  String? _pendingCommitFrom;
+
+  /// The oid whose message has already been pulled into the box for
+  /// amending, so a rebuild does not overwrite the user's edits with HEAD's
+  /// original text every time the cache is touched.
+  String? _amendPrefilledFor;
+
   late TextEditingController _summaryController;
   late TextEditingController _descriptionController;
   late ScrollController _diffScrollController;
-  late Set<String> _expandedFolders;
 
   @override
   void initState() {
@@ -73,7 +94,6 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     _diffScrollController = ScrollController(
       initialScrollOffset: draft.diffScrollOffset,
     )..addListener(_onDiffScroll);
-    _expandedFolders = <String>{};
   }
 
   @override
@@ -115,8 +135,8 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     final WorkingCopyStatus status = ref.watch(
       wc.repoWorkingCopyStatusProvider(widget.identity),
     );
-    final WorkingCopyDiffReply? diffReply = ref.watch(
-      wc.repoLastDiffProvider(widget.identity),
+    final Map<String, WorkingCopyDiffReply> diffs = ref.watch(
+      wc.repoWorkingCopyDiffsProvider(widget.identity),
     );
     final FileListViewMode viewMode = ref.watch(fileListViewModeProvider);
     final GbmColors colors = context.gbmColors;
@@ -134,18 +154,13 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     // whole-file stage/unstage too, which has the same staleness).
     ref.listen(wc.repoWorkingCopyStatusProvider(widget.identity), (
       previous,
-      next,
+      WorkingCopyStatus next,
     ) {
-      final String? path = _selectedPath;
-      if (path != null) {
-        wc.requestWorkingCopyDiff(
-          ref,
-          widget.identity,
-          path,
-          staged: _selectedStaged,
-        );
-      }
+      _requestBothSides(next);
     });
+
+    _watchCommitOutcome();
+    _watchAmendPrefill(session);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -169,7 +184,7 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
                 viewMode: viewMode,
               ),
               // Diff pane
-              _buildDiffPane(context, status: status, diffReply: diffReply),
+              _buildDiffPane(context, status: status, diffs: diffs),
             ],
           ),
         ),
@@ -294,7 +309,9 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
                 ),
               ),
               const SizedBox(width: GbmSpacing.space2),
-              _MiniButton(
+              GbmButton(
+                kind: GbmButtonKind.secondary,
+                size: GbmButtonSize.sm,
                 label: 'Take Ours',
                 onPressed: () {
                   notifier.resolveConflict(
@@ -305,7 +322,9 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
                 },
               ),
               const SizedBox(width: GbmSpacing.space1),
-              _MiniButton(
+              GbmButton(
+                kind: GbmButtonKind.secondary,
+                size: GbmButtonSize.sm,
                 label: 'Take Theirs',
                 onPressed: () {
                   notifier.resolveConflict(
@@ -316,7 +335,9 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
                 },
               ),
               const SizedBox(width: GbmSpacing.space1),
-              _MiniButton(
+              GbmButton(
+                kind: GbmButtonKind.secondary,
+                size: GbmButtonSize.sm,
                 label: 'Mark Resolved',
                 onPressed: () {
                   notifier.resolveConflict(
@@ -350,18 +371,14 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
       unstagedEntries: unstagedAndUntracked,
       stagedEntries: status.staged,
       mode: viewMode,
-      expandedFolders: _expandedFolders,
-      onFileActivated: (path, fromStaged) {
-        setState(() {
-          _selectedPath = path;
-          _selectedStaged = fromStaged;
-        });
-        wc.requestWorkingCopyDiff(
-          ref,
-          widget.identity,
-          path,
-          staged: fromStaged,
-        );
+      // `fromStaged` says which column was clicked, which no longer selects
+      // anything: the pane below draws both sides of the file at once, so
+      // there is no "side I am looking at" left to record. The board still
+      // reports it because its own row context menu (05-F) needs to know
+      // whether the row it was opened on can be staged or unstaged.
+      onFileActivated: (String path, bool fromStaged) {
+        setState(() => _selectedPath = path);
+        _requestBothSides(status);
       },
       onStageRequested: (paths) {
         wc.stageFiles(ref, widget.identity, paths);
@@ -390,7 +407,7 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
   Widget _buildDiffPane(
     BuildContext context, {
     required WorkingCopyStatus status,
-    required WorkingCopyDiffReply? diffReply,
+    required Map<String, WorkingCopyDiffReply> diffs,
   }) {
     final GbmColors colors = context.gbmColors;
 
@@ -403,87 +420,145 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
       );
     }
 
-    if (diffReply == null ||
-        diffReply.path != _selectedPath ||
-        diffReply.staged != _selectedStaged) {
-      return const Center(child: CircularProgressIndicator());
-    }
+    final ({String? unstaged, String? staged}) sides = _selectedSides(status);
+    final WorkingCopyDiffReply? unstagedReply = sides.unstaged == null
+        ? null
+        : diffs[workingCopyDiffKey(sides.unstaged!, staged: false)];
+    final WorkingCopyDiffReply? stagedReply = sides.staged == null
+        ? null
+        : diffs[workingCopyDiffKey(sides.staged!, staged: true)];
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        // Side-by-side toggle
-        if (_selectedPath != null)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: <Widget>[
-                Checkbox(
-                  value: _sideBySide,
-                  onChanged: (value) =>
-                      setState(() => _sideBySide = value ?? false),
-                  visualDensity: VisualDensity.compact,
-                ),
-                Text(
-                  'Side by side',
-                  style: TextStyle(
-                    fontSize: GbmTypography.textSm,
-                    color: colors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        // Diff view
-        Expanded(
-          child: _sideBySide
-              ? SideBySideDiffView(diff: diffReply.diff)
-              : DiffPage(
-                  diff: diffReply.diff,
-                  staged: _selectedStaged,
-                  scrollController: _diffScrollController,
-                  onStageHunk: (_, hunkIndex) {
-                    final RepoSessionController notifier = ref.read(
-                      repoSessionProvider(widget.identity).notifier,
-                    );
-                    if (_selectedStaged) {
-                      notifier.unstageHunk(_selectedPath!, hunkIndex);
-                    } else {
-                      notifier.stageHunk(_selectedPath!, hunkIndex);
-                    }
-                  },
-                  onStageLines: (_, hunkIndex, lineIndices) {
-                    final RepoSessionController notifier = ref.read(
-                      repoSessionProvider(widget.identity).notifier,
-                    );
-                    if (_selectedStaged) {
-                      notifier.unstageLines(
-                        _selectedPath!,
-                        hunkIndex,
-                        lineIndices,
-                      );
-                    } else {
-                      notifier.stageLines(
-                        _selectedPath!,
-                        hunkIndex,
-                        lineIndices,
-                      );
-                    }
-                  },
-                  // Only on the unstaged side: discarding rewrites the work
-                  // tree, which a staged-side line has nothing to do with.
-                  // Never calls discardLines straight -- spec page 06
-                  // requires the confirmation dialog first.
-                  onDiscardLines: _selectedStaged
-                      ? null
-                      : (_, hunkIndex, lineIndices) =>
-                            _discardLines(hunkIndex, lineIndices),
-                ),
-        ),
-      ],
+    return WorkingCopyDiffPane(
+      // Two paths when a rename is half-staged: the work tree still calls it
+      // the old name while the index already calls it the new one, and
+      // showing only one of them would make the pane look like it is
+      // describing a file the board is not selecting.
+      displayPath: _displayPath(sides),
+      unstagedFile: _fileOf(unstagedReply),
+      stagedFile: _fileOf(stagedReply),
+      // Pending means the side exists but its reply has not landed. A side
+      // that does not exist at all is not loading; it is empty, and
+      // ScopedDiffView says so.
+      unstagedLoading: sides.unstaged != null && unstagedReply == null,
+      stagedLoading: sides.staged != null && stagedReply == null,
+      scrollController: _diffScrollController,
+      onStageScope: (bool staged, int hunkIndex, List<int> lineIndices) {
+        final String? path = staged ? sides.staged : sides.unstaged;
+        if (path == null) return;
+        final RepoSessionController notifier = ref.read(
+          repoSessionProvider(widget.identity).notifier,
+        );
+        if (staged) {
+          notifier.unstageLines(path, hunkIndex, lineIndices);
+        } else {
+          notifier.stageLines(path, hunkIndex, lineIndices);
+        }
+      },
+      onDiscardScope: (int hunkIndex, List<int> lineIndices) =>
+          _discardLines(hunkIndex, lineIndices),
+      // Already inside a post-frame callback when it arrives (see
+      // ScopedDiffView.onTemporaryScopeChanged), so this is not a provider
+      // write from build().
+      onTemporaryScopeChanged: (void Function()? submit) {
+        ref.read(temporaryScopeSubmitProvider.notifier).state = submit;
+      },
     );
   }
+
+  /// What the diff titlebar names for the current selection.
+  String _displayPath(({String? unstaged, String? staged}) sides) {
+    final String? unstaged = sides.unstaged;
+    final String? staged = sides.staged;
+    if (unstaged != null && staged != null && unstaged != staged) {
+      return '$unstaged \u2192 $staged';
+    }
+    return unstaged ?? staged ?? _selectedPath ?? '';
+  }
+
+  /// A working-copy diff describes exactly one path, because the request
+  /// that produced it named one path -- so the reply's single file is the
+  /// whole of it, and an empty `files` means git reported no change on that
+  /// side rather than an error.
+  DiffFile? _fileOf(WorkingCopyDiffReply? reply) =>
+      reply == null || reply.diff.files.isEmpty ? null : reply.diff.files.first;
+
+  /// The path each column uses for the selected file, which is **not**
+  /// always the same string: a staged rename is `new` on the staged side
+  /// while the work tree still talks about `old`. Both are resolved through
+  /// [logicalFileKey], the one definition of "the same file" the board's
+  /// selection also uses.
+  ({String? unstaged, String? staged}) _selectedSides(
+    WorkingCopyStatus status,
+  ) {
+    final String? path = _selectedPath;
+    if (path == null) return (unstaged: null, staged: null);
+
+    String? keyOf(List<WorkingCopyEntry> side) {
+      for (final WorkingCopyEntry entry in side) {
+        if (entry.path == path) return logicalFileKey(entry);
+      }
+      return null;
+    }
+
+    final String key =
+        keyOf(status.entries) ?? logicalFileKey(_syntheticEntry(path));
+
+    String? pathIn(List<WorkingCopyEntry> side) {
+      for (final WorkingCopyEntry entry in side) {
+        if (logicalFileKey(entry) == key) return entry.path;
+      }
+      return null;
+    }
+
+    return (
+      unstaged: pathIn(<WorkingCopyEntry>[
+        ...status.unstaged,
+        ...status.untrackedFiles,
+      ]),
+      staged: pathIn(status.staged),
+    );
+  }
+
+  /// Fires one diff request per side of the selected file.
+  ///
+  /// Both, not just the side that was clicked: spec page 03 shows the
+  /// unstaged and the staged diff of one file at the same time, and each
+  /// side has to be asked for under its own path. A single request is why
+  /// the pane used to go stale on whichever side the user was not looking
+  /// at when a line was staged.
+  void _requestBothSides(WorkingCopyStatus status) {
+    final ({String? unstaged, String? staged}) sides = _selectedSides(status);
+    if (sides.unstaged case final String path) {
+      wc.requestWorkingCopyDiff(ref, widget.identity, path, staged: false);
+    }
+    if (sides.staged case final String path) {
+      wc.requestWorkingCopyDiff(ref, widget.identity, path, staged: true);
+    }
+  }
+
+  /// A stand-in for a path that is no longer in the status at all (the file
+  /// was staged away between the click and this rebuild). It keys to the
+  /// path itself, so both lookups above simply come back null.
+  WorkingCopyEntry _syntheticEntry(String path) => WorkingCopyEntry(
+    path: path,
+    oldPath: '',
+    untracked: false,
+    staged: false,
+    indexStatus: FileChangeKind.modified,
+    hasUnstagedChange: false,
+    worktreeStatus: FileChangeKind.modified,
+    unstagedAdded: 0,
+    unstagedRemoved: 0,
+    stagedAdded: 0,
+    stagedRemoved: 0,
+    conflict: ConflictKind.none,
+    ancestorBlob: '',
+    oursBlob: '',
+    theirsBlob: '',
+    similarity: 0,
+    isSubmodule: false,
+    isConflicted: false,
+  );
 
   /// Builds the commit message box.
   Widget _buildCommitBox(
@@ -496,9 +571,19 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
         _summaryController.text.trim().isNotEmpty &&
         isActionEnabled(GbmActionId.repositoryCommit, session);
 
+    final WorkingCopyDraft draft = ref.watch(
+      workingCopyDraftProvider(widget.identity),
+    );
+
     return Padding(
       padding: const EdgeInsets.all(GbmSpacing.space3),
-      child: Column(
+      // Buttons in a fixed-width column at the right of the fields, which is
+      // where spec P03's mockup draws them. The width is explicit and the
+      // fields are Expanded rather than the other way round: RenderFlex lays
+      // its non-flex children out first and divides only what is left, so a
+      // button column that sized itself to its labels would decide how much
+      // of the row the message box gets.
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           Expanded(
@@ -517,57 +602,139 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
               },
             ),
           ),
-          const SizedBox(height: GbmSpacing.space2),
-          Row(
-            children: <Widget>[
-              GbmButton(
-                label: 'Commit',
-                kind: GbmButtonKind.primary,
-                onPressed: canCommit ? () => _onCommit() : null,
-              ),
-              const SizedBox(width: GbmSpacing.space2),
-              GbmButton(
-                label: 'Amend',
-                kind: GbmButtonKind.secondary,
-                onPressed: canCommit ? () => _onAmend() : null,
-              ),
-            ],
+          const SizedBox(width: GbmSpacing.space2),
+          SizedBox(
+            width: _kCommitButtonColumnWidth,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                if (draft.amending) ...<Widget>[
+                  GbmButton(
+                    label: 'Amend',
+                    kind: GbmButtonKind.primary,
+                    onPressed: canCommit ? () => _onSubmit(amend: true) : null,
+                  ),
+                  const SizedBox(height: GbmSpacing.space2),
+                  GbmButton(
+                    label: 'Cancel amend',
+                    kind: GbmButtonKind.ghost,
+                    onPressed: _onCancelAmend,
+                  ),
+                ] else ...<Widget>[
+                  GbmButton(
+                    label: 'Commit',
+                    kind: GbmButtonKind.primary,
+                    onPressed: canCommit ? () => _onSubmit(amend: false) : null,
+                  ),
+                  const SizedBox(height: GbmSpacing.space2),
+                  // Enters the mode; it does not amend. The box has to show
+                  // what is about to be rewritten before there is anything
+                  // to press Amend on.
+                  GbmButton(
+                    label: 'Amend…',
+                    kind: GbmButtonKind.secondary,
+                    onPressed:
+                        isActionEnabled(
+                          GbmActionId.repositoryAmendLastCommit,
+                          session,
+                        )
+                        ? () => wc.beginAmendMode(ref, widget.identity)
+                        : null,
+                  ),
+                ],
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 
-  /// Commits changes with the current message.
-  void _onCommit() {
-    final message = _summaryController.text.trim();
-    final description = _descriptionController.text.trim();
-    final fullMessage = description.isEmpty
-        ? message
-        : '$message\n\n$description';
-
-    wc.commitChanges(ref, widget.identity, fullMessage);
-
-    // Reset draft immediately (success confirmation arrives async)
-    _summaryController.clear();
-    _descriptionController.clear();
-    ref.read(workingCopyDraftProvider(widget.identity).notifier).reset();
+  /// Clears the box once HEAD has actually moved off where it was when the
+  /// commit was submitted.
+  ///
+  /// A commit -- amend included -- always produces a new oid, so HEAD moving
+  /// is the success signal, and no capi addition is needed to get one.
+  void _watchCommitOutcome() {
+    ref.listen(
+      repoSessionProvider(widget.identity).select((s) => s.refs.head.target),
+      (String? previous, String next) {
+        // No `next != _pendingCommitFrom` check: `select` only notifies when
+        // the selected value actually changes, so arriving here already
+        // means HEAD moved. Status refreshes republish the session
+        // constantly during a commit and must not be mistaken for one.
+        if (_pendingCommitFrom == null) return;
+        _pendingCommitFrom = null;
+        _summaryController.clear();
+        _descriptionController.clear();
+        ref.read(workingCopyDraftProvider(widget.identity).notifier).reset();
+      },
+    );
+    // Any error cancels the wait. **Not attributed to the commit** -- a
+    // fetch failing mid-commit cancels it too, and this repo's own rule is
+    // that "the next event is mine" is never a safe attribution. The
+    // reduction is deliberate and fail-safe in the direction that matters:
+    // the cost of a false cancel is a message that outlives a commit that
+    // did succeed, while the cost of not cancelling is clearing a message
+    // the user wrote *after* a failure, when some later checkout moves HEAD.
+    ref.listen<GitError?>(
+      repoSessionProvider(widget.identity).select((s) => s.lastError),
+      (GitError? previous, GitError? next) {
+        if (next != null) _pendingCommitFrom = null;
+      },
+    );
   }
 
-  /// Amends the last commit with the current message.
-  void _onAmend() {
-    final message = _summaryController.text.trim();
-    final description = _descriptionController.text.trim();
-    final fullMessage = description.isEmpty
-        ? message
-        : '$message\n\n$description';
+  /// Pulls HEAD's message into the box once it arrives, exactly once per oid.
+  void _watchAmendPrefill(RepoSessionState session) {
+    final WorkingCopyDraft draft = ref.watch(
+      workingCopyDraftProvider(widget.identity),
+    );
+    if (!draft.amending) {
+      _amendPrefilledFor = null;
+      return;
+    }
+    final String head = session.refs.head.target;
+    if (head.isEmpty || _amendPrefilledFor == head) return;
+    final CommitMeta? meta = session.commitMetaCache[head];
+    if (meta == null) return;
 
-    wc.commitChanges(ref, widget.identity, fullMessage, amend: true);
+    _amendPrefilledFor = head;
+    // Post-frame: this runs from build(), and both the controllers and the
+    // draft provider are written here.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _summaryController.text = meta.subject;
+      _descriptionController.text = meta.body;
+      ref
+          .read(workingCopyDraftProvider(widget.identity).notifier)
+          .applyAmendedMessage(summary: meta.subject, description: meta.body);
+    });
+  }
 
-    // Reset draft immediately (success confirmation arrives async)
-    _summaryController.clear();
-    _descriptionController.clear();
-    ref.read(workingCopyDraftProvider(widget.identity).notifier).reset();
+  void _onCancelAmend() {
+    final WorkingCopyDraftController notifier = ref.read(
+      workingCopyDraftProvider(widget.identity).notifier,
+    );
+    notifier.cancelAmend();
+    final WorkingCopyDraft restored = ref.read(
+      workingCopyDraftProvider(widget.identity),
+    );
+    _summaryController.text = restored.summary;
+    _descriptionController.text = restored.description;
+    _amendPrefilledFor = null;
+  }
+
+  /// Submits, through the one shared entry point the menu and the shortcut
+  /// also use.
+  void _onSubmit({required bool amend}) {
+    final String from = ref
+        .read(repoSessionProvider(widget.identity))
+        .refs
+        .head
+        .target;
+    if (!wc.submitCommit(ref, widget.identity, amend: amend)) return;
+    _pendingCommitFrom = from;
   }
 
   /// Context menu 05-F for a working-copy file.
@@ -687,43 +854,6 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
         path: _selectedPath!,
         hunkIndex: hunkIndex,
         lineIndices: lineIndices,
-      ),
-    );
-  }
-}
-
-/// Compact button widget for conflict resolution actions.
-class _MiniButton extends StatelessWidget {
-  const _MiniButton({required this.label, required this.onPressed});
-
-  final String label;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final GbmColors colors = context.gbmColors;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onPressed,
-        child: Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: GbmSpacing.space2,
-            vertical: GbmSpacing.space1,
-          ),
-          decoration: BoxDecoration(
-            border: Border.all(color: colors.borderDefault),
-            borderRadius: const BorderRadius.all(Radius.circular(4)),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: GbmTypography.textXs,
-              color: colors.textPrimary,
-            ),
-          ),
-        ),
       ),
     );
   }

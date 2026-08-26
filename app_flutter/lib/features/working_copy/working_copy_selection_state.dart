@@ -1,19 +1,34 @@
-import '../../data/models/file_tree.dart';
-
-/// Manages selection state for files in a single column (unstaged/staged).
+/// Manages the Working Copy board's file selection.
 ///
 /// This is a pure immutable Dart class that does not depend on Flutter or Riverpod,
 /// making it easy to test in isolation. Every operation returns a new instance;
 /// never mutates in place.
 ///
-/// Supports seven selection scopes:
+/// **One instance covers both columns.** The identifiers it holds are logical
+/// file keys (`working_copy_file_identity.dart`), not raw paths, so a file
+/// that exists on both sides is one entry in [selected] and lights up in both
+/// places. [allPaths] is the *one column* a click is being applied to, in the
+/// order that column paints its rows -- range selection only means anything
+/// within a single list, so the caller re-points it with [withOrder] before
+/// each click.
+///
+/// Selection scopes it implements (spec P13 `MULTIKEYS`):
 /// - Single file: [selectSinglePath], plain click
 /// - Multiple non-contiguous: [togglePath], Ctrl/Cmd+click
 /// - Contiguous range: [shiftSelectPath], Shift+click
-/// - Entire column: [selectAll]/[deselectAll]/[toggleSelectAll], header checkbox
-/// - Folder (tree mode only): [selectPaths]/[deselectPaths], folder checkbox
-/// - Hunk: delegated to diff pane
-/// - Arbitrary contiguous lines: delegated to diff pane
+/// - Extend a range: [shiftControlSelectPath], Shift+Ctrl/Cmd+click
+///
+/// Whole-column and whole-folder selection are absent on purpose: both were
+/// checkbox-only in the spec, and the board has no checkboxes (see
+/// `working_copy_board.dart`). Hunk and line scopes belong to the diff pane.
+///
+/// `selectAll`/`deselectAll`/`toggleSelectAll`/`selectPaths`/`deselectPaths`
+/// and a tri-state `getCheckState` used to live here and were deleted rather
+/// than left for a future caller: every one of them was written for the
+/// checkbox column that the board no longer has, and none had a caller under
+/// `lib/` -- only tests, which is orphan wiring with a green tick on it. The
+/// `Ctrl/Cmd+A` that P13 `MULTIKEYS` does ask for is a *different* thing and
+/// belongs to whichever list holds focus, not to a column-wide method here.
 class WorkingCopySelectionState {
   /// Creates a new selection state.
   const WorkingCopySelectionState({
@@ -31,6 +46,20 @@ class WorkingCopySelectionState {
   /// The last clicked path, used as anchor for Shift+click ranges.
   /// Set by plain click and Ctrl/Cmd+click; unchanged by Shift+click.
   final String? lastClickedPath;
+
+  /// Re-points [allPaths] at the column a click is about to land in, keeping
+  /// [selected] and the anchor untouched.
+  ///
+  /// Unlike [syncWithPaths] this prunes nothing: the keys selected in the
+  /// *other* column are still selected, they simply are not part of this
+  /// column's range arithmetic.
+  WorkingCopySelectionState withOrder(List<String> orderedPaths) {
+    return WorkingCopySelectionState(
+      allPaths: orderedPaths,
+      selected: selected,
+      lastClickedPath: lastClickedPath,
+    );
+  }
 
   /// Single click: replace selection with this one file, update anchor.
   WorkingCopySelectionState selectSinglePath(String path) {
@@ -74,7 +103,13 @@ class WorkingCopySelectionState {
     final anchorIndex = allPaths.indexOf(anchor);
     final pathIndex = allPaths.indexOf(path);
 
-    if (anchorIndex < 0 || pathIndex < 0) return this;
+    // An anchor set in the *other* column is not in this column's order, so
+    // there is no range to span. Falling back to a plain click is what the
+    // no-anchor branch above already does; returning `this` instead would
+    // make Shift+click after a click on the other side do nothing at all,
+    // with nothing on screen to explain why.
+    if (anchorIndex < 0) return selectSinglePath(path);
+    if (pathIndex < 0) return this;
 
     final start = anchorIndex < pathIndex ? anchorIndex : pathIndex;
     final end = anchorIndex > pathIndex ? anchorIndex : pathIndex;
@@ -105,7 +140,11 @@ class WorkingCopySelectionState {
     final anchorIndex = allPaths.indexOf(anchor);
     final pathIndex = allPaths.indexOf(path);
 
-    if (anchorIndex < 0 || pathIndex < 0) return this;
+    // Same reasoning as [shiftSelectPath]: an anchor from the other column
+    // gives no range, so this degrades to the plain Ctrl/Cmd+click it is
+    // already holding down.
+    if (anchorIndex < 0) return togglePath(path);
+    if (pathIndex < 0) return this;
 
     final start = anchorIndex < pathIndex ? anchorIndex : pathIndex;
     final end = anchorIndex > pathIndex ? anchorIndex : pathIndex;
@@ -119,59 +158,6 @@ class WorkingCopySelectionState {
       allPaths: allPaths,
       selected: newSelected,
       lastClickedPath: anchor, // anchor unchanged
-    );
-  }
-
-  /// Select all files in the column.
-  WorkingCopySelectionState selectAll() {
-    return WorkingCopySelectionState(
-      allPaths: allPaths,
-      selected: allPaths.toSet(),
-      lastClickedPath: lastClickedPath,
-    );
-  }
-
-  /// Deselect all files in the column.
-  WorkingCopySelectionState deselectAll() {
-    return WorkingCopySelectionState(
-      allPaths: allPaths,
-      selected: const {},
-      lastClickedPath: lastClickedPath,
-    );
-  }
-
-  /// Toggle select-all: if nothing or partial is selected, select all.
-  /// If all are selected, deselect all.
-  WorkingCopySelectionState toggleSelectAll() {
-    final checkState = getCheckState();
-    if (checkState == CheckState.checked) {
-      return deselectAll();
-    } else {
-      return selectAll();
-    }
-  }
-
-  /// Add multiple paths to selection (for folder checkbox in tree mode).
-  WorkingCopySelectionState selectPaths(Iterable<String> paths) {
-    final valid = paths.where((p) => allPaths.contains(p));
-    if (valid.isEmpty) return this;
-    return WorkingCopySelectionState(
-      allPaths: allPaths,
-      selected: {...selected, ...valid},
-      lastClickedPath: lastClickedPath,
-    );
-  }
-
-  /// Remove multiple paths from selection.
-  WorkingCopySelectionState deselectPaths(Iterable<String> paths) {
-    final newSelected = {...selected};
-    for (final path in paths) {
-      newSelected.remove(path);
-    }
-    return WorkingCopySelectionState(
-      allPaths: allPaths,
-      selected: newSelected,
-      lastClickedPath: lastClickedPath,
     );
   }
 
@@ -192,22 +178,5 @@ class WorkingCopySelectionState {
       selected: prunedSelected,
       lastClickedPath: newAnchor,
     );
-  }
-
-  /// Get the three-state checkbox state for this column.
-  /// Uses [CheckState] from file_tree.dart for consistency with tree implementation.
-  CheckState getCheckState() {
-    if (allPaths.isEmpty) {
-      return CheckState.unchecked;
-    }
-
-    final selectedCount = selected.length;
-    if (selectedCount == 0) {
-      return CheckState.unchecked;
-    } else if (selectedCount == allPaths.length) {
-      return CheckState.checked;
-    } else {
-      return CheckState.indeterminate;
-    }
   }
 }

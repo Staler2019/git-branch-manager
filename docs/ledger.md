@@ -3807,6 +3807,376 @@ Shift+↑↓ 加的 `Focus` 節點在每次 pointerDown 都無條件 `requestFoc
 （`stage_lines_flow_test`）；主機層留下的是**能**被證偽的那個不變式：指標按著時
 不畫。
 
+### macOS 的 About 是原生面板，Help 的 Check for updates 是規格外的第五項 (fix/macos-about-dialog-parity)
+
+使用者的回報只有兩句：「macOS 上的 Help > About 樣式與 Windows 上不同」、「Windows
+版有包含 check for update，因此要把 Help > Check for update 拿掉」。兩句都成立，
+而且第一句的成因不是主題、字型或視窗裝飾，是一條明確的程式碼分支。
+
+#### 一個 action id，兩個不同的視窗
+
+`platform_menu_bar_host.dart` 有一個叫 `_systemProvided` 的集合，裡面放
+`fileExit` 與 `helpAbout`；落在集合裡的 id 不會被掛成一般的 `PlatformMenuItem`，
+而是在選單尾端補一個 `PlatformProvidedMenuItem`。Quit 那半是對的——它屬於 Apple
+應用程式選單，macOS 確實自己提供。About 那半不是：`PlatformProvidedMenuItemType
+.about` 叫的是 `orderFrontStandardAboutPanel:`，也就是**原生 About 面板**，而
+Windows / Linux 走的是 `_buildActionHandlers()` 裡的
+`context.push(RoutePaths.aboutDialog)`，開的是 `AboutDialogContent`。同一個
+`helpAbout`，兩個平台兩個不同的視窗。
+
+規格頁 01 的散文把這件事判乾淨了：意圖行寫「三平台統一樣式，只有 menu bar 位置與
+標題列跟隨系統」，自繪清單把範圍寫死在「視窗**內**所有內容」，而「依平台不同的部分
+（僅三項）」列的是 menu bar 的**位置**、標題列按鈕樣式、系統檔案選擇器——沒有一項
+是「選單項的行為」。About dialog 是視窗內內容。
+
+#### 為什麼三條 dispatch path 的 parity 測試看不見它
+
+這才是值得記的部分。CLAUDE.md 有一條既有的不變式：鍵盤、macOS 系統選單、in-window
+選單三條路徑必須共讀 `_buildActionHandlers()` 那張 map，而且 repo 裡有一支
+`workspace_intent_dispatch_parity_test.dart` 專門守它。這個缺陷從那張網底下穿過去
+了，原因是：
+
+**system-provided 的項目根本不從 map 取 handler。** parity 測試問的是「handler 是不
+是非 null」，而一個 `PlatformProvidedMenuItem` 連 `onSelected` 欄位都沒有——它不是
+「handler 為 null」，它是「不在被問的那組東西裡」。同時 in-window 的點擊測試只跑
+非 macOS 那條路徑，所以它看到的一直是正確行為。兩邊都綠，缺陷在中間。
+
+修法對應的測試因此不能只斷存在：`workspace_about_dialog_test.dart` 拿到真
+`WorkspaceScreen` 建出來的 `PlatformMenuItem` 之後，**呼叫 `onSelected!()` 再斷言
+渲染出什麼**。而且路由表裡放了 `keyboardShortcutsDialog` 當**誘餌**——沒有它，接錯
+線會失敗在「找不到 route」，那是比「內容不對」弱的紅，會讓測試看起來證明了比實際更
+多的東西。
+
+突變檢查把這兩層分開量了：
+
+| 突變 | 變紅的 |
+|---|---|
+| `helpAbout` 放回 `_systemProvided` | `platform_menu_bar_host_test` 的結構斷言 + macOS 的呼叫斷言（in-window 那條維持綠，正確——突變只影響 macOS） |
+| `helpAbout` 的 handler 改指 `keyboardShortcutsDialog` | **兩條渲染斷言都紅**（突變落在兩者共讀的 map）。而只斷 `onSelected != null` 的那半在同一個突變下維持綠 |
+
+第二列的後半是這一輪真正的收穫：**「非 null」與「指向正確的 route」是兩個不同的
+命題，而前者一直被當成後者的證據。**
+
+#### Apple 選單那個 About 沒有被動到，而那是對的
+
+一開始擔心拿掉 Help 的原生 About 會讓 macOS 一個原生 About 都不剩。查證後不會：
+Flutter 的 `PlatformMenuBar` 只取代 index 0 之後的選單，`MainMenu.xib` 裡
+`systemMenu="apple"` 的那個應用程式選單原封不動保留，`About APP_NAME` /
+`Hide` / `Quit` 一直都在。macOS 慣例本來就把 About 放在應用程式選單，所以 Help 裡
+再放一個原生的是**重複**而不是必要。`fileExit` 留在 `_systemProvided` 也是同一個
+理由。
+
+#### 第二句：Help 的第五項
+
+`Check for updates…` 坐在 `Report an issue` 與 `About` 之間，原始碼註解自己寫著
+「Not in the spec at all」。而規格 P04 `MENUS` 給 Help **四項**，
+`spec-conformance-matrix.md` 記的是 `Help 4`，`gbm_menu_model.dart` 自己的
+`// Help (4 items)` 與 `gbm_action_id.dart` 的 `// Help (4)` 也都寫四——**三處宣稱
+四，清單裡有五，沒有任何測試看過 Help 的內容**。所以移除它不是 deviation，是回歸
+符合；三處註解也才名副其實。
+
+移除前先照 orphan 規則查了 `RoutePaths.updateDialog` 的生產者，扣掉要刪的那個還有
+三個：`about_dialog.dart` 的 primary 按鈕、`preferences_dialog.dart` 的
+「Check for updates now」、`app.dart` 的 `AutoUpdateCheck` 開機檢查。About 那顆是
+關鍵的一個——`WelcomeScreen` 完全不建 menu bar，所以沒開 repository 時它是**唯一**
+到得了更新檢查的路。因此 `GbmActionId.helpCheckForUpdates` 連 enum 值一起刪，
+`gbm_shortcuts.dart` 本來就沒有它的綁定。
+
+裝置層也 grep 過了：`update_check_flow_test.dart` 走的是 WelcomeScreen 的 About
+tooltip → About dialog 的按鈕，不是 Help 選單，所以不受影響。**而且真的跑了**
+（`flutter test integration_test/update_check_flow_test.dart -d macos`，先跑
+`scripts/build_capi.sh` 免得載到過期的 dylib）：2/2 綠，2 分 37 秒，含向真的
+GitHub Releases 下載資產並比對已發布的 sha256。這是「拿掉選單項之後更新檢查仍然
+到得了」在實機上的證據，不只是 grep 的推論。
+
+新測試斷的是 **label 不是 id**：enum 值刪掉之後，引用 `GbmActionId
+.helpCheckForUpdates` 的測試會編不過，那是壞掉不是變紅。而既有的
+「every GbmActionId appears exactly once」斷言 `idSet == GbmActionId.values
+.toSet()`，兩邊同時縮小會自動維持綠——它**看不到**這次移除，這正是新測試不是重複的
+原因。
+
+突變檢查在這裡踩到一個自己造成的假訊號：第一版突變是「把第五項塞回去」，但任何新增
+的項目都得複用一個既有 id（每個 id 依設計恰好出現一次），於是重複 id 也讓
+「appears exactly once」變紅，紅得比預期寬。改成「把 `About` 的 label 改成
+`About…`」之後只有目標那條紅。**紅得太寬時先懷疑突變本身，再懷疑測試。**
+
+#### 順手了結 #67
+
+修好 Help → About 之後，Apple 選單裡仍寫著 `About gbm_flutter`。`MainMenu.xib` 把
+Apple 選單、About、Hide、Quit 都寫成字面 placeholder `APP_NAME`，由 AppKit 在載入
+時從 bundle 解析（`CFBundleDisplayName` → `CFBundleName`），跟
+`MainFlutterWindow` 設的 `NSWindow.title` 完全無關——#66 修的是後者，所以前者留著。
+
+使用者裁定採 #67 的候選修法 1：`Info.plist` 的 `CFBundleName` 從 `$(PRODUCT_NAME)`
+改成字面 `git-branch-manager`。不動 `PRODUCT_NAME`，因為它同時是**產出物**的名字，
+`release.yml:161,204,226,254` 硬編 `gbm_flutter.app` / `.exe`，改它要連簽章、公證、
+DMG 三步一起動，而那只有 tag build 驗得了。
+
+這一段是本輪唯一沒有任何 Dart tier 到得了的東西，所以真的跑了一次
+`flutter build macos --debug` 取證。產出物層面確認了三件事：bundle 仍叫
+`gbm_flutter.app`、`CFBundleExecutable` 仍是 `gbm_flutter`（`release.yml` 不受影
+響）、而 `Contents/Info.plist` 的 `CFBundleName` 已是 `git-branch-manager`。
+
+**照實記一個限度**：畫面上的 Apple 選單文字沒有被程式化地讀到。`osascript` 走
+System Events 需要輔助使用權限（未授予），而截圖驗證會拍到使用者整個桌面，做了一次
+之後就停手並刪除了。所以「Apple 選單顯示 git-branch-manager」這句的證據是
+**因果鏈**（#67 觀察到實機顯示 `gbm_flutter` → AppKit 解析 app 名稱的唯一來源是
+bundle → bundle 現在是對的），不是直接觀察。要直接觀察得由人在機器前看一眼。
+#67 原文自己留了退路：若還有地方顯示舊名（Dock tooltip 最可能），補一行
+`CFBundleDisplayName` 同樣的字面值即可——目前的 bundle 沒有這個鍵。
+
+#### 一句過期的註解
+
+`MainFlutterWindow.swift` 那段「同步指派會被還原成 `CFBundleName`，也就是
+`gbm_flutter`」在 `CFBundleName` 改掉之後就過期了。機制沒變（同步指派仍然會被還
+原），變的是後果：現在還原到的是同一個字串，所以那行延後指派**單看起來變成可以刪
+的**。它沒有被刪，而且註解裡寫明了理由：`CFBundleName` 是 *application* 名稱，
+`self.title` 是 *window* 標題，兩者現在只是碰巧相同，沒有任何機制讓它們保持同步；
+因為「還原本來就會落在正確值」而刪掉它，等於把兩者悄悄耦合起來。
+
+### 側邊欄目前分支不再置頂 (feature/head-branch-removal)
+
+使用者要求三件事：側邊欄不要顯示 head branch、不要把目前分支釘在上面、改成預設展開
+到它所在的資料夾，而且不改分支優先權、純字母排序就好。
+
+#### 三個特殊待遇必須先被拆開，才知道要拿掉哪些
+
+「不要顯示 head branch」讀不出唯一解，所以先把 HEAD 在側邊欄實際享有的待遇逐一列
+出來，再讓使用者裁定：① 過濾時就算不符合查詢也被強制加回樹裡（P02-14 rule 7）
+② 在所屬資料夾內置頂（`BRANCH_STATES`）③ 名稱粗體加整列 `surfaceSelected` 底色。
+
+裁定是 **①② 拿掉、③ 保留**。這個切法不是折衷：③ 是位置消失之後唯一還在說「我在
+哪」的訊號，而且 `branch_selection_rules.dart` 的 `isBulkSelectable(ref) =>
+!ref.isHead` 的理由整條就架在它上面——目前分支永久畫著 selected 底色，如果它同時
+還能被多選，兩種狀態會畫得一模一樣。拿掉 ③ 會連帶讓那條註解變成謊話。
+
+另外兩個問題也一併問了：資料夾在前算不算「branch priority」（不算，樹狀結構慣例，
+保留），以及展開的觸發時機（開啟時加上每次 HEAD 變動，且不自動收合）。
+
+#### 沒有活下來的前提
+
+**「一併把視覺標示也拿掉」不成立**，理由如上。
+
+**`origin/HEAD` 不是使用者說的 head branch**：`mergeLocalAndRemoteBranches` 早就用
+`!r.isSymbolic` 排除掉符號性遠端 ref 了，這個讀法在改任何東西之前就被原始碼駁回。
+
+**「側邊欄有一個樹以外的目前分支列」也不成立**：`TopBar` 拆掉之後，側邊欄從上到下
+是 `RepoSwitcherButton` → `BranchesSectionHeader` → 過濾框 → 動作列 → 樹，沒有任何
+一個地方單獨畫 HEAD。所以①才是「顯示了不該顯示的東西」的唯一候選。
+
+#### 由跑出來、而不是讀出來的事
+
+**Commit 1 如果照原訂範圍切，它單獨 checkout 是紅的。** 原本打算把
+`sidebar_current_branch_pin_test.dart` 整個留到 Commit 2 再改，但那個檔的 no-filter
+兩條測的是 comparator 而不是過濾——置頂子句一刪就紅，跟 rule 7 還在不在無關。這正是
+CLAUDE.md 那條「每次都在分支頂端跑就永遠是綠的，只有逐 commit checkout 才看得到」的
+同一個形狀，所以那兩條被移進 Commit 1。
+
+**順序的影響範圍比展開大，而且我一開始只掃了展開的那一半。** 事前 grep 找的是
+「shortName 帶斜線的 HEAD fixture」，那界定的是自動展開會多畫幾列；但 Commit 1 同時
+改了 **root 層**的順序（HEAD leaf 原本壓過同層資料夾，現在資料夾一律在前），受影響
+的是「HEAD 在 root、同層又有資料夾」的 fixture——`sidebar_filter_test.dart` 的
+`main` 就是。跑整個 `test/features/sidebar/` 才看到那兩條紅。掃描條件要對著**改動
+的性質**寫，不是對著改動的檔案寫。
+
+**`skip` 不是被順手刪的，是刪不掉才有問題。** `firstLeafName(nodes, {RefInfo? skip})`
+的 `skip` 存在的唯一理由，就是 rule 7 硬塞進樹裡、↓ 不該落上去的那一列。那一列消失
+之後它必然沒有呼叫端——留著就是 CLAUDE.md 列了八次的 orphan wiring。
+
+#### 自動展開為什麼不需要 post-frame
+
+`_pruneSelection` 的 doc comment 花很長篇幅說明它為什麼一定要延後到 frame 之後：它
+寫的是 provider，會撞上 Riverpod 的 `_debugCanModifyProviders`，而那個 assert 在
+release 版被剝掉，寫入會直接落在 build 中間。
+
+自動展開**沒有這個問題**：`_expandedFolders` 是 `_SidebarPanelState` 自己的欄位，不是
+provider，也不需要 `setState`——因為同一個 build 在幾行之後就把它讀進
+`buildBranchTree`。所以第一幀畫出來就是展開的，不會先閃一下收合的樹。兩者的差別是
+「寫的東西歸誰管」，不是「在 build 裡寫東西安不安全」，這個區分值得寫下來，免得下一輪
+照抄 `_pruneSelection` 的結論。
+
+閘門 `_seededExpansionForHead` 讓 mount 與 checkout 走同一條路徑（`null → 'main'` 也
+算一次變動）。這是 `ref.listen` 做不到的那一半：它不會為註冊當下就已經存在的值觸發，
+而 refs 通常在這個面板 build 之前就載好了。只 `addAll` 不 `remove`，「不自動收合」就
+是靠這個成立。
+
+#### Mutation check
+
+- `_compareTreeNodes` 的「資料夾在前」翻成 `return 1`：紅在 4 條，全部是斷言同層順序
+  的，其餘 245 條綠。
+- 把 rule 7 的豁免整段加回 `buildBranchTree` 的輸入：紅在 10 條，全部在新改寫的兩個
+  檔案裡。
+- `if (headBranch != _seededExpansionForHead)` 改成永遠不成立：4 條展開測試紅，兩條
+  「不展開」的 CONTROL 維持綠。
+- 只拿掉 `_seededExpansionForHead = headBranch;`（等於每幀重新種）：**只紅一條**，
+  就是「使用者手動收合的資料夾不會被強制重開」。這條的紅是窄的才有意義——它是「不自動
+  收合」這個承諾唯一的持有者。
+
+#### 刻意留下的
+
+`sidebar_panel.dart` 空狀態的 `filteredBranches.isEmpty` 沒有改回 `branchTree.isEmpty`。
+兩者現在確實等價（樹不再永遠帶著 HEAD），但 0 命中是**查詢**的性質，從畫出來的東西
+反推會讓它變成**渲染**的性質——那正是它上一次出錯的方式。註解就地改寫成這個理由，
+而不是刪掉。
+
+命中/總數（rule 6）本來就只數真正的比對結果，這輪不該讓它動，所以那條測試原封保留
+當回歸測試——但它的敘述從「豁免的那列不算命中」改成「那列根本不在畫面上」。
+
+#### 驗證
+
+`flutter analyze` 零問題、`dart format` 乾淨、`flutter test` 2166 條全綠。裝置層依
+CLAUDE.md 的規則一起掃了：`rename_branch_flow_test.dart` 的分支刻意不帶斜線
+（`lane-allocator`），自動展開對它無效，但 HEAD 那一列的位置會從置頂變成字母序；重建
+capi 之後跑過，綠。
+
+### History 的並排 diff：把刪掉的東西請回來 (feature/history-split-view)
+
+使用者要 History 選檔案後的 diff 能左右並排看 舊/新。裁定兩件事：並排的意思是
+side-by-side（不是「檔案清單與 diff 左右分割」），而且檢視模式要持久化到
+shared_preferences（不是只存在 widget state）。
+
+#### 這一輪最值錢的一句話，在紀錄裡而不在程式碼裡
+
+開工前 grep 規格，得到的答案是「規格從來沒有要求 side-by-side diff」——這句話本身
+到今天都還是對的。但同一次 grep 也翻出上面第 4 點：`side_by_side_diff.dart` 與
+`side_by_side_diff_view.dart` **曾經存在，而且是被刻意刪掉的**，理由正是「規格依據
+只有 mockup 裡一個假 commit 訊息」。
+
+於是這一輪不是「新做一個功能」，是**在使用者裁定下把它請回來**。而請回來這件事，
+真正的工作量不在寫程式，在**當場更正那筆判定**：
+
+- `docs/reports/spec-conformance-matrix.md` 那段「orphaned code answering no
+  requirement」已就地劃掉並改寫（比照 #45/#50/#51/#60 的先例：更正並留證據，不是
+  悄悄改標題）。規格那半句保留——規格確實沒要求；改變的是「規格沒依據」不再足以
+  構成刪除理由。
+- 兩個還原的 `.dart` 檔各自在 doc comment 裡帶上同一段引述與裁定日期，所以下一次
+  orphan 清掃**從程式碼就讀得到**，不必先想到要去翻 ledger。
+
+不做這件事的後果很具體：orphan 清掃讀的就是那張表。原樣留著，它會用使用者已經
+推翻過的理由，把同樣兩個檔案再刪一次。
+
+#### C++ 那半邊還活著，而且沒有呼叫者
+
+`src/core/git/SideBySideDiff.{h,cpp}` 連同 `tests/unit/SideBySideDiffTest.cpp`
+**都還在**，只有 Dart 那半被刪。查證後確認 C++ 版沒有任何呼叫者。
+
+決定是**保留**，並把「這是決定不是疏忽」寫進 `SideBySideDiff.h`：需要配對的是
+Flutter 那一側，它手上已經有解好的 `DiffHunk`，為了一次同步的重新排版繞一趟 capi
+是純粹的額外成本。所以活的實作是 Dart 版，C++ 版留作它逐行鏡射的**參考實作**——
+與 `GraphAsciiRenderer.cpp` 對 commit graph 的地位相同。CLAUDE.md 已經記過
+「不是每個沒被呼叫的函式都是 orphan」（`sameLogicalFile` 那個 oracle 的案例），
+這是同一類的第二例。
+
+#### 兩份 suite 都沒走到的那個分支
+
+還原後逐案比對，六個案子與 C++ 版一對一無誤。但 `pairHunkForSideBySide` 的
+`noNewlineMarker` 那一臂**兩邊都沒有測試走到**——而它就緊接在 Context 案下面，是
+最容易被後人「順手簡化」成同樣 `rows.add(row(line, line))` 的一段。兩邊各補兩案
+（marker 接在 removed 之後只留左側、接在 added 之後只留右側），維持逐案鏡射，並在
+兩個檔案裡都寫下「改一邊就要改另一邊」。
+
+Mutation：把該分支改成無條件雙側，恰好只有這兩支新測試轉紅（+6 −2）。
+
+#### 還原的 view 有三個缺陷，都是任何一層測試都看不見的
+
+這是「刪掉的程式碼不能原封照抄」的具體理由。三個都在還原時逐行讀出來，不是跑出來的：
+
+1. **行號取錯邊**，最嚴重。原版是 `kind == removed ? oldLine : newLine`：對 removed
+   （左欄）與 added（右欄）都對，但 **context 行兩者皆非**，於是一律落到 `newLine`
+   ——左欄替「變更前」標上了「變更後」的行號。只要 hunk 的 `oldStart == newStart`
+   就完全看不出來；前面一有增刪，整個左欄的行號就是錯的。
+   改法把歸屬換了個層級：行號由 `SideBySideSide` 決定（左讀 `oldLine`、右讀
+   `newLine`），也就是**欄位的性質**，而不是從行別去推論。這一類 bug 的形狀值得記
+   ——用「衍生量」去推「本來就有的量」，在多數樣本上剛好相等，於是不相等的那少數
+   永遠沒人看見。
+2. **空白補位格寫死 `height: 20`**。對面那格一換行，空白側下方就露出沒上色的區域。
+   改成配對的 `Row` 走 `CrossAxisAlignment.stretch`，外面包 `IntrinsicHeight` 給它
+   一個撐得到的高度；空白格自己不再宣告任何高度。
+3. **少了 `SelectionArea`**。現行 `DiffPage` 在 ListView 外包了一層，並排版沒有，
+   換個模式就不能拉選複製。
+
+三個各補一支測試，各自 mutation 過，每次都恰好只有對應那一支轉紅。
+
+#### 換行不需要處理，這點一開始想錯了
+
+原本擔心兩欄換行會讓左右錯位，準備上 `softWrap: false` 加同步水平捲動。實際上不必：
+**一組配對就是一個 `Row`**，跨欄對齊由結構保證，某一格換成三行，它的夥伴跟著長高，
+兩欄永遠是齊的。於是換行維持與 `DiffPage` 一致。
+
+代價是另一件事：兩欄共用一個選取範圍，跨欄拉選會複製到 舊+新 交錯的文字。Working
+Copy 的 `2 file` 模式是同樣形狀的先例，05-G 的 `Copy` 是單側逃生口。分成兩個選取
+範圍會修好複製、但弄壞「選一整段變動」這個遠遠更常見的情況，所以是**選擇的取捨**，
+已寫進 doc comment，不假裝沒有。
+
+#### 量到的數字：預設為什麼是 unified
+
+1280×720（app 自己的預設視窗）下中央欄約 834px = 1280 − 側邊欄 250 − Changed files
+186 − 兩條分隔線。commit detail 橫跨整欄。對切後每側再扣掉 36px 行號槽與 padding，
+只剩約 360px 等寬字，**約 48–52 字元**。
+
+並排在預設視窗是偏窄的，所以預設 `unified`，而持久化的意義正在這裡：想用的人切一次
+就好。這個數字寫下來，是為了下一輪重新決定時能對著數字而不是對著同一個猜測。
+
+#### 三層測試各自證明什麼，用 mutation 劃清界線
+
+- `diff_view_mode_repository_test.dart`：store 會來回，但什麼都沒畫。
+- `commit_detail_panel_test.dart`：兩個 renderer 接對了 enum，但**對 provider 一無
+  所知**——容器就算什麼都沒接，這 12 支照樣全綠。
+- `history_diff_view_mode_test.dart`：兩者之間的接縫。
+
+界線是量出來的而不是宣稱的：把容器的 `onDiffViewModeChanged` 改成空 callback
+（切換鍵照畫、照回報，就是什麼都沒寫回去），**integration 轉紅、widget 層 12 支
+全綠**。那一層看不見這個缺陷，這支測試因此有存在的理由。
+
+#### 順手補掉的一個既有缺口
+
+`real_repo_harness.dart` 的 prefs 清除清單只涵蓋 `panelLayout.` 與 `graphColumns.`
+兩個**前綴**，平鍵一律漏掉。新的 `diffViewMode` 是平鍵——開發者在真機切過一次並排，
+之後每支裝置層測試畫出來的東西就都變了，而且只在他機器上變。
+
+`fileListViewMode` 早就有一模一樣的暴露（Tree 模式會把列塞進資料夾列底下，正是讓
+finder 失準或落空的形狀），一併補上。既然踩到就補掉，不留給下一輪當 flake 重新發現。
+
+#### 刻意沒做的事，逐項寫明
+
+- **範圍只有 History 的 `CommitDetailPanel`。** Compare、管理面板、Working Copy 的
+  diff 區、Conflict 視窗都不動，`DiffPage` 本身一行未改——它是四個介面共用的。
+- **不加選單項目與快捷鍵。** Working Copy 的同型切換也只有標題列這一個入口，比照
+  辦理；這是刻意對齊，不是漏掉。
+- **不與 Working Copy 共用同一筆偏好設定。** 那組的兩欄是 unstaged／staged，這組是
+  old／new。長得像，意思不同；一個偏好翻兩邊，會在使用者沒在看的那個視圖造成意外。
+
+#### 裝置層：先誤判成「跑不成」，再被自己的重跑推翻
+
+第一次跑 `flutter test integration_test/... -d macos` 回的是
+`Failed to foreground app; open returned 1`，同時 `pgrep` 查到**另一個 Claude
+session 正在 `feature-soft-warp` 底下跑裝置層**，`gbm_flutter` 活著（PID 96171）。
+兩件事湊在一起，看起來因果分明：資源被佔用，所以前景化失敗。沒有 kill 它——
+CLAUDE.md 寫著「憑臆測殺掉會毀掉真正的工作」，而那確實是別人正在跑的工作——
+於是把「裝置層本輪未跑」連同代償的靜態稽核一起寫進了這一節。
+
+**那段結論是錯的，而且是這一節原本的內容。** 稍後那個 process 結束、重跑一次，
+`Failed to foreground app; open returned 1` **照樣印出來，然後測試照樣全綠**。
+這行字不是失敗訊號，它在完全綠燈的 run 上也會出現；真正能分辨的是它後面有沒有
+接上測試結果那幾行。當時只讀到那行就停了，於是把一個警告讀成了阻塞。
+
+蒸餾進 CLAUDE.md 的裝置層那條既有條目（不是新開一條）：**讀過那行、看到計數，
+再判斷 tier 是不是真的被擋住。**
+
+實際跑完的結果：先跑 `build_capi.sh`——**編譯無事可做（`ninja: no work to do`），但
+載入路徑上的 copy 原本並不存在**（`app_flutter/build/native/libgbm_capi.dylib` 那次 `ls`
+是失敗的），補的正是 copy 那一步，也就是「過期 dylib」那條陷阱真正防的東西。接著控制組
+`commit_file_counts_test.dart` 2/2 綠，其餘 10 支逐支重跑，**11 支檔案、26 個 test，全綠**（控制組 `commit_file_counts` 2 ＋ `commit_flow` 1 ＋ `conflict_flow` 1 ＋ `context_menu_flows` 5 ＋ `history_filter` 2 ＋ `multi_push_flow` 2 ＋ `rename_branch_flow` 2 ＋ `repo_lifecycle` 1 ＋ `stage_lines_flow` 7 ＋ `update_check_flow` 2 ＋ `working_copy_line_counts` 1）。
+
+靜態稽核本身仍然成立，而且後來補的一次 grep 讓它更硬：`integration_test/` 底下
+**沒有任何一支測試提到 `CommitDetailPanel`、`DiffPage`、`commitFile*` 或
+`selectedCommitFilePath`**，一個字都沒有。也就是說這輪新增的那條標題列，在整個裝置層
+的流程裡從頭到尾沒有被畫出來過——這解釋了為什麼全綠是預期中的結果，而不是運氣。
+
+還是要說清楚它證明的邊界：全綠證明「改動沒弄壞既有的裝置層測試」，**不證明
+「並排檢視在真機上長得對」**。後者沒有任何一層自動化測試涵蓋，只有人眼能確認，
+所以它仍然是使用者的一個手動步驟，不是已經發生過的事。
+
 ### History 捲動卡頓：主因不是圖，是整個 shell 在重建 (fix/graph-scroll-issue)
 
 使用者的問題是「捲動 History 會頓」，並自己提了一個假設：**能不能先把線畫好再

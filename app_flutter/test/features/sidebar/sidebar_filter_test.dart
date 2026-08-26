@@ -194,7 +194,7 @@ void main() {
       await tester.pumpAndSettle();
 
       await _type(tester, 'gl');
-      expect(_rows(tester), <String>['main', 'feature/graph-lanes']);
+      expect(_rows(tester), <String>['feature/graph-lanes']);
 
       setVisible(() => visible = false);
       await tester.pumpAndSettle();
@@ -207,7 +207,7 @@ void main() {
       // query that narrowed them. A provider that the field did not re-read
       // on mount would pass the first assertion and fail the second, leaving
       // a filter in force with an empty-looking box.
-      expect(_rows(tester), <String>['main', 'feature/graph-lanes']);
+      expect(_rows(tester), <String>['feature/graph-lanes']);
       expect(tester.widget<TextField>(_filterField()).controller?.text, 'gl');
     });
   });
@@ -285,11 +285,11 @@ void main() {
       expect(firstMatch.selected, isTrue);
     });
 
-    testWidgets('skips the pinned current branch, which did not match', (
-      tester,
-    ) async {
-      // `main` is row zero under rule 7 but is not a *result*. Landing on it
-      // would make the arrow key select something the query excluded.
+    testWidgets('never lands on a branch the query excluded', (tester) async {
+      // `main` matches neither query below. It used to be on screen anyway
+      // (rule 7) and `firstLeafName` needed a `skip` to step over it; now it
+      // is simply not rendered, so this asserts the absence rather than the
+      // exemption.
       await _pump(tester);
       await tester.tap(_filterField());
       await tester.pumpAndSettle();
@@ -297,10 +297,7 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
       await tester.pumpAndSettle();
 
-      final BranchTreeItem head = tester
-          .widgetList<BranchTreeItem>(find.byType(BranchTreeItem))
-          .firstWhere((BranchTreeItem i) => i.ref.shortName == 'main');
-      expect(head.selected, isFalse);
+      expect(_rows(tester), isNot(contains('main')));
     });
 
     testWidgets('does nothing when nothing matched', (tester) async {
@@ -312,7 +309,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
-      expect(_rows(tester), <String>['main']);
+      expect(_rows(tester), isEmpty);
     });
   });
 
@@ -381,17 +378,17 @@ void main() {
       expect(find.text('2/6'), findsOneWidget);
     });
 
-    testWidgets('counts the pinned current branch only if it really matched', (
+    testWidgets('counts the current branch only if it really matched', (
       tester,
     ) async {
-      // `main` is on screen under this query because rule 7 pins it, not
-      // because it matched. A count sourced from what is rendered would say
-      // 3/6 and quietly redefine "命中".
+      // `main` does not match this query, so it is neither rendered nor
+      // counted. It used to be rendered-but-not-counted (rule 7's exemption);
+      // the count is sourced from the matches either way, never from the rows.
       await _pump(tester);
       await _type(tester, 'graph');
 
-      expect(_rows(tester), contains('main'));
-      expect(find.text('3/6'), findsNothing);
+      expect(_rows(tester), isNot(contains('main')));
+      expect(find.text('2/6'), findsOneWidget);
     });
 
     testWidgets('counts a tag and a stash the same as a branch', (
@@ -422,61 +419,43 @@ void main() {
     });
   });
 
-  group('rule 7: the current branch is pinned and never filtered out', () {
-    testWidgets('survives a query it does not match', (tester) async {
+  // Rule 7 (「目前分支永遠置頂顯示，即使不符合條件也不會被濾掉」) is a
+  // **user-ratified deviation**: the current branch is filtered like any
+  // other row. Answering 「where am I」 is the expanded-to-HEAD default's job
+  // instead, which a query overrides anyway (rule 4 opens every folder).
+  group('the current branch is filtered like any other row', () {
+    testWidgets('a query it does not match drops it', (tester) async {
       await _pump(tester);
       await _type(tester, 'graph');
 
-      // 'main' matches neither as a substring nor by initials, so without an
-      // exemption it disappears -- and the sidebar stops answering "where am
-      // I", which is the one question it must always answer.
-      expect(_rows(tester), contains('main'));
+      expect(_rows(tester), isNot(contains('main')));
     });
 
-    testWidgets('is the first row, above the matches', (tester) async {
-      await _pump(tester);
-      await _type(tester, 'graph');
-
-      expect(_rows(tester).first, 'main');
-    });
-
-    testWidgets('is not rendered twice when it does match', (tester) async {
+    testWidgets('a query it does match keeps it, exactly once', (tester) async {
       await _pump(tester);
       await _type(tester, 'main');
 
       expect(
         _rows(tester).where((String name) => name == 'main').length,
         1,
-        reason: 'pinned *instead of* in the tree, never as well as',
+        reason: 'nothing re-adds it alongside its own matched row',
       );
     });
 
-    testWidgets('survives a query that matches nothing at all', (tester) async {
-      // Found while writing rule 6's zero case, not by reading the diff: the
-      // panel swapped the whole tree for a centred "No matches" label the
-      // moment every section came back empty, and the pinned row lives
-      // inside the arm that swap replaces. So rule 7 held for a query with
-      // matches and silently did not for a query without -- which is the one
-      // state where "where am I" is hardest to answer.
+    testWidgets('a query that matches nothing leaves an empty tree', (
+      tester,
+    ) async {
       await _pump(tester);
       await _type(tester, 'zzz');
 
-      expect(_rows(tester), <String>['main']);
-      expect(
-        find.text('No matches'),
-        findsOneWidget,
-        reason: 'the pin must not swallow the explanation either',
-      );
+      expect(_rows(tester), isEmpty);
+      expect(find.text('No matches'), findsOneWidget);
     });
 
-    testWidgets('CONTROL: an unfiltered tree is left alone', (tester) async {
-      // "置頂" is read as "regardless of the query", not "restructure the
-      // sidebar permanently" -- with no query the tree is exactly what
-      // buildBranchTree produced, folders and all.
+    testWidgets('CONTROL: an unfiltered tree still carries it', (tester) async {
       await _pump(tester);
 
       expect(_rows(tester), contains('main'));
-      expect(find.text('CURRENT'), findsNothing);
     });
   });
 }

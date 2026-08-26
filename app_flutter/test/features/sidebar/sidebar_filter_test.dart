@@ -194,7 +194,7 @@ void main() {
       await tester.pumpAndSettle();
 
       await _type(tester, 'gl');
-      expect(_rows(tester), <String>['main', 'feature/graph-lanes']);
+      expect(_rows(tester), <String>['feature/graph-lanes', 'main']);
 
       setVisible(() => visible = false);
       await tester.pumpAndSettle();
@@ -207,7 +207,7 @@ void main() {
       // query that narrowed them. A provider that the field did not re-read
       // on mount would pass the first assertion and fail the second, leaving
       // a filter in force with an empty-looking box.
-      expect(_rows(tester), <String>['main', 'feature/graph-lanes']);
+      expect(_rows(tester), <String>['feature/graph-lanes', 'main']);
       expect(tester.widget<TextField>(_filterField()).controller?.text, 'gl');
     });
   });
@@ -288,7 +288,7 @@ void main() {
     testWidgets('skips the pinned current branch, which did not match', (
       tester,
     ) async {
-      // `main` is row zero under rule 7 but is not a *result*. Landing on it
+      // `main` is on screen under rule 7 but is not a *result*. Landing on it
       // would make the arrow key select something the query excluded.
       await _pump(tester);
       await tester.tap(_filterField());
@@ -433,11 +433,15 @@ void main() {
       expect(_rows(tester), contains('main'));
     });
 
-    testWidgets('is the first row, above the matches', (tester) async {
+    testWidgets('sorts among the matches rather than above them', (
+      tester,
+    ) async {
       await _pump(tester);
       await _type(tester, 'graph');
 
-      expect(_rows(tester).first, 'main');
+      // The exemption puts `main` on screen; it does not give it a position.
+      // Folders lead their level, so the root-level `main` renders last.
+      expect(_rows(tester).last, 'main');
     });
 
     testWidgets('is not rendered twice when it does match', (tester) async {

@@ -118,30 +118,29 @@ List<String> _rows(WidgetTester tester) => tester
     .toList();
 
 void main() {
-  group(
-    'with no filter (「不受 filter 影響」, read as "not only while filtering")',
-    () {
-      testWidgets('the current branch leads its own folder', (tester) async {
-        await _pump(tester);
-        // Folders start collapsed, so the pin is only observable once `feature`
-        // is open -- the bug was in the ordering, not in the expansion.
-        await tester.tap(find.text('feature'));
-        await tester.pumpAndSettle();
+  group('with no filter', () {
+    testWidgets('the current branch sorts alphabetically in its folder', (
+      tester,
+    ) async {
+      await _pump(tester);
+      await tester.tap(find.text('feature'));
+      await tester.pumpAndSettle();
 
-        expect(_rows(tester), <String>['feature/zeta', 'feature/alpha']);
-      });
+      // `zeta` is alphabetically last of its siblings and renders there. A
+      // reinstated pin reverses these two rows.
+      expect(_rows(tester), <String>['feature/alpha', 'feature/zeta']);
+    });
 
-      testWidgets('and does not leave its folder to do it', (tester) async {
-        await _pump(tester);
-        await tester.tap(find.text('chore'));
-        await tester.pumpAndSettle();
+    testWidgets('and never leaves its folder', (tester) async {
+      await _pump(tester);
+      await tester.tap(find.text('chore'));
+      await tester.pumpAndSettle();
 
-        // `chore` sorts before `feature`, so if the pin were hoisted to the root
-        // this would open with `feature/zeta` above `chore/docs`.
-        expect(_rows(tester), <String>['chore/docs']);
-      });
-    },
-  );
+      // `chore` sorts before `feature`; nothing hoists the current branch
+      // above it.
+      expect(_rows(tester), <String>['chore/docs']);
+    });
+  });
 
   group('while filtering (P02-14 rule 7)', () {
     testWidgets('a current branch the query excludes still renders', (

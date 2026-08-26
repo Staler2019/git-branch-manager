@@ -250,27 +250,22 @@ BranchTreeFolder _folderNodeToTree(_FolderNode node) {
   );
 }
 
-/// Comparison function for sorting tree nodes: the current branch first, then
-/// folders (alphabetically), then leaves (alphabetically).
+/// Comparison function for sorting tree nodes: folders (alphabetically), then
+/// leaves (alphabetically). **The current branch has no priority here.**
 ///
-/// `BRANCH_STATES`' 目前分支 row: 「永遠置頂於所屬資料夾內」. The pin is scoped
-/// to the parent, which is why it lives in the comparator rather than in the
-/// panel: sorting a level is the only place that knows what "its own folder"
-/// means, and every level is sorted by this one function. `BRANCH_TREE` draws
-/// `main` (`current: true`, `depth: 0`) above the `feature` / `bugfix` /
-/// `release` folders at the same depth, so at any level the pin outranks the
-/// folders-before-leaves rule rather than yielding to it.
+/// That is a *user-ratified deviation* from `BRANCH_STATES`' 目前分支 row
+/// (「永遠置頂於所屬資料夾內」) and from `BRANCH_TREE`'s mock, which draws
+/// `main` (`current: true`, `depth: 0`) above the folders at its own depth.
+/// The user asked for a plain alphabetical tree: a pin makes the first row of
+/// every level jump around depending on where HEAD happens to be, and it is
+/// the sort order the whole sidebar is read through. Finding the current
+/// branch is `sidebar_panel.dart`'s job instead -- it seeds the expanded set
+/// with [ancestorFolderPaths] so the row is already on screen. Do not
+/// reinstate the pin; see docs/ledger.md.
 ///
-/// Only one ref can be HEAD, so this never has to order two pinned nodes
-/// against each other, and a folder is never [RefInfo.isHead] -- a detached
-/// HEAD simply pins nothing and the tree sorts as it always did.
+/// Folders-before-leaves stays, because it is tree *structure* rather than
+/// branch priority -- the same distinction the user drew.
 int _compareTreeNodes(BranchTreeNode a, BranchTreeNode b) {
-  final aIsHead = a is BranchTreeLeaf && a.ref.isHead;
-  final bIsHead = b is BranchTreeLeaf && b.ref.isHead;
-
-  if (aIsHead && !bIsHead) return -1;
-  if (!aIsHead && bIsHead) return 1;
-
   final aIsFolder = a is BranchTreeFolder;
   final bIsFolder = b is BranchTreeFolder;
 

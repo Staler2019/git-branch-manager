@@ -100,7 +100,8 @@ void main() {
     expect(
       MatchMemoStats.misses - misses,
       1,
-      reason: 'the query is part of the key; dropping it would serve the '
+      reason:
+          'the query is part of the key; dropping it would serve the '
           'previous query\'s answer',
     );
   });
@@ -124,7 +125,8 @@ void main() {
     expect(
       matchingRowIndices(query: 'lane', graph: graph, metaCache: afterMeta),
       <int>[0, 2],
-      reason: 'a memo keyed only on (graph, query) would still answer empty '
+      reason:
+          'a memo keyed only on (graph, query) would still answer empty '
           'here -- the user would type a filter, watch metadata stream in, '
           'and never see the matching commits appear',
     );
@@ -143,7 +145,8 @@ void main() {
     expect(
       MatchMemoStats.misses - misses,
       1,
-      reason: 'the key is instance identity, not deep equality -- this is '
+      reason:
+          'the key is instance identity, not deep equality -- this is '
           'why the hit rate is partial while metadata is still streaming',
     );
   });
@@ -168,7 +171,8 @@ void main() {
     expect(
       <int>[MatchMemoStats.misses - misses, MatchMemoStats.hits - hits],
       <int>[0, 0],
-      reason: 'the unfiltered answer is UnfilteredRowIndices, which computes '
+      reason:
+          'the unfiltered answer is UnfilteredRowIndices, which computes '
           'nothing and so has nothing to cache',
     );
   });

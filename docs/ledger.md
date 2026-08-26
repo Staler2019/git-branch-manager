@@ -3987,3 +3987,51 @@ subject/author，match 集合真的是 `commitMetaCache` 的函數。
 - `isContiguousIn` 慢在 `all.indexOf(item)`，是 O(選取數 × N)。但**沒有選取時它
   第一行就回 false**，也就是捲動最常見的狀態下是 O(1)，所以量級雖然到 121µs
   也排在最後面。
+
+##### 裁決結果：memo 做了
+
+使用者看過上面的數字後裁決「做，memo 加計數測試」，所以「沒做的（二）」的第一項
+已經不成立了，記在這裡而不是改寫上面那段——留著原本的推理，補上結論。
+
+memo 的形狀：`Expando` 掛在 `GraphSnapshotView` 上（跟 `GraphSpanIndex` 同一個模式），
+entry 裡再存 `metaCache` 實例與 `query` 字串。三者缺一不可，各自擋掉不同的錯答案：
+換 snapshot 是不同的列、換 metaCache 會讓原本不 match 的列開始 match、換 query 是
+完全不同的問題。前兩者用實例識別是誠實的，因為兩者都不可變且整份重建——snapshot 由
+`readGraphSnapshot()`，metaCache 由 `withCommitMeta()` 的展開語法（`{...old, ...new}`
+生成**新** map，不是就地改）。
+
+命中後的成本（同條件、熱身 20k 次）：
+
+| N | 未命中（＝原本的成本） | 命中 |
+|---|---|---|
+| 703 | 35.2 µs | 0.080 µs |
+| 10,000 | 489.7 µs | 0.046 µs |
+| 100,000 | **5.03 ms** | **0.012 µs** |
+
+命中是 O(1)（一次 Expando 查詢加兩個比較），所以隨 N 變大反而更快，那是量測噪音不是
+趨勢。量的時候順便斷言計時區間內 `MatchMemoStats.misses` 沒有增加，確認量到的真的是
+命中路徑而不是混了重算。
+
+回傳值改成 `List.unmodifiable`。原本每次都是新 list，呼叫端愛怎樣都行；memo 之後
+同一條 list 會被兩個呼叫點跨影格共用，所以把「不可以改」從「目前的呼叫端剛好都沒改」
+變成型別本身的性質。動手前確認過兩個呼叫點（`_visibleOids` 與 `build()`）都只有
+`.isEmpty` / `.length` / `[]` / 迭代。
+
+計數測試七支，斷言的是 hits/misses 的**差值**（計數器是 isolate 全域、不重置，跟
+`GraphSpanIndex.debugBuildCount` 同一個讀法）。三次變異驗證都紅得很窄，而且落點跟預測
+一致：
+
+| 變異 | 預測 | 實際 |
+|---|---|---|
+| 拿掉 memo | 只有「只算一次」那支 | ✅ 只有那支 |
+| key 漏掉 query | 「換 query 要重算」 | ✅ 那支，**外加** `commit_search_test.dart` 既有的「nothing matches」 |
+| key 漏掉 metaCache | 症狀測試 | ✅ 症狀測試 + 「同內容不同實例算 miss」 |
+
+第二項那個額外的紅是意外收穫：既有那組四支測試共用同一個 `graph` 實例、只換 query，
+所以 key 漏掉 query 時它們會互相拿到對方的答案。**既有測試免費守住了一個維度**，
+純屬夾具剛好長對，不是設計出來的。
+
+順帶修正了一段自己一個 commit 前才寫下的註解：`UnfilteredRowIndices` 的說明裡寫著
+「非空查詢那條刻意不動，是使用者的裁決」，memo 一落地那句就成了假的。這正是本檔
+一再記載的「註解與程式碼互相矛盾」形狀，所以跟著這次改動一起改掉，而不是留給下一輪
+當成真話讀。

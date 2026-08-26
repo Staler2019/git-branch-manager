@@ -3806,3 +3806,175 @@ Shift+↑↓ 加的 `Focus` 節點在每次 pointerDown 都無條件 `requestFoc
 與程式碼意見不合就什麼都沒證明」，那支從主機層刪掉，改寫進裝置層
 （`stage_lines_flow_test`）；主機層留下的是**能**被證偽的那個不變式：指標按著時
 不畫。
+
+## feature/soft-warp — soft wrap 偏好與長行水平捲動
+
+需求：Preferences 加一個 soft wrap 開關、預設關閉，關掉時長行改用水平捲動。
+使用者另外拍板三件事：行號欄**釘住不動**（不是整列一起捲）、涵蓋所有跟檔案有關
+的介面（commit message 輸入框除外）、入口只放 Preferences 不加選單或快捷鍵。
+
+### 兩份探索報告的前提都是錯的，而且錯在同一個方向
+
+兩支 Explore 都回報「長行目前會被截斷／溢出」。其中一份還進一步宣稱
+「`Text` 在 Row 裡預設 `softWrap: false`，所以長行會產生水平捲動」。
+
+實際讀 `diff_line.dart:122-132` 後，兩者都不成立：`Text.softWrap` 預設是
+**true**，`Expanded` 又給了受限寬度，所以**今天每一個檔案介面的長行都是自動
+換行**，沒有截斷，也不存在任何水平捲動。
+
+這把任務性質整個換掉。原本以為是「把一個 flag 接到既有的兩條路徑」，實際是
+**預設行為翻轉 + 從零建一條水平捲動路徑**：
+
+| | 這輪之前 | 之後 |
+|---|---|---|
+| 預設 | 永遠換行（沒得選） | 不換行 + 水平捲動、行號欄釘住 |
+| 水平捲動 | 完全不存在 | 五個介面都新建 |
+
+唯一例外是 `BlamePanel`，它本來是 `maxLines: 1` + ellipsis，長行直接被切掉、
+沒有任何辦法看到後面。兩種新模式對它來說都是修好一個既有缺陷。
+
+教訓不是「subagent 不可信」，而是**兩份獨立報告在同一點上錯得一樣，並不構成
+佐證**。它們錯的方式甚至不同（一個說截斷、一個說已經會水平捲動），卻共同支撐
+了「現況不是換行」這個結論。判準是自己讀那 10 行原始碼，30 秒的事。
+
+### `dragDevices: {}` —— 我自己也犯了一次同型錯誤
+
+設計 `GbmCodeHScroll` 時，我原本要對水平 scroller 覆寫
+`ScrollConfiguration(dragDevices: const {})`，理由寫得很篤定：「保護
+`ScopedDiffView` 的選取拖曳不被 scroller 搶走」，還在計畫裡標成「整個設計最關鍵
+的一行」。
+
+查 Flutter 的 `scroll_configuration.dart` 之後，這條前提兩頭都錯：
+
+- **不需要**：`ScrollBehavior.dragDevices` 預設是 `_kTouchLikeDeviceTypes` =
+  `{touch, stylus, invertedStylus, trackpad, unknown}`，**mouse 不在裡面**。桌面
+  的選取拖曳是 mouse kind（CLAUDE.md 早就記過：觸控板的 click-and-drag 是以
+  mouse 抵達的），scroller 的 drag recognizer 根本不受理，arena 上沒有競爭。
+- **有害**：觸控板雙指水平 pan 正是**透過**該集合的成員資格抵達 `Scrollable` 的
+  （同一條 CLAUDE.md 記載：`PointerPanZoom*` 是 trackpad kind 進入
+  `_kTouchLikeDeviceTypes` 的唯一路徑）。清空等於把最主要的水平捲動輸入砍掉，
+  只剩捲軸拉桿與 Shift+滾輪。
+
+諷刺的是，推翻它的兩項事實**都已經寫在 CLAUDE.md 裡**，就在「A pointer drag can
+never carry `PointerDeviceKind.trackpad`」那一條。我讀過那條、也在計畫裡引用了
+它的前半，卻沒把後半（trackpad 靠成員資格進入該集合）接到自己的決定上。
+
+`gbm_code_hscroll_test.dart` 因此有一條專門釘住這個前提的測試：**mouse kind 的
+拖曳不得捲動**。哪天 Flutter 把 mouse 加進那個集合，紅的會是它，而真正壞掉的是
+diff 的拖曳選取。
+
+### 釘住行號欄需要兩種策略，不是一種
+
+「gutter 釘住、程式碼從底下滑過去」有一個立即的推論：**gutter 必須不透明**，
+否則會看到捲動後的行文字出現在自己行號的左邊。
+
+對 diff 的列這是無縫的——`DiffLineView` 自己就畫滿整列寬的背景
+（`Container(color: background)`），gutter 重畫同一個顏色看不出接縫。
+
+**對 Blame 的列這是災難。** 它的列是 `GbmRow`，背景是**祖先**畫的 hover 與選取
+底色。不透明的 gutter 會把兩者都蓋掉，而且不是只在捲動時——**捲動位移為 0 時就
+會蓋**，等於 hover 回饋直接消失。這正是 CLAUDE.md 記過的
+「sidebar 有好幾個月沒有可見 hover」那一類。
+
+所以有第二條路徑 `GbmPinnedGutterClip`：gutter 什麼都不塗（`opaque: false`），
+改成把內容依 **viewport 座標**裁掉，裁切左緣 = 捲動位移 + gutter 寬。程式碼永遠
+到不了 gutter 底下，所以沒有東西需要遮，列自己的底色原封不動。
+
+規則寫在 `GbmPinnedGutter.opaque` 的 doc comment：**列自己畫滿寬背景 → 不透明；
+背景由必須保持可見的祖先畫 → 裁切。** 這不是同一件事的兩個真相來源，是兩條有
+明確適用條件的算繪路徑。
+
+裁切的幾何只能直接問 clipper——`ClipRect` 不改變 `getRect`，所以「內容有沒有被
+正確裁掉」沒有任何位置斷言測得出來。測試因此斷言
+`clipper.getClip(size).left == 捲動位移 + gutterWidth`。
+
+### 量錯 render object：finder 對了，結論還是不成立
+
+`ScopedDiffView` 的釘住測試第一版紅了，訊息是 gutter 移動量剛好等於捲動量——
+看起來就是「反向平移完全沒發生」。獨立的 `gbm_code_hscroll_test` 裡同樣的機制
+卻是綠的。
+
+寫了一支探測才知道程式是對的：controller 有找到、`hasClients` 為 true。錯的是
+**測試量錯了 render object**。`find.byType(GbmPinnedGutter)` 解析到的第一個
+RenderBox 是它內部的 `RenderTransform` **本身**，而 `localToGlobal` 只把 transform
+套用給**子節點**、不套用給自己——所以量到的永遠是未平移的位置，會跟著捲動跑。
+獨立測試用的是 `find.byKey`，命中的是 Transform **底下**的 `Text`，所以才對。
+
+這是 CLAUDE.md 那條「a finder proves existence, never position」的下一層：
+finder 找對了 widget，render object 還是可能是錯的那一個。修法是往下找一層
+（`find.descendant(... matching: find.byType(ColoredBox))`）。
+
+### 三個 mutation 教訓
+
+**一、anchor 對不上 = 假綠，不是測試缺口。** `panel_diff_text.dart` 的前兩個
+mutation 回綠，我差點讀成「測試沒覆蓋到」。實際上是 `dart format` 重排過參數
+列，我的 anchor `count == 0`，**mutation 根本沒套用**。CLAUDE.md 要求 mutation
+script 先斷言 `count(old) == 1` 就是為了這個——沒有那行斷言，兩個假綠會直接變成
+兩條不存在的「缺口」記進 ledger。改抓格式化後的實際內容之後兩個都紅。
+
+**二、一個真的綠 mutation，揭露 fixture 的盲點。** 把 `_GapBlock` 的
+`softWrap` 硬寫成 `true` 是綠的。原因：fixture 裡唯一的長行在 scope 卡片裡，
+gap block 只有一行短 context，所以 `find.byType(GbmPinnedGutter).first` 落到
+卡片那顆、照樣釘得住。卡片與 gap block 是**兩個各持一份旗標副本的 builder**，
+fixture 必須讓兩邊都有長行，斷言也必須改用**計數**（`findsNWidgets(2)`）而不是
+「有沒有」。衝突視窗的三欄是同一個形狀，所以那裡一開始就用
+`findsNWidgets(3)`——硬寫其中一欄仍然換行就會紅。
+
+**三、`git checkout -- <file>` 一次都沒用。** 全部走 scratchpad 備份再 `cp`
+回來，照 CLAUDE.md 記載的那次事故。
+
+### 量測數字（debug JIT，測試字型）
+
+`widestLineWidth` 一次 `TextPainter.layout` 量整份文字，取 `maxIntrinsicWidth`
+（多行段落的 `maxIntrinsicWidth` 就是各行的最大值，所以是一次 layout 不是每行
+一次）：
+
+| 行數 | 每次呼叫 |
+|---|---|
+| 200 | 2.8 ms |
+| 1,000 | 8.6 ms |
+| 5,000 | **46 ms** |
+
+5,000 行 46ms 表示**每次 build 重量會直接掉幀**，所以 `CodeWidthMemo` 是必要條件
+而不是優化。數字寫在這裡是為了讓下一輪從數字重新決定，而不是從同一個猜測。
+
+刻意**不用**「等寬字寬 × 最長行字元數」這個便宜很多的公式：CJK 與全形字是兩格
+寬，公式會低估，而低估的正好是最需要捲動空間的那些行，症狀是行尾被切掉。
+
+### 裝置層這輪無法作為證據——而這是量出來的，不是推測的
+
+計畫把 `stage_lines_flow_test.dart` 列為**唯一**能證明「水平 scroller 沒有搶走
+`SCOPES` row 7 拖曳選取」的測試，並要求 C2 一開始先跑。跑了，掛了：前 3 個測試
+綠，第 4 個「staged 側的文字選取」卡住 7 分 50 秒沒完成。
+
+沒有直接歸因，而是 detached 到 C1 **之前**的 commit（5fce758）跑了真正的對照組。
+結果是決定性的：**之前更糟**——第 2 個測試就在 25 秒內 did not complete。兩次
+輸出都有 `Failed to foreground app; open returned 1`。
+
+所以這是既有的環境問題（#101 那一類，macOS 視窗拿不到前景），不是這輪造成的，
+而且這輪之後反而走得更遠。**結論是「裝置層這個 session 無法作為證據」，不是
+「裝置層綠」也不是「這輪弄壞了裝置層」。**
+
+`real_repo_harness.dart` 的 prefs 清除前綴加上了 `appPrefs.softWrapEnabled`，
+理由與 `panelLayout.*` / `graphColumns.*` 同型：兩種模式是兩棵不同的 widget 樹、
+兩套不同的 hit-test 幾何，開發者本機開過換行就會讓所有位置相關的測試在他機器上
+與別處不一致——而這一層沒有 CI，不一致不會被任何地方看見。
+
+### 明寫的取捨（不是靜默縮減）
+
+1. **`ScopedDiffView` 的卡片、hunk 標頭、scope 按鈕會跟著水平捲走**，只有每列的
+   行號欄釘住。要讓卡片邊框也釘住等於把卡片拆成「固定框 + 內部捲動」，而卡片
+   內部就是那些帶 `GlobalKey` 的 `SelectionListener` 列——重排那個子樹是
+   CLAUDE.md 明確記載的危險動作。
+2. **`_ResultLine` 的刪除按鈕跟著列捲走**，不釘右緣。兩邊都釘會從左右夾擠可讀
+   區，而那顆按鈕作用在「這一列」。
+3. **衝突視窗的 result `TextField` 有一道接縫。** 多行 `TextField` 沒有原生水平
+   捲動，作法是給它比 viewport 寬的盒子再捲那個盒子。關掉換行時，欄位自己的
+   游標追蹤捲動與外層 scroller 是兩個獨立的捲動位置，所以打字超過右緣會讓游標
+   移出視野而不是被追。打開換行沒有這個問題（就是以前那個盒子）。
+
+### 規格狀態
+
+P11 的 Appearance 段只有主題切換，21 頁規格全文沒有任何 wrap／自動換行／水平
+捲動的條目。**這是使用者指定的增補，不是規格條目**，`AppPreferences.softWrapEnabled`
+的 doc comment 已寫明，免得後續稽核把它讀成規格符合項。

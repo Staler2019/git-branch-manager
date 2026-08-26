@@ -94,6 +94,25 @@ General / Remotes / Identity / Performance). They were previously one
 repo-scoped dialog that both `filePreferences` and `repositorySettings`
 opened, so Ctrl/Cmd+, landed on Git identity.
 
+**Soft wrap is an app-level preference, and it is off by default.**
+`AppPreferences.softWrapEnabled` (Preferences → Appearance → CODE) decides how
+*every* file-content surface handles a line too wide for its pane. Off — the
+shipped default — means the line runs to the right behind a horizontal
+scrollbar with the line-number gutter pinned at the viewport's left edge; on
+means it wraps. **Off is a change from what shipped before it**: nothing was
+configurable and every surface wrapped unconditionally, because a bare `Text`
+defaults to `softWrap: true` inside an `Expanded`. The surfaces are
+`DiffLineView`/`DiffPage` (History detail, Compare, file-history and stashes
+panels all render through `DiffPage`), `ScopedDiffView` (Working Copy),
+`PanelDiffText` (patches and line-history panels), `BlamePanel` and
+`ConflictResolveWindow`; the commit-message box is deliberately untouched. The
+machinery is `lib/widgets/gbm_code_hscroll.dart` (`GbmCodeHScroll`,
+`GbmPinnedGutter`, `GbmPinnedGutterClip`) plus `lib/widgets/code_line_metrics.dart`,
+which measures the widest line with one `TextPainter.layout` and memoises it —
+5,000 lines costs 46ms, so that memo is a correctness requirement, not an
+optimisation. The spec has no wrap row anywhere in its 21 pages; this is a
+user-requested addition, not a conformance item (ledger: soft-warp).
+
 **Where repository selection lives.** The spec has no repository-list page:
 the window *is* a repository (pages 01–03), so the app's default route is
 the last-opened repository's workspace and `/` is only the fallback for
@@ -680,6 +699,13 @@ you are touching, not by when it was learned.
   `gbm_flutter` process blocks the entire tier and looks exactly like a
   broken test — `pkill -f "gbm_flutter.app/Contents/MacOS/gbm_flutter"`, and
   run one pre-existing device test as a control before believing a new one.
+  **Run the control on the *parent commit*, not just on a different test.** A
+  device failure here can be entirely pre-existing: soft-warp's
+  `stage_lines_flow_test` hung on test 4 after 7m50s, and the same file on the
+  commit *before* the round died at test 2 in 25s — both with `Failed to
+  foreground app; open returned 1`. The honest conclusion is "the tier cannot
+  attest anything this session", which is neither "green" nor "I broke it";
+  reaching it costs one detached-HEAD run.
 - **The device tier is in no CI job and is not part of `flutter test`**, so a
   UI redesign can leave it broken for rounds with every other tier green. C18
   swept all ten files and found two red — neither from that round's own
@@ -735,6 +761,16 @@ you are touching, not by when it was learned.
   「因為我是用觸控板」). The kinds a drag *can* vary over change hit/pan slop
   and scrollable claiming (`mouse` vs `touch`), and that is a different claim
   from the one hardware makes.
+  **The same two facts settle whether a `Scrollable` competes with a drag, and
+  they cut the opposite way from the obvious guess.** `ScrollBehavior.dragDevices`
+  defaults to `_kTouchLikeDeviceTypes`, which **has no `mouse` in it** — so a
+  scroller never contests a desktop selection drag, and "protecting" the
+  selection by clearing that set is unnecessary. It is also actively harmful:
+  trackpad two-finger pan reaches a `Scrollable` *through* membership of that
+  very set, so an empty set deletes the main scroll input and leaves only the
+  scrollbar thumb and Shift+wheel. Never override `dragDevices` to guard a
+  selection; `gbm_code_hscroll_test.dart` pins the premise with a mouse-kind
+  drag that must **not** scroll (ledger: soft-warp).
 
 ### Flutter, Riverpod and widgets
 
@@ -780,7 +816,15 @@ you are touching, not by when it was learned.
   through the fix — not one asserted where it was. Assert `getRect()` against
   a *neighbour's* rect (「left edge not before the sidebar's right edge」),
   never against a pixel constant, and never `findsOneWidget` for a layout
-  claim (ledger: "Working Copy 重新設計").
+  claim (ledger: "Working Copy 重新設計"). **One level deeper: the right finder
+  can still resolve to the wrong render object.** `find.byType(X)` takes X's
+  first descendant RenderBox, and if that is a `RenderTransform` — or any
+  render object whose effect applies to its *children* — `localToGlobal`
+  reports the untransformed position, so a pinned widget measures as if it
+  never moved and the test goes red while the code is correct. Measure a node
+  *below* the transform. Corollary for clipping: `ClipRect` does not change
+  `getRect` at all, so a clip's geometry can only be asserted by asking its
+  `CustomClipper` directly (ledger: soft-warp).
 - **`RenderFlex` lays out non-flex children first**, then divides what is
   left — so a `Flexible` child can never rescue an overflow that non-flex
   children caused. Six surfaces overflowed at the app's own default 1280×720
@@ -875,6 +919,17 @@ you are touching, not by when it was learned.
   for a mouse), so a whole-row drag handle loses ordinary clicks.
 - `Paint.color` quantises on read-back — compare `.toARGB32()`, or a mismatch
   prints Expected and Actual identically.
+- **A widget that paints over a row to hide something has to know whose
+  background it is covering.** `GbmPinnedGutter` holds a line-number gutter at
+  the viewport edge while code scrolls under it, so it must be opaque — and
+  opaque is right only when the row paints its own full-width background (a
+  `DiffLineView` does). A `GbmRow` does not: its hover and selection tints are
+  drawn by an *ancestor*, and an opaque strip covers them **at every scroll
+  offset including zero**, silently killing hover feedback the way the sidebar
+  once did. That case takes `opaque: false` + `GbmPinnedGutterClip`, which
+  clips the content in viewport coordinates instead of painting over it. The
+  rule lives on `GbmPinnedGutter.opaque`: own full-width background → opaque;
+  ancestor-drawn background that must stay visible → clip (ledger: soft-warp).
 - **Changing a `GbmSplitPane`'s axis obliges you to decide what happens to its
   stored value**; only ratio mode survives the change, extent mode persists a
   raw pixel number and must be re-keyed. Its fixed pane's end is the explicit

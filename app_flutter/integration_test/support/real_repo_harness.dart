@@ -136,8 +136,17 @@ Future<SharedPreferences> _pumpRealApp(
   // it: the History column set, their order and their dragged widths are all
   // persisted app-wide, so a developer who once switched Author off would
   // make an author-finding test fail on their machine and nowhere else.
+  // `appPrefs.softWrapEnabled` joins them for the third instance of the same
+  // shape: it decides whether a long line wraps or scrolls sideways with a
+  // pinned gutter, which are two different widget trees and two different
+  // hit-test geometries. A developer who once turned wrapping on would make
+  // every row-position test on their machine disagree with CI -- except this
+  // tier has no CI, so it would simply be wrong locally and nowhere visible.
   for (final String key in prefs.getKeys().where(
-    (String k) => k.startsWith('panelLayout.') || k.startsWith('graphColumns.'),
+    (String k) =>
+        k.startsWith('panelLayout.') ||
+        k.startsWith('graphColumns.') ||
+        k == 'appPrefs.softWrapEnabled',
   )) {
     await prefs.remove(key);
   }

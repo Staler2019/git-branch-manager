@@ -723,6 +723,17 @@ you are touching, not by when it was learned.
 
 ### Flutter, Riverpod and widgets
 
+- **`addPostFrameCallback` does not ask for a frame.** It registers a callback
+  for the end of the *next* frame, and if nothing else schedules one the
+  callback simply never runs. A drag hides this — the drag itself keeps
+  frames coming — so a notification coalesced onto a post-frame callback can
+  work for months and then not arrive at all the first time a plain click
+  drives it (`selection_touch.dart`'s `_scheduleNotify`; the scope a
+  hunk-heading click had already recorded stayed invisible). In a widget test
+  the gap is total rather than intermittent, because `tester.pump()` runs a
+  frame only `if (hasScheduledFrame)` — six pumps in a row did nothing.
+  Pair every deferred notification with
+  `SchedulerBinding.instance.ensureVisualUpdate()`.
 - **`ref` inside a `ConsumerState.dispose()` always throws.**
   `_assertNotDisposed()` gates every `ref` member on `context.mounted`, and
   the element is already unmounted by then. Capture the notifier in
@@ -800,7 +811,16 @@ you are touching, not by when it was learned.
   **fixed slot**; and reacting to every report is a feedback loop
   (`setState` → geometry moves → delegates re-report), so listen only between
   pointer-down and pointer-up. All three are 「first frame right, later
-  frames wrong」 — a one-frame assertion cannot see any of them.
+  frames wrong」 — a one-frame assertion cannot see any of them. A fourth is
+  not about frames at all: **the submit path is a diff-change path, one
+  dispatch later.** `_dropSelection` documented that clearing the highlight
+  is unsafe while the tree restructures, and staging *is* what restructures
+  it — so a `clearSelection()` deferred to after the dispatch lands inside
+  the restructure it caused and the framework throws
+  ConcurrentModificationError out of `handleClearSelection`. Clear
+  synchronously **before** dispatching. Nothing below the device tier can see
+  it: the fakes never restage, so the diff never changes and the clear always
+  finds a settled tree.
 - **`Ctrl/Cmd+A` must be bound inside the list's own focus scope**, never
   app-wide: a `Shortcuts` closer to a focused editor than
   `DefaultTextEditingShortcuts` steals text select-all.
@@ -948,6 +968,17 @@ you are touching, not by when it was learned.
 
 ### Reading the spec
 
+- **A spec table's `how` column is a requirement, not an illustration**, and
+  「this granularity is reachable」 is not evidence for it. `SCOPES` row 6's
+  `how` is 「點 hunk 標頭列」 and the heading was a bare `Text` with no
+  gesture; row 7's is 「拖過多行，**或 Shift + ↑ ↓**」 and only the drag
+  existed — so every non-drag way of staging a line was missing while the
+  matrix read 符合 off "reachable through the scope card and a text
+  selection". This is the gate-vs-surface trap one level in: the cell named
+  the *capability* and the spec named the *input*. It took a user report to
+  surface, twice over — the same row had already been rewritten once for the
+  same class of error. Related: a row's `note` conforming says nothing about
+  its `how` (row 6's right-click Stage hunk was implemented all along).
 - **A mockup shows what the user sees, not who draws it.** A conformance
   verdict has to rest on the spec's prose — reading an illustration as a
   requirement is what produced an issue asking for the *opposite* of what the

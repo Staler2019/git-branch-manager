@@ -3587,3 +3587,87 @@ kind 那支，`> 0`→`>= 0` 只紅「零不畫」那支。
 裝置層跑了 `conflict_flow_test`（會 `tap('Resolve…')`，是唯一真的去打橫幅
 hit-test 的地方）與 `context_menu_flows_test`（scope 卡片標頭變高會推移列的
 位置），兩支都綠。
+
+### 「左右 diff view 沒辦法選取 line 去左或右」
+
+使用者回報。診斷先做**排除**，再做修正——因為報告描述的是症狀，不是原因。
+
+#### 先證明機制是通的，才知道問題不在那裡
+
+寫了 `integration_test/stage_lines_flow_test.dart`，四支測試把整條路跑完：
+文字選取 → 觸碰到的列 → scope → hunk index + line indices →
+`gbm_stage_lines` → `git apply --cached` → index，而且斷言的是
+`git diff --cached` 的輸出而不是 UI，所以一顆「按下去什麼都沒送出」的按鈕
+過不了。兩個方向各兩支（卡片按鈕／文字選取 × 往右 stage／往左 unstage）。
+
+**四支全綠。** 這一層之前完全沒有測試：`scoped_diff_view_test.dart` 把 view
+裸著 pump 然後斷言 callback 有被呼叫，`working_copy_diff_pane_test.dart` 在
+真的容器裡做同一件事，兩者都跑在 `FakeGbmBindings` 上，所以 `stageLines()`
+到 index 之間什麼都沒被執行過；C++ 那半有
+`WorkingCopyApiTest.StageLinesStagesOnlyTheSelectedAddedLines`，但它是從 C++
+呼叫的，從來沒有經過 `dart:ffi`。
+
+#### 真正的缺口：規格指名的**輸入法**，兩條非拖曳的路都不存在
+
+`SCOPES` 有一個 `how` 欄位，而「這個粒度搆得到」不等於「規格指名的那個輸入
+法存在」：
+
+- **第 6 列 how：「點 hunk 標頭列（@@ …）」**。`_HunkHeading` 是一個裸
+  `Text` 包在 `Padding` 裡，完全沒有手勢。它的 *note*（右鍵 Stage hunk）有
+  實作，`how` 沒有。
+- **第 7 列 how：「按住拖過多行，或 Shift + ↑ ↓」**。只有拖曳那半。
+
+也就是說，只要不是用滑鼠拖，就真的沒有路——這正是報告的內容。
+
+**Flutter 不會白送第 7 列的另一半。** 一開始的假設是「`SelectableRegion`
+有延伸選取，只是 tracker 的 `_latched` 讓報告進不來」。用一個能區辨的實驗
+證偽：把 `endGesture()` 改成什麼都不做（tracker 永不重新上鎖），拖曳後按
+Shift+ArrowDown，卡片上的數字**仍然一動不動**。所以 region 本來就沒有在這
+裡延伸選取，latch 不是（唯一的）阻礙。
+
+#### 兩個順帶挖出來的缺陷
+
+**(a) `addPostFrameCallback` 不會排 frame。** `_scheduleNotify` 把通知合併到
+一個 post-frame callback 上，而那個 API 只是登記「下一幀結束時跑」，**不會
+要求下一幀**。拖曳自己會源源不斷產生 frame，所以這個洞被藏了整輪；單擊不會，
+通知因此可能永遠不送達，標頭點擊已經記下的 scope 會停在看不見的狀態，直到
+別的東西剛好畫了一幀。widget test 裡更絕對：`tester.pump()` 只在
+`hasScheduledFrame` 時才跑一輪，**連按六次 pump 什麼都沒發生**。修法是加
+`SchedulerBinding.instance.ensureVisualUpdate()`。
+
+**(b) 送出本身就是「diff 變更」的路徑。** `_dropSelection` 的註解早就寫了
+「從 submit 路徑安全，從 diff 變更路徑不安全——後者會在樹重組還在改
+`selectables` 的時候走它，框架從 `handleClearSelection` 丟
+ConcurrentModificationError」。沒被注意到的是：**stage 會換掉 diff**，所以
+submit 路徑只差一個 dispatch 就是 diff 變更路徑。延後到 dispatch 之後的
+`clearSelection()` 正好落在它自己造成的重組裡。
+
+主機層以下看不見這個當機：fake 不會真的重新 stage，diff 從不改變，清除永遠
+碰到一棵安定的樹。**裝置層一跑就炸。** 修法是把 highlight 的清除搬到
+dispatch **之前**、同步做。
+
+#### 實作要點
+
+點標頭是**選取**而非直接 stage：規格寫「該段所有變更行一起處理」，處理在選取
+之後，而該列自己的 note 把 stage 交給右鍵選單。在變體 B 的語彙裡選取就是那張
+一次性卡片，所以點下去升起的正是「拖過整個 hunk」會升起的卡——一按搬走整個
+hunk，這是逐張 scope 卡片做不到的。
+
+Shift+↑↓ 是 anchor/focus 的**範圍**，不是只增不減的集合：往上按把 focus 那端
+走回 anchor。範圍走**畫面實際的順序**，也只有那個順序能讓「跨 hunk 但不能跨
+檔」有意義。種子放在第一個**有變動**的列而不是第一列，否則前幾次按鍵都花在
+連卡片都不會出現的 context 上，第一次按下去讀起來就是「這個鍵沒反應」。拖曳
+結束時把框到的範圍收成 anchor/focus，兩種輸入共用一個範圍。
+
+選取中的列現在會上色（`foregroundDecoration`，不是混色背景——這些列坐在兩種
+不同底色上，overlay 才不需要知道底下是哪一種）。拖曳的高亮是 SelectionArea
+免費給的，另外兩種輸入法完全沒有選到任何**文字**；沒有這層上色，使用者唯一
+的線索就只有按鈕上的數字。拖曳也一起畫：一種選取一種樣子。
+
+#### 驗證
+
+主機層 2154 全綠。裝置層九支：新檔六支（兩方向 × 卡片按鈕／文字選取，加標頭
+點擊與 Shift+↓），外加 `context_menu_flows` / `commit_flow` /
+`working_copy_line_counts` 三支迴歸（`DiffLineView` 是共用列元件）。七次
+mutation，只有「種子改成第一列」紅三支（種子位置會位移後面每一個斷言，是對
+的），其餘每次只紅該紅的那一支。

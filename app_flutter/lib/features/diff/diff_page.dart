@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/models/parsed_diff.dart';
+import '../../data/repositories/app_preferences_repository.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
+import '../../widgets/code_line_metrics.dart';
+import '../../widgets/gbm_code_hscroll.dart';
 import 'widgets/diff_line.dart';
 
 /// Renders a [ParsedDiff] **read-only**: one hunk header + line list per
@@ -19,7 +23,7 @@ import 'widgets/diff_line.dart';
 /// three callbacks and the checkbox selection set were removed rather than
 /// left behind, because a parameter no caller passes is this repo's
 /// recurring defect shape.
-class DiffPage extends StatelessWidget {
+class DiffPage extends ConsumerStatefulWidget {
   const DiffPage({
     super.key,
     required this.diff,
@@ -38,8 +42,33 @@ class DiffPage extends StatelessWidget {
   final ScrollController? scrollController;
 
   @override
+  ConsumerState<DiffPage> createState() => _DiffPageState();
+}
+
+class _DiffPageState extends ConsumerState<DiffPage> {
+  /// One entry, keyed by the `ParsedDiff` currently shown. See
+  /// [CodeWidthMemo] for what the key distinguishes and what going stale
+  /// would look like.
+  final CodeWidthMemo _widthMemo = CodeWidthMemo();
+
+  /// Owned here so [GbmCodeHScroll] can paint the vertical scrollbar on the
+  /// pane's box instead of on the content's; the same instance drives the
+  /// list below. Falls back to the caller's when one was supplied, so a
+  /// caller that saves and restores scroll position keeps doing so.
+  final ScrollController _ownedScroll = ScrollController();
+  ScrollController get _vertical => widget.scrollController ?? _ownedScroll;
+
+  @override
+  void dispose() {
+    _ownedScroll.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
+    final ParsedDiff diff = widget.diff;
+    final bool softWrap = ref.watch(appPreferencesProvider).softWrapEnabled;
 
     if (diff.files.isEmpty) {
       return Center(
@@ -52,23 +81,54 @@ class DiffPage extends StatelessWidget {
     // hunk), which only a single shared selection scope over the list
     // supports -- isolated per-widget SelectableText instances would each
     // be their own selection island.
+    // One scroll extent for the whole page, not one per file: the files are
+    // in a single list and a per-file extent would make the content jump
+    // sideways as the user scrolled past a file boundary.
+    final double contentWidth = softWrap
+        ? 0
+        : kDiffGutterWidth +
+              _widthMemo.widthOf(
+                key: diff,
+                text: () => <String>[
+                  for (final DiffFile file in diff.files)
+                    for (final DiffHunk hunk in file.hunks)
+                      for (final DiffLine line in hunk.lines) line.text,
+                ].join('\n'),
+                style: kDiffCodeTextStyle,
+              ) +
+              GbmSpacing.space3;
+
     return SelectionArea(
-      child: ListView(
-        controller: scrollController,
-        children: <Widget>[
-          for (final DiffFile file in diff.files)
-            _DiffFileSection(file: file, staged: staged),
-        ],
+      child: GbmCodeHScroll(
+        contentWidth: contentWidth,
+        verticalController: _vertical,
+        backdrop: colors.surfacePanel,
+        child: ListView(
+          controller: _vertical,
+          children: <Widget>[
+            for (final DiffFile file in diff.files)
+              _DiffFileSection(
+                file: file,
+                staged: widget.staged,
+                softWrap: softWrap,
+              ),
+          ],
+        ),
       ),
     );
   }
 }
 
 class _DiffFileSection extends StatelessWidget {
-  const _DiffFileSection({required this.file, required this.staged});
+  const _DiffFileSection({
+    required this.file,
+    required this.staged,
+    required this.softWrap,
+  });
 
   final DiffFile file;
   final bool staged;
+  final bool softWrap;
 
   @override
   Widget build(BuildContext context) {
@@ -91,17 +151,22 @@ class _DiffFileSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         for (final DiffHunk hunk in file.hunks)
-          _DiffHunkSection(hunk: hunk, staged: staged),
+          _DiffHunkSection(hunk: hunk, staged: staged, softWrap: softWrap),
       ],
     );
   }
 }
 
 class _DiffHunkSection extends StatelessWidget {
-  const _DiffHunkSection({required this.hunk, required this.staged});
+  const _DiffHunkSection({
+    required this.hunk,
+    required this.staged,
+    required this.softWrap,
+  });
 
   final DiffHunk hunk;
   final bool staged;
+  final bool softWrap;
 
   @override
   Widget build(BuildContext context) {
@@ -118,6 +183,8 @@ class _DiffHunkSection extends StatelessWidget {
           child: Text(
             '@@ -${hunk.oldStart},${hunk.oldCount} '
             '+${hunk.newStart},${hunk.newCount} @@ ${hunk.heading}',
+            softWrap: softWrap,
+            overflow: softWrap ? TextOverflow.clip : TextOverflow.visible,
             style: TextStyle(
               fontFamily: GbmTypography.fontMono,
               fontSize: GbmTypography.textXs,
@@ -126,7 +193,7 @@ class _DiffHunkSection extends StatelessWidget {
           ),
         ),
         for (final DiffLine line in hunk.lines)
-          DiffLineView(line: line, staged: staged),
+          DiffLineView(line: line, staged: staged, softWrap: softWrap),
       ],
     );
   }

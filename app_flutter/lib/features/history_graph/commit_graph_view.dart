@@ -453,10 +453,25 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
     // The rendered order, as oids. Every selection transition is expressed
     // against this rather than against `visibleRows` (snapshot indices), so
     // a range never silently spans rows a filter is hiding.
-    final List<String> visibleOids = <String>[
-      for (final int index in visibleRows)
-        if (index < graph.oidsHex.length) graph.oidsHex[index],
-    ];
+    //
+    // With nothing filtered this list *is* `graph.oidsHex` -- position
+    // equals row index -- so the copy is skipped rather than rebuilt on
+    // every scroll tick and every metadata reply. The length guard is what
+    // makes the two provably identical: the comprehension below drops any
+    // index past the end of `oidsHex`, so it can only equal `oidsHex`
+    // outright when the two lengths already agree. They always do in
+    // practice; the mismatch branch exists so a malformed snapshot keeps
+    // the old, defensive behaviour instead of a wrong-length selection
+    // list. See UnfilteredRowIndices for the measured cost of the twin
+    // allocation this pairs with.
+    final List<String> visibleOids =
+        visibleRows is UnfilteredRowIndices &&
+            graph.rows.length == graph.oidsHex.length
+        ? graph.oidsHex
+        : <String>[
+            for (final int index in visibleRows)
+              if (index < graph.oidsHex.length) graph.oidsHex[index],
+          ];
 
     return LayoutBuilder(
       builder: (context, constraints) {

@@ -35,14 +35,47 @@ enum SideBySideSide {
 /// same number in both files; the moment an earlier hunk had added or removed
 /// lines, the left column silently numbered the old file with the new file's
 /// line numbers.
+/// The code cell's text style, minus its colour.
+///
+/// A `const` so [sideBySideColumnWidth] can measure against exactly what the
+/// cell paints -- a style rebuilt inline per cell would drift from the
+/// measurement and leave the scroll extent short of the longest line.
+const TextStyle kSideBySideCodeTextStyle = TextStyle(
+  fontFamily: GbmTypography.fontMono,
+  fontSize: GbmTypography.textSm,
+  height: 1.6,
+);
+
+/// How wide one of the two columns has to be for [widestLine] to fit
+/// unwrapped: the cell's own horizontal padding on both sides, the line
+/// number gutter, and the gap after it.
+double sideBySideColumnWidth(double widestLine) =>
+    GbmSpacing.space2 +
+    GbmLayout.diffGutterWidth +
+    GbmSpacing.space2 +
+    widestLine +
+    GbmSpacing.space2;
+
 class SideBySideCell extends StatelessWidget {
-  const SideBySideCell({super.key, required this.line, required this.side});
+  const SideBySideCell({
+    super.key,
+    required this.line,
+    required this.side,
+    required this.softWrap,
+  });
 
   /// Null means blank padding — a pure addition has no left line, a pure
   /// deletion no right line.
   final DiffLine? line;
 
   final SideBySideSide side;
+
+  /// `AppPreferences.softWrapEnabled`, threaded down rather than read here:
+  /// this is a presentational widget and making it a `ConsumerWidget` would
+  /// force a `ProviderScope` on every test that pumps one cell. No default
+  /// value on purpose -- a missed call site is then a compile error, not a
+  /// column that silently keeps wrapping.
+  final bool softWrap;
 
   @override
   Widget build(BuildContext context) {
@@ -109,12 +142,13 @@ class SideBySideCell extends StatelessWidget {
               Expanded(
                 child: Text(
                   line.text,
-                  style: TextStyle(
-                    fontFamily: GbmTypography.fontMono,
-                    fontSize: GbmTypography.textSm,
-                    color: textColor,
-                    height: 1.6,
-                  ),
+                  softWrap: softWrap,
+                  // `clip` would cut the line off at the cell's edge, which
+                  // is exactly what the horizontal scroller exists to avoid;
+                  // the cell is already sized to the widest line, so nothing
+                  // actually spills into the neighbouring column.
+                  overflow: softWrap ? TextOverflow.clip : TextOverflow.visible,
+                  style: kSideBySideCodeTextStyle.copyWith(color: textColor),
                 ),
               ),
             ],

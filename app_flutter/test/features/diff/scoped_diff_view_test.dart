@@ -112,6 +112,7 @@ void main() {
         child: SizedBox(
           width: width,
           child: ScopedDiffView(
+            softWrap: false,
             title: isStaged ? 'Staged' : 'Unstaged',
             file: file,
             staged: isStaged,
@@ -1027,6 +1028,7 @@ class _HostState extends State<_Host> {
 
   @override
   Widget build(BuildContext context) => ScopedDiffView(
+    softWrap: false,
     title: 'Unstaged',
     file: _file,
     staged: false,

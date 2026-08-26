@@ -462,6 +462,7 @@ void main() {
       await _pump(
         tester,
         DiffLineView(
+          softWrap: true,
           line: _diffLine(),
 
           staged: false,

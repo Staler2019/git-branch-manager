@@ -111,6 +111,56 @@ _pump(
 }
 
 void main() {
+  group('PreferencesDialogContent - Appearance', () {
+    testWidgets('soft wrap is off until it is turned on', (tester) async {
+      final result = await _pump(tester, section: 'Appearance');
+
+      // Off is the shipped default, and it is the flip: before this setting
+      // existed every file view wrapped unconditionally.
+      expect(
+        result.container.read(appPreferencesProvider).softWrapEnabled,
+        isFalse,
+      );
+
+      await tester.ensureVisible(find.text('Soft wrap long lines'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Soft wrap long lines'));
+      await tester.pumpAndSettle();
+
+      expect(
+        result.container.read(appPreferencesProvider).softWrapEnabled,
+        isTrue,
+      );
+    });
+
+    testWidgets('a stored soft wrap setting is what the switch shows', (
+      tester,
+    ) async {
+      final result = await _pump(
+        tester,
+        section: 'Appearance',
+        initialPrefs: <String, Object>{'appPrefs.softWrapEnabled': true},
+      );
+
+      expect(
+        result.container.read(appPreferencesProvider).softWrapEnabled,
+        isTrue,
+      );
+      // And the switch reflects it rather than the constructor default --
+      // reading the box, not just the provider.
+      final Checkbox box = tester.widget<Checkbox>(
+        find.descendant(
+          of: find.ancestor(
+            of: find.text('Soft wrap long lines'),
+            matching: find.byType(CheckboxListTile),
+          ),
+          matching: find.byType(Checkbox),
+        ),
+      );
+      expect(box.value, isTrue);
+    });
+  });
+
   group('PreferencesDialogContent - General, updates', () {
     testWidgets('the startup check is on until it is turned off', (
       tester,

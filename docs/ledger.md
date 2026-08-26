@@ -4176,3 +4176,724 @@ CLAUDE.md 寫著「憑臆測殺掉會毀掉真正的工作」，而那確實是�
 還是要說清楚它證明的邊界：全綠證明「改動沒弄壞既有的裝置層測試」，**不證明
 「並排檢視在真機上長得對」**。後者沒有任何一層自動化測試涵蓋，只有人眼能確認，
 所以它仍然是使用者的一個手動步驟，不是已經發生過的事。
+### History 捲動卡頓：主因不是圖，是整個 shell 在重建 (fix/graph-scroll-issue)
+
+使用者的問題是「捲動 History 會頓」，並自己提了一個假設：**能不能先把線畫好再
+顯示**。方向是對的，但那不是主因，而找到主因靠的是使用者補的第二句話：
+**「每次捲動 menubar 都會閃爍」**。
+
+menubar 不在 `CommitGraphView` 裡，它在 `WorkspaceScreen`。它會閃，就代表整個
+shell 每次捲動都在重建。這也解釋了原本解釋不了的事：**這個 repo 只有 703 個
+commit，捲動一樣頓**。O(N) 掃描在 703 筆下太小，撐不起那個體感；重建風暴在任何
+repo 大小下都一樣發生。
+
+#### 主因：`ref.watch` 監聽整包 state
+
+`workspace_screen.dart:216` 原本是 `ref.watch(repoSessionProvider(identity))`。
+捲動的迴圈是這樣接起來的：
+
+```
+_onScroll（每個捲動 tick）
+  → _requestVisibleMeta → requestCommitMeta → FFI
+  → commitMetaReady
+  → state.copyWith(commitMetaCache: ...)   ← 新的 RepoSessionState 物件
+  → WorkspaceScreen.build() 整個跑一次
+  → MenuBarRow / PlatformMenuBarHost / ActionToolbar / TabRow
+    ＋ _buildActionHandlers() 全部重建
+```
+
+macOS 上 `PlatformMenuBarHost` 重建的是真的原生 `PlatformMenuBar`，那就是使用者
+看到在閃的東西。而 metadata 是隨捲動連續回來的，所以整段捲動期間這個迴圈不停。
+
+**最乾淨的佐證是欄位盤點**：`WorkspaceScreen` 全檔讀十個 session 欄位，
+`commitMetaCache` 一個都沒讀到——它是這個 shell 重建的唯一原因，卻不可能改變畫面
+上任何一個像素。
+
+修法是 record 版的單次 `.select()`，只挑真正消費的九個欄位。`copyWith` 對沒給的
+參數保留同一個實例，而這些型別都沒有覆寫 `==`，所以 record 以 identity 比較。
+
+**兩個 derived getter 刻意不放進 record**：`gonePendingRefs` 每次呼叫都
+`expand().toSet()` 生成新的 Set，Set 沒有值相等——放進去會讓 record 永遠不相等，
+等於把要修掉的重建風暴原封不動裝回來。這是那種「改了、測了、看起來對，其實什麼
+都沒修」的形狀。
+
+**沒有改四十個呼叫端**：`session` 是整包傳給 `isActionEnabled()`、
+`_backgroundTasks()`、`_headTrackingRef()` 與 `_ConflictBanner` 的。第一版想把
+record 傳下去，盤點後發現 `grep 'session\.'` **會漏掉整包傳遞的呼叫端**，真正的
+數字是約四十個而不是十個。所以改成 watch 一個 record、`read` 完整狀態：不增加第
+二個訂閱，而且跑在那次 watch 已經決定要跑的 build 裡，值是最新的。
+
+#### 量測：第一次量錯了，錯在 JIT 暖機
+
+四個數字全部用 debug JIT + `Stopwatch`，比照 `DiffScopeCache` 的先例。**第一輪的
+數字是錯的**，而且錯得很有教育意義：我在同一個迴圈裡依 N 遞增地量，於是最小的
+N 跑在最冷的 JIT 上。索引版看起來是這樣：
+
+| N | 索引版（未暖機） |
+|---|---|
+| 703 | 8.85us/列 |
+| 10,000 | 2.08us/列 |
+| 100,000 | 0.58us/列 |
+
+**成本隨 N 下降**——一個索引不可能有這種形狀。那不是資料，那是暖機。結論當時甚至
+是「703 筆下索引比暴力掃描還慢」，差點據此加一個沒必要的門檻。兩條路徑都先跑
+20,000 次暖機之後：
+
+| N | edges | 暴力 | 索引 | 25 列視窗 |
+|---|---|---|---|---|
+| 703 | 800 | 1.5us/列 | 0.79us/列 | 37us → 20us |
+| 10,000 | 11,561 | 25.7us/列 | 0.46us/列 | 644us → 12us |
+| 100,000 | 115,739 | 260.5us/列 | 0.49us/列 | 6,514us → 12us |
+
+索引後成本與 N 無關，這才是索引該有的形狀。建索引本身 100k 筆約 26ms，惰性建立。
+
+`matchingRowIndices`（空查詢）同樣重量：
+
+| N | 之前（generate） | 之後（視圖） |
+|---|---|---|
+| 703 | 4.0us | 0.30us |
+| 10,000 | 41.2us | 0.063us |
+| 100,000 | 669.9us | 0.073us |
+
+#### 使用者的想法，換成不推翻既有決定的形式
+
+「先把線畫好」如果照字面做成 per-row segment 清單，會直接撞上
+`graph_edge_geometry.dart:108-109` 白紙黑字拒絕過的東西（O(N x lanes) 記憶體）。
+所以做的是**每份 snapshot 一份 spanning 索引**：`_startsAt` 加上每 64 列一次的
+`_activeAtBlockStart`，記憶體仍是 O(N+E)，查詢從 O(E) 降到 O(該列實際有的邊)。
+
+**刻意不依賴 lane**：`_activeAtBlockStart` 是對真實 span 掃出來的結果，不是從圖形
+性質推導的。CLAUDE.md 記過一條被相信但為假的 lane 不變式
+（`edge.lane == rows[parentRow].lane`），任何靠 lane 結構的索引都會站在同一種前提上。
+
+快取掛在 `Expando` 上，key 是 snapshot 實例。不需要失效機制，而**那是設計不是缺口**：
+新的 snapshot 是新物件所以必然 miss，舊的 entry 隨 key 一起被回收（Expando 不會
+延長 key 的壽命）。
+
+#### 三個「夾具／斷言無法與程式碼意見不合」的當場實例
+
+這一輪踩到三次，全部是 CLAUDE.md 已經記載過的形狀，而且都是變異驗證抓出來的：
+
+1. **oid 前綴夾具**：`UnfilteredRowIndices` 的過濾測試用
+   `i.toRadixString(16).padLeft(40, '0')` 生成十個 oid，索引落在**尾端**，於是十筆
+   的前八個字元全是 `00000000`。前綴查詢是 `startsWith`，所以那個夾具無法分辨任何
+   兩列。改成把索引放在開頭。
+2. **`hits.sort()` 的變異是綠的**：拿掉排序，13 支全綠。原因不是斷言弱到看不見
+   順序（`orderedEquals` 看得見），而是**夾具生成的 edge 本來就照 childRow 排序**，
+   那個順序下區塊 carry-over 的串接剛好就是正確順序。補了一支把 edge 陣列反轉的
+   夾具，sort 才變成有承重，變異也才紅得只有那一支。
+3. **索引的 extent 取自 rows**：第一版用 `graph.rows.length` 定大小，讓三支**既有**
+   測試轉紅。追下去發現既有測試是對的：`edgesSpanning` 契約上是 `edges` 的純函數，
+   `graph_snapshot_test.dart` 就是拿 `rows` 為空、edge 橫跨 5..20 的 view 在問。
+   改的是實作，不是測試。
+
+第四個實例在別的地方：`FakeRepoSessionController` 原本**沒有**覆寫
+`refreshWorkingCopy`，所以它會撞上 `_session == nullptr` 的守衛安靜地什麼都不做，
+focus 測試分不出死掉的 listener 與活著的。補覆寫時又差點加重複的 `refreshHistory`
+——它早在 362 行就有了，我第一次 grep 被 `head -20` 截斷所以沒看到，77 支測試因此
+編譯失敗。
+
+#### focus 回來不更新：不是壞掉，是從來沒做
+
+`app_flutter/lib/` 底下 grep `AppLifecycleState`、`WidgetsBindingObserver`、
+`AppLifecycleListener`、`didChangeAppLifecycleState`——**零命中**。要接的兩個進入點
+（`refreshRepoHistory` / `refreshWorkingCopy`）本來就都在。
+
+節流用 `Timer` 而不是 `DateTime.now()`，理由是可測試性：牆鐘不受 `tester.pump()`
+推進，「超過節流視窗要再重整一次」那個案例會變成寫不出來。
+
+**誠實的限制**：測試用 `handleAppLifecycleStateChanged` 模擬轉換，證明了接線，
+**沒有**證明 macOS 真的會在視窗焦點變化時送出 inactive/resumed 這組轉換。那要在
+真的 app 上確認。
+
+#### 沒做的：載入期每個 chunk 重抄整張圖
+
+`repo_session_repository.dart` 每收到一個 `graphUpdated` chunk 就 `readGraphSnapshot()`
+把整張圖重新複製進 Dart，其中 `_readOids` 對每個 oid 跑 20 次 `toRadixString` +
+`padLeft` + `StringBuffer.write`。C++ 側是幾何級數分塊，所以一次 refresh 約
+log2(N/256) 個 chunk，每個都全抄。
+
+這是**載入期**成本不是捲動成本，而且量它需要真的 FFI 與大 repo，這一輪拿不到數字，
+所以照使用者「先量，需要再修」的裁決留著。
+
+**真要做的話有一個阻擋物先要處理**：walk 的 generation 在 C++ 側存在
+（`Session.cpp:375,438` 的 `RefreshCoalescer::Generation`），但**沒有經由 capi 曝露**
+——`gbm_capi.h` 完全沒有 generation，`GBM_EVENT_GRAPH_UPDATED` 的 payload 只有
+`{"complete": bool}`。沒有它，Dart 端分不出「同一次 walk 的第 5 個 chunk」與
+「force push 後新一次 walk 的第 1 個 chunk」，正是使用者自己點名的風險。走 payload
+加欄位而不是新增匯出函式，理由是簡單而非安全：新符號在舊 dylib 上是**大聲的**
+lookup 失敗，真正無聲的危險是改動**既有**函式的參數列。
+
+#### 沒做的（二）：有過濾字串時的 `matchingRowIndices`，以及 `isContiguousIn`
+
+核准的計畫 Phase 2 有兩項，只出了一項。空查詢那條**移除**了（`UnfilteredRowIndices`），
+非空查詢那條**原封不動**，這是一次縮減，所以連同數字寫在這裡讓使用者裁決，而不是
+安靜地做掉。
+
+同樣條件量（debug JIT、兩條路徑各先熱身 20k 次）：
+
+| N | 空查詢（已修） | 非空查詢（未修） | `isContiguousIn`（未修，單選一列） |
+|---|---|---|---|
+| 703 | 4.0 → 0.30 µs | 35.2 µs | 0.9 µs |
+| 10,000 | 41.2 → 0.063 µs | 489.7 µs | 12.5 µs |
+| 100,000 | 669.9 → 0.073 µs | **5.03 ms** | 121 µs |
+
+非空查詢是這三條裡最貴的，而且 100k 下一次 5ms、一幀最多呼叫兩次
+（`_visibleOids` 每個捲動 tick 一次、`build()` 每次重建一次），已經吃掉大半個
+16.7ms 預算。**但它不像空查詢那條可以直接刪掉**：比對的是 metadata 的
+subject/author，match 集合真的是 `commitMetaCache` 的函數。
+
+而計畫裡要 memo 它的那把 key（`(graph, metaCache, query)` 的物件識別）有個結構性
+問題：**`metaCache` 每收到一批 metadata 就換一個新實例**，而那正是捲動時它一直在
+發生的事。所以這個 memo 在最需要它的路徑上大約只有一半命中率（同一個 metaCache
+底下 `build()` 與下一個捲動 tick 共用），不是接近全中。要不要為此付一份三段式失效
+契約 + hits/misses 計數測試，是使用者的裁決。
+
+另外兩點誠實話：
+
+- 這條路徑**只有使用者在 History 過濾框打了字才會付**，而這一輪回報的症狀
+  （menubar 閃爍）是沒有過濾時的純捲動。兩者是不同情境。
+- `isContiguousIn` 慢在 `all.indexOf(item)`，是 O(選取數 × N)。但**沒有選取時它
+  第一行就回 false**，也就是捲動最常見的狀態下是 O(1)，所以量級雖然到 121µs
+  也排在最後面。
+
+##### 裁決結果：memo 做了
+
+使用者看過上面的數字後裁決「做，memo 加計數測試」，所以「沒做的（二）」的第一項
+已經不成立了，記在這裡而不是改寫上面那段——留著原本的推理，補上結論。
+
+memo 的形狀：`Expando` 掛在 `GraphSnapshotView` 上（跟 `GraphSpanIndex` 同一個模式），
+entry 裡再存 `metaCache` 實例與 `query` 字串。三者缺一不可，各自擋掉不同的錯答案：
+換 snapshot 是不同的列、換 metaCache 會讓原本不 match 的列開始 match、換 query 是
+完全不同的問題。前兩者用實例識別是誠實的，因為兩者都不可變且整份重建——snapshot 由
+`readGraphSnapshot()`，metaCache 由 `withCommitMeta()` 的展開語法（`{...old, ...new}`
+生成**新** map，不是就地改）。
+
+命中後的成本（同條件、熱身 20k 次）：
+
+| N | 未命中（＝原本的成本） | 命中 |
+|---|---|---|
+| 703 | 35.2 µs | 0.080 µs |
+| 10,000 | 489.7 µs | 0.046 µs |
+| 100,000 | **5.03 ms** | **0.012 µs** |
+
+命中是 O(1)（一次 Expando 查詢加兩個比較），所以隨 N 變大反而更快，那是量測噪音不是
+趨勢。量的時候順便斷言計時區間內 `MatchMemoStats.misses` 沒有增加，確認量到的真的是
+命中路徑而不是混了重算。
+
+回傳值改成 `List.unmodifiable`。原本每次都是新 list，呼叫端愛怎樣都行；memo 之後
+同一條 list 會被兩個呼叫點跨影格共用，所以把「不可以改」從「目前的呼叫端剛好都沒改」
+變成型別本身的性質。動手前確認過兩個呼叫點（`_visibleOids` 與 `build()`）都只有
+`.isEmpty` / `.length` / `[]` / 迭代。
+
+計數測試七支，斷言的是 hits/misses 的**差值**（計數器是 isolate 全域、不重置，跟
+`GraphSpanIndex.debugBuildCount` 同一個讀法）。三次變異驗證都紅得很窄，而且落點跟預測
+一致：
+
+| 變異 | 預測 | 實際 |
+|---|---|---|
+| 拿掉 memo | 只有「只算一次」那支 | ✅ 只有那支 |
+| key 漏掉 query | 「換 query 要重算」 | ✅ 那支，**外加** `commit_search_test.dart` 既有的「nothing matches」 |
+| key 漏掉 metaCache | 症狀測試 | ✅ 症狀測試 + 「同內容不同實例算 miss」 |
+
+第二項那個額外的紅是意外收穫：既有那組四支測試共用同一個 `graph` 實例、只換 query，
+所以 key 漏掉 query 時它們會互相拿到對方的答案。**既有測試免費守住了一個維度**，
+純屬夾具剛好長對，不是設計出來的。
+
+順帶修正了一段自己一個 commit 前才寫下的註解：`UnfilteredRowIndices` 的說明裡寫著
+「非空查詢那條刻意不動，是使用者的裁決」，memo 一落地那句就成了假的。這正是本檔
+一再記載的「註解與程式碼互相矛盾」形狀，所以跟著這次改動一起改掉，而不是留給下一輪
+當成真話讀。
+
+以及一個補上的縫：memo 的 key 誠不誠實，整個押在 `withCommitMeta` 用展開語法生成
+**新** map 而不是就地改。這件事原本只有讀原始碼確認過，**沒有任何測試釘住**——
+memo 測試裡那幾個「新的 metaCache」全是測試自己用展開語法造的，從來沒有經過真正的
+生產者。哪天有人把 `withCommitMeta` 「優化」成就地改，過濾就會一直回舊答案，而現有
+測試沒有一支會紅。補了一支跨過真生產者的測試。
+
+這支測試自己踩了一次「紅得不是原因」：第一版用 `const RepoSessionState(isOpen: true)`
+當起點，而它的 `commitMetaCache` 預設是 **`const` map、不可修改**，所以就地改的變異會在
+那裡直接丟 `UnsupportedError`——測試是紅的，但紅的是「丟例外」，不是我寫的那三行斷言。
+換成明確的 growable map literal（也才是 app 從第一批 metadata 之後真正持有的東西）之後
+變異才成功執行，紅的位置也才變成 `withCommitMeta must not mutate the cache in place`
+那一句。**測試紅了不等於測試有承重**，得看紅在哪一行。
+
+## feature/soft-warp — soft wrap 偏好與長行水平捲動
+
+需求：Preferences 加一個 soft wrap 開關、預設關閉，關掉時長行改用水平捲動。
+使用者另外拍板三件事：行號欄**釘住不動**（不是整列一起捲）、涵蓋所有跟檔案有關
+的介面（commit message 輸入框除外）、入口只放 Preferences 不加選單或快捷鍵。
+
+### 兩份探索報告的前提都是錯的，而且錯在同一個方向
+
+兩支 Explore 都回報「長行目前會被截斷／溢出」。其中一份還進一步宣稱
+「`Text` 在 Row 裡預設 `softWrap: false`，所以長行會產生水平捲動」。
+
+實際讀 `diff_line.dart:122-132` 後，兩者都不成立：`Text.softWrap` 預設是
+**true**，`Expanded` 又給了受限寬度，所以**今天每一個檔案介面的長行都是自動
+換行**，沒有截斷，也不存在任何水平捲動。
+
+這把任務性質整個換掉。原本以為是「把一個 flag 接到既有的兩條路徑」，實際是
+**預設行為翻轉 + 從零建一條水平捲動路徑**：
+
+| | 這輪之前 | 之後 |
+|---|---|---|
+| 預設 | 永遠換行（沒得選） | 不換行 + 水平捲動、行號欄釘住 |
+| 水平捲動 | 完全不存在 | 五個介面都新建 |
+
+唯一例外是 `BlamePanel`，它本來是 `maxLines: 1` + ellipsis，長行直接被切掉、
+沒有任何辦法看到後面。兩種新模式對它來說都是修好一個既有缺陷。
+
+教訓不是「subagent 不可信」，而是**兩份獨立報告在同一點上錯得一樣，並不構成
+佐證**。它們錯的方式甚至不同（一個說截斷、一個說已經會水平捲動），卻共同支撐
+了「現況不是換行」這個結論。判準是自己讀那 10 行原始碼，30 秒的事。
+
+### `dragDevices: {}` —— 我自己也犯了一次同型錯誤
+
+設計 `GbmCodeHScroll` 時，我原本要對水平 scroller 覆寫
+`ScrollConfiguration(dragDevices: const {})`，理由寫得很篤定：「保護
+`ScopedDiffView` 的選取拖曳不被 scroller 搶走」，還在計畫裡標成「整個設計最關鍵
+的一行」。
+
+查 Flutter 的 `scroll_configuration.dart` 之後，這條前提兩頭都錯：
+
+- **不需要**：`ScrollBehavior.dragDevices` 預設是 `_kTouchLikeDeviceTypes` =
+  `{touch, stylus, invertedStylus, trackpad, unknown}`，**mouse 不在裡面**。桌面
+  的選取拖曳是 mouse kind（CLAUDE.md 早就記過：觸控板的 click-and-drag 是以
+  mouse 抵達的），scroller 的 drag recognizer 根本不受理，arena 上沒有競爭。
+- **有害**：觸控板雙指水平 pan 正是**透過**該集合的成員資格抵達 `Scrollable` 的
+  （同一條 CLAUDE.md 記載：`PointerPanZoom*` 是 trackpad kind 進入
+  `_kTouchLikeDeviceTypes` 的唯一路徑）。清空等於把最主要的水平捲動輸入砍掉，
+  只剩捲軸拉桿與 Shift+滾輪。
+
+諷刺的是，推翻它的兩項事實**都已經寫在 CLAUDE.md 裡**，就在「A pointer drag can
+never carry `PointerDeviceKind.trackpad`」那一條。我讀過那條、也在計畫裡引用了
+它的前半，卻沒把後半（trackpad 靠成員資格進入該集合）接到自己的決定上。
+
+`gbm_code_hscroll_test.dart` 因此有一條專門釘住這個前提的測試：**mouse kind 的
+拖曳不得捲動**。哪天 Flutter 把 mouse 加進那個集合，紅的會是它，而真正壞掉的是
+diff 的拖曳選取。
+
+### 釘住行號欄需要兩種策略，不是一種
+
+「gutter 釘住、程式碼從底下滑過去」有一個立即的推論：**gutter 必須不透明**，
+否則會看到捲動後的行文字出現在自己行號的左邊。
+
+對 diff 的列這是無縫的——`DiffLineView` 自己就畫滿整列寬的背景
+（`Container(color: background)`），gutter 重畫同一個顏色看不出接縫。
+
+**對 Blame 的列這是災難。** 它的列是 `GbmRow`，背景是**祖先**畫的 hover 與選取
+底色。不透明的 gutter 會把兩者都蓋掉，而且不是只在捲動時——**捲動位移為 0 時就
+會蓋**，等於 hover 回饋直接消失。這正是 CLAUDE.md 記過的
+「sidebar 有好幾個月沒有可見 hover」那一類。
+
+所以有第二條路徑 `GbmPinnedGutterClip`：gutter 什麼都不塗（`opaque: false`），
+改成把內容依 **viewport 座標**裁掉，裁切左緣 = 捲動位移 + gutter 寬。程式碼永遠
+到不了 gutter 底下，所以沒有東西需要遮，列自己的底色原封不動。
+
+規則寫在 `GbmPinnedGutter.opaque` 的 doc comment：**列自己畫滿寬背景 → 不透明；
+背景由必須保持可見的祖先畫 → 裁切。** 這不是同一件事的兩個真相來源，是兩條有
+明確適用條件的算繪路徑。
+
+裁切的幾何只能直接問 clipper——`ClipRect` 不改變 `getRect`，所以「內容有沒有被
+正確裁掉」沒有任何位置斷言測得出來。測試因此斷言
+`clipper.getClip(size).left == 捲動位移 + gutterWidth`。
+
+### 量錯 render object：finder 對了，結論還是不成立
+
+`ScopedDiffView` 的釘住測試第一版紅了，訊息是 gutter 移動量剛好等於捲動量——
+看起來就是「反向平移完全沒發生」。獨立的 `gbm_code_hscroll_test` 裡同樣的機制
+卻是綠的。
+
+寫了一支探測才知道程式是對的：controller 有找到、`hasClients` 為 true。錯的是
+**測試量錯了 render object**。`find.byType(GbmPinnedGutter)` 解析到的第一個
+RenderBox 是它內部的 `RenderTransform` **本身**，而 `localToGlobal` 只把 transform
+套用給**子節點**、不套用給自己——所以量到的永遠是未平移的位置，會跟著捲動跑。
+獨立測試用的是 `find.byKey`，命中的是 Transform **底下**的 `Text`，所以才對。
+
+這是 CLAUDE.md 那條「a finder proves existence, never position」的下一層：
+finder 找對了 widget，render object 還是可能是錯的那一個。修法是往下找一層
+（`find.descendant(... matching: find.byType(ColoredBox))`）。
+
+### 三個 mutation 教訓
+
+**一、anchor 對不上 = 假綠，不是測試缺口。** `panel_diff_text.dart` 的前兩個
+mutation 回綠，我差點讀成「測試沒覆蓋到」。實際上是 `dart format` 重排過參數
+列，我的 anchor `count == 0`，**mutation 根本沒套用**。CLAUDE.md 要求 mutation
+script 先斷言 `count(old) == 1` 就是為了這個——沒有那行斷言，兩個假綠會直接變成
+兩條不存在的「缺口」記進 ledger。改抓格式化後的實際內容之後兩個都紅。
+
+**二、一個真的綠 mutation，揭露 fixture 的盲點。** 把 `_GapBlock` 的
+`softWrap` 硬寫成 `true` 是綠的。原因：fixture 裡唯一的長行在 scope 卡片裡，
+gap block 只有一行短 context，所以 `find.byType(GbmPinnedGutter).first` 落到
+卡片那顆、照樣釘得住。卡片與 gap block 是**兩個各持一份旗標副本的 builder**，
+fixture 必須讓兩邊都有長行，斷言也必須改用**計數**（`findsNWidgets(2)`）而不是
+「有沒有」。衝突視窗的三欄是同一個形狀，所以那裡一開始就用
+`findsNWidgets(3)`——硬寫其中一欄仍然換行就會紅。
+
+**三、`git checkout -- <file>` 一次都沒用。** 全部走 scratchpad 備份再 `cp`
+回來，照 CLAUDE.md 記載的那次事故。
+
+### 量測數字（debug JIT，測試字型）
+
+`widestLineWidth` 一次 `TextPainter.layout` 量整份文字，取 `maxIntrinsicWidth`
+（多行段落的 `maxIntrinsicWidth` 就是各行的最大值，所以是一次 layout 不是每行
+一次）：
+
+| 行數 | 每次呼叫 |
+|---|---|
+| 200 | 2.8 ms |
+| 1,000 | 8.6 ms |
+| 5,000 | **46 ms** |
+
+5,000 行 46ms 表示**每次 build 重量會直接掉幀**，所以 `CodeWidthMemo` 是必要條件
+而不是優化。數字寫在這裡是為了讓下一輪從數字重新決定，而不是從同一個猜測。
+
+刻意**不用**「等寬字寬 × 最長行字元數」這個便宜很多的公式：CJK 與全形字是兩格
+寬，公式會低估，而低估的正好是最需要捲動空間的那些行，症狀是行尾被切掉。
+
+### 裝置層這輪無法作為證據——而這是量出來的，不是推測的
+
+計畫把 `stage_lines_flow_test.dart` 列為**唯一**能證明「水平 scroller 沒有搶走
+`SCOPES` row 7 拖曳選取」的測試，並要求 C2 一開始先跑。跑了，掛了：前 3 個測試
+綠，第 4 個「staged 側的文字選取」卡住 7 分 50 秒沒完成。
+
+沒有直接歸因，而是 detached 到 C1 **之前**的 commit（5fce758）跑了真正的對照組。
+結果是決定性的：**之前更糟**——第 2 個測試就在 25 秒內 did not complete。兩次
+輸出都有 `Failed to foreground app; open returned 1`。
+
+**這一段的結論後來被 main 上的 side-by-side 那輪推翻，在此就地更正。**
+當時寫的是「既有的環境問題（#101 那一類，macOS 視窗拿不到前景），裝置層這個
+session 無法作為證據」，依據是兩次輸出都有
+`Failed to foreground app; open returned 1`。那條訊息**在全綠的 run 上也會印**
+（side-by-side 那輪重跑後證實的），真正的判別是它後面有沒有測試結果行——而我
+的 log 後面有，就寫在同一份輸出裡：`00:15 +1`、`00:31 +2`、`00:46 +3`。
+
+所以正確的讀法是：**這不是拿不到前景，是第 4 個測試掛住了。** 而且拆開來看，
+這輪拿到的證據比原先以為的多：
+
+| | 前進到 | 其中包含 |
+|---|---|---|
+| 這輪（C5 之後） | 3 條綠，第 4 條掛 | **「a text selection stages exactly the lines it framed」通過** |
+| 父 commit 5fce758 對照組 | 1 條綠，第 2 條掛 | —— |
+
+第二列那個 tick 正是計畫指名要驗的東西：**風險 1（水平 scroller 搶走 `SCOPES`
+row 7 的拖曳選取）在裝置層被證否了一次**，只是我當時把整份輸出丟進「環境壞掉」
+這個桶子裡，沒去讀它。對照組更早掛，所以「這輪沒弄壞裝置層」仍然成立。
+
+**留下的真問題是第 4 個測試（staged 側的選取取消暫存）為什麼掛 7 分 50 秒**，
+那是一條具體的線索，不是一句「環境不行」。教訓已蒸餾進 CLAUDE.md：先讀過那行
+訊息看後面的計數，再決定它是掛一條還是整層不通——兩者的下一步完全不同。
+
+**第二次就地更正：那條線索也結掉了。** 分支收尾時重跑同一個檔——先
+`pkill` 殘留的 `gbm_flutter`、再跑 `scripts/build_capi.sh` 重建 dylib（merge 帶進
+了 `src/core/git/SideBySideDiff.h`，而 `build/native/` 的那份是複製品）——結果是
+**7 條全綠，1 分 50 秒，`EXIT=0`**，第 4 條在 15 秒內通過。所以那個 7 分 50 秒
+不是缺陷，重現不了。
+
+誠實的界線：**沒有隔離出是三件事裡的哪一件**（重建 dylib、清掉殘留 process、
+樹上多了三個 commit）。能說的是「掛住在新的樹上重現不了」，不能說「原因是陳舊的
+dylib」——雖然那是嫌疑最大的一個，因為 CLAUDE.md 已經記過一份三天前的
+dylib 會靜默地讓新的 capi 欄位看起來像 Dart bug。
+
+因此計畫的驗收項目 `[ ] ScopedDiffView 的拖曳選取暫存沒有回歸（裝置層綠）`
+**在這輪最終的樹上是真的綠的**，不是靠上面那個「至少證否過一次」的部分證據。
+七條裡有三條直接就是這件事：「a text selection stages exactly the lines it
+framed」、「a selection on the staged side unstages what it framed」、
+「a row-by-row drag keeps every changed line it crossed」。
+
+`real_repo_harness.dart` 的 prefs 清除清單加上了 `appPrefs.softWrapEnabled`（merge
+後與 main 的 `fileListViewMode` / `diffViewMode` 併成同一組 flat key），
+理由與 `panelLayout.*` / `graphColumns.*` 同型：兩種模式是兩棵不同的 widget 樹、
+兩套不同的 hit-test 幾何，開發者本機開過換行就會讓所有位置相關的測試在他機器上
+與別處不一致——而這一層沒有 CI，不一致不會被任何地方看見。
+
+### 明寫的取捨（不是靜默縮減）
+
+1. **`ScopedDiffView` 的卡片、hunk 標頭、scope 按鈕會跟著水平捲走**，只有每列的
+   行號欄釘住。要讓卡片邊框也釘住等於把卡片拆成「固定框 + 內部捲動」，而卡片
+   內部就是那些帶 `GlobalKey` 的 `SelectionListener` 列——重排那個子樹是
+   CLAUDE.md 明確記載的危險動作。
+2. **`_ResultLine` 的刪除按鈕跟著列捲走**，不釘右緣。兩邊都釘會從左右夾擠可讀
+   區，而那顆按鈕作用在「這一列」。
+3. **衝突視窗的 result `TextField` 有一道接縫。** 多行 `TextField` 沒有原生水平
+   捲動，作法是給它比 viewport 寬的盒子再捲那個盒子。關掉換行時，欄位自己的
+   游標追蹤捲動與外層 scroller 是兩個獨立的捲動位置，所以打字超過右緣會讓游標
+   移出視野而不是被追。打開換行沒有這個問題（就是以前那個盒子）。
+
+### 補上計畫承諾、但一開始漏掉的那條整合層測試
+
+計畫的「測試」段承諾過一條 `test/integration/` 的測試：「diff 在畫面上時切換偏好，
+版面確實改變」。實作完六個 commit 後回頭核對，發現它沒被寫出來——**這輪所有的
+wrap 測試都是先 seed 偏好再 pump**，每個模式都只在剛建好的樹上被證明過。
+
+補上的 `soft_wrap_preference_flow_test.dart` 有兩個測試，而它們的價值**不相等**，
+這點值得寫下來，因為 mutation 的紅寬窄直接說明了哪一條在守真正的縫：
+
+| mutation | 這個檔 | 套件其餘部分 | 讀法 |
+|---|---|---|---|
+| `PanelDiffText` 的 `ref.watch` → `ref.read` | **紅** | **全綠** | 這道縫本來完全沒人守 |
+| `selection_touch.dart` 的 row key memo 拿掉 | 紅 | `scoped_diff_view_test.dart` 也紅約 20 條 | 寬紅，別的測試早就釘著了 |
+
+第一條是真正的發現：**seed 過的測試對「只在 mount 時讀一次 provider」這個缺陷是
+盲的**，因為它那唯一一次 build 讀到的就是對的值。要分辨「每次 build 都讀」與
+「讀一次就記住」，只有在畫面上活著的樹上翻轉 notifier 這一種辦法。
+
+第二條依 repo 規矩（窄紅才算數）誠實降級為「守一條沒別人走過的路徑」而不是
+「唯一偵測者」，並且**寫進測試自己的註解**，免得下一輪把它讀成比實際更強的保證。
+
+### 一個量出來的缺陷，沒有修，交給使用者決定
+
+`ScopedDiffView` 的水平捲軸**在長檔案上看不見**。
+
+量測（測試字型，viewport 高 300px，60 行的 diff）：
+
+```
+viewport height = 300
+GbmCodeHScroll rect = Rect.fromLTRB(17.0, 42.0, 403.0, 1428.0)
+```
+
+`Scrollbar` 沿著自己盒子的下緣畫，而 `WorkingCopyDiffPane` 把 `ScopedDiffView`
+放在垂直 `SingleChildScrollView` 底下（`working_copy_diff_pane.dart:120/124/130`），
+所以它的高度是**無界**的——盒子高 1386px，拇指落在 y≈1428，使用者看到的是
+y=0..300。任何比一個畫面高的 diff，那條捲軸都在畫面外。
+
+**只有這個介面有這個問題。** 另外四個都被 bounded 的 `ListView` 收著：`DiffPage`、
+`BlamePanel`、衝突視窗三欄都是，`PanelDiffText` 的宿主也是。
+
+捲動本身沒壞——觸控板雙指與 Shift+滾輪都正常。壞的是**靜止時「右邊還有東西」
+這個訊號**，那正好是 UX 評分表 D 維度的 `material_state_hidden`。
+
+兩條候選修法，都不是 drive-by：
+
+1. **把水平 `ScrollController` 上提到 pane**，`GbmCodeHScroll` 收一個外部
+   controller 並在收到時不畫自己的 `Scrollbar`，改由 pane 用
+   `Scrollbar(controller: hCtrl, notificationPredicate: (n) => n.metrics.axis
+   == Axis.horizontal, child: <垂直 SCSV>)` 畫在 pane 的下緣（pane 是有界的）。
+   **卡住的地方**：`thumbVisibility: true` 在 controller 還沒 attach 時會 assert，
+   而「有沒有溢出」只有 layout 之後才知道，所以 pane 得靠一個 post-frame 回呼
+   才拿得到——那正是 CLAUDE.md 記載的 `addPostFrameCallback` 不會自己要求
+   一幀那一則，要配 `ensureVisualUpdate()`。
+2. **改用二維捲動**（`TwoDimensionalScrollView` / `two_dimensional_scrollables`），
+   兩軸各自有界。結構更正確，但等於重寫這個 pane 的捲動骨架。
+
+沒有零風險的第三條：`Scrollbar` 沒有「釘在 viewport 而非自己盒子」的模式，而
+內容本來就比 pane 高，所以無法靠收緊約束解決。
+
+依 repo 規矩，規格與決策記錄兩邊都沒有這題的答案（P11 根本沒有 wrap 條目，
+計畫也沒預期到），所以這是「問」的情況，不是我自己決定砍掉的情況。
+
+### 修掉那個捲軸缺陷——但沒有用 `TwoDimensionalScrollView`
+
+使用者選了 ledger 上列的第 2 條修法。動手前先驗工具，結論是**它在這個介面上不能
+用**，而且理由有兩層：
+
+1. **Flutter core 只給抽象半邊。** `TwoDimensionalScrollView`、
+   `TwoDimensionalViewport`、`RenderTwoDimensionalViewport` 全是 abstract，用它
+   等於自己實作 `layoutChildEntries`。這只是成本。
+2. **它是惰性 viewport。** 離開畫面的 child 會被銷毀（除非逐一 `keepAlive`，
+   `_keepAliveBucket`）。而 `ScopedDiffView` 的每一列**必須保持 mounted**：每列
+   持有自己的 `SelectionListener`，回報「目前的文字選取有沒有碰到我」，那正是
+   `SCOPES` row 7 的拖曳暫存知道自己框了什麼的唯一機制
+   （`selection_touch.dart` 開頭就寫死這個前提）。要靠 `keepAlive` 保住全部列，
+   等於付出一個自訂 render object 的代價換回一個非惰性列表。
+
+換句話說，**2D viewport 的唯一賣點正好是這個介面不能接受的性質**。
+
+真正要的是它承諾的那個**結構性質**——兩軸都被 pane 收界，所以兩條捲軸都畫在
+pane 自己的邊上。那個性質用普通 widget 就拿得到，新的 `GbmCodeScrollWell`：
+
+```
+Scrollbar(vertical)          <- 畫在「這個」盒子上，而它是有界的
+  Scrollbar(horizontal)      <- 同上
+    SingleChildScrollView(horizontal)
+      SizedBox(width: contentWidth)
+        SingleChildScrollView(vertical)
+          child
+```
+
+水平在外、垂直在內，而**兩條捲軸都在兩個 scroll view 之外**。兩個 scroll view
+對調沒差；把任何一條捲軸移進去就會在另一軸重現同一個 bug。
+
+還有一個只有在桌面平台才看得見的第三條：**ambient `ScrollBehavior` 會自己加
+捲軸**，而那些是包在內層 scrollable 上的——正是缺陷本身，只是更難發現，因為
+finder 仍然每軸只數到一條。所以內層用
+`ScrollConfiguration(scrollbars: false)` 抑制掉。
+
+#### well 上提到 pane，不是留在 ScopedDiffView
+
+`unified` 模式的整個意義就是兩側共用一個垂直位置，一側一個 well 表達不出來。
+所以 well 歸 `WorkingCopyDiffPane`，量測（`diffFileContentWidth`，搬到
+`diff_line.dart` 與 `kDiffGutterWidth`／`kDiffCodeTextStyle` 同住）也歸它，
+`unified` 取兩側的較大值。列仍然找得到 well——`GbmPinnedGutter` 是從 context 讀
+`GbmCodeHScrollScope`，不在乎誰建的。
+
+`ScopedDiffView` 因此不再自帶 scroller，`scoped_diff_view_wrap_test.dart` 的
+`_pump` 也改成把它包進 well 裡。**這比原本更誠實**：原本測的是一個不會出貨的
+組合，而且 well 搬走之後它會繼續綠——那正是「無法與程式碼相左的 fixture」。
+
+#### 兩則 mutation，其中一則抓到我自己留的空白
+
+| mutation | 結果 |
+|---|---|
+| pane 把 well 再包一層垂直 `SingleChildScrollView`（＝還原缺陷） | **窄紅**，拇指 1623 對 pane 底 460.5；只有這個檔的測試紅 |
+| 拿掉 `ScrollConfiguration(scrollbars: false)` | **第一次綠** |
+
+第二則綠的理由值得記下來：**`flutter_test` 預設回報
+`TargetPlatform.android`，而 Material 的 ambient 捲軸只在桌面平台加**。這個 app
+只出貨 macOS／Windows／Linux，所以測試的預設平台是唯一不會發生的情況。補了一條
+用 `debugDefaultTargetPlatformOverride = TargetPlatform.macOS` 的測試之後，同一則
+mutation 變成窄紅（ambient 捲軸右緣 975，pane 右緣 660.5）。
+
+那個 override 要在測試本體裡還原，不能用 `addTearDown`——flutter_test 檢查
+「沒有 foundation debug 變數活過這個測試」的時機**早於** tearDown。
+
+順帶再次踩到記載過的陷阱：`dart format` 重排參數列之後 mutation 的 anchor 對不
+上，Python 的 `assert count == 1` 當場擋下來，證明那個規矩不是多餘的。
+
+### merge 帶進來一個沒接 soft wrap 的檔案介面
+
+`origin/main` 上的 side-by-side 那輪加了 `SideBySideDiffView`，而它的 doc
+comment 寫著：
+
+> Lines wrap, exactly as `DiffPage`'s do. Cross-column alignment survives it
+> for free… no `softWrap: false` and no synchronised horizontal scrolling
+> needed.
+
+**寫的當下是對的，兩條分支相遇的那一刻就不對了**——這輪讓 `DiffPage` 預設不換行。
+兩條分支平行開發，各自的前提在對方那邊被推翻，而 merge 不會告訴你這件事。這是
+「有關 file 的都要」在合併後的樹上還沒關閉的最後一個缺口。
+
+接法與其他四個介面同型（`ListView` 已經把高度收界，所以 `GbmCodeHScroll` 直接
+可用），但有兩件事是這個介面特有的：
+
+1. **一個 well 蓋住兩欄，寬度是「一欄 × 2 + 分隔線」。** 兩欄一起捲，所以一對
+   永遠對齊。而且關掉換行之後**對齊反而更容易**：每個 cell 都剛好一行高，
+   `IntrinsicHeight` 沒有東西要拉平。
+2. **兩欄都不釘行號欄，這是決定不是遺漏。** 兩欄有兩個行號欄，只有左邊那個在
+   viewport 邊緣。只釘它會讓左欄的號碼凍住、右欄的號碼滑過去，讀起來像壞掉而
+   不像貼心。所以 `GbmPinnedGutter` 在這裡刻意缺席，與 `DiffLineView` 的單欄
+   列不同。
+
+順帶更正一條既有測試的前提：`side_by_side_diff_view_test.dart` 那條
+「blank padding cell 要跟旁邊換行的那一列等高」是在「換行是唯一行為」的年代寫的，
+現在預設翻轉了，所以它改成**明確傳 `softWrap: true`**。其餘測試則明確跑在
+出貨的預設值下。這正是 CLAUDE.md 那則的第二次應驗：規則變了，每個編碼了該規則的
+fixture 都要重讀一次，別的東西都不會發現。
+
+#### 兩則 mutation，第二則抓到四條測試的共同盲點
+
+| mutation | 結果 |
+|---|---|
+| cell 的 `softWrap` 硬寫成 `true`（pane 仍讀偏好） | 窄紅，只有「每個 cell 都帶著旗標」那條 |
+| 寬度算成一欄（`* 2 + 1` → `+ 1`） | **前四條全綠** |
+
+第二則值得記：**半寬的 well 仍然會產生 scroller、仍然溢出 pane**，所以每一條
+「有沒有 scroller」的測試都看不見它——看得見的是「右欄的文字被切掉」。補的那條
+用測試裡**獨立量出來**的最寬行當 oracle，而不是重述實作的算式，mutation 之後
+是 513.75 對上需要的 1086.5。
+
+### 同一個機制，另一條軸：五個唯讀檔案介面的垂直捲軸
+
+上一節修的是 `GbmCodeScrollWell`（Working Copy 的水平捲軸）。修完之後回頭問了一
+句「同一個機制會不會出現在別的地方」，答案是會，而且早在 C1 就已經存在：
+
+`GbmCodeHScroll` 在關閉自動換行且檔案夠寬時，把 child 放進
+`SizedBox(width: contentWidth)`。桌面的 ambient `ScrollBehavior` 會替**裡面**那個
+`ListView` 包一層 `Scrollbar`，而 `Scrollbar` 是畫在自己盒子的邊上——於是垂直
+拇指落在 `x = contentWidth`。用 `DiffPage` 量：pane 190→610（寬 420），捲軸盒
+190→**1025**（寬 835 ＝ contentWidth）。C1 之前 `ListView` 的盒子就是 pane，所以
+這是這一輪自己帶進來的回歸。
+
+受影響的是 `GbmCodeHScroll` 的全部五個使用者：`DiffPage`、`SideBySideDiffView`、
+`PanelDiffText`、`BlamePanel`，以及 `ConflictResolveWindow` 的三欄。
+
+**為什麼整個套件都看不到**：跟上一節同一個理由，`flutter_test` 回報
+`TargetPlatform.android`，Material 在那裡根本不加 ambient 捲軸。這已經是同一個
+盲點第二次讓一則 mutation 假綠了；新測試
+（`diff_page_scrollbar_placement_test.dart`）因此開宗明義寫「本檔必須跑在桌面
+平台」。
+
+作法與 `GbmCodeScrollWell` 對齊：兩條捲軸都由 `GbmCodeHScroll` 自己畫在有界的盒
+子上，內層 `ScrollConfiguration(scrollbars: false)`。因此新增
+`required verticalController`——**刻意沒有預設值也沒有自備 fallback**。有考慮過讓
+它自己持有一個，但呼叫端的 `ListView` 才是那條軸真正的驅動者，兩者不同步的話會
+得到一條拖不動的捲軸，比原本的 bug 更糟；required 讓漏接的呼叫點變成編譯錯誤。
+六個呼叫點（三個在 `ConflictResolveWindow`，各一條 controller，因為三欄行數不同，
+共用一個垂直位置在其中兩欄是沒有意義的）都跟著改。
+
+順帶把兩個共用的 `notificationPredicate` 提成頂層函式
+（`isHorizontalScroll`／`isVerticalScroll`），因為兩個 widget 都需要——
+`defaultScrollNotificationPredicate` 濾的是 `depth == 0`，那是另一個問題，內層那
+條軸照樣穿過去。
+
+#### 三則 mutation
+
+| mutation | 結果 |
+|---|---|
+| 錨點只寫 `ScrollConfiguration(...)` 那一段 | **`count == 2`，當場擋下** |
+| 拿掉 `ScrollConfiguration(scrollbars: false)` | 窄紅，第 3 條 ambient 捲軸回來（2 條測試） |
+| 把垂直 `Scrollbar` 移進 `SizedBox` | 窄紅，只有 rect 那條，訊息正是「捲軸盒超出 pane 右緣」 |
+
+第一列是那條規矩第二次救場，而且這次的原因更值得記：**這兩個 widget 的這一段
+程式碼字面完全相同**，所以任何以它為錨的 mutation 都會同時命中兩個。錨要改成先
+切出 `_GbmCodeHScrollState` 的區段再取代。
+
+第三列存在的理由是第二列的紅**停在 count 斷言就結束了**，rect 迴圈根本沒被走
+到——一條沒被走過的斷言等於沒被驗證過。M-B 讓 count 維持 2 而只動組成順序，rect
+迴圈才第一次以偵測器的身分紅過。
+
+### 更正一條自己上一節才寫下的理由
+
+上一節把「不用 `TwoDimensionalScrollView`」的第一條理由寫成「core 只給抽象半
+邊」。那句話本身沒錯，但**它不是否決理由**：ledger 當初列的第 2 條修法點名的是
+`package:two_dimensional_scrollables`，而那個套件的 `TableView` 是具體類別，抽象
+與否在它面前不成立。
+
+真正跨得過套件形式的理由只有惰性那一條：`TableView` 也建在同一個
+`RenderTwoDimensionalViewport` 上，一樣按 vicinity 建 child、一樣銷毀離開畫面
+的。所以 doc comment 改成惰性為主、抽象為次要成本。
+
+**這是「拿一個成本冒充否決理由」的錯誤**，跟 CLAUDE.md 那則「conformance cell 的
+證據是 `isActionEnabled()`」同型：兩者都是拿一個真的、可查證的事實，去頂替真正該
+被檢驗的那個claim。
+
+### arena 那個前提比原本說的更強，而測試釘的是組成不是 arena
+
+`scoped_diff_view_test.dart` 的二十幾條拖曳測試是**裸 pump `ScopedDiffView`**
+的。well 上提到 `WorkingCopyDiffPane` 之後，那棵樹的 `SelectionArea` 上方沒有任何
+捲動器——一個使用者永遠看不到的形狀。那些測試所倚賴的「well 的兩個 `Scrollable`
+不會跟 mouse 拖曳搶 arena」，在 `GbmCodeScrollWell` 上沒有任何層級在檢查。
+
+補了 `diff_pane_drag_stage_test.dart`：先證明 fixture 真的兩軸都溢出（否則後面兩
+條會在**沒有競爭對象**的情況下假綠），再證明拖曳仍然升起一次性 scope，最後證明
+按下去送出的是「變動的行」而不是「匡選的行」。
+
+然後對前提本身下了一則 mutation——**把 `mouse` 加進 well 的 `dragDevices`**，也就
+是把 CLAUDE.md 那條「mouse 不在 `_kTouchLikeDeviceTypes` 裡，兩者根本不會相遇」
+反過來。結果**全綠**。
+
+沒有就此收下這個綠：另寫一支探針確認突變本身有效，同樣設定下一次 mouse 拖曳讓水
+平位移從 **0 變成 50**。所以結論不是「測試看不到」，而是：
+
+> **即使捲動器真的進了 arena，選取仍然贏。**
+
+這比原本的說法更強一層。原本的論證是「兩者不會相遇」；現在多一句「相遇了也是選取
+贏」。CLAUDE.md 那條「絕對不要為了保護選取而覆寫 `dragDevices`」的「不必要」那一半
+因此有了直接證據，而不再只是推理。
+
+**這也意味著本檔釘的是組成，不是 arena**，檔頭就這樣寫，不假裝它釘住了後者。它真
+正擋得住的是「有人在 pane 外面再包一層會吃手勢的東西」這類回歸，以及第三條那個
+payload：把 `onStageScope` 的參數換成 `const <int>[0]` 之後只有它紅
+（Expected `[1]`，Actual `[0]`）。
+
+順帶量到一個既有取捨的實際數字：內容比 pane 寬時，**scope 按鈕會跟著水平捲出可視
+區**（中心 x=638.8，pane 右緣 660），所以第三條得先 `ensureVisible`。這正是計畫裡
+明寫的「只有行號欄釘住，卡片／hunk 標頭／scope 按鈕都跟著捲」的後果，現在它有一
+條可執行的紀錄，而不只是一句散文。
+
+### 規格狀態
+
+P11 的 Appearance 段只有主題切換，21 頁規格全文沒有任何 wrap／自動換行／水平
+捲動的條目。**這是使用者指定的增補，不是規格條目**，`AppPreferences.softWrapEnabled`
+的 doc comment 已寫明，免得後續稽核把它讀成規格符合項。

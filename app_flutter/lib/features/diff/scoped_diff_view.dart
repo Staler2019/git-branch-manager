@@ -6,6 +6,7 @@ import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/gbm_badge.dart';
 import '../../widgets/gbm_button.dart';
+import '../../widgets/gbm_code_hscroll.dart';
 import '../../widgets/gbm_row.dart';
 import 'diff_scopes.dart';
 import 'selection_touch.dart';
@@ -42,6 +43,7 @@ class ScopedDiffView extends StatefulWidget {
     this.emptyLabel = 'No changes',
     this.loading = false,
     this.onTemporaryScopeChanged,
+    required this.softWrap,
   });
 
   /// Column heading -- `Unstaged` or `Staged`.
@@ -89,6 +91,11 @@ class ScopedDiffView extends StatefulWidget {
   /// that release strips (see CLAUDE.md's Riverpod traps).
   final void Function(void Function()? submit)? onTemporaryScopeChanged;
 
+  /// `AppPreferences.softWrapEnabled`, threaded in rather than watched here:
+  /// this widget holds no other Riverpod dependency, and every one of its
+  /// tests pumps it with plain values.
+  final bool softWrap;
+
   @override
   State<ScopedDiffView> createState() => _ScopedDiffViewState();
 }
@@ -96,6 +103,7 @@ class ScopedDiffView extends StatefulWidget {
 class _ScopedDiffViewState extends State<ScopedDiffView> {
   final GlobalKey<SelectionAreaState> _selectionAreaKey =
       GlobalKey<SelectionAreaState>();
+
   late final SelectionTouchTracker _tracker;
 
   /// Splitting the file into scopes is the one expensive thing this build
@@ -422,6 +430,14 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
                     onPointerCancel: (_) => _tracker.endGesture(),
                     child: SelectionArea(
                       key: _selectionAreaKey,
+                      // The scroll well is the *pane's*, not this
+                      // widget's: `unified` mode scrolls both sides on one
+                      // vertical position, and a well per side cannot
+                      // express that. Rows still find it -- GbmPinnedGutter
+                      // reads GbmCodeHScrollScope out of the context, so it
+                      // does not care who built it. What has to stay true
+                      // here is that the SelectionArea remains outside
+                      // everything the drag meets.
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         mainAxisSize: MainAxisSize.min,
@@ -601,6 +617,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
                 staged: widget.staged,
                 tracker: _tracker,
                 touched: settledTouched,
+                softWrap: widget.softWrap,
               ),
             );
           case DiffScopeSegment(:final DiffScope scope):
@@ -621,6 +638,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
                 hunkIndex: hunkIndex,
                 tracker: _tracker,
                 touched: settledTouched,
+                softWrap: widget.softWrap,
                 temporaryLines: temporaryLines,
                 showTemporaryHead: showTemporaryHead,
                 temporaryLabel: temporaryLabel,
@@ -771,8 +789,10 @@ class _GapBlock extends StatelessWidget {
     required this.staged,
     required this.tracker,
     required this.touched,
+    required this.softWrap,
   });
 
+  final bool softWrap;
   final DiffHunk hunk;
   final int hunkIndex;
   final List<int> lineIndices;
@@ -808,6 +828,7 @@ class _GapBlock extends StatelessWidget {
                 tracker: tracker,
                 rowKey: selectionRowKey(hunkIndex, index),
                 child: DiffLineView(
+                  softWrap: softWrap,
                   line: hunk.lines[index],
                   staged: staged,
                   touched: touched.contains(selectionRowKey(hunkIndex, index)),
@@ -830,6 +851,7 @@ class _ScopeCard extends StatelessWidget {
     required this.hunkIndex,
     required this.tracker,
     required this.touched,
+    required this.softWrap,
     required this.temporaryLines,
     required this.showTemporaryHead,
     required this.temporaryLabel,
@@ -849,6 +871,9 @@ class _ScopeCard extends StatelessWidget {
 
   /// Row keys currently in the one-shot scope -- see [_GapBlock.touched].
   final Set<String> touched;
+
+  /// See [ScopedDiffView.softWrap].
+  final bool softWrap;
 
   /// Which of this card's own line indices the one-shot scope covers.
   ///
@@ -915,24 +940,31 @@ class _ScopeCard extends StatelessWidget {
             ),
           ),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            _CardHead(
-              ordinal: ordinal,
-              scope: scope,
-              staged: staged,
-              label: scopeButtonLabel(
+        // A card's rows sit on surfacePanel while the well behind them is
+        // surfaceSunken, and a pinned gutter paints its own backdrop so the
+        // code can pass under it -- with the well's colour it would show as a
+        // seam down the left of every card.
+        child: GbmPinnedGutterBackdrop(
+          color: colors.surfacePanel,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              _CardHead(
+                ordinal: ordinal,
+                scope: scope,
                 staged: staged,
-                spanned: scope.lineIndices.length,
-                changed: moving,
+                label: scopeButtonLabel(
+                  staged: staged,
+                  spanned: scope.lineIndices.length,
+                  changed: moving,
+                ),
+                superseded: superseded,
+                onStage: onStage,
               ),
-              superseded: superseded,
-              onStage: onStage,
-            ),
-            ..._body(context),
-          ],
+              ..._body(context),
+            ],
+          ),
         ),
       ),
     );
@@ -986,6 +1018,7 @@ class _ScopeCard extends StatelessWidget {
     tracker: tracker,
     rowKey: selectionRowKey(hunkIndex, index),
     child: DiffLineView(
+      softWrap: softWrap,
       line: hunk.lines[index],
       staged: staged,
       selectionCount: scope.changedLineIndices.length,

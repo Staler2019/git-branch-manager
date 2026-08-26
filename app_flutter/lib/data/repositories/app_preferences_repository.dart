@@ -35,6 +35,7 @@ class AppPreferences {
     this.logRetentionDays = 7,
     this.autoUpdateCheckEnabled = true,
     this.skippedVersion = '',
+    this.softWrapEnabled = false,
   });
 
   /// General. Spec page 11 item 9: "只針對目前開啟的 repository，預設每 10
@@ -106,6 +107,17 @@ class AppPreferences {
   /// flags.
   final String skippedVersion;
 
+  /// Appearance. Not from the spec -- the 21-page design has no wrap row on
+  /// P11 at all; this is a user-requested addition, recorded as such so a
+  /// later conformance pass does not read it as a spec item.
+  ///
+  /// **Off by default, and that flips what shipped before it.** Every file
+  /// view used to wrap unconditionally -- not by choice, but because a bare
+  /// `Text` defaults to `softWrap: true` and sat in an `Expanded`. Off means
+  /// a long line now runs off to the right behind a horizontal scrollbar,
+  /// with the line-number gutter pinned at the left edge.
+  final bool softWrapEnabled;
+
   AppPreferences copyWith({
     bool? autoFetchEnabled,
     int? autoFetchMinutes,
@@ -122,6 +134,7 @@ class AppPreferences {
     int? logRetentionDays,
     bool? autoUpdateCheckEnabled,
     String? skippedVersion,
+    bool? softWrapEnabled,
   }) {
     return AppPreferences(
       autoFetchEnabled: autoFetchEnabled ?? this.autoFetchEnabled,
@@ -143,6 +156,7 @@ class AppPreferences {
       autoUpdateCheckEnabled:
           autoUpdateCheckEnabled ?? this.autoUpdateCheckEnabled,
       skippedVersion: skippedVersion ?? this.skippedVersion,
+      softWrapEnabled: softWrapEnabled ?? this.softWrapEnabled,
     );
   }
 }
@@ -201,6 +215,9 @@ class AppPreferencesRepository {
       skippedVersion:
           _prefs.getString('${_kPrefix}skippedVersion') ??
           defaults.skippedVersion,
+      softWrapEnabled:
+          _prefs.getBool('${_kPrefix}softWrapEnabled') ??
+          defaults.softWrapEnabled,
     );
   }
 
@@ -235,6 +252,7 @@ class AppPreferencesRepository {
       p.autoUpdateCheckEnabled,
     );
     await _prefs.setString('${_kPrefix}skippedVersion', p.skippedVersion);
+    await _prefs.setBool('${_kPrefix}softWrapEnabled', p.softWrapEnabled);
   }
 }
 

@@ -104,6 +104,32 @@ General / Remotes / Identity / Performance). They were previously one
 repo-scoped dialog that both `filePreferences` and `repositorySettings`
 opened, so Ctrl/Cmd+, landed on Git identity.
 
+**Soft wrap is an app-level preference, and it is off by default.**
+`AppPreferences.softWrapEnabled` (Preferences → Appearance → CODE) decides how
+*every* file-content surface handles a line too wide for its pane. Off — the
+shipped default — means the line runs to the right behind a horizontal
+scrollbar with the line-number gutter pinned at the viewport's left edge; on
+means it wraps. **Off is a change from what shipped before it**: nothing was
+configurable and every surface wrapped unconditionally, because a bare `Text`
+defaults to `softWrap: true` inside an `Expanded`. The surfaces are
+`DiffLineView`/`DiffPage` (History detail, Compare, file-history and stashes
+panels all render through `DiffPage`), `SideBySideDiffView` (History's 並排
+mode), `ScopedDiffView` (Working Copy), `PanelDiffText` (patches and
+line-history panels), `BlamePanel` and `ConflictResolveWindow`; the
+commit-message box is deliberately untouched. **`SideBySideDiffView` pins
+neither gutter** — two columns have two, only the left one is at the
+viewport's edge, and freezing that one alone desynchronises the pair; its
+two columns share one scroller so a pair stays aligned. That last one is
+the implementer's judgement, **not the user's ruling**, and the user's
+standing position on pinning is the opposite — it is open on **#119**
+pending a real-hardware check, so do not read it as settled either way. The
+machinery is `lib/widgets/gbm_code_hscroll.dart` (`GbmCodeHScroll`,
+`GbmPinnedGutter`, `GbmPinnedGutterClip`) plus `lib/widgets/code_line_metrics.dart`,
+which measures the widest line with one `TextPainter.layout` and memoises it —
+5,000 lines costs 46ms, so that memo is a correctness requirement, not an
+optimisation. The spec has no wrap row anywhere in its 21 pages; this is a
+user-requested addition, not a conformance item (ledger: soft-warp).
+
 **Where repository selection lives.** The spec has no repository-list page:
 the window *is* a repository (pages 01–03), so the app's default route is
 the last-opened repository's workspace and `/` is only the fallback for
@@ -720,7 +746,21 @@ you are touching, not by when it was learned.
   whether test-result lines follow it. Read past that line to the counts
   before concluding the tier is blocked; taking it at face value cost the
   side-by-side round a wrong 「裝置層跑不成」 verdict that had already been
-  written into the ledger before the re-run disproved it.
+  written into the ledger before the re-run disproved it. It cost soft-warp
+  the same verdict a round later, for the same reason and with the counts
+  sitting right there in the log — **3 passed and then a hang on test 4** is
+  a hang on one test, not a blocked tier, and the two call for completely
+  different next moves. **Run the control on the *parent commit* too**, not
+  just on a different test: soft-warp's parent got only 1 test through where
+  the branch got 3, which is the evidence that says 「這輪沒有弄壞它」 —
+  it costs one detached-HEAD run and it is the half of the diagnosis the
+  foreground line can never give you. **And a hang is not yet a defect**: the
+  same soft-warp file, re-run at the end of the branch after a `pkill` and a
+  `scripts/build_capi.sh` rebuild, went **7/7 in 1m50s** with the previously
+  hanging test passing in 15s. Which of the three changes (fresh dylib, no
+  stale process, three more commits) cleared it was not isolated — so the
+  honest claim is 「not reproducible」, not a cause. Rebuild the dylib and
+  sweep stale processes *before* filing a device hang as a finding.
 - **The device tier is in no CI job and is not part of `flutter test`**, so a
   UI redesign can leave it broken for rounds with every other tier green. C18
   swept all ten files and found two red — neither from that round's own
@@ -781,6 +821,24 @@ you are touching, not by when it was learned.
   「因為我是用觸控板」). The kinds a drag *can* vary over change hit/pan slop
   and scrollable claiming (`mouse` vs `touch`), and that is a different claim
   from the one hardware makes.
+  **The same two facts settle whether a `Scrollable` competes with a drag, and
+  they cut the opposite way from the obvious guess.** `ScrollBehavior.dragDevices`
+  defaults to `_kTouchLikeDeviceTypes`, which **has no `mouse` in it** — so a
+  scroller never contests a desktop selection drag, and "protecting" the
+  selection by clearing that set is unnecessary. It is also actively harmful:
+  trackpad two-finger pan reaches a `Scrollable` *through* membership of that
+  very set, so an empty set deletes the main scroll input and leaves only the
+  scrollbar thumb and Shift+wheel. Never override `dragDevices` to guard a
+  selection; `gbm_code_hscroll_test.dart` pins the premise with a mouse-kind
+  drag that must **not** scroll (ledger: soft-warp). **The 「unnecessary」 half
+  is stronger than 「they never meet」, and it was measured**: adding `mouse`
+  to a `GbmCodeScrollWell`'s `dragDevices` — the premise inverted — left
+  `diff_pane_drag_stage_test.dart` fully green, and a probe confirmed the
+  mutation was live (the same drag moved the horizontal offset 0 → 50 with no
+  selection in the way). So even when a scroller *does* enter the arena, the
+  `SelectableRegion` wins it. The corollary matters for what a test can
+  claim: a drag test under a scroller pins the **composition**, not the arena,
+  because no realistic mutation of the arena reddens it.
 
 ### Flutter, Riverpod and widgets
 
@@ -803,11 +861,32 @@ you are touching, not by when it was learned.
   `assert`-wrapped, so debug crashes but **release strips it and lets the
   write land mid-frame**. Defer to a post-frame callback and recompute from
   then-current state, not from a captured list.
+- **An unfiltered `ref.watch(repoSessionProvider(identity))` rebuilds the
+  whole shell on *every* state publish, including caches nothing on screen
+  reads.** Scrolling History prefetches commit metadata per scroll tick, so
+  each reply republished state and rebuilt `MenuBarRow`,
+  `PlatformMenuBarHost`, `ActionToolbar`, `TabRow` and
+  `_buildActionHandlers()` — on macOS that rebuilds a real native menu bar,
+  and the reported symptom was 「每次捲動 menubar 都會閃爍」. `WorkspaceScreen`
+  now watches a **record of the nine fields it consumes** and `read`s the
+  full state (it is passed whole to ~40 sites, which is what `grep
+  'session\.'` undercounts — bare `session` arguments do not match).
+  **Never put a derived getter that builds a new collection into such a
+  record**: `gonePendingRefs` returns a fresh `Set` and a `Set` has no value
+  equality, so including it makes the record unequal every time and silently
+  restores the storm it was meant to remove (ledger: History 捲動卡頓).
 - **`ref.listen` never fires for the value already present when it
   registers.** Every `ref.listen`-driven piece of session state needs
   something else covering the value that was already there — a filter query
   surviving a repository close is the recorded case. The test that sees it is
-  the one that seeds the provider *before* pumping.
+  the one that seeds the provider *before* pumping. **The mirror case is that
+  a seeded test is blind to the opposite defect**: a surface that reads a
+  provider once per *mount* instead of once per *build* answers correctly on
+  its only build, so `ref.watch` → `ref.read` stays green across every test
+  that seeds-then-pumps. Only flipping the notifier while the tree is on
+  screen tells the two apart — verified by exactly that mutation going red in
+  `test/integration/soft_wrap_preference_flow_test.dart` and green in the
+  four seeded wrap tests next door (ledger: soft warp round).
 - **An entry point gated on one resting state replays stale answers forever
   once the machine has terminal states.** The update dialog checked on mount
   only from `idle`, but `upToDate` / `failed` / `developmentBuild` are
@@ -826,7 +905,15 @@ you are touching, not by when it was learned.
   through the fix — not one asserted where it was. Assert `getRect()` against
   a *neighbour's* rect (「left edge not before the sidebar's right edge」),
   never against a pixel constant, and never `findsOneWidget` for a layout
-  claim (ledger: "Working Copy 重新設計").
+  claim (ledger: "Working Copy 重新設計"). **One level deeper: the right finder
+  can still resolve to the wrong render object.** `find.byType(X)` takes X's
+  first descendant RenderBox, and if that is a `RenderTransform` — or any
+  render object whose effect applies to its *children* — `localToGlobal`
+  reports the untransformed position, so a pinned widget measures as if it
+  never moved and the test goes red while the code is correct. Measure a node
+  *below* the transform. Corollary for clipping: `ClipRect` does not change
+  `getRect` at all, so a clip's geometry can only be asserted by asking its
+  `CustomClipper` directly (ledger: soft-warp).
 - **`RenderFlex` lays out non-flex children first**, then divides what is
   left — so a `Flexible` child can never rescue an overflow that non-flex
   children caused. Six surfaces overflowed at the app's own default 1280×720
@@ -952,6 +1039,65 @@ you are touching, not by when it was learned.
   for a mouse), so a whole-row drag handle loses ordinary clicks.
 - `Paint.color` quantises on read-back — compare `.toARGB32()`, or a mismatch
   prints Expected and Actual identically.
+- **A `Scrollbar` paints along the edges of *its own* box, so a scroller
+  whose box is unbounded puts its thumb where nobody can see it.** The
+  Working Copy's horizontal scrollbar sat at y=1428 against a 300px pane,
+  because `WorkingCopyDiffPane` put the scroller under a vertical
+  `SingleChildScrollView` and the child of one gets unbounded height.
+  Scrolling still worked (trackpad pan, Shift+wheel) — what was lost is the
+  at-rest 「there is more to the right」 signal, dimension D's
+  `material_state_hidden`. `GbmCodeScrollWell` is the fix and its shape is
+  the rule: **horizontal scroller outside, vertical inside, and both
+  `Scrollbar`s outside both** so each paints against the bounded pane;
+  moving either scrollbar inward re-creates the bug on the other axis. Two
+  traps come with it. **The ambient `ScrollBehavior` adds its own scrollbars
+  on desktop**, wrapped around the *inner* scrollables — the same bug back
+  again, and a finder still counts one per axis — so the inner tree needs
+  `ScrollConfiguration(scrollbars: false)`. And **`flutter_test` reports
+  `TargetPlatform.android` by default**, where Material adds no ambient
+  scrollbar at all, so any test about them must set
+  `debugDefaultTargetPlatformOverride` (reset it *in the test body* — the
+  no-debug-variable-outlived-the-test check runs before tearDowns) or it
+  passes with the suppression deleted. This app ships desktop-only, so the
+  test default is the one platform that never happens (ledger: soft-warp).
+  **It recurs on the other axis wherever a scroller sizes its child**, and
+  `GbmCodeHScroll` did: its child `ListView` sits inside
+  `SizedBox(width: contentWidth)`, so the ambient *vertical* scrollbar painted
+  at `x = contentWidth` — 1025 against a pane ending at 610 — on all five
+  read-only file surfaces at once. The fix is the same shape, and it forces
+  the composition owner to hold the other axis' controller: `GbmCodeHScroll`
+  takes a `required verticalController` with no default and no owned fallback,
+  because a null would mean a scrollbar that cannot be dragged, which is worse
+  than the bug. **Ask the recurrence question whenever you fix one of these**
+  — the two widgets' `ScrollConfiguration` blocks are now byte-identical,
+  which is also why a mutation anchored on that block matches twice.
+- **`TwoDimensionalScrollView` is not the answer for a surface whose rows
+  must stay mounted.** The disqualifier is that it is a *lazy* viewport:
+  off-screen children are destroyed unless individually kept alive. Lead with
+  that, not with 「core ships only the abstract halves」 — that is a real cost
+  but not a disqualifier, and it does not survive the concrete form:
+  `package:two_dimensional_scrollables`' `TableView` is a concrete class built
+  on the same lazy viewport. **Passing off a cost as a disqualifier is the
+  same error as a conformance cell whose evidence is `isActionEnabled()`** —
+  a true, checkable fact standing in for the claim that actually needed
+  checking. `ScopedDiffView`'s rows each hold the `SelectionListener` that
+  reports whether the live selection touches them, which is how `SCOPES`
+  row 7's drag-to-stage knows what it framed, so unmounting one silently
+  breaks staging across a scroll. Keeping every row alive pays for a custom
+  render object and gets a non-lazy list back. When the thing actually
+  wanted is 「both axes bounded by the pane」, build that with plain
+  scrollers (ledger: soft-warp).
+- **A widget that paints over a row to hide something has to know whose
+  background it is covering.** `GbmPinnedGutter` holds a line-number gutter at
+  the viewport edge while code scrolls under it, so it must be opaque — and
+  opaque is right only when the row paints its own full-width background (a
+  `DiffLineView` does). A `GbmRow` does not: its hover and selection tints are
+  drawn by an *ancestor*, and an opaque strip covers them **at every scroll
+  offset including zero**, silently killing hover feedback the way the sidebar
+  once did. That case takes `opaque: false` + `GbmPinnedGutterClip`, which
+  clips the content in viewport coordinates instead of painting over it. The
+  rule lives on `GbmPinnedGutter.opaque`: own full-width background → opaque;
+  ancestor-drawn background that must stay visible → clip (ledger: soft-warp).
 - **Changing a `GbmSplitPane`'s axis obliges you to decide what happens to its
   stored value**; only ratio mode survives the change, extent mode persists a
   raw pixel number and must be re-keyed. Its fixed pane's end is the explicit
@@ -959,6 +1105,28 @@ you are touching, not by when it was learned.
 
 ### Refs, git and the core's own vocabulary
 
+- **`GraphSnapshotView.edgesSpanning()` is index-backed, not a scan.**
+  `GraphSpanIndex` (`lib/data/models/graph_span_index.dart`) is built once
+  per snapshot and cached on an `Expando` keyed by the snapshot instance —
+  no invalidation exists because none is needed (a new snapshot is a new
+  object; the old entry dies with its key). Its **extent comes from `edges`,
+  not `rows`**: `edgesSpanning` is contractually a pure function of `edges`,
+  and `graph_snapshot_test.dart` queries a view whose `rows` is empty while
+  its edges span rows 5..20. The brute-force scan now lives in
+  `graph_span_index_test.dart` as the oracle, deliberately not in `lib/`.
+- **`matchingRowIndices` returns an O(1) view, not a list, when the query is
+  empty.** `UnfilteredRowIndices` is read-only and computes element i as i;
+  it is the commonest state of the History list, and it used to be an
+  N-element allocation per scroll tick. Do not assume the result is mutable
+  or materialised. `_buildList` likewise hands back `graph.oidsHex` itself
+  rather than copying it when nothing is filtered.
+- **The window now refreshes on focus regain** — `WorkspaceScreen`'s
+  `AppLifecycleListener.onResume` calls `refreshRepoHistory()` +
+  `refreshWorkingCopy()`, throttled by `kFocusRefreshThrottle` (2s). The
+  throttle clock is a `Timer`, not `DateTime.now()`, because only the former
+  is advanced by `tester.pump()`. **Not verified on real hardware**: the
+  tests drive `handleAppLifecycleStateChanged` directly, which proves the
+  wiring but not that macOS emits inactive/resumed on window focus changes.
 - **`RefInfo.upstream` is the full ref name** (`refs/remotes/origin/x`), from
   `%(upstream)` not `%(upstream:short)`. Splitting on the first slash yields
   `"refs"` — use `remoteBranchParts()`. `delete_branch_dialog.dart`'s
@@ -1195,6 +1363,14 @@ derived from the code — they outrank convenience every time):
   working one by its output.** And prefer removing the recomputation to
   caching it — C18's `FileTree` candidate turned out to be a code path that
   should not have run at all in the default mode.
+- **Warm the JIT before timing, on every path being compared.** Timing
+  cases in one loop with N increasing puts the smallest N on the coldest
+  JIT. That produced a table where the *indexed* lookup got cheaper as the
+  graph grew (8.85µs → 2.08µs → 0.58µs per row) — an impossible shape for an
+  index, and it read as "the index is slower on small repos", nearly buying
+  a threshold nothing needed. After 20k warm-up iterations on both paths the
+  indexed cost is flat (~0.5µs) at every N. A per-N cost that *falls* as N
+  rises is the tell (ledger: History 捲動卡頓).
 - **Measure before caching, and put the number in the ledger.** C18's two
   numbers, debug JIT: splitting a 40×200 `DiffFile` into scopes is 197µs and
   ran *every frame* of a selection drag (cached); `FileTree.fromPaths` over
@@ -1325,7 +1501,9 @@ derived from the code — they outrank convenience every time):
   rather than a vanished window (ledger: 更新流程的三個缺陷).
 - **Open issues**: **#62** (TabRow overflow menu), **#68**–**#71**,
   **#74**, **#76**, **#84**–**#89** (Tier 6 spec blockers), **#92**–**#95**
-  (capi with no spec entry point), **#99**, **#101**, **#102**, **#109**.
+  (capi with no spec entry point), **#99**, **#101**, **#102**, **#109**,
+  **#119** (side-by-side pins neither gutter — awaiting a real-hardware
+  check by the user).
   **#75 is closed** (all four 260820 `REVISIONS` shortcut gaps landed in
   feat/p03-working-copy-redesign); **#67 is closed** (macOS `CFBundleName` is
   the literal `git-branch-manager`, candidate fix 1, in

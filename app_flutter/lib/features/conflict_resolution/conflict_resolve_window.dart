@@ -19,6 +19,9 @@ import '../../theme/tokens.dart';
 import '../../widgets/file_list_mode_switcher.dart';
 import '../../widgets/file_list_mode_toggle_button.dart';
 import '../../widgets/gbm_button.dart';
+import '../../data/repositories/app_preferences_repository.dart';
+import '../../widgets/code_line_metrics.dart';
+import '../../widgets/gbm_code_hscroll.dart';
 import '../../widgets/gbm_menu.dart';
 import '../../widgets/split_pane.dart';
 import 'conflict_hunk_menu_items.dart';
@@ -57,6 +60,18 @@ import 'original_operation_message_dialog.dart';
 /// checkmark tracking ([ConflictBatch], ported in conflict_resolve_logic.dart)
 /// is also in-memory-only for this window's lifetime, not persisted to disk
 /// across a full app restart the way Qt's `ConflictBatchStore` is.
+/// Width of a result line's pinned gutter: its position badge plus the gap
+/// after it. The only gutter-shaped thing in this window -- the two side
+/// columns and the context blocks draw bare text with nothing to hold.
+const double kConflictBadgeGutterWidth = 20 + GbmSpacing.space1;
+
+/// The style this window's code is drawn in, colour aside. Measured in it,
+/// then drawn in it -- see `kDiffCodeTextStyle`.
+const TextStyle kConflictCodeTextStyle = TextStyle(
+  fontFamily: GbmTypography.fontMono,
+  fontSize: GbmTypography.textSm,
+);
+
 class ConflictResolveWindow extends ConsumerStatefulWidget {
   const ConflictResolveWindow({
     super.key,
@@ -103,6 +118,34 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
   ConflictLineOrderState? _lineOrder;
   bool _showAncestor = false;
   TextEditingController? _resultController;
+
+  /// Keyed by the `ParsedConflictFile` on screen. One extent for all three
+  /// columns rather than one each: they show the same file three ways, and a
+  /// per-column extent would let them disagree about how far right the
+  /// content goes. See [CodeWidthMemo].
+  final CodeWidthMemo _widthMemo = CodeWidthMemo();
+
+  /// The editable result box measures its own text, which changes on every
+  /// keystroke rather than when a new file is parsed.
+  final CodeWidthMemo _resultWidthMemo = CodeWidthMemo();
+
+  double _paneContentWidth(ParsedConflictFile parsed, bool softWrap) {
+    if (softWrap) return 0;
+    return kConflictBadgeGutterWidth +
+        _widthMemo.widthOf(
+          key: parsed,
+          text: () => <String>[
+            for (final ConflictSegment segment in parsed.segments) ...<String>[
+              ...segment.lines,
+              ...segment.ours,
+              ...segment.theirs,
+            ],
+          ].join('\n'),
+          style: kConflictCodeTextStyle,
+        ) +
+        GbmSpacing.space4;
+  }
+
   bool _resultSeeded = false;
 
   // Global undo history: track which region was modified on each removal.
@@ -118,9 +161,22 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
   final Map<int, GlobalKey> _resultRegionKeys = <int, GlobalKey>{};
   final Map<int, GlobalKey> _rightRegionKeys = <int, GlobalKey>{};
 
+  /// One per column, owned here so each [GbmCodeHScroll] can paint its
+  /// vertical scrollbar on the column's own box rather than on the content's.
+  /// Three separate controllers, not one shared: the three panes hold
+  /// different numbers of lines, so a shared vertical position would be
+  /// meaningless in two of them -- and a `ScrollController` cannot drive
+  /// more than one `Scrollable` anyway.
+  final ScrollController _oursScroll = ScrollController();
+  final ScrollController _resultScroll = ScrollController();
+  final ScrollController _theirsScroll = ScrollController();
+
   @override
   void dispose() {
     _resultController?.dispose();
+    _oursScroll.dispose();
+    _resultScroll.dispose();
+    _theirsScroll.dispose();
     super.dispose();
   }
 
@@ -707,9 +763,64 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
     );
   }
 
+  /// The editable result box.
+  ///
+  /// A multi-line `TextField` has no horizontal scrolling of its own -- it
+  /// wraps, full stop -- so honouring "no wrap" here means giving it a box
+  /// wider than the viewport and scrolling *that*. The width has to be
+  /// re-measured as the user types, which is why this listens to the
+  /// controller and keys its own memo on the current text rather than on the
+  /// parsed file like the three columns do.
+  ///
+  /// Reduction recorded rather than hidden: with wrapping off, the field's
+  /// own caret-following scroll and this outer scroller are two separate
+  /// scroll positions, so typing past the right edge moves the caret out of
+  /// view instead of chasing it. Wrapping on -- the same box as before -- has
+  /// no such seam.
+  Widget _resultEditor(bool softWrap) {
+    final TextEditingController? controller = _resultController;
+    if (controller == null) return const SizedBox.shrink();
+
+    final Widget field = TextField(
+      controller: controller,
+      maxLines: 8,
+      style: kConflictCodeTextStyle,
+      decoration: const InputDecoration(
+        isDense: true,
+        border: OutlineInputBorder(),
+      ),
+    );
+    if (softWrap) return field;
+
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (BuildContext context, Widget? _) {
+        final double measured =
+            _resultWidthMemo.widthOf(
+              key: controller.text,
+              text: () => controller.text,
+              style: kConflictCodeTextStyle,
+            ) +
+            GbmSpacing.space4 * 2;
+        return LayoutBuilder(
+          builder: (BuildContext context, BoxConstraints constraints) {
+            final double width = measured <= constraints.maxWidth
+                ? constraints.maxWidth
+                : measured;
+            return SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: SizedBox(width: width, child: field),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Widget _buildEditor(BuildContext context) {
     final GbmColors colors = context.gbmColors;
     final ParsedConflictFile? parsed = _parsed;
+    final bool softWrap = ref.watch(appPreferencesProvider).softWrapEnabled;
 
     if (_parsedForPath != _selectedPath) {
       return const Center(child: CircularProgressIndicator());
@@ -727,6 +838,7 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
       );
     }
 
+    final double paneWidth = _paneContentWidth(parsed, softWrap);
     final bool anyHasBase = parsed.regions.any((r) => r.hasBase);
 
     return Column(
@@ -773,25 +885,43 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
             storageId: 'cw.panes',
             children: <Widget>[
               // LEFT: Ours column
-              ListView(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: GbmSpacing.space2,
+              GbmCodeHScroll(
+                contentWidth: paneWidth,
+                verticalController: _oursScroll,
+                backdrop: colors.surfacePanel,
+                child: ListView(
+                  controller: _oursScroll,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: GbmSpacing.space2,
+                  ),
+                  children: _buildOursSideBlocks(parsed, softWrap),
                 ),
-                children: _buildOursSideBlocks(parsed),
               ),
               // MIDDLE: Result column with badges
-              ListView(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: GbmSpacing.space2,
+              GbmCodeHScroll(
+                contentWidth: paneWidth,
+                verticalController: _resultScroll,
+                backdrop: colors.surfacePanel,
+                child: ListView(
+                  controller: _resultScroll,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: GbmSpacing.space2,
+                  ),
+                  children: _buildResultBlocks(parsed, softWrap),
                 ),
-                children: _buildResultBlocks(parsed),
               ),
               // RIGHT: Theirs column
-              ListView(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: GbmSpacing.space2,
+              GbmCodeHScroll(
+                contentWidth: paneWidth,
+                verticalController: _theirsScroll,
+                backdrop: colors.surfacePanel,
+                child: ListView(
+                  controller: _theirsScroll,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: GbmSpacing.space2,
+                  ),
+                  children: _buildTheirsSideBlocks(parsed, softWrap),
                 ),
-                children: _buildTheirsSideBlocks(parsed),
               ),
             ],
           ),
@@ -813,18 +943,7 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
                   ),
                 ),
                 const SizedBox(height: GbmSpacing.space1),
-                TextField(
-                  controller: _resultController,
-                  maxLines: 8,
-                  style: TextStyle(
-                    fontFamily: GbmTypography.fontMono,
-                    fontSize: GbmTypography.textSm,
-                  ),
-                  decoration: const InputDecoration(
-                    isDense: true,
-                    border: OutlineInputBorder(),
-                  ),
-                ),
+                _resultEditor(softWrap),
                 const SizedBox(height: GbmSpacing.space2),
                 Align(
                   alignment: Alignment.centerRight,
@@ -842,17 +961,20 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
   }
 
   /// Builds the LEFT column showing ours side with Take Ours buttons per region
-  List<Widget> _buildOursSideBlocks(ParsedConflictFile parsed) {
+  List<Widget> _buildOursSideBlocks(ParsedConflictFile parsed, bool softWrap) {
     final List<Widget> blocks = <Widget>[];
     int regionIndex = 0;
     for (final ConflictSegment segment in parsed.segments) {
       if (segment.kind == ConflictSegmentKind.text) {
-        blocks.add(_ContextBlock(text: segment.lines.join()));
+        blocks.add(
+          _ContextBlock(text: segment.lines.join(), softWrap: softWrap),
+        );
         continue;
       }
       final int thisRegion = regionIndex++;
       blocks.add(
         _SidePane(
+          softWrap: softWrap,
           key: _regionKey(_leftRegionKeys, thisRegion),
           label: 'Ours',
           lines: segment.ours,
@@ -874,13 +996,15 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
   }
 
   /// Builds the MIDDLE column showing assembled result with numbered badges and delete buttons
-  List<Widget> _buildResultBlocks(ParsedConflictFile parsed) {
+  List<Widget> _buildResultBlocks(ParsedConflictFile parsed, bool softWrap) {
     if (_lineOrder == null) return [];
     final List<Widget> blocks = <Widget>[];
     int regionIndex = 0;
     for (final ConflictSegment segment in parsed.segments) {
       if (segment.kind == ConflictSegmentKind.text) {
-        blocks.add(_ContextBlock(text: segment.lines.join()));
+        blocks.add(
+          _ContextBlock(text: segment.lines.join(), softWrap: softWrap),
+        );
         continue;
       }
       final int thisRegion = regionIndex++;
@@ -890,6 +1014,7 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
 
       blocks.add(
         _ResultPane(
+          softWrap: softWrap,
           key: _regionKey(_resultRegionKeys, thisRegion),
           index: thisRegion,
           total: parsed.regionCount,
@@ -904,17 +1029,23 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
   }
 
   /// Builds the RIGHT column showing theirs side with Take Theirs buttons per region
-  List<Widget> _buildTheirsSideBlocks(ParsedConflictFile parsed) {
+  List<Widget> _buildTheirsSideBlocks(
+    ParsedConflictFile parsed,
+    bool softWrap,
+  ) {
     final List<Widget> blocks = <Widget>[];
     int regionIndex = 0;
     for (final ConflictSegment segment in parsed.segments) {
       if (segment.kind == ConflictSegmentKind.text) {
-        blocks.add(_ContextBlock(text: segment.lines.join()));
+        blocks.add(
+          _ContextBlock(text: segment.lines.join(), softWrap: softWrap),
+        );
         continue;
       }
       final int thisRegion = regionIndex++;
       blocks.add(
         _SidePane(
+          softWrap: softWrap,
           key: _regionKey(_rightRegionKeys, thisRegion),
           label: 'Theirs',
           lines: segment.theirs,
@@ -1187,6 +1318,7 @@ class _MiniButton extends StatelessWidget {
 
 class _ResultPane extends StatefulWidget {
   const _ResultPane({
+    required this.softWrap,
     super.key,
     required this.index,
     required this.total,
@@ -1196,6 +1328,9 @@ class _ResultPane extends StatefulWidget {
     required this.onAcceptDrop,
   });
 
+  /// `AppPreferences.softWrapEnabled`, threaded down from
+  /// `_buildEditor` so all three columns agree.
+  final bool softWrap;
   final int index;
   final int total;
   final List<ConflictLineEntry> orderedLines;
@@ -1333,6 +1468,7 @@ class _ResultPaneState extends State<_ResultPane> {
                           children: <Widget>[
                             for (int i = 0; i < widget.orderedLines.length; i++)
                               _ResultLine(
+                                softWrap: widget.softWrap,
                                 position: i,
                                 entry: widget.orderedLines[i],
                                 onDelete: () => widget.onDelete(i),
@@ -1356,6 +1492,7 @@ class _ResultPaneState extends State<_ResultPane> {
 
 class _ResultLine extends StatelessWidget {
   const _ResultLine({
+    required this.softWrap,
     required this.position,
     required this.entry,
     required this.onDelete,
@@ -1364,6 +1501,9 @@ class _ResultLine extends StatelessWidget {
     required this.paneKey,
   });
 
+  /// `AppPreferences.softWrapEnabled`, threaded down from
+  /// `_buildEditor` so all three columns agree.
+  final bool softWrap;
   final int position;
   final ConflictLineEntry entry;
   final VoidCallback onDelete;
@@ -1439,51 +1579,94 @@ class _ResultLine extends StatelessWidget {
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: GbmSpacing.space1),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            SizedBox(
-              width: 20,
-              child: Center(
-                child: Text(
-                  badgeText,
-                  style: TextStyle(
-                    fontSize: GbmTypography.textXs,
-                    color: colors.accent,
-                    fontWeight: GbmTypography.weightMedium,
+        child: softWrap
+            ? Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  _badge(colors, badgeText),
+                  const SizedBox(width: GbmSpacing.space1),
+                  Expanded(child: _content(colors)),
+                  _deleteButton(colors),
+                ],
+              )
+            // The badge is this window's only gutter-shaped element, so it is
+            // the only thing pinned. `opaque: false` + the clip, not an
+            // opaque strip: the result pane draws region tints behind these
+            // rows and a repainted strip would cover them.
+            //
+            // The delete button is deliberately *not* pinned to the right
+            // edge. Holding both edges would squeeze the readable area from
+            // two sides at once, and the button acts on this line -- going
+            // with it is not surprising.
+            : Stack(
+                children: <Widget>[
+                  GbmPinnedGutterClip(
+                    gutterWidth: kConflictBadgeGutterWidth,
+                    child: Padding(
+                      padding: const EdgeInsets.only(
+                        left: kConflictBadgeGutterWidth,
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Expanded(child: _content(colors)),
+                          _deleteButton(colors),
+                        ],
+                      ),
+                    ),
                   ),
-                ),
+                  Positioned(
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
+                    child: GbmPinnedGutter(
+                      width: kConflictBadgeGutterWidth,
+                      background: null,
+                      opaque: false,
+                      child: _badge(colors, badgeText),
+                    ),
+                  ),
+                ],
               ),
-            ),
-            const SizedBox(width: GbmSpacing.space1),
-            Expanded(
-              child: Text(
-                entry.lineContent,
-                style: TextStyle(
-                  fontFamily: GbmTypography.fontMono,
-                  fontSize: GbmTypography.textSm,
-                  color: colors.textPrimary,
-                ),
-              ),
-            ),
-            IconButton(
-              icon: Icon(Icons.close, size: 16, color: colors.textSecondary),
-              onPressed: onDelete,
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
-              tooltip: 'Delete line',
-            ),
-          ],
-        ),
       ),
     );
   }
+
+  Widget _badge(GbmColors colors, String badgeText) => SizedBox(
+    width: 20,
+    child: Center(
+      child: Text(
+        badgeText,
+        style: TextStyle(
+          fontSize: GbmTypography.textXs,
+          color: colors.accent,
+          fontWeight: GbmTypography.weightMedium,
+        ),
+      ),
+    ),
+  );
+
+  Widget _content(GbmColors colors) => Text(
+    entry.lineContent,
+    softWrap: softWrap,
+    overflow: softWrap ? TextOverflow.clip : TextOverflow.visible,
+    style: kConflictCodeTextStyle.copyWith(color: colors.textPrimary),
+  );
+
+  Widget _deleteButton(GbmColors colors) => IconButton(
+    icon: Icon(Icons.close, size: 16, color: colors.textSecondary),
+    onPressed: onDelete,
+    padding: EdgeInsets.zero,
+    constraints: const BoxConstraints(),
+    tooltip: 'Delete line',
+  );
 }
 
 class _ContextBlock extends StatelessWidget {
-  const _ContextBlock({required this.text});
+  const _ContextBlock({required this.text, required this.softWrap});
 
   final String text;
+  final bool softWrap;
 
   @override
   Widget build(BuildContext context) {
@@ -1493,11 +1676,9 @@ class _ContextBlock extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 1),
       child: Text(
         text,
-        style: TextStyle(
-          fontFamily: GbmTypography.fontMono,
-          fontSize: GbmTypography.textSm,
-          color: colors.textTertiary,
-        ),
+        softWrap: softWrap,
+        overflow: softWrap ? TextOverflow.clip : TextOverflow.visible,
+        style: kConflictCodeTextStyle.copyWith(color: colors.textTertiary),
       ),
     );
   }
@@ -1612,6 +1793,7 @@ class _ResultLineDragData {
 /// from the Qt original (drag/click composition, keyboard shortcuts).
 class _SidePane extends StatefulWidget {
   const _SidePane({
+    required this.softWrap,
     super.key,
     required this.label,
     required this.lines,
@@ -1626,6 +1808,9 @@ class _SidePane extends StatefulWidget {
     required this.hasResult,
   });
 
+  /// `AppPreferences.softWrapEnabled`, threaded down from
+  /// `_buildEditor` so all three columns agree.
+  final bool softWrap;
   final String label;
   final List<String> lines;
   final Color? background;
@@ -1783,9 +1968,11 @@ class _SidePaneState extends State<_SidePane> {
                           ),
                           child: Text(
                             line,
-                            style: TextStyle(
-                              fontFamily: GbmTypography.fontMono,
-                              fontSize: GbmTypography.textSm,
+                            softWrap: widget.softWrap,
+                            overflow: widget.softWrap
+                                ? TextOverflow.clip
+                                : TextOverflow.visible,
+                            style: kConflictCodeTextStyle.copyWith(
                               color: colors.textPrimary,
                             ),
                           ),

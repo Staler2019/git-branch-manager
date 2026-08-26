@@ -16,6 +16,16 @@ void main() {
   const double gutterWidth = 60;
   const double viewportWidth = 300;
 
+  // The child here is a plain Column, not a list -- these tests are about the
+  // gutter, not the vertical axis -- so this controller never gets a position.
+  // A `Scrollbar` with an unattached controller is inert rather than an
+  // error, which is exactly what this fixture wants.
+  ScrollController verticalFor(WidgetTester tester) {
+    final ScrollController c = ScrollController();
+    addTearDown(c.dispose);
+    return c;
+  }
+
   Future<void> pump(WidgetTester tester, {required double contentWidth}) {
     return tester.pumpWidget(
       MaterialApp(
@@ -26,6 +36,7 @@ void main() {
               height: 200,
               child: GbmCodeHScroll(
                 contentWidth: contentWidth,
+                verticalController: verticalFor(tester),
                 backdrop: const Color(0xFF101010),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -118,6 +129,7 @@ void main() {
               height: 200,
               child: GbmCodeHScroll(
                 contentWidth: 1000,
+                verticalController: verticalFor(tester),
                 backdrop: const Color(0xFF101010),
                 child: const GbmPinnedGutterClip(
                   gutterWidth: gutterWidth,

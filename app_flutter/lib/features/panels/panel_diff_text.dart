@@ -43,6 +43,17 @@ class _PanelDiffTextState extends ConsumerState<PanelDiffText> {
   /// the invalidation and the symptom.
   final CodeWidthMemo _widthMemo = CodeWidthMemo();
 
+  /// Owned here so [GbmCodeHScroll] can paint the vertical scrollbar on the
+  /// pane's box instead of on the content's; the same instance drives the
+  /// list below.
+  final ScrollController _vertical = ScrollController();
+
+  @override
+  void dispose() {
+    _vertical.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
@@ -65,8 +76,10 @@ class _PanelDiffTextState extends ConsumerState<PanelDiffText> {
     return SelectionArea(
       child: GbmCodeHScroll(
         contentWidth: contentWidth,
+        verticalController: _vertical,
         backdrop: colors.surfacePanel,
         child: ListView.builder(
+          controller: _vertical,
           padding: const EdgeInsets.symmetric(vertical: GbmSpacing.space2),
           itemCount: lines.length,
           itemBuilder: (context, i) {

@@ -161,9 +161,22 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
   final Map<int, GlobalKey> _resultRegionKeys = <int, GlobalKey>{};
   final Map<int, GlobalKey> _rightRegionKeys = <int, GlobalKey>{};
 
+  /// One per column, owned here so each [GbmCodeHScroll] can paint its
+  /// vertical scrollbar on the column's own box rather than on the content's.
+  /// Three separate controllers, not one shared: the three panes hold
+  /// different numbers of lines, so a shared vertical position would be
+  /// meaningless in two of them -- and a `ScrollController` cannot drive
+  /// more than one `Scrollable` anyway.
+  final ScrollController _oursScroll = ScrollController();
+  final ScrollController _resultScroll = ScrollController();
+  final ScrollController _theirsScroll = ScrollController();
+
   @override
   void dispose() {
     _resultController?.dispose();
+    _oursScroll.dispose();
+    _resultScroll.dispose();
+    _theirsScroll.dispose();
     super.dispose();
   }
 
@@ -874,8 +887,10 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
               // LEFT: Ours column
               GbmCodeHScroll(
                 contentWidth: paneWidth,
+                verticalController: _oursScroll,
                 backdrop: colors.surfacePanel,
                 child: ListView(
+                  controller: _oursScroll,
                   padding: const EdgeInsets.symmetric(
                     horizontal: GbmSpacing.space2,
                   ),
@@ -885,8 +900,10 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
               // MIDDLE: Result column with badges
               GbmCodeHScroll(
                 contentWidth: paneWidth,
+                verticalController: _resultScroll,
                 backdrop: colors.surfacePanel,
                 child: ListView(
+                  controller: _resultScroll,
                   padding: const EdgeInsets.symmetric(
                     horizontal: GbmSpacing.space2,
                   ),
@@ -896,8 +913,10 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
               // RIGHT: Theirs column
               GbmCodeHScroll(
                 contentWidth: paneWidth,
+                verticalController: _theirsScroll,
                 backdrop: colors.surfacePanel,
                 child: ListView(
+                  controller: _theirsScroll,
                   padding: const EdgeInsets.symmetric(
                     horizontal: GbmSpacing.space2,
                   ),

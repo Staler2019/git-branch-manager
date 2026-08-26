@@ -75,6 +75,19 @@ class _SideBySideDiffViewState extends ConsumerState<SideBySideDiffView> {
   /// key distinguishes and what a stale entry would look like.
   final CodeWidthMemo _widthMemo = CodeWidthMemo();
 
+  /// Owned here so [GbmCodeHScroll] can paint the vertical scrollbar on the
+  /// pane's box instead of on the content's; the same instance drives the
+  /// list below. Falls back to the caller's when one was supplied, so a
+  /// caller that saves and restores scroll position keeps doing so.
+  final ScrollController _ownedScroll = ScrollController();
+  ScrollController get _vertical => widget.scrollController ?? _ownedScroll;
+
+  @override
+  void dispose() {
+    _ownedScroll.dispose();
+    super.dispose();
+  }
+
   /// Both columns plus the one-pixel divider.
   ///
   /// One width for the pair, not one per column: they scroll together, and a
@@ -111,9 +124,10 @@ class _SideBySideDiffViewState extends ConsumerState<SideBySideDiffView> {
     return SelectionArea(
       child: GbmCodeHScroll(
         contentWidth: _contentWidth(softWrap),
+        verticalController: _vertical,
         backdrop: colors.surfacePanel,
         child: ListView(
-          controller: widget.scrollController,
+          controller: _vertical,
           children: <Widget>[
             for (final DiffFile file in widget.diff.files)
               _SideBySideFileSection(file: file, softWrap: softWrap),

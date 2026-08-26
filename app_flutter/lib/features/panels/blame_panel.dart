@@ -67,6 +67,11 @@ class _BlamePanelState extends ConsumerState<BlamePanel> {
   /// a new list, so the key is the invalidation. See [CodeWidthMemo].
   final CodeWidthMemo _widthMemo = CodeWidthMemo();
 
+  /// Owned here so [GbmCodeHScroll] can paint the vertical scrollbar on the
+  /// pane's box instead of on the content's; the same instance drives the
+  /// list below.
+  final ScrollController _vertical = ScrollController();
+
   /// Empty means the working-tree version, which is what
   /// `gbm_request_blame` treats an empty revision as. Walking back with
   /// 上一版 sets it.
@@ -76,6 +81,12 @@ class _BlamePanelState extends ConsumerState<BlamePanel> {
   void initState() {
     super.initState();
     Future.microtask(() => _session.requestBlame(widget.path));
+  }
+
+  @override
+  void dispose() {
+    _vertical.dispose();
+    super.dispose();
   }
 
   @override
@@ -179,8 +190,10 @@ class _BlamePanelState extends ConsumerState<BlamePanel> {
                                 style: kBlameCodeTextStyle,
                               ) +
                               GbmSpacing.space2,
+                    verticalController: _vertical,
                     backdrop: colors.surfacePanel,
                     child: ListView.builder(
+                      controller: _vertical,
                       itemCount: lines.length,
                       itemBuilder: (context, i) => _BlameLineRow(
                         line: lines[i],

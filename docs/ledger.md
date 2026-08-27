@@ -5646,6 +5646,20 @@ Prune 會對已不存在的 ref 跑 `git branch -d -r` → exit 1 → dialog 報
 所以 `automatic` 的失敗不寫進 `lastError`，但仍然照常進 operation log——不通知，不
 等於不記錄。
 
+### 一個本輪造成、但不由本輪決定的矛盾
+
+Preferences → Git 有一列 **「Prune while fetching — Also drop remote-tracking
+refs whose branch is gone on the remote」**。`autoFetchPrune` 被儲存、被畫出來，
+**沒有任何程式碼讀它**（#102 記錄的三個 `autoFetch*` 孤兒之一）。
+
+本輪之前它只是「調了沒反應」。本輪之後，它描述的行為**無條件會發生**，而開關預設
+是關的——使用者把它關掉，ref 仍然會在 fetch 之後消失。孤兒設定從「沒作用」變成
+「畫面上寫的事情正背著它發生」。
+
+而且照字面接上去做不到：那一列的文案是**完整** `--prune`，使用者的裁定則是有本機
+分支的要留著。文案本身就與裁定衝突。三條路（移除該列／改寫文案只控制子集／接受
+不一致）都是產品決定，已寫進 #102，本輪不擅自處理。
+
 ### 這輪沒做
 
 - **超過一個 remote 的同名推斷**：見上面，明說的減量。

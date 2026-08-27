@@ -1650,6 +1650,14 @@ derived from the code — they outrank convenience every time):
   the switcher, squashing N commits, per-remote Pull/Push, and seven
   `PANELSPEC` detail fields (待提交數, 最後 fetch, 預期 commit, 大小,
   剩餘步數, 自訂測試指令, 欄位選擇器). All tracked on **#76**.
+- **Preferences → Git 的「Prune while fetching」 now contradicts what ships.**
+  `AppPreferences.autoFetchPrune` is stored, drawn and **read by nothing**
+  (one of #102's three `autoFetch*` orphans), while fetch now auto-prunes
+  unclaimed refs regardless of it — so a user who switches it off still sees
+  refs vanish. Wiring it as worded is *not* available: the row promises a
+  full `--prune`, and the user's ruling keeps refs that a local branch
+  claims. Remove the row, reword it to the restricted subset, or accept the
+  mismatch — a product decision, recorded on **#102**, not taken here.
 - `lfs_pattern_match.dart` is an **approximation** of gitattributes matching,
   not a port of `wildmatch()`; a pattern it cannot parse matches nothing, so
   a group reads 0 rather than a wrong number.

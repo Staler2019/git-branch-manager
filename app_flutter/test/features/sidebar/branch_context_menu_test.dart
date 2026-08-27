@@ -278,6 +278,37 @@ void main() {
       },
     );
 
+    testWidgets(
+      'Delete remote branch… is disabled once the ref is gone upstream',
+      (tester) async {
+        // Same defect class the delete-branch dialog's checkbox had: an
+        // action offered in a state where it can only fail. A remote-only
+        // row the prune preview calls gone still renders -- auto-prune may
+        // be in flight, or may have failed -- and `git push origin --delete`
+        // for a branch the server no longer has is refused. Disabled with
+        // the reason showing, never hidden: 隱藏會讓人以為功能不存在.
+        bool fired = false;
+        await _pump(
+          tester,
+          BranchTreeItem(
+            ref: _remoteOnlyBranch(),
+            onCheckout: () {},
+            onDeleteOnRemote: () => fired = true,
+            isGonePending: true,
+          ),
+        );
+        await _rightClick(tester, find.byType(BranchTreeItem));
+
+        // Rendered, not hidden.
+        expect(find.text('Delete remote branch…'), findsOneWidget);
+        await tester.tap(find.text('Delete remote branch…'));
+        await tester.pumpAndSettle();
+        // The menu dismisses either way, so "it closed" cannot tell a
+        // disabled item from a live one -- only the callback can.
+        expect(fired, isFalse);
+      },
+    );
+
     testWidgets('Delete remote branch… is styled danger', (tester) async {
       await _pump(
         tester,

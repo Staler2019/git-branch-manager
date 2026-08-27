@@ -16,6 +16,7 @@ import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/data/repositories/branch_repository.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
+import 'package:gbm_flutter/features/sidebar/branch_row_actions.dart';
 import 'package:gbm_flutter/features/sidebar/sidebar_panel.dart';
 import 'package:gbm_flutter/features/sidebar/widgets/branch_tree_item.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
@@ -238,6 +239,75 @@ Future<void> _openRemoteRowMenu(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
+/// Pumps a bare `Consumer` holding a [BranchRowActions] over the same
+/// router as [_pump], so a row action can be invoked directly rather than
+/// through a menu. Needed because the defect this checks is unreachable
+/// through the sidebar: every ref that gets there has already been rebuilt
+/// by `mergeLocalAndRemoteBranches`.
+Future<void> _pumpRowActions(
+  WidgetTester tester,
+  void Function(BuildContext context, BranchRowActions actions) run,
+) async {
+  SharedPreferences.setMockInitialValues(<String, Object>{});
+  final SharedPreferences prefs = await SharedPreferences.getInstance();
+  final FakeRepoSessionController fake = FakeRepoSessionController(
+    _testIdentity,
+    const RepoSessionState(),
+  );
+
+  final GoRouter router = GoRouter(
+    initialLocation: '/repo/$_repoIdParam/history',
+    routes: <RouteBase>[
+      GoRoute(
+        path: '/repo/:repoId/history',
+        builder: (context, state) => Scaffold(
+          body: Consumer(
+            builder: (context, ref, _) => TextButton(
+              onPressed: () => run(
+                context,
+                BranchRowActions(ref: ref, identity: _testIdentity),
+              ),
+              child: const Text('go'),
+            ),
+          ),
+        ),
+      ),
+      GoRoute(
+        path: RoutePaths.deleteRemoteBranchDialog,
+        builder: (context, state) => Scaffold(
+          body: Text(
+            'delete-remote-branch:'
+            '${state.uri.queryParameters['remote']}/'
+            '${state.uri.queryParameters['branch']}',
+          ),
+        ),
+      ),
+    ],
+  );
+
+  final ProviderContainer container = ProviderContainer(
+    overrides: <Override>[
+      sharedPreferencesProvider.overrideWithValue(prefs),
+      repoRefsProvider(_testIdentity).overrideWithValue(_testRefSnapshot),
+      repoSessionProvider(_testIdentity).overrideWith((ref) => fake),
+    ],
+  );
+  addTearDown(container.dispose);
+
+  await tester.pumpWidget(
+    UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp.router(
+        theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+        routerConfig: router,
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('go'));
+  await tester.pumpAndSettle();
+}
+
 void main() {
   group('SidebarPanel remote branch merge (gap 4)', () {
     testWidgets('shows the remote-only branch but not the tracked one twice', (
@@ -325,6 +395,46 @@ void main() {
         // row is 「仍叫 delete remote branch，一樣跳 dialog，但不會長勾選
         // 刪除 remote 的選項」.
         expect(find.textContaining('delete-branch:'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'the dialog is told the branch name the remote knows, never the '
+      'local shortName',
+      (tester) async {
+        // `openDeleteRemoteBranchDialog` takes a RefInfo, and the core's own
+        // shortName for a remote branch **keeps** the remote prefix
+        // (`RefStore.cpp`'s `substr(13)` over `refs/remotes/`). Every ref
+        // that reaches it through the sidebar has been rebuilt by
+        // `mergeLocalAndRemoteBranches` with the prefix stripped, so the two
+        // derivations happen to agree on every real input -- which is why
+        // this can only be checked by calling the function directly with a
+        // ref in the shape the core actually emits.
+        //
+        // A nested name, because `origin/release` and `release` differ by a
+        // prefix either derivation removes; only `origin/feat/x` vs
+        // `feat/x` distinguishes "strip the remote" from "take the last
+        // segment".
+        final RefInfo raw = RefInfo(
+          fullName: 'refs/remotes/origin/feat/x',
+          shortName: 'origin/feat/x',
+          kind: RefKind.remoteBranch,
+          target: 'd' * 40,
+          upstream: '',
+          ahead: 0,
+          behind: 0,
+          hasTrackingInfo: false,
+          isGone: false,
+          isHead: false,
+          isSymbolic: false,
+          worktreePath: '',
+        );
+
+        await _pumpRowActions(tester, (context, actions) {
+          actions.openDeleteRemoteBranchDialog(context, raw);
+        });
+
+        expect(find.text('delete-remote-branch:origin/feat/x'), findsOneWidget);
       },
     );
 

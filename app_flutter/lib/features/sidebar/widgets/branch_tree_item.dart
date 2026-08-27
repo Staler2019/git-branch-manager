@@ -459,7 +459,17 @@ class BranchTreeItem extends StatelessWidget {
           label: 'Delete remote branch…',
           icon: Icons.delete_outline,
           danger: true,
-          onTap: onDeleteOnRemote!,
+          // The branch is already gone from the server, so the delete is a
+          // `git push --delete` that can only be refused. This row is what
+          // the user sees while auto-prune is in flight, or after it failed.
+          // Disabled with the reason attached rather than hidden -- 隱藏會讓
+          // 人以為功能不存在 -- and `enabled: false` alone is only a visual
+          // signal, so onTap goes null with it.
+          enabled: !_gone,
+          tooltip: _gone
+              ? 'Already gone on the remote — nothing left to delete.'
+              : null,
+          onTap: _gone ? null : onDeleteOnRemote,
         ),
       ],
     ];

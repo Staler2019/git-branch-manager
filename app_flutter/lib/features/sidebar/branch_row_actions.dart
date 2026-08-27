@@ -124,12 +124,22 @@ class BranchRowActions {
   /// 05-C "Delete on remote…" -- opens the existing dialog
   /// (`deleteRemoteBranchDialogFor`), previously unreachable from any UI.
   void openDeleteRemoteBranchDialog(BuildContext context, RefInfo remoteRef) {
-    final (String remoteName, String _) = remoteBranchParts(remoteRef.fullName);
+    // Both halves out of one call. `remoteRef.shortName` looks like it would
+    // do for the branch, and does -- but only because
+    // `mergeLocalAndRemoteBranches` rebuilds every row it hands the sidebar
+    // with the prefix stripped. The core's own shortName **keeps** it
+    // (`RefStore.cpp`'s `substr(13)` over `refs/remotes/`), so a caller
+    // holding an unmerged ref would silently dispatch
+    // `git push origin --delete origin/feat/x`. One derivation, no
+    // dependence on what some other layer normalised.
+    final (String remoteName, String branchName) = remoteBranchParts(
+      remoteRef.fullName,
+    );
     context.push(
       RoutePaths.deleteRemoteBranchDialogFor(
         _repoId,
         remote: remoteName,
-        branch: remoteRef.shortName,
+        branch: branchName,
       ),
     );
   }

@@ -27,19 +27,37 @@ import '../../data/models/ref_snapshot.dart';
 ///   `origin/vanished` arrives here as `vanished`.
 ///
 /// Both are full ref names, matching what
-/// `RemotePrunePreviewEntry.fullRefName` normalises to. Note the test is
-/// `upstream.isNotEmpty`, never `hasTrackingInfo`: the latter mirrors
+/// `RemotePrunePreviewEntry.fullRefName` normalises to.
+///
+/// [remoteCounterpart] is the local branch's counterpart resolved by the
+/// caller -- `RemoteBranchIndex.counterpartOf`, which returns
+/// [RefInfo.upstream] verbatim when git recorded one and falls back to an
+/// unambiguous same-named remote ref when it did not. It is required rather
+/// than defaulted because a caller that forgets it would silently get the
+/// old behaviour back, and the old behaviour is the bug: this function used
+/// to read `ref.upstream` itself and return false the moment it was empty,
+/// so a branch pushed with `git push origin HEAD` (no tracking config at
+/// all) could never be marked -- while after `mergeLocalAndRemoteBranches`
+/// claims its same-named remote row, this row is the only one left to carry
+/// the mark. Ignored for a remote-only row, which is matched on its own
+/// `fullName`.
+///
+/// Note the resolution never consults `hasTrackingInfo`: that mirrors
 /// `%(upstream:track)`, which is an *empty string* for a branch exactly in
 /// sync with its upstream, so it is false for the single most common case
 /// of "does track a remote".
-bool isEffectivelyGone(RefInfo ref, Set<String> gonePendingRefs) {
+bool isEffectivelyGone(
+  RefInfo ref,
+  Set<String> gonePendingRefs, {
+  required String remoteCounterpart,
+}) {
   if (ref.isGone) return true;
   if (gonePendingRefs.isEmpty) return false;
   if (ref.kind == RefKind.remoteBranch) {
     return gonePendingRefs.contains(ref.fullName);
   }
-  if (ref.upstream.isEmpty) return false;
-  return gonePendingRefs.contains(ref.upstream);
+  if (remoteCounterpart.isEmpty) return false;
+  return gonePendingRefs.contains(remoteCounterpart);
 }
 
 /// How many rows in [branches] the pending set actually marks -- spec page
@@ -53,9 +71,28 @@ bool isEffectivelyGone(RefInfo ref, Set<String> gonePendingRefs) {
 /// Rows git already reports as [RefInfo.isGone] are excluded: their
 /// remote-tracking ref is already deleted, so there is nothing left for
 /// Prune to clean up and counting them would never reach zero.
-int gonePendingCount(List<RefInfo> branches, Set<String> gonePendingRefs) {
+///
+/// [remoteCounterpartOf] resolves one row's counterpart -- pass
+/// `RemoteBranchIndex.counterpartOf` as a tear-off so the whole list costs
+/// one index build rather than a scan per row. A function rather than the
+/// index itself only so this file does not have to import
+/// `branch_tree_builder.dart`, which already imports the file that imports
+/// this one.
+int gonePendingCount(
+  List<RefInfo> branches,
+  Set<String> gonePendingRefs,
+  String Function(RefInfo ref) remoteCounterpartOf,
+) {
   if (gonePendingRefs.isEmpty) return 0;
   return branches
-      .where((RefInfo b) => !b.isGone && isEffectivelyGone(b, gonePendingRefs))
+      .where(
+        (RefInfo b) =>
+            !b.isGone &&
+            isEffectivelyGone(
+              b,
+              gonePendingRefs,
+              remoteCounterpart: remoteCounterpartOf(b),
+            ),
+      )
       .length;
 }

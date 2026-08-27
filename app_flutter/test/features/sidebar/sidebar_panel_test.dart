@@ -12,6 +12,7 @@ import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/features/sidebar/sidebar_panel.dart';
 
+import '../../support/fake_repo_session.dart';
 import '../../support/pump_app.dart';
 
 /// SidebarPanel also watches [repoSessionProvider] (for its STASH section).
@@ -222,6 +223,90 @@ void main() {
           reason:
               'Button should be disabled when no gone branches match filter',
         );
+      },
+    );
+
+    testWidgets(
+      'select-all-gone takes a branch pushed without -u whose remote ref is '
+      'gone',
+      (tester) async {
+        // C4/C5. `git push origin HEAD` writes no tracking config, so
+        // `upstream` is empty and git will never report [gone] for this row.
+        // Its counterpart is found by name instead, and after C4 the
+        // same-named remote row is claimed and not drawn -- so this local row
+        // is the only one that can carry the mark, and the only one the bulk
+        // delete can act on. Before C5 it was silently excluded: the user
+        // could see the branch but not select it.
+        final RefInfo pushedWithoutU = RefInfo(
+          fullName: 'refs/heads/pushed-without-u',
+          shortName: 'pushed-without-u',
+          kind: RefKind.localBranch,
+          target: 'mno345',
+          // The whole point: no tracking config at all.
+          upstream: '',
+          ahead: 0,
+          behind: 0,
+          hasTrackingInfo: false,
+          isGone: false,
+          isHead: false,
+          isSymbolic: false,
+          worktreePath: '',
+        );
+        final RefInfo remoteRef = RefInfo(
+          fullName: 'refs/remotes/origin/pushed-without-u',
+          shortName: 'origin/pushed-without-u',
+          kind: RefKind.remoteBranch,
+          target: 'mno345',
+          upstream: '',
+          ahead: 0,
+          behind: 0,
+          hasTrackingInfo: false,
+          isGone: false,
+          isHead: false,
+          isSymbolic: false,
+          worktreePath: '',
+        );
+        final RefSnapshot snapshot = RefSnapshot(
+          head: HeadInfo(
+            kind: HeadKind.branch,
+            branchName: 'main',
+            fullRef: 'refs/heads/main',
+            target: 'abc123',
+          ),
+          refs: <RefInfo>[_testBranches.first, pushedWithoutU, remoteRef],
+          refCountGuardTripped: false,
+          totalRefCount: 3,
+        );
+
+        final FakeRepoSessionController fake = FakeRepoSessionController(
+          _testIdentity,
+          RepoSessionState(
+            refs: snapshot,
+            gonePendingByRemote: const <String, List<String>>{
+              'origin': <String>['refs/remotes/origin/pushed-without-u'],
+            },
+          ),
+        );
+
+        await pumpGbmWidget(
+          tester,
+          child: SidebarPanel(identity: _testIdentity, filterFocusNode: null),
+          overrides: <Override>[
+            repoRefsProvider(_testIdentity).overrideWithValue(snapshot),
+            repoSessionProvider(_testIdentity).overrideWith((ref) => fake),
+          ],
+          wrapInScaffold: true,
+        );
+
+        await tester.tap(
+          find.byTooltip('Select all branches with a gone upstream'),
+        );
+        await tester.pumpAndSettle();
+
+        // Counted, not "is it non-empty": main tracks a live upstream and
+        // must stay out, and the claimed remote row must not be drawn as a
+        // second selectable copy of the same branch.
+        expect(find.text('1 selected'), findsOneWidget);
       },
     );
   });

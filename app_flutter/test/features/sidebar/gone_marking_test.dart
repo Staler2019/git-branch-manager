@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
+import 'package:gbm_flutter/features/sidebar/branch_tree_builder.dart';
 import 'package:gbm_flutter/features/sidebar/gone_marking.dart';
 
 RefInfo _local(String shortName, {String upstream = '', bool isGone = false}) =>
@@ -40,6 +41,14 @@ RefInfo _remoteOnly(String fullName) => RefInfo(
   worktreePath: '',
 );
 
+/// A resolver over a repository with no remote-tracking refs at all, so
+/// `counterpartOf` can only answer from a branch's own tracking config. That
+/// is precisely the pre-C5 behaviour, which is what the tests below this
+/// point were written against and must keep asserting.
+final String Function(RefInfo) _noRemotes = RemoteBranchIndex.from(
+  const <RefInfo>[],
+).counterpartOf;
+
 void main() {
   group('isEffectivelyGone', () {
     const Set<String> pending = <String>{'refs/remotes/origin/vanished'};
@@ -51,6 +60,7 @@ void main() {
         isEffectivelyGone(
           _local('feature', upstream: 'refs/remotes/origin/x', isGone: true),
           const <String>{},
+          remoteCounterpart: 'refs/remotes/origin/x',
         ),
         isTrue,
       );
@@ -61,6 +71,7 @@ void main() {
         isEffectivelyGone(
           _local('feature', upstream: 'refs/remotes/origin/vanished'),
           pending,
+          remoteCounterpart: 'refs/remotes/origin/vanished',
         ),
         isTrue,
       );
@@ -71,6 +82,7 @@ void main() {
         isEffectivelyGone(
           _local('feature', upstream: 'refs/remotes/origin/alive'),
           pending,
+          remoteCounterpart: 'refs/remotes/origin/alive',
         ),
         isFalse,
       );
@@ -79,9 +91,14 @@ void main() {
     test('a local branch with no upstream is never gone', () {
       // The empty string must not accidentally match anything, and a branch
       // that never had an upstream has not lost one.
-      expect(isEffectivelyGone(_local('local-only'), pending), isFalse);
       expect(
-        isEffectivelyGone(_local('local-only'), const <String>{''}),
+        isEffectivelyGone(_local('local-only'), pending, remoteCounterpart: ''),
+        isFalse,
+      );
+      expect(
+        isEffectivelyGone(_local('local-only'), const <String>{
+          '',
+        }, remoteCounterpart: ''),
         isFalse,
       );
     });
@@ -91,14 +108,22 @@ void main() {
       // prefix, so a remote-only `origin/vanished` arrives with
       // shortName == 'vanished'.
       expect(
-        isEffectivelyGone(_remoteOnly('refs/remotes/origin/vanished'), pending),
+        isEffectivelyGone(
+          _remoteOnly('refs/remotes/origin/vanished'),
+          pending,
+          remoteCounterpart: '',
+        ),
         isTrue,
       );
     });
 
     test('a remote-only row for a live branch is not gone', () {
       expect(
-        isEffectivelyGone(_remoteOnly('refs/remotes/origin/alive'), pending),
+        isEffectivelyGone(
+          _remoteOnly('refs/remotes/origin/alive'),
+          pending,
+          remoteCounterpart: '',
+        ),
         isFalse,
       );
     });
@@ -108,8 +133,57 @@ void main() {
         isEffectivelyGone(
           _local('a', upstream: 'refs/remotes/origin/feature/deep/name'),
           const <String>{'refs/remotes/origin/feature/deep/name'},
+          remoteCounterpart: 'refs/remotes/origin/feature/deep/name',
         ),
         isTrue,
+      );
+    });
+
+    // C5. A branch pushed with `git push origin HEAD` has no tracking config
+    // at all, so `upstream` is empty and the old `if (ref.upstream.isEmpty)
+    // return false` let it through unmarked -- while the same-named remote
+    // ref it really does have sat in the pending set. After C4 that remote
+    // row is claimed and no longer drawn, so if this row does not carry the
+    // mark, nothing does.
+    test('a local branch with no upstream is gone when its same-named remote '
+        'ref is', () {
+      expect(
+        isEffectivelyGone(
+          _local('feature'),
+          pending,
+          remoteCounterpart: 'refs/remotes/origin/vanished',
+        ),
+        isTrue,
+      );
+    });
+
+    test('a branch that was never pushed at all is still not gone', () {
+      // The user's own report: 「branches have not been pushed ... this
+      // should not mark as gone」. No tracking config *and* no same-named
+      // remote ref means there is no counterpart to have lost.
+      expect(
+        isEffectivelyGone(
+          _local('never-pushed'),
+          pending,
+          remoteCounterpart: '',
+        ),
+        isFalse,
+      );
+    });
+
+    test('the counterpart is what is matched, not the ref\'s own upstream', () {
+      // Guards the direction of the fix: passing a counterpart that is NOT
+      // in the pending set must win over an upstream that is. Nothing in
+      // production resolves them differently -- counterpartOf returns
+      // `upstream` verbatim when it is set -- but a future caller that
+      // resolves through some other rule must not be silently overridden.
+      expect(
+        isEffectivelyGone(
+          _local('feature', upstream: 'refs/remotes/origin/vanished'),
+          pending,
+          remoteCounterpart: 'refs/remotes/origin/alive',
+        ),
+        isFalse,
       );
     });
 
@@ -118,6 +192,7 @@ void main() {
         isEffectivelyGone(
           _local('feature', upstream: 'refs/remotes/origin/vanished'),
           const <String>{},
+          remoteCounterpart: 'refs/remotes/origin/vanished',
         ),
         isFalse,
       );
@@ -136,7 +211,7 @@ void main() {
         gonePendingCount(branches, const <String>{
           'refs/remotes/origin/b',
           'refs/remotes/origin/c',
-        }),
+        }, _noRemotes),
         2,
       );
     });
@@ -150,6 +225,7 @@ void main() {
         gonePendingCount(
           <RefInfo>[_local('a', upstream: 'refs/remotes/origin/a')],
           const <String>{'refs/remotes/origin/deleted'},
+          _noRemotes,
         ),
         0,
       );
@@ -159,9 +235,13 @@ void main() {
       // Stage 3 already happened for that row: its remote-tracking ref is
       // deleted, so there is nothing left for Prune to clean up.
       expect(
-        gonePendingCount(<RefInfo>[
-          _local('a', upstream: 'refs/remotes/origin/a', isGone: true),
-        ], const <String>{}),
+        gonePendingCount(
+          <RefInfo>[
+            _local('a', upstream: 'refs/remotes/origin/a', isGone: true),
+          ],
+          const <String>{},
+          _noRemotes,
+        ),
         0,
       );
     });
@@ -174,7 +254,27 @@ void main() {
         _local('a', upstream: 'refs/remotes/origin/a'),
       ];
       expect(
-        gonePendingCount(branches, const <String>{'refs/remotes/origin/a'}),
+        gonePendingCount(branches, const <String>{
+          'refs/remotes/origin/a',
+        }, _noRemotes),
+        1,
+      );
+    });
+
+    test('counts an untracked branch whose same-named remote ref is gone', () {
+      // The count feeds spec P02's 「待清理數量」 badge. Resolving through
+      // the index rather than through `upstream` is what keeps the badge and
+      // the row markings from disagreeing.
+      final RemoteBranchIndex index = RemoteBranchIndex.from(<RefInfo>[
+        _remoteOnly('refs/remotes/origin/pushed-without-u'),
+      ]);
+
+      expect(
+        gonePendingCount(
+          <RefInfo>[_local('pushed-without-u')],
+          const <String>{'refs/remotes/origin/pushed-without-u'},
+          index.counterpartOf,
+        ),
         1,
       );
     });
@@ -183,7 +283,7 @@ void main() {
       expect(
         gonePendingCount(const <RefInfo>[], const <String>{
           'refs/remotes/origin/a',
-        }),
+        }, _noRemotes),
         0,
       );
     });

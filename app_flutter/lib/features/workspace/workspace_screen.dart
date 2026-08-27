@@ -39,6 +39,7 @@ import '../history_graph/widgets/graph_columns_selector.dart';
 import '../log_drawer/log_drawer.dart';
 import '../repo_switcher/repo_switcher_popover.dart';
 import '../panels/add_remote_prompt.dart';
+import '../sidebar/branch_tree_builder.dart';
 import '../sidebar/gone_marking.dart';
 import '../sidebar/sidebar_panel.dart';
 import '../status_bar/background_task.dart';
@@ -584,6 +585,14 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
                 final RefInfo head? => isEffectivelyGone(
                   head,
                   session.gonePendingRefs,
+                  // One branch to resolve, so the one-off form. It returns a
+                  // String -- nothing new and collection-shaped enters the
+                  // watched record, which is what would bring the menu-bar
+                  // rebuild storm back.
+                  remoteCounterpart: remoteCounterpartOf(
+                    head,
+                    session.refs.remoteBranches,
+                  ),
                 ),
                 null => false,
               },

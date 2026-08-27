@@ -5340,11 +5340,120 @@ narrow-width fixture 要重量」之後選了 5.0，所以這一輪 inset 完全
 
 - **實機 `flutter run` 目視沒做**，同上一輪：幾何與顏色由 golden 涵蓋，1x 螢幕上
   十二色會不會有兩支在特定主題下仍嫌接近，留給使用者實機確認。
-- **相鄰只看左右各一欄**，不是所有活著的 lane。這是照字面的「兩兩相臨」，也是保住
-  雜湊穩定性的原因：約束越多，偏移越頻繁，顏色越容易被不相干的分支推著跑。隔一欄
-  的兩支仍可能相近（最壞是 3 步 = 90°）。
+- ~~**相鄰只看左右各一欄**，不是所有活著的 lane。這是照字面的「兩兩相臨」，也是
+  保住雜湊穩定性的原因：約束越多，偏移越頻繁，顏色越容易被不相干的分支推著跑。
+  隔一欄的兩支仍可能相近（最壞是 3 步 = 90°）。~~
+  **下一輪被使用者用截圖推翻**：隔一欄的兩支不只是「相近」，而是同一個顏色，而且
+  在 400 commit 的 fixture 上一再出現。這段的兩個理由也都站不住——約束變寬並不會
+  「把顏色推著跑」，因為顏色是 seed 當下決定、之後不再重算；而且 ±1 比字面更窄，
+  `allocateLeftmost` 給的是最低空 lane，ref tip 這條路右邊必然是空的。改正見
+  「相隔一欄仍然撞色」一節。
 - **顏色仍會在往分支 commit 之後改變**，因為種子是 tip。這是既有行為，不是這一輪
   造成的，也不在使用者的要求範圍內——但既然註解被改正了，就一起記在這裡。
 - **spec 只定義 `--graph-lane-1` 到 `--graph-lane-6`**，十二色是使用者裁定的偏離。
   三處記錄：`tokens.dart` 的 `graphLanes` 註解、`gbm_lane_palette_test.dart` 的
   檔頭、以及 CLAUDE.md 的 invariant。
+
+
+## fix/graph-lane-color-window — 相隔一欄仍然撞色
+
+上一輪把「兩兩相臨的分支顏色差遠一點」實作成 `LaneAllocator` 檢查左右各一欄。
+使用者接著送來一張截圖：兩支同色的分支中間只隔一個 lane。這一輪把窗口拉寬並分級。
+
+### 截圖說的是真的，而且測得出來
+
+先把它寫成測試，再看紅不紅。`GraphBuilder.InvariantAColourIsNotRepeatedWithinThree
+ColumnsAtAnyRow` 走真正的 builder，對 400 commit 的隨機 DAG 掃每一列上同時被畫出來
+的欄位。第一次跑出來的頭幾行就是截圖本身：
+
+```
+row 7: lane 1 (c9) is 2 column(s) from lane 3 (c9)
+row 9: lane 3 (c9) is 2 column(s) from lane 5 (c9)
+row 35..38: lane 1 (c9) is 3 column(s) from lane 4 (c9)
+row 60: lane 2 (c3) is 2 column(s) from lane 4 (c3)
+```
+
+`c9` 在 darkTechnical 是 `02B685`，就是截圖裡那個青綠。**同色、隔一欄、反覆出現**——
+不是機率問題，是規則根本沒管到那一欄。
+
+### ±1 其實比字面更窄，但沒有窄成「只有左邊」
+
+寫這一輪的第一版註解時我斷言：`allocateLeftmost()` 回傳的是最低的空 lane，所以
+seed 當下左邊必定被佔、右邊必定是空的，「左右各一欄」實際上等於「只有左邊」。
+
+**mutation 打掉了這個斷言的一半。** 把 `crowdingOf()` 的右側整段刪掉重跑，紅的不只
+是這一輪的新測試，還有上一輪的 `InvariantAdjacentColumnsNeverLookAlikeAtAnyRow`——
+右側的檢查在真的 builder 裡會觸發。原因是第二條配置路徑：merge 的第二個以後的
+parent 走 `allocateAfter(lane)`，落點是 merge commit 右邊的第一個空 lane，兩側都
+可能已經有東西。所以正確的說法是**分路徑**的：ref tip 那條路右邊必然是空的，
+merge parent 那條路不是。註解與測試註解都照這個改寫了。
+
+這正是 repo 那條「mutation 沒有落在註解預測的地方，就是註解錯了」的用法。
+
+### 分級窗口，以及為什麼是最小化而不是過濾
+
+規則現在是 `kNeighborWindow = 5`，每一段要求不同的色相距離：
+
+| 距離 | 要求 | 在 pitch 11 下 | 意思 |
+|---|---|---|---|
+| 1 欄 | 3 步（90°） | 11px | 貼在一起，必須差四分之一個色環 |
+| 2 欄 | 2 步（60°） | 22px | 中間隔一個，明顯不同色 |
+| 3–5 欄 | 1 步（30°） | 33–55px | 只要求「不是同一個顏色」 |
+| 6 欄以上 | 0 | — | 不管 |
+
+遞減是因為「撞色」的傷害本身就隨距離遞減：貼在一起的兩支同色會被讀成一支加粗，
+隔五欄的兩支同色只是重複用色。而窗口不可能再寬——非主幹的顏色只有 11 個，
+`kMaxLanes` 是 48，夠寬的圖一定會重複，規則能決定的只是**重複落在哪裡**。
+
+也因此這裡是**最小化**而不是過濾。五欄寬的窗口最多有十個鄰居，11 個候選對上十個
+鄰居，約束真的可能無解；無解時「盡量遠」是有意義的答案，「找不到就退回雜湊」不是。
+`colorForSeed` 仍然先照雜湊走：由 `1 + hash % 11` 向外 `+1, -1, +2, -2, …` 探，
+第一個 penalty 為 0 的候選直接回傳，所以沒被擠到的 lane 拿到的顏色跟以前一模一樣。
+
+### 權重是把字典序寫成加總，而且那個界是算得出來的
+
+`penaltyWeight` 是 100 / 10 / 1。這不是調參，是要讓三段不能互相交換：距離 2 以外的
+所有 penalty 加起來最多是 `2 × 10 × 2 + 6 × 1 × 1 = 46`，小於「對緊鄰 lane 改善一
+步」的 100。所以一個候選永遠不會為了讓四個遠處鄰居開心而去擠貼著自己的那一欄。
+
+**這個界一開始沒有任何測試看得到。** 把 `penaltyWeight(1)` 從 100 改成 1 重跑，
+全綠——現有的每個 fixture 都存在「全部滿足」的候選，而只要存在，權重就從來不會被
+問到。補了兩個測試，各自造出一個**無解**的鄰居配置：
+
+- `ACloseLaneOutranksAnyNumberOfDistantOnes`：左一欄是 c4，而三到五欄外剛好擺著
+  「能跟 c4 差四分之一圈」的那六個顏色（c1, c7, c8, c9, c10, c11）。每個候選都被
+  擠到，答案必須是 c1（重複一個五欄外的顏色），不是 c2（差 c4 只有兩步）。
+- `TheMiddleTierOutranksTheDistantOneToo`：同一個論證降一階，兩欄外是 c4 與 c10，
+  能同時差它們 60° 的五個顏色全被擺到三到五欄外。答案是 c2，不是雜湊原本要的 c3。
+
+### 五個 mutation
+
+| mutation | 結果 |
+|---|---|
+| `requiredSeparation(2)` 2 → 1 | 紅：新的兩個（單元 + DAG invariant） |
+| `kNeighborWindow` 5 → 1（退回上一輪） | 紅：新的兩個；上一輪的 adjacency invariant 仍綠 |
+| `crowdingOf()` 刪掉右半邊 | 紅：新的 DAG invariant **和上一輪的 adjacency invariant** |
+| `penaltyWeight(1)` 100 → 1 | 一開始全綠 → 補測試後紅：`ACloseLaneOutranksAnyNumberOfDistantOnes` |
+| `penaltyWeight(2)` 10 → 1 | 一開始全綠 → 補測試後紅：`TheMiddleTierOutranksTheDistantOneToo` |
+
+第三個是這一輪最有價值的一個：它同時證明了右側檢查是活的，也證明新測試沒有把舊
+的那條蓋掉。第四、五個是「綠的 mutation 一樣常代表斷言太弱」的又一次實例。
+
+### DAG invariant 是量出來的，不是證出來的
+
+`InvariantAColourIsNotRepeatedWithinThreeColumnsAtAnyRow` 的註解明寫這一點。11 個
+非主幹顏色對 48 欄，這條性質不可能是定理；它是「一個長得像真實 repo 的 400 commit
+DAG，在三欄以內不重複」的一次量測。沿用了 adjacency invariant 的
+`comparedPairs > 200` 反空過守衛。
+
+### 這輪沒做
+
+- **完全不動 Dart。** 顏色 id 仍然是 0..11，palette、painter、token 一個字都沒改，
+  所以沒有跑 `flutter test`／`analyze`／裝置層——驗證面就是 `gbm_core_tests`
+  （452 個，450 通過，2 個既有的 LFS skip）加上 `LaneAllocator.h` 的 clang-format
+  v18。
+- **超過五欄仍可能撞色**，11 欄以上必然撞。上面說過原因。
+- **既有 repo 下次開啟會再重排一次顏色**，跟上一輪同理：規則變了，seed 當下的答案
+  就變了。主幹仍是 accent。
+- **1x 實機觀感仍然沒有覆蓋**。這一輪連 golden 都沒重畫（Dart 沒動），使用者手上
+  就有真機，交給使用者看。

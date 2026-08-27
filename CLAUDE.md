@@ -1414,10 +1414,22 @@ you are touching, not by when it was learned.
   (`GraphBuilder.cpp`'s no-incoming-edges path), so committing on a branch
   already recoloured it long before the neighbour rule. `LaneAllocator`'s
   comment used to claim oid-keying kept a branch's colour across a refresh; it
-  keeps it across *lane index reuse*, which is narrower. Only lanes ±1
-  constrain a choice, which is what keeps the hash deciding in the common case
-  — widening that set would make every colour a function of the whole live
-  set, so an unrelated branch opening would repaint the graph.
+  keeps it across *lane index reuse*, which is narrower. **The window is five
+  columns either side, graded** — a quarter turn from the column beside you,
+  60° from the one after that, merely a different colour out to five — and
+  `penaltyWeight`'s 100/10/1 is what stops the tiers being traded against each
+  other (everything below offset 1 sums to at most 46). It was ±1 for one
+  round, and the entry here argued against widening it on two grounds that
+  were both wrong: widening does **not** repaint anything, because a colour is
+  fixed at seed time and never revisited; and ±1 was thinner than it read,
+  since `allocateLeftmost` returns the *lowest free* lane, so on the ref-tip
+  path there is nothing to the right by construction and only the left
+  neighbour could ever fire. What actually broke was the user's own case —
+  two branches in one colour with a single lane between them. Beyond the
+  window repeats stay possible, and past 11 live lanes they are unavoidable:
+  the palette has 11 non-trunk colours and `kMaxLanes` is 48, so the rule
+  decides *where* a repeat lands, never whether. Ledger:
+  「相隔一欄仍然撞色」.
 - 標題列 means four different things across this spec (**#68**) — settle the
   reading before moving code.
 

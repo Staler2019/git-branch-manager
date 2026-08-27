@@ -493,16 +493,27 @@ abstract final class GbmLayout {
   /// `kGraphLaneWidth` (commit_row.dart), which aliases this -- that name is
   /// what the painter and the graph tests import.
   ///
-  /// **17, from the mockup's own geometry, not 18.** `spec_logic.js:428` is
-  /// `const L0 = 15, L1 = 32, RH = 26`: two lane centres 17px apart. The 18
-  /// this shipped with was a pre-existing drift of the same kind as the
-  /// commit row's 34-vs-26 (see `kCommitRowHeight`).
+  /// **11, which is a deliberate deviation from the spec, ruled for by the
+  /// user.** The mockup's geometry is `const L0 = 15, L1 = 32, RH = 26`
+  /// (`spec_logic.js:428`) -- two lane centres 17px apart -- and 17 is what
+  /// this held after an earlier round corrected a pre-existing 18. The ask
+  /// here was that the lanes sit closer together, at about two thirds of
+  /// that pitch, and 11 is `17 x 2/3` taken to an integer. **Do not "fix" it
+  /// back to 17 on the strength of the citation above**: the citation is
+  /// still true and is no longer what decides this number. Same standing as
+  /// the Working Copy's removed checkboxes. Ledger: 「Graph lane 間距」.
+  ///
+  /// The dot, halo, HEAD ring and connector widths in
+  /// `graph_column_painter.dart` are **unchanged** by the same ruling --
+  /// the user asked for spacing, not for a smaller graph. What pays for the
+  /// HEAD ring at this pitch is `kGraphLaneInset`, not a smaller ring.
   ///
   /// One knock-on worth knowing: the graph column's natural width is
-  /// `graphLaneWidth * (laneCount + 1)`, so a twelve-lane history drops from
-  /// 234px to 221px. That 13px is what re-opened the refs column's width
-  /// ceiling -- see `GbmGraphColumnId.refs`.
-  static const double graphLaneWidth = 17;
+  /// `graphLaneWidth * (laneCount + 1)`, so a twelve-lane history asks for
+  /// 143px where it asked 234 at a pitch of 18 and 221 at 17. The column's
+  /// own cap moves with the pitch to keep meaning the same eight lanes --
+  /// see `GbmGraphColumnId.graph`.
+  static const double graphLaneWidth = 11;
 
   static const double diffGutterWidth = 36;
   static const double diffMarkerWidth = 14;

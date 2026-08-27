@@ -202,15 +202,17 @@ void main() {
       // The plan is asserted alongside the render so the case says which
       // rung it is standing on -- the width alone does not.
       //
-      // This was 560 until the refs column widened from 92 to 104 and the
-      // lane pitch narrowed from 18 to 17 -- a net +3px of fixed cost at
-      // eight lanes, which was enough to push 560 off this rung and onto the
-      // next one down. Measured after that change, the rung spans roughly
-      // 563..670, so 560 was sitting 3px from its lower edge. 610 is chosen
-      // near the middle of the span rather than at either end, so the next
-      // few-pixel change to a column width does not silently move which rung
-      // this case is testing.
-      const double width = 610;
+      // **This number has moved twice, both times because a fixed cost in
+      // the row moved under it, and the second time proves the first one's
+      // own lesson.** It was 560 until the refs column widened from 92 to
+      // 104 and the lane pitch narrowed from 18 to 17 (net +3px at eight
+      // lanes), which pushed 560 onto the next rung down; the rung was then
+      // measured at 563..670 and 610 taken from the middle of it. The lane
+      // pitch then went 17 -> 11 on the user's ruling, which takes eight
+      // lanes from 153px to 99 -- 54px of fixed cost gone -- and the rung
+      // slid down with it to **509..596**, leaving 610 outside it entirely.
+      // 552 is the middle of the measured span, not an edge of it.
+      const double width = 552;
       final CommitRowColumnPlan plan = planCommitRowColumns(
         availableWidth: width,
         laneCount: 8,
@@ -321,7 +323,13 @@ void main() {
 
       final double wide = _graphRect(tester).width;
 
-      setWidth(() => width = 240);
+      // 160, not 240: at twelve lanes the plan's graph is capped at
+      // `GbmGraphColumnId.graph.defaultWidth` (99 since the pitch became
+      // 11), and 240 is wide enough to afford that cap in full -- so both
+      // measurements came back 99 and «narrower box» stopped being what the
+      // fixture exercised. Measured: the graph is 60px at 160 and 99 from
+      // 200 up.
+      setWidth(() => width = 160);
       await tester.pump();
 
       final double narrow = _graphRect(tester).width;

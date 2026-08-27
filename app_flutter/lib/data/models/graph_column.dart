@@ -25,25 +25,33 @@ enum GbmGraphColumnId {
   // `laneWidth * (laneCount + 1)`, so a busy repository can ask for any width
   // at all. These three numbers turn that open-ended demand into a budget.
   //
-  //  * `defaultWidth` 153 is a **cap, not a size**: the column takes its
+  //  * `defaultWidth` 99 is a **cap, not a size**: the column takes its
   //    natural width and stops there, so a two-lane history still draws two
-  //    lanes and leaves the rest to the message. 153 = 17 x 9, i.e. eight
-  //    parallel lanes plus the trailing half-slot. **Eight is ours, not
-  //    spec's** -- the spec has nothing to say about how thick the graph may
-  //    get. It is the point where the column stops reading as "where am I"
-  //    and starts reading as a wall, and it is a single constant to change if
-  //    that judgement is wrong.
-  //  * `minWidth` 34 = 17 x 2 is one lane. **The column is never removable**
+  //    lanes and leaves the rest to the message. 99 = 11 x 9, i.e. eight
+  //    parallel lanes plus the extra slot that formula always adds. **Eight
+  //    is ours, not spec's** -- the spec has nothing to say about how thick
+  //    the graph may get. It is the point where the column stops reading as
+  //    "where am I" and starts reading as a wall, and it is a single
+  //    constant to change if that judgement is wrong.
+  //  * `minWidth` 22 = 11 x 2 is one lane. **The column is never removable**
   //    (it stays `isLocked`, per spec's "Graph 與 Message 固定不可關"); this
-  //    is how far a drag may collapse it, and one lane is still a graph.
-  //  * `maxWidth` 425 = 17 x 25 is twenty-four lanes, past which the row is
+  //    is how far a drag may collapse it, and one lane is still a graph. It
+  //    also has to be wide enough to draw that lane's HEAD ring whole --
+  //    `kGraphLaneInset` 8 plus the ring's 7.75 outer edge is 15.75, so 22
+  //    clears it.
+  //  * `maxWidth` 275 = 11 x 25 is twenty-four lanes, past which the row is
   //    all graph on any ordinary window.
+  //
+  // All three moved with the lane pitch when it went 17 -> 11 (see
+  // `GbmLayout.graphLaneWidth`): they are lane counts expressed in pixels,
+  // so leaving them alone would have quietly redefined the cap from eight
+  // lanes to thirteen.
   //
   // Literals rather than `GbmLayout.graphLaneWidth * 9`: this file has no
   // imports at all, which is what lets the repository depend on it instead of
   // the reverse. `graph_column_test.dart` asserts all three stay exact lane
   // multiples, so the derivation is checked even though it is not expressed.
-  graph('graph', 'Graph', defaultWidth: 153, minWidth: 34, maxWidth: 425),
+  graph('graph', 'Graph', defaultWidth: 99, minWidth: 22, maxWidth: 275),
   message('message', 'Message', defaultWidth: 0, minWidth: 0, maxWidth: 0),
   // 104, and the corridor it sits in was re-measured this round after the
   // lane pitch went from 18 to 17. Both bounds are measured, not reasoned

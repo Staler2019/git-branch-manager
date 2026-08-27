@@ -41,15 +41,19 @@ void main() {
       expect(GbmLayout.menuMinWidth, 220);
     });
 
-    test('graph lane width matches spec (17)', () {
-      // This assertion used to say 18 and to call 18 "spec". It was never
-      // checked against the source: the mockup's graph geometry is
+    test('graph lane width is the user-ruled 11, not spec\'s 17', () {
+      // This assertion has said 18, then 17, and now 11 -- and only the
+      // middle one was spec. The mockup's graph geometry is
       // `const L0 = 15, L1 = 32, RH = 26` (`spec_logic.js:428`), i.e. two
-      // lane centres 17px apart. A test that names a spec value without
-      // naming where in the spec it comes from can be wrong in exactly this
-      // way and still look authoritative, so the citation is part of the
-      // assertion now.
-      expect(GbmLayout.graphLaneWidth, 17);
+      // lane centres 17px apart; 18 was drift and was corrected to 17
+      // against that source. **11 is not a further correction**: the user
+      // ruled the lanes should sit at about two thirds of the pitch, so this
+      // is a ratified deviation and the spec citation is here to say what is
+      // being deviated *from*, not to justify the number. A test that names
+      // a spec value without naming where in the spec it comes from can be
+      // wrong and still look authoritative, which is why the citation stays
+      // even now that it no longer decides the value.
+      expect(GbmLayout.graphLaneWidth, 11);
     });
 
     test('diff gutter widths match spec (36 old, 36 new, 14 marker)', () {

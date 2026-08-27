@@ -309,5 +309,110 @@ void main() {
         expect(find.text('1 selected'), findsOneWidget);
       },
     );
+
+    testWidgets(
+      'the local badge is decided by the resolved counterpart, not by '
+      'ref.upstream',
+      (tester) async {
+        // A widget test on BranchTreeItem proves the badge renders from
+        // `remoteCounterpart`; only this one proves SidebarPanel resolves
+        // and passes the right value. Mutating the panel to hand over
+        // `node.ref.upstream` left every BranchTreeItem test green.
+        //
+        // Two rows, distinguishable only by whether a same-named remote ref
+        // exists -- both have an empty `upstream`, so any implementation
+        // reading that field labels them identically and fails here.
+        final RefInfo pushedWithoutU = RefInfo(
+          fullName: 'refs/heads/pushed-without-u',
+          shortName: 'pushed-without-u',
+          kind: RefKind.localBranch,
+          target: 'mno345',
+          upstream: '',
+          ahead: 0,
+          behind: 0,
+          hasTrackingInfo: false,
+          isGone: false,
+          isHead: false,
+          isSymbolic: false,
+          worktreePath: '',
+        );
+        final RefInfo neverPushed = RefInfo(
+          fullName: 'refs/heads/never-pushed',
+          shortName: 'never-pushed',
+          kind: RefKind.localBranch,
+          target: 'pqr678',
+          upstream: '',
+          ahead: 0,
+          behind: 0,
+          hasTrackingInfo: false,
+          isGone: false,
+          isHead: false,
+          isSymbolic: false,
+          worktreePath: '',
+        );
+        final RefInfo remoteRef = RefInfo(
+          fullName: 'refs/remotes/origin/pushed-without-u',
+          shortName: 'origin/pushed-without-u',
+          kind: RefKind.remoteBranch,
+          target: 'mno345',
+          upstream: '',
+          ahead: 0,
+          behind: 0,
+          hasTrackingInfo: false,
+          isGone: false,
+          isHead: false,
+          isSymbolic: false,
+          worktreePath: '',
+        );
+        final RefSnapshot snapshot = RefSnapshot(
+          head: HeadInfo(
+            kind: HeadKind.branch,
+            branchName: 'main',
+            fullRef: 'refs/heads/main',
+            target: 'abc123',
+          ),
+          refs: <RefInfo>[
+            _testBranches.first,
+            pushedWithoutU,
+            neverPushed,
+            remoteRef,
+          ],
+          refCountGuardTripped: false,
+          totalRefCount: 4,
+        );
+
+        await pumpGbmWidget(
+          tester,
+          child: SidebarPanel(identity: _testIdentity, filterFocusNode: null),
+          overrides: <Override>[
+            repoRefsProvider(_testIdentity).overrideWithValue(snapshot),
+            repoSessionProvider(_testIdentity).overrideWith(
+              (ref) => FakeRepoSessionController(
+                _testIdentity,
+                RepoSessionState(refs: snapshot),
+              ),
+            ),
+          ],
+          wrapInScaffold: true,
+        );
+
+        // Counted: exactly one row earns the badge -- never-pushed. Both
+        // rows are on screen, so `findsOneWidget` here really is "one of
+        // the two", not "at least something rendered".
+        expect(find.text('pushed-without-u'), findsOneWidget);
+        expect(find.text('never-pushed'), findsOneWidget);
+        expect(find.text('local'), findsOneWidget);
+
+        final Offset badge = tester.getCenter(find.text('local'));
+        final Offset neverPushedRow = tester.getCenter(
+          find.text('never-pushed'),
+        );
+        expect(
+          badge.dy,
+          neverPushedRow.dy,
+          reason: 'the local badge belongs to the never-pushed row',
+        );
+      },
+    );
   });
 }

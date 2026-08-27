@@ -36,6 +36,7 @@ class BranchTreeItem extends StatelessWidget {
     this.onDeleteTag,
     this.conflictActive = false,
     this.isGonePending = false,
+    this.remoteCounterpart = '',
   });
 
   final RefInfo ref;
@@ -64,12 +65,35 @@ class BranchTreeItem extends StatelessWidget {
   /// [conflictActive].
   final bool isGonePending;
 
+  /// The full name of this row's remote counterpart, resolved by the caller
+  /// through `RemoteBranchIndex.counterpartOf` -- empty when the branch has
+  /// none, which is what draws BRANCH_STATES row 3's `local` badge.
+  ///
+  /// Not derived from [RefInfo.upstream] here, and the difference is the
+  /// point: `git push origin HEAD` writes no tracking config, so `upstream`
+  /// is empty for a branch that has very much been pushed. Reading it would
+  /// label such a row 「local」 -- 「還沒 push 過」 -- while its remote copy
+  /// sits right there, and would then never clear, contradicting the spec's
+  /// own 「Push 後 badge 自動消失」.
+  ///
+  /// Defaults to empty, meaning "the caller knows of no remote side". The
+  /// sidebar passes the empty string explicitly for a remote-only row: such
+  /// a row's `shortName` has had its `<remote>/` prefix stripped, so asking
+  /// the index about it would match the row against *itself*.
+  final String remoteCounterpart;
+
   /// [RefInfo.isGone] (git already reports `[gone]`, i.e. the ref is
   /// already pruned locally) or [isGonePending] (the dry run says it will
   /// be). Every gone-shaped rendering decision below reads this rather than
   /// `ref.isGone`, so a row stays marked continuously across a real prune as
   /// the truth hands over from one source to the other.
   bool get _gone => ref.isGone || isGonePending;
+
+  /// BRANCH_STATES row 3, 「Local only（無 upstream）」: a local branch with
+  /// no remote side at all. Mutually exclusive with [_gone] (which means it
+  /// *had* one) and with a remote-only row (which is nothing but one).
+  bool get _localOnly =>
+      !_isRemoteOnly && !_gone && remoteCounterpart.isEmpty && !_isTag;
 
   /// What to print instead of `ref.shortName`.
   ///
@@ -175,6 +199,8 @@ class BranchTreeItem extends StatelessWidget {
     } else if (ref.hasTrackingInfo && (ref.ahead > 0 || ref.behind > 0)) {
       if (ref.ahead > 0) label.write(', ${ref.ahead} ahead');
       if (ref.behind > 0) label.write(', ${ref.behind} behind');
+    } else if (_localOnly) {
+      label.write(', local only');
     }
 
     // BRANCH_STATES table: gone -> cloud-off + warning; remote-only ->
@@ -233,6 +259,21 @@ class BranchTreeItem extends StatelessWidget {
           Flexible(
             child: Text(
               '${ref.ahead > 0 ? '↑${ref.ahead}' : ''}${ref.behind > 0 ? ' ↓${ref.behind}' : ''}',
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                color: colors.textTertiary,
+              ),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+            ),
+          )
+        // BRANCH_STATES row 3. Text, not an icon, and the spec says why:
+        // 「badge 用文字而非圖示，避免與 ahead 混淆」 -- an arrow here would
+        // read as an ahead count of nothing.
+        else if (_localOnly)
+          Flexible(
+            child: Text(
+              'local',
               style: TextStyle(
                 fontSize: GbmTypography.textXs,
                 color: colors.textTertiary,
@@ -336,7 +377,18 @@ class BranchTreeItem extends StatelessWidget {
     // Container, which dimmed the selected background along with it -- so a
     // dimmed row also got dimmed hover and selection feedback, i.e. the
     // states the user needs most on the rows that are hardest to read.
-    final Widget maybeDim = _isRemoteOnly || _gone
+    // Remote-only rows only. A gone row used to be dimmed too, and that was
+    // over-reading the spec: BRANCH_TREE's mock marks `dim: true` on its two
+    // `state: 'remote'` entries and on neither of the others, including the
+    // `state: 'gone'` one. The two states mean different things -- 「本機還
+    // 沒有這條分支」 versus 「本機還在、遠端沒了」 -- and only the first is
+    // a row you do not have. Dimming the second made the row the user most
+    // needs to act on the hardest one to read. The strikethrough on the name
+    // and the cloud-off icon carry gone; a remote-only row that is *also*
+    // gone keeps the dim, because it is still a row the machine does not
+    // have (that state is transient -- see the automatic post-fetch prune --
+    // but it is drawn while it lasts, and if the prune fails it persists).
+    final Widget maybeDim = _isRemoteOnly
         ? Opacity(opacity: 0.62, child: maybeTooltip)
         : maybeTooltip;
 

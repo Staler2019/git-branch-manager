@@ -685,6 +685,12 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
           // Sourced from isActionEnabled(), not session.conflictActive
           // directly -- single source of truth for checkout availability.
           conflictActive: !isActionEnabled(GbmActionId.branchCheckout, session),
+          // Empty for a remote-only row on purpose: that row's shortName
+          // has had its `<remote>/` prefix stripped, so the index would
+          // match it against itself.
+          remoteCounterpart: isRemoteOnly
+              ? ''
+              : _remoteIndex.counterpartOf(node.ref),
           isGonePending: isEffectivelyGone(
             node.ref,
             session.gonePendingRefs,

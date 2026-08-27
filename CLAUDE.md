@@ -335,8 +335,9 @@ Set<String> get gonePendingRefs =>
 
 Neither `gonePendingRefs` nor `RefInfo.isGone` is read directly by a render
 site: both go through `features/sidebar/gone_marking.dart`'s
-`isEffectivelyGone()`, so the sidebar rows, the bulk-select set and the status
-bar cannot disagree about whether a branch is gone.
+`isEffectivelyGone()`, so the sidebar rows, the bulk-select set, the status
+bar and the delete-branch dialog's 「also delete on remote」 checkbox cannot
+disagree about whether a branch is gone.
 
 ### Lifecycle
 
@@ -1158,8 +1159,33 @@ you are touching, not by when it was learned.
   error being recorded here (ledger: fix/focus-refresh-repo-state).
 - **`RefInfo.upstream` is the full ref name** (`refs/remotes/origin/x`), from
   `%(upstream)` not `%(upstream:short)`. Splitting on the first slash yields
-  `"refs"` — use `remoteBranchParts()`. `delete_branch_dialog.dart`'s
-  `_remoteOf()` still does the wrong split (**#74**).
+  `"refs"` — use `remoteBranchParts()`. That was **#74**, now closed, and the
+  same function held two more defects that only surfaced once the sidebar's
+  prune entries were removed and this dialog became the only path to a remote
+  delete: it asked `upstream` alone whether a branch *has* a remote side (see
+  the counterpart entry below), and it **printed the upstream's branch name
+  while dispatching the local one** — `feature/x` tracking `origin/renamed-x`
+  said 「Also delete renamed-x」 and ran `git push origin --delete feature/x`.
+  A branch's name on the remote is not its local name; resolve both from the
+  counterpart in one place (`deleteBranchRemoteTarget()`). **Every fixture in
+  which the two names coincide is blind to this**, which is nearly all of
+  them.
+- **「Does this local branch have a remote side?」 is not answered by
+  `upstream`.** `git push origin HEAD` and most PR flows leave
+  `branch.<name>.merge` empty while putting the branch on the remote, so a
+  same-named remote ref is a real counterpart with no tracking config behind
+  it. `mergeLocalAndRemoteBranches()` matched on the config alone and so drew
+  such a branch **twice** — as a duplicate leaf for a nested name (a `List`),
+  or losing the local row entirely for a root name (a `Map`, last write wins)
+  — which is the whole of the reported 「剛進來灰雲、fetch 後黃雲斜線」
+  symptom, prune being innocent. `RemoteBranchIndex`
+  (`data/models/remote_counterpart.dart`) is the single source: explicit
+  tracking first, then an *unambiguous* same-name match, and **nothing at all
+  when two remotes share the name** — a counterpart cannot be inferred from a
+  name, and guessing wrong is worse than not guessing. It is an index rather
+  than a scan because the per-branch scan measured 14ms at 500×500 and runs
+  every sidebar build (ledger: 「prune 壞掉的表象下有六個缺陷」). Read it
+  through the index, never by re-deriving the match.
 - **`RefInfo.hasTrackingInfo` does not mean "has an upstream"** — it mirrors
   `%(upstream:track)`, which is *empty* for a branch exactly in sync. Ask
   "does this track a remote?" with `upstream`; reserve `hasTrackingInfo` for
@@ -1191,17 +1217,52 @@ you are touching, not by when it was learned.
   「側邊欄目前分支不再置頂」.
 - **`RefInfo.isGone` can only be true after a prune** (git reports `[gone]`
   only once the remote-tracking ref is already deleted). Gone *marking* comes
-  from `git remote prune --dry-run`, deliberately not from `fetch --prune` —
-  the spec's three stages are mark → badge → explicit Prune, and `--prune`
-  skips to the end. Read gone-ness through
-  `features/sidebar/gone_marking.dart`'s `isEffectivelyGone()`, never
-  `isGone` or `gonePendingRefs` directly.
+  from `git remote prune --dry-run`, deliberately not from `fetch --prune`.
+  Read gone-ness through `features/sidebar/gone_marking.dart`'s
+  `isEffectivelyGone()`, never `isGone` or `gonePendingRefs` directly — and
+  note it now takes a `remoteCounterpart`, because a branch with no tracking
+  config still has a remote side to be gone from. **Gating anything on
+  `isGone` alone leaves it wrong for the entire window between the fetch that
+  discovers the deletion and the prune that records it**, which is where the
+  user actually is when they look; the delete dialog's checkbox shipped that
+  way.
+- **`fetch` prunes unclaimed refs in the background, and no menu says the
+  word 「prune」 — user-ratified, do not "fix" it back.** P02-12's three
+  stages (mark → badge → explicit Prune) are superseded: a successful fetch
+  auto-prunes exactly the refs the `--dry-run` preview calls gone **and** that
+  no local branch claims. A claimed one keeps its cloud-off marking, because
+  the user can still repush it. `Remote → Prune remote branches` survives as
+  the manual fallback. **Only *fetch-triggered* previews may auto-prune**
+  (`_autoPrunePreviewsInFlight`): the Prune dialog asks for a preview of its
+  own, and an undiscriminated rule deletes the refs it is listing out from
+  under the user. An automatic prune's failure is kept out of `lastError` —
+  nobody asked for it — but still reaches the operation log; not notifying is
+  not the same as not recording.
 - `RemotePrunePreviewEntry.ref` is a **short** name while `upstream` and a
   remote row's `fullName` are full — normalise through `fullRemoteRefName()`.
   Every *comparison* in this codebase is on the full form; the short form is
   display only.
 - `git branch -m` **keeps** `branch.<name>.remote/.merge`, so a local-only
   rename needs an explicit `git branch --unset-upstream`.
+- **`git branch --delete --remotes` takes the *short* name only.** Measured:
+  `refs/remotes/origin/feat/x` is 「remote-tracking branch not found」, exit 1,
+  while `origin/feat/x` deletes it. `RemoteOps.h`'s contract said short all
+  along; two Dart call sites sent `fullName`/`upstream` anyway, and
+  `RemotePrunePreviewEntry`'s own comment knowingly documented both forms as
+  coexisting. Normalise with `shortRemoteRefName()` at the boundary — but
+  keep *comparisons* on the full form (`fullRemoteRefName()`), which is the
+  rest of the codebase's convention.
+- **`git branch -d`/`-D` is per-name and partially succeeds; `exit 1` does
+  not mean nothing happened.** Measured: `git branch -d a cur b` deletes `a`
+  and `b`, refuses `cur`, and still exits 1 — so a single exit-code check
+  reports total failure for work that is mostly done, and a force retry then
+  resends the already-deleted names, which fail as 「not found」 and report
+  total failure a second time. That is the whole of the user's three-line
+  error log. `DeleteBranchOperation` now probes `git for-each-ref` before
+  (send only what still exists) and after a failure (say what really went),
+  and **deliberately does not parse per-name stderr** — those strings are
+  gettext-localised, so they may inform a *message* but never a correctness
+  decision.
 - **`git diff-tree` silently ignores `--first-parent`** — the correct spelling
   is `--diff-merges=first-parent` (git 2.31+). `git log --raw` honours
   `diff.renames` while `git diff-tree --raw` ignores it entirely, so the
@@ -1572,10 +1633,18 @@ derived from the code — they outrank convenience every time):
 - **Context menus**: `features/context_menus/gbm_context_menus.dart` declares
   all 11 of spec page 05's groups and is the parity test's acceptance
   baseline, but no file under `lib/` imports it — each render site
-  hand-writes its list. Nine groups now conform; **05-B and 05-E are the only
-  drifted ones left**. The `*_menu_items.dart` pure-function extraction is the
-  template to follow. The catalog itself can drift from the spec, which the
-  per-render-site audit method cannot detect (**#71**).
+  hand-writes its list. All 11 groups are now checked against the catalog with
+  no `skip`; eight are pure `*_menu_items.dart` functions, and 05-A, 05-C and
+  05-K keep private render-site builders for reasons in their matrix rows.
+  The `*_menu_items.dart` extraction is the template to follow. **05-C is a
+  user-ratified deviation from the catalog now, not a drift**: `Prune this
+  ref` is deleted and `Delete on remote…` is `Delete remote branch…`, both
+  recorded in the catalog file's own doc comment. **05-C applies to a
+  remote-only row only** — a *local* branch whose upstream is gone is 05-B, a
+  reading the code got backwards for rounds (it dispatched on `_gone`), which
+  left a branch that still exists on disk with no Checkout, Merge or Delete.
+  The catalog itself can drift from the spec, which the per-render-site audit
+  method cannot detect (**#71**).
 - **Absent for lack of a capi entry point**: per-object transfer counts for
   fetch/pull/push, `git init` / clone, removing a *scanned* repository from
   the switcher, squashing N commits, per-remote Pull/Push, and seven
@@ -1597,10 +1666,13 @@ derived from the code — they outrank convenience every time):
   path reached after the app has exited — so the next failure is diagnosable
   rather than a vanished window (ledger: 更新流程的三個缺陷).
 - **Open issues**: **#62** (TabRow overflow menu), **#68**–**#71**,
-  **#74**, **#76**, **#84**–**#89** (Tier 6 spec blockers), **#92**–**#95**
+  **#76**, **#84**–**#89** (Tier 6 spec blockers), **#92**–**#95**
   (capi with no spec entry point), **#99**, **#101**, **#102**, **#109**,
   **#119** (side-by-side pins neither gutter — awaiting a real-hardware
   check by the user).
+  **#74 is closed** (fix/branch-prune-and-gone-marking — and its text was
+  corrected first: the same function had two further defects the issue never
+  mentioned, per the correct-the-record rule);
   **#75 is closed** (all four 260820 `REVISIONS` shortcut gaps landed in
   feat/p03-working-copy-redesign); **#67 is closed** (macOS `CFBundleName` is
   the literal `git-branch-manager`, candidate fix 1, in

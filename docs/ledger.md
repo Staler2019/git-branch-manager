@@ -5646,6 +5646,29 @@ Prune 會對已不存在的 ref 跑 `git branch -d -r` → exit 1 → dialog 報
 所以 `automatic` 的失敗不寫進 `lastError`，但仍然照常進 operation log——不通知，不
 等於不記錄。
 
+### 第三個計畫外的發現：另一條刪除遠端分支的路徑
+
+C6 把 05-C 的項目改名成 `Delete remote branch…` 之後，它的能見度提高了，而它走的
+是另一個 dialog——本輪從沒檢查過。兩件事：
+
+`openDeleteRemoteBranchDialog()` 的 remote 名來自 `remoteBranchParts(fullName)`，
+branch 名卻來自 `remoteRef.shortName`。**今天不會出錯**，只因為
+`mergeLocalAndRemoteBranches` 會把每一列重建成去掉前綴的形式；core 自己的
+shortName 是**保留**前綴的（`RefStore.cpp` 的 `substr(13)` 從 `refs/remotes/`
+起算）。拿未經合併的 ref 呼叫它就會靜默送出
+`git push origin --delete origin/feat/x`。
+
+**這裡的測試盲點值得單獨記一筆**：經由側邊欄的每一個 ref 都已經正規化過，所以
+**沒有任何 fixture 能讓那兩處推導不一致**——mutation 一定回綠。唯一能釘住它的
+方式是繞過側邊欄、直接用 core 形狀的 ref 呼叫那個函式，並且 fixture 要用**巢狀
+名**（`origin/feat/x` vs `feat/x`）才分得出「去掉 remote」與「取最後一段」。
+這條寫在測試自己的註解裡。
+
+第二件：遠端已刪的 remote-only 列仍會畫出來（自動 prune 進行中，或失敗了），而它
+的 `Delete remote branch…` 送出的是必然被拒絕的 push。與 C8b 修掉的核取方塊同一種
+缺陷：在只會失敗的狀態下仍提供動作。改成停用並附原因，不隱藏。這一項超出原計畫，
+單獨一個 commit 以便需要時只回退它。
+
 ### 一個本輪造成、但不由本輪決定的矛盾
 
 Preferences → Git 有一列 **「Prune while fetching — Also drop remote-tracking
@@ -5664,5 +5687,20 @@ refs whose branch is gone on the remote」**。`autoFetchPrune` 被儲存、被�
 
 - **超過一個 remote 的同名推斷**：見上面，明說的減量。
 - **`buildBranchTree` 的重複 key assert**：見上面，刻意不加。
-- **實機驗收**：使用者手上就有這個 repo 的真實狀態（三條無 upstream 的本機分支、
-  兩條遠端已刪的 ref），交給使用者看。
+- **實機驗收**：使用者手上就有這個 repo 的真實狀態，交給使用者看。
+  `git remote prune origin --dry-run` 當場確認了預期：`origin/fix/focus-refresh-repo-state`
+  與 `origin/fix/graph-lane-color-window` 兩條遠端已刪，且都沒有本機分支認領，
+  所以按 fetch 之後這兩列應該自動消失。刪除遠端分支與批次刪除本機分支會動到使用者
+  真實的 repo，不由實作者代跑。
+
+### 驗證
+
+`flutter analyze` 零 issue、`flutter test` 2352 綠 1 skip、`dart format
+--set-exit-if-changed .` 乾淨、`ctest` 603/603（2 個既有的 LFS skip）、
+clang-format **v18**（CI 的 pin，本機是 v22，所以另外裝了 18.1.8 來比對）掃過整個
+`src/` 沒有一個檔要改。**十二個 commit 各自單獨 `flutter analyze` 都是零 issue**，
+在獨立 worktree 上逐一 checkout 驗證。
+
+裝置層 11 個檔一個一個跑，**全綠**。其中 `stage_lines_flow_test` 7/7、1 分 47 秒
+——soft-warp 那輪把它記成「掛住，但重跑之後 7/7，所以誠實的說法是『無法重現』」，
+這一輪的結果與那個判斷一致，那條懸而未決的記錄可以再多一筆佐證。

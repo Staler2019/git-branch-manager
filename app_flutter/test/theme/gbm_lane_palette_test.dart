@@ -10,6 +10,13 @@
 // so `% length` folded colour 6 onto 0 -- the trunk's own colour -- and 7..11
 // onto 1..5, with no error anywhere and a badge-free symptom (branches that
 // merely looked alike).
+//
+// Twelve itself is a **user-ratified deviation**: the spec names six
+// (`--graph-lane-1` .. `--graph-lane-6`), and the user asked for two adjacent
+// branches to sit as far apart on the wheel as possible -- which six 60-degree
+// steps cannot give the core much room to do. Do not "fix" the count back to
+// six on the spec's authority; that reinstates the fold above (ledger:
+// feat/graph-dot-and-lane-colors).
 import 'dart:io';
 import 'dart:math' as math;
 

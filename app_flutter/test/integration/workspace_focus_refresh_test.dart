@@ -127,4 +127,59 @@ void main() {
     expect(_count(pumped.controller.commandLog, 'refreshHistory'), 2);
     expect(_count(pumped.controller.commandLog, 'refreshWorkingCopy'), 2);
   });
+
+  // RepoState is the half of `conflictActive` that refreshWorkingCopy() does
+  // NOT cover, and until this test it was never re-read on focus at all:
+  // _readRepoState() had exactly two callers, session open and the
+  // operationFinished event. So a rebase started -- or aborted -- from a
+  // terminal left the status bar, the conflict banner and the twelve
+  // isActionEnabled() gates showing the state from whenever the app last ran
+  // an operation itself.
+  //
+  // It is cheap enough to belong here: Session::repoState() is
+  // `RepoState::read(paths_)`, which only stats a handful of .git/ paths and
+  // spawns no subprocess.
+  testWidgets('regaining window focus re-reads repo state', (
+    WidgetTester tester,
+  ) async {
+    final PumpedWorkspace pumped = await pumpWorkspace(
+      tester,
+      identity: identity,
+    );
+    await tester.pumpAndSettle();
+    pumped.controller.commandLog.clear();
+
+    await _leaveAndReturn(tester);
+
+    expect(
+      _count(pumped.controller.commandLog, 'refreshRepoState'),
+      1,
+      reason:
+          'a rebase begun or aborted from a terminal moves .git/ without '
+          'emitting any GBM event, so repoState is stale until re-read',
+    );
+  });
+
+  testWidgets('the repo-state read is throttled with the rest', (
+    WidgetTester tester,
+  ) async {
+    final PumpedWorkspace pumped = await pumpWorkspace(
+      tester,
+      identity: identity,
+    );
+    await tester.pumpAndSettle();
+    pumped.controller.commandLog.clear();
+
+    await _leaveAndReturn(tester);
+    await _leaveAndReturn(tester);
+    await _leaveAndReturn(tester);
+
+    expect(
+      _count(pumped.controller.commandLog, 'refreshRepoState'),
+      1,
+      reason:
+          'the new read goes through the same throttle as the two that were '
+          'already there -- not around it',
+    );
+  });
 }

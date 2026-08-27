@@ -1716,6 +1716,62 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
         : GitError.fromJson(jsonDecode(json) as Map<String, dynamic>);
   }
 
+  /// Everything about this repository that can move behind the app's back,
+  /// re-read in one call. The single source of truth for "refresh the git
+  /// status": both the focus-regain sweep and View -> Refresh call this, so
+  /// neither maintains its own list of what that means.
+  ///
+  /// Membership is a rule, not a hand-picked list: **every zero-argument
+  /// `refresh*` on this controller**. That makes "does the new one belong
+  /// here" a question with an answer rather than something rediscovered by
+  /// the next audit. The `request*` methods are all excluded because they
+  /// are keyed to a user selection (a path, an oid, a ref, a stash index)
+  /// that need not exist when the window comes back; the three with no
+  /// required argument are excluded for their own reasons --
+  /// [requestReflog] is fetched per tab by the panel itself,
+  /// [requestCleanPreview] walks the entire work tree to feed one dialog,
+  /// and [requestOriginalOperationMessage] only means anything mid-conflict.
+  ///
+  /// **Every one of these is a local read.** The one refresh-shaped call
+  /// that reaches the network -- [requestRemotePrunePreview], which backs
+  /// gone-marking -- is deliberately not here.
+  ///
+  /// No git-level judgement is made here either, such as "does this
+  /// repository have submodules". Any such predicate is a guess at what git
+  /// would have answered, and a guess in Dart is the same mistake as a guess
+  /// in core. `git submodule status` costs ~79ms even with zero submodules
+  /// (git-submodule is a POSIX shell script, so it is fork + shell startup,
+  /// not repository size) -- but it runs on the shared read pool with
+  /// nothing on screen waiting for it, so it runs unconditionally like the
+  /// rest. Measurements are in docs/ledger.md.
+  void refreshRepoStatus() {
+    // The synchronous one goes first: it publishes through copyWith rather
+    // than waiting on an event, so the conflict badge corrects on this very
+    // frame instead of after a git subprocess returns.
+    refreshRepoState();
+    refreshHistory();
+    refreshWorkingCopy();
+  }
+
+  /// Re-reads which multi-step git operation, if any, is part-way through.
+  ///
+  /// **Synchronous, unlike almost every other `refresh*` here**: the others
+  /// post to a background pool and fill [state] in later from a GBM event,
+  /// while gbm_repo_state_json() populates the staging buffer on this thread
+  /// and this method publishes immediately. It can afford to be: the C++
+  /// side is `RepoState::read(paths_)`, which stats a handful of paths
+  /// inside .git/ and spawns no subprocess, and it recomputes on every call
+  /// rather than caching.
+  ///
+  /// Worth having as a public entry point because [RepoSessionState.repoState]
+  /// is the half of [RepoSessionState.conflictActive] that
+  /// [refreshWorkingCopy] does not cover -- a rebase begun, continued or
+  /// aborted from a terminal changes .git/ and emits no GBM event at all.
+  void refreshRepoState() {
+    if (_session == nullptr) return;
+    _readRepoState();
+  }
+
   /// Requests a refs + history refresh -- see gbm_history_refresh()'s doc
   /// comment in gbm_capi.h. Async: [state] updates as GBM_EVENT_* events
   /// arrive through [_onEvent].
@@ -3555,6 +3611,17 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     _autoPrunePreviewsInFlight.clear();
     super.dispose();
   }
+}
+
+/// Re-reads every local git fact this app tracks for [identity].
+///
+/// The one entry point for "refresh the git status" -- see
+/// [RepoSessionController.refreshRepoStatus] for what that covers and why
+/// membership is a rule rather than a list. Both the focus-regain sweep in
+/// WorkspaceScreen and View -> Refresh route through here, so the two cannot
+/// drift into refreshing different things.
+void refreshRepoStatus(WidgetRef ref, RepoIdentity identity) {
+  ref.read(repoSessionProvider(identity).notifier).refreshRepoStatus();
 }
 
 final StateNotifierProviderFamily<

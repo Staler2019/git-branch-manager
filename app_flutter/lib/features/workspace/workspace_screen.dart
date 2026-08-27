@@ -166,9 +166,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     if (_focusRefreshCooldown?.isActive ?? false) return;
     _focusRefreshCooldown = Timer(kFocusRefreshThrottle, () {});
 
-    final RepoIdentity identity = widget.identity;
-    refreshRepoHistory(ref, identity);
-    wc.refreshWorkingCopy(ref, identity);
+    refreshRepoStatus(ref, widget.identity);
   }
 
   @override

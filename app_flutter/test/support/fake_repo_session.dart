@@ -359,6 +359,16 @@ class FakeRepoSessionController extends RepoSessionController {
     commandLog.add(const FakeCommand('refreshWorkingCopy'));
   }
 
+  /// Same reasoning again, for the third leg of the focus-regain sweep.
+  /// Note this one is synchronous in the real controller (it reads the
+  /// staging buffer and publishes directly rather than awaiting an event),
+  /// but the seam is identical: unoverridden it returns at the null-session
+  /// guard and records nothing.
+  @override
+  void refreshRepoState() {
+    commandLog.add(const FakeCommand('refreshRepoState'));
+  }
+
   @override
   void fetchRemote({
     String remoteName = '',

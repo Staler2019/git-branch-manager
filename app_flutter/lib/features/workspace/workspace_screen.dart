@@ -166,9 +166,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     if (_focusRefreshCooldown?.isActive ?? false) return;
     _focusRefreshCooldown = Timer(kFocusRefreshThrottle, () {});
 
-    final RepoIdentity identity = widget.identity;
-    refreshRepoHistory(ref, identity);
-    wc.refreshWorkingCopy(ref, identity);
+    refreshRepoStatus(ref, widget.identity);
   }
 
   @override
@@ -848,7 +846,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       // keyboard F5, the in-window View menu, and the macOS system menu --
       // reach it; see this method's doc comment for the bug that rule exists
       // to prevent.
-      GbmActionId.viewRefresh: () => refreshRepoHistory(ref, identity),
+      GbmActionId.viewRefresh: () => refreshRepoStatus(ref, identity),
       // Null until a text selection makes a one-shot scope, which is what
       // "the selected lines" means since every scope card grew its own
       // button (a shortcut cannot say which card it meant). The diff column

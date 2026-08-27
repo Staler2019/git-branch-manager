@@ -127,4 +127,131 @@ void main() {
     expect(_count(pumped.controller.commandLog, 'refreshHistory'), 2);
     expect(_count(pumped.controller.commandLog, 'refreshWorkingCopy'), 2);
   });
+
+  // RepoState is the half of `conflictActive` that refreshWorkingCopy() does
+  // NOT cover, and until this test it was never re-read on focus at all:
+  // _readRepoState() had exactly two callers, session open and the
+  // operationFinished event. So a rebase started -- or aborted -- from a
+  // terminal left the status bar, the conflict banner and the twelve
+  // isActionEnabled() gates showing the state from whenever the app last ran
+  // an operation itself.
+  //
+  // It is cheap enough to belong here: Session::repoState() is
+  // `RepoState::read(paths_)`, which only stats a handful of .git/ paths and
+  // spawns no subprocess.
+  testWidgets('regaining window focus re-reads repo state', (
+    WidgetTester tester,
+  ) async {
+    final PumpedWorkspace pumped = await pumpWorkspace(
+      tester,
+      identity: identity,
+    );
+    await tester.pumpAndSettle();
+    pumped.controller.commandLog.clear();
+
+    await _leaveAndReturn(tester);
+
+    expect(
+      _count(pumped.controller.commandLog, 'refreshRepoState'),
+      1,
+      reason:
+          'a rebase begun or aborted from a terminal moves .git/ without '
+          'emitting any GBM event, so repoState is stale until re-read',
+    );
+  });
+
+  testWidgets('the repo-state read is throttled with the rest', (
+    WidgetTester tester,
+  ) async {
+    final PumpedWorkspace pumped = await pumpWorkspace(
+      tester,
+      identity: identity,
+    );
+    await tester.pumpAndSettle();
+    pumped.controller.commandLog.clear();
+
+    await _leaveAndReturn(tester);
+    await _leaveAndReturn(tester);
+    await _leaveAndReturn(tester);
+
+    expect(
+      _count(pumped.controller.commandLog, 'refreshRepoState'),
+      1,
+      reason:
+          'the new read goes through the same throttle as the two that were '
+          'already there -- not around it',
+    );
+  });
+
+  // The sweep's membership rule is "every zero-argument refresh* on the
+  // controller", and this is what holds it to that: a new refresh* added
+  // later without being wired in shows up here as a missing name rather
+  // than as a surface someone notices is stale months on.
+  //
+  // Counted rather than `any`, for the same reason the tests above are:
+  // `any` cannot see a double dispatch, and twelve refreshes fired twice
+  // per alt-tab is exactly the regression this file exists to catch.
+  testWidgets('regaining focus re-reads every local git fact exactly once', (
+    WidgetTester tester,
+  ) async {
+    final PumpedWorkspace pumped = await pumpWorkspace(
+      tester,
+      identity: identity,
+    );
+    await tester.pumpAndSettle();
+    pumped.controller.commandLog.clear();
+
+    await _leaveAndReturn(tester);
+
+    for (final String name in const <String>[
+      'refreshRepoState',
+      'refreshHasCommitGraph',
+      'refreshHistory',
+      'refreshWorkingCopy',
+      'refreshStashes',
+      'refreshWorktrees',
+      'refreshRemotes',
+      'refreshSubmodules',
+      'refreshBisectStatus',
+      'refreshLfs',
+      'refreshLocalIdentity',
+      'refreshEffectiveIdentity',
+    ]) {
+      expect(
+        _count(pumped.controller.commandLog, name),
+        1,
+        reason: '$name must fire exactly once per focus regain',
+      );
+    }
+  });
+
+  // The sweep is local-only by decree, not by accident: the user ruled that
+  // regaining focus must never reach the network. Gone-marking is the one
+  // refresh-shaped call that would (`git remote prune --dry-run`), so its
+  // absence is asserted rather than left to a doc comment nobody re-reads.
+  testWidgets('the focus sweep never reaches the network', (
+    WidgetTester tester,
+  ) async {
+    final PumpedWorkspace pumped = await pumpWorkspace(
+      tester,
+      identity: identity,
+    );
+    await tester.pumpAndSettle();
+    pumped.controller.commandLog.clear();
+
+    await _leaveAndReturn(tester);
+
+    expect(
+      _count(pumped.controller.commandLog, 'requestRemotePrunePreview'),
+      0,
+      reason:
+          'gone-marking contacts the remote, so it is deliberately not part '
+          'of the focus sweep',
+    );
+    expect(
+      _count(pumped.controller.commandLog, 'fetchRemote'),
+      0,
+      reason: 'and nothing else in the sweep fetches either',
+    );
+  });
 }

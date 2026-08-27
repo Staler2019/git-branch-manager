@@ -204,7 +204,7 @@ five elements went, so a future round does not re-add them:
 | Back-to-welcome | `File → Close window` — its handler was already `go(welcome)` |
 | Theme switch | `View → Theme` |
 | In-progress spinner | Status bar's background-task zone |
-| `Refresh` | **`View → Refresh` + bare F5**, a deliberate deviation (P04's `MENUS` has no such item) — `refreshRepoHistory()` had exactly one caller in all of `lib/` and it was `TopBar` |
+| `Refresh` | **`View → Refresh` + bare F5**, a deliberate deviation (P04's `MENUS` has no such item). It now dispatches `refreshRepoStatus()`, not just the history — see "Refs, git and the core's own vocabulary" below. The `refreshRepoHistory()` free function this once named is deleted; it had no caller left |
 
 Repo state (`RepoState::describe()`) is also on the status bar now — it was
 *not* there before, despite a note claiming so: `describe()` is non-empty for
@@ -1120,13 +1120,42 @@ you are touching, not by when it was learned.
   N-element allocation per scroll tick. Do not assume the result is mutable
   or materialised. `_buildList` likewise hands back `graph.oidsHex` itself
   rather than copying it when nothing is filtered.
-- **The window now refreshes on focus regain** — `WorkspaceScreen`'s
-  `AppLifecycleListener.onResume` calls `refreshRepoHistory()` +
-  `refreshWorkingCopy()`, throttled by `kFocusRefreshThrottle` (2s). The
-  throttle clock is a `Timer`, not `DateTime.now()`, because only the former
-  is advanced by `tester.pump()`. **Not verified on real hardware**: the
-  tests drive `handleAppLifecycleStateChanged` directly, which proves the
-  wiring but not that macOS emits inactive/resumed on window focus changes.
+- **`RepoSessionController.refreshRepoStatus()` is the one entry point for
+  "re-read the git status", and its membership is a rule, not a list: every
+  zero-argument `refresh*` on the controller** (twelve of them). Both
+  `WorkspaceScreen`'s `AppLifecycleListener.onResume` and
+  `GbmActionId.viewRefresh` (F5 / `View → Refresh`) call it, so the two
+  cannot drift into refreshing different things — F5 used to re-read only
+  the history, leaving the Working Copy badge and diff stale on the one path
+  where the user explicitly *asked* for fresh state. The `request*` methods
+  are all excluded because they are keyed to a user selection that need not
+  exist when the window comes back. Focus regain is throttled by
+  `kFocusRefreshThrottle` (2s); F5 deliberately is not. The throttle clock is
+  a `Timer`, not `DateTime.now()`, because only the former is advanced by
+  `tester.pump()`. **Not verified on real hardware**: the tests drive
+  `handleAppLifecycleStateChanged` directly, which proves the wiring but not
+  that macOS emits inactive/resumed on window focus changes.
+  **`repoState` is the half of `conflictActive` that `refreshWorkingCopy()`
+  does not cover** — `_readRepoState()` had only two callers, session open
+  and `operationFinished`, so a rebase begun *or aborted* from a terminal
+  left the status bar, the banner and the twelve `isActionEnabled()` gates
+  frozen until the app itself ran an operation. `refreshRepoState()` is the
+  one synchronous member (`RepoState::read()` only stats a handful of `.git/`
+  paths), which is why the conflict badge corrects on the same frame.
+- **Never gate a refresh on a predicate that guesses what git would answer.**
+  `git submodule status` costs **79ms even with zero submodules**
+  (`git-submodule` is a POSIX shell script, so it is fork + shell startup,
+  not repository size) — 66% of everything `refreshRepoStatus()` added. Both
+  candidate short-circuits, «`.gitmodules` exists» and «the index holds a
+  gitlink», were rejected: each only approximates what the command would have
+  said, and a guess in core is the same mistake as a guess in Dart.
+  **`Session::refreshLfs()`'s short-circuit is not a counter-example** — its
+  condition is that `git-lfs` is not on PATH, which is not approximating an
+  answer, it is knowing the command cannot run. The cost was then measured to
+  be one nobody waits on (background pool, ≤ once per 2s, nothing on screen
+  blocked), so nothing is gated at all. Reading «this number is large» as
+  «this needs fixing» without first asking *who is waiting on it* is the
+  error being recorded here (ledger: fix/focus-refresh-repo-state).
 - **`RefInfo.upstream` is the full ref name** (`refs/remotes/origin/x`), from
   `%(upstream)` not `%(upstream:short)`. Splitting on the first slash yields
   `"refs"` — use `remoteBranchParts()`. `delete_branch_dialog.dart`'s

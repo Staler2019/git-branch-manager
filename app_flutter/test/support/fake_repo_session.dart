@@ -359,6 +359,68 @@ class FakeRepoSessionController extends RepoSessionController {
     commandLog.add(const FakeCommand('refreshWorkingCopy'));
   }
 
+  /// Same reasoning again, for the third leg of the focus-regain sweep.
+  /// Note this one is synchronous in the real controller (it reads the
+  /// staging buffer and publishes directly rather than awaiting an event),
+  /// but the seam is identical: unoverridden it returns at the null-session
+  /// guard and records nothing.
+  @override
+  void refreshRepoState() {
+    commandLog.add(const FakeCommand('refreshRepoState'));
+  }
+
+  // The rest of refreshRepoStatus()'s membership. Every one is recorded for
+  // the same reason as the three above: unoverridden they return at the
+  // null-session guard, so a test asserting "the focus sweep re-read this"
+  // would pass against a sweep that never called it. refreshRepoStatus()
+  // itself is deliberately NOT overridden -- inheriting the real one is what
+  // makes commandLog reflect the real composition rather than a list
+  // restated here.
+  @override
+  void refreshHasCommitGraph() {
+    commandLog.add(const FakeCommand('refreshHasCommitGraph'));
+  }
+
+  @override
+  void refreshStashes() {
+    commandLog.add(const FakeCommand('refreshStashes'));
+  }
+
+  @override
+  void refreshWorktrees() {
+    commandLog.add(const FakeCommand('refreshWorktrees'));
+  }
+
+  @override
+  void refreshRemotes() {
+    commandLog.add(const FakeCommand('refreshRemotes'));
+  }
+
+  @override
+  void refreshSubmodules() {
+    commandLog.add(const FakeCommand('refreshSubmodules'));
+  }
+
+  @override
+  void refreshBisectStatus() {
+    commandLog.add(const FakeCommand('refreshBisectStatus'));
+  }
+
+  @override
+  void refreshLfs() {
+    commandLog.add(const FakeCommand('refreshLfs'));
+  }
+
+  @override
+  void refreshLocalIdentity() {
+    commandLog.add(const FakeCommand('refreshLocalIdentity'));
+  }
+
+  @override
+  void refreshEffectiveIdentity() {
+    commandLog.add(const FakeCommand('refreshEffectiveIdentity'));
+  }
+
   @override
   void fetchRemote({
     String remoteName = '',

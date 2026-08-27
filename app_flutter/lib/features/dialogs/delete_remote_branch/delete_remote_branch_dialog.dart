@@ -9,7 +9,7 @@ import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
 
-/// Context menu 05-C's "Delete on remote…".
+/// Context menu 05-C's "Delete remote branch…".
 ///
 /// Spec page 06: "複述遠端與分支名，說明其他人 fetch 後才會看到。完成後
 /// status bar 顯示結果訊息並提供 Undo（重新 push 同名分支）。主按鈕為
@@ -50,7 +50,7 @@ class DeleteRemoteBranchDialogContent extends ConsumerWidget {
         GbmButton(label: 'Cancel', onPressed: () => context.pop()),
         const SizedBox(width: GbmSpacing.space2),
         GbmButton(
-          label: 'Delete on remote',
+          label: 'Delete remote branch',
           kind: GbmButtonKind.danger,
           onPressed: !valid
               ? null

@@ -148,13 +148,14 @@ void main() {
     });
 
     test('accepts the short form the Prune dialog sends', () {
-      // The two call sites disagree on form and always have:
+      // The two call sites disagreed on form for as long as both existed:
       // prune_remote_branches_dialog.dart passes `preview.refs.map((e) =>
-      // e.ref)` -- short names -- while sidebar_panel.dart's
-      // _pruneRemoteRef/_pruneGoneUpstream pass full `refs/remotes/...`
-      // names. The map stores full names, so an un-normalised removal
-      // would silently no-op for every dialog-initiated prune, which is
-      // the common path.
+      // e.ref)` -- short names -- while the sidebar's own prune actions
+      // passed full `refs/remotes/...` names. Those two actions are deleted
+      // now (選單不再出現 prune), and the post-fetch automatic prune sends
+      // full names in their place, so the disagreement outlived them. The
+      // map stores full names, so an un-normalised removal would silently
+      // no-op for every dialog-initiated prune, which is the common path.
       final RepoSessionState state = const RepoSessionState()
           .withGonePendingFor('origin', const <RemotePrunePreviewEntry>[
             RemotePrunePreviewEntry(ref: 'origin/a'),

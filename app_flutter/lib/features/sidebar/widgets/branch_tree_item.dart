@@ -28,7 +28,6 @@ class BranchTreeItem extends StatelessWidget {
     this.onDelete,
     this.onNewBranchFromHere,
     this.onMerge,
-    this.onPruneRef,
     this.onDeleteOnRemote,
     this.onFetchRef,
     this.onPushTag,
@@ -121,16 +120,13 @@ class BranchTreeItem extends StatelessWidget {
   /// new per-branch dialog.
   final VoidCallback? onRebaseOntoHere;
 
-  /// 05-C actions -- see [_buildMenuItems]'s branches on
-  /// `ref.kind == RefKind.remoteBranch` and `ref.isGone`. [onPruneRef] is
-  /// wired for both a remote-only row and a gone row (pruning the vanished
-  /// remote-tracking ref either way); [onDeleteOnRemote] only for a
-  /// remote-only row -- a gone row's "Delete on remote…" is permanently
-  /// disabled (see [_buildGoneMenuItems]'s doc comment), so there is
-  /// nothing for a caller to wire there. [onFetchRef] is the same: wired
-  /// only for a remote-only row -- a gone row's own upstream is already
-  /// vanished, so "Fetch this branch" is permanently disabled there too.
-  final VoidCallback? onPruneRef;
+  /// 05-C actions -- see [_buildMenuItems]'s branch on
+  /// `ref.kind == RefKind.remoteBranch`. Both are wired only for a
+  /// remote-only row; a gone *local* branch now takes 05-B like any other
+  /// local branch, so neither reaches it.
+  ///
+  /// There is no `onPruneRef`. It was wired for both row shapes and is gone
+  /// along with the menu item -- see [_buildRemoteOnlyMenuItems].
   final VoidCallback? onDeleteOnRemote;
   final VoidCallback? onFetchRef;
 
@@ -378,6 +374,15 @@ class BranchTreeItem extends StatelessWidget {
   /// destination for. "Fetch this branch" is wired to [onFetchRef] --
   /// `gbm_remote_fetch()` gained an optional per-ref list, so this fetches
   /// just this one ref rather than approximating with a whole-remote fetch.
+  ///
+  /// **"Prune this ref" is deliberately gone from this menu**, and so is the
+  /// whole 「gone 的列只留 Prune 與 Copy，其餘停用」 variant that used to sit
+  /// beside it. That is a user ruling, not a spec reading: prune is an
+  /// implementation detail of git's remote-tracking refs and 對使用者來說太難
+  /// 使用，so it happens in the background (a stale ref with no local branch
+  /// is cleaned up after a fetch) with `Remote → Prune remote branches` left
+  /// as the manual fallback. Do not restore it here on 05-C's authority --
+  /// the spec row is still what it was; what changed is that it is overruled.
   List<GbmMenuItem> _buildRemoteOnlyMenuItems() {
     return <GbmMenuItem>[
       GbmMenuItem(
@@ -396,16 +401,10 @@ class BranchTreeItem extends StatelessWidget {
         icon: Icons.copy,
         onTap: () => Clipboard.setData(ClipboardData(text: ref.shortName)),
       ),
-      if (onPruneRef != null)
-        GbmMenuItem(
-          label: 'Prune this ref',
-          icon: Icons.cleaning_services_outlined,
-          onTap: onPruneRef!,
-        ),
       if (onDeleteOnRemote != null) ...<GbmMenuItem>[
         const GbmMenuItem.separator(),
         GbmMenuItem(
-          label: 'Delete on remote…',
+          label: 'Delete remote branch…',
           icon: Icons.delete_outline,
           danger: true,
           onTap: onDeleteOnRemote!,
@@ -414,62 +413,16 @@ class BranchTreeItem extends StatelessWidget {
     ];
   }
 
-  /// 05-C, scoped to a "gone" row (a local branch whose upstream vanished).
-  /// The design doc's own target note for 05-C is explicit: "gone 的列只留
-  /// Prune 與 Copy，其餘停用" (a gone row keeps only Prune and Copy enabled;
-  /// the rest disabled). "Checkout as new local…" doesn't apply -- the
-  /// branch already exists locally -- and "Delete on remote…" doesn't
-  /// either -- the remote copy is already gone, that's what "gone" means.
-  /// Both stay visible but permanently disabled (`onTap: null`) rather than
-  /// omitted, matching the spec's own wording of "停用" (disabled) over
-  /// removal. "Prune this ref" is the row's real remove action -- it clears
-  /// the vanished remote-tracking ref itself (`git branch --delete
-  /// --remotes`), leaving the local branch untouched, per BRANCH_STATES's
-  /// note: "真正移除 remote-tracking ref 要執行 Prune". "Fetch this branch"
-  /// gets the same permanent-disabled treatment as "Checkout as new
-  /// local…" and "Delete on remote…" -- a gone row's own upstream is what
-  /// vanished, so there is nothing left to fetch until a Prune (or a fresh
-  /// push) clears or restores it, matching the spec's own "其餘停用".
-  List<GbmMenuItem> _buildGoneMenuItems() {
-    return <GbmMenuItem>[
-      const GbmMenuItem(
-        label: 'Checkout as new local…',
-        icon: Icons.call_split,
-        enabled: false,
-        onTap: null,
-      ),
-      const GbmMenuItem(
-        label: 'Fetch this branch',
-        icon: Icons.cloud_download_outlined,
-        enabled: false,
-        onTap: null,
-      ),
-      GbmMenuItem(
-        label: 'Copy branch name',
-        icon: Icons.copy,
-        onTap: () => Clipboard.setData(ClipboardData(text: ref.shortName)),
-      ),
-      if (onPruneRef != null)
-        GbmMenuItem(
-          label: 'Prune this ref',
-          icon: Icons.cleaning_services_outlined,
-          onTap: onPruneRef!,
-        ),
-      const GbmMenuItem.separator(),
-      const GbmMenuItem(
-        label: 'Delete on remote…',
-        icon: Icons.delete_outline,
-        danger: true,
-        enabled: false,
-        onTap: null,
-      ),
-    ];
-  }
-
-  /// Dispatches to whichever of the four page-05 groups this row is: 05-D
-  /// for a tag, 05-C for a remote-only row, 05-C's disabled subset for a
-  /// "gone" row, and 05-B for an ordinary local branch (the fall-through,
-  /// built by [localBranchMenuItems]).
+  /// Dispatches to whichever of the three page-05 groups this row is: 05-D
+  /// for a tag, 05-C for a remote-only row, and 05-B for **every** local
+  /// branch (the fall-through, built by [localBranchMenuItems]).
+  ///
+  /// A gone row used to take a fourth branch here -- 05-C's disabled subset.
+  /// It no longer does, and that is the user's own ruling: 「the local have
+  /// branch should have 05-b not 05-c」. A branch whose upstream vanished is
+  /// still a local branch that can be checked out, merged, renamed, compared
+  /// and **deleted**; giving it the remote row's menu left the user looking
+  /// at a branch they could see but not act on.
   List<GbmMenuItem> _buildMenuItems() {
     if (_isTag) {
       return tagMenuItems(
@@ -485,9 +438,6 @@ class BranchTreeItem extends StatelessWidget {
     }
     if (_isRemoteOnly) {
       return _buildRemoteOnlyMenuItems();
-    }
-    if (_gone) {
-      return _buildGoneMenuItems();
     }
     return localBranchMenuItems(
       branchName: ref.shortName,

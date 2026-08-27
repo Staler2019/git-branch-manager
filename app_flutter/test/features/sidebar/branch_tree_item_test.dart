@@ -289,27 +289,23 @@ void main() {
       expect(tester.widget<LucideIcon>(find.byType(LucideIcon)).name, 'cloud');
     });
 
-    testWidgets(
-      'the "more" button shows when onPruneRef/onDeleteOnRemote are set, '
-      'even though onRename/onDelete are null',
-      (tester) async {
-        await tester.pumpWidget(
-          MaterialApp(
-            theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
-            home: Scaffold(
-              body: BranchTreeItem(
-                ref: _remoteOnlyRef(),
-                onCheckout: () {},
-                onPruneRef: () {},
-                onDeleteOnRemote: () {},
-              ),
+    testWidgets('the "more" button shows when onDeleteOnRemote is set, '
+        'even though onRename/onDelete are null', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: Scaffold(
+            body: BranchTreeItem(
+              ref: _remoteOnlyRef(),
+              onCheckout: () {},
+              onDeleteOnRemote: () {},
             ),
           ),
-        );
+        ),
+      );
 
-        expect(find.byTooltip('Branch actions'), findsOneWidget);
-      },
-    );
+      expect(find.byTooltip('Branch actions'), findsOneWidget);
+    });
   });
 
   group('gone rows use the cloud-off icon (BRANCH_STATES table)', () {

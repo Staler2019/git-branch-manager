@@ -658,27 +658,13 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
               : () => actions.renameBranch(context, node.ref),
           onDelete: isRemoteOnly || node.ref.isHead
               ? null
-              : () => actions.deleteSingle(node.ref),
+              : () => actions.deleteSingle(context, node.ref),
           onNewBranchFromHere: isRemoteOnly
               ? null
               : () => actions.createBranchFrom(context, node.ref),
           onMerge: isRemoteOnly || node.ref.isHead
               ? null
               : () => actions.openMergeDialog(context),
-          onPruneRef: isRemoteOnly
-              ? () => actions.pruneRemoteRef(node.ref)
-              // Effective gone, not `isGone`: a row marked from the dry-run
-              // preview is exactly the row whose upstream Prune should
-              // remove, and it is the only way that menu item is reachable
-              // before a real prune has happened.
-              : isEffectivelyGone(
-                      node.ref,
-                      session.gonePendingRefs,
-                      remoteCounterpart: _remoteIndex.counterpartOf(node.ref),
-                    ) &&
-                    node.ref.upstream.isNotEmpty
-              ? () => actions.pruneGoneUpstream(node.ref)
-              : null,
           onDeleteOnRemote: isRemoteOnly
               ? () => actions.openDeleteRemoteBranchDialog(context, node.ref)
               : null,

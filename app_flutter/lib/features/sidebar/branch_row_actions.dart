@@ -62,8 +62,16 @@ class BranchRowActions {
     );
   }
 
-  void deleteSingle(RefInfo branch) =>
-      _session.deleteBranch(names: <String>[branch.shortName]);
+  /// 05-B "Delete branch…" -- opens the confirmation, it does not delete.
+  ///
+  /// The ellipsis in the label is the contract, and this used to break it by
+  /// dispatching `deleteBranch` straight from the menu. It also skipped the
+  /// only place the user can ask for the remote copy to go with it (spec page
+  /// 18's 「可勾選一併刪遠端」, default unchecked), which after this round is
+  /// the sole way a branch's remote side is deleted from the sidebar.
+  void deleteSingle(BuildContext context, RefInfo branch) => context.push(
+    RoutePaths.deleteBranchDialogFor(_repoId, branch: branch.shortName),
+  );
 
   /// Spec page 13 requires a batch delete to be confirmed item by item
   /// (「逐項列出名稱與未 push 的 commit 數」), not fired straight off the
@@ -101,25 +109,6 @@ class BranchRowActions {
     createBranch: true,
     newBranchName: remoteRef.shortName,
   );
-
-  /// 05-C "Prune this ref" -- removes just this one remote-tracking ref
-  /// locally (`git branch --delete --remotes`), independent of whether the
-  /// branch is still live on the actual remote.
-  void pruneRemoteRef(RefInfo remoteRef) {
-    final (String remoteName, String _) = remoteBranchParts(remoteRef.fullName);
-    _session.pruneRemote(remoteName, <String>[remoteRef.fullName]);
-  }
-
-  /// 05-C "Prune this ref" for a *gone* row -- [goneRef] is the local
-  /// branch itself (`refs/heads/...`), so the ref to prune is its vanished
-  /// upstream (`goneRef.upstream`, e.g. `refs/remotes/origin/feature`), not
-  /// [goneRef.fullName]. This clears the stale remote-tracking ref and
-  /// leaves the local branch untouched -- see BRANCH_STATES's note: "真正
-  /// 移除 remote-tracking ref 要執行 Prune".
-  void pruneGoneUpstream(RefInfo goneRef) {
-    final (String remoteName, String _) = remoteBranchParts(goneRef.upstream);
-    _session.pruneRemote(remoteName, <String>[goneRef.upstream]);
-  }
 
   /// 05-C "Fetch this branch" -- a remote-only row's own ref is already an
   /// unambiguous single remote + branch (unlike 05-J's folder-wide fetch,

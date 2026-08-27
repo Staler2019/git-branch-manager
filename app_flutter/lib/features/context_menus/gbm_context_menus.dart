@@ -20,12 +20,14 @@ enum GbmContextMenuTarget {
   repository, // 05-A
   /// Right-click a local branch row in the sidebar.
   localBranch, // 05-B
-  /// Right-click a remote-only or "gone" branch row in the sidebar. Wired via
-  /// `branch_tree_item.dart`'s `_buildMenuItems()`, which distinguishes the
-  /// two cases itself: a remote-only row gets its own 05-C subset, and a
-  /// "gone" row goes through `_buildGoneMenuItems()`, which per the spec
-  /// note leaves only "Prune this ref" and "Copy branch name" enabled with
-  /// the rest disabled (not omitted).
+  /// Right-click a remote-only branch row in the sidebar. Wired via
+  /// `branch_tree_item.dart`'s `_buildMenuItems()`.
+  ///
+  /// The name still says "OrGone" and the target no longer covers a gone
+  /// row: a gone *local* branch takes 05-B, by the user's ruling. The enum
+  /// value is left alone because it is the parity test's key and renaming it
+  /// would churn every call site for a comment's worth of clarity -- this is
+  /// that comment.
   remoteOnlyOrGoneBranch, // 05-C
   /// Right-click a branch folder row (e.g., feature/, bugfix/) in the sidebar.
   /// Not yet wired.
@@ -153,19 +155,37 @@ const GbmContextMenuGroupSpec _localBranch = GbmContextMenuGroupSpec(
   ],
 );
 
-/// 05-C: Remote-only / gone branch (right-click cloud/cloud-off row -- not yet wired)
-/// 5 top-level items. Spec note: for a "gone" row specifically, only
-/// "Prune this ref" and "Copy branch name" stay enabled; others disabled.
-const GbmContextMenuGroupSpec _remoteOnlyOrGoneBranch = GbmContextMenuGroupSpec(
+/// 05-C: Remote-only branch (right-click a cloud row -- EXISTS,
+/// `BranchTreeItem._buildRemoteOnlyMenuItems`)
+/// 4 top-level items.
+///
+/// **Two user-ratified deviations from the spec's own 05-C, both deliberate
+/// and neither to be "fixed" back on the spec's authority:**
+///
+/// 1. The spec lists a fifth item, "Prune this ref", and a note scoping a
+///    *gone* row to 「只留 Prune 與 Copy，其餘停用」. Prune is an
+///    implementation detail of git's remote-tracking refs and the user ruled
+///    it must never appear in a menu -- 「delete 不要讓使用者知道 prune，
+///    背景做掉」. A stale ref with no local branch is cleaned up
+///    automatically after a fetch, and `Remote → Prune remote branches`
+///    remains as the manual fallback.
+/// 2. This group no longer applies to a gone row at all. 「the local have
+///    branch should have 05-b not 05-c」: a branch whose upstream vanished is
+///    still a local branch, and it keeps the full 05-B menu.
+///
+/// "Delete on remote…" is spelled "Delete remote branch…" so the row's one
+/// destructive action says what it deletes -- with prune gone, it is the only
+/// delete on this menu and 「仍叫 delete remote branch」 was the user's word
+/// for it.
+const GbmContextMenuGroupSpec _remoteOnlyBranch = GbmContextMenuGroupSpec(
   id: '05-C',
   target: GbmContextMenuTarget.remoteOnlyOrGoneBranch,
-  title: 'Remote-only / gone branch',
+  title: 'Remote-only branch',
   items: <GbmContextMenuItemSpec>[
     GbmContextMenuItemSpec(label: 'Checkout as new local…'),
     GbmContextMenuItemSpec(label: 'Fetch this branch'),
     GbmContextMenuItemSpec(label: 'Copy branch name'),
-    GbmContextMenuItemSpec(label: 'Prune this ref'),
-    GbmContextMenuItemSpec(label: 'Delete on remote…', isDanger: true),
+    GbmContextMenuItemSpec(label: 'Delete remote branch…', isDanger: true),
   ],
 );
 
@@ -359,7 +379,7 @@ const Map<GbmContextMenuTarget, GbmContextMenuGroupSpec> gbmContextMenuGroups =
     <GbmContextMenuTarget, GbmContextMenuGroupSpec>{
       GbmContextMenuTarget.repository: _repo,
       GbmContextMenuTarget.localBranch: _localBranch,
-      GbmContextMenuTarget.remoteOnlyOrGoneBranch: _remoteOnlyOrGoneBranch,
+      GbmContextMenuTarget.remoteOnlyOrGoneBranch: _remoteOnlyBranch,
       GbmContextMenuTarget.branchFolder: _branchFolder,
       GbmContextMenuTarget.tag: _tag,
       GbmContextMenuTarget.commit: _commit,

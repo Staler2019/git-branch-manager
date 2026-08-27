@@ -342,6 +342,35 @@ void main() {
       expect(remoteOnly.fullName, 'refs/remotes/origin/worktrees');
     });
 
+    // The premise every consumer of a sidebar row rests on, pinned here
+    // rather than described in a comment somewhere else. `buildBranchTree`
+    // groups by `shortName.split('/')`, `gone_marking.dart` looks a row up
+    // by name, and `BranchRowActions` is handed these rows whole -- all of
+    // them are reading a name this function produced, and none of them can
+    // tell a correct one from an unstripped one on its own.
+    //
+    // Nested on purpose. The flat case above ('worktrees') passes under
+    // "drop the first segment" **and** under "take the last segment", so it
+    // cannot distinguish them; `origin/feat/x` can, and the single expected
+    // value below rules out both wrong forms at once -- 'origin/feat/x' (no
+    // strip) and 'x' (last segment).
+    //
+    // Honest about what this adds: 「a stripped remote-only branch groups
+    // into the same folder…」 below already reddens under both mutations,
+    // because it nests too. What was missing is a *named* statement of the
+    // contract itself -- that one asserts a folder count, from which the
+    // name is only inferred, and it is not somewhere a reader of
+    // `BranchRowActions` would ever look.
+    test('a nested remote-only branch is handed out under the branch name '
+        'alone, with the remote segment stripped and the rest intact', () {
+      final remote = remoteBranch(remote: 'origin', branch: 'feat/x');
+
+      final merged = mergeLocalAndRemoteBranches([], [remote]);
+
+      expect(merged.single.shortName, 'feat/x');
+      expect(merged.single.fullName, 'refs/remotes/origin/feat/x');
+    });
+
     test('excludes symbolic remote refs (e.g. origin/HEAD)', () {
       final remote = remoteBranch(
         remote: 'origin',

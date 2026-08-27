@@ -7,6 +7,7 @@
 // DAGs for the invariants an eye cannot check at scale.
 #include "core/graph/GraphAsciiRenderer.h"
 #include "core/graph/GraphBuilder.h"
+#include "core/graph/LaneAllocator.h"
 
 #include <algorithm>
 #include <gtest/gtest.h>
@@ -306,10 +307,305 @@ TEST(GraphBuilder, InvariantChunkInvariance) {
     }
 }
 
+/// Circular distance between two palette indices, which is also their hue
+/// distance: `graphLanes` in the Flutter layer is generated at even 30-degree
+/// OkLCH steps in index order, so `d` steps apart means `30 * d` degrees apart
+/// on the wheel. Written out here rather than reused from `LaneAllocator` so
+/// the tests below check the rule against an independent statement of it.
+int hueSteps(std::uint8_t a, std::uint8_t b) {
+    const int d = std::abs(static_cast<int>(a) - static_cast<int>(b));
+    return std::min(d, static_cast<int>(kPaletteSize) - d);
+}
+
+/// What `colorForSeed` would have returned on the hash alone. This is the
+/// colour a lane keeps whenever nothing crowds it, and the reason the change
+/// below costs almost none of the old scheme's stability.
+std::uint8_t hashColor(const ObjectId& oid) {
+    return static_cast<std::uint8_t>(1 + (oid.hash() % (kPaletteSize - 1)));
+}
+
+/// Lane -> colour for every column that is *drawn* at `row`: the row's own dot,
+/// plus every edge passing through. Mirrors `GraphAsciiRenderer`'s own rule for
+/// which rows an edge occupies (strictly between its endpoints), because that
+/// renderer is the reference for what the user sees.
+std::map<LaneId, std::uint8_t> lanesLiveAtRow(const GraphSnapshot& snapshot, RowId row) {
+    std::map<LaneId, std::uint8_t> live;
+    live[snapshot.rows[row].lane] = snapshot.rows[row].color;
+    for (const Edge& edge : snapshot.edges) {
+        if (edge.childRow < row && row < edge.parentRow && !LaneAllocator::isOverflow(edge.lane)) {
+            live.emplace(edge.lane, edge.color);
+        }
+    }
+    return live;
+}
+
+TEST(LaneAllocator, ANewLaneIsKeptAQuarterTurnFromEachNeighbour) {
+    // The user-visible complaint this answers: two branches side by side kept
+    // coming out in near-identical colours. Nothing prevented it -- the colour
+    // was `1 + hash % 11` and nothing else, so neighbours collided outright
+    // one time in eleven and merely looked alike far more often.
+    //
+    // A quarter turn is 3 of the 12 palette steps.
+    constexpr int kQuarterTurn = 3;
+
+    LaneAllocator lanes;
+    std::vector<std::uint8_t> colors;
+    for (int i = 0; i < 12; ++i) {
+        const LaneId lane = lanes.allocateLeftmost();
+        ASSERT_FALSE(LaneAllocator::isOverflow(lane));
+        ASSERT_EQ(lane, static_cast<LaneId>(i)) << "leftmost allocation should be dense";
+        lanes.seed(lane, oidFor(5000 + i));
+        colors.push_back(lanes.colorOf(lane));
+    }
+
+    for (std::size_t i = 1; i < colors.size(); ++i) {
+        EXPECT_GE(hueSteps(colors[i], colors[i - 1]), kQuarterTurn)
+            << "lane " << i << " (c" << static_cast<int>(colors[i]) << ") sits next to lane "
+            << (i - 1) << " (c" << static_cast<int>(colors[i - 1]) << ")";
+    }
+}
+
+TEST(LaneAllocator, ALaneWithOneColumnBetweenThemStillConstrainsTheChoice) {
+    // Reported against the shipped rule, with a screenshot: two branches in the
+    // same colour with exactly one lane between them.
+    //
+    // The shipped rule reached one column either side, so nothing at all stood
+    // between a lane and the column two away from it. At the shipped pitch of
+    // 11 that is 22px, close enough that an outright repeat reads as one
+    // branch doubled rather than two branches.
+    //
+    // This fixture allocates leftmost throughout, which is the ref-tip path,
+    // and on that path the right-hand half of the old rule could not fire at
+    // all: the lowest free lane has, by definition, nothing to its right. So
+    // what is exercised below is entirely the left-hand window.
+    //
+    // Two palette steps is 60 degrees, half of what a directly adjacent lane
+    // must clear.
+    constexpr int kSixthTurn = 2;
+
+    LaneAllocator lanes;
+    std::vector<std::uint8_t> colors;
+    for (int i = 0; i < 6; ++i) {
+        const LaneId lane = lanes.allocateLeftmost();
+        ASSERT_FALSE(LaneAllocator::isOverflow(lane));
+        ASSERT_EQ(lane, static_cast<LaneId>(i)) << "leftmost allocation should be dense";
+        lanes.seed(lane, oidFor(5000 + i));
+        colors.push_back(lanes.colorOf(lane));
+    }
+
+    for (std::size_t i = 2; i < colors.size(); ++i) {
+        EXPECT_GE(hueSteps(colors[i], colors[i - 2]), kSixthTurn)
+            << "lane " << i << " (c" << static_cast<int>(colors[i]) << ") has only lane "
+            << (i - 1) << " between it and lane " << (i - 2) << " (c"
+            << static_cast<int>(colors[i - 2]) << ")";
+    }
+}
+
+TEST(LaneAllocator, AnUncrowdedLaneStillTakesTheColourItsSeedOidAsksFor) {
+    // The other half of the rule, and the one that protects what oid-keyed
+    // colour was for: the hash still decides outright unless a neighbour is
+    // actually in the way. Were the allocator to spread unconditionally, every
+    // lane's colour would depend on the whole live set and a branch would
+    // change colour whenever an unrelated one opened or closed.
+    LaneAllocator lanes;
+    const ObjectId seed = oidFor(4242);
+
+    // Nothing has been allocated, so every lane in the five-wide window either
+    // side of 5 is free and none of them constrains anything: `seed` is
+    // deliberately callable without allocating, which is what lets this state
+    // be built at all. Widening `kNeighborWindow` does not weaken this fixture
+    // -- an empty allocator has no live lane at any distance.
+    lanes.seed(5, seed);
+
+    EXPECT_EQ(lanes.colorOf(5), hashColor(seed));
+}
+
+TEST(LaneAllocator, ACloseLaneOutranksAnyNumberOfDistantOnes) {
+    // The window is graded -- a quarter turn from the column beside you, 60
+    // degrees from the one after that, merely a different colour further out --
+    // and grading only means anything if the tiers cannot be traded against
+    // each other. `penaltyWeight` is what forbids the trade, and nothing else
+    // in this file could see it: every other fixture here has a candidate that
+    // satisfies everything, and where one exists the weights never come up.
+    //
+    // So this builds a neighbourhood with no clear answer at all. Lane 5's
+    // immediate left neighbour is c4, and the six lanes three to five columns
+    // out hold exactly the six colours that clear c4 by a quarter turn --
+    // c1, c7, c8, c9, c10, c11 -- so every candidate is crowded by something.
+    // The choice is then between crowding the lane 11px away and repeating a
+    // colour drawn 33px or more away, and it must always be the latter.
+    LaneAllocator::SideColors left{};
+    LaneAllocator::SideColors right{};
+    left.fill(LaneAllocator::kNoNeighbor);
+    right.fill(LaneAllocator::kNoNeighbor);
+    left[0] = 4;                             // one column away
+    left[1] = LaneAllocator::kNoNeighbor;    // two columns away: nothing
+    left[2] = 1;                             // three, four, five columns away
+    left[3] = 7;
+    left[4] = 8;
+    right[2] = 9;
+    right[3] = 10;
+    right[4] = 11;
+
+    // A seed whose hash asks for c4 outright, so the probe starts on the most
+    // crowded candidate there is and has to walk away from it.
+    ObjectId seed;
+    bool found = false;
+    for (int i = 0; i < 500 && !found; ++i) {
+        const ObjectId candidate = oidFor(6000 + i);
+        if (hashColor(candidate) == 4) {
+            seed = candidate;
+            found = true;
+        }
+    }
+    ASSERT_TRUE(found) << "fixture needs a seed hashing to c4";
+
+    // c1 is the nearest candidate to the hash's c4 that clears the immediate
+    // neighbour; it repeats a colour five columns to the left, which is the
+    // cheap half of the trade. Flatten the weights and c2 wins instead -- one
+    // step short of the lane right beside it, for the sake of three distant
+    // repeats it avoids.
+    EXPECT_EQ(LaneAllocator::colorForSeed(5, seed, left, right), 1u);
+}
+
+TEST(LaneAllocator, TheMiddleTierOutranksTheDistantOneToo) {
+    // Same argument one rung down, because the ladder has three rungs and the
+    // test above only pins the top one. Nothing here has an immediate
+    // neighbour at all: lane 5 is flanked two columns out by c4 and c10, and
+    // the five colours that clear both by 60 degrees -- c1, c2, c6, c7, c8 --
+    // are all already drawn three to five columns away. Every candidate is
+    // therefore crowded by something, and the question is whether the
+    // allocator would rather come within 30 degrees of a lane 22px away or
+    // repeat a colour 33px away outright. It must choose the repeat.
+    LaneAllocator::SideColors left{};
+    LaneAllocator::SideColors right{};
+    left.fill(LaneAllocator::kNoNeighbor);
+    right.fill(LaneAllocator::kNoNeighbor);
+    left[1] = 4;   // two columns away
+    right[1] = 10;
+    left[2] = 1;   // three, four, five columns away
+    left[3] = 2;
+    left[4] = 6;
+    right[2] = 7;
+    right[3] = 8;
+
+    ObjectId seed;
+    bool found = false;
+    for (int i = 0; i < 500 && !found; ++i) {
+        const ObjectId candidate = oidFor(7000 + i);
+        if (hashColor(candidate) == 3) {
+            seed = candidate;
+            found = true;
+        }
+    }
+    ASSERT_TRUE(found) << "fixture needs a seed hashing to c3";
+
+    // The hash asks for c3, which is one step short of the c4 two columns
+    // away. c2 is the nearest candidate that clears both middle lanes, at the
+    // price of repeating the c2 drawn four columns off. Flatten the middle
+    // weight to the distant one and the hash's own c3 wins instead.
+    EXPECT_EQ(LaneAllocator::colorForSeed(5, seed, left, right), 2u);
+}
+
+TEST(LaneAllocator, TheTrunkKeepsColourZeroWhateverItsOid) {
+    for (int i = 0; i < 8; ++i) {
+        LaneAllocator fresh;
+        const LaneId lane = fresh.allocateLeftmost();
+        ASSERT_EQ(lane, 0u);
+        fresh.seed(lane, oidFor(9000 + i));
+        EXPECT_EQ(fresh.colorOf(0), 0u);
+    }
+}
+
+TEST(GraphBuilder, InvariantAdjacentColumnsNeverLookAlikeAtAnyRow) {
+    // The allocator test above pins the rule at the point it is applied; this
+    // one pins the property the user can actually see, through the real
+    // builder, over a DAG wide enough to keep many columns open at once.
+    //
+    // It is the assertion that would have caught the shipped defect: with the
+    // old `1 + hash % 11`, adjacent columns collided outright at 1/11 per pair,
+    // and a 400-commit DAG has far more than eleven adjacent pairs.
+    constexpr int kQuarterTurn = 3;
+
+    auto snapshot = build(makeRandomDag(400, 20260827, 0.35, 3));
+    ASSERT_GT(snapshot->rowCount(), 0u);
+
+    int comparedPairs = 0;
+    for (RowId row = 0; row < snapshot->rowCount(); ++row) {
+        const std::map<LaneId, std::uint8_t> live = lanesLiveAtRow(*snapshot, row);
+        for (const auto& [lane, color] : live) {
+            const auto right = live.find(static_cast<LaneId>(lane + 1));
+            if (right == live.end()) {
+                continue;
+            }
+            ++comparedPairs;
+            EXPECT_GE(hueSteps(color, right->second), kQuarterTurn)
+                << "row " << row << ": lane " << lane << " (c" << static_cast<int>(color)
+                << ") next to lane " << (lane + 1) << " (c" << static_cast<int>(right->second)
+                << ")";
+        }
+    }
+
+    // Without this the test above passes vacuously on a DAG that never opens a
+    // second column.
+    EXPECT_GT(comparedPairs, 200) << "fixture must actually put columns side by side";
+}
+
+TEST(GraphBuilder, InvariantAColourIsNotRepeatedWithinThreeColumnsAtAnyRow) {
+    // The screenshot's property, stated over the real builder: a colour drawn
+    // in one column is not drawn again two or three columns away.
+    //
+    // **This is a measurement on this fixture, not a theorem, and it cannot be
+    // one.** There are eleven non-trunk colours and up to `kMaxLanes` (48)
+    // columns, so a wide enough graph must repeat somewhere; the allocator
+    // minimises how badly it repeats rather than promising it never does. What
+    // is pinned here is that a DAG shaped like a real repository's history --
+    // 400 commits, branching often enough to keep many columns open -- is
+    // comfortably inside the range where the rule can be met.
+    const auto required = [](int columnsApart) {
+        return columnsApart == 1 ? 3 : (columnsApart == 2 ? 2 : 1);
+    };
+
+    auto snapshot = build(makeRandomDag(400, 20260827, 0.35, 3));
+    ASSERT_GT(snapshot->rowCount(), 0u);
+
+    int comparedPairs = 0;
+    for (RowId row = 0; row < snapshot->rowCount(); ++row) {
+        const std::map<LaneId, std::uint8_t> live = lanesLiveAtRow(*snapshot, row);
+        for (const auto& [lane, color] : live) {
+            for (int gap = 1; gap <= 3; ++gap) {
+                const auto other = live.find(static_cast<LaneId>(lane + gap));
+                if (other == live.end()) {
+                    continue;
+                }
+                ++comparedPairs;
+                EXPECT_GE(hueSteps(color, other->second), required(gap))
+                    << "row " << row << ": lane " << lane << " (c" << static_cast<int>(color)
+                    << ") is " << gap << " column(s) from lane " << (lane + gap) << " (c"
+                    << static_cast<int>(other->second) << ")";
+            }
+        }
+    }
+
+    // Same guard as the adjacency invariant: without it a DAG that never opens
+    // a third column would pass by never comparing anything.
+    EXPECT_GT(comparedPairs, 200) << "fixture must actually put columns near each other";
+}
+
 TEST(GraphBuilder, InvariantColorsAreStableWhenHistoryIsAppended) {
     // I7. Colour comes from the lane's seed oid, not the lane index, so appending
-    // newer commits must not recolour existing branches. Were it index-based,
-    // every refresh would reshuffle the graph's colours.
+    // newer commits must not reshuffle the graph wholesale. Were it
+    // index-based, every refresh would.
+    //
+    // **Read what is actually asserted below: lane 0 only.** The comment here
+    // used to state the general claim as though the loop checked it, and it
+    // never did -- the `if` skips every row whose lane moved, which is most of
+    // them once 50 commits are prepended. The general claim was already false
+    // in one way before the neighbour rule (a ref tip's lane is seeded with the
+    // tip commit, so committing recolours that branch) and is false in one more
+    // way after it (a lane's colour can be nudged by whichever lanes happen to
+    // sit beside it). The trunk is the part that genuinely never moves, so the
+    // trunk is what this pins.
     auto older = makeRandomDag(400, 777, 0.2, 2);
     auto baseline = build(older);
 

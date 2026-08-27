@@ -1362,6 +1362,74 @@ you are touching, not by when it was learned.
 - **Where a spec row cannot be honoured, the feature is absent and recorded,
   never faked.** Conversely, where working capi has no spec entry point it
   stays rather than being orphaned (**#92**–**#95**).
+- **The commit graph's lane pitch is 11 while its dot geometry is still
+  spec's — the two stopped coming from one source, and that is user-ratified.**
+  `spec_logic.js:428`'s `L0 = 15, L1 = 32` is a 17px pitch, and an earlier
+  round corrected a drifted 18 to it. The user then ruled the lanes should sit
+  at about two thirds of that, so `GbmLayout.graphLaneWidth` is **11** while
+  the halo, HEAD ring and connector in `graph_column_painter.dart` keep
+  spec's 2.0 / 7.0+1.5 / 1.75 untouched — that ask was spacing, not a
+  smaller graph. **The dot alone then went 4.2 → 5.0 on a second ruling**, and
+  5.0 is not a taste: the ring keeps spec's numbers, so its *inner* edge is
+  6.25 and a dot's visible outer edge is `radius + halo / 2`. At 5.0 that is
+  6.0, leaving 0.25px of background; past it the ring stops reading as a ring
+  and reads as a thick edge on the dot, **with no exception anywhere** — the
+  ring is painted after the dot, so nothing is overdrawn. Only
+  `graph_dot_geometry_test.dart`'s arithmetic sees it. Do not "fix" either
+  number back on the citation's authority; the citations are still true and no
+  longer decide the numbers. What makes the two
+  compatible is **`kGraphLaneInset` (8 = `ceil(7.75)`, the HEAD ring's outer
+  edge)**: a lane's centre is the inset plus whole pitches, **never**
+  `laneWidth * (lane + 0.5)`, which made the ring's room a function of the
+  pitch — at 11 it left lane 0's centre at 5.5 and `commit_row.dart`'s
+  `ClipRect` cut the ring on the trunk, the lane HEAD sits in most often.
+  Margin at 8 is 0.25px, so **anything that grows the ring has to move the
+  inset with it**. Three pitch-derived numbers move with the pitch and one
+  does not: `GbmGraphColumnId.graph`'s 153/34/425 → 99/22/275 (lane counts
+  written in pixels — leaving them would have redefined the cap from eight
+  lanes to thirteen), the refs corridor's measured ceiling 287 → 341, and
+  `commit_row_narrow_width_test`'s rung fixture 610 → 552; the refs *floor*
+  91 is a chip measurement and is pitch-independent. Ledger:
+  「commit graph 的 lane 間距」 and 「點放大，以及分支顏色不再撞在一起」.
+- **The lane palette has twelve colours because the core emits twelve, and
+  their *order* is a contract the core does arithmetic on.**
+  `GraphSnapshot.h`'s `kPaletteSize` is 12 and `colorForSeed` returns
+  `0 .. 11`; `GbmColors.graphLanes` shipped with six, so the painter's
+  `color % length` folded id 6 onto **0, the trunk's own colour**, and 7..11
+  onto 1..5 — two random branches looked alike 17.4% of the time instead of
+  9.1%, silently, because nothing linked a C++ `constexpr` to a Dart
+  `.length`. `gbm_lane_palette_test.dart` now **reads `GraphSnapshot.h`
+  itself** rather than copying the 12; a copy is what drifted. Entry `i` sits
+  at `hue(0) + 30 * i` degrees **in OkLCH**, so `LaneAllocator`'s
+  `min(d, 12 - d) >= kMinColorSeparation` is a hue distance without the core
+  ever seeing an RGB value — reorder the list and the core keeps "spreading"
+  a number that means nothing, with no symptom. **OkLCH, not HSL**: the same
+  twelve colours are 12.4° apart in HSL's teal band and 68° in its green one,
+  so an HSL assertion misreads an even palette as uneven and passes an uneven
+  one. Twelve colours is a user-ratified deviation — spec names
+  `--graph-lane-1` .. `--graph-lane-6`. Ledger:
+  「點放大，以及分支顏色不再撞在一起」.
+- **A lane's colour is the hash of its seed oid, repaired only when it crowds
+  a neighbour** — and the seed of a ref tip's lane is the **tip commit**
+  (`GraphBuilder.cpp`'s no-incoming-edges path), so committing on a branch
+  already recoloured it long before the neighbour rule. `LaneAllocator`'s
+  comment used to claim oid-keying kept a branch's colour across a refresh; it
+  keeps it across *lane index reuse*, which is narrower. **The window is five
+  columns either side, graded** — a quarter turn from the column beside you,
+  60° from the one after that, merely a different colour out to five — and
+  `penaltyWeight`'s 100/10/1 is what stops the tiers being traded against each
+  other (everything below offset 1 sums to at most 46). It was ±1 for one
+  round, and the entry here argued against widening it on two grounds that
+  were both wrong: widening does **not** repaint anything, because a colour is
+  fixed at seed time and never revisited; and ±1 was thinner than it read,
+  since `allocateLeftmost` returns the *lowest free* lane, so on the ref-tip
+  path there is nothing to the right by construction and only the left
+  neighbour could ever fire. What actually broke was the user's own case —
+  two branches in one colour with a single lane between them. Beyond the
+  window repeats stay possible, and past 11 live lanes they are unavoidable:
+  the palette has 11 non-trunk colours and `kMaxLanes` is 48, so the rule
+  decides *where* a repeat lands, never whether. Ledger:
+  「相隔一欄仍然撞色」.
 - 標題列 means four different things across this spec (**#68**) — settle the
   reading before moving code.
 

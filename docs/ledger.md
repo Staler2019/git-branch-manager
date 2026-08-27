@@ -5082,3 +5082,378 @@ dispatch parity bug 就是「只修 MenuBarRow」造成前兩條靜默 no-op。
 - **既有行為，不是這輪造成的**：`_readWorkingCopyStatus()` 無條件清
   `workingCopyDiffs`，所以即使 focus 回來什麼都沒變，diff 面板仍會清空再重抓，
   視覺上一次閃動。要消掉它得讓 `WorkingCopyStatus` 有值相等，是另一個題目。
+
+## feat/graph-lane-pitch — commit graph 的 lane 間距縮到 2/3
+
+使用者要求把 commit graph 的**水平** lane 間距縮到現在的約三分之二，並明確指定
+**點與線的大小都不變**。四個 commit，每個各自綠、可單獨 revert。
+
+### 先確認問的是哪一個方向
+
+原句是「commit graph line 間距」。這個字面在這個畫面上有兩個都成立的讀法：列與
+列的垂直間距（`kCommitRowHeight` 26），以及 lane 與 lane 的水平間距
+（`GbmLayout.graphLaneWidth` 17）。上一輪 fix/history-density-and-branch-filter
+的敘述裡兩件事還一起出現過（「lines too far apart」與「rows too tall」），所以
+從歷史也推不出來。**問了，答案是橫向**——列高完全不動。這裡把它寫下來是因為兩
+個讀法會導向完全不同的改動，而不是因為問題本身難。
+
+### 這是裁定的偏離，不是修正——而它推翻的是上一輪自己的修正
+
+17 不是隨便來的：`spec_logic.js:428` 的 `const L0 = 15, L1 = 32, RH = 26` 是兩
+個 lane 圓心相距 17，而 17 正是上一輪把既有 drift 的 18 改回規格的結果。所以這
+一輪的 11 是**把上一輪的規格修正再蓋掉**，性質和 Working Copy 拿掉 checkbox、
+側邊欄不再置頂目前分支同一類：規格引文仍然為真，只是不再是決定這個數字的東西。
+
+三處記錄同時改，就是為了不讓下一輪照著舊理由改回去：`GbmLayout.graphLaneWidth`
+的 doc comment、`gbm_layout_test.dart` 那條斷言的註解（它本來叫
+「matches spec (17)」），以及 CLAUDE.md 的蒸餾條目。`docs/reports/spec-conformance-matrix.md`
+沒有 lane pitch 這一列，不需要劃掉重寫。
+
+### 「點不變」把一個非動不可的東西逼了出來
+
+點在 11px 下其實放得下：半徑 4.2 加上 2px halo 的一半是 5.2，半個 lane 是 5.5。
+**放不下的只有 HEAD 環**：半徑 7 加上 1.5px 描邊的一半是 7.75。
+
+而 7.75 超出半個 lane 這件事本身**不會撞到任何東西**——鄰道的線近緣在
+`11 − 1.75/2 = 10.125`，比 7.75 遠。真正的缺陷只有一個，而且要把它找出來得先知
+道畫布是被裁的：lane 0 的圓心在 `0.5 × 11 = 5.5`，環會伸出欄位左緣 2.25px，被
+`commit_row.dart:383` 的 `ClipRect` **切掉**。HEAD 多半就在 lane 0 這條主幹，所
+以這會是常態可見的。
+
+在「不准縮環」的前提下唯一的解法是把 lane 0 推離左緣，也就是
+`kGraphLaneInset = 8`（`ceil(7.75)`），圓心公式從 `laneWidth * (lane + 0.5)` 改
+成 `kGraphLaneInset + laneWidth * lane`。**它把「環有沒有空間」從 pitch 的函數
+變成一個獨立常數**，這才是本輪真正的結構性改動；把 pitch 從 17 改成 11 只是改
+一個數字。
+
+值得記下來的是規格站在 inset 這邊而不是半格這邊：`L0 = 15` 配 pitch 17，lane 0
+的圓心離半格（8.5）差得很遠。原本那個 `+ 0.5` 從來就不是規格，只是沒被質疑過。
+
+欄位自然寬度公式 `laneWidth * (laneCount + 1)` **不用改**：它留下的尾端餘裕在
+任何 lane 數下都比前置 inset 寬（12 lanes 時寬 143、最後一個圓心 129、環到
+136.75），所以最後一條 lane 的環從來不是有風險的那個。這也是查過才敢說的，不是
+推的。
+
+### 被換掉的那條斷言，本來是一條代理規則
+
+`graph_dot_geometry_test.dart` 原本寫的是「環塞得進半個 lane」，而且它自己就預
+告了這一輪：
+
+> 「7px 的半徑加上 1.5px 描邊的一半是 7.75，對上 17px 的 lane（到邊界 8.5）和
+> 26px 的列（13）。兩個都是規格數字，但只差一點點就不相容——**未來 lane pitch
+> 低於 16 就會把環切掉，這裡把它講出來**。」
+
+它之所以成立，只是因為 lane 0 的圓心剛好在半格。它代理的是兩件不同的事，而
+inset 進來之後兩件都可以直接講：
+
+1. `kGraphLaneInset ≥ 環外緣` —— lane 0 的環在欄位內畫得完整。
+2. `laneWidth − 線寬/2 ≥ 環外緣` —— 環不碰到鄰道的線。**這條比原本的代理鬆**：
+   環可以越過名目上的 lane 邊界，只要它停在那裡真正畫著的東西之前。
+
+第 2 條在 11px 下是 10.125 ≥ 7.75，成立；換句話說原本那條代理規則**過嚴**，照
+它字面走會誤判本輪不可行。這是「代理規則會在兩個方向上都說錯話」的一個實例。
+
+兩個 mutation 分別驗這兩件事，各自窄紅：inset 改 0 只紅環那條；公式改回
+`lane + 0.5` 只紅新增的圓心那條（Expected 8.0、Actual 8.5）。第二個 mutation 是
+必要的——第一個對圓心那條測試無效，因為它是拿 `kGraphLaneInset` 這個符號去比
+的，常數改 0 兩邊一起變，測試照樣綠。**符號化的斷言擋得住公式改壞，擋不住常數
+改壞；反過來也一樣**，所以兩條都要有自己的 mutation。
+
+### 三個以 pitch 為前提的數字被一起帶動，一個沒有
+
+- **`GbmGraphColumnId.graph` 的 153/34/425 → 99/22/275。** 這三個是刻意寫死的
+  字面值（該檔沒有任何 import，這是它能被 repository 反向依賴的原因），只有
+  `graph_column_test.dart` 用「必須是 lane 的整數倍」把推導關係釘住。它們是**用
+  像素表達的 lane 數**，不動就等於把上限從八條 lane 悄悄變成十三條。
+- **`commit_row_narrow_width_test` 的兩個 fixture。** 八條 lane 下「只掉 date」
+  的 rung 從 563..670 滑到 **509..596**，原本取中點的 610 掉到區間外，重量後改
+  552。另一個更隱蔽：十二 lane 的縮放案在 1000 與 240 兩個寬度下量到的 graph 都
+  是 99（上限），`narrow < wide` 於是失效——240 本來能吃滿 153 的上限、現在也吃
+  得滿 99 的上限，所以改成 160（量到 60px）才真的在測「盒子變窄」。**這正是
+  CLAUDE.md 那條「grouping 規則一改，所有編碼了間隔／數量／相鄰的 fixture 都要
+  重讀」的寬度版本。**
+- **refs 欄位的 corridor ceiling 287 → 341。** 那段註解自稱是量出來的，而 graph
+  的上限是它的上游：十二 lane 的成本從 153 掉到 99，多出來的 54px 全部落在 refs。
+  重新二分量到 341 留得住 Date、342 開始掉，**差值 54 與上限的差完全相等**，兩
+  邊互為交叉驗證。
+- **沒有被帶動的是 refs 的 floor 91**，它是 JetBrainsMono 下 `HEAD → main` 加雲
+  朵圖示的字寬量測，與 pitch 無關。一個「量出來的走廊」的兩端未必同時失效，這是
+  要分開看的原因。
+
+### 用 golden 看實際結果，而不是只看斷言
+
+斷言只能說「7.75 ≤ 8」。實際長什麼樣是另一回事，所以用一支拋棄式的 golden 測試
+把同一份 fixture 以 pitch 11 與 17 各畫一次並排放大 4.5 倍，直接看圖：lane 0 的
+HEAD 環左緣完整、鄰道的線與點沒有互相吃到、間距的差異一眼可見。
+
+**同時看到的一件事寫進 CLAUDE.md 了：餘裕只有 0.25px**（inset 8 對環外緣
+7.75）。所以任何讓環變大的改動都必須連 inset 一起動，否則會安靜地被裁掉——而
+那個裁切不會有任何錯誤訊息。
+
+### 沒做、以及留下的取捨
+
+- **列高沒動**（仍是規格的 26）。橫向縮到 2/3 而縱向不動，結果是點在視覺上比以
+  前稀疏——這是使用者的裁定，不是疏漏。
+- **HEAD 環在 11px 下橫跨約 1.4 個 lane**，比以前搶眼。依裁定不縮；如果實機用起
+  來不喜歡，縮環是一個獨立且不影響其他東西的 commit。
+- **`graphColumns.widths` 沒有做 migration。** 舊安裝存下來的 153px 在新 pitch
+  下等於十三條 lane 而不是八條。存的本來就是「最多畫幾條 lane」的像素上限，語意
+  隨 token 改變；這裡選擇記下來而不是加一次資料轉換。
+- **計畫裡寫的實機 `flutter run -d macos` 目視沒有做**，改用放大 4.5 倍的並排
+  golden 加一支綠的裝置層測試代替。要說清楚這個代替涵蓋到哪裡：幾何是等價證據
+  （同一個 painter、決定性繪製），所以「lane 0 的 HEAD 環沒被裁掉」這件事是成立
+  的；**不成立的是觀感**——1x 螢幕上 1.75px 的線配 11px 間距看起來會不會太密、
+  太細，golden 放大之後正好看不出來。這一項留給使用者實機確認。
+
+## feat/graph-dot-and-lane-colors — 點放大，以及分支顏色不再撞在一起
+
+使用者提了兩件事：「點的大小放大」，以及「分支顏色太容易重複了，兩兩相臨分支之間
+顏色盡量在色環上差異多一點」。第二件裡有一半是 bug，而不是品味問題——這是這一輪
+最值得記下來的部分。
+
+### core 說十二種顏色，UI 只畫得出六種
+
+`src/core/graph/GraphSnapshot.h:25` 是 `constexpr std::uint8_t kPaletteSize = 12`，
+`LaneAllocator::colorForSeed` 因此發出 `0..11`。`app_flutter` 這邊的
+`GbmColors.graphLanes` 只有六色，而 `graph_column_painter.dart` 取
+`row.color % colors.graphLanes.length`。於是：
+
+| core 發出的 id | UI 實際畫出的 |
+|---|---|
+| 6 | 0 —— **主幹自己的顏色** |
+| 7, 8, 9, 10, 11 | 1, 2, 3, 4, 5 |
+
+十一種非主幹 id 折成六個顯示類別，大小分別是 2,2,2,2,2,1。兩條隨機分支看起來同色
+的機率是 `5 × (2/11)² + (1/11)² = 21/121 ≈ 17.4%`，而十二色都畫得出來的話是
+`1/11 ≈ 9.1%`。使用者說的「太容易重複」有一半就是這個。
+
+**沒有任何東西把這兩個常數連在一起**，這是它能無聲存在的原因：一個是 C++ 標頭裡
+的 `constexpr`，一個是 Dart 清單的 `.length`，中間隔著一個 `%` 運算子——那個 `%`
+本來就是防呆用的，結果它把 bug 也一起吞了。所以這一輪的測試不是抄一份 12 過來
+比對，而是 **`gbm_lane_palette_test.dart` 直接開 `../src/core/graph/GraphSnapshot.h`
+用 regex 讀出 `kPaletteSize`**。抄一份常數正是先前漂移的成因；再抄一份只是把漂移
+往後延一輪。檔案讀不到時它是 fail 而不是 skip，理由相同。
+
+### 兩個問題其實不是同一個問題
+
+「顏色重複」和「相鄰的顏色太像」聽起來像同一件事的兩種說法，但在這個 codebase 裡
+它們住在兩個不同的層：
+
+- 重複是**色盤大小**的問題，住在 Dart。
+- 相鄰是**指派方式**的問題，住在 C++——因為 `colorForSeed` 是
+  `1 + (oid.hash() % 11)`，跟 lane 的位置完全無關。兩條相鄰分支拿到什麼顏色是
+  雜湊擲骰子決定的，所以**把色盤加大、排得再漂亮，都不會讓相鄰的兩支比較不像**。
+  只會讓撞色機率從 17.4% 降到 9.1%。
+
+這個區分是要使用者裁定的原因：只補色盤是把要求砍掉一半，而「本輪不做」不是實作者
+能自己決定的。使用者選了完整的做法。
+
+### 讓 core 能談「色相」而不必看見任何 RGB
+
+`LaneAllocator` 在 `src/core/` 裡，而 `src/core/` 不能依賴 UI——所以它永遠拿不到
+一個 `Color`。要讓它把新 lane 推離鄰居，唯一的辦法是讓 **index 距離本身就是色相
+距離**：
+
+- Dart 這邊：`graphLanes` 的第 `i` 個顏色固定坐落在 `hue(0) + 30 × i` 度（OkLCH），
+  三套主題各自以自己的 lane 0 為錨。
+- C++ 這邊：`colorDistance(a, b) = min(|a−b|, 12−|a−b|)`，然後要求 `>= 3`。
+
+3/12 就是四分之一個色環。這條契約兩邊的註解都寫了，而且寫的是**它壞掉時不會有任何
+症狀**：把 `graphLanes` 重排一下，core 照跑不誤，只是它「最大化」的那個數字不再
+代表任何東西。所以測試裡有一條專門釘住排序（把相鄰兩色對調就會紅）。
+
+**色相用 OkLCH 而不是 HSL，這一點是量出來的。** 同一組十二色在 HSL 色環上的相鄰
+間距是 12.4°（青帶）到 68°（綠帶）——HSL 的色環不是等感知的，綠佔掉一大塊、青綠
+擠成一條。如果拿 HSL 寫斷言，一組真正等距的色盤會被判成不等距，而一組在 HSL 上
+剛好等距的色盤（實際看起來不等距）會通過。測試檔裡自己實作了一份 OkLCH 換算當
+oracle，理由跟 `sameLogicalFile` 留在測試檔一樣：**用產生色盤的同一份程式去驗色盤，
+它不可能跟自己不一致。**
+
+三套主題各自量過對比度，都不低於原本六色時的最差值：白底 3.34 → 3.44、
+`_darkTechnical` 的 #0D1117 底 5.64 → 6.19、`_lightIde` 白底 3.75（不變）。
+`_lightIde` 沒有直接複製 `_neutralProfessional`，而是取它原本五個非 accent lane 的
+OkLCH 平均（L=0.546 C=0.151）當目標——兩套淺色主題的 lane 0 都是 `_accent500`，
+不特別處理的話整組色盤會變成同一份。
+
+### 「雜湊優先，撞到才修」而不是「一律散開」
+
+`colorForSeed` 的新形狀是：雜湊選一個 index，如果它跟左右鄰居都差 ≥3 步就直接用；
+否則從那個 index 往外 `+1, −1, +2, −2, …` 探測十一個非主幹 index，取第一個過關的。
+
+為什麼不是直接挑「離鄰居最遠的那個」：因為那會讓每個 lane 的顏色都變成整個活著的
+lane 集合的函數，任何一條不相干的分支開或關都會讓別人換色。雜湊優先的版本只在真的
+擋路時才偏移，而且偏移量最小，所以**不再擁擠時它會回到原本想要的顏色**。
+
+**末尾那個 `return base` 目前不可達，而且這件事是可以證明的**：兩個鄰居各自只封鎖
+「與自己距離 ≤2」的五個 index，最多封鎖十個；候選有十一個（`1..11`），所以至少剩
+一個。註解裡寫了這個推導，也寫了為什麼它是 `return` 而不是 assert——將來若把約束
+放寬到更多鄰居，退化成純雜湊比 trap 好。
+
+### 順手改正兩處被高估的註解
+
+這是這一輪的第二個「記錄本身是錯的」案例：
+
+1. `LaneAllocator::seed` 的註解說顏色綁 oid「是它能跨 refresh、跨增量 append 保住
+   分支顏色的原因」。但 ref tip 的 lane 是**用 tip commit 本身當種子**
+   （`GraphBuilder.cpp:96` 的 no-incoming-edges 路徑），所以往該分支 commit 一次
+   顏色就變了——這在鄰居規則出現之前就已經是這樣。oid keying 真正買到的是「freed
+   lane index 被重用時不會亂」，範圍比註解宣稱的窄很多。**這一點會影響決策**：
+   「改成看鄰居會破壞穩定性」這個代價，大部分本來就不存在。
+2. `InvariantColorsAreStableWhenHistoryIsAppended` 的註解寫「appending 不能讓既有
+   分支換色」，但迴圈裡的 `if` 只在 lane 0 兩邊都成立時才斷言——prepend 50 個
+   commit 之後，絕大多數 row 的 lane 都變了，全部被跳過。**一條只驗了主幹的測試，
+   掛著一個通用宣稱的註解。** 註解改成說它實際驗的東西，以及通用宣稱在鄰居規則前後
+   各以什麼方式不成立。
+
+### 點的大小：5.0 是被 HEAD 環挑出來的，不是隨便選的
+
+環維持規格的 `r: 7` / stroke 1.5，所以它的**內緣**在 6.25。點含 halo 的外緣是
+`radius + 1`。5.0 是還能讓兩者之間留下背景的最大值（6.0，餘裕 0.25px）；再大一點，
+HEAD 那一列的環就不再讀成一圈環，而是讀成點的粗邊。
+
+**這件事沒有任何例外看得見**：環是後畫的，畫過去也不會有錯誤，只會變醜。所以測試
+是一條純算術斷言（`dotOuter <= ringInner`），mutation 到 5.3 就紅。
+
+使用者在被告知「再大就要連環和 `kGraphLaneInset` 一起動、graph 欄的三個寬度和
+narrow-width fixture 要重量」之後選了 5.0，所以這一輪 inset 完全沒動。
+
+### 驗證
+
+- `flutter analyze` 0 issues；`flutter test` 2292 passed
+- `gbm_core_tests` 448 tests，446 passed / 2 skipped（兩條 LFS 測試本來就 skip）
+- clang-format：本機是 v22 而 CI 釘 v18，所以在 scratchpad 開 venv 裝
+  `clang-format==18.1.8` 來比對。順帶確認 `cq.yml` 的 `check-path` 只有 `src`，
+  `tests/` 不在 format gate 內——v18 對 `GraphBuilderTest.cpp` 有兩處既有的意見，
+  那兩行在 HEAD 就已經那樣，不是這一輪弄的，照規矩沒有整檔重跑
+- mutation：四條，每一條都紅在該紅的地方
+  - `kGraphDotRadius` 5.0 → 5.3：只有兩條點的測試紅
+  - `graphLanes` 少一色 / 相鄰兩色對調：分別只紅長度那條、只紅色相順序那條
+  - `kMinColorSeparation` 3 → 1：兩條分離度測試紅
+  - 探測順序從「以雜湊為起點」改成「從雜湊+1 開始」：只有「沒被擠到時仍用雜湊色」
+    那條紅
+- 拋棄式 golden 放大 3 倍看實際結果：十二色在暗底逐格轉一圈、舊六色折成兩輪的重複
+  一眼可見、六條相鄰 lane 的實際列、兩套淺色主題的色盤、以及 4.2 對 5.0 的並排
+- 裝置層 `history_filter_test.dart -d macos`，跑在重建過的 `libgbm_capi.dylib` 上
+  （core 改了，不重建的話跑的是舊的那份）
+
+### 沒做、以及留下的取捨
+
+- **實機 `flutter run` 目視沒做**，同上一輪：幾何與顏色由 golden 涵蓋，1x 螢幕上
+  十二色會不會有兩支在特定主題下仍嫌接近，留給使用者實機確認。
+- ~~**相鄰只看左右各一欄**，不是所有活著的 lane。這是照字面的「兩兩相臨」，也是
+  保住雜湊穩定性的原因：約束越多，偏移越頻繁，顏色越容易被不相干的分支推著跑。
+  隔一欄的兩支仍可能相近（最壞是 3 步 = 90°）。~~
+  **下一輪被使用者用截圖推翻**：隔一欄的兩支不只是「相近」，而是同一個顏色，而且
+  在 400 commit 的 fixture 上一再出現。這段的兩個理由也都站不住——約束變寬並不會
+  「把顏色推著跑」，因為顏色是 seed 當下決定、之後不再重算；而且 ±1 比字面更窄，
+  `allocateLeftmost` 給的是最低空 lane，ref tip 這條路右邊必然是空的。改正見
+  「相隔一欄仍然撞色」一節。
+- **顏色仍會在往分支 commit 之後改變**，因為種子是 tip。這是既有行為，不是這一輪
+  造成的，也不在使用者的要求範圍內——但既然註解被改正了，就一起記在這裡。
+- **spec 只定義 `--graph-lane-1` 到 `--graph-lane-6`**，十二色是使用者裁定的偏離。
+  三處記錄：`tokens.dart` 的 `graphLanes` 註解、`gbm_lane_palette_test.dart` 的
+  檔頭、以及 CLAUDE.md 的 invariant。
+
+
+## fix/graph-lane-color-window — 相隔一欄仍然撞色
+
+上一輪把「兩兩相臨的分支顏色差遠一點」實作成 `LaneAllocator` 檢查左右各一欄。
+使用者接著送來一張截圖：兩支同色的分支中間只隔一個 lane。這一輪把窗口拉寬並分級。
+
+### 截圖說的是真的，而且測得出來
+
+先把它寫成測試，再看紅不紅。`GraphBuilder.InvariantAColourIsNotRepeatedWithinThree
+ColumnsAtAnyRow` 走真正的 builder，對 400 commit 的隨機 DAG 掃每一列上同時被畫出來
+的欄位。第一次跑出來的頭幾行就是截圖本身：
+
+```
+row 7: lane 1 (c9) is 2 column(s) from lane 3 (c9)
+row 9: lane 3 (c9) is 2 column(s) from lane 5 (c9)
+row 35..38: lane 1 (c9) is 3 column(s) from lane 4 (c9)
+row 60: lane 2 (c3) is 2 column(s) from lane 4 (c3)
+```
+
+`c9` 在 darkTechnical 是 `02B685`，就是截圖裡那個青綠。**同色、隔一欄、反覆出現**——
+不是機率問題，是規則根本沒管到那一欄。
+
+### ±1 其實比字面更窄，但沒有窄成「只有左邊」
+
+寫這一輪的第一版註解時我斷言：`allocateLeftmost()` 回傳的是最低的空 lane，所以
+seed 當下左邊必定被佔、右邊必定是空的，「左右各一欄」實際上等於「只有左邊」。
+
+**mutation 打掉了這個斷言的一半。** 把 `crowdingOf()` 的右側整段刪掉重跑，紅的不只
+是這一輪的新測試，還有上一輪的 `InvariantAdjacentColumnsNeverLookAlikeAtAnyRow`——
+右側的檢查在真的 builder 裡會觸發。原因是第二條配置路徑：merge 的第二個以後的
+parent 走 `allocateAfter(lane)`，落點是 merge commit 右邊的第一個空 lane，兩側都
+可能已經有東西。所以正確的說法是**分路徑**的：ref tip 那條路右邊必然是空的，
+merge parent 那條路不是。註解與測試註解都照這個改寫了。
+
+這正是 repo 那條「mutation 沒有落在註解預測的地方，就是註解錯了」的用法。
+
+### 分級窗口，以及為什麼是最小化而不是過濾
+
+規則現在是 `kNeighborWindow = 5`，每一段要求不同的色相距離：
+
+| 距離 | 要求 | 在 pitch 11 下 | 意思 |
+|---|---|---|---|
+| 1 欄 | 3 步（90°） | 11px | 貼在一起，必須差四分之一個色環 |
+| 2 欄 | 2 步（60°） | 22px | 中間隔一個，明顯不同色 |
+| 3–5 欄 | 1 步（30°） | 33–55px | 只要求「不是同一個顏色」 |
+| 6 欄以上 | 0 | — | 不管 |
+
+遞減是因為「撞色」的傷害本身就隨距離遞減：貼在一起的兩支同色會被讀成一支加粗，
+隔五欄的兩支同色只是重複用色。而窗口不可能再寬——非主幹的顏色只有 11 個，
+`kMaxLanes` 是 48，夠寬的圖一定會重複，規則能決定的只是**重複落在哪裡**。
+
+也因此這裡是**最小化**而不是過濾。五欄寬的窗口最多有十個鄰居，11 個候選對上十個
+鄰居，約束真的可能無解；無解時「盡量遠」是有意義的答案，「找不到就退回雜湊」不是。
+`colorForSeed` 仍然先照雜湊走：由 `1 + hash % 11` 向外 `+1, -1, +2, -2, …` 探，
+第一個 penalty 為 0 的候選直接回傳，所以沒被擠到的 lane 拿到的顏色跟以前一模一樣。
+
+### 權重是把字典序寫成加總，而且那個界是算得出來的
+
+`penaltyWeight` 是 100 / 10 / 1。這不是調參，是要讓三段不能互相交換：距離 2 以外的
+所有 penalty 加起來最多是 `2 × 10 × 2 + 6 × 1 × 1 = 46`，小於「對緊鄰 lane 改善一
+步」的 100。所以一個候選永遠不會為了讓四個遠處鄰居開心而去擠貼著自己的那一欄。
+
+**這個界一開始沒有任何測試看得到。** 把 `penaltyWeight(1)` 從 100 改成 1 重跑，
+全綠——現有的每個 fixture 都存在「全部滿足」的候選，而只要存在，權重就從來不會被
+問到。補了兩個測試，各自造出一個**無解**的鄰居配置：
+
+- `ACloseLaneOutranksAnyNumberOfDistantOnes`：左一欄是 c4，而三到五欄外剛好擺著
+  「能跟 c4 差四分之一圈」的那六個顏色（c1, c7, c8, c9, c10, c11）。每個候選都被
+  擠到，答案必須是 c1（重複一個五欄外的顏色），不是 c2（差 c4 只有兩步）。
+- `TheMiddleTierOutranksTheDistantOneToo`：同一個論證降一階，兩欄外是 c4 與 c10，
+  能同時差它們 60° 的五個顏色全被擺到三到五欄外。答案是 c2，不是雜湊原本要的 c3。
+
+### 五個 mutation
+
+| mutation | 結果 |
+|---|---|
+| `requiredSeparation(2)` 2 → 1 | 紅：新的兩個（單元 + DAG invariant） |
+| `kNeighborWindow` 5 → 1（退回上一輪） | 紅：新的兩個；上一輪的 adjacency invariant 仍綠 |
+| `crowdingOf()` 刪掉右半邊 | 紅：新的 DAG invariant **和上一輪的 adjacency invariant** |
+| `penaltyWeight(1)` 100 → 1 | 一開始全綠 → 補測試後紅：`ACloseLaneOutranksAnyNumberOfDistantOnes` |
+| `penaltyWeight(2)` 10 → 1 | 一開始全綠 → 補測試後紅：`TheMiddleTierOutranksTheDistantOneToo` |
+
+第三個是這一輪最有價值的一個：它同時證明了右側檢查是活的，也證明新測試沒有把舊
+的那條蓋掉。第四、五個是「綠的 mutation 一樣常代表斷言太弱」的又一次實例。
+
+### DAG invariant 是量出來的，不是證出來的
+
+`InvariantAColourIsNotRepeatedWithinThreeColumnsAtAnyRow` 的註解明寫這一點。11 個
+非主幹顏色對 48 欄，這條性質不可能是定理；它是「一個長得像真實 repo 的 400 commit
+DAG，在三欄以內不重複」的一次量測。沿用了 adjacency invariant 的
+`comparedPairs > 200` 反空過守衛。
+
+### 這輪沒做
+
+- **完全不動 Dart。** 顏色 id 仍然是 0..11，palette、painter、token 一個字都沒改，
+  所以沒有跑 `flutter test`／`analyze`／裝置層——驗證面就是 `gbm_core_tests`
+  （452 個，450 通過，2 個既有的 LFS skip）加上 `LaneAllocator.h` 的 clang-format
+  v18。
+- **超過五欄仍可能撞色**，11 欄以上必然撞。上面說過原因。
+- **既有 repo 下次開啟會再重排一次顏色**，跟上一輪同理：規則變了，seed 當下的答案
+  就變了。主幹仍是 accent。
+- **1x 實機觀感仍然沒有覆蓋**。這一輪連 golden 都沒重畫（Dart 沒動），使用者手上
+  就有真機，交給使用者看。

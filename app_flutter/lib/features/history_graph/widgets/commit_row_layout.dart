@@ -95,11 +95,15 @@ class CommitRowColumnPlan {
   /// stored for it.
   ///
   /// They differ for Graph and only for Graph: its stored width is a cap, so
-  /// a two-lane history is drawn at its natural 51px while the cap sits at
-  /// 153. A drag that started from the stored 153 would move an invisible
-  /// number -- the first 100px of travel would change nothing on screen --
+  /// a two-lane history is drawn at its natural 33px while the cap sits at
+  /// 99. A drag that started from the stored 99 would move an invisible
+  /// number -- the first 66px of travel would change nothing on screen --
   /// so the resize strip takes its origin from here instead. Null for
   /// Message, which has no width of its own.
+  ///
+  /// All three numbers are `kGraphLaneWidth` multiples (3, 9 and 6 pitches)
+  /// and every one of them moved when the pitch went 17 -> 11; they read 51,
+  /// 153 and 100 before that.
   double? renderedWidthOf(GbmGraphColumnId id) {
     for (final PlannedColumn column in columns) {
       if (column.id == id) return column.width;

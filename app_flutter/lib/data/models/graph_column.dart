@@ -25,29 +25,37 @@ enum GbmGraphColumnId {
   // `laneWidth * (laneCount + 1)`, so a busy repository can ask for any width
   // at all. These three numbers turn that open-ended demand into a budget.
   //
-  //  * `defaultWidth` 153 is a **cap, not a size**: the column takes its
+  //  * `defaultWidth` 99 is a **cap, not a size**: the column takes its
   //    natural width and stops there, so a two-lane history still draws two
-  //    lanes and leaves the rest to the message. 153 = 17 x 9, i.e. eight
-  //    parallel lanes plus the trailing half-slot. **Eight is ours, not
-  //    spec's** -- the spec has nothing to say about how thick the graph may
-  //    get. It is the point where the column stops reading as "where am I"
-  //    and starts reading as a wall, and it is a single constant to change if
-  //    that judgement is wrong.
-  //  * `minWidth` 34 = 17 x 2 is one lane. **The column is never removable**
+  //    lanes and leaves the rest to the message. 99 = 11 x 9, i.e. eight
+  //    parallel lanes plus the extra slot that formula always adds. **Eight
+  //    is ours, not spec's** -- the spec has nothing to say about how thick
+  //    the graph may get. It is the point where the column stops reading as
+  //    "where am I" and starts reading as a wall, and it is a single
+  //    constant to change if that judgement is wrong.
+  //  * `minWidth` 22 = 11 x 2 is one lane. **The column is never removable**
   //    (it stays `isLocked`, per spec's "Graph 與 Message 固定不可關"); this
-  //    is how far a drag may collapse it, and one lane is still a graph.
-  //  * `maxWidth` 425 = 17 x 25 is twenty-four lanes, past which the row is
+  //    is how far a drag may collapse it, and one lane is still a graph. It
+  //    also has to be wide enough to draw that lane's HEAD ring whole --
+  //    `kGraphLaneInset` 8 plus the ring's 7.75 outer edge is 15.75, so 22
+  //    clears it.
+  //  * `maxWidth` 275 = 11 x 25 is twenty-four lanes, past which the row is
   //    all graph on any ordinary window.
+  //
+  // All three moved with the lane pitch when it went 17 -> 11 (see
+  // `GbmLayout.graphLaneWidth`): they are lane counts expressed in pixels,
+  // so leaving them alone would have quietly redefined the cap from eight
+  // lanes to thirteen.
   //
   // Literals rather than `GbmLayout.graphLaneWidth * 9`: this file has no
   // imports at all, which is what lets the repository depend on it instead of
   // the reverse. `graph_column_test.dart` asserts all three stay exact lane
   // multiples, so the derivation is checked even though it is not expressed.
-  graph('graph', 'Graph', defaultWidth: 153, minWidth: 34, maxWidth: 425),
+  graph('graph', 'Graph', defaultWidth: 99, minWidth: 22, maxWidth: 275),
   message('message', 'Message', defaultWidth: 0, minWidth: 0, maxWidth: 0),
-  // 104, and the corridor it sits in was re-measured this round after the
-  // lane pitch went from 18 to 17. Both bounds are measured, not reasoned
-  // about.
+  // 104, and the corridor it sits in is re-measured every time a fixed cost
+  // in the row moves -- most recently when the lane pitch went 17 -> 11.
+  // Both bounds are measured, not reasoned about.
   //
   //  * Floor 91. The HEAD chip is the sole thing in the row that says where
   //    you are, and spec labels it `HEAD → main` (`spec_logic.js:439`).
@@ -58,13 +66,13 @@ enum GbmGraphColumnId {
   //    of horizontal padding plus 2px of border = 90.6px. (A widget test
   //    cannot check this: the Ahem test font makes every glyph one em wide
   //    and puts the same chip at 141.75px.)
-  //  * **Ceiling 287**, bisected against
+  //  * **Ceiling 341**, bisected against
   //    `workspace_narrow_window_test.dart`'s twelve-lane case at 1280x720 --
   //    the app's own default window size, where the row gets exactly 834px.
-  //    At 288 the ladder starts giving up the Date column there, which that
+  //    At 342 the ladder starts giving up the Date column there, which that
   //    test exists to forbid.
   //
-  // **That ceiling has moved three times, and 104 stopped being near it at
+  // **That ceiling has moved four times, and 104 stopped being near it at
   // the second.** It was 92 while the lane pitch was 18 (twelve lanes cost
   // `18 x 13 = 234`), then 105 once the pitch became spec's 17 (`17 x 13 =
   // 221`) -- a corridor 91..105. Then the Graph column gained a 153px cap,
@@ -73,9 +81,13 @@ enum GbmGraphColumnId {
   // Then History's panes were recomposed to spec (Changed files right,
   // Commit detail below), so the commit list stopped losing 38% of its
   // *width* to the detail pane and went from ~632px to 834px -- ceiling
-  // 287. **104 is therefore nowhere near the ceiling and is not chosen for
-  // being near one** -- it is `ceil(103.1)`, the width of the one chip
-  // below.
+  // 287. Then the lane pitch became 11 on the user's ruling, which takes
+  // the cap above from 153 to 99: **all 54 of those px land here too, and
+  // the ceiling is 341**. Each of the four moves was upstream of this
+  // measurement rather than a change to it, which is the reason this
+  // paragraph is a history and not a single number. **104 is therefore
+  // nowhere near the ceiling and is not chosen for being near one** -- it
+  // is `ceil(103.1)`, the width of the one chip below.
   //
   // What that bought is a defect closed rather than merely more room. At 92 a
   // HEAD **synced with its upstream** did not fit: that chip is `HEAD → main`

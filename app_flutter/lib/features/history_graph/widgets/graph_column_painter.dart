@@ -17,16 +17,47 @@ import 'graph_edge_geometry.dart';
 /// found the same way: by reading the mockup's own numbers rather than the
 /// picture.
 ///
-/// Note what `r: 4.2` does *not* mean: SVG centres a stroke on its path and
-/// paints it over the fill, so a 2px stroke eats 1px of the disc and the
-/// visible core is 3.2, not 4.2. The dot barely changed size; what it gained
-/// is the halo, which is what stops a lane line drawn underneath from
-/// touching the dot's edge.
-const double kGraphDotRadius = 4.2;
+/// Note what a dot radius does *not* mean: SVG centres a stroke on its path
+/// and paints it over the fill, so the 2px halo eats 1px of the disc and the
+/// visible core is `radius - 1`. What the halo buys is that a lane line drawn
+/// underneath never touches the dot's edge.
+///
+/// **The radius is 5.0, a user-ratified deviation from spec's `r: 4.2`.**
+/// Asked for after the lane pitch went 17 -> 11, and 5.0 rather than more
+/// because the ring below keeps spec's numbers: at a 1.5 stroke its *inner*
+/// edge is 6.25, and a halo reaching past that would leave no background
+/// between dot and ring, so HEAD's ring would read as a thick edge on the dot
+/// instead of a ring. 5.0 + 1 = 6.0 leaves 0.25px of gap, and
+/// `graph_dot_geometry_test.dart` is what holds the two apart. Growing the
+/// dot further means growing the ring, which means moving
+/// [kGraphLaneInset] -- see its own note.
+const double kGraphDotRadius = 5.0;
 const double kGraphDotHaloWidth = 2.0;
 const double kGraphHeadRingRadius = 7.0;
 const double kGraphHeadRingStrokeWidth = 1.5;
 const double kGraphEdgeStrokeWidth = 1.75;
+
+/// Where lane 0's centre sits, measured from the graph column's left edge.
+///
+/// **8, which is `ceil(7.75)` -- the HEAD ring's outer edge**
+/// ([kGraphHeadRingRadius] plus half of [kGraphHeadRingStrokeWidth]).
+/// `commit_row.dart` wraps this painter in a `ClipRect`, so a centre closer
+/// to the edge than that loses the ring's left side on the one lane HEAD
+/// sits in most often: the trunk.
+///
+/// This replaces `laneWidth * (lane + 0.5)`, which put lane 0 half a pitch
+/// in and so made the ring's room a function of the pitch -- 0.75px of
+/// clearance at a 17px pitch, none at all below 16, which
+/// `graph_dot_geometry_test.dart` used to say out loud. Spec's own geometry
+/// is the same shape as the inset, not as the half-pitch:
+/// `spec_logic.js:428` is `const L0 = 15, L1 = 32`, two centres one pitch
+/// apart with lane 0 nowhere near half a pitch.
+///
+/// The column's natural width is unaffected and stays
+/// `laneWidth * (laneCount + 1)`: the trailing slack that formula leaves is
+/// wider than the leading inset at every lane count, so the *last* lane's
+/// ring was never the one at risk.
+const double kGraphLaneInset = 8.0;
 
 /// Paints one row's lane dot and its connectors (edges), consuming the real
 /// edge list from [GraphSnapshotView] and drawing curved bends where needed.
@@ -53,7 +84,7 @@ class GraphRowPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final double centerY = size.height / 2;
-    final double dotX = laneWidth * (row.lane + 0.5);
+    final double dotX = kGraphLaneInset + laneWidth * row.lane;
 
     // Compute which edges span this row and draw each
     final List<EdgeSegment> segments = computeEdgeSegments(
@@ -71,8 +102,8 @@ class GraphRowPainter extends CustomPainter {
   }
 
   void _paintEdgeSegment(Canvas canvas, Size size, EdgeSegment segment) {
-    final double startX = laneWidth * (segment.startLane + 0.5);
-    final double endX = laneWidth * (segment.endLane + 0.5);
+    final double startX = kGraphLaneInset + laneWidth * segment.startLane;
+    final double endX = kGraphLaneInset + laneWidth * segment.endLane;
     final double startY = size.height * segment.startYFraction;
     final double endY = size.height * segment.endYFraction;
     final int colorIndex = segment.edgeColor % colors.graphLanes.length;
@@ -102,9 +133,9 @@ class GraphRowPainter extends CustomPainter {
     final Offset centre = Offset(x, centerY);
 
     // Fill first, then the halo *over* it -- SVG paints stroke on top of
-    // fill, and the stroke is centred on the path, so spec's `r: 4.2` with a
-    // 2px panel-coloured stroke leaves a 3.2px coloured core inside a halo
-    // reaching 5.2. Painting the halo first instead would show a 4.2 core:
+    // fill, and the stroke is centred on the path, so `r: 5.0` with a 2px
+    // panel-coloured stroke leaves a 4.0px coloured core inside a halo
+    // reaching 6.0. Painting the halo first instead would show a 5.0 core:
     // visibly different, and the reason this is worth a comment rather than
     // two drawCircle calls in whatever order.
     canvas.drawCircle(centre, kGraphDotRadius, Paint()..color = dotColor);
@@ -119,9 +150,9 @@ class GraphRowPainter extends CustomPainter {
 
     if (row.isHead) {
       // Spec gives HEAD a separate ring at a fixed radius rather than a
-      // bigger dot -- every dot is 4.2 -- and strokes it in the accent
-      // colour, not the lane's, so "you are here" reads the same whichever
-      // lane HEAD happens to sit in.
+      // bigger dot -- every dot is [kGraphDotRadius] -- and strokes it in the
+      // accent colour, not the lane's, so "you are here" reads the same
+      // whichever lane HEAD happens to sit in.
       canvas.drawCircle(
         centre,
         kGraphHeadRingRadius,

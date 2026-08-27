@@ -365,6 +365,182 @@ void main() {
       expect(merged, contains(local));
     });
 
+    // The user's own repository: branches pushed with `git push origin HEAD`
+    // (no `-u`), so `branch.<name>.merge` is empty and `%(upstream)` is blank,
+    // while `refs/remotes/origin/<name>` exists all the same. Matching only on
+    // the tracking *config* let that remote ref through, and then:
+    //
+    //   root-level name   rootNodes['main'] = local, then overwritten by
+    //                     remote -- the local row vanished, taking Checkout,
+    //                     Merge and Delete branch with it
+    //   nested name       two leaves under the same folder, one git-branch
+    //                     and one cloud, for a single branch
+    //
+    // After a fetch the prune preview marked that remote ref gone-pending, so
+    // the surviving row turned cloud-off + gone. That is the whole of the
+    // reported 「剛進來是灰雲、fetch 後變黃雲斜線」.
+    test('drops a same-named remote branch even when the local branch never '
+        'set an upstream', () {
+      final local = localBranch(shortName: 'main');
+      final remote = remoteBranch(remote: 'origin', branch: 'main');
+
+      final merged = mergeLocalAndRemoteBranches([local], [remote]);
+
+      expect(merged, [local]);
+    });
+
+    test('a nested same-named pair does not become two leaves', () {
+      // The root-level case collapses in a Map (silently); the nested case
+      // appends to a List (visibly). Both have to be covered because they
+      // fail in different directions.
+      final local = localBranch(shortName: 'feat/p03-working-copy-redesign');
+      final remote = remoteBranch(
+        remote: 'origin',
+        branch: 'feat/p03-working-copy-redesign',
+      );
+
+      final merged = mergeLocalAndRemoteBranches([local], [remote]);
+      final tree = buildBranchTree(merged, {'feat'});
+
+      expect(merged, [local]);
+      final folder = tree.single as BranchTreeFolder;
+      expect(folder.children.length, 1);
+      expect(
+        (folder.children.single as BranchTreeLeaf).ref.kind,
+        RefKind.localBranch,
+      );
+    });
+
+    // remoteCounterpartOf is tested directly, not only through the merge.
+    // The merge drops a same-named remote row either way -- once by claiming
+    // it and once by the one-row-per-name rule below it -- so a merge
+    // assertion cannot tell the two mechanisms apart, and the name rule
+    // survived a mutation that deleted it outright. C5 and C7 read this
+    // function for its *answer* (which remote ref, so gone-ness and the
+    // ahead/behind badge can be looked up), not for the merge's side effect.
+    test('a same-named remote ref is the counterpart of a local branch that '
+        'never set an upstream', () {
+      final local = localBranch(shortName: 'main');
+      final origin = remoteBranch(remote: 'origin', branch: 'main');
+
+      expect(remoteCounterpartOf(local, [origin]), 'refs/remotes/origin/main');
+    });
+
+    test('a local branch with no same-named remote ref has no counterpart', () {
+      final local = localBranch(shortName: 'lfs-prune');
+      final origin = remoteBranch(remote: 'origin', branch: 'lane-overflow');
+
+      expect(remoteCounterpartOf(local, [origin]), '');
+    });
+
+    test('an upstream that no longer exists is still the counterpart', () {
+      // The whole gone case: git kept the tracking config, the ref is gone.
+      // Returning '' here would make a gone branch indistinguishable from a
+      // never-pushed one, which is exactly what C5 has to tell apart.
+      final local = localBranch(
+        shortName: 'main',
+        upstream: 'refs/remotes/origin/main',
+      );
+
+      expect(remoteCounterpartOf(local, []), 'refs/remotes/origin/main');
+    });
+
+    test('a symbolic remote ref is never a counterpart', () {
+      final local = localBranch(shortName: 'HEAD');
+      final origin = remoteBranch(
+        remote: 'origin',
+        branch: 'HEAD',
+        isSymbolic: true,
+      );
+
+      expect(remoteCounterpartOf(local, [origin]), '');
+    });
+
+    test('drops a remote branch tracked under a different name', () {
+      // Pins the claim itself rather than the name dedup: the two rows share
+      // no name, so only `claimed` can drop this one.
+      final local = localBranch(
+        shortName: 'feature/x',
+        upstream: 'refs/remotes/origin/renamed-x',
+      );
+      final remote = remoteBranch(remote: 'origin', branch: 'renamed-x');
+
+      final merged = mergeLocalAndRemoteBranches([local], [remote]);
+
+      expect(merged, [local]);
+    });
+
+    test(
+      'an explicit upstream wins over a same-named ref on another remote',
+      () {
+        // Tracking is a statement the user made; the name match is a guess.
+        // Only the tracked ref is the counterpart, so origin/main survives as
+        // a remote-only row of its own.
+        final local = localBranch(
+          shortName: 'main',
+          upstream: 'refs/remotes/upstream/main',
+        );
+        final origin = remoteBranch(remote: 'origin', branch: 'main');
+        final up = remoteBranch(remote: 'upstream', branch: 'main');
+
+        expect(
+          remoteCounterpartOf(local, [origin, up]),
+          'refs/remotes/upstream/main',
+        );
+      },
+    );
+
+    test('a name match on two remotes at once claims neither', () {
+      // origin/main and upstream/main are two different refs and nothing
+      // says which one an untracked local `main` means. Guessing would drop
+      // a real branch, so the name rule only fires when it is unambiguous.
+      final local = localBranch(shortName: 'main');
+      final origin = remoteBranch(remote: 'origin', branch: 'main');
+      final up = remoteBranch(remote: 'upstream', branch: 'main');
+
+      expect(remoteCounterpartOf(local, [origin, up]), '');
+    });
+
+    test('the local row still survives a two-remote name collision', () {
+      // Nothing is claimed, so both remote rows reach the shortName rewrite
+      // and all three rows end up called `main`. The local one is the row
+      // that can be checked out, merged and deleted, so it is the one that
+      // must not be the casualty.
+      final local = localBranch(shortName: 'main');
+      final origin = remoteBranch(remote: 'origin', branch: 'main');
+      final up = remoteBranch(remote: 'upstream', branch: 'main');
+
+      final merged = mergeLocalAndRemoteBranches([local], [origin, up]);
+
+      expect(merged.where((r) => r.shortName == 'main').length, 1);
+      expect(merged.single.kind, RefKind.localBranch);
+    });
+
+    test('two remote-only refs sharing a branch name collapse to one row', () {
+      // Same collision with no local branch to prefer. First wins, so the
+      // outcome is at least deterministic rather than last-write-wins.
+      final origin = remoteBranch(remote: 'origin', branch: 'shared');
+      final up = remoteBranch(remote: 'upstream', branch: 'shared');
+
+      final merged = mergeLocalAndRemoteBranches([], [origin, up]);
+
+      expect(merged.length, 1);
+      expect(merged.single.fullName, 'refs/remotes/origin/shared');
+    });
+
+    test(
+      'a remote ref whose branch name only prefixes a local one is kept',
+      () {
+        // `main` must not claim `main-2`: the rule is equality, not prefix.
+        final local = localBranch(shortName: 'main');
+        final remote = remoteBranch(remote: 'origin', branch: 'main-2');
+
+        final merged = mergeLocalAndRemoteBranches([local], [remote]);
+
+        expect(merged.length, 2);
+      },
+    );
+
     test('a stripped remote-only branch groups into the same folder as a '
         'same-prefix local branch', () {
       final local = localBranch(shortName: 'bugfix/rebase-conflict');

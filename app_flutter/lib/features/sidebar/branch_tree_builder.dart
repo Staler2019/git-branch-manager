@@ -149,49 +149,146 @@ List<BranchTreeNode> buildBranchTree(
   return result.toList(growable: false);
 }
 
-/// Merges [localBranches] with the subset of [remoteBranches] that has no
-/// local branch tracking it ("remote-only", Flutter Desktop Spec's
-/// `BRANCH_STATES` "Remote only（未 checkout）") into one flat list ready for
+/// Remote branches indexed by branch name -- the part after `<remote>/` --
+/// so that asking "what is this local branch's remote counterpart?" is O(1)
+/// per row instead of a scan.
+///
+/// Built once per render pass and thrown away; it holds no state and is never
+/// put into [RepoSessionState]. That last part is deliberate: a freshly built
+/// `Map` has no value equality, so threading one through `WorkspaceScreen`'s
+/// watched record would make the record unequal on every publish and restore
+/// the menu-bar rebuild storm (CLAUDE.md, "History 捲動卡頓").
+///
+/// A name carried by **two** remotes is left out of the index entirely rather
+/// than resolved to whichever came first -- see [counterpartOf].
+class RemoteBranchIndex {
+  const RemoteBranchIndex._(this._unambiguousByBranchName);
+
+  factory RemoteBranchIndex.from(List<RefInfo> remoteBranches) {
+    final Map<String, String> byName = <String, String>{};
+    final Set<String> ambiguous = <String>{};
+    for (final RefInfo remote in remoteBranches) {
+      // origin/HEAD is not a branch to show, check out or claim.
+      if (remote.isSymbolic) continue;
+      final String branchName = remoteBranchParts(remote.fullName).$2;
+      if (byName.containsKey(branchName)) {
+        ambiguous.add(branchName);
+        continue;
+      }
+      byName[branchName] = remote.fullName;
+    }
+    for (final String name in ambiguous) {
+      byName.remove(name);
+    }
+    return RemoteBranchIndex._(byName);
+  }
+
+  /// Branch name -> that branch's one remote ref, ambiguous names removed.
+  final Map<String, String> _unambiguousByBranchName;
+
+  /// The full name of [local]'s counterpart, or the empty string when it has
+  /// none.
+  ///
+  /// Two rules, in order:
+  ///
+  /// 1. **An explicit upstream wins.** [RefInfo.upstream] is git's
+  ///    `%(upstream)` -- the tracked ref's *full* name
+  ///    (`refs/remotes/origin/main`, confirmed against real `git for-each-ref`
+  ///    output, not `%(upstream:short)`). It is returned whether or not that
+  ///    ref is still present, because a tracked upstream that has vanished is
+  ///    exactly the gone case callers need to see.
+  /// 2. **Otherwise, an unambiguous same-named remote ref.** `git push origin
+  ///    HEAD` (no `-u`) and most PR flows write no `branch.NAME.merge` config
+  ///    at all, so `%(upstream)` comes back blank while the remote-tracking
+  ///    ref exists all the same. With nothing but the name linking the two,
+  ///    matching on the tracking *config* alone let that remote ref through as
+  ///    a second row for a branch that already had one.
+  ///
+  /// Ambiguity claims nothing. With both `origin/main` and `upstream/main`
+  /// present, nothing says which one an untracked local `main` means, and
+  /// guessing would hide a real branch.
+  String counterpartOf(RefInfo local) {
+    if (local.upstream.isNotEmpty) {
+      return local.upstream;
+    }
+    return _unambiguousByBranchName[local.shortName] ?? '';
+  }
+}
+
+/// [RemoteBranchIndex.counterpartOf] for a caller with one branch to resolve
+/// (the current branch, a selected row) rather than a list to walk.
+///
+/// O(remoteBranches) because it builds the index to answer once. A caller
+/// resolving *every* row must build a [RemoteBranchIndex] instead and reuse
+/// it -- calling this per row is quadratic, which measured 14ms per merge at
+/// 500 local + 500 remote branches against 0.1ms for the indexed form.
+String remoteCounterpartOf(RefInfo local, List<RefInfo> remoteBranches) =>
+    RemoteBranchIndex.from(remoteBranches).counterpartOf(local);
+
+/// Merges [localBranches] with the subset of [remoteBranches] that no local
+/// branch claims ("remote-only", Flutter Desktop Spec's `BRANCH_STATES`
+/// "Remote only（未 checkout）") into one flat list ready for
 /// [buildBranchTree] -- spec page 02 items 4/12: "Local 與 remote 不再分兩
-/// 段，同一條分支只出現一次". A local branch's [RefInfo.upstream] is git's
-/// `%(upstream)` output, the tracked ref's *full* name
-/// (`refs/remotes/origin/main`, confirmed against real `git for-each-ref`
-/// output, not `%(upstream:short)`), so it's matched directly against a
-/// remote branch's [RefInfo.fullName]. A matched remote branch is dropped --
-/// the local leaf already represents it. An unmatched one is kept with its
-/// `shortName` rewritten to drop the leading `<remote>/` segment (recover it
-/// with [remoteBranchParts] on `fullName`) so it groups into the same folder
-/// a same-named local branch would, since [buildBranchTree] groups by
-/// `shortName.split('/')`. Symbolic remote refs (`origin/HEAD`) are excluded
-/// -- not a real branch to show or check out.
+/// 段，同一條分支只出現一次".
+///
+/// Claiming is [RemoteBranchIndex.counterpartOf]'s two rules. A claimed
+/// remote ref is dropped: the local leaf already represents it. An unclaimed
+/// one is kept with its `shortName` rewritten to drop the leading `<remote>/`
+/// segment (recover it with [remoteBranchParts] on `fullName`) so it groups
+/// into the same folder a same-named local branch would, since
+/// [buildBranchTree] groups by `shortName.split('/')`. Symbolic remote refs
+/// (`origin/HEAD`) are excluded -- not a real branch to show or check out.
+///
+/// **This function is the one place that enforces 「同一條分支只出現一次」**,
+/// and it holds after claiming too: two remotes can carry the same branch
+/// name, in which case neither is claimed (the name is ambiguous) and both
+/// would still arrive at the same rewritten `shortName`. Whoever is first
+/// under that name wins, and [localBranches] come first, so the row that can
+/// be checked out, merged and deleted is never the casualty. That is a real
+/// reduction -- a second remote's copy of a branch name is not drawn -- and it
+/// is deterministic rather than the order-dependent overwrite it replaced.
+/// [buildBranchTree] does no such de-duplication of its own: root-level names
+/// go into a `Map` (silently last-write-wins) and nested ones into a `List`
+/// (visibly duplicated), so a caller handing it duplicates gets one of those
+/// two failures.
 List<RefInfo> mergeLocalAndRemoteBranches(
   List<RefInfo> localBranches,
   List<RefInfo> remoteBranches,
 ) {
-  final Set<String> trackedUpstreams = localBranches
-      .map((b) => b.upstream)
-      .where((u) => u.isNotEmpty)
-      .toSet();
+  final RemoteBranchIndex index = RemoteBranchIndex.from(remoteBranches);
+  final Set<String> claimed = <String>{};
+  final Set<String> takenNames = <String>{};
+  for (final RefInfo local in localBranches) {
+    final String counterpart = index.counterpartOf(local);
+    if (counterpart.isNotEmpty) {
+      claimed.add(counterpart);
+    }
+    takenNames.add(local.shortName);
+  }
 
-  final List<RefInfo> remoteOnly = remoteBranches
-      .where((r) => !r.isSymbolic && !trackedUpstreams.contains(r.fullName))
-      .map(
-        (r) => RefInfo(
-          fullName: r.fullName,
-          shortName: remoteBranchParts(r.fullName).$2,
-          kind: r.kind,
-          target: r.target,
-          upstream: r.upstream,
-          ahead: r.ahead,
-          behind: r.behind,
-          hasTrackingInfo: r.hasTrackingInfo,
-          isGone: r.isGone,
-          isHead: r.isHead,
-          isSymbolic: r.isSymbolic,
-          worktreePath: r.worktreePath,
-        ),
-      )
-      .toList(growable: false);
+  final List<RefInfo> remoteOnly = <RefInfo>[];
+  for (final RefInfo r in remoteBranches) {
+    if (r.isSymbolic || claimed.contains(r.fullName)) continue;
+    final String branchName = remoteBranchParts(r.fullName).$2;
+    // `Set.add` returns false when the name is already spoken for.
+    if (!takenNames.add(branchName)) continue;
+    remoteOnly.add(
+      RefInfo(
+        fullName: r.fullName,
+        shortName: branchName,
+        kind: r.kind,
+        target: r.target,
+        upstream: r.upstream,
+        ahead: r.ahead,
+        behind: r.behind,
+        hasTrackingInfo: r.hasTrackingInfo,
+        isGone: r.isGone,
+        isHead: r.isHead,
+        isSymbolic: r.isSymbolic,
+        worktreePath: r.worktreePath,
+      ),
+    );
+  }
 
   return <RefInfo>[...localBranches, ...remoteOnly];
 }

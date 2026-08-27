@@ -421,7 +421,6 @@ class FakeRepoSessionController extends RepoSessionController {
     commandLog.add(const FakeCommand('refreshEffectiveIdentity'));
   }
 
-
   @override
   void fetchRemote({
     String remoteName = '',

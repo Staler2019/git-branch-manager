@@ -41,7 +41,6 @@ Future<void> _pressCtrl(
   await tester.pumpAndSettle();
 }
 
-
 /// Every command [RepoSessionController.refreshRepoStatus] dispatches. Kept
 /// here rather than imported from the focus-refresh test so that a change to
 /// the sweep has to be acknowledged in both places -- these two files assert
@@ -172,7 +171,6 @@ void main() {
       expect(after - before, 1);
     });
 
-
     // F5 used to refresh only the history, so pressing it after editing a
     // file in another window left the Working Copy tab's pending badge, the
     // diff pane and the conflict state exactly as they were -- on the one
@@ -181,61 +179,63 @@ void main() {
     // tests are what stop the two drifting apart again.
     //
     // Deltas, not absolutes: opening a session refreshes on its own.
-    testWidgets('F5 (Refresh) re-reads every local git fact, not just history', (
-      WidgetTester tester,
-    ) async {
-      final PumpedWorkspace pumped = await pumpWorkspace(
-        tester,
-        identity: identity,
-      );
-      final Map<String, int> before = _tally(pumped.controller.commandLog);
-
-      await tester.sendKeyDownEvent(LogicalKeyboardKey.f5);
-      await tester.sendKeyUpEvent(LogicalKeyboardKey.f5);
-      await tester.pumpAndSettle();
-
-      final Map<String, int> after = _tally(pumped.controller.commandLog);
-      for (final String name in _sweepCommands) {
-        expect(
-          after[name]! - before[name]!,
-          1,
-          reason: 'F5 must dispatch $name exactly once',
+    testWidgets(
+      'F5 (Refresh) re-reads every local git fact, not just history',
+      (WidgetTester tester) async {
+        final PumpedWorkspace pumped = await pumpWorkspace(
+          tester,
+          identity: identity,
         );
-      }
-    });
+        final Map<String, int> before = _tally(pumped.controller.commandLog);
+
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.f5);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.f5);
+        await tester.pumpAndSettle();
+
+        final Map<String, int> after = _tally(pumped.controller.commandLog);
+        for (final String name in _sweepCommands) {
+          expect(
+            after[name]! - before[name]!,
+            1,
+            reason: 'F5 must dispatch $name exactly once',
+          );
+        }
+      },
+    );
 
     // The third dispatch path. A PlatformMenuItem takes its callback straight
     // out of the same actionHandlers map, so wiring viewRefresh only in
     // MenuBarRow's params would leave this one null -- the exact shape of the
     // bug this file was created for.
-    testWidgets('the macOS system menu Refresh item dispatches the same sweep', (
-      WidgetTester tester,
-    ) async {
-      final PumpedWorkspace pumped = await pumpWorkspace(
-        tester,
-        identity: identity,
-        isMacOS: true,
-      );
-      final PlatformMenuBar bar = tester.widget<PlatformMenuBar>(
-        find.byType(PlatformMenuBar),
-      );
-      final PlatformMenuItem? item = _findMenuItem(bar.menus, 'Refresh');
-      expect(item, isNotNull, reason: 'View > Refresh must exist on macOS');
-      expect(
-        item!.onSelected,
-        isNotNull,
-        reason: 'a null handler is what greys the item out natively',
-      );
+    testWidgets(
+      'the macOS system menu Refresh item dispatches the same sweep',
+      (WidgetTester tester) async {
+        final PumpedWorkspace pumped = await pumpWorkspace(
+          tester,
+          identity: identity,
+          isMacOS: true,
+        );
+        final PlatformMenuBar bar = tester.widget<PlatformMenuBar>(
+          find.byType(PlatformMenuBar),
+        );
+        final PlatformMenuItem? item = _findMenuItem(bar.menus, 'Refresh');
+        expect(item, isNotNull, reason: 'View > Refresh must exist on macOS');
+        expect(
+          item!.onSelected,
+          isNotNull,
+          reason: 'a null handler is what greys the item out natively',
+        );
 
-      final Map<String, int> before = _tally(pumped.controller.commandLog);
-      item.onSelected!();
-      await tester.pumpAndSettle();
+        final Map<String, int> before = _tally(pumped.controller.commandLog);
+        item.onSelected!();
+        await tester.pumpAndSettle();
 
-      final Map<String, int> after = _tally(pumped.controller.commandLog);
-      for (final String name in _sweepCommands) {
-        expect(after[name]! - before[name]!, 1, reason: 'system menu: $name');
-      }
-    });
+        final Map<String, int> after = _tally(pumped.controller.commandLog);
+        for (final String name in _sweepCommands) {
+          expect(after[name]! - before[name]!, 1, reason: 'system menu: $name');
+        }
+      },
+    );
 
     testWidgets('Ctrl+B (Toggle sidebar) actually hides SidebarPanel', (
       tester,

@@ -25,10 +25,6 @@ final ProviderFamily<bool, RepoIdentity> repoIsRefreshingProvider =
       );
     });
 
-void refreshRepoHistory(WidgetRef ref, RepoIdentity identity) {
-  ref.read(repoSessionProvider(identity).notifier).refreshHistory();
-}
-
 /// Batch-fetched commit metadata (author/subject/date), keyed by oid -- see
 /// [RepoSessionState.commitMetaCache]. Populated by [requestCommitMeta].
 final ProviderFamily<Map<String, CommitMeta>, RepoIdentity> commitMetaProvider =

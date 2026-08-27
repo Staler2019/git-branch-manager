@@ -2950,16 +2950,23 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// refreshes history.
   void pruneRemote(String remoteName, List<String> refs) {
     if (_session == nullptr || refs.isEmpty) return;
+    // git's `branch -r -d` only accepts short names, and this method's two
+    // producers disagree on form -- see pruneRefArguments() for the measured
+    // failure and why the normalisation lives at the wire rather than at each
+    // call site. The tracker gets the same normalised list, which stays
+    // correct because withGonePendingRemoved() re-expands to full names
+    // before comparing against the pending set.
+    final List<String> args = pruneRefArguments(refs);
     // Recorded before the call so the outcome can be attributed to *this*
     // request -- see PendingOperationTracker's doc comment. Only a
     // successful prune clears the gone-pending marks it answers for.
     _pending.recordPruneRemote(
-      PendingPruneRemoteRequest(remoteName: remoteName, refs: refs),
+      PendingPruneRemoteRequest(remoteName: remoteName, refs: args),
     );
     final Pointer<Utf8> remotePtr = remoteName.toNativeUtf8();
     try {
       _withNativeStringArray(
-        refs,
+        args,
         (array, count) =>
             _bindings.remotePrune(_session, remotePtr, array, count),
       );

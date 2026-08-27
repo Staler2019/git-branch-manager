@@ -24,10 +24,9 @@ void main() {
     test('a short name is passed through unchanged', () {
       // The Prune dialog sends git's own short names; normalising must not
       // mangle the form that already worked.
-      expect(
-        pruneRefArguments(<String>['origin/feat/x']),
-        <String>['origin/feat/x'],
-      );
+      expect(pruneRefArguments(<String>['origin/feat/x']), <String>[
+        'origin/feat/x',
+      ]);
     });
 
     test('a mixed list is normalised entry by entry', () {

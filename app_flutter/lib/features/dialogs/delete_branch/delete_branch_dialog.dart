@@ -10,6 +10,33 @@ import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
 
+/// The remote [branch]'s upstream lives on: `refs/remotes/origin/feature/x`
+/// -> `origin`. Empty when the branch tracks nothing, which is what hides the
+/// "also delete on remote" checkbox.
+///
+/// Two traps, both of which this function used to fall into (#74):
+///
+/// 1. [RefInfo.upstream] is git's `%(upstream)` -- the **full** ref name, not
+///    `%(upstream:short)`. Splitting it on the first slash yields the literal
+///    string `refs`, and the dialog then dispatched
+///    `git push refs --delete <branch>`. `remoteBranchParts()` is the one
+///    place that knows how to take a full remote ref apart, and a remote
+///    whose branch name itself contains slashes is why the naive split cannot
+///    be repaired in place.
+/// 2. [RefInfo.hasTrackingInfo] mirrors `%(upstream:track)`, which git leaves
+///    **empty for a branch exactly in sync**. Using it to ask "does this
+///    track a remote?" hid the checkbox on the commonest branch there is.
+///    The question is answered by `upstream` alone.
+///
+/// Free rather than a private static so it can be tested without pumping the
+/// dialog -- the same shape as `deleteBranchLines()` in the sibling
+/// multi-branch dialog.
+String deleteBranchRemoteName(RefInfo branch) {
+  if (branch.upstream.isEmpty) return '';
+  final (String remote, String _) = remoteBranchParts(branch.upstream);
+  return remote;
+}
+
 /// Branch → Delete branch… and context menu 05-B's "Delete branch…".
 ///
 /// Spec page 06: "複述分支名與未合併的 commit 數；可勾選一併刪遠端。主按鈕為
@@ -53,15 +80,6 @@ class _DeleteBranchDialogContentState
     _selected = widget.branchName;
   }
 
-  /// The remote a branch's upstream lives on: `origin/feature/x` -> `origin`.
-  /// Empty when the branch has no upstream, which is what hides the
-  /// "also delete on remote" checkbox.
-  static String _remoteOf(RefInfo branch) {
-    if (!branch.hasTrackingInfo || branch.upstream.isEmpty) return '';
-    final int slash = branch.upstream.indexOf('/');
-    return slash == -1 ? '' : branch.upstream.substring(0, slash);
-  }
-
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
@@ -81,8 +99,21 @@ class _DeleteBranchDialogContentState
       if (b.shortName == _selected) target = b;
     }
 
-    final String remote = target == null ? '' : _remoteOf(target);
+    final String remote = target == null ? '' : deleteBranchRemoteName(target);
     final bool canDelete = target != null;
+
+    // One predicate, read by both the checkbox and the delete button.
+    // Spelling it twice -- `_alsoDeleteRemote && !branch.isGone` on the box
+    // and `_alsoDeleteRemote && remote.isNotEmpty` at the dispatch -- is the
+    // second-source-of-truth shape: the two can only agree by accident, and
+    // here they agreed only because the picker's onChanged happens to clear
+    // the flag on every selection change. That reset is a separate mechanism
+    // and the safety must not rest on it.
+    final bool willDeleteRemote = switch (target) {
+      RefInfo(:final bool isGone) =>
+        _alsoDeleteRemote && remote.isNotEmpty && !isGone,
+      null => false,
+    };
 
     return GbmDialogShell(
       title: 'Delete Branch',
@@ -98,7 +129,7 @@ class _DeleteBranchDialogContentState
                     repoSessionProvider(widget.identity).notifier,
                   );
                   notifier.deleteBranch(names: <String>[target!.shortName]);
-                  if (_alsoDeleteRemote && remote.isNotEmpty) {
+                  if (willDeleteRemote) {
                     notifier.deleteBranch(
                       names: <String>[target.shortName],
                       isRemote: true,
@@ -194,26 +225,37 @@ class _DeleteBranchDialogContentState
             if (remote.isNotEmpty) ...<Widget>[
               const SizedBox(height: GbmSpacing.space2),
               CheckboxListTile(
-                value: _alsoDeleteRemote,
+                // Disabled rather than hidden when the upstream has already
+                // vanished: ticking it would push the branch back up and
+                // then delete it again (#74's own closing note), and hiding
+                // the row would read as "this branch has no remote", which
+                // is a different and wrong statement. 隱藏會讓人以為功能不
+                // 存在 -- the same rule GbmMenuItem.enabled follows.
+                value: willDeleteRemote,
                 dense: true,
                 contentPadding: EdgeInsets.zero,
                 controlAffinity: ListTileControlAffinity.leading,
                 title: Text(
-                  'Also delete ${branch.upstream} on $remote',
+                  'Also delete ${remoteBranchParts(branch.upstream).$2} '
+                  'on $remote',
                   style: TextStyle(
                     fontSize: GbmTypography.textSm,
                     color: colors.textPrimary,
                   ),
                 ),
                 subtitle: Text(
-                  'Other people only see this after they fetch.',
+                  branch.isGone
+                      ? 'Already gone on $remote -- nothing left to delete.'
+                      : 'Other people only see this after they fetch.',
                   style: TextStyle(
                     fontSize: GbmTypography.textXs,
                     color: colors.textTertiary,
                   ),
                 ),
-                onChanged: (bool? value) =>
-                    setState(() => _alsoDeleteRemote = value ?? false),
+                onChanged: branch.isGone
+                    ? null
+                    : (bool? value) =>
+                          setState(() => _alsoDeleteRemote = value ?? false),
               ),
             ],
           ] else

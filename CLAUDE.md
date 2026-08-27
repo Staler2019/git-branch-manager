@@ -1237,7 +1237,13 @@ you are touching, not by when it was learned.
   own, and an undiscriminated rule deletes the refs it is listing out from
   under the user. An automatic prune's failure is kept out of `lastError` —
   nobody asked for it — but still reaches the operation log; not notifying is
-  not the same as not recording.
+  not the same as not recording. **P11 item 9's 「可選同時 prune」 switch is
+  deleted, not merely unwired** — the behaviour above is describable by no
+  wording of an on/off switch (off would not stop it; on would promise the
+  full `--prune` the ruling does not do), so `AppPreferences.autoFetchPrune`
+  is gone from the model, the dialog and storage. Re-adding it re-creates a
+  control that lies. `AppPreferences`' own doc rule is the precedent: absent
+  beats present-and-ignored.
 - `RemotePrunePreviewEntry.ref` is a **short** name while `upstream` and a
   remote row's `fullName` are full — normalise through `fullRemoteRefName()`.
   Every *comparison* in this codebase is on the full form; the short form is
@@ -1650,14 +1656,14 @@ derived from the code — they outrank convenience every time):
   the switcher, squashing N commits, per-remote Pull/Push, and seven
   `PANELSPEC` detail fields (待提交數, 最後 fetch, 預期 commit, 大小,
   剩餘步數, 自訂測試指令, 欄位選擇器). All tracked on **#76**.
-- **Preferences → Git 的「Prune while fetching」 now contradicts what ships.**
-  `AppPreferences.autoFetchPrune` is stored, drawn and **read by nothing**
-  (one of #102's three `autoFetch*` orphans), while fetch now auto-prunes
-  unclaimed refs regardless of it — so a user who switches it off still sees
-  refs vanish. Wiring it as worded is *not* available: the row promises a
-  full `--prune`, and the user's ruling keeps refs that a local branch
-  claims. Remove the row, reword it to the restricted subset, or accept the
-  mismatch — a product decision, recorded on **#102**, not taken here.
+- **Preferences → General 的 AUTOMATIC FETCH 整段沒有實作在後面。**
+  `autoFetchEnabled` and `autoFetchMinutes` are stored, drawn and **read by
+  nothing** — no timer anywhere issues that fetch — so P11 item 9's 「預設每
+  10 分鐘一次…切換 repo 時重置計時」 has no implementation to check against.
+  Two of #102's three `autoFetch*` orphans; the third, `autoFetchPrune`, was
+  **deleted** rather than wired (see the fetch auto-prune entry above). An
+  earlier record put that row in Preferences → **Git**; it is
+  `_GeneralSection`.
 - `lfs_pattern_match.dart` is an **approximation** of gitattributes matching,
   not a port of `wildmatch()`; a pattern it cannot parse matches nothing, so
   a group reads 0 rather than a wrong number.

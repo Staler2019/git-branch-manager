@@ -22,7 +22,6 @@ class AppPreferences {
   const AppPreferences({
     this.autoFetchEnabled = false,
     this.autoFetchMinutes = 10,
-    this.autoFetchPrune = false,
     this.recordManualOpens = true,
     this.autoScanEnabled = false,
     this.autoScanMinutes = 30,
@@ -40,9 +39,18 @@ class AppPreferences {
 
   /// General. Spec page 11 item 9: "只針對目前開啟的 repository，預設每 10
   /// 分鐘一次… 純 fetch 不動 working tree".
+  ///
+  /// The same item also offers "可選同時 prune"; that switch is **absent by
+  /// the user's ruling**, not unimplemented. A successful fetch now prunes
+  /// the remote-tracking refs that are gone upstream *and* that no local
+  /// branch claims, which no wording of an on/off switch describes: off
+  /// would not stop it, and on would promise the full `--prune` the ruling
+  /// deliberately does not do. It shipped stored, drawn and read by nothing
+  /// (#102), so the switch said one thing while the app did another. Absent
+  /// rather than present-and-ignored, by this class's own rule above --
+  /// the same treatment 計量網路暫停 already gets.
   final bool autoFetchEnabled;
   final int autoFetchMinutes;
-  final bool autoFetchPrune;
 
   /// General. Spec page 11 item 6: manually-opened repositories are recorded
   /// in their own list rather than mixed into the base folders.
@@ -121,7 +129,6 @@ class AppPreferences {
   AppPreferences copyWith({
     bool? autoFetchEnabled,
     int? autoFetchMinutes,
-    bool? autoFetchPrune,
     bool? recordManualOpens,
     bool? autoScanEnabled,
     int? autoScanMinutes,
@@ -139,7 +146,6 @@ class AppPreferences {
     return AppPreferences(
       autoFetchEnabled: autoFetchEnabled ?? this.autoFetchEnabled,
       autoFetchMinutes: autoFetchMinutes ?? this.autoFetchMinutes,
-      autoFetchPrune: autoFetchPrune ?? this.autoFetchPrune,
       recordManualOpens: recordManualOpens ?? this.recordManualOpens,
       autoScanEnabled: autoScanEnabled ?? this.autoScanEnabled,
       autoScanMinutes: autoScanMinutes ?? this.autoScanMinutes,
@@ -177,9 +183,6 @@ class AppPreferencesRepository {
       autoFetchMinutes:
           _prefs.getInt('${_kPrefix}autoFetchMinutes') ??
           defaults.autoFetchMinutes,
-      autoFetchPrune:
-          _prefs.getBool('${_kPrefix}autoFetchPrune') ??
-          defaults.autoFetchPrune,
       recordManualOpens:
           _prefs.getBool('${_kPrefix}recordManualOpens') ??
           defaults.recordManualOpens,
@@ -224,7 +227,6 @@ class AppPreferencesRepository {
   Future<void> write(AppPreferences p) async {
     await _prefs.setBool('${_kPrefix}autoFetchEnabled', p.autoFetchEnabled);
     await _prefs.setInt('${_kPrefix}autoFetchMinutes', p.autoFetchMinutes);
-    await _prefs.setBool('${_kPrefix}autoFetchPrune', p.autoFetchPrune);
     await _prefs.setBool('${_kPrefix}recordManualOpens', p.recordManualOpens);
     await _prefs.setBool('${_kPrefix}autoScanEnabled', p.autoScanEnabled);
     await _prefs.setInt('${_kPrefix}autoScanMinutes', p.autoScanMinutes);

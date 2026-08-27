@@ -532,9 +532,9 @@ dialog pair in F-B).
 | 6 | Remember manually-opened locations (default ON) | 符合 | `preferences_dialog.dart:344-354` | — |
 | 7 | Manual-open history: **individual entry removal** | **缺少** | `preferences_dialog.dart:497-528` | Only a "Clear list" (clear-all) button exists; `recents_repository.dart:88-94` already has a per-entry `remove(workDir)` method with no UI call site. |
 | 8 | Global gitignore: toggle/path/editor + **imported-value source label** | **缺少** | `preferences_dialog.dart:603-622`, `app_preferences_repository.dart:29-30` | Toggle, path field, and editor all present; the model has no field to track and label *where* an existing value came from when imported from the user's own `.gitconfig`, so the spec's "must not silently overwrite, must label the source" requirement isn't representable yet. |
-| 9 | Auto-fetch: per-repo scope, timer resets on switch | 符合 | `preferences_dialog.dart:299-341` | — |
+| 9 | Auto-fetch: per-repo scope, timer resets on switch, **可選同時 prune** | ~~符合~~ → **部分偏離（使用者裁定）＋ 一個更早就寫錯的判定** (fix/branch-prune-and-gone-marking) | `preferences_dialog.dart` `_GeneralSection`, `app_preferences_repository.dart`, #102 | **兩件事，這一列原本都沒說。** (a) 「可選同時 prune」的開關**已移除**，使用者裁定。同一輪讓成功的 fetch 自動清掉「遠端已刪且沒有任何本機分支認領」的 remote-tracking ref，而那個行為沒有任何開關文案描述得了：關掉不會停止它，打開則承諾了裁定刻意不做的完整 `--prune`。它出貨時是存得下、畫得出、**沒有任何程式讀**（#102 的三個 `autoFetch*` 孤兒之一），所以開關講的和 app 做的不是同一件事。依 `AppPreferences` 自己的規則移除——「a preference that silently does nothing is worse than one that is not offered」，計量網路暫停早就是這樣處理的。手動退路仍在（`Remote → Prune remote branches`）。(b) **這一列的 符合 從頭就只驗到設定，沒驗到行為**：`autoFetchEnabled` 與 `autoFetchMinutes` 同樣沒有任何讀取端，沒有任何計時器會因為它們而發出 fetch，所以「per-repo scope, timer resets on switch」這句話目前沒有實作可對照。與 P02 item 2 同一種形狀——cell 名的是能力，證據卻是一個存在的欄位。剩下這兩個孤兒留在 #102。 |
 
-**4/9 符合, 5 real gaps, all classification (i) or needing one more read to confirm (i) vs (ii).**
+**3/9 符合, 5 real gaps 加 1 個部分偏離。**（原記為 4/9；第 9 列的 符合 已如上更正。）
 
 ---
 

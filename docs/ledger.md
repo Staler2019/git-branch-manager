@@ -5669,11 +5669,12 @@ shortName 是**保留**前綴的（`RefStore.cpp` 的 `substr(13)` 從 `refs/rem
 缺陷：在只會失敗的狀態下仍提供動作。改成停用並附原因，不隱藏。這一項超出原計畫，
 單獨一個 commit 以便需要時只回退它。
 
-### 一個本輪造成、但不由本輪決定的矛盾
+### 一個本輪造成的矛盾（提出時未決，當輪內由使用者裁定移除）
 
-Preferences → Git 有一列 **「Prune while fetching — Also drop remote-tracking
-refs whose branch is gone on the remote」**。`autoFetchPrune` 被儲存、被畫出來，
-**沒有任何程式碼讀它**（#102 記錄的三個 `autoFetch*` 孤兒之一）。
+Preferences → **General** 的 AUTOMATIC FETCH 段有一列 **「Prune while fetching
+— Also drop remote-tracking refs whose branch is gone on the remote」**（早先的
+記錄寫成 Preferences → Git，是錯的，它在 `_GeneralSection`）。`autoFetchPrune`
+被儲存、被畫出來，**沒有任何程式碼讀它**（#102 記錄的三個 `autoFetch*` 孤兒之一）。
 
 本輪之前它只是「調了沒反應」。本輪之後，它描述的行為**無條件會發生**，而開關預設
 是關的——使用者把它關掉，ref 仍然會在 fetch 之後消失。孤兒設定從「沒作用」變成
@@ -5682,6 +5683,17 @@ refs whose branch is gone on the remote」**。`autoFetchPrune` 被儲存、被�
 而且照字面接上去做不到：那一列的文案是**完整** `--prune`，使用者的裁定則是有本機
 分支的要留著。文案本身就與裁定衝突。三條路（移除該列／改寫文案只控制子集／接受
 不一致）都是產品決定，已寫進 #102，本輪不擅自處理。
+
+**使用者裁定：移除。** 於是 `autoFetchPrune` 從 model、dialog 與儲存三處一起刪掉，
+不是留著不接線——留著的話那個控制項就是會說謊。依據是 `AppPreferences` 自己的類別
+註解那句話：「a preference that silently does nothing is worse than one that is
+not offered」，計量網路暫停早就是照這句話處理成「不提供」。P11 item 9 的
+「可選同時 prune」因此成為一條**使用者裁定的規格偏離**，已就地改寫進 matrix。
+
+刪的時候順手查證了一件事，結果比預期糟：`autoFetchEnabled` 與 `autoFetchMinutes`
+**同樣沒有任何讀取端**，沒有任何計時器會因為它們發出 fetch。所以 matrix 上 P11
+第 9 列原本那個 符合 從頭就只驗到「設定存在」，沒驗到「行為存在」——與 P02 item 2
+同一種形狀。那一列一併更正，剩下的兩個孤兒留在 #102（沒有新開 issue）。
 
 ### 這輪沒做
 

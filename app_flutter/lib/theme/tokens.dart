@@ -77,7 +77,32 @@ class GbmColors extends ThemeExtension<GbmColors> {
   final Color dangerHover;
   final Color warning;
 
-  /// `--graph-lane-1` .. `--graph-lane-6`, in order.
+  /// The commit graph's lane colours, indexed by `GraphRow.color` /
+  /// `GraphEdge.color` straight from the core.
+  ///
+  /// **Twelve entries, and that count is a contract, not a preference.**
+  /// `src/core/graph/GraphSnapshot.h`'s `kPaletteSize` is 12 and
+  /// `LaneAllocator::colorForSeed` emits `0 .. kPaletteSize - 1`; this list
+  /// shipped with six, so `graph_column_painter.dart`'s `% length` folded
+  /// colour 6 onto **0 -- the trunk's own colour** -- and 7..11 onto 1..5.
+  /// Two unrelated branches collided at 17.4% rather than the 9.1% twelve
+  /// distinct colours give. `gbm_lane_palette_test.dart` pins the count
+  /// against that constant, because nothing else links the two files.
+  ///
+  /// **The order is a contract too: index distance *is* hue distance.**
+  /// Entry `i` sits at `hue(0) + 30 * i` degrees in OkLCH, so two indices
+  /// `d` apart are `30 * d` degrees apart on the colour wheel, and the
+  /// circular distance `min(d, 12 - d)` is what
+  /// `LaneAllocator::colorForSeed` maximises against a lane's neighbours
+  /// without the core knowing a single RGB value. Reordering this list, or
+  /// dropping one entry, silently turns that arithmetic into nonsense.
+  /// OkLCH rather than HSL because HSL's wheel is not perceptually even --
+  /// the same twelve colours are 12.4 deg apart in the teal band and 68 deg
+  /// apart in the green one, so an HSL-even palette would look unevenly
+  /// spaced and an HSL assertion would misread this one as uneven.
+  ///
+  /// Spec names six (`--graph-lane-1` .. `--graph-lane-6`), so twelve is a
+  /// **user-ratified deviation**; index 0 stays the accent it always was.
   final List<Color> graphLanes;
 
   final Color diffAddBg;
@@ -233,13 +258,22 @@ const GbmColors _neutralProfessional = GbmColors(
   danger: _red500,
   dangerHover: _red600,
   warning: _amber500,
+  // OkLCH L=0.618 C=0.193 -- _accent500's own lightness and chroma, stepped
+  // 30 deg at a time round the wheel, chroma reduced only where sRGB runs out.
+  // Contrast against the white panel is 3.44:1 at worst (was 3.34:1 with six).
   graphLanes: <Color>[
     _accent500,
-    Color(0xFF7358D1),
-    Color(0xFF1A8A4A),
-    Color(0xFFC97A17),
-    Color(0xFFD33D3D),
-    Color(0xFF0E9AA7),
+    Color(0xFF846AF1),
+    Color(0xFFB457CF),
+    Color(0xFFD44799),
+    Color(0xFFE24457),
+    Color(0xFFD25F00),
+    Color(0xFFAF7A05),
+    Color(0xFF8E8B00),
+    Color(0xFF3E9E02),
+    Color(0xFF079D78),
+    Color(0xFF0B989C),
+    Color(0xFF0992BE),
   ],
   diffAddBg: Color(0xFFE6F6EC),
   diffAddText: Color(0xFF136C37),
@@ -278,13 +312,22 @@ const GbmColors _darkTechnical = GbmColors(
   danger: Color(0xFFF85149),
   dangerHover: Color(0xFFFF6A63),
   warning: Color(0xFFD29922),
+  // OkLCH L=0.687 C=0.167, anchored on this theme's own lane 0 (#4C9BFF,
+  // accentHover rather than accent -- the brighter blue reads better on
+  // #0D1117). Contrast against that panel is 6.19:1 at worst (was 5.64:1).
   graphLanes: <Color>[
     Color(0xFF4C9BFF),
-    Color(0xFFA371F7),
-    Color(0xFF3FB950),
-    Color(0xFFD29922),
-    Color(0xFFF85149),
-    Color(0xFF39C5CF),
+    Color(0xFF9387FC),
+    Color(0xFFC176E0),
+    Color(0xFFE06AB1),
+    Color(0xFFEF6877),
+    Color(0xFFEC7333),
+    Color(0xFFCD8C08),
+    Color(0xFFA89F06),
+    Color(0xFF68B13C),
+    Color(0xFF02B685),
+    Color(0xFF01B0B2),
+    Color(0xFF0DAAD7),
   ],
   diffAddBg: Color(0xFF0F2E1A),
   diffAddText: Color(0xFF7EE2A8),
@@ -323,13 +366,24 @@ const GbmColors _lightIde = GbmColors(
   danger: Color(0xFFCF222E),
   dangerHover: Color(0xFFA40E26),
   warning: Color(0xFF9A6700),
+  // OkLCH L=0.546 C=0.151 -- the mean of the five GitHub-light lanes this
+  // replaces, so the palette stays darker and less saturated than
+  // _neutralProfessional's rather than becoming a copy of it. Index 0 is
+  // still _accent500 exactly. Contrast on white is 3.75:1 at worst,
+  // unchanged, with the other eleven between 4.65 and 5.34.
   graphLanes: <Color>[
     _accent500,
-    Color(0xFF8250DF),
-    Color(0xFF1A7F37),
-    Color(0xFF9A6700),
-    Color(0xFFCF222E),
-    Color(0xFF1B7C83),
+    Color(0xFF6F5DC2),
+    Color(0xFF944FA8),
+    Color(0xFFAD457F),
+    Color(0xFFB8434D),
+    Color(0xFFB24F03),
+    Color(0xFF946703),
+    Color(0xFF777504),
+    Color(0xFF3D8420),
+    Color(0xFF078465),
+    Color(0xFF018084),
+    Color(0xFF017BA1),
   ],
   diffAddBg: Color(0xFFE9FBEE),
   diffAddText: Color(0xFF116329),

@@ -17,12 +17,21 @@ import 'graph_edge_geometry.dart';
 /// found the same way: by reading the mockup's own numbers rather than the
 /// picture.
 ///
-/// Note what `r: 4.2` does *not* mean: SVG centres a stroke on its path and
-/// paints it over the fill, so a 2px stroke eats 1px of the disc and the
-/// visible core is 3.2, not 4.2. The dot barely changed size; what it gained
-/// is the halo, which is what stops a lane line drawn underneath from
-/// touching the dot's edge.
-const double kGraphDotRadius = 4.2;
+/// Note what a dot radius does *not* mean: SVG centres a stroke on its path
+/// and paints it over the fill, so the 2px halo eats 1px of the disc and the
+/// visible core is `radius - 1`. What the halo buys is that a lane line drawn
+/// underneath never touches the dot's edge.
+///
+/// **The radius is 5.0, a user-ratified deviation from spec's `r: 4.2`.**
+/// Asked for after the lane pitch went 17 -> 11, and 5.0 rather than more
+/// because the ring below keeps spec's numbers: at a 1.5 stroke its *inner*
+/// edge is 6.25, and a halo reaching past that would leave no background
+/// between dot and ring, so HEAD's ring would read as a thick edge on the dot
+/// instead of a ring. 5.0 + 1 = 6.0 leaves 0.25px of gap, and
+/// `graph_dot_geometry_test.dart` is what holds the two apart. Growing the
+/// dot further means growing the ring, which means moving
+/// [kGraphLaneInset] -- see its own note.
+const double kGraphDotRadius = 5.0;
 const double kGraphDotHaloWidth = 2.0;
 const double kGraphHeadRingRadius = 7.0;
 const double kGraphHeadRingStrokeWidth = 1.5;
@@ -124,9 +133,9 @@ class GraphRowPainter extends CustomPainter {
     final Offset centre = Offset(x, centerY);
 
     // Fill first, then the halo *over* it -- SVG paints stroke on top of
-    // fill, and the stroke is centred on the path, so spec's `r: 4.2` with a
-    // 2px panel-coloured stroke leaves a 3.2px coloured core inside a halo
-    // reaching 5.2. Painting the halo first instead would show a 4.2 core:
+    // fill, and the stroke is centred on the path, so `r: 5.0` with a 2px
+    // panel-coloured stroke leaves a 4.0px coloured core inside a halo
+    // reaching 6.0. Painting the halo first instead would show a 5.0 core:
     // visibly different, and the reason this is worth a comment rather than
     // two drawCircle calls in whatever order.
     canvas.drawCircle(centre, kGraphDotRadius, Paint()..color = dotColor);
@@ -141,9 +150,9 @@ class GraphRowPainter extends CustomPainter {
 
     if (row.isHead) {
       // Spec gives HEAD a separate ring at a fixed radius rather than a
-      // bigger dot -- every dot is 4.2 -- and strokes it in the accent
-      // colour, not the lane's, so "you are here" reads the same whichever
-      // lane HEAD happens to sit in.
+      // bigger dot -- every dot is [kGraphDotRadius] -- and strokes it in the
+      // accent colour, not the lane's, so "you are here" reads the same
+      // whichever lane HEAD happens to sit in.
       canvas.drawCircle(
         centre,
         kGraphHeadRingRadius,

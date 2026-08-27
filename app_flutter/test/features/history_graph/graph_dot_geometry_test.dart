@@ -97,14 +97,40 @@ void main() {
   // printing identically -- an assertion failure whose two lines are the
   // same text.
   group('the commit dot', () {
-    test('is spec\'s 4.2 with a 2px panel-coloured halo', () {
+    test('is the user-ruled 5.0, not spec\'s 4.2, with the halo still 2px', () {
+      // **A user-ratified deviation.** `spec_logic.js:466` is `r: 4.2` and
+      // that is what shipped; the user then asked for a bigger dot after the
+      // lane pitch went 17 -> 11, and 5.0 is the largest radius that still
+      // satisfies the next test. The halo stays 2.0 -- widening it would eat
+      // the growth back, since the visible core is `radius - halo / 2`.
+      //
+      // Do not "fix" this back to 4.2 on the spec citation's authority; the
+      // citation is still true and no longer decides the number. Same
+      // precedent as the 11px pitch next door.
       final List<_Circle> circles = _paint(_graph()).circles;
 
       expect(circles.length, 2, reason: 'fill + halo, and nothing else');
       expect(circles[0].radius, kGraphDotRadius);
       expect(circles[1].radius, kGraphDotRadius);
-      expect(kGraphDotRadius, 4.2);
+      expect(kGraphDotRadius, 5.0);
       expect(kGraphDotHaloWidth, 2.0);
+    });
+
+    test('stops short of the HEAD ring rather than crowding it', () {
+      // This is what picks 5.0 out of "bigger", and it is the constraint the
+      // user's ruling left standing: the ring keeps spec's `r: 7` at a 1.5
+      // stroke, so its *inner* edge is 6.25. A dot whose halo reaches past
+      // that leaves no background between the two, and HEAD's ring stops
+      // reading as a ring at all -- it reads as a thick edge on the dot.
+      //
+      // The ring is painted after the dot, so nothing is overdrawn and no
+      // exception is thrown either way. Only this arithmetic can see it.
+      const double dotOuter = kGraphDotRadius + kGraphDotHaloWidth / 2;
+      const double ringInner =
+          kGraphHeadRingRadius - kGraphHeadRingStrokeWidth / 2;
+
+      expect(dotOuter, lessThanOrEqualTo(ringInner));
+      expect(ringInner - dotOuter, closeTo(0.25, 1e-9));
     });
 
     test('sits at the inset plus whole pitches, not half a pitch in', () {

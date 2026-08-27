@@ -29,6 +29,7 @@ import '../models/parsed_conflict_file.dart';
 import '../models/parsed_diff.dart';
 import '../models/rebase_todo_entry.dart';
 import '../models/ref_snapshot.dart';
+import '../models/remote_counterpart.dart';
 import '../models/reflog_entry.dart';
 import '../models/remote_info.dart';
 import '../models/remote_prune_preview_entry.dart';
@@ -1122,11 +1123,19 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
           // view of one remote, gonePendingByRemote accumulates across
           // remotes so the sidebar can mark rows without deleting any ref
           // (spec page 02's three-stage gone flow, stages 1 and 2).
-          _consumeAutoPrunePreview(preview.remote);
+          final bool wasAutomatic = _consumeAutoPrunePreview(preview.remote);
           _logNewlyGoneRefs(preview);
           state = state
               .copyWith(lastRemotePrunePreview: preview)
               .withGonePendingFor(preview.remote, preview.refs);
+          // Only a preview this class asked for after a fetch. A
+          // dialog-initiated one must change nothing but the marks above:
+          // pruning here would empty the very list the Prune dialog is
+          // showing, and the user's own Prune button would then run against
+          // refs that no longer exist.
+          if (wasAutomatic) {
+            _autoPruneUnclaimedRefs(preview);
+          }
         }
       case GbmEventType.compareWithWorkingCopyReady:
         final Object? payload = decodeEventPayload(event.payload);
@@ -1407,6 +1416,10 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   void _handleOperationOutcome(Map<String, dynamic>? payload) {
     bool succeeded = true;
     List<OperationChoice> choices = const <OperationChoice>[];
+    // Held rather than written straight away: the pruneRemote arm below is
+    // the only thing that knows whether this failure belongs to a background
+    // write, and a background write must not raise the banner.
+    GitError? error;
     if (payload != null) {
       succeeded = payload['succeeded'] as bool? ?? true;
       if (!succeeded) {
@@ -1420,10 +1433,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
         // deliberately preferring a friendlier message over a raw Git
         // error. Falling back to `summary` here is the only way that
         // message (or any other choices-only failure) reaches the UI.
-        final GitError? error = _errorFromOutcomePayload(payload);
-        if (error != null) {
-          state = state.copyWith(lastError: error);
-        }
+        error = _errorFromOutcomePayload(payload);
       }
     }
 
@@ -1471,7 +1481,12 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
       case PendingOperationKind.pruneRemote:
         final PendingPruneRemoteRequest? request = _pending.takePruneRemote();
         if (request == null) break;
-        if (!succeeded) break;
+        if (!succeeded) {
+          // Suppressed, not swallowed: the git record for the failed
+          // invocation is already in the operation log with its exit code.
+          if (request.automatic) error = null;
+          break;
+        }
         state = state.withGonePendingRemoved(request.remoteName, request.refs);
         // LOGRULES 記什麼: 「prune 掉哪些 ref」 -- which ones, not just that
         // a prune happened. Skipped for an empty list so a no-op prune does
@@ -1487,6 +1502,13 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
         }
       case null:
         break;
+    }
+
+    // Suppression means "do not write", not "write null": an unrelated
+    // failure already on screen must survive a background prune failing
+    // behind it -- the same rule the automatic preview's suppressor follows.
+    if (error != null) {
+      state = state.copyWith(lastError: error);
     }
   }
 
@@ -1568,13 +1590,57 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     }
   }
 
-  void _consumeAutoPrunePreview(String remote) {
-    final int remaining = (_autoPrunePreviewsInFlight[remote] ?? 0) - 1;
-    if (remaining <= 0) {
+  /// Returns true when [remote] really had an automatic preview outstanding,
+  /// i.e. this reply is one the app asked for rather than one the Prune
+  /// dialog did. Callers must not treat "a preview arrived" as "the app
+  /// asked for it": `prune_remote_branches_dialog.dart` requests previews
+  /// too, and auto-pruning off the back of that one would delete the refs
+  /// out from under the list the user is looking at.
+  bool _consumeAutoPrunePreview(String remote) {
+    final int outstanding = _autoPrunePreviewsInFlight[remote] ?? 0;
+    if (outstanding <= 0) return false;
+    if (outstanding == 1) {
       _autoPrunePreviewsInFlight.remove(remote);
     } else {
-      _autoPrunePreviewsInFlight[remote] = remaining;
+      _autoPrunePreviewsInFlight[remote] = outstanding - 1;
     }
+    return true;
+  }
+
+  /// Deletes the remote-tracking refs this preview reports gone **that no
+  /// local branch corresponds to**, without asking.
+  ///
+  /// The user's ruling: 「delete 不要讓使用者知道 prune，背景做掉」, scoped to
+  /// 「僅限無本機分支者」. A ref whose local branch still exists is left
+  /// alone and keeps its cloud-off marking, because the user can push it back
+  /// up -- deleting the tracking ref there would throw away the only thing
+  /// telling them the branch used to be on the remote.
+  ///
+  /// Counterparts are resolved with [RemoteBranchIndex], the same rule the
+  /// sidebar draws from, so a row marked gone-and-still-yours and a ref left
+  /// unpruned cannot disagree.
+  ///
+  /// Must be called *after* the state is updated: the refs it does not prune
+  /// stay in `gonePendingByRemote`, and the ones it does are removed from
+  /// there by the prune's own success path.
+  void _autoPruneUnclaimedRefs(RemotePrunePreview preview) {
+    if (preview.refs.isEmpty) return;
+    final RemoteBranchIndex index = RemoteBranchIndex.from(
+      state.refs.remoteBranches,
+    );
+    final Set<String> claimed = <String>{};
+    for (final RefInfo local in state.refs.localBranches) {
+      final String counterpart = index.counterpartOf(local);
+      if (counterpart.isNotEmpty) claimed.add(counterpart);
+    }
+
+    final List<String> unclaimed = <String>[
+      for (final RemotePrunePreviewEntry entry in preview.refs)
+        if (!claimed.contains(entry.fullRefName)) entry.fullRefName,
+    ];
+    if (unclaimed.isEmpty) return;
+    // Full names in, short names out: pruneRemote normalises at the wire.
+    pruneRemote(preview.remote, unclaimed, automatic: true);
   }
 
   /// Consumes the `kind` stamp on a working-copy completion outcome.
@@ -1628,8 +1694,13 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   void debugRecordPruneRemote({
     required String remoteName,
     required List<String> refs,
+    bool automatic = false,
   }) => _pending.recordPruneRemote(
-    PendingPruneRemoteRequest(remoteName: remoteName, refs: refs),
+    PendingPruneRemoteRequest(
+      remoteName: remoteName,
+      refs: refs,
+      automatic: automatic,
+    ),
   );
 
   /// Test-only entry point to [_onEvent], so a reducer-level test can feed a
@@ -2948,7 +3019,11 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED -- pruning remote-tracking
   /// refs never touches the working tree or index), and on success also
   /// refreshes history.
-  void pruneRemote(String remoteName, List<String> refs) {
+  void pruneRemote(
+    String remoteName,
+    List<String> refs, {
+    bool automatic = false,
+  }) {
     if (_session == nullptr || refs.isEmpty) return;
     // git's `branch -r -d` only accepts short names, and this method's two
     // producers disagree on form -- see pruneRefArguments() for the measured
@@ -2961,7 +3036,11 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     // request -- see PendingOperationTracker's doc comment. Only a
     // successful prune clears the gone-pending marks it answers for.
     _pending.recordPruneRemote(
-      PendingPruneRemoteRequest(remoteName: remoteName, refs: args),
+      PendingPruneRemoteRequest(
+        remoteName: remoteName,
+        refs: args,
+        automatic: automatic,
+      ),
     );
     final Pointer<Utf8> remotePtr = remoteName.toNativeUtf8();
     try {

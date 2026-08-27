@@ -1745,12 +1745,21 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// nothing on screen waiting for it, so it runs unconditionally like the
   /// rest. Measurements are in docs/ledger.md.
   void refreshRepoStatus() {
-    // The synchronous one goes first: it publishes through copyWith rather
-    // than waiting on an event, so the conflict badge corrects on this very
-    // frame instead of after a git subprocess returns.
+    // The two synchronous ones go first: they publish through copyWith
+    // rather than waiting on an event, so the conflict badge corrects on
+    // this very frame instead of after ten git subprocesses return.
     refreshRepoState();
+    refreshHasCommitGraph();
     refreshHistory();
     refreshWorkingCopy();
+    refreshStashes();
+    refreshWorktrees();
+    refreshRemotes();
+    refreshSubmodules();
+    refreshBisectStatus();
+    refreshLfs();
+    refreshLocalIdentity();
+    refreshEffectiveIdentity();
   }
 
   /// Re-reads which multi-step git operation, if any, is part-way through.

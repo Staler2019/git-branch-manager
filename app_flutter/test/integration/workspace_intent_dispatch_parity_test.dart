@@ -18,6 +18,7 @@
 // the fix in gbm_action_availability.dart's follow-up commit, which
 // removes the hardcoded nulls and shares one real, policy-gated callback
 // between the map and MenuBarRow's params.
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
@@ -38,6 +39,48 @@ Future<void> _pressCtrl(
   if (shift) await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
   await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
   await tester.pumpAndSettle();
+}
+
+
+/// Every command [RepoSessionController.refreshRepoStatus] dispatches. Kept
+/// here rather than imported from the focus-refresh test so that a change to
+/// the sweep has to be acknowledged in both places -- these two files assert
+/// the same composition arriving down two entirely different paths (a
+/// lifecycle event, and a keypress/menu selection).
+const List<String> _sweepCommands = <String>[
+  'refreshRepoState',
+  'refreshHasCommitGraph',
+  'refreshHistory',
+  'refreshWorkingCopy',
+  'refreshStashes',
+  'refreshWorktrees',
+  'refreshRemotes',
+  'refreshSubmodules',
+  'refreshBisectStatus',
+  'refreshLfs',
+  'refreshLocalIdentity',
+  'refreshEffectiveIdentity',
+];
+
+int _count(List<FakeCommand> log, String name) =>
+    log.where((FakeCommand c) => c.name == name).length;
+
+Map<String, int> _tally(List<FakeCommand> log) => <String, int>{
+  for (final String name in _sweepCommands) name: _count(log, name),
+};
+
+/// Walks the PlatformMenu tree for a leaf with [label], since
+/// `PlatformMenuItem` is not a Widget and no finder reaches it.
+PlatformMenuItem? _findMenuItem(List<PlatformMenuItem> menus, String label) {
+  for (final PlatformMenuItem item in menus) {
+    if (item is PlatformMenu) {
+      final PlatformMenuItem? found = _findMenuItem(item.menus, label);
+      if (found != null) return found;
+    } else if (item.label == label) {
+      return item;
+    }
+  }
+  return null;
 }
 
 void main() {
@@ -127,6 +170,71 @@ void main() {
           .where((FakeCommand c) => c.name == 'refreshHistory')
           .length;
       expect(after - before, 1);
+    });
+
+
+    // F5 used to refresh only the history, so pressing it after editing a
+    // file in another window left the Working Copy tab's pending badge, the
+    // diff pane and the conflict state exactly as they were -- on the one
+    // path where the user has explicitly *asked* for fresh state. It now
+    // dispatches the same sweep the window-focus listener does; these two
+    // tests are what stop the two drifting apart again.
+    //
+    // Deltas, not absolutes: opening a session refreshes on its own.
+    testWidgets('F5 (Refresh) re-reads every local git fact, not just history', (
+      WidgetTester tester,
+    ) async {
+      final PumpedWorkspace pumped = await pumpWorkspace(
+        tester,
+        identity: identity,
+      );
+      final Map<String, int> before = _tally(pumped.controller.commandLog);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.f5);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.f5);
+      await tester.pumpAndSettle();
+
+      final Map<String, int> after = _tally(pumped.controller.commandLog);
+      for (final String name in _sweepCommands) {
+        expect(
+          after[name]! - before[name]!,
+          1,
+          reason: 'F5 must dispatch $name exactly once',
+        );
+      }
+    });
+
+    // The third dispatch path. A PlatformMenuItem takes its callback straight
+    // out of the same actionHandlers map, so wiring viewRefresh only in
+    // MenuBarRow's params would leave this one null -- the exact shape of the
+    // bug this file was created for.
+    testWidgets('the macOS system menu Refresh item dispatches the same sweep', (
+      WidgetTester tester,
+    ) async {
+      final PumpedWorkspace pumped = await pumpWorkspace(
+        tester,
+        identity: identity,
+        isMacOS: true,
+      );
+      final PlatformMenuBar bar = tester.widget<PlatformMenuBar>(
+        find.byType(PlatformMenuBar),
+      );
+      final PlatformMenuItem? item = _findMenuItem(bar.menus, 'Refresh');
+      expect(item, isNotNull, reason: 'View > Refresh must exist on macOS');
+      expect(
+        item!.onSelected,
+        isNotNull,
+        reason: 'a null handler is what greys the item out natively',
+      );
+
+      final Map<String, int> before = _tally(pumped.controller.commandLog);
+      item.onSelected!();
+      await tester.pumpAndSettle();
+
+      final Map<String, int> after = _tally(pumped.controller.commandLog);
+      for (final String name in _sweepCommands) {
+        expect(after[name]! - before[name]!, 1, reason: 'system menu: $name');
+      }
     });
 
     testWidgets('Ctrl+B (Toggle sidebar) actually hides SidebarPanel', (

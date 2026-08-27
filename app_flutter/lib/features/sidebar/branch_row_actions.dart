@@ -100,15 +100,26 @@ class BranchRowActions {
   );
 
   /// 05-C "Checkout as new local…" / double-tap on a remote-only row --
-  /// [remoteRef.fullName] is an unambiguous git ref
-  /// (`refs/remotes/origin/...`), unlike its already-prefix-stripped
-  /// `shortName`, so it's used as the checkout target; the stripped
-  /// `shortName` becomes the new local branch's name.
-  void checkoutRemoteAsNewLocal(RefInfo remoteRef) => _session.checkout(
-    target: remoteRef.fullName,
-    createBranch: true,
-    newBranchName: remoteRef.shortName,
-  );
+  /// `fullName` is an unambiguous git ref (`refs/remotes/origin/...`), so it
+  /// is the checkout target; the branch segment of that same ref is the new
+  /// local branch's name.
+  ///
+  /// Both out of one call, for [openDeleteRemoteBranchDialog]'s reason and
+  /// with a quieter failure: `remoteRef.shortName` is the branch name only
+  /// after `mergeLocalAndRemoteBranches` has stripped the remote prefix, and
+  /// a caller holding an unstripped ref would ask git for a local branch
+  /// literally named `origin/feat/x`. git **accepts** that --
+  /// `refs/heads/origin/feat/x` is a valid ref -- so nothing would report an
+  /// error; the user would just own a local branch that reads like a remote
+  /// one from then on.
+  void checkoutRemoteAsNewLocal(RefInfo remoteRef) {
+    final (String _, String branchName) = remoteBranchParts(remoteRef.fullName);
+    _session.checkout(
+      target: remoteRef.fullName,
+      createBranch: true,
+      newBranchName: branchName,
+    );
+  }
 
   /// 05-C "Fetch this branch" -- a remote-only row's own ref is already an
   /// unambiguous single remote + branch (unlike 05-J's folder-wide fetch,

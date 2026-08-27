@@ -99,6 +99,37 @@ final RefInfo _goneFeature = RefInfo(
   worktreePath: '',
 );
 
+// A remote ref in the shape the **core** emits, which is not the shape the
+// sidebar hands around: `RefStore.cpp` builds `shortName` with `substr(13)`
+// over `refs/remotes/`, so the remote prefix is still on it. Every ref that
+// reaches BranchRowActions through the sidebar has been rebuilt by
+// `mergeLocalAndRemoteBranches` with that prefix stripped (pinned by
+// branch_tree_builder_test.dart's "a nested remote-only branch is handed
+// out under the branch name alone"), which is exactly why no fixture routed
+// through the panel can tell a `fullName`-derived answer from a
+// `shortName`-derived one -- the two agree on every input the sidebar can
+// produce. The three 05-C actions are therefore called directly with this
+// ref, so each one is pinned against the raw form rather than against the
+// normalisation some other layer happens to perform.
+//
+// The name is nested on purpose: `origin/release` and `release` differ by a
+// prefix *either* derivation removes, and only `origin/feat/x` vs `feat/x`
+// separates "drop the remote segment" from "take the last segment".
+final RefInfo _rawRemoteFeatX = RefInfo(
+  fullName: 'refs/remotes/origin/feat/x',
+  shortName: 'origin/feat/x',
+  kind: RefKind.remoteBranch,
+  target: 'd' * 40,
+  upstream: '',
+  ahead: 0,
+  behind: 0,
+  hasTrackingInfo: false,
+  isGone: false,
+  isHead: false,
+  isSymbolic: false,
+  worktreePath: '',
+);
+
 final RefSnapshot _testRefSnapshot = RefSnapshot(
   head: HeadInfo(
     kind: HeadKind.branch,
@@ -244,7 +275,7 @@ Future<void> _openRemoteRowMenu(WidgetTester tester) async {
 /// through a menu. Needed because the defect this checks is unreachable
 /// through the sidebar: every ref that gets there has already been rebuilt
 /// by `mergeLocalAndRemoteBranches`.
-Future<void> _pumpRowActions(
+Future<FakeRepoSessionController> _pumpRowActions(
   WidgetTester tester,
   void Function(BuildContext context, BranchRowActions actions) run,
 ) async {
@@ -306,6 +337,7 @@ Future<void> _pumpRowActions(
   await tester.pumpAndSettle();
   await tester.tap(find.text('go'));
   await tester.pumpAndSettle();
+  return fake;
 }
 
 void main() {
@@ -398,45 +430,59 @@ void main() {
       },
     );
 
+    // The three 05-C actions, each called directly with a ref in the shape
+    // the core emits -- see _rawRemoteFeatX for why the panel cannot stage
+    // this and what each assertion separates.
     testWidgets(
-      'the dialog is told the branch name the remote knows, never the '
-      'local shortName',
+      'Delete remote branch… is told the branch name the remote knows, '
+      'never the ref\'s own shortName',
       (tester) async {
-        // `openDeleteRemoteBranchDialog` takes a RefInfo, and the core's own
-        // shortName for a remote branch **keeps** the remote prefix
-        // (`RefStore.cpp`'s `substr(13)` over `refs/remotes/`). Every ref
-        // that reaches it through the sidebar has been rebuilt by
-        // `mergeLocalAndRemoteBranches` with the prefix stripped, so the two
-        // derivations happen to agree on every real input -- which is why
-        // this can only be checked by calling the function directly with a
-        // ref in the shape the core actually emits.
-        //
-        // A nested name, because `origin/release` and `release` differ by a
-        // prefix either derivation removes; only `origin/feat/x` vs
-        // `feat/x` distinguishes "strip the remote" from "take the last
-        // segment".
-        final RefInfo raw = RefInfo(
-          fullName: 'refs/remotes/origin/feat/x',
-          shortName: 'origin/feat/x',
-          kind: RefKind.remoteBranch,
-          target: 'd' * 40,
-          upstream: '',
-          ahead: 0,
-          behind: 0,
-          hasTrackingInfo: false,
-          isGone: false,
-          isHead: false,
-          isSymbolic: false,
-          worktreePath: '',
-        );
-
         await _pumpRowActions(tester, (context, actions) {
-          actions.openDeleteRemoteBranchDialog(context, raw);
+          actions.openDeleteRemoteBranchDialog(context, _rawRemoteFeatX);
         });
 
         expect(find.text('delete-remote-branch:origin/feat/x'), findsOneWidget);
       },
     );
+
+    testWidgets(
+      'Checkout as new local names the branch git would, never the ref\'s '
+      'own shortName',
+      (tester) async {
+        // The one that was still reading `shortName`: with the raw ref it
+        // asked git for a local branch literally called `origin/feat/x`,
+        // which git accepts -- `refs/heads/origin/feat/x` is a valid ref --
+        // so the failure would have been a branch that quietly looks like a
+        // remote one forever, not an error.
+        final FakeRepoSessionController fake = await _pumpRowActions(
+          tester,
+          (context, actions) =>
+              actions.checkoutRemoteAsNewLocal(_rawRemoteFeatX),
+        );
+
+        final FakeCommand checkout = fake.commandLog.singleWhere(
+          (c) => c.name == 'checkout',
+        );
+        expect(checkout.args['target'], 'refs/remotes/origin/feat/x');
+        expect(checkout.args['createBranch'], isTrue);
+        expect(checkout.args['newBranchName'], 'feat/x');
+      },
+    );
+
+    testWidgets('Fetch this branch sends the remote and the branch git knows', (
+      tester,
+    ) async {
+      final FakeRepoSessionController fake = await _pumpRowActions(
+        tester,
+        (context, actions) => actions.fetchRemoteRef(_rawRemoteFeatX),
+      );
+
+      final FakeCommand fetch = fake.commandLog.singleWhere(
+        (c) => c.name == 'fetchRemote',
+      );
+      expect(fetch.args['remoteName'], 'origin');
+      expect(fetch.args['refs'], <String>['feat/x']);
+    });
 
     testWidgets(
       'double-tap checkout is gated by conflictActive through the real '

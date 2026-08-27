@@ -20,7 +20,8 @@ import 'package:gbm_flutter/features/history_graph/widgets/graph_column_painter.
 import 'package:gbm_flutter/theme/tokens.dart';
 
 class _Circle {
-  const _Circle(this.radius, this.paint);
+  const _Circle(this.centre, this.radius, this.paint);
+  final Offset centre;
   final double radius;
   final Paint paint;
 }
@@ -35,7 +36,7 @@ class _RecordingCanvas implements Canvas {
 
   @override
   void drawCircle(Offset c, double radius, Paint paint) =>
-      circles.add(_Circle(radius, paint));
+      circles.add(_Circle(c, radius, paint));
 
   @override
   void drawLine(Offset p1, Offset p2, Paint paint) => strokes.add(paint);
@@ -61,10 +62,11 @@ GraphRow _row({int lane = 0, int color = 0, bool head = false}) => GraphRow(
 
 GraphSnapshotView _graph({
   bool head = false,
+  int lane = 0,
   List<GraphEdge> edges = const <GraphEdge>[],
 }) => GraphSnapshotView(
   rows: <GraphRow>[
-    _row(head: head),
+    _row(lane: lane, head: head),
     _row(),
   ],
   oidsHex: const <String>['a', 'b'],
@@ -105,6 +107,21 @@ void main() {
       expect(kGraphDotHaloWidth, 2.0);
     });
 
+    test('sits at the inset plus whole pitches, not half a pitch in', () {
+      // Spec's own geometry says the same thing: `spec_logic.js:428` is
+      // `const L0 = 15, L1 = 32`, i.e. two centres one pitch apart with
+      // lane 0 *not* at half a pitch. The `lane + 0.5` this replaced put
+      // lane 0 at 8.5, which leaves a 7.75 HEAD ring 0.75px of clearance
+      // against the column's left edge -- and none at all once the pitch
+      // shrinks. Which lane a centre belongs to is now the inset's job, so
+      // the ring's room stops being a function of the pitch.
+      expect(_paint(_graph()).circles.first.centre.dx, kGraphLaneInset);
+      expect(
+        _paint(_graph(lane: 1)).circles.first.centre.dx,
+        kGraphLaneInset + GbmLayout.graphLaneWidth,
+      );
+    });
+
     test('paints the fill first so the halo eats 1px of it, as SVG does', () {
       // SVG centres a stroke on its path and paints it *over* the fill, so
       // `r: 4.2` with a 2px stroke shows a 3.2 core inside a halo reaching
@@ -141,13 +158,35 @@ void main() {
       expect(ring.paint.color.toARGB32(), colors.accent.toARGB32());
     });
 
-    test('the HEAD ring fits inside its lane and its row', () {
-      // 7px of radius plus half of a 1.5px stroke is 7.75, against a 17px
-      // lane (8.5 to the lane edge) and a 26px row (13). Both spec numbers,
-      // but they are only compatible by a small margin -- a future lane
-      // pitch below 16 would clip the ring, and this says so out loud.
+    test('the HEAD ring is drawn whole: inside the column, and clear of '
+        'the next lane', () {
+      // **What this replaced was a proxy.** «the ring fits inside half a
+      // lane» was true only because lane 0's centre sat at half a lane, and
+      // it stood in for the two claims below -- which is why it said out
+      // loud that "a future lane pitch below 16 would clip the ring". Now
+      // that the centre comes from [kGraphLaneInset] rather than from the
+      // pitch, both can be stated directly, and neither is a function of
+      // the pitch any more.
+      //
+      // 7px of radius plus half of a 1.5px stroke is 7.75.
       const double outer = kGraphHeadRingRadius + kGraphHeadRingStrokeWidth / 2;
-      expect(outer, lessThanOrEqualTo(GbmLayout.graphLaneWidth / 2));
+
+      // 1. Lane 0's ring is not clipped. `commit_row.dart` wraps the
+      //    painter in a `ClipRect`, so a ring reaching left of x = 0 loses
+      //    its edge on the one lane HEAD sits in most often: the trunk.
+      expect(outer, lessThanOrEqualTo(kGraphLaneInset));
+
+      // 2. It does not touch the next lane's connector, whose near edge is
+      //    half a stroke inside the pitch. This is the claim the half-lane
+      //    proxy was really making, and it is the looser of the two -- a
+      //    ring may cross the nominal lane boundary as long as it stops
+      //    short of what is actually painted there.
+      expect(
+        outer,
+        lessThanOrEqualTo(GbmLayout.graphLaneWidth - kGraphEdgeStrokeWidth / 2),
+      );
+
+      // 3. Vertically unchanged: the ring is centred in a 26px row.
       expect(outer, lessThanOrEqualTo(GbmSpacing.rowHeightCompact / 2));
     });
   });

@@ -4897,3 +4897,188 @@ payload：把 `onStageScope` 的參數換成 `const <int>[0]` 之後只有它紅
 P11 的 Appearance 段只有主題切換，21 頁規格全文沒有任何 wrap／自動換行／水平
 捲動的條目。**這是使用者指定的增補，不是規格條目**，`AppPreferences.softWrapEnabled`
 的 doc comment 已寫明，免得後續稽核把它讀成規格符合項。
+
+## fix/focus-refresh-repo-state — focus 回來時重讀整份本地 git 狀態
+
+需求：視窗失去焦點再回來時要跟上衝突徽章、working copy diff 變動、git graph、
+分支數量變化，以及其餘每一項本地會變動的狀態。使用者另外拍板兩件事：
+**不碰網路**（所以 gone 標記不在裡面），以及**「branches more or gone」指的是
+分支數量變化**，不是 gone 徽章。
+
+### 點名的四項裡，三項本來就是好的
+
+focus refresh 的接線是上一輪（`History 捲動卡頓` 那輪）做的。這一輪查下去，
+四項裡只有一項壞掉：
+
+| 面向 | 現況 | 憑證 |
+|---|---|---|
+| git graph | 已覆蓋 | `gbm_history_refresh` 契約上先送 `REFS_UPDATED` 再送一或多個 `GRAPH_UPDATED`（`gbm_capi.h:283-289`） |
+| 分支數量變化 | 已覆蓋 | 同一支呼叫的 `REFS_UPDATED` → `_readRefs()` 整份換掉 `RefSnapshot` |
+| working copy diff | 已覆蓋 | `_readWorkingCopyStatus()` **無條件**清掉 `workingCopyDiffs`，而 `WorkingCopyStatus` 沒有 `operator ==`，每次都是 JSON 解出的新實例 → `select()` 必然視為變動 → `working_copy_view.dart:156-161` 的 `ref.listen` 必然重抓 |
+| 衝突徽章 | **半舊** | 見下 |
+
+`conflictActive` 是兩項的 or。右半邊 `workingCopyStatus.conflicted` 會更新，
+**左半邊 `repoState?.isSequencerOperation` 不會**：`_readRepoState()` 全專案
+只有兩個呼叫點，session 開啟時與 `operationFinished` 事件。也就是
+**只有 app 自己跑過一個 operation，`repoState` 才會動**。
+
+症狀有三種，第二種最惡劣因為它完全隱形：
+
+1. terminal 裡 `git rebase --abort` → 狀態列與衝突橫幅繼續說 rebasing，
+   `isActionEnabled()` 那 12 個閘繼續鎖著。
+2. terminal 裡 `rebase -i` 停在 `edit`（**沒有衝突檔案**）→ 兩半邊都是空的／舊的，
+   app 完全不知道有 sequencer 在跑，照樣讓人 checkout。
+3. `rebaseStep / rebaseTotal` 與 `indexLocked` 只存在於 `repoState`。
+
+修法便宜到不需要新 capi：`Session::repoState()` 就是 `RepoState::read(paths_)`
+（`Session.cpp:249-251`），每次呼叫都重算、沒有快取，而 `RepoState.h:73-74`
+自己寫著「Only stats a handful of paths」。所以 `refreshRepoState()` 是這一輪
+唯一一支**同步**的 refresh：讀 staging buffer 直接 `copyWith` 發佈。
+
+### 撿到的：F5 只重讀 history
+
+`GbmActionId.viewRefresh` 的 handler 是 `refreshRepoHistory(ref, identity)`。
+按 F5 之後 Working Copy 的徽章、diff、衝突狀態都不動——而這是使用者**明確要求
+刷新**的那條路徑。同一個缺陷形狀，照 repo 規則 1 一併修掉。
+
+### 量測：規劃階段就量完，而且數字推翻了我自己的第一版設計
+
+本機 macOS + homebrew git；本 repo 752 commits / 933 tracked files / 64 refs /
+**無 submodule** / `git-lfs` 不在 PATH。每支 12 次，**丟掉前 2 次暖 page cache**，中位數。
+
+| 指令 | 中位數 | 指令 | 中位數 |
+|---|---|---|---|
+| `for-each-ref` | 7.3ms | `remote -v` | 4.9ms |
+| `rev-list --topo-order --all` | 9.4ms | `config --file .gitmodules --get-regexp` | 5.0ms |
+| `status --porcelain=v2 -uall` | 32.3ms | **`submodule status`** | **79.2ms** |
+| `diff --numstat` | 18.2ms | `bisect log` | 4.9ms |
+| `diff --cached --numstat` | 21.4ms | `config --local --get` / `config --get` | 4.8 / 4.9ms |
+| `stash list` | 11.6ms | *(行程啟動地板 `rev-parse`)* | *5.0ms* |
+| `worktree list --porcelain` | 4.9ms | *(候選述詞 `ls-files --stage`)* | *18.5ms* |
+
+並發牆鐘（`sharedReadPool()` 是 2–6 執行緒，`WorkingCopyStatus.h:244`）：
+
+| 池大小 | 今天（5 支） | 全部 12 支（採用） | *(參考：若短路掉 submodule)* |
+|---|---|---|---|
+| 2（最差） | 44.8ms | **135.1ms** | *65.6ms* |
+| 4 | 33.7ms | **106.6ms** | *36.5ms* |
+| 8 | 34.0ms | **94.9ms** | *32.4ms* |
+
+`git submodule status` 一支就佔掉新增成本的 66%，而且在**沒有 submodule 的 repo
+上也一樣要 79ms**。成因不是 repo 大小：`git-submodule` 是 POSIX shell script
+（`/opt/homebrew/opt/git/libexec/git-core/git-submodule`），那 79ms 是 fork +
+shell 啟動的固定成本。
+
+### 想設閘、被駁回、為什麼駁得對
+
+這段留全程，因為結論的價值不如推翻它的那句話。
+
+第一版計畫要在 `.gitmodules` 不存在時短路掉 `submodule status`，而且找到了看起來
+很漂亮的落點：**`SubmoduleOps.cpp:236-238` 已經算好了那個述詞**——
+
+```cpp
+const bool hasGitmodules = !paths_.workDir().empty() &&
+                           std::filesystem::exists(paths_.workDir() / ".gitmodules", ec);
+```
+
+它只用來決定要不要讀 `.gitmodules` 的 config，然後**無條件**往下跑
+`submodule status`。延伸它成本是 0、省 79.2ms，而且與 `Session::refreshLfs()`
+（`Session.cpp:1501-1507`，`git-lfs` 不在 PATH 時 `emitEmpty` 直接 return）
+形狀一致。
+
+**使用者駁回，理由是正確性而不是成本**：「submodule status 有就應該顯示，
+不是加上『index 裡有沒有 gitlink』就逃避他」。
+
+這句話同時殺掉了兩個候選述詞，而且殺得對：`.gitmodules` 在不在、index 有沒有
+gitlink，**兩個都只是在猜 `git submodule status` 會說什麼**。答案要跟 git 一致
+就只能問 git；放在 core 猜或放在 Dart 猜是同一個錯誤換個地方而已。
+
+**`refreshLfs()` 的短路不是反例**，而分清這一點是整段推理的關鍵：它的條件是
+「`git-lfs` 根本不在 PATH」——那不是在近似答案，是那支指令**跑不起來**。
+一個是「我猜它會回空的」，一個是「它不存在」。
+
+而回頭重讀自己的數字，本來就不需要那個閘：
+
+- 79ms 幾乎全是 fork + shell 啟動的**等待**，不是 CPU。
+- 它跑在 `sharedReadPool()` 上，**不擋 UI**，2 秒節流保證最多兩秒一次。
+- **沒有任何使用者看得到的東西在等它。** 唯一需要即時的是衝突徽章，
+  而它走同步的 `refreshRepoState()`，不論如何都在同一幀落地。
+- 最差情況（2 執行緒池）是 working copy status 晚 ~70ms 到。
+
+也就是說我**在最佳化一個沒有人在等的數字**。量測本身是對的（而且是使用者堅持
+「成本秒數要量，量完如果有需要就設閘，這是你應該隱含做的事」才量的），錯的是
+把「這個數字大」直接讀成「要修」，中間跳過了「誰在等它」。
+
+**留給未來的一條路**：真要讓 submodule 便宜又正確，唯一誠實的做法是在 core 自己
+算——`ls-files --stage` 濾 `160000`（量過 18.5ms，且**隨 index 大小成長**，
+本 repo 933 檔就吐 91KB）再逐個判斷狀態字元，也就是不呼叫那支 shell script。
+那是重寫一支 git 指令，成本與正確性風險都不小，要做該是有數字要求時單獨一輪。
+
+### 收納規則寫成規則，不是清單
+
+`refreshRepoStatus()` 的成員資格是**「controller 上每一支零參數的 `refresh*`」**
+（十二支）。這樣下一輪新增 `refresh*` 時，「要不要進來」是一個有答案的問題，
+而不是又一次憑印象補漏。
+
+`request*` 一律不收，因為它們綁在使用者的選取上（path、oid、ref、stash index），
+focus 回來時那個選取可能不存在。三個沒有必填參數、看起來像例外的，在 doc comment
+裡逐一點名以示這是決定而非疏漏：`requestReflog({ref})`（panel 自己抓、按 ref 分頁）、
+`requestCleanPreview()`（`git clean -n` 走訪整個 work tree，只餵一個 dialog）、
+`requestOriginalOperationMessage()`（只在衝突流程中有意義）。
+
+十二支逐一查證過都不連網。兩個特別確認的：**`refreshRemotes()` 是乾淨的
+`git remote -v`**（`RemoteOps.cpp:325`），prune preview 在 `fetchRemote()` 的成功
+路徑上（`remotesToPreviewAfterFetch()`）不在這裡；**LFS 連網的那兩支**
+（`lfs pull` / `lfs fetch`，`LfsOps.cpp:108,141`）是獨立 operation。
+
+### 「不連網」釘成可執行的斷言
+
+doc comment 說「全部本地」是沒有承重的。所以補了一支測試斷言 `commandLog` 裡
+**不得出現** `requestRemotePrunePreview` 與 `fetchRemote`。
+
+它不是空頭斷言，變異驗證過：把 `requestRemotePrunePreview('origin')` 塞進
+`refreshRepoStatus()`，**只有它轉紅**。
+
+### fake seam：十支覆寫，以及為什麼 `refreshRepoStatus()` 不覆寫
+
+`FakeRepoSessionController` 原本只覆寫 `refreshHistory` 與 `refreshWorkingCopy`。
+其餘十支不覆寫就會撞上 `_session == nullptr` 守衛**安靜地什麼都不做**，
+計數斷言分不出死掉與活著的——上一輪 `refreshWorkingCopy` 踩過同一個坑。
+
+`refreshRepoStatus()` 本身**刻意不覆寫**：讓 fake 繼承真的那支，`commandLog`
+收到的就是真的組合，而不是測試自己在 fake 裡重述一遍。一份會跟被測物一起變的
+清單不能拿來測那份清單。
+
+變異驗證確認這一半有承重：拿掉 fake 的 `refreshRepoState` 覆寫，兩支新測試轉紅。
+
+### 三條 dispatch 路徑都測了
+
+F5 有三條路：鍵盤（`WorkspaceActionShortcuts`）、macOS 系統選單
+（`PlatformMenuBarHost` 的 `PlatformMenuItem.onSelected`）、in-window `MenuBarRow`。
+改只動 `_buildActionHandlers()`，不碰 `MenuBarRow` 的具名參數——CLAUDE.md 記載的
+dispatch parity bug 就是「只修 MenuBarRow」造成前兩條靜默 no-op。
+
+`workspace_intent_dispatch_parity_test` 補的兩支涵蓋前兩條，用**差值**而非絕對值
+（開 session 本身就會刷新一次）。既有的「F5 reaches refreshHistory」不受影響仍綠，
+因為 `refreshRepoStatus()` 仍然包含 `refreshHistory()`。
+
+### 沒做到的
+
+- **LFS 量不到**，理由可檢查：`git-lfs` 這台機器上根本沒裝（`command -v git-lfs`
+  空、`/opt/homebrew/Cellar` 沒有、`git lfs version` 回 "not a git command"），
+  所以 C++ 側 `Session::refreshLfs()` 直接短路，成本就是一次
+  `git lfs version` 的失敗探測、**量到 11.0ms 且每 session 只跑一次**。
+  裝了 `git-lfs` 的機器上 `lfs track` + `lfs ls-files --long`（timeout 60s）
+  **沒有數字**。這裡寫「沒有數字」而不是「很快」。
+  注意量到之後也不是拿來設閘的——與 submodule 同一條理由。
+- **量的是 git 指令層，不是完整 FFI 往返**。子行程主導總成本，但 event dispatch
+  與 JSON 解析沒算進去，上表是下界。
+- **「沒有畫面在等 submodule」是推理，不是量到的**。依據可檢查（衝突徽章走同步
+  路徑、其餘在背景池、2 秒節流），但終究是推理。實機上若感覺得到延遲，該量的是
+  「切回視窗到畫面正確」那一段，而不是回頭爭論這個閘。
+- **lifecycle 轉換仍未實機驗證**，沿用上一輪、這輪沒有改變它：測試用
+  `tester.binding.handleAppLifecycleStateChanged` 直接驅動，證明了接線，
+  **沒有**證明 macOS 真的會在視窗焦點變化時送出 inactive/resumed 這組轉換。
+- **既有行為，不是這輪造成的**：`_readWorkingCopyStatus()` 無條件清
+  `workingCopyDiffs`，所以即使 focus 回來什麼都沒變，diff 面板仍會清空再重抓，
+  視覺上一次閃動。要消掉它得讓 `WorkingCopyStatus` 有值相等，是另一個題目。

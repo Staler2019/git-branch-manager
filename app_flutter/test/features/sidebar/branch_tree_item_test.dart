@@ -289,27 +289,23 @@ void main() {
       expect(tester.widget<LucideIcon>(find.byType(LucideIcon)).name, 'cloud');
     });
 
-    testWidgets(
-      'the "more" button shows when onPruneRef/onDeleteOnRemote are set, '
-      'even though onRename/onDelete are null',
-      (tester) async {
-        await tester.pumpWidget(
-          MaterialApp(
-            theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
-            home: Scaffold(
-              body: BranchTreeItem(
-                ref: _remoteOnlyRef(),
-                onCheckout: () {},
-                onPruneRef: () {},
-                onDeleteOnRemote: () {},
-              ),
+    testWidgets('the "more" button shows when onDeleteOnRemote is set, '
+        'even though onRename/onDelete are null', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: Scaffold(
+            body: BranchTreeItem(
+              ref: _remoteOnlyRef(),
+              onCheckout: () {},
+              onDeleteOnRemote: () {},
             ),
           ),
-        );
+        ),
+      );
 
-        expect(find.byTooltip('Branch actions'), findsOneWidget);
-      },
-    );
+      expect(find.byTooltip('Branch actions'), findsOneWidget);
+    });
   });
 
   group('gone rows use the cloud-off icon (BRANCH_STATES table)', () {
@@ -368,6 +364,7 @@ void main() {
       WidgetTester tester,
       RefInfo ref, {
       required bool isGonePending,
+      String remoteCounterpart = 'refs/remotes/origin/feature',
     }) async {
       await tester.pumpWidget(
         MaterialApp(
@@ -377,6 +374,7 @@ void main() {
               ref: ref,
               onCheckout: () {},
               isGonePending: isGonePending,
+              remoteCounterpart: remoteCounterpart,
             ),
           ),
         ),
@@ -458,12 +456,33 @@ void main() {
       expect(name.style?.decoration, TextDecoration.lineThrough);
     });
 
-    testWidgets('a pending-gone local branch is dimmed', (tester) async {
-      // Stage 1's 半透明 applies to the marked row whichever shape it has;
-      // only remote-only rows were dimmed before.
+    testWidgets('a pending-gone local branch is NOT dimmed', (tester) async {
+      // 使用者裁定 + BRANCH_TREE's own mock, which marks `dim: true` on its
+      // two `state: 'remote'` rows and on nothing else -- including its
+      // `state: 'gone'` row. This test asserted the opposite until this
+      // round, on a reading of stage 1's 半透明 that took it to cover every
+      // marked row. Dimming a gone *local* branch made the row the user most
+      // needs to act on the hardest to read; the strikethrough and the
+      // cloud-off icon (asserted above) are what carry gone.
       await pumpRow(tester, localRef(), isGonePending: true);
 
-      expect(find.byType(Opacity), findsOneWidget);
+      expect(find.byType(Opacity), findsNothing);
+    });
+
+    testWidgets('a pending-gone remote-only row stays dimmed', (tester) async {
+      // The other half of the same rule: this row really is one the machine
+      // does not have, so it keeps 「半透明」 whether or not it is also gone.
+      await pumpRow(
+        tester,
+        _remoteOnlyRef(),
+        isGonePending: true,
+        remoteCounterpart: '',
+      );
+
+      expect(
+        tester.widget<Opacity>(find.byType(Opacity)).opacity,
+        closeTo(0.62, 0.001),
+      );
     });
 
     testWidgets('a row git already reports as gone needs no flag', (
@@ -494,6 +513,209 @@ void main() {
       expect(
         tester.widget<LucideIcon>(find.byType(LucideIcon)).name,
         'cloud-off',
+      );
+    });
+  });
+
+  // BRANCH_STATES, one test per row of the user's own icon table:
+  //
+  //   local, no remote copy      git-branch                 local
+  //   local + remote             git-branch                 ↑2 ↓1 (only if any)
+  //   local, remote deleted      cloud-off (warning)        gone   + strikethrough
+  //   remote-only, still there   cloud (tertiary)           --     + 62% dim
+  //   remote-only, deleted       cloud-off (warning) + gone + 62% dim  [transient]
+  //
+  // The last row is the window between a fetch and the automatic prune that
+  // clears it -- and where that prune fails, it persists. It is drawn either
+  // way, so what it looks like is pinned here rather than left to chance.
+  group('BRANCH_STATES icon and badge table', () {
+    RefInfo local({
+      String upstream = '',
+      bool isGone = false,
+      int ahead = 0,
+      int behind = 0,
+      bool hasTrackingInfo = false,
+    }) => RefInfo(
+      fullName: 'refs/heads/feature',
+      shortName: 'feature',
+      kind: RefKind.localBranch,
+      target: 'abc123',
+      upstream: upstream,
+      ahead: ahead,
+      behind: behind,
+      // Never derived from `upstream`: %(upstream:track) is empty for a
+      // branch exactly in sync, so the two are independent inputs.
+      hasTrackingInfo: hasTrackingInfo,
+      isGone: isGone,
+      isHead: false,
+      isSymbolic: false,
+      worktreePath: '',
+    );
+
+    Future<void> pump(
+      WidgetTester tester,
+      RefInfo ref, {
+      required String remoteCounterpart,
+      bool isGonePending = false,
+    }) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: Scaffold(
+            body: BranchTreeItem(
+              ref: ref,
+              onCheckout: () {},
+              remoteCounterpart: remoteCounterpart,
+              isGonePending: isGonePending,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    String iconOf(WidgetTester tester) =>
+        tester.widget<LucideIcon>(find.byType(LucideIcon)).name;
+
+    testWidgets('local with no remote copy: git-branch + local badge', (
+      tester,
+    ) async {
+      await pump(tester, local(), remoteCounterpart: '');
+
+      expect(iconOf(tester), 'git-branch');
+      expect(find.text('local'), findsOneWidget);
+      expect(find.text('gone'), findsNothing);
+      expect(find.byType(Opacity), findsNothing);
+    });
+
+    testWidgets('local pushed without -u carries no local badge', (
+      tester,
+    ) async {
+      // The badge means 「還沒 push 過」 and the spec says 「Push 後 badge
+      // 自動消失」. `git push origin HEAD` leaves `upstream` empty, so
+      // reading that field would keep the badge on a branch that is on the
+      // remote right now -- the counterpart is what answers.
+      await pump(
+        tester,
+        local(),
+        remoteCounterpart: 'refs/remotes/origin/feature',
+      );
+
+      expect(iconOf(tester), 'git-branch');
+      expect(find.text('local'), findsNothing);
+    });
+
+    testWidgets('local + remote, diverged: git-branch + the real numbers', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        local(
+          upstream: 'refs/remotes/origin/feature',
+          hasTrackingInfo: true,
+          ahead: 2,
+          behind: 1,
+        ),
+        remoteCounterpart: 'refs/remotes/origin/feature',
+      );
+
+      expect(iconOf(tester), 'git-branch');
+      expect(find.text('↑2 ↓1'), findsOneWidget);
+      expect(find.text('local'), findsNothing);
+    });
+
+    testWidgets('local + remote, in sync: git-branch and no badge at all', (
+      tester,
+    ) async {
+      // The commonest row in any repository. It must not pick up `local`
+      // (it has a remote) and must not print ↑0 ↓0.
+      await pump(
+        tester,
+        local(upstream: 'refs/remotes/origin/feature'),
+        remoteCounterpart: 'refs/remotes/origin/feature',
+      );
+
+      expect(iconOf(tester), 'git-branch');
+      expect(find.text('local'), findsNothing);
+      expect(find.text('gone'), findsNothing);
+      expect(find.textContaining('↑'), findsNothing);
+      expect(find.textContaining('↓'), findsNothing);
+    });
+
+    testWidgets('local whose remote was deleted: cloud-off + gone, undimmed', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        local(upstream: 'refs/remotes/origin/feature', isGone: true),
+        remoteCounterpart: 'refs/remotes/origin/feature',
+      );
+
+      expect(iconOf(tester), 'cloud-off');
+      expect(find.text('gone'), findsOneWidget);
+      expect(find.text('local'), findsNothing);
+      final Text name = tester.widget<Text>(find.text('feature'));
+      expect(name.style?.decoration, TextDecoration.lineThrough);
+      // 本機還在 -- this is a row the user can still act on.
+      expect(find.byType(Opacity), findsNothing);
+    });
+
+    testWidgets('remote-only, still on the remote: cloud + 62% dim', (
+      tester,
+    ) async {
+      await pump(tester, _remoteOnlyRef(), remoteCounterpart: '');
+
+      expect(iconOf(tester), 'cloud');
+      // A remote-only row is never `local`: it is nothing *but* remote.
+      expect(find.text('local'), findsNothing);
+      expect(find.text('gone'), findsNothing);
+      expect(
+        tester.widget<Opacity>(find.byType(Opacity)).opacity,
+        closeTo(0.62, 0.001),
+      );
+    });
+
+    testWidgets(
+      'remote-only and deleted: cloud-off + gone + 62% dim (the transient '
+      'window before the automatic prune)',
+      (tester) async {
+        await pump(
+          tester,
+          _remoteOnlyRef(),
+          remoteCounterpart: '',
+          isGonePending: true,
+        );
+
+        expect(iconOf(tester), 'cloud-off');
+        expect(find.text('gone'), findsOneWidget);
+        expect(find.text('local'), findsNothing);
+        expect(
+          tester.widget<Opacity>(find.byType(Opacity)).opacity,
+          closeTo(0.62, 0.001),
+        );
+      },
+    );
+
+    testWidgets('the icon colours come from the theme tokens', (tester) async {
+      // Compared by identity against the token, not against a literal:
+      // a hard-coded ARGB would pass in one theme variant and lie in the
+      // other.
+      final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+
+      await pump(
+        tester,
+        local(upstream: 'refs/remotes/origin/feature', isGone: true),
+        remoteCounterpart: 'refs/remotes/origin/feature',
+      );
+      expect(
+        tester.widget<LucideIcon>(find.byType(LucideIcon)).color?.toARGB32(),
+        colors.warning.toARGB32(),
+      );
+
+      await pump(tester, _remoteOnlyRef(), remoteCounterpart: '');
+      expect(
+        tester.widget<LucideIcon>(find.byType(LucideIcon)).color?.toARGB32(),
+        colors.textTertiary.toARGB32(),
       );
     });
   });

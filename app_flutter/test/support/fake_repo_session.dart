@@ -526,11 +526,33 @@ class FakeRepoSessionController extends RepoSessionController {
   }
 
   @override
-  void pruneRemote(String remoteName, List<String> refs) {
+  void pruneRemote(
+    String remoteName,
+    List<String> refs, {
+    bool automatic = false,
+  }) {
+    // NOTE: this override bypasses the real pruneRemote entirely, so what
+    // lands in `refs` here is the *caller's* form, not the short names
+    // pruneRefArguments() would have produced at the wire. A test asserting
+    // the wire form must go through `pruneRefArguments` directly -- see
+    // prune_ref_form_test.dart.
+    //
+    // The pending request is recorded anyway, because the real method does
+    // it before reaching the FFI and it is what attributes a later
+    // GBM_EVENT_OPERATION_FINISHED back to this call. Without it every
+    // prune outcome fed through debugHandleEvent looks like one nobody
+    // asked for, and the `automatic` flag -- which decides whether a
+    // failure raises the banner -- is lost with it.
+    debugRecordPruneRemote(
+      remoteName: remoteName,
+      refs: refs,
+      automatic: automatic,
+    );
     commandLog.add(
       FakeCommand('pruneRemote', <String, Object?>{
         'remoteName': remoteName,
         'refs': refs,
+        'automatic': automatic,
       }),
     );
   }
@@ -967,6 +989,21 @@ class FakeGbmBindings implements GbmBindings {
   @override
   LastResultJsonLenDart get lastResultJsonLen =>
       () => 0;
+
+  // Non-zero means "the call failed", which is the truthful answer for a
+  // null session and makes the reducer skip the read. Implemented rather
+  // than left to noSuchMethod because `_onEvent` calls both unconditionally
+  // on every GBM_EVENT_OPERATION_FINISHED -- so without these, *any*
+  // reducer-level test that feeds an operation outcome dies in an unrelated
+  // place. Everything else still throws on purpose: a provider a test forgot
+  // to override must fail loudly rather than quietly reach a real .dylib.
+  @override
+  RepoStateJsonDart get repoStateJson =>
+      (Pointer<Void> session) => 1;
+
+  @override
+  UndoJournalJsonDart get undoJournalJson =>
+      (Pointer<Void> session) => 1;
 
   @override
   Never noSuchMethod(Invocation invocation) =>

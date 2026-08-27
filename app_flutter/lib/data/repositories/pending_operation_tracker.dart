@@ -98,10 +98,23 @@ class PendingPruneRemoteRequest {
   const PendingPruneRemoteRequest({
     required this.remoteName,
     required this.refs,
+    this.automatic = false,
   });
 
   final String remoteName;
   final List<String> refs;
+
+  /// True when this prune was started by the app after a fetch rather than
+  /// by the user pressing something.
+  ///
+  /// It decides one thing: whether a failure reaches
+  /// [RepoSessionState.lastError], which `workspace_screen.dart` renders as
+  /// a banner. A background write the user never asked for has no business
+  /// interrupting them (spec page 10) -- the same reason a failed automatic
+  /// `--dry-run` preview is suppressed. The failure is not hidden: every git
+  /// invocation lands in the operation log with its exit code either way,
+  /// which is where the user's own report of this bug came from.
+  final bool automatic;
 }
 
 /// Attributes a GBM_EVENT_OPERATION_FINISHED outcome to the specific

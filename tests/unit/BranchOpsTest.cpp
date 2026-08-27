@@ -176,6 +176,166 @@ TEST(DeleteBranchOperation, KeepsExistingSummaryWhenTheProbeItselfFails) {
     EXPECT_TRUE(offersForce);
 }
 
+/// `git branch -d/-D` is per-name: it deletes what it can and exits 1 if any
+/// one name failed. Measured on git 2.55.0:
+///
+///   $ git branch -d a cur b
+///   error: cannot delete branch 'cur' used by worktree at '...'
+///   Deleted branch a (was 668c5ce).
+///   Deleted branch b (was 668c5ce).
+///   exit=1
+///
+/// So `a` and `b` really were deleted while the app reported total failure --
+/// and the "Delete anyway" retry then resent all three names, at which point
+/// git answered `error: branch 'a' not found` and exited 1 a second time.
+/// These tests script that shape.
+void scriptExistingBranches(FakeProcessRunner& runner, const std::string& refnames) {
+    FakeProcessRunner::Response existing;
+    existing.exitCode = 0;
+    existing.out = refnames;
+    runner.whenArgsContain({"for-each-ref", "--format=%(refname:short)", "refs/heads/"}, existing);
+}
+
+TEST(DeleteBranchOperation, SkipsNamesThatNoLongerExistBeforeRunning) {
+    // The retry after "Delete anyway": the first `-d` already deleted three
+    // of the four, so resending all four makes git print "not found" three
+    // times and exit 1 even though `-D` did exactly what was asked.
+    FakeProcessRunner runner;
+    scriptExistingBranches(runner, "main\nstill-here\n");
+
+    DeleteBranchRequest request;
+    request.names = {"gone-a", "still-here", "gone-b"};
+    request.force = true;
+    auto operation = makeDeleteBranchOperation(request);
+
+    OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
+
+    EXPECT_TRUE(outcome.succeeded);
+    // Exactly one delete, carrying only the name that is still there.
+    std::vector<std::string> deleteArgs;
+    for (std::size_t i = 0; i < runner.invocationCount(); ++i) {
+        std::vector<std::string> args = runner.invokedArgs(i);
+        if (!args.empty() && args[0] == "branch") {
+            deleteArgs = args;
+        }
+    }
+    ASSERT_EQ(deleteArgs.size(), 3u);
+    EXPECT_EQ(deleteArgs[0], "branch");
+    EXPECT_EQ(deleteArgs[1], "-D");
+    EXPECT_EQ(deleteArgs[2], "still-here");
+}
+
+TEST(DeleteBranchOperation, SucceedsWithoutRunningGitWhenEveryNameIsAlreadyGone) {
+    // Same retry, one step further: every name the user selected was deleted
+    // by the first pass. Running git here can only produce "not found" and a
+    // failure dialog for work that is already done.
+    FakeProcessRunner runner;
+    scriptExistingBranches(runner, "main\n");
+
+    DeleteBranchRequest request;
+    request.names = {"gone-a", "gone-b"};
+    request.force = true;
+    auto operation = makeDeleteBranchOperation(request);
+
+    OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
+
+    EXPECT_TRUE(outcome.succeeded);
+    for (std::size_t i = 0; i < runner.invocationCount(); ++i) {
+        EXPECT_NE(runner.invokedArgs(i)[0], "branch");
+    }
+}
+
+TEST(DeleteBranchOperation, AnEmptyBranchListIsUnknownRatherThanAllDeleted) {
+    // A repository you are deleting a local branch in always has at least
+    // that branch, so an empty refs/heads/ listing means the probe told us
+    // nothing -- reading it as "everything is already gone" would report
+    // success for a delete that never ran, which is the one failure mode
+    // worse than the bug being fixed.
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response empty;
+    empty.exitCode = 0;
+    empty.out = "";
+    runner.whenArgsContain({"for-each-ref", "--format=%(refname:short)", "refs/heads/"}, empty);
+
+    DeleteBranchRequest request;
+    request.names = {"feature"};
+    request.force = true;
+    auto operation = makeDeleteBranchOperation(request);
+
+    OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
+
+    EXPECT_TRUE(outcome.succeeded);
+    // git really ran, with the name the user asked for.
+    bool ranDelete = false;
+    for (std::size_t i = 0; i < runner.invocationCount(); ++i) {
+        std::vector<std::string> args = runner.invokedArgs(i);
+        ranDelete = ranDelete || (args.size() == 3 && args[0] == "branch" && args[1] == "-D" &&
+                                  args[2] == "feature");
+    }
+    EXPECT_TRUE(ranDelete);
+    EXPECT_EQ(outcome.summary.find("Already deleted"), std::string::npos);
+}
+
+TEST(DeleteBranchOperation, ReportsWhichBranchesWereDeletedWhenOnlySomeFailed) {
+    // The headline case. `-d a locked b` deletes a and b, refuses `locked`,
+    // exits 1. Reporting that as total failure is a lie in both directions:
+    // it hides two real deletions and implies the whole selection survived.
+    FakeProcessRunner runner;
+
+    FakeProcessRunner::Response before;
+    before.exitCode = 0;
+    before.out = "main\na\nlocked\nb\n";
+    FakeProcessRunner::Response after;
+    after.exitCode = 0;
+    after.out = "main\nlocked\n";
+    // Same command, two answers: the operation probes once before the delete
+    // and once after, and the difference *is* the set that really went.
+    runner.whenArgsContainInTurn({"for-each-ref", "--format=%(refname:short)", "refs/heads/"},
+                                 {before, after});
+
+    FakeProcessRunner::Response failure;
+    failure.exitCode = 1;
+    failure.err = "error: cannot delete branch 'locked' used by worktree at '/wt'\n";
+    runner.whenArgsContain({"branch", "-d", "a"}, failure);
+
+    DeleteBranchRequest request;
+    request.names = {"a", "locked", "b"};
+    auto operation = makeDeleteBranchOperation(request);
+
+    OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
+
+    EXPECT_FALSE(outcome.succeeded);
+    // Names both halves: what really went, and what is still standing.
+    EXPECT_NE(outcome.summary.find("Deleted a, b"), std::string::npos);
+    EXPECT_NE(outcome.summary.find("locked"), std::string::npos);
+}
+
+TEST(DeleteBranchOperation, DoesNotClaimDeletionsWhenNothingWasDeleted) {
+    // The all-or-nothing failure must not grow a spurious "Deleted ..."
+    // clause: the before/after probe answering identically means git deleted
+    // nothing, and the message has to stay the plain failure it always was.
+    FakeProcessRunner runner;
+
+    FakeProcessRunner::Response unchanged;
+    unchanged.exitCode = 0;
+    unchanged.out = "main\nfeature\n";
+    runner.whenArgsContainInTurn({"for-each-ref", "--format=%(refname:short)", "refs/heads/"},
+                                 {unchanged, unchanged});
+
+    scriptFailedDelete(runner);
+
+    DeleteBranchRequest request;
+    request.names = {"feature"};
+    auto operation = makeDeleteBranchOperation(request);
+
+    OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
+
+    EXPECT_FALSE(outcome.succeeded);
+    EXPECT_EQ(outcome.summary.find("Deleted"), std::string::npos);
+    // Still the message the failure path already produced, untouched.
+    EXPECT_NE(outcome.summary.find("reflog"), std::string::npos);
+}
+
 TEST(CreateBranchOperation, LeavesHeadAloneWhenCheckoutAfterIsFalse) {
     FakeProcessRunner runner;
 

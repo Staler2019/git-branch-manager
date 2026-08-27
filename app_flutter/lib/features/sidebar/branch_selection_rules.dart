@@ -44,8 +44,21 @@ bool isInMultiSelection(
 /// "delete gone branches" deletes local branches. [isEffectivelyGone] would
 /// return true for one, so the `!branch.isHead` / `worktreePath.isEmpty`
 /// guards are joined by the kind check here rather than at each call site.
-bool isGoneAndBulkSelectable(RefInfo branch, Set<String> gonePendingRefs) =>
-    isEffectivelyGone(branch, gonePendingRefs) &&
+///
+/// [remoteCounterpart] is threaded through to [isEffectivelyGone] for the
+/// same reason it exists there: a branch pushed without `-u` has no tracking
+/// config, so resolving gone-ness from `upstream` alone left exactly the
+/// rows this button is for out of the selection.
+bool isGoneAndBulkSelectable(
+  RefInfo branch,
+  Set<String> gonePendingRefs, {
+  required String remoteCounterpart,
+}) =>
+    isEffectivelyGone(
+      branch,
+      gonePendingRefs,
+      remoteCounterpart: remoteCounterpart,
+    ) &&
     branch.kind == RefKind.localBranch &&
     !branch.isHead &&
     branch.worktreePath.isEmpty;

@@ -1,4 +1,13 @@
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
+import 'package:gbm_flutter/data/models/remote_counterpart.dart';
+
+// Moved to the data layer so `RepoSessionController` can resolve a
+// counterpart too (the post-fetch automatic prune needs it), which it could
+// not do from here: data/ imports no features/. Re-exported rather than
+// re-homed at every call site, because every existing importer of this file
+// wants it and the sidebar is still where it is mostly read.
+export 'package:gbm_flutter/data/models/remote_counterpart.dart'
+    show RemoteBranchIndex, remoteCounterpartOf;
 import 'branch_filter.dart';
 import 'branch_selection_rules.dart';
 
@@ -149,49 +158,70 @@ List<BranchTreeNode> buildBranchTree(
   return result.toList(growable: false);
 }
 
-/// Merges [localBranches] with the subset of [remoteBranches] that has no
-/// local branch tracking it ("remote-only", Flutter Desktop Spec's
-/// `BRANCH_STATES` "Remote only（未 checkout）") into one flat list ready for
+/// Merges [localBranches] with the subset of [remoteBranches] that no local
+/// branch claims ("remote-only", Flutter Desktop Spec's `BRANCH_STATES`
+/// "Remote only（未 checkout）") into one flat list ready for
 /// [buildBranchTree] -- spec page 02 items 4/12: "Local 與 remote 不再分兩
-/// 段，同一條分支只出現一次". A local branch's [RefInfo.upstream] is git's
-/// `%(upstream)` output, the tracked ref's *full* name
-/// (`refs/remotes/origin/main`, confirmed against real `git for-each-ref`
-/// output, not `%(upstream:short)`), so it's matched directly against a
-/// remote branch's [RefInfo.fullName]. A matched remote branch is dropped --
-/// the local leaf already represents it. An unmatched one is kept with its
-/// `shortName` rewritten to drop the leading `<remote>/` segment (recover it
-/// with [remoteBranchParts] on `fullName`) so it groups into the same folder
-/// a same-named local branch would, since [buildBranchTree] groups by
-/// `shortName.split('/')`. Symbolic remote refs (`origin/HEAD`) are excluded
-/// -- not a real branch to show or check out.
+/// 段，同一條分支只出現一次".
+///
+/// Claiming is [RemoteBranchIndex.counterpartOf]'s two rules. A claimed
+/// remote ref is dropped: the local leaf already represents it. An unclaimed
+/// one is kept with its `shortName` rewritten to drop the leading `<remote>/`
+/// segment (recover it with [remoteBranchParts] on `fullName`) so it groups
+/// into the same folder a same-named local branch would, since
+/// [buildBranchTree] groups by `shortName.split('/')`. Symbolic remote refs
+/// (`origin/HEAD`) are excluded -- not a real branch to show or check out.
+///
+/// **This function is the one place that enforces 「同一條分支只出現一次」**,
+/// and it holds after claiming too: two remotes can carry the same branch
+/// name, in which case neither is claimed (the name is ambiguous) and both
+/// would still arrive at the same rewritten `shortName`. Whoever is first
+/// under that name wins, and [localBranches] come first, so the row that can
+/// be checked out, merged and deleted is never the casualty. That is a real
+/// reduction -- a second remote's copy of a branch name is not drawn -- and it
+/// is deterministic rather than the order-dependent overwrite it replaced.
+/// [buildBranchTree] does no such de-duplication of its own: root-level names
+/// go into a `Map` (silently last-write-wins) and nested ones into a `List`
+/// (visibly duplicated), so a caller handing it duplicates gets one of those
+/// two failures.
 List<RefInfo> mergeLocalAndRemoteBranches(
   List<RefInfo> localBranches,
   List<RefInfo> remoteBranches,
 ) {
-  final Set<String> trackedUpstreams = localBranches
-      .map((b) => b.upstream)
-      .where((u) => u.isNotEmpty)
-      .toSet();
+  final RemoteBranchIndex index = RemoteBranchIndex.from(remoteBranches);
+  final Set<String> claimed = <String>{};
+  final Set<String> takenNames = <String>{};
+  for (final RefInfo local in localBranches) {
+    final String counterpart = index.counterpartOf(local);
+    if (counterpart.isNotEmpty) {
+      claimed.add(counterpart);
+    }
+    takenNames.add(local.shortName);
+  }
 
-  final List<RefInfo> remoteOnly = remoteBranches
-      .where((r) => !r.isSymbolic && !trackedUpstreams.contains(r.fullName))
-      .map(
-        (r) => RefInfo(
-          fullName: r.fullName,
-          shortName: remoteBranchParts(r.fullName).$2,
-          kind: r.kind,
-          target: r.target,
-          upstream: r.upstream,
-          ahead: r.ahead,
-          behind: r.behind,
-          hasTrackingInfo: r.hasTrackingInfo,
-          isGone: r.isGone,
-          isHead: r.isHead,
-          isSymbolic: r.isSymbolic,
-          worktreePath: r.worktreePath,
-        ),
-      )
-      .toList(growable: false);
+  final List<RefInfo> remoteOnly = <RefInfo>[];
+  for (final RefInfo r in remoteBranches) {
+    if (r.isSymbolic || claimed.contains(r.fullName)) continue;
+    final String branchName = remoteBranchParts(r.fullName).$2;
+    // `Set.add` returns false when the name is already spoken for.
+    if (!takenNames.add(branchName)) continue;
+    remoteOnly.add(
+      RefInfo(
+        fullName: r.fullName,
+        shortName: branchName,
+        kind: r.kind,
+        target: r.target,
+        upstream: r.upstream,
+        ahead: r.ahead,
+        behind: r.behind,
+        hasTrackingInfo: r.hasTrackingInfo,
+        isGone: r.isGone,
+        isHead: r.isHead,
+        isSymbolic: r.isSymbolic,
+        worktreePath: r.worktreePath,
+      ),
+    );
+  }
 
   return <RefInfo>[...localBranches, ...remoteOnly];
 }

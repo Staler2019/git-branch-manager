@@ -249,6 +249,14 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
   /// `delta` with it, and the ref-ordered list silently left it out.
   List<String> _selectableNamesInRenderOrder = const <String>[];
 
+  /// Remote branches indexed by branch name, rebuilt at the top of every
+  /// [build] from the same [RefSnapshot] the rows are built from.
+  ///
+  /// A field rather than a parameter only because `_buildBranchNode` is
+  /// reached through the tree walk; it is written once per build and read
+  /// within that build, exactly like [_selectableNamesInRenderOrder] above.
+  RemoteBranchIndex _remoteIndex = RemoteBranchIndex.from(const <RefInfo>[]);
+
   /// P02-14 rule 8. Also the clear button's action, so the two cannot drift.
   void _clearFilter() {
     _filterController.clear();
@@ -358,6 +366,12 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
       refs.localBranches,
       refs.remoteBranches,
     );
+    // Built once per build and read by every row below: gone marking, the
+    // bulk-select set and the pending count all have to agree about which
+    // remote ref a local branch corresponds to. Resolving per row instead
+    // would be quadratic (measured: 14ms per pass at 500+500 branches).
+    // It is a local, never part of any watched provider state.
+    _remoteIndex = RemoteBranchIndex.from(refs.remoteBranches);
     _pruneSelection(branches);
 
     // Compute filtered branches first, since we need it for both the enable
@@ -370,13 +384,21 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     );
     final Set<String> gonePendingRefs = session.gonePendingRefs;
     final bool anyGoneSelectable = filteredBranches.any(
-      (RefInfo b) => isGoneAndBulkSelectable(b, gonePendingRefs),
+      (RefInfo b) => isGoneAndBulkSelectable(
+        b,
+        gonePendingRefs,
+        remoteCounterpart: _remoteIndex.counterpartOf(b),
+      ),
     );
     // Spec page 02 stage 1: 「在區塊標題右邊顯示待清理數量」. Counted over
     // the unfiltered merged list -- how many refs are waiting to be pruned
     // is a fact about the repository, not about what the filter box happens
     // to be showing.
-    final int pendingCleanup = gonePendingCount(branches, gonePendingRefs);
+    final int pendingCleanup = gonePendingCount(
+      branches,
+      gonePendingRefs,
+      _remoteIndex.counterpartOf,
+    );
     // 「Where am I」, with no sort pin to answer it: open the folders on the
     // way to the current branch, so its row is already on screen.
     //
@@ -464,7 +486,11 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
             onSelectAllGone: () => _selectionController.state =
                 const ListSelection<String>().selectAll(<String>[
                   for (final RefInfo b in filteredBranches)
-                    if (isGoneAndBulkSelectable(b, gonePendingRefs))
+                    if (isGoneAndBulkSelectable(
+                      b,
+                      gonePendingRefs,
+                      remoteCounterpart: _remoteIndex.counterpartOf(b),
+                    ))
                       b.shortName,
                 ]),
             onNewBranch: () => _rowActions.createBranch(context),
@@ -632,23 +658,13 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
               : () => actions.renameBranch(context, node.ref),
           onDelete: isRemoteOnly || node.ref.isHead
               ? null
-              : () => actions.deleteSingle(node.ref),
+              : () => actions.deleteSingle(context, node.ref),
           onNewBranchFromHere: isRemoteOnly
               ? null
               : () => actions.createBranchFrom(context, node.ref),
           onMerge: isRemoteOnly || node.ref.isHead
               ? null
               : () => actions.openMergeDialog(context),
-          onPruneRef: isRemoteOnly
-              ? () => actions.pruneRemoteRef(node.ref)
-              // Effective gone, not `isGone`: a row marked from the dry-run
-              // preview is exactly the row whose upstream Prune should
-              // remove, and it is the only way that menu item is reachable
-              // before a real prune has happened.
-              : isEffectivelyGone(node.ref, session.gonePendingRefs) &&
-                    node.ref.upstream.isNotEmpty
-              ? () => actions.pruneGoneUpstream(node.ref)
-              : null,
           onDeleteOnRemote: isRemoteOnly
               ? () => actions.openDeleteRemoteBranchDialog(context, node.ref)
               : null,
@@ -669,7 +685,17 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
           // Sourced from isActionEnabled(), not session.conflictActive
           // directly -- single source of truth for checkout availability.
           conflictActive: !isActionEnabled(GbmActionId.branchCheckout, session),
-          isGonePending: isEffectivelyGone(node.ref, session.gonePendingRefs),
+          // Empty for a remote-only row on purpose: that row's shortName
+          // has had its `<remote>/` prefix stripped, so the index would
+          // match it against itself.
+          remoteCounterpart: isRemoteOnly
+              ? ''
+              : _remoteIndex.counterpartOf(node.ref),
+          isGonePending: isEffectivelyGone(
+            node.ref,
+            session.gonePendingRefs,
+            remoteCounterpart: _remoteIndex.counterpartOf(node.ref),
+          ),
         ),
       );
     } else if (node is BranchTreeFolder) {

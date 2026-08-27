@@ -1,7 +1,7 @@
 // Verifies SidebarPanel's gap-4 wiring: the merged local/remote branch tree
 // (branch_tree_builder.dart's mergeLocalAndRemoteBranches) actually reaches
 // the tree, and the 05-C remote-only menu's three actions
-// (Checkout as new local…, Prune this ref, Delete on remote…) dispatch
+// (Checkout as new local…, Fetch this branch, Delete remote branch…) dispatch
 // through the real repoSessionProvider/GoRouter seam rather than just being
 // unit-tested against BranchTreeItem in isolation -- see CLAUDE.md's
 // Testing tiers: a widget test alone proves the widget renders correctly,
@@ -16,6 +16,7 @@ import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/data/repositories/branch_repository.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
+import 'package:gbm_flutter/features/sidebar/branch_row_actions.dart';
 import 'package:gbm_flutter/features/sidebar/sidebar_panel.dart';
 import 'package:gbm_flutter/features/sidebar/widgets/branch_tree_item.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
@@ -98,6 +99,37 @@ final RefInfo _goneFeature = RefInfo(
   worktreePath: '',
 );
 
+// A remote ref in the shape the **core** emits, which is not the shape the
+// sidebar hands around: `RefStore.cpp` builds `shortName` with `substr(13)`
+// over `refs/remotes/`, so the remote prefix is still on it. Every ref that
+// reaches BranchRowActions through the sidebar has been rebuilt by
+// `mergeLocalAndRemoteBranches` with that prefix stripped (pinned by
+// branch_tree_builder_test.dart's "a nested remote-only branch is handed
+// out under the branch name alone"), which is exactly why no fixture routed
+// through the panel can tell a `fullName`-derived answer from a
+// `shortName`-derived one -- the two agree on every input the sidebar can
+// produce. The three 05-C actions are therefore called directly with this
+// ref, so each one is pinned against the raw form rather than against the
+// normalisation some other layer happens to perform.
+//
+// The name is nested on purpose: `origin/release` and `release` differ by a
+// prefix *either* derivation removes, and only `origin/feat/x` vs `feat/x`
+// separates "drop the remote segment" from "take the last segment".
+final RefInfo _rawRemoteFeatX = RefInfo(
+  fullName: 'refs/remotes/origin/feat/x',
+  shortName: 'origin/feat/x',
+  kind: RefKind.remoteBranch,
+  target: 'd' * 40,
+  upstream: '',
+  ahead: 0,
+  behind: 0,
+  hasTrackingInfo: false,
+  isGone: false,
+  isHead: false,
+  isSymbolic: false,
+  worktreePath: '',
+);
+
 final RefSnapshot _testRefSnapshot = RefSnapshot(
   head: HeadInfo(
     kind: HeadKind.branch,
@@ -166,6 +198,16 @@ Future<_Harness> _pump(WidgetTester tester) async {
           body: SidebarPanel(identity: _testIdentity, filterFocusNode: null),
         ),
       ),
+      // A sentinel per dialog, not one shared stub: 05-B's Delete branch…
+      // and 05-C's Delete remote branch… both only `context.push`, so an
+      // assertion on "a route was pushed" cannot tell them apart -- and
+      // telling them apart is the whole point of this round's menu change.
+      GoRoute(
+        path: RoutePaths.deleteBranchDialog,
+        builder: (context, state) => Scaffold(
+          body: Text('delete-branch:${state.uri.queryParameters['branch']}'),
+        ),
+      ),
       GoRoute(
         path: RoutePaths.deleteRemoteBranchDialog,
         builder: (context, state) => Scaffold(
@@ -228,6 +270,76 @@ Future<void> _openRemoteRowMenu(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
+/// Pumps a bare `Consumer` holding a [BranchRowActions] over the same
+/// router as [_pump], so a row action can be invoked directly rather than
+/// through a menu. Needed because the defect this checks is unreachable
+/// through the sidebar: every ref that gets there has already been rebuilt
+/// by `mergeLocalAndRemoteBranches`.
+Future<FakeRepoSessionController> _pumpRowActions(
+  WidgetTester tester,
+  void Function(BuildContext context, BranchRowActions actions) run,
+) async {
+  SharedPreferences.setMockInitialValues(<String, Object>{});
+  final SharedPreferences prefs = await SharedPreferences.getInstance();
+  final FakeRepoSessionController fake = FakeRepoSessionController(
+    _testIdentity,
+    const RepoSessionState(),
+  );
+
+  final GoRouter router = GoRouter(
+    initialLocation: '/repo/$_repoIdParam/history',
+    routes: <RouteBase>[
+      GoRoute(
+        path: '/repo/:repoId/history',
+        builder: (context, state) => Scaffold(
+          body: Consumer(
+            builder: (context, ref, _) => TextButton(
+              onPressed: () => run(
+                context,
+                BranchRowActions(ref: ref, identity: _testIdentity),
+              ),
+              child: const Text('go'),
+            ),
+          ),
+        ),
+      ),
+      GoRoute(
+        path: RoutePaths.deleteRemoteBranchDialog,
+        builder: (context, state) => Scaffold(
+          body: Text(
+            'delete-remote-branch:'
+            '${state.uri.queryParameters['remote']}/'
+            '${state.uri.queryParameters['branch']}',
+          ),
+        ),
+      ),
+    ],
+  );
+
+  final ProviderContainer container = ProviderContainer(
+    overrides: <Override>[
+      sharedPreferencesProvider.overrideWithValue(prefs),
+      repoRefsProvider(_testIdentity).overrideWithValue(_testRefSnapshot),
+      repoSessionProvider(_testIdentity).overrideWith((ref) => fake),
+    ],
+  );
+  addTearDown(container.dispose);
+
+  await tester.pumpWidget(
+    UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp.router(
+        theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+        routerConfig: router,
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('go'));
+  await tester.pumpAndSettle();
+  return fake;
+}
+
 void main() {
   group('SidebarPanel remote branch merge (gap 4)', () {
     testWidgets('shows the remote-only branch but not the tracked one twice', (
@@ -264,20 +376,21 @@ void main() {
       },
     );
 
-    testWidgets('Prune this ref calls pruneRemote with the remote name', (
-      tester,
-    ) async {
+    testWidgets('offers no prune, through the real wiring', (tester) async {
+      // 使用者裁定：選單不再出現 prune 這個字，背景做掉。This test used to
+      // tap 「Prune this ref」 and assert the pruneRemote dispatch; the item
+      // and its `onPruneRef` callback are both gone. Asserted here rather
+      // than only against BranchTreeItem because SidebarPanel is what wires
+      // the callback, and a re-added wiring would show up here first.
       final _Harness harness = await _pump(tester);
 
       await _openRemoteRowMenu(tester);
-      await tester.tap(find.text('Prune this ref'));
-      await tester.pumpAndSettle();
 
-      final FakeCommand prune = harness.fake.commandLog.singleWhere(
-        (c) => c.name == 'pruneRemote',
+      expect(find.textContaining('Prune'), findsNothing);
+      expect(
+        harness.fake.commandLog.where((c) => c.name == 'pruneRemote').length,
+        0,
       );
-      expect(prune.args['remoteName'], 'origin');
-      expect(prune.args['refs'], <String>['refs/remotes/origin/release']);
     });
 
     testWidgets(
@@ -297,16 +410,78 @@ void main() {
       },
     );
 
-    testWidgets('Delete on remote… navigates to deleteRemoteBranchDialogFor', (
+    testWidgets(
+      'Delete remote branch… navigates to deleteRemoteBranchDialogFor',
+      (tester) async {
+        await _pump(tester);
+
+        await _openRemoteRowMenu(tester);
+        await tester.tap(find.text('Delete remote branch…'));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text('delete-remote-branch:origin/release'),
+          findsOneWidget,
+        );
+        // The remote row keeps no local-branch delete: 使用者裁定 for this
+        // row is 「仍叫 delete remote branch，一樣跳 dialog，但不會長勾選
+        // 刪除 remote 的選項」.
+        expect(find.textContaining('delete-branch:'), findsNothing);
+      },
+    );
+
+    // The three 05-C actions, each called directly with a ref in the shape
+    // the core emits -- see _rawRemoteFeatX for why the panel cannot stage
+    // this and what each assertion separates.
+    testWidgets(
+      'Delete remote branch… is told the branch name the remote knows, '
+      'never the ref\'s own shortName',
+      (tester) async {
+        await _pumpRowActions(tester, (context, actions) {
+          actions.openDeleteRemoteBranchDialog(context, _rawRemoteFeatX);
+        });
+
+        expect(find.text('delete-remote-branch:origin/feat/x'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'Checkout as new local names the branch git would, never the ref\'s '
+      'own shortName',
+      (tester) async {
+        // The one that was still reading `shortName`: with the raw ref it
+        // asked git for a local branch literally called `origin/feat/x`,
+        // which git accepts -- `refs/heads/origin/feat/x` is a valid ref --
+        // so the failure would have been a branch that quietly looks like a
+        // remote one forever, not an error.
+        final FakeRepoSessionController fake = await _pumpRowActions(
+          tester,
+          (context, actions) =>
+              actions.checkoutRemoteAsNewLocal(_rawRemoteFeatX),
+        );
+
+        final FakeCommand checkout = fake.commandLog.singleWhere(
+          (c) => c.name == 'checkout',
+        );
+        expect(checkout.args['target'], 'refs/remotes/origin/feat/x');
+        expect(checkout.args['createBranch'], isTrue);
+        expect(checkout.args['newBranchName'], 'feat/x');
+      },
+    );
+
+    testWidgets('Fetch this branch sends the remote and the branch git knows', (
       tester,
     ) async {
-      await _pump(tester);
+      final FakeRepoSessionController fake = await _pumpRowActions(
+        tester,
+        (context, actions) => actions.fetchRemoteRef(_rawRemoteFeatX),
+      );
 
-      await _openRemoteRowMenu(tester);
-      await tester.tap(find.text('Delete on remote…'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('delete-remote-branch:origin/release'), findsOneWidget);
+      final FakeCommand fetch = fake.commandLog.singleWhere(
+        (c) => c.name == 'fetchRemote',
+      );
+      expect(fetch.args['remoteName'], 'origin');
+      expect(fetch.args['refs'], <String>['feat/x']);
     });
 
     testWidgets(
@@ -360,81 +535,61 @@ void main() {
     );
   });
 
-  group('SidebarPanel gone-row menu wiring (BRANCH_STATES 05-C subset)', () {
-    testWidgets(
-      'Prune this ref prunes the vanished upstream, not the local branch '
-      'itself',
-      (tester) async {
-        final _Harness harness = await _pump(tester);
-
-        final Finder goneItem = find.ancestor(
-          of: find.text('feature'),
-          matching: find.byType(BranchTreeItem),
-        );
-        final Finder moreButton = find.descendant(
-          of: goneItem,
-          matching: find.byTooltip('Branch actions'),
-        );
-        // Unlike the remote-only row, a gone row has no onDoubleTap
-        // (it's a real local branch, single-tap already checks it out) --
-        // so this "more" button has no gesture-arena conflict and needs no
-        // kDoubleTapTimeout wait, unlike _openRemoteRowMenu above.
-        await tester.tap(moreButton);
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('Prune this ref'));
-        await tester.pumpAndSettle();
-
-        final FakeCommand prune = harness.fake.commandLog.singleWhere(
-          (c) => c.name == 'pruneRemote',
-        );
-        expect(prune.args['remoteName'], 'origin');
-        expect(prune.args['refs'], <String>['refs/remotes/origin/feature']);
-      },
+  // 使用者裁定：「the local have branch should have 05-b not 05-c」. This
+  // group asserted the opposite until this round -- Prune wired, and
+  // Checkout/Fetch/Delete-on-remote permanently disabled -- on the strength
+  // of BRANCH_STATES's 「gone 的列只留 Prune 與 Copy，其餘停用」. Overruled.
+  group('SidebarPanel gone-row menu wiring (05-B)', () {
+    Finder goneMoreButton() => find.descendant(
+      of: find.ancestor(
+        of: find.text('feature'),
+        matching: find.byType(BranchTreeItem),
+      ),
+      // Unlike the remote-only row, a gone row has no onDoubleTap (it is a
+      // real local branch), so this button has no gesture-arena conflict
+      // and needs no kDoubleTapTimeout wait, unlike _openRemoteRowMenu.
+      matching: find.byTooltip('Branch actions'),
     );
 
-    testWidgets(
-      'Checkout as new local…, Fetch this branch, and Delete on remote… '
-      'stay disabled -- no command reaches the session when tapped',
-      (tester) async {
-        final _Harness harness = await _pump(tester);
+    testWidgets('Delete branch… opens the single-branch delete dialog', (
+      tester,
+    ) async {
+      // The action the user was locked out of. It must reach the *dialog*,
+      // not dispatch a delete: the ellipsis is the contract, and the dialog
+      // is the only place 「同時刪除遠端分支」 can be asked for.
+      final _Harness harness = await _pump(tester);
 
-        final Finder goneItem = find.ancestor(
-          of: find.text('feature'),
-          matching: find.byType(BranchTreeItem),
-        );
-        final Finder moreButton = find.descendant(
-          of: goneItem,
-          matching: find.byTooltip('Branch actions'),
-        );
-        await tester.tap(moreButton);
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('Checkout as new local…'));
-        await tester.pumpAndSettle();
+      await tester.tap(goneMoreButton());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete branch…'));
+      await tester.pumpAndSettle();
 
-        await tester.tap(moreButton);
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('Fetch this branch'));
-        await tester.pumpAndSettle();
+      expect(find.text('delete-branch:feature'), findsOneWidget);
+      // Counted: nothing may be deleted before the user confirms.
+      expect(
+        harness.fake.commandLog.where((c) => c.name == 'deleteBranch').length,
+        0,
+      );
+    });
 
-        await tester.tap(moreButton);
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('Delete on remote…'));
-        await tester.pumpAndSettle();
+    testWidgets('offers the rest of 05-B, and no prune anywhere', (
+      tester,
+    ) async {
+      final _Harness harness = await _pump(tester);
 
-        expect(
-          harness.fake.commandLog.any((c) => c.name == 'checkout'),
-          isFalse,
-        );
-        expect(
-          harness.fake.commandLog.any((c) => c.name == 'fetchRemote'),
-          isFalse,
-        );
-        // Delete on remote… doesn't dispatch a session command at all --
-        // it navigates to deleteRemoteBranchDialogFor -- so the commandLog
-        // check above can't catch a regression that re-wires it for gone
-        // rows; this is the assertion that actually would.
-        expect(find.textContaining('delete-remote-branch:'), findsNothing);
-      },
-    );
+      await tester.tap(goneMoreButton());
+      await tester.pumpAndSettle();
+
+      expect(find.text('Checkout'), findsOneWidget);
+      expect(find.text('Rename…'), findsOneWidget);
+      expect(find.text('Merge into current'), findsOneWidget);
+      expect(find.text('New branch from here…'), findsOneWidget);
+      expect(find.textContaining('Prune'), findsNothing);
+      expect(find.text('Checkout as new local…'), findsNothing);
+      expect(
+        harness.fake.commandLog.where((c) => c.name == 'pruneRemote').length,
+        0,
+      );
+    });
   });
 }

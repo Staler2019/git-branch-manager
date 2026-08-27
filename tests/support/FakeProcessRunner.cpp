@@ -30,7 +30,15 @@ bool argvMatches(const std::vector<std::string>& argv, const std::vector<std::st
 }  // namespace
 
 void FakeProcessRunner::whenArgsContain(std::vector<std::string> argvContains, Response response) {
-    rules_.push_back({std::move(argvContains), std::move(response)});
+    rules_.push_back({std::move(argvContains), {std::move(response)}, 0});
+}
+
+void FakeProcessRunner::whenArgsContainInTurn(std::vector<std::string> argvContains,
+                                              std::vector<Response> responses) {
+    if (responses.empty()) {
+        return;
+    }
+    rules_.push_back({std::move(argvContains), std::move(responses), 0});
 }
 
 void FakeProcessRunner::setDefaultResponse(Response response) {
@@ -47,10 +55,15 @@ void FakeProcessRunner::clear() {
     defaultResponse_ = Response{};
 }
 
-const FakeProcessRunner::Response& FakeProcessRunner::responseFor(const GitCommand& command) const {
-    for (const Rule& rule : rules_) {
+const FakeProcessRunner::Response& FakeProcessRunner::responseFor(const GitCommand& command) {
+    for (Rule& rule : rules_) {
         if (argvMatches(command.args, rule.tokens)) {
-            return rule.response;
+            const std::size_t at = std::min(rule.cursor, rule.responses.size() - 1);
+            // Saturates rather than wraps: a rule that has run out keeps
+            // answering with its last entry, so an extra invocation shows up
+            // as a wrong count rather than as a surprise "before" answer.
+            ++rule.cursor;
+            return rule.responses[at];
         }
     }
     return defaultResponse_;

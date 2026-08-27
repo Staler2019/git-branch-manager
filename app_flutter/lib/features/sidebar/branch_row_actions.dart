@@ -62,8 +62,16 @@ class BranchRowActions {
     );
   }
 
-  void deleteSingle(RefInfo branch) =>
-      _session.deleteBranch(names: <String>[branch.shortName]);
+  /// 05-B "Delete branch…" -- opens the confirmation, it does not delete.
+  ///
+  /// The ellipsis in the label is the contract, and this used to break it by
+  /// dispatching `deleteBranch` straight from the menu. It also skipped the
+  /// only place the user can ask for the remote copy to go with it (spec page
+  /// 18's 「可勾選一併刪遠端」, default unchecked), which after this round is
+  /// the sole way a branch's remote side is deleted from the sidebar.
+  void deleteSingle(BuildContext context, RefInfo branch) => context.push(
+    RoutePaths.deleteBranchDialogFor(_repoId, branch: branch.shortName),
+  );
 
   /// Spec page 13 requires a batch delete to be confirmed item by item
   /// (「逐項列出名稱與未 push 的 commit 數」), not fired straight off the
@@ -92,33 +100,25 @@ class BranchRowActions {
   );
 
   /// 05-C "Checkout as new local…" / double-tap on a remote-only row --
-  /// [remoteRef.fullName] is an unambiguous git ref
-  /// (`refs/remotes/origin/...`), unlike its already-prefix-stripped
-  /// `shortName`, so it's used as the checkout target; the stripped
-  /// `shortName` becomes the new local branch's name.
-  void checkoutRemoteAsNewLocal(RefInfo remoteRef) => _session.checkout(
-    target: remoteRef.fullName,
-    createBranch: true,
-    newBranchName: remoteRef.shortName,
-  );
-
-  /// 05-C "Prune this ref" -- removes just this one remote-tracking ref
-  /// locally (`git branch --delete --remotes`), independent of whether the
-  /// branch is still live on the actual remote.
-  void pruneRemoteRef(RefInfo remoteRef) {
-    final (String remoteName, String _) = remoteBranchParts(remoteRef.fullName);
-    _session.pruneRemote(remoteName, <String>[remoteRef.fullName]);
-  }
-
-  /// 05-C "Prune this ref" for a *gone* row -- [goneRef] is the local
-  /// branch itself (`refs/heads/...`), so the ref to prune is its vanished
-  /// upstream (`goneRef.upstream`, e.g. `refs/remotes/origin/feature`), not
-  /// [goneRef.fullName]. This clears the stale remote-tracking ref and
-  /// leaves the local branch untouched -- see BRANCH_STATES's note: "真正
-  /// 移除 remote-tracking ref 要執行 Prune".
-  void pruneGoneUpstream(RefInfo goneRef) {
-    final (String remoteName, String _) = remoteBranchParts(goneRef.upstream);
-    _session.pruneRemote(remoteName, <String>[goneRef.upstream]);
+  /// `fullName` is an unambiguous git ref (`refs/remotes/origin/...`), so it
+  /// is the checkout target; the branch segment of that same ref is the new
+  /// local branch's name.
+  ///
+  /// Both out of one call, for [openDeleteRemoteBranchDialog]'s reason and
+  /// with a quieter failure: `remoteRef.shortName` is the branch name only
+  /// after `mergeLocalAndRemoteBranches` has stripped the remote prefix, and
+  /// a caller holding an unstripped ref would ask git for a local branch
+  /// literally named `origin/feat/x`. git **accepts** that --
+  /// `refs/heads/origin/feat/x` is a valid ref -- so nothing would report an
+  /// error; the user would just own a local branch that reads like a remote
+  /// one from then on.
+  void checkoutRemoteAsNewLocal(RefInfo remoteRef) {
+    final (String _, String branchName) = remoteBranchParts(remoteRef.fullName);
+    _session.checkout(
+      target: remoteRef.fullName,
+      createBranch: true,
+      newBranchName: branchName,
+    );
   }
 
   /// 05-C "Fetch this branch" -- a remote-only row's own ref is already an
@@ -135,12 +135,29 @@ class BranchRowActions {
   /// 05-C "Delete on remote…" -- opens the existing dialog
   /// (`deleteRemoteBranchDialogFor`), previously unreachable from any UI.
   void openDeleteRemoteBranchDialog(BuildContext context, RefInfo remoteRef) {
-    final (String remoteName, String _) = remoteBranchParts(remoteRef.fullName);
+    // Both halves out of one call. `remoteRef.shortName` looks like it would
+    // do for the branch, and does -- but only because
+    // `mergeLocalAndRemoteBranches` rebuilds every row it hands the sidebar
+    // with the prefix stripped. The core's own shortName **keeps** it
+    // (`RefStore.cpp`'s `substr(13)` over `refs/remotes/`), so a caller
+    // holding an unmerged ref would silently dispatch
+    // `git push origin --delete origin/feat/x`. One derivation, no
+    // dependence on what some other layer normalised.
+    //
+    // Both halves of that are tested, not just written down here: the
+    // stripping by branch_tree_builder_test.dart's 「a nested remote-only
+    // branch is handed out under the branch name alone」, and this call's
+    // independence from it by the direct-call tests in
+    // sidebar_panel_remote_branch_test.dart, which hand all three 05-C
+    // actions a ref in the core's own shape.
+    final (String remoteName, String branchName) = remoteBranchParts(
+      remoteRef.fullName,
+    );
     context.push(
       RoutePaths.deleteRemoteBranchDialogFor(
         _repoId,
         remote: remoteName,
-        branch: remoteRef.shortName,
+        branch: branchName,
       ),
     );
   }

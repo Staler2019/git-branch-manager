@@ -262,7 +262,7 @@ void main() {
     });
   });
 
-  group('05-C Remote-only / gone branch (conforms)', () {
+  group('05-C Remote-only branch (conforms)', () {
     testWidgets('remote-only row matches the full 05-C catalog', (
       tester,
     ) async {
@@ -272,7 +272,6 @@ void main() {
           ref: _remoteOnlyBranch(),
           onCheckout: () {},
           onFetchRef: () {},
-          onPruneRef: () {},
           onDeleteOnRemote: () {},
         ),
       );
@@ -282,8 +281,7 @@ void main() {
         'Checkout as new local…',
         'Fetch this branch',
         'Copy branch name',
-        'Prune this ref',
-        'Delete on remote…',
+        'Delete remote branch…',
       ]);
       for (final String label in _specLabels(
         GbmContextMenuTarget.remoteOnlyOrGoneBranch,
@@ -293,27 +291,33 @@ void main() {
     });
 
     testWidgets(
-      'gone row keeps only Prune this ref + Copy branch name enabled, per '
-      'spec\'s own "gone 的列只留 Prune 與 Copy，其餘停用" note',
+      'a gone local branch is not this group at all -- it takes 05-B',
       (tester) async {
+        // This test asserted the reverse until this round, on the strength of
+        // BRANCH_STATES's 「gone 的列只留 Prune 與 Copy，其餘停用」. That note
+        // is overruled by the user's ruling 「the local have branch should
+        // have 05-b not 05-c」; the catalog above no longer covers a gone row.
         await _pump(
           tester,
           BranchTreeItem(
             ref: _goneBranch(),
             onCheckout: () {},
-            onFetchRef: () {},
-            onPruneRef: () {},
-            onDeleteOnRemote: () {},
+            onRename: () {},
+            onDelete: () {},
+            onNewBranchFromHere: () {},
+            onMerge: () {},
           ),
         );
         await _rightClick(tester, find.byType(BranchTreeItem));
 
-        // Same 5 labels present (spec keeps disabled items visible, not
-        // omitted), but Checkout/Fetch/Delete-on-remote are inert.
-        for (final String label in _specLabels(
-          GbmContextMenuTarget.remoteOnlyOrGoneBranch,
-        )) {
-          expect(find.text(label), findsOneWidget, reason: 'missing: $label');
+        expect(find.text('Delete branch…'), findsOneWidget);
+        expect(find.text('Rename…'), findsOneWidget);
+        for (final String label in <String>[
+          'Checkout as new local…',
+          'Fetch this branch',
+          'Delete remote branch…',
+        ]) {
+          expect(find.text(label), findsNothing, reason: 'leaked: $label');
         }
       },
     );

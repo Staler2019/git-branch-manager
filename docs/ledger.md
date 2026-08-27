@@ -5457,3 +5457,288 @@ DAG，在三欄以內不重複」的一次量測。沿用了 adjacency invariant
   就變了。主幹仍是 accent。
 - **1x 實機觀感仍然沒有覆蓋**。這一輪連 golden 都沒重畫（Dart 沒動），使用者手上
   就有真機，交給使用者看。
+
+## fix/branch-prune-and-gone-marking — prune 壞掉的表象下有六個缺陷
+
+使用者回報三件事：prune 失敗（附了三行 exit 1 的 git log）、「從來沒 push 過的分支
+被標成 gone，而且只能選 delete」、以及「有本機分支的列應該用 05-B 不是 05-C，02 的
+分支狀態圖示也用錯了」。
+
+追下去是**六個獨立缺陷**，其中只有一個是「prune 壞掉」。
+
+### 沒活過原始碼的前提
+
+> 以為使用者遇到的是 prune 這個功能壞了。
+
+實際上使用者看到的整個現象——灰雲、fetch 後變黃雲斜線＋gone、右鍵只剩 prune 與
+delete remote——都不是 prune 造成的，而是**側邊欄把一條分支畫成了兩條**（或畫成了
+遠端那一條）。prune 確實也壞了（D1），但它是第二個問題，不是那個症狀的成因。
+
+`mergeLocalAndRemoteBranches()` 當時是這樣濾掉重複的：
+
+```dart
+final Set<String> trackedUpstreams = localBranches
+    .map((b) => b.upstream).where((u) => u.isNotEmpty).toSet();
+final List<RefInfo> remoteOnly = remoteBranches
+    .where((r) => !r.isSymbolic && !trackedUpstreams.contains(r.fullName))
+```
+
+只有「某條本機分支的 upstream 設定**正好等於**這條 remote ref」才會濾掉。用
+`git push origin HEAD`（沒有 `-u`）或走 PR 流程推上去的分支，`branch.<name>.merge`
+是空的，同名的 `origin/X` 就逃過了過濾：
+
+```
+名字沒有斜線 (main):
+  rootNodes['main'] = local  →  rootNodes['main'] = remote   ← Map，後寫贏
+  結果：畫面上只剩 remote 那一列（灰雲 ＋ 05-C 選單，不能刪分支）
+
+名字有斜線 (feat/x):
+  folderIndex['feat'].children = [ local leaf, remote leaf ]  ← List，不去重
+  結果：兩列並排，一列 git-branch 一列灰雲
+```
+
+fetch 之後 prune preview 把 `origin/X` 標成 gone-pending，那一列就變成 cloud-off ＋
+gone ＋ 刪除線。**完全對上使用者描述的「剛進來灰雲、fetch 後黃雲斜線」。**
+
+這條前提的代價不只是找錯方向：如果照使用者字面上的抱怨只修 prune，六個缺陷會修好
+一個，而使用者看到的症狀一個都不會消失。
+
+### 六個缺陷
+
+| # | 缺陷 | 怎麼找到的 |
+|---|---|---|
+| D0 | 同名的 local 與 remote 沒合成一列 | 讀碼 |
+| D1 | Prune 送出**完整 ref 名**，git 只吃**短名** | 真實 git 實測 |
+| D2 | 批次刪除「部分成功」被當成全失敗，強制重試又重送已刪的名字 | 真實 git 實測 |
+| D3 | 有本機分支的 gone 列套 05-C，只剩 Prune／Delete on remote | 讀碼 |
+| D4 | BRANCH_STATES 第 3 列的 `local` badge 完全沒實作；dim 多套在 gone 列上 | 全 repo grep `'local'` 無結果 |
+| #74 | `_remoteOf()` 把 `refs/remotes/origin/x` 切成 `"refs"` | issue 既有，本輪一併修 |
+
+D1 與 D2 是**跑出來的，不是讀出來的**——兩者都在 scratch repo 上用 git 2.55.0 實測。
+
+#### D1 實測
+
+```
+$ git branch --delete --remotes refs/remotes/origin/feat/x
+error: remote-tracking branch 'refs/remotes/origin/feat/x' not found      exit=1
+$ git branch --delete --remotes origin/feat/x
+Deleted remote-tracking branch origin/feat/x (was 668c5ce).               exit=0
+```
+
+`RemoteOps.h` 的契約寫的就是短名，Dart 這邊卻兩份呼叫端不一致：prune dialog 送短名
+（對），`branch_row_actions.dart` 兩處送全名（錯）。
+`remote_prune_preview_entry.dart` 的註解甚至明白寫著兩種形式並存——被知情地放行了，
+但 C++ 只收短名。
+
+#### D2 實測
+
+```
+$ git branch -d a cur b
+error: cannot delete branch 'cur' used by worktree at '...'
+Deleted branch a (was 668c5ce).       ← a 與 b 真的被刪了
+Deleted branch b (was 668c5ce).
+exit=1                                 ← 但仍然 exit 1
+
+$ git branch -D a2 cur b               ← 重試時 a2/b 已不存在
+error: branch 'a2' not found
+error: branch 'b' not found
+exit=1
+```
+
+`BranchOps.cpp` 只看一次 exit code，所以：`-d` 刪掉一半 → 報全失敗 → 使用者按
+「Delete anyway」→ `-D` 重送全部 5 個名字 → 已刪的變成 "not found" → 又報全失敗。
+**使用者要的事其實都做完了，畫面兩次都說失敗。** 這正是使用者貼上來那三行 log 的
+全貌。
+
+修法是執行前先探一次 `git for-each-ref` 算出「哪些還在」，只送這些；執行後失敗再探
+一次，算出「這次真的刪掉了哪些」，誠實列出成功與失敗。**刻意不解析 per-name
+stderr**——git 訊息會被 gettext 在地化，既有的 `"not fully merged"` 比對已經是脆弱
+前例，只留給**訊息**用，不讓**正確性**依賴它。
+
+### 使用者裁定（會記成規格偏離）
+
+1. **選單不再出現 prune 這個字**，背景做掉。本機分支列只有 `Delete branch…`
+   （P18 風格 dialog ＋「同時刪除遠端分支」核取方塊，預設不勾）；遠端分支列只有
+   `Delete remote branch…`（同樣跳 dialog，但沒有那個核取方塊）。
+2. **fetch 後自動背景 prune**，僅限「遠端已刪且沒有任何本機分支對應」的 ref。
+   有本機分支的保留 cloud-off，因為使用者還能 repush 回去。
+   `Remote → Prune remote branches` dialog 保留為手動退路。
+3. 圖示規則按 BRANCH_STATES 重排（見下方 C7）。
+4. 補上 `local` badge。
+5. #74 一起修。
+
+### 一次量測，換掉一個二次方
+
+C4 的第一版 `remoteCounterpartOf()` 是每條本機分支掃一遍遠端清單，L×R。量出來：
+
+| L = R | 每次 merge |
+|---|---|
+| 50 | 140µs |
+| 200 | 2,162µs |
+| 500 | 14,092µs |
+
+側邊欄每次 build 都會呼叫，500 條分支的 repo 不算罕見，14ms 是掉幀。改成一次建好
+`RemoteBranchIndex`（一趟 O(R)，之後每查 O(1)）：
+
+| L = R | 每次 merge |
+|---|---|
+| 50 | 15.7µs |
+| 200 | 58.2µs |
+| 500 | 141.9µs |
+
+500 條那格快了 99 倍，而且成長回到線性。數字寫在這裡，是為了下一輪要動這條路徑時
+從數字重新決定，而不是從同一個猜測。
+
+### 兩個變異回綠，各自暴露一個測試盲點
+
+**C4 M1（`remoteCounterpartOf` 的同名規則拿掉）全綠。** 原因是 merge 層還有一道
+`takenNames` 去重：同名的 remote 列**無論如何**都會被丟掉，所以任何 merge 層的斷言
+都看不見同名規則是死是活。兩個機制剛好蓋住同一個結果，其中一個壞掉沒有症狀。補了
+五個直接打 `remoteCounterpartOf` 的測試之後，六個變異才全部窄紅。
+
+**C7 M4（`SidebarPanel` 傳 `ref.upstream` 而不是解析後的 counterpart）全綠。**
+`branch_tree_item_test.dart` 是把 counterpart 當參數餵進去的——widget 收到什麼就畫
+什麼，永遠正確。缺的是「panel 到底算出了什麼再傳下去」。補的測試在 panel 層放兩列
+`upstream` 都是空的分支，唯一的差別是遠端有沒有同名 ref，再用 y 座標確認 badge 長在
+對的那一列上。
+
+這兩個是同一種形狀的兩個變體：**斷言的位置錯過了實際做決定的那一層。**
+
+### 計畫外的發現
+
+**`deleteSingle()` 根本沒開 dialog。** C6 在改右鍵選單時發現，`Delete branch…`
+（有刪節號）直接就 `deleteBranch()` 下去了。刪節號、規格第 6 頁、以及使用者這輪的
+裁定三者都說要跳 dialog。改成 `context.push(deleteBranchDialogFor(...))`。
+
+**delete dialog 從來沒收到本輪自己的規則。** C6 把側邊欄的 prune 入口拿掉之後，這個
+dialog 成了刪除遠端分支的唯一路徑，但它仍然只讀 `upstream` 與 `isGone`。三個後果：
+沒設 tracking 的分支看不到核取方塊；`isGone` 只在 prune **之後**才為真，所以從 fetch
+發現到 prune 記錄之間整段期間方塊都可勾，勾了就送出注定失敗的 push；最嚴重的是標題
+印 upstream 的分支名、派發送本機分支名——`feature/x` 追蹤 `origin/renamed-x` 時，
+畫面說「Also delete renamed-x」而實際刪 `feature/x`。**一個事實兩處各自推導，已經
+上線。** 這是本輪第二次踩到同一種形狀（第一次是 C3 自己的核取方塊述詞），所以
+C8b 把 remote 名與遠端分支名一起收進 `deleteBranchRemoteTarget()` 一次算完。
+
+值得記下的是這個缺陷為什麼能活這麼久：**除了改過名的 upstream，兩個名字永遠一致。**
+測試 fixture 只要不刻意讓它們不同，就看不到。
+
+### 多 remote 同名：一個明說的減量
+
+`origin/x` 與 `upstream/x` 同時存在、而本機的 `x` 沒設 tracking 時，「同名」指向兩個
+不同的 ref。這時 `RemoteBranchIndex` **誰都不認領**——明示的 tracking 設定優先，
+沒有設定就不猜。後果是那條本機分支會顯示成 `local`，兩條遠端列則各自畫出來；一條
+分支的遠端對應本來就無法從同名推得，猜錯比不猜糟。
+
+另外，同一個名字在樹上只會有一列，先到先得，本機分支永遠先排。這是為了讓
+`buildBranchTree` 的 `rootNodes[name] =` 不再有靜默覆蓋——**但刻意沒有加 assert**：
+計畫原本要在那裡加一道防護，實作時判斷那會把一個既有的靜默 bug 變成 debug 期崩潰，
+而使用者手上的是 release build，換來的只是把問題推到下一個人身上。
+
+### 自動 prune 的兩個邊界
+
+**preview 不是只有 fetch 會發。** Prune dialog 自己一開啟就會要一份。若不分來源，
+使用者一打開那個 dialog，自動 prune 就會把清單上的 ref 從他眼皮底下刪掉，接著他按下
+Prune 會對已不存在的 ref 跑 `git branch -d -r` → exit 1 → dialog 報失敗。判別方式
+**本來就存在**：`_autoPrunePreviewsInFlight`（remote → 尚未回覆的自動 preview 數）。
+自動 prune 只在這個計數涵蓋這次回覆時觸發。
+
+**自動 prune 失敗不該跳 banner。** 使用者沒有要求這件事，失敗也不影響他正在做的事。
+所以 `automatic` 的失敗不寫進 `lastError`，但仍然照常進 operation log——不通知，不
+等於不記錄。
+
+### 第三個計畫外的發現：另一條刪除遠端分支的路徑
+
+C6 把 05-C 的項目改名成 `Delete remote branch…` 之後，它的能見度提高了，而它走的
+是另一個 dialog——本輪從沒檢查過。兩件事：
+
+`openDeleteRemoteBranchDialog()` 的 remote 名來自 `remoteBranchParts(fullName)`，
+branch 名卻來自 `remoteRef.shortName`。**今天不會出錯**，只因為
+`mergeLocalAndRemoteBranches` 會把每一列重建成去掉前綴的形式；core 自己的
+shortName 是**保留**前綴的（`RefStore.cpp` 的 `substr(13)` 從 `refs/remotes/`
+起算）。拿未經合併的 ref 呼叫它就會靜默送出
+`git push origin --delete origin/feat/x`。
+
+**這裡的測試盲點值得單獨記一筆**：經由側邊欄的每一個 ref 都已經正規化過，所以
+**沒有任何 fixture 能讓那兩處推導不一致**——mutation 一定回綠。唯一能釘住它的
+方式是繞過側邊欄、直接用 core 形狀的 ref 呼叫那個函式，並且 fixture 要用**巢狀
+名**（`origin/feat/x` vs `feat/x`）才分得出「去掉 remote」與「取最後一段」。
+
+當時這條只寫進測試的註解裡，而使用者的回應把它推到正確的位置：**知道了就不該只寫
+註解，要寫成測試才算真的保證**。於是往下做了兩件事，見下一節。
+
+第二件：遠端已刪的 remote-only 列仍會畫出來（自動 prune 進行中，或失敗了），而它
+的 `Delete remote branch…` 送出的是必然被拒絕的 push。與 C8b 修掉的核取方塊同一種
+缺陷：在只會失敗的狀態下仍提供動作。改成停用並附原因，不隱藏。這一項超出原計畫，
+單獨一個 commit 以便需要時只回退它。
+
+### 把那個盲點補成真的保證
+
+使用者的裁定：註解不算保證。兩件事，一件是釘前提，一件是把前提拿掉。
+
+**釘前提。** 「側邊欄拿到的 remote ref 一定去掉前綴」原本只以兩種間接形式存在：
+panel 層有 `_remoteOnlyRelease`（扁平名 `origin/release` 畫成 `release`），merge
+層有「同前綴的 local 與 remote 落在同一個資料夾」。前者是扁平名，在「去掉第一段」
+與「取最後一段」兩種實作下都會過；後者用了巢狀名，兩種變異都紅，但它斷言的是**資料
+夾數量**，名字只是推論出來的，而且不是讀 `BranchRowActions` 的人會翻的地方。所以補
+的是一條**具名**的契約測試：巢狀 remote-only 進去，`shortName` 出來必須是 `feat/x`
+——一個期望值同時排除 `origin/feat/x`（沒去）與 `x`（取最後一段）。這條的價值是可被
+引用，`openDeleteRemoteBranchDialog` 的註解現在指向它。
+
+**把前提拿掉。** 更值錢的一半：既然 05-C 有三個動作，就三個都查。`fetchRemoteRef`
+本來就從 `fullName` 推導（安全），`openDeleteRemoteBranchDialog` 上一節剛改好，而
+**`checkoutRemoteAsNewLocal` 還在拿 `shortName` 當新分支名**——同一個缺陷，而且失敗
+得更安靜：`git` 接受 `refs/heads/origin/feat/x` 這種 ref，所以不會有任何錯誤，使用者
+只是從此擁有一條長得像遠端分支的本機分支。三個動作現在共用同一個 core 形狀的具名
+fixture，各有一條直接呼叫的測試。
+
+變異驗證把「為什麼一定要直接呼叫」也量出來了：把 `fetchRemoteRef` 改成讀
+`shortName`，**只有新的直接呼叫測試變紅**，原本走 panel 的那條 fetch 測試（扁平名
+`release`）在同一個變異下仍然是綠的。
+
+### 一個本輪造成的矛盾（提出時未決，當輪內由使用者裁定移除）
+
+Preferences → **General** 的 AUTOMATIC FETCH 段有一列 **「Prune while fetching
+— Also drop remote-tracking refs whose branch is gone on the remote」**（早先的
+記錄寫成 Preferences → Git，是錯的，它在 `_GeneralSection`）。`autoFetchPrune`
+被儲存、被畫出來，**沒有任何程式碼讀它**（#102 記錄的三個 `autoFetch*` 孤兒之一）。
+
+本輪之前它只是「調了沒反應」。本輪之後，它描述的行為**無條件會發生**，而開關預設
+是關的——使用者把它關掉，ref 仍然會在 fetch 之後消失。孤兒設定從「沒作用」變成
+「畫面上寫的事情正背著它發生」。
+
+而且照字面接上去做不到：那一列的文案是**完整** `--prune`，使用者的裁定則是有本機
+分支的要留著。文案本身就與裁定衝突。三條路（移除該列／改寫文案只控制子集／接受
+不一致）都是產品決定，已寫進 #102，本輪不擅自處理。
+
+**使用者裁定：移除。** 於是 `autoFetchPrune` 從 model、dialog 與儲存三處一起刪掉，
+不是留著不接線——留著的話那個控制項就是會說謊。依據是 `AppPreferences` 自己的類別
+註解那句話：「a preference that silently does nothing is worse than one that is
+not offered」，計量網路暫停早就是照這句話處理成「不提供」。P11 item 9 的
+「可選同時 prune」因此成為一條**使用者裁定的規格偏離**，已就地改寫進 matrix。
+
+刪的時候順手查證了一件事，結果比預期糟：`autoFetchEnabled` 與 `autoFetchMinutes`
+**同樣沒有任何讀取端**，沒有任何計時器會因為它們發出 fetch。所以 matrix 上 P11
+第 9 列原本那個 符合 從頭就只驗到「設定存在」，沒驗到「行為存在」——與 P02 item 2
+同一種形狀。那一列一併更正，剩下的兩個孤兒留在 #102（沒有新開 issue）。
+
+### 這輪沒做
+
+- **超過一個 remote 的同名推斷**：見上面，明說的減量。
+- **`buildBranchTree` 的重複 key assert**：見上面，刻意不加。
+- **實機驗收**：使用者手上就有這個 repo 的真實狀態，交給使用者看。
+  `git remote prune origin --dry-run` 當場確認了預期：`origin/fix/focus-refresh-repo-state`
+  與 `origin/fix/graph-lane-color-window` 兩條遠端已刪，且都沒有本機分支認領，
+  所以按 fetch 之後這兩列應該自動消失。刪除遠端分支與批次刪除本機分支會動到使用者
+  真實的 repo，不由實作者代跑。
+
+### 驗證
+
+`flutter analyze` 零 issue、`flutter test` 2352 綠 1 skip、`dart format
+--set-exit-if-changed .` 乾淨、`ctest` 603/603（2 個既有的 LFS skip）、
+clang-format **v18**（CI 的 pin，本機是 v22，所以另外裝了 18.1.8 來比對）掃過整個
+`src/` 沒有一個檔要改。**十二個 commit 各自單獨 `flutter analyze` 都是零 issue**，
+在獨立 worktree 上逐一 checkout 驗證。
+
+裝置層 11 個檔一個一個跑，**全綠**。其中 `stage_lines_flow_test` 7/7、1 分 47 秒
+——soft-warp 那輪把它記成「掛住，但重跑之後 7/7，所以誠實的說法是『無法重現』」，
+這一輪的結果與那個判斷一致，那條懸而未決的記錄可以再多一筆佐證。

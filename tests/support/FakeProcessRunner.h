@@ -31,6 +31,19 @@ public:
     /// the command's argv, in order.
     void whenArgsContain(std::vector<std::string> argvContains, Response response);
 
+    /// Like whenArgsContain, but the *same* command answers differently on
+    /// successive calls: match N takes `responses[N]`, and the last entry
+    /// repeats forever after.
+    ///
+    /// Needed whenever the code under test reads some state, changes it, and
+    /// reads it again -- a single canned answer cannot express "before" and
+    /// "after", so a test written against one silently asserts that nothing
+    /// changed. DeleteBranchOperation's before/after `for-each-ref` probe is
+    /// the first case; `git branch -d` is per-name and partially succeeds, so
+    /// which names survived is only knowable by comparing the two.
+    void whenArgsContainInTurn(std::vector<std::string> argvContains,
+                               std::vector<Response> responses);
+
     /// Fallback used when nothing matches. Defaults to exit code 0 and no output.
     void setDefaultResponse(Response response);
 
@@ -61,10 +74,15 @@ public:
 private:
     struct Rule {
         std::vector<std::string> tokens;
-        Response response;
+        /// Never empty. One entry is the ordinary whenArgsContain case; more
+        /// than one is whenArgsContainInTurn, consumed by `cursor`.
+        std::vector<Response> responses;
+        std::size_t cursor = 0;
     };
 
-    const Response& responseFor(const GitCommand& command) const;
+    /// Non-const because a multi-response rule advances its own cursor: the
+    /// answer depends on how many times this command has already run.
+    const Response& responseFor(const GitCommand& command);
 
     std::vector<Rule> rules_;
     Response defaultResponse_;

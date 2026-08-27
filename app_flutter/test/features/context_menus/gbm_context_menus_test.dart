@@ -27,7 +27,10 @@ void main() {
       const expectedCounts = <GbmContextMenuTarget, int>{
         GbmContextMenuTarget.repository: 7, // 05-A
         GbmContextMenuTarget.localBranch: 8, // 05-B
-        GbmContextMenuTarget.remoteOnlyOrGoneBranch: 5, // 05-C
+        // 05-C. Four, not the spec's five: 「Prune this ref」 is a
+        // user-ratified removal (選單不再出現 prune 這個字), see
+        // gbm_context_menus.dart's own doc comment on this group.
+        GbmContextMenuTarget.remoteOnlyOrGoneBranch: 4,
         GbmContextMenuTarget.branchFolder: 4, // 05-J
         GbmContextMenuTarget.tag: 5, // 05-D
         GbmContextMenuTarget.commit: 7, // 05-E

@@ -227,7 +227,6 @@ void main() {
           BranchTreeItem(
             ref: _remoteOnlyBranch(),
             onCheckout: () {},
-            onPruneRef: () {},
             onDeleteOnRemote: () {},
           ),
         );
@@ -236,8 +235,10 @@ void main() {
         expect(find.text('Checkout as new local…'), findsOneWidget);
         expect(find.text('Fetch this branch'), findsOneWidget);
         expect(find.text('Copy branch name'), findsOneWidget);
-        expect(find.text('Prune this ref'), findsOneWidget);
-        expect(find.text('Delete on remote…'), findsOneWidget);
+        expect(find.text('Delete remote branch…'), findsOneWidget);
+        // 使用者裁定：選單不再出現 prune 這個字。
+        expect(find.textContaining('Prune'), findsNothing);
+        expect(find.text('Delete on remote…'), findsNothing);
         expect(find.text('Rename…'), findsNothing);
         expect(find.text('Delete branch…'), findsNothing);
         expect(find.text('Merge into current'), findsNothing);
@@ -277,7 +278,38 @@ void main() {
       },
     );
 
-    testWidgets('Delete on remote… is styled danger', (tester) async {
+    testWidgets(
+      'Delete remote branch… is disabled once the ref is gone upstream',
+      (tester) async {
+        // Same defect class the delete-branch dialog's checkbox had: an
+        // action offered in a state where it can only fail. A remote-only
+        // row the prune preview calls gone still renders -- auto-prune may
+        // be in flight, or may have failed -- and `git push origin --delete`
+        // for a branch the server no longer has is refused. Disabled with
+        // the reason showing, never hidden: 隱藏會讓人以為功能不存在.
+        bool fired = false;
+        await _pump(
+          tester,
+          BranchTreeItem(
+            ref: _remoteOnlyBranch(),
+            onCheckout: () {},
+            onDeleteOnRemote: () => fired = true,
+            isGonePending: true,
+          ),
+        );
+        await _rightClick(tester, find.byType(BranchTreeItem));
+
+        // Rendered, not hidden.
+        expect(find.text('Delete remote branch…'), findsOneWidget);
+        await tester.tap(find.text('Delete remote branch…'));
+        await tester.pumpAndSettle();
+        // The menu dismisses either way, so "it closed" cannot tell a
+        // disabled item from a live one -- only the callback can.
+        expect(fired, isFalse);
+      },
+    );
+
+    testWidgets('Delete remote branch… is styled danger', (tester) async {
       await _pump(
         tester,
         BranchTreeItem(
@@ -287,7 +319,9 @@ void main() {
         ),
       );
       await _rightClick(tester, find.byType(BranchTreeItem));
-      final Text label = tester.widget<Text>(find.text('Delete on remote…'));
+      final Text label = tester.widget<Text>(
+        find.text('Delete remote branch…'),
+      );
       expect(
         label.style?.color,
         tokensFor(GbmThemeVariant.darkTechnical).danger,
@@ -332,23 +366,7 @@ void main() {
       },
     );
 
-    testWidgets('tapping Prune this ref invokes onPruneRef', (tester) async {
-      bool pruned = false;
-      await _pump(
-        tester,
-        BranchTreeItem(
-          ref: _remoteOnlyBranch(),
-          onCheckout: () {},
-          onPruneRef: () => pruned = true,
-        ),
-      );
-      await _rightClick(tester, find.byType(BranchTreeItem));
-      await tester.tap(find.text('Prune this ref'));
-      await tester.pumpAndSettle();
-      expect(pruned, isTrue);
-    });
-
-    testWidgets('tapping Delete on remote… invokes onDeleteOnRemote', (
+    testWidgets('tapping Delete remote branch… invokes onDeleteOnRemote', (
       tester,
     ) async {
       bool deleted = false;
@@ -361,7 +379,7 @@ void main() {
         ),
       );
       await _rightClick(tester, find.byType(BranchTreeItem));
-      await tester.tap(find.text('Delete on remote…'));
+      await tester.tap(find.text('Delete remote branch…'));
       await tester.pumpAndSettle();
       expect(deleted, isTrue);
     });
@@ -378,10 +396,15 @@ void main() {
     });
   });
 
-  group('gone row (05-C subset, BRANCH_STATES: "gone 的列只留 Prune 與 Copy")', () {
-    testWidgets('shows the 05-C subset, not the 05-B local-branch menu', (
-      tester,
-    ) async {
+  // 使用者裁定：「the local have branch should have 05-b not 05-c」.
+  // This group used to assert the opposite -- 05-C's disabled subset, on the
+  // authority of BRANCH_STATES's 「gone 的列只留 Prune 與 Copy，其餘停用」.
+  // That reading was faithful to the spec and is now overruled: a branch
+  // whose upstream vanished is still a local branch, and leaving it with the
+  // remote row's menu meant the user could see it but not check it out,
+  // merge it, rename it or delete it. Do not restore the old group.
+  group('gone row (05-B -- a gone branch is still a local branch)', () {
+    testWidgets('shows the full 05-B local-branch menu', (tester) async {
       await _pump(
         tester,
         BranchTreeItem(
@@ -391,117 +414,85 @@ void main() {
           onDelete: () {},
           onNewBranchFromHere: () {},
           onMerge: () {},
-          onPruneRef: () {},
+          onRebaseOntoHere: () {},
+          onCompareRef: () {},
         ),
       );
       await _rightClick(tester, find.byType(BranchTreeItem));
 
-      expect(find.text('Checkout as new local…'), findsOneWidget);
-      expect(find.text('Fetch this branch'), findsOneWidget);
+      expect(find.text('Checkout'), findsOneWidget);
+      expect(find.text('New branch from here…'), findsOneWidget);
+      expect(find.text('Rename…'), findsOneWidget);
+      expect(find.text('Merge into current'), findsOneWidget);
+      expect(find.text('Rebase current onto here'), findsOneWidget);
+      expect(find.text('Compare with…'), findsOneWidget);
       expect(find.text('Copy branch name'), findsOneWidget);
-      expect(find.text('Prune this ref'), findsOneWidget);
-      expect(find.text('Delete on remote…'), findsOneWidget);
-      expect(find.text('Rename…'), findsNothing);
-      expect(find.text('Delete branch…'), findsNothing);
-      expect(find.text('Merge into current'), findsNothing);
-      expect(find.text('New branch from here…'), findsNothing);
+      expect(find.text('Delete branch…'), findsOneWidget);
     });
 
-    testWidgets(
-      'tapping Fetch this branch does nothing (disabled -- own upstream is '
-      'what vanished)',
-      (tester) async {
-        await _pump(
-          tester,
-          BranchTreeItem(
-            ref: _goneBranch(),
-            onCheckout: () {},
-            onPruneRef: () {},
-          ),
-        );
-        await _rightClick(tester, find.byType(BranchTreeItem));
-        await tester.tap(find.text('Fetch this branch'));
-        await tester.pumpAndSettle();
-        expect(find.text('Fetch this branch'), findsNothing);
-      },
-    );
-
-    testWidgets(
-      'tapping Checkout as new local… does nothing (disabled -- already local)',
-      (tester) async {
-        bool checkedOut = false;
-        await _pump(
-          tester,
-          BranchTreeItem(
-            ref: _goneBranch(),
-            onCheckout: () => checkedOut = true,
-            onPruneRef: () {},
-          ),
-        );
-        await _rightClick(tester, find.byType(BranchTreeItem));
-        await tester.tap(find.text('Checkout as new local…'));
-        await tester.pumpAndSettle();
-        expect(checkedOut, isFalse);
-      },
-    );
-
-    testWidgets(
-      'tapping Delete on remote… does nothing (disabled -- remote already gone)',
-      (tester) async {
-        await _pump(
-          tester,
-          BranchTreeItem(
-            ref: _goneBranch(),
-            onCheckout: () {},
-            onPruneRef: () {},
-          ),
-        );
-        await _rightClick(tester, find.byType(BranchTreeItem));
-        await tester.tap(find.text('Delete on remote…'));
-        await tester.pumpAndSettle();
-        // No crash and no callback exists to fire -- absence of a thrown
-        // error is the assertion, mirroring the remote-only conflictActive
-        // case above.
-        expect(find.text('Delete on remote…'), findsNothing);
-      },
-    );
-
-    testWidgets('tapping Prune this ref invokes onPruneRef', (tester) async {
-      bool pruned = false;
+    testWidgets('shows none of 05-C, and never the word Prune', (tester) async {
       await _pump(
         tester,
         BranchTreeItem(
           ref: _goneBranch(),
           onCheckout: () {},
-          onPruneRef: () => pruned = true,
+          onRename: () {},
+          onDelete: () {},
+          onNewBranchFromHere: () {},
+          onMerge: () {},
         ),
       );
       await _rightClick(tester, find.byType(BranchTreeItem));
-      await tester.tap(find.text('Prune this ref'));
-      await tester.pumpAndSettle();
-      expect(pruned, isTrue);
+
+      expect(find.textContaining('Prune'), findsNothing);
+      expect(find.text('Checkout as new local…'), findsNothing);
+      expect(find.text('Fetch this branch'), findsNothing);
+      expect(find.text('Delete on remote…'), findsNothing);
+      expect(find.text('Delete remote branch…'), findsNothing);
     });
 
-    testWidgets(
-      'Delete on remote… renders dimmed, not danger red -- disabled wins '
-      'over its danger styling (GbmMenuItem.enabled doc comment)',
-      (tester) async {
-        await _pump(
-          tester,
-          BranchTreeItem(
-            ref: _goneBranch(),
-            onCheckout: () {},
-            onPruneRef: () {},
-          ),
-        );
-        await _rightClick(tester, find.byType(BranchTreeItem));
-        final Text label = tester.widget<Text>(find.text('Delete on remote…'));
-        expect(
-          label.style?.color,
-          tokensFor(GbmThemeVariant.darkTechnical).textTertiary,
-        );
-      },
-    );
+    testWidgets('tapping Delete branch… invokes onDelete exactly once', (
+      tester,
+    ) async {
+      // Counted rather than a bool: this is the action the user was locked
+      // out of, and a double dispatch would open two dialogs.
+      int deletes = 0;
+      await _pump(
+        tester,
+        BranchTreeItem(
+          ref: _goneBranch(),
+          onCheckout: () {},
+          onRename: () {},
+          onDelete: () => deletes++,
+          onNewBranchFromHere: () {},
+          onMerge: () {},
+        ),
+      );
+      await _rightClick(tester, find.byType(BranchTreeItem));
+      await tester.tap(find.text('Delete branch…'));
+      await tester.pumpAndSettle();
+      expect(deletes, 1);
+    });
+
+    testWidgets('Delete branch… is styled danger', (tester) async {
+      await _pump(
+        tester,
+        BranchTreeItem(
+          ref: _goneBranch(),
+          onCheckout: () {},
+          onRename: () {},
+          onDelete: () {},
+          onNewBranchFromHere: () {},
+          onMerge: () {},
+        ),
+      );
+      await _rightClick(tester, find.byType(BranchTreeItem));
+      final Text label = tester.widget<Text>(find.text('Delete branch…'));
+      expect(
+        label.style?.color,
+        tokensFor(GbmThemeVariant.darkTechnical).danger,
+      );
+    });
   });
 
   group('tag row (05-D)', () {

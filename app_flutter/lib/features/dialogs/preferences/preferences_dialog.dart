@@ -322,16 +322,6 @@ class _GeneralSection extends ConsumerWidget {
               (AppPreferences p) => p.copyWith(autoFetchMinutes: v),
             ),
           ),
-          _SettingSwitch(
-            title: 'Prune while fetching',
-            subtitle:
-                'Also drop remote-tracking refs whose branch is gone on the '
-                'remote.',
-            value: prefs.autoFetchPrune,
-            onChanged: (bool v) => notifier.update(
-              (AppPreferences p) => p.copyWith(autoFetchPrune: v),
-            ),
-          ),
         ],
         const SizedBox(height: GbmSpacing.space2),
         Text(

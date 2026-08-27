@@ -47,7 +47,6 @@ void main() {
       const AppPreferences written = AppPreferences(
         autoFetchEnabled: true,
         autoFetchMinutes: 3,
-        autoFetchPrune: true,
         recordManualOpens: false,
         autoScanEnabled: true,
         autoScanMinutes: 45,
@@ -67,7 +66,6 @@ void main() {
       final AppPreferences read = repo.read();
       expect(read.autoFetchEnabled, isTrue);
       expect(read.autoFetchMinutes, 3);
-      expect(read.autoFetchPrune, isTrue);
       expect(read.recordManualOpens, isFalse);
       expect(read.autoScanEnabled, isTrue);
       expect(read.autoScanMinutes, 45);

@@ -44,6 +44,35 @@ class RemotePrunePreviewEntry {
 String fullRemoteRefName(String ref) =>
     ref.startsWith(_kRemotePrefix) ? ref : '$_kRemotePrefix$ref';
 
+/// The exact argument list `git branch --delete --remotes` will accept, from
+/// a prune ref list in either form.
+///
+/// This is the **wire boundary** for pruning, and it exists because git is
+/// stricter here than anywhere else this codebase touches refs: `branch -r -d`
+/// resolves its argument *relative to* `refs/remotes/`, so a full name asks
+/// for `refs/remotes/refs/remotes/origin/x` and git answers
+/// `error: remote-tracking branch '...' not found` with exit 1. Measured on
+/// git 2.55.0; `src/core/git/ops/RemoteOps.h`'s `PruneRemoteRequest::refs`
+/// documents the same short-name contract on the C++ side.
+///
+/// Needed because the two producers genuinely disagree and always did:
+/// `prune_remote_branches_dialog.dart` sends git's short names while
+/// `gonePendingByRemote` stores full ones, and for months the sidebar's own
+/// "Prune this ref" fed the latter straight through -- every such prune failed
+/// silently from the user's point of view. Normalising here rather than at
+/// each call site means a new caller cannot reintroduce it.
+///
+/// Safe with respect to the gone-marking: `withGonePendingRemoved()` puts
+/// whatever it is given back through [fullRemoteRefName] before comparing, so
+/// the pending set keeps comparing full names either way.
+///
+/// Note for tests: `FakeRepoSessionController` overrides `pruneRemote()`
+/// wholesale, so a fake-backed test sees the *caller's* form, not this
+/// function's output. That is deliberate -- it keeps a caller passing the
+/// wrong form visible instead of being laundered by the double.
+List<String> pruneRefArguments(List<String> refs) =>
+    refs.map(shortRemoteRefName).toList(growable: false);
+
 /// The inverse of [fullRemoteRefName], equally idempotent. For display only:
 /// `origin/feature/x` is what the user recognises, while every comparison in
 /// this codebase is done on the full form.

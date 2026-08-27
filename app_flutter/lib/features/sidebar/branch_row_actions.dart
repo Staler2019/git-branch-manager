@@ -143,6 +143,13 @@ class BranchRowActions {
     // holding an unmerged ref would silently dispatch
     // `git push origin --delete origin/feat/x`. One derivation, no
     // dependence on what some other layer normalised.
+    //
+    // Both halves of that are tested, not just written down here: the
+    // stripping by branch_tree_builder_test.dart's 「a nested remote-only
+    // branch is handed out under the branch name alone」, and this call's
+    // independence from it by the direct-call tests in
+    // sidebar_panel_remote_branch_test.dart, which hand all three 05-C
+    // actions a ref in the core's own shape.
     final (String remoteName, String branchName) = remoteBranchParts(
       remoteRef.fullName,
     );

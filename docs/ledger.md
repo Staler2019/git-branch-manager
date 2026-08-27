@@ -5662,12 +5662,38 @@ shortName 是**保留**前綴的（`RefStore.cpp` 的 `substr(13)` 從 `refs/rem
 **沒有任何 fixture 能讓那兩處推導不一致**——mutation 一定回綠。唯一能釘住它的
 方式是繞過側邊欄、直接用 core 形狀的 ref 呼叫那個函式，並且 fixture 要用**巢狀
 名**（`origin/feat/x` vs `feat/x`）才分得出「去掉 remote」與「取最後一段」。
-這條寫在測試自己的註解裡。
+
+當時這條只寫進測試的註解裡，而使用者的回應把它推到正確的位置：**知道了就不該只寫
+註解，要寫成測試才算真的保證**。於是往下做了兩件事，見下一節。
 
 第二件：遠端已刪的 remote-only 列仍會畫出來（自動 prune 進行中，或失敗了），而它
 的 `Delete remote branch…` 送出的是必然被拒絕的 push。與 C8b 修掉的核取方塊同一種
 缺陷：在只會失敗的狀態下仍提供動作。改成停用並附原因，不隱藏。這一項超出原計畫，
 單獨一個 commit 以便需要時只回退它。
+
+### 把那個盲點補成真的保證
+
+使用者的裁定：註解不算保證。兩件事，一件是釘前提，一件是把前提拿掉。
+
+**釘前提。** 「側邊欄拿到的 remote ref 一定去掉前綴」原本只以兩種間接形式存在：
+panel 層有 `_remoteOnlyRelease`（扁平名 `origin/release` 畫成 `release`），merge
+層有「同前綴的 local 與 remote 落在同一個資料夾」。前者是扁平名，在「去掉第一段」
+與「取最後一段」兩種實作下都會過；後者用了巢狀名，兩種變異都紅，但它斷言的是**資料
+夾數量**，名字只是推論出來的，而且不是讀 `BranchRowActions` 的人會翻的地方。所以補
+的是一條**具名**的契約測試：巢狀 remote-only 進去，`shortName` 出來必須是 `feat/x`
+——一個期望值同時排除 `origin/feat/x`（沒去）與 `x`（取最後一段）。這條的價值是可被
+引用，`openDeleteRemoteBranchDialog` 的註解現在指向它。
+
+**把前提拿掉。** 更值錢的一半：既然 05-C 有三個動作，就三個都查。`fetchRemoteRef`
+本來就從 `fullName` 推導（安全），`openDeleteRemoteBranchDialog` 上一節剛改好，而
+**`checkoutRemoteAsNewLocal` 還在拿 `shortName` 當新分支名**——同一個缺陷，而且失敗
+得更安靜：`git` 接受 `refs/heads/origin/feat/x` 這種 ref，所以不會有任何錯誤，使用者
+只是從此擁有一條長得像遠端分支的本機分支。三個動作現在共用同一個 core 形狀的具名
+fixture，各有一條直接呼叫的測試。
+
+變異驗證把「為什麼一定要直接呼叫」也量出來了：把 `fetchRemoteRef` 改成讀
+`shortName`，**只有新的直接呼叫測試變紅**，原本走 panel 的那條 fetch 測試（扁平名
+`release`）在同一個變異下仍然是綠的。
 
 ### 一個本輪造成的矛盾（提出時未決，當輪內由使用者裁定移除）
 

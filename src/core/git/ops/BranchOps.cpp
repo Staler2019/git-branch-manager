@@ -4,10 +4,14 @@
 #include "core/git/AskpassHelper.h"
 #include "core/git/RefStore.h"
 
+#include <algorithm>
 #include <chrono>
+#include <optional>
+#include <set>
 #include <sstream>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace gbm {
 
@@ -100,6 +104,62 @@ RemoteRefProbeOutcome refineSummaryFromRemoteRefs(IProcessRunner& runner,
     outcome.summary = "This branch's commits already exist on " + label +
                       "; deleting it will not lose anything, your local branch is just behind";
     return RemoteRefProbeOutcome::FoundElsewhere;
+}
+
+/// Every local branch that exists right now, by short name.
+///
+/// `git branch -d/-D` is **per-name**: it deletes the names it can and exits 1
+/// if any one of them failed. Measured on git 2.55.0:
+///
+///     $ git branch -d a cur b
+///     error: cannot delete branch 'cur' used by worktree at '...'
+///     Deleted branch a (was 668c5ce).
+///     Deleted branch b (was 668c5ce).
+///     exit=1
+///
+/// So a single exit-code check cannot answer "what happened", and reading the
+/// per-name stderr instead is not an option: git's messages go through gettext
+/// and change with the user's locale. Comparing this set before and after the
+/// run is locale-immune, and it is the same command either way.
+///
+/// std::nullopt when the probe itself failed. Callers then behave exactly as
+/// they did before it existed -- a probe that cannot see must not make the
+/// delete worse than not probing at all.
+std::optional<std::set<std::string>> readLocalBranchNames(IProcessRunner& runner,
+                                                          const RepoPaths& paths,
+                                                          CancellationToken token) {
+    GitCommand probe(paths.commandDir(),
+                     {"for-each-ref", "--format=%(refname:short)", "refs/heads/"});
+    probe.timeout = std::chrono::milliseconds(5000);
+
+    auto result = runner.run(probe, token);
+    if (!result) {
+        return std::nullopt;
+    }
+
+    std::set<std::string> names;
+    std::istringstream lines(result->out);
+    std::string line;
+    while (std::getline(lines, line)) {
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
+        if (!line.empty()) {
+            names.insert(line);
+        }
+    }
+    return names;
+}
+
+std::string joinBranchNames(const std::vector<std::string>& names) {
+    std::string joined;
+    for (std::size_t i = 0; i < names.size(); ++i) {
+        if (i > 0) {
+            joined += ", ";
+        }
+        joined += names[i];
+    }
+    return joined;
 }
 
 class CreateBranchOperation final : public Operation {
@@ -307,6 +367,44 @@ public:
                          CancellationToken token) override {
         OperationOutcome outcome;
 
+        // The names actually sent to git. For a local delete this drops any
+        // that no longer exist, which is the difference between the
+        // "Delete anyway" retry working and failing: the first `-d` pass
+        // partially succeeds (see readLocalBranchNames), so resending the
+        // user's whole selection makes git answer "branch 'x' not found" for
+        // the ones it already removed and exit 1 for work that is done.
+        std::vector<std::string> targets = request_.names;
+        std::optional<std::set<std::string>> before;
+        if (!request_.isRemote) {
+            before = readLocalBranchNames(runner, paths, token);
+            // An *empty* answer is treated as "could not tell", not as
+            // "every branch is already gone": a repository you are deleting
+            // a local branch in always has at least that branch, so an empty
+            // refs/heads/ listing means the probe told us nothing useful --
+            // and acting on it would report success for a delete that never
+            // ran. Only a non-empty listing is evidence.
+            if (before && before->empty()) {
+                before.reset();
+            }
+            if (before) {
+                std::vector<std::string> live;
+                for (const std::string& name : targets) {
+                    if (before->count(name) != 0) {
+                        live.push_back(name);
+                    }
+                }
+                if (live.empty()) {
+                    // Nothing left to do. Running git here could only print
+                    // "not found" and turn a completed request into a
+                    // failure dialog.
+                    outcome.succeeded = true;
+                    outcome.summary = "Already deleted: " + joinNames();
+                    return outcome;
+                }
+                targets = std::move(live);
+            }
+        }
+
         std::vector<std::string> args;
         if (request_.isRemote) {
             // Deleting a remote branch is a network operation with a very
@@ -315,7 +413,7 @@ public:
         } else {
             args = {"branch", request_.force ? "-D" : "-d"};
         }
-        args.insert(args.end(), request_.names.begin(), request_.names.end());
+        args.insert(args.end(), targets.begin(), targets.end());
 
         GitCommand command(paths.commandDir(), std::move(args));
         command.timeout =
@@ -324,12 +422,29 @@ public:
         auto result = runner.run(command, token);
         if (result) {
             outcome.succeeded = true;
-            outcome.summary = "Deleted " + joinNames();
+            outcome.summary = "Deleted " + joinBranchNames(targets);
             return outcome;
         }
 
         GitError error = std::move(result).error();
         outcome.summary = error.message;
+
+        // Exit 1 does not mean nothing happened. Re-reading the branch list
+        // says which of `targets` really went, so the message can name both
+        // halves instead of implying the whole selection survived. Computed
+        // here and prefixed at the end, after every branch below has had its
+        // say about *why* the rest failed.
+        std::vector<std::string> deleted;
+        if (before) {
+            std::optional<std::set<std::string>> after = readLocalBranchNames(runner, paths, token);
+            if (after) {
+                for (const std::string& name : targets) {
+                    if (after->count(name) == 0) {
+                        deleted.push_back(name);
+                    }
+                }
+            }
+        }
 
         // `-d` refuses to delete unmerged work. Offering `-D` is legitimate, but
         // it has to be labelled honestly. Left unhandled this falls through to
@@ -343,7 +458,7 @@ public:
             // delete can legitimately hit this with more than one name in
             // request_.names, and "This branch" reads wrong when several were
             // selected.
-            outcome.summary = request_.names.size() > 1
+            outcome.summary = targets.size() > 1
                                   ? "These branches have commits that are not merged into any "
                                     "other branch you have locally"
                                   : "This branch has commits that are not merged into any other "
@@ -355,9 +470,9 @@ public:
             // nothing. Single-branch only, matching the shape of the summary
             // this produces; a multi-branch delete keeps the message above.
             RemoteRefProbeOutcome probeOutcome = RemoteRefProbeOutcome::ProbeFailed;
-            if (request_.names.size() == 1) {
-                probeOutcome = refineSummaryFromRemoteRefs(
-                    runner, paths, request_.names.front(), token, outcome);
+            if (targets.size() == 1) {
+                probeOutcome =
+                    refineSummaryFromRemoteRefs(runner, paths, targets.front(), token, outcome);
             }
             // The "Delete anyway" explanation must agree with whatever summary
             // is now showing above it: when the probe found the commits on
@@ -370,7 +485,7 @@ public:
             const std::string deleteAnywayExplanation =
                 probeOutcome == RemoteRefProbeOutcome::FoundElsewhere
                     ? outcome.summary
-                    : (request_.names.size() > 1
+                    : (targets.size() > 1
                            ? "These branches have commits that are not merged anywhere else. After "
                              "deleting, they are only reachable through the reflog."
                            : "This branch has commits that are not merged anywhere else. After "
@@ -387,6 +502,20 @@ public:
         // the worktree in its message, which is the useful part to surface.
         if (error.detail.find("used by worktree") != std::string::npos) {
             outcome.summary = "This branch is checked out in another worktree";
+        }
+
+        // Prefixed last so it survives every rewrite above. Reads as
+        // "Deleted a, b. <why the rest did not go>" -- the honest shape,
+        // where the old message said only the second half.
+        if (!deleted.empty()) {
+            std::vector<std::string> remaining;
+            for (const std::string& name : targets) {
+                if (std::find(deleted.begin(), deleted.end(), name) == deleted.end()) {
+                    remaining.push_back(name);
+                }
+            }
+            outcome.summary = "Deleted " + joinBranchNames(deleted) + ". " +
+                              joinBranchNames(remaining) + ": " + outcome.summary;
         }
 
         outcome.error = std::move(error);

@@ -12,6 +12,19 @@
 // Every fixture here therefore sets `hasTrackingInfo: false` with a populated
 // `upstream`, which is the real in-sync shape and the one that used to hide
 // the checkbox.
+//
+// Two more defects in the same function, found once this dialog became the
+// *only* way to delete a branch's remote side (the sidebar's prune entries
+// are gone):
+//
+// 3. It asked `upstream` alone whether the branch has a remote side, so a
+//    branch pushed without `-u` -- whose same-named remote ref is alive and
+//    visible in the sidebar -- got no checkbox at all. The counterpart, not
+//    the tracking config, answers that question; see `remoteCounterpartOf`.
+// 4. The title printed the *upstream's* branch name while the dispatch sent
+//    the *local* one. For `feature/x` tracking `origin/renamed-x` the dialog
+//    said "Also delete renamed-x" and then deleted `feature/x` on origin --
+//    a second source of truth for one fact, shipped.
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -51,6 +64,21 @@ RefInfo _branch(
   worktreePath: '',
 );
 
+RefInfo _remote(String remote, String branch) => RefInfo(
+  fullName: 'refs/remotes/$remote/$branch',
+  shortName: '$remote/$branch',
+  kind: RefKind.remoteBranch,
+  target: 'a' * 40,
+  upstream: '',
+  ahead: 0,
+  behind: 0,
+  hasTrackingInfo: false,
+  isGone: false,
+  isHead: false,
+  isSymbolic: false,
+  worktreePath: '',
+);
+
 RefSnapshot _snapshot(List<RefInfo> refs) => RefSnapshot(
   head: const HeadInfo(
     kind: HeadKind.branch,
@@ -66,11 +94,16 @@ RefSnapshot _snapshot(List<RefInfo> refs) => RefSnapshot(
 Future<FakeRepoSessionController> _pump(
   WidgetTester tester,
   String? branchName,
-  List<RefInfo> refs,
-) async {
+  List<RefInfo> refs, {
+  Map<String, List<String>> gonePendingByRemote =
+      const <String, List<String>>{},
+}) async {
   final FakeRepoSessionController fake = FakeRepoSessionController(
     _identity,
-    RepoSessionState(refs: _snapshot(refs)),
+    RepoSessionState(
+      refs: _snapshot(refs),
+      gonePendingByRemote: gonePendingByRemote,
+    ),
   );
   // The dialog pops after dispatching, so it needs something underneath it.
   final GoRouter router = GoRouter(
@@ -117,19 +150,26 @@ List<FakeCommand> _deletes(FakeRepoSessionController fake) =>
     fake.commandLog.where((FakeCommand c) => c.name == 'deleteBranch').toList();
 
 void main() {
-  group('deleteBranchRemoteName', () {
+  group('deleteBranchRemoteTarget', () {
     test('recovers the remote from a full upstream ref, never by splitting '
         'on the first slash (#74)', () {
       expect(
-        deleteBranchRemoteName(
+        deleteBranchRemoteTarget(
           _branch('feature/x', upstream: 'refs/remotes/upstream/feature/x'),
+          <RefInfo>[_remote('upstream', 'feature/x')],
         ),
-        'upstream',
+        ('upstream', 'feature/x'),
       );
     });
 
-    test('a branch with no upstream has no remote', () {
-      expect(deleteBranchRemoteName(_branch('solo')), '');
+    test('a branch with neither an upstream nor a same-named remote has no '
+        'remote side', () {
+      expect(
+        deleteBranchRemoteTarget(_branch('solo'), <RefInfo>[
+          _remote('origin', 'main'),
+        ]),
+        ('', ''),
+      );
     });
 
     test('an in-sync branch still has a remote', () {
@@ -137,10 +177,38 @@ void main() {
       // a branch is exactly in sync. Asking it "does this track a remote?"
       // hides the checkbox on the commonest branch there is.
       expect(
-        deleteBranchRemoteName(
+        deleteBranchRemoteTarget(
           _branch('main', upstream: 'refs/remotes/origin/main'),
+          <RefInfo>[_remote('origin', 'main')],
         ),
-        'origin',
+        ('origin', 'main'),
+      );
+    });
+
+    test('a branch pushed without -u has a remote side too', () {
+      // `git push origin HEAD` leaves branch.<name>.merge empty, so upstream
+      // is empty while origin/feature/x is right there. Reading upstream
+      // alone reports "no remote" about a branch the sidebar draws with a
+      // remote counterpart -- the same premise that made the sidebar draw
+      // two rows for it.
+      expect(
+        deleteBranchRemoteTarget(_branch('feature/x'), <RefInfo>[
+          _remote('origin', 'feature/x'),
+        ]),
+        ('origin', 'feature/x'),
+      );
+    });
+
+    test('names the branch as it exists on the remote, not the local one', () {
+      // The one fixture where the two names differ. Everywhere else they
+      // coincide, which is why a dialog that printed one and deleted the
+      // other could ship.
+      expect(
+        deleteBranchRemoteTarget(
+          _branch('feature/x', upstream: 'refs/remotes/origin/renamed-x'),
+          <RefInfo>[_remote('origin', 'renamed-x')],
+        ),
+        ('origin', 'renamed-x'),
       );
     });
   });
@@ -254,15 +322,109 @@ void main() {
       expect(_deletes(fake).length, 1);
     });
 
-    testWidgets('is not offered at all for a branch with no upstream', (
+    testWidgets('is not offered for a branch with no remote side at all', (
       WidgetTester tester,
     ) async {
+      // Remote refs exist -- just not one for this branch. An empty remote
+      // list would pass whether the name rule is read or ignored.
       await _pump(tester, 'solo', <RefInfo>[
         _branch('main', upstream: 'refs/remotes/origin/main', isHead: true),
         _branch('solo'),
+        _remote('origin', 'main'),
+        _remote('origin', 'something-else'),
       ]);
 
       expect(find.byType(CheckboxListTile), findsNothing);
+    });
+
+    testWidgets('is offered for a branch pushed without -u', (
+      WidgetTester tester,
+    ) async {
+      final FakeRepoSessionController fake =
+          await _pump(tester, 'feature/x', <RefInfo>[
+            _branch('main', upstream: 'refs/remotes/origin/main', isHead: true),
+            _branch('feature/x'),
+            _remote('origin', 'feature/x'),
+          ]);
+
+      expect(find.byType(CheckboxListTile), findsOneWidget);
+
+      await tester.tap(find.byType(CheckboxListTile));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete branch'));
+      await tester.pumpAndSettle();
+
+      final List<FakeCommand> remote = _deletes(
+        fake,
+      ).where((FakeCommand c) => c.args['isRemote'] == true).toList();
+      expect(remote.length, 1);
+      expect(remote.single.args['remoteName'], 'origin');
+      expect(remote.single.args['names'], <String>['feature/x']);
+    });
+
+    testWidgets('deletes the branch it names, not the local one', (
+      WidgetTester tester,
+    ) async {
+      // The title and the dispatch were two independent derivations of one
+      // fact. They agree for every branch whose upstream carries its own
+      // name, which is nearly all of them -- so only a renamed upstream can
+      // tell a fixed dialog from a broken one.
+      final FakeRepoSessionController fake =
+          await _pump(tester, 'feature/x', <RefInfo>[
+            _branch('main', upstream: 'refs/remotes/origin/main', isHead: true),
+            _branch('feature/x', upstream: 'refs/remotes/origin/renamed-x'),
+            _remote('origin', 'renamed-x'),
+          ]);
+
+      expect(find.text('Also delete renamed-x on origin'), findsOneWidget);
+
+      await tester.tap(find.byType(CheckboxListTile));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete branch'));
+      await tester.pumpAndSettle();
+
+      final List<FakeCommand> remote = _deletes(
+        fake,
+      ).where((FakeCommand c) => c.args['isRemote'] == true).toList();
+      expect(remote.length, 1);
+      expect(remote.single.args['names'], <String>['renamed-x']);
+
+      // The local side keeps the local name -- the two are not interchangeable
+      // in either direction.
+      final List<FakeCommand> local = _deletes(
+        fake,
+      ).where((FakeCommand c) => c.args['isRemote'] != true).toList();
+      expect(local.length, 1);
+      expect(local.single.args['names'], <String>['feature/x']);
+    });
+
+    testWidgets('is disabled when the upstream is gone only in the preview', (
+      WidgetTester tester,
+    ) async {
+      // `RefInfo.isGone` can only be true *after* a prune -- gone-ness before
+      // that lives in the prune preview. Gating the box on `isGone` alone
+      // therefore leaves it enabled during the whole window where the app
+      // already knows the remote branch is gone, and ticking it dispatches a
+      // push that cannot succeed. `isEffectivelyGone` is the single source
+      // every other gone-aware surface reads.
+      await _pump(
+        tester,
+        'feature/x',
+        <RefInfo>[
+          _branch('main', upstream: 'refs/remotes/origin/main', isHead: true),
+          _branch('feature/x', upstream: 'refs/remotes/origin/feature/x'),
+          _remote('origin', 'feature/x'),
+        ],
+        gonePendingByRemote: const <String, List<String>>{
+          'origin': <String>['refs/remotes/origin/feature/x'],
+        },
+      );
+
+      final CheckboxListTile tile = tester.widget<CheckboxListTile>(
+        find.byType(CheckboxListTile),
+      );
+      expect(tile.onChanged, isNull);
+      expect(tile.value, isFalse);
     });
   });
 }

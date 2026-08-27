@@ -3,38 +3,52 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../data/models/ref_snapshot.dart';
+import '../../../data/models/remote_counterpart.dart';
+import '../../../data/models/remote_prune_preview_entry.dart';
 import '../../../data/repositories/repo_identity.dart';
 import '../../../data/repositories/repo_session_repository.dart';
+import '../../sidebar/gone_marking.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
 
-/// The remote [branch]'s upstream lives on: `refs/remotes/origin/feature/x`
-/// -> `origin`. Empty when the branch tracks nothing, which is what hides the
-/// "also delete on remote" checkbox.
+/// The remote name and the branch name *as the remote knows it* for
+/// [branch], or two empty strings when it has no remote side. Empty is what
+/// hides the "also delete on remote" checkbox.
 ///
-/// Two traps, both of which this function used to fall into (#74):
+/// Four traps, all of which this resolution used to fall into:
 ///
 /// 1. [RefInfo.upstream] is git's `%(upstream)` -- the **full** ref name, not
 ///    `%(upstream:short)`. Splitting it on the first slash yields the literal
 ///    string `refs`, and the dialog then dispatched
-///    `git push refs --delete <branch>`. `remoteBranchParts()` is the one
-///    place that knows how to take a full remote ref apart, and a remote
+///    `git push refs --delete <branch>` (#74). `remoteBranchParts()` is the
+///    one place that knows how to take a full remote ref apart, and a remote
 ///    whose branch name itself contains slashes is why the naive split cannot
 ///    be repaired in place.
 /// 2. [RefInfo.hasTrackingInfo] mirrors `%(upstream:track)`, which git leaves
 ///    **empty for a branch exactly in sync**. Using it to ask "does this
 ///    track a remote?" hid the checkbox on the commonest branch there is.
-///    The question is answered by `upstream` alone.
+/// 3. `upstream` alone does not answer "does this have a remote side"
+///    either: `git push origin HEAD` leaves `branch.<name>.merge` empty while
+///    putting the branch on the remote. That is the same premise that made
+///    the sidebar draw two rows for one branch, so the answer comes from the
+///    same place the sidebar's does -- [remoteCounterpartOf].
+/// 4. The remote's name for the branch is not the local one. `feature/x` may
+///    track `origin/renamed-x`, and a dispatch built from `shortName` then
+///    deletes a different branch from the one the dialog named. Both the
+///    label and the dispatch read this function's second field.
 ///
 /// Free rather than a private static so it can be tested without pumping the
 /// dialog -- the same shape as `deleteBranchLines()` in the sibling
 /// multi-branch dialog.
-String deleteBranchRemoteName(RefInfo branch) {
-  if (branch.upstream.isEmpty) return '';
-  final (String remote, String _) = remoteBranchParts(branch.upstream);
-  return remote;
+(String remote, String branch) deleteBranchRemoteTarget(
+  RefInfo branch,
+  List<RefInfo> remoteBranches,
+) {
+  final String counterpart = remoteCounterpartOf(branch, remoteBranches);
+  if (counterpart.isEmpty) return ('', '');
+  return remoteBranchParts(counterpart);
 }
 
 /// Branch → Delete branch… and context menu 05-B's "Delete branch…".
@@ -99,21 +113,46 @@ class _DeleteBranchDialogContentState
       if (b.shortName == _selected) target = b;
     }
 
-    final String remote = target == null ? '' : deleteBranchRemoteName(target);
+    // Resolved once, in one place. The label, the enabled state and the
+    // dispatch are three readings of one fact, and every defect this function
+    // has had came from two of them being derived separately.
+    final (String remote, String remoteBranch) = switch (target) {
+      final RefInfo branch => deleteBranchRemoteTarget(
+        branch,
+        session.refs.remoteBranches,
+      ),
+      null => ('', ''),
+    };
     final bool canDelete = target != null;
 
-    // One predicate, read by both the checkbox and the delete button.
-    // Spelling it twice -- `_alsoDeleteRemote && !branch.isGone` on the box
-    // and `_alsoDeleteRemote && remote.isNotEmpty` at the dispatch -- is the
-    // second-source-of-truth shape: the two can only agree by accident, and
-    // here they agreed only because the picker's onChanged happens to clear
-    // the flag on every selection change. That reset is a separate mechanism
-    // and the safety must not rest on it.
-    final bool willDeleteRemote = switch (target) {
-      RefInfo(:final bool isGone) =>
-        _alsoDeleteRemote && remote.isNotEmpty && !isGone,
+    // `isGone` is only ever true *after* a prune; between the fetch that
+    // discovers a deleted branch and the prune that records it, gone-ness
+    // lives in the preview alone. `isEffectivelyGone` is the single source
+    // the sidebar rows, the bulk-select set and the status bar all read, so
+    // the checkbox reads it too rather than asking a narrower question.
+    final bool remoteAlreadyGone = switch (target) {
+      final RefInfo branch => isEffectivelyGone(
+        branch,
+        session.gonePendingRefs,
+        // `gonePendingRefs` holds full ref names; the two parts rejoin to
+        // exactly the counterpart they came from, since a remote name is a
+        // single path segment by `remoteBranchParts`' construction.
+        remoteCounterpart: remote.isEmpty
+            ? ''
+            : fullRemoteRefName('$remote/$remoteBranch'),
+      ),
       null => false,
     };
+
+    // One predicate, read by both the checkbox and the delete button.
+    // Spelling it twice -- `_alsoDeleteRemote && !remoteAlreadyGone` on the
+    // box and `_alsoDeleteRemote && remote.isNotEmpty` at the dispatch -- is
+    // the second-source-of-truth shape: the two can only agree by accident,
+    // and here they agreed only because the picker's onChanged happens to
+    // clear the flag on every selection change. That reset is a separate
+    // mechanism and the safety must not rest on it.
+    final bool willDeleteRemote =
+        _alsoDeleteRemote && remote.isNotEmpty && !remoteAlreadyGone;
 
     return GbmDialogShell(
       title: 'Delete Branch',
@@ -131,7 +170,7 @@ class _DeleteBranchDialogContentState
                   notifier.deleteBranch(names: <String>[target!.shortName]);
                   if (willDeleteRemote) {
                     notifier.deleteBranch(
-                      names: <String>[target.shortName],
+                      names: <String>[remoteBranch],
                       isRemote: true,
                       remoteName: remote,
                     );
@@ -236,15 +275,14 @@ class _DeleteBranchDialogContentState
                 contentPadding: EdgeInsets.zero,
                 controlAffinity: ListTileControlAffinity.leading,
                 title: Text(
-                  'Also delete ${remoteBranchParts(branch.upstream).$2} '
-                  'on $remote',
+                  'Also delete $remoteBranch on $remote',
                   style: TextStyle(
                     fontSize: GbmTypography.textSm,
                     color: colors.textPrimary,
                   ),
                 ),
                 subtitle: Text(
-                  branch.isGone
+                  remoteAlreadyGone
                       ? 'Already gone on $remote -- nothing left to delete.'
                       : 'Other people only see this after they fetch.',
                   style: TextStyle(
@@ -252,7 +290,7 @@ class _DeleteBranchDialogContentState
                     color: colors.textTertiary,
                   ),
                 ),
-                onChanged: branch.isGone
+                onChanged: remoteAlreadyGone
                     ? null
                     : (bool? value) =>
                           setState(() => _alsoDeleteRemote = value ?? false),

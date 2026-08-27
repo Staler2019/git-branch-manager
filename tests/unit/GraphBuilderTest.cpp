@@ -7,6 +7,7 @@
 // DAGs for the invariants an eye cannot check at scale.
 #include "core/graph/GraphAsciiRenderer.h"
 #include "core/graph/GraphBuilder.h"
+#include "core/graph/LaneAllocator.h"
 
 #include <algorithm>
 #include <gtest/gtest.h>
@@ -306,10 +307,138 @@ TEST(GraphBuilder, InvariantChunkInvariance) {
     }
 }
 
+/// Circular distance between two palette indices, which is also their hue
+/// distance: `graphLanes` in the Flutter layer is generated at even 30-degree
+/// OkLCH steps in index order, so `d` steps apart means `30 * d` degrees apart
+/// on the wheel. Written out here rather than reused from `LaneAllocator` so
+/// the tests below check the rule against an independent statement of it.
+int hueSteps(std::uint8_t a, std::uint8_t b) {
+    const int d = std::abs(static_cast<int>(a) - static_cast<int>(b));
+    return std::min(d, static_cast<int>(kPaletteSize) - d);
+}
+
+/// What `colorForSeed` would have returned on the hash alone. This is the
+/// colour a lane keeps whenever nothing crowds it, and the reason the change
+/// below costs almost none of the old scheme's stability.
+std::uint8_t hashColor(const ObjectId& oid) {
+    return static_cast<std::uint8_t>(1 + (oid.hash() % (kPaletteSize - 1)));
+}
+
+/// Lane -> colour for every column that is *drawn* at `row`: the row's own dot,
+/// plus every edge passing through. Mirrors `GraphAsciiRenderer`'s own rule for
+/// which rows an edge occupies (strictly between its endpoints), because that
+/// renderer is the reference for what the user sees.
+std::map<LaneId, std::uint8_t> lanesLiveAtRow(const GraphSnapshot& snapshot, RowId row) {
+    std::map<LaneId, std::uint8_t> live;
+    live[snapshot.rows[row].lane] = snapshot.rows[row].color;
+    for (const Edge& edge : snapshot.edges) {
+        if (edge.childRow < row && row < edge.parentRow && !LaneAllocator::isOverflow(edge.lane)) {
+            live.emplace(edge.lane, edge.color);
+        }
+    }
+    return live;
+}
+
+TEST(LaneAllocator, ANewLaneIsKeptAQuarterTurnFromEachNeighbour) {
+    // The user-visible complaint this answers: two branches side by side kept
+    // coming out in near-identical colours. Nothing prevented it -- the colour
+    // was `1 + hash % 11` and nothing else, so neighbours collided outright
+    // one time in eleven and merely looked alike far more often.
+    //
+    // A quarter turn is 3 of the 12 palette steps.
+    constexpr int kQuarterTurn = 3;
+
+    LaneAllocator lanes;
+    std::vector<std::uint8_t> colors;
+    for (int i = 0; i < 12; ++i) {
+        const LaneId lane = lanes.allocateLeftmost();
+        ASSERT_FALSE(LaneAllocator::isOverflow(lane));
+        ASSERT_EQ(lane, static_cast<LaneId>(i)) << "leftmost allocation should be dense";
+        lanes.seed(lane, oidFor(5000 + i));
+        colors.push_back(lanes.colorOf(lane));
+    }
+
+    for (std::size_t i = 1; i < colors.size(); ++i) {
+        EXPECT_GE(hueSteps(colors[i], colors[i - 1]), kQuarterTurn)
+            << "lane " << i << " (c" << static_cast<int>(colors[i]) << ") sits next to lane "
+            << (i - 1) << " (c" << static_cast<int>(colors[i - 1]) << ")";
+    }
+}
+
+TEST(LaneAllocator, AnUncrowdedLaneStillTakesTheColourItsSeedOidAsksFor) {
+    // The other half of the rule, and the one that protects what oid-keyed
+    // colour was for: the hash still decides outright unless a neighbour is
+    // actually in the way. Were the allocator to spread unconditionally, every
+    // lane's colour would depend on the whole live set and a branch would
+    // change colour whenever an unrelated one opened or closed.
+    LaneAllocator lanes;
+    const ObjectId seed = oidFor(4242);
+
+    // Lane 5 with 4 and 6 free: `seed` is deliberately callable without
+    // allocating, which is what lets this state be built at all.
+    lanes.seed(5, seed);
+
+    EXPECT_EQ(lanes.colorOf(5), hashColor(seed));
+}
+
+TEST(LaneAllocator, TheTrunkKeepsColourZeroWhateverItsOid) {
+    for (int i = 0; i < 8; ++i) {
+        LaneAllocator fresh;
+        const LaneId lane = fresh.allocateLeftmost();
+        ASSERT_EQ(lane, 0u);
+        fresh.seed(lane, oidFor(9000 + i));
+        EXPECT_EQ(fresh.colorOf(0), 0u);
+    }
+}
+
+TEST(GraphBuilder, InvariantAdjacentColumnsNeverLookAlikeAtAnyRow) {
+    // The allocator test above pins the rule at the point it is applied; this
+    // one pins the property the user can actually see, through the real
+    // builder, over a DAG wide enough to keep many columns open at once.
+    //
+    // It is the assertion that would have caught the shipped defect: with the
+    // old `1 + hash % 11`, adjacent columns collided outright at 1/11 per pair,
+    // and a 400-commit DAG has far more than eleven adjacent pairs.
+    constexpr int kQuarterTurn = 3;
+
+    auto snapshot = build(makeRandomDag(400, 20260827, 0.35, 3));
+    ASSERT_GT(snapshot->rowCount(), 0u);
+
+    int comparedPairs = 0;
+    for (RowId row = 0; row < snapshot->rowCount(); ++row) {
+        const std::map<LaneId, std::uint8_t> live = lanesLiveAtRow(*snapshot, row);
+        for (const auto& [lane, color] : live) {
+            const auto right = live.find(static_cast<LaneId>(lane + 1));
+            if (right == live.end()) {
+                continue;
+            }
+            ++comparedPairs;
+            EXPECT_GE(hueSteps(color, right->second), kQuarterTurn)
+                << "row " << row << ": lane " << lane << " (c" << static_cast<int>(color)
+                << ") next to lane " << (lane + 1) << " (c" << static_cast<int>(right->second)
+                << ")";
+        }
+    }
+
+    // Without this the test above passes vacuously on a DAG that never opens a
+    // second column.
+    EXPECT_GT(comparedPairs, 200) << "fixture must actually put columns side by side";
+}
+
 TEST(GraphBuilder, InvariantColorsAreStableWhenHistoryIsAppended) {
     // I7. Colour comes from the lane's seed oid, not the lane index, so appending
-    // newer commits must not recolour existing branches. Were it index-based,
-    // every refresh would reshuffle the graph's colours.
+    // newer commits must not reshuffle the graph wholesale. Were it
+    // index-based, every refresh would.
+    //
+    // **Read what is actually asserted below: lane 0 only.** The comment here
+    // used to state the general claim as though the loop checked it, and it
+    // never did -- the `if` skips every row whose lane moved, which is most of
+    // them once 50 commits are prepended. The general claim was already false
+    // in one way before the neighbour rule (a ref tip's lane is seeded with the
+    // tip commit, so committing recolours that branch) and is false in one more
+    // way after it (a lane's colour can be nudged by whichever lanes happen to
+    // sit beside it). The trunk is the part that genuinely never moves, so the
+    // trunk is what this pins.
     auto older = makeRandomDag(400, 777, 0.2, 2);
     auto baseline = build(older);
 

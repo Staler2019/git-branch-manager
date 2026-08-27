@@ -1362,6 +1362,28 @@ you are touching, not by when it was learned.
 - **Where a spec row cannot be honoured, the feature is absent and recorded,
   never faked.** Conversely, where working capi has no spec entry point it
   stays rather than being orphaned (**#92**–**#95**).
+- **The commit graph's lane pitch is 11 while its dot geometry is still
+  spec's — the two stopped coming from one source, and that is user-ratified.**
+  `spec_logic.js:428`'s `L0 = 15, L1 = 32` is a 17px pitch, and an earlier
+  round corrected a drifted 18 to it. The user then ruled the lanes should sit
+  at about two thirds of that, so `GbmLayout.graphLaneWidth` is **11** while
+  the dot, halo, HEAD ring and connector in `graph_column_painter.dart` keep
+  spec's 4.2 / 2.0 / 7.0+1.5 / 1.75 untouched — the ask was spacing, not a
+  smaller graph. Do not "fix" the pitch back on the citation's authority; the
+  citation is still true and no longer decides the number. What makes the two
+  compatible is **`kGraphLaneInset` (8 = `ceil(7.75)`, the HEAD ring's outer
+  edge)**: a lane's centre is the inset plus whole pitches, **never**
+  `laneWidth * (lane + 0.5)`, which made the ring's room a function of the
+  pitch — at 11 it left lane 0's centre at 5.5 and `commit_row.dart`'s
+  `ClipRect` cut the ring on the trunk, the lane HEAD sits in most often.
+  Margin at 8 is 0.25px, so **anything that grows the ring has to move the
+  inset with it**. Three pitch-derived numbers move with the pitch and one
+  does not: `GbmGraphColumnId.graph`'s 153/34/425 → 99/22/275 (lane counts
+  written in pixels — leaving them would have redefined the cap from eight
+  lanes to thirteen), the refs corridor's measured ceiling 287 → 341, and
+  `commit_row_narrow_width_test`'s rung fixture 610 → 552; the refs *floor*
+  91 is a chip measurement and is pitch-independent. Ledger:
+  「commit graph 的 lane 間距」.
 - 標題列 means four different things across this spec (**#68**) — settle the
   reading before moving code.
 

@@ -26,6 +26,7 @@ import '../../theme/tokens.dart';
 import '../../widgets/gbm_icon_button.dart';
 import '../../widgets/lucide_icon.dart';
 import '../../widgets/prompt_text_dialog.dart';
+import 'commit_list_render.dart';
 import 'commit_search.dart';
 import '../../data/repositories/graph_columns_repository.dart';
 import 'widgets/commit_row.dart';
@@ -424,6 +425,29 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
       graph: graph,
       metaCache: metaCache,
     );
+    // Through the narrow providers, not the whole session -- an unfiltered
+    // watch rebuilds the list on every publish, including the commit-metadata
+    // replies the list itself asks for while scrolling
+    // ([FLU-watch-a-record-not-the-state]).
+    final int pendingChangeCount = ref.watch(
+      repoWorkingCopyStatusProvider(
+        widget.identity,
+      ).select((WorkingCopyStatus status) => status.pendingChangeCount),
+    );
+    final CommitListRender render = CommitListRender.from(
+      graph: graph,
+      visibleRows: visibleRows,
+      query: query,
+      metaCache: metaCache,
+      selection: selection,
+      refs: refs,
+      effectiveEmail: effectiveEmail,
+      conflictActive: conflictActive,
+      pendingChangeCount: pendingChangeCount,
+      workingCopyRowSelected: ref.watch(
+        workingCopyRowSelectedProvider(widget.identity),
+      ),
+    );
 
     if (graph.rows.isEmpty) {
       return Center(
@@ -492,16 +516,7 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
                         ),
                       ),
                     )
-                  : _buildList(
-                      graph,
-                      visibleRows,
-                      query,
-                      metaCache,
-                      selection,
-                      refs,
-                      effectiveEmail,
-                      conflictActive,
-                    ),
+                  : _buildList(render),
             ),
           ],
         );
@@ -509,66 +524,8 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
     );
   }
 
-  Widget _buildList(
-    GraphSnapshotView graph,
-    List<int> visibleRows,
-    String query,
-    Map<String, CommitMeta> metaCache,
-    ListSelection<String> selection,
-    RefSnapshot refs,
-    String effectiveEmail,
-    bool conflictActive,
-  ) {
-    // Contiguity is judged against the **unfiltered** snapshot, not the
-    // rendered list: three commits that look adjacent under a filter are
-    // not a range git can replay, so cherry-pick and revert correctly stay
-    // disabled for them (MULTIACTS).
-    final bool contiguous = selection.isContiguousIn(graph.oidsHex);
-    // Watched here rather than passed down from build(), the same way this
-    // method already watches graphColumnLayoutProvider: the uncommitted row
-    // is the only thing that reads either value.
-    //
-    // Through the narrow providers, not the whole session -- an unfiltered
-    // watch rebuilds the list on every publish, including the commit-metadata
-    // replies the list itself asks for while scrolling.
-    final int pendingChangeCount = ref.watch(
-      repoWorkingCopyStatusProvider(
-        widget.identity,
-      ).select((WorkingCopyStatus status) => status.pendingChangeCount),
-    );
-    final bool workingCopySelected = ref.watch(
-      workingCopyRowSelectedProvider(widget.identity),
-    );
-    // Suppressed while a commit search is active, for the same reason the
-    // lanes themselves are (`showGraph: query.isEmpty` below, and
-    // CommitRowColumnPlan.drawsGraph's doc): with the rows underneath drawing
-    // a bare spacer instead of lanes, this row's dot would be the only graph
-    // mark on screen and its connector would descend into nothing. The count
-    // is still on the Working Copy tab badge throughout.
-    final bool showWorkingCopyRow = pendingChangeCount > 0 && query.isEmpty;
-    // The rendered order, as oids. Every selection transition is expressed
-    // against this rather than against `visibleRows` (snapshot indices), so
-    // a range never silently spans rows a filter is hiding.
-    //
-    // With nothing filtered this list *is* `graph.oidsHex` -- position
-    // equals row index -- so the copy is skipped rather than rebuilt on
-    // every scroll tick and every metadata reply. The length guard is what
-    // makes the two provably identical: the comprehension below drops any
-    // index past the end of `oidsHex`, so it can only equal `oidsHex`
-    // outright when the two lengths already agree. They always do in
-    // practice; the mismatch branch exists so a malformed snapshot keeps
-    // the old, defensive behaviour instead of a wrong-length selection
-    // list. See UnfilteredRowIndices for the measured cost of the twin
-    // allocation this pairs with.
-    final List<String> visibleOids =
-        visibleRows is UnfilteredRowIndices &&
-            graph.rows.length == graph.oidsHex.length
-        ? graph.oidsHex
-        : <String>[
-            for (final int index in visibleRows)
-              if (index < graph.oidsHex.length) graph.oidsHex[index],
-          ];
-
+  Widget _buildList(CommitListRender render) {
+    final GraphSnapshotView graph = render.graph;
     return LayoutBuilder(
       builder: (context, constraints) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -590,7 +547,7 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
         final CommitRowColumnPlan plan = planCommitRowColumns(
           availableWidth: constraints.maxWidth,
           laneCount: graph.laneCount,
-          showGraph: query.isEmpty,
+          showGraph: render.query.isEmpty,
           order: columnLayout.order,
           widths: columnLayout.widths,
           // Width may still take a column the user asked to keep; it can
@@ -598,34 +555,19 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
           // starts from this set and only ever subtracts.
           hiddenByUser: columnLayout.hiddenStorageIds,
         );
-        // **One boolean, two consumers.** The uncommitted row paints the
-        // upper half of the join and the first commit row the lower half,
-        // and each can only paint inside its own box (commit_row.dart
-        // clips). Deriving the two conditions separately is precisely how
-        // the line came to stop dead on the row boundary, half a row short
-        // of the dot it pointed at ([CULT-single-source-of-truth]).
-        //
-        // Lane 0 is part of the condition, not an assumption: the diamond
-        // is fixed at lane 0, so a HEAD tip sitting anywhere else would be
-        // joined by a line that changes lane without any commit having done
-        // so. The trunk reservation puts it in lane 0 for an unfiltered
-        // walk, but `Session.cpp` skips that reservation when the walk is
-        // filtered, and a filter can still leave HEAD's tip on top.
-        final bool connectsToHead =
-            showWorkingCopyRow &&
-            visibleRows.isNotEmpty &&
-            visibleOids.isNotEmpty &&
-            visibleOids.first == refs.head.target &&
-            graph.rows[visibleRows.first].lane == 0;
         return _SelectionShortcuts(
           focusNode: _listFocus,
-          onSelectAll: () =>
-              _publish(_selectionController.state.selectAll(visibleOids)),
+          onSelectAll: () => _publish(
+            _selectionController.state.selectAll(render.visibleOids),
+          ),
           onCollapse: () =>
               _publish(_selectionController.state.collapseToAnchor()),
-          onExtend: (int delta) => _extendSelection(delta, visibleOids),
-          onMove: (int delta) =>
-              _moveSelection(delta, visibleOids, showWorkingCopyRow),
+          onExtend: (int delta) => _extendSelection(delta, render.visibleOids),
+          onMove: (int delta) => _moveSelection(
+            delta,
+            render.visibleOids,
+            render.showWorkingCopyRow,
+          ),
           child: Stack(
             children: <Widget>[
               Column(
@@ -633,29 +575,14 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
                   // Pinned above the list, never inside it -- see
                   // HistoryWorkingCopyRow's doc for why the ListView must not
                   // grow a row. Absent entirely when the working copy is clean.
-                  if (showWorkingCopyRow)
+                  if (render.showWorkingCopyRow)
                     HistoryWorkingCopyRow(
-                      pendingChangeCount: pendingChangeCount,
-                      selected: workingCopySelected,
-                      connectsDown: connectsToHead,
+                      pendingChangeCount: render.pendingChangeCount,
+                      selected: render.workingCopyRowSelected,
+                      connectsDown: render.connectsToHead,
                       onTap: _selectWorkingCopyRow,
                     ),
-                  Expanded(
-                    child: _buildRows(
-                      graph,
-                      visibleRows,
-                      query,
-                      metaCache,
-                      selection,
-                      refs,
-                      effectiveEmail,
-                      conflictActive,
-                      contiguous,
-                      visibleOids,
-                      plan,
-                      connectsToHead: connectsToHead,
-                    ),
-                  ),
+                  Expanded(child: _buildRows(render, plan)),
                 ],
               ),
               // Spec page 02 item 16's "欄寬各自可拖曳並記憶", reached without
@@ -699,25 +626,14 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
     );
   }
 
-  Widget _buildRows(
-    GraphSnapshotView graph,
-    List<int> visibleRows,
-    String query,
-    Map<String, CommitMeta> metaCache,
-    ListSelection<String> selection,
-    RefSnapshot refs,
-    String effectiveEmail,
-    bool conflictActive,
-    bool contiguous,
-    List<String> visibleOids,
-    CommitRowColumnPlan plan, {
-    required bool connectsToHead,
-  }) {
-    // Watched here rather than threaded down from build() beside metaCache:
-    // this helper already takes eleven positional parameters, and the counts
-    // are read by nothing else on the way down. Conditional on the column
-    // being on, so a user who never switched it on never subscribes -- and
-    // the list does not rebuild for a reply it would not draw.
+  Widget _buildRows(CommitListRender render, CommitRowColumnPlan plan) {
+    final GraphSnapshotView graph = render.graph;
+    // Watched here rather than gathered into CommitListRender: the counts are
+    // conditional on the column being on, and that is a function of `plan`,
+    // which is a function of this build's width -- so it cannot be settled
+    // where the rest of the model is. A user who never switches the column on
+    // never subscribes, and the list does not rebuild for a reply it would
+    // not draw.
     final Map<String, int> fileCounts =
         plan.shows(GbmGraphColumnId.changedFiles)
         ? ref.watch(commitFileCountProvider(widget.identity))
@@ -726,17 +642,17 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
     return ListView.builder(
       controller: _controller,
       itemExtent: kCommitRowHeight,
-      itemCount: visibleRows.length,
+      itemCount: render.visibleRows.length,
       itemBuilder: (context, position) {
         // `position` walks the filtered result list; `index` is the
         // row's real place in the unfiltered snapshot, which is what
         // the graph edge lookups are keyed on.
-        final int index = visibleRows[position];
+        final int index = render.visibleRows[position];
         final GraphRow row = graph.rows[index];
         final String oid = index < graph.oidsHex.length
             ? graph.oidsHex[index]
             : '';
-        final CommitMeta? meta = metaCache[oid];
+        final CommitMeta? meta = render.metaCache[oid];
         return CommitRow(
           row: row,
           oidHex: oid,
@@ -744,32 +660,32 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
           rowIndex: index,
           // `position`, not `index`: the join is to whatever the list paints
           // first, which under a filter is not snapshot row 0.
-          connectsUpToUncommitted: connectsToHead && position == 0,
+          connectsUpToUncommitted: render.connectsToHead && position == 0,
           maxLane: graph.laneCount,
           plan: plan,
           meta: meta,
           fileCount: fileCounts[oid],
-          showGraph: query.isEmpty,
-          selected: oid.isNotEmpty && selection.contains(oid),
+          showGraph: render.query.isEmpty,
+          selected: oid.isNotEmpty && render.selection.contains(oid),
           refChips: oid.isEmpty
               ? const <RefChipData>[]
-              : refChipsForCommit(refs, oid),
+              : refChipsForCommit(render.refs, oid),
           isOwnCommit:
               meta != null &&
-              effectiveEmail.isNotEmpty &&
-              meta.author.email == effectiveEmail,
+              render.effectiveEmail.isNotEmpty &&
+              meta.author.email == render.effectiveEmail,
           onSelect: oid.isEmpty
               ? null
               : (SelectionGesture gesture) =>
-                    _onRowSelect(oid, gesture, visibleOids),
+                    _onRowSelect(oid, gesture, render.visibleOids),
           onContextMenuRequested: oid.isEmpty
               ? null
               : () => _normaliseSelectionForMenu(oid),
-          menuSelectionCount: selection.length,
-          menuSelectionIsContiguous: contiguous,
-          conflictActive: conflictActive,
-          menuTitle: selection.length > 1
-              ? '${selection.length} commits'
+          menuSelectionCount: render.selection.length,
+          menuSelectionIsContiguous: render.contiguous,
+          conflictActive: render.conflictActive,
+          menuTitle: render.selection.length > 1
+              ? '${render.selection.length} commits'
               : null,
           onCopySha: oid.isEmpty ? null : _copySelectedShas,
           onCheckout: oid.isEmpty

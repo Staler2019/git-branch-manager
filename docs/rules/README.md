@@ -111,3 +111,19 @@ evidence is on:
 4. **Superseded rule** → rewrite it in place and say what was overruled, per
    CLAUDE.md's standing rule about correcting the record. Do not delete a pin
    and mint a new one; something cites it.
+
+## Checking your work
+
+Two scripts, both run from the repo root, both exit non-zero on a finding:
+
+- `scripts/check-rule-pins.py` — every `[PIN]` reference resolves to a real
+  `## [PIN]` heading, and no pin is defined twice. Run it after adding or
+  renaming a rule. It fences out fenced blocks and code spans, because the
+  example above and the `[FLU-036]` counter-example are neither definitions
+  nor references.
+- `scripts/check-doc-migration-loss.py` — for the *next* round that shortens
+  prose (the 101 frozen ledger rounds are the obvious candidate). Given the
+  old text's `<ref:path>` and section heading, it asserts every code span,
+  filename, version and issue number still appears somewhere in the new files
+  or `docs/ledger.md`. Zero hits on a fact means the fact was lost, not that
+  it was redundant.

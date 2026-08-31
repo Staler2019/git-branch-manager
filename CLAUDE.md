@@ -1247,7 +1247,9 @@ you are touching, not by when it was learned.
   **Not every reader of the flag is a render site** — `graph_ref_chips.dart`'s
   `!r.isSymbolic` guards the upstream-resolution lookup map only; its chip list
   comes from an unfiltered `refsAtRow`, so History still draws an `origin/HEAD`
-  chip (open, awaiting the user's ruling). Ledger:
+  chip — **user-ratified: it stays**. The flag was false for every release
+  before this one, so leaving the chip is zero regression while removing it
+  would be a fresh behaviour change on a surface nobody asked about. Ledger:
   「側邊欄那一列 `HEAD`」.
 - **`RefInfo.isGone` can only be true after a prune** (git reports `[gone]`
   only once the remote-tracking ref is already deleted). Gone *marking* comes

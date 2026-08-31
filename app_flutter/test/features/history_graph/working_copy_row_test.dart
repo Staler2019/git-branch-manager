@@ -28,6 +28,7 @@ import 'package:gbm_flutter/features/history_graph/commit_graph_view.dart';
 import 'package:gbm_flutter/features/history_graph/commit_search.dart';
 import 'package:gbm_flutter/features/history_graph/widgets/commit_row.dart';
 import 'package:gbm_flutter/features/history_graph/widgets/graph_column_painter.dart';
+import 'package:gbm_flutter/features/history_graph/widgets/working_copy_row.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/theme_mode_provider.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
@@ -430,6 +431,16 @@ void main() {
           'the row paints dot-centre to its own bottom edge and can paint no '
           'further -- commit_row.dart wraps its graph column in a ClipRect -- '
           'so the top half of the join has to be drawn by this row',
+    );
+    expect(
+      tester
+          .widget<HistoryWorkingCopyRow>(find.byType(HistoryWorkingCopyRow))
+          .connectsDown,
+      isTrue,
+      reason:
+          'and the other half, asserted in the same test on purpose: these '
+          'two come from one boolean, and a test that pinned only one of '
+          'them is what a half-drawn line looks like from the suite',
     );
   });
 

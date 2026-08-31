@@ -598,6 +598,25 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
           // starts from this set and only ever subtracts.
           hiddenByUser: columnLayout.hiddenStorageIds,
         );
+        // **One boolean, two consumers.** The uncommitted row paints the
+        // upper half of the join and the first commit row the lower half,
+        // and each can only paint inside its own box (commit_row.dart
+        // clips). Deriving the two conditions separately is precisely how
+        // the line came to stop dead on the row boundary, half a row short
+        // of the dot it pointed at ([CULT-single-source-of-truth]).
+        //
+        // Lane 0 is part of the condition, not an assumption: the diamond
+        // is fixed at lane 0, so a HEAD tip sitting anywhere else would be
+        // joined by a line that changes lane without any commit having done
+        // so. The trunk reservation puts it in lane 0 for an unfiltered
+        // walk, but `Session.cpp` skips that reservation when the walk is
+        // filtered, and a filter can still leave HEAD's tip on top.
+        final bool connectsToHead =
+            showWorkingCopyRow &&
+            visibleRows.isNotEmpty &&
+            visibleOids.isNotEmpty &&
+            visibleOids.first == refs.head.target &&
+            graph.rows[visibleRows.first].lane == 0;
         return _SelectionShortcuts(
           focusNode: _listFocus,
           onSelectAll: () =>
@@ -618,11 +637,7 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
                     HistoryWorkingCopyRow(
                       pendingChangeCount: pendingChangeCount,
                       selected: workingCopySelected,
-                      // The row's dot only links downwards when the commit it
-                      // would link to really is HEAD's tip.
-                      connectsDown:
-                          visibleOids.isNotEmpty &&
-                          visibleOids.first == refs.head.target,
+                      connectsDown: connectsToHead,
                       onTap: _selectWorkingCopyRow,
                     ),
                   Expanded(
@@ -638,6 +653,7 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
                       contiguous,
                       visibleOids,
                       plan,
+                      connectsToHead: connectsToHead,
                     ),
                   ),
                 ],
@@ -694,8 +710,9 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
     bool conflictActive,
     bool contiguous,
     List<String> visibleOids,
-    CommitRowColumnPlan plan,
-  ) {
+    CommitRowColumnPlan plan, {
+    required bool connectsToHead,
+  }) {
     // Watched here rather than threaded down from build() beside metaCache:
     // this helper already takes eleven positional parameters, and the counts
     // are read by nothing else on the way down. Conditional on the column
@@ -725,6 +742,9 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
           oidHex: oid,
           graph: graph,
           rowIndex: index,
+          // `position`, not `index`: the join is to whatever the list paints
+          // first, which under a filter is not snapshot row 0.
+          connectsUpToUncommitted: connectsToHead && position == 0,
           maxLane: graph.laneCount,
           plan: plan,
           meta: meta,

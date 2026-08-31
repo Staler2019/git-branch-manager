@@ -73,6 +73,7 @@ class GraphRowPainter extends CustomPainter {
     required this.graph,
     required this.laneWidth,
     required this.colors,
+    this.connectsUpToUncommitted = false,
   });
 
   final GraphRow row;
@@ -80,6 +81,24 @@ class GraphRowPainter extends CustomPainter {
   final GraphSnapshotView graph;
   final double laneWidth;
   final GbmColors colors;
+
+  /// Draw the lower half of the join from History's uncommitted-changes row.
+  ///
+  /// That row paints from its diamond down to its own bottom edge and can go
+  /// no further -- `commit_row.dart` wraps this painter in a `ClipRect`, so
+  /// nothing outside a row's box reaches it. The other half is here, and it
+  /// is not expressible as an [EdgeSegment]: segments come from
+  /// `graph.edges`, and the topmost row has no incoming edge because nothing
+  /// in the view is its child. Synthesising one would put a `GraphEdge` with
+  /// a nonexistent childRow into `edgesSpanning`, the span index and the
+  /// ASCII reference renderer, none of which know what a working copy is.
+  ///
+  /// Only ever set on row 0, and only when that row is HEAD's tip sitting in
+  /// lane 0 -- which is why the stub is a plain vertical at
+  /// [kGraphLaneInset] rather than a bend from the diamond's lane to this
+  /// row's. A join between two different lanes would be claiming a lane
+  /// change that the working copy cannot have made.
+  final bool connectsUpToUncommitted;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -95,6 +114,20 @@ class GraphRowPainter extends CustomPainter {
 
     for (final EdgeSegment segment in segments) {
       _paintEdgeSegment(canvas, size, segment);
+    }
+
+    // Before the dot, so the dot's halo covers where the line meets it --
+    // the same order every EdgeSegment is drawn in.
+    if (connectsUpToUncommitted) {
+      canvas.drawLine(
+        Offset(kGraphLaneInset, 0),
+        Offset(kGraphLaneInset, centerY),
+        Paint()
+          ..color = colors.graphLanes.first
+          ..strokeWidth = kGraphEdgeStrokeWidth
+          ..strokeCap = StrokeCap.round
+          ..style = PaintingStyle.stroke,
+      );
     }
 
     // Paint the commit dot
@@ -168,6 +201,7 @@ class GraphRowPainter extends CustomPainter {
   bool shouldRepaint(GraphRowPainter oldDelegate) {
     return oldDelegate.row != row ||
         oldDelegate.rowIndex != rowIndex ||
-        oldDelegate.graph != graph;
+        oldDelegate.graph != graph ||
+        oldDelegate.connectsUpToUncommitted != connectsUpToUncommitted;
   }
 }

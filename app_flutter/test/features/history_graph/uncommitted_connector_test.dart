@@ -17,7 +17,6 @@ import 'dart:ui';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/graph_snapshot.dart';
 import 'package:gbm_flutter/features/history_graph/widgets/graph_column_painter.dart';
-import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
 
 class _Line {

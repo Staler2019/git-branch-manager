@@ -54,7 +54,7 @@ reached 5,900 lines with every round appending to the same end-of-file.
 ## Rules
 
 @docs/rules/README.md
-@docs/rules/_probe.md
+@docs/rules/ops-toolchain-ci.md
 
 ## Structure
 
@@ -617,52 +617,6 @@ Distilled from [docs/ledger.md](docs/ledger.md) — every entry here happened,
 and the round that found it is named so the original measurement, the
 counter-example and the issue number stay one grep away. Organised by what
 you are touching, not by when it was learned.
-
-### Toolchain and CI
-
-- Flutter with **Dart ≥ 3.12.2** (`app_flutter/pubspec.yaml`'s `sdk: ^3.12.2`);
-  Flutter 3.44.x ships it.
-- **`flutter analyze` must stay at zero issues.** CI runs it with no tolerance
-  flags and it exits non-zero on *info*-level lints too.
-- CI is split: `ci.yml` builds and tests (the Flutter UI job sits behind
-  `needs: capi-build`, so it does not run at all while any capi job is red —
-  a green capi run can surface Flutter problems that were previously
-  invisible rather than absent); `cq.yml` holds the two pure static checks,
-  `dart format --set-exit-if-changed .` and `clang-format`, so a format
-  failure surfaces on its own check instead of aborting the build job.
-- **Both formatters drift by version, in both directions.** `dart format`'s
-  output is not stable across Dart SDKs and `subosito/flutter-action@v2`'s
-  `channel: stable` floats with no SDK pinned, so a file can flap between two
-  valid formattings. `clang-format` is pinned to v18 in `cq.yml` and
-  `.pre-commit-config.yaml`; a local v22 reformats lines v18 left alone.
-  Never run either wholesale — restore the file, re-apply only the intended
-  edit, and check the new lines survive byte-for-byte. But check
-  `.clang-format` first: a suggestion coming from the repo's own config
-  (e.g. `SeparateDefinitionBlocks: Always`, an option since v14) applies to
-  CI's v18 too and is safe to take.
-- **PR CI compiles Linux only** (`flutter build linux --debug`).
-  `windows/runner/` and `macos/Runner/` are built by nothing until a release
-  tag — assume any edit there reaches `main` uncompiled (**#69**).
-  `test/platform/window_title_test.dart` asserts those runner sources as
-  strings, which catches a drifting literal but never a compile error.
-- **Windows refuses to rename or delete any process's current working
-  directory**, and `Process.start` inherits the parent's when given no
-  `workingDirectory`. An app launched by double-clicking its `.exe` has the
-  install directory as its CWD, so the detached updater stood inside the very
-  folder it then tried to move aside — `Move-Item` lost every retry and the
-  self-install died silently with the app already gone. POSIX permits the
-  rename, so macOS and Linux never showed it. Any detached process that will
-  touch the install tree must be given an explicit `workingDirectory` outside
-  it; inside a PowerShell script, `Set-Location` alone is **not** enough —
-  it moves the provider location while the Win32 process directory (the one
-  holding the handle) stays put, so `[System.Environment]::CurrentDirectory`
-  has to be assigned too (ledger: 更新流程的三個缺陷).
-- **`powershell.exe` reads a BOM-less `.ps1` as ANSI, not UTF-8.** Windows
-  PowerShell 5.1 is what `-File` resolves to on a stock machine, and the
-  updater bakes its three paths in as literals — a user name in Chinese was
-  enough to mojibake all of them into the same silent failure. Write generated
-  `.ps1` as UTF-8 **with** a BOM; `sh` needs the opposite (a BOM on line 1 is
-  a syntax error), so the two generators differ deliberately.
 
 ### Tests and fixtures
 

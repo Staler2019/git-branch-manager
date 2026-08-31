@@ -204,6 +204,42 @@ Reset here 是 commit **右鍵選單**的項目，帶著被右鍵那一列自己
 那是在 build 外寫 provider（[FLU-never-write-provider-in-build]），而且會多一個之後
 的介面可能忘記加的判斷。搜尋刻意不列入條件：過濾把列藏起來並不會讓摘要變成假的。
 
+## 使用者回報：那條線連一半就斷掉
+
+「uncommit changes 那個 graph 線會連一半斷掉，沒有連線到目前分支的 head」。
+
+一列的 segment 全部由 `graph.edges` 推出來，分數是列高的比例：往下 0.5→1.0、
+往上 0.0→0.5、穿過 0.0→1.0。未提交列畫的是**自己那個框**的 0.5→1.0，而它下面
+那一列是圖上的第一列，**沒有任何 incoming edge**——畫面上沒有東西是它的 child。
+所以 0.0→0.5 從來沒人畫：
+
+```
+未提交列   ┌──────────┐
+          │    ◇     │  0.5        菱形
+          │    │     │  0.5 → 1.0  有畫
+          ├──────────┤
+commit 0  │          │  0.0 → 0.5  沒人畫 ← 斷掉的那一半
+          │    ●     │  0.5        HEAD
+          │    │     │  0.5 → 1.0  有畫（連到 parent）
+          └──────────┘
+```
+
+修在 painter 加一個 `connectsUpToUncommitted`，不是合成一條 `GraphEdge`：假邊的
+`childRow` 不存在，而且會流進 `edgesSpanning`、span index 與 ASCII 參考實作，
+那三個都不該知道什麼是工作區。
+
+**真正的教訓是那兩個條件本來是各自推導的。**未提交列讀
+`visibleOids.first == refs.head.target`，commit 列什麼都沒讀——兩個消費者、兩份
+真相，於是各畫各的一半。現在是一個 `connectsToHead` 餵兩邊
+（[CULT-single-source-of-truth]）。條件也補上 lane 0：菱形固定在 lane 0，而過濾
+中的走訪不帶 `trunkTip` 保留（`Session.cpp` 的閘門），HEAD tip 在別欄時連過去
+等於畫一次沒發生的換欄。
+
+**為什麼測試抓不到：兩個 fixture 都沒設 `refs`。**`head.target` 一直是空字串，
+所以 `connectsDown` 在原本八則裡全部是 false——這條線有畫的那一半和沒畫的那一半，
+兩邊都不被任何測試涵蓋。補上四則之後，四種突變（畫布不畫、只畫到上緣、只給
+commit 列、只給 WIP 列）各紅一則，其中「只給 WIP 列」就是原本的缺陷。
+
 **這一輪最有價值的發現是 fixture 本身。**第一版的「列會消失」看起來是綠的、也真的
 測到了東西——但把列的 `ref.watch` 突變成 `ref.read`，整檔仍然全綠。原因是 `_state()`
 每次呼叫都造一個新的 `GraphSnapshotView`，`repoGraphProvider` 選的就是那個物件，於是

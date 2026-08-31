@@ -258,11 +258,29 @@ same frame as the tab badge without an O(rows) `publish()`.
 It sits in lane 0 because lane 0 is HEAD's branch
 ([SPEC-lane-zero-is-head]), drawn as a **hollow diamond** at
 `kGraphLaneInset` — the same 5.0 radius as a commit dot, so the two read as one
-column, and a different shape because it is not a commit. The segment down into
-the list is drawn **only when the topmost commit row really is HEAD's tip**;
-anywhere else it would assert a parent relationship that does not exist. It is
-suppressed entirely under a commit search, for the reason
-`CommitRowColumnPlan.drawsGraph` already gives for the lanes themselves.
+column, and a different shape because it is not a commit. It is suppressed
+entirely under a commit search, for the reason `CommitRowColumnPlan.drawsGraph`
+already gives for the lanes themselves.
+
+**The join down to HEAD's dot is two half-lines from one boolean, and must stay
+that way.** The row paints from its diamond to its own bottom edge and can go no
+further — `commit_row.dart` clips its graph column. The other half is
+`GraphRowPainter.connectsUpToUncommitted` on the topmost *painted* row, and it
+exists because a row's segments come from `graph.edges` while the topmost row
+has no incoming edge — nothing in the view is its child — so that half was drawn
+by nothing at all and the line stopped dead on the row boundary, half a row
+short of the dot it pointed at. `CommitGraphView` computes `connectsToHead` once
+and hands it to both consumers; deriving the two conditions separately is
+precisely how you get half a line ([CULT-single-source-of-truth]). **Not** a
+synthesised `GraphEdge`: its `childRow` would not exist, and it would flow into
+`edgesSpanning`, the span index and the ASCII reference renderer
+([CPP-ascii-renderer-is-reference]), none of which know what a working copy is.
+The condition is «the first painted row is HEAD's tip **and** that row sits in
+lane 0» — the diamond is fixed at lane 0, and a filtered walk gets no `trunkTip`
+reservation ([SPEC-lane-zero-is-head]), so joining across lanes would draw a
+lane change no commit made. Every fixture in this area left `refs` at its
+default until this was found, so `head.target` was `''` and the connector was
+covered by nothing in either direction.
 
 **Selection shares `commitSelectionProvider`** under the sentinel
 `kWorkingCopySelectionId` — one selection state, not two that could disagree

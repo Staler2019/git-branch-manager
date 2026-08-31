@@ -21,12 +21,18 @@ namespace gbm {
 /// orders of magnitude faster inside git, and a filter proxy in front of 500k
 /// rows would be unusable. Changing a filter restarts the walk.
 struct HistoryQuery {
-    /// Tips to walk from before `--all`, purely to order them ahead of it --
-    /// the graph builder gives lane 0 to the first tip it sees, which is how
-    /// HEAD's branch (or the trunk) stays leftmost. Every commit reachable
-    /// from any ref is still included; this never narrows the walk. Populated
-    /// automatically from the refs whenever includeRefs is empty -- see
+    /// Tips to walk from before `--all`. Every commit reachable from any ref is
+    /// still included; this never narrows the walk. Populated automatically
+    /// from the refs whenever includeRefs is empty -- see
     /// RepositorySession::refreshHistory.
+    ///
+    /// **This does not decide which branch gets lane 0**, though it used to say
+    /// so. Measured: git emits the commit with the newest timestamp first no
+    /// matter what order the tips are given in -- seeding `refs/heads/feat`
+    /// first still emits `main`'s tip first when main's tip is newer, under
+    /// `--date-order` and `--topo-order` alike. Lane 0 is pinned by `trunkTip`
+    /// below. What remains true is that rev-list de-duplicates, so listing
+    /// these costs nothing.
     std::vector<std::string> seedRefs;
     /// When non-empty, narrows the walk to only what's reachable from these
     /// refs -- no implicit `--all`. This is what "Branches…" (the graph
@@ -50,6 +56,11 @@ struct HistoryQuery {
     bool noMerges = false;
     bool includeReflog = false;  ///< Adds --reflog, so post-reset commits appear.
     std::uint32_t maxCount = 0;  ///< 0 means unlimited.
+    /// HEAD's branch tip, which the graph reserves lane 0 for -- spec P02's
+    /// 「目前開發中的分支永遠佔 lane 0」. Not a rev-list argument: it is passed
+    /// straight through to GraphOptions::trunkTip, whose doc explains why it
+    /// must be left null for any walk that might not contain the commit.
+    ObjectId trunkTip;
 
     std::vector<std::string> toRevListArgs() const;
 

@@ -369,6 +369,21 @@ void Session::dispatchRefresh(RefreshCoalescer::Generation generation, Cancellat
             query.noMerges = historyNoMerges_;
         }
 
+        // Lane 0 belongs to HEAD's branch (spec P02's 「目前開發中的分支永遠佔
+        // lane 0」). The oid is already in hand -- `head.target` is the same
+        // commit `historySeedRefs()` puts first -- so this costs no extra git
+        // call and no name-to-oid resolution.
+        //
+        // **Only for an unfiltered walk.** A narrowed one need not contain
+        // HEAD's tip at all, and a reservation nothing claims leaves the
+        // leftmost column blank for the whole graph. `includeRefs` is checked
+        // after the loop above, because a filter whose refs have all gone stale
+        // is dropped there and falls back to the unfiltered walk -- reading the
+        // member instead would reserve nothing on exactly that path.
+        if (query.includeRefs.empty()) {
+            query.trunkTip = refsResult.value()->head.target;
+        }
+
         const GitResult<GraphSnapshotPtr> walkResult = history_->walk(
             query,
             [this, generation](GraphSnapshotPtr chunk) {

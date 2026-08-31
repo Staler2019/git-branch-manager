@@ -76,10 +76,10 @@ std::vector<std::string> HistoryQuery::toRevListArgs() const {
 
     // includeRefs narrows the walk (the branch filter): no --all, only what's
     // reachable from these tips. Otherwise seedRefs (usually HEAD's branch
-    // plus its upstream and the trunk) go first purely to order the tips --
-    // rev-list de-duplicates, and the graph builder assigns lane 0 to the
-    // first tip it encounters, so this ordering is what pins the trunk to the
-    // leftmost column -- and --all still supplies everything else.
+    // plus its upstream and the trunk) go first and --all supplies everything
+    // else. rev-list de-duplicates, so the seeds cost nothing -- but they do
+    // *not* pin the trunk to the leftmost column, which is what this comment
+    // used to claim; see seedRefs' own doc and GraphOptions::trunkTip.
     if (!includeRefs.empty()) {
         for (const std::string& ref : includeRefs) {
             args.push_back(ref);
@@ -182,7 +182,7 @@ GitResult<GraphSnapshotPtr> HistoryProvider::walk(const HistoryQuery& query,
     // seconds. Cancellation is the control the user actually needs.
     command.timeout = std::chrono::milliseconds(0);
 
-    GraphBuilder builder;
+    GraphBuilder builder(GraphOptions{.trunkTip = query.trunkTip});
     std::size_t malformedLines = 0;
 
     // Linear mode holds each record back by one row so its parents can be

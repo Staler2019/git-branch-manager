@@ -146,3 +146,60 @@ per-event-type interpretation — which of the 34 event types updates which
 - **Delete-branch recovery**: same pattern for a delete refused because the
   branch isn't fully merged — `retryDeleteBranchWithChoice(kind)` /
   `dismissDeleteBranchChoices()`.
+
+## [STATE-graph-span-index] `GraphSnapshotView.edgesSpanning()` is index-backed, not a scan
+
+- **Rule**: `GraphSpanIndex` (`lib/data/models/graph_span_index.dart`) is built once per
+  snapshot and cached on an `Expando` keyed by the snapshot instance. No invalidation exists
+  because none is needed — a new snapshot is a new object, and the old entry dies with its key.
+- **Rule**: its **extent comes from `edges`, not `rows`** — `edgesSpanning` is contractually a
+  pure function of `edges`, and `graph_snapshot_test.dart` queries a view whose `rows` is
+  empty while its edges span rows 5..20.
+- **Do**: the brute-force scan lives in `graph_span_index_test.dart` as the oracle,
+  deliberately not in `lib/` ([CULT-reference-impl-not-orphan] is the same shape).
+
+## [STATE-unfiltered-row-indices] `matchingRowIndices` returns an O(1) view, not a list, when the query is empty
+
+- **Rule**: `UnfilteredRowIndices` is read-only and computes element i as i. It is the
+  commonest state of the History list, and it used to be an N-element allocation per scroll tick.
+- **Do not** assume the result is mutable or materialised. `_buildList` likewise hands back
+  `graph.oidsHex` itself rather than copying it when nothing is filtered.
+
+## [STATE-refresh-entry-point] `RepoSessionController.refreshRepoStatus()` is the one entry point for "re-read the git status"
+
+- **Rule**: its membership is a rule, not a list — **every zero-argument `refresh*` on the
+  controller** (twelve of them). The `request*` methods are all excluded because they are
+  keyed to a user selection that need not exist when the window comes back.
+- **Rule**: both `WorkspaceScreen`'s `AppLifecycleListener.onResume` and
+  `GbmActionId.viewRefresh` (F5 / `View → Refresh`) call it, so the two cannot drift into
+  refreshing different things. F5 used to re-read only the history, leaving the Working Copy
+  badge and diff stale on the one path where the user explicitly *asked* for fresh state.
+- **Rule**: focus regain is throttled by `kFocusRefreshThrottle` (2s); F5 deliberately is not.
+  The throttle clock is a `Timer`, not `DateTime.now()`, because only the former is advanced
+  by `tester.pump()`.
+- **Rule**: **`repoState` is the half of `conflictActive` that `refreshWorkingCopy()` does not
+  cover.** `_readRepoState()` had only two callers, session open and `operationFinished`, so a
+  rebase begun *or aborted* from a terminal left the status bar, the banner and the twelve
+  `isActionEnabled()` gates frozen until the app itself ran an operation. `refreshRepoState()`
+  is the one synchronous member (`RepoState::read()` only stats a handful of `.git/` paths),
+  which is why the conflict badge corrects on the same frame.
+- **Note**: **not verified on real hardware** — the tests drive
+  `handleAppLifecycleStateChanged` directly, which proves the wiring but not that macOS emits
+  inactive/resumed on window focus changes.
+
+## [STATE-never-guess-what-git-would-say] Never gate a refresh on a predicate that guesses what git would answer
+
+- **Rule**: `git submodule status` costs **79ms even with zero submodules** (`git-submodule`
+  is a POSIX shell script, so it is fork + shell startup, not repository size) — 66% of
+  everything `refreshRepoStatus()` added.
+- **Consequence**: both candidate short-circuits, «`.gitmodules` exists» and «the index holds
+  a gitlink», were rejected. Each only approximates what the command would have said, and a
+  guess in core is the same mistake as a guess in Dart.
+- **Note**: **`Session::refreshLfs()`'s short-circuit is not a counter-example** — its
+  condition is that `git-lfs` is not on PATH, which is not approximating an answer, it is
+  knowing the command cannot run.
+- **Do**: ask *who is waiting on it* before treating a number as a problem. This cost was
+  measured to be one nobody waits on (background pool, ≤ once per 2s, nothing on screen
+  blocked), so nothing is gated at all. Reading «this number is large» as «this needs fixing»
+  is the error being recorded here.
+- **Evidence**: ledger: fix/focus-refresh-repo-state

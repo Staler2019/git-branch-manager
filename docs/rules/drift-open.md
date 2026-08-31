@@ -40,7 +40,7 @@ historical the moment they are written.
 - **Consequence**: P11 item 9's 「預設每 10 分鐘一次…切換 repo 時重置計時」 has no
   implementation to check against.
 - **Note**: two of #102's three `autoFetch*` orphans. The third, `autoFetchPrune`, was
-  **deleted** rather than wired — see [GIT-fetch-auto-prunes]. An earlier record put this
+  **deleted** rather than wired — see [REF-fetch-auto-prunes]. An earlier record put this
   row in Preferences → **Git**; it is `_GeneralSection`.
 
 ## [DRIFT-lfs-match-approximate] `lfs_pattern_match.dart` is an approximation

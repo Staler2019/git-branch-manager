@@ -57,7 +57,8 @@ collision, it is agreement.
 | `STATE-` | `arch-state-machine.md` |
 | `ACT-` | `arch-actions.md` |
 | `TEST-` | `arch-testing.md` |
-| `GIT-` | `fn-refs-git.md` |
+| `REF-` | `fn-refs-branches.md` |
+| `GIT-` | `fn-git-commands.md` |
 | `FLU-` | `fn-flutter-*.md` |
 | `CPP-` | `fn-cpp-core.md` |
 | `CI-` | `ops-toolchain-ci.md` |

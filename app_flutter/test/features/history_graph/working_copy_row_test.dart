@@ -18,6 +18,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/commit_meta.dart';
 import 'package:gbm_flutter/data/models/graph_snapshot.dart';
 import 'package:gbm_flutter/data/models/list_selection.dart';
+import 'package:gbm_flutter/data/models/ref_snapshot.dart';
 import 'package:gbm_flutter/data/models/signature.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/data/repositories/history_repository.dart';
@@ -111,8 +112,26 @@ final Map<String, CommitMeta> _metaCache = <String, CommitMeta>{
   for (final String oid in _oids) oid: _meta(oid),
 };
 
+/// HEAD points at the topmost row, which is what makes the uncommitted row's
+/// connector legal to draw. **Every fixture in this file used to leave `refs`
+/// at its default**, so `head.target` was the empty string, `connectsDown` was
+/// false in all eight tests, and the connector -- both the half that was drawn
+/// and the half that was not -- was covered by nothing at all.
+final RefSnapshot _refs = RefSnapshot(
+  head: HeadInfo(
+    kind: HeadKind.branch,
+    branchName: 'main',
+    fullRef: 'refs/heads/main',
+    target: _oids.first,
+  ),
+  refs: const <RefInfo>[],
+  refCountGuardTripped: false,
+  totalRefCount: 0,
+);
+
 RepoSessionState _state({required int pendingFiles}) => RepoSessionState(
   isOpen: true,
+  refs: _refs,
   graph: _graph,
   commitMetaCache: _metaCache,
   workingCopyStatus: WorkingCopyStatus(
@@ -381,6 +400,48 @@ void main() {
           'anchored on it is a selection of nothing -- and every surface '
           'that gates on it would go on drawing an uncommitted summary for '
           'a working copy that is now clean',
+    );
+  });
+
+  /// The painter the first commit row actually hands the framework -- not a
+  /// flag read back off the widget that produced it. Asserting the wiring
+  /// this way is the difference between proving the gate exists and proving
+  /// somebody opened it ([SPEC-cell-names-capability]).
+  GraphRowPainter headRowPainter(WidgetTester tester) => tester
+      .widgetList<CustomPaint>(
+        find.descendant(
+          of: find.byType(CommitRow).first,
+          matching: find.byType(CustomPaint),
+        ),
+      )
+      .map((CustomPaint c) => c.painter)
+      .whereType<GraphRowPainter>()
+      .single;
+
+  testWidgets('the first commit row closes the connector up to the row', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, pendingFiles: 2);
+
+    expect(
+      headRowPainter(tester).connectsUpToUncommitted,
+      isTrue,
+      reason:
+          'the row paints dot-centre to its own bottom edge and can paint no '
+          'further -- commit_row.dart wraps its graph column in a ClipRect -- '
+          'so the top half of the join has to be drawn by this row',
+    );
+  });
+
+  testWidgets('and does not when the working copy is clean', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, pendingFiles: 0);
+
+    expect(
+      headRowPainter(tester).connectsUpToUncommitted,
+      isFalse,
+      reason: 'a stub with nothing above it is a line to nowhere',
     );
   });
 }

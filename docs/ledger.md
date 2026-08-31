@@ -24,14 +24,27 @@ Source comments across `app_flutter/` cite these sections by name ("CLAUDE.md's
 Tier 0c note", "Known gaps", "Tier 6c"); those names live here now, and the
 pointer at the end of CLAUDE.md says so.
 
-## Adding a round
+## Adding a round — not here any more
 
-Append a new `###` section at the end, named for its branch, in the shape the
-sections below use. Length is free here — nothing auto-loads this file. Then
-distil only what a future session must know *before* it starts into
-CLAUDE.md's "Invariants and traps", anchored back to your section's name. Do
-not append a round-shaped section to CLAUDE.md; that is what this file exists
-to prevent.
+**This file is closed to new rounds.** Write yours as its own file,
+`docs/ledger/<YYYY-MM-DD>-<branch>.md`, and add one line to
+[docs/ledger/INDEX.md](ledger/INDEX.md). The shape is unchanged; only the
+destination is. See [docs/ledger/README.md](ledger/README.md).
+
+The reason is in this file's own record, under "Sidebar continuation":
+appending every round to one end-of-file made a conflict certain for any two
+parallel branches — "git saw one region replaced two ways". One round per file
+removes the shared append point entirely.
+
+The 101 rounds below stay here, in place and byte-identical. Migrating them
+would break the two properties the preamble above calls load-bearing: a record
+you can checksum, and "above"/"below" cross-references that only resolve while
+the order is intact. History is never appended to again, so it cannot conflict.
+
+Distillation also moved: it goes to [docs/rules/](rules/), one file per
+category, in the four-field shape [docs/rules/README.md](rules/README.md)
+specifies — not to CLAUDE.md's "Invariants and traps", which no longer exists
+as a section there.
 
 ## Rounds (chronological)
 

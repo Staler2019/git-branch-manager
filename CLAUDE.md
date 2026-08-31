@@ -6,30 +6,55 @@ repo. Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
 structure, its session state machine, the UX acceptance bar `app_flutter/`
 changes are held to, and the invariants and traps that keep being rediscovered.
 
-## Where a round's write-up goes
+**This file is an umbrella.** The rules themselves live in one file per
+category under [docs/rules/](docs/rules/) and are pulled in by the `@` imports
+below, so everything is still auto-loaded into every session — what changed is
+that two parallel branches now edit two different files instead of two regions
+of one 1,742-line one.
 
-**This file is auto-loaded into every session; [docs/ledger.md](docs/ledger.md)
-is not.** That difference is the whole filing rule, and it exists because every
-round used to append its narrative here until the file reached ~176KB.
+## Three layers, and what belongs in each
+
+```
+CLAUDE.md                        this file — filing rules + imports. No rule text.
+  └─ docs/rules/<category>.md    the rules. Short, pinned, four fields each.
+       └─ docs/ledger/<date>-<branch>.md   the decision record. Length is free.
+```
+
+| Layer | Holds | Auto-loaded | Conflict shape |
+|---|---|---|---|
+| `CLAUDE.md` | filing rules, imports, redirects | yes | rarely edited |
+| `docs/rules/*.md` | current-state facts + distilled invariants | yes (via `@`) | different categories → different files |
+| `docs/ledger/*.md` | one round's narrative and evidence | no | one round → one new file |
+
+## Where a round's write-up goes
 
 When you finish a round of work:
 
-1. **The narrative goes to `docs/ledger.md`** — a new section at the end, named
-   for its branch, in the shape the sections already there use: what changed,
-   which premises did not survive the source, what was found by *running*
-   rather than reading, and what was deliberately reduced or left open.
-   Length is free there.
-2. **Only what a future session must know *before* it starts comes back here**,
-   and only as a distilled entry under "Invariants and traps" — a rule, its
-   consequence, and an anchor (issue number or ledger section) pointing at the
-   evidence. If an existing entry already covers it, add the new shape to that
-   entry rather than a second one.
-3. **Current-state facts belong here too** — a route, a field, a state
-   transition, a CI constraint, a still-open drift. History does not: if the
-   sentence only makes sense as "what happened in round N", it is ledger
-   material.
+1. **The narrative goes to its own file** —
+   `docs/ledger/<YYYY-MM-DD>-<branch>.md`, plus one line appended to
+   [docs/ledger/INDEX.md](docs/ledger/INDEX.md). Date first, because branch
+   names are too arbitrary to find a round by. Shape and rationale:
+   [docs/ledger/README.md](docs/ledger/README.md). Length is free there.
+2. **Only what a future session must know *before* it starts is distilled into
+   [docs/rules/](docs/rules/)** — as a `## [PIN] Title` block with
+   `Rule` / `Consequence` / `Do` / `Evidence`, `Evidence` pointing back at the
+   round's file. Short and precise; the long form stays in the ledger. Format:
+   [docs/rules/README.md](docs/rules/README.md). If an existing rule already
+   covers it, edit that rule's lines rather than adding a second one.
+3. **Current-state facts are rules too** — a route, a field, a state
+   transition, a CI constraint, a still-open drift, all under
+   `docs/rules/`. History is not: if the sentence only makes sense as "what
+   happened in round N", it is ledger material.
 
-Adding a round-shaped section to this file is the thing that broke it before.
+**Do not put rule text back into this file, and do not append a round-shaped
+section anywhere.** Both are what broke the previous two schemes: this file
+reached ~176KB before the ledger was split out of it, and the ledger then
+reached 5,900 lines with every round appending to the same end-of-file.
+
+## Rules
+
+@docs/rules/README.md
+@docs/rules/_probe.md
 
 ## Structure
 

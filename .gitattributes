@@ -1,0 +1,9 @@
+# Append-only index files: keep both sides of a concurrent append instead of
+# raising a conflict. Two parallel rounds each add one line at the end, and
+# git's built-in `union` driver concatenates both sides of the conflicting
+# hunk rather than asking a human to pick.
+#
+# Deliberately scoped to that one index file and nothing else. A union merge
+# on a prose file would silently duplicate a paragraph that both sides edited,
+# which is worse than a conflict: a conflict is visible, a duplicate is not.
+docs/ledger/INDEX.md merge=union

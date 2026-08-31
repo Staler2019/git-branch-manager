@@ -30,7 +30,7 @@ struct Commit {
     std::vector<int> parents;
 };
 
-/// Builds from a list given newest-first, as rev-list --topo-order produces.
+/// Builds from a list given newest-first, as rev-list --date-order produces.
 GraphSnapshotPtr build(const std::vector<Commit>& commits, GraphOptions options = {}) {
     GraphBuilder builder(options);
     for (const Commit& commit : commits) {
@@ -46,7 +46,7 @@ GraphSnapshotPtr build(const std::vector<Commit>& commits, GraphOptions options 
 }
 
 /// A deterministic DAG where every parent id is greater than its child's, which
-/// is exactly the ordering guarantee topo-order gives us.
+/// is exactly the ordering guarantee date-order gives us.
 std::vector<Commit> makeRandomDag(int count,
                                   std::uint64_t seed,
                                   double mergeRate,

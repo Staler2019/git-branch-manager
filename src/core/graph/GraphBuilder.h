@@ -20,7 +20,7 @@ struct GraphOptions {
 };
 
 /// Builds a Fork-style commit graph incrementally, one row at a time, in the
-/// order `git rev-list --topo-order` produces them.
+/// order `git rev-list --date-order` produces them.
 ///
 /// Streaming is not an optimisation here, it is the design: rows become
 /// paintable within milliseconds of the walk starting, so time-to-first-paint is

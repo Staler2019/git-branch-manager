@@ -1,7 +1,7 @@
 // Integration tests against a real git binary and a real (generated) repository.
 //
 // The most valuable assertion in this file is the cross-check: our row order must
-// equal `git rev-list --topo-order` exactly, and our parent sets must equal what
+// equal `git rev-list --date-order` exactly, and our parent sets must equal what
 // `--parents` reports. It is cheap, and it catches parser and ordering bugs
 // immediately — the kind that random DAG tests cannot see because they never
 // touch git itself.
@@ -193,9 +193,11 @@ protected:
         ASSERT_TRUE(runAtDate(isoDate, {"commit", "--quiet", "--allow-empty", "-m", message}));
     }
 
-    /// Row order straight from git, for the cross-check.
-    std::vector<std::string> gitTopoOrder() {
-        auto result = run({"rev-list", "--topo-order", "--all"});
+    /// Row order straight from git, for the cross-check. Must name the same
+    /// ordering flag HistoryQuery::toRevListArgs() emits, or the cross-check
+    /// compares our walk against a walk we never asked for.
+    std::vector<std::string> gitDateOrder() {
+        auto result = run({"rev-list", "--date-order", "--all"});
         if (!result) {
             return {};
         }
@@ -262,7 +264,7 @@ TEST_F(RealRepoTest, DetectsGitAndItsCapabilities) {
     }
 }
 
-TEST_F(RealRepoTest, RowOrderMatchesGitTopoOrderExactly) {
+TEST_F(RealRepoTest, RowOrderMatchesGitDateOrderExactly) {
     commitFile("a.txt", "one\n", "first");
     commitFile("a.txt", "two\n", "second");
     ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
@@ -275,13 +277,13 @@ TEST_F(RealRepoTest, RowOrderMatchesGitTopoOrderExactly) {
     auto snapshot = provider.walk(HistoryQuery{}, nullptr, CancellationToken{});
     ASSERT_TRUE(snapshot) << snapshot.error().message;
 
-    const auto expected = gitTopoOrder();
+    const auto expected = gitDateOrder();
     ASSERT_FALSE(expected.empty());
     ASSERT_EQ((*snapshot)->rowCount(), expected.size());
 
     for (std::size_t row = 0; row < expected.size(); ++row) {
         EXPECT_EQ((*snapshot)->oids[row].hex(), expected[row])
-            << "row " << row << " diverges from git's own topo order";
+            << "row " << row << " diverges from git's own date order";
     }
 }
 
@@ -398,7 +400,7 @@ TEST_F(RealRepoTest, LinearWalkBridgesOverTheMergesItFiltersOut) {
     // The rows themselves: exactly what git reports for the same filter, in
     // the same order. Asserted against git rather than against a count, so a
     // bridge that silently dropped or duplicated a row cannot pass.
-    auto expected = run({"rev-list", "--topo-order", "--no-merges", "refs/heads/main"});
+    auto expected = run({"rev-list", "--date-order", "--no-merges", "refs/heads/main"});
     ASSERT_TRUE(expected);
     std::vector<std::string> expectedOids;
     {

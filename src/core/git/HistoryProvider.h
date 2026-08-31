@@ -49,7 +49,6 @@ struct HistoryQuery {
     /// one alone when it narrows to exactly one branch -- see isLinearWalk().
     bool noMerges = false;
     bool includeReflog = false;  ///< Adds --reflog, so post-reset commits appear.
-    bool dateOrder = false;      ///< Interleaves branches; the graph will zig-zag.
     std::uint32_t maxCount = 0;  ///< 0 means unlimited.
 
     std::vector<std::string> toRevListArgs() const;
@@ -72,17 +71,19 @@ struct HistoryQuery {
     /// So the bridge is now list decoration, not topology: a segment means
     /// "the next row", nothing more. Two adjacent rows need not be related at
     /// all, and even when a row's real parent is emitted it may not be the
-    /// next one -- topo order can interleave a side branch's commits between a
+    /// next one -- the walk can interleave a side branch's commits between a
     /// trunk commit and its parent, and the bridge links to the interleaved
     /// row anyway. Anything that wants real edges must read an unfiltered
     /// snapshot.
     ///
     /// One property does survive and is worth keeping: `toRevListArgs()`
-    /// always emits `--topo-order` or `--date-order`, and both guarantee a
-    /// parent is never printed before its children, so a bridged segment never
-    /// points from an ancestor down to its own descendant. **That depends on
-    /// the ordering flag staying unconditional** -- make it optional and this
-    /// stops holding.
+    /// always emits `--date-order`, which guarantees a parent is never printed
+    /// before its children, so a bridged segment never points from an ancestor
+    /// down to its own descendant. **That depends on the ordering flag staying
+    /// unconditional** -- drop it and git's default order is a commit-date
+    /// priority queue with no such guarantee (clock skew alone breaks it), and
+    /// this stops holding. `--topo-order` would serve equally well here; it was
+    /// replaced for a reason unrelated to this clause, recorded at the flag.
     ///
     /// Both remaining conditions are load-bearing: two tips (or `--all`)
     /// interleave unrelated histories into one column, which is a lie of a

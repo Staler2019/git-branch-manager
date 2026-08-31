@@ -834,20 +834,30 @@ TEST(HistoryProvider, RejectsMalformedRecordsWithoutThrowing) {
     EXPECT_FALSE(HistoryProvider::parseRevListLine("1699999999").valid);
 }
 
-TEST(HistoryQuery, UsesTopoOrderAndSeedsTipsBeforeAll) {
+TEST(HistoryQuery, UsesDateOrderAndSeedsTipsBeforeAll) {
     HistoryQuery query;
     query.seedRefs = {"refs/heads/main"};
     const auto args = query.toRevListArgs();
 
     ASSERT_FALSE(args.empty());
     EXPECT_EQ(args[0], "rev-list");
-    EXPECT_NE(std::find(args.begin(), args.end(), "--topo-order"), args.end())
-        << "date order would interleave branches and break lane continuity";
+    EXPECT_NE(std::find(args.begin(), args.end(), "--date-order"), args.end())
+        << "the History list draws this walk's timestamps in its Date column, so "
+           "the row order has to agree with that column";
     EXPECT_NE(std::find(args.begin(), args.end(), "--parents"), args.end());
     EXPECT_NE(std::find(args.begin(), args.end(), "--timestamp"), args.end());
 
-    // The seed tip must precede --all: the graph builder gives lane 0 to the
-    // first tip it sees, which is how the trunk stays leftmost.
+    // The seed tip must precede --all.
+    //
+    // **This assertion is about the argument list, not about lane 0.** It used
+    // to carry the comment "the graph builder gives lane 0 to the first tip it
+    // sees, which is how the trunk stays leftmost", and that is measurably
+    // false: git decides the first emitted commit by *date*, not by argument
+    // order, under `--date-order` and `--topo-order` alike. Seeding
+    // `refs/heads/feat` first still emits `main`'s tip first when main's tip is
+    // newer. Pinning lane 0 is therefore GraphBuilder's job and not this
+    // list's; the ordering here is kept because rev-list de-duplicates and it
+    // costs nothing, not because anything downstream depends on it.
     const auto tipAt = std::find(args.begin(), args.end(), "refs/heads/main");
     const auto allAt = std::find(args.begin(), args.end(), "--all");
     ASSERT_NE(tipAt, args.end());

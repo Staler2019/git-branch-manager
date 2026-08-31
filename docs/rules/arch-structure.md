@@ -258,8 +258,15 @@ same frame as the tab badge without an O(rows) `publish()`.
 It sits in lane 0 because lane 0 is HEAD's branch
 ([SPEC-lane-zero-is-head]), drawn as a **hollow diamond** at
 `kGraphLaneInset` — the same 5.0 radius as a commit dot, so the two read as one
-column, and a different shape because it is not a commit. It is suppressed
-entirely under a commit search, for the reason `CommitRowColumnPlan.drawsGraph`
+column, and a different shape because it is not a commit. **Hollow is a
+geometric premise, not just a look**: a commit dot is filled and haloed, so
+`GraphRowPainter` starts its edges at the dot's centre and the join is covered;
+this shape has no fill, so a connector started at the centre crosses the
+transparent interior and pokes out through the lower vertex. It leaves from the
+vertex (`centerY + kWorkingCopyDotRadius`), with the lanes' own
+`kGraphEdgeStrokeWidth` and round cap rather than a copied literal. The painter
+is public for exactly this reason — it was private, so nothing could see its
+geometry at all. It is suppressed entirely under a commit search, for the reason `CommitRowColumnPlan.drawsGraph`
 already gives for the lanes themselves.
 
 **The join down to HEAD's dot is two half-lines from one boolean, and must stay

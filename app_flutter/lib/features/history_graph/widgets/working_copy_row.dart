@@ -5,7 +5,7 @@ import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_badge.dart';
 import '../../../widgets/gbm_row.dart';
 import 'commit_row.dart' show kCommitRowHeight;
-import 'graph_column_painter.dart' show kGraphLaneInset;
+import 'graph_column_painter.dart' show kGraphEdgeStrokeWidth, kGraphLaneInset;
 
 /// History's uncommitted-changes row, pinned above the commit list.
 ///
@@ -73,7 +73,7 @@ class HistoryWorkingCopyRow extends StatelessWidget {
             width: kGraphLaneInset * 2,
             height: kCommitRowHeight,
             child: CustomPaint(
-              painter: _WorkingCopyDotPainter(
+              painter: WorkingCopyDotPainter(
                 color: colors.graphLanes.first,
                 connectsDown: connectsDown,
               ),
@@ -85,12 +85,12 @@ class HistoryWorkingCopyRow extends StatelessWidget {
                 alignment: Alignment.centerLeft,
                 child: Padding(
                   padding: const EdgeInsets.only(
-                    left: kGraphLaneInset - _kDotRadius,
+                    left: kGraphLaneInset - kWorkingCopyDotRadius,
                   ),
                   child: SizedBox(
                     key: const Key('history-working-copy-dot'),
-                    width: _kDotRadius * 2,
-                    height: _kDotRadius * 2,
+                    width: kWorkingCopyDotRadius * 2,
+                    height: kWorkingCopyDotRadius * 2,
                   ),
                 ),
               ),
@@ -116,13 +116,20 @@ class HistoryWorkingCopyRow extends StatelessWidget {
   }
 }
 
-/// Half the dot's width. Deliberately the same 5.0 the commit dots use
+/// Half the diamond's width. Deliberately the same 5.0 the commit dots use
 /// (docs/rules/ops-spec-reading.md's [SPEC-graph-lane-pitch]), so the two read
 /// as one column rather than as a marker beside one.
-const double _kDotRadius = 5.0;
+const double kWorkingCopyDotRadius = 5.0;
 
-class _WorkingCopyDotPainter extends CustomPainter {
-  const _WorkingCopyDotPainter({
+/// Public, and tested directly rather than through the widget.
+///
+/// It was private, and its one geometric difference from a commit dot -- that
+/// this shape is *hollow* -- was therefore visible to nothing: a connector
+/// started at the centre showed through the interior and out the lower vertex.
+/// `graph_column_painter.dart`'s painter is public for the same reason, and
+/// `working_copy_dot_geometry_test.dart` records both.
+class WorkingCopyDotPainter extends CustomPainter {
+  const WorkingCopyDotPainter({
     required this.color,
     required this.connectsDown,
   });
@@ -136,12 +143,18 @@ class _WorkingCopyDotPainter extends CustomPainter {
     const double centerX = kGraphLaneInset;
 
     if (connectsDown) {
+      // From the **lower vertex**, not the centre. The diamond is hollow, so
+      // a line starting at the centre has no fill to hide behind: it crosses
+      // the interior and pokes out below. A commit dot is filled and haloed,
+      // which is why GraphRowPainter can and does start its edges at the
+      // centre -- the shapes differ, so the geometry has to.
       canvas.drawLine(
-        Offset(centerX, centerY),
+        Offset(centerX, centerY + kWorkingCopyDotRadius),
         Offset(centerX, size.height),
         Paint()
           ..color = color
-          ..strokeWidth = 1.75
+          ..strokeWidth = kGraphEdgeStrokeWidth
+          ..strokeCap = StrokeCap.round
           ..style = PaintingStyle.stroke,
       );
     }
@@ -149,10 +162,10 @@ class _WorkingCopyDotPainter extends CustomPainter {
     // A hollow diamond, not a filled circle: this is not a commit, and the
     // difference has to survive a glance down the column.
     final Path diamond = Path()
-      ..moveTo(centerX, centerY - _kDotRadius)
-      ..lineTo(centerX + _kDotRadius, centerY)
-      ..lineTo(centerX, centerY + _kDotRadius)
-      ..lineTo(centerX - _kDotRadius, centerY)
+      ..moveTo(centerX, centerY - kWorkingCopyDotRadius)
+      ..lineTo(centerX + kWorkingCopyDotRadius, centerY)
+      ..lineTo(centerX, centerY + kWorkingCopyDotRadius)
+      ..lineTo(centerX - kWorkingCopyDotRadius, centerY)
       ..close();
     canvas.drawPath(
       diamond,
@@ -164,6 +177,6 @@ class _WorkingCopyDotPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_WorkingCopyDotPainter oldDelegate) =>
+  bool shouldRepaint(WorkingCopyDotPainter oldDelegate) =>
       oldDelegate.color != color || oldDelegate.connectsDown != connectsDown;
 }

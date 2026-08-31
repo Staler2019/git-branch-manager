@@ -240,6 +240,23 @@ commit 0  │          │  0.0 → 0.5  沒人畫 ← 斷掉的那一半
 兩邊都不被任何測試涵蓋。補上四則之後，四種突變（畫布不畫、只畫到上緣、只給
 commit 列、只給 WIP 列）各紅一則，其中「只給 WIP 列」就是原本的缺陷。
 
+## 第二個回報：線從菱形中間戳出來
+
+「wip 列的菱形中心，commit graph 會畫突出來，導致中間有凸一根線，而沒有貼合菱形
+邊緣」。
+
+連線從**圓心**畫到列底，而菱形是 `PaintingStyle.stroke`——空心的。commit 的點是
+實心加光暈，所以同樣的畫法在那邊被蓋住；這裡沒有 fill 可以躲，線就穿過內部再從
+下頂點戳出來。**「空心」不只是外觀，它是一個幾何前提**，而它跟 `GraphRowPainter`
+從圓心起筆的做法直接衝突。
+
+改成從下頂點 `centerY + kWorkingCopyDotRadius` 起筆，順帶把抄了一份的 `1.75`
+換成 `kGraphEdgeStrokeWidth`，並補上圖上每條連線都有的 `StrokeCap.round`。
+
+**看不到的原因是 painter 是私有的。**`_WorkingCopyDotPainter` 沒有任何測試碰得到，
+而同一個檔案裡的 `GraphRowPainter` 是公開的、有 `graph_dot_geometry_test.dart`
+拿錄製畫布逐項斷言。改成公開之後三則測試，兩則突變（起筆點、strokeCap）各紅一則。
+
 **這一輪最有價值的發現是 fixture 本身。**第一版的「列會消失」看起來是綠的、也真的
 測到了東西——但把列的 `ref.watch` 突變成 `ref.read`，整檔仍然全綠。原因是 `_state()`
 每次呼叫都造一個新的 `GraphSnapshotView`，`repoGraphProvider` 選的就是那個物件，於是

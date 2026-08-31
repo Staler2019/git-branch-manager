@@ -243,3 +243,45 @@ render `DiffPage` as before, and `DiffPage` itself was not modified.
 Side-by-side pairing is `pairHunkForSideBySide` (`side_by_side_diff.dart`),
 a line-for-line Dart port of the still-live C++ reference implementation —
 see the two orphan-wiring entries under "Repo culture" before deleting either.
+
+## [STRUCT-history-uncommitted-row] History pins one uncommitted-changes row above the list
+
+**History pins one uncommitted-changes row above the commit list**, present only
+when `workingCopyStatus.entries` is non-empty and a commit search is not
+running. It is **not a `ListView` item**: the graph's edge lookups, its span
+index and every selection range are keyed on row indices, and
+[STATE-unfiltered-row-indices]'s `UnfilteredRowIndices` is an O(1) identity view
+precisely because those indices *are* the row numbers — prepending would shift
+all of it. It also costs no history walk, so saving a file updates it on the
+same frame as the tab badge without an O(rows) `publish()`.
+
+It sits in lane 0 because lane 0 is HEAD's branch
+([SPEC-lane-zero-is-head]), drawn as a **hollow diamond** at
+`kGraphLaneInset` — the same 5.0 radius as a commit dot, so the two read as one
+column, and a different shape because it is not a commit. The segment down into
+the list is drawn **only when the topmost commit row really is HEAD's tip**;
+anywhere else it would assert a parent relationship that does not exist. It is
+suppressed entirely under a commit search, for the reason
+`CommitRowColumnPlan.drawsGraph` already gives for the lanes themselves.
+
+**Selection shares `commitSelectionProvider`** under the sentinel
+`kWorkingCopySelectionId` — one selection state, not two that could disagree
+([CULT-single-source-of-truth]). `selectedCommitProvider` reports `null` for it,
+which is what every one-commit surface already gates on. Plain ↑/↓
+(`GbmMoveSelectionIntent`) treats it as index 0 of the painted order; Shift+↑/↓
+deliberately does not, because a range spanning it is not a range git could
+replay.
+
+**Selecting it shows a summary, not files** — user-ratified: 「可選取，但只顯示
+摘要」. `CommitDetailPanelCore` draws the count plus one 「Open in Working Copy」
+button (equivalent to Ctrl/Cmd+2), and `ChangedFilesPanelCore` draws a pointer at
+the Working Copy tab rather than a list. The file-level diff stays in the Working
+Copy, which is the only surface that can stage, discard or commit any of it; a
+second list that could not would be [UX-rubric] dimension D's redundant view.
+Note the changed-files list is suppressed by that flag and **not** by an empty
+`commitFilesProvider`, which still holds the previously-selected commit's files.
+
+**No spec entry.** The 21 pages have no uncommitted row anywhere (searched
+未提交 / 虛擬 / uncommitted / 工作區) and `spec_logic.js`'s own History mock starts
+at a real commit. This is a user-requested addition like
+[STRUCT-soft-wrap-preference], not a conformance item.

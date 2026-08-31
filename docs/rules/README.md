@@ -94,8 +94,20 @@ evidence is on:
    resolved by keeping both.
 2. **Editing an existing rule** → change the affected line(s) only. Two
    branches editing different lines of the same rule auto-merge.
-3. **A file past ~150 lines** → split it at a natural group boundary and add
-   the new file to CLAUDE.md's import list. Prefix stays the same.
+3. **Split a file when it holds two groups that different rounds edit**, not
+   when it passes a line count. Length is a bad proxy: what causes a conflict
+   is two branches editing the same *region*, and a file of independent `##`
+   rules merges cleanly however long it is. Add the new file to CLAUDE.md's
+   import list; the prefix may stay the same (`TEST-` and `FLU-` each span
+   more than one file already).
+
+   The largest files today, and why each is one file:
+   `arch-structure.md` (245) and `arch-state-machine.md` (205) are mostly
+   route trees and field tables — reference material, edited a row at a time;
+   `arch-testing.md` (210) is dominated by one table with the same property.
+   `ops-spec-reading.md` (167) and `ops-repo-culture.md` (153) are prose but
+   have no second group to split at. If one of these does grow a second
+   group, split it then.
 4. **Superseded rule** → rewrite it in place and say what was overruled, per
    CLAUDE.md's standing rule about correcting the record. Do not delete a pin
    and mint a new one; something cites it.

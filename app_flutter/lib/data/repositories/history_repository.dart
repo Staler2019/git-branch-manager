@@ -163,11 +163,21 @@ final ProviderFamily<String?, RepoIdentity> selectedCommitProvider =
       final String? anchor = ref
           .watch(commitSelectionProvider(identity))
           .anchor;
-      // The uncommitted row is not a commit, and this is what every
-      // one-commit surface gates on -- the detail panel, the changed-files
-      // panel, Cherry-pick, Revert, Reset here, Create branch, Create tag,
-      // blame, Compare. Reporting null for it disables all of them at once,
-      // without a second predicate anyone could forget to add.
+      // The uncommitted row is not a commit, and this is what the two
+      // one-commit *panels* gate on -- the commit detail panel and the
+      // changed-files panel, which are its only readers under lib/.
+      //
+      // It is **not** what disables Cherry-pick, Revert or Reset here: those
+      // are 05-E items built from a callback the right-clicked row supplies
+      // with its own oid (`commit_menu_items.dart`), and nothing about them
+      // reads this provider. An earlier comment here claimed otherwise and
+      // listed them; correcting it in place rather than deleting the claim,
+      // because the wrong version is what a later round would re-derive.
+      // What the uncommitted row really has no access to is every 05-K
+      // action, since the changed-files list they hang off is replaced by a
+      // pointer at the Working Copy tab -- user-ratified: under this row
+      // 05-K gets no dialog and no functionality, to be designed if a need
+      // for it ever appears.
       return anchor == kWorkingCopySelectionId ? null : anchor;
     });
 

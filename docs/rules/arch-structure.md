@@ -281,6 +281,26 @@ second list that could not would be [UX-rubric] dimension D's redundant view.
 Note the changed-files list is suppressed by that flag and **not** by an empty
 `commitFilesProvider`, which still holds the previously-selected commit's files.
 
+**Under this row, 05-K has no dialog and no functionality** — user-ratified,
+「之後有需要再設計」. That follows from the paragraph above rather than being a
+separate decision: 05-K's items hang off the changed-files list, and this row
+draws a pointer instead of one. **The three actions people reach for first are
+not the ones affected**: Cherry-pick, Revert and Reset here are 05-E items
+carrying the right-clicked row's own oid, and read nothing about the selection —
+a claim that they were gated on `selectedCommitProvider` stood in this codebase
+for one round and was wrong.
+
+**Selecting it and then discarding is a real transition, and the anchor alone
+does not survive it.** The row exists only while the working copy is dirty, so
+`workingCopyRowSelectedProvider` requires *both* the sentinel anchor and
+`pendingChangeCount > 0`; on the anchor alone, discarding every change deletes
+the row out from under the selection and both panels go on drawing 「0 changed
+files」 for a clean working copy. It is a pure derivation rather than a widget
+clearing the selection, because the latter is a provider write from `build()`
+([FLU-never-write-provider-in-build]) plus a second predicate a later surface
+could forget. The commit search that also hides the row is deliberately **not**
+part of the condition — a filter hiding a row does not make the summary untrue.
+
 **No spec entry.** The 21 pages have no uncommitted row anywhere (searched
 未提交 / 虛擬 / uncommitted / 工作區) and `spec_logic.js`'s own History mock starts
 at a real commit. This is a user-requested addition like

@@ -177,6 +177,40 @@ Reset here 是 commit **右鍵選單**的項目，帶著被右鍵那一列自己
 （`commit_menu_items.dart`），不讀這個 provider——而且那是對的，右鍵指名的是那一列。
 真正消失的是全部 05-K 動作，因為它們掛的檔案清單被佔位說明取代了。
 
+後續：這句錯的宣稱曾經被寫進 `history_repository.dart` 的註解裡（列出
+「Cherry-pick, Revert, Reset here, Create branch, Create tag, blame, Compare」
+七個），已依 [CULT-correct-the-record] 就地更正而不是刪掉——刪掉的話下一輪會從同樣
+的直覺再推導一次。順帶查清楚那三個在 spec 的位置，因為「spec 有沒有畫」被質疑過：
+**p5「Context menu — 9 種目標、兩層」**的 05-E 頂層 `Cherry-pick` 與 `More actions`
+子選單 `Reset branch to here…` / `Revert commit`、**p13「Branch rename dialog 與
+多選」**的 `MULTIACTS`（`Cherry-pick / Revert / Squash` 僅連續範圍可用；
+`Reset here / Create tag / Create branch` 需要單一目標 commit）、**p6「Dialogs」**
+的 `grp: 'B2'` 兩張（`Cherry-pick 4 commits`、`Reset to a1b2c3d`）。三頁都有。
+
+**使用者裁定**：未提交列底下 05-K 不給 dialog、不給功能，「之後有需要再設計」。
+這與目前實作一致，記在 [STRUCT-history-uncommitted-row] 裡。
+
+## discard 之後那一列的選取狀態，是一個沒被測到的缺陷
+
+使用者問「有沒有測試把目前 working copy discard 後，wip commit 會移除」。沒有——
+八則 widget 測試各自 pump 一個固定的 `pendingFiles`，列在任何一則裡都不可能*停止*
+存在，是 [TEST-fixture-cannot-disagree] 第 4 種形狀（cannot shrink）；乾淨那一則是
+**另外 pump 一次**，不是同一棵樹上的轉換。
+
+補上兩則之後：「列會消失」本來就綠（行為對，只是沒測），「選著那一列時 discard」
+**紅**。`workingCopyRowSelectedProvider` 只看 anchor 是不是哨兵值，所以列被抽走之後
+兩個面板繼續替一個乾淨的工作區畫「0 changed files」與 Open in Working Copy。改成
+純推導（anchor 是哨兵 **且** `pendingChangeCount > 0`）。不從 widget 清選取，因為
+那是在 build 外寫 provider（[FLU-never-write-provider-in-build]），而且會多一個之後
+的介面可能忘記加的判斷。搜尋刻意不列入條件：過濾把列藏起來並不會讓摘要變成假的。
+
+**這一輪最有價值的發現是 fixture 本身。**第一版的「列會消失」看起來是綠的、也真的
+測到了東西——但把列的 `ref.watch` 突變成 `ref.read`，整檔仍然全綠。原因是 `_state()`
+每次呼叫都造一個新的 `GraphSnapshotView`，`repoGraphProvider` 選的就是那個物件，於是
+重建是 graph 觸發的，跟工作區無關。把 graph 與 metaCache 提成共用實例、讓兩個狀態
+**只有** `workingCopyStatus` 不同之後，同一則突變才紅，而且只紅那一則。這是
+[TEST-fixture-cannot-disagree] 的第 10 種形狀，已經寫進表裡。
+
 ## 測試
 
 **C1 的 fixture 必須刻意包含「topo 下會逆序」的兩列。**全線性的 fixture 兩種排序

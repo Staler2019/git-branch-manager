@@ -9,11 +9,16 @@
 //
 // One correction to the round's own plan, recorded here because the plan said
 // otherwise: selecting this row does **not** disable the commit context
-// menu's Cherry-pick / Revert / Reset here. Those are per-row items carrying
-// the right-clicked row's own oid (`commit_menu_items.dart`), and nothing
-// about them reads `selectedCommitProvider` -- only the two panels do. What
-// really goes away is every 05-K action, because the changed-files list they
-// hang off is replaced by the placeholder.
+// menu's Cherry-pick / Revert / Reset here. Those are 05-E items carrying the
+// right-clicked row's own oid (`commit_menu_items.dart`), and nothing about
+// them reads `selectedCommitProvider` -- only the two panels do. They are also
+// squarely in the spec, on three separate pages (p5's 05-E submenu, p13's
+// `MULTIACTS`, p6's dialog catalog), so nothing about them was ever in
+// question.
+//
+// What really goes away is every 05-K action, because the changed-files list
+// they hang off is replaced by the placeholder. **User-ratified**: under this
+// row 05-K gets no dialog and no functionality, 「之後有需要再設計」.
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';

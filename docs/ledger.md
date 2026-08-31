@@ -5742,3 +5742,182 @@ clang-format **v18**（CI 的 pin，本機是 v22，所以另外裝了 18.1.8 �
 裝置層 11 個檔一個一個跑，**全綠**。其中 `stage_lines_flow_test` 7/7、1 分 47 秒
 ——soft-warp 那輪把它記成「掛住，但重跑之後 7/7，所以誠實的說法是『無法重現』」，
 這一輪的結果與那個判斷一致，那條懸而未決的記錄可以再多一筆佐證。
+
+## fix/origin-head-is-not-a-branch — 側邊欄那一列 `HEAD`，以及三個從來沒生效過的過濾器
+
+使用者只說了一句：「remove HEAD that can be select in branches sidebar」。
+
+側邊欄裡有一列叫 `HEAD`，而且**選得起來**。
+
+### 沒活過原始碼的前提
+
+> 以為使用者說的是「目前分支（HEAD）可以被複選」。
+
+不是。`branch_selection_rules.dart` 的 `isBulkSelectable(ref) => !ref.isHead`
+早就是唯一真相來源，而且每一個進入點都已經過濾：`sidebar_panel.dart` 的
+`onSelect`、右鍵 collapse、Ctrl/Cmd+A（經 `selectableLeafNames`）、
+select-all-gone、Shift+↑↓。這條規則是使用者自己裁定過的（見「側邊欄目前分支不再
+置頂」那節），本輪一行都沒動。
+
+真正被畫出來的是 `refs/remotes/origin/HEAD` —— git 給每個 remote 存的那個
+symref，指向該 remote 的預設分支。它的 `shortName` 是 `origin/HEAD`，
+`remoteBranchParts()` 取出的分支名就是 `HEAD`，沒有任何本機分支認領它，於是
+`mergeLocalAndRemoteBranches()` 把它當成一條 remote-only 分支輸出，側邊欄照畫。
+
+### 真正的缺陷：一個從來沒有被指派過的欄位
+
+Dart 端**早就有三個過濾器**專門擋這個 ref，而且各自都有測試、都是綠的：
+
+| 位置 | 條件 |
+|---|---|
+| `branch_tree_builder.dart:204` | `if (r.isSymbolic \|\| claimed.contains(r.fullName)) continue;` |
+| `remote_counterpart.dart:23` | `if (remote.isSymbolic) continue;` |
+| `graph_ref_chips.dart:75` | `if (r.kind == RefKind.remoteBranch && !r.isSymbolic)` |
+
+三個全是死碼。因為：
+
+```
+$ grep -rn "isSymbolic *=" src/
+src/core/git/RefStore.h:36:    bool isSymbolic = false;    ← 只有預設值
+```
+
+`RefStore::load()` 組的 `for-each-ref` 格式有八個欄位，**沒有 `%(symref)`**，
+而 `info.isSymbolic` 在整個 `src/` 裡從來沒有被指派過。`JsonCodec.cpp:215`
+再忠實地把這個永遠為 `false` 的布林送過 FFI，`ref_snapshot.dart:49` 忠實地讀回來。
+整條鏈路每一環都「正確」，只是最上游從來沒有人填值。
+
+修法是一行格式加一行指派，Dart **一個字都不用改**：
+
+```cpp
+format += kFieldSeparator;
+format += "%(symref)";          // 第九個欄位，加在尾端
+...
+if (fields.size() > 8) {
+    info.isSymbolic = !fields[8].empty();
+}
+```
+
+加在**尾端**不是隨手決定的：sink 的邊界是 `fields.size() < 7` 就跳過、
+`> 7` 才讀 `worktreepath`，插在中間會把既有每一個八欄位 fixture 的索引全部錯開。
+
+### 這一輪最值得記的一件事：跨語言的「無法與程式碼相左的 fixture」
+
+CLAUDE.md 已經記過五種「無法與程式碼相左的 fixture」。這是第九種，而且形狀是新的：
+**fixture 手動設了一個 production 永遠不會設的欄位**。
+
+`branch_tree_builder_test.dart:374` 這條測試叫
+`excludes symbolic remote refs (e.g. origin/HEAD)`，`branch: 'HEAD'`，
+斷言正確、邏輯正確、**從第一天就是綠的**。`remote_counterpart.dart` 那條
+（`:477`，`a symbolic remote ref is never a counterpart`）也一樣。
+
+它們錯的地方不在測試本身，而在**它們手寫 `isSymbolic: true`**。C++ 那側的測試
+也全綠，因為 struct 的欄位確實存在、確實會被序列化。兩側各自都對，中間沒有人問
+「這個欄位到底有沒有值」。
+
+**跨語言邊界會讓兩側的測試同時失去偵測力**，而且兩邊的覆蓋率報表都看不出來。
+唯一能分辨的只有真的 git 二進位檔，這就是本輪把測試放在
+`GitIntegrationTest.cpp` 而不是往上一層放的原因。
+
+### 三條測試，每條都做過變異驗證
+
+1. **`RefStore.MarksARemoteHeadSymrefAsSymbolic`**（`ProcessRunnerTest.cpp`）——
+   假回覆刻意掛在 `{"for-each-ref", "%(symref)"}` 上。`FakeProcessRunner` 是
+   逐 arg 子字串比對（`FakeProcessRunner.cpp:16`），所以格式字串一旦不再要
+   symref，就沒有規則命中，fake 退回空的預設回覆而變紅。
+   **只餵九欄位假回覆再斷言解析的測試會漏掉這件事** —— 那正是本輪修的錯誤本身，
+   只是換一層樓重演。
+2. **`RealRepoTest.MarksTheRemotesHeadSymrefAsSymbolic`**（`GitIntegrationTest.cpp`）
+   —— 真 git，`git remote set-head origin main` 造出真的 symref。刻意不用
+   `--auto`：那要跟 bare repo 碰巧的預設分支一致，是本測試沒有立場的 git 版本細節。
+3. **`CapiSessionTest.RefsJsonCarriesTheSymbolicFlagAcrossTheFfiBoundary`**
+   （`SessionApiTest.cpp`）—— 補上最後一段。`refInfoJson()` 的欄位清單是手寫的，
+   欄位被刪或改名時 C++ 與 Dart 兩側都不會紅，正是原缺陷的同型、低一層。
+   斷言以 `fullName` 切出**單一 ref 物件**再比對，否則 `"isSymbolic":true`
+   落在錯的 ref 上也會通過。
+
+變異結果（`cp` 到 scratchpad 再改再 `cp` 回來，沒有用 `git checkout --`）：
+
+| 變異 | 結果 |
+|---|---|
+| 格式字串拿掉 `%(symref)` | 459 條裡**恰好** 2 條紅（1、2） |
+| `info.isSymbolic = false` | 同樣**恰好**那 2 條紅 |
+| `jsonAppendBool(out, false)` | 145 條 capi 裡**恰好** 1 條紅（3） |
+
+三次紅的範圍都窄，沒有牽連到別條。
+
+### 連帶生效的一處，以及一個被實機打掉的預測
+
+修好之後生效的是**兩個**過濾器，不是三個：
+
+- **側邊欄那一列 `HEAD` 消失**（`branch_tree_builder.dart`）。← 使用者要的
+- **`RemoteBranchIndex` 不再收 `origin/HEAD`**（`remote_counterpart.dart`）。
+
+計畫裡原本寫「History 的 `origin/HEAD` chip 也會跟著消失」。**實機證明這是錯的**，
+而且錯得很有代表性：`graph_ref_chips.dart:75` 那個 `!r.isSymbolic` 確實存在、
+確實在檔案裡，但它濾的是 `remoteByFullName` 這張**用來把 local 的 upstream 反查回
+remote ref 的查表**，不是 chip 清單。chip 清單來自同一函式下面的
+
+```dart
+final List<RefInfo> refsAtRow = refs.refs
+    .where((RefInfo r) => r.target == targetOid)
+    .toList(growable: false);
+```
+
+**完全沒有 symbolic 過濾**。所以 `origin/HEAD` 的 chip 修完之後照樣畫在 merge
+commit 上，實機截圖看得一清二楚。
+
+這是「**在正確的檔案、正確的行號上，讀出錯誤的結論**」：grep 找到了
+`!r.isSymbolic`，行號沒錯、引用沒錯，錯的是把「這個旗標在這個檔案裡被用到」讀成
+「這個檔案的輸出會因此改變」。同一份原始碼裡，一個旗標可以同時是某張查表的條件、
+又完全不是渲染清單的條件。**只有跑起來看才會知道是哪一種**——三層測試全綠、
+`grep` 全對，這個預測仍然是錯的。
+
+`BranchOps.cpp:78-87` 用 `/HEAD` 字尾比對擋掉 `origin/HEAD` 的那段**保留不動**：
+它讀的是 `for-each-ref --contains` 的原始輸出，不經過 `RefInfo`，是另一條資料路徑。
+那段註解其實老早就把這個 ref 的性質寫得很清楚 —— 這個 codebase 一直知道
+`origin/HEAD` 是什麼，只是知識停在一個 operation 裡，沒有進到 ref 快照本身。
+
+### 一個順手撿到的既有陷阱
+
+`app_flutter/build/native/libgbm_capi.dylib` 在動手前是 **8 月 28 日**的，
+比本輪的 capi 改動早三天。CLAUDE.md 記過這件事，這次又碰到一次：實機驗收前
+`app_flutter/scripts/build_capi.sh` 不是可選步驟。
+
+### 這輪沒做
+
+- **`RefInfo.isSymbolic` 的 C++ 讀取端**：core 自己沒有任何地方讀這個旗標，
+  本輪也沒有替它找用途。它存在的唯一理由就是給 Dart 過濾用。
+- **History 那顆 `origin/HEAD` chip：使用者裁定保留。** 實機發現它還在（見上），
+  是同一個 ref 被當成分支的同一族缺陷，修法是 `refsAtRow` 加一個 `!r.isSymbolic`。
+  提出給使用者裁定而不自己動手，是因為那是他沒有指名的另一個介面，這個 repo
+  對「未經裁定就改介面」有前科。**裁定是保留**：`isSymbolic` 在本輪之前恆為
+  `false`，那顆 chip 從第一天就在，留著是零回歸，拿掉反而是新的行為改變。
+  這不是實作者的減量，是一條裁定過的保留；CLAUDE.md 那條條目已同步改成
+  user-ratified，不再寫「待裁定」。
+
+### 驗證
+
+`gbm_core_tests` 459 條：457 綠、2 個既有的 LFS skip、0 紅。
+`gbm_capi_tests` 145 條全綠。
+`flutter analyze` 零 issue、`flutter test` **2355 綠 1 skip**（`lib/` 沒有改動，
+數字與修改前一致）。
+clang-format 用 repo 自己的 `.clang-format` 比對過改動檔：`RefStore.cpp`
+與 `ProcessRunnerTest.cpp` 逐位元組乾淨；`GitIntegrationTest.cpp` 與
+`SessionApiTest.cpp` 各有幾個 hunk，逐一與**改動前的同一份檔案**比對，確認
+全是本機 v23 與 CI pin 的 v18 之間既有的落差，沒有一個落在本輪新增的行上
+（`SessionApiTest.cpp` 原本有一個落在新測試裡，是 `ColumnLimit: 100` 造成的
+lambda 收合，來自 repo 自己的設定，已照做）。
+
+**實機驗收本輪自己跑了**，而且是它推翻了上面那個 chip 預測。`flutter run -d macos
+--release` 開這個 repo（它自己就有 `refs/remotes/origin/HEAD`），截圖確認側邊欄
+`BRANCHES` 底下只剩 `backup`、`fix/`、`main`，那一列 `HEAD` 不見了。
+
+過程中踩到 CLAUDE.md 已經記過的那個陷阱的一個新變形：**第一張截圖是錯的機器**。
+機器上同時跑著兩個 `gbm_flutter` —— `/Applications/gbm_flutter.app`（使用者自己
+安裝的，8:06PM 起，dylib 裡 `strings | grep symref` 是 0）與剛建好的 Release
+（8:35PM 起，grep 是 1）。`osascript` 的 `first process whose name contains
+"gbm_flutter"` 挑中了前者，於是截出一張「修了等於沒修」的畫面，差一點就把一個
+正確的修正判成失敗。**用 `unix id` 指名 PID，不要用 name 挑 process**；
+`ps aux | grep gbm_flutter` 是動手前該先跑的那一行。既有那條「stale
+`gbm_flutter` process 看起來就像壞掉的測試」講的是裝置層，這次證明它在**人工實機
+驗收**上同樣成立，而且更難察覺——畫面長得完全合理。

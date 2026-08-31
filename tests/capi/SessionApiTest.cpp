@@ -162,6 +162,47 @@ TEST_F(CapiSessionTest, HistoryRefreshPublishesACompleteGraphSnapshot) {
     gbm_graph_snapshot_release(session_);
 }
 
+TEST_F(CapiSessionTest, RefsJsonCarriesTheSymbolicFlagAcrossTheFfiBoundary) {
+    // The last link of the chain the sidebar's `HEAD` row hung on. RefStore now
+    // sets RefInfo::isSymbolic (RefStore.cpp, GitIntegrationTest) and the Dart
+    // filters read `json['isSymbolic']` -- but between them sits refInfoJson(),
+    // whose field list is hand-written. A field dropped or renamed there is
+    // invisible to both sides: C++ stays green because the struct is right, and
+    // Dart stays green because every fixture hand-sets the flag. That is exactly
+    // how the original defect survived, one layer down.
+    ASSERT_EQ(runGit({"update-ref", "refs/remotes/origin/main", "HEAD"}), 0);
+    ASSERT_EQ(runGit({"symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"}), 0);
+
+    gbm_history_refresh(session_);
+    const bool arrived = log_.waitFor(
+        [](const auto& events) { return anyEventOfType(events, GBM_EVENT_REFS_UPDATED); });
+    ASSERT_TRUE(arrived) << "timed out waiting for REFS_UPDATED";
+
+    ASSERT_EQ(gbm_refs_json(session_), 0);
+    std::string refsJson(static_cast<std::size_t>(gbm_last_result_json_len()), '\0');
+    gbm_last_result_json_copy(reinterpret_cast<uint8_t*>(refsJson.data()),
+                              static_cast<int32_t>(refsJson.size()));
+
+    // Scope each assertion to its own ref object rather than searching the whole
+    // payload: `"isSymbolic":true` appearing *somewhere* would also be satisfied
+    // by the flag landing on the wrong ref, which is the failure that matters.
+    auto objectFor = [&refsJson](const std::string& fullName) {
+        const std::string key = "\"fullName\":\"" + fullName + "\"";
+        const std::size_t at = refsJson.find(key);
+        if (at == std::string::npos) return std::string();
+        const std::size_t end = refsJson.find('}', at);
+        return refsJson.substr(at, end == std::string::npos ? std::string::npos : end - at);
+    };
+
+    const std::string head = objectFor("refs/remotes/origin/HEAD");
+    ASSERT_FALSE(head.empty()) << refsJson;
+    EXPECT_NE(head.find("\"isSymbolic\":true"), std::string::npos) << head;
+
+    const std::string main = objectFor("refs/remotes/origin/main");
+    ASSERT_FALSE(main.empty()) << refsJson;
+    EXPECT_NE(main.find("\"isSymbolic\":false"), std::string::npos) << main;
+}
+
 TEST_F(CapiSessionTest, CheckoutCreatesAndSwitchesToNewBranch) {
     // target is the start point for the new branch when createBranch is set
     // (see CheckoutOp.cpp: "switch --create <newBranchName> [<target>]"), not

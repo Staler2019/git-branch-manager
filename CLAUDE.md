@@ -671,7 +671,17 @@ you are touching, not by when it was learned.
   under `start`, so the mutation between them stayed green; «the controls'
   right edge equals the Wrap's right edge» is the same claim stated tightly
   enough to fail (conflict-banner round). A mutation that comes back green
-  is as often a weak assertion as a missing one.
+  is as often a weak assertion as a missing one. A ninth is the cross-language
+  shape, and it is the worst of them because **both languages stay green at
+  once**: a fixture that hand-sets a field production never sets. Every Dart
+  test of the `isSymbolic` filters wrote `isSymbolic: true` by hand while
+  `RefStore` never assigned the field at all, and the C++ tests were green
+  because the struct member really did exist and really was serialized. Neither
+  side can see the gap; only the real binary on the far side of the boundary
+  can, which is why that test belongs in `GitIntegrationTest.cpp` and the
+  FFI-payload one in `SessionApiTest.cpp`. **When a field crosses a language
+  boundary, ask which side assigns it** — a hand-set fixture is evidence about
+  the consumer, never about the producer.
 - **Mutation-check every new test**, and check the red is *narrow* — a broad
   red means the test is pinning something else. Copy the file to the
   scratchpad first (`cp file "$SCRATCH/x.bak"` → mutate → `cp` back);
@@ -742,6 +752,14 @@ you are touching, not by when it was learned.
   `gbm_flutter` process blocks the entire tier and looks exactly like a
   broken test — `pkill -f "gbm_flutter.app/Contents/MacOS/gbm_flutter"`, and
   run one pre-existing device test as a control before believing a new one.
+  **The same hazard ruins a manual on-screen check, where it is harder to spot
+  because the window looks entirely reasonable**: the user's installed
+  `/Applications/gbm_flutter.app` runs alongside a freshly built one, and
+  `osascript`'s `first process whose name contains "gbm_flutter"` fronts
+  whichever it likes — a correct fix screenshots as a failure. Run `ps aux |
+  grep gbm_flutter` first, front the build you mean by `unix id` (its PID), and
+  confirm the binary really carries the change (`strings <dylib> | grep <a
+  string only the fix introduces>`) before trusting what you see.
   But **`Failed to foreground app; open returned 1` is not itself the failure
   signal** — it prints on fully green runs too, and what discriminates is
   whether test-result lines follow it. Read past that line to the counts
@@ -1215,6 +1233,24 @@ you are touching, not by when it was learned.
   *and* on every checkout through one `_seededExpansionForHead` gate, and
   `addAll`-only so nothing the user collapsed is forced back open. Ledger:
   「側邊欄目前分支不再置頂」.
+- **`refs/remotes/<remote>/HEAD` is a symref, not a branch, and `RefInfo.isSymbolic`
+  is the only thing that says so.** It is populated from `%(symref)`, the ninth
+  and last field of `RefStore::load()`'s `for-each-ref` format — appended at the
+  end precisely so the sink's `fields.size() > N` bounds keep the other eight
+  where they were. For as long as that field was missing, `isSymbolic` sat at its
+  `= false` default, nothing in `src/` ever assigned it, and **three Dart filters
+  written to drop the ref were dead code**: the sidebar drew `origin/HEAD` as a
+  selectable, checkout-able branch row called `HEAD` (its shortName rewrites to
+  the bare `HEAD`, and no local branch claims it, so `mergeLocalAndRemoteBranches`
+  emits it as remote-only). `BranchOps.cpp`'s `/HEAD` suffix check is **not** a
+  second source: it reads raw `for-each-ref --contains` output, never a `RefInfo`.
+  **Not every reader of the flag is a render site** — `graph_ref_chips.dart`'s
+  `!r.isSymbolic` guards the upstream-resolution lookup map only; its chip list
+  comes from an unfiltered `refsAtRow`, so History still draws an `origin/HEAD`
+  chip — **user-ratified: it stays**. The flag was false for every release
+  before this one, so leaving the chip is zero regression while removing it
+  would be a fresh behaviour change on a surface nobody asked about. Ledger:
+  「側邊欄那一列 `HEAD`」.
 - **`RefInfo.isGone` can only be true after a prune** (git reports `[gone]`
   only once the remote-tracking ref is already deleted). Gone *marking* comes
   from `git remote prune --dry-run`, deliberately not from `fetch --prune`.

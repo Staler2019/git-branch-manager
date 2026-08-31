@@ -71,21 +71,34 @@ reached 5,900 lines with every round appending to the same end-of-file.
 @docs/rules/fn-cpp-core.md
 @docs/rules/drift-open.md
 
-## Invariants and traps
+## Where the rules went, and why a source comment still says "CLAUDE.md"
 
-Distilled from [docs/ledger.md](docs/ledger.md) — every entry here happened,
-and the round that found it is named so the original measurement, the
-counter-example and the issue number stay one grep away. Organised by what
-you are touching, not by when it was learned.
+The `## Invariants and traps` section that used to fill most of this file is
+gone as a *section*; every entry in it is now a pinned rule under
+[docs/rules/](docs/rules/), imported above. **Nothing was dropped** — each
+category's move was checked by re-finding every concrete fact (code span,
+filename, version, issue number, measured figure) from the old text in either
+the new rules file or the ledger.
+
+**A source comment that cites "CLAUDE.md" is still correct.** Roughly 49
+comments across `app_flutter/` and `src/` say things like "CLAUDE.md records
+X" or "CLAUDE.md's rule for a new state-dependent gate"; none cites a line
+number, and CLAUDE.md remains the auto-loaded rule set — the text simply
+arrives through `@import` now. The comments were left alone rather than
+rewritten across ~30 files; this paragraph is the redirect. Grep
+`docs/rules/` for the rule, or search its pin.
 
 ## Engineering ledger
 
-[docs/ledger.md](docs/ledger.md) holds every round's narrative, moved here
-verbatim (the moved block is byte-identical; nothing was reworded, dropped, or
-summarised away). Filing rule for a new round: see the top of this file.
+[docs/ledger.md](docs/ledger.md) holds the first 101 rounds' narratives, moved
+there verbatim (the moved block is byte-identical; nothing was reworded,
+dropped, or summarised away). **It is closed to new rounds** — one round is one
+file under [docs/ledger/](docs/ledger/) now, indexed by
+[docs/ledger/INDEX.md](docs/ledger/INDEX.md), because a single shared
+end-of-file was a guaranteed conflict for any two parallel branches. Filing
+rule: see "Where a round's write-up goes" above and
+[docs/ledger/README.md](docs/ledger/README.md).
 
 **Everything a source comment cites as "CLAUDE.md's Tier 0c note",
 "Known gaps", "Tier 6c", "Spec conformance audit" or any other `Tier N` /
-round heading is in `docs/ledger.md` now**, under the same heading text. The
-comments were left alone rather than rewritten across ~30 files; this
-paragraph is the redirect.
+round heading is in `docs/ledger.md`**, under the same heading text.

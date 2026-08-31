@@ -167,7 +167,7 @@ class _RebaseOntoDialogContentState
                 ),
               ),
               subtitle: Text(
-                '${session.workingCopyStatus.entries.length} file(s) have uncommitted changes.',
+                '${session.workingCopyStatus.pendingChangeCount} file(s) have uncommitted changes.',
                 style: TextStyle(
                   fontSize: GbmTypography.textXs,
                   color: colors.textTertiary,

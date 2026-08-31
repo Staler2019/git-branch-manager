@@ -12,6 +12,7 @@
 // History mock starts at a real commit). This is a user-requested addition,
 // like the soft-wrap preference, not a conformance item.
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/commit_meta.dart';
@@ -66,26 +67,26 @@ CommitMeta _meta(String oid) {
   );
 }
 
-WorkingCopyEntry _entry(String path) =>
-    WorkingCopyEntry.fromJson(<String, dynamic>{
-      'path': path,
-      'staged': false,
-      'untracked': false,
-      'hasUnstagedChange': true,
-      'worktreeStatus': 'modified',
-      'unstagedAdded': 1,
-      'unstagedRemoved': 0,
-      'stagedAdded': 0,
-      'stagedRemoved': 0,
-      'conflict': 'none',
-      'ancestorBlob': '',
-      'oursBlob': '',
-      'theirsBlob': '',
-      'similarity': 0,
-      'isSubmodule': false,
-      'isConflicted': false,
-      'oldPath': '',
-    });
+WorkingCopyEntry _entry(String path) => WorkingCopyEntry(
+  path: path,
+  oldPath: '',
+  untracked: false,
+  staged: false,
+  indexStatus: FileChangeKind.modified,
+  hasUnstagedChange: true,
+  worktreeStatus: FileChangeKind.modified,
+  unstagedAdded: 1,
+  unstagedRemoved: 0,
+  stagedAdded: 0,
+  stagedRemoved: 0,
+  conflict: ConflictKind.none,
+  ancestorBlob: '',
+  oursBlob: '',
+  theirsBlob: '',
+  similarity: 0,
+  isSubmodule: false,
+  isConflicted: false,
+);
 
 RepoSessionState _state({required int pendingFiles}) => RepoSessionState(
   isOpen: true,
@@ -226,6 +227,65 @@ void main() {
       reason:
           'every one-commit action gates on this being non-null, so the '
           'uncommitted row must not present itself as a commit',
+    );
+  });
+
+  testWidgets('the first commit + arrow up reaches the row, and down returns', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, pendingFiles: 1);
+
+    // Click the first commit rather than seeding the provider: the focus the
+    // shortcuts are scoped to is requested by _publish, and a seeded
+    // selection never asks for it.
+    await tester.tap(find.byType(CommitRow).first);
+    await tester.pumpAndSettle();
+    expect(_container.read(selectedCommitProvider(_identity)), _oids.first);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+    await tester.pumpAndSettle();
+    expect(
+      _container.read(workingCopyRowSelectedProvider(_identity)),
+      isTrue,
+      reason:
+          'the uncommitted row is index 0 of the painted order, above the '
+          'first commit',
+    );
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+    await tester.pumpAndSettle();
+    expect(
+      _container.read(workingCopyRowSelectedProvider(_identity)),
+      isTrue,
+      reason: 'it is the top: another up must clamp, not wrap round',
+    );
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pumpAndSettle();
+    expect(_container.read(selectedCommitProvider(_identity)), _oids.first);
+  });
+
+  testWidgets('with a clean working copy arrow up stops at the first commit', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, pendingFiles: 0);
+
+    await tester.tap(find.byType(CommitRow).at(1));
+    await tester.pumpAndSettle();
+    expect(_container.read(selectedCommitProvider(_identity)), _oids[1]);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+    await tester.pumpAndSettle();
+    expect(_container.read(selectedCommitProvider(_identity)), _oids.first);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+    await tester.pumpAndSettle();
+    expect(
+      _container.read(selectedCommitProvider(_identity)),
+      _oids.first,
+      reason:
+          'there is no row above it when the working copy is clean -- the '
+          'navigable order must not carry a phantom entry',
     );
   });
 }

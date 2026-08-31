@@ -573,4 +573,35 @@ void main() {
       expect(find.text('a.dart'), findsOneWidget);
     },
   );
+
+  testWidgets('the uncommitted row points at Working Copy instead of listing '
+      'the last commit\'s files', (tester) async {
+    await pumpGbmWidget(
+      tester,
+      // Files from the commit selected a moment ago are still in the
+      // provider: History does not ask the core for a diff-tree against a
+      // row that has no oid, so the flag -- not an empty list -- is what has
+      // to suppress them.
+      child: ChangedFilesPanelCore(
+        hasSelectedCommit: false,
+        workingCopySelected: true,
+        files: <ChangedFile>[_file('lib/stale.dart')],
+        selectedPath: null,
+        onFileTap: null,
+      ),
+    );
+
+    expect(
+      find.text('Uncommitted files are listed in the Working Copy tab'),
+      findsOneWidget,
+    );
+    expect(find.text('lib/stale.dart'), findsNothing);
+    expect(
+      find.text('No files changed'),
+      findsNothing,
+      reason:
+          'nothing-selected and uncommitted-row-selected are two different '
+          'empty states and must not share a face',
+    );
+  });
 }

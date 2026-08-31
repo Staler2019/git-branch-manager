@@ -147,9 +147,39 @@ commitSelectionProvider =
 /// a selection set would have meant two selection states that could disagree,
 /// so the anchor is now the one source of truth and this is a read-only view
 /// of it. Write through [commitSelectionProvider] instead.
+/// The id History's uncommitted-changes row selects itself under.
+///
+/// It shares [commitSelectionProvider] rather than living in a provider of its
+/// own, because two providers would be two selection states that could disagree
+/// about what is highlighted -- the same reason `selectedCommitProvider` stopped
+/// being independently writable when multi-select arrived.
+///
+/// **It cannot collide with a real selection.** Every other member of that set
+/// is an oid: 40 or 64 lowercase hex characters. This is neither.
+const String kWorkingCopySelectionId = 'working-copy';
+
 final ProviderFamily<String?, RepoIdentity> selectedCommitProvider =
-    Provider.family<String?, RepoIdentity>(
-      (ref, identity) => ref.watch(commitSelectionProvider(identity)).anchor,
+    Provider.family<String?, RepoIdentity>((ref, identity) {
+      final String? anchor = ref
+          .watch(commitSelectionProvider(identity))
+          .anchor;
+      // The uncommitted row is not a commit, and this is what every
+      // one-commit surface gates on -- the detail panel, the changed-files
+      // panel, Cherry-pick, Revert, Reset here, Create branch, Create tag,
+      // blame, Compare. Reporting null for it disables all of them at once,
+      // without a second predicate anyone could forget to add.
+      return anchor == kWorkingCopySelectionId ? null : anchor;
+    });
+
+/// Whether History's uncommitted-changes row is the current selection.
+///
+/// Derived from the same anchor as [selectedCommitProvider], so exactly one of
+/// the two can be non-null/true at a time by construction.
+final ProviderFamily<bool, RepoIdentity> workingCopyRowSelectedProvider =
+    Provider.family<bool, RepoIdentity>(
+      (ref, identity) =>
+          ref.watch(commitSelectionProvider(identity)).anchor ==
+          kWorkingCopySelectionId,
     );
 
 /// The currently-selected file path within the selected commit's changed files.

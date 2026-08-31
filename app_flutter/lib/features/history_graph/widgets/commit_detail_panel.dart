@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../data/models/commit_meta.dart';
 import '../../../data/models/parsed_diff.dart';
+import '../../../data/models/working_copy_status.dart';
 import '../../../data/repositories/diff_view_mode_repository.dart';
 import '../../../data/repositories/history_repository.dart';
 import '../../../data/repositories/repo_identity.dart';
+import '../../../data/repositories/working_copy_repository.dart';
+import '../../../routing/route_paths.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
+import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_segmented_control.dart';
 import '../../diff/diff_page.dart';
 import '../../diff/side_by_side_diff_view.dart';
@@ -33,10 +38,30 @@ class CommitDetailPanel extends ConsumerWidget {
     final ParsedDiff? diff = selectedFilePath == null
         ? null
         : ref.watch(commitFileDiffProvider(identity));
+    // Non-null only while History's uncommitted row is the selection. It is
+    // read through workingCopyRowSelectedProvider rather than inferred from
+    // `selectedCommitOid == null`, which is also true with nothing selected
+    // at all -- two different empty states that must not share a face.
+    final int? uncommittedChangeCount =
+        ref.watch(workingCopyRowSelectedProvider(identity))
+        ? ref.watch(
+            repoWorkingCopyStatusProvider(
+              identity,
+            ).select((WorkingCopyStatus status) => status.pendingChangeCount),
+          )
+        : null;
 
     return CommitDetailPanelCore(
       selectedFilePath: selectedFilePath,
       hasSelectedCommit: selectedCommitOid != null,
+      uncommittedChangeCount: uncommittedChangeCount,
+      // Exactly what GbmActionId.viewWorkingCopy's handler does
+      // (workspace_screen.dart) -- `go`, not `push`: the Working Copy is a
+      // ShellRoute child, so pushing would stack it over History instead of
+      // switching tab to it.
+      onOpenWorkingCopy: () => context.go(
+        RoutePaths.workingCopyFor(Uri.encodeComponent(identity.workDir)),
+      ),
       meta: meta,
       diff: diff,
       diffViewMode: ref.watch(diffViewModeProvider),
@@ -59,6 +84,8 @@ class CommitDetailPanelCore extends StatelessWidget {
     super.key,
     required this.selectedFilePath,
     required this.hasSelectedCommit,
+    required this.uncommittedChangeCount,
+    required this.onOpenWorkingCopy,
     required this.meta,
     required this.diff,
     required this.diffViewMode,
@@ -67,6 +94,20 @@ class CommitDetailPanelCore extends StatelessWidget {
 
   final String? selectedFilePath;
   final bool hasSelectedCommit;
+
+  /// Non-null when History's uncommitted-changes row is selected, and then it
+  /// wins over every other face -- that row is not a commit, so neither the
+  /// metadata view nor a file diff has anything to say about it.
+  ///
+  /// **Summary only, by the user's ruling**: the file-level diff stays in the
+  /// Working Copy tab. Two views listing the same files would be [UX-rubric]
+  /// dimension D's redundant view, and the one that can stage is the one worth
+  /// keeping.
+  final int? uncommittedChangeCount;
+
+  /// Where the summary's one button goes. Equivalent to Ctrl/Cmd+2.
+  final VoidCallback? onOpenWorkingCopy;
+
   final CommitMeta? meta;
   final ParsedDiff? diff;
 
@@ -81,6 +122,14 @@ class CommitDetailPanelCore extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final int? uncommittedChangeCount = this.uncommittedChangeCount;
+    if (uncommittedChangeCount != null) {
+      return _UncommittedSummaryView(
+        changeCount: uncommittedChangeCount,
+        onOpenWorkingCopy: onOpenWorkingCopy,
+      );
+    }
+
     if (selectedFilePath == null) {
       return _CommitMetadataView(
         hasSelectedCommit: hasSelectedCommit,
@@ -188,6 +237,56 @@ class _DiffTitleBar extends StatelessWidget {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// The uncommitted-changes row's detail face: a count and one way out.
+///
+/// Deliberately not a file list. History's job here is to say that the work
+/// exists and where to act on it; the acting happens in the Working Copy tab,
+/// which is the only surface that can stage, discard or commit any of it.
+class _UncommittedSummaryView extends StatelessWidget {
+  const _UncommittedSummaryView({
+    required this.changeCount,
+    required this.onOpenWorkingCopy,
+  });
+
+  final int changeCount;
+  final VoidCallback? onOpenWorkingCopy;
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(GbmSpacing.space4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(
+              'Uncommitted changes',
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: GbmSpacing.space2),
+            Text(
+              changeCount == 1
+                  ? '1 changed file'
+                  : '$changeCount changed files',
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: colors.textSecondary),
+            ),
+            const SizedBox(height: GbmSpacing.space4),
+            GbmButton(
+              label: 'Open in Working Copy',
+              onPressed: onOpenWorkingCopy,
+            ),
+          ],
+        ),
       ),
     );
   }

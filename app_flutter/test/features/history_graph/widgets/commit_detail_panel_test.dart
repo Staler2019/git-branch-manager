@@ -83,15 +83,21 @@ ParsedDiff _diff() => const ParsedDiff(
 /// rather than holding the mode itself.
 DiffViewMode? _lastReported;
 
+/// Records whether the uncommitted summary's one button fired.
+bool _openedWorkingCopy = false;
+
 Widget _panel({
   required String? selectedFilePath,
   required bool hasSelectedCommit,
   required CommitMeta? meta,
   required ParsedDiff? diff,
   DiffViewMode mode = DiffViewMode.unified,
+  int? uncommittedChangeCount,
 }) => CommitDetailPanelCore(
   selectedFilePath: selectedFilePath,
   hasSelectedCommit: hasSelectedCommit,
+  uncommittedChangeCount: uncommittedChangeCount,
+  onOpenWorkingCopy: () => _openedWorkingCopy = true,
   meta: meta,
   diff: diff,
   diffViewMode: mode,
@@ -99,7 +105,10 @@ Widget _panel({
 );
 
 void main() {
-  setUp(() => _lastReported = null);
+  setUp(() {
+    _lastReported = null;
+    _openedWorkingCopy = false;
+  });
 
   testWidgets('prompts to select a commit when nothing is selected', (
     tester,
@@ -324,6 +333,57 @@ void main() {
       final Rect diffRect = tester.getRect(find.byType(DiffPage));
 
       expect(switchRect.bottom, lessThanOrEqualTo(diffRect.top));
+    });
+  });
+
+  group('the uncommitted-changes row', () {
+    testWidgets('shows a count and a way into the Working Copy, not files', (
+      tester,
+    ) async {
+      await pumpGbmWidget(
+        tester,
+        child: _panel(
+          // The row is not a commit, so both of these are what History
+          // reports for it -- the summary must not depend on either.
+          selectedFilePath: null,
+          hasSelectedCommit: false,
+          meta: null,
+          diff: null,
+          uncommittedChangeCount: 3,
+        ),
+      );
+
+      expect(find.text('3 changed files'), findsOneWidget);
+      expect(
+        find.text('Select a commit to view details'),
+        findsNothing,
+        reason:
+            'nothing-selected and uncommitted-row-selected are two different '
+            'empty states and must not share a face',
+      );
+
+      await tester.tap(find.text('Open in Working Copy'));
+      await tester.pump();
+      expect(_openedWorkingCopy, isTrue);
+    });
+
+    testWidgets('wins over a stale file diff', (tester) async {
+      await pumpGbmWidget(
+        tester,
+        child: _panel(
+          // A file path left over from the commit selected a moment ago.
+          // CommitGraphView clears it, so this is belt and braces -- but a
+          // diff face for a row that has no commit is the worse failure.
+          selectedFilePath: 'lib/main.dart',
+          hasSelectedCommit: false,
+          meta: null,
+          diff: null,
+          uncommittedChangeCount: 1,
+        ),
+      );
+
+      expect(find.text('1 changed file'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
     });
   });
 }

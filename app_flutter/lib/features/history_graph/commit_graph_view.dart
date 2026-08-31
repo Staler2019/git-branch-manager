@@ -12,12 +12,14 @@ import '../../data/models/graph_column.dart';
 import '../../data/models/graph_snapshot.dart';
 import '../../data/models/list_selection.dart';
 import '../../data/models/ref_snapshot.dart';
+import '../../data/models/working_copy_status.dart';
 import '../../data/repositories/branch_repository.dart';
 import '../../data/repositories/compare_tabs_repository.dart';
 import '../../data/services/file_save_picker.dart';
 import '../../data/repositories/history_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
+import '../../data/repositories/working_copy_repository.dart';
 import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
@@ -27,6 +29,7 @@ import '../../widgets/prompt_text_dialog.dart';
 import 'commit_search.dart';
 import '../../data/repositories/graph_columns_repository.dart';
 import 'widgets/commit_row.dart';
+import 'widgets/working_copy_row.dart';
 import 'widgets/graph_columns_selector.dart';
 import 'widgets/commit_row_layout.dart';
 import 'widgets/graph_ref_chips.dart';
@@ -191,7 +194,78 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
     if (anchor == null || anchor == previousAnchor) return;
     ref.read(selectedCommitFilePathProvider(widget.identity).notifier).state =
         null;
+    // The uncommitted row shares this selection but is not a commit, so there
+    // are no changed files to ask the core for -- the request would be
+    // `git diff-tree` against an oid that does not exist.
+    if (anchor == kWorkingCopySelectionId) return;
     requestCommitFiles(ref, widget.identity, anchor);
+  }
+
+  /// Selects History's uncommitted-changes row.
+  ///
+  /// Replaces the whole selection rather than adding to it: it is not a commit,
+  /// so it can never take part in a range or a multi-commit action, and leaving
+  /// commits selected beside it would put the detail panel in two states at
+  /// once.
+  void _selectWorkingCopyRow() {
+    _publish(
+      const ListSelection<String>(
+        items: <String>[kWorkingCopySelectionId],
+        anchor: kWorkingCopySelectionId,
+      ),
+    );
+  }
+
+  /// Plain ↑/↓: moves the single selection one row in painted order.
+  ///
+  /// The uncommitted row is index 0 of that order whenever it exists, which
+  /// is the whole of 「first commit + ↑ reaches it, ↓ comes back」. It is not
+  /// in [visibleOids] -- it is not a commit and never enters the ListView --
+  /// so the navigable order is assembled here rather than anywhere the graph
+  /// row indices are keyed on.
+  ///
+  /// Shift+↑/↓ deliberately does **not** get the same treatment: a range
+  /// spanning the uncommitted row is not a range git could replay, and
+  /// [_extendSelection] already restarts from the first commit when the
+  /// anchor is not a visible oid.
+  void _moveSelection(
+    int delta,
+    List<String> visibleOids,
+    bool hasWorkingCopyRow,
+  ) {
+    final List<String> navigable = hasWorkingCopyRow
+        ? <String>[kWorkingCopySelectionId, ...visibleOids]
+        : visibleOids;
+    if (navigable.isEmpty) return;
+    final String? anchor = _selectionController.state.anchor;
+    final int from = anchor == null ? -1 : navigable.indexOf(anchor);
+    final int next = from < 0
+        ? 0
+        : (from + delta).clamp(0, navigable.length - 1);
+    _publish(_selectionController.state.single(navigable[next]));
+    _revealListIndex(next - (hasWorkingCopyRow ? 1 : 0));
+  }
+
+  /// Scrolls the ListView just far enough that row [index] is fully visible,
+  /// and not at all when it already is. A negative index is the uncommitted
+  /// row, which is pinned above the scrollable and therefore always visible.
+  ///
+  /// Arithmetic rather than `Scrollable.ensureVisible`: every row is exactly
+  /// `kCommitRowHeight` tall (the list sets `itemExtent`), and the target row
+  /// is usually not built yet -- which is precisely when ensureVisible has no
+  /// context to work from.
+  void _revealListIndex(int index) {
+    if (index < 0 || !_controller.hasClients) return;
+    final ScrollPosition position = _controller.position;
+    final double top = index * kCommitRowHeight;
+    final double bottom = top + kCommitRowHeight;
+    if (top < position.pixels) {
+      _controller.jumpTo(math.max(position.minScrollExtent, top));
+    } else if (bottom > position.pixels + position.viewportDimension) {
+      _controller.jumpTo(
+        math.min(position.maxScrollExtent, bottom - position.viewportDimension),
+      );
+    }
   }
 
   /// Applies one of spec page 13's three mouse rows.
@@ -450,6 +524,21 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
     // not a range git can replay, so cherry-pick and revert correctly stay
     // disabled for them (MULTIACTS).
     final bool contiguous = selection.isContiguousIn(graph.oidsHex);
+    // Watched here rather than passed down from build(), the same way this
+    // method already watches graphColumnLayoutProvider: the uncommitted row
+    // is the only thing that reads either value.
+    //
+    // Through the narrow providers, not the whole session -- an unfiltered
+    // watch rebuilds the list on every publish, including the commit-metadata
+    // replies the list itself asks for while scrolling.
+    final int pendingChangeCount = ref.watch(
+      repoWorkingCopyStatusProvider(
+        widget.identity,
+      ).select((WorkingCopyStatus status) => status.pendingChangeCount),
+    );
+    final bool workingCopySelected = ref.watch(
+      workingCopyRowSelectedProvider(widget.identity),
+    );
     // The rendered order, as oids. Every selection transition is expressed
     // against this rather than against `visibleRows` (snapshot indices), so
     // a range never silently spans rows a filter is hiding.
@@ -509,20 +598,42 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
           onCollapse: () =>
               _publish(_selectionController.state.collapseToAnchor()),
           onExtend: (int delta) => _extendSelection(delta, visibleOids),
+          onMove: (int delta) =>
+              _moveSelection(delta, visibleOids, pendingChangeCount > 0),
           child: Stack(
             children: <Widget>[
-              _buildRows(
-                graph,
-                visibleRows,
-                query,
-                metaCache,
-                selection,
-                refs,
-                effectiveEmail,
-                conflictActive,
-                contiguous,
-                visibleOids,
-                plan,
+              Column(
+                children: <Widget>[
+                  // Pinned above the list, never inside it -- see
+                  // HistoryWorkingCopyRow's doc for why the ListView must not
+                  // grow a row. Absent entirely when the working copy is clean.
+                  if (pendingChangeCount > 0)
+                    HistoryWorkingCopyRow(
+                      pendingChangeCount: pendingChangeCount,
+                      selected: workingCopySelected,
+                      // The row's dot only links downwards when the commit it
+                      // would link to really is HEAD's tip.
+                      connectsDown:
+                          visibleOids.isNotEmpty &&
+                          visibleOids.first == refs.head.target,
+                      onTap: _selectWorkingCopyRow,
+                    ),
+                  Expanded(
+                    child: _buildRows(
+                      graph,
+                      visibleRows,
+                      query,
+                      metaCache,
+                      selection,
+                      refs,
+                      effectiveEmail,
+                      conflictActive,
+                      contiguous,
+                      visibleOids,
+                      plan,
+                    ),
+                  ),
+                ],
               ),
               // Spec page 02 item 16's "欄寬各自可拖曳並記憶", reached without
               // a header row -- the mockup has none. See
@@ -915,6 +1026,7 @@ class _SelectionShortcuts extends StatelessWidget {
     required this.onSelectAll,
     required this.onCollapse,
     required this.onExtend,
+    required this.onMove,
     required this.child,
   });
 
@@ -922,6 +1034,13 @@ class _SelectionShortcuts extends StatelessWidget {
   final VoidCallback onSelectAll;
   final VoidCallback onCollapse;
   final ValueChanged<int> onExtend;
+
+  /// Plain ↑/↓. Bound above the list's own [Focus], so it wins over the
+  /// ambient `ScrollAction` a focused Scrollable would otherwise run -- the
+  /// selection moving *and* scrolling into view is what a list does with an
+  /// arrow key, and a list that only scrolled would leave the selection
+  /// behind off-screen.
+  final ValueChanged<int> onMove;
   final Widget child;
 
   @override
@@ -935,6 +1054,10 @@ class _SelectionShortcuts extends StatelessWidget {
             const GbmExtendSelectionIntent(-1),
         const SingleActivator(LogicalKeyboardKey.arrowDown, shift: true):
             const GbmExtendSelectionIntent(1),
+        const SingleActivator(LogicalKeyboardKey.arrowUp):
+            const GbmMoveSelectionIntent(-1),
+        const SingleActivator(LogicalKeyboardKey.arrowDown):
+            const GbmMoveSelectionIntent(1),
         // Both modifiers are registered rather than branching on platform:
         // an unheld modifier simply never matches, and this keeps the list
         // working under a remote/VM session where the platform reported and
@@ -950,6 +1073,12 @@ class _SelectionShortcuts extends StatelessWidget {
           GbmExtendSelectionIntent: CallbackAction<GbmExtendSelectionIntent>(
             onInvoke: (GbmExtendSelectionIntent intent) {
               onExtend(intent.delta);
+              return null;
+            },
+          ),
+          GbmMoveSelectionIntent: CallbackAction<GbmMoveSelectionIntent>(
+            onInvoke: (GbmMoveSelectionIntent intent) {
+              onMove(intent.delta);
               return null;
             },
           ),

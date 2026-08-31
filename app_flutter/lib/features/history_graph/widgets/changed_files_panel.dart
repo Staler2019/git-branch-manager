@@ -197,6 +197,11 @@ class _ChangedFilesPanelState extends ConsumerState<ChangedFilesPanel> {
 
     return ChangedFilesPanelCore(
       hasSelectedCommit: selectedCommitOid != null,
+      // `commitFilesProvider` still holds the previously-selected commit's
+      // files when the uncommitted row is picked -- History deliberately does
+      // not ask the core for a diff-tree against an oid that does not exist --
+      // so this flag, not an empty list, is what suppresses them.
+      workingCopySelected: ref.watch(workingCopyRowSelectedProvider(identity)),
       files: files,
       viewMode: viewMode,
       selectedPath: selectedPath,
@@ -311,6 +316,7 @@ class ChangedFilesPanelCore extends StatelessWidget {
     this.onSaveRevisionAs,
     this.onExportAsPatch,
     this.viewMode = FileListViewMode.list,
+    this.workingCopySelected = false,
   });
 
   final bool hasSelectedCommit;
@@ -358,8 +364,29 @@ class ChangedFilesPanelCore extends StatelessWidget {
   /// whole commit's; see the container half for why.
   final ValueChanged<String>? onExportAsPatch;
 
+  /// History's uncommitted-changes row is the selection.
+  ///
+  /// It renders a pointer at the Working Copy tab rather than the files
+  /// themselves: the user's ruling for that row is 「可選取，但只顯示摘要」,
+  /// and a second file list that cannot stage anything is [UX-rubric]
+  /// dimension D's redundant view.
+  final bool workingCopySelected;
+
   @override
   Widget build(BuildContext context) {
+    if (workingCopySelected) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(GbmSpacing.space4),
+          child: Text(
+            'Uncommitted files are listed in the Working Copy tab',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ),
+      );
+    }
+
     if (!hasSelectedCommit || files.isEmpty) {
       return Center(
         child: Text(

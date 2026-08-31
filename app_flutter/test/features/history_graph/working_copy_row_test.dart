@@ -111,11 +111,19 @@ RepoSessionState _state({required int pendingFiles}) => RepoSessionState(
 
 late ProviderContainer _container;
 
+/// Kept so a test can publish a *new* state into a tree that is already on
+/// screen. Pumping a second fixture is not the same thing: the eight tests
+/// below each pump one fixed `pendingFiles`, so in none of them can the row
+/// ever stop existing -- [TEST-fixture-cannot-disagree]'s shape 4, a fixture
+/// that cannot shrink.
+late FakeRepoSessionController _fake;
+
 Future<void> _pump(WidgetTester tester, {required int pendingFiles}) async {
   final FakeRepoSessionController fake = FakeRepoSessionController(
     _identity,
     _state(pendingFiles: pendingFiles),
   );
+  _fake = fake;
   SharedPreferences.setMockInitialValues(<String, Object>{});
   final SharedPreferences prefs = await SharedPreferences.getInstance();
   _container = ProviderContainer(
@@ -316,5 +324,50 @@ void main() {
     _container.read(commitSearchQueryProvider(_identity).notifier).state = '';
     await tester.pumpAndSettle();
     expect(_workingCopyRow, findsOneWidget);
+  });
+
+  testWidgets('discarding every change removes the row, and leaves the list '
+      'alone', (WidgetTester tester) async {
+    await _pump(tester, pendingFiles: 3);
+    expect(_workingCopyRow, findsOneWidget);
+
+    // A discard is an ordinary working-copy status publish: the entries go
+    // away and the core emits workingCopyStatusUpdated. Driven through the
+    // fake's emit rather than by pumping a clean fixture, because only a
+    // transition on a tree that is already on screen can see a surface that
+    // reads its provider once per *mount* instead of once per build
+    // ([FLU-listen-misses-the-current-value]'s mirror case).
+    _fake.emit(_state(pendingFiles: 0));
+    await tester.pumpAndSettle();
+
+    expect(_workingCopyRow, findsNothing);
+    expect(
+      find.byType(CommitRow),
+      findsNWidgets(_oids.length),
+      reason:
+          'the row is pinned above the ListView, so its arrival and its '
+          'departure must both leave every commit row index untouched',
+    );
+  });
+
+  testWidgets('discarding while the row is selected does not leave the panels '
+      'claiming changes that are gone', (WidgetTester tester) async {
+    await _pump(tester, pendingFiles: 3);
+    await tester.tap(_workingCopyRow);
+    await tester.pumpAndSettle();
+    expect(_container.read(workingCopyRowSelectedProvider(_identity)), isTrue);
+
+    _fake.emit(_state(pendingFiles: 0));
+    await tester.pumpAndSettle();
+
+    expect(
+      _container.read(workingCopyRowSelectedProvider(_identity)),
+      isFalse,
+      reason:
+          'the row it points at is no longer drawn, so a selection still '
+          'anchored on it is a selection of nothing -- and every surface '
+          'that gates on it would go on drawing an uncommitted summary for '
+          'a working copy that is now clean',
+    );
   });
 }

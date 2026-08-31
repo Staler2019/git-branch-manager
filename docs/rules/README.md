@@ -59,7 +59,7 @@ collision, it is agreement.
 | `TEST-` | `arch-testing.md`, `arch-testing-device.md` |
 | `REF-` | `fn-refs-branches.md` |
 | `GIT-` | `fn-git-commands.md` |
-| `FLU-` | `fn-flutter-*.md` |
+| `FLU-` | `fn-flutter-state.md`, `fn-flutter-layout.md`, `fn-flutter-input.md` |
 | `CPP-` | `fn-cpp-core.md` |
 | `CI-` | `ops-toolchain-ci.md` |
 | `SPEC-` | `ops-spec-reading.md` |

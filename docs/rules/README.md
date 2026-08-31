@@ -56,7 +56,7 @@ collision, it is agreement.
 | `STRUCT-` | `arch-structure.md` |
 | `STATE-` | `arch-state-machine.md` |
 | `ACT-` | `arch-actions.md` |
-| `TEST-` | `arch-testing.md` |
+| `TEST-` | `arch-testing.md`, `arch-testing-device.md` |
 | `REF-` | `fn-refs-branches.md` |
 | `GIT-` | `fn-git-commands.md` |
 | `FLU-` | `fn-flutter-*.md` |

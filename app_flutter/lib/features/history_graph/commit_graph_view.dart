@@ -539,6 +539,13 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
     final bool workingCopySelected = ref.watch(
       workingCopyRowSelectedProvider(widget.identity),
     );
+    // Suppressed while a commit search is active, for the same reason the
+    // lanes themselves are (`showGraph: query.isEmpty` below, and
+    // CommitRowColumnPlan.drawsGraph's doc): with the rows underneath drawing
+    // a bare spacer instead of lanes, this row's dot would be the only graph
+    // mark on screen and its connector would descend into nothing. The count
+    // is still on the Working Copy tab badge throughout.
+    final bool showWorkingCopyRow = pendingChangeCount > 0 && query.isEmpty;
     // The rendered order, as oids. Every selection transition is expressed
     // against this rather than against `visibleRows` (snapshot indices), so
     // a range never silently spans rows a filter is hiding.
@@ -599,7 +606,7 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
               _publish(_selectionController.state.collapseToAnchor()),
           onExtend: (int delta) => _extendSelection(delta, visibleOids),
           onMove: (int delta) =>
-              _moveSelection(delta, visibleOids, pendingChangeCount > 0),
+              _moveSelection(delta, visibleOids, showWorkingCopyRow),
           child: Stack(
             children: <Widget>[
               Column(
@@ -607,7 +614,7 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
                   // Pinned above the list, never inside it -- see
                   // HistoryWorkingCopyRow's doc for why the ListView must not
                   // grow a row. Absent entirely when the working copy is clean.
-                  if (pendingChangeCount > 0)
+                  if (showWorkingCopyRow)
                     HistoryWorkingCopyRow(
                       pendingChangeCount: pendingChangeCount,
                       selected: workingCopySelected,

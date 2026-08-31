@@ -24,6 +24,7 @@ import 'package:gbm_flutter/data/repositories/history_repository.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/features/history_graph/commit_graph_view.dart';
+import 'package:gbm_flutter/features/history_graph/commit_search.dart';
 import 'package:gbm_flutter/features/history_graph/widgets/commit_row.dart';
 import 'package:gbm_flutter/features/history_graph/widgets/graph_column_painter.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
@@ -287,5 +288,33 @@ void main() {
           'there is no row above it when the working copy is clean -- the '
           'navigable order must not carry a phantom entry',
     );
+  });
+
+  testWidgets('a commit search hides the row, because the lanes are hidden '
+      'too', (WidgetTester tester) async {
+    await _pump(tester, pendingFiles: 2);
+    expect(_workingCopyRow, findsOneWidget);
+
+    // Any query at all: under one, CommitRowColumnPlan.drawsGraph goes false
+    // and every row below draws a bare spacer instead of lanes, because
+    // graph.edges connect rows of the *unfiltered* snapshot. A dot with no
+    // lanes under it, and a connector descending into a filtered list, are
+    // the same false claim that suppression exists to avoid.
+    _container.read(commitSearchQueryProvider(_identity).notifier).state =
+        'subject';
+    await tester.pumpAndSettle();
+
+    expect(_workingCopyRow, findsNothing);
+    expect(
+      find.byType(CommitRow),
+      findsWidgets,
+      reason:
+          'the list itself still has matches -- it is only the row that '
+          'goes away',
+    );
+
+    _container.read(commitSearchQueryProvider(_identity).notifier).state = '';
+    await tester.pumpAndSettle();
+    expect(_workingCopyRow, findsOneWidget);
   });
 }

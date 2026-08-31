@@ -273,6 +273,56 @@ TEST(RefStore, ParsesForEachRefOutputIncludingTrackingInfo) {
     EXPECT_EQ(tags[0]->tagObject.hex(), std::string(40, 'b'));
 }
 
+TEST(RefStore, MarksARemoteHeadSymrefAsSymbolic) {
+    // `refs/remotes/origin/HEAD` is a symref alias for the remote's default
+    // branch, not a branch of its own. Three Dart filters drop it by
+    // `RefInfo.isSymbolic` -- the sidebar's branch tree, the remote-counterpart
+    // index, and History's ref chips -- and all three were dead code for as
+    // long as load() never asked git for %(symref): the field defaults to false
+    // and nothing in src/ ever assigned it, so the sidebar drew a selectable,
+    // checkout-able row called `HEAD`.
+    //
+    // The scripted reply is deliberately keyed on "%(symref)" appearing in the
+    // --format argument, not merely on "for-each-ref". Delete the field from
+    // the format string and no rule matches, so the fake falls back to its
+    // empty default response and this test goes red. A test that only fed a
+    // nine-field reply and asserted the parse would stay green through exactly
+    // the mistake being fixed here.
+    FakeProcessRunner runner;
+
+    FakeProcessRunner::Response revParse;
+    revParse.out = std::string(40, 'a') + "\nrefs/heads/main";
+    runner.whenArgsContain({"rev-parse"}, revParse);
+
+    const char sep = '\x1f';
+    // refname, objecttype, objectname, *objectname, upstream, upstream:track,
+    // HEAD, worktreepath, symref. %(HEAD) is a space for every ref but HEAD's.
+    auto row = [](const std::string& refname, const std::string& symref) {
+        return refname + sep + "commit" + sep + std::string(40, 'a') + sep + "" + sep + "" + sep +
+               "" + sep + " " + sep + "" + sep + symref + "\n";
+    };
+
+    FakeProcessRunner::Response refs;
+    refs.out = row("refs/remotes/origin/HEAD", "refs/remotes/origin/main") +
+               row("refs/remotes/origin/main", "");
+    runner.whenArgsContain({"for-each-ref", "%(symref)"}, refs);
+
+    RefStore store(runner, testPaths());
+    auto snapshot = store.load(CancellationToken{});
+    ASSERT_TRUE(snapshot) << snapshot.error().message;
+
+    // load() sorts by kind then shortName, so origin/HEAD precedes origin/main
+    // ('H' < 'm') -- the same reason BranchOps has to skip it explicitly.
+    const auto remotes = (*snapshot)->ofKind(RefKind::RemoteBranch);
+    ASSERT_EQ(remotes.size(), 2u);
+
+    EXPECT_EQ(remotes[0]->shortName, "origin/HEAD");
+    EXPECT_TRUE(remotes[0]->isSymbolic);
+
+    EXPECT_EQ(remotes[1]->shortName, "origin/main");
+    EXPECT_FALSE(remotes[1]->isSymbolic);
+}
+
 TEST(RefStore, TreatsAnUnbornHeadAsANormalState) {
     // A freshly initialised repository has no commits. It must still open.
     FakeProcessRunner runner;

@@ -1116,6 +1116,68 @@ TEST_F(RealRepoTest, ReportsGoneWhenTheUpstreamBranchWasDeleted) {
     EXPECT_FALSE(mainRef->isGone);
 }
 
+// M7: the mirror of the isGone test above, and it exists for the same reason
+// that one does -- except this marker never reached RefInfo at all. Three Dart
+// filters drop `refs/remotes/origin/HEAD` by RefInfo::isSymbolic (the sidebar's
+// branch tree, the remote-counterpart index, and History's ref chips) and every
+// one of them was dead code, because load()'s for-each-ref format never asked
+// for %(symref) and nothing in src/ ever assigned the field. The visible result
+// was a selectable, checkout-able sidebar row called `HEAD`.
+//
+// The Dart tests for those filters were green throughout: each hand-sets
+// `isSymbolic: true` on its fixture -- a field production never set. Only a
+// real git binary can tell the two apart, which is why this test is here and
+// not one language layer up.
+TEST_F(RealRepoTest, MarksTheRemotesHeadSymrefAsSymbolic) {
+    const std::filesystem::path remote = repo_.string() + "-bare-remote";
+    std::filesystem::remove_all(remote);
+    std::filesystem::create_directories(remote);
+    GitCommand initBare(remote, {"init", "--quiet", "--bare", "--initial-branch=main"});
+    initBare.timeout = std::chrono::seconds(30);
+    ASSERT_TRUE(runner_->run(initBare, CancellationToken{}));
+    extraDirs_.push_back(remote);
+
+    ASSERT_TRUE(run({"remote", "add", "origin", remote.string()}));
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"push", "--quiet", "-u", "origin", "main"}));
+
+    // What `git clone` leaves behind, spelled explicitly: `--auto` would have to
+    // agree with whatever default branch the bare repo happens to have, which is
+    // a git-version-dependent detail this test has no stake in.
+    ASSERT_TRUE(run({"remote", "set-head", "origin", "main"}));
+
+    RefStore store(*runner_, paths_);
+    auto snapshot = store.load(CancellationToken{});
+    ASSERT_TRUE(snapshot);
+
+    const RefInfo* remoteHead = nullptr;
+    const RefInfo* remoteMain = nullptr;
+    const RefInfo* localMain = nullptr;
+    for (const RefInfo& ref : (*snapshot)->refs) {
+        if (ref.kind == RefKind::RemoteBranch && ref.shortName == "origin/HEAD") {
+            remoteHead = &ref;
+        } else if (ref.kind == RefKind::RemoteBranch && ref.shortName == "origin/main") {
+            remoteMain = &ref;
+        } else if (ref.kind == RefKind::LocalBranch && ref.shortName == "main") {
+            localMain = &ref;
+        }
+    }
+    ASSERT_NE(remoteHead, nullptr) << "git still lists the symref; only its flag is at issue";
+    ASSERT_NE(remoteMain, nullptr);
+    ASSERT_NE(localMain, nullptr);
+
+    EXPECT_TRUE(remoteHead->isSymbolic);
+
+    // The other side of the assertion: an ordinary ref must not be swept up with
+    // it, or the sidebar would lose the branches it is supposed to draw.
+    EXPECT_FALSE(remoteMain->isSymbolic);
+    EXPECT_FALSE(localMain->isSymbolic);
+
+    // Both refs resolve to the same commit, which is exactly why the duplicate
+    // row and the duplicate History chip looked plausible rather than broken.
+    EXPECT_EQ(remoteHead->target.hex(), remoteMain->target.hex());
+}
+
 TEST_F(RealRepoTest, CreatesRenamesAndDeletesBranches) {
     commitFile("a.txt", "1\n", "c1");
     OperationRunner operations(*runner_, paths_);

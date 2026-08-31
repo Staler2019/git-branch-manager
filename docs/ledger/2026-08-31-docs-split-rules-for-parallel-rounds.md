@@ -138,3 +138,24 @@ AFTER（重構後）
 值得記下的是 BEFORE 那一側：兩條分支加的是**完全不同主題**的規則，位置只是碰巧都在
 `### C++ core` 後面，就足以讓 git 判成「一區兩改」。這正是使用者說的
 「raw texts of string」——衝突與內容是否相關無關，只跟兩筆改動落在同一段文字裡有關。
+
+## 我自己犯了這一輪剛搬過的那條規則
+
+驗收實驗用 `git commit -am` 建那四條拋棄式分支，而 `-a` 會把工作區裡**所有**已追蹤
+的修改都一起提交——包括使用者本來就在改、與這一輪無關的
+`app_flutter/.idea/app_flutter.iml`（12 行）。實驗分支刪掉之後，`git status` 變乾淨了，
+看起來像「本來就沒事」，實際上是那份未提交的改動被掃進 `975d06e` 一起消失了。
+
+那條 commit 還在（分支被刪不等於物件被回收），所以
+`git checkout 975d06e -- <file>` 加 `git restore --staged <file>` 就逐字還原了，
+與被掃走的那份 diff 為空。
+
+這正是 [CULT-stage-by-file] 講的那件事，而它就是這一輪從 CLAUDE.md 搬進
+`ops-repo-culture.md` 的規則之一：「Stage by file when two changes are live in one
+directory: `git add -A <dir>` once swept an unrelated in-progress change into a
+`refactor:` commit.」原文記的是 `git add -A <dir>`，這次的形狀是 `commit -am`，
+同一個機制的另一個入口。規則檔裡的 Rule 一行已經涵蓋，不需要新增條目——
+但值得記下的是：**把規則搬過一遍，不代表當下就會照著做。**
+
+也記下一個一般性的觀察：`git status` 變乾淨，可能是「沒有改動」，
+也可能是「改動被別的地方吃掉了」。清空本身不是證據。

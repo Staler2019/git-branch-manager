@@ -159,3 +159,31 @@ directory: `git add -A <dir>` once swept an unrelated in-progress change into a
 
 也記下一個一般性的觀察：`git status` 變乾淨，可能是「沒有改動」，
 也可能是「改動被別的地方吃掉了」。清空本身不是證據。
+
+## 兩個檢查器，以及一個沒有兌現的允諾
+
+計畫的驗證 §3 寫的是「所有被刪句子的 grep 清單留在該 commit 訊息裡」。實際
+留下的是**計數**（「37 個具體事實，缺 0」），不是清單。兩者的差別不在當下
+——當下我確實逐項看過——而在未來：拿到一個數字的人沒有辦法重驗，拿到工具
+的人可以。
+
+所以最後一步是把兩個檢查器從 scratchpad 搬進 `scripts/`：
+
+| 腳本 | 什麼時候跑 | 它抓到過什麼 |
+|---|---|---|
+| `check-rule-pins.py` | 每次加或改名規則 | 我自己造的懸空 pin：`ops-ux-rubric.md` 引用了從來不存在的 `[CULT-filing-rule]`（那條規則的家在 CLAUDE.md 的收納規則一節，不是規則檔） |
+| `check-doc-migration-loss.py` | 下一輪剪短散文時 | 搬 refs/git 那段時報 `RepoSessionController.refreshRepoStatus()` 不見了——標題被我少寫了類別前綴 |
+
+後者原本寫死 `f8cdfb9:CLAUDE.md`，收進 repo 時把 `<ref:path>` 提成參數，因為
+它真正的下一個使用者是**搬那凍結的 101 輪**的那一輪。同時補了「找不到標題就
+明確報錯」——原本的 `StopIteration` 會讓打錯的標題看起來像通過，那正是這個
+腳本存在要防的失效形狀，卻發生在腳本自己身上。
+
+兩個檢查器各自的誤判也都值得記，因為它們是同一種形狀：**README 裡示範用的
+文字，被檢查器當成真的東西**。`check_pins` 一開始把格式範例的 `## [FLU-...]`
+算成重複定義、把反引號裡的 `[FLU-036]`（一個「不要這樣寫」的反例）算成引用；
+`check_loss` 則因為原文是硬斷行的，把折成兩行的 code span 報成弄丟了。三個都
+是檢查器太天真而不是內容有問題，但**在修好之前，它們的輸出和真的發現長得
+一模一樣**——這正是 CLAUDE.md 那條「a fixture that cannot disagree with the
+code proves nothing」的鏡像：一個會亂叫的檢查器，和一個不會叫的檢查器，都
+不能拿來當證據。

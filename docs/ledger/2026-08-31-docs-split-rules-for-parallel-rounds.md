@@ -113,3 +113,28 @@ $ claude -p "Quote the Rule line of [PROBE-import-works] verbatim..."
 它們寫的是「CLAUDE.md records X」，沒有行號，而 CLAUDE.md 仍然是自動載入的規則集合，
 只是內文改由 `@import` 帶入。CLAUDE.md 檔尾補了一段 redirect 說明這件事——
 比照這份 ledger 當初從 CLAUDE.md 搬出來時留下的同形段落。
+
+## 驗收：實際跑兩條平行分支，前後對照
+
+這一輪的目標是「衝突消失」，所以驗收就是製造衝突。兩條分支各新增一條規則（不同類別）
+＋各寫一輪 ledger ＋各加一行 INDEX，然後 merge。同樣兩筆改動，在重構前後各跑一次：
+
+```
+BEFORE（168f1c5，重構前）
+  $ git merge t/before-b
+  CONFLICT (content): Merge conflict in CLAUDE.md
+  CONFLICT (content): Merge conflict in docs/ledger.md
+  → 衝突檔案：CLAUDE.md、docs/ledger.md
+
+AFTER（重構後）
+  $ git merge t/after-b
+  Auto-merging docs/ledger/INDEX.md
+  → 衝突檔案：（無）
+```
+
+兩個 ledger 檔都在，兩條規則都在各自的類別檔裡，INDEX 的兩行都被保留且順序正確——
+`.gitattributes` 的 `merge=union` 在唯一還會被同時 append 的檔案上按預期運作。
+
+值得記下的是 BEFORE 那一側：兩條分支加的是**完全不同主題**的規則，位置只是碰巧都在
+`### C++ core` 後面，就足以讓 git 判成「一區兩改」。這正是使用者說的
+「raw texts of string」——衝突與內容是否相關無關，只跟兩筆改動落在同一段文字裡有關。

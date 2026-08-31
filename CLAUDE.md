@@ -55,6 +55,7 @@ reached 5,900 lines with every round appending to the same end-of-file.
 
 @docs/rules/README.md
 @docs/rules/ops-toolchain-ci.md
+@docs/rules/fn-cpp-core.md
 
 ## Structure
 
@@ -1332,41 +1333,6 @@ you are touching, not by when it was learned.
 - `--topo-order` / `--date-order` stay unconditional in `toRevListArgs()`;
   the History branch filter's single-line rendering depends on a parent never
   being printed before its children.
-
-### C++ core
-
-- **`IProcessRunner::run()` is not byte-exact.** It reassembles stdout from
-  the line splitter, dropping the final separator and stripping `\r` before
-  every `\n` — a text blob comes back one byte short and a binary blob is
-  silently corrupted. For verbatim bytes use `CatFileBatch`, which reads
-  exactly the count `cat-file --batch`'s header declares.
-- **Reads and writes are not serialised against each other.** Background
-  status/diff runs on `sharedReadPool()` while writes run on
-  `OperationRunner`'s single serial worker, and a plain `git status` rewrites
-  the index and takes `.git/index.lock`. `GitCommand::globalFlags()` carries
-  `--no-optional-locks` globally for this (**#77**).
-- **Attribution goes through `Operation::kind()` and
-  `PendingOperationTracker`** — never "the next completion event is mine",
-  and never a match on `describe()`, whose user-facing English is not a
-  protocol. The `PendingOperationKind` switches carry no `default` so a new
-  kind is a compile error at the place the new arm belongs.
-- Anything paired unconditionally (`beginAskpass`/`endAskpass`) needs the
-  `onAlways` hook on `submitOperation` / `submitWorkingCopyOperation`, not
-  `onSuccess`.
-- **`RefreshCoalescer` needs `onFinished()` on every terminal path** — use a
-  `ScopeExit`. Miss one and it stays `running_` forever, every later request
-  folds into a batch nothing drives, and **refreshes stop happening at all,
-  silently, with no error anywhere.** Publishing needs the monotonic
-  generation gate inside the same mutex as the snapshot write, or a stale
-  walk's `complete:true` answers for a newer one.
-- `~Session()` ordering is load-bearing: `operations_->drain()` →
-  `refreshTimer_.stop()` → `sharedReadPool().cancelQueuedAndDrain()`.
-- **`GraphAsciiRenderer.cpp` is the reference renderer** — when it and the
-  Dart painter disagree, the C++ one is right. `edge.lane ==
-  rows[parentRow].lane` is a **false** invariant: `patchIncoming()` never
-  rewrites `edge.lane`, so bending an arriving edge into the parent's lane is
-  the renderer's job, not the builder's.
-- A `std::span<const ObjectId>` does not accept a braced list in C++20.
 
 ### Reading the spec
 

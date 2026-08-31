@@ -56,6 +56,7 @@ reached 5,900 lines with every round appending to the same end-of-file.
 @docs/rules/README.md
 @docs/rules/ops-toolchain-ci.md
 @docs/rules/fn-cpp-core.md
+@docs/rules/drift-open.md
 
 ## Structure
 
@@ -1614,65 +1615,6 @@ derived from the code — they outrank convenience every time):
   fixture is invisible to a grep for the constructor name, and a missing key
   is `null as int` at runtime. Only a per-commit checkout sees this; every
   run at the branch tip is green (line-counts round).
-
-### Current known drift
-
-- **Context menus**: `features/context_menus/gbm_context_menus.dart` declares
-  all 11 of spec page 05's groups and is the parity test's acceptance
-  baseline, but no file under `lib/` imports it — each render site
-  hand-writes its list. All 11 groups are now checked against the catalog with
-  no `skip`; eight are pure `*_menu_items.dart` functions, and 05-A, 05-C and
-  05-K keep private render-site builders for reasons in their matrix rows.
-  The `*_menu_items.dart` extraction is the template to follow. **05-C is a
-  user-ratified deviation from the catalog now, not a drift**: `Prune this
-  ref` is deleted and `Delete on remote…` is `Delete remote branch…`, both
-  recorded in the catalog file's own doc comment. **05-C applies to a
-  remote-only row only** — a *local* branch whose upstream is gone is 05-B, a
-  reading the code got backwards for rounds (it dispatched on `_gone`), which
-  left a branch that still exists on disk with no Checkout, Merge or Delete.
-  The catalog itself can drift from the spec, which the per-render-site audit
-  method cannot detect (**#71**).
-- **Absent for lack of a capi entry point**: per-object transfer counts for
-  fetch/pull/push, `git init` / clone, removing a *scanned* repository from
-  the switcher, squashing N commits, per-remote Pull/Push, and seven
-  `PANELSPEC` detail fields (待提交數, 最後 fetch, 預期 commit, 大小,
-  剩餘步數, 自訂測試指令, 欄位選擇器). All tracked on **#76**.
-- **Preferences → General 的 AUTOMATIC FETCH 整段沒有實作在後面。**
-  `autoFetchEnabled` and `autoFetchMinutes` are stored, drawn and **read by
-  nothing** — no timer anywhere issues that fetch — so P11 item 9's 「預設每
-  10 分鐘一次…切換 repo 時重置計時」 has no implementation to check against.
-  Two of #102's three `autoFetch*` orphans; the third, `autoFetchPrune`, was
-  **deleted** rather than wired (see the fetch auto-prune entry above). An
-  earlier record put that row in Preferences → **Git**; it is
-  `_GeneralSection`.
-- `lfs_pattern_match.dart` is an **approximation** of gitattributes matching,
-  not a port of `wildmatch()`; a pattern it cannot parse matches nothing, so
-  a group reads 0 rather than a wrong number.
-- **No pull dialog route exists**, so P17's 「選單的 Pull… 或 Alt + 點工具列才
-  開」 has nothing to open: `ActionToolbar`'s Pull only runs `pullChanges()`
-  with the configured default (**#109**).
-- **The updater script's Windows half is text-asserted only.** The `sh` half
-  is genuinely *executed* by `update_installer_script_test.dart`; PowerShell
-  cannot be, and PR CI compiles no Windows at all (**#69**). The real
-  install-and-restart still has no automated coverage on any platform — the
-  device-tier test deliberately stops at `readyToInstall`. What does exist
-  now is `<systemTemp>/gbm-update.log` (`updateLogPath()`), which every arm
-  of both scripts writes its exit code to, and a relaunch on every failure
-  path reached after the app has exited — so the next failure is diagnosable
-  rather than a vanished window (ledger: 更新流程的三個缺陷).
-- **Open issues**: **#62** (TabRow overflow menu), **#68**–**#71**,
-  **#76**, **#84**–**#89** (Tier 6 spec blockers), **#92**–**#95**
-  (capi with no spec entry point), **#99**, **#101**, **#102**, **#109**,
-  **#119** (side-by-side pins neither gutter — awaiting a real-hardware
-  check by the user).
-  **#74 is closed** (fix/branch-prune-and-gone-marking — and its text was
-  corrected first: the same function had two further defects the issue never
-  mentioned, per the correct-the-record rule);
-  **#75 is closed** (all four 260820 `REVISIONS` shortcut gaps landed in
-  feat/p03-working-copy-redesign); **#67 is closed** (macOS `CFBundleName` is
-  the literal `git-branch-manager`, candidate fix 1, in
-  fix/macos-about-dialog-parity). `gh issue list` is authoritative; the
-  ledger's mentions are historical.
 
 ## Engineering ledger
 

@@ -175,11 +175,30 @@ final ProviderFamily<String?, RepoIdentity> selectedCommitProvider =
 ///
 /// Derived from the same anchor as [selectedCommitProvider], so exactly one of
 /// the two can be non-null/true at a time by construction.
+///
+/// **The anchor alone is not enough.** The row is drawn only while the working
+/// copy is dirty, so discarding every change deletes the row out from under a
+/// selection still anchored on it -- and every surface gating on this provider
+/// would go on drawing an uncommitted summary (「0 changed files」, and a button
+/// offering to open the Working Copy) for a working copy that is now clean.
+/// Requiring the row to exist here rather than clearing the selection from a
+/// widget keeps it a pure derivation: no provider write from `build()`
+/// ([FLU-never-write-provider-in-build]), and no second predicate a later
+/// surface could forget to add ([CULT-single-source-of-truth]).
+///
+/// Deliberately **not** gated on the commit search that also hides the row.
+/// A filter hiding a row does not make the summary untrue, and a selection
+/// surviving a filter is what every commit row already does.
 final ProviderFamily<bool, RepoIdentity> workingCopyRowSelectedProvider =
     Provider.family<bool, RepoIdentity>(
       (ref, identity) =>
           ref.watch(commitSelectionProvider(identity)).anchor ==
-          kWorkingCopySelectionId,
+              kWorkingCopySelectionId &&
+          ref.watch(
+            repoSessionProvider(
+              identity,
+            ).select((state) => state.workingCopyStatus.pendingChangeCount > 0),
+          ),
     );
 
 /// The currently-selected file path within the selected commit's changed files.

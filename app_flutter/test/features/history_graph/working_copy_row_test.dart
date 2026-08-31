@@ -89,19 +89,32 @@ WorkingCopyEntry _entry(String path) => WorkingCopyEntry(
   isConflicted: false,
 );
 
+/// Hoisted, and reused by every [_state] rather than rebuilt per call, so two
+/// states differ in `workingCopyStatus` **and nothing else**.
+///
+/// This is load-bearing, not tidiness. A fresh `GraphSnapshotView` per call is
+/// a new object, `repoGraphProvider` selects that object, and the resulting
+/// rebuild repaints the row for reasons that have nothing to do with the
+/// working copy -- which masks the very defect the discard tests below exist
+/// to catch. Measured: with these rebuilt per call, mutating the row's
+/// `ref.watch` to `ref.read` left the whole file green.
+final GraphSnapshotView _graph = GraphSnapshotView(
+  rows: <GraphRow>[for (final _ in _oids) _row()],
+  oidsHex: _oids,
+  parentPool: const <int>[],
+  laneCount: 1,
+  complete: true,
+  truncated: false,
+);
+
+final Map<String, CommitMeta> _metaCache = <String, CommitMeta>{
+  for (final String oid in _oids) oid: _meta(oid),
+};
+
 RepoSessionState _state({required int pendingFiles}) => RepoSessionState(
   isOpen: true,
-  graph: GraphSnapshotView(
-    rows: <GraphRow>[for (final _ in _oids) _row()],
-    oidsHex: _oids,
-    parentPool: const <int>[],
-    laneCount: 1,
-    complete: true,
-    truncated: false,
-  ),
-  commitMetaCache: <String, CommitMeta>{
-    for (final String oid in _oids) oid: _meta(oid),
-  },
+  graph: _graph,
+  commitMetaCache: _metaCache,
   workingCopyStatus: WorkingCopyStatus(
     entries: <WorkingCopyEntry>[
       for (int i = 0; i < pendingFiles; i++) _entry('file$i.txt'),

@@ -50,20 +50,23 @@ _RecordingCanvas _paint({required bool connectsDown}) {
 }
 
 void main() {
-  test('the connector leaves the diamond at its lower vertex, not its centre', () {
-    final _Line line = _paint(connectsDown: true).lines.single;
+  test(
+    'the connector leaves the diamond at its lower vertex, not its centre',
+    () {
+      final _Line line = _paint(connectsDown: true).lines.single;
 
-    expect(
-      line.from.dy,
-      _kCentreY + kWorkingCopyDotRadius,
-      reason:
-          'from the centre it would cross the hollow interior and show '
-          'through -- the diamond has no fill to hide it behind',
-    );
-    expect(line.to.dy, _kSize.height, reason: 'and runs to the row boundary');
-    expect(line.from.dx, kGraphLaneInset);
-    expect(line.to.dx, kGraphLaneInset);
-  });
+      expect(
+        line.from.dy,
+        _kCentreY + kWorkingCopyDotRadius,
+        reason:
+            'from the centre it would cross the hollow interior and show '
+            'through -- the diamond has no fill to hide it behind',
+      );
+      expect(line.to.dy, _kSize.height, reason: 'and runs to the row boundary');
+      expect(line.from.dx, kGraphLaneInset);
+      expect(line.to.dx, kGraphLaneInset);
+    },
+  );
 
   test('and it is drawn like every other connector in the graph', () {
     final Paint paint = _paint(connectsDown: true).lines.single.paint;
@@ -78,7 +81,8 @@ void main() {
     expect(
       paint.strokeCap,
       StrokeCap.round,
-      reason: 'GraphRowPainter caps every edge this way; the join between '
+      reason:
+          'GraphRowPainter caps every edge this way; the join between '
           'this line and those must not be visible',
     );
   });

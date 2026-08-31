@@ -48,12 +48,12 @@ GraphRow _row({int lane = 0}) => GraphRow(
   flags: 0,
 );
 
-_RecordingCanvas _paint({
-  required bool connectsUpToUncommitted,
-  int lane = 0,
-}) {
+_RecordingCanvas _paint({required bool connectsUpToUncommitted, int lane = 0}) {
   final GraphSnapshotView graph = GraphSnapshotView(
-    rows: <GraphRow>[_row(lane: lane), _row(lane: lane)],
+    rows: <GraphRow>[
+      _row(lane: lane),
+      _row(lane: lane),
+    ],
     oidsHex: const <String>['a', 'b'],
     parentPool: const <int>[],
     laneCount: lane + 1,

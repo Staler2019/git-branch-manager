@@ -138,6 +138,15 @@ class WorkingCopyStatus {
   final List<WorkingCopyEntry> entries;
 
   bool get isClean => entries.isEmpty;
+
+  /// How many files have uncommitted changes, deduplicated.
+  ///
+  /// One entry per path already, so this is `entries.length` -- a file that is
+  /// half staged is one pending change, not two, which is what P03-9's badge
+  /// wording (「unstaged + staged 去重」) asks for. Named rather than spelled
+  /// out at each call site because there are now three of them (the tab badge,
+  /// the tab list, and History's uncommitted row) and they must never disagree.
+  int get pendingChangeCount => entries.length;
   List<WorkingCopyEntry> get staged =>
       entries.where((e) => e.staged).toList(growable: false);
   List<WorkingCopyEntry> get unstaged =>

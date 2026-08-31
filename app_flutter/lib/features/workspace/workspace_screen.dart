@@ -428,7 +428,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     // drift apart.
     final TabRow tabRow = TabRow(
       repoId: repoId,
-      pendingChangeCount: session.workingCopyStatus.entries.length,
+      pendingChangeCount: session.workingCopyStatus.pendingChangeCount,
       compareTabs: ref.watch(compareTabsProvider(identity)),
       onCloseCompareTab: (String tabId) =>
           _closeCompareTab(context, ref, identity, repoId, tabId),
@@ -827,7 +827,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         final List<WorkspaceTab> tabs = <WorkspaceTab>[
           ...defaultWorkspaceTabs(
             repoId,
-            pendingChangeCount: session.workingCopyStatus.entries.length,
+            pendingChangeCount: session.workingCopyStatus.pendingChangeCount,
           ),
           for (final CompareTabSpec spec in ref.read(
             compareTabsProvider(identity),

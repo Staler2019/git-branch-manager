@@ -17,10 +17,24 @@ struct GraphOptions {
     /// is beyond any repository we target; the cap exists so a pathological or
     /// corrupt repository cannot exhaust memory.
     std::uint32_t maxRows = 2'000'000;
+
+    /// The commit that owns lane 0 -- HEAD's branch tip, per invariant 2 below.
+    /// Lane 0 is held vacant until this oid is emitted, and it takes lane 0 even
+    /// when it arrives with edges already descending in another column.
+    ///
+    /// Null (the default) means no reservation: lane 0 goes to whichever row
+    /// lands first, which is what every walk did before this existed.
+    ///
+    /// **Only set this when the walk is guaranteed to contain the commit.**
+    /// HistoryProvider passes it only for an unfiltered `--all` walk; a narrowed
+    /// one need not reach HEAD at all, and a reservation nothing ever claims is
+    /// a leftmost column that stays blank for the whole graph. The same is true,
+    /// far less likely, if `maxRows` truncates the walk first.
+    ObjectId trunkTip;
 };
 
 /// Builds a Fork-style commit graph incrementally, one row at a time, in the
-/// order `git rev-list --topo-order` produces them.
+/// order `git rev-list --date-order` produces them.
 ///
 /// Streaming is not an optimisation here, it is the design: rows become
 /// paintable within milliseconds of the walk starting, so time-to-first-paint is

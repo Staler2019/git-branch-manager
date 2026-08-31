@@ -54,6 +54,26 @@ public:
         return lane;
     }
 
+    /// Marks a lane occupied without handing it to anybody.
+    ///
+    /// This is how GraphBuilder holds lane 0 for HEAD's branch tip: with the bit
+    /// set, `lowestFreeAtOrAfter()` skips the lane, so `allocateLeftmost()` and
+    /// `allocateAfter()` both start looking one column further right until the
+    /// reserving commit arrives and takes it. No separate mask is needed for
+    /// this -- "reserved" and "occupied" are the same question as far as
+    /// allocation is concerned, and the *identity* of the reserver is
+    /// GraphBuilder's business, not this class's.
+    ///
+    /// A reserved lane is never released by accident: `release()` is only called
+    /// for a lane some edge is descending in, and no edge can descend in a lane
+    /// no row has occupied yet.
+    void reserve(LaneId lane) {
+        if (isOverflow(lane)) {
+            return;
+        }
+        markUsed(lane);
+    }
+
     void release(LaneId lane) {
         if (isOverflow(lane)) {
             return;

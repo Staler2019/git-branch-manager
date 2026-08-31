@@ -70,7 +70,22 @@ Pin prefix `GIT-`. Format: [README.md](README.md).
 
 - **Rule**: and *refuses* when there is none — not equivalent to naming the current branch.
 
-## [GIT-topo-order-unconditional] `--topo-order` / `--date-order` stay unconditional in `toRevListArgs()`
+## [GIT-topo-order-unconditional] An ordering flag stays unconditional in `toRevListArgs()`, and it is now `--date-order`
 
 - **Rule**: the History branch filter's single-line rendering depends on a parent never being
-  printed before its children.
+  printed before its children. **Both** `--topo-order` and `--date-order` guarantee that; git's
+  *default* order does not, so what the rule forbids is dropping the flag, not choosing between
+  the two.
+- **Rule**: **the flag is `--date-order` as of this round**, overruling the「never
+  `--date-order`」comment that stood in `HistoryProvider.cpp` and the verdict recorded at
+  `docs/ledger.md:1841`. History draws `row.commitTime` in its Date column, `--date-order` sorts
+  by exactly that number, and `--topo-order` walks one branch to its end before starting the
+  next — so the list was ordered by something the user cannot see. Measured on this repository:
+  **15 time inversions over 835 rows under topo (7 of them on merge rows), 0 under date**.
+- **Do not** reach for `--author-date-order`: it sorts a *different* timestamp from the one the
+  Date column renders, which puts the two back out of step in a way that is harder to spot.
+- **Note**: the two rejected reasons for `--topo-order` were both checked and both false.
+  first-parent continuity does not depend on it — a lane stays occupied on `laneRefCount_`'s
+  pending-edge count, so an interleaved row only makes the line longer; and streaming is not
+  lost, measured at **0.010s to the first row either way** on 60,000 commits with a commit-graph.
+- **Evidence**: [ledger: History 依 commit 時間排序](../ledger/2026-09-01-fix-history-graph-commit-date-order.md)

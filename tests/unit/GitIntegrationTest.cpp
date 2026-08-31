@@ -1,7 +1,7 @@
 // Integration tests against a real git binary and a real (generated) repository.
 //
 // The most valuable assertion in this file is the cross-check: our row order must
-// equal `git rev-list --topo-order` exactly, and our parent sets must equal what
+// equal `git rev-list --date-order` exactly, and our parent sets must equal what
 // `--parents` reports. It is cheap, and it catches parser and ordering bugs
 // immediately — the kind that random DAG tests cannot see because they never
 // touch git itself.
@@ -161,9 +161,43 @@ protected:
         ASSERT_TRUE(run({"commit", "--quiet", "-m", message}));
     }
 
-    /// Row order straight from git, for the cross-check.
-    std::vector<std::string> gitTopoOrder() {
-        auto result = run({"rev-list", "--topo-order", "--all"});
+    /// Runs one git command with both commit dates pinned to `isoDate`.
+    ///
+    /// git takes these from the environment and nowhere else — `--date` sets the
+    /// *author* date only, and the walk orders on the *committer* date — so a
+    /// fixture that needs a specific row order has to go through here. The
+    /// variables are unset again immediately, because the environment is
+    /// process-wide and every other test in this binary shares it.
+    GitResult<ProcessResult> runAtDate(const std::string& isoDate, std::vector<std::string> args) {
+#ifdef _WIN32
+        _putenv_s("GIT_AUTHOR_DATE", isoDate.c_str());
+        _putenv_s("GIT_COMMITTER_DATE", isoDate.c_str());
+#else
+        setenv("GIT_AUTHOR_DATE", isoDate.c_str(), 1);
+        setenv("GIT_COMMITTER_DATE", isoDate.c_str(), 1);
+#endif
+        auto result = run(std::move(args));
+#ifdef _WIN32
+        _putenv_s("GIT_AUTHOR_DATE", "");
+        _putenv_s("GIT_COMMITTER_DATE", "");
+#else
+        unsetenv("GIT_AUTHOR_DATE");
+        unsetenv("GIT_COMMITTER_DATE");
+#endif
+        return result;
+    }
+
+    /// An empty commit at a chosen time. Empty because these fixtures care only
+    /// about the shape of the DAG and the timestamps on it, never the contents.
+    void commitAt(const std::string& isoDate, const std::string& message) {
+        ASSERT_TRUE(runAtDate(isoDate, {"commit", "--quiet", "--allow-empty", "-m", message}));
+    }
+
+    /// Row order straight from git, for the cross-check. Must name the same
+    /// ordering flag HistoryQuery::toRevListArgs() emits, or the cross-check
+    /// compares our walk against a walk we never asked for.
+    std::vector<std::string> gitDateOrder() {
+        auto result = run({"rev-list", "--date-order", "--all"});
         if (!result) {
             return {};
         }
@@ -230,7 +264,7 @@ TEST_F(RealRepoTest, DetectsGitAndItsCapabilities) {
     }
 }
 
-TEST_F(RealRepoTest, RowOrderMatchesGitTopoOrderExactly) {
+TEST_F(RealRepoTest, RowOrderMatchesGitDateOrderExactly) {
     commitFile("a.txt", "one\n", "first");
     commitFile("a.txt", "two\n", "second");
     ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
@@ -243,13 +277,59 @@ TEST_F(RealRepoTest, RowOrderMatchesGitTopoOrderExactly) {
     auto snapshot = provider.walk(HistoryQuery{}, nullptr, CancellationToken{});
     ASSERT_TRUE(snapshot) << snapshot.error().message;
 
-    const auto expected = gitTopoOrder();
+    const auto expected = gitDateOrder();
     ASSERT_FALSE(expected.empty());
     ASSERT_EQ((*snapshot)->rowCount(), expected.size());
 
     for (std::size_t row = 0; row < expected.size(); ++row) {
         EXPECT_EQ((*snapshot)->oids[row].hex(), expected[row])
-            << "row " << row << " diverges from git's own topo order";
+            << "row " << row << " diverges from git's own date order";
+    }
+}
+
+TEST_F(RealRepoTest, RowsAreOrderedByCommitTime) {
+    // The History list draws `row.commitTime` in its Date column, so the row
+    // order has to agree with that column: reading down the list, time must
+    // never go *up*. `--topo-order` does not promise that — it walks one
+    // branch to its end before starting the next — and on this project's own
+    // repository that produced 15 inversions over 835 rows, 7 of them on merge
+    // rows, which is the reported symptom.
+    //
+    // **The interleaving below is the whole fixture.** Two branches whose
+    // commits alternate in time with the trunk's is the only shape that tells
+    // the two orderings apart: when a side branch's commits are contiguous in
+    // time (the ordinary pull-request shape) topo and date order agree row for
+    // row, and a fixture built that way passes before the fix as well as after
+    // it — [TEST-fixture-cannot-disagree]'s first shape.
+    commitAt("2026-01-01T00:01:00", "m1");
+    commitAt("2026-01-01T00:02:00", "m2");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feat1"}));
+    commitAt("2026-01-01T00:03:00", "f1-a");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitAt("2026-01-01T00:04:00", "m3");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feat2"}));
+    commitAt("2026-01-01T00:05:00", "f2-a");
+    ASSERT_TRUE(run({"switch", "--quiet", "feat1"}));
+    commitAt("2026-01-01T00:06:00", "f1-b");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitAt("2026-01-01T00:07:00", "m4");
+    ASSERT_TRUE(run({"switch", "--quiet", "feat2"}));
+    commitAt("2026-01-01T00:08:00", "f2-b");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    ASSERT_TRUE(runAtDate("2026-01-01T00:09:00",
+                          {"merge", "--quiet", "--no-ff", "-m", "merge feat1", "feat1"}));
+    ASSERT_TRUE(runAtDate("2026-01-01T00:10:00",
+                          {"merge", "--quiet", "--no-ff", "-m", "merge feat2", "feat2"}));
+
+    HistoryProvider provider(*runner_, paths_);
+    auto snapshot = provider.walk(HistoryQuery{}, nullptr, CancellationToken{});
+    ASSERT_TRUE(snapshot) << snapshot.error().message;
+    ASSERT_EQ((*snapshot)->rowCount(), 10u);
+
+    for (std::size_t row = 1; row < (*snapshot)->rows.size(); ++row) {
+        EXPECT_LE((*snapshot)->rows[row].commitTime, (*snapshot)->rows[row - 1].commitTime)
+            << "row " << row << " is newer than the row above it, so the list disagrees "
+            << "with the Date column it draws";
     }
 }
 
@@ -320,7 +400,7 @@ TEST_F(RealRepoTest, LinearWalkBridgesOverTheMergesItFiltersOut) {
     // The rows themselves: exactly what git reports for the same filter, in
     // the same order. Asserted against git rather than against a count, so a
     // bridge that silently dropped or duplicated a row cannot pass.
-    auto expected = run({"rev-list", "--topo-order", "--no-merges", "refs/heads/main"});
+    auto expected = run({"rev-list", "--date-order", "--no-merges", "refs/heads/main"});
     ASSERT_TRUE(expected);
     std::vector<std::string> expectedOids;
     {

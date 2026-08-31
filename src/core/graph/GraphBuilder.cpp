@@ -10,6 +10,13 @@ GraphBuilder::GraphBuilder(GraphOptions options) : options_(options) {
     snapshot_.oids.reserve(4096);
     snapshot_.edges.reserve(4096);
     snapshot_.parentPool.reserve(4096);
+
+    // Invariant 2: HEAD's branch owns lane 0. Held from before the first row,
+    // because the row that would otherwise take it is emitted first -- git
+    // orders by timestamp, and HEAD's tip is not always the newest commit.
+    if (!options_.trunkTip.isNull()) {
+        lanes_.reserve(0);
+    }
 }
 
 EdgeId GraphBuilder::createEdge(
@@ -88,20 +95,44 @@ void GraphBuilder::add(const ObjectId& oid,
     LaneId lane = 0;
     std::uint8_t color = 0;
 
-    if (incoming.empty()) {
-        // A ref tip, or a root reached before any of its children. Seeding order
-        // is what puts the trunk in lane 0: the walk lists HEAD and the trunk
-        // branch before --all.
+    // Invariant 2, and it has to come before both branches below.
+    //
+    // The reservation made in the constructor keeps every other row out of lane
+    // 0; this is where it is redeemed. It applies on the `incoming`-non-empty
+    // path too, and that half is the one worth stating: when HEAD's tip is also
+    // the first parent of a row already emitted, an edge is descending towards
+    // it in some other column, and `chooseLane()`'s straightness rule would keep
+    // it there -- leaving the reservation unclaimed and lane 0 blank for the
+    // *whole* graph rather than only for the rows above HEAD. Forcing lane 0
+    // instead is consistent with that rule rather than an exception to it: it
+    // only ever moves a first-parent chain further left, which is exactly what
+    // chooseLane() already permits, and the bend it produces is spec's own
+    // 「分岔與合併…接進 lane 0」.
+    const bool isTrunkTip = !options_.trunkTip.isNull() && oid == options_.trunkTip;
+
+    if (isTrunkTip) {
+        lane = 0;
+        lanes_.seed(lane, oid);
+        color = lanes_.colorOf(lane);
+    } else if (incoming.empty()) {
+        // A ref tip, or a root reached before any of its children.
         lane = lanes_.allocateLeftmost();
         lanes_.seed(lane, oid);
         color = lanes_.colorOf(lane);
     } else {
         lane = chooseLane(incoming);
         color = lanes_.colorOf(lane);
+    }
+
+    if (!incoming.empty()) {
         patchIncoming(incoming, row);
 
         // Every other incoming lane bends into `lane` here. If nothing else is
         // still descending in it, that column has ended and can be reused.
+        //
+        // This runs for the trunk-tip path too, and must: those edges bend into
+        // lane 0 like any others, and skipping the release would strand their
+        // columns as occupied for the rest of the walk.
         for (const PendingEdge& edge : incoming) {
             if (edge.lane != lane && !LaneAllocator::isOverflow(edge.lane) &&
                 laneRefCount_[edge.lane] == 0) {

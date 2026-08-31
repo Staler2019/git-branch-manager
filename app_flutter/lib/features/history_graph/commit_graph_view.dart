@@ -12,21 +12,25 @@ import '../../data/models/graph_column.dart';
 import '../../data/models/graph_snapshot.dart';
 import '../../data/models/list_selection.dart';
 import '../../data/models/ref_snapshot.dart';
+import '../../data/models/working_copy_status.dart';
 import '../../data/repositories/branch_repository.dart';
 import '../../data/repositories/compare_tabs_repository.dart';
 import '../../data/services/file_save_picker.dart';
 import '../../data/repositories/history_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
+import '../../data/repositories/working_copy_repository.dart';
 import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/gbm_icon_button.dart';
 import '../../widgets/lucide_icon.dart';
 import '../../widgets/prompt_text_dialog.dart';
+import 'commit_list_render.dart';
 import 'commit_search.dart';
 import '../../data/repositories/graph_columns_repository.dart';
 import 'widgets/commit_row.dart';
+import 'widgets/working_copy_row.dart';
 import 'widgets/graph_columns_selector.dart';
 import 'widgets/commit_row_layout.dart';
 import 'widgets/graph_ref_chips.dart';
@@ -191,7 +195,78 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
     if (anchor == null || anchor == previousAnchor) return;
     ref.read(selectedCommitFilePathProvider(widget.identity).notifier).state =
         null;
+    // The uncommitted row shares this selection but is not a commit, so there
+    // are no changed files to ask the core for -- the request would be
+    // `git diff-tree` against an oid that does not exist.
+    if (anchor == kWorkingCopySelectionId) return;
     requestCommitFiles(ref, widget.identity, anchor);
+  }
+
+  /// Selects History's uncommitted-changes row.
+  ///
+  /// Replaces the whole selection rather than adding to it: it is not a commit,
+  /// so it can never take part in a range or a multi-commit action, and leaving
+  /// commits selected beside it would put the detail panel in two states at
+  /// once.
+  void _selectWorkingCopyRow() {
+    _publish(
+      const ListSelection<String>(
+        items: <String>[kWorkingCopySelectionId],
+        anchor: kWorkingCopySelectionId,
+      ),
+    );
+  }
+
+  /// Plain ↑/↓: moves the single selection one row in painted order.
+  ///
+  /// The uncommitted row is index 0 of that order whenever it exists, which
+  /// is the whole of 「first commit + ↑ reaches it, ↓ comes back」. It is not
+  /// in [visibleOids] -- it is not a commit and never enters the ListView --
+  /// so the navigable order is assembled here rather than anywhere the graph
+  /// row indices are keyed on.
+  ///
+  /// Shift+↑/↓ deliberately does **not** get the same treatment: a range
+  /// spanning the uncommitted row is not a range git could replay, and
+  /// [_extendSelection] already restarts from the first commit when the
+  /// anchor is not a visible oid.
+  void _moveSelection(
+    int delta,
+    List<String> visibleOids,
+    bool hasWorkingCopyRow,
+  ) {
+    final List<String> navigable = hasWorkingCopyRow
+        ? <String>[kWorkingCopySelectionId, ...visibleOids]
+        : visibleOids;
+    if (navigable.isEmpty) return;
+    final String? anchor = _selectionController.state.anchor;
+    final int from = anchor == null ? -1 : navigable.indexOf(anchor);
+    final int next = from < 0
+        ? 0
+        : (from + delta).clamp(0, navigable.length - 1);
+    _publish(_selectionController.state.single(navigable[next]));
+    _revealListIndex(next - (hasWorkingCopyRow ? 1 : 0));
+  }
+
+  /// Scrolls the ListView just far enough that row [index] is fully visible,
+  /// and not at all when it already is. A negative index is the uncommitted
+  /// row, which is pinned above the scrollable and therefore always visible.
+  ///
+  /// Arithmetic rather than `Scrollable.ensureVisible`: every row is exactly
+  /// `kCommitRowHeight` tall (the list sets `itemExtent`), and the target row
+  /// is usually not built yet -- which is precisely when ensureVisible has no
+  /// context to work from.
+  void _revealListIndex(int index) {
+    if (index < 0 || !_controller.hasClients) return;
+    final ScrollPosition position = _controller.position;
+    final double top = index * kCommitRowHeight;
+    final double bottom = top + kCommitRowHeight;
+    if (top < position.pixels) {
+      _controller.jumpTo(math.max(position.minScrollExtent, top));
+    } else if (bottom > position.pixels + position.viewportDimension) {
+      _controller.jumpTo(
+        math.min(position.maxScrollExtent, bottom - position.viewportDimension),
+      );
+    }
   }
 
   /// Applies one of spec page 13's three mouse rows.
@@ -350,6 +425,29 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
       graph: graph,
       metaCache: metaCache,
     );
+    // Through the narrow providers, not the whole session -- an unfiltered
+    // watch rebuilds the list on every publish, including the commit-metadata
+    // replies the list itself asks for while scrolling
+    // ([FLU-watch-a-record-not-the-state]).
+    final int pendingChangeCount = ref.watch(
+      repoWorkingCopyStatusProvider(
+        widget.identity,
+      ).select((WorkingCopyStatus status) => status.pendingChangeCount),
+    );
+    final CommitListRender render = CommitListRender.from(
+      graph: graph,
+      visibleRows: visibleRows,
+      query: query,
+      metaCache: metaCache,
+      selection: selection,
+      refs: refs,
+      effectiveEmail: effectiveEmail,
+      conflictActive: conflictActive,
+      pendingChangeCount: pendingChangeCount,
+      workingCopyRowSelected: ref.watch(
+        workingCopyRowSelectedProvider(widget.identity),
+      ),
+    );
 
     if (graph.rows.isEmpty) {
       return Center(
@@ -418,16 +516,7 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
                         ),
                       ),
                     )
-                  : _buildList(
-                      graph,
-                      visibleRows,
-                      query,
-                      metaCache,
-                      selection,
-                      refs,
-                      effectiveEmail,
-                      conflictActive,
-                    ),
+                  : _buildList(render),
             ),
           ],
         );
@@ -435,44 +524,8 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
     );
   }
 
-  Widget _buildList(
-    GraphSnapshotView graph,
-    List<int> visibleRows,
-    String query,
-    Map<String, CommitMeta> metaCache,
-    ListSelection<String> selection,
-    RefSnapshot refs,
-    String effectiveEmail,
-    bool conflictActive,
-  ) {
-    // Contiguity is judged against the **unfiltered** snapshot, not the
-    // rendered list: three commits that look adjacent under a filter are
-    // not a range git can replay, so cherry-pick and revert correctly stay
-    // disabled for them (MULTIACTS).
-    final bool contiguous = selection.isContiguousIn(graph.oidsHex);
-    // The rendered order, as oids. Every selection transition is expressed
-    // against this rather than against `visibleRows` (snapshot indices), so
-    // a range never silently spans rows a filter is hiding.
-    //
-    // With nothing filtered this list *is* `graph.oidsHex` -- position
-    // equals row index -- so the copy is skipped rather than rebuilt on
-    // every scroll tick and every metadata reply. The length guard is what
-    // makes the two provably identical: the comprehension below drops any
-    // index past the end of `oidsHex`, so it can only equal `oidsHex`
-    // outright when the two lengths already agree. They always do in
-    // practice; the mismatch branch exists so a malformed snapshot keeps
-    // the old, defensive behaviour instead of a wrong-length selection
-    // list. See UnfilteredRowIndices for the measured cost of the twin
-    // allocation this pairs with.
-    final List<String> visibleOids =
-        visibleRows is UnfilteredRowIndices &&
-            graph.rows.length == graph.oidsHex.length
-        ? graph.oidsHex
-        : <String>[
-            for (final int index in visibleRows)
-              if (index < graph.oidsHex.length) graph.oidsHex[index],
-          ];
-
+  Widget _buildList(CommitListRender render) {
+    final GraphSnapshotView graph = render.graph;
     return LayoutBuilder(
       builder: (context, constraints) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -494,7 +547,7 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
         final CommitRowColumnPlan plan = planCommitRowColumns(
           availableWidth: constraints.maxWidth,
           laneCount: graph.laneCount,
-          showGraph: query.isEmpty,
+          showGraph: render.query.isEmpty,
           order: columnLayout.order,
           widths: columnLayout.widths,
           // Width may still take a column the user asked to keep; it can
@@ -504,25 +557,33 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
         );
         return _SelectionShortcuts(
           focusNode: _listFocus,
-          onSelectAll: () =>
-              _publish(_selectionController.state.selectAll(visibleOids)),
+          onSelectAll: () => _publish(
+            _selectionController.state.selectAll(render.visibleOids),
+          ),
           onCollapse: () =>
               _publish(_selectionController.state.collapseToAnchor()),
-          onExtend: (int delta) => _extendSelection(delta, visibleOids),
+          onExtend: (int delta) => _extendSelection(delta, render.visibleOids),
+          onMove: (int delta) => _moveSelection(
+            delta,
+            render.visibleOids,
+            render.showWorkingCopyRow,
+          ),
           child: Stack(
             children: <Widget>[
-              _buildRows(
-                graph,
-                visibleRows,
-                query,
-                metaCache,
-                selection,
-                refs,
-                effectiveEmail,
-                conflictActive,
-                contiguous,
-                visibleOids,
-                plan,
+              Column(
+                children: <Widget>[
+                  // Pinned above the list, never inside it -- see
+                  // HistoryWorkingCopyRow's doc for why the ListView must not
+                  // grow a row. Absent entirely when the working copy is clean.
+                  if (render.showWorkingCopyRow)
+                    HistoryWorkingCopyRow(
+                      pendingChangeCount: render.pendingChangeCount,
+                      selected: render.workingCopyRowSelected,
+                      connectsDown: render.connectsToHead,
+                      onTap: _selectWorkingCopyRow,
+                    ),
+                  Expanded(child: _buildRows(render, plan)),
+                ],
               ),
               // Spec page 02 item 16's "欄寬各自可拖曳並記憶", reached without
               // a header row -- the mockup has none. See
@@ -565,24 +626,14 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
     );
   }
 
-  Widget _buildRows(
-    GraphSnapshotView graph,
-    List<int> visibleRows,
-    String query,
-    Map<String, CommitMeta> metaCache,
-    ListSelection<String> selection,
-    RefSnapshot refs,
-    String effectiveEmail,
-    bool conflictActive,
-    bool contiguous,
-    List<String> visibleOids,
-    CommitRowColumnPlan plan,
-  ) {
-    // Watched here rather than threaded down from build() beside metaCache:
-    // this helper already takes eleven positional parameters, and the counts
-    // are read by nothing else on the way down. Conditional on the column
-    // being on, so a user who never switched it on never subscribes -- and
-    // the list does not rebuild for a reply it would not draw.
+  Widget _buildRows(CommitListRender render, CommitRowColumnPlan plan) {
+    final GraphSnapshotView graph = render.graph;
+    // Watched here rather than gathered into CommitListRender: the counts are
+    // conditional on the column being on, and that is a function of `plan`,
+    // which is a function of this build's width -- so it cannot be settled
+    // where the rest of the model is. A user who never switches the column on
+    // never subscribes, and the list does not rebuild for a reply it would
+    // not draw.
     final Map<String, int> fileCounts =
         plan.shows(GbmGraphColumnId.changedFiles)
         ? ref.watch(commitFileCountProvider(widget.identity))
@@ -591,47 +642,50 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
     return ListView.builder(
       controller: _controller,
       itemExtent: kCommitRowHeight,
-      itemCount: visibleRows.length,
+      itemCount: render.visibleRows.length,
       itemBuilder: (context, position) {
         // `position` walks the filtered result list; `index` is the
         // row's real place in the unfiltered snapshot, which is what
         // the graph edge lookups are keyed on.
-        final int index = visibleRows[position];
+        final int index = render.visibleRows[position];
         final GraphRow row = graph.rows[index];
         final String oid = index < graph.oidsHex.length
             ? graph.oidsHex[index]
             : '';
-        final CommitMeta? meta = metaCache[oid];
+        final CommitMeta? meta = render.metaCache[oid];
         return CommitRow(
           row: row,
           oidHex: oid,
           graph: graph,
           rowIndex: index,
+          // `position`, not `index`: the join is to whatever the list paints
+          // first, which under a filter is not snapshot row 0.
+          connectsUpToUncommitted: render.connectsToHead && position == 0,
           maxLane: graph.laneCount,
           plan: plan,
           meta: meta,
           fileCount: fileCounts[oid],
-          showGraph: query.isEmpty,
-          selected: oid.isNotEmpty && selection.contains(oid),
+          showGraph: render.query.isEmpty,
+          selected: oid.isNotEmpty && render.selection.contains(oid),
           refChips: oid.isEmpty
               ? const <RefChipData>[]
-              : refChipsForCommit(refs, oid),
+              : refChipsForCommit(render.refs, oid),
           isOwnCommit:
               meta != null &&
-              effectiveEmail.isNotEmpty &&
-              meta.author.email == effectiveEmail,
+              render.effectiveEmail.isNotEmpty &&
+              meta.author.email == render.effectiveEmail,
           onSelect: oid.isEmpty
               ? null
               : (SelectionGesture gesture) =>
-                    _onRowSelect(oid, gesture, visibleOids),
+                    _onRowSelect(oid, gesture, render.visibleOids),
           onContextMenuRequested: oid.isEmpty
               ? null
               : () => _normaliseSelectionForMenu(oid),
-          menuSelectionCount: selection.length,
-          menuSelectionIsContiguous: contiguous,
-          conflictActive: conflictActive,
-          menuTitle: selection.length > 1
-              ? '${selection.length} commits'
+          menuSelectionCount: render.selection.length,
+          menuSelectionIsContiguous: render.contiguous,
+          conflictActive: render.conflictActive,
+          menuTitle: render.selection.length > 1
+              ? '${render.selection.length} commits'
               : null,
           onCopySha: oid.isEmpty ? null : _copySelectedShas,
           onCheckout: oid.isEmpty
@@ -915,6 +969,7 @@ class _SelectionShortcuts extends StatelessWidget {
     required this.onSelectAll,
     required this.onCollapse,
     required this.onExtend,
+    required this.onMove,
     required this.child,
   });
 
@@ -922,6 +977,13 @@ class _SelectionShortcuts extends StatelessWidget {
   final VoidCallback onSelectAll;
   final VoidCallback onCollapse;
   final ValueChanged<int> onExtend;
+
+  /// Plain ↑/↓. Bound above the list's own [Focus], so it wins over the
+  /// ambient `ScrollAction` a focused Scrollable would otherwise run -- the
+  /// selection moving *and* scrolling into view is what a list does with an
+  /// arrow key, and a list that only scrolled would leave the selection
+  /// behind off-screen.
+  final ValueChanged<int> onMove;
   final Widget child;
 
   @override
@@ -935,6 +997,10 @@ class _SelectionShortcuts extends StatelessWidget {
             const GbmExtendSelectionIntent(-1),
         const SingleActivator(LogicalKeyboardKey.arrowDown, shift: true):
             const GbmExtendSelectionIntent(1),
+        const SingleActivator(LogicalKeyboardKey.arrowUp):
+            const GbmMoveSelectionIntent(-1),
+        const SingleActivator(LogicalKeyboardKey.arrowDown):
+            const GbmMoveSelectionIntent(1),
         // Both modifiers are registered rather than branching on platform:
         // an unheld modifier simply never matches, and this keeps the list
         // working under a remote/VM session where the platform reported and
@@ -950,6 +1016,12 @@ class _SelectionShortcuts extends StatelessWidget {
           GbmExtendSelectionIntent: CallbackAction<GbmExtendSelectionIntent>(
             onInvoke: (GbmExtendSelectionIntent intent) {
               onExtend(intent.delta);
+              return null;
+            },
+          ),
+          GbmMoveSelectionIntent: CallbackAction<GbmMoveSelectionIntent>(
+            onInvoke: (GbmMoveSelectionIntent intent) {
+              onMove(intent.delta);
               return null;
             },
           ),

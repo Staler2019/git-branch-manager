@@ -54,8 +54,8 @@ correctly, not that the real dispatch path ever produces that `null`.
 
 ## [TEST-fixture-cannot-disagree] A fixture that cannot disagree with the code proves nothing
 
-Nine recorded shapes, each of which passed identically before and after a real fix.
-One row per shape — when you find a tenth, append a row.
+Ten recorded shapes, each of which passed identically before and after a real fix.
+One row per shape — when you find an eleventh, append a row.
 
 | # | Shape | Recorded case | Why it stayed green |
 |---|---|---|---|
@@ -68,12 +68,17 @@ One row per shape — when you find a tenth, append a row.
 | 7 | *premise a later decision revoked* | 05-G's device fixture put two insertions one line apart; 變體 B then merged anything ≤ 2 unchanged lines apart (C18) | the same bytes silently became *one* scope |
 | 8 | the **assertion**, not the fixture, is too weak | «controls are to the right of the status text» is true under `WrapAlignment.spaceBetween` **and** `start` (conflict-banner round) | «controls' right edge equals the Wrap's right edge» is the same claim stated tightly enough to fail |
 | 9 | **cross-language**: hand-sets a field production never sets | every Dart test wrote `isSymbolic: true` by hand while `RefStore` never assigned it | **both languages stay green at once** — the C++ struct member did exist and was serialized |
+| 10 | *varies more than the subject*, so an unrelated path answers correctly | History's uncommitted-row fixture rebuilt its `GraphSnapshotView` on every call, so emitting a clean working copy also handed `repoGraphProvider` a new object (discard round) | the rebuild that repaints the row came from the graph, not the working copy — mutating the row's `ref.watch` to `ref.read` left the file **fully green** |
 
 - **Do**: count the bytes the fixture actually writes, not the bytes the test's name claims (6).
 - **Do**: **when a rule about how input is grouped changes, every fixture that encodes a gap,
   a count or an adjacency has to be re-read against the new rule** — nothing else will
   notice (7).
 - **Do**: a mutation that comes back green is as often a weak assertion as a missing one (8).
+- **Do**: **hold everything but the subject identical across a transition** — hoist the
+  untouched halves of a state fixture into shared instances, so the only thing that can
+  drive the rebuild is the thing under test (10). Two fixtures pumped separately cannot see
+  this at all; it needs one tree and two states.
 - **Do**: **when a field crosses a language boundary, ask which side assigns it** — a
   hand-set fixture is evidence about the consumer, never about the producer. Neither side can
   see the gap; only the real binary across the boundary can, which is why that test belongs in

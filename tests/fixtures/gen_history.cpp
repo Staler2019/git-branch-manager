@@ -147,7 +147,7 @@ int main(int argc, char** argv) {
     std::vector<int> branchTip(static_cast<std::size_t>(options.branches), 0);
     int mark = 0;
 
-    // Commit timestamps advance monotonically so `--topo-order` has a sensible
+    // Commit timestamps advance monotonically so `--date-order` has a sensible
     // date tie-break, matching how real history looks.
     std::int64_t when = 1'000'000'000;
 

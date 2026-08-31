@@ -147,9 +147,68 @@ commitSelectionProvider =
 /// a selection set would have meant two selection states that could disagree,
 /// so the anchor is now the one source of truth and this is a read-only view
 /// of it. Write through [commitSelectionProvider] instead.
+/// The id History's uncommitted-changes row selects itself under.
+///
+/// It shares [commitSelectionProvider] rather than living in a provider of its
+/// own, because two providers would be two selection states that could disagree
+/// about what is highlighted -- the same reason `selectedCommitProvider` stopped
+/// being independently writable when multi-select arrived.
+///
+/// **It cannot collide with a real selection.** Every other member of that set
+/// is an oid: 40 or 64 lowercase hex characters. This is neither.
+const String kWorkingCopySelectionId = 'working-copy';
+
 final ProviderFamily<String?, RepoIdentity> selectedCommitProvider =
-    Provider.family<String?, RepoIdentity>(
-      (ref, identity) => ref.watch(commitSelectionProvider(identity)).anchor,
+    Provider.family<String?, RepoIdentity>((ref, identity) {
+      final String? anchor = ref
+          .watch(commitSelectionProvider(identity))
+          .anchor;
+      // The uncommitted row is not a commit, and this is what the two
+      // one-commit *panels* gate on -- the commit detail panel and the
+      // changed-files panel, which are its only readers under lib/.
+      //
+      // It is **not** what disables Cherry-pick, Revert or Reset here: those
+      // are 05-E items built from a callback the right-clicked row supplies
+      // with its own oid (`commit_menu_items.dart`), and nothing about them
+      // reads this provider. An earlier comment here claimed otherwise and
+      // listed them; correcting it in place rather than deleting the claim,
+      // because the wrong version is what a later round would re-derive.
+      // What the uncommitted row really has no access to is every 05-K
+      // action, since the changed-files list they hang off is replaced by a
+      // pointer at the Working Copy tab -- user-ratified: under this row
+      // 05-K gets no dialog and no functionality, to be designed if a need
+      // for it ever appears.
+      return anchor == kWorkingCopySelectionId ? null : anchor;
+    });
+
+/// Whether History's uncommitted-changes row is the current selection.
+///
+/// Derived from the same anchor as [selectedCommitProvider], so exactly one of
+/// the two can be non-null/true at a time by construction.
+///
+/// **The anchor alone is not enough.** The row is drawn only while the working
+/// copy is dirty, so discarding every change deletes the row out from under a
+/// selection still anchored on it -- and every surface gating on this provider
+/// would go on drawing an uncommitted summary (「0 changed files」, and a button
+/// offering to open the Working Copy) for a working copy that is now clean.
+/// Requiring the row to exist here rather than clearing the selection from a
+/// widget keeps it a pure derivation: no provider write from `build()`
+/// ([FLU-never-write-provider-in-build]), and no second predicate a later
+/// surface could forget to add ([CULT-single-source-of-truth]).
+///
+/// Deliberately **not** gated on the commit search that also hides the row.
+/// A filter hiding a row does not make the summary untrue, and a selection
+/// surviving a filter is what every commit row already does.
+final ProviderFamily<bool, RepoIdentity> workingCopyRowSelectedProvider =
+    Provider.family<bool, RepoIdentity>(
+      (ref, identity) =>
+          ref.watch(commitSelectionProvider(identity)).anchor ==
+              kWorkingCopySelectionId &&
+          ref.watch(
+            repoSessionProvider(
+              identity,
+            ).select((state) => state.workingCopyStatus.pendingChangeCount > 0),
+          ),
     );
 
 /// The currently-selected file path within the selected commit's changed files.

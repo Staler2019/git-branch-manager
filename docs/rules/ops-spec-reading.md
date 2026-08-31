@@ -165,3 +165,40 @@ The spec HTML is `docs/claude-design-demo/Flutter Desktop Spec (standalone).html
 ## [SPEC-titlebar-is-ambiguous] 標題列 means four different things across this spec
 
 - **Do**: settle the reading before moving code (**#68**).
+
+## [SPEC-lane-zero-is-head] Lane 0 belongs to HEAD's branch, and nothing else may take it
+
+- **Rule**: P02's〈Graph 連線規則〉opens with 「目前開發中的分支永遠佔 lane 0，且是一條從頭
+  到尾不轉折的直線。其他分支一律往右配置，轉折全部發生在支線那一側，主線不會為了讓路而
+  歪掉。」 `GraphBuilder.h`'s three invariants are a sentence-by-sentence transcription of it,
+  and **the second one had no implementation at all** until this round.
+- **Rule**: it is a *reservation*, not a race. `GraphOptions::trunkTip` holds lane 0 vacant from
+  before the first row (`LaneAllocator::reserve(0)` in the constructor) and hands it to that oid
+  whenever it arrives — **including when it arrives carrying incoming edges**, which is the case
+  a `chooseLane()`-only fix misses: on `main` with a newer descendant branch, HEAD's tip turns up
+  with a first-parent edge already descending in lane 1 and would keep it forever.
+- **Consequence**: 「其他分支一律往右配置」 rules out lending lane 0 out until the tip shows up,
+  so **lane 0 is blank for exactly as many rows as there are commits newer than HEAD's tip**.
+  User-ratified: 照 spec 字面實作. History's uncommitted row is what fills that gap whenever the
+  working copy is dirty.
+- **Do not** believe「seed order decides lane 0」. Measured under both orderings, all four
+  combinations: the **newest tip** takes the first row and therefore the first lane, whatever
+  order `historySeedRefs()` pushed the refs in. Three source comments said otherwise and were
+  all corrected in the same round.
+- **Do**: pass `trunkTip` only when the walk is guaranteed to contain the commit — `Session.cpp`
+  gates it on `includeRefs.empty()`, because a filtered walk need not include HEAD and an
+  unreachable reservation is a permanently blank column.
+- **Evidence**: [ledger: History 依 commit 時間排序](../ledger/2026-09-01-fix-history-graph-commit-date-order.md)
+
+## [SPEC-audit-unit-is-not-the-page] A conformance section's heading names its audit unit, and prose outside that unit was never read
+
+- **Rule**: `docs/reports/spec-conformance-matrix.md`'s P02 section is headed 「Page 02 —
+  History (16 numbered items)」. The audit unit is those sixteen numbered components; P02's
+  prose blocks are on the same page and outside it.
+- **Consequence**: 〈Graph 連線規則〉's four sentences were **never audited at all** — grepping
+  the whole of `docs/reports/` for `lane 0` / `連線規則` / `永遠佔` returns nothing — which is
+  how a stated requirement with no implementation survived every pass.
+- **Do**: read a section heading as a *scope declaration* and ask what the page holds outside
+  it. This is [SPEC-cell-names-capability]'s failure one level up: there the cell's evidence was
+  the wrong thing, here there is no cell.
+- **Evidence**: [ledger: History 依 commit 時間排序](../ledger/2026-09-01-fix-history-graph-commit-date-order.md)

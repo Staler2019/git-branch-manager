@@ -270,7 +270,7 @@ void runCommitGraphAb(gbm::HistoryProvider& provider,
 
     // Gated on total, reported on first-chunk. Time-to-first-chunk is the more
     // dramatic number (14x vs 5.3x on a real 162k-commit clone) because
-    // streaming topo-order is exactly what the commit-graph enables -- but it
+    // a streaming ordered walk is exactly what the commit-graph enables -- but it
     // is a single instant, one descheduling away from a wrong answer, whereas
     // total aggregates the whole walk and averages that away. One gate, on
     // the steadier metric; the other number is here for the nightly trend.
@@ -429,7 +429,7 @@ int main(int argc, char** argv) {
     // --- cross-check the row order against git itself -----------------------
     // The single most valuable assertion here: a plausible-looking graph built
     // from a misparsed walk is far worse than an obvious failure.
-    std::vector<std::string> expectedArgs{"rev-list", "--topo-order"};
+    std::vector<std::string> expectedArgs{"rev-list", "--date-order"};
     for (const std::string& ref : query.seedRefs) {
         expectedArgs.push_back(ref);
     }
@@ -461,7 +461,7 @@ int main(int argc, char** argv) {
             ++mismatches;
         }
     }
-    check(mismatches == 0, std::to_string(mismatches) + " rows diverge from git's topo order");
+    check(mismatches == 0, std::to_string(mismatches) + " rows diverge from git's date order");
 
     // --- invariants on real history ----------------------------------------
     std::size_t straight = 0;

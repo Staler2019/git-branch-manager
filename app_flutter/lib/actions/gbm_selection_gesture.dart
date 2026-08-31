@@ -76,3 +76,21 @@ class GbmExtendSelectionIntent extends Intent {
 
   final int delta;
 }
+
+/// Plain `↑ / ↓`: moves the single selection one row in painted order.
+/// [delta] is -1 for up and 1 for down.
+///
+/// Separate from [GbmExtendSelectionIntent] rather than a flag on it: they
+/// differ in what they produce (one item versus a range) and in what they
+/// may traverse -- History's uncommitted row is reachable by this one and
+/// deliberately not by the range one, because a range spanning it is not
+/// something git could replay.
+///
+/// Spec page 13's `MULTIKEYS` lists 單擊 / Ctrl-Cmd / Shift / Ctrl-Cmd+A /
+/// Esc and no plain arrow row, so this is an addition rather than a
+/// conformance item -- the same standing as the uncommitted row itself.
+class GbmMoveSelectionIntent extends Intent {
+  const GbmMoveSelectionIntent(this.delta);
+
+  final int delta;
+}

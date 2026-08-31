@@ -1,5 +1,5 @@
 # Generates a synthetic repository, imports it with real git, then verifies our
-# graph against git's own topo order.
+# graph against git's own date order.
 #
 # Run via `cmake -P` from a ctest test, so it works identically on all three
 # platforms without a shell script.
@@ -53,7 +53,7 @@ if(NOT result EQUAL 0)
     message(FATAL_ERROR "git fast-import failed: ${result}")
 endif()
 
-# The commit-graph is what makes a topo-order walk stream rather than stall, so
+# The commit-graph is what makes an ordered walk stream rather than stall, so
 # the fixture carries one just like an optimised real repository would.
 execute_process(
     COMMAND "${GIT_EXECUTABLE}" -C "${WORK_DIR}" commit-graph write --reachable --changed-paths

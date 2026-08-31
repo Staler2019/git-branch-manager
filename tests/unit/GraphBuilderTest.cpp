@@ -30,7 +30,7 @@ struct Commit {
     std::vector<int> parents;
 };
 
-/// Builds from a list given newest-first, as rev-list --topo-order produces.
+/// Builds from a list given newest-first, as rev-list --date-order produces.
 GraphSnapshotPtr build(const std::vector<Commit>& commits, GraphOptions options = {}) {
     GraphBuilder builder(options);
     for (const Commit& commit : commits) {
@@ -46,7 +46,7 @@ GraphSnapshotPtr build(const std::vector<Commit>& commits, GraphOptions options 
 }
 
 /// A deterministic DAG where every parent id is greater than its child's, which
-/// is exactly the ordering guarantee topo-order gives us.
+/// is exactly the ordering guarantee date-order gives us.
 std::vector<Commit> makeRandomDag(int count,
                                   std::uint64_t seed,
                                   double mergeRate,
@@ -114,6 +114,86 @@ TEST(GraphBuilder, TrunkKeepsLaneZeroAcrossAMerge) {
     EXPECT_EQ(snapshot->rows[4].lane, 0) << "the common ancestor rejoins trunk";
     EXPECT_GT(snapshot->rows[2].lane, 0) << "the merged-in branch must sit to the right";
     EXPECT_TRUE(snapshot->rows[0].isMerge());
+}
+
+// --- invariant 2: HEAD's branch owns lane 0 -------------------------------
+//
+// spec P02's 〈Graph 連線規則〉: 「目前開發中的分支永遠佔 lane 0，且是一條從頭
+// 到尾不轉折的直線。其他分支一律往右配置」. GraphBuilder's second invariant is
+// that sentence, and until GraphOptions::trunkTip existed nothing implemented
+// it -- lane 0 went to whichever commit git emitted first, which is the one
+// with the newest timestamp, not HEAD's.
+//
+// **Every fixture here puts the trunk tip somewhere other than row 0.** That is
+// the whole point: a fixture whose trunk tip is already the first row gets lane
+// 0 from `allocateLeftmost()` anyway and passes with the reservation deleted --
+// [TEST-fixture-cannot-disagree]'s first shape.
+
+TEST(GraphBuilder, TrunkTipTakesLaneZeroEvenWhenAnotherTipIsEmittedFirst) {
+    // Two independent tips over a shared base. 1 is a feature branch's tip and
+    // is emitted first because it is newer; 2 is HEAD's.
+    auto snapshot = build(
+        {
+            {1, {3}},
+            {2, {3}},
+            {3, {}},
+        },
+        GraphOptions{.trunkTip = oidFor(2)});
+
+    EXPECT_EQ(snapshot->rows[1].lane, 0) << "HEAD's tip must own lane 0";
+    EXPECT_GT(snapshot->rows[0].lane, 0)
+        << "a branch that is not HEAD's must sit to the right, even above it";
+    EXPECT_EQ(snapshot->rows[2].lane, 0) << "and the trunk's chain keeps the column";
+}
+
+TEST(GraphBuilder, TrunkTipTakesLaneZeroEvenWhenItArrivesWithIncomingEdges) {
+    // The case `chooseLane()` alone gets wrong. 2 is HEAD's tip *and* the first
+    // parent of 1, so by the time it is emitted there is already an edge
+    // descending towards it in another column, and the straightness rule would
+    // keep it there -- leaving the reservation unclaimed and lane 0 blank for
+    // the entire graph rather than merely for the rows above HEAD.
+    auto snapshot = build(
+        {
+            {1, {2}},
+            {2, {3}},
+            {3, {}},
+        },
+        GraphOptions{.trunkTip = oidFor(2)});
+
+    EXPECT_GT(snapshot->rows[0].lane, 0);
+    EXPECT_EQ(snapshot->rows[1].lane, 0) << "the incoming edge must bend into lane 0, not hold "
+                                            "HEAD's tip out of it";
+    EXPECT_EQ(snapshot->rows[2].lane, 0);
+}
+
+TEST(GraphBuilder, AnUnclaimedLaneZeroRendersAsBlankNotAsAColumn) {
+    // The cost the reservation buys, made visible: while HEAD's tip has not been
+    // reached, lane 0 is held and nothing is drawn in it. Asserted through the
+    // reference renderer because that is what the golden tests read.
+    auto snapshot = build(
+        {
+            {1, {3}},
+            {2, {3}},
+            {3, {}},
+        },
+        GraphOptions{.trunkTip = oidFor(2)});
+
+    const std::string first = renderRowAscii(*snapshot, 0);
+    EXPECT_EQ(first.find('*'), 2u) << "row 0 sits in lane 1, so lane 0's cell is blank: " << first;
+    EXPECT_EQ(first.substr(0, 2), "  ") << "and blank means spaces, not a connector: " << first;
+}
+
+TEST(GraphBuilder, WithoutATrunkTipLaneZeroStillGoesToTheFirstRow) {
+    // The regression guard for every walk that does not reserve -- a narrowed
+    // history filter, and every existing test in this file.
+    auto snapshot = build({
+        {1, {3}},
+        {2, {3}},
+        {3, {}},
+    });
+
+    EXPECT_EQ(snapshot->rows[0].lane, 0);
+    EXPECT_GT(snapshot->rows[1].lane, 0);
 }
 
 TEST(GraphBuilder, MergedParentsGoToTheRightNotTheLeft) {

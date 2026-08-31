@@ -59,6 +59,7 @@ class CommitRow extends StatelessWidget {
     required this.graph,
     required this.rowIndex,
     required this.maxLane,
+    this.connectsUpToUncommitted = false,
     this.plan = CommitRowColumnPlan.full,
     this.meta,
     this.fileCount,
@@ -91,6 +92,12 @@ class CommitRow extends StatelessWidget {
   final GraphSnapshotView graph;
   final int rowIndex;
   final int maxLane;
+
+  /// Closes the join from History's uncommitted-changes row down to this
+  /// row's dot -- see [GraphRowPainter.connectsUpToUncommitted]. Set by
+  /// `CommitGraphView` on the topmost painted row only, from the same
+  /// boolean it hands the uncommitted row, so the two halves cannot disagree.
+  final bool connectsUpToUncommitted;
 
   /// Which optional columns this row may draw at the list's current width.
   ///
@@ -389,6 +396,7 @@ class CommitRow extends StatelessWidget {
               graph: graph,
               laneWidth: kGraphLaneWidth,
               colors: context.gbmColors,
+              connectsUpToUncommitted: connectsUpToUncommitted,
             ),
           ),
         ),

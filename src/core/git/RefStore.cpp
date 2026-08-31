@@ -235,6 +235,12 @@ GitResult<RefSnapshotPtr> RefStore::load(CancellationToken token) {
     format += "%(HEAD)";
     format += kFieldSeparator;
     format += "%(worktreepath)";
+    // Last on purpose. The sink's bounds below are defensive index checks, so a
+    // field inserted mid-list would shift every one after it; appending leaves
+    // the existing eight parsed exactly as before. Empty for an ordinary ref,
+    // and the pointed-at ref name (e.g. refs/remotes/origin/main) for a symref.
+    format += kFieldSeparator;
+    format += "%(symref)";
 
     GitCommand command(paths_.commandDir(), {"for-each-ref", "--format=" + format});
     command.timeout = std::chrono::seconds(120);
@@ -270,6 +276,15 @@ GitResult<RefSnapshotPtr> RefStore::load(CancellationToken token) {
         info.isHead = fields[6] == "*";
         if (fields.size() > 7) {
             info.worktreePath = std::string(fields[7]);
+        }
+        // refs/remotes/<remote>/HEAD is a symref alias for that remote's default
+        // branch, not a branch of its own. Without this the field stayed at its
+        // default false and the Flutter sidebar drew it as a selectable,
+        // checkout-able row called `HEAD` -- see gone_marking's neighbours in
+        // branch_tree_builder.dart, remote_counterpart.dart and
+        // graph_ref_chips.dart, all three of which filter on it.
+        if (fields.size() > 8) {
+            info.isSymbolic = !fields[8].empty();
         }
 
         refs.push_back(std::move(info));

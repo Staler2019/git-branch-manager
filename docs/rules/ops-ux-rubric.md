@@ -26,4 +26,4 @@ code-verifiable floor, not a substitute for real usability testing before a
 - **Rule**: the current score and how it was reached live in
   [ledger: UX3 round 1](../ledger/2026-08-13-feat-flutter-design-restore.md), not here.
 - **Consequence**: a rules file states the bar a change is held to; "we scored 95 in round 1"
-  only makes sense as what happened in round N, which is [CULT-filing-rule] ledger material.
+  only makes sense as what happened in round N, which CLAUDE.md's "Where a round's write-up goes" files as ledger material.

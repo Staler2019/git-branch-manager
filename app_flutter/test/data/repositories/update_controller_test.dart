@@ -131,8 +131,11 @@ UpdateInstaller _installableInstaller({
     },
     start: (String e, List<String> a, {String? workingDirectory}) async {
       events?.add('start');
-      return startSucceeds;
+      return startSucceeds
+          ? const DetachedStart.ok()
+          : const DetachedStart.failed('no such file');
     },
+    armWatchdog: (Duration after) async => true,
     exitProcess: (int code) => events?.add('exit'),
   );
 }
@@ -169,7 +172,9 @@ UpdateInstaller _blockingInstaller(Future<ProcessRunResult> unpack) {
     executablePath: '${install.path}/gbm_flutter',
     abi: Abi.linuxX64,
     run: (String exe, List<String> args) => unpack,
-    start: (String e, List<String> a, {String? workingDirectory}) async => true,
+    start: (String e, List<String> a, {String? workingDirectory}) async =>
+        const DetachedStart.ok(),
+    armWatchdog: (Duration after) async => true,
     exitProcess: (int code) {},
   );
 }
@@ -436,16 +441,27 @@ void main() {
       return c;
     }
 
-    // The ordering is the whole safety argument: unpack first, so a bad
-    // archive is an error the running app can still show; close the FFI
-    // sessions next, so no git process is left holding an index lock; and
-    // only then hand over to the detached script.
-    test('unpacks, closes down, and only then hands over', () async {
+    // The ordering is the whole safety argument, and the middle two swapped
+    // this round. Unpack still comes first, so a bad archive is an error the
+    // running app can still show. What changed is that the handover now
+    // starts the script *before* closing the FFI sessions.
+    //
+    // The old order was defended on the grounds that closing first left a
+    // hang "recoverable", with the app alive and no script running. It is
+    // not recoverable: `closeNativeSession()` is a synchronous
+    // `gbm_session_close` whose destructor blocks in `operations_->drain()`,
+    // and `UpdateStatus.installing` renders no buttons at all, so a user on
+    // Windows was left with a dialog frozen on "Installing…" and an updater
+    // that had never been started. The risk that argument traded against --
+    // a detached swap racing a live app -- does not exist: the script's
+    // first act is to poll for the parent's exit, and its timeout arm
+    // changes nothing.
+    test('unpacks, hands over, and only then closes down', () async {
       final UpdateController c = await ready();
 
       await c.install(beforeExit: () async => events.add('beforeExit'));
 
-      expect(events, <String>['unpack', 'beforeExit', 'start', 'exit']);
+      expect(events, <String>['unpack', 'start', 'beforeExit', 'exit']);
     });
 
     test('a corrupt archive fails while the app is still running', () async {
@@ -463,6 +479,17 @@ void main() {
         reason:
             'unpacking after the sessions closed would leave nothing '
             'able to report the failure',
+      );
+      // ...and it is in the transcript too. Reportable on screen is not the
+      // same as recorded: a user who goes looking in the log the dialog
+      // named should not find the one failure that *was* reportable missing
+      // from it.
+      expect(
+        File(
+          '${Directory.systemTemp.path}${Platform.pathSeparator}'
+          '$kUpdateLogName',
+        ).readAsStringSync(),
+        contains('unexpected end of file'),
       );
     });
 

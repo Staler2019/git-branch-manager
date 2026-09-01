@@ -60,6 +60,8 @@ void main() {
       DiffFile? staged,
       bool unstagedLoading = false,
       bool stagedLoading = false,
+      bool unstagedTruncated = false,
+      bool stagedTruncated = false,
       String displayPath = 'lib/a.dart',
     }) async {
       await pumpGbmWidget(
@@ -71,6 +73,8 @@ void main() {
           stagedFile: staged,
           unstagedLoading: unstagedLoading,
           stagedLoading: stagedLoading,
+          unstagedTruncated: unstagedTruncated,
+          stagedTruncated: stagedTruncated,
           onStageScope: (bool s, int h, List<int> l) =>
               stageCalls.add((staged: s, hunkIndex: h, lines: l)),
           onDiscardScope: (_, _) {},
@@ -79,6 +83,28 @@ void main() {
         ),
       );
     }
+
+    testWidgets(
+      'a side refused for its size says so, and only that side does',
+      (WidgetTester tester) async {
+        // Both sides drawn at once is the whole point of this pane, so the
+        // refusal has to be per side. Pinned here rather than only in
+        // ScopedDiffView's own tests because this is where the Working Copy's
+        // wording lives -- and "Nothing unstaged" over a file that has changes
+        // is the exact sentence this round exists to remove.
+        await pump(
+          tester,
+          unstaged: null,
+          unstagedTruncated: true,
+          staged: _file('already staged', added: true),
+        );
+
+        expect(find.text('Diff too large to display'), findsOneWidget);
+        expect(find.text('Nothing unstaged'), findsNothing);
+        // The other side is untouched: it still draws its own diff.
+        expect(find.text('already staged'), findsOneWidget);
+      },
+    );
 
     testWidgets('2 file mode shows both sides of the same file at once', (
       WidgetTester tester,

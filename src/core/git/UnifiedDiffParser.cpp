@@ -47,6 +47,27 @@ std::vector<std::string_view> splitLines(std::string_view text) {
 /// was staged first); the reconstructed patch only needs to describe a
 /// content change at that path, which content-only, same-path headers do
 /// without touching the rename that already landed.
+///
+/// A file with no old side -- `FileChangeKind::Added` -- needs `new file mode`
+/// and `--- /dev/null` written back out when the patch is being *staged*, and
+/// `git apply --cached` refuses it otherwise: measured, `error: <path>: does
+/// not exist in index`, exit 1. That is how an untracked file's selected lines
+/// reach the index, and it is why the mode falls back to 100644 rather than
+/// being omitted -- `git apply` reads the `new file mode` line, not the
+/// `index` line, to decide it is creating a file.
+///
+/// **The condition is `kind`, not an empty `oldPath`.** `--- /dev/null` does
+/// strip to an empty string, but the `diff --git a/x b/x` line has already
+/// filled `oldPath` in by then and the `---` handler declines to overwrite it
+/// with nothing, so an added file's `oldPath` is its own path -- a plausible
+/// -looking test of "has no old side" that is never true.
+///
+/// **Unstaging is deliberately left alone**: by then the file is in the index,
+/// `git apply --cached --reverse` checks the patch's *new* side against it,
+/// and the plain `a/<path>` header is what matches -- measured to apply
+/// cleanly. An intent-to-add path (`git add -N`, which `git diff` also reports
+/// as `new file mode`) accepts the create form on the staging side too:
+/// measured, exit 0, landing as `AM`.
 void appendPatchHeader(std::string& patch,
                        const DiffFile& file,
                        const std::string& oldPath,
@@ -57,6 +78,15 @@ void appendPatchHeader(std::string& patch,
         oldPath != newPath;
     const bool contentOnlyAtNewPath = unstaging && isRenameOrCopy;
     const std::string& headerOldPath = contentOnlyAtNewPath ? newPath : oldPath;
+
+    if (!unstaging && file.kind == FileChangeKind::Added) {
+        patch += "diff --git a/" + newPath + " b/" + newPath + "\n";
+        patch +=
+            "new file mode " + (file.newMode.empty() ? std::string("100644") : file.newMode) + "\n";
+        patch += "--- /dev/null\n";
+        patch += "+++ b/" + newPath + "\n";
+        return;
+    }
 
     patch += "diff --git a/" + headerOldPath + " b/" + newPath + "\n";
     if (isRenameOrCopy && !contentOnlyAtNewPath) {
@@ -144,10 +174,13 @@ ParsedDiff UnifiedDiffParser::parse(std::string_view diffText) const {
     parsed.inputBytes = diffText.size();
 
     if (diffText.size() > options_.maxBytes) {
+        // Refused, not truncated-and-shown. Parsing the first maxBytes used to
+        // hand back a diff that looked complete and was not -- the tail was
+        // dropped with nothing on screen saying so, which is a wrong diff
+        // rather than a missing one. `truncated` is the whole answer now, and
+        // every consumer owes the user a message for it.
         parsed.truncated = true;
-        // Still parse the header portion so the file list is populated; only the
-        // hunk content is dropped.
-        diffText = diffText.substr(0, options_.maxBytes);
+        return parsed;
     }
 
     const auto lines = splitLines(diffText);
@@ -328,12 +361,6 @@ ParsedDiff UnifiedDiffParser::parse(std::string_view diffText) const {
         if (hunk == nullptr) {
             continue;
         }
-        if (parsed.truncated && index + 1 == lines.size()) {
-            // The final line of a truncated input may be cut mid-way; dropping it
-            // avoids showing a half line as if it were real content.
-            continue;
-        }
-
         if (line.rfind("\\ No newline", 0) == 0) {
             DiffLine marker;
             marker.kind = DiffLineKind::NoNewlineMarker;

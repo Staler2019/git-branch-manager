@@ -104,6 +104,7 @@ void main() {
       DiffFile? file,
       bool isStaged = false,
       bool loading = false,
+      bool truncated = false,
       bool discardable = true,
       double width = 420,
     }) async {
@@ -117,6 +118,7 @@ void main() {
             file: file,
             staged: isStaged,
             loading: loading,
+            truncated: truncated,
             onStageScope: (int h, List<int> l) =>
                 staged.add((hunkIndex: h, lines: l)),
             onDiscardScope: discardable
@@ -127,6 +129,32 @@ void main() {
         ),
       );
     }
+
+    testWidgets('a refused diff says so instead of claiming nothing changed', (
+      WidgetTester tester,
+    ) async {
+      // The core refuses a diff over its byte cap and sends no files at all,
+      // so `file` is null for a reason that is not "this side is clean".
+      // Reading the two as one is what put "Nothing unstaged" in front of a
+      // file whose own row badge said it had changes.
+      await pump(tester, file: null, truncated: true);
+
+      expect(find.text('Diff too large to display'), findsOneWidget);
+      // `emptyLabel`'s default here; the Working Copy passes its own wording,
+      // which working_copy_diff_pane_test.dart pins.
+      expect(find.text('No changes'), findsNothing);
+    });
+
+    testWidgets('an ordinary empty side still says nothing changed', (
+      WidgetTester tester,
+    ) async {
+      // The negative half: without it, the arm above could be drawn for every
+      // empty side and the test would still pass.
+      await pump(tester, file: null);
+
+      expect(find.text('No changes'), findsOneWidget);
+      expect(find.text('Diff too large to display'), findsNothing);
+    });
 
     testWidgets('every scope gets its own button, present before anything is '
         'selected', (WidgetTester tester) async {

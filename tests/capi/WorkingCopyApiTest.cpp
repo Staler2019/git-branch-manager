@@ -230,6 +230,40 @@ TEST_F(WorkingCopyApiTest, WorkingCopyDiffReportsAddedLine) {
     EXPECT_NE(diffs[0].find("\"text\":\"line2\""), std::string::npos) << diffs[0];
 }
 
+TEST_F(WorkingCopyApiTest, WorkingCopyDiffReportsAnUntrackedFileAsWhollyAdded) {
+    // The fixture's untracked.txt has sat here unused by any diff test since
+    // this file was written, which is how the gap survived: `git diff` prints
+    // nothing for a path in neither the index nor HEAD, so the reply arrived
+    // as an ordinary empty diff and the Working Copy pane drew "Nothing
+    // unstaged" over a file whose own row badge said +1.
+    //
+    // This is the FFI tier rather than the DiffService tier because the two
+    // can disagree: the fields have to survive JsonCodec and the event
+    // payload, not just exist in the C++ struct.
+    const std::string json = requestDiffJson("untracked.txt", /*staged=*/false);
+    ASSERT_FALSE(json.empty());
+
+    EXPECT_NE(json.find("\"path\":\"untracked.txt\""), std::string::npos) << json;
+    EXPECT_NE(json.find("\"staged\":false"), std::string::npos) << json;
+    EXPECT_NE(json.find("\"truncated\":false"), std::string::npos) << json;
+    // kind 1 == FileChangeKind::Added.
+    EXPECT_NE(json.find("\"kind\":1"), std::string::npos) << json;
+    EXPECT_NE(json.find("\"displayPath\":\"untracked.txt\""), std::string::npos) << json;
+    EXPECT_NE(json.find("\"text\":\"new file\""), std::string::npos) << json;
+}
+
+TEST_F(WorkingCopyApiTest, WorkingCopyDiffOfAnUnchangedTrackedFileStaysEmpty) {
+    ASSERT_EQ(runGit({"checkout", "--", "committed.txt"}), 0);
+
+    // The negative half of the test above, at the same tier: a tracked file
+    // with nothing to stage also produces an empty `git diff`, and answering
+    // that one with --no-index would draw the whole file as newly added.
+    const std::string json = requestDiffJson("committed.txt", /*staged=*/false);
+    ASSERT_FALSE(json.empty());
+    EXPECT_NE(json.find("\"files\":[]"), std::string::npos) << json;
+    EXPECT_NE(json.find("\"truncated\":false"), std::string::npos) << json;
+}
+
 TEST_F(WorkingCopyApiTest, StageFilesMovesFileIntoStagedState) {
     const char* paths[] = {"committed.txt"};
     gbm_stage_files(session_, paths, 1);

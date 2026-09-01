@@ -58,6 +58,10 @@ Set by the user, not derived from the code — they outrank convenience every ti
   methods across `WorkingCopySelectionState` and `file_tree.dart`, all unit-tested and all
   uncalled, one of which was standing in as a conformance cell's evidence
   ([SPEC-cell-names-capability]).
+- **Consequence**: the ninth was a *field*, not a function, and had crossed a language boundary:
+  `ParsedDiff.truncated` was serialized by `JsonCodec`, decoded by `ParsedDiff.fromJson`, and taken
+  as a `DiffPage` constructor field — with no reader anywhere, so a diff refused for its size drew
+  the same 「No changes」 as a file with nothing in it. Now wired; see [CPP-parse-refuses-over-cap].
 
 ## [CULT-reference-impl-not-orphan] Not every uncalled function is an orphan
 

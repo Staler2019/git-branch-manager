@@ -76,6 +76,18 @@ bool isNetworkPath(const std::filesystem::path& path);
 /// The discovery cache uses this as its validity witness.
 std::optional<std::int64_t> modifiedTimeNs(const std::filesystem::path& path);
 
+/// Builds a `std::filesystem::path` from a UTF-8 byte string.
+///
+/// Every path git hands us is UTF-8 (`core.quotepath=false` is in
+/// `GitCommand::globalFlags()`), and every path we hand back to git must be
+/// the same bytes. Constructing a path from a plain `std::string` does not
+/// say that: on Windows the narrow constructor decodes with the active code
+/// page, so a Chinese or accented filename silently becomes a different path
+/// -- and then a stat of it reports "not there" rather than an error anyone
+/// can see. Going through `std::u8string` states the encoding, so the
+/// widening is correct on Windows and a no-op everywhere else.
+std::filesystem::path pathFromUtf8(std::string_view utf8);
+
 /// Reads a small file (refs, HEAD, .git pointer files) fully into a string.
 /// Refuses anything over `maxBytes` so a hostile or corrupt repo cannot make us
 /// allocate unboundedly.

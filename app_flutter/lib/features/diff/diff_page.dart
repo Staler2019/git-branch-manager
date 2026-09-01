@@ -7,6 +7,7 @@ import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/code_line_metrics.dart';
 import '../../widgets/gbm_code_hscroll.dart';
+import 'diff_truncation.dart';
 import 'widgets/diff_line.dart';
 
 /// Renders a [ParsedDiff] **read-only**: one hunk header + line list per
@@ -69,6 +70,19 @@ class _DiffPageState extends ConsumerState<DiffPage> {
     final GbmColors colors = context.gbmColors;
     final ParsedDiff diff = widget.diff;
     final bool softWrap = ref.watch(appPreferencesProvider).softWrapEnabled;
+
+    // Refused before empty, and not folded into it: a diff the core declined
+    // to parse has an empty `files` for a completely different reason from a
+    // file with nothing in it, and telling the user "no changes" about a file
+    // that plainly has some is the failure this branch exists to stop.
+    if (diff.truncated) {
+      return Center(
+        child: Text(
+          kDiffTooLargeLabel,
+          style: TextStyle(color: colors.textTertiary),
+        ),
+      );
+    }
 
     if (diff.files.isEmpty) {
       return Center(

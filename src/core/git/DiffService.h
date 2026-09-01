@@ -216,6 +216,16 @@ public:
                                         CancellationToken token);
 
     /// Unstaged (work tree vs index) or staged (index vs HEAD) changes.
+    ///
+    /// **An untracked file is answered too, and only `git diff` cannot see
+    /// it.** The path is in neither the index nor HEAD, so `git diff` prints
+    /// nothing at all for it -- the same asymmetry `WorkingCopyEntry`'s line
+    /// counts already work around by reading the file. When exactly one path
+    /// is asked for on the unstaged side and the plain diff came back empty,
+    /// [untrackedFileDiff] takes over. The multi-path and whole-work-tree
+    /// forms deliberately do not: enumerating the untracked set is
+    /// `git status`'s job, not this one's, and every production caller passes
+    /// a single path.
     GitResult<ParsedDiffPtr> workingTreeDiff(bool staged,
                                              const std::vector<std::string>& paths,
                                              const DiffOptions& options,
@@ -247,6 +257,19 @@ public:
 
 private:
     std::vector<std::string> diffFlags(const DiffOptions& options) const;
+
+    /// True when [path] exists in the index. One `git ls-files` -- git's own
+    /// answer, not a guess reconstructed from the work tree. A failure leaves
+    /// the question unanswered; the caller treats that as "assume tracked",
+    /// which is the conservative side (it declines to synthesise a diff).
+    GitResult<bool> isPathInIndex(const std::string& path, CancellationToken token);
+
+    /// `git diff --no-index -- /dev/null <path>`: the whole file as one
+    /// added-lines diff. Only reached for a path [workingTreeDiff] has
+    /// already established is untracked.
+    GitResult<ParsedDiffPtr> untrackedFileDiff(const std::string& path,
+                                               const DiffOptions& options,
+                                               CancellationToken token);
 
     IProcessRunner& runner_;
     RepoPaths paths_;

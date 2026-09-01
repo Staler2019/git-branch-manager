@@ -1,5 +1,6 @@
 #include "core/git/WorkingCopyStatus.h"
 
+#include "core/base/FsUtil.h"
 #include "core/base/ThreadCheck.h"
 #include "core/git/TextTraits.h"
 
@@ -241,10 +242,7 @@ void countUntrackedLines(const RepoPaths& paths,
         }
         live.insert(entry.path);
 
-        const std::filesystem::path file =
-            paths.workDir() /
-            std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(entry.path.data()),
-                                                entry.path.size()));
+        const std::filesystem::path file = paths.workDir() / fsutil::pathFromUtf8(entry.path);
 
         std::error_code ec;
         const std::uintmax_t size = std::filesystem::file_size(file, ec);

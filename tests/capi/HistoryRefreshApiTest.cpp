@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <gtest/gtest.h>
 #include <mutex>
 #include <string>
@@ -88,6 +89,30 @@ struct EventLog {
             }
         }
         return out;
+    }
+
+    /// Waits until a predicate over the accumulated events is true, or fails
+    /// to meet it before `timeout`.
+    bool waitFor(const std::function<bool(const std::vector<std::pair<int32_t, std::string>>&)>& pred,
+                std::chrono::milliseconds timeout = std::chrono::seconds(10)) {
+        std::unique_lock<std::mutex> lock(mutex);
+        return cv.wait_for(lock, timeout, [&] { return pred(events); });
+    }
+
+    /// Operation-log records (event 12) for the combined HEAD-resolving
+    /// invocation (`rev-parse --revs-only HEAD --symbolic-full-name HEAD`) --
+    /// RefStore::readHead()'s doc comment explains why that's one process,
+    /// not two. Caller must hold `mutex`, matching completedWalksLocked().
+    std::size_t headReadInvocationCountLocked() const {
+        std::size_t count = 0;
+        for (const auto& [type, payload] : events) {
+            if (type == GBM_EVENT_OPERATION_LOG_RECORD &&
+                payload.find("\"rev-parse\"") != std::string::npos &&
+                payload.find("\"--symbolic-full-name\"") != std::string::npos) {
+                ++count;
+            }
+        }
+        return count;
     }
 };
 
@@ -255,6 +280,76 @@ TEST_F(HistoryRefreshApiTest, RefreshesStillWorkAfterABurstHasSettled) {
 
     EXPECT_TRUE(log_.waitForCompletedWalks(before + 1))
         << "a refresh after a settled burst never ran -- the coalescer is wedged";
+}
+
+// The History uncommitted-row connector never drew on Windows: dispatchRefresh()
+// used to reuse the HEAD oid captured by refStore_->load() (itself already one
+// combined rev-parse process) for the graph walk's lane-0 reservation, even
+// though that snapshot predates load()'s own for-each-ref call and the walk
+// spawns a third, independent process that re-resolves HEAD's branch name
+// fresh. Anything that moved the branch tip in that window -- another tool
+// touching the repository, e.g. -- left the reservation permanently unclaimed.
+// The fix re-reads HEAD a second time, immediately before the walk. This
+// counts the combined rev-parse invocation in the operation log rather than
+// trying to force the actual race: a revert of the fix turns this red at 1.
+TEST_F(HistoryRefreshApiTest, RefreshReReadsHeadFreshImmediatelyBeforeTheWalk) {
+    gbm_history_refresh(session_);
+
+    ASSERT_TRUE(log_.waitForCompletedWalks(1));
+    log_.waitUntilQuiet();
+
+    std::lock_guard<std::mutex> lock(log_.mutex);
+    EXPECT_EQ(log_.headReadInvocationCountLocked(), 2u)
+        << "expected one rev-parse from refStore_->load() plus one fresh "
+           "re-read immediately before the history walk";
+}
+
+// A dispatchRefresh() that bails out early on a refStore_->load() failure
+// must not wedge the session: it should surface as GBM_EVENT_ERROR_OCCURRED,
+// and the *next* refresh should recover normally rather than folding into a
+// coalescer batch nothing drives.
+//
+// This is *not* a test of RefStore::readHead()'s specific failure-vs-Unborn
+// conflation fix -- that needs isolating rev-parse's failure while
+// for-each-ref keeps succeeding, and a real repository can't be put in that
+// state: git treats a broken HEAD as "not a git repository" uniformly, so
+// rev-parse, for-each-ref and symbolic-ref all fail identically once HEAD is
+// gone (confirmed by hand against a real repo). Mutation-tested: this case
+// already produced an error under the old readHead() too, via for-each-ref's
+// own independent failure -- reverting the readHead() fix alone leaves this
+// green. The fix's own coverage is RefStoreHeadTest.cpp's
+// AFailedRevParsePropagatesAsAFailureRatherThanUnborn and
+// ATimedOutRevParsePropagatesAsAFailure, against a FakeProcessRunner that can
+// script rev-parse's response independently of for-each-ref's.
+TEST_F(HistoryRefreshApiTest, ALoadFailureDuringRefreshEmitsAnErrorAndRecoversNextCycle) {
+    const std::filesystem::path headFile = repo_ / ".git" / "HEAD";
+    const std::filesystem::path movedAside = repo_ / ".git" / "HEAD.moved-for-test";
+    ASSERT_TRUE(std::filesystem::exists(headFile));
+    std::filesystem::rename(headFile, movedAside);
+
+    gbm_history_refresh(session_);
+
+    const bool errored = log_.waitFor([](const auto& events) {
+        for (const auto& [type, payload] : events) {
+            if (type == GBM_EVENT_ERROR_OCCURRED) {
+                return true;
+            }
+        }
+        return false;
+    });
+    EXPECT_TRUE(errored) << "a refStore_->load() failure during refresh produced no error event";
+
+    std::filesystem::rename(movedAside, headFile);
+
+    const std::size_t before = [this] {
+        std::lock_guard<std::mutex> lock(log_.mutex);
+        return log_.completedWalksLocked();
+    }();
+
+    gbm_history_refresh(session_);
+
+    EXPECT_TRUE(log_.waitForCompletedWalks(before + 1))
+        << "a refresh after a load() failure never recovered";
 }
 
 }  // namespace

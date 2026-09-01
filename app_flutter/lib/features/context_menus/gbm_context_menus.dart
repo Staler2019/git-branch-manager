@@ -339,7 +339,8 @@ const GbmContextMenuGroupSpec _diffLine = GbmContextMenuGroupSpec(
   ],
 );
 
-/// 05-H: Stash entry (right-click stash row in sidebar -- not yet wired)
+/// 05-H: Stash entry (right-click stash row in sidebar, or its ⋯ button --
+/// wired via `SidebarStashSection._openContextMenu`).
 /// 6 top-level items.
 const GbmContextMenuGroupSpec _stashEntry = GbmContextMenuGroupSpec(
   id: '05-H',

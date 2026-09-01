@@ -63,3 +63,23 @@ Pin prefix `CI-`. Format: [README.md](README.md).
 - **Do**: write generated `.ps1` as UTF-8 **with** a BOM. `sh` needs the opposite (a BOM on
   line 1 is a syntax error), so the two generators differ deliberately.
 - **Evidence**: ledger: 更新流程的三個缺陷
+
+## [CI-powershell-golden-parse] The generated `.ps1` is syntax-checked on `windows-latest`, from a golden, parse-only
+
+- **Rule**: `cq.yml`'s `powershell-parse` job runs
+  `[Management.Automation.Language.Parser]::ParseFile()` over
+  `app_flutter/test/fixtures/gbm-update.ps1.golden` under `shell: powershell` — Windows
+  PowerShell 5.1, which is what `-File` resolves to on a stock machine ([CI-ps1-needs-bom]).
+- **Rule**: **parse only, never execute.** The script renames an install directory aside.
+- **Consequence**: a syntax error there happens *before* the script's first statement, so it
+  cannot even write its own transcript — the user sees 「app 關掉了然後沒回來」 with no evidence
+  at all. Nothing else in the repo compiles, parses or runs this file ([CI-linux-only], **#69**).
+- **Do**: the job parses a checked-in golden rather than generating the script, which keeps a
+  Flutter toolchain off the Windows runner. Drift is closed by
+  `update_script_golden_test.dart`: change the generator without regenerating → red on Linux;
+  regenerate → a syntax error is carried into the golden verbatim → the Windows job catches it.
+  **A lazily regenerated golden is not a hole; carrying the mistake forward is what makes the
+  third step work.**
+- **Do**: regenerate with `GBM_UPDATE_GOLDEN=1 flutter test test/data/services/update_script_golden_test.dart`.
+  The golden is compared as **bytes**, because the BOM is half of what it pins.
+- **Evidence**: [ledger: Install and restart 卡在 Installing…](../ledger/2026-09-01-claude-windows-app-update-install-irloo0.md)

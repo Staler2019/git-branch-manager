@@ -325,14 +325,21 @@ TEST(RefStore, MarksARemoteHeadSymrefAsSymbolic) {
 
 TEST(RefStore, TreatsAnUnbornHeadAsANormalState) {
     // A freshly initialised repository has no commits. It must still open.
+    //
+    // The rev-parse fixture is exit 0 with empty output, not a non-zero
+    // exit: `--revs-only` (RefStore.cpp's doc comment on the command) is
+    // exactly what makes an unresolvable HEAD come back this way instead of
+    // as a failure. A non-zero exit here is a genuinely different case --
+    // the command itself failed -- and RefStore::readHead() now propagates
+    // that as a real GitResult failure rather than folding it into this
+    // fallback (see RefStoreHeadTest.cpp's
+    // AFailedRevParsePropagatesAsAFailureRatherThanUnborn).
     FakeProcessRunner runner;
     FakeProcessRunner::Response symbolic;
     symbolic.out = "refs/heads/main";
     runner.whenArgsContain({"symbolic-ref"}, symbolic);
 
-    FakeProcessRunner::Response revParse;
-    revParse.exitCode = 1;  // HEAD does not resolve: no commits yet
-    runner.whenArgsContain({"rev-parse"}, revParse);
+    runner.whenArgsContain({"rev-parse"}, FakeProcessRunner::Response{});
     runner.whenArgsContain({"for-each-ref"}, FakeProcessRunner::Response{});
 
     RefStore store(runner, testPaths());

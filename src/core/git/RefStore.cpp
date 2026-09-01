@@ -166,8 +166,20 @@ GitResult<HeadInfo> RefStore::readHead(CancellationToken token) {
                        {"rev-parse", "--revs-only", "HEAD", "--symbolic-full-name", "HEAD"});
     command.timeout = std::chrono::seconds(15);
     auto resolved = runner_.run(command, token);
+    if (!resolved) {
+        // A genuine process failure -- spawn failure, timeout, a non-zero
+        // exit unrelated to "no commits yet" (e.g. transient, more likely on
+        // Windows under load from another tool also touching this
+        // repository). This must not fold into the Unborn fallback below:
+        // doing so used to leave head.target silently and permanently null
+        // on every refresh it hit, with no diagnostic trail -- and, for
+        // callers that only branch on head->kind (see UndoOps.cpp), silently
+        // skipped safety checks gated on `kind == Branch` instead of failing
+        // loudly.
+        return fail(std::move(resolved).error());
+    }
 
-    if (resolved && !resolved->out.empty()) {
+    if (!resolved->out.empty()) {
         // "<oid>\n<symbolic name>" -- run() joins records with '\n' and trims
         // the trailing one.
         const std::size_t split = resolved->out.find('\n');

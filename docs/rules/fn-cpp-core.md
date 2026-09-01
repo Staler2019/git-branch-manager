@@ -52,3 +52,35 @@ Pin prefix `CPP-`. Format: [README.md](README.md).
 - **See also**: [CULT-reference-impl-not-orphan] — it has no caller and must not be swept.
 
 ## [CPP-span-no-braced-list] `std::span<const ObjectId>` does not accept a braced list in C++20
+
+## [CPP-trunktip-reread-before-walk] `query.trunkTip` is re-read immediately before the history walk, not reused from the ref snapshot
+
+- **Rule**: `Session::dispatchRefresh()` does not reuse `refsResult.value()->head.target` (captured
+  before `refStore_->load()`'s own `for-each-ref` call) for `query.trunkTip`. It calls
+  `refStore_->readHead(token)` a second time, right before `history_->walk(...)`.
+- **Consequence**: the walk's `rev-list` re-resolves `historySeedRefs()`'s HEAD *name* fresh at
+  whatever moment it actually runs — a third, independent process. Reusing the earlier oid left a
+  window: anything that moved the branch tip inside it (another tool touching the repository)
+  permanently stranded `GraphBuilder`'s lane-0 reservation, breaking History's uncommitted-row
+  connector ([STRUCT-history-uncommitted-row]). Windows widens this window by roughly two orders
+  of magnitude in process-spawn cost (`docs/reports/windows-process-cost.md`).
+- **Do**: a failure of this second read falls back to the original snapshot's `head.target` rather
+  than failing the whole walk — a connector-only refinement must not cost the history walk.
+- **Evidence**: [ledger: Windows 未提交列連不到 HEAD](../ledger/2026-09-01-claude-windows-uncommitted-changes-5z40sr.md)
+
+## [CPP-readhead-propagates-failure] `RefStore::readHead()` propagates a genuine process failure, and `Session::open()` never calls it
+
+- **Rule**: a falsy `runner_.run()` result (spawn failure, timeout, a non-zero exit) returns
+  `fail(...)` directly, before the "no commits yet" fallback. It used to fold unconditionally into
+  that fallback, leaving `head.target` silently null forever on every refresh that hit it.
+- **Consequence**: this is safe because `Session::open()` never calls `readHead()`/
+  `RefStore::load()` — only the async `dispatchRefresh()` path does, which already has a graceful
+  "keep previous state, emit `GBM_EVENT_ERROR_OCCURRED`, skip this cycle" path for any `load()`
+  failure.
+- **Do**: a real repository cannot express "rev-parse fails, for-each-ref still succeeds" — git
+  treats a broken `HEAD` as "not a git repository" uniformly, so every command fails alike
+  (measured by hand). Test this failure-vs-Unborn distinction only with a `FakeProcessRunner` that
+  scripts the two commands independently (`tests/unit/RefStoreHeadTest.cpp`), never with a
+  real-repo capi integration test — one was written that way first and a mutation check caught it
+  staying green regardless of the fix.
+- **Evidence**: [ledger: Windows 未提交列連不到 HEAD](../ledger/2026-09-01-claude-windows-uncommitted-changes-5z40sr.md)

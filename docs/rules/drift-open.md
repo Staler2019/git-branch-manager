@@ -55,15 +55,24 @@ historical the moment they are written.
 - **Consequence**: `ActionToolbar`'s Pull only runs `pullChanges()` with the configured
   default (**#109**).
 
-## [DRIFT-updater-windows-untested] The updater script's Windows half is text-asserted only
+## [DRIFT-updater-windows-untested] The updater script's Windows half is parsed, never executed
 
 - **Rule**: the `sh` half is genuinely *executed* by `update_installer_script_test.dart`;
-  PowerShell cannot be, and PR CI compiles no Windows at all (**#69**).
+  PowerShell cannot be, and PR CI compiles no Windows at all (**#69**). **Superseding the
+  earlier 「text-asserted only」 wording**: it is now also syntax-checked on a real
+  `windows-latest` runner ([CI-powershell-golden-parse]) — which catches a parse error, and
+  still nothing about behaviour.
 - **Consequence**: the real install-and-restart has no automated coverage on any platform —
   the device-tier test deliberately stops at `readyToInstall`.
+- **Note**: two failures have now reached users through this gap from opposite directions —
+  「關掉了沒回來」(inherited CWD, BOM) and 「沒關掉、卡在 Installing…」(an unbounded synchronous
+  `gbm_session_close`). Both were invisible to every tier here.
 - **Do**: read `<systemTemp>/gbm-update.log` (`updateLogPath()`) — every arm of both
   scripts writes its exit code there, and every failure path reached after the app has
   exited relaunches, so the next failure is diagnosable rather than a vanished window.
+  **The app now writes its own half of that file too** ([CULT-log-both-sides-of-a-handover]),
+  so a handover that fails *before* the script starts is diagnosable as well; the app owns
+  truncation and both scripts append.
 - **Evidence**: ledger: 更新流程的三個缺陷
 
 ## [DRIFT-open-issues] Open issues

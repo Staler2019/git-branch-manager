@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:typed_data';
@@ -398,16 +399,25 @@ void main() {
     UpdateInstaller installerWith({
       required bool startSucceeds,
       String os = 'linux',
+      String? systemRoot,
+      bool watchdogArms = true,
     }) {
       return UpdateInstaller(
         operatingSystem: os,
         executablePath: '${root.path}/install/gbm_flutter',
+        systemRoot: systemRoot,
         exitProcess: (int code) => events.add('exit:$code'),
+        armWatchdog: (Duration after) async {
+          events.add('watchdog:${after.inSeconds}s');
+          return watchdogArms;
+        },
         start:
             (String exe, List<String> args, {String? workingDirectory}) async {
               events.add('start:$exe');
               startedIn.add(workingDirectory);
-              return startSucceeds;
+              return startSucceeds
+                  ? const DetachedStart.ok()
+                  : const DetachedStart.failed('no such file');
             },
       );
     }
@@ -419,14 +429,119 @@ void main() {
       beforeExit: () async => events.add('beforeExit'),
     );
 
-    // The ordering is the safety property. Closing the FFI sessions first
-    // means a hang there leaves the app alive with no script running --
-    // recoverable -- instead of a detached swap racing a live process.
-    test('closes down, starts the script, and only then exits', () async {
+    // The ordering is the safety property, and it is the opposite of what it
+    // was. This used to close the FFI sessions *first*, defended on the
+    // grounds that a hang there "leaves the app alive with no script running
+    // -- recoverable -- instead of a detached swap racing a live process".
+    // Both halves were wrong: the script's first act is to poll for the
+    // parent's exit, so it cannot race a live process; and the hang is not
+    // recoverable, because `installing` renders no buttons at all. A user on
+    // Windows hit exactly that and was left with a dialog frozen on
+    // "Installing…" and an updater that had never been started.
+    test('starts the script, then closes down, then exits', () async {
       final String? reason = await run(installerWith(startSucceeds: true));
 
       expect(reason, isNull);
-      expect(events, <String>['beforeExit', 'start:sh', 'exit:0']);
+      expect(events, <String>[
+        'start:sh',
+        'watchdog:20s',
+        'beforeExit',
+        'exit:0',
+      ]);
+    });
+
+    // The watchdog is what makes the reordering worth anything, and it must
+    // be armed only past a successful start -- that is what lets the failed
+    // start below stay alive without a cancellation handshake it could not
+    // perform anyway if the isolate were the thing that had wedged.
+    test('does not arm the watchdog when the script never started', () async {
+      await run(installerWith(startSucceeds: false));
+
+      expect(events, isNot(contains('watchdog:20s')));
+      expect(events, isNot(contains('exit:0')));
+    });
+
+    // The reported bug, as close as any tier here can get to it. On the
+    // user's machine `beforeExit` blocked the *isolate* -- a synchronous
+    // `gbm_session_close` whose C++ destructor waits in
+    // `operations_->drain()` -- and the dialog sat on "Installing…", which
+    // renders no buttons, forever.
+    //
+    // **This test cannot reproduce that shape, and saying so is the point.**
+    // A `Future.timeout` provably cannot bound synchronous work on its own
+    // isolate (measured: `.timeout(100ms)` around a body that sleeps three
+    // seconds completes at 3009ms without firing), so a fixture that really
+    // blocked would hang this runner rather than fail it. What is pinned
+    // here is the half that is testable -- a `beforeExit` that never
+    // completes no longer strands the handover -- while the blocked-isolate
+    // half is pinned by the ordering assertion above, which is what puts the
+    // watchdog in place before `beforeExit` is ever called.
+    test('exits anyway when the sessions never finish closing', () async {
+      final UpdateInstaller installer = UpdateInstaller(
+        operatingSystem: 'linux',
+        executablePath: '${root.path}/install/gbm_flutter',
+        sessionCloseDeadline: const Duration(milliseconds: 50),
+        exitProcess: (int code) => events.add('exit:$code'),
+        armWatchdog: (Duration after) async => true,
+        start: (String e, List<String> a, {String? workingDirectory}) async =>
+            const DetachedStart.ok(),
+      );
+
+      final String? reason = await installer.launchUpdater(
+        staged: staged,
+        scriptDir: scriptDir,
+        processId: 999999,
+        beforeExit: () => Completer<void>().future,
+      );
+
+      expect(reason, isNull);
+      expect(events, contains('exit:0'));
+      expect(
+        File('${scriptDir.path}/$kUpdateLogName').readAsStringSync(),
+        contains('the repository sessions did not close'),
+      );
+    });
+
+    // Everything the app does before handing over used to be written
+    // nowhere at all: the transcript had exactly one writer, the script,
+    // and on the reported failure the script was never started. A `.ps1` on
+    // disk with no `.log` beside it was the whole of the evidence.
+    test('writes the handover to the transcript', () async {
+      await run(installerWith(startSucceeds: true));
+
+      final String log = File(
+        '${scriptDir.path}/$kUpdateLogName',
+      ).readAsStringSync();
+      expect(log, contains('target=${root.path}/install'));
+      expect(log, contains('staged=${staged.path}'));
+      expect(log, contains('starting sh '));
+      expect(log, contains('updater started'));
+      expect(log, contains('watchdog armed for 20s'));
+      expect(log, contains('closing repository sessions'));
+      expect(log, contains('sessions closed'));
+      expect(log, contains('exiting'));
+    });
+
+    test('names every shell it tried when none of them start', () async {
+      await run(
+        installerWith(startSucceeds: false, os: 'windows', systemRoot: ''),
+      );
+
+      final String log = File(
+        '${scriptDir.path}/$kUpdateLogName',
+      ).readAsStringSync();
+      expect(log, contains('powershell.exe did not start: no such file'));
+      expect(log, contains('pwsh.exe did not start: no such file'));
+      expect(log, isNot(contains('updater started')));
+    });
+
+    test('records a watchdog that could not be armed', () async {
+      await run(installerWith(startSucceeds: true, watchdogArms: false));
+
+      expect(
+        File('${scriptDir.path}/$kUpdateLogName').readAsStringSync(),
+        contains('the watchdog could not be armed'),
+      );
     });
 
     test('does not exit when the script could not be started', () async {
@@ -443,9 +558,14 @@ void main() {
     test('writes the script outside the directory being replaced', () async {
       await run(installerWith(startSucceeds: true));
 
+      // The transcript now sits beside the script, so this filters rather
+      // than counting: `UpdateLog` deliberately writes into the same
+      // directory, which is how `updateLogPath()` and `$(dirname "$0")` name
+      // one file.
       final List<String> written = scriptDir
           .listSync()
           .map((e) => e.path)
+          .where((String path) => !path.endsWith(kUpdateLogName))
           .toList();
       expect(written, hasLength(1));
       expect(written.single, endsWith('.sh'));
@@ -471,7 +591,7 @@ void main() {
               '${root.path}/install/gbm_flutter.app/Contents/MacOS/gbm_flutter',
           exitProcess: (int code) => events.add('exit:$code'),
           start: (String e, List<String> a, {String? workingDirectory}) async =>
-              true,
+              const DetachedStart.ok(),
         ),
       );
 
@@ -500,11 +620,95 @@ void main() {
     });
 
     test('writes a .ps1 and starts powershell on Windows', () async {
-      await run(installerWith(startSucceeds: true, os: 'windows'));
+      await run(
+        installerWith(
+          startSucceeds: true,
+          os: 'windows',
+          systemRoot: r'C:\Windows',
+        ),
+      );
 
-      expect(events.first, 'beforeExit');
-      expect(events, contains('start:powershell'));
+      expect(events.first, startsWith('start:'));
+      expect(
+        events,
+        contains(
+          r'start:C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe',
+        ),
+      );
       expect(File('${scriptDir.path}/gbm-update.ps1').existsSync(), isTrue);
+    });
+
+    // A bare `powershell` is resolved by CreateProcess walking PATH, and a
+    // mangled PATH is a real Windows condition -- one that would take out
+    // the only route this app has to update itself, for a file that never
+    // moves. The absolute path goes first for that reason; the bare names
+    // stay as fallbacks for a machine whose %SystemRoot% is unset or whose
+    // PowerShell is 7-only.
+    test('prefers the absolute Windows PowerShell path', () async {
+      await run(
+        installerWith(
+          startSucceeds: true,
+          os: 'windows',
+          systemRoot: r'C:\Windows',
+        ),
+      );
+
+      expect(
+        events.first,
+        r'start:C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe',
+      );
+    });
+
+    test('falls back through powershell.exe to pwsh.exe', () async {
+      final List<String> tried = <String>[];
+      await UpdateInstaller(
+        operatingSystem: 'windows',
+        executablePath: '${root.path}/install/gbm_flutter.exe',
+        systemRoot: r'C:\Windows',
+        exitProcess: (int code) => events.add('exit:$code'),
+        armWatchdog: (Duration after) async => true,
+        start:
+            (String exe, List<String> args, {String? workingDirectory}) async {
+              tried.add(exe);
+              // Only the last candidate works, so every earlier one has to be
+              // tried for this to reach an exit at all.
+              return exe == 'pwsh.exe'
+                  ? const DetachedStart.ok()
+                  : const DetachedStart.failed('not found');
+            },
+      ).launchUpdater(
+        staged: staged,
+        scriptDir: scriptDir,
+        processId: 999999,
+        beforeExit: () async {},
+      );
+
+      expect(tried, <String>[
+        r'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe',
+        'powershell.exe',
+        'pwsh.exe',
+      ]);
+      expect(events, contains('exit:0'));
+    });
+
+    test('omits the absolute path when %SystemRoot% is unset', () async {
+      await run(
+        installerWith(startSucceeds: true, os: 'windows', systemRoot: ''),
+      );
+
+      expect(events.first, 'start:powershell.exe');
+    });
+
+    // The bool this used to answer threw the platform's own message away --
+    // and "The system cannot find the file specified" and "Access is denied"
+    // send the user somewhere completely different.
+    test('reports why the updater could not be started', () async {
+      final String? reason = await run(
+        installerWith(startSucceeds: false, os: 'windows', systemRoot: ''),
+      );
+
+      expect(reason, contains('no such file'));
+      expect(reason, contains(kUpdateLogName));
     });
 
     // THE Windows bug. `Process.start` with no `workingDirectory` inherits
@@ -558,7 +762,7 @@ void main() {
         exitProcess: (int code) => events.add('exit:$code'),
         start:
             (String exe, List<String> args, {String? workingDirectory}) async =>
-                true,
+                const DetachedStart.ok(),
       ).launchUpdater(
         staged: staged,
         scriptDir: scriptDir,

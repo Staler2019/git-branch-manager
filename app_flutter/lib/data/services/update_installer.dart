@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -153,7 +155,8 @@ bool _sameSegments(List<String> a, List<String> b) {
   return true;
 }
 
-/// Name of the transcript the updater script writes beside itself.
+/// Name of the transcript both halves of the handover write beside the
+/// updater script.
 ///
 /// The script runs after the process has exited, so nothing in the app can
 /// report what it did. Without a file on disk a failed update is entirely
@@ -170,6 +173,65 @@ const String kUpdateLogName = 'gbm-update.log';
 String updateLogPath() =>
     '${Directory.systemTemp.path}${Platform.pathSeparator}$kUpdateLogName';
 
+/// The update transcript, written by **both** halves of the handover.
+///
+/// The app owns truncation and the scripts only ever append. It was the
+/// other way round for one release -- each script opened the log with a
+/// truncating write and the app wrote nothing at all -- which meant the
+/// entire app-side half of the handover was undiagnosable: unpacking,
+/// closing the repository sessions and starting the updater could each fail
+/// with not one byte written anywhere, because the only writer was a script
+/// that had not been started yet. That is precisely the window the Windows
+/// report landed in: a `gbm-update.ps1` sitting in system temp, no
+/// `gbm-update.log` beside it, and the app still on screen. A diagnostic
+/// channel only the far side of a handover writes is no channel at all.
+///
+/// Never throws, on any method. Losing the transcript must never be what
+/// fails an update.
+class UpdateLog {
+  const UpdateLog(this.directory);
+
+  /// Always the directory the updater script is written into, so
+  /// `$PSScriptRoot`, `$(dirname "$0")` and [updateLogPath] cannot name
+  /// three different files.
+  final Directory directory;
+
+  File get file =>
+      File('${directory.path}${Platform.pathSeparator}$kUpdateLogName');
+
+  /// Starts a fresh transcript for one install attempt.
+  ///
+  /// Truncating here rather than in the scripts keeps the original reason
+  /// for truncating at all -- a transcript accumulating every update ever
+  /// run would bury the one being asked about -- while moving it to the
+  /// first thing that happens, so nothing written afterwards is lost.
+  void begin(String header) => _put(header, append: false);
+
+  /// Appends one timestamped line.
+  void write(String message) => _put(message, append: true);
+
+  /// Flushed on every line, because the next thing this process does on the
+  /// happy path is `exit(0)`, which runs no finalizers and flushes nothing.
+  void _put(String message, {required bool append}) {
+    try {
+      file.writeAsStringSync(
+        '${_stamp()} $message\n',
+        mode: append ? FileMode.append : FileMode.write,
+        flush: true,
+      );
+    } on Object {
+      // A read-only temp directory, a full disk, a path that has gone away.
+      // All three are the user's to resolve and none is worth failing an
+      // update over.
+    }
+  }
+
+  /// Second precision, matching `Get-Date -Format s` and `date
+  /// '+%Y-%m-%dT%H:%M:%S'` so the app's lines and the script's lines below
+  /// them read as one column.
+  static String _stamp() => DateTime.now().toIso8601String().split('.').first;
+}
+
 /// Suffix the updater script renames the outgoing install to.
 const String kPreviousInstallSuffix = '.gbm-old';
 
@@ -184,21 +246,105 @@ const String kPreviousInstallSuffix = '.gbm-old';
 /// never deleting a transfer in progress.
 const Duration kUpdateLeftoverMinAge = Duration(hours: 1);
 
+/// How long the handover waits for the repository sessions to close before
+/// giving up on them and exiting anyway.
+///
+/// User-ratified: 「子行程應該有 timeout，壞掉記 log」. The accepted cost is a
+/// `git` child still holding `.git/index.lock`, which the new build reports
+/// as "Another Git process appears to be running" -- recoverable, and
+/// visible. A dialog stuck on "Installing…" with no buttons, which is what
+/// an unbounded wait produced, is neither.
+const Duration kSessionCloseDeadline = Duration(seconds: 10);
+
+/// When the watchdog isolate ends the process regardless of what the main
+/// isolate is doing.
+///
+/// **The three deadlines are nested and the order is load-bearing**:
+/// [kSessionCloseDeadline] (10s) < this (20s) < the updater script's own
+/// `waitTimeout` (60s). Push this past the script's and the script gives up
+/// first -- `exit 2`, nothing changed -- and the app then dies anyway, so
+/// the user gets a window that closed *and* no update, which is worse than
+/// the bug being fixed.
+const Duration kUpdateWatchdogDeadline = Duration(seconds: 20);
+
+/// The outcome of trying to start a detached process, with the reason it
+/// did not start.
+///
+/// A third seam alongside [ProcessStarter] and [ProcessRunner] rather than a
+/// widening of either, for the reason [ProcessRunner]'s own doc comment
+/// gives: `ProcessStarter` answers a bare bool and that bool is what drives
+/// `DesktopLauncher`'s terminal fallback chains, while this one has to carry
+/// the `ProcessException` message across -- which is the single most useful
+/// string there is when an update fails to hand over, and which the bool
+/// threw away.
+class DetachedStart {
+  const DetachedStart({required this.started, this.error});
+
+  const DetachedStart.ok() : started = true, error = null;
+
+  const DetachedStart.failed(String this.error) : started = false;
+
+  final bool started;
+
+  /// Null exactly when [started]; the platform's own message otherwise.
+  final String? error;
+}
+
+/// Starts a process detached and says why it could not be started.
+typedef DetachedProcessStarter =
+    Future<DetachedStart> Function(
+      String executable,
+      List<String> arguments, {
+      String? workingDirectory,
+    });
+
+/// Arms a deadline after which the process exits whatever else is happening.
+/// Returns whether it was armed.
+typedef UpdateWatchdog = Future<bool> Function(Duration after);
+
+/// The watchdog, running on its own isolate -- which is the entire point.
+///
+/// [Future.timeout] cannot bound synchronous work on the isolate that is
+/// doing it: the `Timer` it arms needs the very event loop the blocking call
+/// is holding. Measured on this repository's Dart 3.12.2: `.timeout(100ms)`
+/// around a future whose body synchronously sleeps three seconds reports
+/// `completed after 3009ms` and never fires. `closeNativeSession()` is
+/// exactly that shape -- a synchronous FFI `gbm_session_close` whose C++
+/// destructor blocks in `operations_->drain()` until the operation worker
+/// goes idle -- so the deadline has to be enforced from somewhere the main
+/// isolate cannot stall. A spawned isolate has its own event loop on its own
+/// OS thread, and `exit()` from it terminates the whole VM (measured: the
+/// process ended with the watchdog's code while the main isolate was 30
+/// seconds into a synchronous sleep).
+///
+/// `sleep` rather than a `Timer` so nothing depends on this isolate having a
+/// live event-loop reason to stay alive.
+void updateWatchdogEntryPoint(int milliseconds) {
+  sleep(Duration(milliseconds: milliseconds));
+  exit(0);
+}
+
 class UpdateInstaller {
   const UpdateInstaller({
-    ProcessStarter? start,
+    DetachedProcessStarter? start,
     ProcessRunner? run,
+    UpdateWatchdog? armWatchdog,
     void Function(int code)? exitProcess,
     this.operatingSystem,
     this.executablePath,
     this.abi,
     this.homeDirectory,
+    this.systemRoot,
+    this.sessionCloseDeadline = kSessionCloseDeadline,
+    this.watchdogDeadline = kUpdateWatchdogDeadline,
   }) : _start = start ?? _startDetached,
        _run = run ?? _runToCompletion,
+       _armWatchdog = armWatchdog ?? _spawnWatchdog,
        _exitProcess = exitProcess ?? _realExit;
 
-  final ProcessStarter _start;
+  final DetachedProcessStarter _start;
   final ProcessRunner _run;
+  final UpdateWatchdog _armWatchdog;
 
   /// Injected for the same reason as the two above, and more urgently: the
   /// default really does end the process, so a test that reached this
@@ -218,6 +364,17 @@ class UpdateInstaller {
   /// Overridden in tests; null means the platform's own home variable.
   final String? homeDirectory;
 
+  /// Overridden in tests; null means `%SystemRoot%`. Only read on Windows,
+  /// where it locates the stock `powershell.exe` by absolute path.
+  final String? systemRoot;
+
+  /// Overridden in tests so a wedged `beforeExit` can be exercised in
+  /// milliseconds rather than in [kSessionCloseDeadline].
+  final Duration sessionCloseDeadline;
+
+  /// Overridden in tests, for the same reason as [sessionCloseDeadline].
+  final Duration watchdogDeadline;
+
   String get _os => operatingSystem ?? Platform.operatingSystem;
   String get _exe => executablePath ?? Platform.resolvedExecutable;
   Abi get _abi => abi ?? Abi.current();
@@ -226,7 +383,7 @@ class UpdateInstaller {
       homeDirectory ??
       Platform.environment[_os == 'windows' ? 'USERPROFILE' : 'HOME'];
 
-  static Future<bool> _startDetached(
+  static Future<DetachedStart> _startDetached(
     String executable,
     List<String> arguments, {
     String? workingDirectory,
@@ -238,8 +395,25 @@ class UpdateInstaller {
         workingDirectory: workingDirectory,
         mode: ProcessStartMode.detached,
       );
+      return const DetachedStart.ok();
+    } on ProcessException catch (e) {
+      // Kept rather than collapsed to a bool: "The system cannot find the
+      // file specified" and "Access is denied" send the user to completely
+      // different places, and the old bool sent them to neither.
+      return DetachedStart.failed(e.message);
+    } on Object catch (e) {
+      return DetachedStart.failed('$e');
+    }
+  }
+
+  /// Spawns [updateWatchdogEntryPoint]. Its failure is reported rather than
+  /// thrown: a watchdog that could not be armed is a diagnostic loss, not a
+  /// reason to abandon an update that is otherwise ready to hand over.
+  static Future<bool> _spawnWatchdog(Duration after) async {
+    try {
+      await Isolate.spawn(updateWatchdogEntryPoint, after.inMilliseconds);
       return true;
-    } on ProcessException {
+    } on Object {
       return false;
     }
   }
@@ -476,15 +650,43 @@ class UpdateInstaller {
     }
   }
 
-  /// Writes the updater script, runs [beforeExit], starts the script
-  /// detached, and only then exits the process.
+  /// Writes the updater script, starts it detached, closes the app down
+  /// under a deadline, and only then exits the process.
   ///
-  /// The ordering is deliberate and is what the tests pin. [beforeExit] is
-  /// where the app closes its FFI sessions; running it first means a hang
-  /// there leaves the app alive with no script running -- recoverable --
-  /// rather than a detached swap racing a live process. And the exit is not
-  /// reached at all if the script failed to start, so a machine with no
-  /// usable shell keeps both its working install and its running app.
+  /// **The order was the other way round for one release, and the rationale
+  /// that defended it was wrong.** It ran [beforeExit] first, on the grounds
+  /// that a hang there "leaves the app alive with no script running --
+  /// recoverable -- rather than a detached swap racing a live process". Both
+  /// halves fell over on a Windows report:
+  ///
+  /// * The swap does not race a live process. The script's first act after
+  ///   its own `cd` is to poll for the parent's exit every 200ms against a
+  ///   60s deadline, and its timeout arm changes nothing at all. Starting it
+  ///   early is safe by construction; that was never the risk it was
+  ///   defended against.
+  /// * "Recoverable" was the part the user actually hit, and it is not.
+  ///   [beforeExit] closes the FFI sessions, and `closeNativeSession()` is a
+  ///   *synchronous* `gbm_session_close` whose C++ destructor blocks in
+  ///   `operations_->drain()` until the operation worker goes idle -- which
+  ///   an operation waiting on askpass never does. The reported symptom is
+  ///   the dialog frozen on "Installing…", which by design renders no
+  ///   buttons, so there is nothing to recover *with*.
+  ///
+  /// So: start the script first, and only then close down, under two
+  /// deadlines that are both needed and neither of which subsumes the other.
+  /// [sessionCloseDeadline] catches a [beforeExit] that is merely slow;
+  /// [watchdogDeadline], enforced from another isolate, is the only thing
+  /// that can catch one that has blocked this isolate outright -- see
+  /// [updateWatchdogEntryPoint] for why a `Future.timeout` provably cannot.
+  ///
+  /// The exit is still not reached if the script failed to start, so a
+  /// machine with no usable shell keeps both its working install and its
+  /// running app -- and the watchdog is armed only past that point, which is
+  /// what lets that path stay alive with no cancellation handshake.
+  ///
+  /// Every step is written to [UpdateLog] beside the script, because on the
+  /// path this exists to fix there is no other channel: the app never gets
+  /// to render an error and the script never gets to write a line.
   ///
   /// Returns a reason string if the update could not be launched. On success
   /// it does not return: the process is gone.
@@ -516,6 +718,12 @@ class UpdateInstaller {
             relaunchCommand: _unixRelaunch(),
           );
 
+    final UpdateLog log = UpdateLog(scriptDir);
+    log.write('os=$_os');
+    log.write('target=${target.path}');
+    log.write('staged=${staged.path}');
+    log.write('script=${script.path}');
+
     // UTF-8 with a BOM on Windows, without one everywhere else, and the
     // asymmetry is not cosmetic. `powershell.exe` -- Windows PowerShell 5.1,
     // which is what `-File` resolves to on a stock machine -- reads a
@@ -527,39 +735,118 @@ class UpdateInstaller {
     // is a syntax error, not a hint.
     script.writeAsStringSync(isWindows ? '\uFEFF$body' : body);
 
-    await beforeExit();
+    final DetachedStart outcome = await _startUpdater(script, scriptDir, log);
+    if (!outcome.started) {
+      // Nothing has been armed and nothing has been closed, so the app is
+      // simply still here -- which is the right outcome for a machine with
+      // no shell to run the swap with.
+      return 'The updater could not be started (${outcome.error}). Your '
+          'current version is untouched; install the new version from the '
+          'releases page. ${log.file.path} has the details.';
+    }
+    log.write('updater started');
 
-    // `workingDirectory` is load-bearing on Windows, not tidiness.
-    // `Process.start` inherits the parent's current directory when none is
-    // given, and an app launched by double-clicking its .exe has the install
-    // directory as its own -- so the detached updater stood inside the very
-    // folder it then tried to rename. Windows refuses to rename or delete
-    // any process's current directory (that handle carries no
-    // FILE_SHARE_DELETE), so `Move-Item` failed every retry and the script
-    // gave up having already closed the app and changed nothing. POSIX
-    // permits it, which is why only Windows broke. `scriptDir` is outside
-    // the target by construction -- the script is deliberately never written
-    // into the directory being replaced.
-    final bool started = isWindows
-        ? await _start('powershell', <String>[
-            '-NoProfile',
-            '-ExecutionPolicy',
-            'Bypass',
-            '-File',
-            script.path,
-          ], workingDirectory: scriptDir.path)
-        : await _start('sh', <String>[
-            script.path,
-          ], workingDirectory: scriptDir.path);
+    // Armed before the close, never after: closing is the thing it exists to
+    // survive. Only past a successful start, so the branch above can stay
+    // alive without a cancellation handshake -- which it could not perform
+    // anyway if the isolate were the thing that wedged.
+    log.write(
+      await _armWatchdog(watchdogDeadline)
+          ? 'watchdog armed for ${_readable(watchdogDeadline)}'
+          : 'the watchdog could not be armed',
+    );
 
-    if (!started) {
-      return 'The updater could not be started. Your current version is '
-          'untouched; install the new version from the releases page.';
+    log.write('closing repository sessions');
+    try {
+      await beforeExit().timeout(sessionCloseDeadline);
+      log.write('sessions closed');
+    } on TimeoutException {
+      log.write(
+        'the repository sessions did not close within '
+        '${_readable(sessionCloseDeadline)}; exiting anyway',
+      );
+    } on Object catch (e) {
+      // Swallowed for the same reason OpenRepoSessions.closeAll() swallows
+      // its own: the process is on its way out and there is no surface left
+      // to report on. Recorded, though -- that is what was missing.
+      log.write('closing the repository sessions failed: $e');
     }
 
+    log.write('exiting');
     _exitProcess(0);
     return null;
   }
+
+  /// Whole seconds where the duration has them, milliseconds otherwise, so
+  /// a deadline tuned below a second does not report itself as `0s`.
+  static String _readable(Duration d) => d.inMilliseconds % 1000 == 0
+      ? '${d.inSeconds}s'
+      : '${d.inMilliseconds}ms';
+
+  /// Tries each shell [_updaterShells] offers until one starts, recording
+  /// every attempt.
+  ///
+  /// `workingDirectory` is load-bearing on Windows, not tidiness.
+  /// `Process.start` inherits the parent's current directory when none is
+  /// given, and an app launched by double-clicking its .exe has the install
+  /// directory as its own -- so the detached updater stood inside the very
+  /// folder it then tried to rename. Windows refuses to rename or delete any
+  /// process's current directory (that handle carries no FILE_SHARE_DELETE),
+  /// so `Move-Item` failed every retry and the script gave up having already
+  /// closed the app and changed nothing. POSIX permits it, which is why only
+  /// Windows broke. `scriptDir` is outside the target by construction -- the
+  /// script is deliberately never written into the directory being replaced.
+  Future<DetachedStart> _startUpdater(
+    File script,
+    Directory scriptDir,
+    UpdateLog log,
+  ) async {
+    DetachedStart outcome = const DetachedStart.failed(
+      'no shell candidate was tried',
+    );
+    for (final String shell in _updaterShells()) {
+      final List<String> arguments = _updaterArguments(script);
+      log.write('starting $shell ${arguments.join(' ')}');
+      outcome = await _start(
+        shell,
+        arguments,
+        workingDirectory: scriptDir.path,
+      );
+      if (outcome.started) return outcome;
+      log.write('$shell did not start: ${outcome.error}');
+    }
+    return outcome;
+  }
+
+  /// The shells to try, in order.
+  ///
+  /// Windows leads with an absolute path rather than the bare name it used
+  /// to use. A bare `powershell` is resolved by `CreateProcess` walking
+  /// `PATH`, and a truncated or mangled `PATH` is a real condition on
+  /// Windows -- one that would take out the only route this app has to
+  /// update itself, for a file that is always in the same place. `pwsh.exe`
+  /// last, because PowerShell 7 is not on a stock machine and the script is
+  /// written for what `-File` resolves to when it is absent.
+  List<String> _updaterShells() {
+    if (_os != 'windows') return const <String>['sh'];
+    final String? root = systemRoot ?? Platform.environment['SystemRoot'];
+    return <String>[
+      if (root != null && root.isNotEmpty)
+        '$root\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+      'powershell.exe',
+      'pwsh.exe',
+    ];
+  }
+
+  List<String> _updaterArguments(File script) => _os == 'windows'
+      ? <String>[
+          '-NoProfile',
+          '-ExecutionPolicy',
+          'Bypass',
+          '-File',
+          script.path,
+        ]
+      : <String>[script.path];
 
   static void _realExit(int code) => exit(code);
 
@@ -620,11 +907,12 @@ set -u
 # on any platform, and on Windows the equivalent is what broke the update.
 cd "\$(dirname "\$0")" || exit 1
 
-# Beside the script, truncated on every run: a transcript that accumulated
-# every update ever run would bury the one being asked about. Failures to
-# write are swallowed -- losing the log must never be what fails the update.
+# Beside the script, appended to: the app truncated it when this install
+# began and has already written everything that happened before the handover
+# (see UpdateLog). Truncating here would delete exactly the half that says
+# why the app never got this far. Failures to write are swallowed -- losing
+# the log must never be what fails the update.
 LOG="\$PWD/$kUpdateLogName"
-: > "\$LOG" 2>/dev/null || true
 log() {
   printf '%s %s\\n' "\$(date '+%Y-%m-%dT%H:%M:%S')" "\$*" >> "\$LOG" 2>/dev/null || true
 }
@@ -663,8 +951,11 @@ relaunch() {
 }
 
 rm -rf "\$BACKUP"
-if ! mv "\$TARGET" "\$BACKUP"; then
-  log "could not rename the install aside; nothing was changed"
+# stderr is kept because "could not rename" on its own names no cause. It
+# only ever reaches a *message*: these strings are gettext-localised, so
+# nothing branches on them.
+if ! mv_error=\$(mv "\$TARGET" "\$BACKUP" 2>&1); then
+  log "could not rename the install aside; nothing was changed: \$mv_error"
   relaunch
   finish 3
 fi
@@ -711,11 +1002,12 @@ String buildWindowsUpdaterScript({
 Set-Location -LiteralPath \$PSScriptRoot
 [System.Environment]::CurrentDirectory = \$PSScriptRoot
 
-# Beside the script, truncated on every run: a transcript that accumulated
-# every update ever run would bury the one being asked about. Failures to
-# write are swallowed -- losing the log must never be what fails the update.
+# Beside the script, appended to: the app truncated it when this install
+# began and has already written everything that happened before the handover
+# (see UpdateLog). Truncating here would delete exactly the half that says
+# why the app never got this far. Failures to write are swallowed -- losing
+# the log must never be what fails the update.
 \$log = Join-Path \$PSScriptRoot '$kUpdateLogName'
-Set-Content -LiteralPath \$log -Value '' -ErrorAction SilentlyContinue
 function Write-Log(\$message) {
   try {
     Add-Content -LiteralPath \$log -Value "\$(Get-Date -Format s) \$message"
@@ -757,6 +1049,7 @@ while (Get-Process -Id \$parentPid -ErrorAction SilentlyContinue) {
 # Antivirus and Explorer routinely keep a handle open for a moment after the
 # process itself has gone, so the rename is retried rather than trusted.
 \$renamed = \$false
+\$lastError = 'no attempt was made'
 for (\$i = 0; \$i -lt 20; \$i++) {
   try {
     if (Test-Path -LiteralPath \$backup) {
@@ -766,11 +1059,16 @@ for (\$i = 0; \$i -lt 20; \$i++) {
     \$renamed = \$true
     break
   } catch {
+    # Kept, not just slept on: all twenty retries used to swallow this, so
+    # exit 3 named the step that failed and nothing about why -- and a
+    # sharing violation, an access denial and a missing path each send the
+    # user somewhere different.
+    \$lastError = "\$_"
     Start-Sleep -Milliseconds 500
   }
 }
 if (-not \$renamed) {
-  Write-Log 'could not rename the install aside; nothing was changed'
+  Write-Log "could not rename the install aside; nothing was changed: \$lastError"
   Restart-App
   Stop-Updater 3
 }

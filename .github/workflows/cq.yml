@@ -120,6 +120,47 @@ jobs:
           fi
           echo "every flutter-action use pins flutter-version"
 
+  # The generated PowerShell updater is the one artefact of this repository
+  # that nothing else compiles, parses or runs. ci.yml's Flutter job is
+  # ubuntu-only, windows/runner/ builds solely on a release tag (#69), and
+  # update_installer_script_test.dart is @TestOn('mac-os || linux') because
+  # there is no PowerShell to run the other half with. A syntax error in it
+  # therefore reached users before it reached anyone else -- and it arrived
+  # as "the app closed and never came back", since a parse failure happens
+  # before the script's first statement and so before it can write a word of
+  # its own transcript.
+  #
+  # Parse only, never execute: this script renames an install directory
+  # aside, and running it on a CI machine is not a thing to do by accident.
+  # It parses the checked-in golden rather than generating the script, which
+  # keeps a whole Flutter toolchain off the Windows runner --
+  # update_script_golden_test.dart is what stops the golden drifting from the
+  # generator, and it fails on Linux long before this job would.
+  powershell-parse:
+    name: PowerShell syntax
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # `powershell`, not `pwsh`: Windows PowerShell 5.1 is what `-File`
+      # resolves to on a stock machine, so it is the parser whose opinion
+      # decides whether a user's update runs.
+      - name: Parse the generated updater script
+        shell: powershell
+        run: |
+          $path = "app_flutter/test/fixtures/gbm-update.ps1.golden"
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path $path), [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) {
+            foreach ($e in $errors) {
+              Write-Output "::error file=$path,line=$($e.Extent.StartLineNumber)::$($e.Message)"
+            }
+            exit 1
+          }
+          Write-Output "$path parses clean ($($tokens.Count) tokens)"
+
   dart-format:
     name: Dart format
     runs-on: ubuntu-22.04

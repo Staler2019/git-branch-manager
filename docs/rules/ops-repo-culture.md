@@ -151,3 +151,21 @@ Set by the user, not derived from the code — they outrank convenience every ti
   to a grep for the constructor name, and a missing key is `null as int` at runtime.
 - **Do**: only a per-commit checkout sees this; every run at the branch tip is green.
 - **Evidence**: line-counts round
+
+## [CULT-log-both-sides-of-a-handover] A diagnostic channel only the far side of a handover writes is no channel at all
+
+- **Rule**: if the UI names a log file to the user, everything that can fail *before* the far
+  side starts must already be in it.
+- **Consequence**: `gbm-update.log` had exactly one writer, the generated updater script, while
+  the dialog promised 「if it does not come back, `<temp>\gbm-update.log` says why」. Every
+  app-side failure — a corrupt archive, a shell that would not start, a session close that never
+  returned, `install()`'s own guard `return` — produced a `.ps1` on disk with **no log beside
+  it**. That is the entire user-visible evidence of the reported bug.
+- **Do**: give the near side ownership of **truncation** and leave the far side append-only.
+  The original reason for truncating (a transcript accumulating every run buries the one being
+  asked about) is preserved by moving it to the start of the attempt, not by deleting the near
+  side's half every time.
+- **Do**: a bare `return` on a guard, and a `catch` that collapses an exception to a `bool`, are
+  both this rule's failure in miniature — «The system cannot find the file specified» and
+  «Access is denied» send the user somewhere different, and a `bool` sends them to neither.
+- **Evidence**: [ledger: Install and restart 卡在 Installing…](../ledger/2026-09-01-claude-windows-app-update-install-irloo0.md)

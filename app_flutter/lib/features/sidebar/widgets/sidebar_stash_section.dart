@@ -13,23 +13,27 @@ import '../../../routing/route_paths.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_menu.dart';
+import '../../../widgets/gbm_row.dart';
 import '../../../widgets/prompt_text_dialog.dart';
+import '../../history_graph/widgets/graph_date_format.dart';
 import 'sidebar_section_label.dart';
 import 'stash_menu_items.dart';
 
 /// The sidebar's STASH section: its label and one row per stash.
 ///
-/// Unlike `BranchSelectionActionBar` this is a `ConsumerWidget` rather than a
-/// presentational one, because a stash row's six actions (05-H) are the only
-/// callers of the controller methods behind them -- routing them back up
-/// through `SidebarPanel` as six callbacks would put a hop in the way and
-/// leave the panel holding state it does not otherwise use. The branch tree
-/// is the opposite case: its selection *is* panel state, which is why that
+/// Unlike `BranchSelectionActionBar` this is a `ConsumerStatefulWidget`
+/// rather than a presentational one: a stash row's six actions (05-H) are
+/// the only callers of the controller methods behind them, so routing them
+/// back up through `SidebarPanel` as six callbacks would put a hop in the
+/// way and leave the panel holding state it does not otherwise use, and
+/// which stash row is selected is cosmetic, self-contained state with no
+/// other reader. The branch tree is the opposite case on both counts: its
+/// selection *is* panel state (other surfaces read it), which is why that
 /// half stays there.
 ///
 /// Renders nothing when [stashes] is empty, so the caller does not repeat the
 /// P02-14 rule 5 emptiness check (「沒有命中的段落整段隱藏，不留空標題」).
-class SidebarStashSection extends ConsumerWidget {
+class SidebarStashSection extends ConsumerStatefulWidget {
   const SidebarStashSection({
     super.key,
     required this.identity,
@@ -43,10 +47,25 @@ class SidebarStashSection extends ConsumerWidget {
   final List<StashEntry> stashes;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    if (stashes.isEmpty) return const SizedBox.shrink();
+  ConsumerState<SidebarStashSection> createState() =>
+      _SidebarStashSectionState();
+}
 
-    final RepoSessionState session = ref.watch(repoSessionProvider(identity));
+class _SidebarStashSectionState extends ConsumerState<SidebarStashSection> {
+  // Purely cosmetic -- nothing downstream reads which stash is highlighted
+  // (there's no detail pane here, unlike StashesPanel's own _selectedIndex,
+  // which this mirrors). Keyed by index, matching StashesPanel's existing
+  // convention for this exact model type rather than inventing a second
+  // identity scheme for StashEntry selection.
+  int? _selectedIndex;
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.stashes.isEmpty) return const SizedBox.shrink();
+
+    final RepoSessionState session = ref.watch(
+      repoSessionProvider(widget.identity),
+    );
     // Sourced from isActionEnabled(), not session.conflictActive directly --
     // same pattern as every other conflict-sensitive gate in the sidebar.
     // branchStashChanges is the closest existing id (stash apply/pop mutate
@@ -60,50 +79,46 @@ class SidebarStashSection extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         const SidebarSectionLabel('STASH'),
-        for (final StashEntry stash in stashes)
+        for (final StashEntry stash in widget.stashes)
           _StashRow(
             stash: stash,
+            selected: stash.index == _selectedIndex,
+            onTap: () => setState(() => _selectedIndex = stash.index),
             onSecondaryTapDown: (TapDownDetails details) =>
-                _openContextMenu(context, ref, details, stash, conflictActive),
+                _openContextMenu(details.globalPosition, stash, conflictActive),
+            onOpenMenu: (Offset position) =>
+                _openContextMenu(position, stash, conflictActive),
           ),
       ],
     );
   }
 
   void _openContextMenu(
-    BuildContext context,
-    WidgetRef ref,
-    TapDownDetails details,
+    Offset position,
     StashEntry stash,
     bool conflictActive,
   ) {
     showGbmContextMenu(
       context,
-      details.globalPosition,
+      position,
       stashMenuItems(
-        onApply: conflictActive ? null : () => _apply(ref, stash),
-        onPop: conflictActive ? null : () => _apply(ref, stash, pop: true),
-        onCreateBranch: conflictActive
-            ? null
-            : () => _createBranchFrom(context, ref, stash),
-        onViewDiff: () => _viewDiff(context, ref, stash),
-        onCompare: () => _compare(context, ref, stash),
-        onDrop: () => _drop(ref, stash),
+        onApply: conflictActive ? null : () => _apply(stash),
+        onPop: conflictActive ? null : () => _apply(stash, pop: true),
+        onCreateBranch: conflictActive ? null : () => _createBranchFrom(stash),
+        onViewDiff: () => _viewDiff(stash),
+        onCompare: () => _compare(stash),
+        onDrop: () => _drop(stash),
       ),
     );
   }
 
-  void _apply(WidgetRef ref, StashEntry stash, {bool pop = false}) {
+  void _apply(StashEntry stash, {bool pop = false}) {
     ref
-        .read(repoSessionProvider(identity).notifier)
+        .read(repoSessionProvider(widget.identity).notifier)
         .applyStash(stash.index, pop: pop);
   }
 
-  Future<void> _createBranchFrom(
-    BuildContext context,
-    WidgetRef ref,
-    StashEntry stash,
-  ) async {
+  Future<void> _createBranchFrom(StashEntry stash) async {
     final String? name = await promptText(
       context,
       title: 'New Branch from Stash',
@@ -111,7 +126,7 @@ class SidebarStashSection extends ConsumerWidget {
     );
     if (name == null || !context.mounted) return;
     ref
-        .read(repoSessionProvider(identity).notifier)
+        .read(repoSessionProvider(widget.identity).notifier)
         .branchFromStash(stash.index, name);
   }
 
@@ -122,10 +137,10 @@ class SidebarStashSection extends ConsumerWidget {
   /// beside History/Working Copy and replaces the shell's child. The stash
   /// index rides in the query rather than the tab id, so asking twice for
   /// two different stashes focuses one tab instead of opening two.
-  void _viewDiff(BuildContext context, WidgetRef ref, StashEntry stash) {
-    final String repoId = Uri.encodeComponent(identity.workDir);
+  void _viewDiff(StashEntry stash) {
+    final String repoId = Uri.encodeComponent(widget.identity.workDir);
     final String tabId = ref
-        .read(panelTabsProvider(identity).notifier)
+        .read(panelTabsProvider(widget.identity).notifier)
         .open(GbmPanelKind.manageStashes);
     context.go(
       RoutePaths.panelFor(
@@ -140,81 +155,113 @@ class SidebarStashSection extends ConsumerWidget {
   // stash entry is a real commit (`git stash` creates one even though it
   // never gets a branch), so this is the same `left: <ref string>`
   // mechanism repositoryCompare already uses, not a new capability.
-  void _compare(BuildContext context, WidgetRef ref, StashEntry stash) {
-    final String repoId = Uri.encodeComponent(identity.workDir);
+  void _compare(StashEntry stash) {
+    final String repoId = Uri.encodeComponent(widget.identity.workDir);
     final String tabId = ref
-        .read(compareTabsProvider(identity).notifier)
+        .read(compareTabsProvider(widget.identity).notifier)
         .open(left: stash.oid);
     context.go(RoutePaths.compareFor(repoId, tabId));
   }
 
-  void _drop(WidgetRef ref, StashEntry stash) {
-    ref.read(repoSessionProvider(identity).notifier).dropStash(stash.index);
+  void _drop(StashEntry stash) {
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .dropStash(stash.index);
   }
 }
 
 class _StashRow extends StatelessWidget {
-  const _StashRow({required this.stash, required this.onSecondaryTapDown});
+  const _StashRow({
+    required this.stash,
+    required this.selected,
+    required this.onTap,
+    required this.onSecondaryTapDown,
+    required this.onOpenMenu,
+  });
 
   final StashEntry stash;
+  final bool selected;
+  final VoidCallback onTap;
   final GestureTapDownCallback onSecondaryTapDown;
+
+  /// Called with the ⋯ button's own global position, for the same
+  /// `showGbmContextMenu(context, position, items)` call `onSecondaryTapDown`
+  /// makes -- one menu, two ways to reach it, mirroring BranchTreeItem.
+  final ValueChanged<Offset> onOpenMenu;
+
+  // Matches BranchTreeItem's `_kActionsSlotWidth`, for the same reason: a
+  // fixed-width trailing slot keeps the sidebar's ⋯ column straight.
+  static const double _kActionsSlotWidth = 32;
 
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
-    return GestureDetector(
+    return GbmRow(
+      // Two stacked lines (message + relative time) at textSm/textXs --
+      // this is PanelListRow's own height for exactly this shape, chosen
+      // because rowHeightComfortable alone clips a second line by ~2px.
+      height: GbmSpacing.rowHeightComfortable + GbmSpacing.space3,
+      padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
+      selected: selected,
+      onTap: onTap,
       onSecondaryTapDown: onSecondaryTapDown,
-      child: Container(
-        // No fixed height, unlike a branch row -- this row shows two lines
-        // (message + relative time) rather than one, and rowHeightCompact
-        // (26px) is too short for both at GbmTypography's textSm/textXs
-        // sizes, overflowing the Column below by several pixels. Vertical
-        // padding gives it breathing room instead of pinning a height that
-        // would need recalibrating by hand every time either text style
-        // changes.
-        padding: const EdgeInsets.symmetric(
-          horizontal: GbmSpacing.space2,
-          vertical: GbmSpacing.space1,
-        ),
-        child: Row(
-          children: <Widget>[
-            const SizedBox(width: GbmSpacing.space2),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    stash.message,
-                    style: TextStyle(
-                      fontSize: GbmTypography.textSm,
-                      color: colors.textPrimary,
-                    ),
-                    overflow: TextOverflow.ellipsis,
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  stash.message,
+                  style: TextStyle(
+                    fontSize: GbmTypography.textSm,
+                    color: colors.textPrimary,
                   ),
-                  Text(
-                    _relativeTime(stash.timestamp),
-                    style: TextStyle(
-                      fontSize: GbmTypography.textXs,
-                      color: colors.textTertiary,
-                    ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  formatGraphDate(
+                    DateTime.fromMillisecondsSinceEpoch(stash.timestamp * 1000),
+                    DateTime.now(),
                   ),
-                ],
+                  style: TextStyle(
+                    fontSize: GbmTypography.textXs,
+                    color: colors.textTertiary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Every row gets this button unconditionally, matching
+          // BranchTreeItem -- the right-click menu above is real but
+          // undiscoverable on its own.
+          SizedBox(
+            width: _kActionsSlotWidth,
+            child: Builder(
+              builder: (BuildContext buttonContext) => IconButton(
+                tooltip: 'Stash actions',
+                icon: Icon(
+                  Icons.more_vert,
+                  size: 16,
+                  color: colors.textTertiary,
+                ),
+                iconSize: 16,
+                constraints: const BoxConstraints(
+                  minWidth: _kActionsSlotWidth,
+                  minHeight: _kActionsSlotWidth,
+                ),
+                padding: EdgeInsets.zero,
+                onPressed: () {
+                  final RenderBox box =
+                      buttonContext.findRenderObject()! as RenderBox;
+                  onOpenMenu(box.localToGlobal(Offset.zero));
+                },
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
-  }
-
-  static String _relativeTime(int millisecondsSinceEpoch) {
-    final Duration diff = DateTime.now().difference(
-      DateTime.fromMillisecondsSinceEpoch(millisecondsSinceEpoch),
-    );
-    if (diff.inMinutes < 1) return 'just now';
-    if (diff.inHours < 1) return '${diff.inMinutes}m ago';
-    if (diff.inDays < 1) return '${diff.inHours}h ago';
-    return '${diff.inDays}d ago';
   }
 }

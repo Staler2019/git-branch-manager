@@ -13,3 +13,4 @@ this file positionally.
 - 2026-09-01 — [claude/working-copy-untracked-files-qq2gnc](2026-09-01-claude-working-copy-untracked-files-qq2gnc.md) — 未追蹤檔案終於看得到 diff、也 stage/discard 得動；太大的 diff 改成明講拒絕而不是默默只畫一半
 - 2026-09-01 — [claude/windows-app-update-install-irloo0](2026-09-01-claude-windows-app-update-install-irloo0.md) — Install and restart 卡在 Installing…：關 session 的同步 FFI 沒有逾時，交接過程也沒有任何紀錄
 - 2026-09-01 — [claude/windows-uncommitted-changes-5z40sr](2026-09-01-claude-windows-uncommitted-changes-5z40sr.md) — 修 Windows 上未提交列連不到 HEAD：trunkTip 的 TOCTOU race、readHead() 把失敗誤判為空 repo
+- 2026-09-01 — [claude/sidebar-stash-styling-date-3dvzmu](2026-09-01-claude-sidebar-stash-styling-date-3dvzmu.md) — 側邊欄 STASH 列改用 GbmRow 補上 hover/選取/⋯ 選單按鈕，並修掉 timestamp 少乘 1000 造成的「20676d ago」

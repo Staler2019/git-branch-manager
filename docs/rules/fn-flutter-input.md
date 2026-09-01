@@ -23,7 +23,12 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
   in `working_copy_view.dart` that also re-implemented `GbmButton(secondary, sm)`'s border, text
   size and padding by hand. **That grep is worth running at the end of any round that touches
   widgets.**
-- **Evidence**: ledger: Sidebar branch rows
+- **Consequence**: a fourth instance — the sidebar's STASH rows (`sidebar_stash_section.dart`'s
+  `_StashRow`, a `GestureDetector` + `Container` with no `InkWell` at all) — shipped with no
+  hover, no selected tint, and no discoverable menu trigger, because this one was never swept;
+  it took a direct user report rather than the grep above to surface it.
+- **Evidence**: ledger: Sidebar branch rows; [ledger: 側邊欄 STASH 列補上
+  hover/選取/選單](../ledger/2026-09-01-claude-sidebar-stash-styling-date-3dvzmu.md)
 
 ## [FLU-gesture-arena-taxes-double-tap] The gesture arena taxes double-clickable rows, and it is not local
 

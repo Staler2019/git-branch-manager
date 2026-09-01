@@ -213,11 +213,16 @@ void main() {
       );
     });
 
-    // Truncated, not appended to: a transcript that accumulated every update
-    // ever run would bury the one the user is being asked about.
-    test('starts fresh rather than appending to the last run', () async {
-      final File log = File('${root.path}/$kUpdateLogName')
-        ..writeAsStringSync('LEFTOVER FROM AN OLDER UPDATE\n');
+    // Appended to, not truncated -- and this assertion is the inverse of the
+    // one it replaces. Truncation moved to the app (`UpdateLog.begin`), which
+    // opens the transcript when the install starts and writes everything up
+    // to the handover into it. A script that truncated would delete exactly
+    // the half that explains a failure the script was never reached for --
+    // which is the whole of the Windows report this round came from.
+    test('appends to what the app already wrote', () async {
+      final File log = File(
+        '${root.path}/$kUpdateLogName',
+      )..writeAsStringSync('2026-09-01T00:00:00 closing repository sessions\n');
       final Directory target = dirWithMarker('install', 'old');
       final Directory staged = dirWithMarker('staged', 'new');
 
@@ -231,7 +236,44 @@ void main() {
         ),
       );
 
-      expect(log.readAsStringSync(), isNot(contains('LEFTOVER')));
+      final String contents = log.readAsStringSync();
+      expect(contents, contains('closing repository sessions'));
+      expect(contents, contains('exit 0'));
+    });
+
+    // A second fixture for the same arm as 'records a rename that could not
+    // happen', and deliberately not a replacement for it. That one makes the
+    // *parent* read-only, which is the faithful shape of the real failure --
+    // and which a uid 0 test runner walks straight through, because root
+    // ignores the mode bits. A target that is not there fails the rename for
+    // every user alive, so this is the one that actually exercises the arm
+    // wherever the suite happens to run.
+    test('records why the rename could not happen', () async {
+      final Directory staged = dirWithMarker('staged', 'new');
+      final String missing = '${root.path}/never-installed-here';
+
+      final int code = await runScript(
+        buildUnixUpdaterScript(
+          pid: 999999,
+          targetPath: missing,
+          stagedPath: staged.path,
+          copyCommand: 'cp -a',
+          relaunchCommand: ':',
+        ),
+      );
+
+      expect(code, 3, reason: 'the rename really must have failed');
+      final String log = File(
+        '${root.path}/$kUpdateLogName',
+      ).readAsStringSync();
+      // The cause, not merely the step. `mv`'s wording is gettext-localised,
+      // so this asserts that *something* followed the colon rather than any
+      // particular sentence -- the same line this repo already draws between
+      // informing a message and deciding on one.
+      final RegExp reported = RegExp(
+        r'could not rename the install aside; nothing was changed: \S+',
+      );
+      expect(log, matches(reported));
     });
   });
 

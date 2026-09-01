@@ -313,11 +313,24 @@ class UpdateController extends StateNotifier<UpdateState> {
     final ReleaseAsset? asset = current.asset;
     final String? bundlePath = current.downloadedPath;
     final Directory? dir = _downloadDir;
+
+    // The script, the transcript and the path the dialog shows the user all
+    // derive from this one local, so no two of them can name different
+    // places.
+    final Directory scriptDir = Directory.systemTemp;
+    final UpdateLog log = UpdateLog(scriptDir);
+
     if (current.status != UpdateStatus.readyToInstall ||
         release == null ||
         asset == null ||
         bundlePath == null ||
         dir == null) {
+      // Appended rather than begun: this attempt never started, and blanking
+      // the transcript would take the previous one's evidence with it. It
+      // was a bare `return` -- a press of Install and restart that left the
+      // dialog exactly as it was, with no record anywhere that it had been
+      // refused.
+      log.write('install refused: status=${current.status.name}');
       return;
     }
 
@@ -327,11 +340,18 @@ class UpdateController extends StateNotifier<UpdateState> {
       downloadedPath: bundlePath,
     );
 
+    // One install attempt, one transcript. Opened here rather than inside
+    // `launchUpdater` so an archive that will not unpack is recorded too --
+    // that failure is reportable on screen, but the user looking in the log
+    // should not find it silent there.
+    log.begin('installing ${release.version} (${asset.name})');
+
     try {
       // Unpacked before the app quits, never inside the script: an archive
       // that will not open is then an error there is still a window to
       // report, rather than a broken install found when nothing is left
       // running to report it.
+      log.write('unpacking $bundlePath');
       final Directory staged = await _installer.stage(
         bundle: File(bundlePath),
         into: dir,
@@ -343,15 +363,17 @@ class UpdateController extends StateNotifier<UpdateState> {
       // stale `gbm-update-*` directories belongs with the `.gbm-old` sweep.
       final String? reason = await _installer.launchUpdater(
         staged: staged,
-        scriptDir: Directory.systemTemp,
+        scriptDir: scriptDir,
         beforeExit: beforeExit,
       );
       if (reason != null) {
         state = UpdateState.failed(reason);
       }
     } on UpdateInstallException catch (e) {
+      log.write('failed: ${e.message}');
       state = UpdateState.failed(e.message);
     } on Object catch (e) {
+      log.write('failed: $e');
       state = UpdateState.failed('The update could not be installed: $e');
     }
   }

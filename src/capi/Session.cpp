@@ -370,9 +370,7 @@ void Session::dispatchRefresh(RefreshCoalescer::Generation generation, Cancellat
         }
 
         // Lane 0 belongs to HEAD's branch (spec P02's 「目前開發中的分支永遠佔
-        // lane 0」). The oid is already in hand -- `head.target` is the same
-        // commit `historySeedRefs()` puts first -- so this costs no extra git
-        // call and no name-to-oid resolution.
+        // lane 0」).
         //
         // **Only for an unfiltered walk.** A narrowed one need not contain
         // HEAD's tip at all, and a reservation nothing claims leaves the
@@ -381,7 +379,30 @@ void Session::dispatchRefresh(RefreshCoalescer::Generation generation, Cancellat
         // is dropped there and falls back to the unfiltered walk -- reading the
         // member instead would reserve nothing on exactly that path.
         if (query.includeRefs.empty()) {
-            query.trunkTip = refsResult.value()->head.target;
+            // Deliberately re-read HEAD here rather than reusing
+            // refsResult's head.target: that snapshot was captured *before*
+            // refStore_->load()'s own for-each-ref call, and the walk below
+            // spawns a third, independent process that re-resolves
+            // historySeedRefs()'s HEAD *name* fresh, at whatever moment it
+            // actually runs. Anything that moves the branch tip in that
+            // window -- another tool touching this repository, e.g. -- left
+            // this reservation permanently unclaimed by the row that really
+            // is current, so lane 0 stayed blank and History's
+            // uncommitted-row connector never drew. Process creation costs
+            // roughly two orders of magnitude more on Windows than on Linux
+            // (docs/reports/windows-process-cost.md), which is why that
+            // window matters there in particular. This costs one extra git
+            // process on every unfiltered refresh -- the same cost
+            // readHead()'s single-invocation merge was written to avoid --
+            // but a stale trunk-tip identity is a correctness bug, not a
+            // rounding error.
+            //
+            // A failure of this second read must not cost the whole history
+            // walk over a connector-only concern: refs_ and REFS_UPDATED
+            // (already published above) keep today's snapshot regardless, so
+            // falling back to its target here is free.
+            const GitResult<HeadInfo> freshHead = refStore_->readHead(token);
+            query.trunkTip = freshHead ? freshHead->target : refsResult.value()->head.target;
         }
 
         const GitResult<GraphSnapshotPtr> walkResult = history_->walk(

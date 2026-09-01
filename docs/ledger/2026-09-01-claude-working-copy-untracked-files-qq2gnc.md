@@ -187,8 +187,10 @@ payload，不是只要 C++ struct 裡有就好。`WorkingCopyApiTest` 的 fixtur
 - **這台容器以 root 執行，所以 4 個 updater 測試本來就是紅的**
   （`update_installer_test`、`update_installer_script_test` ×2、
   `update_controller_test`）：它們把目錄 chmod 成不可寫再期待被擋下來，而 root 無
-  視權限位。已用 `git worktree` 開一份乾淨的 HEAD 驗證過，同樣 4 個紅 —— 與本輪
-  無關。
+  視權限位。用 `git worktree` 開乾淨的樹驗證過兩次 —— 分支的起點 `b696fee`，以及
+  合併進來之後的 `origin/main`（`0b9d6f1`）—— 兩次都是同樣這 4 個紅，與本輪無關。
+  第二次值得跑，是因為 #128 正好改過這一區的 fixture（把 chmod 555 換成「目標不
+  存在」，理由同樣是 root 無視 mode bits）：它換掉的是另一個，這 4 個沒有被涵蓋。
 - **裝置層沒有跑。** `integration_test/` 需要一個真的桌面 session；已 grep 過
   `Nothing unstaged` / `No changes` / `truncated` / `untracked`，零筆命中，所以沒
   有 finder 被這輪改動打到。

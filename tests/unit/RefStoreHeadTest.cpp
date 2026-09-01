@@ -117,10 +117,18 @@ TEST(RefStoreReadHead, UsesRevsOnlySoAnUnbornHeadIsNotReportedAsAFatalError) {
     EXPECT_NE(std::find(args.begin(), args.end(), "--revs-only"), args.end());
 }
 
-TEST(RefStoreReadHead, AFailedGitStillLeavesAUsableUnbornHead) {
-    // Parity with the previous implementation: a rev-parse that errors outright
-    // (not a repository, git missing) must not propagate as a failed
-    // GitResult -- a repository that cannot answer still has to open.
+TEST(RefStoreReadHead, AFailedRevParsePropagatesAsAFailureRatherThanUnborn) {
+    // A rev-parse that errors outright (not a repository, git missing) is a
+    // different shape from "ran fine, found no HEAD" -- --revs-only's whole
+    // point (see the comment above the command in RefStore.cpp) is that an
+    // unborn repo exits 0 with empty output, not a non-zero exit with
+    // stderr. Folding this into the Unborn fallback used to leave
+    // head.target silently and permanently null on every refresh that hit
+    // it, with no diagnostic trail, and made a genuinely failed read look
+    // identical to a fresh repository to every caller that only checks
+    // `kind`. Session::open() never calls readHead()/load() (only the async
+    // refresh path does), so propagating this as a real failure does not
+    // block a repository from opening.
     FakeProcessRunner runner;
     FakeProcessRunner::Response failure;
     failure.exitCode = 128;
@@ -130,8 +138,26 @@ TEST(RefStoreReadHead, AFailedGitStillLeavesAUsableUnbornHead) {
     RefStore store(runner, testPaths());
     auto head = store.readHead(CancellationToken{});
 
-    ASSERT_TRUE(head);
-    EXPECT_EQ(head->kind, HeadInfo::Kind::Unborn);
+    ASSERT_FALSE(head);
+    EXPECT_EQ(head.error().code, GitError::Code::NotFound);
+
+    // No wasted second `symbolic-ref` call on a genuine failure -- that
+    // fallback is for the Unborn case only.
+    EXPECT_EQ(runner.invocationCount(), 1u);
+}
+
+TEST(RefStoreReadHead, ATimedOutRevParsePropagatesAsAFailure) {
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response failure;
+    failure.timedOut = true;
+    runner.setDefaultResponse(failure);
+
+    RefStore store(runner, testPaths());
+    auto head = store.readHead(CancellationToken{});
+
+    ASSERT_FALSE(head);
+    EXPECT_EQ(head.error().code, GitError::Code::Timeout);
+    EXPECT_EQ(runner.invocationCount(), 1u);
 }
 
 }  // namespace

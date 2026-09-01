@@ -70,3 +70,21 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
   never on "arrived at X" — `idle` is also where `dismiss()` lands, and re-checking there
   re-offers the very thing the user just declined.
 - **Evidence**: ledger: 更新流程的三個缺陷
+
+## [FLU-timeout-cannot-bound-sync] `Future.timeout` cannot bound synchronous work on the same isolate
+
+- **Rule**: the `Timer` it arms needs the very event loop the blocking call is holding, so it
+  never fires. Measured: `.timeout(100ms)` around a future whose body synchronously sleeps
+  three seconds reports `completed after 3009ms`.
+- **Rule**: an `async` function is no defence — its body runs synchronously up to the first
+  `await`, which is exactly the shape of `_closeSessions()` (`closeAll()` then nothing).
+- **Consequence**: the fix that looks right is empty, and **it goes green**: no fake-async
+  widget test blocks a real event loop, so nothing at that tier can tell the two apart. This is
+  [TEST-fixture-cannot-disagree] shape 11 — the fixture cannot express "synchronously blocked".
+- **Do**: enforce the deadline from somewhere the isolate cannot stall. `Isolate.spawn` gives
+  its own event loop on its own OS thread, and `dart:io`'s `exit()` from it is process-wide
+  (measured: the process ended with the watchdog's code while the main isolate was 30 seconds
+  into a synchronous sleep). `updateWatchdogEntryPoint` is the worked example.
+- **Do**: keep both layers and say why in the comment — the `.timeout` is the only half a test
+  can reach, the watchdog is the only half that helps on real hardware. Neither subsumes the other.
+- **Evidence**: [ledger: Install and restart 卡在 Installing…](../ledger/2026-09-01-claude-windows-app-update-install-irloo0.md)

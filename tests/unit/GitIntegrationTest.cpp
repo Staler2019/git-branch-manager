@@ -2311,8 +2311,27 @@ TEST_F(RealRepoTest, StagesSelectedLinesOfAnUntrackedFile) {
     EXPECT_FALSE((*status)->entries[0].untracked);
 }
 
+// `core.autocrlf=true` is set deliberately, and the assertion below is
+// deliberately not byte-exact.
+//
+// DiscardLinesOperation applies with `git apply --reverse` and *no* --cached,
+// so git rewrites the file in the work tree -- and a work-tree write goes
+// through git's line-ending conversion. Git for Windows ships
+// `core.autocrlf=true` in its system config, so on the Windows runner this
+// came back "a\r\nc\r\n" against a byte-exact "a\nc\n" and reddened a job
+// every other platform passed. That is git doing what it is configured to do,
+// not a defect: a real Windows user's untracked file already has CRLF, and
+// forcing LF in the operation would override their own git config.
+//
+// Setting the config here rather than leaving it to the platform is what makes
+// the conversion reproducible everywhere -- without it the normalisation below
+// is a no-op on Linux, so nothing outside the Windows CI job could ever show
+// it was needed. Its mirror, StagesSelectedLinesOfAnUntrackedFile, needs none
+// of this: `--cached` writes a blob, where autocrlf's clean filter normalises
+// back to LF on the way into the index.
 TEST_F(RealRepoTest, DiscardsSelectedLinesOfAnUntrackedFile) {
     commitFile("seed.txt", "seed\n", "c1");
+    ASSERT_TRUE(run({"config", "core.autocrlf", "true"}));
     writeFile("new.txt", "a\nb\nc\n");
 
     OperationRunner operations(*runner_, paths_);
@@ -2328,8 +2347,12 @@ TEST_F(RealRepoTest, DiscardsSelectedLinesOfAnUntrackedFile) {
     ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
 
     std::ifstream in(repo_ / "new.txt", std::ios::binary);
-    const std::string contents((std::istreambuf_iterator<char>(in)),
-                               std::istreambuf_iterator<char>());
+    std::string contents((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    // Which line endings git chose is its config's business; that line `b` is
+    // gone is this test's whole claim. Normalising keeps the assertion on the
+    // claim -- it still pins that the file exists, has exactly two lines, and
+    // that they are `a` and `c`.
+    contents.erase(std::remove(contents.begin(), contents.end(), '\r'), contents.end());
     EXPECT_EQ(contents, "a\nc\n");
 }
 

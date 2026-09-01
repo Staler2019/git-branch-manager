@@ -113,7 +113,9 @@ Pin prefix `GIT-`. Format: [README.md](README.md).
   repository as the directory `nested/`, and `--no-index` answers that with
   `Could not access 'nested/null'`.
 - **Note**: git special-cases the literal string `/dev/null` in `diff-no-index.c`, so it is the
-  empty side on Windows too — it is not a path being stat'ed.
+  empty side on Windows too — it is not a path being stat'ed. **Measured**, not just read off the
+  source: all seven of the untracked-diff tests, the subdirectory and binary cases included, pass
+  on the `capi (FFI) - Windows` job.
 - **See also**: [GIT-zero-means-unmeasured] records the *line-count* half of the same blind spot;
   this is the diff half, which went unwritten for as long as that rule has existed.
 - **Evidence**: [ledger: 未追蹤檔案在 Working Copy 看不到 diff](../ledger/2026-09-01-claude-working-copy-untracked-files-qq2gnc.md)
@@ -135,4 +137,25 @@ Pin prefix `GIT-`. Format: [README.md](README.md).
   --reverse` checks the patch's *new* side against it, and the plain `a/<path>` header is what
   matches. An intent-to-add path (`git add -N`, which `git diff` also reports as `new file mode`)
   accepts the create form on the staging side — measured, exit 0.
+- **Evidence**: [ledger: 未追蹤檔案在 Working Copy 看不到 diff](../ledger/2026-09-01-claude-working-copy-untracked-files-qq2gnc.md)
+
+## [GIT-apply-without-cached-follows-autocrlf] `git apply` without `--cached` writes the work tree, so its output follows `core.autocrlf`
+
+- **Rule**: `--cached` writes a *blob*, where autocrlf's clean filter normalises to LF on the way
+  into the index; without it git rewrites the file on disk and applies the smudge direction. Git
+  for Windows ships `core.autocrlf=true` in its **system** config, so a fresh `git init` fixture
+  inherits it with nothing in the repo saying so.
+- **Consequence**: a byte-exact assertion on work-tree content is platform-dependent.
+  `DiscardsSelectedLinesOfAnUntrackedFile` wrote `a\nb\nc\n`, discarded one line, and got
+  `"a\r\nc\r\n"` back on the Windows runner — one red job out of 621 tests, on eleven checks where
+  every other platform was green.
+- **Do not** "fix" it in the operation: that would override the user's own git config, and a real
+  Windows user's untracked file already has CRLF, so git rewriting it as CRLF is correct.
+- **Do**: set `core.autocrlf=true` in the test *and* normalise the assertion. Leaving it to the
+  platform makes the normalisation a no-op on Linux, so nothing outside the Windows CI job could
+  show it was load-bearing — measured: with the config forced, deleting the normalisation reddens
+  on Linux too.
+- **Note**: the staging mirror needs none of this, and the contrast is the evidence for the cause —
+  `StagesSelectedLinesOfAnUntrackedFile` passed on Windows in the same run because it applies with
+  `--cached`.
 - **Evidence**: [ledger: 未追蹤檔案在 Working Copy 看不到 diff](../ledger/2026-09-01-claude-working-copy-untracked-files-qq2gnc.md)

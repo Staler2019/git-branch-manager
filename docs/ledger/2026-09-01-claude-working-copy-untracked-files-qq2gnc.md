@@ -194,3 +194,51 @@ payload，不是只要 C++ struct 裡有就好。`WorkingCopyApiTest` 的 fixtur
 - **裝置層沒有跑。** `integration_test/` 需要一個真的桌面 session；已 grep 過
   `Nothing unstaged` / `No changes` / `truncated` / `untracked`，零筆命中，所以沒
   有 finder 被這輪改動打到。
+
+## 送 CI 之後：Windows 上紅了一個，而它是測試寫得太死
+
+合併 main、推上去之後，11 個 check 裡 10 個綠（Linux、macOS arm64、TSan、
+asan+ubsan、四個格式/lint、GitGuardian），只有 `capi (FFI) - Windows` 紅：
+**621 個測試過了 620 個**，唯一紅的是本輪自己新增的
+`RealRepoTest.DiscardsSelectedLinesOfAnUntrackedFile`。
+
+log 裡的原文：
+
+```
+Which is: "a\r\nc\r\n"
+  "a\nc\n"
+```
+
+**成因**：`DiscardLinesOperation` 用的是 `git apply --reverse` 而且**沒有**
+`--cached`，所以 git 是改寫工作區的檔案 —— 而工作區的寫入會過 git 的換行轉
+換。Git for Windows 的 **system** config 就帶著 `core.autocrlf=true`，fixture
+只是 `git init` 加 user.name/email，沒有覆蓋它。
+
+**這不是程式的缺陷，是測試把話說死了。** 對真正的 Windows 使用者來說，他的未
+追蹤檔案本來就是 CRLF，git 照 CRLF 寫回去才是對的；在 operation 裡強制 LF 等
+於覆蓋使用者自己的 git 設定。這個測試要釘的是「被選中的那一行不見了」，換行
+的表示法是 git 設定的事，與這個主張無關。
+
+**同一次執行裡就有反證支持這個判斷**，不必只憑推論：`StagesSelectedLinesOf
+AnUntrackedFile`（第 242 號）在 Windows 上**過了**。它走 `--cached`，寫的是
+blob，autocrlf 的 clean 方向會把 CRLF 正規化成 LF；兩條路徑的差別正好就是這
+個解釋預測的差別。
+
+**先在 Linux 上重現才動手**（這個 repo 對 CI 修正的規矩）：在該測試裡加一行
+`git config core.autocrlf true`，Linux 上就得到逐位元組相同的
+`"a\r\nc\r\n"`。
+
+修法是兩半，而且第二半才是重點：assertion 比對前先把 `\r` 去掉，**而那行
+`core.autocrlf=true` 留著不拿掉**。如果交給平台決定，這個正規化在 Linux 上是
+no-op，於是除了 Windows 那個 job 之外沒有任何地方能證明它是必要的 —— 留著設
+定之後，把正規化刪掉在 Linux 上就會紅（實測）。另一個 mutation：把
+`lineIndices` 改成 `{2}`，得到 `"a\nb\n"`，所以正規化並沒有順手蓋掉「刪錯行」
+這種真錯誤。
+
+刻意沒做的兩件事：沒有在共用 fixture 裡關掉 autocrlf（那會改動另外 200 多個測
+試的環境，而且會讓這個測試不再跑在真實的平台設定下 —— 那正是抓到它的東西），
+也沒有改 `DiscardLinesOperation`。
+
+**順帶把一個推論升級成量測**：`/dev/null` 在 Windows 上可用，原本只是讀 git 的
+`diff-no-index.c` 推出來的；現在七個未追蹤 diff 測試（含子目錄與二進位）全部在
+Windows job 上通過，是實測了。

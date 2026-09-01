@@ -84,3 +84,24 @@ Pin prefix `CPP-`. Format: [README.md](README.md).
   real-repo capi integration test — one was written that way first and a mutation check caught it
   staying green regardless of the fix.
 - **Evidence**: [ledger: Windows 未提交列連不到 HEAD](../ledger/2026-09-01-claude-windows-uncommitted-changes-5z40sr.md)
+
+## [CPP-parse-refuses-over-cap] Over its byte cap `UnifiedDiffParser::parse` returns *no* files, and every consumer owes the user a message
+
+- **Rule**: `truncated == true` now means「nothing was parsed」, not「the first 2 MiB was parsed and
+  the tail dropped」. The old behaviour put a diff on screen that looked complete and was not, which
+  is a wrong answer rather than a partial one.
+- **Consequence**: an empty `files` is therefore two different conditions, and a surface that draws
+  its「no changes」placeholder for both tells a file with changes that it has none. Check
+  `truncated` **before** `files.isEmpty()`.
+- **Rule**: the flag was `[CULT-orphan-wiring]`'s ninth instance — serialized by `JsonCodec`,
+  carried across the FFI, decoded by `ParsedDiff.fromJson`, taken as a `DiffPage` constructor field,
+  and read by nothing. `kDiffTooLargeLabel` (`features/diff/diff_truncation.dart`) is now the one
+  wording, shared by `DiffPage` and `ScopedDiffView`, and deliberately does not name the byte cap —
+  that number lives in `UnifiedDiffParser::Options::maxBytes` and a copy would be a second source
+  of truth.
+- **Do**: refuse *before* reading where the size is already known — `DiffService::workingTreeDiff`
+  compares an untracked file's `file_size` to the same `maxBytes` and returns `truncated` without
+  spawning git. **`std::filesystem::file_size` returns `uintmax_t(-1)` on failure, not 0**, so a
+  failed stat that is let through reports the file as over the cap.
+- **Evidence**: [ledger: 未追蹤檔案在 Working Copy 看不到 diff](../ledger/2026-09-01-claude-working-copy-untracked-files-qq2gnc.md)
+

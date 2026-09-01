@@ -7,6 +7,7 @@
 // touch git itself.
 #include "core/base/CancellationToken.h"
 #include "core/base/FsUtil.h"
+#include "core/base/Logging.h"
 #include "core/git/BlameStore.h"
 #include "core/git/CatFileBatch.h"
 #include "core/git/CommitMetaStore.h"
@@ -2086,6 +2087,273 @@ TEST_F(RealRepoTest, WorkingCopyStatusReportsWhichSideOfAConflictEachFileIsOn) {
         << "a conflicted entry must not also be reported as an ordinary staged change";
 
     ASSERT_TRUE(run({"merge", "--abort"}));
+}
+
+/// Counts the git invocations whose argv contains a given flag, by borrowing
+/// the process-wide operation sink for the length of a scope.
+///
+/// Needed because two of the gates below are only observable as a command that
+/// was *not* run: a directory row and an over-cap file both come back as an
+/// empty diff whether they were gated away or whether `--no-index` ran and
+/// failed harmlessly, so asserting on the result alone cannot tell the two
+/// apart -- verified by relaxing `is_regular_file` to `exists` and watching
+/// the test stay green.
+class CommandSpy {
+public:
+    explicit CommandSpy(std::string flag) : flag_(std::move(flag)) {
+        Log::instance().setOperationSink([this](const OperationRecord& record) {
+            if (std::find(record.argv.begin(), record.argv.end(), flag_) != record.argv.end()) {
+                ++count_;
+            }
+        });
+    }
+
+    ~CommandSpy() { Log::instance().setOperationSink(nullptr); }
+
+    CommandSpy(const CommandSpy&) = delete;
+    CommandSpy& operator=(const CommandSpy&) = delete;
+
+    int count() const { return count_; }
+
+private:
+    std::string flag_;
+    int count_ = 0;
+};
+
+// --- Untracked files in the unstaged diff ------------------------------------
+//
+// `git diff` prints nothing at all for an untracked path, so every one of
+// these went through DiffService's --no-index fallback rather than through the
+// plain `git diff` above it. Nothing below the C++ tier can see any of it: the
+// Dart fakes never run git.
+
+TEST_F(RealRepoTest, WorkingTreeDiffShowsAnUntrackedFileAsWhollyAdded) {
+    commitFile("seed.txt", "seed\n", "c1");
+    writeFile("new.txt", "a\nb\nc\n");
+
+    CommandSpy spy("--no-index");
+    DiffService diffs(*runner_, paths_);
+    auto parsed =
+        diffs.workingTreeDiff(/*staged=*/false, {"new.txt"}, DiffOptions{}, CancellationToken{});
+    ASSERT_TRUE(parsed) << parsed.error().message;
+    ASSERT_EQ((*parsed)->files.size(), 1u);
+    // The positive control for CommandSpy. Without it the two "no --no-index
+    // ran" assertions below could both be passing because the spy sees
+    // nothing at all, which is the instrument failing rather than the gate
+    // holding.
+    EXPECT_EQ(spy.count(), 1);
+
+    const DiffFile& file = (*parsed)->files.front();
+    EXPECT_EQ(file.kind, FileChangeKind::Added);
+    EXPECT_EQ(file.newPath, "new.txt");
+    // `--- /dev/null` strips to nothing, but `diff --git a/new.txt b/new.txt`
+    // has already filled oldPath in and the `---` handler declines to
+    // overwrite it with an empty string -- so "added" is carried by `kind`
+    // alone, never by an empty oldPath. appendPatchHeader depends on this.
+    EXPECT_EQ(file.oldPath, "new.txt");
+    ASSERT_EQ(file.hunks.size(), 1u);
+
+    std::vector<std::string> added;
+    for (const DiffLine& line : file.hunks.front().lines) {
+        EXPECT_EQ(line.kind, DiffLineKind::Added);
+        added.push_back(line.text);
+    }
+    EXPECT_EQ(added, (std::vector<std::string>{"a", "b", "c"}));
+}
+
+TEST_F(RealRepoTest, WorkingTreeDiffShowsAnUntrackedFileInASubdirectory) {
+    commitFile("seed.txt", "seed\n", "c1");
+    std::filesystem::create_directories(repo_ / "sub");
+    writeFile("sub/deep.txt", "x\ny\n");
+
+    DiffService diffs(*runner_, paths_);
+    auto parsed = diffs.workingTreeDiff(
+        /*staged=*/false, {"sub/deep.txt"}, DiffOptions{}, CancellationToken{});
+    ASSERT_TRUE(parsed) << parsed.error().message;
+    ASSERT_EQ((*parsed)->files.size(), 1u);
+    EXPECT_EQ((*parsed)->files.front().newPath, "sub/deep.txt");
+}
+
+TEST_F(RealRepoTest, WorkingTreeDiffMarksAnUntrackedBinaryFileBinary) {
+    commitFile("seed.txt", "seed\n", "c1");
+    writeFile("blob.bin",
+              std::string("\x00\x01\x02"
+                          "payload",
+                          10));
+
+    DiffService diffs(*runner_, paths_);
+    auto parsed =
+        diffs.workingTreeDiff(/*staged=*/false, {"blob.bin"}, DiffOptions{}, CancellationToken{});
+    ASSERT_TRUE(parsed) << parsed.error().message;
+    ASSERT_EQ((*parsed)->files.size(), 1u);
+    EXPECT_TRUE((*parsed)->files.front().binary);
+    EXPECT_TRUE((*parsed)->files.front().hunks.empty());
+}
+
+TEST_F(RealRepoTest, WorkingTreeDiffKeepsAnUntrackedFilesMissingTrailingNewline) {
+    commitFile("seed.txt", "seed\n", "c1");
+    writeFile("tail.txt", "no trailing newline");
+
+    DiffService diffs(*runner_, paths_);
+    auto parsed =
+        diffs.workingTreeDiff(/*staged=*/false, {"tail.txt"}, DiffOptions{}, CancellationToken{});
+    ASSERT_TRUE(parsed) << parsed.error().message;
+    ASSERT_EQ((*parsed)->files.size(), 1u);
+    ASSERT_EQ((*parsed)->files.front().hunks.size(), 1u);
+
+    const std::vector<DiffLine>& lines = (*parsed)->files.front().hunks.front().lines;
+    ASSERT_EQ(lines.size(), 2u);
+    EXPECT_EQ(lines[0].kind, DiffLineKind::Added);
+    EXPECT_EQ(lines[1].kind, DiffLineKind::NoNewlineMarker);
+}
+
+// The negative that makes the ls-files gate load-bearing. A tracked file with
+// nothing to stage produces an empty `git diff` for exactly the same reason an
+// untracked one does, and answering it with --no-index would render the whole
+// file as newly added -- a wrong diff, which is worse than the missing one.
+TEST_F(RealRepoTest, WorkingTreeDiffLeavesATrackedUnmodifiedFileEmpty) {
+    commitFile("tracked.txt", "a\nb\nc\n", "c1");
+
+    DiffService diffs(*runner_, paths_);
+    auto parsed = diffs.workingTreeDiff(
+        /*staged=*/false, {"tracked.txt"}, DiffOptions{}, CancellationToken{});
+    ASSERT_TRUE(parsed) << parsed.error().message;
+    EXPECT_TRUE((*parsed)->files.empty());
+    EXPECT_FALSE((*parsed)->truncated);
+}
+
+// `git status --untracked-files=all` reports an untracked *nested repository*
+// as the directory `nested/`, and that string reaches the diff request like
+// any other row. --no-index cannot diff it ("Could not access 'nested/null'"),
+// so the file-kind gate has to keep it away from the command entirely.
+//
+// **The mutation that reddens this is removing both gates, not either one.**
+// On this platform `std::filesystem::file_size` also rejects a directory, so
+// relaxing `is_regular_file` to `exists` leaves the test green -- the second
+// gate catches it. That is the platform being generous rather than the code
+// being right, which is why both are there and why this comment names the
+// mutation rather than leaving the next reader to find a green one.
+TEST_F(RealRepoTest, WorkingTreeDiffLeavesAnUntrackedDirectoryEmpty) {
+    commitFile("seed.txt", "seed\n", "c1");
+    std::filesystem::create_directories(repo_ / "nested");
+    writeFile("nested/inner.txt", "hi\n");
+
+    CommandSpy spy("--no-index");
+    DiffService diffs(*runner_, paths_);
+    auto parsed =
+        diffs.workingTreeDiff(/*staged=*/false, {"nested/"}, DiffOptions{}, CancellationToken{});
+    // Not an error: requestWorkingCopyDiff emits no reply at all when the diff
+    // fails, and the pane's spinner waits on a reply that would never come.
+    ASSERT_TRUE(parsed) << parsed.error().message;
+    EXPECT_TRUE((*parsed)->files.empty());
+    // Not `truncated` either: a directory is not a diff that was too big, and
+    // saying so would put "too large to display" in front of the user. This
+    // separates "gated out on the file's kind" from "fell through to the size
+    // refusal", which `std::filesystem::file_size` makes easy to confuse --
+    // it returns `uintmax_t(-1)` when the stat fails.
+    EXPECT_FALSE((*parsed)->truncated);
+    EXPECT_EQ(spy.count(), 0) << "the directory must be gated out before git is asked";
+}
+
+TEST_F(RealRepoTest, WorkingTreeDiffRefusesAnOversizedUntrackedFile) {
+    commitFile("seed.txt", "seed\n", "c1");
+    std::string big;
+    big.reserve(UnifiedDiffParser::Options{}.maxBytes + 1024);
+    while (big.size() <= UnifiedDiffParser::Options{}.maxBytes) {
+        big += "a line of perfectly ordinary text\n";
+    }
+    writeFile("huge.txt", big);
+
+    CommandSpy spy("--no-index");
+    DiffService diffs(*runner_, paths_);
+    auto parsed =
+        diffs.workingTreeDiff(/*staged=*/false, {"huge.txt"}, DiffOptions{}, CancellationToken{});
+    ASSERT_TRUE(parsed) << parsed.error().message;
+    // Refused, not shown in part: `truncated` is what tells the UI to say so.
+    EXPECT_TRUE((*parsed)->truncated);
+    EXPECT_TRUE((*parsed)->files.empty());
+    EXPECT_EQ((*parsed)->inputBytes, big.size());
+    EXPECT_EQ(spy.count(), 0) << "an over-cap file is refused without reading it";
+}
+
+TEST_F(RealRepoTest, StagesSelectedLinesOfAnUntrackedFile) {
+    commitFile("seed.txt", "seed\n", "c1");
+    writeFile("new.txt", "a\nb\nc\n");
+
+    OperationRunner operations(*runner_, paths_);
+    PartialStageRequest request;
+    request.path = "new.txt";
+    request.staged = false;
+    request.hunkIndex = 0;
+    request.lineIndices = {0, 1};
+
+    OperationOutcome outcome;
+    operations.submit(makePartialStageOperation(request),
+                      [&outcome](OperationOutcome result) { outcome = std::move(result); });
+    operations.drain();
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    // The index now holds a two-line new file; the work tree still has three.
+    DiffService diffs(*runner_, paths_);
+    auto staged =
+        diffs.workingTreeDiff(/*staged=*/true, {"new.txt"}, DiffOptions{}, CancellationToken{});
+    ASSERT_TRUE(staged) << staged.error().message;
+    ASSERT_EQ((*staged)->files.size(), 1u);
+    ASSERT_EQ((*staged)->files.front().hunks.size(), 1u);
+    EXPECT_EQ((*staged)->files.front().hunks.front().lines.size(), 2u);
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status);
+    ASSERT_EQ((*status)->entries.size(), 1u);
+    EXPECT_TRUE((*status)->entries[0].staged);
+    EXPECT_TRUE((*status)->entries[0].hasUnstagedChange);
+    EXPECT_FALSE((*status)->entries[0].untracked);
+}
+
+// `core.autocrlf=true` is set deliberately, and the assertion below is
+// deliberately not byte-exact.
+//
+// DiscardLinesOperation applies with `git apply --reverse` and *no* --cached,
+// so git rewrites the file in the work tree -- and a work-tree write goes
+// through git's line-ending conversion. Git for Windows ships
+// `core.autocrlf=true` in its system config, so on the Windows runner this
+// came back "a\r\nc\r\n" against a byte-exact "a\nc\n" and reddened a job
+// every other platform passed. That is git doing what it is configured to do,
+// not a defect: a real Windows user's untracked file already has CRLF, and
+// forcing LF in the operation would override their own git config.
+//
+// Setting the config here rather than leaving it to the platform is what makes
+// the conversion reproducible everywhere -- without it the normalisation below
+// is a no-op on Linux, so nothing outside the Windows CI job could ever show
+// it was needed. Its mirror, StagesSelectedLinesOfAnUntrackedFile, needs none
+// of this: `--cached` writes a blob, where autocrlf's clean filter normalises
+// back to LF on the way into the index.
+TEST_F(RealRepoTest, DiscardsSelectedLinesOfAnUntrackedFile) {
+    commitFile("seed.txt", "seed\n", "c1");
+    ASSERT_TRUE(run({"config", "core.autocrlf", "true"}));
+    writeFile("new.txt", "a\nb\nc\n");
+
+    OperationRunner operations(*runner_, paths_);
+    DiscardLinesRequest request;
+    request.path = "new.txt";
+    request.hunkIndex = 0;
+    request.lineIndices = {1};
+
+    OperationOutcome outcome;
+    operations.submit(makeDiscardLinesOperation(request),
+                      [&outcome](OperationOutcome result) { outcome = std::move(result); });
+    operations.drain();
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    std::ifstream in(repo_ / "new.txt", std::ios::binary);
+    std::string contents((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    // Which line endings git chose is its config's business; that line `b` is
+    // gone is this test's whole claim. Normalising keeps the assertion on the
+    // claim -- it still pins that the file exists, has exactly two lines, and
+    // that they are `a` and `c`.
+    contents.erase(std::remove(contents.begin(), contents.end(), '\r'), contents.end());
+    EXPECT_EQ(contents, "a\nc\n");
 }
 
 TEST_F(RealRepoTest, StagesAndUnstagesAWholeFile) {

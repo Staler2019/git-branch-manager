@@ -1,8 +1,11 @@
 #include "core/git/DiffService.h"
 
+#include "core/base/FsUtil.h"
 #include "core/base/ThreadCheck.h"
 
 #include <charconv>
+#include <filesystem>
+#include <system_error>
 #include <unordered_map>
 #include <utility>
 
@@ -526,7 +529,151 @@ GitResult<DiffService::ParsedDiffPtr> DiffService::workingTreeDiff(
     }
 
     UnifiedDiffParser parser;
-    return ParsedDiffPtr(std::make_shared<ParsedDiff>(parser.parse(result->out)));
+    auto parsed = std::make_shared<ParsedDiff>(parser.parse(result->out));
+    if (staged || paths.size() != 1 || !parsed->files.empty()) {
+        return ParsedDiffPtr(parsed);
+    }
+
+    // `git diff` prints nothing for an untracked path, because the path is in
+    // neither the index nor HEAD -- the same blind spot WorkingCopyEntry's
+    // line counts already work around by reading the file (see
+    // GIT-zero-means-unmeasured). An empty answer here therefore means one of
+    // three different things, and only the third is ours: the file is
+    // unchanged, the file does not exist, or the file is untracked.
+    //
+    // Everything below narrows to that third case before spending a process
+    // on it, cheapest test first.
+    if (paths_.isBare()) {
+        return ParsedDiffPtr(parsed);
+    }
+    const std::string& path = paths.front();
+    const std::filesystem::path file = paths_.workDir() / fsutil::pathFromUtf8(path);
+
+    // is_regular_file, not exists: `git status --untracked-files=all` reports
+    // an untracked nested repository as the *directory* `nested/`, and
+    // `git diff --no-index -- /dev/null nested/` fails with
+    // "Could not access 'nested/null'" -- git pairs /dev/null's basename
+    // inside the directory rather than diffing the tree.
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(file, ec) || ec) {
+        return ParsedDiffPtr(parsed);
+    }
+
+    // Ask git whether the path is in the index rather than inferring it. A
+    // tracked *unmodified* file also produces an empty diff, and answering
+    // that one with --no-index would render the entire file as newly added --
+    // a wrong diff, which is worse than the missing one being fixed here.
+    //
+    // A probe that could not run leaves the question unanswered, so the plain
+    // (empty) result stands rather than becoming an error: on a failure
+    // Session::requestWorkingCopyDiff emits no diff reply at all, and the
+    // pane's spinner waits on one that never comes.
+    const GitResult<bool> tracked = isPathInIndex(path, token);
+    if (!tracked || *tracked) {
+        return ParsedDiffPtr(parsed);
+    }
+
+    // Over the cap, refuse before reading: the parser would refuse this input
+    // anyway (see UnifiedDiffParser::parse), and reaching the same verdict
+    // here costs neither a process nor the memory to hold the file's diff.
+    // `truncated` is what tells the UI to say so instead of drawing "no
+    // changes" over a file that plainly has some.
+    const std::uintmax_t size = std::filesystem::file_size(file, ec);
+    if (ec) {
+        return ParsedDiffPtr(parsed);
+    }
+    if (size > UnifiedDiffParser::Options{}.maxBytes) {
+        auto refused = std::make_shared<ParsedDiff>();
+        refused->truncated = true;
+        refused->inputBytes = static_cast<std::size_t>(size);
+        return ParsedDiffPtr(refused);
+    }
+
+    return untrackedFileDiff(path, options, token);
+}
+
+GitResult<bool> DiffService::isPathInIndex(const std::string& path, CancellationToken token) {
+    GBM_ASSERT_NOT_UI_THREAD();
+
+    // `--` is not optional: a path that happens to look like a revision would
+    // otherwise be resolved as one.
+    GitCommand command(paths_.commandDir(), {"ls-files", "-z", "--", path});
+    command.timeout = std::chrono::seconds(30);
+
+    auto result = runner_.run(command, token);
+    if (!result) {
+        return fail(std::move(result).error());
+    }
+    // ls-files prints the path back when it is in the index and nothing at
+    // all when it is not. `run()` trims the final separator, so a single
+    // NUL-terminated record arrives as the bare path.
+    return !result->out.empty();
+}
+
+GitResult<DiffService::ParsedDiffPtr> DiffService::untrackedFileDiff(const std::string& path,
+                                                                     const DiffOptions& options,
+                                                                     CancellationToken token) {
+    GBM_ASSERT_NOT_UI_THREAD();
+
+    // `/dev/null` is a literal git special-cases in diff-no-index.c rather
+    // than a path it stats, so it means "the empty side" on Windows too.
+    //
+    // worktreeReadFlags() for the same measured reason workingTreeDiff above
+    // carries them: this is a `git diff` with neither --cached nor a commit,
+    // which is the shape the flag's own comment says must always prepend it.
+    std::vector<std::string> args = GitCommand::worktreeReadFlags();
+    args.emplace_back("diff");
+    args.emplace_back("--no-index");
+    for (auto& flag : diffFlags(options)) {
+        args.push_back(std::move(flag));
+    }
+    args.emplace_back("--");
+    args.emplace_back("/dev/null");
+    args.push_back(path);
+
+    GitCommand command(paths_.commandDir(), std::move(args));
+    command.timeout = std::chrono::seconds(180);
+
+    // Not run(): `--no-index` implies `--exit-code`, so finding differences --
+    // which is the whole point of asking -- exits 1, and run() discards stdout
+    // on any non-zero exit. The sink has already been fed every line by the
+    // time wait() reports that code, so streaming keeps the output the failure
+    // path would have thrown away. Reading exit 1 as data rather than as a
+    // failure is CompareOps::readMergeBase's precedent.
+    //
+    // The bytes are assembled exactly as run() assembles them -- same
+    // separator, same line splitter, same trailing-separator trim -- so this
+    // diff text is byte-for-byte what the other diff paths parse.
+    std::string out;
+    const LineSink sink = [&out](std::string_view line) {
+        out.append(line);
+        out.push_back('\n');
+        return true;
+    };
+    auto result = runner_.stream(command, sink, nullptr, token);
+    if (!out.empty() && out.back() == '\n') {
+        out.pop_back();
+    }
+    if (!result) {
+        const GitError& error = result.error();
+        // Anything else -- a permission error, a path git will not read -- is
+        // reported as no diff rather than as an error: requestWorkingCopyDiff
+        // emits no reply at all on a failure, and the pane would spin forever
+        // waiting for one. ProcessRunner records every invocation either way,
+        // so the failure is in the operation log even though nobody is told.
+        //
+        // Cancellation is checked by code rather than by exit status: a
+        // terminated child can exit 1 with a part of the diff already in the
+        // accumulator, and parsing that half would hand back a diff missing
+        // its tail with nothing saying so -- the shape this round removed
+        // from the parser itself.
+        if (error.code == GitError::Code::Cancelled || error.exitCode != 1 || out.empty()) {
+            return ParsedDiffPtr(std::make_shared<ParsedDiff>());
+        }
+    }
+
+    UnifiedDiffParser parser;
+    return ParsedDiffPtr(std::make_shared<ParsedDiff>(parser.parse(out)));
 }
 
 GitResult<DiffService::ParsedDiffPtr> DiffService::commitVsWorkingTree(const ObjectId& commit,

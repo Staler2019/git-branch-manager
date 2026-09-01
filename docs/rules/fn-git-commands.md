@@ -46,6 +46,8 @@ Pin prefix `GIT-`. Format: [README.md](README.md).
 - **Consequence**: binary, mode-only, and untracked over **1 MiB** all land as 0. The cap
   exists because `--untracked-files=all` enumerates every file in an unbuilt output directory.
 - **Do**: the UI draws no badge at 0 for exactly this reason.
+- **See also**: [GIT-no-index-sees-untracked] — the *diff* half of the same blind spot, which this
+  rule's own wording implies and which went unimplemented for as long as this rule existed.
 - **Do**: pass `-M` explicitly to both passes rather than trusting `diff.renames`, or the
   rename detection drifts from the one `--porcelain=v2` already did.
 
@@ -89,3 +91,71 @@ Pin prefix `GIT-`. Format: [README.md](README.md).
   pending-edge count, so an interleaved row only makes the line longer; and streaming is not
   lost, measured at **0.010s to the first row either way** on 60,000 commits with a commit-graph.
 - **Evidence**: [ledger: History 依 commit 時間排序](../ledger/2026-09-01-fix-history-graph-commit-date-order.md)
+
+## [GIT-no-index-sees-untracked] `git diff` cannot see an untracked path, and `--no-index` is how one is diffed
+
+- **Rule**: an untracked path is in neither the index nor HEAD, so `git diff -- <path>` prints
+  nothing and the reply arrives as an ordinary *empty* diff. `git diff --no-index -- /dev/null
+  <path>` produces the real thing — canonical `new file mode` / `--- /dev/null` / `@@ -0,0 +1,N @@`,
+  git's own binary detection, and the `\ No newline at end of file` marker.
+- **Consequence**: without it the Working Copy drew 「Nothing unstaged」 over a file whose own row
+  badge said `+12`, and `PartialStageOperation` / `DiscardLinesOperation` both answered
+  「No pending changes found」 — three defects behind one wall, which is why the fallback lives in
+  `DiffService::workingTreeDiff` rather than at any one call site.
+- **Rule**: **`--no-index` exits 1 when it finds differences**, i.e. always here, and
+  `ProcessRunner::run()` fills `result->out` only on success — so stdout is discarded on that path.
+  Read exit 1 as data through `runner_.stream()` plus a local accumulator, the way
+  `CompareOps::readMergeBase` already does.
+- **Do**: gate it on 「not in the index」, asked as `git ls-files -z -- <path>` and never inferred.
+  A tracked *unmodified* file also produces an empty diff, and answering that one with `--no-index`
+  renders the whole file as newly added — a wrong diff, worse than the missing one.
+- **Do**: gate it on `is_regular_file` too. `git status -uall` reports an untracked nested
+  repository as the directory `nested/`, and `--no-index` answers that with
+  `Could not access 'nested/null'`.
+- **Note**: git special-cases the literal string `/dev/null` in `diff-no-index.c`, so it is the
+  empty side on Windows too — it is not a path being stat'ed. **Measured**, not just read off the
+  source: all seven of the untracked-diff tests, the subdirectory and binary cases included, pass
+  on the `capi (FFI) - Windows` job.
+- **See also**: [GIT-zero-means-unmeasured] records the *line-count* half of the same blind spot;
+  this is the diff half, which went unwritten for as long as that rule has existed.
+- **Evidence**: [ledger: 未追蹤檔案在 Working Copy 看不到 diff](../ledger/2026-09-01-claude-working-copy-untracked-files-qq2gnc.md)
+
+## [GIT-new-file-patch-needs-dev-null] A rebuilt patch for a path not in the index needs `new file mode` and `--- /dev/null`
+
+- **Rule**: measured — `git apply --cached` on a patch headed `--- a/<path>` for a path the index
+  does not hold fails with `error: <path>: does not exist in index`, exit 1; with `new file mode
+  100644` + `--- /dev/null` it succeeds and leaves the file `AM`, index holding exactly the
+  selected lines. `git apply` reads the *mode* line, not the `index` line, to decide it is
+  creating a file, so the mode must be echoed (or defaulted) rather than omitted.
+- **Consequence**: this is the whole of「staging a scope of an untracked file」; without it the
+  diff is visible and every button in it errors.
+- **Do**: key the header on `DiffFile::kind == Added`, **never on an empty `oldPath`**. `--- /dev/null`
+  does strip to an empty string, but `diff --git a/x b/x` has already filled `oldPath` in and the
+  `---` handler declines to overwrite it with nothing — so「has no old side」is a condition that
+  reads plausibly and is never true.
+- **Do not** change the unstaging direction: by then the file is in the index, `git apply --cached
+  --reverse` checks the patch's *new* side against it, and the plain `a/<path>` header is what
+  matches. An intent-to-add path (`git add -N`, which `git diff` also reports as `new file mode`)
+  accepts the create form on the staging side — measured, exit 0.
+- **Evidence**: [ledger: 未追蹤檔案在 Working Copy 看不到 diff](../ledger/2026-09-01-claude-working-copy-untracked-files-qq2gnc.md)
+
+## [GIT-apply-without-cached-follows-autocrlf] `git apply` without `--cached` writes the work tree, so its output follows `core.autocrlf`
+
+- **Rule**: `--cached` writes a *blob*, where autocrlf's clean filter normalises to LF on the way
+  into the index; without it git rewrites the file on disk and applies the smudge direction. Git
+  for Windows ships `core.autocrlf=true` in its **system** config, so a fresh `git init` fixture
+  inherits it with nothing in the repo saying so.
+- **Consequence**: a byte-exact assertion on work-tree content is platform-dependent.
+  `DiscardsSelectedLinesOfAnUntrackedFile` wrote `a\nb\nc\n`, discarded one line, and got
+  `"a\r\nc\r\n"` back on the Windows runner — one red job out of 621 tests, on eleven checks where
+  every other platform was green.
+- **Do not** "fix" it in the operation: that would override the user's own git config, and a real
+  Windows user's untracked file already has CRLF, so git rewriting it as CRLF is correct.
+- **Do**: set `core.autocrlf=true` in the test *and* normalise the assertion. Leaving it to the
+  platform makes the normalisation a no-op on Linux, so nothing outside the Windows CI job could
+  show it was load-bearing — measured: with the config forced, deleting the normalisation reddens
+  on Linux too.
+- **Note**: the staging mirror needs none of this, and the contrast is the evidence for the cause —
+  `StagesSelectedLinesOfAnUntrackedFile` passed on Windows in the same run because it applies with
+  `--cached`.
+- **Evidence**: [ledger: 未追蹤檔案在 Working Copy 看不到 diff](../ledger/2026-09-01-claude-working-copy-untracked-files-qq2gnc.md)

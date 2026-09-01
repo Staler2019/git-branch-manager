@@ -43,6 +43,8 @@ class WorkingCopyDiffPane extends StatefulWidget {
     required this.stagedFile,
     required this.unstagedLoading,
     required this.stagedLoading,
+    this.unstagedTruncated = false,
+    this.stagedTruncated = false,
     required this.onStageScope,
     required this.onDiscardScope,
     required this.onTemporaryScopeChanged,
@@ -59,6 +61,12 @@ class WorkingCopyDiffPane extends StatefulWidget {
   final DiffFile? stagedFile;
   final bool unstagedLoading;
   final bool stagedLoading;
+
+  /// That side's reply came back refused for being over the core's diff byte
+  /// cap. Separate from the `*File` being null, which is the ordinary "this
+  /// side has nothing"; `ScopedDiffView` draws its own wording for it.
+  final bool unstagedTruncated;
+  final bool stagedTruncated;
 
   /// `staged` says which side the pressed card was on, and so whether the
   /// press stages or unstages.
@@ -189,6 +197,7 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
     file: staged ? widget.stagedFile : widget.unstagedFile,
     staged: staged,
     loading: staged ? widget.stagedLoading : widget.unstagedLoading,
+    truncated: staged ? widget.stagedTruncated : widget.unstagedTruncated,
     emptyLabel: staged ? 'Nothing staged' : 'Nothing unstaged',
     onStageScope: (int hunkIndex, List<int> lineIndices) =>
         widget.onStageScope(staged, hunkIndex, lineIndices),

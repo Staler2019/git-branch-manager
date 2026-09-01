@@ -63,7 +63,11 @@ struct DiffFile {
 
 struct ParsedDiff {
     std::vector<DiffFile> files;
-    bool truncated = false;  ///< Input exceeded the size cap.
+    /// Input exceeded the size cap, and **nothing was parsed**: `files` is
+    /// empty and the diff is refused rather than shown in part. A surface that
+    /// draws its "no changes" placeholder here is claiming a file with changes
+    /// has none -- check this before `files.isEmpty()`.
+    bool truncated = false;
     std::size_t inputBytes = 0;
 };
 
@@ -78,9 +82,11 @@ struct ParsedDiff {
 class UnifiedDiffParser {
 public:
     struct Options {
-        /// Diffs beyond this are reported as truncated rather than parsed. A
-        /// generated 40 MB file must not be turned into millions of DiffLine
-        /// objects just because it was clicked on.
+        /// Diffs beyond this are refused: `truncated` is set and no file is
+        /// produced at all. A generated 40 MB file must not be turned into
+        /// millions of DiffLine objects just because it was clicked on, and
+        /// showing its first 2 MB as if that were the whole diff is the wrong
+        /// answer rather than a partial one.
         std::size_t maxBytes = 2u * 1024u * 1024u;
 
         /// Lines longer than this are clipped. Minified JavaScript arrives as one

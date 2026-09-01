@@ -9,6 +9,7 @@ import '../../widgets/gbm_button.dart';
 import '../../widgets/gbm_code_hscroll.dart';
 import '../../widgets/gbm_row.dart';
 import 'diff_scopes.dart';
+import 'diff_truncation.dart';
 import 'selection_touch.dart';
 import 'widgets/diff_line.dart';
 
@@ -42,6 +43,7 @@ class ScopedDiffView extends StatefulWidget {
     this.onDiscardScope,
     this.emptyLabel = 'No changes',
     this.loading = false,
+    this.truncated = false,
     this.onTemporaryScopeChanged,
     required this.softWrap,
   });
@@ -81,6 +83,13 @@ class ScopedDiffView extends StatefulWidget {
   /// renders, so switching files does not make the heading flicker away and
   /// back; only the body below it becomes the spinner.
   final bool loading;
+
+  /// The core refused this side's diff for being over its byte cap, so
+  /// [file] is null for a reason that is not "nothing changed" -- see
+  /// [kDiffTooLargeLabel]. Kept separate from [emptyLabel] rather than folded
+  /// into it by the caller, because the caller would then have to decide the
+  /// wording and the two sides could drift apart.
+  final bool truncated;
 
   /// Reports how to submit the current one-shot scope, or null when there
   /// is none, so `repositoryStageSelectedLines` can act on the same block
@@ -316,6 +325,11 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
               ),
             ),
           )
+        // Before the null arm: a refused diff also has no file, and falling
+        // through to `emptyLabel` would say "Nothing unstaged" about a file
+        // the row's own +N badge says has changes.
+        else if (widget.truncated)
+          _placeholder(colors, kDiffTooLargeLabel)
         else if (diffFile == null)
           _placeholder(colors, widget.emptyLabel)
         else if (diffFile.binary)

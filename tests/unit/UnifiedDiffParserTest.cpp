@@ -286,8 +286,14 @@ TEST(UnifiedDiffParser, ReportsTruncationInsteadOfParsingHugeInput) {
 
     const ParsedDiff parsed = UnifiedDiffParser{options}.parse(diff);
     EXPECT_TRUE(parsed.truncated);
-    // The file list still populates, so the UI can offer to open the file.
-    ASSERT_EQ(parsed.files.size(), 1u);
+    EXPECT_EQ(parsed.inputBytes, diff.size());
+    // **Overruled**: this used to assert `files.size() == 1`, on the reasoning
+    // that populating the file list let the UI offer to open the file. Nothing
+    // ever made that offer -- what the partial parse actually produced was a
+    // diff that looked complete and was not, with `truncated` read by no
+    // surface at all. Over the cap the diff is now refused outright, and
+    // `truncated` is the only thing the caller gets.
+    EXPECT_TRUE(parsed.files.empty());
 }
 
 TEST(UnifiedDiffParser, ToleratesEmptyAndGarbageInput) {
@@ -321,6 +327,65 @@ TEST(UnifiedDiffParser, BuildHunkPatchRoundTripsCountsExactly) {
     EXPECT_NE(patch.find("@@ -5,3 +5,4 @@"), std::string::npos) << patch;
     EXPECT_NE(patch.find("--- a/f.txt"), std::string::npos);
     EXPECT_NE(patch.find("+add two"), std::string::npos);
+}
+
+TEST(UnifiedDiffParser, BuildHunkPatchWritesANewFileHeaderWhenStagingAnAddedFile) {
+    const std::string diff =
+        "diff --git a/new.txt b/new.txt\n"
+        "new file mode 100644\n"
+        "index 0000000..422c2b7\n"
+        "--- /dev/null\n"
+        "+++ b/new.txt\n"
+        "@@ -0,0 +1,2 @@\n"
+        "+a\n"
+        "+b\n";
+
+    const ParsedDiff parsed = UnifiedDiffParser{}.parse(diff);
+    ASSERT_EQ(parsed.files.size(), 1u);
+    ASSERT_EQ(parsed.files[0].kind, FileChangeKind::Added);
+    // The `diff --git` line filled oldPath in before `--- /dev/null` was read,
+    // and the `---` handler declines to overwrite it with an empty string --
+    // so "has no old side" is carried by `kind`, never by an empty oldPath.
+    ASSERT_EQ(parsed.files[0].oldPath, "new.txt");
+
+    const std::string staging = UnifiedDiffParser::buildHunkPatch(
+        parsed.files[0], parsed.files[0].hunks[0], /*reverse=*/false, /*unstaging=*/false);
+    // Without these two lines `git apply --cached` answers "new.txt: does not
+    // exist in index" and an untracked file's lines cannot be staged at all.
+    EXPECT_NE(staging.find("new file mode 100644"), std::string::npos) << staging;
+    EXPECT_NE(staging.find("--- /dev/null"), std::string::npos) << staging;
+    EXPECT_EQ(staging.find("--- a/new.txt"), std::string::npos) << staging;
+
+    // Unstaging is the other direction and keeps the plain header: by then the
+    // file is in the index, and `git apply --cached --reverse` checks the
+    // patch's new side against it.
+    const std::string unstaging = UnifiedDiffParser::buildHunkPatch(
+        parsed.files[0], parsed.files[0].hunks[0], /*reverse=*/false, /*unstaging=*/true);
+    EXPECT_NE(unstaging.find("--- a/new.txt"), std::string::npos) << unstaging;
+    EXPECT_EQ(unstaging.find("new file mode"), std::string::npos) << unstaging;
+}
+
+TEST(UnifiedDiffParser, LineSelectionPatchWritesANewFileHeaderWhenStagingAnAddedFile) {
+    const std::string diff =
+        "diff --git a/new.txt b/new.txt\n"
+        "new file mode 100755\n"
+        "--- /dev/null\n"
+        "+++ b/new.txt\n"
+        "@@ -0,0 +1,3 @@\n"
+        "+a\n"
+        "+b\n"
+        "+c\n";
+
+    const ParsedDiff parsed = UnifiedDiffParser{}.parse(diff);
+    ASSERT_EQ(parsed.files.size(), 1u);
+
+    const std::string patch = UnifiedDiffParser::buildLineSelectionPatch(
+        parsed.files[0], parsed.files[0].hunks[0], {true, false, false}, /*unstaging=*/false);
+    // The mode is echoed rather than fixed at 100644: git apply reads this
+    // line, not the `index` line, to decide it is creating a file.
+    EXPECT_NE(patch.find("new file mode 100755"), std::string::npos) << patch;
+    EXPECT_NE(patch.find("--- /dev/null"), std::string::npos) << patch;
+    EXPECT_NE(patch.find("@@ -0,0 +1,1 @@"), std::string::npos) << patch;
 }
 
 TEST(UnifiedDiffParser, BuildHunkPatchSwapsSidesWhenReversed) {

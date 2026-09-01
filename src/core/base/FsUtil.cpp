@@ -267,6 +267,11 @@ std::optional<std::int64_t> modifiedTimeNs(const std::filesystem::path& path) {
 #endif
 }
 
+std::filesystem::path pathFromUtf8(std::string_view utf8) {
+    return std::filesystem::path(
+        std::u8string(reinterpret_cast<const char8_t*>(utf8.data()), utf8.size()));
+}
+
 std::optional<std::string> readSmallFile(const std::filesystem::path& path, std::size_t maxBytes) {
     std::error_code ec;
     const auto size = std::filesystem::file_size(longPathSafe(path), ec);

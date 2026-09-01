@@ -447,6 +447,10 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
       // ScopedDiffView says so.
       unstagedLoading: sides.unstaged != null && unstagedReply == null,
       stagedLoading: sides.staged != null && stagedReply == null,
+      // Refused for size, which is not the same as having nothing to show --
+      // the pane says so rather than drawing `emptyLabel` over it.
+      unstagedTruncated: unstagedReply?.diff.truncated ?? false,
+      stagedTruncated: stagedReply?.diff.truncated ?? false,
       scrollController: _diffScrollController,
       onStageScope: (bool staged, int hunkIndex, List<int> lineIndices) {
         final String? path = staged ? sides.staged : sides.unstaged;
@@ -483,8 +487,17 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
 
   /// A working-copy diff describes exactly one path, because the request
   /// that produced it named one path -- so the reply's single file is the
-  /// whole of it, and an empty `files` means git reported no change on that
-  /// side rather than an error.
+  /// whole of it.
+  ///
+  /// **An empty `files` is not one condition.** It used to be read as "git
+  /// reported no change on that side", and that reading is what made an
+  /// untracked file draw `Nothing unstaged` next to a row badge saying `+12`:
+  /// `git diff` cannot see a path that is in neither the index nor HEAD, so
+  /// it reported nothing and the pane believed it. The core answers untracked
+  /// paths itself now (`DiffService::workingTreeDiff`), and the other case an
+  /// empty `files` can mean -- a diff refused for its size -- is carried by
+  /// `truncated` and read separately above. What is left here really is "no
+  /// change on that side".
   DiffFile? _fileOf(WorkingCopyDiffReply? reply) =>
       reply == null || reply.diff.files.isEmpty ? null : reply.diff.files.first;
 

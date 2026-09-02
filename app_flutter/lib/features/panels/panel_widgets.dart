@@ -33,12 +33,26 @@ class PanelListRow extends StatelessWidget {
     required this.subtitle,
     required this.selected,
     required this.onTap,
+    this.icon,
+    this.badge,
   });
 
   final String title;
   final String subtitle;
   final bool selected;
   final VoidCallback onTap;
+
+  /// Leading status glyph, normally a [LucideIcon]. P19's mockup names three
+  /// for `manage-worktrees` (`folder-git-2`, `git-commit-horizontal` for a
+  /// detached HEAD, a warning-coloured `alert-triangle` for a path that is
+  /// gone) and names none for the other eleven panels, which is why this is
+  /// optional rather than required: a panel whose rows carry no status has
+  /// no glyph the spec would have it draw.
+  final Widget? icon;
+
+  /// Trailing chip, normally a [GbmBadge] — `current` / `路徑不存在` in the
+  /// mockup. Pinned to the row's right edge.
+  final Widget? badge;
 
   @override
   Widget build(BuildContext context) {
@@ -50,27 +64,45 @@ class PanelListRow extends StatelessWidget {
       padding: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
           children: <Widget>[
-            Text(
-              title,
-              style: TextStyle(
-                fontSize: GbmTypography.textSm,
-                color: colors.textPrimary,
-                fontWeight: GbmTypography.weightMedium,
+            if (icon != null) ...<Widget>[
+              icon!,
+              const SizedBox(width: GbmSpacing.space2),
+            ],
+            // Expanded, not a bare child: the icon and badge are non-flex,
+            // and RenderFlex gives them their intrinsic width first, so the
+            // text block is the one that has to yield
+            // ([FLU-renderflex-non-flex-first]).
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: GbmTypography.textSm,
+                      color: colors.textPrimary,
+                      fontWeight: GbmTypography.weightMedium,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: GbmTypography.textXs,
+                      color: colors.textTertiary,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
               ),
-              overflow: TextOverflow.ellipsis,
             ),
-            Text(
-              subtitle,
-              style: TextStyle(
-                fontSize: GbmTypography.textXs,
-                color: colors.textTertiary,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
+            if (badge != null) ...<Widget>[
+              const SizedBox(width: GbmSpacing.space2),
+              badge!,
+            ],
           ],
         ),
       ),

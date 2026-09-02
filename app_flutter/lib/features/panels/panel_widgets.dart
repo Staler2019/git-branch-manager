@@ -162,6 +162,59 @@ class PanelDetailColumn extends StatelessWidget {
   }
 }
 
+/// P19 樣板規則 4, second half: 「動作列在明細底部，danger 靠右」.
+///
+/// The split into [actions] and [dangerActions] is what enforces the rule:
+/// this widget owns the spacer between them, so "danger is on the right" is
+/// structural rather than a convention each of the twelve panels has to
+/// remember to follow by ordering a flat list correctly.
+///
+/// It is a plain widget with no scroll behaviour of its own, so it can sit
+/// at the bottom of *either* detail shape — a [PanelDetailColumn] of fields,
+/// or the diff-shaped detail that five of the twelve panels use instead.
+/// [GbmPanelTabShell] is what places it, for the same reason.
+class PanelDetailActions extends StatelessWidget {
+  const PanelDetailActions({
+    super.key,
+    this.actions = const <Widget>[],
+    this.dangerActions = const <Widget>[],
+  });
+
+  /// Ordinary actions, laid out from the left.
+  final List<Widget> actions;
+
+  /// Destructive actions, pinned to the right end. Spec page 19 rule 2 keeps
+  /// these out of the toolbar entirely; this is where they go instead.
+  final List<Widget> dangerActions;
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: GbmSpacing.space3,
+        vertical: GbmSpacing.space2,
+      ),
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: colors.borderSubtle)),
+      ),
+      child: Row(
+        children: <Widget>[
+          for (final (int index, Widget action) in actions.indexed) ...<Widget>[
+            if (index > 0) const SizedBox(width: GbmSpacing.space2),
+            action,
+          ],
+          const Spacer(),
+          for (final (int index, Widget action) in dangerActions.indexed) ...[
+            if (index > 0) const SizedBox(width: GbmSpacing.space2),
+            action,
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 /// The "this panel has nothing in it" state for a P19 list column. Spelling
 /// it out beats an empty pane, which reads as a rendering bug.
 class PanelEmptyList extends StatelessWidget {

@@ -23,6 +23,7 @@ class GbmPanelTabShell extends StatelessWidget {
     required this.list,
     required this.detail,
     required this.storageId,
+    this.detailActions,
     this.emptyDetailMessage = 'Select an item to see its details',
     this.detailIsEmpty = false,
   });
@@ -37,6 +38,17 @@ class GbmPanelTabShell extends StatelessWidget {
 
   /// Right column — the selected item's details.
   final Widget detail;
+
+  /// P19 樣板規則 4: 「動作列在明細底部，danger 靠右」. Normally a
+  /// [PanelDetailActions]. Pinned below [detail] rather than appended inside
+  /// it, so a long field list scrolls underneath it instead of carrying it
+  /// off the bottom of the pane.
+  ///
+  /// Optional because it is conditional, not because it is decoration: a
+  /// panel whose selected item affords no action has nothing to put here.
+  /// Not drawn at all when [detailIsEmpty] — an action row with no subject
+  /// would act on nothing.
+  final Widget? detailActions;
 
   /// Distinguishes this panel's splitter position in the persisted panel
   /// layout, so two different panels don't share one remembered width.
@@ -92,8 +104,16 @@ class GbmPanelTabShell extends StatelessWidget {
                       ),
                     ),
                   )
+                else if (detailActions == null)
+                  detail
                 else
-                  detail,
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      Expanded(child: detail),
+                      detailActions!,
+                    ],
+                  ),
               ],
             ),
           ),

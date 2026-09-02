@@ -29,6 +29,7 @@ add_executable(gbm_core_tests
     unit/SideBySideDiffTest.cpp
     unit/WorktreeCreatedAtTest.cpp
     unit/WorktreePendingCountTest.cpp
+    unit/WorktreePrimaryTest.cpp
     unit/WorktreeReadFlagsTest.cpp
     unit/TextTraitsTest.cpp
     unit/UnifiedDiffParserTest.cpp

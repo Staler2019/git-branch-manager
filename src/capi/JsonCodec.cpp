@@ -562,6 +562,8 @@ std::string toJson(const WorktreeInfo& worktree) {
     jsonAppendBool(out, worktree.isPrunable);
     out += ",\"prunableReason\":";
     jsonAppendEscaped(out, worktree.prunableReason);
+    out += ",\"isPrimary\":";
+    out += worktree.isPrimary ? "true" : "false";
     out += ",\"pendingChanges\":";
     out += std::to_string(worktree.pendingChanges);
     out += ",\"pendingCountState\":";

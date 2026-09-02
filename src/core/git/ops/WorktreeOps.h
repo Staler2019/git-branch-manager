@@ -53,6 +53,19 @@ struct WorktreeInfo {
     /// opened on a linked worktree sets this on that linked worktree and not
     /// on the repository's main one.
     bool isMain = false;
+    /// **The repository's main worktree** -- the one `git worktree remove`
+    /// refuses to remove. Set from the *position* of the entry: entry 0 of
+    /// `git worktree list --porcelain` is always the main worktree, measured
+    /// on git 2.55.0 from every vantage point (from the main worktree, from a
+    /// linked one, and from the alphabetically-first linked one; the linked
+    /// entries that follow are sorted by path, not by creation order).
+    ///
+    /// Distinct from [isMain] and routinely confused with it, because on an
+    /// ordinary clone the two coincide on entry 0. They separate the moment
+    /// the session is opened on a linked worktree, and that is exactly when
+    /// gating removal on the wrong one blocks the removable worktree and
+    /// offers the unremovable one.
+    bool isPrimary = false;
     bool isBare = false;
     bool isDetached = false;
     bool isLocked = false;

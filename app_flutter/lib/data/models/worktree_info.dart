@@ -42,6 +42,7 @@ class WorktreeInfo {
     required this.lockReason,
     required this.isPrunable,
     required this.prunableReason,
+    required this.isPrimary,
     required this.pendingChanges,
     required this.pendingCountState,
     required this.createdAt,
@@ -72,6 +73,7 @@ class WorktreeInfo {
       lockReason: json['lockReason'] as String,
       isPrunable: json['isPrunable'] as bool,
       prunableReason: json['prunableReason'] as String,
+      isPrimary: json['isPrimary'] as bool,
       pendingChanges: state == WorktreePendingCountState.measured
           ? json['pendingChanges'] as int
           : null,
@@ -110,6 +112,17 @@ class WorktreeInfo {
   final String lockReason;
   final bool isPrunable;
   final String prunableReason;
+
+  /// The repository's **main** worktree -- the one `git worktree remove`
+  /// refuses to remove.
+  ///
+  /// Not the same worktree as [isMain], and the naming is the trap: [isMain]
+  /// means "the one this session is open on" (the mockup's `current` badge),
+  /// because the core resolves it against the session's own work dir. On an
+  /// ordinary clone they coincide on the first entry, which is why gating
+  /// removal on the wrong one went unnoticed; open gbm on a linked worktree
+  /// and the gate blocks the removable row and offers the unremovable one.
+  final bool isPrimary;
 
   /// Uncommitted changes in this worktree, or null when
   /// [pendingCountState] is anything but [WorktreePendingCountState.measured].

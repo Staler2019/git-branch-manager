@@ -152,7 +152,7 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
   /// is merely locked.
   String _describe(WorktreeInfo w) {
     final String status = <String>[
-      if (w.isMain) 'main',
+      if (w.isMain) 'current',
       if (w.isLocked) 'locked',
       if (w.isPrunable) 'prunable',
       if (w.isBare) 'bare',
@@ -194,11 +194,14 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
                     .read(desktopLauncherProvider)
                     .openInFileManager(selected.path),
         ),
-        // The main worktree cannot be removed -- it is the repository.
+        // Gated on isPrimary, not isMain. isMain means "the worktree this
+        // session is open on" -- open gbm on a linked worktree and this
+        // button used to refuse the row you are standing in (git removes it
+        // happily) while offering the repository's main one (git refuses).
         GbmButton(
           label: 'Remove',
           kind: GbmButtonKind.danger,
-          onPressed: selected == null || selected.isMain
+          onPressed: selected == null || selected.isPrimary
               ? null
               : () {
                   _session.removeWorktree(selected.path);

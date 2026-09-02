@@ -29,6 +29,7 @@ const WorktreeInfo _main = WorktreeInfo(
   lockReason: '',
   isPrunable: false,
   prunableReason: '',
+  isPrimary: true,
   // A plain refresh leaves every count unmeasured; the panel asks for the
   // real numbers separately. The current worktree also has no
   // `worktrees/<name>/` admin directory, so git records no creation time
@@ -49,6 +50,7 @@ const WorktreeInfo _locked = WorktreeInfo(
   lockReason: 'on the USB drive',
   isPrunable: false,
   prunableReason: '',
+  isPrimary: false,
   pendingChanges: null,
   pendingCountState: WorktreePendingCountState.unmeasured,
   createdAt: null,
@@ -75,6 +77,7 @@ WorktreeInfo _wt({
   lockReason: '',
   isPrunable: false,
   prunableReason: '',
+  isPrimary: false,
   pendingChanges: pendingChanges,
   pendingCountState: pendingCountState,
   createdAt: null,
@@ -118,7 +121,9 @@ void main() {
       // 名稱 (base name, not the full path -- the path is detail-column
       // content), 分支, 狀態.
       expect(find.text('git-branch-manager'), findsOneWidget);
-      expect(find.text('main · main'), findsOneWidget);
+      // 'current', not 'main': the flag says which worktree the session is
+      // open on, and P19's mockup badges it `current` for that reason.
+      expect(find.text('main · current'), findsOneWidget);
       expect(find.text('gbm-lfs'), findsOneWidget);
       expect(find.text('feature/lfs · locked'), findsOneWidget);
     });
@@ -156,9 +161,11 @@ void main() {
       expect(panelButton(tester, 'Remove').onPressed, isNull);
     });
 
-    // The main worktree is the repository -- git refuses to remove it, so
-    // the button must not offer to.
-    testWidgets('Remove stays disabled for the main worktree', (tester) async {
+    // git refuses to remove the repository's *primary* worktree, so the
+    // button must not offer to.
+    testWidgets('Remove stays disabled for the primary worktree', (
+      tester,
+    ) async {
       await _pump(tester);
 
       await tester.tap(find.text('git-branch-manager'));
@@ -167,6 +174,71 @@ void main() {
       expect(panelButton(tester, 'Open').onPressed, isNotNull);
       expect(panelButton(tester, 'Remove').onPressed, isNull);
     });
+
+    // The case the gate used to get backwards, and the one no fixture here
+    // could express while `isMain` was doing both jobs: gbm opened on a
+    // *linked* worktree. `isMain` marks the linked one (it is "current"),
+    // `isPrimary` marks the repository's main one, and they are different
+    // rows. Gating on `isMain` blocked the row the user is standing in --
+    // which git removes happily -- and offered the primary one, which git
+    // refuses.
+    testWidgets(
+      'opened on a linked worktree, Remove follows primary and not current',
+      (tester) async {
+        const WorktreeInfo primaryNotCurrent = WorktreeInfo(
+          path: '/src/git-branch-manager',
+          headOid: 'a1b2c3d',
+          branch: 'main',
+          isMain: false,
+          isBare: false,
+          isDetached: false,
+          isLocked: false,
+          lockReason: '',
+          isPrunable: false,
+          prunableReason: '',
+          isPrimary: true,
+          pendingChanges: null,
+          pendingCountState: WorktreePendingCountState.unmeasured,
+          createdAt: null,
+        );
+        const WorktreeInfo currentNotPrimary = WorktreeInfo(
+          path: '/src/wt/gbm-lfs',
+          headOid: '9d02f4e',
+          branch: 'feature/lfs',
+          isMain: true,
+          isBare: false,
+          isDetached: false,
+          isLocked: false,
+          lockReason: '',
+          isPrunable: false,
+          prunableReason: '',
+          isPrimary: false,
+          pendingChanges: null,
+          pendingCountState: WorktreePendingCountState.unmeasured,
+          createdAt: null,
+        );
+        await _pump(
+          tester,
+          worktrees: const <WorktreeInfo>[primaryNotCurrent, currentNotPrimary],
+        );
+
+        await tester.tap(find.text('gbm-lfs'));
+        await tester.pumpAndSettle();
+        expect(
+          panelButton(tester, 'Remove').onPressed,
+          isNotNull,
+          reason: 'the worktree the session is open on is removable',
+        );
+
+        await tester.tap(find.text('git-branch-manager'));
+        await tester.pumpAndSettle();
+        expect(
+          panelButton(tester, 'Remove').onPressed,
+          isNull,
+          reason: 'the primary worktree is not, whoever is standing where',
+        );
+      },
+    );
 
     testWidgets('Remove dispatches for a non-main worktree', (tester) async {
       await _pump(tester);

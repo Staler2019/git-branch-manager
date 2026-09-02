@@ -316,6 +316,7 @@ void main() {
     final List<dynamic> json = jsonDecode(
       '[{"path":"/repo","headOid":"aa","branch":"main","isMain":true,"isBare":false,'
       '"isDetached":false,"isLocked":false,"lockReason":"","isPrunable":false,"prunableReason":"",'
+      '"isPrimary":true,'
       '"pendingChanges":0,"pendingCountState":"unmeasured","createdAtUnix":0}]',
     );
     final List<WorktreeInfo> worktrees = WorktreeInfo.listFromJson(json);
@@ -620,6 +621,7 @@ Map<String, dynamic> _worktreeJson({
   'lockReason': '',
   'isPrunable': false,
   'prunableReason': '',
+  'isPrimary': true,
   'pendingChanges': pendingChanges,
   'pendingCountState': pendingCountState,
   'createdAtUnix': createdAtUnix,

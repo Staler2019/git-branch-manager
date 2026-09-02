@@ -492,6 +492,13 @@ GitResult<std::vector<WorktreeInfo>> WorktreeStore::list(CancellationToken token
             infos.push_back(parseEntry(entry, paths_.workDir()));
         }
     }
+    // Positional, and it has to be: nothing in the porcelain output *says*
+    // which worktree is the main one. Entry 0 is, from every vantage point.
+    // Kept here rather than inside parseEntry() because parseEntry sees one
+    // entry at a time and position is a property of the list.
+    if (!infos.empty()) {
+        infos.front().isPrimary = true;
+    }
     // Part of the plain list, unlike attachPendingCounts: no process, no work
     // tree read. See its declaration for why that difference decides this.
     attachCreatedAt(paths_, infos);

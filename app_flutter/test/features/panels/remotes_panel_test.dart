@@ -343,7 +343,7 @@ void main() {
 
       await tester.tap(find.text('Add…'));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).first, 'upstream');
+      await _fill(tester, 'Name', 'upstream');
       await tester.tap(find.text('Add'));
       await tester.pumpAndSettle();
 

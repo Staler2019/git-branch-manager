@@ -222,6 +222,16 @@ private:
 /// difference between reading up to 1 MiB per untracked file on every refresh
 /// and reading it once -- and in a tree with an unbuilt output directory,
 /// every refresh is when the user is typing.
+/// Parses `git status --porcelain=v2 -z` records into entries.
+///
+/// Public so the per-worktree pending-change count
+/// (`attachPendingCounts`, WorktreeOps.h) can reuse it rather than writing a
+/// second parser. A rename ('2') spends **two** NUL records where every other
+/// kind spends one, so anything counting records instead of parsing them is
+/// silently wrong from the first rename onwards -- that trap is the reason
+/// this is shared rather than reimplemented.
+std::vector<WorkingCopyEntry> parsePorcelainV2Records(const std::vector<std::string>& records);
+
 class WorkingCopyStatusReader {
 public:
     WorkingCopyStatusReader(IProcessRunner& runner, RepoPaths paths);

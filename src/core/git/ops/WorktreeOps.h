@@ -78,6 +78,28 @@ struct WorktreeInfo {
     std::int64_t createdAtUnix = 0;
 };
 
+/// Fills in `pendingChanges` / `pendingCountState` for every worktree in
+/// `worktrees`, one `git status` per eligible worktree.
+///
+/// **Deliberately not part of `WorktreeStore::list()`.** That is what a plain
+/// refresh calls, and every zero-argument `refresh*` on the session is a
+/// member of the focus-regain/F5 refresh set -- folding N git processes into
+/// it would make everyone pay for a panel they may not have open. This runs
+/// only when something asks for it.
+///
+/// Skips bare and prunable worktrees **without running anything**: a bare
+/// worktree has no work tree (`fatal: this operation must be run in a work
+/// tree`) and a prunable one's directory is gone, so in both cases the
+/// command cannot start. That is knowing the command cannot run, not guessing
+/// what it would have answered -- the same carve-out `Session::refreshLfs()`
+/// makes when git-lfs is absent from PATH.
+///
+/// Serial rather than fanned out: N is small, and N concurrent git processes
+/// on the shared read pool is a cost nobody asked for.
+void attachPendingCounts(IProcessRunner& runner,
+                         std::vector<WorktreeInfo>& worktrees,
+                         CancellationToken token);
+
 /// Reads `git worktree list --porcelain`. Read-only, like RefStore.
 class WorktreeStore {
 public:

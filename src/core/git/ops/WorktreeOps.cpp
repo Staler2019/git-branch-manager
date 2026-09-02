@@ -1,7 +1,9 @@
 #include "core/git/ops/WorktreeOps.h"
 
 #include "core/base/FsUtil.h"
+#include "core/git/GitCommand.h"
 #include "core/git/RefStore.h"
+#include "core/git/WorkingCopyStatus.h"
 
 #include <utility>
 
@@ -307,6 +309,67 @@ private:
 
 WorktreeStore::WorktreeStore(IProcessRunner& runner, RepoPaths paths)
     : runner_(runner), paths_(std::move(paths)) {}
+
+void attachPendingCounts(IProcessRunner& runner,
+                         std::vector<WorktreeInfo>& worktrees,
+                         CancellationToken token) {
+    for (WorktreeInfo& worktree : worktrees) {
+        if (worktree.isBare || worktree.isPrunable) {
+            worktree.pendingCountState = WorktreePendingCountState::NotApplicable;
+            continue;
+        }
+
+        // **No worktreeReadFlags() here, deliberately.** That function is
+        // scoped to `git diff` reads (GitCommand.h says so in its first
+        // sentence), and its own closing paragraph names `git status` as the
+        // command the flag must *not* reach -- fsmonitor exists to accelerate
+        // status, on precisely the machines whose owners opted into it. This
+        // is a status read, so it keeps fsmonitor, exactly as the session's
+        // own read does (WorkingCopyStatusReader::read, pinned by
+        // WorktreeReadFlagsTest's StatusReadItselfDoesNotPayForThem). Lock
+        // safety is already covered: ProcessRunner prepends globalFlags(),
+        // which carries --no-optional-locks on every invocation.
+        //
+        // --untracked-files=normal, not =all: -uall enumerates every file in
+        // an unbuilt output directory, and 「N 個未提交變更」 counts changes,
+        // for which a directory is one. This is the one place the panel's
+        // number can differ from what the Working Copy tab lists for the same
+        // worktree, and it is a ratified difference rather than an oversight.
+        //
+        // --ignore-submodules=none matches the session's own read for the
+        // opposite reason: it overrides whatever `diff.ignoreSubmodules` or
+        // `submodule.<name>.ignore` the user configured, so the count cannot
+        // silently omit a dirty submodule that the Working Copy tab shows.
+        GitCommand command(worktree.path,
+                           {"status",
+                            "--porcelain=v2",
+                            "-z",
+                            "--untracked-files=normal",
+                            "--ignore-submodules=none"});
+        command.timeout = std::chrono::seconds(30);
+
+        std::vector<std::string> records;
+        const LineSink sink = [&records](std::string_view record) {
+            records.emplace_back(record);
+            return true;
+        };
+        auto result =
+            runner.streamSeparated(command, IProcessRunner::Separator::Nul, sink, nullptr, token);
+        if (!result) {
+            // A failure is an answer, and it is recorded as one. Leaving it
+            // Unmeasured would make a caller that re-requests "whatever has no
+            // count" spin forever on this worktree.
+            worktree.pendingCountState = WorktreePendingCountState::Failed;
+            continue;
+        }
+
+        // Parsed, never counted: a rename spends two NUL records, so a record
+        // count is silently wrong from the first rename onwards.
+        worktree.pendingChanges =
+            static_cast<std::uint32_t>(parsePorcelainV2Records(records).size());
+        worktree.pendingCountState = WorktreePendingCountState::Measured;
+    }
+}
 
 GitResult<std::vector<WorktreeInfo>> WorktreeStore::list(CancellationToken token) {
     GitCommand command(paths_.commandDir(), {"worktree", "list", "--porcelain"});

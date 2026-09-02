@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../data/repositories/panel_tabs_repository.dart';
 import '../../data/repositories/repo_identity.dart';
+import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import 'bisect_panel.dart';
@@ -56,6 +59,31 @@ class PanelPage extends ConsumerWidget {
       return const _PanelMessage(message: 'This panel is no longer open');
     }
 
+    // P19 樣板規則 1: 「Ctrl/Cmd+W 關閉」. Mirrors `compare_page.dart`'s
+    // binding, which is the same clause for the same tab strip -- this page
+    // simply never had one, so all twelve management panels were unclosable
+    // by keyboard.
+    return CallbackShortcuts(
+      bindings: <ShortcutActivator, VoidCallback>{
+        const SingleActivator(LogicalKeyboardKey.keyW, control: true): () =>
+            _closeThisTab(context, ref),
+        const SingleActivator(LogicalKeyboardKey.keyW, meta: true): () =>
+            _closeThisTab(context, ref),
+      },
+      child: Focus(autofocus: true, child: _buildPanel(spec)),
+    );
+  }
+
+  /// Navigate away *before* closing, the order `ComparePage` uses: closing
+  /// first would leave the router pointing at a tab that no longer exists,
+  /// which this page renders as 「This panel is no longer open」 for a frame.
+  void _closeThisTab(BuildContext context, WidgetRef ref) {
+    final String repoId = Uri.encodeComponent(identity.workDir);
+    context.go(RoutePaths.historyFor(repoId));
+    ref.read(panelTabsProvider(identity).notifier).close(tabId);
+  }
+
+  Widget _buildPanel(PanelTabSpec spec) {
     return switch (spec.kind) {
       GbmPanelKind.manageWorktrees => WorktreesPanel(identity: identity),
       GbmPanelKind.manageStashes => StashesPanel(

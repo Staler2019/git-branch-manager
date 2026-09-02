@@ -193,6 +193,21 @@ void expectPanelTemplate(
     );
   }
 
+  // Every button on the toolbar is *declared*. Without this the helper only
+  // checks that the named labels are present, correctly styled and in the
+  // right order -- it says nothing about a button nobody named, so
+  // 「read-only panels have an empty primary segment」 was a claim two doc
+  // comments made and no assertion held. A mutation adding a fake primary
+  // to `blame` came back fully green until this line existed
+  // ([SPEC-cell-names-capability]: the mechanism was named, never checked).
+  expect(
+    find.descendant(of: toolbar, matching: find.byType(GbmButton)),
+    findsNWidgets(primary.length + maintenance.length + external.length),
+    reason:
+        'the toolbar has a button that no segment declares -- rule 2 fixes '
+        'what is on it, not only the order of what is named here',
+  );
+
   for (final String label in notOnToolbar) {
     expect(
       find.descendant(of: toolbar, matching: find.textContaining(label)),

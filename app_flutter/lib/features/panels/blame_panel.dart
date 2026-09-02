@@ -18,6 +18,9 @@ import '../../widgets/gbm_code_hscroll.dart';
 import '../../widgets/gbm_row.dart';
 import '../history_graph/widgets/graph_date_format.dart';
 import 'gbm_panel_tab_shell.dart';
+import 'panel_filter_field.dart';
+import 'panel_status_line.dart';
+import 'panel_toolbar_spec.dart';
 import 'panel_widgets.dart';
 
 /// `blame` as a tab (spec page 14 `IAMAP`), on page 19's template. Opened
@@ -27,6 +30,22 @@ import 'panel_widgets.dart';
 /// - list: 檔案內容（每行帶作者）
 /// - detail: 選到的行對應的 commit 明細
 /// - toolbar: 上一版、忽略空白、跳到 commit
+///
+/// **Which segment each action lands in (P19 rule 2), and why the primary
+/// segment is empty.** Nothing in a blame view creates anything — it is a
+/// read-only surface — so the 主要建立動作 segment is simply empty, and an
+/// empty segment draws no placeholder. That is what stops a read-only panel
+/// growing a fake primary button.
+///
+/// `Previous revision` and `Ignore whitespace` are both maintenance: each
+/// changes what *this panel* shows. Only `Go to commit` is 「跳出去」 — it
+/// navigates to History — which is the very example [PanelToolbarSpec]'s
+/// own doc gives for that segment.
+///
+/// **The filter is disabled with a stated reason.** Rule 2 pins a filter to
+/// the toolbar's right end for every panel, but this list is *file content*
+/// rather than a named collection, so there is nothing a name filter could
+/// match. Disabled beats hidden — 隱藏會讓人以為功能不存在.
 ///
 /// **「忽略空白」 renders disabled.** `gbm_request_blame` takes path,
 /// revision and a line range — there is no `-w`. Disabled with the reason
@@ -132,41 +151,64 @@ class _BlamePanelState extends ConsumerState<BlamePanel> {
       storageId: 'panel.blame',
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a line to see the commit that wrote it',
-      toolbar: <Widget>[
-        GbmButton(
-          label: 'Previous revision',
-          onPressed: parent == null
-              ? null
-              : () {
-                  setState(() {
-                    _revision = parent;
-                    _selectedLine = null;
-                  });
-                  _session.requestBlame(widget.path, revision: parent);
-                },
+      toolbarSpec: PanelToolbarSpec(
+        maintenance: <Widget>[
+          GbmButton(
+            label: 'Previous revision',
+            kind: GbmButtonKind.ghost,
+            onPressed: parent == null
+                ? null
+                : () {
+                    setState(() {
+                      _revision = parent;
+                      _selectedLine = null;
+                    });
+                    _session.requestBlame(widget.path, revision: parent);
+                  },
+          ),
+          const Tooltip(
+            message: 'Ignoring whitespace is not supported yet',
+            child: GbmButton(
+              label: 'Ignore whitespace',
+              kind: GbmButtonKind.ghost,
+              onPressed: null,
+            ),
+          ),
+        ],
+        external: <Widget>[
+          GbmButton(
+            label: 'Go to commit',
+            kind: GbmButtonKind.ghost,
+            onPressed: selected == null
+                ? null
+                : () {
+                    ref
+                        .read(commitSelectionProvider(widget.identity).notifier)
+                        .state = const ListSelection<String>().single(
+                      selected.commitOid,
+                    );
+                    context.go(
+                      RoutePaths.historyFor(
+                        Uri.encodeComponent(widget.identity.workDir),
+                      ),
+                    );
+                  },
+          ),
+        ],
+        filter: const PanelFilterField(
+          query: '',
+          onChanged: null,
+          disabledReason: '這個清單是檔案內容，沒有可以篩選的名稱',
         ),
-        const Tooltip(
-          message: 'Ignoring whitespace is not supported yet',
-          child: GbmButton(label: 'Ignore whitespace', onPressed: null),
+      ),
+      listHeader: PanelListHeaderText(text: 'Lines · ${lines.length}'),
+      statusBar: PanelStatusBarText(
+        text: panelStatusLine(
+          total: lines.length,
+          shown: lines.length,
+          noun: 'line',
         ),
-        GbmButton(
-          label: 'Go to commit',
-          onPressed: selected == null
-              ? null
-              : () {
-                  ref
-                      .read(commitSelectionProvider(widget.identity).notifier)
-                      .state = const ListSelection<String>().single(
-                    selected.commitOid,
-                  );
-                  context.go(
-                    RoutePaths.historyFor(
-                      Uri.encodeComponent(widget.identity.workDir),
-                    ),
-                  );
-                },
-        ),
-      ],
+      ),
       list: lines.isEmpty
           ? const PanelEmptyList(message: 'No blame information')
           : Column(

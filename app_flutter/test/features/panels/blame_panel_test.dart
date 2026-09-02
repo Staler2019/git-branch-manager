@@ -14,6 +14,7 @@ import 'package:gbm_flutter/data/models/signature.dart';
 import 'package:gbm_flutter/data/repositories/history_repository.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/features/panels/blame_panel.dart';
+import 'package:gbm_flutter/features/panels/panel_filter_field.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -192,6 +193,45 @@ void main() {
         'aaaaaaa',
       );
       expect(find.text('history-page'), findsOneWidget);
+    });
+
+    testWidgets('the toolbar follows P19 rule 2\'s four segments', (
+      tester,
+    ) async {
+      await _pump(tester);
+
+      expectPanelTemplate(
+        tester,
+        // **No primary segment.** Nothing in a blame view creates anything;
+        // it is a read-only surface. An empty segment draws no placeholder,
+        // which is what stops a read-only panel growing a fake primary.
+        //
+        // `Previous revision` is maintenance rather than 「跳出去」: it
+        // re-blames *inside this panel* rather than taking the user
+        // anywhere. Only `Go to commit` leaves, which is the example
+        // PanelToolbarSpec's own doc gives for that segment.
+        maintenance: const <String>['Previous revision', 'Ignore whitespace'],
+        external: const <String>['Go to commit'],
+        listHeader: 'Lines · 2',
+        statusBar: RegExp(r'^2 lines$'),
+        filterEnabled: false,
+      );
+    });
+
+    // This list is *file content*, not a named collection, so there is
+    // nothing a name filter could match. Disabled with a stated reason
+    // rather than hidden -- 隱藏會讓人以為功能不存在.
+    testWidgets('the filter is disabled, and the tooltip says why', (
+      tester,
+    ) async {
+      await _pump(tester);
+
+      final PanelFilterField filter = tester.widget<PanelFilterField>(
+        find.byType(PanelFilterField),
+      );
+      expect(filter.enabled, isFalse);
+      expect(filter.disabledReason, isNotEmpty);
+      expect(find.byTooltip(filter.disabledReason), findsOneWidget);
     });
 
     testWidgets('a file with no blame information says so', (tester) async {

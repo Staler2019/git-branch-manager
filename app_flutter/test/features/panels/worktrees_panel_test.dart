@@ -6,9 +6,10 @@
 //   detail:  路徑、HEAD、待提交數、鎖定原因
 //   toolbar: Add、Prune、Open、Remove
 //
-// 待提交數 is deliberately absent -- WorktreeInfo carries no pending-change
-// count and gbm_capi has no per-worktree status call. See WorktreesPanel's
-// class doc.
+// 待提交數 used to be recorded here as unobtainable; it is obtainable now
+// (WorktreeInfo.pendingChanges, fed by gbm_worktree_request_pending_counts)
+// and simply not rendered until this panel's P19 rewrite. WorktreesPanel's
+// class doc carries the struck note.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/worktree_info.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
@@ -27,6 +28,13 @@ const WorktreeInfo _main = WorktreeInfo(
   lockReason: '',
   isPrunable: false,
   prunableReason: '',
+  // A plain refresh leaves every count unmeasured; the panel asks for the
+  // real numbers separately. The current worktree also has no
+  // `worktrees/<name>/` admin directory, so git records no creation time
+  // for it -- null here is the production value, not a fixture shortcut.
+  pendingChanges: null,
+  pendingCountState: WorktreePendingCountState.unmeasured,
+  createdAt: null,
 );
 
 const WorktreeInfo _locked = WorktreeInfo(
@@ -40,6 +48,9 @@ const WorktreeInfo _locked = WorktreeInfo(
   lockReason: 'on the USB drive',
   isPrunable: false,
   prunableReason: '',
+  pendingChanges: null,
+  pendingCountState: WorktreePendingCountState.unmeasured,
+  createdAt: null,
 );
 
 Future<PumpedPanel> _pump(

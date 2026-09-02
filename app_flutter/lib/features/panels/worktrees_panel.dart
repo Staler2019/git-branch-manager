@@ -18,11 +18,14 @@ import 'panel_widgets.dart';
 /// - detail: 路徑、HEAD、待提交數、鎖定原因
 /// - toolbar: Add、Prune、Open、Remove
 ///
-/// **待提交數 is not shown**, because `WorktreeInfo` (data/models/
-/// worktree_info.dart) carries no pending-change count and `gbm_capi.h` has
-/// no per-worktree status call — a status read is scoped to the session's
-/// own work dir. Absent rather than faked, the same convention Tier 2+3
-/// used for `MULTIACTS`' Squash. Everything else in the row is present.
+/// **Both halves of the old 「待提交數 is absent」 note are now false, and the
+/// note is struck rather than deleted** (the #45/#50/#51/#60 precedent): it
+/// said `WorktreeInfo` carried no count and `gbm_capi.h` had no per-worktree
+/// status call, because a status read was scoped to the session's own work
+/// dir. `gbm_worktree_request_pending_counts()` is that call, and
+/// `WorktreeInfo.pendingChanges` is that count. Leaving the note standing
+/// would invite a later round to re-file the field as unimplementable on
+/// grounds already overruled.
 class WorktreesPanel extends ConsumerStatefulWidget {
   const WorktreesPanel({super.key, required this.identity});
 
@@ -204,8 +207,11 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
   }
 }
 
-/// P19 detail column: 路徑、HEAD、鎖定原因 (待提交數 unavailable -- see the
-/// class doc on [WorktreesPanel]).
+/// P19 detail column: 路徑、HEAD、鎖定原因. 待提交數 is now available on
+/// [WorktreeInfo] and is not drawn here **yet** -- the P19 rewrite of this
+/// column is a later commit in the same round. "Not yet rendered" and "not
+/// obtainable" are different claims; see the class doc on [WorktreesPanel]
+/// for the one this replaces.
 class _WorktreeDetail extends StatelessWidget {
   const _WorktreeDetail({required this.worktree, required this.onToggleLock});
 

@@ -1,5 +1,7 @@
 // Pins GitCommand::worktreeReadFlags() onto the two background reads that
-// compare the work tree against the index.
+// compare the work tree against the index -- and, just as deliberately, off
+// every `git status`, which is the carve-out that function's own comment
+// closes with.
 //
 // These are argv assertions, not a race reproduction, and that is deliberate.
 // The regression they guard (see GitCommand::worktreeReadFlags()' own comment)
@@ -11,6 +13,7 @@
 // is the thing a later refactor would silently drop.
 #include "core/git/DiffService.h"
 #include "core/git/WorkingCopyStatus.h"
+#include "core/git/ops/WorktreeOps.h"
 #include "support/FakeProcessRunner.h"
 
 #include <algorithm>
@@ -104,6 +107,38 @@ TEST(WorktreeReadFlags, StatusReadItselfDoesNotPayForThem) {
     ASSERT_TRUE(reader.read(CancellationToken{}));
 
     EXPECT_FALSE(carriesNoFsmonitor(soleInvocationWith(runner, {"status"}, {})));
+}
+
+// The per-worktree pending-change read (attachPendingCounts) is the newest
+// `git status` in the codebase, and the one most likely to be "fixed" into
+// carrying the flag: it runs in the background, it reads a work tree, and the
+// rule's title says background work-tree reads need the flag. The rule's
+// **Do-not** clause is the half that governs here, so this case is the mirror
+// of StatusReadItselfDoesNotPayForThem one file over.
+TEST(WorktreeReadFlags, PerWorktreePendingCountStatusDoesNotPayForThemEither) {
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response clean;
+    clean.exitCode = 0;
+    runner.whenArgsContain({"status", "--porcelain=v2"}, clean);
+
+    WorktreeInfo linked;
+    linked.path = "/repo/wt";
+    linked.branch = "feature";
+    std::vector<WorktreeInfo> worktrees{linked};
+    attachPendingCounts(runner, worktrees, CancellationToken{});
+    ASSERT_EQ(worktrees[0].pendingCountState, WorktreePendingCountState::Measured)
+        << "assert the flags of a read that ran, not of one that bailed out";
+
+    EXPECT_FALSE(carriesNoFsmonitor(soleInvocationWith(runner, {"status"}, {})))
+        << "fsmonitor exists to accelerate status, on the machines whose "
+           "owners opted into it -- GitCommand.h's closing paragraph";
+
+    // Not a second fsmonitor claim: the granularity choice lives on the same
+    // command and a refactor that rewrites the argv drops both at once. The
+    // helper's own "exactly one matching invocation" is the assertion.
+    soleInvocationWith(runner,
+                       {"status", "--untracked-files=normal", "--ignore-submodules=none"},
+                       {"--untracked-files=all"});
 }
 
 TEST(WorktreeReadFlags, UnstagedWorkingTreeDiffCarriesThem) {

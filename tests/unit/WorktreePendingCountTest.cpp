@@ -165,8 +165,7 @@ TEST(WorktreePendingCountTest, EveryEligibleWorktreeIsMeasuredExactlyOnce) {
                            statusOut({modified("a.txt"), modified("b.txt")}));
     WorktreeInfo bare = linkedAt("/repo/bare");
     bare.isBare = true;
-    std::vector<WorktreeInfo> worktrees{
-        linkedAt("/repo/one"), bare, linkedAt("/repo/two")};
+    std::vector<WorktreeInfo> worktrees{linkedAt("/repo/one"), bare, linkedAt("/repo/two")};
 
     attachPendingCounts(runner, worktrees, CancellationToken());
 

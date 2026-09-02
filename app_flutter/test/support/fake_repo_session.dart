@@ -415,6 +415,16 @@ class FakeRepoSessionController extends RepoSessionController {
     commandLog.add(const FakeCommand('requestWorktreePendingCounts'));
   }
 
+  // Overridden for the reason [TEST-fake-seam-fails-loudly] gives from the
+  // other direction: a method the fake does not override hits the real
+  // controller's own `if (_session == nullptr) return;` and **no-ops
+  // silently**, so a test cannot tell a background prune that fired from one
+  // that never did.
+  @override
+  void pruneWorktrees() {
+    commandLog.add(const FakeCommand('pruneWorktrees'));
+  }
+
   @override
   void refreshRemotes() {
     commandLog.add(const FakeCommand('refreshRemotes'));

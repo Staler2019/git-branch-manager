@@ -1277,13 +1277,89 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     if (_bindings.worktreesJson(_session) == 0) {
       final String json = readLastResultJson(_bindings);
       if (json.isNotEmpty) {
-        state = state.copyWith(
-          worktrees: WorktreeInfo.listFromJson(
-            jsonDecode(json) as List<dynamic>,
-          ),
+        publishWorktrees(
+          WorktreeInfo.listFromJson(jsonDecode(json) as List<dynamic>),
         );
       }
     }
+  }
+
+  /// Publishes [worktrees] and decides whether any of them should be pruned
+  /// in the background.
+  ///
+  /// Split out of [_readWorktrees] so a test drives the **real** decision
+  /// rather than a stand-in for it: everything above this line is the FFI
+  /// read, which the fake seam can never exercise, and everything below is
+  /// the reducer, which is what the auto-prune rule lives in.
+  @visibleForTesting
+  void publishWorktrees(List<WorktreeInfo> worktrees) {
+    state = state.copyWith(worktrees: worktrees);
+    _autoPruneWorktrees(worktrees);
+  }
+
+  /// Paths this session has already dispatched an automatic prune for.
+  ///
+  /// **This is the loop guard, and it is keyed on the path rather than on
+  /// current prunability for a reason.** A prune re-publishes the worktree
+  /// list, and anything the prune could not remove — a locked entry, or a
+  /// failure — is *still prunable* in that new snapshot. A gate reading
+  /// 「something is prunable」 therefore re-dispatches forever. A gate reading
+  /// 「some path has never been tried」 terminates on every branch, including
+  /// the failure one, which is the same lesson as writing `failed` into the
+  /// panel's `path@headOid` count cache ([GIT-worktree-status-is-per-path]).
+  final Set<String> _autoPrunedWorktreePaths = <String>{};
+
+  /// True while an automatic prune this class dispatched is unaccounted for,
+  /// so its failure can be kept out of [RepoSessionState.lastError].
+  ///
+  /// A count rather than a bool because two publishes naming different new
+  /// paths can each dispatch before either outcome arrives.
+  int _autoPruneWorktreesInFlight = 0;
+
+  /// [REF-fetch-auto-prunes] applied to worktrees: a refresh that discovers a
+  /// worktree whose directory is gone prunes it without telling anyone.
+  /// 使用者裁定 —— 「prune 是背景做掉，所以使用者不需要知道」, the same ruling
+  /// that governs remote-tracking refs after a fetch.
+  ///
+  /// **A locked worktree is never touched**, which is both git's own
+  /// behaviour (it refuses) and the right meaning: a lock is the user saying
+  /// 「keep this」 about a path that may only be temporarily absent, an
+  /// unmounted volume being the obvious case. That is the sole guard against
+  /// this method discarding a worktree that was coming back — `git worktree
+  /// prune` takes no `--expire`, unlike the one `git gc` runs.
+  void _autoPruneWorktrees(List<WorktreeInfo> worktrees) {
+    final List<String> fresh = <String>[
+      for (final WorktreeInfo w in worktrees)
+        if (w.isPrunable &&
+            !w.isLocked &&
+            !_autoPrunedWorktreePaths.contains(w.path))
+          w.path,
+    ];
+    if (fresh.isEmpty) return;
+    // Recorded *before* dispatching, so a re-entrant publish cannot queue a
+    // second prune for the same path.
+    _autoPrunedWorktreePaths.addAll(fresh);
+    _autoPruneWorktreesInFlight++;
+    pruneWorktrees();
+  }
+
+  /// True when [error] is a failed `git worktree prune` this class asked for
+  /// itself, in which case it must not reach [RepoSessionState.lastError] —
+  /// `workspace_screen.dart` renders that as a banner, and a background task
+  /// the user did not initiate has no business interrupting them (spec page
+  /// 10).
+  ///
+  /// Matched on [GitError.argv] rather than on `PendingOperationKind`,
+  /// because that enum has no arm for a worktree prune and the capi carries
+  /// no request identity — the same constraint, and the same workaround, as
+  /// [_isSuppressedAutoPrunePreviewError]. Consumes one in-flight marker, so
+  /// a *later* failure of the user's own `Prune` button still surfaces.
+  bool _isSuppressedAutoPruneWorktreesError(GitError error) {
+    if (_autoPruneWorktreesInFlight == 0) return false;
+    final List<String> argv = error.argv;
+    if (!argv.contains('worktree') || !argv.contains('prune')) return false;
+    _autoPruneWorktreesInFlight--;
+    return true;
   }
 
   void _readRemotes() {
@@ -1507,7 +1583,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     // Suppression means "do not write", not "write null": an unrelated
     // failure already on screen must survive a background prune failing
     // behind it -- the same rule the automatic preview's suppressor follows.
-    if (error != null) {
+    if (error != null && !_isSuppressedAutoPruneWorktreesError(error)) {
       state = state.copyWith(lastError: error);
     }
   }

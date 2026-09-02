@@ -13,6 +13,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/lfs_state.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/features/panels/lfs_panel.dart';
+import 'package:gbm_flutter/features/panels/panel_filter_field.dart';
+import 'package:gbm_flutter/features/panels/panel_widgets.dart';
 
 import '../../support/fake_repo_session.dart';
 import 'panel_test_support.dart';
@@ -44,22 +46,42 @@ Future<PumpedPanel> _pump(
   ),
 );
 
+Future<void> _filter(WidgetTester tester, String query) async {
+  await tester.enterText(
+    find.descendant(
+      of: find.byType(PanelFilterField),
+      matching: find.byType(TextField),
+    ),
+    query,
+  );
+  await tester.pumpAndSettle();
+}
+
 void main() {
   group('LfsPanel (spec P19 PANELSPEC)', () {
-    testWidgets('the toolbar carries PANELSPEC\'s four actions', (
-      tester,
-    ) async {
-      await _pump(tester);
+    // PANELSPEC's toolbar cell lists four actions; P19 rule 2 says 破壞性
+    // 動作不放工具列. Three of the four are on the toolbar and `Untrack` is
+    // not -- the same reconciliation the round applied to worktrees'
+    // `Remove`, stashes' `Drop` and submodules' `Deinit`. The four-word
+    // cell is a list of the panel's *actions*, not a claim about where each
+    // one sits; rule 2 is the more specific statement about position.
+    testWidgets(
+      'all four PANELSPEC actions exist, three of them on the toolbar',
+      (tester) async {
+        await _pump(tester);
 
-      for (final String label in const <String>[
-        'Track…',
-        'Untrack',
-        'Fetch',
-        'Prune',
-      ]) {
-        expect(find.text(label), findsOneWidget, reason: label);
-      }
-    });
+        for (final String label in const <String>['Track…', 'Fetch', 'Prune']) {
+          expect(find.text(label), findsOneWidget, reason: label);
+        }
+
+        // Present, but only once a pattern is selected -- see the detail
+        // action row test below.
+        expect(find.text('Untrack'), findsNothing);
+        await tester.tap(find.text('*.psd'));
+        await tester.pumpAndSettle();
+        expect(find.text('Untrack'), findsOneWidget);
+      },
+    );
 
     // Fetch only fills the object cache; without Pull the working tree keeps
     // its pointer files, so dropping Pull to match the table would leave the
@@ -109,11 +131,16 @@ void main() {
       expect(find.text('pointer only'), findsOneWidget);
     });
 
-    testWidgets('Untrack is disabled with no pattern selected', (tester) async {
+    // Was 「Untrack is disabled」 while it lived on the toolbar. Under P19
+    // rule 4 it is in the detail action row, and the shell draws no action
+    // row over an empty detail -- so with nothing selected the correct
+    // assertion is that the button is *absent*, not that it is greyed.
+    testWidgets('Untrack is absent with no pattern selected', (tester) async {
       await _pump(tester);
 
-      expect(panelButton(tester, 'Untrack').onPressed, isNull);
-      // Fetch and Prune act on the repository, not on a selection.
+      expect(find.text('Untrack'), findsNothing);
+      // Fetch and Prune act on the repository, not on a selection, so they
+      // stay enabled on the toolbar with nothing selected.
       expect(panelButton(tester, 'Fetch').onPressed, isNotNull);
       expect(panelButton(tester, 'Prune').onPressed, isNotNull);
     });
@@ -130,8 +157,9 @@ void main() {
       );
       expect(cmd.args['pattern'], 'models/');
       // The pattern is about to disappear from the list, so the selection
-      // must not survive pointing at it.
-      expect(panelButton(tester, 'Untrack').onPressed, isNull);
+      // must not survive pointing at it -- and with the selection gone the
+      // detail is empty, which takes the whole action row with it.
+      expect(find.text('Untrack'), findsNothing);
     });
 
     testWidgets('Track… reveals a field that dispatches trackLfsPattern', (
@@ -141,7 +169,13 @@ void main() {
 
       await tester.tap(find.text('Track…'));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), '*.mp4');
+      await tester.enterText(
+        find.ancestor(
+          of: find.text('Pattern (e.g. *.psd)'),
+          matching: find.byType(TextField),
+        ),
+        '*.mp4',
+      );
       await tester.tap(find.text('Track'));
       await tester.pumpAndSettle();
 
@@ -172,6 +206,77 @@ void main() {
         pumped.fake.commandLog.where((FakeCommand c) => c.name == 'installLfs'),
         hasLength(1),
       );
+    });
+
+    testWidgets('the toolbar follows P19 rule 2\'s four segments', (
+      tester,
+    ) async {
+      await _pump(tester);
+
+      expectPanelTemplate(
+        tester,
+        primary: const <String>['Track…'],
+        maintenance: const <String>['Fetch', 'Prune', 'Pull'],
+        notOnToolbar: const <String>['Untrack'],
+        listHeader: 'Tracked patterns · 2',
+        statusBar: RegExp(r'^2 patterns$'),
+      );
+    });
+
+    testWidgets(
+      'Untrack sits in the detail action row, against its right edge',
+      (tester) async {
+        await _pump(tester);
+        await tester.tap(find.text('*.psd'));
+        await tester.pumpAndSettle();
+
+        expectDangerPinnedRight(tester, 'Untrack');
+      },
+    );
+
+    testWidgets('the filter narrows the list, the header and the status line', (
+      tester,
+    ) async {
+      await _pump(tester);
+      expect(find.byType(PanelListRow), findsNWidgets(2));
+
+      await _filter(tester, 'psd');
+
+      expect(find.byType(PanelListRow), findsOneWidget);
+      expect(find.text('*.psd'), findsOneWidget);
+      expect(find.text('Tracked patterns · 1'), findsOneWidget);
+      expect(find.text('2 patterns · 命中 1'), findsOneWidget);
+    });
+
+    // The discriminating case. This list's rows are *patterns*, and a
+    // plausible alternative reading -- filter by the files a pattern claims
+    // -- answers every query that appears in both identically: 「psd」 is in
+    // `*.psd` and in `art/logo.psd`, 「models」 in `models/` and in
+    // `models/big.onnx`. 「logo」 is in a file path and in no pattern, so it
+    // is the only query that tells the two implementations apart
+    // ([TEST-fixture-cannot-disagree]).
+    testWidgets('a word that is only in a file path matches no pattern', (
+      tester,
+    ) async {
+      await _pump(tester);
+
+      await _filter(tester, 'logo');
+
+      expect(find.byType(PanelListRow), findsNothing);
+      expect(find.text('2 patterns · 命中 0'), findsOneWidget);
+    });
+
+    // 「No tracked patterns」 would be a lie here -- there are two, the
+    // filter is hiding them.
+    testWidgets('a filter that hides everything says so, not "none tracked"', (
+      tester,
+    ) async {
+      await _pump(tester);
+
+      await _filter(tester, 'zzz');
+
+      expect(find.text('No pattern matches the filter'), findsOneWidget);
+      expect(find.text('No tracked patterns'), findsNothing);
     });
 
     testWidgets('a repository with no tracked patterns says so', (

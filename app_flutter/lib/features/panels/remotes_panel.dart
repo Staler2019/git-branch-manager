@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:gbm_flutter/data/repositories/panel_tabs_repository.dart';
+import 'package:gbm_flutter/features/panels/panel_storage_id.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -117,7 +119,7 @@ class _RemotesPanelState extends ConsumerState<RemotesPanel> {
     final List<RemoteInfo> visible = remotes.where(_matchesQuery).toList();
 
     return GbmPanelTabShell(
-      storageId: 'panel.remotes',
+      storageId: panelStorageId(GbmPanelKind.manageRemotes),
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a remote to see its details',
       toolbar: PanelToolbarSpec(

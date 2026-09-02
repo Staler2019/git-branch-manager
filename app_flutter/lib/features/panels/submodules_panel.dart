@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:gbm_flutter/data/repositories/panel_tabs_repository.dart';
+import 'package:gbm_flutter/features/panels/panel_storage_id.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/models/submodule_info.dart';
@@ -120,7 +122,7 @@ class _SubmodulesPanelState extends ConsumerState<SubmodulesPanel> {
         .toList();
 
     return GbmPanelTabShell(
-      storageId: 'panel.submodules',
+      storageId: panelStorageId(GbmPanelKind.manageSubmodules),
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a submodule to see its details',
       toolbar: PanelToolbarSpec(

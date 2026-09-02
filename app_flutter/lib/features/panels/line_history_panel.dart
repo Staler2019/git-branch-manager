@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:gbm_flutter/data/repositories/panel_tabs_repository.dart';
+import 'package:gbm_flutter/features/panels/panel_storage_id.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -151,7 +153,7 @@ class _LineHistoryPanelState extends ConsumerState<LineHistoryPanel> {
       // resizes the other. The nine singleton kinds keep their unsuffixed
       // ids -- re-keying those would orphan every saved size to buy a
       // distinction that cannot arise.
-      storageId: 'panel.lineHistory:${widget.path}',
+      storageId: panelStorageId(GbmPanelKind.lineHistory, subject: widget.path),
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a step to see its before/after',
       toolbar: PanelToolbarSpec(

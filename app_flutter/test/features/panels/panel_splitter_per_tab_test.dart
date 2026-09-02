@@ -4,10 +4,17 @@
 // This is the splitter half, and it only has teeth for the three per-subject
 // panel kinds (blame, file-history, line-history): those are the ones that
 // can legitimately be open twice at once, so those are the ones a per-kind
-// storage id makes share a position. The nine singleton kinds can only ever
-// have one tab, where per-kind and per-tab are the same thing -- their ids
-// are deliberately left alone rather than churned for no behaviour change,
-// which would have orphaned every user's saved size.
+// storage id would make share a position.
+//
+// **Corrected**: an earlier version of this header said the nine singleton
+// kinds' ids were 「deliberately left alone」, and the test below was named
+// 「a singleton kind keeps its unsuffixed id」 -- which read as a blessed
+// exception to the rule rather than as the rule applied. 使用者裁定推翻了它。
+// Every id now comes from `panelStorageId()`, whose suffix is derived from
+// `GbmPanelKind.isPerSubject` -- the same property `open()` dedupes on, so
+// 「can two of these exist」 and 「does the key tell them apart」 are one fact.
+// See `panel_storage_id_test.dart` for the rule itself; this file stays as
+// the behavioural half, proving a seeded width actually reaches the pane.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/blame_result.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
@@ -94,7 +101,7 @@ void main() {
         FileHistoryPanel(identity: panelTestIdentity, path: _pathA),
         state: const RepoSessionState(isOpen: true),
         initialPrefs: const <String, Object>{
-          'panelLayout.panel.fileHistory:$_pathA': '[$_seeded]',
+          'panelLayout.panel.file-history:$_pathA': '[$_seeded]',
         },
       );
 
@@ -112,18 +119,19 @@ void main() {
         ),
         state: const RepoSessionState(isOpen: true),
         initialPrefs: const <String, Object>{
-          'panelLayout.panel.lineHistory:$_pathA': '[$_seeded]',
+          'panelLayout.panel.line-history:$_pathA': '[$_seeded]',
         },
       );
 
       expect(_listWidth(tester), closeTo(_seeded, 1.0));
     });
 
-    // The nine singleton kinds keep their original ids on purpose: changing
-    // them would orphan every saved size to buy a distinction that cannot
-    // arise. This pins that decision so a later "consistency" sweep does not
-    // quietly re-key them.
-    testWidgets('a singleton kind keeps its unsuffixed id', (tester) async {
+    // A singleton kind carries no suffix because it can never have a second
+    // tab to be told apart from -- the rule applied, not an exception to it.
+    // Nine of the twelve keep the exact string they had, so nine users' saved
+    // widths survive; `interactive-rebase` re-keys and is the round's one
+    // orphan (a read-miss falling back to the default, never a wrong number).
+    testWidgets('a singleton kind carries no subject suffix', (tester) async {
       await pumpPanel(
         tester,
         ReflogPanel(identity: panelTestIdentity),

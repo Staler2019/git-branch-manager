@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:gbm_flutter/data/repositories/panel_tabs_repository.dart';
+import 'package:gbm_flutter/features/panels/panel_storage_id.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/models/list_selection.dart';
@@ -231,7 +233,7 @@ class _PatchesPanelState extends ConsumerState<PatchesPanel> {
         .toList(growable: false);
 
     return GbmPanelTabShell(
-      storageId: 'panel.patches',
+      storageId: panelStorageId(GbmPanelKind.patches),
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a patch to preview it',
       toolbar: PanelToolbarSpec(

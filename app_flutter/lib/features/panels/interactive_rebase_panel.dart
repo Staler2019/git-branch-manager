@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:gbm_flutter/data/repositories/panel_tabs_repository.dart';
+import 'package:gbm_flutter/features/panels/panel_storage_id.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/models/rebase_todo_entry.dart';
@@ -115,7 +117,7 @@ class _InteractiveRebasePanelState
     final bool rebaseRunning = session.repoState?.isSequencerOperation ?? false;
 
     return GbmPanelTabShell(
-      storageId: 'panel.interactiveRebase',
+      storageId: panelStorageId(GbmPanelKind.interactiveRebase),
       detailIsEmpty: selected == null,
       emptyDetailMessage:
           'Select a commit to change what the rebase does '

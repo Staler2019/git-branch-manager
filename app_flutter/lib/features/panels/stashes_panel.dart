@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:gbm_flutter/data/repositories/panel_tabs_repository.dart';
+import 'package:gbm_flutter/features/panels/panel_storage_id.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -131,7 +133,7 @@ class _StashesPanelState extends ConsumerState<StashesPanel> {
     final List<StashEntry> visible = stashes.where(_matchesQuery).toList();
 
     return GbmPanelTabShell(
-      storageId: 'panel.stashes',
+      storageId: panelStorageId(GbmPanelKind.manageStashes),
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a stash to see its changes',
       toolbar: PanelToolbarSpec(
@@ -221,7 +223,10 @@ class _StashesPanelState extends ConsumerState<StashesPanel> {
           // per-file header, so the file list is the wrapper's job.
           ? PanelFileDiffDetail(
               diff: diff.diff,
-              storageId: 'panel.stashes.detail',
+              storageId: panelStorageId(
+                GbmPanelKind.manageStashes,
+                slot: 'detail',
+              ),
             )
           : const Center(child: CircularProgressIndicator()),
     );

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:gbm_flutter/data/repositories/panel_tabs_repository.dart';
+import 'package:gbm_flutter/features/panels/panel_storage_id.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/models/bisect_status.dart';
@@ -123,7 +125,7 @@ class _BisectPanelState extends ConsumerState<BisectPanel> {
         .firstOrNull;
 
     return GbmPanelTabShell(
-      storageId: 'panel.bisect',
+      storageId: panelStorageId(GbmPanelKind.bisect),
       detailIsEmpty: !status.active,
       emptyDetailMessage: 'No bisect in progress',
       toolbar: PanelToolbarSpec(

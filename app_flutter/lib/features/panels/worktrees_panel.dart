@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:gbm_flutter/data/repositories/panel_tabs_repository.dart';
+import 'package:gbm_flutter/features/panels/panel_storage_id.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -263,7 +265,7 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
         .firstOrNull;
 
     return GbmPanelTabShell(
-      storageId: 'panel.worktrees',
+      storageId: panelStorageId(GbmPanelKind.manageWorktrees),
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a worktree to see its details',
       toolbar: PanelToolbarSpec(

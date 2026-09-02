@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:gbm_flutter/data/repositories/panel_tabs_repository.dart';
+import 'package:gbm_flutter/features/panels/panel_storage_id.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/models/lfs_state.dart';
@@ -123,7 +125,7 @@ class _LfsPanelState extends ConsumerState<LfsPanel> {
         .toList(growable: false);
 
     return GbmPanelTabShell(
-      storageId: 'panel.lfs',
+      storageId: panelStorageId(GbmPanelKind.manageLfs),
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a tracked pattern to see its files',
       toolbar: PanelToolbarSpec(

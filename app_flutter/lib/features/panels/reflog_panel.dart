@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:gbm_flutter/data/repositories/panel_tabs_repository.dart';
+import 'package:gbm_flutter/features/panels/panel_storage_id.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -129,7 +131,7 @@ class _ReflogPanelState extends ConsumerState<ReflogPanel> {
         .firstOrNull;
 
     return GbmPanelTabShell(
-      storageId: 'panel.reflog',
+      storageId: panelStorageId(GbmPanelKind.reflog),
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a reflog entry to see its commit',
       toolbar: PanelToolbarSpec(

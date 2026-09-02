@@ -14,3 +14,4 @@ this file positionally.
 - 2026-09-01 — [claude/windows-app-update-install-irloo0](2026-09-01-claude-windows-app-update-install-irloo0.md) — Install and restart 卡在 Installing…：關 session 的同步 FFI 沒有逾時，交接過程也沒有任何紀錄
 - 2026-09-01 — [claude/windows-uncommitted-changes-5z40sr](2026-09-01-claude-windows-uncommitted-changes-5z40sr.md) — 修 Windows 上未提交列連不到 HEAD：trunkTip 的 TOCTOU race、readHead() 把失敗誤判為空 repo
 - 2026-09-01 — [claude/sidebar-stash-styling-date-3dvzmu](2026-09-01-claude-sidebar-stash-styling-date-3dvzmu.md) — 側邊欄 STASH 列改用 GbmRow 補上 hover/選取/⋯ 選單按鈕，並修掉 timestamp 少乘 1000 造成的「20676d ago」
+- 2026-09-02 — [feat/p19-panel-template-conformance](2026-09-02-feat-p19-panel-template-conformance.md) — P19 六條樣板規則從沒被逐條稽核過：十二個面板統一成四段式工具列（八個 danger 按鈕移出工具列）、補上 filter／清單標題／狀態列／面板內 banner、分頁各自記住捲動與 splitter，worktrees 補上待提交數與建立於

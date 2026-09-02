@@ -124,12 +124,24 @@ GbmButton panelButton(WidgetTester tester, String label) =>
 /// [notOnToolbar] is the rule's other half — the destructive labels that
 /// must be absent — and passing the panel's own danger label there is what
 /// makes 「破壞性動作不放工具列」 falsifiable rather than assumed.
+/// [dangerOnToolbar] names the labels that sit in [maintenance] but are
+/// deliberately `danger`-styled rather than ghost.
+///
+/// It is a **declaration that this panel has a ratified exception**, not a
+/// way to relax the segment rule: a label not named here is still held to
+/// its segment's kind, and a label named here is held to `danger`, so
+/// restyling it silently reddens either way. Two panels use it —
+/// interactive-rebase's `Abort` and bisect's `Reset` — because both stay on
+/// the toolbar under rule 2 (they restore a prior state rather than
+/// destroying work, so they are not 破壞性) while still being the one button
+/// on the panel a user should hesitate over.
 void expectPanelTemplate(
   WidgetTester tester, {
   List<String> primary = const <String>[],
   List<String> maintenance = const <String>[],
   List<String> external = const <String>[],
   List<String> notOnToolbar = const <String>[],
+  Set<String> dangerOnToolbar = const <String>{},
   required String listHeader,
   required Pattern statusBar,
   bool filterEnabled = true,
@@ -159,7 +171,7 @@ void expectPanelTemplate(
       );
       expect(
         panelButton(tester, label).kind,
-        kind,
+        dangerOnToolbar.contains(label) ? GbmButtonKind.danger : kind,
         reason: '「$label」 has the wrong button kind for its segment',
       );
     }

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/split_pane.dart';
+import 'panel_toolbar_spec.dart';
 
 /// Spec page 19's shared management-panel template: 〈工具列 + 左清單 + 右明細〉,
 /// the same shape as the Compare page (P12).
@@ -19,7 +20,8 @@ import '../../widgets/split_pane.dart';
 class GbmPanelTabShell extends StatelessWidget {
   const GbmPanelTabShell({
     super.key,
-    required this.toolbar,
+    this.toolbar,
+    this.toolbarSpec,
     required this.list,
     required this.detail,
     required this.storageId,
@@ -29,12 +31,25 @@ class GbmPanelTabShell extends StatelessWidget {
     this.statusBar,
     this.emptyDetailMessage = 'Select an item to see its details',
     this.detailIsEmpty = false,
-  });
+  }) : assert(
+         (toolbar == null) != (toolbarSpec == null),
+         'supply exactly one of toolbar (the flat pre-P19 list) or '
+         'toolbarSpec (rule 2\'s four segments). The flat form is being '
+         'retired one panel at a time and is deleted once all twelve have '
+         'migrated.',
+       );
 
-  /// The panel's action buttons, laid out in a row above both columns.
-  /// P19's `PANELSPEC` names these per panel (worktrees: Add / Prune / Open
-  /// / Remove).
-  final List<Widget> toolbar;
+  /// The panel's action buttons as one flat row — the shape that predates
+  /// P19 樣板規則 2 being audited.
+  ///
+  /// **Being retired.** Exactly one of this and [toolbarSpec] is supplied;
+  /// panels migrate one at a time, and the final commit of that migration
+  /// deletes this parameter, which is what turns rule 2's four segments from
+  /// available into mandatory.
+  final List<Widget>? toolbar;
+
+  /// Rule 2's four segments plus the pinned filter. See [PanelToolbarSpec].
+  final PanelToolbarSpec? toolbarSpec;
 
   /// Left column — the panel's items.
   final Widget list;
@@ -98,24 +113,27 @@ class GbmPanelTabShell extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: GbmSpacing.space3,
-              vertical: GbmSpacing.space2,
-            ),
-            decoration: BoxDecoration(
-              color: colors.surfacePanel,
-              border: Border(bottom: BorderSide(color: colors.borderSubtle)),
-            ),
-            child: Row(
-              children: <Widget>[
-                for (final (int index, Widget action) in toolbar.indexed) ...[
-                  if (index > 0) const SizedBox(width: GbmSpacing.space2),
-                  action,
+          if (toolbarSpec != null)
+            PanelToolbarRow(spec: toolbarSpec!)
+          else
+            Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: GbmSpacing.space3,
+                vertical: GbmSpacing.space2,
+              ),
+              decoration: BoxDecoration(
+                color: colors.surfacePanel,
+                border: Border(bottom: BorderSide(color: colors.borderSubtle)),
+              ),
+              child: Row(
+                children: <Widget>[
+                  for (final (int i, Widget action) in toolbar!.indexed) ...[
+                    if (i > 0) const SizedBox(width: GbmSpacing.space2),
+                    action,
+                  ],
                 ],
-              ],
+              ),
             ),
-          ),
           ?banner,
           Expanded(
             child: GbmSplitPane(

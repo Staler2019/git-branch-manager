@@ -168,6 +168,32 @@ TEST_F(WorktreeApiTest, PruneRemovesAdministrativeMetadataForADeletedWorktree) {
     EXPECT_EQ(json.find("feature"), std::string::npos) << json;
 }
 
+// The guard that keeps the per-worktree status pass *out* of the refresh set.
+//
+// `refreshWorktrees()` is a zero-argument `refresh*`, so it is a member of the
+// focus-regain (2s-throttled) and F5 refresh sets by [STATE-refresh-entry-point]'s
+// rule. Folding the status pass into it would put one `git status` process per
+// worktree on both of those paths, for a panel the user may not have open.
+//
+// This test passes today and is expected to: it is a regression guard, not a
+// red-first test, and its whole value is the day someone "simplifies" the two
+// entry points into one. Mutation-checked by making WorktreeStore::list() call
+// attachPendingCounts -- which reddens exactly this case.
+TEST_F(WorktreeApiTest, APlainRefreshLeavesEveryPendingCountUnmeasured) {
+    ASSERT_EQ(runGit({"worktree", "add", "--quiet", "-b", "feature", extra_.string()}), 0);
+    std::ofstream(extra_ / "dirty.txt") << "uncommitted\n";
+
+    gbm_worktree_refresh(session_);
+    ASSERT_TRUE(log_.waitFor(
+        [](const auto& events) { return anyEventOfType(events, GBM_EVENT_WORKTREES_UPDATED); }));
+
+    const std::string json = worktreesJson();
+    EXPECT_EQ(json.find("\"pendingCountState\":\"measured\""), std::string::npos)
+        << "a plain refresh must not spawn a status process per worktree: " << json;
+    EXPECT_NE(json.find("\"pendingCountState\":\"unmeasured\""), std::string::npos)
+        << "and the field has to be there to be unmeasured: " << json;
+}
+
 /// Every `"createdAtUnix":N` in the payload, in the order it appears.
 std::vector<std::int64_t> createdAtValues(const std::string& json) {
     const std::string key = "\"createdAtUnix\":";

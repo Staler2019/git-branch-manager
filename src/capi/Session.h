@@ -242,6 +242,23 @@ public:
     /// Async: see gbm_worktree_refresh()'s doc comment.
     void refreshWorktrees();
 
+    /// Async: re-lists the worktrees *and* measures each one's uncommitted
+    /// change count, then republishes. See gbm_worktree_request_pending_counts().
+    ///
+    /// **`request*`, not `refresh*`, and that is a structural claim rather
+    /// than a naming preference.** Every zero-argument `refresh*` on this
+    /// class is a member of the focus-regain/F5 refresh set; this one must
+    /// not be, because it costs one `git status` process per worktree and is
+    /// wanted only while the worktrees panel is open -- a user selection that
+    /// need not still exist when the window comes back. The `request*` family
+    /// is excluded from that set by construction, so a later reader does not
+    /// have to notice a comment saying so.
+    ///
+    /// A `refreshWorktrees(bool withStatus)` overload was considered and
+    /// rejected for the same reason: the zero-argument form would still
+    /// exist, and nothing at the call site would say which one it reached.
+    void requestWorktreePendingCounts();
+
     /// The most recently published worktree list, or null if
     /// refreshWorktrees() has not yet produced one. Thread-safe; never
     /// blocks.

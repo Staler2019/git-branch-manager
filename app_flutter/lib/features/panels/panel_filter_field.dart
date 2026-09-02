@@ -33,11 +33,19 @@ class PanelFilterField extends StatefulWidget {
   /// Why this panel's list cannot be filtered, shown as a tooltip.
   ///
   /// Rule 2 says the filter is 固定 at the right end, so it is drawn for
-  /// every panel — but four of the twelve have nothing to filter:
+  /// every panel — but some of the twelve have nothing to filter:
   /// `blame` and `line-history` list *file content* rather than a named
-  /// collection, and `interactive-rebase` and `bisect` have the rule 3
-  /// writable lists, where a filtered order is not the real order and a drag
-  /// would reorder against it.
+  /// collection, and `interactive-rebase` has the rule 3 writable list,
+  /// where a filtered order is not the real order and a drag would reorder
+  /// against it.
+  ///
+  /// **`bisect` used to be listed here with `interactive-rebase` and is
+  /// not one of them** — corrected rather than quietly dropped, per
+  /// [CULT-scrutinise-the-comment]. Its list only *records* what has been
+  /// marked (marking happens on the toolbar, 待裁定 6), so it is not
+  /// writable and a filtered view reorders nothing. Its filter is live
+  /// while a bisect runs, and disabled only when one is not — because then
+  /// the list is a start form with nothing in it to filter.
   ///
   /// Disabled with a stated reason rather than hidden —
   /// 隱藏會讓人以為功能不存在 ([FLU-menu-enabled-is-visual-only]) — and the

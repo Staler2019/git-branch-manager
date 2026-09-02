@@ -44,6 +44,7 @@ class PanelListRow extends StatelessWidget {
     required this.onTap,
     this.icon,
     this.badge,
+    this.subtitleColor,
   });
 
   final String title;
@@ -62,6 +63,16 @@ class PanelListRow extends StatelessWidget {
   /// Trailing chip, normally a [GbmBadge] — `current` / `路徑不存在` in the
   /// mockup. Pinned to the row's right edge.
   final Widget? badge;
+
+  /// Overrides the subtitle's colour, for the one case where the subtitle
+  /// *is* a status word rather than a description of the title.
+  ///
+  /// Only `bisect` uses it: its second line is 「good」/「bad」/「skipped」, and
+  /// red-for-bad is the row's actual signal. The alternative was a
+  /// [GbmBadge] carrying the same three words, which would have printed the
+  /// mark twice on every row. Null keeps `textTertiary`, which is right for
+  /// every other panel, where the subtitle describes rather than judges.
+  final Color? subtitleColor;
 
   @override
   Widget build(BuildContext context) {
@@ -101,7 +112,7 @@ class PanelListRow extends StatelessWidget {
                     subtitle,
                     style: TextStyle(
                       fontSize: GbmTypography.textXs,
-                      color: colors.textTertiary,
+                      color: subtitleColor ?? colors.textTertiary,
                     ),
                     overflow: TextOverflow.ellipsis,
                   ),

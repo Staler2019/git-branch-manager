@@ -524,6 +524,22 @@ std::string toJson(const std::vector<StashEntry>& entries) {
     return out;
 }
 
+/// The wire spelling of WorktreePendingCountState. No `default` arm, so a
+/// new state is a compile error here rather than a silently wrong string.
+const char* pendingCountStateName(WorktreePendingCountState state) {
+    switch (state) {
+        case WorktreePendingCountState::Unmeasured:
+            return "unmeasured";
+        case WorktreePendingCountState::Measured:
+            return "measured";
+        case WorktreePendingCountState::NotApplicable:
+            return "notApplicable";
+        case WorktreePendingCountState::Failed:
+            return "failed";
+    }
+    return "unmeasured";
+}
+
 std::string toJson(const WorktreeInfo& worktree) {
     std::string out = "{";
     out += "\"path\":";
@@ -546,6 +562,12 @@ std::string toJson(const WorktreeInfo& worktree) {
     jsonAppendBool(out, worktree.isPrunable);
     out += ",\"prunableReason\":";
     jsonAppendEscaped(out, worktree.prunableReason);
+    out += ",\"pendingChanges\":";
+    out += std::to_string(worktree.pendingChanges);
+    out += ",\"pendingCountState\":";
+    jsonAppendEscaped(out, pendingCountStateName(worktree.pendingCountState));
+    out += ",\"createdAtUnix\":";
+    out += std::to_string(worktree.createdAtUnix);
     out += '}';
     return out;
 }

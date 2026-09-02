@@ -143,5 +143,62 @@ TEST(JsonCodecTest, EmptyRepoRecordArrayEncodesAsEmptyArray) {
     EXPECT_EQ(toJson(std::vector<RepoRecord>{}), "[]");
 }
 
+
+// A worktree's pending-change count is a **tri-state**, not a sentinel
+// number. `0` here has to mean "measured, and genuinely clean" -- that is
+// the answer the user sees most often and most needs to trust -- so "not
+// measured" lives in a separate field rather than borrowing a value from
+// the number's own range.
+//
+// This is deliberately the inverse of WorkingCopyEntry's four line-count
+// fields, where 0 means "not measured": there, a path with no matching
+// numstat record and a path with a genuine zero are indistinguishable by
+// construction, so 0 had to absorb both. Here the command either ran or it
+// did not, and "did not" has somewhere else to live.
+TEST(JsonCodecTest, WorktreeMeasuredZeroIsNotUnmeasured) {
+    WorktreeInfo worktree;
+    worktree.path = "/repo";
+    worktree.pendingChanges = 0;
+    worktree.pendingCountState = WorktreePendingCountState::Measured;
+
+    const std::string json = toJson(worktree);
+
+    EXPECT_NE(json.find("\"pendingChanges\":0"), std::string::npos);
+    EXPECT_NE(json.find("\"pendingCountState\":\"measured\""), std::string::npos);
+}
+
+TEST(JsonCodecTest, WorktreePendingCountDefaultsToUnmeasured) {
+    WorktreeInfo worktree;
+    worktree.path = "/repo";
+
+    const std::string json = toJson(worktree);
+
+    EXPECT_NE(json.find("\"pendingCountState\":\"unmeasured\""), std::string::npos);
+}
+
+TEST(JsonCodecTest, WorktreeEncodesEverySkipAndFailureState) {
+    WorktreeInfo bare;
+    bare.pendingCountState = WorktreePendingCountState::NotApplicable;
+    EXPECT_NE(toJson(bare).find("\"pendingCountState\":\"notApplicable\""),
+              std::string::npos);
+
+    WorktreeInfo failed;
+    failed.pendingCountState = WorktreePendingCountState::Failed;
+    EXPECT_NE(toJson(failed).find("\"pendingCountState\":\"failed\""),
+              std::string::npos);
+}
+
+// git records no creation time for a worktree; this is the unix timestamp of
+// the first entry in its own `logs/HEAD`, and 0 means "git did not record
+// one" rather than the epoch.
+TEST(JsonCodecTest, WorktreeCreatedAtIsAbsentAsZero) {
+    WorktreeInfo worktree;
+    EXPECT_NE(toJson(worktree).find("\"createdAtUnix\":0"), std::string::npos);
+
+    worktree.createdAtUnix = 1780000000;
+    EXPECT_NE(toJson(worktree).find("\"createdAtUnix\":1780000000"),
+              std::string::npos);
+}
+
 }  // namespace
 }  // namespace gbm::capi

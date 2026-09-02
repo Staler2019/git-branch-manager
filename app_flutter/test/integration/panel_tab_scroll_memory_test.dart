@@ -12,6 +12,7 @@
 // because nothing ever took it away.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/blame_result.dart';
 import 'package:gbm_flutter/data/models/reflog_entry.dart';
 import 'package:gbm_flutter/data/models/signature.dart';
 import 'package:gbm_flutter/data/repositories/panel_tabs_repository.dart';
@@ -40,6 +41,24 @@ const Signature _who = Signature(
 final List<ReflogEntry> _entries = List<ReflogEntry>.generate(
   60,
   (int i) => ReflogEntry(index: i, oid: 'oid$i', message: 'step $i', who: _who),
+);
+
+/// Blame lines for the same-kind test. Both tabs read this one session-level
+/// result, so their lists are identical and the tab id is the only thing that
+/// can distinguish their offsets.
+final List<BlameLine> _blame = List<BlameLine>.generate(
+  200,
+  (int i) => BlameLine(
+    commitOid: 'aaaaaaa',
+    authorName: 'Ada',
+    authorEmail: 'ada@example.com',
+    authorTime: 1755000000,
+    summary: 'add the header',
+    finalLine: i + 1,
+    originalLine: i + 1,
+    content: 'line $i',
+    boundary: false,
+  ),
 );
 
 final List<RouteBase> _panelRoute = <RouteBase>[
@@ -128,41 +147,55 @@ void main() {
       expect(_listOffset(tester), closeTo(scrolled, 1.0));
     });
 
+    // The claim 「各自」 actually makes, and the one a cross-kind fixture
+    // cannot test: **two tabs of one kind**. Blame is the sharpest subject
+    // available, because both tabs read the same session-level `lastBlame`
+    // and so render *byte-identical* lists -- the only thing that can tell
+    // the two scroll positions apart is the tab id. A memory keyed on the
+    // panel kind (`'panel.blame'`, which is what the splitter ids still do
+    // for the singleton kinds) makes these two share one offset, which is
+    // exactly the failure the rule names.
+    //
+    // An earlier draft of this test opened reflog + blame and called it
+    // 「same kind」 in its own name. That fixture pins per-tab-key vs
+    // constant-key, which is a weaker claim than the name made --
+    // [TEST-fixture-cannot-disagree] shape 6, content contradicting its own
+    // name.
     testWidgets('two tabs of the same kind do not share one offset', (
       tester,
     ) async {
       final PumpedWorkspace pumped = await pumpWorkspace(
         tester,
         identity: _identity,
-        initialState: RepoSessionState(isOpen: true, lastReflog: _entries),
+        initialState: RepoSessionState(
+          isOpen: true,
+          lastBlame: BlameResult(lines: _blame, truncated: false),
+        ),
         extraRoutes: _panelRoute,
       );
 
-      // Two *blame* tabs, because the per-subject kinds are the ones that
-      // can legitimately be open twice at once. A memory keyed on the panel
-      // *kind* rather than on the tab would make these two share a position
-      // -- which is the failure 「各自」 is about.
       final String first = pumped.container
           .read(panelTabsProvider(_identity).notifier)
-          .open(GbmPanelKind.reflog);
+          .open(GbmPanelKind.blame, subject: 'lib/a.dart');
       final String second = pumped.container
           .read(panelTabsProvider(_identity).notifier)
-          .open(GbmPanelKind.blame, subject: 'lib/main.dart');
+          .open(GbmPanelKind.blame, subject: 'lib/b.dart');
       expect(first, isNot(second));
 
       await _goTo(tester, pumped, first);
       await tester.drag(find.byType(ListView), const Offset(0, -400));
       await tester.pumpAndSettle();
       final double scrolled = _listOffset(tester);
-      expect(scrolled, greaterThan(0));
+      expect(scrolled, greaterThan(0), reason: 'the drag must have scrolled');
 
       await _goTo(tester, pumped, second);
-      // The second tab is a different panel entirely and starts at the top;
-      // if it opened already scrolled, the memory is keyed on the wrong
-      // thing.
-      if (find.byType(ListView).evaluate().isNotEmpty) {
-        expect(_listOffset(tester), 0);
-      }
+      expect(
+        _listOffset(tester),
+        0,
+        reason:
+            'a second tab of the same kind opens at the top -- if it opened '
+            'already scrolled, the memory is keyed on the kind, not the tab',
+      );
 
       await _goTo(tester, pumped, first);
       expect(_listOffset(tester), closeTo(scrolled, 1.0));

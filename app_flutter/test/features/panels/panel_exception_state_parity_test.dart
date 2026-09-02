@@ -67,9 +67,12 @@ void main() {
   group('P19 rule 5: exception states are told inside the panel', () {
     test('no panel reaches for a SnackBar', () {
       final List<String> offenders = <String>[];
+      // `recursive: true` because the point of a source sweep is the panel
+      // nobody has written yet, and there is no rule saying it must be a
+      // file directly in this directory rather than in a subdirectory of it.
       for (final FileSystemEntity f in Directory(
         'lib/features/panels',
-      ).listSync()) {
+      ).listSync(recursive: true)) {
         if (f is! File || !f.path.endsWith('.dart')) continue;
         final String src = f.readAsStringSync();
         if (src.contains('SnackBar') || src.contains('ScaffoldMessenger')) {

@@ -14,6 +14,16 @@ import '../../widgets/gbm_row.dart';
 /// reference instance, after the second and third panels copied them
 /// verbatim.
 
+/// Spec page 19 樣板規則 3's list row height: 「行高沿用 comfortable 34px
+/// （此處 36px 因為兩行式）」.
+///
+/// The spec's own parenthesis explains the two extra pixels, and they are
+/// exactly the ones this row needs: 34 alone clips the second line by ~2px.
+/// It read `rowHeightComfortable + space3` (= 46) until
+/// feat/p19-panel-template-conformance — a number that cleared two lines
+/// with room to spare rather than the one the spec states.
+const double kPanelListRowHeight = 36;
+
 /// Spec page 19 樣板規則 4's fixed label column: 「78px 標籤 + 值」.
 ///
 /// A literal from the spec, not a derived measurement, which is why it is a
@@ -22,10 +32,9 @@ const double kPanelDetailLabelWidth = 78;
 
 /// P19 list column: a title over a dimmer subtitle.
 ///
-/// The height is deliberately not [GbmSpacing.rowHeightComfortable]: that is
-/// sized for one line, and two stacked lines overflow it by ~2px — caught by
-/// a widget test on the reference instance rather than shipping as a clipped
-/// second line.
+/// The height is [kPanelListRowHeight] — the spec's own 36, which is
+/// [GbmSpacing.rowHeightComfortable] plus exactly the ~2px the second line
+/// needs. See that constant for what it replaced.
 class PanelListRow extends StatelessWidget {
   const PanelListRow({
     super.key,
@@ -60,7 +69,7 @@ class PanelListRow extends StatelessWidget {
     return GbmRow(
       selected: selected,
       onTap: onTap,
-      height: GbmSpacing.rowHeightComfortable + GbmSpacing.space3,
+      height: kPanelListRowHeight,
       padding: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),

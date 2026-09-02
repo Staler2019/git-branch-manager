@@ -197,9 +197,17 @@ class _StashRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
     return GbmRow(
-      // Two stacked lines (message + relative time) at textSm/textXs --
-      // this is PanelListRow's own height for exactly this shape, chosen
-      // because rowHeightComfortable alone clips a second line by ~2px.
+      // Two stacked lines (message + relative time) at textSm/textXs, which
+      // rowHeightComfortable alone clips by ~2px.
+      //
+      // This **deliberately keeps 46 and is not a P19 row.** It used to say
+      // "this is PanelListRow's own height for exactly this shape", which
+      // stopped being true when P19 樣板規則 3 moved that row to the spec's
+      // 36 (feat/p19-panel-template-conformance). The sentence is corrected
+      // rather than the number, because a sidebar row is not one of the
+      // twelve management panels and has no 36px ruling behind it —
+      // following the panel down on P19's authority would be shrinking a
+      // surface the spec never spoke about.
       height: GbmSpacing.rowHeightComfortable + GbmSpacing.space3,
       padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
       selected: selected,

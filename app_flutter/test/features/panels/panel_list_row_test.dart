@@ -100,6 +100,28 @@ void main() {
       expect(find.text('gbm-lfs'), findsOneWidget);
     });
 
+    testWidgets('the row is P19 rule 3的 36px, and two lines still fit', (
+      tester,
+    ) async {
+      await _pumpRow(
+        tester,
+        icon: const LucideIcon('folder-git-2'),
+        badge: const GbmBadge(label: 'current'),
+      );
+
+      expect(
+        tester.getSize(find.byType(PanelListRow)).height,
+        kPanelListRowHeight,
+      );
+      expect(kPanelListRowHeight, 36, reason: 'the number is the spec\'s');
+
+      // 36 is a *shrink* from the 46 this row used to be, so the two-line
+      // text block can overflow it -- and a Column's overflow is main-axis,
+      // which is the axis RenderFlex actually reports
+      // ([TEST-renderflex-main-axis-only]), so this assertion can see it.
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('a long title does not overflow the row', (tester) async {
       await _pumpRow(
         tester,

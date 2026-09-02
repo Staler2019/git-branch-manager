@@ -544,6 +544,9 @@ typedef TagPushDart =
 
 typedef _WorktreeRefreshNative = Void Function(Pointer<Void> session);
 typedef WorktreeRefreshDart = void Function(Pointer<Void> session);
+typedef _WorktreeRequestPendingCountsNative =
+    Void Function(Pointer<Void> session);
+typedef WorktreeRequestPendingCountsDart = void Function(Pointer<Void> session);
 
 typedef _WorktreesJsonNative = Int32 Function(Pointer<Void> session);
 typedef WorktreesJsonDart = int Function(Pointer<Void> session);
@@ -1461,6 +1464,11 @@ class GbmBindings {
           .lookupFunction<_WorktreeRefreshNative, WorktreeRefreshDart>(
             'gbm_worktree_refresh',
           ),
+      worktreeRequestPendingCounts = library
+          .lookupFunction<
+            _WorktreeRequestPendingCountsNative,
+            WorktreeRequestPendingCountsDart
+          >('gbm_worktree_request_pending_counts'),
       worktreesJson = library
           .lookupFunction<_WorktreesJsonNative, WorktreesJsonDart>(
             'gbm_worktrees_json',
@@ -1862,6 +1870,7 @@ class GbmBindings {
   final TagDeleteDart tagDelete;
   final TagPushDart tagPush;
   final WorktreeRefreshDart worktreeRefresh;
+  final WorktreeRequestPendingCountsDart worktreeRequestPendingCounts;
   final WorktreesJsonDart worktreesJson;
   final WorktreeAddDart worktreeAdd;
   final WorktreeRemoveDart worktreeRemove;

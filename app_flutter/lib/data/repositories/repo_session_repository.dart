@@ -2641,6 +2641,23 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     _bindings.worktreeRefresh(_session);
   }
 
+  /// Measures 待提交數 for every worktree -- one `git status` per worktree,
+  /// then one WORKTREES_UPDATED carrying the whole list back.
+  ///
+  /// **`request*`, not `refresh*`, and the name is the point.**
+  /// [STATE-refresh-entry-point] makes membership of the focus-regain / F5
+  /// sweep a *rule* rather than a list: every zero-argument `refresh*` on
+  /// this controller is in it. This call is keyed to the worktrees panel
+  /// being open -- a selection that need not still exist when the window
+  /// comes back -- so it belongs to the excluded `request*` family, and
+  /// naming it that way makes the exclusion structural instead of a comment
+  /// the next round has to happen to read. `refreshWorktrees()` above is
+  /// untouched and stays in the sweep; it is the counts that are opt-in.
+  void requestWorktreePendingCounts() {
+    if (_session == nullptr) return;
+    _bindings.worktreeRequestPendingCounts(_session);
+  }
+
   /// `git worktree add`. See gbm_worktree_add()'s doc comment: on success
   /// refreshes the worktree list.
   void addWorktree(

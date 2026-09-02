@@ -391,6 +391,15 @@ class FakeRepoSessionController extends RepoSessionController {
     commandLog.add(const FakeCommand('refreshWorktrees'));
   }
 
+  /// Not part of refreshRepoStatus()'s membership -- recorded so that the
+  /// test asserting it is *absent* from the focus sweep is asserting
+  /// something. Unoverridden it would return at the null-session guard and
+  /// log nothing, which makes a 0-count assertion vacuously true forever.
+  @override
+  void requestWorktreePendingCounts() {
+    commandLog.add(const FakeCommand('requestWorktreePendingCounts'));
+  }
+
   @override
   void refreshRemotes() {
     commandLog.add(const FakeCommand('refreshRemotes'));

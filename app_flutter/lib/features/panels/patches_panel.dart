@@ -11,6 +11,9 @@ import '../../theme/tokens.dart';
 import '../../widgets/gbm_button.dart';
 import 'gbm_panel_tab_shell.dart';
 import 'panel_diff_text.dart';
+import 'panel_filter_field.dart';
+import 'panel_status_line.dart';
+import 'panel_toolbar_spec.dart';
 import 'patch_text_loader.dart';
 import 'panel_widgets.dart';
 
@@ -45,6 +48,19 @@ class PatchRow {
 /// - list: .patch 檔或待建清單
 /// - detail: patch 內容 diff 預覽
 /// - toolbar: Create from commits、Apply…、Save as
+///
+/// **Which segment each action lands in (P19 rule 2).** `Create from
+/// commits` is the only one that creates a row, so it is primary. `Apply…`
+/// and `Import…` both consume a patch into this repository — maintenance.
+/// `Save as…` is the one action whose result leaves the app: it writes
+/// `.patch` files into a directory the user picks, which is exactly what
+/// rule 2's 「跳出去」 segment is for, and it is why this panel is one of the
+/// few that draws the separator.
+///
+/// **Nothing moves to the detail action row**, because none of the four is
+/// 破壞性 — the panel writes patches and applies them, and the only action
+/// that changes the repository (`Apply…`/`Import…`) is undoable by the
+/// sequencer controls the detail already shows mid-import.
 ///
 /// **How the three toolbar actions divide up**, since the labels alone leave
 /// room for more than one reading and this is the one implemented:
@@ -84,12 +100,36 @@ class _PatchesPanelState extends ConsumerState<PatchesPanel> {
   /// disk again, and so the detail pane has something to show synchronously.
   final Map<String, String> _text = <String, String>{};
   String? _loadError;
+  String _query = '';
 
   RepoSessionController get _session =>
       ref.read(repoSessionProvider(widget.identity).notifier);
 
   PatchRow? get _selected =>
       _rows.where((PatchRow r) => r.key == _selectedKey).firstOrNull;
+
+  /// Matches **both** of a row's lines, which is what makes a directory
+  /// segment findable: a file row's title is the base name and its subtitle
+  /// is the whole path, so a title-only filter cannot answer 「which patches
+  /// came out of `vendor/`?」. On a pending row the subtitle carries the oid,
+  /// so the same predicate lets a commit be found by its hash.
+  bool _matchesQuery(PatchRow row) {
+    if (_query.trim().isEmpty) return true;
+    final String needle = _query.trim().toLowerCase();
+    return row.title.toLowerCase().contains(needle) ||
+        row.subtitle.toLowerCase().contains(needle);
+  }
+
+  /// Rule 6's 「實際數量與耗時」, with **no 耗時 clause** -- the rows here are
+  /// assembled in memory from a picker's result and a commit selection, so
+  /// there is no scan to time.
+  String _statusLine({required int total, required int shown}) =>
+      panelStatusLine(
+        total: total,
+        shown: shown,
+        noun: 'patch',
+        nounPlural: 'patches',
+      );
 
   void _addFiles(List<String> paths) {
     if (paths.isEmpty) return;
@@ -186,36 +226,68 @@ class _PatchesPanelState extends ConsumerState<PatchesPanel> {
     final bool importRunning = session.repoState?.isSequencerOperation ?? false;
     final PatchRow? selected = _selected;
     final bool hasPending = _rows.any((PatchRow r) => r.isPending);
+    final List<PatchRow> visible = _rows
+        .where(_matchesQuery)
+        .toList(growable: false);
 
     return GbmPanelTabShell(
       storageId: 'panel.patches',
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a patch to preview it',
-      toolbar: <Widget>[
-        GbmButton(
-          label: 'Create from commits',
-          onPressed: commits.items.isEmpty ? null : _createFromCommits,
+      toolbarSpec: PanelToolbarSpec(
+        primary: <Widget>[
+          GbmButton(
+            label: 'Create from commits',
+            kind: GbmButtonKind.primary,
+            onPressed: commits.items.isEmpty ? null : _createFromCommits,
+          ),
+        ],
+        maintenance: <Widget>[
+          GbmButton(
+            label: 'Apply…',
+            kind: GbmButtonKind.ghost,
+            onPressed: _apply,
+          ),
+          GbmButton(
+            label: 'Import…',
+            kind: GbmButtonKind.ghost,
+            onPressed: _import,
+          ),
+        ],
+        external: <Widget>[
+          GbmButton(
+            label: 'Save as…',
+            kind: GbmButtonKind.ghost,
+            onPressed: hasPending ? _saveAs : null,
+          ),
+        ],
+        filter: PanelFilterField(
+          query: _query,
+          onChanged: (String value) => setState(() => _query = value),
         ),
-        GbmButton(label: 'Apply…', onPressed: _apply),
-        GbmButton(label: 'Save as…', onPressed: hasPending ? _saveAs : null),
-        GbmButton(label: 'Import…', onPressed: _import),
-      ],
-      list: _rows.isEmpty
+      ),
+      listHeader: PanelListHeaderText(text: 'Patches · ${visible.length}'),
+      statusBar: PanelStatusBarText(
+        text: _statusLine(total: _rows.length, shown: visible.length),
+      ),
+      list: visible.isEmpty
           ? PanelEmptyList(
-              message: commits.items.isEmpty
+              message: _rows.isNotEmpty
+                  ? 'No patch matches the filter'
+                  : commits.items.isEmpty
                   ? 'Select commits in History, or apply a .patch file'
                   : 'Create from commits to queue '
                         '${commits.items.length} selected commit(s)',
             )
           : ListView.builder(
-              itemCount: _rows.length,
+              itemCount: visible.length,
               itemBuilder: (context, i) => PanelListRow(
-                title: _rows[i].title,
-                subtitle: _rows[i].subtitle,
-                selected: _rows[i].key == _selectedKey,
+                title: visible[i].title,
+                subtitle: visible[i].subtitle,
+                selected: visible[i].key == _selectedKey,
                 onTap: () {
-                  setState(() => _selectedKey = _rows[i].key);
-                  if (!_rows[i].isPending) _loadText(_rows[i].path);
+                  setState(() => _selectedKey = visible[i].key);
+                  if (!visible[i].isPending) _loadText(visible[i].path);
                 },
               ),
             ),

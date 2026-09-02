@@ -70,7 +70,25 @@ class PanelPage extends ConsumerWidget {
         const SingleActivator(LogicalKeyboardKey.keyW, meta: true): () =>
             _closeThisTab(context, ref),
       },
-      child: Focus(autofocus: true, child: _buildPanel(spec)),
+      // P19 樣板規則 1's 「各自記憶捲動位置」.
+      //
+      // A `PageStorageKey` anywhere in a Scrollable's ancestor chain is what
+      // makes its offset addressable, and keying it on the **tab id** rather
+      // than the panel kind is what 「各自」 means: two tabs open at once must
+      // not share a position.
+      //
+      // The bucket these entries land in belongs to the enclosing route, and
+      // that is deliberately *not* something this page provides. A
+      // shell-owned `PageStorageBucket` was written first and then deleted:
+      // removing it again changed no test, because an ancestor route already
+      // supplies one that outlives a tab switch, and code that no test can
+      // justify is [CULT-orphan-wiring] waiting to happen. The mechanism is
+      // therefore the key alone -- which `panel_tab_scroll_memory_test.dart`
+      // does pin, in both directions.
+      child: KeyedSubtree(
+        key: PageStorageKey<String>('panel-tab-$tabId'),
+        child: Focus(autofocus: true, child: _buildPanel(spec)),
+      ),
     );
   }
 

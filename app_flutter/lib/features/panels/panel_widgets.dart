@@ -14,6 +14,12 @@ import '../../widgets/gbm_row.dart';
 /// reference instance, after the second and third panels copied them
 /// verbatim.
 
+/// Spec page 19 樣板規則 4's fixed label column: 「78px 標籤 + 值」.
+///
+/// A literal from the spec, not a derived measurement, which is why it is a
+/// named constant here rather than a number inside one widget's build.
+const double kPanelDetailLabelWidth = 78;
+
 /// P19 list column: a title over a dimmer subtitle.
 ///
 /// The height is deliberately not [GbmSpacing.rowHeightComfortable]: that is
@@ -74,6 +80,14 @@ class PanelListRow extends StatelessWidget {
 
 /// P19 detail column: one labelled value.
 ///
+/// Spec page 19 樣板規則 4: 「右明細一律是 **78px 標籤 + 值** 的定義列表，
+/// 值可選取複製」. The label occupies a fixed [kPanelDetailLabelWidth]
+/// column and the value begins exactly at its right edge, so every field in
+/// every one of the twelve panels lines its values up on one axis. It was a
+/// stacked `Column` (label above value) until
+/// feat/p19-panel-template-conformance, which is a different shape wearing
+/// the same fields.
+///
 /// [SelectableText], not [Text]: a detail pane exists to be read *and*
 /// copied — a remote URL or an oid is usually wanted somewhere else.
 class PanelDetailField extends StatelessWidget {
@@ -96,23 +110,32 @@ class PanelDetailField extends StatelessWidget {
     final GbmColors colors = context.gbmColors;
     return Padding(
       padding: const EdgeInsets.only(bottom: GbmSpacing.space3),
-      child: Column(
+      child: Row(
+        // The label aligns to the value's *first* line, not to the centre of
+        // a value that wrapped to several.
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: GbmTypography.textXs,
-              color: colors.textTertiary,
+          SizedBox(
+            width: kPanelDetailLabelWidth,
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                color: colors.textTertiary,
+              ),
             ),
           ),
-          const SizedBox(height: GbmSpacing.space1),
-          SelectableText(
-            value,
-            style: TextStyle(
-              fontSize: GbmTypography.textSm,
-              color: colors.textPrimary,
-              fontFamily: mono ? 'monospace' : null,
+          // Expanded, not a bare child: RenderFlex lays out non-flex children
+          // first, so the fixed label column plus an unbounded value overflows
+          // before any flex could rescue it.
+          Expanded(
+            child: SelectableText(
+              value,
+              style: TextStyle(
+                fontSize: GbmTypography.textSm,
+                color: colors.textPrimary,
+                fontFamily: mono ? 'monospace' : null,
+              ),
             ),
           ),
         ],

@@ -164,6 +164,42 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
       _countAnswers[_countKey(w)] ??
       (count: w.pendingChanges, state: w.pendingCountState);
 
+  /// Whether 「重新量測」 can do anything for [w].
+  ///
+  /// `failed` is the case this exists for: the cache deliberately files a
+  /// failure so the automatic gate does not re-ask forever, which without a
+  /// manual way back means one failed measurement stays failed until the tab
+  /// is closed and reopened. `unmeasured` is included because a reply that
+  /// never arrived is the same dead end from the user's side.
+  ///
+  /// `notApplicable` is **not** retryable, and that is not a shortcut: it
+  /// means bare-or-prunable, where the command cannot run at all rather than
+  /// having run and lost ([STATE-never-guess-what-git-would-say]'s LFS
+  /// exemption). Offering a retry there would promise something no number of
+  /// presses can deliver. `measured` has nothing to redo.
+  bool _canRemeasure(WorktreeInfo w) => switch (_answerFor(w).state) {
+    WorktreePendingCountState.failed ||
+    WorktreePendingCountState.unmeasured => true,
+    WorktreePendingCountState.measured ||
+    WorktreePendingCountState.notApplicable => false,
+  };
+
+  /// Forgets what is known about [w]'s count and asks again.
+  ///
+  /// The eviction is **not** redundant with `_harvestAndRequestCounts`
+  /// overwriting the entry when the reply lands. That overwrite is
+  /// unconditional today, so dropping these two lines leaves every test
+  /// green — but 「retry」 means *forget and re-ask*, and expressing it as
+  /// "dispatch, and rely on a distant unconditional write" makes this button
+  /// depend on a policy nothing here owns. `_askedCountKeys` has to go too or
+  /// the automatic gate still counts this key as asked.
+  void _remeasure(WorktreeInfo w) {
+    final String key = _countKey(w);
+    _countAnswers.remove(key);
+    _askedCountKeys.remove(key);
+    _session.requestWorktreePendingCounts();
+  }
+
   /// P19's 待提交數 value. All four states read differently to a user, so
   /// this switches on the state rather than on `count == null`.
   static String _describePendingCount(_CountAnswer answer) =>
@@ -334,6 +370,13 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
                       : () => selected.isLocked
                             ? _session.unlockWorktree(selected.path)
                             : _session.lockWorktree(selected.path),
+                ),
+                GbmButton(
+                  label: '重新量測',
+                  kind: GbmButtonKind.ghost,
+                  onPressed: _canRemeasure(selected)
+                      ? () => _remeasure(selected)
+                      : null,
                 ),
               ],
               dangerActions: <Widget>[

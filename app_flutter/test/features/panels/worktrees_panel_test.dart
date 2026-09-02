@@ -25,6 +25,7 @@ import 'package:gbm_flutter/features/panels/panel_widgets.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
 import 'package:gbm_flutter/widgets/gbm_badge.dart';
+import 'package:gbm_flutter/widgets/gbm_button.dart';
 import 'package:gbm_flutter/widgets/gbm_banner.dart';
 import 'package:gbm_flutter/widgets/lucide_icon.dart';
 import 'package:go_router/go_router.dart';
@@ -979,6 +980,75 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(_detailValue(tester, '狀態'), '9 個未提交變更 · 未鎖定');
+    });
+  });
+
+  // 使用者裁定推翻本輪原本的「沒有面板內重試入口」。原本的理由是「規則 2 的
+  // 四段工具列沒有位置放它」——那個理由本身沒錯，錯在停在那裡：規則 4 給了
+  // 明細動作列，而那正是每一列自己的動作該待的地方，也剛好就在寫著
+  //「量測失敗」的那一格底下。
+  group('P19 rule 4: a failed pending count can be retried in the panel', () {
+    testWidgets('the retry dispatches a second measurement', (tester) async {
+      final PumpedPanel pumped = await _pump(
+        tester,
+        worktrees: <WorktreeInfo>[
+          _wt(pendingCountState: WorktreePendingCountState.failed),
+        ],
+      );
+      await tester.tap(find.text('gbm-lfs'));
+      await tester.pumpAndSettle();
+      expect(_detailValue(tester, '狀態'), '量測失敗 · 未鎖定');
+
+      final int before = _requests(pumped);
+      await tester.tap(find.widgetWithText(GbmButton, '重新量測'));
+      await tester.pumpAndSettle();
+
+      // Count, never `.any` -- a retry that dispatched twice per tap is the
+      // shape [TEST-count-dont-any] exists for.
+      expect(_requests(pumped), before + 1);
+    });
+
+    // The other half of「不是隱藏」。A button that is simply absent whenever
+    // it would not work teaches the user the feature does not exist
+    // ([FLU-menu-enabled-is-visual-only]), and `onTap: null` has to come with
+    // the grey or a 「disabled」 button still fires.
+    testWidgets('it is present but disabled when the count is measured', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        worktrees: <WorktreeInfo>[
+          _wt(
+            pendingChanges: 9,
+            pendingCountState: WorktreePendingCountState.measured,
+          ),
+        ],
+      );
+      await tester.tap(find.text('gbm-lfs'));
+      await tester.pumpAndSettle();
+
+      final GbmButton retry = tester.widget<GbmButton>(
+        find.widgetWithText(GbmButton, '重新量測'),
+      );
+      expect(retry.onPressed, isNull, reason: 'nothing failed, nothing to redo');
+    });
+
+    testWidgets('an unmeasured worktree can also be asked again', (
+      tester,
+    ) async {
+      final PumpedPanel pumped = await _pump(
+        tester,
+        worktrees: <WorktreeInfo>[
+          _wt(pendingCountState: WorktreePendingCountState.unmeasured),
+        ],
+      );
+      await tester.tap(find.text('gbm-lfs'));
+      await tester.pumpAndSettle();
+
+      final int before = _requests(pumped);
+      await tester.tap(find.widgetWithText(GbmButton, '重新量測'));
+      await tester.pumpAndSettle();
+      expect(_requests(pumped), before + 1);
     });
   });
 }

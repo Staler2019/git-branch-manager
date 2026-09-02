@@ -12,6 +12,9 @@ import '../../theme/tokens.dart';
 import '../../widgets/gbm_button.dart';
 import '../history_graph/widgets/graph_date_format.dart';
 import 'gbm_panel_tab_shell.dart';
+import 'panel_filter_field.dart';
+import 'panel_status_line.dart';
+import 'panel_toolbar_spec.dart';
 import 'panel_widgets.dart';
 
 /// `reflog` as a tab (spec page 14 `IAMAP`), on page 19's template.
@@ -20,6 +23,22 @@ import 'panel_widgets.dart';
 /// - list: reflog 項目（時間 + 動作）
 /// - detail: 該 commit 的明細與可回得的 ref
 /// - toolbar: Restore branch、Checkout、Copy SHA
+///
+/// **Which segment each action lands in (P19 rule 2).** `Restore branch…` is
+/// the only one that creates anything, so it is primary. `Checkout` acts on
+/// this repository — maintenance — and only `Copy SHA` leaves the app at
+/// all, so it is the 「跳出去」 segment on its own.
+///
+/// This is a deliberate reading of `Checkout`, which is the least obvious of
+/// the three: it is not「跳出去」 despite moving HEAD, because the thing it
+/// changes is the repository this panel belongs to. What the third segment
+/// collects is actions whose *result lands outside the app* — the clipboard
+/// here, a file manager in `manage-submodules`, a directory of `.patch`
+/// files in `patches`.
+///
+/// **Nothing moves to the detail action row**: none of the three is
+/// 破壞性. The panel exists to *recover* commits, and its most forceful
+/// action creates a branch.
 ///
 /// **The ref selector is not in the toolbar.** `PANELSPEC` names three
 /// actions and a reflog is always *of* some ref, so which ref to read is a
@@ -46,6 +65,7 @@ class _ReflogPanelState extends ConsumerState<ReflogPanel> {
   final TextEditingController _refController = TextEditingController();
   String _loadedRef = 'HEAD';
   int? _selectedIndex;
+  String _query = '';
 
   @override
   void initState() {
@@ -71,6 +91,22 @@ class _ReflogPanelState extends ConsumerState<ReflogPanel> {
     _session.requestReflog(ref: ref);
   }
 
+  /// Matches the action text **and the oid**, though the row draws only the
+  /// former.
+  ///
+  /// Filtering on something invisible is normally a smell; here it is the
+  /// case the filter exists for. Someone arriving with a hash out of
+  /// `git reflog`'s own output has nothing else to paste, and the row
+  /// deliberately shows 動作 over 時間 (P19's list column) rather than the
+  /// oid, so a message-only filter would answer 「no entries」 to the one
+  /// query a reflog is most often searched by.
+  bool _matchesQuery(ReflogEntry entry) {
+    if (_query.trim().isEmpty) return true;
+    final String needle = _query.trim().toLowerCase();
+    return entry.message.toLowerCase().contains(needle) ||
+        entry.oid.toLowerCase().contains(needle);
+  }
+
   void _select(ReflogEntry entry) {
     setState(() => _selectedIndex = entry.index);
     // Cheap and idempotent: the controller merges replies into
@@ -85,6 +121,9 @@ class _ReflogPanelState extends ConsumerState<ReflogPanel> {
       repoSessionProvider(widget.identity),
     );
     final List<ReflogEntry> entries = session.lastReflog;
+    final List<ReflogEntry> visible = entries
+        .where(_matchesQuery)
+        .toList(growable: false);
     final ReflogEntry? selected = entries
         .where((ReflogEntry e) => e.index == _selectedIndex)
         .firstOrNull;
@@ -93,36 +132,58 @@ class _ReflogPanelState extends ConsumerState<ReflogPanel> {
       storageId: 'panel.reflog',
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a reflog entry to see its commit',
-      toolbar: <Widget>[
-        // Restoring a branch needs a name, so it opens the new-branch dialog
-        // with this entry's oid as the start point rather than inventing a
-        // second name-entry surface.
-        GbmButton(
-          label: 'Restore branch…',
-          onPressed: selected == null
-              ? null
-              : () => context.push(
-                  RoutePaths.newBranchDialogFor(
-                    Uri.encodeComponent(widget.identity.workDir),
-                    startPoint: selected.oid,
+      toolbarSpec: PanelToolbarSpec(
+        primary: <Widget>[
+          // Restoring a branch needs a name, so it opens the new-branch
+          // dialog with this entry's oid as the start point rather than
+          // inventing a second name-entry surface.
+          GbmButton(
+            label: 'Restore branch…',
+            kind: GbmButtonKind.primary,
+            onPressed: selected == null
+                ? null
+                : () => context.push(
+                    RoutePaths.newBranchDialogFor(
+                      Uri.encodeComponent(widget.identity.workDir),
+                      startPoint: selected.oid,
+                    ),
                   ),
-                ),
+          ),
+        ],
+        maintenance: <Widget>[
+          // Checking out a bare oid always detaches -- there is no branch at
+          // a reflog entry, which is the whole reason this panel exists.
+          GbmButton(
+            label: 'Checkout',
+            kind: GbmButtonKind.ghost,
+            onPressed: selected == null
+                ? null
+                : () => _session.checkout(target: selected.oid, detach: true),
+          ),
+        ],
+        external: <Widget>[
+          GbmButton(
+            label: 'Copy SHA',
+            kind: GbmButtonKind.ghost,
+            onPressed: selected == null
+                ? null
+                : () => Clipboard.setData(ClipboardData(text: selected.oid)),
+          ),
+        ],
+        filter: PanelFilterField(
+          query: _query,
+          onChanged: (String value) => setState(() => _query = value),
         ),
-        // Checking out a bare oid always detaches -- there is no branch at a
-        // reflog entry, which is the whole reason this panel exists.
-        GbmButton(
-          label: 'Checkout',
-          onPressed: selected == null
-              ? null
-              : () => _session.checkout(target: selected.oid, detach: true),
+      ),
+      listHeader: PanelListHeaderText(text: 'Reflog · ${visible.length}'),
+      statusBar: PanelStatusBarText(
+        text: panelStatusLine(
+          total: entries.length,
+          shown: visible.length,
+          noun: 'entry',
+          nounPlural: 'entries',
         ),
-        GbmButton(
-          label: 'Copy SHA',
-          onPressed: selected == null
-              ? null
-              : () => Clipboard.setData(ClipboardData(text: selected.oid)),
-        ),
-      ],
+      ),
       list: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
@@ -147,12 +208,16 @@ class _ReflogPanelState extends ConsumerState<ReflogPanel> {
             ),
           ),
           Expanded(
-            child: entries.isEmpty
-                ? const PanelEmptyList(message: 'No reflog entries')
+            child: visible.isEmpty
+                ? PanelEmptyList(
+                    message: entries.isEmpty
+                        ? 'No reflog entries'
+                        : 'No reflog entry matches the filter',
+                  )
                 : ListView.builder(
-                    itemCount: entries.length,
+                    itemCount: visible.length,
                     itemBuilder: (context, i) {
-                      final ReflogEntry e = entries[i];
+                      final ReflogEntry e = visible[i];
                       return PanelListRow(
                         // 動作 over 時間 -- the action is what someone
                         // scanning a reflog is looking for.

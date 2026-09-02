@@ -161,6 +161,16 @@ int _requests(PumpedPanel pumped) => pumped.fake.commandLog
     .where((FakeCommand c) => c.name == 'requestWorktreePendingCounts')
     .length;
 
+/// Counts, rather than `.any`, because a selection that dispatched twice is
+/// exactly the regression these tests exist to catch ([TEST-count-dont-any]).
+int _metaRequests(PumpedPanel pumped, String oid) => pumped.fake.commandLog
+    .where(
+      (FakeCommand c) =>
+          c.name == 'requestCommitMeta' &&
+          (c.args['oids']! as List<String>).contains(oid),
+    )
+    .length;
+
 Future<PumpedPanel> _pump(
   WidgetTester tester, {
   List<WorktreeInfo> worktrees = const <WorktreeInfo>[_main, _locked],
@@ -421,6 +431,71 @@ void main() {
         _detailValue(tester, 'HEAD'),
         '9d02f4e · Fix lane allocator overflow',
       );
+    });
+
+    // The test above emits the meta by hand, which is a fixture supplying
+    // what production must *ask* for -- [CULT-scrutinise-the-comment] applied
+    // to this file's own earlier comment, which claimed the subject was
+    // requested on selection while nothing in the panel requested anything.
+    // Without this dispatch a linked worktree on an old branch tip shows a
+    // bare oid forever, because the only other filler of `commitMetaCache`
+    // is History's viewport happening to scroll past that commit.
+    testWidgets('selecting a worktree asks for its HEAD commit meta', (
+      tester,
+    ) async {
+      final PumpedPanel pumped = await _pump(
+        tester,
+        worktrees: <WorktreeInfo>[_wt()],
+      );
+      expect(
+        _metaRequests(pumped, '9d02f4e'),
+        0,
+        reason: 'nothing is selected on mount',
+      );
+
+      await tester.tap(find.text('gbm-lfs'));
+      await tester.pumpAndSettle();
+
+      expect(_metaRequests(pumped, '9d02f4e'), 1);
+    });
+
+    // The gate is the cache, not the tap: re-selecting a worktree whose
+    // subject is already on screen must not re-ask. Dispatching from `onTap`
+    // (a user action) rather than from `build` is what keeps this bounded --
+    // a build-driven request would re-fire on every republish.
+    testWidgets('a HEAD whose meta is already cached is not re-requested', (
+      tester,
+    ) async {
+      final PumpedPanel pumped = await pumpPanel(
+        tester,
+        WorktreesPanel(identity: panelTestIdentity),
+        state: RepoSessionState(
+          isOpen: true,
+          worktrees: <WorktreeInfo>[_wt()],
+          refs: RefSnapshot.empty,
+          commitMetaCache: <String, CommitMeta>{
+            '9d02f4e': const CommitMeta(
+              oid: '9d02f4e',
+              tree: 'tree',
+              parents: <String>[],
+              author: _who,
+              committer: _who,
+              subject: 'Fix lane allocator overflow',
+              body: '',
+              signedCommit: false,
+            ),
+          },
+        ),
+      );
+
+      await tester.tap(find.text('gbm-lfs'));
+      await tester.pumpAndSettle();
+
+      expect(
+        _detailValue(tester, 'HEAD'),
+        '9d02f4e · Fix lane allocator overflow',
+      );
+      expect(_metaRequests(pumped, '9d02f4e'), 0);
     });
 
     testWidgets('狀態 joins the count and the lock state', (tester) async {

@@ -294,7 +294,7 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
                         title: w.path.split('/').last,
                         subtitle: _describe(w),
                         selected: w.path == _selectedPath,
-                        onTap: () => setState(() => _selectedPath = w.path),
+                        onTap: () => _select(w, metas),
                         icon: _glyphFor(context, w),
                         badge: _badgeFor(w),
                       );
@@ -430,9 +430,25 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
     return '${w.branch} ↑${ref_.ahead}';
   }
 
+  /// Selecting a row is also what asks for its HEAD's subject. Dispatching
+  /// from a user action rather than from `build` is what bounds it: a
+  /// build-driven request would re-fire on every republish, and every reply
+  /// *is* a republish. Gated on the cache so re-selecting a row already on
+  /// screen costs nothing -- `requestCommitMeta` dedups too, but relying on
+  /// that would put a git process between the panel and the guarantee.
+  ///
+  /// Nothing else fills this cache for a linked worktree: the only other
+  /// filler is History's viewport scrolling past that commit, which for an
+  /// old branch tip never happens, so the row showed a bare oid forever.
+  void _select(WorktreeInfo w, Map<String, CommitMeta> metas) {
+    setState(() => _selectedPath = w.path);
+    if (metas.containsKey(w.headOid)) return;
+    _session.requestCommitMeta(<String>[w.headOid]);
+  }
+
   /// 「a1b2c3d · Fix lane allocator overflow」, or the bare oid until the
   /// subject arrives. The cache-miss frame is the normal one, not an edge
-  /// case: the subject is requested when the selection changes.
+  /// case: the subject is requested by [_select] when the selection changes.
   String _headLine(WorktreeInfo w, Map<String, CommitMeta> metas) {
     final CommitMeta? meta = metas[w.headOid];
     if (meta == null || meta.subject.isEmpty) return w.headOid;

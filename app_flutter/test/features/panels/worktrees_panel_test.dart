@@ -157,6 +157,17 @@ String _removeGate(WidgetTester tester) =>
 GbmColors gbmColorsFor(WidgetTester tester) =>
     (tester.element(find.byType(PanelListRow).first) as BuildContext).gbmColors;
 
+Future<void> _type(WidgetTester tester, String query) async {
+  await tester.enterText(
+    find.descendant(
+      of: find.byType(PanelFilterField),
+      matching: find.byType(TextField),
+    ),
+    query,
+  );
+  await tester.pumpAndSettle();
+}
+
 int _requests(PumpedPanel pumped) => pumped.fake.commandLog
     .where((FakeCommand c) => c.name == 'requestWorktreePendingCounts')
     .length;
@@ -261,6 +272,60 @@ void main() {
       await _pump(tester);
 
       expect(find.text('Worktrees · 2'), findsOneWidget);
+    });
+
+    // P19 rule 2 pins a filter to the toolbar's right end, and 「接了卻不篩
+    // 的 filter 是會說謊的控制項」 -- so the predicate, the header count and
+    // the status line's 命中 clause are asserted together. Without these the
+    // whole filter mutates to `return true` with the file staying green,
+    // which is what it did until this test existed.
+    testWidgets('the filter narrows the list, the header and the status line', (
+      tester,
+    ) async {
+      await _pump(tester);
+      expect(find.byType(PanelListRow), findsNWidgets(2));
+
+      await _type(tester, 'lfs');
+
+      expect(find.byType(PanelListRow), findsOneWidget);
+      expect(find.text('gbm-lfs'), findsOneWidget);
+      expect(find.text('Worktrees · 1'), findsOneWidget);
+      // 命中 sits between the count and the scan time, and appears only
+      // because shown != total -- an unfiltered list must not print it.
+      expect(
+        find.textContaining(RegExp(r'^2 worktrees · 命中 1 · 掃描 \d+ ms$')),
+        findsOneWidget,
+      );
+    });
+
+    // The branch is matched as well as the path, and this is the case that
+    // tells the two apart: the row's *title* is 「gbm-lfs」, so a filter
+    // reading only what the row draws would drop this worktree entirely.
+    testWidgets('the filter matches a branch name the row never draws', (
+      tester,
+    ) async {
+      await _pump(tester);
+
+      await _type(tester, 'feature');
+
+      expect(find.byType(PanelListRow), findsOneWidget);
+      expect(find.text('gbm-lfs'), findsOneWidget);
+    });
+
+    // Two different empty states, and they must not be confused: 「no
+    // worktrees」 tells the user this repository has none, which is a lie
+    // while a filter is hiding two.
+    testWidgets('a query that matches nothing says so as a filter miss', (
+      tester,
+    ) async {
+      await _pump(tester);
+
+      await _type(tester, 'zzzz');
+
+      expect(find.byType(PanelListRow), findsNothing);
+      expect(find.text('No worktree matches the filter'), findsOneWidget);
+      expect(find.text('No worktrees'), findsNothing);
+      expect(find.text('Worktrees · 0'), findsOneWidget);
     });
 
     // The mockup names exactly three glyphs, and only for this panel.

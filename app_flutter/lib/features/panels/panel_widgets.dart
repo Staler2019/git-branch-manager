@@ -187,17 +187,103 @@ class PanelDetailField extends StatelessWidget {
 
 /// The scrolling container a P19 detail column's [PanelDetailField]s sit in.
 class PanelDetailColumn extends StatelessWidget {
-  const PanelDetailColumn({super.key, required this.children});
+  const PanelDetailColumn({super.key, required this.children, this.title});
 
   final List<Widget> children;
 
+  /// The selected item's name, drawn above the fields as P19's mockup draws
+  /// it. Optional: rule 4 describes the definition list and says nothing
+  /// about a title, so a panel whose detail is a diff rather than fields has
+  /// nothing to put here.
+  final String? title;
+
   @override
   Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
     return SingleChildScrollView(
       padding: const EdgeInsets.all(GbmSpacing.space4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: children,
+        children: <Widget>[
+          if (title != null) ...<Widget>[
+            Text(
+              title!,
+              style: TextStyle(
+                fontSize: GbmTypography.textSm,
+                fontWeight: FontWeight.w600,
+                color: colors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: GbmSpacing.space3),
+          ],
+          ...children,
+        ],
+      ),
+    );
+  }
+}
+
+/// P19's list-column header — the mockup's 「Worktrees · 4」.
+///
+/// The count belongs in the text the panel passes, not here: only the panel
+/// knows whether it is counting all its items or the ones a filter left.
+class PanelListHeaderText extends StatelessWidget {
+  const PanelListHeaderText({super.key, required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: GbmSpacing.space3,
+        vertical: GbmSpacing.space2,
+      ),
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: colors.borderSubtle)),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: GbmTypography.textXs,
+          fontWeight: FontWeight.w600,
+          color: colors.textSecondary,
+        ),
+      ),
+    );
+  }
+}
+
+/// P19 樣板規則 6 — 「狀態列一律寫實際數量與耗時」.
+///
+/// Same division as [PanelListHeaderText]: this places and styles, the panel
+/// supplies the sentence, because only the panel knows which refresh it is
+/// timing and which of its clauses have a non-zero number to report.
+class PanelStatusBarText extends StatelessWidget {
+  const PanelStatusBarText({super.key, required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(
+        horizontal: GbmSpacing.space3,
+        vertical: GbmSpacing.space2,
+      ),
+      decoration: BoxDecoration(
+        color: colors.surfacePanel,
+        border: Border(top: BorderSide(color: colors.borderSubtle)),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: GbmTypography.textXs,
+          color: colors.textTertiary,
+        ),
       ),
     );
   }

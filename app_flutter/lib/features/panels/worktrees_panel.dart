@@ -1,13 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../data/models/commit_meta.dart';
+import '../../data/models/ref_snapshot.dart';
 import '../../data/models/worktree_info.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
 import '../../data/services/desktop_launcher.dart';
+import '../../routing/app_router.dart';
+import '../../routing/route_paths.dart';
+import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
+import '../../widgets/gbm_badge.dart';
+import '../../widgets/gbm_banner.dart';
 import '../../widgets/gbm_button.dart';
+import '../../widgets/lucide_icon.dart';
+import 'panel_filter_field.dart';
+import 'panel_toolbar_spec.dart';
 import 'gbm_panel_tab_shell.dart';
 import 'panel_widgets.dart';
 
@@ -70,12 +81,22 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
 
   String? _selectedPath;
   bool _addExpanded = false;
+  String _query = '';
+
+  /// Rule 6's 耗時. Measures **mount to the first frame that has the list**
+  /// -- i.e. how long the user waited to see data, which in production is
+  /// dominated by the `git worktree list` round trip the panel dispatches in
+  /// initState. Stopped exactly once; a later republish is a refresh of a
+  /// list already on screen, not a scan the user is waiting on.
+  final Stopwatch _scanWatch = Stopwatch();
+  int? _scanMs;
   final TextEditingController _pathController = TextEditingController();
   final TextEditingController _branchController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
+    _scanWatch.start();
     Future.microtask(
       () => ref
           .read(repoSessionProvider(widget.identity).notifier)
@@ -129,6 +150,12 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
     SchedulerBinding.instance.ensureVisualUpdate();
   }
 
+  void _stopScanTimer(List<WorktreeInfo> worktrees) {
+    if (!_scanWatch.isRunning || worktrees.isEmpty) return;
+    _scanWatch.stop();
+    _scanMs = _scanWatch.elapsedMilliseconds;
+  }
+
   /// The cached answer for [w], falling back to whatever the live snapshot
   /// says. Reading the cache first is what survives an `unmeasured`
   /// republish.
@@ -165,10 +192,32 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final List<WorktreeInfo> worktrees = ref.watch(
-      repoSessionProvider(widget.identity).select((state) => state.worktrees),
+    // Watches a record of exactly the three fields this panel renders, not
+    // the whole session ([FLU-watch-a-record-not-the-state]). `refs` and
+    // `commitMetaCache` are here because the 分支 and HEAD rows read them:
+    // watching only `worktrees` left the commit subject frozen on whatever
+    // frame it happened to arrive on, since nothing else republishes the
+    // worktree list when a meta lands.
+    final (
+      List<WorktreeInfo> worktrees,
+      RefSnapshot refSnapshot,
+      Map<String, CommitMeta> metas,
+    ) = ref.watch(
+      repoSessionProvider(
+        widget.identity,
+      ).select((state) => (state.worktrees, state.refs, state.commitMetaCache)),
     );
     _harvestAndRequestCounts(worktrees);
+    _stopScanTimer(worktrees);
+
+    // Computed once and read by the header, the status bar and the list, so
+    // the three cannot disagree about how many worktrees there are
+    // ([CULT-single-source-of-truth]).
+    final List<WorktreeInfo> visible = worktrees
+        .where(_matchesQuery)
+        .toList(growable: false);
+    final int goneCount = worktrees.where((w) => w.isPrunable).length;
+
     // Selection is held by path rather than index so a refresh that reorders
     // or removes rows can't silently point the detail pane at a different
     // worktree than the one the user clicked.
@@ -180,51 +229,74 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
       storageId: 'panel.worktrees',
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a worktree to see its details',
-      toolbar: <Widget>[
-        GbmButton(
-          label: _addExpanded ? 'Cancel add' : 'Add…',
-          onPressed: () => setState(() => _addExpanded = !_addExpanded),
+      toolbarSpec: PanelToolbarSpec(
+        primary: <Widget>[
+          GbmButton(
+            label: _addExpanded ? 'Cancel add' : 'Add worktree…',
+            kind: GbmButtonKind.primary,
+            onPressed: () => setState(() => _addExpanded = !_addExpanded),
+          ),
+        ],
+        maintenance: <Widget>[
+          GbmButton(
+            label: 'Prune',
+            kind: GbmButtonKind.ghost,
+            onPressed: _session.pruneWorktrees,
+          ),
+        ],
+        external: <Widget>[
+          // 'Open in terminal', per the mockup, and it reaches the terminal
+          // chain that already exists for Repository → Open in terminal --
+          // this used to call openInFileManager(), which is a different
+          // application.
+          GbmButton(
+            label: 'Open in terminal',
+            kind: GbmButtonKind.ghost,
+            onPressed: selected == null
+                ? null
+                : () => ref
+                      .read(desktopLauncherProvider)
+                      .openTerminal(selected.path),
+          ),
+        ],
+        filter: PanelFilterField(
+          query: _query,
+          onChanged: (String value) => setState(() => _query = value),
         ),
-        GbmButton(label: 'Prune', onPressed: _session.pruneWorktrees),
-        GbmButton(
-          label: 'Open',
-          onPressed: selected == null
-              ? null
-              : () => ref
-                    .read(desktopLauncherProvider)
-                    .openInFileManager(selected.path),
+      ),
+      banner: goneCount == 0
+          ? null
+          : GbmWarningBanner(message: _goneBannerMessage(worktrees)),
+      listHeader: PanelListHeaderText(text: 'Worktrees · ${visible.length}'),
+      statusBar: PanelStatusBarText(
+        text: _statusLine(
+          total: worktrees.length,
+          shown: visible.length,
+          gone: goneCount,
         ),
-        // Gated on isPrimary, not isMain. isMain means "the worktree this
-        // session is open on" -- open gbm on a linked worktree and this
-        // button used to refuse the row you are standing in (git removes it
-        // happily) while offering the repository's main one (git refuses).
-        GbmButton(
-          label: 'Remove',
-          kind: GbmButtonKind.danger,
-          onPressed: selected == null || selected.isPrimary
-              ? null
-              : () {
-                  _session.removeWorktree(selected.path);
-                  setState(() => _selectedPath = null);
-                },
-        ),
-      ],
+      ),
       list: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           if (_addExpanded) _buildAddForm(),
           Expanded(
-            child: worktrees.isEmpty
-                ? const PanelEmptyList(message: 'No worktrees')
+            child: visible.isEmpty
+                ? PanelEmptyList(
+                    message: worktrees.isEmpty
+                        ? 'No worktrees'
+                        : 'No worktree matches the filter',
+                  )
                 : ListView.builder(
-                    itemCount: worktrees.length,
+                    itemCount: visible.length,
                     itemBuilder: (context, index) {
-                      final WorktreeInfo w = worktrees[index];
+                      final WorktreeInfo w = visible[index];
                       return PanelListRow(
                         title: w.path.split('/').last,
                         subtitle: _describe(w),
                         selected: w.path == _selectedPath,
                         onTap: () => setState(() => _selectedPath = w.path),
+                        icon: _glyphFor(context, w),
+                        badge: _badgeFor(w),
                       );
                     },
                   ),
@@ -235,14 +307,148 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
           ? const SizedBox.shrink()
           : _WorktreeDetail(
               worktree: selected,
-              pendingCount: _describePendingCount(_answerFor(selected)),
-              onToggleLock: selected.isMain
-                  ? null
-                  : () => selected.isLocked
-                        ? _session.unlockWorktree(selected.path)
-                        : _session.lockWorktree(selected.path),
+              title: selected.path.split('/').last,
+              branchLine: _branchLine(selected, refSnapshot),
+              headLine: _headLine(selected, metas),
+              statusLine: _detailStatusLine(selected),
+              createdLine: selected.createdAt == null
+                  ? 'git 未記錄'
+                  : _formatCreatedAt(selected.createdAt!),
+            ),
+      detailActions: selected == null
+          ? null
+          : PanelDetailActions(
+              actions: <Widget>[
+                GbmButton(
+                  label: 'Switch to',
+                  onPressed: () => context.go(
+                    RoutePaths.workspaceFor(repoIdFor(selected.path)),
+                  ),
+                ),
+                GbmButton(
+                  label: selected.isLocked ? 'Unlock' : 'Lock',
+                  kind: GbmButtonKind.ghost,
+                  onPressed: selected.isMain
+                      ? null
+                      : () => selected.isLocked
+                            ? _session.unlockWorktree(selected.path)
+                            : _session.lockWorktree(selected.path),
+                ),
+              ],
+              dangerActions: <Widget>[
+                // Gated on isPrimary, not isMain. isMain means "the worktree
+                // this session is open on" -- open gbm on a linked worktree
+                // and this button used to refuse the row you are standing in
+                // (git removes it happily) while offering the repository's
+                // main one (git refuses).
+                GbmButton(
+                  label: 'Remove worktree…',
+                  kind: GbmButtonKind.danger,
+                  onPressed: selected.isPrimary
+                      ? null
+                      : () {
+                          _session.removeWorktree(selected.path);
+                          setState(() => _selectedPath = null);
+                        },
+                ),
+              ],
             ),
     );
+  }
+
+  bool _matchesQuery(WorktreeInfo w) {
+    if (_query.trim().isEmpty) return true;
+    final String needle = _query.trim().toLowerCase();
+    return w.path.toLowerCase().contains(needle) ||
+        w.branch.toLowerCase().contains(needle);
+  }
+
+  /// The mockup's 「4 worktrees · 1 個路徑失效 · 掃描 118 ms」.
+  ///
+  /// Rule 6 asks for 實際數量, so a clause whose number is zero is *dropped*
+  /// rather than written as 「0 個路徑失效」 -- a template that always prints
+  /// every clause is not reporting a count, it is decorating one.
+  String _statusLine({
+    required int total,
+    required int shown,
+    required int gone,
+  }) => <String>[
+    '$total worktrees',
+    if (gone > 0) '$gone 個路徑失效',
+    if (shown != total) '命中 $shown',
+    if (_scanMs != null) '掃描 $_scanMs ms',
+  ].join(' · ');
+
+  /// Names the gone worktrees rather than counting them: the user's next
+  /// action is deciding whether to Prune, and 「一個路徑失效」 does not say
+  /// which one.
+  String _goneBannerMessage(List<WorktreeInfo> worktrees) {
+    final String names = worktrees
+        .where((WorktreeInfo w) => w.isPrunable)
+        .map((WorktreeInfo w) => w.path.split('/').last)
+        .join('、');
+    return '$names 的路徑已不存在。Prune 會把它從 git 的紀錄中移除，'
+        '不會刪任何檔案。';
+  }
+
+  /// The mockup's three glyphs, and only these three -- P19 names no icon
+  /// for any of the other eleven panels.
+  Widget _glyphFor(BuildContext context, WorktreeInfo w) {
+    final GbmColors colors = context.gbmColors;
+    if (w.isPrunable) {
+      return LucideIcon('alert-triangle', size: 12, color: colors.warning);
+    }
+    return LucideIcon(
+      w.isDetached ? 'git-commit-horizontal' : 'folder-git-2',
+      size: 12,
+      color: colors.textTertiary,
+    );
+  }
+
+  /// `current` / `路徑不存在`, and **nothing at all** otherwise -- an empty
+  /// badge still draws a chip and still takes width.
+  Widget? _badgeFor(WorktreeInfo w) {
+    if (w.isMain) return const GbmBadge(label: 'current');
+    if (w.isPrunable) {
+      return const GbmBadge(label: '路徑不存在', kind: GbmBadgeKind.removed);
+    }
+    return null;
+  }
+
+  /// 「main ↑2」. The arrow is gated on the *upstream*, not on the number:
+  /// RefInfo.ahead is meaningless when upstream is empty
+  /// ([REF-ahead-meaningless-without-upstream]), where a branch that never
+  /// had one reports 0 and rendering that claims the opposite of the truth.
+  String _branchLine(WorktreeInfo w, RefSnapshot refs) {
+    if (w.isDetached) return 'HEAD 分離';
+    final RefInfo? ref_ = refs.localBranches
+        .where((RefInfo r) => r.shortName == w.branch)
+        .firstOrNull;
+    if (ref_ == null || ref_.upstream.isEmpty || ref_.ahead == 0) {
+      return w.branch;
+    }
+    return '${w.branch} ↑${ref_.ahead}';
+  }
+
+  /// 「a1b2c3d · Fix lane allocator overflow」, or the bare oid until the
+  /// subject arrives. The cache-miss frame is the normal one, not an edge
+  /// case: the subject is requested when the selection changes.
+  String _headLine(WorktreeInfo w, Map<String, CommitMeta> metas) {
+    final CommitMeta? meta = metas[w.headOid];
+    if (meta == null || meta.subject.isEmpty) return w.headOid;
+    return '${w.headOid} · ${meta.subject}';
+  }
+
+  /// 「9 個未提交變更 · 未鎖定」.
+  String _detailStatusLine(WorktreeInfo w) => <String>[
+    _describePendingCount(_answerFor(w)),
+    w.isLocked ? '已鎖定' : '未鎖定',
+  ].join(' · ');
+
+  static String _formatCreatedAt(DateTime when) {
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${when.year}-${two(when.month)}-${two(when.day)} '
+        '${two(when.hour)}:${two(when.minute)}';
   }
 
   Widget _buildAddForm() {
@@ -305,31 +511,41 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
 class _WorktreeDetail extends StatelessWidget {
   const _WorktreeDetail({
     required this.worktree,
-    required this.pendingCount,
-    required this.onToggleLock,
+    required this.title,
+    required this.branchLine,
+    required this.headLine,
+    required this.statusLine,
+    required this.createdLine,
   });
 
   final WorktreeInfo worktree;
 
-  /// Already resolved to a sentence by the panel, because the panel is what
-  /// holds the cache -- a count read straight off [worktree] would blink
-  /// back to 「未量測」 on the next plain refresh.
-  final String pendingCount;
-  final VoidCallback? onToggleLock;
+  /// The mockup draws the selected worktree's name above the fields.
+  final String title;
+
+  /// Every value is resolved by the panel rather than derived here: the
+  /// counts come from the panel's cache, and ahead/behind and the commit
+  /// subject come from providers the panel already watches. A StatelessWidget
+  /// that reached for them itself would be a second source for each.
+  final String branchLine;
+  final String headLine;
+  final String statusLine;
+  final String createdLine;
 
   @override
   Widget build(BuildContext context) {
     return PanelDetailColumn(
+      title: title,
       children: <Widget>[
-        PanelDetailField(label: 'Path', value: worktree.path, mono: true),
-        PanelDetailField(
-          label: 'HEAD',
-          value: worktree.isDetached
-              ? '${worktree.headOid} (detached)'
-              : '${worktree.branch} · ${worktree.headOid}',
-          mono: true,
-        ),
-        PanelDetailField(label: '待提交數', value: pendingCount),
+        PanelDetailField(label: '路徑', value: worktree.path, mono: true),
+        PanelDetailField(label: '分支', value: branchLine, mono: true),
+        PanelDetailField(label: 'HEAD', value: headLine, mono: true),
+        PanelDetailField(label: '狀態', value: statusLine),
+        // Drawn even when git recorded nothing. Rule 4 makes the detail
+        // 一律 a definition list, so a row that disappears would make the
+        // panel's shape depend on the item -- and 「git 未記錄」 is a true
+        // statement where a missing row is silence.
+        PanelDetailField(label: '建立於', value: createdLine),
         if (worktree.isLocked)
           PanelDetailField(
             label: 'Lock reason',
@@ -344,13 +560,6 @@ class _WorktreeDetail extends StatelessWidget {
                 ? 'Prunable'
                 : worktree.prunableReason,
           ),
-        if (onToggleLock != null) ...<Widget>[
-          const SizedBox(height: GbmSpacing.space3),
-          GbmButton(
-            label: worktree.isLocked ? 'Unlock' : 'Lock',
-            onPressed: onToggleLock,
-          ),
-        ],
       ],
     );
   }

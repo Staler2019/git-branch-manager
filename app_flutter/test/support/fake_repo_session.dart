@@ -391,6 +391,21 @@ class FakeRepoSessionController extends RepoSessionController {
     commandLog.add(const FakeCommand('refreshWorktrees'));
   }
 
+  /// Recorded because the panel's Remove button is otherwise untestable:
+  /// unoverridden this returns at the null-session guard and logs nothing,
+  /// so a test could not tell a dead button from a live one. The assertion
+  /// it replaced -- "the button widget still exists after tapping it" -- was
+  /// true whether or not the tap did anything.
+  @override
+  void removeWorktree(String path, {bool force = false}) {
+    commandLog.add(
+      FakeCommand('removeWorktree', <String, Object?>{
+        'path': path,
+        'force': force,
+      }),
+    );
+  }
+
   /// Not part of refreshRepoStatus()'s membership -- recorded so that the
   /// test asserting it is *absent* from the focus sweep is asserting
   /// something. Unoverridden it would return at the null-session guard and

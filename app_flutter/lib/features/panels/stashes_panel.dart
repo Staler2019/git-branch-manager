@@ -10,6 +10,7 @@ import '../../widgets/gbm_button.dart';
 import '../history_graph/widgets/graph_date_format.dart';
 import 'gbm_panel_tab_shell.dart';
 import 'panel_filter_field.dart';
+import 'panel_status_line.dart';
 import 'panel_toolbar_spec.dart';
 import 'panel_file_diff_detail.dart';
 import 'panel_widgets.dart';
@@ -105,10 +106,13 @@ class _StashesPanelState extends ConsumerState<StashesPanel> {
   /// would be invented. Worktrees prints 掃描 N ms because it really does
   /// time a per-worktree status pass; printing one where nothing was timed
   /// is decorating a count, not reporting one.
-  String _statusLine({required int total, required int shown}) => <String>[
-    '$total ${total == 1 ? 'stash' : 'stashes'}',
-    if (shown != total) '命中 $shown',
-  ].join(' · ');
+  String _statusLine({required int total, required int shown}) =>
+      panelStatusLine(
+        total: total,
+        shown: shown,
+        noun: 'stash',
+        nounPlural: 'stashes',
+      );
 
   @override
   Widget build(BuildContext context) {

@@ -18,6 +18,7 @@ import '../../widgets/gbm_banner.dart';
 import '../../widgets/gbm_button.dart';
 import '../../widgets/lucide_icon.dart';
 import 'panel_filter_field.dart';
+import 'panel_status_line.dart';
 import 'panel_toolbar_spec.dart';
 import 'gbm_panel_tab_shell.dart';
 import 'panel_widgets.dart';
@@ -368,16 +369,21 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
   /// Rule 6 asks for 實際數量, so a clause whose number is zero is *dropped*
   /// rather than written as 「0 個路徑失效」 -- a template that always prints
   /// every clause is not reporting a count, it is decorating one.
+  /// This is the one panel that passes [panelStatusLine]'s `timing` slot, and
+  /// the reason is that it is the one panel that measures anything per row --
+  /// one `git status` per linked worktree. The other eleven run a single
+  /// command, so a 耗時 clause there would be invented rather than reported.
   String _statusLine({
     required int total,
     required int shown,
     required int gone,
-  }) => <String>[
-    '$total worktrees',
-    if (gone > 0) '$gone 個路徑失效',
-    if (shown != total) '命中 $shown',
-    if (_scanMs != null) '掃描 $_scanMs ms',
-  ].join(' · ');
+  }) => panelStatusLine(
+    total: total,
+    shown: shown,
+    noun: 'worktree',
+    setFacts: <String>[if (gone > 0) '$gone 個路徑失效'],
+    timing: <String>[if (_scanMs != null) '掃描 $_scanMs ms'],
+  );
 
   /// Names the gone worktrees rather than counting them: the user's next
   /// action is deciding whether to Prune, and 「一個路徑失效」 does not say

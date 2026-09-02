@@ -11,6 +11,7 @@ import '../../widgets/gbm_button.dart';
 import 'add_remote_prompt.dart';
 import 'gbm_panel_tab_shell.dart';
 import 'panel_filter_field.dart';
+import 'panel_status_line.dart';
 import 'panel_toolbar_spec.dart';
 import 'panel_widgets.dart';
 
@@ -95,10 +96,8 @@ class _RemotesPanelState extends ConsumerState<RemotesPanel> {
   /// Rule 6's 「實際數量」. No 耗時 clause: `git remote -v` is one command
   /// and nothing here is timed per row, so a duration would be invented --
   /// same reading as the stashes panel's.
-  String _statusLine({required int total, required int shown}) => <String>[
-    '$total ${total == 1 ? 'remote' : 'remotes'}',
-    if (shown != total) '命中 $shown',
-  ].join(' · ');
+  String _statusLine({required int total, required int shown}) =>
+      panelStatusLine(total: total, shown: shown, noun: 'remote');
 
   Future<void> _add() async {
     final ({String name, String url})? result = await promptAddRemote(context);

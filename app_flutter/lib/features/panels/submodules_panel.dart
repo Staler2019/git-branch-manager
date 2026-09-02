@@ -9,6 +9,7 @@ import '../../theme/tokens.dart';
 import '../../widgets/gbm_button.dart';
 import 'gbm_panel_tab_shell.dart';
 import 'panel_filter_field.dart';
+import 'panel_status_line.dart';
 import 'panel_toolbar_spec.dart';
 import 'panel_widgets.dart';
 
@@ -103,10 +104,8 @@ class _SubmodulesPanelState extends ConsumerState<SubmodulesPanel> {
   /// `git submodule status` and nothing here is timed per row -- printing a
   /// duration where nothing was measured decorates a count rather than
   /// reporting one.
-  String _statusLine({required int total, required int shown}) => <String>[
-    '$total ${total == 1 ? 'submodule' : 'submodules'}',
-    if (shown != total) '命中 $shown',
-  ].join(' · ');
+  String _statusLine({required int total, required int shown}) =>
+      panelStatusLine(total: total, shown: shown, noun: 'submodule');
 
   @override
   Widget build(BuildContext context) {

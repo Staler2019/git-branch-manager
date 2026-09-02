@@ -234,7 +234,7 @@ class _PatchesPanelState extends ConsumerState<PatchesPanel> {
       storageId: 'panel.patches',
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a patch to preview it',
-      toolbarSpec: PanelToolbarSpec(
+      toolbar: PanelToolbarSpec(
         primary: <Widget>[
           GbmButton(
             label: 'Create from commits',

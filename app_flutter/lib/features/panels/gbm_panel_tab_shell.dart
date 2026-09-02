@@ -20,8 +20,7 @@ import 'panel_toolbar_spec.dart';
 class GbmPanelTabShell extends StatelessWidget {
   const GbmPanelTabShell({
     super.key,
-    this.toolbar,
-    this.toolbarSpec,
+    required this.toolbar,
     required this.list,
     required this.detail,
     required this.storageId,
@@ -31,25 +30,17 @@ class GbmPanelTabShell extends StatelessWidget {
     this.statusBar,
     this.emptyDetailMessage = 'Select an item to see its details',
     this.detailIsEmpty = false,
-  }) : assert(
-         (toolbar == null) != (toolbarSpec == null),
-         'supply exactly one of toolbar (the flat pre-P19 list) or '
-         'toolbarSpec (rule 2\'s four segments). The flat form is being '
-         'retired one panel at a time and is deleted once all twelve have '
-         'migrated.',
-       );
-
-  /// The panel's action buttons as one flat row — the shape that predates
-  /// P19 樣板規則 2 being audited.
-  ///
-  /// **Being retired.** Exactly one of this and [toolbarSpec] is supplied;
-  /// panels migrate one at a time, and the final commit of that migration
-  /// deletes this parameter, which is what turns rule 2's four segments from
-  /// available into mandatory.
-  final List<Widget>? toolbar;
+  });
 
   /// Rule 2's four segments plus the pinned filter. See [PanelToolbarSpec].
-  final PanelToolbarSpec? toolbarSpec;
+  ///
+  /// **Required, and the only shape there is.** A flat `List<Widget>` was
+  /// accepted here throughout the migration so the twelve panels could move
+  /// one at a time; the last of them landed and it is gone. Making this
+  /// required is what turns rule 2's four segments from *available* into
+  /// *mandatory* — a new panel cannot be written without deciding which
+  /// segment each of its actions belongs in.
+  final PanelToolbarSpec toolbar;
 
   /// Left column — the panel's items.
   final Widget list;
@@ -113,27 +104,7 @@ class GbmPanelTabShell extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          if (toolbarSpec != null)
-            PanelToolbarRow(spec: toolbarSpec!)
-          else
-            Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: GbmSpacing.space3,
-                vertical: GbmSpacing.space2,
-              ),
-              decoration: BoxDecoration(
-                color: colors.surfacePanel,
-                border: Border(bottom: BorderSide(color: colors.borderSubtle)),
-              ),
-              child: Row(
-                children: <Widget>[
-                  for (final (int i, Widget action) in toolbar!.indexed) ...[
-                    if (i > 0) const SizedBox(width: GbmSpacing.space2),
-                    action,
-                  ],
-                ],
-              ),
-            ),
+          PanelToolbarRow(spec: toolbar),
           ?banner,
           Expanded(
             child: GbmSplitPane(

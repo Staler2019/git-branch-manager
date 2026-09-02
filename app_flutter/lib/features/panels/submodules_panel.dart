@@ -123,7 +123,7 @@ class _SubmodulesPanelState extends ConsumerState<SubmodulesPanel> {
       storageId: 'panel.submodules',
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a submodule to see its details',
-      toolbarSpec: PanelToolbarSpec(
+      toolbar: PanelToolbarSpec(
         primary: <Widget>[
           GbmButton(
             label: _addExpanded ? 'Cancel add' : 'Add…',

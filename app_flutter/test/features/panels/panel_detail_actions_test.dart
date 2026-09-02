@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/features/panels/gbm_panel_tab_shell.dart';
+import 'package:gbm_flutter/features/panels/panel_toolbar_spec.dart';
 import 'package:gbm_flutter/features/panels/panel_widgets.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/theme_mode_provider.dart';
@@ -41,7 +42,7 @@ Future<void> _pumpShell(
             height: 500,
             child: GbmPanelTabShell(
               storageId: 'test.detail.actions',
-              toolbar: const <Widget>[],
+              toolbar: const PanelToolbarSpec(),
               list: const SizedBox.shrink(),
               detail: detail,
               detailActions: detailActions,

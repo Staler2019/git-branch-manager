@@ -134,7 +134,7 @@ class _StashesPanelState extends ConsumerState<StashesPanel> {
       storageId: 'panel.stashes',
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a stash to see its changes',
-      toolbarSpec: PanelToolbarSpec(
+      toolbar: PanelToolbarSpec(
         primary: <Widget>[
           // 主要建立動作. Creating a stash is spec's own "Stash changes"
           // dialog (P06 DIALOGS, Branch -> Stash changes) -- it has options

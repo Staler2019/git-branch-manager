@@ -126,7 +126,7 @@ class _BisectPanelState extends ConsumerState<BisectPanel> {
       storageId: 'panel.bisect',
       detailIsEmpty: !status.active,
       emptyDetailMessage: 'No bisect in progress',
-      toolbarSpec: PanelToolbarSpec(
+      toolbar: PanelToolbarSpec(
         // Good/Bad/Skip all act on HEAD -- the commit git checked out for
         // this step -- so they need no selection, only a running bisect.
         maintenance: <Widget>[

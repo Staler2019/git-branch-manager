@@ -151,7 +151,7 @@ class _BlamePanelState extends ConsumerState<BlamePanel> {
       storageId: 'panel.blame',
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a line to see the commit that wrote it',
-      toolbarSpec: PanelToolbarSpec(
+      toolbar: PanelToolbarSpec(
         maintenance: <Widget>[
           GbmButton(
             label: 'Previous revision',

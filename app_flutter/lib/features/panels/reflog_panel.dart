@@ -132,7 +132,7 @@ class _ReflogPanelState extends ConsumerState<ReflogPanel> {
       storageId: 'panel.reflog',
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a reflog entry to see its commit',
-      toolbarSpec: PanelToolbarSpec(
+      toolbar: PanelToolbarSpec(
         primary: <Widget>[
           // Restoring a branch needs a name, so it opens the new-branch
           // dialog with this entry's oid as the start point rather than

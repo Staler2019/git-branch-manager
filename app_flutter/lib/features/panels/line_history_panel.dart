@@ -148,7 +148,7 @@ class _LineHistoryPanelState extends ConsumerState<LineHistoryPanel> {
       storageId: 'panel.lineHistory',
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a step to see its before/after',
-      toolbarSpec: PanelToolbarSpec(
+      toolbar: PanelToolbarSpec(
         maintenance: <Widget>[
           GbmButton(
             label: 'Widen range',

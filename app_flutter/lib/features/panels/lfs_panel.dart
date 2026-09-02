@@ -126,7 +126,7 @@ class _LfsPanelState extends ConsumerState<LfsPanel> {
       storageId: 'panel.lfs',
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a tracked pattern to see its files',
-      toolbarSpec: PanelToolbarSpec(
+      toolbar: PanelToolbarSpec(
         primary: <Widget>[
           GbmButton(
             label: _trackExpanded ? 'Cancel track' : 'Track…',

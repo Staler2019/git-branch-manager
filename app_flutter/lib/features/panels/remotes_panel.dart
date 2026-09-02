@@ -120,7 +120,7 @@ class _RemotesPanelState extends ConsumerState<RemotesPanel> {
       storageId: 'panel.remotes',
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a remote to see its details',
-      toolbarSpec: PanelToolbarSpec(
+      toolbar: PanelToolbarSpec(
         primary: <Widget>[
           GbmButton(
             label: 'Add…',

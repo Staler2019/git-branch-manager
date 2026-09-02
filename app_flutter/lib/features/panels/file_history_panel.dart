@@ -128,7 +128,7 @@ class _FileHistoryPanelState extends ConsumerState<FileHistoryPanel> {
       storageId: 'panel.fileHistory',
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a commit to see how it changed this file',
-      toolbarSpec: PanelToolbarSpec(
+      toolbar: PanelToolbarSpec(
         maintenance: <Widget>[
           const Tooltip(
             message:

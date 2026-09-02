@@ -120,7 +120,7 @@ class _InteractiveRebasePanelState
       emptyDetailMessage:
           'Select a commit to change what the rebase does '
           'with it',
-      toolbarSpec: PanelToolbarSpec(
+      toolbar: PanelToolbarSpec(
         primary: <Widget>[
           // Starting needs a plan; a plan needs an upstream. Both come from
           // the list column, so this is only about whether one is loaded.

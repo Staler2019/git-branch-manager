@@ -38,7 +38,7 @@ Future<void> _pumpToolbar(WidgetTester tester, PanelToolbarSpec spec) async {
             height: 400,
             child: GbmPanelTabShell(
               storageId: 'test.toolbar.spec',
-              toolbarSpec: spec,
+              toolbar: spec,
               list: const SizedBox.shrink(),
               detail: const SizedBox.shrink(),
             ),
@@ -186,26 +186,11 @@ void main() {
     });
   });
 
-  group('the two toolbar APIs cannot both be supplied', () {
-    test('exactly one of toolbar / toolbarSpec is required', () {
-      expect(
-        () => GbmPanelTabShell(
-          storageId: 'x',
-          toolbar: const <Widget>[],
-          toolbarSpec: const PanelToolbarSpec(),
-          list: const SizedBox.shrink(),
-          detail: const SizedBox.shrink(),
-        ),
-        throwsAssertionError,
-      );
-      expect(
-        () => GbmPanelTabShell(
-          storageId: 'x',
-          list: const SizedBox.shrink(),
-          detail: const SizedBox.shrink(),
-        ),
-        throwsAssertionError,
-      );
-    });
-  });
+  // The 「exactly one of toolbar / toolbarSpec」 assertion that used to be
+  // tested here is gone with the flat parameter it guarded: the migration
+  // it existed for is finished, so there is no longer a second API to
+  // choose wrongly between. What replaced it is the type system --
+  // `toolbar` is a required `PanelToolbarSpec` and a flat `List<Widget>`
+  // no longer compiles -- which is a stronger guarantee than a runtime
+  // assert, and the reason this group is deleted rather than rewritten.
 }

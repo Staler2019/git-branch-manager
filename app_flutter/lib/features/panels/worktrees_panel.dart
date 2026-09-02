@@ -230,7 +230,7 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
       storageId: 'panel.worktrees',
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a worktree to see its details',
-      toolbarSpec: PanelToolbarSpec(
+      toolbar: PanelToolbarSpec(
         primary: <Widget>[
           GbmButton(
             label: _addExpanded ? 'Cancel add' : 'Add worktree…',

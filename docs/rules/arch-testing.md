@@ -94,9 +94,13 @@ One row per shape — when you find an eleventh, append a row.
   one round silently matched nothing after a formatter reflowed an argument list, and a
   `JsonCodec.cpp` anchor named only by its field matched **two** serializers (`DiffFile`'s and
   `ChangedFile`'s both emit `addedLines`). Anchor on a neighbouring line that is actually unique.
-- **Do**: **count the reds from the progress line's `-N`, never from the 「Failing tests:」
-  summary — that list truncates at 4 entries** plus 「... and N more」. Grepping it read 8 reds as
-  4, and 「is the red narrow」 is the only thing a mutation check asks.
+- **Do**: **count the reds from the progress line's `-N`, and read that line with your own eyes —
+  not through a grep, a helper or a loop you wrote.** 「Is the red narrow」 is the *only* question a
+  mutation check asks, so the entire result is that one number. It was misread three times in one
+  round, three different ways: `grep -c` on the 「Failing tests:」 summary (**that list truncates at
+  4 entries** plus 「... and N more」) read 8 as 4; a `\+[0-9]+ -[0-9]+` pattern matched the wrong
+  line and read 3 as 1; and a `reds()` shell helper reported 1/1/1 for three mutations that were
+  really 7/2/1. Each wrapper looked right and each was cheaper to trust than to check.
 - **Note**: an anchor that matches nothing means **the mutation never applied**, so REDS=0 is not
   evidence of a vacuous test. Redo it against the real text before drawing any conclusion.
 

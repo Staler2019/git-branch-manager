@@ -190,3 +190,28 @@ Pin prefix `GIT-`. Format: [README.md](README.md).
   reading 「some count is null」 re-asks forever on the failure path, because a reply saying
   「failed」 leaves the same null; a gate reading 「some key is absent」 terminates on every branch.
 - **Evidence**: [ledger: 十二個管理面板照 P19 樣板統一](../ledger/2026-09-02-feat-p19-panel-template-conformance.md)
+
+## [GIT-worktree-prune-has-no-expire] `git worktree prune` takes no `--expire`, so a lock is the only thing standing between a temporarily-absent worktree and deletion
+
+- **Rule**: git marks a worktree prunable as soon as its directory is missing, and
+  `WorktreeOps.cpp`'s `PruneWorktreesOperation` runs a bare `git worktree prune --verbose`. The
+  `--expire 3.months.ago` that makes this safe is `git gc`'s, not ours.
+- **Consequence**: an unmounted volume, a network share that is briefly away, a path being moved
+  — each reads as prunable, and pruning discards the administrative link permanently.
+- **Do**: **never prune a locked worktree.** git itself refuses, and the meaning is exactly right:
+  a lock is the user saying 「keep this」 about a path that may be coming back. That refusal is the
+  only guard, so anything that prunes automatically must respect it explicitly rather than relying
+  on git to say no.
+- **Rule**: [REF-fetch-auto-prunes] extends to worktrees — 使用者裁定 「prune 是背景做掉，所以使用
+  者不需要知道」 — with the preview step dropped, because `git worktree list --porcelain` already
+  names the prunable entries and no `--dry-run` is needed to learn them.
+- **Do**: **gate the automatic prune on 「this path has never been tried」, never on 「this path is
+  prunable」.** A prune re-publishes the worktree list, and anything it could not remove (locked, or
+  a failure) is *still prunable* in that snapshot — so the obvious predicate is an infinite loop.
+  Same shape as writing `failed` into [GIT-worktree-status-is-per-path]'s cache: ask whether the key
+  is absent, not whether the value is empty.
+- **Do**: keep an automatic prune's failure out of `lastError` while still logging it. Attribution
+  cannot use `PendingOperationKind` — it has no arm for a worktree prune and the capi carries no
+  request identity — so match `GitError.argv` and consume one in-flight marker, exactly as the
+  automatic *preview* suppressor does, so the user's own `Prune` button still reports its failures.
+- **Evidence**: [ledger: 十二個管理面板照 P19 樣板統一](../ledger/2026-09-02-feat-p19-panel-template-conformance.md)

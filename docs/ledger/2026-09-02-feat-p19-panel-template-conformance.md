@@ -9,7 +9,7 @@ menus」。稽核之後範圍變成兩件事，並經過三輪確認裁定：
    舊照spec把detail完成就好」。P19 規則 2 的另一半（明細區動作列）照做。#71
    （05-K catalog 少一項）使用者裁定不併入：「my badm #71 is not worktree work」。
 
-43 個 commit。
+50 個 commit（前 46 個是原本的範圍，後 4 個是使用者推翻三個裁決之後補的）。
 
 ## 為什麼六條規則從來沒有被實作
 
@@ -60,7 +60,7 @@ commit 各自綠」，也讓 mutation check 的「紅要窄」失去意義 —�
 |---|---|
 | per-worktree status 讀取（`--untracked-files=normal`，20 次取平均，熱） | **13.4 ms** |
 | 同上換成 `-uall` | **20.9 ms**（貴 56%） |
-| `flutter test` 全套 | 62–75 s，**2530 passed, 1 skipped** |
+| `flutter test` 全套 | 62–75 s，**2547 passed, 1 skipped**（推翻三個裁決前是 2530） |
 | `flutter analyze` | 0 issues |
 
 `-uall` 的對比要看清楚它證明了什麼：這個 repo 的輸出目錄都在 `.gitignore` 裡，
@@ -165,18 +165,16 @@ REDS=1。
 | C28 | `Checkout` 從「跳出去」移到**維護段** | 「跳出去」收的是**結果落在這個面板之外**的動作 —— 剪貼簿、檔案總管、磁碟上的檔案、或導航到別的介面（History、Compare 分頁）。`Checkout` 在這個 repo 裡移動 HEAD，結果就在這裡 |
 | C29 | `Previous revision` 同樣移到維護段 | 它就地重新 blame，沒有離開這個面板 |
 | C31 | line-history 的 filter **是活的**，不是停用 | 上一節第 2 點 |
-| C34 | 三個 per-subject 面板改 `panel.<kind>:<path>` | 既有的持久化 key 因此孤兒化 |
+| C34 | 三個 per-subject 面板改 `panel.<kind>:<path>` | 既有的持久化 key 因此孤兒化。**使用者其後推翻了它留下的例外**——見〈三個被推翻的裁決〉 |
 
 前兩項是同一句話的兩個實例，而 `PanelToolbarSpec` 自己的 doc 本來就拿「跳到一個
 commit」當例子 —— 這個判準是把既有的話說完整，不是新發明的。
 
 **C34 的代價要說清楚**：既有使用者存過的 `panelLayout.panel.blame` 之類的 key
 會變成**讀不到**（回到預設寬度），不是**讀錯**。與 [FLU-splitpane-axis-change]
-換軸時要求的取捨同型。九個 singleton 面板的 key 刻意沒動 —— 它們只可能有一個分
-頁，per-kind 與 per-tab 是同一件事，改了只會為了一個不可能發生的區別去孤兒化每
-個人的存值。這個決定由 `panel_splitter_per_tab_test.dart` 的
-`'a singleton kind keeps its unsuffixed id'` 釘住，免得下一輪的「一致性」清掃
-把它們默默重新編號。
+換軸時要求的取捨同型。當時九個 singleton 面板的 key 刻意沒動，理由是它們只可能
+有一個分頁、per-kind 與 per-tab 是同一件事。**那個理由到現在仍然成立，但它留下
+的東西被使用者推翻了**——見下面〈三個被推翻的裁決〉第三項。
 
 ## 破壞性的邊界畫在哪裡
 
@@ -291,10 +289,11 @@ bucket（Flutter 的 `widgets/routes.dart:1194` 把 `ModalRoute._storageBucket`
 |---|---|
 | worktrees 待提交數 | **關閉**（Phase 2–3） |
 | worktrees 建立於 | **linked worktree 關閉**；三種情況缺席，caveat 全部記錄 |
-| 待提交數量測失敗後無法重試 | **本輪新增的限制**：快取住的 `failed` 會存活到面板關閉為止。沒有面板內重試入口，因為規則 2 的四段工具列沒有位置放它 |
+| 待提交數量測失敗後無法重試 | ~~本輪新增的限制~~ **已推翻並實作**：明細動作列的 `重新量測`。原本的理由（「規則 2 的四段工具列沒有位置放它」）本身沒錯，錯在停在那裡——規則 4 的明細動作列才是每一列自己的動作該待的地方 |
 | 其餘十一個面板的列圖示 | 規格對它們一個字都沒寫。`icon` 維持 optional，沒指定的就不畫 |
+| 九個 singleton 面板的 splitter id | **已推翻。** 十二個都改由 `panelStorageId()` 產生，後綴規則由 `GbmPanelKind.isPerSubject` 推導——與 `open()` 去重用的是同一個屬性。九個 byte-identical，`interactive-rebase` 一個 re-key 孤兒化 |
 | 側邊欄 stash 列高度 | 刻意保留 46，不跟著 `PanelListRow` 縮到 36。`sidebar_stash_section.dart` 那句「這是 `PanelListRow` 對同樣形狀用的高度」已就地改正 |
-| `GbmBadgeKind.warning` 不存在 | prunable 徽章用 `removed`。加一個新 kind 是設計系統的變更，不在本輪範圍 |
+| `GbmBadgeKind.warning` 不存在 | **問錯了問題。** 使用者裁定：worktree 的 prune 跟遠端分支一樣背景做掉，所以「路徑失效」不是一個要挑徽章顏色的狀態。徽章與 banner 保留當 fallback（鎖住的 prune 不掉），用 `removed` |
 | 耗時 只有 worktrees 有 | 其餘十一個面板一律不傳 `timing`。**跑一個指令、每列不量任何東西的面板，不會為了滿足規則裡的「耗時」兩個字去發明一個時間** |
 | `makeMoveWorktreeOperation()` | [CULT-orphan-wiring] 的又一例：C++ 有、沒有 capi、沒有呼叫端。點名，**不修也不刪** |
 | remotes 最後 fetch / submodules 預期 commit / lfs 大小 / bisect 剩餘步數與自訂測試指令 / file-history 欄位選擇器 | 仍在 #76 |
@@ -309,3 +308,84 @@ bucket（Flutter 的 `widgets/routes.dart:1194` 把 `ModalRoute._storageBucket`
 `setFacts` 是關於同一個集合的另一個事實（「1 個路徑失效」），所以坐在總數旁邊；
 `timing` 是關於**量測**而不是集合，所以放最後 —— 排在「命中」之後，因為「命中」
 仍然是在講那個集合。
+
+## 三個被推翻的裁決
+
+原本的報告把三件事列成「使用者可能想推翻的裁決」。三件都被推翻了，而且每一件推
+翻之後的東西都比原本好——所以這一節記的重點不是「改回來了」，是**每個原本的理由
+錯在哪裡**。
+
+### 一、量測失敗沒有面板內重試入口
+
+原本的理由：「規則 2 的四段工具列沒有位置放它」。
+
+**那句話本身沒錯，錯在把它當成結論。** 規則 4 給了明細動作列，而那正是屬於某一
+列自己的動作該待的地方——而且就在寫著「量測失敗」的那一格正下方。看到問題的地方
+就是解決它的地方。這是一個「找不到位置」被誤讀成「不該有這個功能」的例子。
+
+閘門是選取那一筆的量測狀態：`failed` / `unmeasured` 可重試，`measured` 沒東西可
+做，**`notApplicable` 不可重試**——它的意思是 bare 或 prunable，也就是指令根本跑
+不起來而不是跑了沒跑成，在那裡給重試鍵是承諾一件按幾次都不會發生的事。
+
+mutation M78 值得單獨記一筆：我在 `_remeasure` 的註解裡寫了「拿掉這兩行
+eviction，每一支測試都還是綠的」，然後**真的跑了那個 mutation 去驗證這句話**，
+REDS=0。註解裡的宣稱跟程式碼一樣要被檢查（[CULT-scrutinise-the-comment]），差別
+只在它的檢查方式是 mutation 而不是斷言。
+
+### 二、prunable 徽章該用哪個 `GbmBadgeKind`
+
+**這是問錯了問題。** 使用者的裁決是：worktree 的 prune 跟之前處理遠端分支時說的
+一樣——背景做掉，使用者不需要知道。所以「路徑失效」根本不是一個要挑顏色的狀態。
+
+`[REF-fetch-auto-prunes]` 套到 worktree 上，形狀刻意對齊。差別只有一個：遠端那邊
+要先跑 `--dry-run` preview 才知道哪些 ref 沒了，而 `git worktree list --porcelain`
+直接就說了哪一筆 prunable，所以觸發點是 worktree 清單本身的發佈。
+
+**迴圈安全是這裡的重點。** prune 之後 git 會再發一次 worktrees 更新，而 prune 不
+掉的項目（鎖住的、或 prune 失敗的）在那份新快照裡**仍然 prunable**——「看到
+prunable 就 prune」會就地變成無窮迴圈。閘門因此是「這個 path 這個 session 內還沒
+被試過」，不是「這個 path 現在還 prunable」。跟 C18 把 `failed` 也寫進
+`path@headOid` 快取完全是同一個教訓：**看 key 在不在，不要看值是不是空的。**
+
+**要請使用者看一眼的一點**：`git worktree prune` 沒有 `--expire`（`git gc` 跑的
+那個有 `3.months.ago`），所以磁碟沒掛載、路徑暫時不在的 worktree 在 git 眼中就是
+prunable。唯一擋住「把還會回來的 worktree 丟掉」的是**鎖**——git 自己就拒絕 prune
+鎖住的 worktree，而鎖起來正是使用者在說「這個留著」。徽章與 banner 保留當
+fallback，因為鎖住的 prune 不掉，而且從刷新到 prune 落地之間有一個視窗。
+
+### 三、九個 singleton 面板的 splitter id 刻意不改
+
+原本留下的不是壞掉的行為，是一個**例外**：三種面板寫 `panel.<kind>:<path>`、九種
+寫 `panel.<kind>`，十三個字串全部手寫散在十二個檔案裡，沒有任何東西檢查它們有沒
+有撞號——而兩個面板共用一個 id 就是共用一個 splitter 位置，完全不會有人發現。還
+有一支測試叫「a singleton kind keeps its unsuffixed id」，讀起來像一條被祝福的豁
+免。
+
+**推翻它的方式不是把九個都加後綴**（那只是把不一致搬個位置，還會把每個人存過的
+寬度變成孤兒），而是讓十二個都從 `panelStorageId()` 拿 id，而那個函式的後綴規則
+來自 `GbmPanelKind.isPerSubject`——`open()` 判斷「同一種面板能不能同時開兩個」用
+的正是同一個屬性。於是「能不能有兩個分頁」與「id 分不分得開」變成同一個事實的兩
+面。
+
+**字面上最大的讀法（拿分頁 id 當 key）是錯的，而且有實據。** 分頁 id 是
+`'${kind.slug}-${_nextId++}'`，一個記憶體裡的計數器，`PanelTabsNotifier` 沒有持久
+化任何東西——拿它當 key 會讓 splitter 寬度跨重啟完全存不下來，更糟的是會撞號：這
+次的 `blame-0` 下次可能是另一個檔案，於是繼承到別人的寬度。
+
+stem 用既有的 `slug` 而不另開第二份命名 switch（那會在一個檔案裡重建正要從十二個
+檔案裡拿掉的漂移）。代價是 `interactive-rebase` 一個 singleton re-key，存值孤兒
+化；**九個 byte-identical**。
+
+## 紅色計數這一輪騙了我三次
+
+形式各不相同，全部記下來：
+
+1. `grep -c` 數「Failing tests:」清單 → 把 8 個紅讀成 4 個（那份清單在第 4 筆截斷）。
+2. 一個抓 `\+[0-9]+ -[0-9]+` 的 grep pattern 抓到了錯的行 → 把紅 3 讀成紅 1。
+3. 一個包在 shell 迴圈裡的 `reds()` helper → 三個 mutation 都回報 1，其中兩個實際
+   上是 7 和 2。
+
+`[TEST-mutation-check-every-test]` 原本只寫了「從 progress 行的 `-N` 讀」。那不夠
+——第 2、3 次都是在讀那一行，只是經過了自己寫的包裝。真正的教訓是**那個數字要親
+眼看過原始輸出**，因為 mutation check 只問一個問題（紅得窄不窄），而答案完全由這
+個數字決定。

@@ -11,6 +11,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
+import 'package:gbm_flutter/features/panels/panel_filter_field.dart';
+import 'package:gbm_flutter/features/panels/panel_toolbar_spec.dart';
+import 'package:gbm_flutter/features/panels/panel_widgets.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/theme_mode_provider.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
@@ -104,3 +107,145 @@ GbmButton panelButton(WidgetTester tester, String label) =>
     tester.widget<GbmButton>(
       find.ancestor(of: find.text(label), matching: find.byType(GbmButton)),
     );
+
+/// Asserts the spec page 19 template facts that are **per panel**, so all
+/// twelve state them the same way instead of twelve hand-copied blocks that
+/// drift exactly the way twelve hand-copied toolbars did.
+///
+/// Deliberately *not* here: the 36px row height and the 78px label column.
+/// Those belong to `PanelListRow` and `PanelDetailField`, are pinned once
+/// each in `panel_list_row_test.dart` and `panel_widgets_test.dart`, and
+/// re-asserting them per panel would be twelve tests of one shared widget
+/// ([CULT-single-source-of-truth] applied to the tests).
+///
+/// [primary] / [maintenance] / [external] are button labels in rule 2's
+/// segment order; membership is asserted **positionally**, because a label
+/// merely being on the toolbar says nothing about which segment drew it.
+/// [notOnToolbar] is the rule's other half — the destructive labels that
+/// must be absent — and passing the panel's own danger label there is what
+/// makes 「破壞性動作不放工具列」 falsifiable rather than assumed.
+void expectPanelTemplate(
+  WidgetTester tester, {
+  List<String> primary = const <String>[],
+  List<String> maintenance = const <String>[],
+  List<String> external = const <String>[],
+  List<String> notOnToolbar = const <String>[],
+  required String listHeader,
+  required Pattern statusBar,
+  bool filterEnabled = true,
+}) {
+  final Finder toolbar = find.byType(PanelToolbarRow);
+  expect(toolbar, findsOneWidget, reason: 'rule 2: every panel has a toolbar');
+
+  double leftEdgeOf(String label) => tester
+      .getRect(
+        find.ancestor(
+          of: find.descendant(of: toolbar, matching: find.text(label)),
+          matching: find.byType(GbmButton),
+        ),
+      )
+      .left;
+
+  for (final (List<String> segment, GbmButtonKind kind)
+      in <(List<String>, GbmButtonKind)>[
+        (primary, GbmButtonKind.primary),
+        (maintenance, GbmButtonKind.ghost),
+      ]) {
+    for (final String label in segment) {
+      expect(
+        find.descendant(of: toolbar, matching: find.text(label)),
+        findsOneWidget,
+        reason: '「$label」 is missing from the toolbar',
+      );
+      expect(
+        panelButton(tester, label).kind,
+        kind,
+        reason: '「$label」 has the wrong button kind for its segment',
+      );
+    }
+  }
+
+  // Segment *order*, asserted as left-to-right position rather than as list
+  // membership -- a spec that fixes the order is not satisfied by a toolbar
+  // that merely contains the right buttons.
+  final List<String> ordered = <String>[
+    ...primary,
+    ...maintenance,
+    ...external,
+  ];
+  for (int i = 1; i < ordered.length; i++) {
+    expect(
+      leftEdgeOf(ordered[i - 1]),
+      lessThan(leftEdgeOf(ordered[i])),
+      reason: '「${ordered[i - 1]}」 must sit left of 「${ordered[i]}」',
+    );
+  }
+
+  for (final String label in notOnToolbar) {
+    expect(
+      find.descendant(of: toolbar, matching: find.textContaining(label)),
+      findsNothing,
+      reason: 'rule 2: 破壞性動作不放工具列 -- 「$label」 is on the toolbar',
+    );
+  }
+
+  // 「分隔線」 separates the external segment from what precedes it, and is
+  // drawn only when it really separates two occupied segments.
+  expect(
+    find.descendant(of: toolbar, matching: find.byType(PanelToolbarSeparator)),
+    external.isNotEmpty && (primary.isNotEmpty || maintenance.isNotEmpty)
+        ? findsOneWidget
+        : findsNothing,
+  );
+
+  // 「右端固定是 filter」 -- against the toolbar's own right edge, never a
+  // pixel constant ([FLU-finder-proves-existence-not-position]).
+  final Finder filter = find.byType(PanelFilterField);
+  expect(filter, findsOneWidget);
+  expect(
+    tester.getRect(filter).right,
+    closeTo(tester.getRect(toolbar).right - GbmSpacing.space3, 0.5),
+  );
+  // A filter that cannot be typed into must *say* so rather than simply not
+  // work -- 隱藏會讓人以為功能不存在 ([FLU-menu-enabled-is-visual-only]).
+  expect(
+    tester.widget<PanelFilterField>(filter).enabled,
+    filterEnabled,
+    reason: filterEnabled
+        ? 'this panel has nameable items, so its filter is live'
+        : 'a panel whose list is file content has no names to filter',
+  );
+
+  // Rules 3 and 6: the counted list header and the status line, which is
+  // where 實際數量與耗時 goes.
+  expect(find.text(listHeader), findsOneWidget);
+  expect(
+    find.descendant(
+      of: find.byType(PanelStatusBarText),
+      matching: find.textContaining(statusBar),
+    ),
+    findsOneWidget,
+  );
+}
+
+/// Rule 4's action row: the danger action sits against the **detail
+/// column's** right edge.
+///
+/// Asserted as an edge equality rather than 「danger is to the right」, which
+/// is true under `spaceBetween` *and* under `start` and so proves nothing
+/// ([TEST-fixture-cannot-disagree] shape 8).
+void expectDangerPinnedRight(WidgetTester tester, String label) {
+  final Finder row = find.byType(PanelDetailActions);
+  expect(row, findsOneWidget, reason: 'rule 4: 動作列在明細底部');
+
+  final GbmButton button = panelButton(tester, label);
+  expect(button.kind, GbmButtonKind.danger);
+
+  final Rect danger = tester.getRect(
+    find.ancestor(of: find.text(label), matching: find.byType(GbmButton)),
+  );
+  expect(
+    danger.right,
+    closeTo(tester.getRect(row).right - GbmSpacing.space3, 0.5),
+  );
+}

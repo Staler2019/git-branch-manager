@@ -26,7 +26,6 @@ import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
 import 'package:gbm_flutter/widgets/gbm_badge.dart';
 import 'package:gbm_flutter/widgets/gbm_banner.dart';
-import 'package:gbm_flutter/widgets/gbm_button.dart';
 import 'package:gbm_flutter/widgets/lucide_icon.dart';
 import 'package:go_router/go_router.dart';
 
@@ -211,23 +210,19 @@ void main() {
       (tester) async {
         await _pump(tester);
 
-        expect(find.text('Add worktree…'), findsOneWidget);
-        expect(find.text('Prune'), findsOneWidget);
-        expect(find.text('Open in terminal'), findsOneWidget);
-        expect(
-          find.descendant(
-            of: find.byType(PanelToolbarRow),
-            matching: find.textContaining('Remove'),
-          ),
-          findsNothing,
-          reason: 'rule 2: 破壞性動作不放工具列',
-        );
-        expect(
-          find.descendant(
-            of: find.byType(PanelToolbarRow),
-            matching: find.byType(PanelToolbarSeparator),
-          ),
-          findsOneWidget,
+        // The shared assertion the other eleven panels state the same way.
+        // It checks more than the block it replaced: segment membership is
+        // positional (「Prune」 being *on* the toolbar never said it was in
+        // the maintenance segment) and each segment's button kind is
+        // checked, so a primary-styled maintenance button now fails.
+        expectPanelTemplate(
+          tester,
+          primary: const <String>['Add worktree…'],
+          maintenance: const <String>['Prune'],
+          external: const <String>['Open in terminal'],
+          notOnToolbar: const <String>['Remove'],
+          listHeader: 'Worktrees · 2',
+          statusBar: RegExp(r'^2 worktrees · 掃描 \d+ ms$'),
         );
       },
     );
@@ -632,14 +627,7 @@ void main() {
       ]) {
         expect(find.text(label), findsOneWidget, reason: label);
       }
-      final Rect danger = tester.getRect(
-        find.ancestor(
-          of: find.text('Remove worktree…'),
-          matching: find.byType(GbmButton),
-        ),
-      );
-      final Rect row = tester.getRect(find.byType(PanelDetailActions));
-      expect(danger.right, closeTo(row.right - GbmSpacing.space3, 0.5));
+      expectDangerPinnedRight(tester, 'Remove worktree…');
     });
 
     // Two `context.go` calls are indistinguishable by `onPressed != null`

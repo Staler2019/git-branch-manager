@@ -10,6 +10,8 @@ import '../../routing/route_paths.dart';
 import '../../widgets/gbm_button.dart';
 import 'add_remote_prompt.dart';
 import 'gbm_panel_tab_shell.dart';
+import 'panel_filter_field.dart';
+import 'panel_toolbar_spec.dart';
 import 'panel_widgets.dart';
 
 /// `manage-remotes` as a tab (spec page 14 `IAMAP`), on page 19's template.
@@ -54,6 +56,7 @@ class _RemotesPanelState extends ConsumerState<RemotesPanel> {
   /// would then point the detail pane at a different remote than the one the
   /// user clicked.
   String? _selectedName;
+  String _query = '';
 
   @override
   void initState() {
@@ -79,6 +82,24 @@ class _RemotesPanelState extends ConsumerState<RemotesPanel> {
         .length;
   }
 
+  /// The URL is matched as well as the name: a fork is often recognised by
+  /// its host rather than by whatever local alias it was given.
+  bool _matchesQuery(RemoteInfo remote) {
+    if (_query.trim().isEmpty) return true;
+    final String needle = _query.trim().toLowerCase();
+    return remote.name.toLowerCase().contains(needle) ||
+        remote.fetchUrl.toLowerCase().contains(needle) ||
+        remote.pushUrl.toLowerCase().contains(needle);
+  }
+
+  /// Rule 6's 「實際數量」. No 耗時 clause: `git remote -v` is one command
+  /// and nothing here is timed per row, so a duration would be invented --
+  /// same reading as the stashes panel's.
+  String _statusLine({required int total, required int shown}) => <String>[
+    '$total ${total == 1 ? 'remote' : 'remotes'}',
+    if (shown != total) '命中 $shown',
+  ].join(' · ');
+
   Future<void> _add() async {
     final ({String name, String url})? result = await promptAddRemote(context);
     if (result == null || !mounted) return;
@@ -94,51 +115,81 @@ class _RemotesPanelState extends ConsumerState<RemotesPanel> {
     final RemoteInfo? selected = remotes
         .where((RemoteInfo r) => r.name == _selectedName)
         .firstOrNull;
+    final List<RemoteInfo> visible = remotes.where(_matchesQuery).toList();
 
     return GbmPanelTabShell(
       storageId: 'panel.remotes',
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a remote to see its details',
-      toolbar: <Widget>[
-        GbmButton(label: 'Add…', onPressed: _add),
-        const Tooltip(
-          message: 'Changing a remote URL is not supported yet',
-          child: GbmButton(label: 'Edit…', onPressed: null),
-        ),
-        // Prune stays a dialog: `IAMAP` files prune-remote-branches under
-        // "中型表單 / 確認框", not under the twelve panels, and it needs a
-        // dry-run preview the user confirms.
-        GbmButton(
-          label: 'Prune',
-          onPressed: selected == null
-              ? null
-              : () => context.push(
-                  RoutePaths.pruneRemoteBranchesDialogFor(
-                    Uri.encodeComponent(widget.identity.workDir),
-                    remote: selected.name,
+      toolbarSpec: PanelToolbarSpec(
+        primary: <Widget>[
+          GbmButton(
+            label: 'Add…',
+            kind: GbmButtonKind.primary,
+            onPressed: _add,
+          ),
+        ],
+        maintenance: <Widget>[
+          const Tooltip(
+            message: 'Changing a remote URL is not supported yet',
+            child: GbmButton(
+              label: 'Edit…',
+              kind: GbmButtonKind.ghost,
+              onPressed: null,
+            ),
+          ),
+          // Prune stays a dialog: `IAMAP` files prune-remote-branches under
+          // "中型表單 / 確認框", not under the twelve panels, and it needs a
+          // dry-run preview the user confirms.
+          GbmButton(
+            label: 'Prune',
+            kind: GbmButtonKind.ghost,
+            onPressed: selected == null
+                ? null
+                : () => context.push(
+                    RoutePaths.pruneRemoteBranchesDialogFor(
+                      Uri.encodeComponent(widget.identity.workDir),
+                      remote: selected.name,
+                    ),
                   ),
-                ),
+          ),
+        ],
+        filter: PanelFilterField(
+          query: _query,
+          onChanged: (String value) => setState(() => _query = value),
         ),
-        GbmButton(
-          label: 'Remove',
-          kind: GbmButtonKind.danger,
-          onPressed: selected == null
-              ? null
-              : () {
-                  _session.removeRemote(selected.name);
-                  setState(() => _selectedName = null);
-                },
-        ),
-      ],
-      list: remotes.isEmpty
-          ? const PanelEmptyList(message: 'No remotes configured')
+      ),
+      detailActions: PanelDetailActions(
+        dangerActions: <Widget>[
+          GbmButton(
+            label: 'Remove',
+            kind: GbmButtonKind.danger,
+            onPressed: selected == null
+                ? null
+                : () {
+                    _session.removeRemote(selected.name);
+                    setState(() => _selectedName = null);
+                  },
+          ),
+        ],
+      ),
+      listHeader: PanelListHeaderText(text: 'Remotes · ${visible.length}'),
+      statusBar: PanelStatusBarText(
+        text: _statusLine(total: remotes.length, shown: visible.length),
+      ),
+      list: visible.isEmpty
+          ? PanelEmptyList(
+              message: remotes.isEmpty
+                  ? 'No remotes configured'
+                  : 'No remote matches the filter',
+            )
           : ListView.builder(
-              itemCount: remotes.length,
+              itemCount: visible.length,
               itemBuilder: (context, i) => PanelListRow(
-                title: remotes[i].name,
-                subtitle: remotes[i].fetchUrl,
-                selected: remotes[i].name == _selectedName,
-                onTap: () => setState(() => _selectedName = remotes[i].name),
+                title: visible[i].name,
+                subtitle: visible[i].fetchUrl,
+                selected: visible[i].name == _selectedName,
+                onTap: () => setState(() => _selectedName = visible[i].name),
               ),
             ),
       detail: selected == null

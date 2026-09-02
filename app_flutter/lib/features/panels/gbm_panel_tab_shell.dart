@@ -24,6 +24,9 @@ class GbmPanelTabShell extends StatelessWidget {
     required this.detail,
     required this.storageId,
     this.detailActions,
+    this.banner,
+    this.listHeader,
+    this.statusBar,
     this.emptyDetailMessage = 'Select an item to see its details',
     this.detailIsEmpty = false,
   });
@@ -49,6 +52,32 @@ class GbmPanelTabShell extends StatelessWidget {
   /// Not drawn at all when [detailIsEmpty] — an action row with no subject
   /// would act on nothing.
   final Widget? detailActions;
+
+  /// P19 樣板規則 5: 「例外狀態用面板內 banner，不用 dialog、不用 toast」.
+  /// Normally a [GbmWarningBanner]. Spans the whole panel, below the toolbar
+  /// and above both columns, because the exception is the panel's, not one
+  /// column's.
+  ///
+  /// Optional in the strong sense: rule 5 says what an exception state looks
+  /// like, so a panel with no exception has nothing to draw here.
+  final Widget? banner;
+
+  /// P19's list-column header — the mockup's 「Worktrees · 4」. Sits inside
+  /// the left column above [list] and does not scroll with it.
+  ///
+  /// The count here and the one in [statusBar] must come from a single
+  /// computed value; two counts of the same collection are two things that
+  /// can disagree.
+  final Widget? listHeader;
+
+  /// P19 樣板規則 6: 「狀態列一律寫實際數量與耗時」. Spans the panel's
+  /// bottom edge.
+  ///
+  /// The shell only places it — each panel supplies the text, because only
+  /// the panel knows which refresh it is timing. Where a panel has no
+  /// measurable duration, it writes the count and says so rather than
+  /// printing `0 ms`.
+  final Widget? statusBar;
 
   /// Distinguishes this panel's splitter position in the persisted panel
   /// layout, so two different panels don't share one remembered width.
@@ -87,13 +116,25 @@ class GbmPanelTabShell extends StatelessWidget {
               ],
             ),
           ),
+          ?banner,
           Expanded(
             child: GbmSplitPane(
               axis: Axis.horizontal,
               spec: GbmLayout.splitterPanelList,
               storageId: storageId,
               children: <Widget>[
-                Container(color: colors.surfacePanel, child: list),
+                Container(
+                  color: colors.surfacePanel,
+                  child: listHeader == null
+                      ? list
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: <Widget>[
+                            listHeader!,
+                            Expanded(child: list),
+                          ],
+                        ),
+                ),
                 if (detailIsEmpty)
                   Center(
                     child: Text(
@@ -117,6 +158,7 @@ class GbmPanelTabShell extends StatelessWidget {
               ],
             ),
           ),
+          ?statusBar,
         ],
       ),
     );

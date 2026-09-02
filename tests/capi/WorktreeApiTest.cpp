@@ -4,9 +4,12 @@
 #include "core/git/GitExecutable.h"
 #include "support/GitCli.h"
 
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
 #include <cstdlib>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -163,6 +166,49 @@ TEST_F(WorktreeApiTest, PruneRemovesAdministrativeMetadataForADeletedWorktree) {
 
     const std::string json = worktreesJson();
     EXPECT_EQ(json.find("feature"), std::string::npos) << json;
+}
+
+/// Every `"createdAtUnix":N` in the payload, in the order it appears.
+std::vector<std::int64_t> createdAtValues(const std::string& json) {
+    const std::string key = "\"createdAtUnix\":";
+    std::vector<std::int64_t> out;
+    for (std::size_t at = json.find(key); at != std::string::npos;
+         at = json.find(key, at + key.size())) {
+        out.push_back(std::strtoll(json.c_str() + at + key.size(), nullptr, 10));
+    }
+    return out;
+}
+
+// The real-git half of attachCreatedAt: the unit tests hand-write the reflog
+// bytes, so on their own they are evidence about the parser and never about
+// git's actual output ([TEST-fixture-cannot-disagree] shape 9 -- ask which
+// side assigns the field). This is the only test that reads a file git wrote.
+TEST_F(WorktreeApiTest, ALinkedWorktreeReportsItsCreationTimeAndTheCurrentOneDoesNot) {
+    const auto before = static_cast<std::int64_t>(std::time(nullptr));
+    ASSERT_EQ(runGit({"worktree", "add", "--quiet", "-b", "feature", extra_.string()}), 0);
+
+    gbm_worktree_refresh(session_);
+    ASSERT_TRUE(log_.waitFor(
+        [](const auto& events) { return anyEventOfType(events, GBM_EVENT_WORKTREES_UPDATED); }));
+    const auto after = static_cast<std::int64_t>(std::time(nullptr));
+
+    const std::string json = worktreesJson();
+    const std::vector<std::int64_t> values = createdAtValues(json);
+    ASSERT_EQ(values.size(), 2u) << json;
+
+    // Asserted as a pair rather than by index: which entry is which is
+    // `git worktree list`'s ordering, and that is not the claim being made.
+    const std::size_t absent =
+        static_cast<std::size_t>(std::count(values.begin(), values.end(), 0));
+    EXPECT_EQ(absent, 1u) << "the current worktree has no worktrees/<name>/ "
+                             "directory, so it reports absent -- not now(): "
+                          << json;
+
+    const std::int64_t created = values[0] == 0 ? values[1] : values[0];
+    EXPECT_GE(created, before);
+    EXPECT_LE(created, after) << "a value outside the window means this read "
+                                 "something other than the add: "
+                              << json;
 }
 
 }  // namespace

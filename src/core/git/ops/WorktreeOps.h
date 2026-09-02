@@ -100,6 +100,45 @@ void attachPendingCounts(IProcessRunner& runner,
                          std::vector<WorktreeInfo>& worktrees,
                          CancellationToken token);
 
+/// Fills in `createdAtUnix` for every worktree that has an administrative
+/// directory under `<commonDir>/worktrees/`, from the first entry of that
+/// directory's own `logs/HEAD` -- the reflog line `git worktree add` writes as
+/// it creates the worktree. Measured against git 2.55.0: with the tip commit
+/// made 5s before the add, the line carried the *add* time.
+///
+/// Cheap enough to live in `WorktreeStore::list()` rather than behind a
+/// request: one directory scan plus one small read per worktree, no process
+/// spawned and the work tree never touched. That is the whole difference from
+/// `attachPendingCounts` above.
+///
+/// The administrative directory is found by **indexing every
+/// `worktrees/*/gitdir` file**, not by assuming the directory is named after
+/// the worktree's last path component. `git worktree move` rewrites `gitdir`
+/// and leaves the directory's original name in place, so a worktree living at
+/// `.../moved` is still administered from `worktrees/linked/`. The index is
+/// also what lets a *prunable* worktree be answered for: its path is gone and
+/// its `.git` pointer with it, and the administrative directory is precisely
+/// what survives -- that is what prune means.
+///
+/// **Four things this cannot know. None of them is faked; all report absent.**
+///   1. The main/current worktree has no `worktrees/<name>/` directory at all.
+///      Its own `logs/HEAD` starts at this *repository's* first checkout,
+///      which is a different fact wearing the same label.
+///   2. `core.logAllRefUpdates` can be off (bare repositories default to off),
+///      so there may be no `logs/HEAD` to read.
+///   3. The administrative directory can predate the reflog being enabled.
+///   4. **`git gc` expires per-worktree HEAD reflogs (~90 days by default),
+///      and after that the first *surviving* entry impersonates the creation
+///      time.** It looks reasonable, it is wrong, and nothing inside the file
+///      can detect it. This is the one caveat that becomes a silent lie if it
+///      goes unwritten.
+///
+/// Deliberately **no mtime fallback.** `gitdir`'s `last_write_time` would be a
+/// second source for the same fact that can silently disagree with the first,
+/// which is [CULT-single-source-of-truth]'s named failure shape. Absent beats
+/// approximately right, and the UI draws the absence rather than a number.
+void attachCreatedAt(const RepoPaths& paths, std::vector<WorktreeInfo>& worktrees);
+
 /// Reads `git worktree list --porcelain`. Read-only, like RefStore.
 class WorktreeStore {
 public:

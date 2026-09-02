@@ -5,6 +5,10 @@
 #include "core/git/RefStore.h"
 #include "core/git/WorkingCopyStatus.h"
 
+#include <algorithm>
+#include <charconv>
+#include <optional>
+#include <system_error>
 #include <utility>
 
 namespace gbm {
@@ -33,6 +37,58 @@ std::vector<std::vector<std::string_view>> splitEntries(std::string_view text) {
         start = at + 1;
     }
     return entries;
+}
+
+/// One `<commonDir>/worktrees/<name>/` directory, keyed both ways: by file
+/// identity for a worktree still on disk, and by canonical path string for one
+/// whose directory is gone and therefore has no identity left to compare.
+struct AdminDirEntry {
+    std::filesystem::path adminDir;
+    std::optional<fsutil::FileId> id;
+    std::string key;
+};
+
+std::string_view trimmed(std::string_view text) {
+    while (!text.empty() && (text.back() == '\n' || text.back() == '\r' || text.back() == ' ')) {
+        text.remove_suffix(1);
+    }
+    return text;
+}
+
+/// The unix timestamp of one reflog entry, or nullopt if the line is not one.
+///
+/// **The timestamp is the second-to-last whitespace token, never a fixed field
+/// index.** A reflog entry is `<old> <new> <committer>\t<message>`, and
+/// `<committer>` is `Name <email> <unixtime> <tz>` where `Name` is a human name
+/// that may contain spaces: measured, `user.name = "Jia Jyun Van Der Berg"`
+/// puts the literal string `Van` at field 5. The tab is optional in the same
+/// breath -- the first line `git worktree add` writes carries no message and
+/// no tab at all, and that is the only line this function is ever asked about.
+std::optional<std::int64_t> reflogEntryTime(std::string_view line) {
+    const std::size_t tab = line.find('\t');
+    if (tab != std::string_view::npos) {
+        line = line.substr(0, tab);
+    }
+    line = trimmed(line);
+
+    const std::size_t tzAt = line.rfind(' ');
+    if (tzAt == std::string_view::npos) {
+        return std::nullopt;
+    }
+    const std::string_view head = line.substr(0, tzAt);
+    const std::size_t timeAt = head.rfind(' ');
+    if (timeAt == std::string_view::npos) {
+        return std::nullopt;
+    }
+
+    const std::string_view stamp = head.substr(timeAt + 1);
+    std::int64_t seconds = 0;
+    const auto* const end = stamp.data() + stamp.size();
+    const std::from_chars_result parsed = std::from_chars(stamp.data(), end, seconds);
+    if (parsed.ec != std::errc() || parsed.ptr != end || seconds <= 0) {
+        return std::nullopt;
+    }
+    return seconds;
 }
 
 WorktreeInfo parseEntry(const std::vector<std::string_view>& lines,
@@ -371,6 +427,56 @@ void attachPendingCounts(IProcessRunner& runner,
     }
 }
 
+void attachCreatedAt(const RepoPaths& paths, std::vector<WorktreeInfo>& worktrees) {
+    std::error_code ec;
+    const std::filesystem::path worktreesDir = paths.commonDir() / "worktrees";
+    if (!std::filesystem::is_directory(worktreesDir, ec)) {
+        return;  // No linked worktree has ever existed here.
+    }
+
+    std::vector<AdminDirEntry> index;
+    for (const auto& entry : std::filesystem::directory_iterator(worktreesDir, ec)) {
+        const std::optional<std::string> gitdir = fsutil::readSmallFile(entry.path() / "gitdir");
+        if (!gitdir) {
+            continue;
+        }
+        // The file holds `<workPath>/.git` plus a newline.
+        const std::filesystem::path pointer = fsutil::pathFromUtf8(trimmed(*gitdir));
+        if (pointer.empty()) {
+            continue;
+        }
+        const std::filesystem::path workPath = pointer.parent_path();
+        index.push_back({entry.path(), fsutil::fileIdOf(workPath), fsutil::canonicalKey(workPath)});
+    }
+
+    for (WorktreeInfo& worktree : worktrees) {
+        // File identity when the directory is still there, for the same reason
+        // parseEntry uses it: on macOS a path built through /var differs
+        // textually from git's realpath through /private/var while naming the
+        // same directory. A prunable worktree has no directory left to
+        // identify, and the string key is the only thing left to match on.
+        const std::optional<fsutil::FileId> id = fsutil::fileIdOf(worktree.path);
+        const std::string key = fsutil::canonicalKey(worktree.path);
+        const auto hit = std::find_if(index.begin(), index.end(), [&](const AdminDirEntry& admin) {
+            return id && admin.id ? *id == *admin.id : admin.key == key;
+        });
+        if (hit == index.end()) {
+            continue;  // The current worktree, whose administration is commonDir itself.
+        }
+
+        const std::optional<std::string> reflog =
+            fsutil::readSmallFile(hit->adminDir / "logs" / "HEAD");
+        if (!reflog) {
+            continue;  // core.logAllRefUpdates off, or a directory older than it.
+        }
+        const std::optional<std::int64_t> at =
+            reflogEntryTime(std::string_view(*reflog).substr(0, reflog->find('\n')));
+        if (at) {
+            worktree.createdAtUnix = *at;
+        }
+    }
+}
+
 GitResult<std::vector<WorktreeInfo>> WorktreeStore::list(CancellationToken token) {
     GitCommand command(paths_.commandDir(), {"worktree", "list", "--porcelain"});
     command.timeout = std::chrono::seconds(30);
@@ -386,6 +492,9 @@ GitResult<std::vector<WorktreeInfo>> WorktreeStore::list(CancellationToken token
             infos.push_back(parseEntry(entry, paths_.workDir()));
         }
     }
+    // Part of the plain list, unlike attachPendingCounts: no process, no work
+    // tree read. See its declaration for why that difference decides this.
+    attachCreatedAt(paths_, infos);
     return infos;
 }
 

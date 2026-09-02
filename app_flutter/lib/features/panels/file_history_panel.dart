@@ -125,7 +125,13 @@ class _FileHistoryPanelState extends ConsumerState<FileHistoryPanel> {
     final ParsedDiff? diff = session.selectedCommitFileDiff;
 
     return GbmPanelTabShell(
-      storageId: 'panel.fileHistory',
+      // P19 樣板規則 1's 「各自記憶…splitter」. Suffixed with the subject
+      // because this is one of the three kinds that can be open twice at
+      // once: on a bare `panel.<kind>` id, resizing one tab silently
+      // resizes the other. The nine singleton kinds keep their unsuffixed
+      // ids -- re-keying those would orphan every saved size to buy a
+      // distinction that cannot arise.
+      storageId: 'panel.fileHistory:${widget.path}',
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a commit to see how it changed this file',
       toolbar: PanelToolbarSpec(

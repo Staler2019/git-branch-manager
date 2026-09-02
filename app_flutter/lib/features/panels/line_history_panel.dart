@@ -145,7 +145,13 @@ class _LineHistoryPanelState extends ConsumerState<LineHistoryPanel> {
         : null;
 
     return GbmPanelTabShell(
-      storageId: 'panel.lineHistory',
+      // P19 樣板規則 1's 「各自記憶…splitter」. Suffixed with the subject
+      // because this is one of the three kinds that can be open twice at
+      // once: on a bare `panel.<kind>` id, resizing one tab silently
+      // resizes the other. The nine singleton kinds keep their unsuffixed
+      // ids -- re-keying those would orphan every saved size to buy a
+      // distinction that cannot arise.
+      storageId: 'panel.lineHistory:${widget.path}',
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a step to see its before/after',
       toolbar: PanelToolbarSpec(

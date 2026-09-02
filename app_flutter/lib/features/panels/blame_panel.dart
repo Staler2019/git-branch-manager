@@ -148,7 +148,13 @@ class _BlamePanelState extends ConsumerState<BlamePanel> {
         : null;
 
     return GbmPanelTabShell(
-      storageId: 'panel.blame',
+      // P19 樣板規則 1's 「各自記憶…splitter」. Suffixed with the subject
+      // because this is one of the three kinds that can be open twice at
+      // once: on a bare `panel.<kind>` id, resizing one tab silently
+      // resizes the other. The nine singleton kinds keep their unsuffixed
+      // ids -- re-keying those would orphan every saved size to buy a
+      // distinction that cannot arise.
+      storageId: 'panel.blame:${widget.path}',
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a line to see the commit that wrote it',
       toolbar: PanelToolbarSpec(

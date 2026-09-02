@@ -33,19 +33,28 @@ class PanelFilterField extends StatefulWidget {
   /// Why this panel's list cannot be filtered, shown as a tooltip.
   ///
   /// Rule 2 says the filter is 固定 at the right end, so it is drawn for
-  /// every panel — but some of the twelve have nothing to filter:
-  /// `blame` and `line-history` list *file content* rather than a named
-  /// collection, and `interactive-rebase` has the rule 3 writable list,
-  /// where a filtered order is not the real order and a drag would reorder
-  /// against it.
+  /// every panel — but two of the twelve have nothing to filter:
   ///
-  /// **`bisect` used to be listed here with `interactive-rebase` and is
-  /// not one of them** — corrected rather than quietly dropped, per
-  /// [CULT-scrutinise-the-comment]. Its list only *records* what has been
-  /// marked (marking happens on the toolbar, 待裁定 6), so it is not
-  /// writable and a filtered view reorders nothing. Its filter is live
-  /// while a bisect runs, and disabled only when one is not — because then
-  /// the list is a start form with nothing in it to filter.
+  /// - `blame`, whose list really is *file content* rather than a named
+  ///   collection, so there is no name a filter could match; and
+  /// - `interactive-rebase`, which has rule 3's writable list, where a
+  ///   filtered order is not the real order and a drag would reorder
+  ///   against commits the user cannot see.
+  ///
+  /// **Two panels were listed here and turned out not to belong** — both
+  /// corrected in place rather than quietly dropped, per
+  /// [CULT-scrutinise-the-comment], because a wrong reason left standing is
+  /// what makes the next round repeat it:
+  ///
+  /// - `bisect` was grouped with `interactive-rebase` as a writable list.
+  ///   It is not: marking happens on the toolbar and the list only
+  ///   *records* (待裁定 6), so a filtered view reorders nothing. Its filter
+  ///   is live while a bisect runs and disabled only when one is not,
+  ///   because then the list is a start form with nothing in it.
+  /// - `line-history` was grouped with `blame` as file content. It is not:
+  ///   a `LineHistoryChunk` carries `oid`, `author` and `subject`, and its
+  ///   row draws a subject over an author and a date — `file-history`'s
+  ///   shape. Its filter is live.
   ///
   /// Disabled with a stated reason rather than hidden —
   /// 隱藏會讓人以為功能不存在 ([FLU-menu-enabled-is-visual-only]) — and the

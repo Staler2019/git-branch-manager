@@ -194,6 +194,47 @@ TEST_F(WorktreeApiTest, APlainRefreshLeavesEveryPendingCountUnmeasured) {
         << "and the field has to be there to be unmeasured: " << json;
 }
 
+TEST_F(WorktreeApiTest, RequestingPendingCountsMeasuresARealWorkingTree) {
+    ASSERT_EQ(runGit({"worktree", "add", "--quiet", "-b", "feature", extra_.string()}), 0);
+    // Three changes of three different kinds, so a count that only saw one
+    // porcelain-v2 record type cannot pass: one modified-and-staged, one
+    // modified-unstaged, one untracked.
+    std::ofstream(extra_ / "file.txt") << "changed\n";
+    std::ofstream(extra_ / "added.txt") << "staged\n";
+    ASSERT_EQ(GitCli::run(extra_, {"add", "added.txt"}), 0);
+    std::ofstream(extra_ / "untracked.txt") << "new\n";
+
+    gbm_worktree_request_pending_counts(session_);
+    ASSERT_TRUE(log_.waitFor(
+        [](const auto& events) { return anyEventOfType(events, GBM_EVENT_WORKTREES_UPDATED); }));
+
+    const std::string json = worktreesJson();
+    EXPECT_NE(json.find("\"pendingChanges\":3,\"pendingCountState\":\"measured\""),
+              std::string::npos)
+        << "expected the linked worktree measured at 3: " << json;
+    // The repository the session is open on is untouched, so it is the
+    // measured-and-genuinely-clean case the tri-state exists for.
+    EXPECT_NE(json.find("\"pendingChanges\":0,\"pendingCountState\":\"measured\""),
+              std::string::npos)
+        << "0 has to be an answer, not a synonym for unmeasured: " << json;
+}
+
+TEST_F(WorktreeApiTest, AWorktreeWhoseDirectoryIsGoneIsNotApplicableAndRaisesNoError) {
+    ASSERT_EQ(runGit({"worktree", "add", "--quiet", "-b", "feature", extra_.string()}), 0);
+    std::filesystem::remove_all(extra_);
+
+    gbm_worktree_request_pending_counts(session_);
+    ASSERT_TRUE(log_.waitFor(
+        [](const auto& events) { return anyEventOfType(events, GBM_EVENT_WORKTREES_UPDATED); }));
+
+    const std::string json = worktreesJson();
+    EXPECT_NE(json.find("\"pendingCountState\":\"notApplicable\""), std::string::npos) << json;
+
+    std::lock_guard<std::mutex> lock(log_.mutex);
+    EXPECT_FALSE(anyEventOfType(log_.events, GBM_EVENT_ERROR_OCCURRED))
+        << "knowing the command cannot run is not a failure to report";
+}
+
 /// Every `"createdAtUnix":N` in the payload, in the order it appears.
 std::vector<std::int64_t> createdAtValues(const std::string& json) {
     const std::string key = "\"createdAtUnix\":";

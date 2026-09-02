@@ -768,6 +768,22 @@ GBM_API void gbm_tag_push(GbmSessionHandle session, const char* remoteName, cons
 /// failure.
 GBM_API void gbm_worktree_refresh(GbmSessionHandle session);
 
+/// Re-lists the worktrees *and* measures each one's uncommitted change count,
+/// then republishes. Async: fires the same GBM_EVENT_WORKTREES_UPDATED, so a
+/// caller reads the result through gbm_worktrees_json() either way.
+///
+/// **Separate from gbm_worktree_refresh() on purpose, and it must stay that
+/// way.** This costs one `git status` process per eligible worktree, while
+/// the plain refresh is one `git worktree list`. The refresh runs on focus
+/// regain and on F5; this runs only while something is showing the counts.
+/// Bare and prunable worktrees are skipped without running anything and come
+/// back as `notApplicable`.
+///
+/// A count that could not be taken is reported as `failed`, never left as
+/// `unmeasured` -- a caller that re-requests "whatever has no count" would
+/// otherwise spin on it forever.
+GBM_API void gbm_worktree_request_pending_counts(GbmSessionHandle session);
+
 /// Populates the staging buffer with the most recently published worktree
 /// list as a JSON array. Returns 0 on success, or a negative GbmErrorCode if
 /// gbm_worktree_refresh() has not yet published one.

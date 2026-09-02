@@ -12,6 +12,10 @@ GBM_API void gbm_worktree_refresh(GbmSessionHandle session) {
     toSession(session)->refreshWorktrees();
 }
 
+GBM_API void gbm_worktree_request_pending_counts(GbmSessionHandle session) {
+    toSession(session)->requestWorktreePendingCounts();
+}
+
 GBM_API int32_t gbm_worktrees_json(GbmSessionHandle session) {
     const WorktreeListPtr worktrees = toSession(session)->currentWorktrees();
     if (!worktrees) {

@@ -94,6 +94,11 @@ One row per shape — when you find an eleventh, append a row.
   one round silently matched nothing after a formatter reflowed an argument list, and a
   `JsonCodec.cpp` anchor named only by its field matched **two** serializers (`DiffFile`'s and
   `ChangedFile`'s both emit `addedLines`). Anchor on a neighbouring line that is actually unique.
+- **Do**: **count the reds from the progress line's `-N`, never from the 「Failing tests:」
+  summary — that list truncates at 4 entries** plus 「... and N more」. Grepping it read 8 reds as
+  4, and 「is the red narrow」 is the only thing a mutation check asks.
+- **Note**: an anchor that matches nothing means **the mutation never applied**, so REDS=0 is not
+  evidence of a vacuous test. Redo it against the real text before drawing any conclusion.
 
 ## [TEST-count-dont-any] Count, don't `any`
 

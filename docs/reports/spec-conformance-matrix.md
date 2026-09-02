@@ -595,22 +595,45 @@ times.
 
 ### A. The six 樣板規則
 
-| # | Rule (spec's wording) | Verdict | Evidence |
-|---|---|---|---|
-| 1 | 各自記憶捲動位置與 splitter；`Ctrl/Cmd+W` 關閉 | **缺少** (i) | `panel_page.dart` has no `Ctrl/Cmd+W` at all, while `compare_page.dart:202-208` does. Panels are GoRouter children, so a tab switch remounts them and scroll position and selection are both lost. `storageId` is per *kind* (`'panel.blame'`), so two Blame tabs share one splitter position — 「各自」 may mean per-tab. |
-| 2 | 工具列固定四段…**破壞性動作不放工具列** | **缺少** (i) | **8 of 12 panels put a `GbmButtonKind.danger` button in the toolbar**, one each: `stashes:117 Drop`, `remotes:124 Remove`, `submodules:136 Deinit`, `lfs:97 Untrack`, `worktrees:111 Remove`, `interactive_rebase:125 Abort`, `bisect:99 Reset`, `patches:300 Abort`. The four segments themselves are not modelled anywhere — `GbmPanelTabShell` takes a flat `List<Widget> toolbar`. |
-| 2 | 右端固定是 filter | **缺少** (i) | **0 of 12.** `grep -ril filter lib/features/panels/*.dart` returns nothing. |
-| 3 | 左清單…欄寬可拖曳、下限 **220px** | **缺少** (i) | `GbmLayout.splitterPanelList` is `minExtent: 180` (`tokens.dart:644`). |
-| 3 | 行高…此處 **36px**（因為兩行式） | **缺少** (i) | `PanelListRow` is `rowHeightComfortable + space3` = 34 + 12 = **46**. Also, 3 of 12 panels do not use `PanelListRow` at all (`bisect`, `blame`, `interactive_rebase`); bisect's rows are a bare `Padding`+`Row` and are **not selectable**. |
-| 3 | interactive-rebase 與 bisect 是唯二左清單可寫入的 | 符合 (rebase) / **缺少** (bisect) | `interactive_rebase_panel.dart:173` uses `ReorderableListView.builder`. bisect's list accepts no marking; whether the rule requires it is a reading question, not a clear gap. |
-| 4 | 右明細一律是 **78px 標籤 + 值** 的定義列表 | **缺少** (i) | `PanelDetailField` stacks the label *above* the value in a `Column`; there is no 78px label column. |
-| 4 | 值可選取複製 | 符合 | `PanelDetailField` uses `SelectableText`, deliberately. |
-| 4 | 動作列在明細底部，danger 靠右 | **缺少** (i) | No such slot exists. `worktrees_panel.dart:241-247` puts its Lock button *among the fields*. Note 5 of 12 panels do not use `PanelDetailColumn` at all (`stashes`, `patches`, `lfs`, `file_history`, `line_history`) — their detail is diff-shaped — so the slot cannot live on `PanelDetailColumn`. |
-| 5 | 例外狀態用面板內 banner，不用 dialog、不用 toast | **缺少** (i) | `GbmPanelTabShell` has no banner slot. (`GbmWarningBanner` already exists in `lib/widgets/gbm_banner.dart` and is used elsewhere.) |
-| 6 | 狀態列一律寫實際數量與耗時 | **缺少** (i) | `GbmPanelTabShell` has no status bar. |
+| # | Rule (spec's wording) | 稽核當下 | 本輪之後 | Evidence (as audited) |
+|---|---|---|---|---|
+| 1 | 各自記憶捲動位置與 splitter；`Ctrl/Cmd+W` 關閉 | **缺少** (i) | **符合** — `Ctrl/Cmd+W` (8dde9b1), per-tab `PageStorageKey` (2cd4d14), per-subject splitter ids (c8b6e6f). 「各自」 ruled **per-tab** | `panel_page.dart` has no `Ctrl/Cmd+W` at all, while `compare_page.dart:202-208` does. Panels are GoRouter children, so a tab switch remounts them and scroll position and selection are both lost. `storageId` is per *kind* (`'panel.blame'`), so two Blame tabs share one splitter position — 「各自」 may mean per-tab. |
+| 2 | 工具列固定四段…**破壞性動作不放工具列** | **缺少** (i) | **符合** — all 12 on `PanelToolbarSpec`; 5 danger buttons moved to the detail action row, 3 `Abort`/`Reset` ratified as non-破壞性 (§B) | **8 of 12 panels put a `GbmButtonKind.danger` button in the toolbar**, one each: `stashes:117 Drop`, `remotes:124 Remove`, `submodules:136 Deinit`, `lfs:97 Untrack`, `worktrees:111 Remove`, `interactive_rebase:125 Abort`, `bisect:99 Reset`, `patches:300 Abort`. The four segments themselves are not modelled anywhere — `GbmPanelTabShell` takes a flat `List<Widget> toolbar`. |
+| 2 | 右端固定是 filter | **缺少** (i) | **符合 (10/12)** — 2 deliberately disabled with a tooltip: `blame` (the list is file content) and `interactive-rebase` (rule 3's writable list — a filtered order is not the real order) | **0 of 12.** `grep -ril filter lib/features/panels/*.dart` returns nothing. |
+| 3 | 左清單…欄寬可拖曳、下限 **220px** | **缺少** (i) | **符合** — c410924, with 63a8748 clamping values already stored below the new floor ([FLU-splitpane-stored-extent-ignores-min]) | `GbmLayout.splitterPanelList` is `minExtent: 180` (`tokens.dart:644`). |
+| 3 | 行高…此處 **36px**（因為兩行式） | **缺少** (i) | **符合** — 1761c7f; bisect converted to `PanelListRow` and made selectable (ce8e52f) | `PanelListRow` is `rowHeightComfortable + space3` = 34 + 12 = **46**. Also, 3 of 12 panels do not use `PanelListRow` at all (`bisect`, `blame`, `interactive_rebase`); bisect's rows are a bare `Padding`+`Row` and are **not selectable**. |
+| 3 | interactive-rebase 與 bisect 是唯二左清單可寫入的 | 符合 (rebase) / **缺少** (bisect) | 符合 (rebase, now with a real drop test) / bisect ruled **toolbar-marked**, list records only | `interactive_rebase_panel.dart:173` uses `ReorderableListView.builder`. bisect's list accepts no marking; whether the rule requires it is a reading question, not a clear gap. |
+| 4 | 右明細一律是 **78px 標籤 + 值** 的定義列表 | **缺少** (i) | **符合** — fa7cd40 | `PanelDetailField` stacks the label *above* the value in a `Column`; there is no 78px label column. |
+| 4 | 值可選取複製 | 符合 | 符合（未動） | `PanelDetailField` uses `SelectableText`, deliberately. |
+| 4 | 動作列在明細底部，danger 靠右 | **缺少** (i) | **符合** — b27c1ef, slot on the shell so the 5 diff-shaped details get it too | No such slot exists. `worktrees_panel.dart:241-247` puts its Lock button *among the fields*. Note 5 of 12 panels do not use `PanelDetailColumn` at all (`stashes`, `patches`, `lfs`, `file_history`, `line_history`) — their detail is diff-shaped — so the slot cannot live on `PanelDetailColumn`. |
+| 5 | 例外狀態用面板內 banner，不用 dialog、不用 toast | **缺少** (i) | **已符合，現在被釘住** — 076c926 added the slot; 898c909 pins it (source sweep + 3 behavioural) | `GbmPanelTabShell` has no banner slot. (`GbmWarningBanner` already exists in `lib/widgets/gbm_banner.dart` and is used elsewhere.) |
+| 6 | 狀態列一律寫實際數量與耗時 | **缺少** (i) | **符合** — 076c926 + `panelStatusLine()` (292d481). 耗時 only where something is measured per row | `GbmPanelTabShell` has no status bar. |
 
 Every gap is classification **(i)** — the backing data exists in every case
 but one (worktrees' 待提交數, which is (ii) and is the round's C++ work).
+
+**The 稽核當下 column is kept rather than overwritten**, because in this
+section the *finding* is the point: nine of eleven rows read 缺少 across all
+twelve panels at once, and that is the evidence for
+[SPEC-audit-unit-is-not-the-page] — not a status line to be tidied away once
+it is fixed. What the round changed is the 本輪之後 column.
+
+Two rows do not read a plain 符合, and both are ratified readings rather than
+residual gaps:
+
+- **filter, 10/12.** `blame` and `interactive-rebase` render the field
+  disabled with a tooltip rather than hiding it —
+  「隱藏會讓人以為功能不存在」 ([FLU-menu-enabled-is-visual-only]), and
+  `onChanged: null` is set alongside the grey so it is not merely visual. An
+  earlier draft also listed `bisect` and `line-history`; both were removed
+  after the source disagreed — `LineHistoryChunk` carries oid, author and
+  subject, so it is a named set and its filter is live.
+- **bisect's writable list.** Rule 3 names interactive-rebase and bisect as
+  the only two writable left lists. Whether 「標記 good/bad」 means the *list*
+  accepts marking, or the toolbar marks and the list records, is a reading
+  question the page does not settle. Ruled: toolbar marks. The two
+  uncontroversial gaps behind that reading were fixed anyway — bisect's rows
+  are `PanelListRow`s now, and they are selectable.
 
 ### B. `PANELSPEC` — the spec's own internal contradiction, resolved in place
 

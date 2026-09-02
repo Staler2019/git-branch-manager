@@ -29,9 +29,13 @@ historical the moment they are written.
 
 - **Rule**: per-object transfer counts for fetch/pull/push, `git init` / clone, removing a
   *scanned* repository from the switcher, squashing N commits, per-remote Pull/Push, and
-  seven `PANELSPEC` detail fields (待提交數, 最後 fetch, 預期 commit, 大小, 剩餘步數,
+  six `PANELSPEC` detail fields (最後 fetch, 預期 commit, 大小, 剩餘步數,
   自訂測試指令, 欄位選擇器).
-- **Evidence**: all tracked on **#76**.
+- **Note**: **待提交數 is closed** — it has a capi entry point now
+  ([GIT-worktree-status-is-per-path]). 建立於 is closed for linked worktrees and absent for the
+  current one, a bare repo and an expired reflog, each caveat recorded rather than guessed.
+- **Evidence**: all tracked on **#76**;
+  [ledger: 十二個管理面板照 P19 樣板統一](../ledger/2026-09-02-feat-p19-panel-template-conformance.md).
 
 ## [DRIFT-auto-fetch-unwired] Preferences → General 的 AUTOMATIC FETCH 整段沒有實作在後面
 

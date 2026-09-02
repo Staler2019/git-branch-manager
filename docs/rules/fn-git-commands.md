@@ -50,6 +50,11 @@ Pin prefix `GIT-`. Format: [README.md](README.md).
   rule's own wording implies and which went unimplemented for as long as this rule existed.
 - **Do**: pass `-M` explicitly to both passes rather than trusting `diff.renames`, or the
   rename detection drifts from the one `--porcelain=v2` already did.
+- **See also**: [GIT-worktree-status-is-per-path] carries a three-state enum beside its number and
+  is **not** a counter-example — the difference is whether a sentinel slot exists at all. Here
+  「no matching record」 and 「really zero」 are indistinguishable by construction, so `0` has to
+  absorb both; there, 「not run」 has somewhere else to live. Both obey [GIT-no-walk-is-date-ordered]'s
+  「absent is not zero」.
 
 ## [GIT-worktree-reads-need-fsmonitor-off] A background `git diff` that reads the work tree needs `worktreeReadFlags()`
 
@@ -159,3 +164,29 @@ Pin prefix `GIT-`. Format: [README.md](README.md).
   `StagesSelectedLinesOfAnUntrackedFile` passed on Windows in the same run because it applies with
   `--cached`.
 - **Evidence**: [ledger: 未追蹤檔案在 Working Copy 看不到 diff](../ledger/2026-09-01-claude-working-copy-untracked-files-qq2gnc.md)
+
+## [GIT-worktree-status-is-per-path] A per-worktree pending count is one `git status` per path, and two kinds of worktree must not be asked at all
+
+- **Rule**: the command is `git <globalFlags> -C <worktreePath> -c core.fsmonitor=false status
+  --porcelain=v2 -z --untracked-files=normal`. It reads that work tree against its own index, so
+  [GIT-worktree-reads-need-fsmonitor-off] applies verbatim.
+- **Rule**: `--untracked-files=normal`, **never `-uall`** — the count is of *changes*, and an
+  untracked directory is one change, not one per file inside it. Measured on this repository,
+  warm, 20 iterations: **13.4 ms** with `normal` against **20.9 ms** with `-uall`. Read that 56%
+  as a floor rather than the reason: every output directory here is gitignored, so the real cost
+  [GIT-zero-means-unmeasured] records (enumerating an unbuilt output tree) never fired.
+- **Do**: **reuse the porcelain-v2 entry parser; never count NUL records yourself.** A rename
+  (`2 …`) spends one *more* NUL field than every other kind — the same shape as
+  [GIT-output-format-single-slot]'s three-record rename — so a record counter is silently wrong
+  from the first rename onward, and correct on every fixture that has none.
+- **Rule**: **a bare or prunable worktree is not asked at all.** Bare answers `fatal: this
+  operation must be run in a work tree`; a prunable path is not on disk. Both are
+  [STATE-never-guess-what-git-would-say]'s *LFS exemption* word for word — not approximating an
+  answer, knowing the command cannot run — and neither is a `.gitmodules`-style guess.
+- **Do**: report it as a **three-state** field (`unmeasured` / `measured` / `notApplicable` /
+  `failed`) beside the number, not as a sentinel. The enum is what lets `0` mean 「measured, and
+  clean」 — see [GIT-zero-means-unmeasured] for the case where no such slot exists.
+- **Do**: cache the answer on `path@headOid` and write **`failed` into the cache too**. A gate
+  reading 「some count is null」 re-asks forever on the failure path, because a reply saying
+  「failed」 leaves the same null; a gate reading 「some key is absent」 terminates on every branch.
+- **Evidence**: [ledger: 十二個管理面板照 P19 樣板統一](../ledger/2026-09-02-feat-p19-panel-template-conformance.md)

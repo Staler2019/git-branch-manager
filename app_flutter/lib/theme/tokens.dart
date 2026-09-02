@@ -639,11 +639,16 @@ abstract final class GbmLayout {
   /// Management panel tab: left list <-> right detail (spec page 19's shared
   /// 〈工具列 + 左清單 + 右明細〉 template). Not in spec page 09's SPLITTERS
   /// table -- that page predates P14/P19 and lists no panel splitter -- so
-  /// these numbers follow [splitterCwFiles], the closest existing
+  /// the default follows [splitterCwFiles], the closest existing
   /// list-beside-detail case, rather than inventing a different feel.
+  ///
+  /// The minimum is **not** borrowed: P19's own 樣板規則 3 states it
+  /// outright -- 「左清單為單選，欄寬可拖曳、下限 220px」. It read 180 until
+  /// feat/p19-panel-template-conformance, which was the borrowed number
+  /// standing in for a specified one.
   static const GbmSplitterSpec splitterPanelList = GbmSplitterSpec.extent(
     defaultExtent: 280,
-    minExtent: 180,
+    minExtent: 220,
   );
 
   /// Management panel detail column: file list <-> diff, for the P19

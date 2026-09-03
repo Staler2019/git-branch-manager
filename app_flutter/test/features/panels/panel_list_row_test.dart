@@ -1,6 +1,13 @@
 // Spec page 19's list row: the mockup draws icon + (name over branch) +
 // right-hand badge.
 //
+// The badge is a `String`, not a `Widget`, and these tests are where that
+// contract is pinned: the mockup's slot is
+// `<span style="font-size:9px;color:var(--text-tertiary)">{{ w.badge }}</span>`
+// -- one span, one style, driven by one expression. It used to be a
+// [GbmBadge], which is a pill with a background, and that is exactly what
+// the user reported as 「current 沒有底色、也不是 button」.
+//
 // The asset test at the bottom is the one that matters most, because a
 // missing SVG fails *silently*: LucideIcon is a bare
 // `SvgPicture.asset('assets/icons/$name.svg')`, so a name with no file
@@ -15,10 +22,13 @@ import 'package:gbm_flutter/theme/tokens.dart';
 import 'package:gbm_flutter/widgets/gbm_badge.dart';
 import 'package:gbm_flutter/widgets/lucide_icon.dart';
 
+import 'panel_test_support.dart';
+
 Future<void> _pumpRow(
   WidgetTester tester, {
   Widget? icon,
-  Widget? badge,
+  String? badge,
+  Color? titleColor,
   double width = 300,
 }) async {
   await tester.pumpWidget(
@@ -36,6 +46,7 @@ Future<void> _pumpRow(
               onTap: () {},
               icon: icon,
               badge: badge,
+              titleColor: titleColor,
             ),
           ),
         ),
@@ -53,13 +64,13 @@ void main() {
       await _pumpRow(
         tester,
         icon: const LucideIcon('folder-git-2'),
-        badge: const GbmBadge(label: 'current'),
+        badge: 'current',
       );
 
       final Rect row = tester.getRect(find.byType(PanelListRow));
       final Rect icon = tester.getRect(find.byType(LucideIcon));
       final Rect title = tester.getRect(find.text('gbm-lfs'));
-      final Rect badge = tester.getRect(find.byType(GbmBadge));
+      final Rect badge = tester.getRect(find.text('current'));
 
       expect(icon.right, lessThanOrEqualTo(title.left));
       expect(title.right, lessThanOrEqualTo(badge.left));
@@ -79,7 +90,7 @@ void main() {
       await _pumpRow(
         tester,
         icon: const LucideIcon('folder-git-2'),
-        badge: const GbmBadge(label: 'current'),
+        badge: 'current',
       );
       final double decorated = tester.getSize(find.byType(PanelListRow)).height;
 
@@ -100,13 +111,78 @@ void main() {
       expect(find.text('gbm-lfs'), findsOneWidget);
     });
 
+    // Empty is not the same as null in the caller's hands -- an expression
+    // like `w.cur ? 'current' : w.gone ? '路徑不存在' : ''` produces `''` on
+    // the commonest row -- and an empty span still takes the gap before it.
+    //
+    // Asserted by **counting the Texts**, not by measuring the title's rect.
+    // The rect was tried first and stayed green with the suppression deleted:
+    // the title lives in an `Expanded`, so an extra zero-width sibling shrinks
+    // the *slot*, and a short title's own rect is its intrinsic width either
+    // way ([TEST-fixture-cannot-disagree] shape 8 -- the assertion, not the
+    // fixture, was the weak half).
+    testWidgets('an empty badge draws nothing at all', (tester) async {
+      await _pumpRow(tester, icon: const LucideIcon('folder-git-2'));
+      expect(find.byType(Text), findsExactly(2), reason: 'title and subtitle');
+
+      await _pumpRow(tester, icon: const LucideIcon('folder-git-2'), badge: '');
+      expect(find.byType(Text), findsExactly(2));
+    });
+
+    testWidgets('the badge is plain tertiary text, never a chip', (
+      tester,
+    ) async {
+      await _pumpRow(tester, badge: 'current');
+
+      expect(find.byType(GbmBadge), findsNothing);
+
+      final Text badge = tester.widget<Text>(find.text('current'));
+      expect(badge.style?.fontSize, GbmTypography.textXs);
+      expect(
+        badge.style?.color?.toARGB32(),
+        gbmColorsFor(tester).textTertiary.toARGB32(),
+      );
+    });
+
+    // The mockup writes the *name* as `color: {{ w.color }}`, which is where
+    // a worktree whose path is gone says so. Keeping that on the title is
+    // what lets the badge stay one neutral style for both of its words.
+    testWidgets('titleColor overrides the name colour, and only the name', (
+      tester,
+    ) async {
+      await _pumpRow(
+        tester,
+        badge: 'current',
+        titleColor: const Color(0xFFC97A17),
+      );
+
+      final Text title = tester.widget<Text>(find.text('gbm-lfs'));
+      expect(title.style?.color?.toARGB32(), 0xFFC97A17);
+
+      final Text badge = tester.widget<Text>(find.text('current'));
+      expect(
+        badge.style?.color?.toARGB32(),
+        gbmColorsFor(tester).textTertiary.toARGB32(),
+      );
+    });
+
+    testWidgets('without titleColor the name is textPrimary', (tester) async {
+      await _pumpRow(tester);
+
+      final Text title = tester.widget<Text>(find.text('gbm-lfs'));
+      expect(
+        title.style?.color?.toARGB32(),
+        gbmColorsFor(tester).textPrimary.toARGB32(),
+      );
+    });
+
     testWidgets('the row is P19 rule 3的 36px, and two lines still fit', (
       tester,
     ) async {
       await _pumpRow(
         tester,
         icon: const LucideIcon('folder-git-2'),
-        badge: const GbmBadge(label: 'current'),
+        badge: 'current',
       );
 
       expect(
@@ -126,7 +202,7 @@ void main() {
       await _pumpRow(
         tester,
         icon: const LucideIcon('folder-git-2'),
-        badge: const GbmBadge(label: '路徑不存在'),
+        badge: '路徑不存在',
         width: 200,
       );
 

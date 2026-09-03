@@ -28,6 +28,18 @@ final RepoIdentity panelTestIdentity = RepoIdentity(
   gitDir: '/test/repo/.git',
 );
 
+/// The live [GbmColors] as resolved for the pumped tree, read off a
+/// [PanelListRow]'s own element.
+///
+/// A colour assertion has to compare against the theme rather than a literal:
+/// the token is what the design system promises, and a hard-coded ARGB is a
+/// second source for it that nothing keeps in step. Compared as `toARGB32()`
+/// at the call sites, because Paint/Color quantise on read-back and an
+/// identity comparison prints Expected and Actual identically when it fails
+/// ([FLU-paint-color-quantises]).
+GbmColors gbmColorsFor(WidgetTester tester) =>
+    (tester.element(find.byType(PanelListRow).first) as BuildContext).gbmColors;
+
 /// What [pumpPanel] hands back: the fake controller (inspect
 /// `commandLog` to assert a toolbar action reached the session) and the
 /// container (to read other providers).

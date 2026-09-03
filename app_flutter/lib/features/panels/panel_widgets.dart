@@ -44,6 +44,7 @@ class PanelListRow extends StatelessWidget {
     required this.onTap,
     this.icon,
     this.badge,
+    this.titleColor,
     this.subtitleColor,
   });
 
@@ -60,9 +61,39 @@ class PanelListRow extends StatelessWidget {
   /// no glyph the spec would have it draw.
   final Widget? icon;
 
-  /// Trailing chip, normally a [GbmBadge] — `current` / `路徑不存在` in the
-  /// mockup. Pinned to the row's right edge.
-  final Widget? badge;
+  /// Trailing status word — `current` / `路徑不存在` in the mockup. Pinned to
+  /// the row's right edge, and **not a chip**: the mockup's slot is a bare
+  /// styled span,
+  ///
+  /// ```html
+  /// <span style="font-size:9px;color:var(--text-tertiary);flex-shrink:0">
+  ///   {{ w.badge }}</span>
+  /// ```
+  ///
+  /// where a [GbmBadge] is a pill with a background, a radius and padding.
+  /// This is a `String` rather than a `Widget` on purpose: the mockup drives
+  /// both words through one expression
+  /// (`w.cur ? 'current' : w.gone ? '路徑不存在' : ''`) into one span, so
+  /// there is exactly one style, and a `Widget` slot is an invitation for a
+  /// caller to give the second word a colour of its own.
+  ///
+  /// Empty and null both draw nothing at all, not an empty span — a
+  /// zero-width span still takes the gap before it.
+  ///
+  /// **Sized at [GbmTypography.textXs] (11), not the mockup's literal 9.**
+  /// The spec's own scale stops at `--text-xs:11px`; 9 and the 9.5 on the
+  /// line above it are inline literals below that scale, and the 9.5 was
+  /// already normalised to `textXs` when this row's subtitle was written.
+  /// Minting a 9px token for one span would put a number in the design
+  /// system the spec's own `:root` does not have.
+  final String? badge;
+
+  /// Overrides the title's colour. The mockup writes the worktree name as
+  /// `color: {{ w.color }}`, where `w.color` is
+  /// `w.gone ? 'var(--warning)' : 'var(--text-primary)'` — so a row whose
+  /// path is gone says so in its *name*, which is what lets the badge stay
+  /// one neutral style. Null keeps `textPrimary`.
+  final Color? titleColor;
 
   /// Overrides the subtitle's colour, for the one case where the subtitle
   /// *is* a status word rather than a description of the title.
@@ -103,7 +134,7 @@ class PanelListRow extends StatelessWidget {
                     title,
                     style: TextStyle(
                       fontSize: GbmTypography.textSm,
-                      color: colors.textPrimary,
+                      color: titleColor ?? colors.textPrimary,
                       fontWeight: GbmTypography.weightMedium,
                     ),
                     overflow: TextOverflow.ellipsis,
@@ -119,9 +150,16 @@ class PanelListRow extends StatelessWidget {
                 ],
               ),
             ),
-            if (badge != null) ...<Widget>[
+            if (badge case final String label
+                when label.isNotEmpty) ...<Widget>[
               const SizedBox(width: GbmSpacing.space2),
-              badge!,
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: GbmTypography.textXs,
+                  color: colors.textTertiary,
+                ),
+              ),
             ],
           ],
         ),

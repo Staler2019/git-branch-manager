@@ -22,7 +22,6 @@ import 'package:gbm_flutter/data/models/signature.dart';
 import 'package:gbm_flutter/features/panels/panel_filter_field.dart';
 import 'package:gbm_flutter/features/panels/panel_toolbar_spec.dart';
 import 'package:gbm_flutter/features/panels/panel_widgets.dart';
-import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
 import 'package:gbm_flutter/widgets/gbm_badge.dart';
 import 'package:gbm_flutter/widgets/gbm_button.dart';
@@ -153,9 +152,6 @@ String _removeGate(WidgetTester tester) =>
     panelButton(tester, 'Remove worktree…').onPressed == null
     ? 'disabled'
     : 'enabled';
-
-GbmColors gbmColorsFor(WidgetTester tester) =>
-    (tester.element(find.byType(PanelListRow).first) as BuildContext).gbmColors;
 
 Future<void> _type(WidgetTester tester, String query) async {
   await tester.enterText(
@@ -386,11 +382,62 @@ void main() {
         ],
       );
 
-      expect(find.byType(GbmBadge), findsOneWidget);
       expect(find.text('路徑不存在'), findsOneWidget);
 
       await _pump(tester, worktrees: <WorktreeInfo>[_main]);
       expect(find.text('current'), findsOneWidget);
+    });
+
+    // The mockup's badge slot is a bare styled span, not a chip:
+    //
+    //   <span style="font-size:9px;color:var(--text-tertiary);
+    //                flex-shrink:0">{{ w.badge }}</span>
+    //
+    // A GbmBadge is a pill -- background, border radius, padding -- which is
+    // the whole of the user's report 「current 沒有底色、也不是 button」.
+    testWidgets('the badge is plain text, not a chip', (tester) async {
+      await _pump(tester, worktrees: <WorktreeInfo>[_main]);
+
+      expect(find.byType(GbmBadge), findsNothing);
+
+      final Text badge = tester.widget<Text>(find.text('current'));
+      expect(
+        badge.style?.color?.toARGB32(),
+        gbmColorsFor(tester).textTertiary.toARGB32(),
+      );
+      expect(badge.style?.fontSize, GbmTypography.textXs);
+    });
+
+    // `current` and `路徑不存在` share one slot and one style in the mockup
+    // (`badge: w.cur ? 'current' : w.gone ? '路徑不存在' : ''`, rendered by a
+    // single span), so the gone one must not be recoloured either. The
+    // warning colour lives on the row's *name* and its glyph.
+    testWidgets('the gone badge carries no warning colour of its own', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        worktrees: <WorktreeInfo>[_wt(path: '/a/gone', prunable: true)],
+      );
+
+      final GbmColors colors = gbmColorsFor(tester);
+      final Text badge = tester.widget<Text>(find.text('路徑不存在'));
+      expect(badge.style?.color?.toARGB32(), colors.textTertiary.toARGB32());
+
+      // `color: {{ w.color }}` on the name, where
+      // `w.color = w.gone ? 'var(--warning)' : 'var(--text-primary)'`.
+      final Text name = tester.widget<Text>(find.text('gone'));
+      expect(name.style?.color?.toARGB32(), colors.warning.toARGB32());
+    });
+
+    testWidgets('a healthy row keeps its ordinary name colour', (tester) async {
+      await _pump(tester, worktrees: <WorktreeInfo>[_wt(path: '/a/plain')]);
+
+      final Text name = tester.widget<Text>(find.text('plain'));
+      expect(
+        name.style?.color?.toARGB32(),
+        gbmColorsFor(tester).textPrimary.toARGB32(),
+      );
     });
 
     testWidgets('the detail pane is empty until a row is selected', (

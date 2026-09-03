@@ -15,7 +15,6 @@ import '../../routing/app_router.dart';
 import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
-import '../../widgets/gbm_badge.dart';
 import '../../widgets/gbm_banner.dart';
 import '../../widgets/gbm_button.dart';
 import '../../widgets/lucide_icon.dart';
@@ -336,6 +335,7 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
                         onTap: () => _select(w, metas),
                         icon: _glyphFor(context, w),
                         badge: _badgeFor(w),
+                        titleColor: _titleColorFor(context, w),
                       );
                     },
                   ),
@@ -457,14 +457,25 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
   }
 
   /// `current` / `路徑不存在`, and **nothing at all** otherwise -- an empty
-  /// badge still draws a chip and still takes width.
-  Widget? _badgeFor(WorktreeInfo w) {
-    if (w.isMain) return const GbmBadge(label: 'current');
-    if (w.isPrunable) {
-      return const GbmBadge(label: '路徑不存在', kind: GbmBadgeKind.removed);
-    }
+  /// badge still takes the gap before it.
+  ///
+  /// One expression, one slot, one style, exactly as the mockup writes it:
+  /// `badge: w.cur ? 'current' : w.gone ? '路徑不存在' : ''`. It used to be
+  /// two `GbmBadge`s, the second one recoloured `removed` -- a pill with a
+  /// background, which is what the user reported as 「current 沒有底色、也不
+  /// 是 button」. The alert colour was never the badge's job: it belongs to
+  /// the row's name and its `alert-triangle` glyph, both of which say it
+  /// already.
+  String? _badgeFor(WorktreeInfo w) {
+    if (w.isMain) return 'current';
+    if (w.isPrunable) return '路徑不存在';
     return null;
   }
+
+  /// `color: {{ w.color }}` on the worktree's name, which the mockup defines
+  /// as `w.gone ? 'var(--warning)' : 'var(--text-primary)'`.
+  Color? _titleColorFor(BuildContext context, WorktreeInfo w) =>
+      w.isPrunable ? context.gbmColors.warning : null;
 
   /// 「main ↑2」. The arrow is gated on the *upstream*, not on the number:
   /// RefInfo.ahead is meaningless when upstream is empty

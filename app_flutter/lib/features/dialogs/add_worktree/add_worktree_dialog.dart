@@ -204,15 +204,36 @@ class _AddWorktreeDialogContentState
     return slash <= 0 ? trimmed : trimmed.substring(0, slash);
   }
 
-  /// D1's rule 4: `&lt;primary worktree's own dirname&gt;/worktrees/&lt;branch
-  /// name, `/` -&gt; `-`&gt;`. Null when there is nothing to base a default on yet
-  /// (no primary worktree known, or no branch picked/typed) -- the field
-  /// then simply starts empty rather than guessing.
+  /// The repository's own directory name, so two checkouts sitting side by
+  /// side under one parent do not propose the same worktree directory.
+  /// Empty only for a repository at the filesystem root, where the segment
+  /// is dropped rather than rendered as an empty one.
+  static String _basename(String path) {
+    final String trimmed = path.length > 1 && path.endsWith('/')
+        ? path.substring(0, path.length - 1)
+        : path;
+    final int slash = trimmed.lastIndexOf('/');
+    return slash < 0 ? trimmed : trimmed.substring(slash + 1);
+  }
+
+  /// D1's rule 4: `&lt;primary worktree's own dirname&gt;/worktrees/&lt;the
+  /// repository's own directory name&gt;/&lt;branch name, `/` -&gt; `-`&gt;`.
+  /// Null when there is nothing to base a default on yet (no primary
+  /// worktree known, or no branch picked/typed) -- the field then simply
+  /// starts empty rather than guessing.
+  ///
+  /// The repository segment is not decoration. Without it `~/code/gbm` and
+  /// `~/code/other` both default to `~/code/worktrees/main`, so whichever
+  /// repository the user opens second meets 「已存在且不是空的」 before it
+  /// has been touched -- the reported defect.
   String? _computeDefaultPath(List<WorktreeInfo> worktrees, String branchName) {
     if (branchName.isEmpty) return null;
     final String? primary = _primaryWorktreePath(worktrees);
     if (primary == null) return null;
-    return '${_dirname(primary)}/worktrees/${branchName.replaceAll('/', '-')}';
+    final String repo = _basename(primary);
+    final String leaf = branchName.replaceAll('/', '-');
+    final String root = '${_dirname(primary)}/worktrees';
+    return repo.isEmpty ? '$root/$leaf' : '$root/$repo/$leaf';
   }
 
   bool _pathExistsAndNonEmpty(String path) {

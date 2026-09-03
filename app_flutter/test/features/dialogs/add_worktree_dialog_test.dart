@@ -60,6 +60,26 @@ const WorktreeInfo _primary = WorktreeInfo(
   createdAt: null,
 );
 
+/// A primary worktree at an arbitrary path -- [WorktreeInfo] has no
+/// `copyWith`, and the collision test needs two repositories that differ in
+/// nothing but where they sit on disk.
+WorktreeInfo _primaryAt(String path) => WorktreeInfo(
+  path: path,
+  headOid: 'a1b2c3d',
+  branch: 'main',
+  isMain: true,
+  isBare: false,
+  isDetached: false,
+  isLocked: false,
+  lockReason: '',
+  isPrunable: false,
+  prunableReason: '',
+  isPrimary: true,
+  pendingChanges: null,
+  pendingCountState: WorktreePendingCountState.unmeasured,
+  createdAt: null,
+);
+
 const WorktreeInfo _linked = WorktreeInfo(
   path: '/src/wt/gbm-lfs',
   headOid: 'b2c3d4e',
@@ -328,7 +348,7 @@ void main() {
   });
 
   group('default path', () {
-    testWidgets('computed from the primary worktree\'s own dirname', (
+    testWidgets('carries the repository\'s own name, not only its parent', (
       tester,
     ) async {
       await _pump(tester);
@@ -337,7 +357,42 @@ void main() {
       final TextField pathField = tester.widget<TextField>(
         find.widgetWithText(TextField, '位置'),
       );
-      expect(pathField.controller?.text, '/src/worktrees/release-0.5');
+      expect(
+        pathField.controller?.text,
+        '/src/worktrees/git-branch-manager/release-0.5',
+      );
+    });
+
+    // The other half of the reported defect: two repositories checked out
+    // side by side under one parent both defaulted to
+    // `/src/worktrees/release-0.5`, so whichever the user opened second met
+    // 「已存在且不是空的」 before touching anything. The pair of tests is
+    // what pins that, deliberately rather than one test pumping twice --
+    // a second `pumpWidget` of the same dialog reuses the element, so its
+    // `State` (and with it `_pathController`) survives and answers with the
+    // *first* repository's path. That is the same State-reuse shape as the
+    // second Compare tab's spinner, and testing it here would be testing it.
+    testWidgets('a repository beside it gets a different default', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        state: _session(
+          worktrees: <WorktreeInfo>[
+            _primaryAt('/src/some-other-repo'),
+            _linked,
+          ],
+        ),
+      );
+      await _pick(tester, 'release/0.5');
+
+      final TextField pathField = tester.widget<TextField>(
+        find.widgetWithText(TextField, '位置'),
+      );
+      expect(
+        pathField.controller?.text,
+        '/src/worktrees/some-other-repo/release-0.5',
+      );
     });
 
     testWidgets('a manual edit stops the automatic default', (tester) async {

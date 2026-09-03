@@ -62,7 +62,7 @@ class _StashChangesDialogContentState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
-            'Message (optional)',
+            '訊息',
             style: TextStyle(
               fontSize: GbmTypography.textSm,
               color: colors.textSecondary,
@@ -72,7 +72,10 @@ class _StashChangesDialogContentState
           TextField(
             controller: _messageController,
             decoration: const InputDecoration(
-              hintText: 'WIP on main…',
+              // 「(optional)」 left the label, so the information it carried
+              // moves here rather than being dropped -- the spec states it as
+              // a hint: 「空白時使用預設的 WIP on <branch>」.
+              hintText: '空白時使用預設的 WIP on <branch>',
               isDense: true,
               border: OutlineInputBorder(),
             ),
@@ -84,7 +87,7 @@ class _StashChangesDialogContentState
             contentPadding: EdgeInsets.zero,
             controlAffinity: ListTileControlAffinity.leading,
             title: Text(
-              'Include untracked files',
+              '包含 untracked 檔案',
               style: TextStyle(
                 fontSize: GbmTypography.textSm,
                 color: colors.textPrimary,
@@ -99,7 +102,7 @@ class _StashChangesDialogContentState
             contentPadding: EdgeInsets.zero,
             controlAffinity: ListTileControlAffinity.leading,
             title: Text(
-              'Keep staged changes in the index',
+              '保留已 stage 的內容在工作區',
               style: TextStyle(
                 fontSize: GbmTypography.textSm,
                 color: colors.textPrimary,

@@ -78,7 +78,7 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
-            'Merge into $currentBranch',
+            '合入 $currentBranch',
             style: TextStyle(
               fontSize: GbmTypography.textSm,
               color: colors.textSecondary,
@@ -89,7 +89,7 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
             initialValue: _target,
             isExpanded: true,
             decoration: const InputDecoration(
-              hintText: 'Branch to merge from',
+              hintText: '來源分支',
               isDense: true,
               border: OutlineInputBorder(),
             ),
@@ -110,21 +110,24 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
               children: <Widget>[
                 _ModeOption(
                   mode: MergeMode.fastForwardOnly,
-                  label: 'Fast-forward only',
-                  description:
-                      'Fail unless the current branch can be fast-forwarded.',
+                  // Not the spec's second radio. `MergeMode.fastForwardOnly`
+                  // is `--ff-only`, which *fails* when a merge commit would be
+                  // needed; the spec's 「Fast-forward 可行時不建 commit」 is
+                  // plain `--ff`, a mode this app does not have. Transcribing
+                  // that wording onto this value would relabel the behaviour,
+                  // so the copy is composed in the spec's voice instead.
+                  label: '只允許 fast-forward',
+                  description: '無法 fast-forward 時直接失敗，不建 merge commit。',
                 ),
                 _ModeOption(
                   mode: MergeMode.noFastForward,
-                  label: 'No fast-forward',
-                  description:
-                      'Always create a merge commit, even if a fast-forward is possible.',
+                  label: 'Merge commit（保留分支形狀）',
+                  description: '即使可以 fast-forward，也一定建立 merge commit。',
                 ),
                 _ModeOption(
                   mode: MergeMode.squash,
-                  label: 'Squash',
-                  description:
-                      'Combine changes without recording a merge commit.',
+                  label: 'Squash 成一筆',
+                  description: '把變更併進來，但不記錄 merge commit。',
                 ),
               ],
             ),
@@ -135,7 +138,7 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
             enabled: _mode != MergeMode.squash,
             maxLines: 2,
             decoration: const InputDecoration(
-              hintText: 'Merge commit message (optional)',
+              hintText: 'Commit 訊息（可留空）',
               isDense: true,
               border: OutlineInputBorder(),
             ),
@@ -147,7 +150,7 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
             contentPadding: EdgeInsets.zero,
             controlAffinity: ListTileControlAffinity.leading,
             title: Text(
-              'Stash uncommitted changes first',
+              '先 stash 未提交的變更',
               style: TextStyle(
                 fontSize: GbmTypography.textSm,
                 color: colors.textPrimary,

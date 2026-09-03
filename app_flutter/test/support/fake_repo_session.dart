@@ -391,6 +391,31 @@ class FakeRepoSessionController extends RepoSessionController {
     commandLog.add(const FakeCommand('refreshWorktrees'));
   }
 
+  /// Recorded for the same reason [createBranch] above is: unoverridden this
+  /// hits the real null-session guard and logs nothing, so the Add worktree
+  /// dialog's submit path -- three different git operations depending on
+  /// [branch]/[createBranch] -- would be untestable.
+  @override
+  void addWorktree(
+    String path, {
+    String branch = '',
+    bool createBranch = false,
+    String newBranchName = '',
+    bool detach = false,
+    bool force = false,
+  }) {
+    commandLog.add(
+      FakeCommand('addWorktree', <String, Object?>{
+        'path': path,
+        'branch': branch,
+        'createBranch': createBranch,
+        'newBranchName': newBranchName,
+        'detach': detach,
+        'force': force,
+      }),
+    );
+  }
+
   /// Recorded because the panel's Remove button is otherwise untestable:
   /// unoverridden this returns at the null-session guard and logs nothing,
   /// so a test could not tell a dead button from a live one. The assertion

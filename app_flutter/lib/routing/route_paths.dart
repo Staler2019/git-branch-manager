@@ -61,6 +61,12 @@ abstract final class RoutePaths {
   static const String rebaseOntoDialog = '/repo/:repoId/dialogs/rebase-onto';
   static const String forcePushDialog = '/repo/:repoId/dialogs/force-push';
 
+  /// Not one of the 22 spec-listed repo-scoped dialogs -- the Worktrees
+  /// panel's own `Add worktree…` used to expand an inline form instead of
+  /// routing anywhere. A user-requested addition, like
+  /// [STRUCT-soft-wrap-preference], not a conformance item.
+  static const String addWorktreeDialog = '/repo/:repoId/dialogs/add-worktree';
+
   /// Multi-branch delete confirmation (spec page 13). Separate from
   /// [deleteBranchDialog], which is 05-B's single-branch flow with its own
   /// branch picker.
@@ -147,6 +153,8 @@ abstract final class RoutePaths {
       ).toString();
   static String checkoutDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/checkout';
+  static String addWorktreeDialogFor(String repoId) =>
+      '/repo/$repoId/dialogs/add-worktree';
 
   /// [branch] empty means "the current branch" -- the Branch menu and F2
   /// both leave it out; only the 05-B context menu names one.

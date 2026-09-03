@@ -82,7 +82,6 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
   final Map<String, _CountAnswer> _countAnswers = <String, _CountAnswer>{};
 
   String? _selectedPath;
-  bool _addExpanded = false;
   String _query = '';
 
   /// Rule 6's 耗時. Measures **mount to the first frame that has the list**
@@ -92,8 +91,6 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
   /// list already on screen, not a scan the user is waiting on.
   final Stopwatch _scanWatch = Stopwatch();
   int? _scanMs;
-  final TextEditingController _pathController = TextEditingController();
-  final TextEditingController _branchController = TextEditingController();
 
   @override
   void initState() {
@@ -104,13 +101,6 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
           .read(repoSessionProvider(widget.identity).notifier)
           .refreshWorktrees(),
     );
-  }
-
-  @override
-  void dispose() {
-    _pathController.dispose();
-    _branchController.dispose();
-    super.dispose();
   }
 
   RepoSessionController get _session =>
@@ -270,9 +260,13 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
       toolbar: PanelToolbarSpec(
         primary: <Widget>[
           GbmButton(
-            label: _addExpanded ? 'Cancel add' : 'Add worktree…',
+            label: 'Add worktree…',
             kind: GbmButtonKind.primary,
-            onPressed: () => setState(() => _addExpanded = !_addExpanded),
+            onPressed: () => context.push(
+              RoutePaths.addWorktreeDialogFor(
+                repoIdFor(widget.identity.workDir),
+              ),
+            ),
           ),
         ],
         maintenance: <Widget>[
@@ -313,35 +307,27 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
           gone: goneCount,
         ),
       ),
-      list: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          if (_addExpanded) _buildAddForm(),
-          Expanded(
-            child: visible.isEmpty
-                ? PanelEmptyList(
-                    message: worktrees.isEmpty
-                        ? 'No worktrees'
-                        : 'No worktree matches the filter',
-                  )
-                : ListView.builder(
-                    itemCount: visible.length,
-                    itemBuilder: (context, index) {
-                      final WorktreeInfo w = visible[index];
-                      return PanelListRow(
-                        title: w.path.split('/').last,
-                        subtitle: _describe(w),
-                        selected: w.path == _selectedPath,
-                        onTap: () => _select(w, metas),
-                        icon: _glyphFor(context, w),
-                        badge: _badgeFor(w),
-                        titleColor: _titleColorFor(context, w),
-                      );
-                    },
-                  ),
-          ),
-        ],
-      ),
+      list: visible.isEmpty
+          ? PanelEmptyList(
+              message: worktrees.isEmpty
+                  ? 'No worktrees'
+                  : 'No worktree matches the filter',
+            )
+          : ListView.builder(
+              itemCount: visible.length,
+              itemBuilder: (context, index) {
+                final WorktreeInfo w = visible[index];
+                return PanelListRow(
+                  title: w.path.split('/').last,
+                  subtitle: _describe(w),
+                  selected: w.path == _selectedPath,
+                  onTap: () => _select(w, metas),
+                  icon: _glyphFor(context, w),
+                  badge: _badgeFor(w),
+                  titleColor: _titleColorFor(context, w),
+                );
+              },
+            ),
       detail: selected == null
           ? const SizedBox.shrink()
           : _WorktreeDetail(
@@ -527,57 +513,6 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
     String two(int n) => n.toString().padLeft(2, '0');
     return '${when.year}-${two(when.month)}-${two(when.day)} '
         '${two(when.hour)}:${two(when.minute)}';
-  }
-
-  Widget _buildAddForm() {
-    return Padding(
-      padding: const EdgeInsets.all(GbmSpacing.space3),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          TextField(
-            controller: _pathController,
-            decoration: const InputDecoration(
-              hintText: 'New worktree path',
-              isDense: true,
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: GbmSpacing.space2),
-          TextField(
-            controller: _branchController,
-            decoration: const InputDecoration(
-              hintText: 'New branch name (empty checks out an existing one)',
-              isDense: true,
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: GbmSpacing.space2),
-          Align(
-            alignment: Alignment.centerRight,
-            child: GbmButton(
-              label: 'Create',
-              kind: GbmButtonKind.primary,
-              onPressed: () {
-                final String path = _pathController.text.trim();
-                if (path.isEmpty) return;
-                _session.addWorktree(
-                  path,
-                  createBranch: true,
-                  newBranchName: _branchController.text.trim(),
-                );
-                setState(() {
-                  _addExpanded = false;
-                  _pathController.clear();
-                  _branchController.clear();
-                });
-              },
-            ),
-          ),
-          const Divider(height: GbmSpacing.space4 * 2),
-        ],
-      ),
-    );
   }
 }
 

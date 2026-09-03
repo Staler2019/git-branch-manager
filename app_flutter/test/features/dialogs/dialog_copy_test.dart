@@ -65,12 +65,31 @@ final RepoSessionState _state = RepoSessionState(
   ),
 );
 
-Future<void> _pump(WidgetTester tester, Widget dialog) async {
+RepoSessionState _stateFor(String branchName) => RepoSessionState(
+  isOpen: true,
+  refs: RefSnapshot(
+    head: HeadInfo(
+      kind: HeadKind.branch,
+      branchName: branchName,
+      fullRef: 'refs/heads/$branchName',
+      target: 'aaaa',
+    ),
+    refs: <RefInfo>[_ref(branchName), _ref('feature/lane-allocator')],
+    refCountGuardTripped: false,
+    totalRefCount: 2,
+  ),
+);
+
+Future<void> _pump(
+  WidgetTester tester,
+  Widget dialog, {
+  String branchName = 'main',
+}) async {
   SharedPreferences.setMockInitialValues(<String, Object>{});
   final SharedPreferences prefs = await SharedPreferences.getInstance();
   final FakeRepoSessionController controller = FakeRepoSessionController(
     _identity,
-    _state,
+    branchName == 'main' ? _state : _stateFor(branchName),
   );
 
   final GoRouter router = GoRouter(
@@ -132,6 +151,27 @@ void main() {
         findsNothing,
         reason: 'an English field label left behind is the miss',
       );
+    });
+
+    // The Chinese copy is shorter than the English it replaced, and that
+    // alone took this dialog under the shell's height -- reverting the copy
+    // as a mutation threw `A RenderFlex overflowed by 11 pixels on the
+    // bottom`. Incidental is not fixed: a long branch name wraps 「合入 …」
+    // onto a second line and buys the 11px straight back.
+    //
+    // [FLU-renderflex-non-flex-first]: the Column's children are all
+    // non-flex, so nothing inside it can give way. [TEST-canvas-is-800x600]
+    // is why this is visible here at all -- the default canvas is the real
+    // window's order of size, and GbmDialogShell caps at 560.
+    testWidgets('a long branch name does not overflow the shell', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        const MergeDialogContent(identity: _identity),
+        branchName: 'feature/lane-allocator-colour-separation-window',
+      );
+      expect(tester.takeException(), isNull);
     });
   });
 

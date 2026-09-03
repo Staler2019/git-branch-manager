@@ -73,92 +73,104 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
                 },
         ),
       ],
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(
-            '合入 $currentBranch',
-            style: TextStyle(
-              fontSize: GbmTypography.textSm,
-              color: colors.textSecondary,
-            ),
-          ),
-          const SizedBox(height: GbmSpacing.space1),
-          DropdownButtonFormField<String>(
-            initialValue: _target,
-            isExpanded: true,
-            decoration: const InputDecoration(
-              hintText: '來源分支',
-              isDense: true,
-              border: OutlineInputBorder(),
-            ),
-            items: <DropdownMenuItem<String>>[
-              for (final branch in candidates)
-                DropdownMenuItem(
-                  value: branch.shortName,
-                  child: Text(branch.shortName),
-                ),
-            ],
-            onChanged: (value) => setState(() => _target = value),
-          ),
-          const SizedBox(height: GbmSpacing.space3),
-          RadioGroup<MergeMode>(
-            groupValue: _mode,
-            onChanged: (mode) => setState(() => _mode = mode ?? _mode),
-            child: const Column(
-              children: <Widget>[
-                _ModeOption(
-                  mode: MergeMode.fastForwardOnly,
-                  // Not the spec's second radio. `MergeMode.fastForwardOnly`
-                  // is `--ff-only`, which *fails* when a merge commit would be
-                  // needed; the spec's 「Fast-forward 可行時不建 commit」 is
-                  // plain `--ff`, a mode this app does not have. Transcribing
-                  // that wording onto this value would relabel the behaviour,
-                  // so the copy is composed in the spec's voice instead.
-                  label: '只允許 fast-forward',
-                  description: '無法 fast-forward 時直接失敗，不建 merge commit。',
-                ),
-                _ModeOption(
-                  mode: MergeMode.noFastForward,
-                  label: 'Merge commit（保留分支形狀）',
-                  description: '即使可以 fast-forward，也一定建立 merge commit。',
-                ),
-                _ModeOption(
-                  mode: MergeMode.squash,
-                  label: 'Squash 成一筆',
-                  description: '把變更併進來，但不記錄 merge commit。',
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: GbmSpacing.space3),
-          TextField(
-            controller: _messageController,
-            enabled: _mode != MergeMode.squash,
-            maxLines: 2,
-            decoration: const InputDecoration(
-              hintText: 'Commit 訊息（可留空）',
-              isDense: true,
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: GbmSpacing.space2),
-          CheckboxListTile(
-            value: _stashFirst,
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            controlAffinity: ListTileControlAffinity.leading,
-            title: Text(
-              '先 stash 未提交的變更',
+      // Scrolled, like Add worktree's, because the content genuinely exceeds
+      // GbmDialogShell's 560px cap: 「合入 <branch>」 wraps onto a second
+      // line for any branch name of ordinary length and the Column
+      // overflows. Every child here is non-flex, so nothing inside it can
+      // give way ([FLU-renderflex-non-flex-first]) -- an Expanded would only
+      // trade the overflow for a collapsed child.
+      //
+      // It was overflowing by 11px with the English copy too, unmeasured and
+      // untested; the shorter Chinese copy hid it by accident one commit ago.
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(
+              '合入 $currentBranch',
               style: TextStyle(
                 fontSize: GbmTypography.textSm,
-                color: colors.textPrimary,
+                color: colors.textSecondary,
               ),
             ),
-            onChanged: (value) => setState(() => _stashFirst = value ?? false),
-          ),
-        ],
+            const SizedBox(height: GbmSpacing.space1),
+            DropdownButtonFormField<String>(
+              initialValue: _target,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                hintText: '來源分支',
+                isDense: true,
+                border: OutlineInputBorder(),
+              ),
+              items: <DropdownMenuItem<String>>[
+                for (final branch in candidates)
+                  DropdownMenuItem(
+                    value: branch.shortName,
+                    child: Text(branch.shortName),
+                  ),
+              ],
+              onChanged: (value) => setState(() => _target = value),
+            ),
+            const SizedBox(height: GbmSpacing.space3),
+            RadioGroup<MergeMode>(
+              groupValue: _mode,
+              onChanged: (mode) => setState(() => _mode = mode ?? _mode),
+              child: const Column(
+                children: <Widget>[
+                  _ModeOption(
+                    mode: MergeMode.fastForwardOnly,
+                    // Not the spec's second radio. `MergeMode.fastForwardOnly`
+                    // is `--ff-only`, which *fails* when a merge commit would be
+                    // needed; the spec's 「Fast-forward 可行時不建 commit」 is
+                    // plain `--ff`, a mode this app does not have. Transcribing
+                    // that wording onto this value would relabel the behaviour,
+                    // so the copy is composed in the spec's voice instead.
+                    label: '只允許 fast-forward',
+                    description: '無法 fast-forward 時直接失敗，不建 merge commit。',
+                  ),
+                  _ModeOption(
+                    mode: MergeMode.noFastForward,
+                    label: 'Merge commit（保留分支形狀）',
+                    description: '即使可以 fast-forward，也一定建立 merge commit。',
+                  ),
+                  _ModeOption(
+                    mode: MergeMode.squash,
+                    label: 'Squash 成一筆',
+                    description: '把變更併進來，但不記錄 merge commit。',
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: GbmSpacing.space3),
+            TextField(
+              controller: _messageController,
+              enabled: _mode != MergeMode.squash,
+              maxLines: 2,
+              decoration: const InputDecoration(
+                hintText: 'Commit 訊息（可留空）',
+                isDense: true,
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: GbmSpacing.space2),
+            CheckboxListTile(
+              value: _stashFirst,
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              title: Text(
+                '先 stash 未提交的變更',
+                style: TextStyle(
+                  fontSize: GbmTypography.textSm,
+                  color: colors.textPrimary,
+                ),
+              ),
+              onChanged: (value) =>
+                  setState(() => _stashFirst = value ?? false),
+            ),
+          ],
+        ),
       ),
     );
   }

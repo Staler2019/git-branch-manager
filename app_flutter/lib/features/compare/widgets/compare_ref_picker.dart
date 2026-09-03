@@ -35,11 +35,19 @@ class CompareRefOption {
 /// page 12), plus freeform entry for any revision expression git accepts
 /// (a raw commit oid, `HEAD~3`, ...) that isn't in [options].
 ///
-/// A thin [Autocomplete] wrapper rather than a hand-rolled overlay --
-/// Autocomplete already gives keyboard navigation, filtering, and overlay
-/// positioning for free; only the field/options rendering is customized to
-/// carry [CompareRefOption.icon] and to accept freeform text on submit.
-class CompareRefPicker extends StatelessWidget {
+/// A thin [RawAutocomplete] wrapper rather than a hand-rolled overlay --
+/// it already gives keyboard navigation, filtering, and overlay positioning
+/// for free; only the field/options rendering is customized to carry
+/// [CompareRefOption.icon] and to accept freeform text on submit.
+///
+/// [RawAutocomplete] and not the [Autocomplete] convenience wrapper, and
+/// stateful and not stateless, for one reason: `Autocomplete.initialValue`
+/// is read once, when its own State is built, so nothing a later [value]
+/// says ever reaches the field. Swap exchanges the two refs and re-fetches,
+/// and both fields go on showing what they showed before -- the reported
+/// defect. Owning the controller here is what lets [didUpdateWidget] put
+/// the new value in it.
+class CompareRefPicker extends StatefulWidget {
   const CompareRefPicker({
     super.key,
     required this.options,
@@ -53,9 +61,22 @@ class CompareRefPicker extends StatelessWidget {
   final String? value;
   final ValueChanged<String?> onChanged;
 
+  @override
+  State<CompareRefPicker> createState() => _CompareRefPickerState();
+}
+
+class _CompareRefPickerState extends State<CompareRefPicker> {
+  late final TextEditingController _controller = TextEditingController(
+    text: _displayValue,
+  );
+  late final FocusNode _focusNode = FocusNode();
+
+  /// Null is Working Copy, and the text for it is the option's *label*, not
+  /// the value -- copying [CompareRefPicker.value] verbatim would blank the
+  /// field rather than name the side.
   String get _displayValue =>
-      value ??
-      options
+      widget.value ??
+      widget.options
           .firstWhere(
             (CompareRefOption o) => o.kind == CompareRefOptionKind.workingCopy,
             orElse: () => const CompareRefOption(
@@ -66,11 +87,31 @@ class CompareRefPicker extends StatelessWidget {
           .label;
 
   @override
+  void didUpdateWidget(CompareRefPicker oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Gated on `value`, never on the rendered text: typing does not change
+    // `value`, so an in-progress query is never clobbered from here.
+    if (widget.value == oldWidget.value) return;
+    final String next = _displayValue;
+    if (_controller.text != next) _controller.text = next;
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
+    final List<CompareRefOption> options = widget.options;
+    final ValueChanged<String?> onChanged = widget.onChanged;
 
-    return Autocomplete<CompareRefOption>(
-      initialValue: TextEditingValue(text: _displayValue),
+    return RawAutocomplete<CompareRefOption>(
+      textEditingController: _controller,
+      focusNode: _focusNode,
       displayStringForOption: (CompareRefOption option) => option.label,
       optionsBuilder: (TextEditingValue query) {
         if (query.text.isEmpty) return options;

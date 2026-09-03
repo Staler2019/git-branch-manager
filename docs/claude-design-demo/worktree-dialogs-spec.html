@@ -412,7 +412,8 @@ footer.colophon {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
-</style>
+    .strike { text-decoration: line-through; opacity: .55; font-weight: 600; }
+  </style>
 
 <div class="wrap">
 
@@ -935,16 +936,17 @@ what actually has to change under it.</pre>
   <section id="acceptance">
     <div class="sec-head"><span class="sec-num">07</span><h2>Acceptance</h2></div>
     <ul class="plain">
-      <li>Re-running section 01's sweep returns <b>0</b> CJK literals under <code>features/dialogs/</code>. That is the check that the ruling was applied everywhere, not only where it was reported.</li>
-      <li>A widget test pins <code>Source</code>, <code>Branch</code> and both radio labels, so the added group label cannot be quietly dropped later.</li>
-      <li>Existing <code>add_worktree</code> / <code>lock_worktree</code> / <code>remove_worktree</code> tests move to the new strings in the same commit. A finder still matching a Chinese label means a string was missed.</li>
+      <li><b class="strike">Re-running section 01's sweep returns 0 CJK literals under <code>features/dialogs/</code>.</b> <b>Corrected in place.</b> That sentence was written while the ruling was 「dialog 全英文」, and it survived the reversal to 「現在都是中文的，那就改成中文」 unchanged — so this page's own acceptance check demanded the opposite of its own section 03. A zero-CJK sweep is now a <em>failing</em> result for every element type except titles and primary buttons.</li>
+      <li>The sweep that replaces it is <b>per element, not per file</b>, because section 03's rule is: every <code>title:</code> and primary-button label under <code>features/dialogs/</code> is ASCII, and every field label, hint, warning and non-data option is not. One grep cannot express that, so it is two.</li>
+      <li>A widget test pins <code>來源</code>, <code>分支</code> and both radio labels, so the added group label cannot be quietly dropped later. <b class="strike">Source, Branch</b> — the English names were this page's earlier draft and are corrected here rather than left to be read as the target.</li>
+      <li>Existing <code>add_worktree</code> / <code>lock_worktree</code> / <code>remove_worktree</code> tests move to the new strings in the same commit. <b class="strike">A finder still matching a Chinese label means a string was missed.</b> Inverted by the same reversal: a finder still matching an <em>English</em> field label, hint or warning is the miss. A finder matching an English <em>title</em> or <em>primary button</em> is correct and must stay.</li>
       <li><code>integration_test/</code> is grepped for every changed label <b>and</b> for the <code>GbmActionId</code> / <code>GbmPanelKind</code> that reach these surfaces — per <code>[TEST-grep-misses-intent-driven-device-tests]</code>, a device test can arrive through an intent without naming any label.</li>
     </ul>
   </section>
 
   <footer class="colophon">
     <span>Tokens: <code>docs/design/tokens-reference.md</code></span>
-    <span>Companion: <code>docs/design/worktree-dialogs.md</code></span>
+    <span>Companion: none — an earlier Markdown draft was deleted rather than committed, so this page is the only spec</span>
     <span>Faces: Inter · JetBrains Mono — the app's own <code>fontUi</code> / <code>fontMono</code></span>
   </footer>
 </div>

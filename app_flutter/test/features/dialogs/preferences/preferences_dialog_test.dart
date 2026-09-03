@@ -15,6 +15,7 @@ import 'package:gbm_flutter/data/models/base_folder_record.dart';
 import 'package:gbm_flutter/data/models/repo_record.dart';
 import 'package:gbm_flutter/data/repositories/app_preferences_repository.dart';
 import 'package:gbm_flutter/data/repositories/discovery_repository.dart';
+import 'package:gbm_flutter/data/services/file_save_picker.dart';
 import 'package:gbm_flutter/features/dialogs/preferences/preferences_dialog.dart';
 import 'package:gbm_flutter/features/update/auto_update_check.dart';
 import 'package:gbm_flutter/routing/dialog_route.dart';
@@ -70,12 +71,37 @@ class _RecordingDiscoveryController extends StateNotifier<DiscoveryState>
   }
 }
 
+/// Records what it was asked and returns a canned directory (or none, to
+/// stand in for the user cancelling the native picker).
+class _FakePicker implements FileSavePicker {
+  _FakePicker({this.directory});
+
+  final String? directory;
+  int pickDirectoryCalls = 0;
+
+  @override
+  Future<String?> pickDirectory() async {
+    pickDirectoryCalls++;
+    return directory;
+  }
+
+  @override
+  Future<List<String>> openFiles({
+    List<String> extensions = const <String>[],
+  }) => throw UnimplementedError();
+
+  @override
+  Future<String?> saveFile({required String suggestedName}) =>
+      throw UnimplementedError();
+}
+
 Future<({ProviderContainer container, _RecordingDiscoveryController discovery})>
 _pump(
   WidgetTester tester, {
   List<BaseFolderRecord> folders = const <BaseFolderRecord>[],
   Map<String, Object> initialPrefs = const <String, Object>{},
   String section = 'Repository sources',
+  FileSavePicker? picker,
 }) async {
   SharedPreferences.setMockInitialValues(initialPrefs);
   final SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -87,6 +113,7 @@ _pump(
     overrides: <Override>[
       sharedPreferencesProvider.overrideWithValue(prefs),
       discoveryProvider.overrideWith((ref) => discovery),
+      fileSavePickerProvider.overrideWithValue(picker ?? _FakePicker()),
     ],
   );
   addTearDown(container.dispose);
@@ -405,6 +432,40 @@ void main() {
         findsOneWidget,
         reason: 'removing one recorded entry must not clear the others',
       );
+    });
+
+    testWidgets('browsing fills the "add folder" path field', (tester) async {
+      await _pump(tester, picker: _FakePicker(directory: '/picked/by/user'));
+
+      final Finder browse = find.text('瀏覽…');
+      await tester.ensureVisible(browse);
+      await tester.pumpAndSettle();
+      await tester.tap(browse);
+      await tester.pumpAndSettle();
+
+      final TextField pathField = tester.widget<TextField>(
+        find.byType(TextField).first,
+      );
+      expect(pathField.controller?.text, '/picked/by/user');
+    });
+
+    testWidgets('cancelling the native picker leaves the field untouched', (
+      tester,
+    ) async {
+      final _FakePicker picker = _FakePicker();
+      await _pump(tester, picker: picker);
+
+      final Finder browse = find.text('瀏覽…');
+      await tester.ensureVisible(browse);
+      await tester.pumpAndSettle();
+      await tester.tap(browse);
+      await tester.pumpAndSettle();
+
+      expect(picker.pickDirectoryCalls, 1);
+      final TextField pathField = tester.widget<TextField>(
+        find.byType(TextField).first,
+      );
+      expect(pathField.controller?.text, isEmpty);
     });
   });
 

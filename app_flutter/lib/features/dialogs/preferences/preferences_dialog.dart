@@ -11,6 +11,7 @@ import '../../../data/models/base_folder_record.dart';
 import '../../../data/repositories/app_preferences_repository.dart';
 import '../../../data/repositories/discovery_repository.dart';
 import '../../../data/repositories/recents_repository.dart';
+import '../../../data/services/file_save_picker.dart';
 import '../../../routing/route_paths.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/theme_mode_provider.dart';
@@ -458,15 +459,24 @@ class _RepositorySourcesSectionState
     super.dispose();
   }
 
-  /// Spec page 11 item 3's "Add folder…". A plain path field rather than a
-  /// native folder picker -- this app has no file-dialog plugin (see
-  /// pubspec.yaml), which is the one M1 limitation this control carries over
-  /// from the repository-list screen it used to live on.
+  /// Spec page 11 item 3's "Add folder…". Typing a path by hand still
+  /// works -- [_browse] below fills the same field rather than replacing it.
   void _addAndScan() {
     final String path = _pathController.text.trim();
     if (path.isEmpty) return;
     ref.read(discoveryProvider.notifier).addBaseFolderAndScan(path);
     _pathController.clear();
+  }
+
+  /// D5: the native folder picker `file_selector` already brought in for
+  /// 05-K's "Save this revision as…" and the patches/changed-files panels
+  /// ([FileSavePicker]) -- this field predates that dependency and was left
+  /// as a plain path text box, which is the same gap [_pathController]'s
+  /// counterpart in the Add-worktree dialog had.
+  Future<void> _browse() async {
+    final String? dir = await ref.read(fileSavePickerProvider).pickDirectory();
+    if (dir == null || !mounted) return;
+    setState(() => _pathController.text = dir);
   }
 
   @override
@@ -525,6 +535,13 @@ class _RepositorySourcesSectionState
                 ),
                 onSubmitted: (_) => _addAndScan(),
               ),
+            ),
+            const SizedBox(width: GbmSpacing.space2),
+            GbmButton(
+              label: '瀏覽…',
+              kind: GbmButtonKind.secondary,
+              icon: const Icon(Icons.folder_open_outlined),
+              onPressed: _browse,
             ),
             const SizedBox(width: GbmSpacing.space2),
             GbmButton(

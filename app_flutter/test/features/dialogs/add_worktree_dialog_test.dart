@@ -25,6 +25,7 @@ import 'package:gbm_flutter/data/models/ref_snapshot.dart';
 import 'package:gbm_flutter/data/models/worktree_info.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
+import 'package:gbm_flutter/data/services/file_save_picker.dart';
 import 'package:gbm_flutter/features/dialogs/add_worktree/add_worktree_dialog.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/theme_mode_provider.dart';
@@ -119,10 +120,35 @@ RepoSessionState _session({
   ),
 );
 
+/// Records what it was asked and returns a canned directory (or none, to
+/// stand in for the user cancelling the native picker).
+class _FakePicker implements FileSavePicker {
+  _FakePicker({this.directory});
+
+  final String? directory;
+  int pickDirectoryCalls = 0;
+
+  @override
+  Future<String?> pickDirectory() async {
+    pickDirectoryCalls++;
+    return directory;
+  }
+
+  @override
+  Future<List<String>> openFiles({
+    List<String> extensions = const <String>[],
+  }) => throw UnimplementedError();
+
+  @override
+  Future<String?> saveFile({required String suggestedName}) =>
+      throw UnimplementedError();
+}
+
 Future<FakeRepoSessionController> _pump(
   WidgetTester tester, {
   RepoSessionState? state,
   List<RouteBase> extraRoutes = const <RouteBase>[],
+  FileSavePicker? picker,
 }) async {
   SharedPreferences.setMockInitialValues(<String, Object>{});
   final SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -153,6 +179,7 @@ Future<FakeRepoSessionController> _pump(
       overrides: <Override>[
         sharedPreferencesProvider.overrideWithValue(prefs),
         repoSessionProvider(_identity).overrideWith((ref) => controller),
+        fileSavePickerProvider.overrideWithValue(picker ?? _FakePicker()),
       ],
       child: MaterialApp.router(
         theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
@@ -328,6 +355,51 @@ void main() {
         find.widgetWithText(TextField, '新分支名'),
       );
       expect(nameField.controller?.text, 'ignored-name');
+    });
+  });
+
+  group('browse button', () {
+    testWidgets('fills the path field from the native picker', (tester) async {
+      await _pump(tester, picker: _FakePicker(directory: '/picked/by/user'));
+      await _pick(tester, 'release/0.5');
+      await _ensureAndTap(tester, find.widgetWithText(GbmButton, '瀏覽…'));
+
+      final TextField pathField = tester.widget<TextField>(
+        find.widgetWithText(TextField, '位置'),
+      );
+      expect(pathField.controller?.text, '/picked/by/user');
+    });
+
+    testWidgets('a browsed path counts as manually edited', (tester) async {
+      await _pump(tester, picker: _FakePicker(directory: '/picked/by/user'));
+      await _pick(tester, 'release/0.5');
+      await _ensureAndTap(tester, find.widgetWithText(GbmButton, '瀏覽…'));
+      await _pick(tester, 'feature/lfs');
+
+      final TextField pathField = tester.widget<TextField>(
+        find.widgetWithText(TextField, '位置'),
+      );
+      expect(pathField.controller?.text, '/picked/by/user');
+    });
+
+    testWidgets('cancelling the native picker leaves the path untouched', (
+      tester,
+    ) async {
+      final _FakePicker picker = _FakePicker();
+      await _pump(tester, picker: picker);
+      await _pick(tester, 'release/0.5');
+      final String before = tester
+          .widget<TextField>(find.widgetWithText(TextField, '位置'))
+          .controller!
+          .text;
+
+      await _ensureAndTap(tester, find.widgetWithText(GbmButton, '瀏覽…'));
+
+      expect(picker.pickDirectoryCalls, 1);
+      final TextField pathField = tester.widget<TextField>(
+        find.widgetWithText(TextField, '位置'),
+      );
+      expect(pathField.controller?.text, before);
     });
   });
 

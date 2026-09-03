@@ -8,6 +8,7 @@ import '../../../data/models/ref_snapshot.dart';
 import '../../../data/models/worktree_info.dart';
 import '../../../data/repositories/repo_identity.dart';
 import '../../../data/repositories/repo_session_repository.dart';
+import '../../../data/services/file_save_picker.dart';
 import '../../../routing/app_router.dart';
 import '../../../routing/route_paths.dart';
 import '../../../theme/gbm_theme.dart';
@@ -107,6 +108,18 @@ class _AddWorktreeDialogContentState
 
   RepoSessionState get _session =>
       ref.read(repoSessionProvider(widget.identity));
+
+  /// D5: the same picker context 05-K's "Save this revision as…" and the
+  /// patches/changed-files panels already use, wired into a second field
+  /// that used to be a plain path text box with nothing beside it.
+  Future<void> _browsePath() async {
+    final String? dir = await ref.read(fileSavePickerProvider).pickDirectory();
+    if (dir == null || !mounted) return;
+    setState(() {
+      _pathController.text = dir;
+      _pathManuallyEdited = true;
+    });
+  }
 
   void _setSource(WorktreeSource? source) {
     if (source == null || source == _source) return;
@@ -388,14 +401,29 @@ class _AddWorktreeDialogContentState
               ),
             ),
             const SizedBox(height: GbmSpacing.space3),
-            TextField(
-              controller: _pathController,
-              onChanged: (_) => setState(() => _pathManuallyEdited = true),
-              decoration: const InputDecoration(
-                labelText: '位置',
-                isDense: true,
-                border: OutlineInputBorder(),
-              ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Expanded(
+                  child: TextField(
+                    controller: _pathController,
+                    onChanged: (_) =>
+                        setState(() => _pathManuallyEdited = true),
+                    decoration: const InputDecoration(
+                      labelText: '位置',
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: GbmSpacing.space2),
+                GbmButton(
+                  label: '瀏覽…',
+                  kind: GbmButtonKind.secondary,
+                  icon: const Icon(Icons.folder_open_outlined),
+                  onPressed: _browsePath,
+                ),
+              ],
             ),
             const SizedBox(height: GbmSpacing.space2),
             CheckboxListTile(

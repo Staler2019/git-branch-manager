@@ -20,8 +20,12 @@ import 'package:gbm_flutter/data/models/ref_snapshot.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/features/dialogs/cherry_pick/cherry_pick_dialog.dart';
+import 'package:gbm_flutter/features/dialogs/clean_untracked/clean_untracked_dialog.dart';
+import 'package:gbm_flutter/features/dialogs/create_tag/create_tag_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/merge/merge_dialog.dart';
+import 'package:gbm_flutter/features/dialogs/reset_branch/reset_branch_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/stash_changes/stash_changes_dialog.dart';
+import 'package:gbm_flutter/features/dialogs/undo_last/undo_last_dialog.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/theme_mode_provider.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
@@ -189,6 +193,103 @@ void main() {
         '不自動 commit（-n，套完停在工作區）',
         '先 stash 未提交的變更',
       ]);
+    });
+  });
+
+  group('Create Tag', () {
+    testWidgets('title and primary button stay English', (tester) async {
+      await _pump(tester, const CreateTagDialogContent(identity: _identity));
+      _expectAll(<String>['Create Tag', 'Create', 'Cancel']);
+    });
+
+    testWidgets('labels, options and hints are Chinese', (tester) async {
+      await _pump(tester, const CreateTagDialogContent(identity: _identity));
+      // The spec draws annotated/lightweight as a radio pair; this dialog
+      // derives it from whether the message is empty, so the spec's hint
+      // 「lightweight 時此欄停用並調暗」 describes a control that is not
+      // here. The copy says what this dialog actually does instead.
+      _expectAll(<String>[
+        '名稱',
+        '指向',
+        '留空表示 HEAD',
+        '訊息',
+        '留空則建立 lightweight tag',
+        '覆蓋同名的既有 tag（-f）',
+      ]);
+    });
+
+    testWidgets('does not overflow the shell', (tester) async {
+      await _pump(tester, const CreateTagDialogContent(identity: _identity));
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('Clean Untracked Files', () {
+    testWidgets('title stays English', (tester) async {
+      await _pump(
+        tester,
+        const CleanUntrackedDialogContent(identity: _identity),
+      );
+      _expectAll(<String>['Clean Untracked Files', 'Cancel']);
+    });
+
+    testWidgets('labels, options and the spec warning are Chinese', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        const CleanUntrackedDialogContent(identity: _identity),
+      );
+      _expectAll(<String>[
+        '包含被 gitignore 忽略的檔案（-x）',
+        '沒有可清除的檔案',
+        // Stated by the spec and previously said nowhere in the app. It is
+        // the half a user cannot infer from a Delete button.
+        '這是 git clean，直接從磁碟刪檔，不進回收筒。',
+      ]);
+    });
+
+    testWidgets('does not overflow the shell', (tester) async {
+      await _pump(
+        tester,
+        const CleanUntrackedDialogContent(identity: _identity),
+      );
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('Undo Last Operation', () {
+    testWidgets('title and primary button stay English', (tester) async {
+      await _pump(tester, const UndoLastDialogContent(identity: _identity));
+      _expectAll(<String>['Undo Last Operation', 'Undo', 'Cancel']);
+    });
+
+    testWidgets('the empty state is Chinese', (tester) async {
+      await _pump(tester, const UndoLastDialogContent(identity: _identity));
+      _expectAll(<String>['目前沒有可以復原的動作']);
+    });
+  });
+
+  group('Reset Branch', () {
+    testWidgets('title and primary button stay English', (tester) async {
+      await _pump(tester, const ResetBranchDialogContent(identity: _identity));
+      _expectAll(<String>['Reset Branch', 'Reset', 'Cancel']);
+    });
+
+    testWidgets('labels, options and hints are Chinese', (tester) async {
+      await _pump(tester, const ResetBranchDialogContent(identity: _identity));
+      _expectAll(<String>[
+        '重設到',
+        'branch、tag 或 commit',
+        'Soft — 保留檔案與 stage',
+        'Mixed — 保留檔案，取消 stage',
+        'Hard — 丟掉檔案變更',
+      ]);
+    });
+
+    testWidgets('does not overflow the shell', (tester) async {
+      await _pump(tester, const ResetBranchDialogContent(identity: _identity));
+      expect(tester.takeException(), isNull);
     });
   });
 

@@ -50,7 +50,7 @@ class UndoLastDialogContent extends ConsumerWidget {
         child: Center(
           child: last == null
               ? Text(
-                  'Nothing to undo yet',
+                  '目前沒有可以復原的動作',
                   style: TextStyle(color: colors.textTertiary),
                 )
               : Column(
@@ -58,7 +58,7 @@ class UndoLastDialogContent extends ConsumerWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     Text(
-                      'Undo this operation?',
+                      '上一個動作',
                       style: TextStyle(
                         fontSize: GbmTypography.textSm,
                         color: colors.textSecondary,
@@ -76,7 +76,7 @@ class UndoLastDialogContent extends ConsumerWidget {
                     if (last.branchBefore.isNotEmpty) ...<Widget>[
                       const SizedBox(height: GbmSpacing.space1),
                       Text(
-                        'Will restore ${last.branchBefore} @ ${last.headBefore.length > 7 ? last.headBefore.substring(0, 7) : last.headBefore}',
+                        '將還原到 ${last.branchBefore} @ ${last.headBefore.length > 7 ? last.headBefore.substring(0, 7) : last.headBefore}',
                         style: TextStyle(
                           fontSize: GbmTypography.textXs,
                           color: colors.textTertiary,

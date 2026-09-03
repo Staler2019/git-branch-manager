@@ -69,7 +69,7 @@ class _CreateTagDialogContentState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
-            'Tag name',
+            '名稱',
             style: TextStyle(
               fontSize: GbmTypography.textSm,
               color: colors.textSecondary,
@@ -87,7 +87,7 @@ class _CreateTagDialogContentState
           ),
           const SizedBox(height: GbmSpacing.space3),
           Text(
-            'Target (empty means HEAD)',
+            '指向',
             style: TextStyle(
               fontSize: GbmTypography.textSm,
               color: colors.textSecondary,
@@ -97,14 +97,14 @@ class _CreateTagDialogContentState
           TextField(
             controller: _targetController,
             decoration: const InputDecoration(
-              hintText: 'HEAD',
+              hintText: '留空表示 HEAD',
               isDense: true,
               border: OutlineInputBorder(),
             ),
           ),
           const SizedBox(height: GbmSpacing.space3),
           Text(
-            'Message (non-empty makes it annotated)',
+            '訊息',
             style: TextStyle(
               fontSize: GbmTypography.textSm,
               color: colors.textSecondary,
@@ -115,7 +115,7 @@ class _CreateTagDialogContentState
             controller: _messageController,
             maxLines: 2,
             decoration: const InputDecoration(
-              hintText: 'Release notes…',
+              hintText: '留空則建立 lightweight tag',
               isDense: true,
               border: OutlineInputBorder(),
             ),
@@ -127,7 +127,7 @@ class _CreateTagDialogContentState
             contentPadding: EdgeInsets.zero,
             controlAffinity: ListTileControlAffinity.leading,
             title: Text(
-              'Replace an existing tag with this name',
+              '覆蓋同名的既有 tag（-f）',
               style: TextStyle(
                 fontSize: GbmTypography.textSm,
                 color: colors.textPrimary,

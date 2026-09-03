@@ -3490,6 +3490,18 @@ TEST_F(RealRepoTest, ListsAddsLocksAndRemovesWorktrees) {
     auto blocked = submitAndWait(operations, makeRemoveWorktreeOperation(remove));
     EXPECT_FALSE(blocked.succeeded);
 
+    // ...and it must offer no recovery choice. `--force` cannot get past a
+    // lock -- measured, `remove` and `remove --force` fail identically and
+    // only `remove -f -f` succeeds -- and RemoveWorktreeRequest::force is a
+    // bool, so the second one cannot be sent at all. A "Remove anyway"
+    // choice here is a control that promises what the capi cannot do, which
+    // is the shape the deleted autoFetchPrune switch is recorded under.
+    //
+    // The dirty case does not need one either: the Remove worktree dialog
+    // asks for --force up front, so by the time an outcome comes back the
+    // decision has already been made.
+    EXPECT_TRUE(blocked.choices.empty()) << "a failed worktree removal must offer no force path";
+
     UnlockWorktreeRequest unlock;
     unlock.path = linkedPath;
     auto unlocked = submitAndWait(operations, makeUnlockWorktreeOperation(unlock));

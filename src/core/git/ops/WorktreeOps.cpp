@@ -215,22 +215,31 @@ public:
             return outcome;
         }
 
-        GitError error = std::move(result).error();
-        outcome.summary = error.message;
-
-        const bool dirtyOrLocked = error.detail.find("is dirty") != std::string::npos ||
-                                   error.detail.find("locked working tree") != std::string::npos ||
-                                   error.detail.find("contains modified") != std::string::npos;
-        if (dirtyOrLocked && !request_.force) {
-            outcome.choices.push_back(
-                {OperationChoice::Kind::ForceDiscard,
-                 "Remove anyway",
-                 "Any uncommitted changes in this worktree are permanently lost.",
-                 true});
-            outcome.choices.push_back(
-                {OperationChoice::Kind::Abort, "Cancel", "Leave the worktree in place.", false});
-        }
-        outcome.error = std::move(error);
+        // No recovery choices, deliberately, and this is the one operation
+        // that offers none.
+        //
+        // They were here and nothing ever read them: worktree removal rides
+        // GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, whose Dart handler reads
+        // only succeeded/error, while the handler that does read `choices`
+        // hangs off operationFinished and has arms for checkout and
+        // deleteBranch only. That made them an orphaned *producer* -- the
+        // direction "who calls this" cannot find.
+        //
+        // They are not merely unread, they are unofferable. `--force` cannot
+        // get past a lock (measured: `remove` and `remove --force` fail
+        // identically, only `remove -f -f` succeeds) and
+        // RemoveWorktreeRequest::force is a bool, so the second one cannot be
+        // sent -- a "Remove anyway" button here would promise what the capi
+        // cannot do. And the dirty case no longer needs one: the Remove
+        // worktree dialog asks for --force before dispatching, so by the time
+        // an outcome comes back the user has already decided.
+        //
+        // Wiring them up instead would mean a PendingOperationKind arm, a
+        // second Dart handler, and a button for the lock case that does not
+        // work. Deleting is the honest disposition; see the rules file's
+        // orphan-wiring entry, corrected in the same commit.
+        outcome.error = std::move(result).error();
+        outcome.summary = outcome.error->message;
         return outcome;
     }
 

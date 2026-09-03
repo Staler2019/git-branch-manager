@@ -19,10 +19,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
+import 'package:gbm_flutter/data/models/operation_choice.dart';
+import 'package:gbm_flutter/features/dialogs/checkout_recovery/checkout_recovery_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/cherry_pick/cherry_pick_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/clean_untracked/clean_untracked_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/create_tag/create_tag_dialog.dart';
+import 'package:gbm_flutter/features/dialogs/credential/credential_dialog.dart';
+import 'package:gbm_flutter/features/dialogs/delete_remote_branch/delete_remote_branch_dialog.dart';
+import 'package:gbm_flutter/features/dialogs/force_push/force_push_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/merge/merge_dialog.dart';
+import 'package:gbm_flutter/features/dialogs/prune_remote_branches/prune_remote_branches_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/reset_branch/reset_branch_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/stash_changes/stash_changes_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/undo_last/undo_last_dialog.dart';
@@ -88,12 +94,18 @@ Future<void> _pump(
   WidgetTester tester,
   Widget dialog, {
   String branchName = 'main',
+  List<OperationChoice> checkoutChoices = const <OperationChoice>[],
 }) async {
   SharedPreferences.setMockInitialValues(<String, Object>{});
   final SharedPreferences prefs = await SharedPreferences.getInstance();
+  final RepoSessionState base = branchName == 'main'
+      ? _state
+      : _stateFor(branchName);
   final FakeRepoSessionController controller = FakeRepoSessionController(
     _identity,
-    branchName == 'main' ? _state : _stateFor(branchName),
+    checkoutChoices.isEmpty
+        ? base
+        : base.copyWith(checkoutChoices: checkoutChoices),
   );
 
   final GoRouter router = GoRouter(
@@ -290,6 +302,135 @@ void main() {
     testWidgets('does not overflow the shell', (tester) async {
       await _pump(tester, const ResetBranchDialogContent(identity: _identity));
       expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('Force Push', () {
+    testWidgets('title and primary button stay English', (tester) async {
+      await _pump(tester, const ForcePushDialogContent(identity: _identity));
+      _expectAll(<String>['Force Push', 'Force push', 'Cancel']);
+    });
+
+    testWidgets('the body, the note and the opt-out are Chinese', (
+      tester,
+    ) async {
+      await _pump(tester, const ForcePushDialogContent(identity: _identity));
+      _expectAll(<String>['不會覆蓋遠端的任何 commit。', '不要再問']);
+      expect(
+        find.textContaining('使用 --force-with-lease 推送'),
+        findsOneWidget,
+        reason: 'the --force-with-lease explanation is a note, so Chinese',
+      );
+      expect(find.textContaining('has diverged from'), findsNothing);
+    });
+  });
+
+  group('Delete Remote Branch', () {
+    testWidgets('title and primary button stay English', (tester) async {
+      await _pump(
+        tester,
+        const DeleteRemoteBranchDialogContent(
+          identity: _identity,
+          remote: 'origin',
+          branch: 'wip/askpass',
+        ),
+      );
+      _expectAll(<String>[
+        'Delete Remote Branch',
+        'Delete remote branch',
+        'Cancel',
+      ]);
+    });
+
+    testWidgets('the notes are Chinese', (tester) async {
+      await _pump(
+        tester,
+        const DeleteRemoteBranchDialogContent(
+          identity: _identity,
+          remote: 'origin',
+          branch: 'wip/askpass',
+        ),
+      );
+      _expectAll(<String>['同名的本地分支不會被動到。', '其他人要等到下次 fetch 才會看不到這個分支。']);
+      // The heading is a RichText of five spans, so find.text cannot see it.
+      expect(
+        find.textContaining('刪除分支'),
+        findsOneWidget,
+        reason: 'the heading spans were reordered, not just translated',
+      );
+    });
+  });
+
+  group('Prune Remote Branches', () {
+    testWidgets('title stays English', (tester) async {
+      await _pump(
+        tester,
+        const PruneRemoteBranchesDialogContent(identity: _identity),
+      );
+      _expectAll(<String>['Prune Remote Branches', 'Cancel']);
+    });
+
+    testWidgets('says what it does and does not prune', (tester) async {
+      await _pump(
+        tester,
+        const PruneRemoteBranchesDialogContent(identity: _identity),
+      );
+      // The spec asks for this by position as well as by content: 「標題列下
+      // 方一行寫明這件事」. It draws the distinction that is the whole risk
+      // of the dialog, and the app stated it nowhere.
+      _expectAll(<String>[
+        '只清除遠端已經不存在的 tracking ref，不會刪掉遠端分支，也不會動到本地分支。',
+        '沒有設定任何 remote',
+      ]);
+    });
+  });
+
+  group('Credentials Required', () {
+    testWidgets('title and primary button stay English', (tester) async {
+      await _pump(tester, const CredentialDialogContent(identity: _identity));
+      _expectAll(<String>['Credentials Required', 'Submit', 'Cancel']);
+    });
+
+    testWidgets('the field label is the spec\'s', (tester) async {
+      await _pump(tester, const CredentialDialogContent(identity: _identity));
+      // Not obscured with no prompt, so this is the account field.
+      _expectAll(<String>['帳號']);
+      expect(find.text('Username'), findsNothing);
+    });
+  });
+
+  // Added only after a mutation check: reverting this dialog's copy reddened
+  // *nothing*, because the batch that changed it shipped without a test for
+  // it. A copy change no test can disagree with is not a covered change.
+  group('Checkout Blocked', () {
+    testWidgets('the explanation is Chinese, the choice buttons are not', (
+      tester,
+    ) async {
+      // The recovery buttons come from the core, and English is correct for
+      // them: §03 puts primary buttons at 26/0 English. Only the sentence
+      // the dialog writes for itself is copy this round owns.
+      await _pump(
+        tester,
+        const CheckoutRecoveryDialogContent(identity: _identity),
+        checkoutChoices: const <OperationChoice>[
+          OperationChoice(
+            kind: OperationChoiceKind.stashAndRetry,
+            label: 'Stash changes and switch',
+            explanation: 'Your changes are saved to a stash first.',
+            destructive: false,
+          ),
+        ],
+      );
+
+      _expectAll(<String>['Checkout Blocked', '這次 checkout 得先把未提交的變更挪開。']);
+      // findsWidgets, not findsOneWidget: this dialog draws each choice
+      // twice -- once as an action button and once as a row in the body
+      // list that carries its explanation.
+      expect(find.text('Stash changes and switch'), findsWidgets);
+      expect(
+        find.textContaining('needs uncommitted changes out of the way'),
+        findsNothing,
+      );
     });
   });
 

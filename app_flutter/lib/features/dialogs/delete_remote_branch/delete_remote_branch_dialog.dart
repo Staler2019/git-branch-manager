@@ -72,7 +72,7 @@ class DeleteRemoteBranchDialogContent extends ConsumerWidget {
         children: <Widget>[
           if (!valid)
             Text(
-              'No remote branch was specified.',
+              '沒有指定遠端分支。',
               style: TextStyle(
                 fontSize: GbmTypography.textSm,
                 color: colors.textTertiary,
@@ -87,7 +87,7 @@ class DeleteRemoteBranchDialogContent extends ConsumerWidget {
                   height: GbmTypography.leadingNormal,
                 ),
                 children: <InlineSpan>[
-                  const TextSpan(text: 'Delete the branch '),
+                  const TextSpan(text: '刪除分支 '),
                   TextSpan(
                     text: branch,
                     style: const TextStyle(
@@ -95,7 +95,7 @@ class DeleteRemoteBranchDialogContent extends ConsumerWidget {
                       fontWeight: GbmTypography.weightSemibold,
                     ),
                   ),
-                  const TextSpan(text: ' on the remote '),
+                  const TextSpan(text: '（在 remote '),
                   TextSpan(
                     text: remote,
                     style: const TextStyle(
@@ -103,13 +103,13 @@ class DeleteRemoteBranchDialogContent extends ConsumerWidget {
                       fontWeight: GbmTypography.weightSemibold,
                     ),
                   ),
-                  const TextSpan(text: '?'),
+                  const TextSpan(text: ' 上）？'),
                 ],
               ),
             ),
             const SizedBox(height: GbmSpacing.space2),
             Text(
-              'Your local branch of the same name is not touched.',
+              '同名的本地分支不會被動到。',
               style: TextStyle(
                 fontSize: GbmTypography.textSm,
                 color: colors.textSecondary,
@@ -117,7 +117,7 @@ class DeleteRemoteBranchDialogContent extends ConsumerWidget {
             ),
             const SizedBox(height: GbmSpacing.space1),
             Text(
-              'Other people keep seeing this branch until they fetch again.',
+              '其他人要等到下次 fetch 才會看不到這個分支。',
               style: TextStyle(
                 fontSize: GbmTypography.textXs,
                 color: colors.textTertiary,

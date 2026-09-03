@@ -139,6 +139,19 @@ class _PruneRemoteBranchesDialogContentState
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
+            // The spec asks for this line by position, not just by content:
+            // 「只清遠端已不存在的 tracking ref，不是刪遠端分支 — 標題列下方
+            // 一行寫明這件事」. The distinction it draws is the whole risk of
+            // the dialog, and nothing in the app stated it.
+            Text(
+              '只清除遠端已經不存在的 tracking ref，不會刪掉遠端分支，也不會動到本地分支。',
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                color: colors.textTertiary,
+                height: GbmTypography.leadingNormal,
+              ),
+            ),
+            const SizedBox(height: GbmSpacing.space2),
             if (remotes.length > 1)
               Padding(
                 padding: const EdgeInsets.only(bottom: GbmSpacing.space2),
@@ -161,7 +174,7 @@ class _PruneRemoteBranchesDialogContentState
               Expanded(
                 child: Center(
                   child: Text(
-                    'No remotes configured',
+                    '沒有設定任何 remote',
                     style: TextStyle(color: colors.textTertiary),
                   ),
                 ),
@@ -170,7 +183,7 @@ class _PruneRemoteBranchesDialogContentState
               Expanded(
                 child: Center(
                   child: Text(
-                    'Nothing to prune',
+                    '沒有需要清除的 tracking ref',
                     style: TextStyle(color: colors.textTertiary),
                   ),
                 ),

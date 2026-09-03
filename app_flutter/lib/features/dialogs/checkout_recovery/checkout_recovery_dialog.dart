@@ -103,7 +103,7 @@ class _CheckoutRecoveryDialogContentState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
-            'This checkout needs uncommitted changes out of the way first.',
+            '這次 checkout 得先把未提交的變更挪開。',
             style: TextStyle(
               fontSize: GbmTypography.textSm,
               color: colors.textSecondary,

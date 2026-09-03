@@ -159,5 +159,25 @@ TEST(WorktreeReadFlags, StagedWorkingTreeDiffDoesNotPayForThem) {
     EXPECT_FALSE(carriesNoFsmonitor(soleInvocationWith(runner, {"diff", "--cached"}, {})));
 }
 
+// The Compare tab's 「ref vs Working Copy」 side. `git diff <commit>` with no
+// `--cached` compares that commit against the **work tree**, so it refreshes
+// the index and takes `.git/index.lock` exactly as the unstaged pass above
+// does, and Session::requestCompareWithWorkingCopy posts it to the shared read
+// pool -- both halves of the rule, and it carried neither flag.
+//
+// The two capi tests that exercise this path (CompareApiTest) run against a
+// real repository with fsmonitor off, which is every CI machine, so they were
+// green throughout. Only an argv assertion can see it.
+TEST(WorktreeReadFlags, CommitVsWorkingTreeCarriesThem) {
+    FakeProcessRunner runner;
+    DiffService diffs(runner, testPaths());
+    ASSERT_TRUE(
+        diffs.commitVsWorkingTree(ObjectId::fromHex("1111111111111111111111111111111111111111"),
+                                  DiffOptions{},
+                                  CancellationToken{}));
+
+    EXPECT_TRUE(carriesNoFsmonitor(soleInvocationWith(runner, {"diff"}, {"--cached"})));
+}
+
 }  // namespace
 }  // namespace gbm

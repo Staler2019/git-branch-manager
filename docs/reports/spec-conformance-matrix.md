@@ -231,7 +231,7 @@ audit's plan flagged going in.
 |---|---|---|---|
 | Switch repository | 符合 | `repo_switcher_popover.dart` | Correctly a popover, not a modal dialog — matches spec's own note that this is deliberately lightweight, not one of the 33 modal dialog routes. |
 | Clone repository | 符合 (documented gap, iii) | — | Already recorded in CLAUDE.md: no `git init`/clone capi entry point exists; File → Clone repository… stays disabled by design. |
-| New branch | 符合 | `route_paths.dart: newBranchDialog` | Route exists. |
+| New branch | ~~符合~~ → **符合** (fixed, feat/p19-panel-template-conformance 第二輪) | `RoutePaths.newBranchDialog`, `features/dialogs/new_branch/`, `sidebar/widgets/branch_row_actions.dart` | **The old evidence was 「Route exists」, and that is exactly [SPEC-cell-names-capability]: the cell named a capability instead of asking whether the entry points reach it.** They did not. 05-B's `New branch from here…` called `promptText()` — a generic single-field 「Branch name」 box — so none of P17's four fields (名稱／從哪裡分出／建立後 checkout／同時 push 並設為 upstream) were reachable from the sidebar, and the start point the menu item's own name promises was invisible. Two further defects behind the same wall: the dialog's own start-point control was a three-way dropdown plus a free-text `TextField` with **no controller and no initialValue**, so a hash carried in from a commit row sat in `_startRef` while both boxes rendered empty (P17's field is a single 「從哪裡分出」 row — this deliberately overrules P06's dropdown wording, P17 being the 260820 revision); and `createBranch(setUpstream:, upstream:)` had taken both arguments since it was written with **zero** call sites passing them, which is P17's fourth checkbox absent by [CULT-orphan-wiring] rather than by decision. **Fixed**: 05-B pushes the real route with `startPoint`, the start point is a shared searchable `GbmRefPicker` (the same one Checkout uses), and the push-and-set-upstream checkbox is wired. |
 | **Rename branch** | **符合** (fixed, Tier 0c) | `RoutePaths.renameBranchDialog`, `features/dialogs/rename_branch/` | Built against **P13 section A**, the design added on 260820 — which is why this was deliberately deferred in Tier 0 rather than built blind (see issue #45's history). All three spec entry points now reach it: 05-B context menu (naming the clicked branch), Branch menu, and F2 (both falling back to HEAD). The classification was optimistic: `gbm_branch_rename` did exist, but P13's "遠端連帶處理" needed it extended with `renameRemote`/`remoteName`/`askpassDir` plus a `--unset-upstream` step, since `git branch -m` carries tracking config across. |
 | Delete branch | 符合 | `deleteBranchDialog` | — |
 | Checkout | 符合 | `checkoutDialog` | — |
@@ -652,6 +652,16 @@ code comment ([SPEC-correct-the-issue-in-place]).
 Read the same way, `PANELSPEC`'s other toolbar cells are action lists too, so
 each panel's destructive action moves to its detail action row without the
 cell counting as 缺少.
+
+**Placement was only half of it, and this section originally said nothing
+about the other half** (added in the round's second pass): `Remove
+worktree…` sat in the detail action row with the right style *and dispatched
+`removeWorktree()` straight off the press* — no confirmation of any kind for
+an action that removes a working directory from disk, despite the ellipsis
+and P17/P18's shared shell requiring a `danger` primary that restates the
+object. Now a real dialog ([UX-ellipsis-promises-a-dialog],
+[GIT-remove-locked-needs-two-forces]). `Lock` was the mirror case — it took a
+`reason` no caller ever passed — and is now `Lock…` with one.
 
 **Two toolbar entries are deliberately *not* treated as 破壞性**:
 `interactive-rebase`'s `Abort` and `bisect`'s `Reset`. Both restore a prior

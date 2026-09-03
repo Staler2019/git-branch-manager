@@ -215,3 +215,45 @@ Pin prefix `GIT-`. Format: [README.md](README.md).
   request identity — so match `GitError.argv` and consume one in-flight marker, exactly as the
   automatic *preview* suppressor does, so the user's own `Prune` button still reports its failures.
 - **Evidence**: [ledger: 十二個管理面板照 P19 樣板統一](../ledger/2026-09-02-feat-p19-panel-template-conformance.md)
+
+## [GIT-remove-locked-needs-two-forces] `git worktree remove --force` does nothing about a lock, and the capi cannot send the second `--force`
+
+- **Rule**: measured — on a *locked* worktree, `remove` and `remove --force` fail **identically**
+  (exit 128, same message); only `remove --force --force` succeeds (exit 0). git checks the lock
+  before it checks for uncommitted changes, so a single `--force` never reaches the dirty case at
+  all when a lock is present.
+- **Rule**: git's own error names both escapes verbatim: `cannot remove a locked working tree; use
+  'remove -f -f' to override or unlock first`.
+- **Consequence**: `gbm_worktree_remove()`'s `force` is an `int32_t` coerced to a `bool`, and
+  `RemoveWorktreeRequest::force` is a `bool` — **there is no way to send two**. So a checkbox or a
+  second confirmation offering to force through a lock is a control that promises what the command
+  cannot do, exactly the shape [REF-fetch-auto-prunes] records for the deleted `autoFetchPrune`
+  switch.
+- **Do**: offer no force path at all when locked; state the lock and point at `Unlock`, which is
+  git's other named escape and already a one-click action in the panel.
+- **Note**: **implementer's judgement under delegated authority, not user-ratified.** The design
+  offered two UI options and the measurement showed neither could be built honestly. A capi change
+  to a force *level* would reopen both; ask before assuming.
+- **Note**: a worktree whose path is already gone from disk answers `remove` with **exit 0** — git
+  just drops the administrative entry. So disabling `Remove` for a prunable worktree is a UI
+  routing choice (send them to Prune), **not** something git refuses.
+- **Evidence**: [ledger: Worktree 面板的五個回報](../ledger/2026-09-03-feat-p19-panel-template-conformance-review.md)
+
+## [GIT-primary-not-current-worktree] `isMain` is the worktree you are standing in; `isPrimary` is the repository's main one, and every gate must pick deliberately
+
+- **Rule**: they are the same row only when gbm is open on the primary worktree, which is the
+  common case and therefore the one every fixture defaults to.
+- **Rule**: git refuses two things on the *primary* worktree, both measured: `git worktree remove`
+  on it, and `git worktree lock`/`unlock` on it (`fatal: The main working tree cannot be locked or
+  unlocked`, exit 128). A **linked** worktree is removed and locked happily, including from inside
+  the session that is open on it.
+- **Consequence**: a gate spelled `isMain` inverts on a linked worktree — it refuses the row the
+  user is standing in and offers the primary one. Both the Remove and the Lock/Unlock buttons
+  shipped that way, five lines apart.
+- **Do**: **a fixture where the two coincide cannot see this at all.** The test that can is one
+  holding a `isPrimary && !isMain` row *and* a `isMain && !isPrimary` row at once.
+- **Do**: when you fix one instance of a shape like this, **grep the neighbours before the
+  comment you just wrote goes stale** — the second instance here was found only because a later
+  commit happened to rewrite that button anyway. [CULT-scrutinise-the-comment] runs
+  comment → bug; this is the reverse direction, fixed bug → unfixed twin.
+- **Evidence**: [ledger: Worktree 面板的五個回報](../ledger/2026-09-03-feat-p19-panel-template-conformance-review.md)

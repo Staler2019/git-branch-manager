@@ -330,3 +330,32 @@ part of the condition — a filter hiding a row does not make the summary untrue
 未提交 / 虛擬 / uncommitted / 工作區) and `spec_logic.js`'s own History mock starts
 at a real commit. This is a user-requested addition like
 [STRUCT-soft-wrap-preference], not a conformance item.
+
+## [STRUCT-worktrees-tab-is-pinned] The Worktrees panel is a seeded, close-refusing tab — not a third fixed tab
+
+- **Rule**: `GbmPanelKind.isPinned` is true for `manageWorktrees` and nothing else
+  (使用者裁定; eleven pinned tabs would fill the strip, and **#62**'s TabRow overflow is open).
+  `PanelTabsNotifier`'s constructor seeds it **through `open()`**, so the seeded tab is
+  indistinguishable from a user-opened one — same id counter, and `Tools → Worktrees…` focuses it
+  through the singleton dedupe that already exists rather than needing a second code path.
+- **Rule**: doing it this way reuses the whole P19 round unchanged — the route, the panel shell,
+  [FLU-storage-id-not-tab-id]'s `panelStorageId()`, the per-tab scroll and splitter memory — with
+  **not one line of the route tree touched**. A third fixed tab would need a second copy of
+  `PanelPage`.
+- **Rule**: it costs nothing at startup. A tab is a strip entry; `PanelPage` mounts only once
+  something navigates to it, so `refreshWorktrees()` and the per-worktree pending counts still wait
+  for the user to look.
+- **Do**: the refusal lives in `PanelTabsNotifier.close()` and **only** there
+  ([CULT-single-source-of-truth]) — `TabRow` draws no ⨯ and `PanelPage`'s Ctrl/Cmd+W returns early,
+  but a third caller added later gets the refusal without having to remember it.
+- **Do**: `PanelPage._closeThisTab` returns before **both** the navigation and the close. Keeping
+  the navigation would send the user to History and leave the tab behind — half an action, worse
+  than none, and it is the *route* half of that test which catches the regression.
+- **Rule**: the ⨯ is **dropped, not drawn-and-disabled** — a deliberate departure from
+  [FLU-menu-enabled-is-visual-only]'s 「隱藏會讓人以為功能不存在」, which assumes the function
+  exists and is merely unavailable. Here it does not exist, and a dead ⨯ invites the click it will
+  not honour.
+- **Note**: **no spec entry.** P14's `IAMAP` puts manage-worktrees on the tab carrier and says
+  nothing about permanence. Same category as [STRUCT-soft-wrap-preference] — a user-requested
+  addition, not a conformance item.
+- **Evidence**: [ledger: Worktree 面板的五個回報](../ledger/2026-09-03-feat-p19-panel-template-conformance-review.md)

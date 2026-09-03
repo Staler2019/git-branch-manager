@@ -62,6 +62,21 @@ Set by the user, not derived from the code — they outrank convenience every ti
   `ParsedDiff.truncated` was serialized by `JsonCodec`, decoded by `ParsedDiff.fromJson`, and taken
   as a `DiffPage` constructor field — with no reader anywhere, so a diff refused for its size drew
   the same 「No changes」 as a file with nothing in it. Now wired; see [CPP-parse-refuses-over-cap].
+- **Consequence**: the tenth and eleventh were **parameters a feature was waiting on**, and each
+  was the whole of a reported gap: `FileSavePicker.pickDirectory()` existed with three callers
+  while two folder fields stayed plain text boxes, and `createBranch(setUpstream:)` /
+  `lockWorktree(reason:)` had taken their argument since they were written with **zero** call sites
+  passing one — so P17's checkbox was absent and the worktree detail pane's 「鎖定原因」 row was
+  permanently empty. All three are wired now.
+- **Consequence**: the twelfth runs the **other way — an orphaned producer**, and is still open.
+  `RemoveWorktreeOperation` pushes two `OperationChoice`s on failure and `JsonCodec` serializes
+  them, but nothing reads them: worktree removal rides `workingCopyOperationFinished`, whose Dart
+  handler reads only `succeeded`/`error`, while the handler that *does* read `choices` hangs off
+  `operationFinished` and has arms for `checkout`/`deleteBranch` only —
+  `PendingOperationKind` has no worktree arm at all.
+- **Do**: **grep both directions.** Eight of the twelve were consumers with no producer or callers;
+  the ninth and twelfth were producers with no reader, and a producer-side orphan is invisible to
+  「who calls this」.
 
 ## [CULT-reference-impl-not-orphan] Not every uncalled function is an orphan
 

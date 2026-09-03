@@ -67,6 +67,11 @@ abstract final class RoutePaths {
   /// [STRUCT-soft-wrap-preference], not a conformance item.
   static const String addWorktreeDialog = '/repo/:repoId/dialogs/add-worktree';
 
+  /// D2's `Remove worktree…` -- the same panel dispatched straight to
+  /// `removeWorktree()` with no confirmation at all before this.
+  static const String removeWorktreeDialog =
+      '/repo/:repoId/dialogs/remove-worktree';
+
   /// Multi-branch delete confirmation (spec page 13). Separate from
   /// [deleteBranchDialog], which is 05-B's single-branch flow with its own
   /// branch picker.
@@ -155,6 +160,17 @@ abstract final class RoutePaths {
       '/repo/$repoId/dialogs/checkout';
   static String addWorktreeDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/add-worktree';
+
+  /// A worktree path may itself contain `/`, so it travels as a query
+  /// parameter -- the same reason branch names do in
+  /// [deleteBranchDialogFor] below.
+  static String removeWorktreeDialogFor(
+    String repoId, {
+    required String path,
+  }) => Uri(
+    path: '/repo/$repoId/dialogs/remove-worktree',
+    queryParameters: <String, String>{'path': path},
+  ).toString();
 
   /// [branch] empty means "the current branch" -- the Branch menu and F2
   /// both leave it out; only the 05-B context menu names one.

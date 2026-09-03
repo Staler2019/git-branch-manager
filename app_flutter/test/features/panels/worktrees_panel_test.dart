@@ -777,6 +777,25 @@ void main() {
       expect(_removeGate(tester), 'disabled');
     });
 
+    // D2's "notApplicable -> 路徑本來就不在，改走 Prune，這張不會開" -- git
+    // itself would accept `worktree remove` on a gone path (measured: exit
+    // 0, it just drops the administrative entry), so this is a UI routing
+    // choice rather than something git refuses. Prune already does the same
+    // thing, in the background, without a confirmation dialog.
+    testWidgets('Remove stays disabled for a prunable worktree', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        worktrees: <WorktreeInfo>[_main, _wt(prunable: true)],
+      );
+
+      await tester.tap(find.text('gbm-lfs'));
+      await tester.pumpAndSettle();
+
+      expect(_removeGate(tester), 'disabled');
+    });
+
     // The case the gate used to get backwards, and the one no fixture here
     // could express while `isMain` was doing both jobs: gbm opened on a
     // *linked* worktree. `isMain` marks the linked one (it is "current"),
@@ -842,23 +861,46 @@ void main() {
       },
     );
 
-    testWidgets('Remove worktree… dispatches for a non-primary worktree', (
-      tester,
-    ) async {
-      final PumpedPanel pumped = await _pump(tester);
+    // D2: this used to dispatch removeWorktree() straight off the tap, with
+    // no confirmation at all. Two `context.push` calls elsewhere in this
+    // file are indistinguishable by `onPressed != null`
+    // ([TEST-fixture-cannot-disagree] #5), so the destination is what is
+    // asserted, via a sentinel route -- same idiom as "Switch to" above.
+    testWidgets(
+      'Remove worktree… opens the confirmation dialog for that path',
+      (tester) async {
+        final PumpedPanel pumped = await _pump(
+          tester,
+          extraRoutes: <RouteBase>[
+            // The real destination is RoutePaths.removeWorktreeDialogFor(),
+            // '/repo/:repoId/dialogs/remove-worktree?path=...'. Spelled out
+            // rather than built from the helper, so a change to the helper
+            // reddens here instead of quietly agreeing with itself.
+            GoRoute(
+              path: '/repo/:repoId/dialogs/remove-worktree',
+              builder: (_, state) =>
+                  Text('REMOVE:${state.uri.queryParameters['path']}'),
+            ),
+          ],
+        );
 
-      await tester.tap(find.text('gbm-lfs'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Remove worktree…'));
-      await tester.pumpAndSettle();
+        await tester.tap(find.text('gbm-lfs'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Remove worktree…'));
+        await tester.pumpAndSettle();
 
-      expect(
-        pumped.fake.commandLog
-            .where((FakeCommand c) => c.name == 'removeWorktree')
-            .length,
-        1,
-      );
-    });
+        expect(find.text('REMOVE:${_locked.path}'), findsOneWidget);
+        expect(
+          pumped.fake.commandLog
+              .where((FakeCommand c) => c.name == 'removeWorktree')
+              .length,
+          0,
+          reason:
+              'the panel only navigates now -- the dialog dispatches on '
+              'its own confirm, not the panel on tap',
+        );
+      },
+    );
 
     testWidgets('an empty repository shows an empty-list message', (
       tester,

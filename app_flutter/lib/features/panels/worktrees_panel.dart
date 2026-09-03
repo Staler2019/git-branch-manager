@@ -373,15 +373,25 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
                 // and this button used to refuse the row you are standing in
                 // (git removes it happily) while offering the repository's
                 // main one (git refuses).
+                //
+                // Also gated on !isPrunable -- D2's own "notApplicable ->
+                // 路徑本來就不在，改走 Prune，這張不會開". Measured: git
+                // itself accepts `worktree remove` on a path that is
+                // already gone (it just drops the administrative entry,
+                // exit 0), so this is a UI consistency choice, not
+                // something git refuses -- Prune already does exactly
+                // that, in the background, without asking.
                 GbmButton(
                   label: 'Remove worktree…',
                   kind: GbmButtonKind.danger,
-                  onPressed: selected.isPrimary
+                  onPressed: selected.isPrimary || selected.isPrunable
                       ? null
-                      : () {
-                          _session.removeWorktree(selected.path);
-                          setState(() => _selectedPath = null);
-                        },
+                      : () => context.push(
+                          RoutePaths.removeWorktreeDialogFor(
+                            repoIdFor(widget.identity.workDir),
+                            path: selected.path,
+                          ),
+                        ),
                 ),
               ],
             ),

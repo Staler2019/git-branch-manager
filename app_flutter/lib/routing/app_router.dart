@@ -29,6 +29,7 @@ import '../features/dialogs/new_branch/new_branch_dialog.dart';
 import '../features/dialogs/preferences/preferences_dialog.dart';
 import '../features/dialogs/prune_remote_branches/prune_remote_branches_dialog.dart';
 import '../features/dialogs/rebase_onto/rebase_onto_dialog.dart';
+import '../features/dialogs/remove_worktree/remove_worktree_dialog.dart';
 import '../features/dialogs/rename_branch/rename_branch_dialog.dart';
 import '../features/dialogs/repository_settings/repository_settings_dialog.dart';
 import '../features/dialogs/reset_branch/reset_branch_dialog.dart';
@@ -290,6 +291,16 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
             state.pathParameters['repoId']!,
           );
           return AddWorktreeDialogContent(identity: identity);
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.removeWorktreeDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
+          final String path = state.uri.queryParameters['path'] ?? '';
+          return RemoveWorktreeDialogContent(identity: identity, path: path);
         },
       ),
       dialogRoute(

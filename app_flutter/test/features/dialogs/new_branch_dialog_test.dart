@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
+import 'package:gbm_flutter/data/models/remote_info.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/features/dialogs/new_branch/new_branch_dialog.dart';
@@ -51,7 +52,10 @@ RefInfo _ref(String shortName, RefKind kind) => RefInfo(
   worktreePath: '',
 );
 
-RepoSessionState _session({String head = 'main'}) => RepoSessionState(
+RepoSessionState _session({
+  String head = 'main',
+  List<RemoteInfo> remotes = const <RemoteInfo>[],
+}) => RepoSessionState(
   isOpen: true,
   refs: RefSnapshot(
     head: HeadInfo(
@@ -69,6 +73,18 @@ RepoSessionState _session({String head = 'main'}) => RepoSessionState(
     refCountGuardTripped: false,
     totalRefCount: 4,
   ),
+  remotes: remotes,
+);
+
+const RemoteInfo _origin = RemoteInfo(
+  name: 'origin',
+  fetchUrl: 'git@example.com:x/y.git',
+  pushUrl: 'git@example.com:x/y.git',
+);
+const RemoteInfo _upstream = RemoteInfo(
+  name: 'upstream',
+  fetchUrl: 'git@example.com:a/b.git',
+  pushUrl: 'git@example.com:a/b.git',
 );
 
 Future<FakeRepoSessionController> _pump(
@@ -302,6 +318,105 @@ void main() {
       // Two TextFields: the branch name and the picker's own search. A third
       // is the old free-text start-point box, the one with no controller.
       expect(find.byType(TextField), findsExactly(2));
+    });
+  });
+
+  group('push and set upstream', () {
+    // `RepoSessionState.remotes` is not populated at session open
+    // (`RepoSessionController._open()` never calls `refreshRemotes()`), so
+    // the dialog has to ask for it itself, the same way the manage-remotes
+    // panel does in its own initState.
+    testWidgets('the dialog asks for remotes on mount', (tester) async {
+      final FakeRepoSessionController fake = await _pump(tester);
+      expect(
+        fake.commandLog.any((FakeCommand c) => c.name == 'refreshRemotes'),
+        isTrue,
+      );
+    });
+
+    testWidgets('with no remote configured, the checkbox is absent', (
+      tester,
+    ) async {
+      await _pump(tester, state: _session(remotes: const <RemoteInfo>[]));
+      expect(find.text('Push and set as upstream'), findsNothing);
+    });
+
+    // Ambiguous, not absent: `soleRemoteName()`'s established rule
+    // (`branch_bulk_actions.dart`) is "none or several" both decline to
+    // guess, and this dialog reuses that rule rather than inventing a
+    // second one.
+    testWidgets('with two remotes configured, the checkbox is absent', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        state: _session(remotes: const <RemoteInfo>[_origin, _upstream]),
+      );
+      expect(find.text('Push and set as upstream'), findsNothing);
+    });
+
+    testWidgets('with exactly one remote, the checkbox names it', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        state: _session(remotes: const <RemoteInfo>[_origin]),
+      );
+      expect(find.textContaining('origin'), findsWidgets);
+    });
+
+    testWidgets('unchecked by default', (tester) async {
+      final FakeRepoSessionController fake = await _pump(
+        tester,
+        state: _session(remotes: const <RemoteInfo>[_origin]),
+      );
+      await _name(tester, 'feature/x');
+      await _create(tester);
+
+      expect(
+        fake.commandLog.any((FakeCommand c) => c.name == 'pushChanges'),
+        isFalse,
+      );
+    });
+
+    testWidgets('checking it pushes the new branch with setUpstream', (
+      tester,
+    ) async {
+      final FakeRepoSessionController fake = await _pump(
+        tester,
+        state: _session(remotes: const <RemoteInfo>[_origin]),
+      );
+      await _name(tester, 'feature/x');
+      await tester.tap(find.text('Push and set as upstream'));
+      await tester.pumpAndSettle();
+      await _create(tester);
+
+      final FakeCommand push = fake.commandLog.singleWhere(
+        (FakeCommand c) => c.name == 'pushChanges',
+      );
+      expect(push.args['remoteName'], 'origin');
+      expect(push.args['branches'], <String>['feature/x']);
+      expect(push.args['setUpstream'], isTrue);
+    });
+
+    // createBranch's own setUpstream/upstream params stay unused by this
+    // dialog on purpose -- they run `git branch --track <upstream>`, which
+    // needs the remote-tracking ref to already exist. A first push has no
+    // such ref yet, so that path is the wrong tool; pushChanges'
+    // --set-upstream is what actually publishes the branch.
+    testWidgets('createBranch itself is dispatched with setUpstream false', (
+      tester,
+    ) async {
+      final FakeRepoSessionController fake = await _pump(
+        tester,
+        state: _session(remotes: const <RemoteInfo>[_origin]),
+      );
+      await _name(tester, 'feature/x');
+      await tester.tap(find.text('Push and set as upstream'));
+      await tester.pumpAndSettle();
+      await _create(tester);
+
+      expect(_created(fake).args['setUpstream'], isFalse);
     });
   });
 }

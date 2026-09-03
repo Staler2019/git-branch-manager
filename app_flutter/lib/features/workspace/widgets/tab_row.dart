@@ -22,9 +22,12 @@ WorkspaceTab compareWorkspaceTab(CompareTabSpec spec, String repoId) {
   );
 }
 
-/// Builds the [WorkspaceTab] a [PanelTabSpec] renders as -- rendered after
-/// the Compare tabs so the strip reads fixed -> Compare -> panels in the
-/// order each was opened.
+/// Builds the [WorkspaceTab] a [PanelTabSpec] renders as.
+///
+/// Position on the strip is decided by [WorkspaceTab.closable], not by the
+/// order these builders are called in: `build` puts every non-closable tab
+/// first, so a pinned panel sits with the fixed tabs and the closable ones
+/// (Compare, unpinned panels) follow in the order each was opened.
 ///
 /// Closable unless the panel is pinned (D7's 「無關閉鈕」): the ⨯ is dropped
 /// rather than drawn-and-disabled, which is the one place this codebase
@@ -116,22 +119,44 @@ class TabRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
     final String location = GoRouterState.of(context).uri.toString();
+    // One list of (tab, id) pairs, then partitioned so every non-closable
+    // tab precedes every closable one -- 使用者裁定「這種可關閉 tab 應該都
+    // 要在右側才對」. Opening a Compare tab used to insert it ahead of the
+    // panel tabs, which shoved the pinned Worktrees tab rightwards.
+    //
+    // The predicate is `WorkspaceTab.closable`, i.e. the very field the ⨯
+    // reads, so "can this be closed" and "which side of the strip is it on"
+    // cannot drift apart ([CULT-single-source-of-truth]).
+    //
+    // Built as pairs rather than as two parallel lists on purpose: the id
+    // list used to be padded with two leading nulls to stay index-aligned
+    // with `tabs`, so any reordering was a two-place edit and getting one
+    // of them wrong hands a panel id to the Compare notifier.
+    final List<({WorkspaceTab tab, String? id})> all =
+        <({WorkspaceTab tab, String? id})>[
+          for (final WorkspaceTab tab in defaultWorkspaceTabs(
+            repoId,
+            pendingChangeCount: pendingChangeCount,
+          ))
+            (tab: tab, id: null),
+          for (final CompareTabSpec spec in compareTabs)
+            (tab: compareWorkspaceTab(spec, repoId), id: spec.id),
+          for (final PanelTabSpec spec in panelTabs)
+            (tab: panelWorkspaceTab(spec, repoId), id: spec.id),
+        ];
+    // Two `where` passes rather than a sort: `List.sort` is not documented
+    // stable, and the relative order *within* each group is what keeps tabs
+    // sitting where the user opened them.
+    final List<({WorkspaceTab tab, String? id})> ordered =
+        <({WorkspaceTab tab, String? id})>[
+          ...all.where((({WorkspaceTab tab, String? id}) e) => !e.tab.closable),
+          ...all.where((({WorkspaceTab tab, String? id}) e) => e.tab.closable),
+        ];
     final List<WorkspaceTab> tabs = <WorkspaceTab>[
-      ...defaultWorkspaceTabs(repoId, pendingChangeCount: pendingChangeCount),
-      for (final CompareTabSpec spec in compareTabs)
-        compareWorkspaceTab(spec, repoId),
-      for (final PanelTabSpec spec in panelTabs)
-        panelWorkspaceTab(spec, repoId),
+      for (final ({WorkspaceTab tab, String? id}) e in ordered) e.tab,
     ];
-    // Fixed tabs (History, Working Copy) have no backing spec -- only
-    // entries from `compareTabs` do, in the same order they were appended
-    // above, so this pads the front with two nulls to keep `tabs`/`tabIds`
-    // index-aligned without re-deriving which tab is which from its route.
     final List<String?> tabIds = <String?>[
-      null,
-      null,
-      for (final CompareTabSpec spec in compareTabs) spec.id,
-      for (final PanelTabSpec spec in panelTabs) spec.id,
+      for (final ({WorkspaceTab tab, String? id}) e in ordered) e.id,
     ];
     final int activeIndex = activeWorkspaceTabIndex(tabs, location);
 

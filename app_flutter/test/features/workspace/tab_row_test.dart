@@ -379,5 +379,45 @@ void main() {
         reason: 'the one ⨯ on the strip belongs to the unpinned tab',
       );
     });
+
+    // 使用者裁定「這種可關閉 tab 應該都要在右側才對」: opening a Compare tab
+    // used to insert it *before* the panel tabs, shoving the pinned Worktrees
+    // tab rightwards. The partition is on `WorkspaceTab.closable` -- the same
+    // field the ⨯ already reads ([CULT-single-source-of-truth]) -- so a tab
+    // that cannot be closed can never be displaced by one that can.
+    //
+    // Asserted by geometry: a finder proves existence, never position
+    // ([FLU-finder-proves-existence-not-position]).
+    testWidgets('closable tabs sit right of every non-closable one', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        pendingChangeCount: 0,
+        compareTabs: const <CompareTabSpec>[
+          CompareTabSpec(id: 'compare-0', left: 'a', right: 'b'),
+        ],
+        panelTabs: const <PanelTabSpec>[
+          PanelTabSpec(id: 'worktrees-0', kind: GbmPanelKind.manageWorktrees),
+          PanelTabSpec(id: 'reflog-1', kind: GbmPanelKind.reflog),
+        ],
+      );
+
+      final double worktrees = tester.getRect(find.text('Worktrees')).left;
+      final double compare = tester.getRect(find.text('a vs b')).left;
+      final double reflog = tester.getRect(find.text('Reflog')).left;
+
+      expect(
+        worktrees,
+        lessThan(compare),
+        reason: 'the pinned tab is not closable, so Compare cannot displace it',
+      );
+      expect(
+        compare,
+        lessThan(reflog),
+        reason:
+            'among closable tabs the existing Compare-then-panel order holds',
+      );
+    });
   });
 }

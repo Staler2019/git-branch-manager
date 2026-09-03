@@ -27,6 +27,26 @@ import 'widgets/compare_ref_picker.dart';
 /// (DiffService::commitVsWorkingTree takes one commit, always compared
 /// against the live tree as "after" -- there is no reverse direction), so
 /// offering Working Copy on the left would silently have nowhere to go.
+/// What the Swap button says while it is disabled, and the single source for
+/// the reason Working Copy is missing from the left picker's options -- the
+/// two are one fact, not two ([CULT-single-source-of-truth]).
+///
+/// [FLU-menu-enabled-is-visual-only]'s 「disabled-with-a-tooltip beats
+/// hidden」: greying the button out and removing the option said only that
+/// the app would not do it, never that git's own model cannot, which from
+/// the outside reads as 「有一邊是 working copy 時無法進行比較」.
+///
+/// The left picker keeps *dropping* Working Copy rather than drawing it
+/// disabled, and that is deliberate: this is not a function that exists and
+/// is unavailable, it is one git cannot express, which is the exception
+/// [STRUCT-worktrees-tab-is-pinned] records for the Worktrees tab's ⨯ -- a
+/// dead row invites the click it will not honour. The Swap button is where
+/// the reason is reachable, because Swap is the action a user reaches for
+/// when they want that direction.
+const String kSwapBlockedTooltip =
+    'Working Copy is always the right side: git compares a commit against '
+    'the live work tree, so there is no reverse direction to swap into.';
+
 List<CompareRefOption> compareRefOptions(
   RefSnapshot refs,
   List<StashEntry> stashes, {
@@ -245,7 +265,7 @@ class _ComparePageState extends ConsumerState<ComparePage> {
                 ),
               ),
               IconButton(
-                tooltip: 'Swap',
+                tooltip: spec.rightIsWorkingCopy ? kSwapBlockedTooltip : 'Swap',
                 icon: Icon(Icons.swap_horiz, color: colors.textSecondary),
                 onPressed: spec.rightIsWorkingCopy
                     ? null

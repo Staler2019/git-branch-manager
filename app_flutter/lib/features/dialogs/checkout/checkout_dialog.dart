@@ -9,23 +9,7 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
-import '../../../widgets/gbm_row.dart';
-
-/// One row in the searchable list: a local branch, a remote branch, or a tag.
-class _CheckoutTarget {
-  const _CheckoutTarget({
-    required this.name,
-    required this.group,
-    required this.isRemote,
-  });
-
-  final String name;
-  final String group;
-
-  /// Remote-only branches check out as a new local branch tracking them --
-  /// spec context menu 05-C's "Checkout as new local…".
-  final bool isRemote;
-}
+import '../../../widgets/gbm_ref_picker.dart';
 
 /// Branch → Checkout… (Ctrl/Cmd+Shift+O).
 ///
@@ -33,6 +17,11 @@ class _CheckoutTarget {
 /// stash 後切換的選項" -- the stash-first checkbox is shown only when the
 /// working copy is actually dirty, since offering it on a clean tree would
 /// be an option that does nothing.
+///
+/// The list is [GbmRefPicker], shared with New branch and Add worktree. Its
+/// **commit** rows are new: this dialog's own list was branches and tags
+/// only, so the row's `how` promised a granularity the widget could not
+/// reach ([SPEC-how-column-is-a-requirement]).
 ///
 /// Note this is the *pre-emptive* offer. A checkout that git refuses anyway
 /// still comes back through `checkoutChoices` and the checkout-recovery
@@ -51,44 +40,23 @@ class CheckoutDialogContent extends ConsumerStatefulWidget {
 }
 
 class _CheckoutDialogContentState extends ConsumerState<CheckoutDialogContent> {
-  final TextEditingController _searchController = TextEditingController();
-  String _query = '';
   String? _selected;
   bool _selectedIsRemote = false;
   bool _stashFirst = false;
 
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
-
-  /// Substring, case-insensitive -- the same matching rule spec page 02 item
-  /// 14 specifies for the sidebar branch filter, so the two search fields
-  /// behave identically.
-  bool _matches(String name) =>
-      _query.isEmpty || name.toLowerCase().contains(_query.toLowerCase());
-
-  List<_CheckoutTarget> _targets(RepoSessionState session) {
+  /// The branch HEAD is on is left out entirely, because checking it out is
+  /// a no-op -- the one place this picker's caller differs from New branch's,
+  /// which annotates the same row instead.
+  List<GbmRefPickerEntry> _entries(RepoSessionState session) {
     final String head = session.refs.head.branchName;
-    return <_CheckoutTarget>[
+    return <GbmRefPickerEntry>[
       for (final RefInfo b in session.refs.localBranches)
-        if (b.shortName != head && _matches(b.shortName))
-          _CheckoutTarget(
-            name: b.shortName,
-            group: 'Local branches',
-            isRemote: false,
-          ),
+        if (b.shortName != head)
+          GbmRefPickerEntry(name: b.shortName, kind: GbmRefKind.localBranch),
       for (final RefInfo b in session.refs.remoteBranches)
-        if (_matches(b.shortName))
-          _CheckoutTarget(
-            name: b.shortName,
-            group: 'Remote branches',
-            isRemote: true,
-          ),
+        GbmRefPickerEntry(name: b.shortName, kind: GbmRefKind.remoteBranch),
       for (final RefInfo t in session.refs.tags)
-        if (_matches(t.shortName))
-          _CheckoutTarget(name: t.shortName, group: 'Tags', isRemote: false),
+        GbmRefPickerEntry(name: t.shortName, kind: GbmRefKind.tag),
     ];
   }
 
@@ -122,12 +90,9 @@ class _CheckoutDialogContentState extends ConsumerState<CheckoutDialogContent> {
     final RepoSessionState session = ref.watch(
       repoSessionProvider(widget.identity),
     );
-    final List<_CheckoutTarget> targets = _targets(session);
+    final List<GbmRefPickerEntry> entries = _entries(session);
     final bool isDirty = session.workingCopyStatus.entries.isNotEmpty;
 
-    // Group headers are emitted inline as the list is walked, so an empty
-    // group (everything filtered out) leaves no orphaned heading behind --
-    // the same "沒有命中的段落整段隱藏，不留空標題" rule as the sidebar filter.
     return GbmDialogShell(
       title: 'Checkout',
       actions: <Widget>[
@@ -143,91 +108,16 @@ class _CheckoutDialogContentState extends ConsumerState<CheckoutDialogContent> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          TextField(
-            controller: _searchController,
+          GbmRefPicker(
+            entries: entries,
+            selected: _selected,
             autofocus: true,
-            onChanged: (String value) => setState(() => _query = value),
-            decoration: const InputDecoration(
-              hintText: 'Search branches, tags and commits',
-              isDense: true,
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.search, size: 16),
-            ),
-          ),
-          const SizedBox(height: GbmSpacing.space2),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 280),
-            child: targets.isEmpty
-                ? Padding(
-                    padding: const EdgeInsets.symmetric(
-                      vertical: GbmSpacing.space4,
-                    ),
-                    child: Text(
-                      _query.isEmpty
-                          ? 'Nothing to check out.'
-                          : 'No branch, tag or commit matches "$_query".',
-                      style: TextStyle(
-                        fontSize: GbmTypography.textSm,
-                        color: colors.textTertiary,
-                      ),
-                    ),
-                  )
-                : ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: targets.length,
-                    itemBuilder: (BuildContext context, int index) {
-                      final _CheckoutTarget target = targets[index];
-                      // Recomputed per build; itemBuilder is not guaranteed
-                      // to run in order, so derive the header from the
-                      // previous entry rather than from mutable state.
-                      final bool isFirstOfGroup =
-                          index == 0 ||
-                          targets[index - 1].group != target.group;
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: <Widget>[
-                          if (isFirstOfGroup)
-                            Padding(
-                              padding: const EdgeInsets.only(
-                                top: GbmSpacing.space2,
-                                bottom: GbmSpacing.space1,
-                              ),
-                              child: Text(
-                                target.group.toUpperCase(),
-                                style: TextStyle(
-                                  fontSize: GbmTypography.textXs,
-                                  fontWeight: GbmTypography.weightSemibold,
-                                  color: colors.textTertiary,
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
-                            ),
-                          GbmRow(
-                            selected: _selected == target.name,
-                            height: GbmSpacing.rowHeightCompact,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: GbmSpacing.space2,
-                            ),
-                            onTap: () => setState(() {
-                              _selected = target.name;
-                              _selectedIsRemote = target.isRemote;
-                            }),
-                            child: Align(
-                              alignment: Alignment.centerLeft,
-                              child: Text(
-                                target.name,
-                                style: TextStyle(
-                                  fontSize: GbmTypography.textSm,
-                                  color: colors.textPrimary,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ),
-                        ],
-                      );
-                    },
-                  ),
+            allowCommitHash: true,
+            emptyMessage: 'Nothing to check out.',
+            onSelected: (GbmRefPickerEntry entry) => setState(() {
+              _selected = entry.name;
+              _selectedIsRemote = entry.kind == GbmRefKind.remoteBranch;
+            }),
           ),
           if (_selectedIsRemote && _selected != null) ...<Widget>[
             const SizedBox(height: GbmSpacing.space2),

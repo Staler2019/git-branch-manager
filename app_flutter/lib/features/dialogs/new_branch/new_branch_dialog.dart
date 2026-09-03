@@ -9,23 +9,31 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
+import '../../../widgets/gbm_ref_picker.dart';
 import '../branch_name_validation.dart';
-
-/// The three start-point kinds spec page 06's New branch row lists in its
-/// dropdown: "目前分支 / 指定 commit / tag".
-enum NewBranchStartKind { currentBranch, branchOrCommit, tag }
 
 /// Branch → New branch… (Ctrl/Cmd+Shift+B), and the "New branch from here…"
 /// entries in context menus 05-B and 05-E.
 ///
-/// Spec page 06: "名稱、起點（下拉：目前分支 / 指定 commit / tag）、是否立刻
-/// checkout。名稱重複即時擋下" -- the duplicate-name check runs on every
-/// keystroke and disables the primary button, rather than letting the create
+/// **The start point is one searchable list, not a three-way dropdown.**
+/// Spec page 06's row words it 「起點（下拉：目前分支 / 指定 commit / tag）」,
+/// and P17's `REVISIONS`-era row for the same dialog words it as a single
+/// 從哪裡分出 field over 「可搜尋的混合清單：branch / tag / commit，以圖示
+/// 區分」 — the wording Checkout's own row uses. P17 is the later page, and
+/// [SPEC-21-pages-and-revisions] says a later page revises an earlier one,
+/// so this deliberately overrules P06's dropdown.
+///
+/// That is also what fixes the defect the shape was hiding: the old free-text
+/// half was a bare `TextField` with **no controller and no `initialValue`**,
+/// so an [initialStartPoint] arriving from a commit row lived in state and
+/// was drawn nowhere — the dialog showed two empty boxes and created the
+/// branch at a start point the user could not see.
+///
+/// The duplicate-name check still runs on every keystroke and disables the
+/// primary button (P06: 「名稱重複即時擋下」) rather than letting the create
 /// round-trip to git and come back as an error banner.
 ///
-/// Routed as `/repo/:repoId/dialogs/new-branch`. [initialStartPoint] is set
-/// when opened from a branch or commit row, which preselects
-/// [NewBranchStartKind.branchOrCommit] with that ref filled in.
+/// Routed as `/repo/:repoId/dialogs/new-branch`.
 class NewBranchDialogContent extends ConsumerStatefulWidget {
   const NewBranchDialogContent({
     super.key,
@@ -34,6 +42,11 @@ class NewBranchDialogContent extends ConsumerStatefulWidget {
   });
 
   final RepoIdentity identity;
+
+  /// Set when opened from a branch or commit row. A value that names no ref
+  /// — an abbreviated oid from a commit row — is added to the list as a
+  /// commit entry, because a preselection the list cannot show is the same
+  /// as no preselection at all from the user's side.
   final String? initialStartPoint;
 
   @override
@@ -43,20 +56,14 @@ class NewBranchDialogContent extends ConsumerStatefulWidget {
 
 class _NewBranchDialogContentState
     extends ConsumerState<NewBranchDialogContent> {
-  late final TextEditingController _nameController;
-  late NewBranchStartKind _startKind;
-  String? _startRef;
-  bool _checkoutAfter = true;
+  final TextEditingController _nameController = TextEditingController();
 
-  @override
-  void initState() {
-    super.initState();
-    _nameController = TextEditingController();
-    _startKind = widget.initialStartPoint == null
-        ? NewBranchStartKind.currentBranch
-        : NewBranchStartKind.branchOrCommit;
-    _startRef = widget.initialStartPoint;
-  }
+  /// Null until the first build resolves the default, which needs the
+  /// session — `initState` has no `ref.watch`, and reading the current
+  /// branch there would freeze it against a snapshot that has not arrived.
+  String? _startRef;
+  bool _startRefResolved = false;
+  bool _checkoutAfter = true;
 
   @override
   void dispose() {
@@ -64,13 +71,59 @@ class _NewBranchDialogContentState
     super.dispose();
   }
 
-  String? _nameError(List<String> existingNames) =>
-      branchNameError(_nameController.text, existingNames: existingNames);
+  /// Every ref the branch can start at, with the current one marked.
+  ///
+  /// The current branch is annotated rather than removed — unlike Checkout,
+  /// where switching to the branch you are on is a no-op, branching *from*
+  /// where you stand is the commonest case there is.
+  List<GbmRefPickerEntry> _entries(RepoSessionState session) {
+    final String head = session.refs.head.branchName;
+    final List<GbmRefPickerEntry> entries = <GbmRefPickerEntry>[
+      for (final RefInfo b in session.refs.localBranches)
+        GbmRefPickerEntry(
+          name: b.shortName,
+          kind: GbmRefKind.localBranch,
+          annotation: b.shortName == head ? '目前分支' : '',
+        ),
+      for (final RefInfo b in session.refs.remoteBranches)
+        GbmRefPickerEntry(name: b.shortName, kind: GbmRefKind.remoteBranch),
+      for (final RefInfo t in session.refs.tags)
+        GbmRefPickerEntry(name: t.shortName, kind: GbmRefKind.tag),
+    ];
 
-  /// The ref the new branch is created at, or `''` for "current branch"
-  /// (which `branchCreate` reads as HEAD).
-  String get _effectiveStartPoint =>
-      _startKind == NewBranchStartKind.currentBranch ? '' : (_startRef ?? '');
+    // A start point handed in from a commit row names no ref, so nothing
+    // above carries it. Adding it here is what makes the preselection
+    // visible; without it the picker would highlight a row that is not in
+    // the list, which draws as no highlight at all.
+    final String? initial = widget.initialStartPoint;
+    if (initial != null &&
+        initial.isNotEmpty &&
+        !entries.any((GbmRefPickerEntry e) => e.name == initial)) {
+      entries.add(GbmRefPickerEntry(name: initial, kind: GbmRefKind.commit));
+    }
+    return entries;
+  }
+
+  /// The default selection: what the caller asked for, else the branch HEAD
+  /// is on, else `HEAD` itself for a detached head — which `git branch` reads
+  /// as "here", the same thing an empty start point used to mean.
+  String _defaultStartRef(RepoSessionState session) {
+    final String? initial = widget.initialStartPoint;
+    if (initial != null && initial.isNotEmpty) return initial;
+    final String head = session.refs.head.branchName;
+    return head.isNotEmpty ? head : 'HEAD';
+  }
+
+  void _submit() {
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .createBranch(
+          name: _nameController.text.trim(),
+          startPoint: _startRef ?? '',
+          checkoutAfter: _checkoutAfter,
+        );
+    context.pop();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -78,19 +131,27 @@ class _NewBranchDialogContentState
     final RepoSessionState session = ref.watch(
       repoSessionProvider(widget.identity),
     );
-    final String currentBranch = session.refs.head.branchName.isNotEmpty
-        ? session.refs.head.branchName
-        : 'HEAD';
+
+    // Resolved once, not per build: re-deriving it every frame would undo
+    // the user's own pick the next time anything republishes state.
+    if (!_startRefResolved) {
+      _startRefResolved = true;
+      _startRef = _defaultStartRef(session);
+    }
+
+    final List<GbmRefPickerEntry> entries = _entries(session);
     final List<String> existingNames = session.refs.localBranches
         .map((RefInfo b) => b.shortName)
         .toList(growable: false);
 
-    final String? error = _nameError(existingNames);
+    final String? error = branchNameError(
+      _nameController.text,
+      existingNames: existingNames,
+    );
     final bool canCreate =
         _nameController.text.trim().isNotEmpty &&
         error == null &&
-        (_startKind == NewBranchStartKind.currentBranch ||
-            _effectiveStartPoint.isNotEmpty);
+        (_startRef?.isNotEmpty ?? false);
 
     return GbmDialogShell(
       title: 'New Branch',
@@ -100,18 +161,7 @@ class _NewBranchDialogContentState
         GbmButton(
           label: 'Create branch',
           kind: GbmButtonKind.primary,
-          onPressed: canCreate
-              ? () {
-                  ref
-                      .read(repoSessionProvider(widget.identity).notifier)
-                      .createBranch(
-                        name: _nameController.text.trim(),
-                        startPoint: _effectiveStartPoint,
-                        checkoutAfter: _checkoutAfter,
-                      );
-                  context.pop();
-                }
-              : null,
+          onPressed: canCreate ? _submit : null,
         ),
       ],
       child: Column(
@@ -123,15 +173,7 @@ class _NewBranchDialogContentState
             autofocus: true,
             onChanged: (_) => setState(() {}),
             onSubmitted: (_) {
-              if (!canCreate) return;
-              ref
-                  .read(repoSessionProvider(widget.identity).notifier)
-                  .createBranch(
-                    name: _nameController.text.trim(),
-                    startPoint: _effectiveStartPoint,
-                    checkoutAfter: _checkoutAfter,
-                  );
-              context.pop();
+              if (canCreate) _submit();
             },
             decoration: InputDecoration(
               labelText: 'Branch name',
@@ -151,58 +193,15 @@ class _NewBranchDialogContentState
             ),
           ),
           const SizedBox(height: GbmSpacing.space1),
-          DropdownButtonFormField<NewBranchStartKind>(
-            initialValue: _startKind,
-            isExpanded: true,
-            decoration: const InputDecoration(
-              isDense: true,
-              border: OutlineInputBorder(),
-            ),
-            items: <DropdownMenuItem<NewBranchStartKind>>[
-              DropdownMenuItem(
-                value: NewBranchStartKind.currentBranch,
-                child: Text('Current branch ($currentBranch)'),
-              ),
-              const DropdownMenuItem(
-                value: NewBranchStartKind.branchOrCommit,
-                child: Text('Specific branch or commit'),
-              ),
-              const DropdownMenuItem(
-                value: NewBranchStartKind.tag,
-                child: Text('Tag'),
-              ),
-            ],
-            onChanged: (NewBranchStartKind? kind) => setState(() {
-              _startKind = kind ?? _startKind;
-              // The previously chosen ref belongs to the previous kind's list.
-              _startRef = null;
-            }),
+          GbmRefPicker(
+            entries: entries,
+            selected: _startRef,
+            allowCommitHash: true,
+            maxListHeight: 200,
+            hintText: 'Search branches, tags and commits',
+            onSelected: (GbmRefPickerEntry entry) =>
+                setState(() => _startRef = entry.name),
           ),
-          if (_startKind == NewBranchStartKind.branchOrCommit) ...<Widget>[
-            const SizedBox(height: GbmSpacing.space2),
-            _RefPicker(
-              hint: 'Branch, tag or commit',
-              options: <String>[
-                for (final RefInfo b in session.refs.localBranches) b.shortName,
-                for (final RefInfo b in session.refs.remoteBranches)
-                  b.shortName,
-              ],
-              value: _startRef,
-              onChanged: (String? value) => setState(() => _startRef = value),
-              onFreeText: (String value) => setState(() => _startRef = value),
-            ),
-          ],
-          if (_startKind == NewBranchStartKind.tag) ...<Widget>[
-            const SizedBox(height: GbmSpacing.space2),
-            _RefPicker(
-              hint: 'Tag',
-              options: <String>[
-                for (final RefInfo t in session.refs.tags) t.shortName,
-              ],
-              value: _startRef,
-              onChanged: (String? value) => setState(() => _startRef = value),
-            ),
-          ],
           const SizedBox(height: GbmSpacing.space2),
           CheckboxListTile(
             value: _checkoutAfter,
@@ -221,64 +220,6 @@ class _NewBranchDialogContentState
           ),
         ],
       ),
-    );
-  }
-}
-
-/// A dropdown over known refs, plus -- when [onFreeText] is given -- a plain
-/// text field for anything not in the list (an abbreviated commit hash, per
-/// the spec's "指定 commit").
-class _RefPicker extends StatelessWidget {
-  const _RefPicker({
-    required this.hint,
-    required this.options,
-    required this.value,
-    required this.onChanged,
-    this.onFreeText,
-  });
-
-  final String hint;
-  final List<String> options;
-  final String? value;
-  final ValueChanged<String?> onChanged;
-  final ValueChanged<String>? onFreeText;
-
-  @override
-  Widget build(BuildContext context) {
-    // A value typed into the free-text field is not one of `options`, and
-    // DropdownButtonFormField asserts if `initialValue` is absent from its
-    // items -- so only feed it back a value it actually knows.
-    final String? dropdownValue = options.contains(value) ? value : null;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        DropdownButtonFormField<String>(
-          initialValue: dropdownValue,
-          isExpanded: true,
-          decoration: InputDecoration(
-            hintText: hint,
-            isDense: true,
-            border: const OutlineInputBorder(),
-          ),
-          items: <DropdownMenuItem<String>>[
-            for (final String option in options)
-              DropdownMenuItem<String>(value: option, child: Text(option)),
-          ],
-          onChanged: onChanged,
-        ),
-        if (onFreeText case final ValueChanged<String> handler) ...<Widget>[
-          const SizedBox(height: GbmSpacing.space1),
-          TextField(
-            onChanged: handler,
-            decoration: const InputDecoration(
-              hintText: '…or a commit hash',
-              isDense: true,
-              border: OutlineInputBorder(),
-            ),
-          ),
-        ],
-      ],
     );
   }
 }

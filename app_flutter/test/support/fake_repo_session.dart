@@ -528,6 +528,31 @@ class FakeRepoSessionController extends RepoSessionController {
   }
 
   @override
+  void createBranch({
+    required String name,
+    String startPoint = '',
+    bool checkoutAfter = false,
+    bool setUpstream = false,
+    String upstream = '',
+  }) {
+    commandLog.add(
+      FakeCommand('createBranch', <String, Object?>{
+        'name': name,
+        // The start point is the whole of what the New branch dialog's
+        // 從哪裡分出 field decides, and it was invisible on screen for as
+        // long as this method was unoverridden -- an unoverridden one hits
+        // the real null-session guard and logs nothing, so a test could not
+        // tell a dispatched start point from a dropped one
+        // ([TEST-fake-seam-fails-loudly]).
+        'startPoint': startPoint,
+        'checkoutAfter': checkoutAfter,
+        'setUpstream': setUpstream,
+        'upstream': upstream,
+      }),
+    );
+  }
+
+  @override
   void checkout({
     required String target,
     bool detach = false,

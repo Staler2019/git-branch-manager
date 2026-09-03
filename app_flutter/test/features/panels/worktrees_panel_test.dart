@@ -1030,7 +1030,11 @@ void main() {
       final GbmButton retry = tester.widget<GbmButton>(
         find.widgetWithText(GbmButton, '重新量測'),
       );
-      expect(retry.onPressed, isNull, reason: 'nothing failed, nothing to redo');
+      expect(
+        retry.onPressed,
+        isNull,
+        reason: 'nothing failed, nothing to redo',
+      );
     });
 
     testWidgets('an unmeasured worktree can also be asked again', (

@@ -187,11 +187,20 @@ D7 一落地，三支既有測試檔紅了，而**紅的方式比「數字加一
 
 ## mutation check
 
-C56–C59 共十一次，紅的條數逐條用眼睛讀進度列的 `-N`
+C51 起每一個 commit 都做，紅的條數逐條用眼睛讀進度列的 `-N`
 （[TEST-mutation-check-every-test]：這個 repo 已經被 grep / helper / 迴圈騙過三次）。
 每一次都用 scratchpad `cp` 備份與還原，**沒有用 `git checkout -- <file>`**。
+C51–C57 的各自次數記在各自的 commit message 裡。
 
-C58 與 C59 的八次：
+**就地更正兩個數字**：這一節原本寫「C56–C59 共十一次」和「C58 與 C59 的八次」，
+兩個都是把**紅的條數**當成 mutation 的**次數**在數——11 正好是下表七列的紅加總
+（1+1+1+1+2+1+4），8 正好是 C59 那四次的紅加總（1+2+1+4）。同一個單位錯誤也出現在
+C56 的 commit message（寫「三次」，列出兩項、紅共 3）和 C58 的（寫「四次」，列出
+三項、紅共 3）。**以列出的項目為準**：紅的條數本來就可以多於 mutation 的次數，一次
+mutation 紅兩條以上正是[TEST-mutation-check-every-test]要你去讀的東西，把兩者混為
+一談會讓「紅得窄不窄」這個唯一的問題失去意義。
+
+C58 與 C59 的七次，共紅 11 條：
 
 | mutation | 紅 | 是哪一條 |
 |---|---|---|
@@ -241,11 +250,21 @@ python3 scripts/check-rule-pins.py                  161 條規則、45 個交叉
 | `context_menu_flows_test.dart` | 5/5（這支會開 Compare 分頁，正好與新的釘住分頁同列並存） |
 | `stage_lines_flow_test.dart` | 7/7 |
 | `conflict_flow_test.dart` | 1/1 |
+| `worktree_pending_counts_test.dart` | 1/1 |
 
-C57、C58 動的兩張 dialog 在 `integration_test/` 裡沒有任何 finder 命中
-（grep 過 `Remove worktree` / `removeWorktree` / `WorktreesPanel` /
-`RemoveWorktreeDialogContent` / `Lock…` / `LockWorktreeDialogContent`），所以裝置層
-不受影響。
+**最後那一列是就地更正**。這一節原本寫「C57、C58 動的兩張 dialog 在
+`integration_test/` 裡沒有任何 finder 命中（grep 過 `Remove worktree` /
+`removeWorktree` / `WorktreesPanel` / `RemoveWorktreeDialogContent` / `Lock…` /
+`LockWorktreeDialogContent`），所以裝置層不受影響」。**那些 grep 全都真的沒有命中，
+而結論仍然是靠不住的**：`worktree_pending_counts_test.dart` 從頭到尾掛的就是這張面
+板，它只是用 `Actions.invoke(GbmActionIntent(GbmActionId.toolsWorktrees))` 進去，再
+用 `find.text('wt-linked')`（worktree 目錄名）和 `find.textContaining('個未提交變更')`
+往下走——一個字都沒提到 widget 名字或這一輪動過的任何一段文案。而這一輪對它動的東西
+不只一樣：C51 換掉它列出來的那些列的徽章、C57 加了 Remove 的閘、C58 把 `Lock` 改成
+`Lock…`、C59 讓它 `toolsWorktrees` 進去時撞上的是一個**已經開好**的分頁而不是新開一
+個。補跑，1/1、4 秒綠。
+
+教訓寫成 [TEST-grep-misses-intent-driven-device-tests]。
 
 ## 蒸餾出來的東西
 

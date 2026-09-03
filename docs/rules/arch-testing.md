@@ -108,6 +108,12 @@ One row per shape — when you find a thirteenth, append a row.
   really 7/2/1. Each wrapper looked right and each was cheaper to trust than to check.
 - **Note**: an anchor that matches nothing means **the mutation never applied**, so REDS=0 is not
   evidence of a vacuous test. Redo it against the real text before drawing any conclusion.
+- **Do**: **write the two numbers down as two numbers** — how many mutations were run, and how
+  many tests each reddened. One mutation may legitimately redden several tests, so the totals
+  differ, and a write-up that reports the red total as the mutation count reads as a wider sweep
+  than actually happened. Three commit messages and one ledger section in a single round each
+  stated a count one-to-four higher than the items they went on to enumerate, all by this one
+  substitution; the table beside the sentence is what caught it.
 
 ## [TEST-count-dont-any] Count, don't `any`
 

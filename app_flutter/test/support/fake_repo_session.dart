@@ -971,6 +971,35 @@ class FakeRepoSessionController extends RepoSessionController {
     );
   }
 
+  // Compare's two request paths. Without these the base class's
+  // `if (_session == nullptr) return;` swallows them silently
+  // ([TEST-fake-seam-fails-loudly]), so a test could not tell a Compare tab
+  // that never asked for its data from one that did -- which is exactly the
+  // defect `compare_page_tab_switch_test.dart` pins.
+  @override
+  void requestCompareRefs(
+    String leftRef,
+    String rightRef, {
+    bool threeDot = true,
+  }) {
+    commandLog.add(
+      FakeCommand('requestCompareRefs', <String, Object?>{
+        'leftRef': leftRef,
+        'rightRef': rightRef,
+        'threeDot': threeDot,
+      }),
+    );
+  }
+
+  @override
+  void requestCompareWithWorkingCopy(String ref) {
+    commandLog.add(
+      FakeCommand('requestCompareWithWorkingCopy', <String, Object?>{
+        'ref': ref,
+      }),
+    );
+  }
+
   @override
   void requestBlame(
     String path, {

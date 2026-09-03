@@ -440,6 +440,28 @@ class FakeRepoSessionController extends RepoSessionController {
     commandLog.add(const FakeCommand('requestWorktreePendingCounts'));
   }
 
+  /// Recorded so a test asserting "the typed reason reached the dispatch"
+  /// is asserting something real. `lockWorktree` has taken a `reason` since
+  /// it was written; unoverridden it hits the null-session guard, logs
+  /// nothing, and an assertion on `args['reason']` would be vacuously true
+  /// for any string the dialog typed.
+  @override
+  void lockWorktree(String path, {String reason = ''}) {
+    commandLog.add(
+      FakeCommand('lockWorktree', <String, Object?>{
+        'path': path,
+        'reason': reason,
+      }),
+    );
+  }
+
+  @override
+  void unlockWorktree(String path) {
+    commandLog.add(
+      FakeCommand('unlockWorktree', <String, Object?>{'path': path}),
+    );
+  }
+
   // Overridden for the reason [TEST-fake-seam-fails-loudly] gives from the
   // other direction: a method the fake does not override hits the real
   // controller's own `if (_session == nullptr) return;` and **no-ops

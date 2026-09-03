@@ -72,6 +72,14 @@ abstract final class RoutePaths {
   static const String removeWorktreeDialog =
       '/repo/:repoId/dialogs/remove-worktree';
 
+  /// D3's `Lock…` -- `lockWorktree(path, {reason})` has taken a reason since
+  /// it was written and the detail pane already draws a 「鎖定原因」 row, but
+  /// no call site ever passed one, so it was always empty
+  /// ([CULT-orphan-wiring]). `Unlock` stays a direct dispatch with no dialog
+  /// -- it destroys nothing and needs no input.
+  static const String lockWorktreeDialog =
+      '/repo/:repoId/dialogs/lock-worktree';
+
   /// Multi-branch delete confirmation (spec page 13). Separate from
   /// [deleteBranchDialog], which is 05-B's single-branch flow with its own
   /// branch picker.
@@ -171,6 +179,14 @@ abstract final class RoutePaths {
     path: '/repo/$repoId/dialogs/remove-worktree',
     queryParameters: <String, String>{'path': path},
   ).toString();
+
+  /// Same reason as [removeWorktreeDialogFor] just above -- a worktree path
+  /// may contain `/`.
+  static String lockWorktreeDialogFor(String repoId, {required String path}) =>
+      Uri(
+        path: '/repo/$repoId/dialogs/lock-worktree',
+        queryParameters: <String, String>{'path': path},
+      ).toString();
 
   /// [branch] empty means "the current branch" -- the Branch menu and F2
   /// both leave it out; only the 05-B context menu names one.

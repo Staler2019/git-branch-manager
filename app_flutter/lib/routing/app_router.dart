@@ -23,6 +23,7 @@ import '../features/dialogs/discard_changes/discard_changes_dialog.dart';
 import '../features/dialogs/discard_changes/discard_changes_request.dart';
 import '../features/dialogs/force_push/force_push_dialog.dart';
 import '../features/dialogs/keyboard_shortcuts/keyboard_shortcuts_dialog.dart';
+import '../features/dialogs/lock_worktree/lock_worktree_dialog.dart';
 import '../features/dialogs/manage_base_folders/manage_base_folders_dialog.dart';
 import '../features/dialogs/merge/merge_dialog.dart';
 import '../features/dialogs/new_branch/new_branch_dialog.dart';
@@ -301,6 +302,16 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
           );
           final String path = state.uri.queryParameters['path'] ?? '';
           return RemoveWorktreeDialogContent(identity: identity, path: path);
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.lockWorktreeDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
+          final String path = state.uri.queryParameters['path'] ?? '';
+          return LockWorktreeDialogContent(identity: identity, path: path);
         },
       ),
       dialogRoute(

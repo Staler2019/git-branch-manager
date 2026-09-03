@@ -350,14 +350,36 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
                     RoutePaths.workspaceFor(repoIdFor(selected.path)),
                   ),
                 ),
+                // Gated on isPrimary, not isMain -- the same isMain/isPrimary
+                // confusion the Remove button below this one carried (see
+                // its own comment): isMain means "the worktree this session
+                // is open on", and git refuses to lock or unlock the
+                // *primary* worktree regardless of which one that is.
+                // Measured: `git worktree lock` on the primary worktree
+                // fails with `fatal: The main working tree cannot be
+                // locked or unlocked`; the same command on a linked
+                // worktree opened from inside the primary succeeds.
+                //
+                // `Unlock` stays a direct dispatch -- D3: it destroys
+                // nothing and needs no input, so only `Lock` gets the
+                // ellipsis and a dialog (`lockWorktree(path, {reason})`
+                // has taken a reason since it was written; nothing ever
+                // passed one until this dialog, a [CULT-orphan-wiring]
+                // instance this button's own unconditional call
+                // reproduced).
                 GbmButton(
-                  label: selected.isLocked ? 'Unlock' : 'Lock',
+                  label: selected.isLocked ? 'Unlock' : 'Lock…',
                   kind: GbmButtonKind.ghost,
-                  onPressed: selected.isMain
+                  onPressed: selected.isPrimary
                       ? null
                       : () => selected.isLocked
                             ? _session.unlockWorktree(selected.path)
-                            : _session.lockWorktree(selected.path),
+                            : context.push(
+                                RoutePaths.lockWorktreeDialogFor(
+                                  repoIdFor(widget.identity.workDir),
+                                  path: selected.path,
+                                ),
+                              ),
                 ),
                 GbmButton(
                   label: '重新量測',

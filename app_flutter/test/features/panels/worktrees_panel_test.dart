@@ -153,6 +153,12 @@ String _removeGate(WidgetTester tester) =>
     ? 'disabled'
     : 'enabled';
 
+/// Same idiom as [_removeGate], for the unlocked-label button -- callers
+/// pick this one only when the fixture's selected worktree is not locked
+/// (a locked one reads 'Unlock' instead, which is never gated on primary).
+String _lockGate(WidgetTester tester) =>
+    panelButton(tester, 'Lock…').onPressed == null ? 'disabled' : 'enabled';
+
 Future<void> _type(WidgetTester tester, String query) async {
   await tester.enterText(
     find.descendant(
@@ -670,7 +676,7 @@ void main() {
 
       for (final String label in const <String>[
         'Switch to',
-        'Lock',
+        'Lock…',
         'Remove worktree…',
       ]) {
         expect(find.text(label), findsOneWidget, reason: label);
@@ -901,6 +907,139 @@ void main() {
         );
       },
     );
+
+    // Same gate as Remove's, and the same reason: git refuses to lock or
+    // unlock the repository's *primary* worktree
+    // (`fatal: The main working tree cannot be locked or unlocked`,
+    // measured).
+    testWidgets('Lock stays disabled for the primary worktree', (tester) async {
+      await _pump(tester);
+
+      await tester.tap(find.text('git-branch-manager'));
+      await tester.pumpAndSettle();
+
+      expect(_lockGate(tester), 'disabled');
+    });
+
+    // The gate this button carried before this round: `isMain` marks the
+    // worktree the session happens to be open on, `isPrimary` marks the
+    // repository's main one, and they are different rows on a linked
+    // worktree. Gating on `isMain` would block the row the user is
+    // standing in -- which git locks happily -- and offer the primary one,
+    // which git refuses. Same fixtures as the Remove button's version of
+    // this test, so the two can only disagree if the gate itself does.
+    testWidgets(
+      'opened on a linked worktree, Lock follows primary and not current',
+      (tester) async {
+        const WorktreeInfo primaryNotCurrent = WorktreeInfo(
+          path: '/src/git-branch-manager',
+          headOid: 'a1b2c3d',
+          branch: 'main',
+          isMain: false,
+          isBare: false,
+          isDetached: false,
+          isLocked: false,
+          lockReason: '',
+          isPrunable: false,
+          prunableReason: '',
+          isPrimary: true,
+          pendingChanges: null,
+          pendingCountState: WorktreePendingCountState.unmeasured,
+          createdAt: null,
+        );
+        const WorktreeInfo currentNotPrimary = WorktreeInfo(
+          path: '/src/wt/gbm-lfs',
+          headOid: '9d02f4e',
+          branch: 'feature/lfs',
+          isMain: true,
+          isBare: false,
+          isDetached: false,
+          isLocked: false,
+          lockReason: '',
+          isPrunable: false,
+          prunableReason: '',
+          isPrimary: false,
+          pendingChanges: null,
+          pendingCountState: WorktreePendingCountState.unmeasured,
+          createdAt: null,
+        );
+        await _pump(
+          tester,
+          worktrees: const <WorktreeInfo>[primaryNotCurrent, currentNotPrimary],
+        );
+
+        await tester.tap(find.text('gbm-lfs'));
+        await tester.pumpAndSettle();
+        expect(
+          _lockGate(tester),
+          'enabled',
+          reason: 'the worktree the session is open on is lockable',
+        );
+
+        await tester.tap(find.text('git-branch-manager'));
+        await tester.pumpAndSettle();
+        expect(
+          _lockGate(tester),
+          'disabled',
+          reason: 'the primary worktree is not, whoever is standing where',
+        );
+      },
+    );
+
+    // D3: this used to dispatch lockWorktree() straight off the tap, always
+    // with the default empty reason -- `reason` had taken a value since it
+    // was written and no caller ever passed one. Sentinel-route idiom, same
+    // as the Remove test just above.
+    testWidgets('Lock… opens the confirmation dialog for that path', (
+      tester,
+    ) async {
+      final PumpedPanel pumped = await _pump(
+        tester,
+        worktrees: <WorktreeInfo>[_main, _wt()],
+        extraRoutes: <RouteBase>[
+          // The real destination is RoutePaths.lockWorktreeDialogFor(),
+          // '/repo/:repoId/dialogs/lock-worktree?path=...'.
+          GoRoute(
+            path: '/repo/:repoId/dialogs/lock-worktree',
+            builder: (_, state) =>
+                Text('LOCK:${state.uri.queryParameters['path']}'),
+          ),
+        ],
+      );
+
+      await tester.tap(find.text('gbm-lfs'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Lock…'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('LOCK:${_wt().path}'), findsOneWidget);
+      expect(
+        pumped.fake.commandLog
+            .where((FakeCommand c) => c.name == 'lockWorktree')
+            .length,
+        0,
+        reason:
+            'the panel only navigates now -- the dialog dispatches on its '
+            'own confirm, not the panel on tap',
+      );
+    });
+
+    // Unlock is the one button D3 deliberately keeps un-dialogued: it
+    // destroys nothing and needs no input, so it stays a direct dispatch.
+    testWidgets('Unlock dispatches directly, with no dialog', (tester) async {
+      final PumpedPanel pumped = await _pump(tester);
+
+      await tester.tap(find.text('gbm-lfs'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Unlock'));
+      await tester.pumpAndSettle();
+
+      final List<FakeCommand> unlocks = pumped.fake.commandLog
+          .where((FakeCommand c) => c.name == 'unlockWorktree')
+          .toList();
+      expect(unlocks.length, 1);
+      expect(unlocks.single.args['path'], _locked.path);
+    });
 
     testWidgets('an empty repository shows an empty-list message', (
       tester,

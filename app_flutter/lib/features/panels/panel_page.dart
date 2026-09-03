@@ -95,7 +95,17 @@ class PanelPage extends ConsumerWidget {
   /// Navigate away *before* closing, the order `ComparePage` uses: closing
   /// first would leave the router pointing at a tab that no longer exists,
   /// which this page renders as 「This panel is no longer open」 for a frame.
+  ///
+  /// A pinned tab (D7) returns before either step. Skipping **both** is the
+  /// point: `PanelTabsNotifier.close` already refuses, so leaving the
+  /// navigation in would send the user to History and leave the tab behind
+  /// -- half an action, and a worse answer than none.
   void _closeThisTab(BuildContext context, WidgetRef ref) {
+    final PanelTabSpec? spec = ref
+        .read(panelTabsProvider(identity))
+        .where((PanelTabSpec t) => t.id == tabId)
+        .firstOrNull;
+    if (spec == null || spec.kind.isPinned) return;
     final String repoId = Uri.encodeComponent(identity.workDir);
     context.go(RoutePaths.historyFor(repoId));
     ref.read(panelTabsProvider(identity).notifier).close(tabId);

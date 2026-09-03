@@ -38,6 +38,17 @@ String _location(WidgetTester tester) => GoRouterState.of(
   tester.element(find.byType(WorkspaceScreen)),
 ).uri.toString();
 
+/// The open tabs of one kind. D7 seeds a pinned Worktrees tab into every
+/// repository, so 「exactly one tab is open」 stopped being the way to say
+/// 「this menu item opened exactly one tab of the kind it names」 -- and a
+/// bare count would now pass for a menu item that opened nothing while the
+/// seed sat there being counted.
+List<PanelTabSpec> _tabsOfKind(PumpedWorkspace pumped, GbmPanelKind kind) =>
+    pumped.container
+        .read(panelTabsProvider(_identity))
+        .where((PanelTabSpec t) => t.kind == kind)
+        .toList();
+
 Future<void> _openToolsMenu(WidgetTester tester) async {
   await tester.tap(find.text('Tools'));
   await tester.pumpAndSettle();
@@ -169,11 +180,8 @@ void main() {
         await tester.tap(find.text(label));
         await tester.pumpAndSettle();
 
-        final List<PanelTabSpec> tabs = pumped.container.read(
-          panelTabsProvider(_identity),
-        );
+        final List<PanelTabSpec> tabs = _tabsOfKind(pumped, kind);
         expect(tabs, hasLength(1), reason: label);
-        expect(tabs.single.kind, kind, reason: label);
         expect(_location(tester), contains('/panel/'), reason: label);
       }
     });
@@ -198,11 +206,8 @@ void main() {
         await tester.tap(find.text(label));
         await tester.pumpAndSettle();
 
-        final List<PanelTabSpec> tabs = pumped.container.read(
-          panelTabsProvider(_identity),
-        );
+        final List<PanelTabSpec> tabs = _tabsOfKind(pumped, kind);
         expect(tabs, hasLength(1), reason: label);
-        expect(tabs.single.kind, kind, reason: label);
       }
     });
   });

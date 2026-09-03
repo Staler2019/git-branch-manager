@@ -22,15 +22,22 @@ WorkspaceTab compareWorkspaceTab(CompareTabSpec spec, String repoId) {
   );
 }
 
-/// Builds the [WorkspaceTab] a [PanelTabSpec] renders as -- closable, and
-/// rendered after the Compare tabs so the strip reads
-/// fixed -> Compare -> panels in the order each was opened.
+/// Builds the [WorkspaceTab] a [PanelTabSpec] renders as -- rendered after
+/// the Compare tabs so the strip reads fixed -> Compare -> panels in the
+/// order each was opened.
+///
+/// Closable unless the panel is pinned (D7's 「無關閉鈕」): the ⨯ is dropped
+/// rather than drawn-and-disabled, which is the one place this codebase
+/// departs from [FLU-menu-enabled-is-visual-only]'s 「隱藏會讓人以為功能不存
+/// 在」 on purpose -- here the function really does not exist, and a dead ⨯
+/// on a permanent tab invites the click it will not honour. The refusal
+/// itself lives in `PanelTabsNotifier.close`, not here.
 WorkspaceTab panelWorkspaceTab(PanelTabSpec spec, String repoId) {
   return WorkspaceTab(
     kind: WorkspaceTabKind.panel,
     label: spec.label,
     route: RoutePaths.panelFor(repoId, spec.id),
-    closable: true,
+    closable: !spec.kind.isPinned,
   );
 }
 

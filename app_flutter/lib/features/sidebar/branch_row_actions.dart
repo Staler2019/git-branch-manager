@@ -7,7 +7,6 @@ import '../../data/repositories/compare_tabs_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
 import '../../routing/route_paths.dart';
-import '../../widgets/prompt_text_dialog.dart';
 import 'branch_tree_builder.dart';
 
 /// Everything a single branch row, remote-only row or folder row can do to
@@ -31,25 +30,23 @@ class BranchRowActions {
 
   String get _repoId => Uri.encodeComponent(identity.workDir);
 
-  Future<void> createBranch(BuildContext context) async {
-    final String? name = await promptText(
-      context,
-      title: 'New Branch',
-      label: 'Branch name',
-    );
-    if (name == null || !context.mounted) return;
-    _session.createBranch(name: name);
-  }
+  /// The sidebar's own 「+」 (spec P02's branches-section header). Opens the
+  /// real New branch dialog with no preselected start point -- it used to be
+  /// `promptText`'s single-field box, which has none of P17's other three
+  /// fields (起點／建立後 checkout／同時 push 並設為 upstream) at all.
+  void createBranch(BuildContext context) =>
+      context.push(RoutePaths.newBranchDialogFor(_repoId));
 
-  Future<void> createBranchFrom(BuildContext context, RefInfo branch) async {
-    final String? name = await promptText(
-      context,
-      title: 'New Branch from ${branch.shortName}',
-      label: 'Branch name',
-    );
-    if (name == null || !context.mounted) return;
-    _session.createBranch(name: name, startPoint: branch.shortName);
-  }
+  /// 05-B's "New branch from here…".
+  ///
+  /// Used to be the same bare `promptText` box, which meant the start point
+  /// was silent -- the dialog's title named the branch but nothing on screen
+  /// said the new branch would start there, and the field a user might look
+  /// for to change it did not exist. `startPoint` here is what the real
+  /// dialog shows and lets you pick something else instead of.
+  void createBranchFrom(BuildContext context, RefInfo branch) => context.push(
+    RoutePaths.newBranchDialogFor(_repoId, startPoint: branch.shortName),
+  );
 
   void openMergeDialog(BuildContext context) =>
       context.push(RoutePaths.mergeDialogFor(_repoId));

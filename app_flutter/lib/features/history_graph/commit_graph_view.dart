@@ -25,7 +25,6 @@ import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/gbm_icon_button.dart';
 import '../../widgets/lucide_icon.dart';
-import '../../widgets/prompt_text_dialog.dart';
 import 'commit_list_render.dart';
 import 'commit_search.dart';
 import '../../data/repositories/graph_columns_repository.dart';
@@ -159,22 +158,18 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
     }
   }
 
-  Future<void> _createBranchFromCommit(
-    BuildContext context,
-    WidgetRef ref,
-    RepoIdentity identity,
-    String commitOid,
-  ) async {
-    final String? name = await promptText(
-      context,
-      title: 'New Branch from Commit',
-      label: 'Branch name',
-    );
-    if (name == null || !mounted) return;
-    ref
-        .read(repoSessionProvider(identity).notifier)
-        .createBranch(name: name, startPoint: commitOid);
-  }
+  /// 05-E's "New branch from here…".
+  ///
+  /// Used to be `promptText`'s single-field box with the commit oid passed
+  /// straight to `createBranch(startPoint:)` -- silent, the same defect as
+  /// the sidebar's 05-B ([SPEC-cell-names-capability] adjacent: a capability
+  /// existing is not evidence the UI shows it). The real dialog draws the
+  /// oid as a picked row under COMMIT and lets it be changed before the
+  /// branch is created.
+  void _createBranchFromCommit(BuildContext context, String commitOid) =>
+      context.push(
+        RoutePaths.newBranchDialogFor(_repoId, startPoint: commitOid),
+      );
 
   StateController<ListSelection<String>> get _selectionController =>
       ref.read(commitSelectionProvider(widget.identity).notifier);
@@ -706,8 +701,7 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
               : () => _session.revert(_selectedOldestFirst()),
           onCreateBranchHere: oid.isEmpty
               ? null
-              : () =>
-                    _createBranchFromCommit(context, ref, widget.identity, oid),
+              : () => _createBranchFromCommit(context, oid),
           onCompare: oid.isEmpty ? null : _compareSelection,
           onRebaseOntoHere: oid.isEmpty
               ? null

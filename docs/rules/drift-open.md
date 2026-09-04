@@ -58,6 +58,16 @@ historical the moment they are written.
 - **Rule**: P17's 「選單的 Pull… 或 Alt + 點工具列才開」 has nothing to open.
 - **Consequence**: `ActionToolbar`'s Pull only runs `pullChanges()` with the configured
   default (**#109**).
+- **Consequence**: this reaches the recovery-choices layer too. `DLGS` has a "Pull
+  blocked" entry (three buttons, danger second, the same shape as "Checkout blocked"),
+  and `RemoteOps.cpp`'s pull path used to push `StashAndRetry`/`Abort`
+  `OperationChoice`s for exactly that dirty-work-tree refusal — but
+  `RepoSessionController._handleOperationOutcome`'s switch has arms only for
+  `checkout`/`deleteBranch` ([CULT-orphan-wiring]), so nothing ever read a
+  `pull`-kind outcome's choices. Deleted rather than left orphaned, in the same
+  round that narrowed `OperationChoice` to `kind`+`destructive` — `outcome.summary`/
+  `error` still carry the failure message through the ordinary `lastError` path, so
+  nothing the user could actually see is lost.
 
 ## [DRIFT-updater-windows-untested] The updater script's Windows half is parsed, never executed
 

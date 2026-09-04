@@ -126,17 +126,13 @@ public:
         GitError error = std::move(result).error();
         outcome.summary = error.message;
 
-        if (error.code == GitError::Code::DirtyWorkTree && !request_.stashFirst) {
-            outcome.choices.push_back(
-                {OperationChoice::Kind::StashAndRetry,
-                 "Stash changes and pull",
-                 "Your changes are saved to a stash first, and can be restored afterwards.",
-                 false});
-            outcome.choices.push_back({OperationChoice::Kind::Abort,
-                                       "Cancel",
-                                       "Leave the working tree as it is.",
-                                       false});
-        }
+        // A dirty-work-tree failure used to push StashAndRetry/Abort choices
+        // here -- see MergeOps.cpp's identical comment. Pull is the one case
+        // where the gap is spec-visible rather than purely internal: `DLGS`
+        // has a "Pull blocked" entry (three buttons, danger second, the same
+        // shape as "Checkout blocked") that these choices would have backed,
+        // but no Dart dialog was ever built to read them -- see
+        // docs/rules/drift-open.md's [DRIFT-no-pull-dialog].
 
         outcome.error = std::move(error);
         return outcome;

@@ -469,33 +469,24 @@ public:
             // not yet pulling) fails `-d` too, even though deleting it loses
             // nothing. Single-branch only, matching the shape of the summary
             // this produces; a multi-branch delete keeps the message above.
-            RemoteRefProbeOutcome probeOutcome = RemoteRefProbeOutcome::ProbeFailed;
+            //
+            // The return value (RemoteRefProbeOutcome) used to drive a
+            // "Delete anyway" explanation string built right here -- that
+            // string no longer exists (OperationChoice carries no
+            // label/explanation; DeleteBranchRecoveryDialogContent in
+            // app_flutter composes its own from `kind` instead). What still
+            // matters is the *side effect*: on a FoundElsewhere probe, this
+            // rewrites outcome.summary in place to name the concrete
+            // remote-tracking ref (e.g. "origin/main"), and that summary is
+            // what actually reaches the dialog, via lastError.message.
             if (targets.size() == 1) {
-                probeOutcome =
-                    refineSummaryFromRemoteRefs(runner, paths, targets.front(), token, outcome);
+                refineSummaryFromRemoteRefs(runner, paths, targets.front(), token, outcome);
             }
-            // The "Delete anyway" explanation must agree with whatever summary
-            // is now showing above it: when the probe found the commits on
-            // another remote-tracking ref, reuse outcome.summary verbatim
-            // (it already names the concrete ref, e.g. "origin/main") rather
-            // than writing a second, looser sentence that could drift out of
-            // sync with it again -- pairing "will not lose anything" with
-            // "only reachable through the reflog" here would tell the user
-            // two contradictory things in the same dialog.
-            const std::string deleteAnywayExplanation =
-                probeOutcome == RemoteRefProbeOutcome::FoundElsewhere
-                    ? outcome.summary
-                    : (targets.size() > 1
-                           ? "These branches have commits that are not merged anywhere else. After "
-                             "deleting, they are only reachable through the reflog."
-                           : "This branch has commits that are not merged anywhere else. After "
-                             "deleting, they are only reachable through the reflog.");
-            outcome.choices.push_back({OperationChoice::Kind::ForceDiscard,
-                                       "Delete anyway",
-                                       deleteAnywayExplanation,
-                                       true});
-            outcome.choices.push_back(
-                {OperationChoice::Kind::Abort, "Cancel", "Keep the branch.", false});
+            // No Abort entry: DeleteBranchRecoveryDialogContent (app_flutter)
+            // filters `abort` out of both its action-button row and its body
+            // list, and its retryDeleteBranchWithChoice dispatch is a no-op
+            // for it -- see CheckoutOp.cpp's identical reasoning just above.
+            outcome.choices.push_back({OperationChoice::Kind::ForceDiscard, true});
         }
 
         // A branch checked out in another worktree cannot be deleted; git names

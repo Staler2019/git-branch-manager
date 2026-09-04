@@ -1141,7 +1141,12 @@ TEST_F(RealRepoTest, SwitchesBranches) {
 
 TEST_F(RealRepoTest, OffersRecoveryChoicesWhenSwitchingWouldLoseWork) {
     // The most common real-world checkout failure. The point of the test is that
-    // the user is offered the three genuine options rather than raw git output.
+    // the user is offered the two genuine recovery options (stash-and-retry,
+    // force-discard) rather than raw git output. No Abort choice is pushed
+    // for this case (CheckoutOp.cpp) -- CheckoutRecoveryDialogContent
+    // (app_flutter) already draws a hardcoded Cancel action-bar button for
+    // that, and filters an `abort` choice out of both its button row and
+    // body list, so one would never be visible.
     commitFile("a.txt", "base\n", "c1");
     ASSERT_TRUE(run({"switch", "--quiet", "-c", "other"}));
     commitFile("a.txt", "other branch content\n", "c2");
@@ -1425,14 +1430,16 @@ TEST_F(RealRepoTest, RefusesToDeleteAnUnmergedBranchWithoutConsent) {
     // again", not a claim that the branch was definitely never merged
     // anywhere, which is not something a local-only check can know.
     EXPECT_NE(outcome.summary.find("fetch"), std::string::npos);
+    // The summary (drawn above the choice list in
+    // DeleteBranchRecoveryDialogContent, via lastError.message -- the choice
+    // itself carries no text of its own anymore) has to say where the
+    // commits go, or "Delete anyway" is not an informed choice.
+    EXPECT_NE(outcome.summary.find("reflog"), std::string::npos);
     bool offersForce = false;
     for (const OperationChoice& choice : outcome.choices) {
         if (choice.kind == OperationChoice::Kind::ForceDiscard) {
             offersForce = true;
             EXPECT_TRUE(choice.destructive);
-            // The explanation has to say where the commits go, or "Delete anyway"
-            // is not an informed choice.
-            EXPECT_NE(choice.explanation.find("reflog"), std::string::npos);
         }
     }
     EXPECT_TRUE(offersForce);
@@ -3097,7 +3104,7 @@ TEST_F(RealRepoTest, WriteResolvedWithEmptyContentFailsInsteadOfTruncatingTheFil
         << "a rejected WriteResolved must not touch the working tree or the index";
 }
 
-TEST_F(RealRepoTest, MergeOffersStashAndRetryWhenTheWorkTreeIsDirty) {
+TEST_F(RealRepoTest, MergeReportsDirtyWorkTreeWithNoChoicesAndTheStashFirstRetryStillWorks) {
     commitFile("a.txt", "base\n", "c1");
     ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
     commitFile("a.txt", "feature change\n", "c2 on feature");
@@ -3116,12 +3123,17 @@ TEST_F(RealRepoTest, MergeOffersStashAndRetryWhenTheWorkTreeIsDirty) {
     ASSERT_FALSE(outcome.succeeded);
     ASSERT_TRUE(outcome.error.has_value());
     EXPECT_EQ(outcome.error->code, GitError::Code::DirtyWorkTree);
-    bool hasStash = false;
-    for (const OperationChoice& choice : outcome.choices) {
-        hasStash = hasStash || choice.kind == OperationChoice::Kind::StashAndRetry;
-    }
-    EXPECT_TRUE(hasStash);
+    // No StashAndRetry/Abort choices pushed here anymore -- nothing under
+    // app_flutter/lib ever read them for a "merge"-kind outcome
+    // ([CULT-orphan-wiring]; see MergeOps.cpp's comment at the same site).
+    // Asserted explicitly, not just left unasserted, so a future round
+    // cannot mistake the gap for an oversight and re-add them.
+    EXPECT_TRUE(outcome.choices.empty());
 
+    // MergeRequest::stashFirst itself is untouched by this round -- it is
+    // core-only behaviour with no Dart-side offer surfacing it at all (no
+    // merge recovery dialog exists), and it must keep working regardless of
+    // whether any choice ever advertised it.
     request.stashFirst = true;
     auto retried = submitAndWait(operations, makeMergeOperation(request));
     ASSERT_TRUE(retried.succeeded) << (retried.error ? retried.error->detail : "");

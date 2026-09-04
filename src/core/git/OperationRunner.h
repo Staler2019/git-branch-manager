@@ -25,9 +25,14 @@ namespace gbm {
 /// work is not a decision software should take on its own.
 struct OperationChoice {
     enum class Kind { StashAndRetry, ForceDiscard, Abort, Retry, RemoveLock };
+    // No label/explanation: the wire (capi::operationChoiceJson) sends only
+    // kind+destructive, and the Flutter side composes its own button label
+    // and body-list explanation from kind
+    // (app_flutter/lib/features/dialogs/recovery_choice_copy.dart) -- neither
+    // string was ever really "the wire's own words" (core's English never
+    // matched the spec's quoted button text, and the explanation needs to be
+    // Chinese regardless of what core sends).
     Kind kind;
-    std::string label;
-    std::string explanation;
     bool destructive = false;
 };
 

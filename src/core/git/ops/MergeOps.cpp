@@ -96,15 +96,15 @@ public:
         GitError error = std::move(result).error();
         outcome.summary = error.message;
 
-        if (error.code == GitError::Code::DirtyWorkTree) {
-            outcome.choices.push_back(
-                {OperationChoice::Kind::StashAndRetry,
-                 "Stash changes and merge",
-                 "Your changes are saved to a stash first, and can be restored afterwards.",
-                 false});
-            outcome.choices.push_back(
-                {OperationChoice::Kind::Abort, "Cancel", "Do not merge.", false});
-        }
+        // A dirty-work-tree failure used to push StashAndRetry/Abort choices
+        // here, but nothing under app_flutter/lib ever reads
+        // RepoSessionState for a "merge"-kind outcome's choices --
+        // _handleOperationOutcome's switch has arms only for
+        // checkout/deleteBranch (see [CULT-orphan-wiring] and
+        // [DRIFT-no-pull-dialog] in docs/rules/ for the same shape on other
+        // operations). outcome.summary/error still carry the failure
+        // message through the ordinary lastError path below, so nothing is
+        // lost from what the user actually sees.
 
         // A conflicting merge is not this operation failing to do its job -- it is
         // git stopping exactly where it should, with the conflict recorded in the

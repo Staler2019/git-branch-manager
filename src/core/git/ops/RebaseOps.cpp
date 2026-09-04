@@ -94,15 +94,6 @@ void applyRebaseEnv(GitCommand& command, const std::filesystem::path& todoFile) 
     command.envOverrides.emplace_back("GIT_EDITOR", "true");
 }
 
-void addDirtyWorkTreeChoices(OperationOutcome& outcome, const std::string& verb) {
-    outcome.choices.push_back({OperationChoice::Kind::StashAndRetry,
-                               "Stash changes and " + verb,
-                               "Your changes are saved to a stash first, and can be restored "
-                               "afterwards.",
-                               false});
-    outcome.choices.push_back({OperationChoice::Kind::Abort, "Cancel", "Do not rebase.", false});
-}
-
 class RebaseInteractiveOperation final : public Operation {
 public:
     explicit RebaseInteractiveOperation(RebaseInteractiveRequest request)
@@ -184,9 +175,11 @@ public:
         GitError error = std::move(result).error();
         outcome.summary = error.message;
 
-        if (error.code == GitError::Code::DirtyWorkTree) {
-            addDirtyWorkTreeChoices(outcome, "rebase");
-        }
+        // A dirty-work-tree failure used to push StashAndRetry/Abort choices
+        // here (via the now-deleted addDirtyWorkTreeChoices helper) -- see
+        // MergeOps.cpp's identical comment; the same [CULT-orphan-wiring]
+        // shape applies: no Dart reader for a "rebase"-kind outcome's
+        // choices.
         // As with a conflicting merge or cherry-pick, this is git stopping
         // exactly where it should -- the conflict is recorded in the index, and
         // the remaining todo stays queued in rebase-merge/ for --continue,
@@ -261,9 +254,9 @@ public:
         GitError error = std::move(result).error();
         outcome.summary = error.message;
 
-        if (error.code == GitError::Code::DirtyWorkTree) {
-            addDirtyWorkTreeChoices(outcome, "rebase");
-        }
+        // A dirty-work-tree failure used to push StashAndRetry/Abort choices
+        // here -- see the identical comment on this class's sibling method
+        // above.
         if (error.code == GitError::Code::Conflict) {
             outcome.summary = "Rebase stopped with conflicts to resolve";
         }

@@ -62,8 +62,7 @@ TEST(JsonCodecTest, OperationOutcomeEncodesFailureWithChoices) {
     OperationOutcome outcome;
     outcome.succeeded = false;
     outcome.error = GitError(GitError::Code::DirtyWorkTree, "dirty work tree");
-    outcome.choices.push_back(
-        OperationChoice{OperationChoice::Kind::StashAndRetry, "Stash and retry", "explain", false});
+    outcome.choices.push_back(OperationChoice{OperationChoice::Kind::StashAndRetry, false});
     outcome.summary = "checkout failed";
 
     const std::string json = toJson(outcome);
@@ -72,10 +71,9 @@ TEST(JsonCodecTest, OperationOutcomeEncodesFailureWithChoices) {
     EXPECT_NE(json.find("\"code\":8"), std::string::npos);  // DirtyWorkTree ordinal
     // kind=0 is StashAndRetry's ordinal; the wire carries only kind and
     // destructive now -- label/explanation are composed on the Flutter side
-    // instead (recovery_choice_copy.dart), and never reach the wire at all,
-    // even though the OperationChoice struct that produced this entry still
-    // carries them (still-live construction fields above; the struct itself
-    // is narrowed in a later, separate commit).
+    // instead (recovery_choice_copy.dart), and never reach the wire at all.
+    // The OperationChoice struct itself carries only kind+destructive too
+    // (narrowed in the same round, right after this JSON layer).
     EXPECT_NE(json.find("\"kind\":0,\"destructive\":false"), std::string::npos);
     EXPECT_EQ(json.find("\"label\""), std::string::npos);
     EXPECT_EQ(json.find("\"explanation\""), std::string::npos);

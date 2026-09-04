@@ -33,7 +33,6 @@ class UndoLastDialogContent extends ConsumerWidget {
       title: 'Undo Last Operation',
       actions: <Widget>[
         GbmButton(label: 'Cancel', onPressed: () => context.pop()),
-        const SizedBox(width: GbmSpacing.space2),
         GbmButton(
           label: 'Undo',
           kind: GbmButtonKind.primary,

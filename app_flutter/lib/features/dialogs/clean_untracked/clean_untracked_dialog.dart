@@ -60,7 +60,6 @@ class _CleanUntrackedDialogContentState
       width: 560,
       actions: <Widget>[
         GbmButton(label: 'Cancel', onPressed: () => context.pop()),
-        const SizedBox(width: GbmSpacing.space2),
         GbmButton(
           label:
               'Delete ${preview.length} item${preview.length == 1 ? '' : 's'}',

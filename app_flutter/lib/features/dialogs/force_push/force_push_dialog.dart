@@ -67,7 +67,6 @@ class _ForcePushDialogContentState
       title: 'Force Push',
       actions: <Widget>[
         GbmButton(label: 'Cancel', onPressed: () => context.pop()),
-        const SizedBox(width: GbmSpacing.space2),
         GbmButton(
           label: 'Force push',
           kind: GbmButtonKind.danger,

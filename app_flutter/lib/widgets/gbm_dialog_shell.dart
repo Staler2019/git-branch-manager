@@ -4,6 +4,7 @@ import '../actions/gbm_action_id.dart';
 import '../actions/gbm_shortcuts.dart';
 import '../theme/gbm_theme.dart';
 import '../theme/tokens.dart';
+import 'gbm_button.dart';
 import 'gbm_kbd_chip.dart';
 
 /// Shared chrome for every routed dialog (see routing/dialog_route.dart):
@@ -128,23 +129,34 @@ class GbmDialogShell extends StatelessWidget {
                 ),
               ),
               if (actions.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.all(GbmSpacing.space4),
-                  // OverflowBar renders exactly like the plain end-aligned
-                  // Row this replaced when actions fit (spacing: 0, so no
-                  // gap beyond what callers already insert as SizedBox
-                  // children) -- it only switches to a vertical column,
-                  // avoiding a RenderFlex overflow, once a long enough
-                  // action label no longer fits [width]. Neither of
-                  // CheckoutRecoveryDialogContent/DeleteBranchRecoveryDialogContent's
-                  // current labels (`recovery_choice_copy.dart`) are long
-                  // enough to trip this by themselves; see
-                  // gbm_dialog_shell_test.dart for the measured threshold.
-                  child: OverflowBar(
-                    alignment: MainAxisAlignment.end,
-                    overflowAlignment: OverflowBarAlignment.end,
-                    overflowSpacing: GbmSpacing.space2,
-                    children: actions,
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: GbmSpacing.space4,
+                    vertical: GbmSpacing.space3,
+                  ),
+                  // G7: its own border-top, per the spec's "Action row" row
+                  // -- independent of the title bar's border-bottom above.
+                  decoration: BoxDecoration(
+                    border: Border(top: BorderSide(color: colors.borderSubtle)),
+                  ),
+                  // GbmButtonSizeScope makes every action-row button
+                  // .gbm-btn-sm by default without touching each dialog's
+                  // own action list -- see that class's doc comment.
+                  child: GbmButtonSizeScope(
+                    size: GbmButtonSize.sm,
+                    // `spacing:` is what used to be missing -- callers
+                    // previously inserted their own SizedBox(width: space2)
+                    // between buttons because OverflowBar's own gap
+                    // defaulted to 0. It now owns that gap itself, so a
+                    // caller-side SizedBox would double it; see the sweep
+                    // across dialog files in this same commit.
+                    child: OverflowBar(
+                      alignment: MainAxisAlignment.end,
+                      spacing: GbmSpacing.space2,
+                      overflowAlignment: OverflowBarAlignment.end,
+                      overflowSpacing: GbmSpacing.space2,
+                      children: actions,
+                    ),
                   ),
                 )
               else

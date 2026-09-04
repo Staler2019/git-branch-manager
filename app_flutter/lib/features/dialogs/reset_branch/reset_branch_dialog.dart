@@ -63,7 +63,6 @@ class _ResetBranchDialogContentState
       title: 'Reset Branch',
       actions: <Widget>[
         GbmButton(label: 'Cancel', onPressed: () => context.pop()),
-        const SizedBox(width: GbmSpacing.space2),
         GbmButton(
           label: 'Reset',
           kind: GbmButtonKind.primary,

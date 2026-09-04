@@ -84,7 +84,6 @@ class _LockWorktreeDialogContentState
       title: 'Lock Worktree',
       actions: <Widget>[
         GbmButton(label: 'Cancel', onPressed: () => context.pop()),
-        const SizedBox(width: GbmSpacing.space2),
         GbmButton(
           label: 'Lock',
           onPressed: () {

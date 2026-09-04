@@ -99,12 +99,10 @@ class RestoreFileDialogContent extends ConsumerWidget {
       width: 520,
       actions: <Widget>[
         GbmButton(label: 'Cancel', onPressed: () => context.pop()),
-        const SizedBox(width: GbmSpacing.space2),
         GbmButton(
           label: 'Restore and stage',
           onPressed: () => restore(alsoStage: true),
         ),
-        const SizedBox(width: GbmSpacing.space2),
         GbmButton(
           label: 'Restore',
           kind: GbmButtonKind.primary,

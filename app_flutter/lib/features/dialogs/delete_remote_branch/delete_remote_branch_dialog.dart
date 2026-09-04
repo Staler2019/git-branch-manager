@@ -48,7 +48,6 @@ class DeleteRemoteBranchDialogContent extends ConsumerWidget {
       title: 'Delete Remote Branch',
       actions: <Widget>[
         GbmButton(label: 'Cancel', onPressed: () => context.pop()),
-        const SizedBox(width: GbmSpacing.space2),
         GbmButton(
           label: 'Delete remote branch',
           kind: GbmButtonKind.danger,

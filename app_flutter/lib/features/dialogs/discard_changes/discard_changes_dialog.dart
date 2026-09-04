@@ -109,7 +109,6 @@ class DiscardChangesDialogContent extends ConsumerWidget {
           GbmButton(label: 'Close', onPressed: () => context.pop())
         else ...<Widget>[
           GbmButton(label: 'Cancel', onPressed: () => context.pop()),
-          const SizedBox(width: GbmSpacing.space2),
           GbmButton(
             label: _dangerLabel(lineCount, restorable),
             kind: GbmButtonKind.danger,

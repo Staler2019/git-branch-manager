@@ -63,7 +63,6 @@ class _CherryPickDialogContentState
       title: 'Cherry-pick Commits',
       actions: <Widget>[
         GbmButton(label: 'Cancel', onPressed: () => context.pop()),
-        const SizedBox(width: GbmSpacing.space2),
         GbmButton(
           label: 'Cherry-pick',
           kind: GbmButtonKind.primary,

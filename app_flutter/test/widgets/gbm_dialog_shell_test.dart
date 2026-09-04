@@ -5,15 +5,22 @@
 // it, wrapping to a column once the row does not fit.
 //
 // The label here is a synthetic worst case, not a real one: measured
-// (`[TEST-canvas-is-800x600]`'s "every glyph fontSize wide" test font,
-// `GbmButton`'s 12.5px textSm + 12px horizontal padding per side), the two
-// real recovery labels this shell now carries -- "Stash and checkout" /
+// (`[TEST-canvas-is-800x600]`'s "every glyph fontSize wide" test font), the
+// two real recovery labels this shell now carries -- "Stash and checkout" /
 // "Discard and checkout" -- both fit under 480px and do NOT reproduce the
 // overflow (confirmed by temporarily reverting OverflowBar to a plain Row
 // and re-running: green either way). At ~26+ characters the primary label
 // alone pushes the row past the container width regardless of Cancel; this
 // fixture is deliberately past that line so the test still reddens if
 // OverflowBar is ever reverted to Row.
+//
+// [CULT-remeasure-when-upstream-moves]: G7 moved the action row's default
+// button size from GbmButtonSize.normal (12.5px textSm, 12px horizontal
+// padding per side) to .sm (11px textXs, 8px padding) via
+// GbmButtonSizeScope. Both real recovery labels stay well clear of the
+// threshold either way -- the buttons only got smaller -- and the test
+// above still passes unchanged, confirming the synthetic label's overflow
+// is not sensitive to the size change.
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -193,6 +200,56 @@ void main() {
       expect(
         decoration.border,
         Border(bottom: BorderSide(color: colors.borderSubtle)),
+      );
+    });
+  });
+
+  // G7: worktree-dialogs-spec.html's "Action row" row -- its own border-top
+  // (independent of the title bar's border-bottom), and both buttons in
+  // .gbm-btn-sm (24 tall), via GbmButtonSizeScope rather than touching
+  // every call site's button constructors.
+  group('G7: the action row matches the P6 full-size mock', () {
+    testWidgets('every action-row button is 24px tall (gbm-btn-sm)', (
+      tester,
+    ) async {
+      await _pump(tester);
+
+      final Size cancel = tester.getSize(
+        find.widgetWithText(GbmButton, 'Cancel'),
+      );
+      final Size primary = tester.getSize(
+        find.widgetWithText(
+          GbmButton,
+          'Stash all uncommitted changes before switching',
+        ),
+      );
+
+      expect(cancel.height, 24);
+      expect(primary.height, 24);
+    });
+
+    testWidgets('the action row has its own border-top', (tester) async {
+      await _pump(tester);
+      final GbmColors colors = buildGbmTheme(
+        GbmThemeVariant.darkTechnical,
+      ).extension<GbmColors>()!;
+
+      // The action row's own wrapper is the *last* Container under the
+      // shell (outer shell, title bar, then this one) -- distinct from
+      // find.byType(Container).last globally, which could match something
+      // inside a GbmButton instead.
+      final Iterable<Container> shellContainers = tester.widgetList<Container>(
+        find.descendant(
+          of: find.byType(GbmDialogShell),
+          matching: find.byType(Container),
+        ),
+      );
+      final Container actionRow = shellContainers.last;
+      final BoxDecoration decoration = actionRow.decoration! as BoxDecoration;
+
+      expect(
+        decoration.border,
+        Border(top: BorderSide(color: colors.borderSubtle)),
       );
     });
   });

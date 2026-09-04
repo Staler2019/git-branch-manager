@@ -113,7 +113,6 @@ class _CheckoutDialogContentState extends ConsumerState<CheckoutDialogContent> {
       actionId: GbmActionId.branchCheckout,
       actions: <Widget>[
         GbmButton(label: 'Cancel', onPressed: () => context.pop()),
-        const SizedBox(width: GbmSpacing.space2),
         GbmButton(
           label: 'Checkout',
           kind: GbmButtonKind.primary,

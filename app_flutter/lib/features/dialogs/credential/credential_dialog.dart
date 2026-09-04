@@ -86,7 +86,6 @@ class _CredentialDialogContentState
             context.pop();
           },
         ),
-        const SizedBox(width: GbmSpacing.space2),
         GbmButton(
           label: 'Submit',
           kind: GbmButtonKind.primary,

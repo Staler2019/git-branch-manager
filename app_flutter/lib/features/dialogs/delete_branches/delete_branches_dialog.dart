@@ -115,7 +115,6 @@ class _DeleteBranchesDialogContentState
       title: 'Delete ${lines.length} branches',
       actions: <Widget>[
         GbmButton(label: 'Cancel', onPressed: () => context.pop()),
-        const SizedBox(width: GbmSpacing.space2),
         GbmButton(
           label: 'Delete ${lines.length} branches',
           kind: GbmButtonKind.danger,

@@ -9,6 +9,31 @@ enum GbmButtonKind { primary, secondary, ghost, danger }
 /// `.gbm-btn` sizing (height 30, text-sm, padding 0 12).
 enum GbmButtonSize { normal, sm }
 
+/// Lets an ancestor set the default [GbmButtonSize] for every [GbmButton]
+/// beneath it that does not name its own `size:`. worktree-dialogs-spec.html
+/// G7 wants both buttons in every dialog's action row to be `.gbm-btn-sm`;
+/// rather than touching ~34 call sites' button constructors one at a time,
+/// `GbmDialogShell` wraps its action row in exactly one of these. A call
+/// site that explicitly passes `size:` is never overridden -- see
+/// [GbmButton.build]'s `size ?? GbmButtonSizeScope.maybeOf(context)?.size ??
+/// GbmButtonSize.normal` resolution order.
+class GbmButtonSizeScope extends InheritedWidget {
+  const GbmButtonSizeScope({
+    super.key,
+    required this.size,
+    required super.child,
+  });
+
+  final GbmButtonSize size;
+
+  static GbmButtonSizeScope? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<GbmButtonSizeScope>();
+
+  @override
+  bool updateShouldNotify(GbmButtonSizeScope oldWidget) =>
+      size != oldWidget.size;
+}
+
 /// `.gbm-btn`/`.gbm-btn-primary`/`.gbm-btn-secondary`/`.gbm-btn-ghost`/
 /// `.gbm-btn-danger`/`.gbm-btn-sm` (docs/design/tokens-reference.md's
 /// components.css). Hover/pressed backgrounds are per-kind, matching the
@@ -19,7 +44,7 @@ class GbmButton extends StatelessWidget {
     required this.label,
     required this.onPressed,
     this.kind = GbmButtonKind.secondary,
-    this.size = GbmButtonSize.normal,
+    this.size,
     this.icon,
     this.lineThrough = false,
   });
@@ -27,7 +52,12 @@ class GbmButton extends StatelessWidget {
   final String label;
   final VoidCallback? onPressed;
   final GbmButtonKind kind;
-  final GbmButtonSize size;
+
+  /// Null defers to an enclosing [GbmButtonSizeScope], falling back to
+  /// [GbmButtonSize.normal] if there is none -- see that class's doc
+  /// comment for why this is nullable rather than defaulting directly to
+  /// [GbmButtonSize.normal] here.
+  final GbmButtonSize? size;
   final Widget? icon;
 
   /// Strikes the label through. Spec P03's 變體 B uses it on a scope card
@@ -79,11 +109,15 @@ class GbmButton extends StatelessWidget {
     final Color hoverBorder = kind == GbmButtonKind.danger
         ? colors.danger
         : (border ?? Colors.transparent);
-    final double height = size == GbmButtonSize.sm ? 24 : 30;
-    final double fontSize = size == GbmButtonSize.sm
+    final GbmButtonSize effectiveSize =
+        size ??
+        GbmButtonSizeScope.maybeOf(context)?.size ??
+        GbmButtonSize.normal;
+    final double height = effectiveSize == GbmButtonSize.sm ? 24 : 30;
+    final double fontSize = effectiveSize == GbmButtonSize.sm
         ? GbmTypography.textXs
         : GbmTypography.textSm;
-    final double horizontalPadding = size == GbmButtonSize.sm
+    final double horizontalPadding = effectiveSize == GbmButtonSize.sm
         ? GbmSpacing.space2
         : GbmSpacing.space3;
 

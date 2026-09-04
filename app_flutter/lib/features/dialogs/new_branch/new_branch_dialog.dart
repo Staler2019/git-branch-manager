@@ -206,7 +206,6 @@ class _NewBranchDialogContentState
       actionId: GbmActionId.branchNewBranch,
       actions: <Widget>[
         GbmButton(label: 'Cancel', onPressed: () => context.pop()),
-        const SizedBox(width: GbmSpacing.space2),
         GbmButton(
           label: 'Create branch',
           kind: GbmButtonKind.primary,

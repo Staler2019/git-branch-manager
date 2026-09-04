@@ -171,7 +171,6 @@ class _RenameBranchDialogContentState
       actionId: GbmActionId.branchRenameCurrentBranch,
       actions: <Widget>[
         GbmButton(label: 'Cancel', onPressed: () => context.pop()),
-        const SizedBox(width: GbmSpacing.space2),
         GbmButton(
           label: 'Rename',
           kind: GbmButtonKind.primary,

@@ -161,7 +161,6 @@ class _DeleteBranchDialogContentState
       actionId: GbmActionId.branchDeleteBranch,
       actions: <Widget>[
         GbmButton(label: 'Cancel', onPressed: () => context.pop()),
-        const SizedBox(width: GbmSpacing.space2),
         GbmButton(
           label: 'Delete branch',
           kind: GbmButtonKind.danger,

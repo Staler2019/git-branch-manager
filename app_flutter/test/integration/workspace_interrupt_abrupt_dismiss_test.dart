@@ -77,11 +77,16 @@ final List<RouteBase> _interruptDialogRoutes = <RouteBase>[
   ),
 ];
 
+// `label`/`explanation` below are unread -- both recovery dialogs compose
+// their copy in Dart from `kind` (`recovery_choice_copy.dart`), not off the
+// wire. Left as obviously-fake strings so a future reader does not mistake
+// them for what actually renders; `_tapActionButton` calls below use the
+// composed labels ("Stash and checkout" / "Delete anyway").
 const List<OperationChoice> _checkoutChoices = <OperationChoice>[
   OperationChoice(
     kind: OperationChoiceKind.stashAndRetry,
-    label: 'Stash changes and checkout',
-    explanation: '',
+    label: 'unused wire label',
+    explanation: 'unused wire explanation',
     destructive: false,
   ),
 ];
@@ -89,8 +94,8 @@ const List<OperationChoice> _checkoutChoices = <OperationChoice>[
 const List<OperationChoice> _deleteBranchChoices = <OperationChoice>[
   OperationChoice(
     kind: OperationChoiceKind.forceDiscard,
-    label: 'Force delete',
-    explanation: 'This branch is not fully merged.',
+    label: 'unused wire label',
+    explanation: 'unused wire explanation',
     destructive: true,
   ),
 ];
@@ -316,7 +321,7 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        await _tapActionButton(tester, 'Stash changes and checkout');
+        await _tapActionButton(tester, 'Stash and checkout');
 
         expect(_countOf(pumped.controller, 'retryCheckoutWithChoice'), 1);
         expect(
@@ -426,7 +431,7 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        await _tapActionButton(tester, 'Force delete');
+        await _tapActionButton(tester, 'Delete anyway');
 
         expect(_countOf(pumped.controller, 'retryDeleteBranchWithChoice'), 1);
         expect(_countOf(pumped.controller, 'dismissDeleteBranchChoices'), 0);

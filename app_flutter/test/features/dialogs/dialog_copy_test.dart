@@ -403,35 +403,51 @@ void main() {
   // *nothing*, because the batch that changed it shipped without a test for
   // it. A copy change no test can disagree with is not a covered change.
   group('Checkout Blocked', () {
-    testWidgets('the explanation is Chinese, the choice buttons are not', (
-      tester,
-    ) async {
-      // The recovery buttons come from the core, and English is correct for
-      // them: §03 puts primary buttons at 26/0 English. Only the sentence
-      // the dialog writes for itself is copy this round owns.
-      await _pump(
-        tester,
-        const CheckoutRecoveryDialogContent(identity: _identity),
-        checkoutChoices: const <OperationChoice>[
-          OperationChoice(
-            kind: OperationChoiceKind.stashAndRetry,
-            label: 'Stash changes and switch',
-            explanation: 'Your changes are saved to a stash first.',
-            destructive: false,
-          ),
-        ],
-      );
+    testWidgets(
+      'the explanation is Chinese, the choice buttons are not, and Cancel '
+      'is not drawn twice',
+      (tester) async {
+        // Button label/explanation are composed in Dart from `choice.kind`
+        // (recovery_choice_copy.dart), not read off the wire -- the
+        // fixture's own `label`/`explanation` strings below are therefore
+        // irrelevant to what renders and are left as obviously-fake
+        // placeholders to make that plain.
+        await _pump(
+          tester,
+          const CheckoutRecoveryDialogContent(identity: _identity),
+          checkoutChoices: const <OperationChoice>[
+            OperationChoice(
+              kind: OperationChoiceKind.stashAndRetry,
+              label: 'unused wire label',
+              explanation: 'unused wire explanation',
+              destructive: false,
+            ),
+            // Included specifically to pin the duplicate-Cancel fix: `abort`
+            // choices used to be filtered out of the action-bar buttons but
+            // not out of this body list, so this same choice re-drew
+            // "Cancel" a second time next to the hardcoded action button.
+            OperationChoice(
+              kind: OperationChoiceKind.abort,
+              label: 'unused wire label',
+              explanation: 'unused wire explanation',
+              destructive: false,
+            ),
+          ],
+        );
 
-      _expectAll(<String>['Checkout Blocked', '這次 checkout 得先把未提交的變更挪開。']);
-      // findsWidgets, not findsOneWidget: this dialog draws each choice
-      // twice -- once as an action button and once as a row in the body
-      // list that carries its explanation.
-      expect(find.text('Stash changes and switch'), findsWidgets);
-      expect(
-        find.textContaining('needs uncommitted changes out of the way'),
-        findsNothing,
-      );
-    });
+        _expectAll(<String>['Checkout Blocked', '這次 checkout 得先把未提交的變更挪開。']);
+        // findsWidgets, not findsOneWidget: this dialog draws each non-abort
+        // choice twice -- once as an action button and once as a row in the
+        // body list that carries its explanation.
+        expect(find.text('Stash and checkout'), findsWidgets);
+        expect(find.text('你的變更會先存進 stash，之後可以再取回來。'), findsOneWidget);
+        expect(find.text('unused wire label'), findsNothing);
+        expect(find.text('unused wire explanation'), findsNothing);
+        // Exactly one "Cancel": the hardcoded action-bar button. The
+        // `abort` choice above must not add a second one anywhere.
+        expect(find.text('Cancel'), findsOneWidget);
+      },
+    );
   });
 
   group('Stash Changes', () {

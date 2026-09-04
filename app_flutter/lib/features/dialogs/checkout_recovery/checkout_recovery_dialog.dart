@@ -9,16 +9,17 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
+import '../recovery_choice_copy.dart';
 
-/// The Dart analog of the recovery prompt `MainWindow::checkoutBranch()`
-/// shows when a checkout is refused on a dirty work tree (src/app/views/
-/// MainWindow.cpp's `OperationChoice` handling): "Stash changes and
-/// checkout" / "Discard changes and checkout" / Cancel, rather than a raw
-/// Git error. Routed as `/repo/:repoId/dialogs/checkout-recovery`, pushed
-/// automatically by `workspace_screen.dart` whenever
-/// [RepoSessionState.checkoutChoices] goes from empty to non-empty --
-/// mirrors [CredentialDialogContent]'s auto-open pattern, since this is
-/// also not something the user chose to open.
+/// The Dart analog of the recovery prompt shown when a checkout is refused
+/// on a dirty work tree (`OperationRunner`/`CheckoutOp.cpp`'s
+/// `OperationChoice` handling): "Stash and checkout" / "Discard and
+/// checkout" / Cancel, rather than a raw Git error -- button wording per
+/// `recovery_choice_copy.dart`, not read off the wire. Routed as
+/// `/repo/:repoId/dialogs/checkout-recovery`, pushed automatically by
+/// `workspace_screen.dart` whenever [RepoSessionState.checkoutChoices] goes
+/// from empty to non-empty -- mirrors [CredentialDialogContent]'s auto-open
+/// pattern, since this is also not something the user chose to open.
 class CheckoutRecoveryDialogContent extends ConsumerStatefulWidget {
   const CheckoutRecoveryDialogContent({super.key, required this.identity});
 
@@ -84,7 +85,7 @@ class _CheckoutRecoveryDialogContentState
         )) ...<Widget>[
           const SizedBox(width: GbmSpacing.space2),
           GbmButton(
-            label: choice.label,
+            label: recoveryChoiceLabel(choice.kind, forDeleteBranch: false),
             kind: choice.destructive
                 ? GbmButtonKind.secondary
                 : GbmButtonKind.primary,
@@ -110,14 +111,19 @@ class _CheckoutRecoveryDialogContentState
             ),
           ),
           const SizedBox(height: GbmSpacing.space3),
-          for (final choice in choices)
+          // Filtered the same way the button row above is -- `abort` has no
+          // button here (Cancel is the hardcoded one in `actions`), so
+          // drawing its label/explanation again in this list duplicated it.
+          for (final choice in choices.where(
+            (c) => c.kind != OperationChoiceKind.abort,
+          ))
             Padding(
               padding: const EdgeInsets.only(bottom: GbmSpacing.space2),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   Text(
-                    choice.label,
+                    recoveryChoiceLabel(choice.kind, forDeleteBranch: false),
                     style: TextStyle(
                       fontSize: GbmTypography.textSm,
                       fontWeight: GbmTypography.weightMedium,
@@ -126,14 +132,16 @@ class _CheckoutRecoveryDialogContentState
                           : colors.textPrimary,
                     ),
                   ),
-                  if (choice.explanation.isNotEmpty)
-                    Text(
-                      choice.explanation,
-                      style: TextStyle(
-                        fontSize: GbmTypography.textXs,
-                        color: colors.textTertiary,
-                      ),
+                  Text(
+                    recoveryChoiceExplanation(
+                      choice.kind,
+                      forDeleteBranch: false,
                     ),
+                    style: TextStyle(
+                      fontSize: GbmTypography.textXs,
+                      color: colors.textTertiary,
+                    ),
+                  ),
                 ],
               ),
             ),

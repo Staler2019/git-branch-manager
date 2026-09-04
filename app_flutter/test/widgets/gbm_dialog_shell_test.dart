@@ -3,7 +3,8 @@
 // Flexible/Wrap) sits inside a fixed ~480px-wide Container, so "Cancel"
 // alongside a long primary-action label overflows RenderFlex -- reproduced
 // here with CheckoutRecoveryDialogContent's real label
-// ("Stash changes and checkout"), the exact case
+// ("Discard and checkout", `recovery_choice_copy.dart`'s
+// `recoveryChoiceLabel`), the exact case
 // workspace_interrupt_overlay_test.dart deliberately worked around with a
 // shorter fixture label to avoid tripping this bug.
 import 'package:flutter/material.dart';
@@ -25,7 +26,7 @@ Future<void> _pump(WidgetTester tester) async {
             GbmButton(label: 'Cancel', onPressed: () {}),
             const SizedBox(width: GbmSpacing.space2),
             GbmButton(
-              label: 'Stash changes and checkout',
+              label: 'Discard and checkout',
               kind: GbmButtonKind.primary,
               onPressed: () {},
             ),
@@ -51,6 +52,6 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.text('Cancel'), findsOneWidget);
-    expect(find.text('Stash changes and checkout'), findsOneWidget);
+    expect(find.text('Discard and checkout'), findsOneWidget);
   });
 }

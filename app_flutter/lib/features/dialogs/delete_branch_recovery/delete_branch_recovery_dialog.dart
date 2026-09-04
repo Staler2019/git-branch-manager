@@ -9,11 +9,14 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
+import '../recovery_choice_copy.dart';
 
 /// The Dart analog of the "not fully merged" recovery prompt
 /// `DeleteBranchOperation` produces (src/core/git/ops/BranchOps.cpp): a
-/// friendly explanation of why the delete was refused, plus a "Force
-/// delete" choice when the branch is genuinely unmerged. Mirrors
+/// friendly explanation of why the delete was refused (drawn from
+/// [RepoSessionState.lastError.message], not a choice's own text), plus a
+/// "Delete anyway" choice when the branch is genuinely unmerged -- button
+/// wording per `recovery_choice_copy.dart`, not read off the wire. Mirrors
 /// [CheckoutRecoveryDialogContent]'s auto-open pattern exactly, just for
 /// [RepoSessionState.deleteBranchChoices] instead of `checkoutChoices` --
 /// routed as `/repo/:repoId/dialogs/delete-branch-recovery`, pushed
@@ -88,7 +91,7 @@ class _DeleteBranchRecoveryDialogContentState
         )) ...<Widget>[
           const SizedBox(width: GbmSpacing.space2),
           GbmButton(
-            label: choice.label,
+            label: recoveryChoiceLabel(choice.kind, forDeleteBranch: true),
             kind: choice.destructive
                 ? GbmButtonKind.secondary
                 : GbmButtonKind.primary,
@@ -116,14 +119,19 @@ class _DeleteBranchRecoveryDialogContentState
             ),
             const SizedBox(height: GbmSpacing.space3),
           ],
-          for (final choice in choices)
+          // Filtered the same way the button row above is -- `abort` has no
+          // button here (Cancel is the hardcoded one in `actions`), so
+          // drawing its label/explanation again in this list duplicated it.
+          for (final choice in choices.where(
+            (c) => c.kind != OperationChoiceKind.abort,
+          ))
             Padding(
               padding: const EdgeInsets.only(bottom: GbmSpacing.space2),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   Text(
-                    choice.label,
+                    recoveryChoiceLabel(choice.kind, forDeleteBranch: true),
                     style: TextStyle(
                       fontSize: GbmTypography.textSm,
                       fontWeight: GbmTypography.weightMedium,
@@ -132,14 +140,16 @@ class _DeleteBranchRecoveryDialogContentState
                           : colors.textPrimary,
                     ),
                   ),
-                  if (choice.explanation.isNotEmpty)
-                    Text(
-                      choice.explanation,
-                      style: TextStyle(
-                        fontSize: GbmTypography.textXs,
-                        color: colors.textTertiary,
-                      ),
+                  Text(
+                    recoveryChoiceExplanation(
+                      choice.kind,
+                      forDeleteBranch: true,
                     ),
+                    style: TextStyle(
+                      fontSize: GbmTypography.textXs,
+                      color: colors.textTertiary,
+                    ),
+                  ),
                 ],
               ),
             ),

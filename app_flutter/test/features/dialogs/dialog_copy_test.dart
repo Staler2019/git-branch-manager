@@ -44,6 +44,7 @@ import 'package:gbm_flutter/features/dialogs/new_branch/new_branch_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/prune_remote_branches/prune_remote_branches_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/rebase_onto/rebase_onto_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/rename_branch/rename_branch_dialog.dart';
+import 'package:gbm_flutter/features/dialogs/repository_settings/repository_settings_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/reset_branch/reset_branch_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/restore_file/restore_file_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/stash_changes/stash_changes_dialog.dart';
@@ -1499,6 +1500,106 @@ void main() {
       );
       expect(find.text('先完成或中止進行中的作業'), findsOneWidget);
       expect(find.textContaining('Finish or abort'), findsNothing);
+    });
+  });
+
+  group('Repository Settings', () {
+    testWidgets('title, Close and the four tab names stay English -- DIALOGS '
+        'quotes them in English inside its own Chinese sentence', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        const RepositorySettingsDialogContent(identity: _identity),
+      );
+      _expectAll(<String>[
+        'Repository Settings',
+        'Close',
+        'General',
+        'Remotes',
+        'Identity',
+        'Performance',
+      ]);
+    });
+
+    testWidgets('the General tab section labels are Chinese', (tester) async {
+      await _pump(
+        tester,
+        const RepositorySettingsDialogContent(identity: _identity),
+      );
+      expect(find.text('位置'), findsOneWidget);
+      expect(find.text('維護'), findsOneWidget);
+      expect(find.text('LOCATION'), findsNothing);
+      expect(find.text('MAINTENANCE'), findsNothing);
+    });
+
+    testWidgets('the Remotes tab is Chinese with no remotes configured', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        const RepositorySettingsDialogContent(identity: _identity),
+      );
+      await tester.tap(find.text('Remotes'));
+      await tester.pumpAndSettle();
+      expect(find.text('遠端'), findsOneWidget);
+      expect(find.text('這個 repository 沒有 remote。'), findsOneWidget);
+      expect(find.text('This repository has no remotes.'), findsNothing);
+    });
+
+    testWidgets('a remote with a distinct push URL gets a Chinese "推送" '
+        'label', (tester) async {
+      await _pump(
+        tester,
+        const RepositorySettingsDialogContent(identity: _identity),
+        overrideState: _state.copyWith(
+          remotes: const <RemoteInfo>[
+            RemoteInfo(
+              name: 'origin',
+              fetchUrl: 'https://example.com/fetch.git',
+              pushUrl: 'https://example.com/push.git',
+            ),
+          ],
+        ),
+      );
+      await tester.tap(find.text('Remotes'));
+      await tester.pumpAndSettle();
+      expect(find.text('推送：https://example.com/push.git'), findsOneWidget);
+      expect(find.textContaining('push: '), findsNothing);
+    });
+
+    testWidgets('the Identity tab labels are Chinese', (tester) async {
+      await _pump(
+        tester,
+        const RepositorySettingsDialogContent(identity: _identity),
+      );
+      await tester.tap(find.text('Identity'));
+      await tester.pumpAndSettle();
+      expect(find.text('GIT 身份'), findsOneWidget);
+      expect(find.text('名稱（僅限此 repository）'), findsOneWidget);
+      expect(find.text('Email（僅限此 repository）'), findsOneWidget);
+      expect(
+        find.textContaining('Effective for new commits here'),
+        findsNothing,
+      );
+      expect(find.text('Name (this repository only)'), findsNothing);
+    });
+
+    testWidgets('the Performance tab is Chinese, with commit-graph kept '
+        'untranslated as a git term', (tester) async {
+      await _pump(
+        tester,
+        const RepositorySettingsDialogContent(identity: _identity),
+      );
+      await tester.tap(find.text('Performance'));
+      await tester.pumpAndSettle();
+      expect(find.text('COMMIT-GRAPH'), findsOneWidget);
+      expect(
+        find.text('commit-graph 可以加快大型 repository 讀取歷史的速度。'),
+        findsOneWidget,
+      );
+      expect(find.text('歷史'), findsOneWidget);
+      expect(find.textContaining('A commit-graph can speed up'), findsNothing);
     });
   });
 }

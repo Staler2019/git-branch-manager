@@ -73,6 +73,9 @@ class _RepositorySettingsDialogContentState
     _emailController.text = identity.email;
   }
 
+  // Tab names stay English -- `DIALOGS`' own note names them in English
+  // even inside its Chinese sentence: 「四個分頁：General / Remotes /
+  // Identity / Performance。」
   static String _tabLabel(_SettingsTab tab) => switch (tab) {
     _SettingsTab.general => 'General',
     _SettingsTab.remotes => 'Remotes',
@@ -251,7 +254,7 @@ class _GeneralTab extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        const _SectionLabel('LOCATION'),
+        const _SectionLabel('位置'),
         SelectableText(
           identity.workDir,
           style: TextStyle(
@@ -261,7 +264,7 @@ class _GeneralTab extends StatelessWidget {
           ),
         ),
         const SizedBox(height: GbmSpacing.space4),
-        const _SectionLabel('MAINTENANCE'),
+        const _SectionLabel('維護'),
         Wrap(
           spacing: GbmSpacing.space2,
           runSpacing: GbmSpacing.space2,
@@ -306,10 +309,10 @@ class _RemotesTab extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        const _SectionLabel('REMOTES'),
+        const _SectionLabel('遠端'),
         if (remotes.isEmpty)
           Text(
-            'This repository has no remotes.',
+            '這個 repository 沒有 remote。',
             style: TextStyle(
               fontSize: GbmTypography.textSm,
               color: colors.textTertiary,
@@ -343,7 +346,7 @@ class _RemotesTab extends StatelessWidget {
                   if (remote.pushUrl.isNotEmpty &&
                       remote.pushUrl != remote.fetchUrl)
                     Text(
-                      'push: ${remote.pushUrl}',
+                      '推送：${remote.pushUrl}',
                       style: TextStyle(
                         fontFamily: GbmTypography.fontMono,
                         fontSize: GbmTypography.textXs,
@@ -400,9 +403,9 @@ class _IdentityTab extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        const _SectionLabel('GIT IDENTITY'),
+        const _SectionLabel('GIT 身份'),
         Text(
-          'Effective for new commits here: ${session.effectiveIdentity.name} '
+          '此處新 commit 會使用：${session.effectiveIdentity.name} '
           '<${session.effectiveIdentity.email}>',
           style: TextStyle(
             fontSize: GbmTypography.textXs,
@@ -414,7 +417,7 @@ class _IdentityTab extends StatelessWidget {
           controller: nameController,
           onChanged: (_) => onEdited(),
           decoration: const InputDecoration(
-            labelText: 'Name (this repository only)',
+            labelText: '名稱（僅限此 repository）',
             isDense: true,
             border: OutlineInputBorder(),
           ),
@@ -424,7 +427,7 @@ class _IdentityTab extends StatelessWidget {
           controller: emailController,
           onChanged: (_) => onEdited(),
           decoration: const InputDecoration(
-            labelText: 'Email (this repository only)',
+            labelText: 'Email（僅限此 repository）',
             isDense: true,
             border: OutlineInputBorder(),
           ),
@@ -465,15 +468,16 @@ class _PerformanceTab extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        const _SectionLabel('COMMIT GRAPH'),
+        // 保留 "COMMIT-GRAPH" 不譯：這是 git 內部物件的專有名稱，不是一般
+        // 英文詞組，跟本頁其餘的自組區段標籤不同。
+        const _SectionLabel('COMMIT-GRAPH'),
         Row(
           children: <Widget>[
             Expanded(
               child: Text(
                 session.hasCommitGraph
-                    ? 'This repository already has a commit-graph.'
-                    : 'A commit-graph can speed up history loading for large '
-                          'repositories.',
+                    ? '這個 repository 已經有 commit-graph。'
+                    : 'commit-graph 可以加快大型 repository 讀取歷史的速度。',
                 style: TextStyle(
                   fontSize: GbmTypography.textSm,
                   color: colors.textSecondary,
@@ -488,9 +492,7 @@ class _PerformanceTab extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(top: GbmSpacing.space1),
             child: Text(
-              succeeded
-                  ? 'Commit-graph written.'
-                  : 'Writing the commit-graph failed.',
+              succeeded ? 'commit-graph 已寫入。' : '寫入 commit-graph 失敗。',
               style: TextStyle(
                 fontSize: GbmTypography.textXs,
                 color: succeeded ? colors.success : colors.danger,
@@ -498,10 +500,10 @@ class _PerformanceTab extends StatelessWidget {
             ),
           ),
         const SizedBox(height: GbmSpacing.space4),
-        const _SectionLabel('HISTORY'),
+        const _SectionLabel('歷史'),
         Text(
-          '${session.graph.rows.length} commit(s) loaded across '
-          '${session.graph.laneCount} lane(s).',
+          '已載入 ${session.graph.rows.length} 個 commit，共 '
+          '${session.graph.laneCount} 個 lane。',
           style: TextStyle(
             fontSize: GbmTypography.textSm,
             color: colors.textSecondary,

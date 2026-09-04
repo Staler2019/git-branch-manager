@@ -138,5 +138,36 @@ void main() {
 
       expect(find.text('路徑衝突'), findsOneWidget);
     });
+
+    // Regression: every real call site sits inside a Column (a dialog
+    // body), never bare under Center like _pump above. RenderFlex hands a
+    // Column's non-flex children an *unbounded* max-height along the main
+    // axis regardless of whether the Column itself is height-bounded --
+    // that is how a Column can overflow at all -- and the inner Row's
+    // CrossAxisAlignment.stretch demanded a bounded cross-axis constraint
+    // to stretch into. _pump's Center gives bounded constraints straight
+    // to the widget with no Column in between, so none of the four tests
+    // above could see this ([TEST-fixture-cannot-disagree] shape 4).
+    testWidgets(
+      'renders without a layout exception inside a Column, the shape every '
+      'real dialog body actually uses',
+      (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+            home: const Scaffold(
+              body: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[GbmDialogWarnField(message: '會被覆蓋')],
+              ),
+            ),
+          ),
+        );
+
+        expect(tester.takeException(), isNull);
+        expect(find.text('會被覆蓋'), findsOneWidget);
+      },
+    );
   });
 }

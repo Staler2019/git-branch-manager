@@ -45,10 +45,14 @@ class GbmDialogReadOnlyField extends StatelessWidget {
             color: colors.surfaceSunken,
             borderRadius: BorderRadius.circular(GbmSpacing.radiusMd),
           ),
+          // textSecondary, per the spec's own citation for `ro` -- a Text
+          // child that needs a different colour (e.g. a path drawn in
+          // textPrimary) still wins by setting its own `style:`, since
+          // Text merges its explicit style over this ambient default.
           child: DefaultTextStyle.merge(
             style: TextStyle(
               fontSize: GbmTypography.textSm,
-              color: colors.textPrimary,
+              color: colors.textSecondary,
             ),
             child: child,
           ),
@@ -73,6 +77,22 @@ class GbmDialogReadOnlyField extends StatelessWidget {
 /// uniform `border-subtle` ring and the r6 radius (both legal together);
 /// `clipBehavior: Clip.antiAlias` rounds its Row children's corners to
 /// match, the same way a CSS `overflow: hidden` would.
+///
+/// The `Row` is wrapped in `IntrinsicHeight`, not bare. Every real call
+/// site sits inside a `Column` (a dialog body), and `RenderFlex` hands its
+/// non-flex children *unbounded* max-height along the main axis regardless
+/// of whether the Column itself is height-bounded -- that is how a Column
+/// can overflow at all. `CrossAxisAlignment.stretch` demands a *bounded*
+/// cross-axis constraint to stretch into, so an un-wrapped Row threw
+/// "BoxConstraints forces an infinite height" the moment this widget was
+/// mounted inside an actual dialog rather than the isolated `Center` the
+/// widget's own first-draft test used ([TEST-fixture-cannot-disagree]
+/// shape 4 -- a fixture that supplies bounded constraints by construction
+/// cannot see a widget that only works under bounded constraints).
+/// `IntrinsicHeight` measures the Row's children's own intrinsic height
+/// first and hands the Row a tight, finite constraint derived from that --
+/// the standard fix for "stretch two unequal-height children to match"
+/// with no ambient bound to stretch into.
 class GbmDialogWarnField extends StatelessWidget {
   const GbmDialogWarnField({super.key, required this.message});
 
@@ -88,24 +108,26 @@ class GbmDialogWarnField extends StatelessWidget {
         border: Border.all(color: colors.borderSubtle),
         borderRadius: BorderRadius.circular(GbmSpacing.radiusMd),
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          Container(width: 2, color: colors.warning),
-          Expanded(
-            child: Container(
-              color: colors.surfaceSunken,
-              padding: const EdgeInsets.all(GbmSpacing.space2),
-              child: Text(
-                message,
-                style: TextStyle(
-                  fontSize: GbmTypography.textXs,
-                  color: colors.textSecondary,
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            Container(width: 2, color: colors.warning),
+            Expanded(
+              child: Container(
+                color: colors.surfaceSunken,
+                padding: const EdgeInsets.all(GbmSpacing.space2),
+                child: Text(
+                  message,
+                  style: TextStyle(
+                    fontSize: GbmTypography.textXs,
+                    color: colors.textSecondary,
+                  ),
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

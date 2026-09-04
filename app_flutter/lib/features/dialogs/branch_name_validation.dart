@@ -26,11 +26,14 @@ final RegExp _illegalRefChars = RegExp(r'[\x00-\x20~^:?*\[\\\x7f]');
 String? branchNameError(String name, {required List<String> existingNames}) {
   final String trimmed = name.trim();
   if (trimmed.isEmpty) return null;
+  // RENAMEVALID row 1，格式「已存在 feature/x」；此處以「」標出名稱，
+  // 與 checkout_dialog.dart 的分支名稱引用方式一致。
   if (existingNames.contains(trimmed)) {
-    return 'A branch named "$trimmed" already exists.';
+    return '已存在「$trimmed」';
   }
+  // RENAMEVALID row 2：「含 git 不允許的字元」。
   if (_illegalRefChars.hasMatch(trimmed)) {
-    return 'Branch names cannot contain spaces or any of ~^:?*[\\';
+    return '分支名稱不能包含空白或 ~^:?*[\\ 這些字元';
   }
   if (trimmed.startsWith('/') ||
       trimmed.endsWith('/') ||
@@ -38,7 +41,7 @@ String? branchNameError(String name, {required List<String> existingNames}) {
       trimmed.endsWith('.') ||
       trimmed.contains('..') ||
       trimmed.endsWith('.lock')) {
-    return 'Not a valid branch name.';
+    return '不是合法的分支名稱';
   }
   return null;
 }

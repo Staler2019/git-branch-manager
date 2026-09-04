@@ -23,6 +23,7 @@ import 'package:gbm_flutter/data/models/commit_meta.dart';
 import 'package:gbm_flutter/data/models/git_error.dart';
 import 'package:gbm_flutter/data/models/operation_choice.dart';
 import 'package:gbm_flutter/data/models/remote_info.dart';
+import 'package:gbm_flutter/data/models/repo_state.dart';
 import 'package:gbm_flutter/data/models/signature.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/features/dialogs/checkout/checkout_dialog.dart';
@@ -42,6 +43,7 @@ import 'package:gbm_flutter/features/dialogs/merge/merge_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/new_branch/new_branch_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/prune_remote_branches/prune_remote_branches_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/rebase_onto/rebase_onto_dialog.dart';
+import 'package:gbm_flutter/features/dialogs/rename_branch/rename_branch_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/reset_branch/reset_branch_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/restore_file/restore_file_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/stash_changes/stash_changes_dialog.dart';
@@ -286,6 +288,31 @@ final RepoSessionState _restoreFileState = RepoSessionState(
       signedCommit: false,
     ),
   },
+);
+
+// Rename branch's own doc comment: RefInfo.upstream keyed alone, deliberately
+// not conjoined with hasTrackingInfo -- so a plain upstream string is enough
+// here, unlike _rebaseOntoStateWithRemote which goes through
+// remoteCounterpartOf() instead.
+final RepoSessionState _renameBranchStateWithUpstream = RepoSessionState(
+  isOpen: true,
+  refs: RefSnapshot(
+    head: const HeadInfo(
+      kind: HeadKind.branch,
+      branchName: 'feature/lane-allocator',
+      fullRef: 'refs/heads/feature/lane-allocator',
+      target: 'aaaa',
+    ),
+    refs: <RefInfo>[
+      _trackedLocalRef(
+        'feature/lane-allocator',
+        upstreamShortName: 'origin/feature/lane-allocator',
+        ahead: 2,
+      ),
+    ],
+    refCountGuardTripped: false,
+    totalRefCount: 1,
+  ),
 );
 
 Future<void> _pump(
@@ -1339,6 +1366,139 @@ void main() {
         ],
       );
       expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('Rename Branch', () {
+    testWidgets('title and buttons stay English', (tester) async {
+      await _pump(
+        tester,
+        const RenameBranchDialogContent(identity: _identity),
+        overrideState: _renameBranchStateWithUpstream,
+      );
+      _expectAll(<String>['Rename Branch', 'Cancel', 'Rename']);
+    });
+
+    testWidgets('the two ro labels and the field hint are Chinese, quoted '
+        'from RENAMEVALID / P13-A', (tester) async {
+      await _pump(
+        tester,
+        const RenameBranchDialogContent(identity: _identity),
+        overrideState: _renameBranchStateWithUpstream,
+      );
+      expect(find.text('目前名稱'), findsOneWidget);
+      expect(find.text('新名稱'), findsOneWidget);
+      expect(find.text('新的分支名稱'), findsOneWidget);
+      expect(find.text('Current name'), findsNothing);
+      expect(find.text('New name'), findsNothing);
+    });
+
+    testWidgets('a duplicate name is quoted verbatim from RENAMEVALID row 1', (
+      tester,
+    ) async {
+      final RepoSessionState stateWithMain = RepoSessionState(
+        isOpen: true,
+        refs: RefSnapshot(
+          head: const HeadInfo(
+            kind: HeadKind.branch,
+            branchName: 'feature/lane-allocator',
+            fullRef: 'refs/heads/feature/lane-allocator',
+            target: 'aaaa',
+          ),
+          refs: <RefInfo>[
+            _trackedLocalRef(
+              'feature/lane-allocator',
+              upstreamShortName: 'origin/feature/lane-allocator',
+              ahead: 2,
+            ),
+            _ref('main'),
+          ],
+          refCountGuardTripped: false,
+          totalRefCount: 2,
+        ),
+      );
+      await _pump(
+        tester,
+        const RenameBranchDialogContent(identity: _identity),
+        overrideState: stateWithMain,
+      );
+      await tester.enterText(find.byType(TextField), 'main');
+      await tester.pumpAndSettle();
+      expect(find.text('已存在「main」'), findsOneWidget);
+      expect(find.textContaining('already exists'), findsNothing);
+    });
+
+    testWidgets('the availability line is Chinese', (tester) async {
+      await _pump(
+        tester,
+        const RenameBranchDialogContent(identity: _identity),
+        overrideState: _renameBranchStateWithUpstream,
+      );
+      await tester.enterText(find.byType(TextField), 'feature/lane-v2');
+      await tester.pumpAndSettle();
+      expect(find.text('可以使用 — 沒有同名的分支。'), findsOneWidget);
+    });
+
+    testWidgets('the remote-handling section, its two radio options and the '
+        'default warning are Chinese, quoted from the P13-A mock', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        const RenameBranchDialogContent(identity: _identity),
+        overrideState: _renameBranchStateWithUpstream,
+      );
+      expect(find.text('遠端連帶處理'), findsOneWidget);
+      expect(find.text('一併更名遠端分支'), findsOneWidget);
+      expect(
+        find.text('push 新名稱，再刪除 origin/feature/lane-allocator'),
+        findsOneWidget,
+      );
+      expect(find.text('只改本地，保留遠端舊分支'), findsOneWidget);
+      expect(find.text('新分支的 upstream 會清空'), findsOneWidget);
+      expect(find.textContaining('遠端更名 = delete + push'), findsOneWidget);
+      expect(find.textContaining('有 2 個未 push 的 commit'), findsOneWidget);
+      expect(find.text('Remote handling'), findsNothing);
+    });
+
+    testWidgets('choosing local-only shows RENAMEVALID row 4\'s hint instead', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        const RenameBranchDialogContent(identity: _identity),
+        overrideState: _renameBranchStateWithUpstream,
+      );
+      await tester.tap(find.text('只改本地，保留遠端舊分支'));
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('新分支不會有 upstream，之後需重新 push -u'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('遠端更名 = delete + push'), findsNothing);
+    });
+
+    testWidgets('mid-conflict the refusal message is Chinese, quoted from '
+        'RENAMEVALID row 5', (tester) async {
+      await _pump(
+        tester,
+        const RenameBranchDialogContent(identity: _identity),
+        overrideState: _renameBranchStateWithUpstream.copyWith(
+          repoState: const RepoState(
+            flags: RepoStateFlags.rebaseMerge,
+            isClean: false,
+            isSequencerOperation: true,
+            rebaseStep: 1,
+            rebaseTotal: 3,
+            rebaseOntoLabel: '',
+            indexLocked: false,
+            indexLockAgeSeconds: null,
+            describe: '',
+          ),
+        ),
+      );
+      expect(find.text('先完成或中止進行中的作業'), findsOneWidget);
+      expect(find.textContaining('Finish or abort'), findsNothing);
     });
   });
 }

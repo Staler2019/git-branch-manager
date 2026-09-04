@@ -29,7 +29,9 @@ import 'package:gbm_flutter/features/dialogs/cherry_pick/cherry_pick_dialog.dart
 import 'package:gbm_flutter/features/dialogs/clean_untracked/clean_untracked_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/create_tag/create_tag_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/credential/credential_dialog.dart';
+import 'package:gbm_flutter/features/dialogs/delete_branch/delete_branch_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/delete_branch_recovery/delete_branch_recovery_dialog.dart';
+import 'package:gbm_flutter/features/dialogs/delete_branches/delete_branches_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/delete_remote_branch/delete_remote_branch_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/force_push/force_push_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/merge/merge_dialog.dart';
@@ -159,6 +161,74 @@ final RepoSessionState _newBranchStateWithRemote = _state.copyWith(
       pushUrl: 'https://example.com/origin.git',
     ),
   ],
+);
+
+// deleteBranchRemoteTarget() resolves through remoteCounterpartOf(), which
+// matches an unambiguous same-named remote ref even with no explicit
+// upstream config -- rule 2 of RemoteBranchIndex.counterpartOf's own doc.
+// No `upstream` field needed on the local branch for this one.
+final RepoSessionState _deleteBranchStateWithRemote = RepoSessionState(
+  isOpen: true,
+  refs: RefSnapshot(
+    head: const HeadInfo(
+      kind: HeadKind.branch,
+      branchName: 'main',
+      fullRef: 'refs/heads/main',
+      target: 'aaaa',
+    ),
+    refs: <RefInfo>[
+      _ref('main'),
+      _ref('wip/askpass'),
+      _remoteRef('origin/wip/askpass'),
+    ],
+    refCountGuardTripped: false,
+    totalRefCount: 3,
+  ),
+);
+
+RefInfo _trackedLocalRef(
+  String shortName, {
+  required String upstreamShortName,
+  required int ahead,
+}) => RefInfo(
+  fullName: 'refs/heads/$shortName',
+  shortName: shortName,
+  kind: RefKind.localBranch,
+  target: 'a' * 40,
+  upstream: 'refs/remotes/$upstreamShortName',
+  ahead: ahead,
+  behind: 0,
+  hasTrackingInfo: true,
+  isGone: false,
+  isHead: false,
+  isSymbolic: false,
+  worktreePath: '',
+);
+
+// deleteBranchLines() reads RefInfo.upstream directly (not
+// remoteCounterpartOf()), so this fixture needs an actual upstream value,
+// unlike _deleteBranchStateWithRemote above.
+final RepoSessionState _deleteBranchesState = RepoSessionState(
+  isOpen: true,
+  refs: RefSnapshot(
+    head: const HeadInfo(
+      kind: HeadKind.branch,
+      branchName: 'main',
+      fullRef: 'refs/heads/main',
+      target: 'aaaa',
+    ),
+    refs: <RefInfo>[
+      _ref('main'),
+      _ref('untracked/x'),
+      _trackedLocalRef(
+        'tracked/y',
+        upstreamShortName: 'origin/tracked/y',
+        ahead: 2,
+      ),
+    ],
+    refCountGuardTripped: false,
+    totalRefCount: 3,
+  ),
 );
 
 Future<void> _pump(
@@ -410,6 +480,117 @@ void main() {
         expect(find.text('Push and set as upstream'), findsNothing);
       },
     );
+  });
+
+  group('Delete Branch', () {
+    testWidgets('title and primary button stay English', (tester) async {
+      await _pump(
+        tester,
+        const DeleteBranchDialogContent(
+          identity: _identity,
+          branchName: 'feature/lane-allocator',
+        ),
+      );
+      _expectAll(<String>['Delete Branch', 'Delete branch', 'Cancel']);
+    });
+
+    testWidgets('the confirmation and no-upstream note are Chinese', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        const DeleteBranchDialogContent(
+          identity: _identity,
+          branchName: 'feature/lane-allocator',
+        ),
+      );
+      expect(find.textContaining('刪除本地分支'), findsOneWidget);
+      expect(find.text('這個分支沒有 upstream，只存在於這台機器上。'), findsOneWidget);
+      expect(find.text('如果分支還沒完全合併，git 會拒絕，並提供強制刪除的選項。'), findsOneWidget);
+      expect(find.textContaining('Delete the local branch'), findsNothing);
+    });
+
+    testWidgets('the also-delete-remote checkbox is Chinese', (tester) async {
+      await _pump(
+        tester,
+        const DeleteBranchDialogContent(
+          identity: _identity,
+          branchName: 'wip/askpass',
+        ),
+        overrideState: _deleteBranchStateWithRemote,
+      );
+      expect(find.text('同時刪除 origin 上的 wip/askpass'), findsOneWidget);
+      expect(find.text('其他人要等到下次 fetch 才會看不到這個分支。'), findsOneWidget);
+    });
+
+    testWidgets('the branch picker hint and prompt are Chinese', (
+      tester,
+    ) async {
+      await _pump(tester, const DeleteBranchDialogContent(identity: _identity));
+      expect(find.text('要刪除的分支'), findsOneWidget);
+      expect(find.text('選擇要刪除的分支。'), findsOneWidget);
+      expect(find.text('Branch to delete'), findsNothing);
+    });
+
+    testWidgets('does not overflow the shell', (tester) async {
+      await _pump(
+        tester,
+        const DeleteBranchDialogContent(
+          identity: _identity,
+          branchName: 'wip/askpass',
+        ),
+        overrideState: _deleteBranchStateWithRemote,
+      );
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('Delete Branches', () {
+    testWidgets('title and primary button stay English', (tester) async {
+      await _pump(
+        tester,
+        DeleteBranchesDialogContent(
+          identity: _identity,
+          names: const <String>['untracked/x', 'tracked/y'],
+        ),
+        overrideState: _deleteBranchesState,
+      );
+      expect(find.text('Delete 2 branches'), findsNWidgets(2));
+      expect(find.text('Cancel'), findsOneWidget);
+    });
+
+    testWidgets('the section titles, details and checkboxes are Chinese', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        DeleteBranchesDialogContent(
+          identity: _identity,
+          names: const <String>['untracked/x', 'tracked/y'],
+        ),
+        overrideState: _deleteBranchesState,
+      );
+      expect(find.text('本地分支'), findsOneWidget);
+      expect(find.text('遠端分支'), findsOneWidget);
+      expect(find.text('沒有 upstream，尚未推送過'), findsOneWidget);
+      expect(find.text('2 個未推送的 commit'), findsOneWidget);
+      expect(find.text('同時刪除遠端分支'), findsOneWidget);
+      expect(find.text('即使尚未完全合併也刪除'), findsOneWidget);
+      expect(find.text('Local branches'), findsNothing);
+      expect(find.text('Also delete on the remote'), findsNothing);
+    });
+
+    testWidgets('does not overflow the shell', (tester) async {
+      await _pump(
+        tester,
+        DeleteBranchesDialogContent(
+          identity: _identity,
+          names: const <String>['untracked/x', 'tracked/y'],
+        ),
+        overrideState: _deleteBranchesState,
+      );
+      expect(tester.takeException(), isNull);
+    });
   });
 
   group('Cherry-pick Commits', () {

@@ -126,11 +126,11 @@ class _DeleteBranchesDialogContentState
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          _sectionTitle(context, 'Local branches'),
+          _sectionTitle(context, '本地分支'),
           for (final DeleteBranchLine line in lines) _BranchLineRow(line: line),
           if (tracked.isNotEmpty) ...<Widget>[
             const SizedBox(height: GbmSpacing.space3),
-            _sectionTitle(context, 'Remote branches'),
+            _sectionTitle(context, '遠端分支'),
             for (final DeleteBranchLine line in tracked)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 1),
@@ -149,7 +149,7 @@ class _DeleteBranchesDialogContentState
               contentPadding: EdgeInsets.zero,
               controlAffinity: ListTileControlAffinity.leading,
               title: Text(
-                'Also delete on the remote',
+                '同時刪除遠端分支',
                 style: TextStyle(
                   fontSize: GbmTypography.textSm,
                   color: colors.textPrimary,
@@ -165,7 +165,7 @@ class _DeleteBranchesDialogContentState
             contentPadding: EdgeInsets.zero,
             controlAffinity: ListTileControlAffinity.leading,
             title: Text(
-              'Delete even if not fully merged',
+              '即使尚未完全合併也刪除',
               style: TextStyle(
                 fontSize: GbmTypography.textSm,
                 color: colors.textPrimary,
@@ -234,9 +234,9 @@ class _BranchLineRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
     final String detail = switch (line.unpushed) {
-      null => 'no upstream — nothing has been pushed',
-      0 => 'fully pushed',
-      final int n => '$n unpushed commit${n == 1 ? '' : 's'}',
+      null => '沒有 upstream，尚未推送過',
+      0 => '已完整推送',
+      final int n => '$n 個未推送的 commit',
     };
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 1),

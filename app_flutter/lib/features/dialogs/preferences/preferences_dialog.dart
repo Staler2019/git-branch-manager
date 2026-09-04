@@ -54,6 +54,8 @@ class _PreferencesDialogContentState
     extends ConsumerState<PreferencesDialogContent> {
   PreferencesSection _section = PreferencesSection.general;
 
+  // Section names stay English -- `PREFNAV`'s own six names are these exact
+  // English words (G1i; spec-auditor confirmed the app already matches).
   static String label(PreferencesSection section) => switch (section) {
     PreferencesSection.general => 'General',
     PreferencesSection.repositorySources => 'Repository sources',
@@ -301,13 +303,17 @@ class _GeneralSection extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        const _SectionHeading('AUTOMATIC FETCH'),
+        const _SectionHeading('自動 FETCH'),
+        // G1i: `[DRIFT-auto-fetch-unwired]` records that `autoFetchEnabled`/
+        // `autoFetchMinutes` are stored and drawn but read by no timer --
+        // this copy is worded to match that, not spec P11 item 9's prose
+        // (which describes the feature as if it already runs).
         _SettingSwitch(
-          title: 'Fetch the open repository in the background',
+          title: '在背景 fetch 目前開啟的 repository',
           subtitle:
-              'Only the repository currently open. A plain fetch — the '
-              'working tree is never touched. The timer resets when you '
-              'switch repository.',
+              '純 fetch，不會動到 working tree，只抓目前開啟的這一個 '
+              'repository。目前這個開關只會把設定存起來——還沒有背景排程真的 '
+              '照著它去執行 fetch。',
           value: prefs.autoFetchEnabled,
           onChanged: (bool v) => notifier.update(
             (AppPreferences p) => p.copyWith(autoFetchEnabled: v),
@@ -316,8 +322,8 @@ class _GeneralSection extends ConsumerWidget {
         if (prefs.autoFetchEnabled) ...<Widget>[
           const SizedBox(height: GbmSpacing.space2),
           _NumberField(
-            label: 'Fetch every',
-            suffix: 'minutes',
+            label: '每隔',
+            suffix: '分鐘',
             value: prefs.autoFetchMinutes,
             onChanged: (int v) => notifier.update(
               (AppPreferences p) => p.copyWith(autoFetchMinutes: v),
@@ -326,8 +332,8 @@ class _GeneralSection extends ConsumerWidget {
         ],
         const SizedBox(height: GbmSpacing.space2),
         Text(
-          'Background fetches never open a dialog when they fail — the result '
-          'shows up in ahead/behind counts, the gone markers, and the log.',
+          '之後接上背景排程後，fetch 失敗不會跳出對話框——結果只會反映在 '
+          'ahead/behind 數字、gone 標記和記錄裡。',
           style: TextStyle(
             fontSize: GbmTypography.textXs,
             color: context.gbmColors.textTertiary,
@@ -335,13 +341,13 @@ class _GeneralSection extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: GbmSpacing.space4),
-        const _SectionHeading('OPENING REPOSITORIES'),
+        const _SectionHeading('開啟 REPOSITORY'),
         _SettingSwitch(
-          title: 'Remember repositories opened manually',
+          title: '記住手動開啟的 repository',
           subtitle:
-              'Repositories opened with Open repository… are kept in their own '
-              'list, separate from the scanned base folders — so a one-off '
-              'project does not require changing your scan settings.',
+              '用 Open repository… 開啟的 repository 會另外記在自己的清單，跟 '
+              '掃描到的基礎資料夾分開——臨時開一次的專案不需要因此更動掃描 '
+              '設定。',
           value: prefs.recordManualOpens,
           onChanged: (bool v) => notifier.update(
             (AppPreferences p) => p.copyWith(recordManualOpens: v),
@@ -352,14 +358,13 @@ class _GeneralSection extends ConsumerWidget {
         // feature. Placed in General beside the other two background
         // activities (automatic fetch, scanning) for the same reason they
         // are here: things the app does on its own without being asked.
-        const _SectionHeading('UPDATES'),
+        const _SectionHeading('更新'),
         _SettingSwitch(
-          title: 'Check for updates at startup',
+          title: '啟動時檢查更新',
           subtitle:
-              'Asks GitHub once a day, a few seconds after launch. Nothing '
-              'is shown unless there is a new release — a check that fails, '
-              'or finds nothing, is silent. Turning this off stops the '
-              'request entirely; Help → Check for updates… still works.',
+              '啟動後幾秒會問一次 GitHub，一天最多一次。沒有新版本、或檢查 '
+              '失敗都不會顯示任何東西。關閉這個開關會完全停止這個請求；'
+              'Help → Check for updates… 仍然可以用。',
           value: prefs.autoUpdateCheckEnabled,
           onChanged: (bool v) => notifier.update(
             (AppPreferences p) => p.copyWith(autoUpdateCheckEnabled: v),
@@ -415,9 +420,8 @@ class _GeneralSection extends ConsumerWidget {
             children: <Widget>[
               Expanded(
                 child: Text(
-                  'The startup check is skipping version '
-                  '${prefs.skippedVersion}. Help → Check for updates… '
-                  'reports it regardless.',
+                  '啟動檢查目前跳過版本 ${prefs.skippedVersion}。'
+                  'Help → Check for updates… 仍然會回報這個版本。',
                   style: TextStyle(
                     fontSize: GbmTypography.textXs,
                     color: context.gbmColors.textTertiary,
@@ -505,11 +509,11 @@ class _RepositorySourcesSectionState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        const _SectionHeading('BASE FOLDERS'),
+        const _SectionHeading('基礎資料夾'),
         if (discovery.baseFolders.isEmpty)
           Text(
-            'No base folders yet. Add one below and everything under it is '
-            'scanned for repositories.',
+            '目前沒有基礎資料夾。在下面新增一個，底下所有內容都會被掃描來尋找 '
+            'repository。',
             style: TextStyle(
               fontSize: GbmTypography.textSm,
               color: colors.textTertiary,
@@ -529,7 +533,7 @@ class _RepositorySourcesSectionState
                   color: colors.textPrimary,
                 ),
                 decoration: const InputDecoration(
-                  hintText: 'Folder to scan, e.g. /home/you/code',
+                  hintText: '要掃描的資料夾，例如 /home/you/code',
                   isDense: true,
                   border: OutlineInputBorder(),
                 ),
@@ -553,9 +557,9 @@ class _RepositorySourcesSectionState
         ),
         const SizedBox(height: GbmSpacing.space2),
         Text(
-          '${discovery.repos.length} repositories across $enabledFolders '
-          'enabled folder(s)'
-          '${slowestScanMs > 0 ? ' · slowest scan ${slowestScanMs}ms' : ''}.',
+          '${discovery.repos.length} 個 repository，來自 $enabledFolders 個'
+          '已啟用的資料夾'
+          '${slowestScanMs > 0 ? '，最慢一次掃描花了 ${slowestScanMs}ms' : ''}。',
           style: TextStyle(
             fontSize: GbmTypography.textXs,
             color: colors.textSecondary,
@@ -569,13 +573,12 @@ class _RepositorySourcesSectionState
               : () => ref.read(discoveryProvider.notifier).rescan(),
         ),
         const SizedBox(height: GbmSpacing.space4),
-        const _SectionHeading('AUTOMATIC SCAN'),
+        const _SectionHeading('自動掃描'),
         _SettingSwitch(
-          title: 'Rescan base folders in the background',
+          title: '在背景重新掃描基礎資料夾',
           subtitle:
-              'A low-priority job — it only ever appears folded into the '
-              'status bar task count. When off, scanning happens only on '
-              'Rescan now.',
+              '低優先度工作——只會併入狀態列的工作數量，不會另外顯示。關閉時，'
+              '只有按 Rescan now 才會掃描。',
           value: prefs.autoScanEnabled,
           onChanged: (bool v) => notifier.update(
             (AppPreferences p) => p.copyWith(autoScanEnabled: v),
@@ -584,8 +587,8 @@ class _RepositorySourcesSectionState
         if (prefs.autoScanEnabled) ...<Widget>[
           const SizedBox(height: GbmSpacing.space2),
           _NumberField(
-            label: 'Rescan every',
-            suffix: 'minutes',
+            label: '每隔',
+            suffix: '分鐘',
             value: prefs.autoScanMinutes,
             onChanged: (int v) => notifier.update(
               (AppPreferences p) => p.copyWith(autoScanMinutes: v),
@@ -593,10 +596,10 @@ class _RepositorySourcesSectionState
           ),
         ],
         const SizedBox(height: GbmSpacing.space4),
-        const _SectionHeading('MANUALLY OPENED'),
+        const _SectionHeading('手動加入'),
         if (recents.isEmpty)
           Text(
-            'Nothing recorded yet.',
+            '目前沒有記錄。',
             style: TextStyle(
               fontSize: GbmTypography.textSm,
               color: colors.textSecondary,
@@ -615,8 +618,7 @@ class _RepositorySourcesSectionState
             ),
         const SizedBox(height: GbmSpacing.space1),
         Text(
-          'Clearing this list only forgets the entries — nothing on disk is '
-          'deleted.',
+          '清空這份清單只是忘記這些項目——磁碟上的東西不會被刪除。',
           style: TextStyle(
             fontSize: GbmTypography.textXs,
             color: colors.textTertiary,
@@ -669,7 +671,7 @@ class _RecentEntryRow extends StatelessWidget {
           IconButton(
             key: ValueKey<String>('recent-entry-remove-${entry.workDir}'),
             icon: Icon(Icons.close, size: 16, color: colors.textTertiary),
-            tooltip: 'Remove from list',
+            tooltip: '從清單移除',
             visualDensity: VisualDensity.compact,
             onPressed: onRemove,
           ),
@@ -695,9 +697,8 @@ class _BaseFolderRow extends ConsumerWidget {
     final bool isOffline = !Directory(folder.path).existsSync();
 
     final String scanSummary =
-        'depth ${folder.maxDepth} · ${folder.lastScanDirs} director(ies) '
-        'scanned'
-        '${folder.lastScanSkipped > 0 ? ' · ${folder.lastScanSkipped} skipped (depth limit)' : ''}';
+        'depth ${folder.maxDepth} · 掃描了 ${folder.lastScanDirs} 個目錄'
+        '${folder.lastScanSkipped > 0 ? '，略過 ${folder.lastScanSkipped} 個（超過 depth 限制）' : ''}';
 
     return Padding(
       padding: const EdgeInsets.only(bottom: GbmSpacing.space1),
@@ -714,8 +715,8 @@ class _BaseFolderRow extends ConsumerWidget {
           if (isOffline) ...<Widget>[
             Tooltip(
               message:
-                  'This folder is not reachable right now — its settings '
-                  'are kept and nothing will be removed automatically.',
+                  '這個資料夾目前無法連線——設定會保留，不會自動移除任何 '
+                  '東西。',
               child: Icon(
                 Icons.warning_amber_rounded,
                 size: 16,
@@ -755,7 +756,7 @@ class _BaseFolderRow extends ConsumerWidget {
           ),
           IconButton(
             icon: Icon(Icons.delete_outline, size: 18, color: colors.danger),
-            tooltip: 'Remove',
+            tooltip: '移除',
             onPressed: () => ref
                 .read(discoveryProvider.notifier)
                 .removeBaseFolder(folder.id),
@@ -837,13 +838,12 @@ class _GitSection extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        const _SectionHeading('GLOBAL GITIGNORE'),
+        const _SectionHeading('全域 GITIGNORE'),
         _SettingSwitch(
-          title: 'Use a global gitignore file',
+          title: '使用全域 gitignore 檔案',
           subtitle:
-              'Writes core.excludesFile, so the same rules apply on the '
-              'command line. Turning this off removes the setting — the file '
-              'itself is left in place.',
+              '會寫入 core.excludesFile，所以命令列也套用同一份規則。關閉這個 '
+              '設定只會移除設定值——檔案本身不會被刪除。',
           value: prefs.globalGitignoreEnabled,
           onChanged: (bool v) => notifier.update(
             (AppPreferences p) => p.copyWith(globalGitignoreEnabled: v),
@@ -863,7 +863,7 @@ class _GitSection extends ConsumerWidget {
           if (prefs.globalGitignoreSource == 'imported') ...<Widget>[
             const SizedBox(height: GbmSpacing.space1),
             Text(
-              'Imported from .gitconfig',
+              '從 .gitconfig 匯入',
               style: TextStyle(
                 fontSize: GbmTypography.textXs,
                 fontStyle: FontStyle.italic,
@@ -873,10 +873,10 @@ class _GitSection extends ConsumerWidget {
           ],
         ],
         const SizedBox(height: GbmSpacing.space4),
-        const _SectionHeading('COMMIT MESSAGES'),
+        const _SectionHeading('COMMIT 訊息'),
         _SettingSwitch(
-          title: 'Add "(cherry picked from commit …)" when cherry-picking',
-          subtitle: 'Appended as a trailing line to the original commit body.',
+          title: 'cherry-pick 時加上「(cherry picked from commit …)」',
+          subtitle: '會附加在原始 commit 內文的最後一行。',
           value: prefs.cherryPickAddsSourceLine,
           onChanged: (bool v) => notifier.update(
             (AppPreferences p) => p.copyWith(cherryPickAddsSourceLine: v),
@@ -922,7 +922,7 @@ class _GitignorePathFieldState extends State<_GitignorePathField> {
       onChanged: widget.onChanged,
       style: const TextStyle(fontFamily: GbmTypography.fontMono),
       decoration: const InputDecoration(
-        labelText: 'Path to the global gitignore file',
+        labelText: '全域 gitignore 檔案路徑',
         hintText: '~/.config/git/ignore',
         isDense: true,
         border: OutlineInputBorder(),
@@ -946,12 +946,15 @@ class _AppearanceSection extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        const _SectionHeading('THEME'),
+        const _SectionHeading('主題'),
         Row(
           children: <Widget>[
             const ThemeSwitcherButtons(),
             const SizedBox(width: GbmSpacing.space3),
             Text(
+              // 三個主題名稱維持英文 -- 跟 theme_switcher_buttons.dart 的
+              // tooltip 是同一組字面值，那個檔案不在 G1 的 30 個對話框範圍
+              // 內，只翻這裡會讓同一個名稱一半中文一半英文。
               switch (variant) {
                 GbmThemeVariant.darkTechnical => 'Dark technical',
                 GbmThemeVariant.lightIde => 'Light IDE',
@@ -966,8 +969,8 @@ class _AppearanceSection extends ConsumerWidget {
         ),
         const SizedBox(height: GbmSpacing.space2),
         Text(
-          'All three themes define the full token set, so switching never '
-          'leaves a panel styled by a different theme.',
+          '三個主題都定義了完整的 token 集合，所以切換主題不會讓某個面板停留 '
+          '在不同主題的樣式上。',
           style: TextStyle(
             fontSize: GbmTypography.textXs,
             color: colors.textTertiary,
@@ -975,14 +978,13 @@ class _AppearanceSection extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: GbmSpacing.space4),
-        const _SectionHeading('CODE'),
+        const _SectionHeading('程式碼'),
         _SettingSwitch(
-          title: 'Soft wrap long lines',
+          title: '長行自動換行',
           subtitle:
-              'Applies to every file view: diffs, blame, patches and the '
-              'conflict window. Off by default -- a long line then gets a '
-              'horizontal scrollbar, and the line-number gutter stays pinned '
-              'at the left edge instead of scrolling away with the code.',
+              '套用在所有檔案內容畫面：diff、blame、patch 和衝突解決視窗。'
+              '預設關閉——關閉時長行會出現水平捲軸，行號欄會固定在左邊，不會 '
+              '跟著程式碼一起捲動。',
           value: prefs.softWrapEnabled,
           onChanged: (bool v) => notifier.update(
             (AppPreferences p) => p.copyWith(softWrapEnabled: v),
@@ -1071,22 +1073,20 @@ class _AdvancedSection extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        const _SectionHeading('CONFIRMATIONS'),
+        const _SectionHeading('確認'),
         _SettingSwitch(
-          title: 'Confirm before force-pushing',
-          subtitle:
-              'Shows how many remote commits would be overwritten before the '
-              'push runs.',
+          title: 'force-push 前先確認',
+          subtitle: '執行前顯示這次 push 會覆蓋掉多少筆 remote commit。',
           value: prefs.confirmForcePush,
           onChanged: (bool v) => notifier.update(
             (AppPreferences p) => p.copyWith(confirmForcePush: v),
           ),
         ),
         const SizedBox(height: GbmSpacing.space4),
-        const _SectionHeading('LOG'),
+        const _SectionHeading('記錄'),
         _NumberField(
-          label: 'Keep in memory',
-          suffix: 'entries',
+          label: '記憶體中保留',
+          suffix: '筆',
           value: prefs.logMemoryLimit,
           onChanged: (int v) => notifier.update(
             (AppPreferences p) => p.copyWith(logMemoryLimit: v),
@@ -1094,8 +1094,8 @@ class _AdvancedSection extends ConsumerWidget {
         ),
         const SizedBox(height: GbmSpacing.space2),
         _NumberField(
-          label: 'Keep log files for',
-          suffix: 'days',
+          label: '記錄檔保留',
+          suffix: '天',
           value: prefs.logRetentionDays,
           onChanged: (int v) => notifier.update(
             (AppPreferences p) => p.copyWith(logRetentionDays: v),
@@ -1103,8 +1103,7 @@ class _AdvancedSection extends ConsumerWidget {
         ),
         const SizedBox(height: GbmSpacing.space2),
         Text(
-          'Credentials, tokens embedded in remote URLs, and file contents are '
-          'never written to the log.',
+          '密碼、內嵌在 remote URL 裡的 token，以及檔案內容，都不會寫進記錄。',
           style: TextStyle(
             fontSize: GbmTypography.textXs,
             color: context.gbmColors.textTertiary,

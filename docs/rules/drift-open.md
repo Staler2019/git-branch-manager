@@ -200,6 +200,25 @@ historical the moment they are written.
   「兩個落差」the user named for closure this round — it stays open pending a ruling.
 - **Evidence**: [ledger: G1f](../ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md).
 
+## [DRIFT-shortcuts-copy-excluded] The Shortcuts surfaces are excluded from G1's Chinese-copy sweep
+
+- **Rule**: `keyboard_shortcuts_dialog.dart` and `preferences_dialog.dart`'s Shortcuts tab
+  (`_ShortcutsSection`) draw no field labels of their own — every row's text comes from
+  `gbmMenus` (`lib/actions/gbm_menu_model.dart`), walked live so the rows stay in menu order.
+  `keyboard_shortcuts_dialog.dart` has exactly one literal string, its title, which the G1
+  title-stays-English rule already covers regardless.
+- **Consequence**: translating either surface's *copy* is not a copy-only change — it is
+  translating `gbmMenus` itself, which cascades into `MenuBarRow`, the macOS
+  `PlatformMenuBarHost` (a real native `PlatformMenuBar`, not a Flutter widget G1's per-dialog
+  pattern can touch), and every keyboard-shortcut label in the app at once. That is a menu-bar
+  localisation decision, not a dialog-by-dialog one, and it was never part of what G1 was asked
+  to close.
+- **Do**: both surfaces are left in English for G1a–G1k. Closing this needs its own ruling on
+  whether (and how) to translate `gbmMenus`, before either surface can move.
+- **Evidence**: G1i (`preferences_dialog.dart`'s `_ShortcutsSection` header `'KEYBOARD
+  SHORTCUTS'` stays English; `dialog_copy_test.dart`'s 'Preferences' group asserts it directly);
+  ledger: [G1i](../ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md).
+
 ## [DRIFT-open-issues] Open issues
 
 - **Open**: **#62** (TabRow overflow menu), **#68**–**#71**, **#76**, **#84**–**#89**

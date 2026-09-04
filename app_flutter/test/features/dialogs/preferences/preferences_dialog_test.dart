@@ -149,9 +149,9 @@ void main() {
         isFalse,
       );
 
-      await tester.ensureVisible(find.text('Soft wrap long lines'));
+      await tester.ensureVisible(find.text('長行自動換行'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Soft wrap long lines'));
+      await tester.tap(find.text('長行自動換行'));
       await tester.pumpAndSettle();
 
       expect(
@@ -178,7 +178,7 @@ void main() {
       final Checkbox box = tester.widget<Checkbox>(
         find.descendant(
           of: find.ancestor(
-            of: find.text('Soft wrap long lines'),
+            of: find.text('長行自動換行'),
             matching: find.byType(CheckboxListTile),
           ),
           matching: find.byType(Checkbox),
@@ -194,11 +194,11 @@ void main() {
     ) async {
       final result = await _pump(tester, section: 'General');
 
-      expect(find.text('Check for updates at startup'), findsOneWidget);
+      expect(find.text('啟動時檢查更新'), findsOneWidget);
 
-      await tester.ensureVisible(find.text('Check for updates at startup'));
+      await tester.ensureVisible(find.text('啟動時檢查更新'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Check for updates at startup'));
+      await tester.tap(find.text('啟動時檢查更新'));
       await tester.pumpAndSettle();
 
       expect(
@@ -216,7 +216,7 @@ void main() {
     ) async {
       await _pump(tester, section: 'General');
 
-      expect(find.text('Last automatic check: never.'), findsOneWidget);
+      expect(find.text('上次自動檢查：從未執行。'), findsOneWidget);
     });
 
     testWidgets('names when the last automatic check ran', (tester) async {
@@ -234,10 +234,7 @@ void main() {
         },
       );
 
-      expect(
-        find.text('Last automatic check: 2026-08-25 09:04.'),
-        findsOneWidget,
-      );
+      expect(find.text('上次自動檢查：2026-08-25 09:04。'), findsOneWidget);
     });
 
     // Routed, not a callback: Preferences opens with no repository at all,
@@ -349,7 +346,7 @@ void main() {
           ],
         );
 
-        expect(find.textContaining('4 skipped (depth limit)'), findsOneWidget);
+        expect(find.textContaining('略過 4 個（超過 depth 限制）'), findsOneWidget);
       },
     );
 
@@ -363,7 +360,7 @@ void main() {
         ],
       );
 
-      expect(find.textContaining('skipped'), findsNothing);
+      expect(find.textContaining('略過'), findsNothing);
     });
 
     testWidgets('a base folder that no longer exists on disk shows a warning', (
@@ -484,7 +481,7 @@ void main() {
         await tester.tap(find.text('Git'));
         await tester.pumpAndSettle();
 
-        expect(find.text('Imported from .gitconfig'), findsOneWidget);
+        expect(find.text('從 .gitconfig 匯入'), findsOneWidget);
       },
     );
 
@@ -499,7 +496,7 @@ void main() {
       await tester.tap(find.text('Git'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Imported from .gitconfig'), findsNothing);
+      expect(find.text('從 .gitconfig 匯入'), findsNothing);
     });
   });
 }

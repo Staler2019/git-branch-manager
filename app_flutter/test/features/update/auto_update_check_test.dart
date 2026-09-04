@@ -114,13 +114,13 @@ void main() {
   // due for another 23 hours". Preferences renders this string.
   group('lastAutoCheckLabel', () {
     test('says never when nothing has been recorded', () {
-      expect(lastAutoCheckLabel(null), 'Last automatic check: never.');
+      expect(lastAutoCheckLabel(null), '上次自動檢查：從未執行。');
     });
 
     // Same call `_isDue` makes: a corrupt value must not throw, and must not
     // read as a real time either.
     test('says never for a stamp that will not parse', () {
-      expect(lastAutoCheckLabel('not a date'), 'Last automatic check: never.');
+      expect(lastAutoCheckLabel('not a date'), '上次自動檢查：從未執行。');
     });
 
     // A local DateTime serialises without a zone suffix, so `toLocal()` is a
@@ -128,7 +128,7 @@ void main() {
     test('renders a recorded stamp in local time, zero padded', () {
       expect(
         lastAutoCheckLabel(DateTime(2026, 8, 25, 9, 4).toIso8601String()),
-        'Last automatic check: 2026-08-25 09:04.',
+        '上次自動檢查：2026-08-25 09:04。',
       );
     });
 

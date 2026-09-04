@@ -86,7 +86,8 @@ opened, so Ctrl/Cmd+, landed on Git identity.
 ## [STRUCT-soft-wrap-preference] Soft wrap is an app-level preference, and it is off by default
 
 **Soft wrap is an app-level preference, and it is off by default.**
-`AppPreferences.softWrapEnabled` (Preferences → Appearance → CODE) decides how
+`AppPreferences.softWrapEnabled` (Preferences → Appearance → 程式碼, G1i; the section header
+was English "CODE" before that round's Chinese-copy pass) decides how
 *every* file-content surface handles a line too wide for its pane. Off — the
 shipped default — means the line runs to the right behind a horizontal
 scrollbar with the line-number gutter pinned at the viewport's left edge; on

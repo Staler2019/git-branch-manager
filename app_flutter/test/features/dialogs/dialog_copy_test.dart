@@ -17,6 +17,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
+import 'package:gbm_flutter/data/repositories/discovery_repository.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/data/models/commit_meta.dart';
@@ -41,6 +42,7 @@ import 'package:gbm_flutter/features/dialogs/discard_changes/discard_changes_req
 import 'package:gbm_flutter/features/dialogs/force_push/force_push_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/merge/merge_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/new_branch/new_branch_dialog.dart';
+import 'package:gbm_flutter/features/dialogs/preferences/preferences_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/prune_remote_branches/prune_remote_branches_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/rebase_onto/rebase_onto_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/rename_branch/rename_branch_dialog.dart';
@@ -384,6 +386,49 @@ void _expectAll(List<String> texts) {
   for (final String text in texts) {
     expect(find.text(text), findsOneWidget, reason: 'missing copy: $text');
   }
+}
+
+/// No-op stand-in for `DiscoveryController` -- Preferences is application-
+/// scoped (no `RepoIdentity`, unlike every other dialog in this file), so it
+/// needs its own pump rather than reusing [_pump]. This file asserts copy
+/// only, never discovery interactions, so every override method is a no-op.
+class _NoOpDiscoveryController extends StateNotifier<DiscoveryState>
+    implements DiscoveryController {
+  _NoOpDiscoveryController() : super(const DiscoveryState());
+
+  @override
+  void addBaseFolderAndScan(String path) {}
+
+  @override
+  void removeBaseFolder(int baseFolderId) {}
+
+  @override
+  void rescan() {}
+
+  @override
+  void setBaseFolderEnabled(int baseFolderId, bool enabled) {}
+
+  @override
+  void setBaseFolderDepth(int baseFolderId, int maxDepth) {}
+}
+
+Future<void> _pumpPreferences(WidgetTester tester) async {
+  SharedPreferences.setMockInitialValues(<String, Object>{});
+  final SharedPreferences prefs = await SharedPreferences.getInstance();
+
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: <Override>[
+        sharedPreferencesProvider.overrideWithValue(prefs),
+        discoveryProvider.overrideWith((ref) => _NoOpDiscoveryController()),
+      ],
+      child: MaterialApp(
+        theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+        home: const Scaffold(body: PreferencesDialogContent()),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -1600,6 +1645,130 @@ void main() {
       );
       expect(find.text('歷史'), findsOneWidget);
       expect(find.textContaining('A commit-graph can speed up'), findsNothing);
+    });
+  });
+
+  group('Preferences', () {
+    testWidgets(
+      'title, Close, the six section names and "Check for updates now" '
+      'stay English -- PREFNAV names the six sections in English, and '
+      'buttons stay English throughout G1',
+      (tester) async {
+        await _pumpPreferences(tester);
+        _expectAll(<String>[
+          'Preferences',
+          'Close',
+          'General',
+          'Repository sources',
+          'Git',
+          'Appearance',
+          'Shortcuts',
+          'Advanced',
+          'Check for updates now',
+        ]);
+      },
+    );
+
+    testWidgets('the General section is Chinese, old English gone', (
+      tester,
+    ) async {
+      await _pumpPreferences(tester);
+      expect(find.text('自動 FETCH'), findsOneWidget);
+      expect(find.text('在背景 fetch 目前開啟的 repository'), findsOneWidget);
+      expect(find.text('更新'), findsOneWidget);
+      expect(find.text('啟動時檢查更新'), findsOneWidget);
+      expect(find.text('AUTOMATIC FETCH'), findsNothing);
+      expect(
+        find.text('Fetch the open repository in the background'),
+        findsNothing,
+      );
+      expect(find.text('UPDATES'), findsNothing);
+      expect(find.text('Check for updates at startup'), findsNothing);
+    });
+
+    testWidgets('the Repository sources section is Chinese, old English gone', (
+      tester,
+    ) async {
+      await _pumpPreferences(tester);
+      await tester.tap(find.text('Repository sources'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('基礎資料夾'), findsOneWidget);
+      expect(
+        find.text(
+          '目前沒有基礎資料夾。在下面新增一個，底下所有內容都會被'
+          '掃描來尋找 repository。',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('自動掃描'), findsOneWidget);
+      expect(find.text('手動加入'), findsOneWidget);
+      expect(find.text('目前沒有記錄。'), findsOneWidget);
+      expect(find.text('BASE FOLDERS'), findsNothing);
+      expect(find.text('AUTOMATIC SCAN'), findsNothing);
+      expect(find.text('MANUALLY OPENED'), findsNothing);
+      expect(find.text('Nothing recorded yet.'), findsNothing);
+    });
+
+    testWidgets('the Git section is Chinese, old English gone', (tester) async {
+      await _pumpPreferences(tester);
+      await tester.tap(find.text('Git'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('全域 GITIGNORE'), findsOneWidget);
+      expect(find.text('使用全域 gitignore 檔案'), findsOneWidget);
+      expect(find.text('COMMIT 訊息'), findsOneWidget);
+      expect(
+        find.text('cherry-pick 時加上「(cherry picked from commit …)」'),
+        findsOneWidget,
+      );
+      expect(find.text('GLOBAL GITIGNORE'), findsNothing);
+      expect(find.text('COMMIT MESSAGES'), findsNothing);
+    });
+
+    testWidgets(
+      'the Appearance section is Chinese, old English gone -- theme names '
+      'stay English, matching theme_switcher_buttons.dart',
+      (tester) async {
+        await _pumpPreferences(tester);
+        await tester.tap(find.text('Appearance'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('主題'), findsOneWidget);
+        expect(find.text('Dark technical'), findsOneWidget);
+        expect(find.text('程式碼'), findsOneWidget);
+        expect(find.text('長行自動換行'), findsOneWidget);
+        expect(find.text('THEME'), findsNothing);
+        expect(find.text('CODE'), findsNothing);
+        expect(find.text('Soft wrap long lines'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'the Shortcuts section stays English -- excluded this round, see '
+      'docs/rules/drift-open.md',
+      (tester) async {
+        await _pumpPreferences(tester);
+        await tester.tap(find.text('Shortcuts'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('KEYBOARD SHORTCUTS'), findsOneWidget);
+      },
+    );
+
+    testWidgets('the Advanced section is Chinese, old English gone', (
+      tester,
+    ) async {
+      await _pumpPreferences(tester);
+      await tester.tap(find.text('Advanced'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('確認'), findsOneWidget);
+      expect(find.text('force-push 前先確認'), findsOneWidget);
+      expect(find.text('記錄'), findsOneWidget);
+      expect(find.text('CONFIRMATIONS'), findsNothing);
+      expect(find.text('LOG'), findsNothing);
+      expect(find.text('Confirm before force-pushing'), findsNothing);
     });
   });
 }

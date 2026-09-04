@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 
 import '../theme/gbm_theme.dart';
 import '../theme/tokens.dart';
 
 /// Shared chrome for every routed dialog (see routing/dialog_route.dart):
-/// title bar with a close button, scrollable body, optional action row.
-/// One shared widget rather than each dialog re-implementing this, since
-/// ~30 dialogs (see docs/FEATURES.md) will use it by the time the rewrite
-/// reaches parity.
+/// title bar, scrollable body, optional action row. One shared widget
+/// rather than each dialog re-implementing this, since ~30 dialogs (see
+/// docs/FEATURES.md) will use it by the time the rewrite reaches parity.
+///
+/// **No ✕ close button** -- worktree-dialogs-spec.html's G5 draws none, and
+/// dialog_escape_dismiss_test.dart pins that Escape already closes every
+/// routed dialog (`dialog_route.dart`'s `barrierDismissible: true`, which
+/// Flutter's own `_ModalScope` wires to `DismissIntent` for free) as the
+/// affordance that stays -- clicking outside the barrier is the other one.
 class GbmDialogShell extends StatelessWidget {
   const GbmDialogShell({
     super.key,
@@ -64,28 +68,13 @@ class GbmDialogShell extends StatelessWidget {
                   GbmSpacing.space3,
                   GbmSpacing.space2,
                 ),
-                child: Row(
-                  children: <Widget>[
-                    Expanded(
-                      child: Text(
-                        title,
-                        style: TextStyle(
-                          fontSize: GbmTypography.textLg,
-                          fontWeight: GbmTypography.weightSemibold,
-                          color: colors.textPrimary,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      icon: Icon(
-                        Icons.close,
-                        size: 18,
-                        color: colors.textSecondary,
-                      ),
-                      onPressed: () => context.pop(),
-                      tooltip: 'Close',
-                    ),
-                  ],
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: GbmTypography.textLg,
+                    fontWeight: GbmTypography.weightSemibold,
+                    color: colors.textPrimary,
+                  ),
                 ),
               ),
               Flexible(

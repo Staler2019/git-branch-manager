@@ -65,4 +65,16 @@ void main() {
       findsOneWidget,
     );
   });
+
+  // G5: worktree-dialogs-spec.html draws no ✕ in the title bar, and
+  // dialog_escape_dismiss_test.dart pinned that Escape already closes every
+  // routed dialog (via Flutter's own barrierDismissible DismissIntent
+  // wiring) before this button was removed -- so the affordance being
+  // dropped is not the only way out.
+  testWidgets('draws no close (✕) button in the title bar', (tester) async {
+    await _pump(tester);
+
+    expect(find.byIcon(Icons.close), findsNothing);
+    expect(find.byTooltip('Close'), findsNothing);
+  });
 }

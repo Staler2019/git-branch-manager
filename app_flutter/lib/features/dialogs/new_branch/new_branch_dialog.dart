@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../actions/gbm_action_id.dart';
 import '../../../data/models/ref_snapshot.dart';
 import '../../../data/repositories/repo_identity.dart';
 import '../../../data/repositories/repo_session_repository.dart';
@@ -202,6 +203,7 @@ class _NewBranchDialogContentState
 
     return GbmDialogShell(
       title: 'New Branch',
+      actionId: GbmActionId.branchNewBranch,
       actions: <Widget>[
         GbmButton(label: 'Cancel', onPressed: () => context.pop()),
         const SizedBox(width: GbmSpacing.space2),

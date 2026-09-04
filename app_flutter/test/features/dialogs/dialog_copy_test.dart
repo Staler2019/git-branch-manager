@@ -41,6 +41,7 @@ import 'package:gbm_flutter/features/dialogs/about/about_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/discard_changes/discard_changes_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/discard_changes/discard_changes_request.dart';
 import 'package:gbm_flutter/features/dialogs/force_push/force_push_dialog.dart';
+import 'package:gbm_flutter/features/dialogs/keyboard_shortcuts/keyboard_shortcuts_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/manage_base_folders/manage_base_folders_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/merge/merge_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/new_branch/new_branch_dialog.dart';
@@ -56,6 +57,7 @@ import 'package:gbm_flutter/features/dialogs/undo_last/undo_last_dialog.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/theme_mode_provider.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
+import 'package:gbm_flutter/widgets/gbm_kbd_chip.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -2015,6 +2017,21 @@ void main() {
       },
     );
 
+    // G5b: _ShortcutsSection used to draw the shortcut label as a bare Text
+    // with no box at all -- a second, disagreeing rendering of the same
+    // chip keyboard_shortcuts_dialog.dart already drew inside a styled
+    // Container ([CULT-single-source-of-truth]). Both now build GbmKbdChip.
+    testWidgets(
+      'the Shortcuts section draws each shortcut as a GbmKbdChip (G5b)',
+      (tester) async {
+        await _pumpPreferences(tester);
+        await tester.tap(find.text('Shortcuts'));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(GbmKbdChip), findsWidgets);
+      },
+    );
+
     testWidgets('the Advanced section is Chinese, old English gone', (
       tester,
     ) async {
@@ -2055,6 +2072,25 @@ void main() {
         find.text('A fast Git client for very large repositories.'),
         findsNothing,
       );
+    });
+  });
+
+  // G5b: keyboard_shortcuts_dialog.dart's own inline chip Container is now
+  // GbmKbdChip -- see the "Preferences" group's matching assertion for the
+  // second (previously plain-Text) call site this same widget replaced.
+  group('Keyboard Shortcuts', () {
+    testWidgets('each bound shortcut is drawn as a GbmKbdChip (G5b)', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: const Scaffold(body: KeyboardShortcutsDialogContent()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(GbmKbdChip), findsWidgets);
     });
   });
 

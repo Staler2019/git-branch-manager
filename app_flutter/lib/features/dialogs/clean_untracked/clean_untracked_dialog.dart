@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../actions/gbm_action_id.dart';
 import '../../../data/models/clean_entry.dart';
 import '../../../data/repositories/repo_identity.dart';
 import '../../../data/repositories/repo_session_repository.dart';
@@ -55,6 +56,7 @@ class _CleanUntrackedDialogContentState
 
     return GbmDialogShell(
       title: 'Clean Untracked Files',
+      actionId: GbmActionId.toolsCleanUntrackedFiles,
       width: 560,
       actions: <Widget>[
         GbmButton(label: 'Cancel', onPressed: () => context.pop()),

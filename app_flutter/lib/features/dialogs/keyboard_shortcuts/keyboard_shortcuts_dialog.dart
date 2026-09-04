@@ -6,6 +6,7 @@ import '../../../actions/gbm_shortcuts.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
+import '../../../widgets/gbm_kbd_chip.dart';
 
 /// Help → Keyboard shortcuts (Ctrl/Cmd+/).
 ///
@@ -31,6 +32,7 @@ class KeyboardShortcutsDialogContent extends StatelessWidget {
 
     return GbmDialogShell(
       title: 'Keyboard Shortcuts',
+      actionId: GbmActionId.helpKeyboardShortcuts,
       width: 560,
       child: SizedBox(
         height: 460,
@@ -105,24 +107,7 @@ class KeyboardShortcutsDialogContent extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: GbmSpacing.space2),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: GbmSpacing.space2,
-                  vertical: 2,
-                ),
-                decoration: BoxDecoration(
-                  color: colors.surfaceSunken,
-                  borderRadius: BorderRadius.circular(GbmSpacing.radiusSm),
-                ),
-                child: Text(
-                  shortcuts[item.id]!.displayLabel,
-                  style: TextStyle(
-                    fontFamily: GbmTypography.fontMono,
-                    fontSize: GbmTypography.textXs,
-                    color: colors.textSecondary,
-                  ),
-                ),
-              ),
+              GbmKbdChip(label: shortcuts[item.id]!.displayLabel),
             ],
           ),
         ),

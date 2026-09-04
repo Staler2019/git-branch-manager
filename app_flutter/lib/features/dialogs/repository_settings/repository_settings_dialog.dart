@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../actions/gbm_action_id.dart';
 import '../../../data/models/git_identity.dart';
 import '../../../data/models/remote_info.dart';
 import '../../../data/repositories/panel_tabs_repository.dart';
@@ -93,6 +94,7 @@ class _RepositorySettingsDialogContentState
 
     return GbmDialogShell(
       title: 'Repository Settings',
+      actionId: GbmActionId.repositorySettings,
       width: 600,
       actions: <Widget>[
         GbmButton(

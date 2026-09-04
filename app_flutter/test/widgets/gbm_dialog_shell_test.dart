@@ -14,21 +14,26 @@
 // alone pushes the row past the container width regardless of Cancel; this
 // fixture is deliberately past that line so the test still reddens if
 // OverflowBar is ever reverted to Row.
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/actions/gbm_action_id.dart';
+import 'package:gbm_flutter/actions/gbm_shortcuts.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
 import 'package:gbm_flutter/widgets/gbm_button.dart';
 import 'package:gbm_flutter/widgets/gbm_dialog_shell.dart';
+import 'package:gbm_flutter/widgets/gbm_kbd_chip.dart';
 import 'package:go_router/go_router.dart';
 
-Future<void> _pump(WidgetTester tester) async {
+Future<void> _pump(WidgetTester tester, {GbmActionId? actionId}) async {
   final GoRouter router = GoRouter(
     routes: <RouteBase>[
       GoRoute(
         path: '/',
         builder: (context, state) => GbmDialogShell(
           title: 'Checkout blocked',
+          actionId: actionId,
           actions: <Widget>[
             GbmButton(label: 'Cancel', onPressed: () {}),
             const SizedBox(width: GbmSpacing.space2),
@@ -76,5 +81,37 @@ void main() {
 
     expect(find.byIcon(Icons.close), findsNothing);
     expect(find.byTooltip('Close'), findsNothing);
+  });
+
+  // G5b: worktree-dialogs-spec.html's title bar carries an optional
+  // shortcut chip. Only dialogs with an unambiguous GbmActionId pass one --
+  // the default (no actionId) must draw nothing, and an actionId with no
+  // bound shortcut is an empty slot too, not a fallback of any kind.
+  group('the optional actionId shortcut chip', () {
+    testWidgets('draws no chip when actionId is not given', (tester) async {
+      await _pump(tester);
+
+      expect(find.byType(GbmKbdChip), findsNothing);
+    });
+
+    testWidgets('draws no chip when actionId has no bound shortcut', (
+      tester,
+    ) async {
+      await _pump(tester, actionId: GbmActionId.toolsStashes);
+
+      expect(find.byType(GbmKbdChip), findsNothing);
+    });
+
+    testWidgets('draws the bound shortcut as a GbmKbdChip', (tester) async {
+      await _pump(tester, actionId: GbmActionId.branchStashChanges);
+
+      final bool isMacOS = defaultTargetPlatform == TargetPlatform.macOS;
+      final String expectedLabel = gbmActionShortcuts(
+        isMacOS,
+      )[GbmActionId.branchStashChanges]!.displayLabel;
+
+      expect(find.byType(GbmKbdChip), findsOneWidget);
+      expect(find.text(expectedLabel), findsOneWidget);
+    });
   });
 }

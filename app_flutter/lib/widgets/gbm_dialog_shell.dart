@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../actions/gbm_action_id.dart';
+import '../actions/gbm_shortcuts.dart';
 import '../theme/gbm_theme.dart';
 import '../theme/tokens.dart';
+import 'gbm_kbd_chip.dart';
 
 /// Shared chrome for every routed dialog (see routing/dialog_route.dart):
 /// title bar, scrollable body, optional action row. One shared widget
@@ -13,6 +16,12 @@ import '../theme/tokens.dart';
 /// routed dialog (`dialog_route.dart`'s `barrierDismissible: true`, which
 /// Flutter's own `_ModalScope` wires to `DismissIntent` for free) as the
 /// affordance that stays -- clicking outside the barrier is the other one.
+///
+/// **`actionId` is optional and additive.** Only a call site with an
+/// unambiguous [GbmActionId] (a direct menu-bar entry point, per
+/// `_buildActionHandlers()`) passes one; the many dialogs reached only from
+/// a context menu, a panel, or with no bound shortcut at all pass none, and
+/// draw no chip -- an empty slot, never a fallback of any kind.
 class GbmDialogShell extends StatelessWidget {
   const GbmDialogShell({
     super.key,
@@ -20,16 +29,23 @@ class GbmDialogShell extends StatelessWidget {
     required this.child,
     this.actions = const <Widget>[],
     this.width = 480,
+    this.actionId,
   });
 
   final String title;
   final Widget child;
   final List<Widget> actions;
   final double width;
+  final GbmActionId? actionId;
 
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
+    final GbmActionId? boundActionId = actionId;
+    final bool isMacOS = Theme.of(context).platform == TargetPlatform.macOS;
+    final GbmKeyboardShortcut? shortcut = boundActionId == null
+        ? null
+        : gbmActionShortcuts(isMacOS)[boundActionId];
     return Center(
       // The shadow lives on this outer, colorless DecoratedBox rather than
       // on the Material below -- a DecoratedBox with its own `color` sitting
@@ -68,13 +84,23 @@ class GbmDialogShell extends StatelessWidget {
                   GbmSpacing.space3,
                   GbmSpacing.space2,
                 ),
-                child: Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: GbmTypography.textLg,
-                    fontWeight: GbmTypography.weightSemibold,
-                    color: colors.textPrimary,
-                  ),
+                child: Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: TextStyle(
+                          fontSize: GbmTypography.textLg,
+                          fontWeight: GbmTypography.weightSemibold,
+                          color: colors.textPrimary,
+                        ),
+                      ),
+                    ),
+                    if (shortcut != null) ...<Widget>[
+                      const SizedBox(width: GbmSpacing.space2),
+                      GbmKbdChip(label: shortcut.displayLabel),
+                    ],
+                  ],
                 ),
               ),
               Flexible(

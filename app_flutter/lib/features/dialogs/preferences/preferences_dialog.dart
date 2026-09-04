@@ -19,6 +19,7 @@ import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
 import '../../../widgets/gbm_input_decoration.dart';
+import '../../../widgets/gbm_kbd_chip.dart';
 import '../../../widgets/theme_switcher_buttons.dart';
 import '../../update/auto_update_check.dart';
 
@@ -72,6 +73,7 @@ class _PreferencesDialogContentState
 
     return GbmDialogShell(
       title: 'Preferences',
+      actionId: GbmActionId.filePreferences,
       width: 720,
       actions: <Widget>[
         GbmButton(
@@ -1050,14 +1052,7 @@ class _ShortcutsSection extends StatelessWidget {
                         ),
                       ),
                     ),
-                    Text(
-                      shortcut.displayLabel,
-                      style: TextStyle(
-                        fontFamily: GbmTypography.fontMono,
-                        fontSize: GbmTypography.textXs,
-                        color: colors.textSecondary,
-                      ),
-                    ),
+                    GbmKbdChip(label: shortcut.displayLabel),
                   ],
                 ),
               ),

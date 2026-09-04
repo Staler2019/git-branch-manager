@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../actions/gbm_action_id.dart';
 import '../../../data/repositories/repo_identity.dart';
 import '../../../data/repositories/repo_session_repository.dart';
 import '../../../theme/gbm_theme.dart';
@@ -40,6 +41,7 @@ class _StashChangesDialogContentState
 
     return GbmDialogShell(
       title: 'Stash Changes',
+      actionId: GbmActionId.branchStashChanges,
       actions: <Widget>[
         GbmButton(label: 'Cancel', onPressed: () => context.pop()),
         const SizedBox(width: GbmSpacing.space2),

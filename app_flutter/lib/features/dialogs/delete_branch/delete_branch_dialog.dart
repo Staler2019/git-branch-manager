@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../actions/gbm_action_id.dart';
 import '../../../data/models/ref_snapshot.dart';
 import '../../../data/models/remote_counterpart.dart';
 import '../../../data/models/remote_prune_preview_entry.dart';
@@ -157,6 +158,7 @@ class _DeleteBranchDialogContentState
 
     return GbmDialogShell(
       title: 'Delete Branch',
+      actionId: GbmActionId.branchDeleteBranch,
       actions: <Widget>[
         GbmButton(label: 'Cancel', onPressed: () => context.pop()),
         const SizedBox(width: GbmSpacing.space2),

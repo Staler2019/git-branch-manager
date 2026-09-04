@@ -31,6 +31,7 @@ import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/theme_mode_provider.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
 import 'package:gbm_flutter/widgets/gbm_button.dart';
+import 'package:gbm_flutter/widgets/gbm_dialog_field_kinds.dart';
 import 'package:gbm_flutter/widgets/gbm_ref_picker.dart';
 import 'package:gbm_flutter/widgets/gbm_row.dart';
 import 'package:go_router/go_router.dart';
@@ -500,6 +501,22 @@ void main() {
         find.widgetWithText(GbmButton, 'Add worktree'),
       );
       expect(create.onPressed, isNull);
+    });
+
+    // G8b: the path-conflict warning now draws inside GbmDialogWarnField,
+    // not a bare GbmWarningBanner call.
+    testWidgets('the warning is a GbmDialogWarnField (G8b)', (tester) async {
+      final Directory nonEmpty = Directory.systemTemp.createTempSync(
+        'gbm-add-worktree-nonempty-g8b-',
+      );
+      addTearDown(() => nonEmpty.deleteSync(recursive: true));
+      File('${nonEmpty.path}/marker').writeAsStringSync('x');
+
+      await _pump(tester);
+      await _pick(tester, 'release/0.5');
+      await _typePath(tester, nonEmpty.path);
+
+      expect(find.byType(GbmDialogWarnField), findsOneWidget);
     });
   });
 

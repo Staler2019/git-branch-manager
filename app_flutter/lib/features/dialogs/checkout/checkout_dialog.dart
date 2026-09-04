@@ -9,6 +9,7 @@ import '../../../data/repositories/repo_session_repository.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
+import '../../../widgets/gbm_dialog_field_kinds.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
 import '../../../widgets/gbm_ref_picker.dart';
 
@@ -151,12 +152,12 @@ class _CheckoutDialogContentState extends ConsumerState<CheckoutDialogContent> {
             ],
             const SizedBox(height: GbmSpacing.space2),
             // DLGS's `ro` field, 「目前」/`main · 有25 項未提交變更` -- quoted
-            // verbatim including its punctuation (no space after 有).
-            Text(
-              isDirty ? '目前 $head · 有$pendingCount 項未提交變更' : '目前 $head',
-              style: TextStyle(
-                fontSize: GbmTypography.textSm,
-                color: colors.textSecondary,
+            // verbatim including its punctuation (no space after 有). G8b:
+            // wrapped in GbmDialogReadOnlyField's surface-sunken box -- this
+            // line is its own content, so no separate `label:`.
+            GbmDialogReadOnlyField(
+              child: Text(
+                isDirty ? '目前 $head · 有$pendingCount 項未提交變更' : '目前 $head',
               ),
             ),
             if (isDirty) ...<Widget>[

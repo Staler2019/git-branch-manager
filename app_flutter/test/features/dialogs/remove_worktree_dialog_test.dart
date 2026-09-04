@@ -23,6 +23,7 @@ import 'package:gbm_flutter/features/dialogs/remove_worktree/remove_worktree_dia
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
 import 'package:gbm_flutter/widgets/gbm_button.dart';
+import 'package:gbm_flutter/widgets/gbm_dialog_field_kinds.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../support/fake_repo_session.dart';
@@ -190,6 +191,16 @@ void main() {
       expect(find.textContaining('未提交的變更'), findsNothing);
     });
 
+    // G8b: the pending-changes warning now draws inside GbmDialogWarnField,
+    // not a bare GbmWarningBanner call.
+    testWidgets('the pending-changes warning is a GbmDialogWarnField (G8b)', (
+      tester,
+    ) async {
+      await _pump(tester, worktree: _wt());
+
+      expect(find.byType(GbmDialogWarnField), findsOneWidget);
+    });
+
     testWidgets('an unlocked worktree offers the force checkbox, unticked', (
       tester,
     ) async {
@@ -251,6 +262,17 @@ void main() {
           find.widgetWithText(GbmButton, 'Remove gbm-lfs'),
         );
         expect(danger.onPressed, isNull);
+      });
+
+      // G8b: both the pending-changes and the lock warning draw inside
+      // GbmDialogWarnField when a worktree is locked.
+      testWidgets('both warnings are GbmDialogWarnField (G8b)', (tester) async {
+        await _pump(
+          tester,
+          worktree: _wt(isLocked: true, lockReason: 'on the USB drive'),
+        );
+
+        expect(find.byType(GbmDialogWarnField), findsNWidgets(2));
       });
 
       testWidgets('never dispatches removeWorktree, even after a tap', (

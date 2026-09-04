@@ -8,8 +8,8 @@ import '../../../data/repositories/repo_identity.dart';
 import '../../../data/repositories/repo_session_repository.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
-import '../../../widgets/gbm_banner.dart';
 import '../../../widgets/gbm_button.dart';
+import '../../../widgets/gbm_dialog_field_kinds.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
 
 /// The Dart analog of `CleanUntrackedDialog` (src/app/dialogs/
@@ -80,7 +80,10 @@ class _CleanUntrackedDialogContentState
             // The spec states this warning and the app did not say it at all.
             // 「不進回收筒」 is the part a user cannot infer from the button:
             // this is `git clean`, so the files leave the disk outright.
-            const GbmWarningBanner(message: '這是 git clean，直接從磁碟刪檔，不進回收筒。'),
+            // G8b: dialog-internal warnings use GbmDialogWarnField, not
+            // GbmWarningBanner (which stays screen-level -- see that
+            // widget's own remaining callers).
+            const GbmDialogWarnField(message: '這是 git clean，直接從磁碟刪檔，不進回收筒。'),
             const SizedBox(height: GbmSpacing.space2),
             CheckboxListTile(
               value: _includeIgnored,

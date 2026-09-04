@@ -12,6 +12,7 @@ import '../../sidebar/gone_marking.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
+import '../../../widgets/gbm_dialog_field_kinds.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
 import '../../../widgets/gbm_input_decoration.dart';
 
@@ -236,26 +237,27 @@ class _DeleteBranchDialogContentState
             // is reported as exactly that rather than dressed up as a
             // merge-base count this layer has not computed. Spec page 02
             // item 11's "永遠顯示實際數字" applies here too.
+            // G8b: the two genuinely-warning branches (unpushed commits,
+            // no upstream at all) use GbmDialogWarnField rather than bare
+            // colors.warning-styled text. The "fully pushed" branch is
+            // deliberately left as plain textSecondary Text -- it is
+            // informational, not a warning, and wrapping it in the same
+            // warn box would misrepresent it as one.
             if (branch.hasTrackingInfo)
-              Text(
-                branch.ahead > 0
-                    ? '這個分支有 ${branch.ahead} 個 commit 還沒推到 ${branch.upstream}。'
-                    : '已完整推到 ${branch.upstream}。',
-                style: TextStyle(
-                  fontSize: GbmTypography.textXs,
-                  color: branch.ahead > 0
-                      ? colors.warning
-                      : colors.textSecondary,
-                ),
-              )
+              branch.ahead > 0
+                  ? GbmDialogWarnField(
+                      message:
+                          '這個分支有 ${branch.ahead} 個 commit 還沒推到 ${branch.upstream}。',
+                    )
+                  : Text(
+                      '已完整推到 ${branch.upstream}。',
+                      style: TextStyle(
+                        fontSize: GbmTypography.textXs,
+                        color: colors.textSecondary,
+                      ),
+                    )
             else
-              Text(
-                '這個分支沒有 upstream，只存在於這台機器上。',
-                style: TextStyle(
-                  fontSize: GbmTypography.textXs,
-                  color: colors.warning,
-                ),
-              ),
+              const GbmDialogWarnField(message: '這個分支沒有 upstream，只存在於這台機器上。'),
             const SizedBox(height: GbmSpacing.space1),
             Text(
               '如果分支還沒完全合併，git 會拒絕，並提供強制刪除的選項。',

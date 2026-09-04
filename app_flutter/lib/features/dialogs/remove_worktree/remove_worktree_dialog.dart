@@ -7,8 +7,8 @@ import '../../../data/repositories/repo_identity.dart';
 import '../../../data/repositories/repo_session_repository.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
-import '../../../widgets/gbm_banner.dart';
 import '../../../widgets/gbm_button.dart';
+import '../../../widgets/gbm_dialog_field_kinds.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
 
 /// D2's pending-count clause, or empty when nothing needs saying (a
@@ -185,14 +185,16 @@ class _RemoveWorktreeDialogContentState
             ),
           ],
           const SizedBox(height: GbmSpacing.space3),
-          GbmWarningBanner(
+          // G8b: dialog-internal warnings use GbmDialogWarnField, not
+          // GbmWarningBanner (screen-level only).
+          GbmDialogWarnField(
             message: pendingWarning.isEmpty
                 ? '這個資料夾會從磁碟移除，不進回收筒。'
                 : '這個資料夾會從磁碟移除，不進回收筒。\n$pendingWarning',
           ),
           if (lockWarning.isNotEmpty) ...<Widget>[
             const SizedBox(height: GbmSpacing.space2),
-            GbmWarningBanner(message: lockWarning),
+            GbmDialogWarnField(message: lockWarning),
           ],
           if (canRemove) ...<Widget>[
             const SizedBox(height: GbmSpacing.space2),

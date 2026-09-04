@@ -57,6 +57,7 @@ import 'package:gbm_flutter/features/dialogs/undo_last/undo_last_dialog.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/theme_mode_provider.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
+import 'package:gbm_flutter/widgets/gbm_dialog_field_kinds.dart';
 import 'package:gbm_flutter/widgets/gbm_kbd_chip.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -574,6 +575,15 @@ void main() {
       },
     );
 
+    // G8b: the 目前 row now draws inside GbmDialogReadOnlyField's
+    // surface-sunken box, closing the last styling gap in this row.
+    testWidgets('the current-branch row is a GbmDialogReadOnlyField (G8b)', (
+      tester,
+    ) async {
+      await _pump(tester, const CheckoutDialogContent(identity: _identity));
+      expect(find.byType(GbmDialogReadOnlyField), findsOneWidget);
+    });
+
     testWidgets('the stash-choice radios are absent on a clean tree', (
       tester,
     ) async {
@@ -715,6 +725,19 @@ void main() {
       },
     );
 
+    // G8b: the already-pushed warning now draws inside GbmDialogWarnField,
+    // not bare colors.warning-styled text.
+    testWidgets('the already-pushed warning is a GbmDialogWarnField (G8b)', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        const RebaseOntoDialogContent(identity: _identity),
+        overrideState: _rebaseOntoStateWithRemote,
+      );
+      expect(find.byType(GbmDialogWarnField), findsOneWidget);
+    });
+
     testWidgets('does not overflow the shell', (tester) async {
       await _pump(
         tester,
@@ -809,6 +832,24 @@ void main() {
       expect(find.text('這個分支沒有 upstream，只存在於這台機器上。'), findsOneWidget);
       expect(find.text('如果分支還沒完全合併，git 會拒絕，並提供強制刪除的選項。'), findsOneWidget);
       expect(find.textContaining('Delete the local branch'), findsNothing);
+    });
+
+    // G8b: the no-upstream warning now draws inside GbmDialogWarnField, not
+    // bare colors.warning-styled text. The "fully pushed" case deliberately
+    // stays plain Text -- see delete_branch_dialog.dart's own comment --
+    // so this asserts the no-upstream branch specifically (the default
+    // state this group's other tests already pump).
+    testWidgets('the no-upstream warning is a GbmDialogWarnField (G8b)', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        const DeleteBranchDialogContent(
+          identity: _identity,
+          branchName: 'feature/lane-allocator',
+        ),
+      );
+      expect(find.byType(GbmDialogWarnField), findsOneWidget);
     });
 
     testWidgets('the also-delete-remote checkbox is Chinese', (tester) async {
@@ -1036,6 +1077,18 @@ void main() {
         const CleanUntrackedDialogContent(identity: _identity),
       );
       expect(tester.takeException(), isNull);
+    });
+
+    // G8b: the spec warning now draws inside GbmDialogWarnField, not a
+    // bare GbmWarningBanner call.
+    testWidgets('the spec warning is a GbmDialogWarnField (G8b)', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        const CleanUntrackedDialogContent(identity: _identity),
+      );
+      expect(find.byType(GbmDialogWarnField), findsOneWidget);
     });
   });
 
@@ -1502,6 +1555,23 @@ void main() {
       expect(find.text('檔案'), findsOneWidget);
       expect(find.text('還原成'), findsOneWidget);
       expect(find.text('RESTORE FROM'), findsNothing);
+    });
+
+    // G8b: both ro rows' values now sit in GbmDialogReadOnlyField's
+    // surface-sunken box.
+    testWidgets('both ro rows are GbmDialogReadOnlyField (G8b)', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        const RestoreFileDialogContent(
+          identity: _identity,
+          path: 'lib/graph/lane_allocator.dart',
+          oid: _restoreFileOid,
+        ),
+        overrideState: _restoreFileState,
+      );
+      expect(find.byType(GbmDialogReadOnlyField), findsNWidgets(2));
     });
 
     testWidgets(

@@ -9,6 +9,7 @@ import '../../../data/repositories/repo_session_repository.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
+import '../../../widgets/gbm_dialog_field_kinds.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
 
 /// Context menu 05-K → More actions → "Restore file to this state" and
@@ -120,61 +121,43 @@ class RestoreFileDialogContent extends ConsumerWidget {
           children: <Widget>[
             // DLGS 的 ro 標籤「檔案」，逐字引用。P6 field-label treatment
             // (spec's G3) -- see add_worktree_dialog.dart's identical
-            // comment on '分支'.
-            Text(
-              '檔案',
-              style: TextStyle(
-                fontSize: GbmTypography.textXs,
-                color: colors.textSecondary,
-              ),
-            ),
-            const SizedBox(height: GbmSpacing.space1),
-            Text(
-              path,
-              style: TextStyle(
-                fontFamily: GbmTypography.fontMono,
-                fontSize: GbmTypography.textSm,
-                color: colors.textPrimary,
+            // comment on '分支'. G8b: the value now sits in
+            // GbmDialogReadOnlyField's surface-sunken box.
+            GbmDialogReadOnlyField(
+              label: '檔案',
+              child: Text(
+                path,
+                style: TextStyle(
+                  fontFamily: GbmTypography.fontMono,
+                  color: colors.textPrimary,
+                ),
               ),
             ),
             const SizedBox(height: GbmSpacing.space2),
             // DLGS 的 ro 標籤「還原成」，逐字引用。P6 field-label treatment
             // (spec's G3).
-            Text(
-              '還原成',
-              style: TextStyle(
-                fontSize: GbmTypography.textXs,
-                color: colors.textSecondary,
-              ),
-            ),
-            const SizedBox(height: GbmSpacing.space1),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  _shortOid,
-                  style: TextStyle(
-                    fontFamily: GbmTypography.fontMono,
-                    fontSize: GbmTypography.textSm,
-                    color: colors.textSecondary,
+            GbmDialogReadOnlyField(
+              label: '還原成',
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    _shortOid,
+                    style: const TextStyle(fontFamily: GbmTypography.fontMono),
                   ),
-                ),
-                const SizedBox(width: GbmSpacing.space2),
-                Expanded(
-                  child: Text(
-                    // The subject is only known once commitMetaReady has
-                    // answered for this oid; the hash above always identifies
-                    // the commit, so an unresolved subject is left blank
-                    // rather than filled with a guess.
-                    meta?.subject ?? '',
-                    style: TextStyle(
-                      fontSize: GbmTypography.textSm,
-                      color: colors.textSecondary,
+                  const SizedBox(width: GbmSpacing.space2),
+                  Expanded(
+                    child: Text(
+                      // The subject is only known once commitMetaReady has
+                      // answered for this oid; the hash above always
+                      // identifies the commit, so an unresolved subject is
+                      // left blank rather than filled with a guess.
+                      meta?.subject ?? '',
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
             const SizedBox(height: GbmSpacing.space3),
             Text(

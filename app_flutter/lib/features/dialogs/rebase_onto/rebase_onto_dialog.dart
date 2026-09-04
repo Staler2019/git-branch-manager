@@ -10,6 +10,7 @@ import '../../../data/repositories/repo_session_repository.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
+import '../../../widgets/gbm_dialog_field_kinds.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
 import '../../../widgets/gbm_input_decoration.dart';
 
@@ -228,13 +229,10 @@ class _RebaseOntoDialogContentState
             ),
             if (hasRemoteCounterpart) ...<Widget>[
               const SizedBox(height: GbmSpacing.space2),
-              Text(
-                '此分支已 push。rebase 後需 force push，共作者需重新對齊。',
-                style: TextStyle(
-                  fontSize: GbmTypography.textXs,
-                  color: colors.warning,
-                  height: GbmTypography.leadingNormal,
-                ),
+              // G8b: dialog-internal warnings use GbmDialogWarnField, not a
+              // bare colors.warning-styled Text.
+              const GbmDialogWarnField(
+                message: '此分支已 push。rebase 後需 force push，共作者需重新對齊。',
               ),
             ],
             if (isDirty) ...<Widget>[

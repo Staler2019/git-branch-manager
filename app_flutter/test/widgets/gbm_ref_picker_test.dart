@@ -341,4 +341,32 @@ void main() {
       expect(find.text('COMMIT'), findsNothing);
     });
   });
+
+  // G8: the search box was the one TextField left on Material's bare
+  // default focus ring -- it predates G4's gbmInputDecoration() batch, so
+  // it never got one. Reused rather than hand-copied ([CULT-single-source-
+  // of-truth]).
+  group('GbmRefPicker search box focus treatment (G8)', () {
+    testWidgets('uses gbmInputDecoration\'s accent-coloured focusedBorder', (
+      tester,
+    ) async {
+      await _pump(tester);
+
+      final TextField field = tester.widget<TextField>(find.byType(TextField));
+      final BuildContext context = tester.element(find.byType(TextField));
+      final GbmColors colors = context.gbmColors;
+      final OutlineInputBorder focusedBorder =
+          field.decoration!.focusedBorder! as OutlineInputBorder;
+
+      expect(focusedBorder.borderSide.color, colors.accent);
+      expect(
+        field.decoration!.border,
+        isA<OutlineInputBorder>().having(
+          (OutlineInputBorder b) => b.borderRadius,
+          'borderRadius',
+          BorderRadius.circular(GbmSpacing.radiusMd),
+        ),
+      );
+    });
+  });
 }

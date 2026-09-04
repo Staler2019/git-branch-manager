@@ -13,8 +13,8 @@ import '../../../routing/app_router.dart';
 import '../../../routing/route_paths.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
-import '../../../widgets/gbm_banner.dart';
 import '../../../widgets/gbm_button.dart';
+import '../../../widgets/gbm_dialog_field_kinds.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
 import '../../../widgets/gbm_input_decoration.dart';
 import '../../../widgets/gbm_ref_picker.dart';
@@ -481,7 +481,9 @@ class _AddWorktreeDialogContentState
             ),
             if (pathTaken) ...<Widget>[
               const SizedBox(height: GbmSpacing.space2),
-              GbmWarningBanner(message: '$path 已存在且不是空的，git 會拒絕。'),
+              // G8b: dialog-internal warnings use GbmDialogWarnField, not
+              // GbmWarningBanner (screen-level only).
+              GbmDialogWarnField(message: '$path 已存在且不是空的，git 會拒絕。'),
             ],
           ],
         ),

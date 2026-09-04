@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../theme/gbm_theme.dart';
 import '../theme/tokens.dart';
+import 'gbm_input_decoration.dart';
 import 'gbm_row.dart';
 import 'lucide_icon.dart';
 
@@ -173,10 +174,15 @@ class _GbmRefPickerState extends State<GbmRefPicker> {
           controller: _searchController,
           autofocus: widget.autofocus,
           onChanged: (String value) => setState(() => _query = value),
-          decoration: InputDecoration(
+          // G8: the last un-migrated `focus` field-kind site -- ref picker
+          // predates G4's batch, so its search box was the one TextField in
+          // the app still on Material's bare default focus ring. Reusing
+          // gbmInputDecoration() rather than hand-copying its focusedBorder
+          // keeps the accent-outline definition single-sourced
+          // ([CULT-single-source-of-truth]).
+          decoration: gbmInputDecoration(
+            colors: colors,
             hintText: widget.hintText,
-            isDense: true,
-            border: const OutlineInputBorder(),
             prefixIcon: const Icon(Icons.search, size: 16),
           ),
         ),

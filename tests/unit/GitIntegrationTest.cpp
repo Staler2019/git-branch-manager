@@ -4129,6 +4129,116 @@ TEST_F(RealRepoTest, PlainRebaseReplaysCommitsOntoANewBaseUnchanged) {
     EXPECT_TRUE(std::filesystem::exists(repo_ / "other.txt"));
 }
 
+// [DRIFT-rebase-onto-missing-capi-flags]: DLGS's Rebase onto mock offers
+// 「保留 merge commit（--rebase-merges）」 and 「自動 squash 標記過的 fixup
+// commit」 -- both require RebaseRequest to carry the flag through to a plain,
+// non-interactive `git rebase`. Measured first (scratch repo, git 2.55.0)
+// rather than assumed: `git rebase --autosquash <upstream>` with no `-i` at
+// all folds a `fixup!` commit and exits 0, and git's own docs
+// (https://git-scm.com/docs/git-rebase) confirm --autosquash "uses the
+// --interactive machinery internally, but it can be run without an explicit
+// --interactive" -- true since at least the 2.22.0 docs snapshot.
+TEST_F(RealRepoTest, RebaseAutosquashFoldsFixupCommitsWhenEnabled) {
+    commitFile("base.txt", "base\n", "base");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("a.txt", "1\n", "feature c1");
+    commitFile("b.txt", "2\n", "feature c2");
+    commitFile("a.txt", "1 fixed\n", "fixup! feature c1");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("other.txt", "unrelated\n", "main commit");
+    ASSERT_TRUE(run({"switch", "--quiet", "feature"}));
+
+    OperationRunner operations(*runner_, paths_);
+    RebaseRequest request;
+    request.upstream = "main";
+    request.autosquash = true;
+    auto outcome = submitAndWait(operations, makeRebaseOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    auto subjects = run({"log", "--format=%s"});
+    ASSERT_TRUE(subjects);
+    EXPECT_EQ(subjects->out, "feature c2\nfeature c1\nmain commit\nbase")
+        << "the fixup! commit must be folded into feature c1, not replayed on its own";
+}
+
+TEST_F(RealRepoTest, RebaseWithoutAutosquashReplaysFixupCommitsUnfolded) {
+    commitFile("base.txt", "base\n", "base");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("a.txt", "1\n", "feature c1");
+    commitFile("a.txt", "1 fixed\n", "fixup! feature c1");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("other.txt", "unrelated\n", "main commit");
+    ASSERT_TRUE(run({"switch", "--quiet", "feature"}));
+
+    OperationRunner operations(*runner_, paths_);
+    RebaseRequest request;
+    request.upstream = "main";
+    auto outcome = submitAndWait(operations, makeRebaseOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    auto subjects = run({"log", "--format=%s"});
+    ASSERT_TRUE(subjects);
+    EXPECT_EQ(subjects->out, "fixup! feature c1\nfeature c1\nmain commit\nbase")
+        << "the default request.autosquash = false must leave the fixup! commit unfolded";
+}
+
+// Measured (scratch repo, git 2.55.0): a merge commit rebased with the
+// default apply backend is flattened -- 0 merge commits survive. With
+// --rebase-merges the same rebase preserves it -- 1 merge commit survives.
+TEST_F(RealRepoTest, RebaseMergesPreservesAMergeCommitWhenEnabled) {
+    commitFile("base.txt", "base\n", "base");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("c1.txt", "1\n", "feature c1");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "side"}));
+    commitFile("c2.txt", "2\n", "side c2");
+    ASSERT_TRUE(run({"switch", "--quiet", "feature"}));
+    ASSERT_TRUE(run({"merge", "--quiet", "--no-ff", "side", "-m", "merge side into feature"}));
+    commitFile("c3.txt", "3\n", "feature c3");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("other.txt", "unrelated\n", "main commit");
+    ASSERT_TRUE(run({"switch", "--quiet", "feature"}));
+
+    auto beforeMerges = run({"rev-list", "--count", "--merges", "HEAD"});
+    ASSERT_TRUE(beforeMerges);
+    ASSERT_EQ(beforeMerges->out, "1");
+
+    OperationRunner operations(*runner_, paths_);
+    RebaseRequest request;
+    request.upstream = "main";
+    request.rebaseMerges = true;
+    auto outcome = submitAndWait(operations, makeRebaseOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    auto afterMerges = run({"rev-list", "--count", "--merges", "HEAD"});
+    ASSERT_TRUE(afterMerges);
+    EXPECT_EQ(afterMerges->out, "1")
+        << "--rebase-merges must preserve the merge commit rather than flattening it";
+}
+
+TEST_F(RealRepoTest, RebaseWithoutRebaseMergesFlattensAMergeCommit) {
+    commitFile("base.txt", "base\n", "base");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("c1.txt", "1\n", "feature c1");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "side"}));
+    commitFile("c2.txt", "2\n", "side c2");
+    ASSERT_TRUE(run({"switch", "--quiet", "feature"}));
+    ASSERT_TRUE(run({"merge", "--quiet", "--no-ff", "side", "-m", "merge side into feature"}));
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("other.txt", "unrelated\n", "main commit");
+    ASSERT_TRUE(run({"switch", "--quiet", "feature"}));
+
+    OperationRunner operations(*runner_, paths_);
+    RebaseRequest request;
+    request.upstream = "main";
+    auto outcome = submitAndWait(operations, makeRebaseOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    auto afterMerges = run({"rev-list", "--count", "--merges", "HEAD"});
+    ASSERT_TRUE(afterMerges);
+    EXPECT_EQ(afterMerges->out, "0")
+        << "the default request.rebaseMerges = false must flatten the merge commit, as before";
+}
+
 // --- M4: blame ---------------------------------------------------------------
 
 TEST_F(RealRepoTest, BlameAttributesEachLineToTheCommitThatIntroducedIt) {

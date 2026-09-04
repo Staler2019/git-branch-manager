@@ -238,6 +238,20 @@ public:
             args.emplace_back("--onto");
             args.push_back(request_.onto);
         }
+        // Measured (scratch repo, git 2.55.0): a plain `git rebase
+        // --rebase-merges <upstream>` with no `-i` preserves a merge commit
+        // that the default apply backend would otherwise flatten.
+        if (request_.rebaseMerges) {
+            args.emplace_back("--rebase-merges");
+        }
+        // Measured the same way: `git rebase --autosquash <upstream>`, again
+        // with no `-i`, folds a `fixup!`/`squash!`/`amend!` commit into its
+        // target. git's own docs confirm this is intentional: --autosquash
+        // "uses the --interactive machinery internally, but it can be run
+        // without an explicit --interactive".
+        if (request_.autosquash) {
+            args.emplace_back("--autosquash");
+        }
         args.push_back(request_.upstream);
 
         GitCommand command(paths.commandDir(), std::move(args));

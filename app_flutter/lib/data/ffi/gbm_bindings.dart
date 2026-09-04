@@ -904,6 +904,8 @@ typedef _RebaseStartNative =
       Pointer<Utf8> upstream,
       Pointer<Utf8> onto,
       Int32 stashFirst,
+      Int32 rebaseMerges,
+      Int32 autosquash,
     );
 typedef RebaseStartDart =
     void Function(
@@ -911,6 +913,8 @@ typedef RebaseStartDart =
       Pointer<Utf8> upstream,
       Pointer<Utf8> onto,
       int stashFirst,
+      int rebaseMerges,
+      int autosquash,
     );
 
 typedef _RebaseContinueNative = Void Function(Pointer<Void> session);

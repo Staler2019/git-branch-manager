@@ -289,6 +289,29 @@ class FakeRepoSessionController extends RepoSessionController {
     commandLog.add(const FakeCommand('continueRebase'));
   }
 
+  // Recorded, not left to the null-session guard: rebase_onto_dialog.dart's
+  // rebaseMerges/autosquash checkboxes dispatch through this, and an
+  // unoverridden method no-ops silently -- a test could not tell "closed
+  // [DRIFT-rebase-onto-missing-capi-flags]" from "wired to nothing".
+  @override
+  void startRebase(
+    String upstream, {
+    String onto = '',
+    bool stashFirst = false,
+    bool rebaseMerges = false,
+    bool autosquash = false,
+  }) {
+    commandLog.add(
+      FakeCommand('startRebase', <String, Object?>{
+        'upstream': upstream,
+        'onto': onto,
+        'stashFirst': stashFirst,
+        'rebaseMerges': rebaseMerges,
+        'autosquash': autosquash,
+      }),
+    );
+  }
+
   @override
   void abortRebase() {
     abortRebaseCalled = true;

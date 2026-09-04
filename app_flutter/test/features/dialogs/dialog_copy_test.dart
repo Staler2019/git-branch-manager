@@ -153,6 +153,30 @@ final RepoSessionState _checkoutStateWithRemote = RepoSessionState(
   ),
 );
 
+// Rebase onto's warn banner reads whether the *current* branch (main, here)
+// has a remote counterpart -- remoteCounterpartOf() matches an unambiguous
+// same-named remote ref even with no explicit upstream config, same as
+// _deleteBranchStateWithRemote below, but for `origin/main` rather than a
+// different branch's counterpart.
+final RepoSessionState _rebaseOntoStateWithRemote = RepoSessionState(
+  isOpen: true,
+  refs: RefSnapshot(
+    head: const HeadInfo(
+      kind: HeadKind.branch,
+      branchName: 'main',
+      fullRef: 'refs/heads/main',
+      target: 'aaaa',
+    ),
+    refs: <RefInfo>[
+      _ref('main'),
+      _ref('feature/lane-allocator'),
+      _remoteRef('origin/main'),
+    ],
+    refCountGuardTripped: false,
+    totalRefCount: 3,
+  ),
+);
+
 final RepoSessionState _newBranchStateWithRemote = _state.copyWith(
   remotes: const <RemoteInfo>[
     RemoteInfo(
@@ -487,6 +511,66 @@ void main() {
       expect(find.textContaining('uncommitted changes first'), findsNothing);
     });
 
+    // Closes [DRIFT-rebase-onto-missing-capi-flags]'s checkbox half: DLGS's
+    // Rebase onto entry has chk-on 「保留 merge commit（--rebase-merges）」
+    // and chk 「自動 squash 標記過的 fixup commit」, quoted verbatim.
+    testWidgets('the rebase-merges and autosquash checkboxes are Chinese '
+        'and quoted from DLGS', (tester) async {
+      await _pump(tester, const RebaseOntoDialogContent(identity: _identity));
+      expect(find.text('保留 merge commit（--rebase-merges）'), findsOneWidget);
+      expect(find.text('自動 squash 標記過的 fixup commit'), findsOneWidget);
+    });
+
+    testWidgets('rebase-merges defaults on (chk-on) and autosquash defaults '
+        'off (chk)', (tester) async {
+      await _pump(tester, const RebaseOntoDialogContent(identity: _identity));
+      final CheckboxListTile rebaseMerges = tester.widget(
+        find.widgetWithText(
+          CheckboxListTile,
+          '保留 merge commit（--rebase-merges）',
+        ),
+      );
+      expect(rebaseMerges.value, isTrue);
+      final CheckboxListTile autosquash = tester.widget(
+        find.widgetWithText(CheckboxListTile, '自動 squash 標記過的 fixup commit'),
+      );
+      expect(autosquash.value, isFalse);
+    });
+
+    // Dispatch itself (does Start rebase actually pass these two values to
+    // startRebase()) is rebase_onto_dialog_test.dart's job, not this file's
+    // -- this file's own header states its scope is copy, held against the
+    // spec's per-element language rule.
+
+    // Closes the pin's warn-banner half. remoteCounterpartOf() is the same
+    // single source delete_branch_dialog.dart's own doc comment names traps
+    // #2 and #3 for -- hasTrackingInfo is empty for a branch exactly in
+    // sync, and upstream alone misses a `push origin HEAD` branch with no
+    // tracking config -- so the predicate is never re-derived here.
+    testWidgets(
+      'the already-pushed warn banner is absent with no remote counterpart',
+      (tester) async {
+        await _pump(tester, const RebaseOntoDialogContent(identity: _identity));
+        expect(find.textContaining('此分支已 push'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'the already-pushed warn banner is Chinese and quoted from DLGS, once '
+      'the current branch has a remote counterpart',
+      (tester) async {
+        await _pump(
+          tester,
+          const RebaseOntoDialogContent(identity: _identity),
+          overrideState: _rebaseOntoStateWithRemote,
+        );
+        expect(
+          find.text('此分支已 push。rebase 後需 force push，共作者需重新對齊。'),
+          findsOneWidget,
+        );
+      },
+    );
+
     testWidgets('does not overflow the shell', (tester) async {
       await _pump(
         tester,
@@ -495,6 +579,11 @@ void main() {
           _wcEntry('a.txt'),
           _wcEntry('b.txt'),
         ],
+        overrideState: _rebaseOntoStateWithRemote.copyWith(
+          workingCopyStatus: WorkingCopyStatus(
+            entries: <WorkingCopyEntry>[_wcEntry('a.txt'), _wcEntry('b.txt')],
+          ),
+        ),
       );
       expect(tester.takeException(), isNull);
     });

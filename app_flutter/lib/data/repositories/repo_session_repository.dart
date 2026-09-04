@@ -3403,16 +3403,29 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
 
   /// Plain, non-interactive `git rebase`: replays every commit unchanged.
   /// Same event/refresh contract as [startInteractiveRebase].
+  ///
+  /// [rebaseMerges] is `--rebase-merges`, [autosquash] is `--autosquash` --
+  /// both work on this plain call with no `-i` of our own (see
+  /// RebaseOps.cpp's measurement comment for why).
   void startRebase(
     String upstream, {
     String onto = '',
     bool stashFirst = false,
+    bool rebaseMerges = false,
+    bool autosquash = false,
   }) {
     if (_session == nullptr) return;
     final Pointer<Utf8> upstreamPtr = upstream.toNativeUtf8();
     final Pointer<Utf8> ontoPtr = onto.toNativeUtf8();
     try {
-      _bindings.rebaseStart(_session, upstreamPtr, ontoPtr, stashFirst ? 1 : 0);
+      _bindings.rebaseStart(
+        _session,
+        upstreamPtr,
+        ontoPtr,
+        stashFirst ? 1 : 0,
+        rebaseMerges ? 1 : 0,
+        autosquash ? 1 : 0,
+      );
     } finally {
       malloc.free(upstreamPtr);
       malloc.free(ontoPtr);

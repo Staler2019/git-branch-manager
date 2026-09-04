@@ -585,6 +585,35 @@ void main() {
     });
   });
 
+  group('「來源」group label (G2)', () {
+    testWidgets('labels the radio group, sitting above it', (tester) async {
+      await _pump(tester);
+
+      expect(find.text('來源'), findsOneWidget);
+      final double labelTop = tester.getTopLeft(find.text('來源')).dy;
+      final double radioTop = tester
+          .getTopLeft(find.byType(RadioGroup<WorktreeSource>))
+          .dy;
+      // A finder proves existence, never position
+      // ([FLU-finder-proves-existence-not-position]) -- the label text
+      // could exist anywhere in the tree and this assertion would still
+      // pass without the position check.
+      expect(labelTop, lessThan(radioTop));
+    });
+
+    testWidgets('uses the same P6 style as the other field labels', (
+      tester,
+    ) async {
+      await _pump(tester);
+      final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+
+      final Text label = tester.widget<Text>(find.text('來源'));
+      expect(label.style?.color, colors.textSecondary);
+      expect(label.style?.fontSize, GbmTypography.textXs);
+      expect(label.style?.fontWeight, isNot(GbmTypography.weightSemibold));
+    });
+  });
+
   group('field label style (G3)', () {
     testWidgets(
       '分支 uses the P6 field-label treatment, not the old pane-header one',

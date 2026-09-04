@@ -367,6 +367,17 @@ class _AddWorktreeDialogContentState
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
+            // spec's G2: the radios were the only field with no group
+            // label. Same P6 treatment as '分支' below (spec's G3) --
+            // 使用者裁定：加「來源」標籤.
+            Text(
+              '來源',
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                color: colors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: GbmSpacing.space1),
             RadioGroup<WorktreeSource>(
               groupValue: _source,
               onChanged: _setSource,

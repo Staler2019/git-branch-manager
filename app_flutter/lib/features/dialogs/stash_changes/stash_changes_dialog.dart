@@ -8,6 +8,7 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
+import '../../../widgets/gbm_input_decoration.dart';
 
 /// The Dart analog of `StashChangesDialog` (src/app/dialogs/
 /// StashChangesDialog.cpp). Routed as `/repo/:repoId/dialogs/stash-changes`.
@@ -69,15 +70,17 @@ class _StashChangesDialogContentState
             ),
           ),
           const SizedBox(height: GbmSpacing.space1),
-          TextField(
-            controller: _messageController,
-            decoration: const InputDecoration(
-              // 「(optional)」 left the label, so the information it carried
-              // moves here rather than being dropped -- the spec states it as
-              // a hint: 「空白時使用預設的 WIP on <branch>」.
-              hintText: '空白時使用預設的 WIP on <branch>',
-              isDense: true,
-              border: OutlineInputBorder(),
+          SizedBox(
+            height: GbmSpacing.inputHeight,
+            child: TextField(
+              controller: _messageController,
+              decoration: gbmInputDecoration(
+                colors: colors,
+                // 「(optional)」 left the label, so the information it
+                // carried moves here rather than being dropped -- the spec
+                // states it as a hint: 「空白時使用預設的 WIP on <branch>」.
+                hintText: '空白時使用預設的 WIP on <branch>',
+              ),
             ),
           ),
           const SizedBox(height: GbmSpacing.space2),

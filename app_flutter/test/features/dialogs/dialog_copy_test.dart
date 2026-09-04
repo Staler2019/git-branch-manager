@@ -887,6 +887,44 @@ void main() {
       await _pump(tester, const CreateTagDialogContent(identity: _identity));
       expect(tester.takeException(), isNull);
     });
+
+    testWidgets(
+      'the name and target fields are 30px tall with a r6 border, and the '
+      'multiline message field keeps the r6 border without being pinned to '
+      '30px (G4)',
+      (tester) async {
+        await _pump(tester, const CreateTagDialogContent(identity: _identity));
+
+        final List<TextField> fields = tester
+            .widgetList<TextField>(find.byType(TextField))
+            .toList();
+        expect(fields.length, 3);
+        for (final TextField field in fields) {
+          final OutlineInputBorder border =
+              field.decoration!.border! as OutlineInputBorder;
+          expect(
+            border.borderRadius,
+            BorderRadius.circular(GbmSpacing.radiusMd),
+          );
+        }
+
+        // Name and target are single-line -- pinned to the shared height.
+        expect(
+          tester.getSize(find.byType(TextField).at(0)).height,
+          GbmSpacing.inputHeight,
+        );
+        expect(
+          tester.getSize(find.byType(TextField).at(1)).height,
+          GbmSpacing.inputHeight,
+        );
+        // Message is `maxLines: 2` -- it must be free to grow past 30px,
+        // not squeezed into the single-line height.
+        expect(
+          tester.getSize(find.byType(TextField).at(2)).height,
+          greaterThan(GbmSpacing.inputHeight),
+        );
+      },
+    );
   });
 
   group('Clean Untracked Files', () {
@@ -1063,6 +1101,19 @@ void main() {
       _expectAll(<String>['帳號']);
       expect(find.text('Username'), findsNothing);
     });
+
+    testWidgets('the secret field is 30px tall with a r6 border (G4)', (
+      tester,
+    ) async {
+      await _pump(tester, const CredentialDialogContent(identity: _identity));
+
+      final Finder finder = find.byType(TextField);
+      expect(tester.getSize(finder).height, GbmSpacing.inputHeight);
+      final TextField field = tester.widget<TextField>(finder);
+      final OutlineInputBorder border =
+          field.decoration!.border! as OutlineInputBorder;
+      expect(border.borderRadius, BorderRadius.circular(GbmSpacing.radiusMd));
+    });
   });
 
   // Added only after a mutation check: reverting this dialog's copy reddened
@@ -1215,6 +1266,19 @@ void main() {
         findsNothing,
         reason: '「(optional)」 moved into the hint, it did not stay',
       );
+    });
+
+    testWidgets('the message field is 30px tall with a r6 border (G4)', (
+      tester,
+    ) async {
+      await _pump(tester, const StashChangesDialogContent(identity: _identity));
+
+      final Finder finder = find.byType(TextField);
+      expect(tester.getSize(finder).height, GbmSpacing.inputHeight);
+      final TextField field = tester.widget<TextField>(finder);
+      final OutlineInputBorder border =
+          field.decoration!.border! as OutlineInputBorder;
+      expect(border.borderRadius, BorderRadius.circular(GbmSpacing.radiusMd));
     });
   });
 

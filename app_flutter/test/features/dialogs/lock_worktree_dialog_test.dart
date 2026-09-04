@@ -112,6 +112,19 @@ void main() {
       expect(field.controller!.text, isEmpty);
     });
 
+    testWidgets('the reason field is 30px tall with a r6 border (G4)', (
+      tester,
+    ) async {
+      await _pump(tester);
+
+      final Finder finder = find.byType(TextField);
+      expect(tester.getSize(finder).height, GbmSpacing.inputHeight);
+      final TextField field = tester.widget<TextField>(finder);
+      final OutlineInputBorder border =
+          field.decoration!.border! as OutlineInputBorder;
+      expect(border.borderRadius, BorderRadius.circular(GbmSpacing.radiusMd));
+    });
+
     // Not decoration -- the plan's own words for this block. Asserted by
     // its actual content rather than by widget type, since nothing else in
     // this dialog would distinguish "the note is missing" from "the note

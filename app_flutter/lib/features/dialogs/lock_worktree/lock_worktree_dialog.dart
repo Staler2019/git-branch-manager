@@ -9,6 +9,7 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
+import '../../../widgets/gbm_input_decoration.dart';
 
 /// Worktrees panel's `Lock…` (D3). `lockWorktree(path, {String reason = ''})`
 /// has accepted a reason since it was written, and the detail pane already
@@ -120,14 +121,16 @@ class _LockWorktreeDialogContentState
             ),
           ),
           const SizedBox(height: GbmSpacing.space3),
-          TextField(
-            controller: _reasonController,
-            autofocus: true,
-            decoration: const InputDecoration(
-              labelText: '原因',
-              hintText: '外接碟，平常不掛載',
-              isDense: true,
-              border: OutlineInputBorder(),
+          SizedBox(
+            height: GbmSpacing.inputHeight,
+            child: TextField(
+              controller: _reasonController,
+              autofocus: true,
+              decoration: gbmInputDecoration(
+                colors: colors,
+                labelText: '原因',
+                hintText: '外接碟，平常不掛載',
+              ),
             ),
           ),
           const SizedBox(height: GbmSpacing.space1),

@@ -25,6 +25,7 @@ import 'package:gbm_flutter/features/dialogs/cherry_pick/cherry_pick_dialog.dart
 import 'package:gbm_flutter/features/dialogs/clean_untracked/clean_untracked_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/create_tag/create_tag_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/credential/credential_dialog.dart';
+import 'package:gbm_flutter/features/dialogs/delete_branch_recovery/delete_branch_recovery_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/delete_remote_branch/delete_remote_branch_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/force_push/force_push_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/merge/merge_dialog.dart';
@@ -95,17 +96,23 @@ Future<void> _pump(
   Widget dialog, {
   String branchName = 'main',
   List<OperationChoice> checkoutChoices = const <OperationChoice>[],
+  List<OperationChoice> deleteBranchChoices = const <OperationChoice>[],
 }) async {
   SharedPreferences.setMockInitialValues(<String, Object>{});
   final SharedPreferences prefs = await SharedPreferences.getInstance();
   final RepoSessionState base = branchName == 'main'
       ? _state
       : _stateFor(branchName);
+  RepoSessionState seeded = base;
+  if (checkoutChoices.isNotEmpty) {
+    seeded = seeded.copyWith(checkoutChoices: checkoutChoices);
+  }
+  if (deleteBranchChoices.isNotEmpty) {
+    seeded = seeded.copyWith(deleteBranchChoices: deleteBranchChoices);
+  }
   final FakeRepoSessionController controller = FakeRepoSessionController(
     _identity,
-    checkoutChoices.isEmpty
-        ? base
-        : base.copyWith(checkoutChoices: checkoutChoices),
+    seeded,
   );
 
   final GoRouter router = GoRouter(
@@ -446,6 +453,47 @@ void main() {
         // Exactly one "Cancel": the hardcoded action-bar button. The
         // `abort` choice above must not add a second one anywhere.
         expect(find.text('Cancel'), findsOneWidget);
+      },
+    );
+  });
+
+  group('Delete Blocked', () {
+    testWidgets(
+      'the forDeleteBranch explanation is drawn, and it differs from the '
+      "checkout side's",
+      (tester) async {
+        // Same composed-not-wire shape as Checkout Blocked above, but this
+        // is the one place `recoveryChoiceExplanation(forDeleteBranch:
+        // true)`'s `forceDiscard` arm ("強制刪除；之後只能透過 reflog…") was
+        // ever asserted -- without this group a mutation of that arm alone
+        // (leaving the `forDeleteBranch: false` arm untouched) stayed fully
+        // green, because `dialog_copy_test.dart`'s only prior coverage of
+        // `recovery_choice_copy.dart` was the checkout side.
+        await _pump(
+          tester,
+          const DeleteBranchRecoveryDialogContent(identity: _identity),
+          deleteBranchChoices: const <OperationChoice>[
+            OperationChoice(
+              kind: OperationChoiceKind.forceDiscard,
+              label: 'unused wire label',
+              explanation: 'unused wire explanation',
+              destructive: true,
+            ),
+          ],
+        );
+
+        _expectAll(<String>['Delete Blocked']);
+        expect(find.text('Delete anyway'), findsWidgets);
+        expect(
+          find.text('強制刪除；之後只能透過 reflog 找回這個分支上的 commit。'),
+          findsOneWidget,
+        );
+        // Not the checkout side's forceDiscard wording -- confirms the two
+        // `forDeleteBranch` arms are genuinely distinct, not one string
+        // reused for both.
+        expect(find.text('未提交的變更會被永久丟棄，無法復原。'), findsNothing);
+        expect(find.text('unused wire label'), findsNothing);
+        expect(find.text('unused wire explanation'), findsNothing);
       },
     );
   });

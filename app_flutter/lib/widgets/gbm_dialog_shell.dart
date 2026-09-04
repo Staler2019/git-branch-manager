@@ -103,9 +103,12 @@ class GbmDialogShell extends StatelessWidget {
                   // Row this replaced when actions fit (spacing: 0, so no
                   // gap beyond what callers already insert as SizedBox
                   // children) -- it only switches to a vertical column,
-                  // avoiding a RenderFlex overflow, once a long action
-                  // label (e.g. CheckoutRecoveryDialogContent's "Stash
-                  // changes and checkout") no longer fits [width].
+                  // avoiding a RenderFlex overflow, once a long enough
+                  // action label no longer fits [width]. Neither of
+                  // CheckoutRecoveryDialogContent/DeleteBranchRecoveryDialogContent's
+                  // current labels (`recovery_choice_copy.dart`) are long
+                  // enough to trip this by themselves; see
+                  // gbm_dialog_shell_test.dart for the measured threshold.
                   child: OverflowBar(
                     alignment: MainAxisAlignment.end,
                     overflowAlignment: OverflowBarAlignment.end,

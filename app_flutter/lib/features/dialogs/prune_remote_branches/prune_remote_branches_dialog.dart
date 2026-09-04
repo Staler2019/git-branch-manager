@@ -97,14 +97,11 @@ class _PruneRemoteBranchesDialogContentState
         ..addAll(preview.refs.map((e) => e.ref));
     }
 
-    // `preview != null &&`, not `preview?.remote ==`. The `?.` form reads as
-    // 「the preview we have is for the remote we are showing」 and is *also*
-    // true when both are null, and the `preview!` below then throws. That
-    // window is not the rare case it looks like: `_selectedRemote` is
-    // assigned inside a `Future.microtask`, so it is null on the *first*
-    // build of every open, and this dialog threw every single time it was
-    // opened. The next build renders, so what a user saw was a one-frame
-    // framework error box.
+    // `preview != null &&`, not `preview?.remote ==` -- the latter reads as
+    // 「the preview we have is for the remote we are showing」 but is also
+    // true when both are null, which happens on every dialog's first build
+    // (`_selectedRemote` is only assigned inside `initState`'s
+    // `Future.microtask`). A bare `preview!` on that path used to throw.
     final List<String> previewRefs =
         (preview != null && preview.remote == _selectedRemote)
         ? preview.refs.map((e) => e.ref).toList(growable: false)

@@ -27,7 +27,7 @@ void main() {
         ],
       );
 
-      expect(find.text('Version 0.30.0'), findsOneWidget);
+      expect(find.text('版本 0.30.0'), findsOneWidget);
     });
 
     // The `flutter run` case. Rendering "Version 0.0.0" here would be a lie
@@ -42,7 +42,7 @@ void main() {
         overrides: <Override>[buildVersionProvider.overrideWithValue(null)],
       );
 
-      expect(find.text('Development build'), findsOneWidget);
+      expect(find.text('開發版本'), findsOneWidget);
       expect(find.textContaining('0.0.0'), findsNothing);
     });
 
@@ -101,10 +101,7 @@ void main() {
         ],
       );
 
-      expect(
-        find.text('A fast Git client for very large repositories.'),
-        findsOneWidget,
-      );
+      expect(find.text('給超大型 repository 用的快速 Git 客戶端。'), findsOneWidget);
     });
   });
 }

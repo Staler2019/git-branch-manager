@@ -37,9 +37,11 @@ import 'package:gbm_flutter/features/dialogs/delete_branch/delete_branch_dialog.
 import 'package:gbm_flutter/features/dialogs/delete_branch_recovery/delete_branch_recovery_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/delete_branches/delete_branches_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/delete_remote_branch/delete_remote_branch_dialog.dart';
+import 'package:gbm_flutter/features/dialogs/about/about_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/discard_changes/discard_changes_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/discard_changes/discard_changes_request.dart';
 import 'package:gbm_flutter/features/dialogs/force_push/force_push_dialog.dart';
+import 'package:gbm_flutter/features/dialogs/manage_base_folders/manage_base_folders_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/merge/merge_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/new_branch/new_branch_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/preferences/preferences_dialog.dart';
@@ -1769,6 +1771,55 @@ void main() {
       expect(find.text('CONFIRMATIONS'), findsNothing);
       expect(find.text('LOG'), findsNothing);
       expect(find.text('Confirm before force-pushing'), findsNothing);
+    });
+  });
+
+  group('About', () {
+    testWidgets('title and the update button stay English, the body is '
+        'Chinese', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: const ProviderScope(
+            child: Scaffold(body: AboutDialogContent()),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      _expectAll(<String>[
+        'About git-branch-manager',
+        'Check for updates…',
+        '開發版本',
+        '給超大型 repository 用的快速 Git 客戶端。',
+      ]);
+      expect(find.text('Development build'), findsNothing);
+      expect(
+        find.text('A fast Git client for very large repositories.'),
+        findsNothing,
+      );
+    });
+  });
+
+  group('Manage Base Folders', () {
+    testWidgets('title stays English, the empty state is Chinese', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: <Override>[
+            discoveryProvider.overrideWith((ref) => _NoOpDiscoveryController()),
+          ],
+          child: MaterialApp(
+            theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+            home: const Scaffold(body: ManageBaseFoldersDialogContent()),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      _expectAll(<String>['Base Folders', '目前沒有基礎資料夾。']);
+      expect(find.text('No base folders yet.'), findsNothing);
     });
   });
 }

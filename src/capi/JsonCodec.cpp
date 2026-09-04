@@ -106,14 +106,16 @@ std::string toJson(const std::vector<CommitMeta>& metas) {
 
 namespace {
 
+// Wire form is kind+destructive only -- label/explanation used to be sent
+// here and painted verbatim by the Flutter side, but neither field was ever
+// really "the wire's own words" (core's English never matched the spec's
+// quoted button text, and the explanation needs to be Chinese regardless of
+// what core sends), so both sides now compose their own copy keyed on
+// `kind` -- see app_flutter's recovery_choice_copy.dart.
 std::string operationChoiceJson(const OperationChoice& choice) {
     std::string out = "{";
     out += "\"kind\":";
     jsonAppendInt(out, static_cast<std::int64_t>(choice.kind));
-    out += ",\"label\":";
-    jsonAppendEscaped(out, choice.label);
-    out += ",\"explanation\":";
-    jsonAppendEscaped(out, choice.explanation);
     out += ",\"destructive\":";
     jsonAppendBool(out, choice.destructive);
     out += '}';

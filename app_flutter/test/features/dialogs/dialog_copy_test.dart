@@ -1349,6 +1349,34 @@ void main() {
       expect(find.text('RESTORE FROM'), findsNothing);
     });
 
+    testWidgets(
+      'the two ro labels use the P6 field-label treatment (G3), not the '
+      'old pane-header one',
+      (tester) async {
+        await _pump(
+          tester,
+          const RestoreFileDialogContent(
+            identity: _identity,
+            path: 'lib/graph/lane_allocator.dart',
+            oid: _restoreFileOid,
+          ),
+          overrideState: _restoreFileState,
+        );
+        final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+        for (final String label in <String>['檔案', '還原成']) {
+          final Text text = tester.widget<Text>(find.text(label));
+          expect(text.style?.color, colors.textSecondary, reason: label);
+          expect(text.style?.fontSize, GbmTypography.textXs, reason: label);
+          expect(
+            text.style?.fontWeight,
+            isNot(GbmTypography.weightSemibold),
+            reason: label,
+          );
+          expect(text.style?.letterSpacing, isNot(0.5), reason: label);
+        }
+      },
+    );
+
     testWidgets('the working-copy line is Chinese and matches the boolean '
         'this dialog actually has, on a clean file', (tester) async {
       await _pump(

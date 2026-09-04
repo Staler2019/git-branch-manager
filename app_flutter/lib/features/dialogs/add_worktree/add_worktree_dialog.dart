@@ -388,13 +388,15 @@ class _AddWorktreeDialogContentState
               ),
             ),
             const SizedBox(height: GbmSpacing.space2),
+            // P6 field-label treatment (spec's G3): 11px / textSecondary /
+            // sentence case -- not the pane-header style (semibold,
+            // letter-spaced, textTertiary) this used to share with
+            // Preferences' section headings.
             Text(
               '分支',
               style: TextStyle(
                 fontSize: GbmTypography.textXs,
-                fontWeight: GbmTypography.weightSemibold,
-                color: colors.textTertiary,
-                letterSpacing: 0.5,
+                color: colors.textSecondary,
               ),
             ),
             const SizedBox(height: GbmSpacing.space1),

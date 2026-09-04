@@ -584,4 +584,25 @@ void main() {
       expect(find.text('SWITCHED'), findsOneWidget);
     });
   });
+
+  group('field label style (G3)', () {
+    testWidgets(
+      '分支 uses the P6 field-label treatment, not the old pane-header one',
+      (tester) async {
+        await _pump(tester);
+        final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+
+        final Text label = tester.widget<Text>(find.text('分支'));
+        expect(label.style?.color, colors.textSecondary);
+        expect(label.style?.fontSize, GbmTypography.textXs);
+        // Not semibold and not letter-spaced -- that pair is what made this
+        // read as an uppercase pane header ([FLU-hand-rolled-inkwell-hover]'s
+        // "assert the token by identity" lesson applies here too: comparing
+        // against the *old* token would pass even after a correct rewrite
+        // that happened to reuse textTertiary by coincidence).
+        expect(label.style?.fontWeight, isNot(GbmTypography.weightSemibold));
+        expect(label.style?.letterSpacing, isNot(0.5));
+      },
+    );
+  });
 }

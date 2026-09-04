@@ -419,4 +419,20 @@ void main() {
       expect(_created(fake).args['setUpstream'], isFalse);
     });
   });
+
+  group('field label style (G3)', () {
+    testWidgets(
+      '從哪裡分出 uses the P6 field-label treatment, not the old pane-header one',
+      (tester) async {
+        await _pump(tester);
+        final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+
+        final Text label = tester.widget<Text>(find.text('從哪裡分出'));
+        expect(label.style?.color, colors.textSecondary);
+        expect(label.style?.fontSize, GbmTypography.textXs);
+        expect(label.style?.fontWeight, isNot(GbmTypography.weightSemibold));
+        expect(label.style?.letterSpacing, isNot(0.5));
+      },
+    );
+  });
 }

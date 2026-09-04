@@ -120,14 +120,14 @@ class RestoreFileDialogContent extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            // DLGS 的 ro 標籤「檔案」，逐字引用。
+            // DLGS 的 ro 標籤「檔案」，逐字引用。P6 field-label treatment
+            // (spec's G3) -- see add_worktree_dialog.dart's identical
+            // comment on '分支'.
             Text(
               '檔案',
               style: TextStyle(
                 fontSize: GbmTypography.textXs,
-                fontWeight: GbmTypography.weightSemibold,
-                color: colors.textTertiary,
-                letterSpacing: 0.5,
+                color: colors.textSecondary,
               ),
             ),
             const SizedBox(height: GbmSpacing.space1),
@@ -140,14 +140,13 @@ class RestoreFileDialogContent extends ConsumerWidget {
               ),
             ),
             const SizedBox(height: GbmSpacing.space2),
-            // DLGS 的 ro 標籤「還原成」，逐字引用。
+            // DLGS 的 ro 標籤「還原成」，逐字引用。P6 field-label treatment
+            // (spec's G3).
             Text(
               '還原成',
               style: TextStyle(
                 fontSize: GbmTypography.textXs,
-                fontWeight: GbmTypography.weightSemibold,
-                color: colors.textTertiary,
-                letterSpacing: 0.5,
+                color: colors.textSecondary,
               ),
             ),
             const SizedBox(height: GbmSpacing.space1),

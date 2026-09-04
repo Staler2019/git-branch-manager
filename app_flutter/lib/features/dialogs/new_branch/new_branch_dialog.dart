@@ -234,13 +234,13 @@ class _NewBranchDialogContentState
               ),
             ),
             const SizedBox(height: GbmSpacing.space3),
+            // P6 field-label treatment (spec's G3) -- see
+            // add_worktree_dialog.dart's identical comment on '分支'.
             Text(
               '從哪裡分出',
               style: TextStyle(
                 fontSize: GbmTypography.textXs,
-                fontWeight: GbmTypography.weightSemibold,
-                color: colors.textTertiary,
-                letterSpacing: 0.5,
+                color: colors.textSecondary,
               ),
             ),
             const SizedBox(height: GbmSpacing.space1),

@@ -614,6 +614,42 @@ void main() {
     });
   });
 
+  group('input height and radius (G4)', () {
+    testWidgets('新分支名 and 位置 are both 30px tall with r6 borders', (
+      tester,
+    ) async {
+      await _pump(tester);
+
+      for (final String label in <String>['新分支名', '位置']) {
+        final Finder finder = find.widgetWithText(TextField, label);
+        expect(tester.getSize(finder).height, GbmSpacing.inputHeight);
+        final TextField field = tester.widget<TextField>(finder);
+        final OutlineInputBorder border =
+            field.decoration!.border! as OutlineInputBorder;
+        expect(
+          border.borderRadius,
+          BorderRadius.circular(GbmSpacing.radiusMd),
+          reason: label,
+        );
+      }
+    });
+
+    testWidgets(
+      'a duplicate new-branch name does not overflow the fixed-height field',
+      (tester) async {
+        // The name field is now wrapped in a fixed SizedBox(height: 30) --
+        // errorText renders inside that same box, so this is the case
+        // that would overflow if the fixed height ever clips it
+        // ([FLU-renderflex-non-flex-first]).
+        await _pump(tester);
+        await _pickCreateNew(tester);
+        await _typeNewBranchName(tester, 'main');
+
+        expect(tester.takeException(), isNull);
+      },
+    );
+  });
+
   group('field label style (G3)', () {
     testWidgets(
       '分支 uses the P6 field-label treatment, not the old pane-header one',

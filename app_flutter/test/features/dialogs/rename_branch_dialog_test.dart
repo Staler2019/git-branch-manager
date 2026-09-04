@@ -372,6 +372,21 @@ void main() {
     });
   });
 
+  group('input height and radius (G4)', () {
+    testWidgets('the new-name field is 30px tall with a r6 border', (
+      tester,
+    ) async {
+      await _pumpDialog(tester, initialState: _sessionWith(branches));
+
+      final Finder finder = find.byType(TextField);
+      expect(tester.getSize(finder).height, GbmSpacing.inputHeight);
+      final TextField field = tester.widget<TextField>(finder);
+      final OutlineInputBorder border =
+          field.decoration!.border! as OutlineInputBorder;
+      expect(border.borderRadius, BorderRadius.circular(GbmSpacing.radiusMd));
+    });
+  });
+
   group('field label style (G3 correction)', () {
     testWidgets(
       // The private _Label widget was missed by G3's original sweep -- it

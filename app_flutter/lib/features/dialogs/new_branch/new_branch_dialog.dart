@@ -9,6 +9,7 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
+import '../../../widgets/gbm_input_decoration.dart';
 import '../../../widgets/gbm_ref_picker.dart';
 import '../branch_name_validation.dart';
 
@@ -219,18 +220,20 @@ class _NewBranchDialogContentState
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            TextField(
-              controller: _nameController,
-              autofocus: true,
-              onChanged: (_) => setState(() {}),
-              onSubmitted: (_) {
-                if (canCreate) _submit();
-              },
-              decoration: InputDecoration(
-                labelText: '名稱',
-                errorText: error,
-                isDense: true,
-                border: const OutlineInputBorder(),
+            SizedBox(
+              height: GbmSpacing.inputHeight,
+              child: TextField(
+                controller: _nameController,
+                autofocus: true,
+                onChanged: (_) => setState(() {}),
+                onSubmitted: (_) {
+                  if (canCreate) _submit();
+                },
+                decoration: gbmInputDecoration(
+                  colors: colors,
+                  labelText: '名稱',
+                  errorText: error,
+                ),
               ),
             ),
             const SizedBox(height: GbmSpacing.space3),

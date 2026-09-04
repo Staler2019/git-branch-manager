@@ -420,6 +420,19 @@ void main() {
     });
   });
 
+  group('input height and radius (G4)', () {
+    testWidgets('名稱 is 30px tall with a r6 border', (tester) async {
+      await _pump(tester);
+
+      final Finder finder = find.widgetWithText(TextField, '名稱');
+      expect(tester.getSize(finder).height, GbmSpacing.inputHeight);
+      final TextField field = tester.widget<TextField>(finder);
+      final OutlineInputBorder border =
+          field.decoration!.border! as OutlineInputBorder;
+      expect(border.borderRadius, BorderRadius.circular(GbmSpacing.radiusMd));
+    });
+  });
+
   group('field label style (G3)', () {
     testWidgets(
       '從哪裡分出 uses the P6 field-label treatment, not the old pane-header one',

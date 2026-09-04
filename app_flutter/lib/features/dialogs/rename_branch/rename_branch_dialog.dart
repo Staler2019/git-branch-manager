@@ -9,6 +9,7 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
+import '../../../widgets/gbm_input_decoration.dart';
 import '../branch_name_validation.dart';
 
 /// Which of spec page 13's two "遠端連帶處理" options is selected.
@@ -219,29 +220,31 @@ class _RenameBranchDialogContentState
             const SizedBox(height: GbmSpacing.space3),
             _Label(text: '新名稱'),
             const SizedBox(height: GbmSpacing.space1),
-            TextField(
-              controller: _nameController,
-              autofocus: true,
-              decoration: InputDecoration(
-                hintText: '新的分支名稱',
-                isDense: true,
-                border: const OutlineInputBorder(),
-                errorText: error,
+            SizedBox(
+              height: GbmSpacing.inputHeight,
+              child: TextField(
+                controller: _nameController,
+                autofocus: true,
+                decoration: gbmInputDecoration(
+                  colors: colors,
+                  hintText: '新的分支名稱',
+                  errorText: error,
+                ),
+                // Spec page 13: validation is live, "即時，不等到按 Rename".
+                onChanged: (_) => setState(() {}),
+                onSubmitted: (_) {
+                  if (!canRename) return;
+                  ref
+                      .read(repoSessionProvider(widget.identity).notifier)
+                      .renameBranch(
+                        from: branch.shortName,
+                        to: typed,
+                        renameRemote: renameRemote,
+                        remoteName: renameRemote ? remote : '',
+                      );
+                  context.pop();
+                },
               ),
-              // Spec page 13: validation is live, "即時，不等到按 Rename".
-              onChanged: (_) => setState(() {}),
-              onSubmitted: (_) {
-                if (!canRename) return;
-                ref
-                    .read(repoSessionProvider(widget.identity).notifier)
-                    .renameBranch(
-                      from: branch.shortName,
-                      to: typed,
-                      renameRemote: renameRemote,
-                      remoteName: renameRemote ? remote : '',
-                    );
-                context.pop();
-              },
             ),
             if (canRename) ...<Widget>[
               const SizedBox(height: GbmSpacing.space1),

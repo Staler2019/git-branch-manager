@@ -16,6 +16,7 @@ import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_banner.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
+import '../../../widgets/gbm_input_decoration.dart';
 import '../../../widgets/gbm_ref_picker.dart';
 import '../branch_name_validation.dart';
 
@@ -419,19 +420,21 @@ class _AddWorktreeDialogContentState
                   setState(() => _picked = entry),
             ),
             const SizedBox(height: GbmSpacing.space3),
-            TextField(
-              controller: _newBranchNameController,
-              // Dimmed, not hidden, while unused -- 比照 Create tag 的
-              // 「訊息」欄, and generally [FLU-menu-enabled-is-visual-only]'s
-              // rule against a control that silently does nothing.
-              enabled: _source == WorktreeSource.createNew,
-              onChanged: (_) => setState(() {}),
-              decoration: InputDecoration(
-                labelText: '新分支名',
-                hintText: 'feature/x',
-                errorText: nameError,
-                isDense: true,
-                border: const OutlineInputBorder(),
+            SizedBox(
+              height: GbmSpacing.inputHeight,
+              child: TextField(
+                controller: _newBranchNameController,
+                // Dimmed, not hidden, while unused -- 比照 Create tag 的
+                // 「訊息」欄, and generally [FLU-menu-enabled-is-visual-only]'s
+                // rule against a control that silently does nothing.
+                enabled: _source == WorktreeSource.createNew,
+                onChanged: (_) => setState(() {}),
+                decoration: gbmInputDecoration(
+                  colors: colors,
+                  labelText: '新分支名',
+                  hintText: 'feature/x',
+                  errorText: nameError,
+                ),
               ),
             ),
             const SizedBox(height: GbmSpacing.space3),
@@ -439,14 +442,16 @@ class _AddWorktreeDialogContentState
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Expanded(
-                  child: TextField(
-                    controller: _pathController,
-                    onChanged: (_) =>
-                        setState(() => _pathManuallyEdited = true),
-                    decoration: const InputDecoration(
-                      labelText: '位置',
-                      isDense: true,
-                      border: OutlineInputBorder(),
+                  child: SizedBox(
+                    height: GbmSpacing.inputHeight,
+                    child: TextField(
+                      controller: _pathController,
+                      onChanged: (_) =>
+                          setState(() => _pathManuallyEdited = true),
+                      decoration: gbmInputDecoration(
+                        colors: colors,
+                        labelText: '位置',
+                      ),
                     ),
                   ),
                 ),

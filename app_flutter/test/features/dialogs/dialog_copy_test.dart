@@ -956,6 +956,19 @@ void main() {
       await _pump(tester, const ResetBranchDialogContent(identity: _identity));
       expect(tester.takeException(), isNull);
     });
+
+    testWidgets('the target field is 30px tall with a r6 border (G4)', (
+      tester,
+    ) async {
+      await _pump(tester, const ResetBranchDialogContent(identity: _identity));
+
+      final Finder finder = find.byType(TextField);
+      expect(tester.getSize(finder).height, GbmSpacing.inputHeight);
+      final TextField field = tester.widget<TextField>(finder);
+      final OutlineInputBorder border =
+          field.decoration!.border! as OutlineInputBorder;
+      expect(border.borderRadius, BorderRadius.circular(GbmSpacing.radiusMd));
+    });
   });
 
   group('Force Push', () {

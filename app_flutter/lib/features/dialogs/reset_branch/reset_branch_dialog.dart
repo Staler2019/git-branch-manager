@@ -8,6 +8,7 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
+import '../../../widgets/gbm_input_decoration.dart';
 
 /// The Dart analog of `ResetBranchDialog`
 /// (src/app/dialogs/ResetBranchDialog.cpp). Routed as
@@ -86,12 +87,14 @@ class _ResetBranchDialogContentState
             ),
           ),
           const SizedBox(height: GbmSpacing.space1),
-          TextField(
-            controller: _targetController,
-            decoration: const InputDecoration(
-              hintText: 'branch、tag 或 commit',
-              isDense: true,
-              border: OutlineInputBorder(),
+          SizedBox(
+            height: GbmSpacing.inputHeight,
+            child: TextField(
+              controller: _targetController,
+              decoration: gbmInputDecoration(
+                colors: colors,
+                hintText: 'branch、tag 或 commit',
+              ),
             ),
           ),
           const SizedBox(height: GbmSpacing.space3),

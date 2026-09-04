@@ -22,6 +22,13 @@ import 'gbm_kbd_chip.dart';
 /// `_buildActionHandlers()`) passes one; the many dialogs reached only from
 /// a context menu, a panel, or with no bound shortcut at all pass none, and
 /// draw no chip -- an empty slot, never a fallback of any kind.
+///
+/// **G6** matches the shell to worktree-dialogs-spec.html's Shell/Title bar
+/// rows: `surfacePanelRaised` fill (not `surfaceOverlay`, a genuinely
+/// different colour, not a rounding), a 1px `borderDefault` around the
+/// whole shell, and a `borderSubtle` line under the title bar. The title
+/// text is [GbmTypography.dialogTitleText] (13, spec's literal number, not
+/// rounded to the pre-existing 13.5px `textBase`).
 class GbmDialogShell extends StatelessWidget {
   const GbmDialogShell({
     super.key,
@@ -63,6 +70,7 @@ class GbmDialogShell extends StatelessWidget {
         constraints: const BoxConstraints(maxHeight: 560),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(GbmSpacing.radiusLg),
+          border: Border.all(color: colors.borderDefault),
           boxShadow: <BoxShadow>[
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.3),
@@ -72,17 +80,25 @@ class GbmDialogShell extends StatelessWidget {
           ],
         ),
         child: Material(
-          color: colors.surfaceOverlay,
+          color: colors.surfacePanelRaised,
           borderRadius: BorderRadius.circular(GbmSpacing.radiusLg),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  GbmSpacing.space4,
-                  GbmSpacing.space4,
-                  GbmSpacing.space3,
-                  GbmSpacing.space2,
+              // Its own bottom border, per the spec's `.mkbar` title-bar row
+              // -- a transparent-background Container (no `color`) so it
+              // draws only the border stroke and does not repeat the "hides
+              // ink splashes" hazard the outer shadow Container's own
+              // comment records; nothing under it is an InkWell.
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: GbmSpacing.space4,
+                  vertical: GbmSpacing.space3,
+                ),
+                decoration: BoxDecoration(
+                  border: Border(
+                    bottom: BorderSide(color: colors.borderSubtle),
+                  ),
                 ),
                 child: Row(
                   children: <Widget>[
@@ -90,7 +106,7 @@ class GbmDialogShell extends StatelessWidget {
                       child: Text(
                         title,
                         style: TextStyle(
-                          fontSize: GbmTypography.textLg,
+                          fontSize: GbmTypography.dialogTitleText,
                           fontWeight: GbmTypography.weightSemibold,
                           color: colors.textPrimary,
                         ),

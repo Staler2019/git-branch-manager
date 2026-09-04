@@ -114,4 +114,86 @@ void main() {
       expect(find.text(expectedLabel), findsOneWidget);
     });
   });
+
+  // G6: worktree-dialogs-spec.html's Shell/Title bar rows -- surface-panel-
+  // raised fill, 1px border-default around the whole shell, 13px semibold
+  // title, and a border-bottom under the title bar. surfacePanelRaised is
+  // measured to be a genuinely different colour from the shell's previous
+  // surfaceOverlay fill (dark theme: #161B22 vs #1C2128), not a rounding.
+  group('G6: the shell chrome matches the P6 full-size mock', () {
+    testWidgets('the outer shell has a 1px border-default border', (
+      tester,
+    ) async {
+      await _pump(tester);
+      final GbmColors colors = buildGbmTheme(
+        GbmThemeVariant.darkTechnical,
+      ).extension<GbmColors>()!;
+
+      final Container outer = tester.widget<Container>(
+        find
+            .descendant(
+              of: find.byType(GbmDialogShell),
+              matching: find.byType(Container),
+            )
+            .first,
+      );
+      final BoxDecoration decoration = outer.decoration! as BoxDecoration;
+
+      expect(decoration.border, Border.all(color: colors.borderDefault));
+    });
+
+    testWidgets('the shell fill is surfacePanelRaised, not surfaceOverlay', (
+      tester,
+    ) async {
+      await _pump(tester);
+      final GbmColors colors = buildGbmTheme(
+        GbmThemeVariant.darkTechnical,
+      ).extension<GbmColors>()!;
+
+      final Material material = tester.widget<Material>(
+        find
+            .descendant(
+              of: find.byType(GbmDialogShell),
+              matching: find.byType(Material),
+            )
+            .first,
+      );
+
+      expect(material.color, colors.surfacePanelRaised);
+    });
+
+    testWidgets('the title text is drawn at 13px, per the spec\'s literal '
+        'number (not rounded to the existing 13.5px textBase)', (tester) async {
+      await _pump(tester);
+
+      final Text title = tester.widget<Text>(find.text('Checkout blocked'));
+
+      expect(title.style!.fontSize, GbmTypography.dialogTitleText);
+      expect(GbmTypography.dialogTitleText, 13);
+      expect(title.style!.fontWeight, GbmTypography.weightSemibold);
+    });
+
+    testWidgets('the title bar has a border-bottom, separating it from the '
+        'body', (tester) async {
+      await _pump(tester);
+      final GbmColors colors = buildGbmTheme(
+        GbmThemeVariant.darkTechnical,
+      ).extension<GbmColors>()!;
+
+      final Container titleBar = tester.widget<Container>(
+        find
+            .descendant(
+              of: find.byType(GbmDialogShell),
+              matching: find.byType(Container),
+            )
+            .at(1),
+      );
+      final BoxDecoration decoration = titleBar.decoration! as BoxDecoration;
+
+      expect(
+        decoration.border,
+        Border(bottom: BorderSide(color: colors.borderSubtle)),
+      );
+    });
+  });
 }

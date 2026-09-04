@@ -12,6 +12,7 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
+import '../../../widgets/gbm_input_decoration.dart';
 
 /// The remote name and the branch name *as the remote knows it* for
 /// [branch], or two empty strings when it has no remote side. Empty is what
@@ -185,25 +186,27 @@ class _DeleteBranchDialogContentState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           if (widget.branchName == null) ...<Widget>[
-            DropdownButtonFormField<String>(
-              initialValue: _selected,
-              isExpanded: true,
-              decoration: const InputDecoration(
-                hintText: '要刪除的分支',
-                isDense: true,
-                border: OutlineInputBorder(),
+            SizedBox(
+              height: GbmSpacing.inputHeight,
+              child: DropdownButtonFormField<String>(
+                initialValue: _selected,
+                isExpanded: true,
+                decoration: gbmInputDecoration(
+                  colors: colors,
+                  hintText: '要刪除的分支',
+                ),
+                items: <DropdownMenuItem<String>>[
+                  for (final RefInfo b in candidates)
+                    DropdownMenuItem<String>(
+                      value: b.shortName,
+                      child: Text(b.shortName),
+                    ),
+                ],
+                onChanged: (String? value) => setState(() {
+                  _selected = value;
+                  _alsoDeleteRemote = false;
+                }),
               ),
-              items: <DropdownMenuItem<String>>[
-                for (final RefInfo b in candidates)
-                  DropdownMenuItem<String>(
-                    value: b.shortName,
-                    child: Text(b.shortName),
-                  ),
-              ],
-              onChanged: (String? value) => setState(() {
-                _selected = value;
-                _alsoDeleteRemote = false;
-              }),
             ),
             const SizedBox(height: GbmSpacing.space3),
           ],

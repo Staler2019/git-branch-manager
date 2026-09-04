@@ -8,6 +8,7 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
+import '../../../widgets/gbm_input_decoration.dart';
 
 /// The Dart analog of `CherryPickDialog` (src/app/dialogs/
 /// CherryPickDialog.cpp). Routed as `/repo/:repoId/dialogs/cherry-pick`.
@@ -95,10 +96,9 @@ class _CherryPickDialogContentState
           TextField(
             controller: _commitsController,
             maxLines: 3,
-            decoration: const InputDecoration(
+            decoration: gbmMultilineInputDecoration(
+              colors: colors,
               hintText: '以空白或換行分隔，舊的在前',
-              isDense: true,
-              border: OutlineInputBorder(),
             ),
           ),
           const SizedBox(height: GbmSpacing.space2),

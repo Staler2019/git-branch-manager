@@ -10,6 +10,7 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
+import '../../../widgets/gbm_input_decoration.dart';
 
 /// Branch → Rebase onto… (Ctrl/Cmd+Shift+R), and context menu 05-B's
 /// "Rebase current onto here".
@@ -172,16 +173,15 @@ class _RebaseOntoDialogContentState
               ),
             ),
             const SizedBox(height: GbmSpacing.space1),
-            DropdownButtonFormField<String>(
-              initialValue: _target,
-              isExpanded: true,
-              decoration: const InputDecoration(
-                hintText: '基於',
-                isDense: true,
-                border: OutlineInputBorder(),
+            SizedBox(
+              height: GbmSpacing.inputHeight,
+              child: DropdownButtonFormField<String>(
+                initialValue: _target,
+                isExpanded: true,
+                decoration: gbmInputDecoration(colors: colors, hintText: '基於'),
+                items: _candidateItems(candidates),
+                onChanged: (String? value) => setState(() => _target = value),
               ),
-              items: _candidateItems(candidates),
-              onChanged: (String? value) => setState(() => _target = value),
             ),
             const SizedBox(height: GbmSpacing.space2),
             Text(

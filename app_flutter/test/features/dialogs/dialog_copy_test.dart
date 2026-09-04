@@ -478,6 +478,40 @@ void main() {
       );
       expect(tester.takeException(), isNull);
     });
+
+    testWidgets(
+      'the source-branch dropdown is 30px tall with a r6 border, and the '
+      'message field keeps the r6 border without being pinned to 30px (G4)',
+      (tester) async {
+        await _pump(tester, const MergeDialogContent(identity: _identity));
+
+        final Finder dropdownFinder = find.byType(
+          DropdownButtonFormField<String>,
+        );
+        expect(tester.getSize(dropdownFinder).height, GbmSpacing.inputHeight);
+        final DropdownButtonFormField<String> dropdown = tester
+            .widget<DropdownButtonFormField<String>>(dropdownFinder);
+        final OutlineInputBorder dropdownBorder =
+            dropdown.decoration.border! as OutlineInputBorder;
+        expect(
+          dropdownBorder.borderRadius,
+          BorderRadius.circular(GbmSpacing.radiusMd),
+        );
+
+        final Finder fieldFinder = find.byType(TextField);
+        final TextField field = tester.widget<TextField>(fieldFinder);
+        final OutlineInputBorder fieldBorder =
+            field.decoration!.border! as OutlineInputBorder;
+        expect(
+          fieldBorder.borderRadius,
+          BorderRadius.circular(GbmSpacing.radiusMd),
+        );
+        expect(
+          tester.getSize(fieldFinder).height,
+          greaterThan(GbmSpacing.inputHeight),
+        );
+      },
+    );
   });
 
   group('Checkout', () {
@@ -695,6 +729,20 @@ void main() {
       );
       expect(tester.takeException(), isNull);
     });
+
+    testWidgets('the target dropdown is 30px tall with a r6 border (G4)', (
+      tester,
+    ) async {
+      await _pump(tester, const RebaseOntoDialogContent(identity: _identity));
+
+      final Finder finder = find.byType(DropdownButtonFormField<String>);
+      expect(tester.getSize(finder).height, GbmSpacing.inputHeight);
+      final DropdownButtonFormField<String> dropdown = tester
+          .widget<DropdownButtonFormField<String>>(finder);
+      final OutlineInputBorder border =
+          dropdown.decoration.border! as OutlineInputBorder;
+      expect(border.borderRadius, BorderRadius.circular(GbmSpacing.radiusMd));
+    });
   });
 
   group('New Branch', () {
@@ -783,6 +831,19 @@ void main() {
       expect(find.text('Branch to delete'), findsNothing);
     });
 
+    testWidgets('the branch picker dropdown is 30px tall with a r6 border '
+        '(G4)', (tester) async {
+      await _pump(tester, const DeleteBranchDialogContent(identity: _identity));
+
+      final Finder finder = find.byType(DropdownButtonFormField<String>);
+      expect(tester.getSize(finder).height, GbmSpacing.inputHeight);
+      final DropdownButtonFormField<String> dropdown = tester
+          .widget<DropdownButtonFormField<String>>(finder);
+      final OutlineInputBorder border =
+          dropdown.decoration.border! as OutlineInputBorder;
+      expect(border.borderRadius, BorderRadius.circular(GbmSpacing.radiusMd));
+    });
+
     testWidgets('does not overflow the shell', (tester) async {
       await _pump(
         tester,
@@ -858,6 +919,21 @@ void main() {
         '不自動 commit（-n，套完停在工作區）',
         '先 stash 未提交的變更',
       ]);
+    });
+
+    testWidgets('the commits field keeps its r6 border without being pinned to '
+        '30px (G4)', (tester) async {
+      await _pump(tester, const CherryPickDialogContent(identity: _identity));
+
+      final Finder finder = find.byType(TextField);
+      final TextField field = tester.widget<TextField>(finder);
+      final OutlineInputBorder border =
+          field.decoration!.border! as OutlineInputBorder;
+      expect(border.borderRadius, BorderRadius.circular(GbmSpacing.radiusMd));
+      expect(
+        tester.getSize(finder).height,
+        greaterThan(GbmSpacing.inputHeight),
+      );
     });
   });
 

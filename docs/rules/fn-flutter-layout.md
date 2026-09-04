@@ -138,3 +138,61 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
 - **Note**: re-keying orphans a stored value — a read-miss falling back to the default, never a
   wrong number — which is [FLU-splitpane-axis-change]'s trade-off from a third direction.
 - **Evidence**: [ledger: 十二個管理面板照 P19 樣板統一](../ledger/2026-09-02-feat-p19-panel-template-conformance.md)
+
+## [FLU-column-nonflex-unbounded-height] A `Column` hands its non-flex children unbounded max-height, whatever its own bound is
+
+- **Rule**: `RenderFlex` must measure a non-flex child's natural size before it can decide whether
+  the sum overflows, so every such child gets `maxHeight: double.infinity` along the main axis —
+  this is true even when the `Column` itself sits inside a bounded parent (a `SizedBox`, a bounded
+  `Scaffold` body). It is *why* a `Column` can overflow at all.
+- **Consequence**: a child that uses `CrossAxisAlignment.stretch` on an inner `Row` throws
+  "BoxConstraints forces an infinite height" the moment it is mounted inside a real `Column` — this
+  is exactly how `GbmDialogWarnField` broke (see [FLU-row-stretch-needs-intrinsic-height]) the
+  moment it left its own isolated widget test and was wired into five real dialog bodies at once.
+- **Do**: wrap the stretching `Row` in `IntrinsicHeight` when the ambient context cannot be trusted
+  to hand down a bounded height — which for anything living inside a dialog body `Column` is
+  always.
+- **Evidence**: [ledger: Worktree Dialogs G2–G8](../ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)
+
+## [FLU-row-stretch-needs-intrinsic-height] `CrossAxisAlignment.stretch` on a `Row` needs a bounded cross-axis constraint to stretch into
+
+- **Rule**: without one — see [FLU-column-nonflex-unbounded-height] for the commonest source of an
+  unbounded one — `Row` tries to hand its children the incoming (infinite) height as a tight
+  constraint and the framework throws rather than silently doing nothing.
+- **Do**: `IntrinsicHeight` measures the `Row`'s children's own intrinsic height first and hands
+  the `Row` a tight, finite constraint derived from that — the fix for "stretch two unequal-height
+  children to match" with no ambient bound to stretch into. `GbmDialogWarnField`'s 2px warning
+  rail is the worked example.
+- **Note**: [TEST-fixture-cannot-disagree] gained a thirteenth shape from this exact bug — G8a's
+  own widget test wrapped the component in `Scaffold(body: Center(child: ...))`, and `Center`
+  hands its child a *bounded* constraint, so the isolated test could not see a defect that only
+  reproduces once the widget is inside a `Column`.
+- **Evidence**: [ledger: Worktree Dialogs G2–G8](../ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)
+
+## [FLU-border-uniform-color-required] `Border.paint` refuses a `borderRadius` on a non-uniform-colour border
+
+- **Rule**: Flutter throws "A borderRadius can only be given on borders with uniform colors" at
+  paint time — not a design choice, an engine constraint — the moment a `BoxDecoration` combines a
+  `borderRadius` with a `Border` whose sides differ in colour or width (e.g. three
+  `border-subtle` sides plus one thicker, differently-coloured accent side).
+- **Do**: split the shape into two legal pieces instead — an outer `Container` carrying the
+  *uniform* ring colour plus the `borderRadius` (legal together) with
+  `clipBehavior: Clip.antiAlias`, and the differently-coloured edge as a separate solid-colour
+  `Container` inside a `Row`/`Column`, clipped to match by the outer container. `GbmDialogWarnField`
+  (its 1px `border-subtle` ring plus a 2px `--warning` left rail) is the worked example.
+- **Evidence**: [ledger: Worktree Dialogs G2–G8](../ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)
+
+## [FLU-inherited-default-scope] An `InheritedWidget` can override a widget's own constructor default without touching every call site
+
+- **Rule**: `GbmButtonSizeScope` (`gbm_button.dart`) is the pattern: the widget's own parameter
+  becomes nullable with no hardcoded default (`GbmButtonSize? size`), and resolution at build time
+  is `size ?? GbmButtonSizeScope.maybeOf(context)?.size ?? GbmButtonSize.normal` — the `??` chain
+  keeps a call site's own explicit value winning over the ambient scope, and the scope's value
+  winning over the hardcoded fallback.
+- **Consequence**: this is what let `GbmDialogShell`'s action row change all ~34 dialogs' button
+  sizes (spec's `.gbm-btn-sm`) by editing 2 files (`gbm_button.dart` +
+  `gbm_dialog_shell.dart`) instead of every call site's own `GbmButton(...)` constructor.
+- **Do**: reach for this shape whenever a shared container wants to change a descendant widget's
+  *default* without asserting authority over every call site's explicit choice — never for a value
+  a call site cannot legitimately override.
+- **Evidence**: [ledger: Worktree Dialogs G2–G8](../ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)

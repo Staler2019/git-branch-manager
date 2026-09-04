@@ -28,14 +28,17 @@ import '../../../widgets/gbm_ref_picker.dart';
 /// dialog (see `RepoSessionState.checkoutChoices`); the two are
 /// complementary, not duplicates.
 ///
-/// **Presentation delta against `DLGS`'s mock, recorded rather than
-/// implemented in the G1d copy pass**: the mock draws a 目前 read-only row
-/// (current branch + pending-change count) and two radios (帶著變更切過去 /
-/// 先 stash，切完不自動還原); this dialog shows neither -- pending changes
-/// are already visible one screen over in the Working Copy tab, and the
-/// existing "stash first" checkbox already satisfies P06's own prose
-/// ("working tree 有變更時提供 stash 後切換的選項") on its own. See
-/// [DRIFT-checkout-dialog-mock-delta].
+/// **[DRIFT-checkout-dialog-mock-delta] is closed as of this dialog.** The
+/// mock's 目前 read-only row (`main · 有25 項未提交變更`) and its
+/// radio-on/radio pair (帶著變更切過去 / 先 stash，切完不自動還原) are both
+/// drawn now, quoted verbatim from `DLGS`'s Checkout entry. The pair still
+/// maps onto the one `_stashFirst` bool `checkout(stashFirst:)` already took
+/// -- radio-on is `false`, the default -- so no controller change was
+/// needed to close this. The mock's `warn` field (「兩邊都改到的檔案會阻止
+/// checkout…」) is deliberately left out: the pin never recorded it as part
+/// of the gap, and it describes a failure this dialog cannot predict ahead
+/// of the attempt -- that is exactly what `checkoutChoices` and the
+/// checkout-recovery dialog above already handle once git refuses.
 ///
 /// Routed as `/repo/:repoId/dialogs/checkout`.
 class CheckoutDialogContent extends ConsumerStatefulWidget {
@@ -101,6 +104,8 @@ class _CheckoutDialogContentState extends ConsumerState<CheckoutDialogContent> {
     );
     final List<GbmRefPickerEntry> entries = _entries(session);
     final bool isDirty = session.workingCopyStatus.entries.isNotEmpty;
+    final String head = session.refs.head.branchName;
+    final int pendingCount = session.workingCopyStatus.pendingChangeCount;
 
     return GbmDialogShell(
       title: 'Checkout',
@@ -113,58 +118,88 @@ class _CheckoutDialogContentState extends ConsumerState<CheckoutDialogContent> {
           onPressed: _selected == null ? null : _submit,
         ),
       ],
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          GbmRefPicker(
-            entries: entries,
-            selected: _selected,
-            autofocus: true,
-            allowCommitHash: true,
-            hintText: '可搜尋 branch / tag / commit',
-            emptyMessage: '沒有可以切換的項目。',
-            onSelected: (GbmRefPickerEntry entry) => setState(() {
-              _selected = entry.name;
-              _selectedIsRemote = entry.kind == GbmRefKind.remoteBranch;
-            }),
-          ),
-          if (_selectedIsRemote && _selected != null) ...<Widget>[
+      // Scrollable, like New branch's: the 目前 row plus the radio pair can
+      // exceed GbmDialogShell's 560px cap on a short window, and every child
+      // here is non-flex ([FLU-renderflex-non-flex-first]).
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            GbmRefPicker(
+              entries: entries,
+              selected: _selected,
+              autofocus: true,
+              allowCommitHash: true,
+              hintText: '可搜尋 branch / tag / commit',
+              emptyMessage: '沒有可以切換的項目。',
+              onSelected: (GbmRefPickerEntry entry) => setState(() {
+                _selected = entry.name;
+                _selectedIsRemote = entry.kind == GbmRefKind.remoteBranch;
+              }),
+            ),
+            if (_selectedIsRemote && _selected != null) ...<Widget>[
+              const SizedBox(height: GbmSpacing.space2),
+              Text(
+                '建立本地分支「${_localNameFor(_selected!)}」，追蹤 $_selected。',
+                style: TextStyle(
+                  fontSize: GbmTypography.textXs,
+                  color: colors.textSecondary,
+                ),
+              ),
+            ],
             const SizedBox(height: GbmSpacing.space2),
+            // DLGS's `ro` field, 「目前」/`main · 有25 項未提交變更` -- quoted
+            // verbatim including its punctuation (no space after 有).
             Text(
-              '建立本地分支「${_localNameFor(_selected!)}」，追蹤 $_selected。',
+              isDirty ? '目前 $head · 有$pendingCount 項未提交變更' : '目前 $head',
               style: TextStyle(
-                fontSize: GbmTypography.textXs,
+                fontSize: GbmTypography.textSm,
                 color: colors.textSecondary,
               ),
             ),
-          ],
-          if (isDirty) ...<Widget>[
-            const SizedBox(height: GbmSpacing.space2),
-            CheckboxListTile(
-              value: _stashFirst,
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              controlAffinity: ListTileControlAffinity.leading,
-              title: Text(
-                '先 stash 未提交的變更',
-                style: TextStyle(
-                  fontSize: GbmTypography.textSm,
-                  color: colors.textPrimary,
+            if (isDirty) ...<Widget>[
+              const SizedBox(height: GbmSpacing.space2),
+              RadioGroup<bool>(
+                groupValue: _stashFirst,
+                onChanged: (bool? value) =>
+                    setState(() => _stashFirst = value ?? _stashFirst),
+                child: const Column(
+                  children: <Widget>[
+                    _StashChoiceOption(value: false, label: '帶著變更切過去'),
+                    _StashChoiceOption(value: true, label: '先 stash，切完不自動還原'),
+                  ],
                 ),
               ),
-              subtitle: Text(
-                '${session.workingCopyStatus.pendingChangeCount} 個檔案有未提交的變更。',
-                style: TextStyle(
-                  fontSize: GbmTypography.textXs,
-                  color: colors.textTertiary,
-                ),
-              ),
-              onChanged: (bool? value) =>
-                  setState(() => _stashFirst = value ?? false),
-            ),
+            ],
           ],
-        ],
+        ),
+      ),
+    );
+  }
+}
+
+/// DLGS's `radio-on`/`radio` pair for Checkout: both are value-only, with no
+/// separate description, so this stays a plain label -- inventing a subtitle
+/// sentence here would draw text the mock never asked for.
+class _StashChoiceOption extends StatelessWidget {
+  const _StashChoiceOption({required this.value, required this.label});
+
+  final bool value;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return RadioListTile<bool>(
+      value: value,
+      dense: true,
+      contentPadding: EdgeInsets.zero,
+      title: Text(
+        label,
+        style: TextStyle(
+          fontSize: GbmTypography.textSm,
+          color: context.gbmColors.textPrimary,
+        ),
       ),
     );
   }

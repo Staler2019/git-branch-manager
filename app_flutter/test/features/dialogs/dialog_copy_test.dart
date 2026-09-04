@@ -382,15 +382,69 @@ void main() {
       expect(find.textContaining('Creates local branch'), findsNothing);
     });
 
-    testWidgets('the stash-first checkbox is Chinese', (tester) async {
+    // Closes [DRIFT-checkout-dialog-mock-delta]: DLGS's Checkout entry draws
+    // a read-only 目前 row (`main · 有25 項未提交變更`) ahead of the
+    // radio-on/radio pair, so the row is asserted on a clean tree first
+    // (bare "目前 main", no count) and again once dirty.
+    testWidgets('the current-branch row shows with no count on a clean tree', (
+      tester,
+    ) async {
+      await _pump(tester, const CheckoutDialogContent(identity: _identity));
+      expect(find.text('目前 main'), findsOneWidget);
+    });
+
+    testWidgets(
+      'the current-branch row appends the pending count, DLGS-quoted, '
+      'once dirty',
+      (tester) async {
+        await _pump(
+          tester,
+          const CheckoutDialogContent(identity: _identity),
+          workingCopyEntries: <WorkingCopyEntry>[_wcEntry('a.txt')],
+        );
+        expect(find.text('目前 main · 有1 項未提交變更'), findsOneWidget);
+      },
+    );
+
+    testWidgets('the stash-choice radios are absent on a clean tree', (
+      tester,
+    ) async {
+      await _pump(tester, const CheckoutDialogContent(identity: _identity));
+      expect(find.text('帶著變更切過去'), findsNothing);
+      expect(find.text('先 stash，切完不自動還原'), findsNothing);
+    });
+
+    testWidgets(
+      'the stash-choice radios are Chinese and quoted from DLGS, once dirty',
+      (tester) async {
+        await _pump(
+          tester,
+          const CheckoutDialogContent(identity: _identity),
+          workingCopyEntries: <WorkingCopyEntry>[_wcEntry('a.txt')],
+        );
+        expect(find.text('帶著變更切過去'), findsOneWidget);
+        expect(find.text('先 stash，切完不自動還原'), findsOneWidget);
+        expect(find.textContaining('uncommitted changes first'), findsNothing);
+        expect(find.text('先 stash 未提交的變更'), findsNothing);
+      },
+    );
+
+    testWidgets('carrying the changes across is the default radio', (
+      tester,
+    ) async {
       await _pump(
         tester,
         const CheckoutDialogContent(identity: _identity),
         workingCopyEntries: <WorkingCopyEntry>[_wcEntry('a.txt')],
       );
-      expect(find.text('先 stash 未提交的變更'), findsOneWidget);
-      expect(find.text('1 個檔案有未提交的變更。'), findsOneWidget);
-      expect(find.textContaining('uncommitted changes first'), findsNothing);
+      final RadioListTile<bool> carryOver = tester.widget(
+        find.widgetWithText(RadioListTile<bool>, '帶著變更切過去'),
+      );
+      expect(carryOver.value, isFalse);
+      final RadioGroup<bool> group = tester.widget(
+        find.byType(RadioGroup<bool>),
+      );
+      expect(group.groupValue, isFalse);
     });
 
     testWidgets('does not overflow the shell', (tester) async {

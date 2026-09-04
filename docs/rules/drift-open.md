@@ -89,21 +89,31 @@ historical the moment they are written.
   truncation and both scripts append.
 - **Evidence**: ledger: 更新流程的三個缺陷
 
-## [DRIFT-checkout-dialog-mock-delta] Checkout dialog draws neither `DLGS`'s 目前 row nor its two radios
+## [DRIFT-checkout-dialog-mock-delta] Checkout dialog draws neither `DLGS`'s 目前 row nor its two radios — **closed**
 
-- **Rule**: `DLGS`'s Checkout mock has a read-only `ro` row (目前 branch + pending-change
-  count) and a `radio-on`/`radio` pair (帶著變更切過去 / 先 stash，切完不自動還原).
-  `checkout_dialog.dart` has neither — one "stash uncommitted changes first" checkbox
-  stands in for the radio pair, and there is no 目前 row at all.
-- **Consequence**: this is a presentation delta against the mock, not a missing
-  capability — pending changes are already visible one screen over in the Working Copy
-  tab, and the checkbox already satisfies P06's own prose ("working tree 有變更時提供
-  stash 後切換的選項"). Recorded per [SPEC-mockup-is-not-prose]'s ruling that the prose
-  wins over the picture, but written down rather than silently decided, since a mock this
-  concrete is still worth a ruling if the user wants the closer match.
-- **Do**: if this is ever closed, it is a UI-structure change and goes through G1's design
-  gate (spec-auditor + a ruling before implementation), not a copy-only edit.
-- **Evidence**: [ledger: G1d](../ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md)
+- **Rule (superseded)**: `DLGS`'s Checkout mock has a read-only `ro` row (目前 branch +
+  pending-change count) and a `radio-on`/`radio` pair (帶著變更切過去 / 先 stash，切完不自動
+  還原). `checkout_dialog.dart` used to have neither — one "stash uncommitted changes
+  first" checkbox stood in for the radio pair, and there was no 目前 row at all.
+- **Closed**: both are now drawn, quoted verbatim from `DLGS`'s Checkout entry
+  (`spec_logic.js`'s `DLGS` array, `grp: 'C', name: 'Checkout'`): the 目前 row reads
+  「目前 $head」 on a clean tree and appends 「 · 有$N 項未提交變更」 once dirty (the
+  spec's own punctuation, no space after 有); the radio pair reads 「帶著變更切過去」
+  (radio-on, `stashFirst: false`, the default) and 「先 stash，切完不自動還原」
+  (`stashFirst: true`), gated on the same `isDirty` the removed checkbox was. The pair
+  maps onto the `_stashFirst` bool `checkout(stashFirst:)` already took, so no capi or
+  controller change was needed — this one was presentation-only, unlike
+  [DRIFT-rebase-onto-missing-capi-flags] below.
+- **Rule**: the mock's `warn` field (「兩邊都改到的檔案會阻止 checkout；屆時列出檔名並提供
+  「stash 後重試」。」) is deliberately **not** drawn. It was never part of what this pin
+  recorded as the gap, and it describes a failure this dialog cannot predict ahead of the
+  attempt — that is exactly what `checkoutChoices` and the checkout-recovery dialog
+  ([STATE-credential-recovery]) already handle once git actually refuses.
+- **Do**: this was a UI-structure change, closed directly on the user's explicit ruling
+  (「兩個落差也修掉」) rather than a fresh spec-auditor pass, since every drawn value here
+  was already spec-auditor-quoted in the G1d citation table.
+- **Evidence**: [ledger: G1d](../ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md);
+  closed in the same round's follow-up commit.
 
 ## [DRIFT-rebase-onto-missing-capi-flags] Rebase onto is missing two `DLGS` checkboxes and a warn banner, and the checkboxes are capi-shaped
 

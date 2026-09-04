@@ -153,7 +153,7 @@ String? _highlighted(WidgetTester tester) {
 }
 
 Future<void> _name(WidgetTester tester, String value) async {
-  await tester.enterText(find.widgetWithText(TextField, 'Branch name'), value);
+  await tester.enterText(find.widgetWithText(TextField, '名稱'), value);
   await tester.pumpAndSettle();
 }
 
@@ -338,7 +338,7 @@ void main() {
       tester,
     ) async {
       await _pump(tester, state: _session(remotes: const <RemoteInfo>[]));
-      expect(find.text('Push and set as upstream'), findsNothing);
+      expect(find.text('同時 push 並設為 upstream'), findsNothing);
     });
 
     // Ambiguous, not absent: `soleRemoteName()`'s established rule
@@ -352,7 +352,7 @@ void main() {
         tester,
         state: _session(remotes: const <RemoteInfo>[_origin, _upstream]),
       );
-      expect(find.text('Push and set as upstream'), findsNothing);
+      expect(find.text('同時 push 並設為 upstream'), findsNothing);
     });
 
     testWidgets('with exactly one remote, the checkbox names it', (
@@ -387,7 +387,7 @@ void main() {
         state: _session(remotes: const <RemoteInfo>[_origin]),
       );
       await _name(tester, 'feature/x');
-      await tester.tap(find.text('Push and set as upstream'));
+      await tester.tap(find.text('同時 push 並設為 upstream'));
       await tester.pumpAndSettle();
       await _create(tester);
 
@@ -412,7 +412,7 @@ void main() {
         state: _session(remotes: const <RemoteInfo>[_origin]),
       );
       await _name(tester, 'feature/x');
-      await tester.tap(find.text('Push and set as upstream'));
+      await tester.tap(find.text('同時 push 並設為 upstream'));
       await tester.pumpAndSettle();
       await _create(tester);
 

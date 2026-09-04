@@ -158,13 +158,10 @@ void main() {
       );
       expect(find.text('a'), findsOneWidget);
       expect(find.text('b'), findsOneWidget);
-      expect(find.text('3 unpushed commits'), findsOneWidget);
-      expect(
-        find.text('no upstream — nothing has been pushed'),
-        findsOneWidget,
-      );
-      expect(find.text('Local branches'), findsOneWidget);
-      expect(find.text('Remote branches'), findsOneWidget);
+      expect(find.text('3 個未推送的 commit'), findsOneWidget);
+      expect(find.text('沒有 upstream，尚未推送過'), findsOneWidget);
+      expect(find.text('本地分支'), findsOneWidget);
+      expect(find.text('遠端分支'), findsOneWidget);
       expect(find.text('origin/a'), findsOneWidget);
     });
 
@@ -172,8 +169,8 @@ void main() {
       WidgetTester tester,
     ) async {
       await _pump(tester, <String>['a'], <RefInfo>[_branch('a')]);
-      expect(find.text('Remote branches'), findsNothing);
-      expect(find.text('Also delete on the remote'), findsNothing);
+      expect(find.text('遠端分支'), findsNothing);
+      expect(find.text('同時刪除遠端分支'), findsNothing);
     });
 
     testWidgets('deleting issues one call for every local branch, not N', (
@@ -210,7 +207,7 @@ void main() {
           _branch('c'),
         ],
       );
-      await tester.tap(find.text('Also delete on the remote'));
+      await tester.tap(find.text('同時刪除遠端分支'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Delete 3 branches').last);
       await tester.pumpAndSettle();
@@ -238,7 +235,7 @@ void main() {
         <String>['a'],
         <RefInfo>[_branch('a', upstream: 'refs/remotes/origin/a')],
       );
-      await tester.tap(find.text('Delete even if not fully merged'));
+      await tester.tap(find.text('即使尚未完全合併也刪除'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Delete 1 branches').last);
       await tester.pumpAndSettle();

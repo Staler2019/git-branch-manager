@@ -115,22 +115,36 @@ historical the moment they are written.
 - **Evidence**: [ledger: G1d](../ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md);
   closed in the same round's follow-up commit.
 
-## [DRIFT-rebase-onto-missing-capi-flags] Rebase onto is missing two `DLGS` checkboxes and a warn banner, and the checkboxes are capi-shaped
+## [DRIFT-rebase-onto-missing-capi-flags] Rebase onto is missing two `DLGS` checkboxes and a warn banner, and the checkboxes are capi-shaped — **closed**
 
-- **Rule**: `DLGS`'s Rebase onto mock has `chk-on`「保留 merge commit（--rebase-merges）」,
-  `chk`「自動 squash 標記過的 fixup commit」, and a `warn` for an already-pushed branch
-  needing a force push after rebase. `rebase_onto_dialog.dart` has none of the three.
-- **Consequence**: the two checkboxes cannot be added to the dialog alone —
-  `startRebase(target, stashFirst:)` (`RepoSessionController`) carries no flags for either,
-  and `gbm_rebase_start`'s capi signature has no parameters to carry them either. This
-  joins [DRIFT-absent-for-no-capi]'s list rather than being a copy-only gap. The warn
-  banner is a smaller, presentation-level gap — nothing here reads whether the branch has
-  an upstream that would need a force push after rebase — but is left with the other two
-  since a partial fix (banner only) would draw an incomplete rendering of the mock.
-- **Do**: closing this needs a capi change (`gbm_rebase_start` gaining
-  `rebaseMerges`/`autosquash` flags) before any Dart-side dialog work, which makes it a
-  design-and-implementation round of its own, not part of a G1 copy pass.
-- **Evidence**: [ledger: G1d](../ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md)
+- **Rule (superseded)**: `DLGS`'s Rebase onto mock has `chk-on`「保留 merge commit
+  （--rebase-merges）」, `chk`「自動 squash 標記過的 fixup commit」, and a `warn` for an
+  already-pushed branch needing a force push after rebase. `rebase_onto_dialog.dart` used
+  to have none of the three, and the two checkboxes could not be added to the dialog alone
+  — `startRebase(target, stashFirst:)` carried no flags for either, and
+  `gbm_rebase_start`'s capi signature had no parameters to carry them either.
+- **Closed**: the full chain is wired now, bottom-up. Core: `RebaseRequest` gained
+  `rebaseMerges`/`autosquash` bool fields and `RebaseOperation::run()` appends
+  `--rebase-merges`/`--autosquash` to the `git rebase` argv when set — both measured
+  directly (scratch repo, git 2.55.0) to work on a **plain, non-interactive** `git rebase`
+  with no `-i` of the app's own; git's own docs confirm `--autosquash` "uses the
+  --interactive machinery internally, but it can be run without an explicit --interactive".
+  Capi: `gbm_rebase_start` gained two more `int32_t` parameters. Dart:
+  `RepoSessionController.startRebase()` gained `rebaseMerges`/`autosquash` named bools,
+  forwarded through the FFI binding. UI: `rebase_onto_dialog.dart` draws both checkboxes
+  quoted verbatim from `DLGS` — chk-on defaults on, chk defaults off — plus the warn
+  banner, gated on [REF-remote-side-not-upstream]'s `remoteCounterpartOf()` (the same
+  single source `delete_branch_dialog.dart`'s own doc comment names traps for), not
+  re-derived from `hasTrackingInfo` or `upstream` alone.
+- **Do**: `gbm_rebase_start`'s fifth parameter (`autosquash`) is exactly the shape
+  [TEST-ffi-matches-symbol-only] warns about — `dart:ffi`'s `lookupFunction` matches by
+  symbol name only, never by signature, so a dropped or mis-ordered parameter compiles and
+  analyzes clean on both sides and only breaks at runtime. `RebaseApiTest.cpp`'s
+  `PlainRebaseWithAutosquashFoldsAFixupCommit`/`PlainRebaseWithRebaseMergesPreservesAMergeCommit`
+  are the one tier that actually crosses that boundary; `GitIntegrationTest.cpp`'s
+  `RealRepoTest` cases of the same names test the git behaviour itself, one layer down.
+- **Evidence**: [ledger: G1d](../ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md);
+  closed in the same round's follow-up commits.
 
 ## [DRIFT-open-issues] Open issues
 

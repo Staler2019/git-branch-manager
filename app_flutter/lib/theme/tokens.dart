@@ -443,6 +443,12 @@ abstract final class GbmSpacing {
   static const double rowHeightCompact = 26;
   static const double rowHeightComfortable = 34;
 
+  /// `.gbm-input`'s fixed height (docs/design/tokens-reference.md:111).
+  /// Pair with [gbmInputDecoration] via `SizedBox(height: inputHeight,
+  /// child: TextField(...))` -- see that function's doc comment for why the
+  /// height comes from the `SizedBox`, not from `contentPadding`.
+  static const double inputHeight = 30;
+
   static const double radiusSm = 4;
   static const double radiusMd = 6;
   static const double radiusLg = 10;

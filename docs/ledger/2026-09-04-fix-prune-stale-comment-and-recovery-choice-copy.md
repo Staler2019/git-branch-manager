@@ -152,11 +152,74 @@ payload 也只送了 `summary`，沒有送 `error`。重讀 `OperationRunner.cpp
 - 每個 commit 的 mutation-check：narrow 且已用 scratchpad 備份/還原、`diff`
   確認位元相同，細節見各 commit 訊息與上面段落。
 
-### 尚未開始：任務二
+### 任務二：G1d（`checkout` / `rebase_onto` / `new_branch`）
 
-G1 剩下約 17 個對話框的中文化（`checkout`、`rebase_onto`、`new_branch`、
-`delete_branch` ×2、`discard_changes`、`restore_file`、`rename_branch`、
-`repository_settings`、`preferences`、`about`、`update`、
-`manage_base_folders`、`lock_worktree`/`remove_worktree` 收尾），批次
-G1d–G1k，沿用上一輪 G1a/b/c 的節奏。計畫已把每個對話框的文案來源引用表核對
-完畢，這輪尚未動工；完成後在本檔案續寫，不另開新檔。
+commit 7（`719f080`）——三個對話框依計畫的 DLGS 引用表逐條轉中文，一次
+commit：
+
+- **Checkout**：搜尋提示（`可搜尋 branch / tag / commit`）、空清單訊息
+  （`沒有可以切換的項目。`）、選到遠端分支時的追蹤說明（`建立本地分支
+  「x」，追蹤 y。`）、stash 勾選框標題／副標題（`先 stash 未提交的變更`／
+  `N 個檔案有未提交的變更。`）。
+- **Rebase onto**：開場句（`重新安置 X 到：`）、下拉提示（`基於`）、
+  衝突說明段落、同一組 stash 勾選框文案。
+- **New branch**：欄位標籤（`名稱`）、區塊標題（`從哪裡分出`）、同一組
+  搜尋提示、兩個勾選框（`建立後直接 checkout`／`同時 push 並設為
+  upstream` + 副標題 `會推送到 X。`）。標題與主按鈕（`Checkout`／
+  `Cancel`／`Rebase`／`Start rebase`／`New Branch`／`Create branch`）維持
+  英文不動，`branch_name_validation.dart` 刻意不動（計畫排進 G1g）。
+
+**先用 advisor 定了一件事**：三個對話框裡有兩個（Checkout、Rebase onto）
+對照 DLGS 的 mock 圖有結構性落差——不是漏翻譯，是整段控制項沒做（Checkout
+少了「目前」列與兩個 radio；Rebase onto 少了兩個勾選框與一則警告）。
+advisor 的判斷：translate-only 是對的，不要在文案 commit 裡順手補結構，
+因為：(1) 計畫本身把 G1 定義成「文案轉換」，不是「照 mock 補齊」；
+(2) `merge_dialog.dart` 等既有 G1 對話框的先例本來就是轉譯既有結構，不是
+另起爐灶；(3) 在文案 commit 裡加 radio/勾選框會違反使用者自己定的 G1 設計
+閘門（UI 結構要先設計、先給 spec-auditor 核過、再給裁決）。兩個落差的性質
+也不同：Rebase onto 那兩個勾選框需要 capi 先加 `--rebase-merges`／
+autosquash 旗標，屬於 `[DRIFT-absent-for-no-capi]` 那一類；Checkout 那個
+純粹是呈現層級（既有的 stash 勾選框已經滿足 P06 本文的要求），照
+`[SPEC-mockup-is-not-prose]` 的裁決原則本文優先於圖。兩者都寫進
+`docs/rules/drift-open.md`（`[DRIFT-checkout-dialog-mock-delta]`／
+`[DRIFT-rebase-onto-missing-capi-flags]`），不是「本輪不做」的沉默省略——
+落差寫在案發現場（三個 doc comment 各自指回對應的 drift pin），且已回報
+給使用者。
+
+`dialog_copy_test.dart` 新增 `Checkout`／`Rebase onto`／`New Branch` 三組
+共 12 則測試；`_pump()` 加了 `overrideState`（整包替換掉預設 session，
+給需要遠端分支或單一 remote 的情境用）跟 `workingCopyEntries`（组一個
+`WorkingCopyStatus`，觸發 dirty 狀態才會畫出來的 stash 勾選框）兩個可選
+參數，不動任何既有呼叫點。
+
+**Mutation-check**：8 個字串逐一還原成英文，每次跑
+`flutter test test/features/dialogs/dialog_copy_test.dart`，讀
+`+N -M` 這行的 `M`：
+
+| 還原的字串 | REDS |
+|---|---|
+| Checkout stash 勾選框標題 | 1（僅該測試） |
+| Checkout 追蹤說明 | 1 |
+| Checkout 搜尋提示 | 1 |
+| Rebase onto 開場句 | 1 |
+| Rebase onto stash 勾選框標題 | 1 |
+| Rebase onto 下拉提示 | 1 |
+| New branch 欄位標籤 | 1 |
+| New branch push 勾選框標題 | 1 |
+
+8 次 mutation、8 次紅燈，每次都只紅該字串對應的那一則測試，沒有一次波及
+其他組。每次 mutate 前都先 `cp` 到 scratchpad、`grep -c` 確認 anchor 唯一，
+還原後 `diff` 確認位元相同（未曾用 `git checkout --` 還原）。
+
+驗證：`flutter test test/features/dialogs/dialog_copy_test.dart` 41/41
+綠燈；`dart format`／`flutter analyze --no-pub` 都是 0；
+`scripts/check-rule-pins.py`：170 條規則、63 個交叉引用，懸空 0。
+
+### 尚未開始：G1e–G1k
+
+`delete_branch`+`delete_branches`（G1e）、`discard_changes`+`restore_file`
+（G1f）、`rename_branch`（G1g）、`repository_settings`（G1h）、
+`preferences`（G1i，`Shortcuts` 分頁明確排除，需要補一條 drift-open.md
+記錄尚未寫）、`about`+`update`+`manage_base_folders`（G1j）、
+`lock_worktree`/`remove_worktree` 殘留英文收尾（G1k）。完成後續寫本檔案，
+不另開新檔。

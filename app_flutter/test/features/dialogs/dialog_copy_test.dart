@@ -419,19 +419,18 @@ void main() {
       'the explanation is Chinese, the choice buttons are not, and Cancel '
       'is not drawn twice',
       (tester) async {
-        // Button label/explanation are composed in Dart from `choice.kind`
-        // (recovery_choice_copy.dart), not read off the wire -- the
-        // fixture's own `label`/`explanation` strings below are therefore
-        // irrelevant to what renders and are left as obviously-fake
-        // placeholders to make that plain.
+        // The wire carries only `kind`/`destructive` -- button label and
+        // body-list explanation are composed in Dart from `choice.kind`
+        // (recovery_choice_copy.dart). There is no `label`/`explanation`
+        // field left to construct a decoy string with; that guarantee used
+        // to be asserted here by checking a fake wire string was never
+        // drawn, and is now enforced by the compiler instead.
         await _pump(
           tester,
           const CheckoutRecoveryDialogContent(identity: _identity),
           checkoutChoices: const <OperationChoice>[
             OperationChoice(
               kind: OperationChoiceKind.stashAndRetry,
-              label: 'unused wire label',
-              explanation: 'unused wire explanation',
               destructive: false,
             ),
             // Included specifically to pin the duplicate-Cancel fix: `abort`
@@ -440,8 +439,6 @@ void main() {
             // "Cancel" a second time next to the hardcoded action button.
             OperationChoice(
               kind: OperationChoiceKind.abort,
-              label: 'unused wire label',
-              explanation: 'unused wire explanation',
               destructive: false,
             ),
           ],
@@ -453,8 +450,6 @@ void main() {
         // body list that carries its explanation.
         expect(find.text('Stash and checkout'), findsWidgets);
         expect(find.text('你的變更會先存進 stash，之後可以再取回來。'), findsOneWidget);
-        expect(find.text('unused wire label'), findsNothing);
-        expect(find.text('unused wire explanation'), findsNothing);
         // Exactly one "Cancel": the hardcoded action-bar button. The
         // `abort` choice above must not add a second one anywhere.
         expect(find.text('Cancel'), findsOneWidget);
@@ -474,16 +469,9 @@ void main() {
         tester,
         const CheckoutRecoveryDialogContent(identity: _identity),
         checkoutChoices: const <OperationChoice>[
-          OperationChoice(
-            kind: OperationChoiceKind.retry,
-            label: 'unused wire label',
-            explanation: 'unused wire explanation',
-            destructive: false,
-          ),
+          OperationChoice(kind: OperationChoiceKind.retry, destructive: false),
           OperationChoice(
             kind: OperationChoiceKind.removeLock,
-            label: 'unused wire label',
-            explanation: 'unused wire explanation',
             destructive: true,
           ),
         ],
@@ -529,8 +517,6 @@ void main() {
           deleteBranchChoices: const <OperationChoice>[
             OperationChoice(
               kind: OperationChoiceKind.forceDiscard,
-              label: 'unused wire label',
-              explanation: 'unused wire explanation',
               destructive: true,
             ),
           ],
@@ -546,11 +532,15 @@ void main() {
         // `forDeleteBranch` arms are genuinely distinct, not one string
         // reused for both.
         expect(find.text('未提交的變更會被永久丟棄，無法復原。'), findsNothing);
-        expect(find.text('unused wire label'), findsNothing);
-        expect(find.text('unused wire explanation'), findsNothing);
       },
     );
   });
+
+  // The reducer-level test pinning that a preflight-shaped outcome publishes
+  // checkoutChoices and lastError together lives in
+  // repo_session_operation_outcome_test.dart, next to the other
+  // _handleOperationOutcome coverage -- see that file's "arrive together"
+  // test.
 
   group('Stash Changes', () {
     testWidgets('title and primary button stay English', (tester) async {

@@ -10,21 +10,19 @@ enum OperationChoiceKind {
 
 /// Mirrors `gbm::OperationChoice` as serialized by
 /// `capi::toJson(const OperationChoice&)` (part of `OperationOutcome`'s
-/// `choices` array): a recoverable-failure option, e.g. "Stash changes and
-/// checkout" offered after a checkout refuses on a dirty work tree.
+/// `choices` array): a recoverable-failure option, e.g. offered after a
+/// checkout refuses on a dirty work tree. The wire carries only `kind` and
+/// `destructive` -- no label/explanation strings. Every reader composes its
+/// own copy (English button labels, Chinese explanations) from `kind` via
+/// `features/dialogs/recovery_choice_copy.dart`'s
+/// `recoveryChoiceLabel()`/`recoveryChoiceExplanation()`, never off the wire;
+/// see that file's header comment for why.
 class OperationChoice {
-  const OperationChoice({
-    required this.kind,
-    required this.label,
-    required this.explanation,
-    required this.destructive,
-  });
+  const OperationChoice({required this.kind, required this.destructive});
 
   factory OperationChoice.fromJson(Map<String, dynamic> json) {
     return OperationChoice(
       kind: OperationChoiceKind.values[json['kind'] as int],
-      label: json['label'] as String,
-      explanation: json['explanation'] as String,
       destructive: json['destructive'] as bool,
     );
   }
@@ -34,7 +32,5 @@ class OperationChoice {
       .toList(growable: false);
 
   final OperationChoiceKind kind;
-  final String label;
-  final String explanation;
   final bool destructive;
 }

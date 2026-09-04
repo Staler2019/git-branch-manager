@@ -3,15 +3,16 @@ import '../../data/models/operation_choice.dart';
 /// Button label and body-list explanation for an [OperationChoiceKind],
 /// composed here rather than read off the wire.
 ///
-/// [OperationChoice.label]/[OperationChoice.explanation] used to cross the
-/// FFI boundary from `src/core/git/OperationRunner.h` and be painted
-/// verbatim, but nothing about them was actually "the wire's own words":
-/// core's English ("Stash changes and switch") never matched the spec's
-/// quoted button text ("Stash and checkout", `DLGS`'s "Checkout blocked"
-/// entry), and the explanation needs to be Chinese regardless of what core
-/// sends. Composing here, keyed on [OperationChoiceKind] -- the one part of
-/// the payload that is not prose -- is the single source both recovery
-/// dialogs read from.
+/// `OperationChoice`'s wire form (`label`/`explanation` strings) used to
+/// cross the FFI boundary from `src/core/git/OperationRunner.h` and be
+/// painted verbatim -- both fields are gone now, from the C++ struct through
+/// to `OperationChoice.fromJson`, because nothing about them was actually
+/// "the wire's own words": core's English ("Stash changes and switch") never
+/// matched the spec's quoted button text ("Stash and checkout", `DLGS`'s
+/// "Checkout blocked" entry), and the explanation needs to be Chinese
+/// regardless of what core sends. Composing here, keyed on
+/// [OperationChoiceKind] -- the one part of the payload that is not prose --
+/// is the single source both recovery dialogs read from.
 ///
 /// Button labels stay English (§03's rule for primary/secondary buttons,
 /// counted 26/0 in `DLGS`). Where a `DLGS` entry names this exact control by

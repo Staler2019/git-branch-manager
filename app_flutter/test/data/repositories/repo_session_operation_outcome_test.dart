@@ -32,21 +32,17 @@ import '../../support/fake_repo_session.dart';
 
 final RepoIdentity _identity = RepoIdentity.forWorkDir('/test/repo');
 
-Map<String, dynamic> _failedOutcome({
-  required String kind,
-  String label = 'Stash changes and switch',
-}) => <String, dynamic>{
-  'succeeded': false,
-  'kind': kind,
-  'choices': <Map<String, dynamic>>[
+Map<String, dynamic> _failedOutcome({required String kind}) =>
     <String, dynamic>{
-      'kind': OperationChoiceKind.stashAndRetry.index,
-      'label': label,
-      'explanation': 'explanation',
-      'destructive': false,
-    },
-  ],
-};
+      'succeeded': false,
+      'kind': kind,
+      'choices': <Map<String, dynamic>>[
+        <String, dynamic>{
+          'kind': OperationChoiceKind.stashAndRetry.index,
+          'destructive': false,
+        },
+      ],
+    };
 
 Map<String, dynamic> _succeededOutcome({required String kind}) =>
     <String, dynamic>{'succeeded': true, 'kind': kind};
@@ -140,8 +136,8 @@ void main() {
 
       expect(fake.state.checkoutChoices, hasLength(1));
       expect(
-        fake.state.checkoutChoices.single.label,
-        'Stash changes and switch',
+        fake.state.checkoutChoices.single.kind,
+        OperationChoiceKind.stashAndRetry,
       );
     });
 
@@ -152,12 +148,13 @@ void main() {
       );
       fake.debugRecordDeleteBranch(names: const <String>['gone']);
 
-      fake.debugHandleOperationOutcome(
-        _failedOutcome(kind: 'delete-branch', label: 'Force delete'),
-      );
+      fake.debugHandleOperationOutcome(_failedOutcome(kind: 'delete-branch'));
 
       expect(fake.state.deleteBranchChoices, hasLength(1));
-      expect(fake.state.deleteBranchChoices.single.label, 'Force delete');
+      expect(
+        fake.state.deleteBranchChoices.single.kind,
+        OperationChoiceKind.stashAndRetry,
+      );
     });
 
     test(
@@ -173,19 +170,71 @@ void main() {
         // deleteBranch's outcome arrives first even though checkout was
         // requested first -- exactly the interleaving that broke the old
         // two-boolean design.
-        fake.debugHandleOperationOutcome(
-          _failedOutcome(kind: 'delete-branch', label: 'Force delete'),
-        );
+        fake.debugHandleOperationOutcome(_failedOutcome(kind: 'delete-branch'));
         expect(fake.state.deleteBranchChoices, hasLength(1));
         expect(fake.state.checkoutChoices, isEmpty);
 
-        fake.debugHandleOperationOutcome(
-          _failedOutcome(kind: 'checkout', label: 'Stash changes and switch'),
-        );
+        fake.debugHandleOperationOutcome(_failedOutcome(kind: 'checkout'));
         expect(fake.state.checkoutChoices, hasLength(1));
         // deleteBranchChoices must still hold its own outcome, untouched by
         // the later checkout outcome.
         expect(fake.state.deleteBranchChoices, hasLength(1));
+      },
+    );
+
+    // Pins the coupling `dialog_copy_test.dart`'s "lock/sequencer refusal"
+    // widget test assumes without being able to see it: that test seeds
+    // checkoutChoices and lastError by hand, so it cannot tell whether the
+    // real reducer ever actually publishes both for one preflight-shaped
+    // failure. This drives the real _handleOperationOutcome (via
+    // debugRecordCheckout/debugHandleOperationOutcome) with a payload shaped
+    // exactly like OperationRunner::preflight()'s index.lock refusal --
+    // retry + removeLock choices, no stashAndRetry/forceDiscard, plus a
+    // `summary` (preflight failures carry no formal GitError, so
+    // _errorFromOutcomePayload falls back to it) -- and checks both fields
+    // land. If a future change ever set one without the other, every
+    // dialog-level widget test would stay green regardless, because none of
+    // them drives this reducer.
+    test(
+      'a preflight-shaped ("retry"/"removeLock" choices, no summary-less '
+      'GitError) outcome populates checkoutChoices and lastError together',
+      () {
+        final fake = FakeRepoSessionController(
+          _identity,
+          const RepoSessionState(),
+        );
+        fake.debugRecordCheckout(target: 'feature');
+
+        fake.debugHandleOperationOutcome(<String, dynamic>{
+          'succeeded': false,
+          'kind': 'checkout',
+          'summary':
+              'Another Git process appears to be running in this '
+              'repository',
+          'choices': <Map<String, dynamic>>[
+            <String, dynamic>{
+              'kind': OperationChoiceKind.retry.index,
+              'destructive': false,
+            },
+            <String, dynamic>{
+              'kind': OperationChoiceKind.removeLock.index,
+              'destructive': true,
+            },
+          ],
+        });
+
+        expect(fake.state.checkoutChoices, hasLength(2));
+        expect(
+          fake.state.checkoutChoices.map((c) => c.kind),
+          containsAll(<OperationChoiceKind>[
+            OperationChoiceKind.retry,
+            OperationChoiceKind.removeLock,
+          ]),
+        );
+        expect(
+          fake.state.lastError?.message,
+          'Another Git process appears to be running in this repository',
+        );
       },
     );
   });

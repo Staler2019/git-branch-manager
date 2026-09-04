@@ -59,27 +59,16 @@ final List<RouteBase> _interruptDialogRoutes = <RouteBase>[
   ),
 ];
 
-// `label`/`explanation` below are unread -- both recovery dialogs compose
-// their copy in Dart from `kind` (`recovery_choice_copy.dart`), not off the
-// wire. Left as obviously-fake strings so a future reader does not mistake
-// them for what actually renders; `_tapActionButton` calls below use the
-// composed labels ("Stash and checkout" / "Delete anyway").
+// The wire carries only `kind`/`destructive` -- both recovery dialogs
+// compose their copy in Dart from `kind` (`recovery_choice_copy.dart`).
+// `_tapActionButton` calls below use those composed labels ("Stash and
+// checkout" / "Delete anyway").
 const List<OperationChoice> _checkoutChoices = <OperationChoice>[
-  OperationChoice(
-    kind: OperationChoiceKind.stashAndRetry,
-    label: 'unused wire label',
-    explanation: 'unused wire explanation',
-    destructive: false,
-  ),
+  OperationChoice(kind: OperationChoiceKind.stashAndRetry, destructive: false),
 ];
 
 const List<OperationChoice> _deleteBranchChoices = <OperationChoice>[
-  OperationChoice(
-    kind: OperationChoiceKind.forceDiscard,
-    label: 'unused wire label',
-    explanation: 'unused wire explanation',
-    destructive: true,
-  ),
+  OperationChoice(kind: OperationChoiceKind.forceDiscard, destructive: true),
 ];
 
 /// Taps the action-bar [GbmButton] carrying [label] -- not the matching

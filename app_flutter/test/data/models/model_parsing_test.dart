@@ -111,10 +111,13 @@ void main() {
   });
 
   test('OperationOutcome.fromJson decodes recovery choices on failure', () {
+    // Wire form as of this round: only "kind"/"destructive" -- no
+    // "label"/"explanation" (recovery_choice_copy.dart composes those in
+    // Dart instead; see OperationChoice's own doc comment).
     final Map<String, dynamic> json = jsonDecode(
       '{"succeeded":false,"error":null,"summary":"","choices":['
-      '{"kind":0,"label":"Stash changes and checkout","explanation":"...","destructive":false},'
-      '{"kind":2,"label":"Cancel","explanation":"Do not check out.","destructive":false}'
+      '{"kind":0,"destructive":false},'
+      '{"kind":2,"destructive":false}'
       ']}',
     );
     final OperationOutcome outcome = OperationOutcome.fromJson(json);

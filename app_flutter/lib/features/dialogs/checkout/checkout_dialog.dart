@@ -28,6 +28,15 @@ import '../../../widgets/gbm_ref_picker.dart';
 /// dialog (see `RepoSessionState.checkoutChoices`); the two are
 /// complementary, not duplicates.
 ///
+/// **Presentation delta against `DLGS`'s mock, recorded rather than
+/// implemented in the G1d copy pass**: the mock draws a 目前 read-only row
+/// (current branch + pending-change count) and two radios (帶著變更切過去 /
+/// 先 stash，切完不自動還原); this dialog shows neither -- pending changes
+/// are already visible one screen over in the Working Copy tab, and the
+/// existing "stash first" checkbox already satisfies P06's own prose
+/// ("working tree 有變更時提供 stash 後切換的選項") on its own. See
+/// [DRIFT-checkout-dialog-mock-delta].
+///
 /// Routed as `/repo/:repoId/dialogs/checkout`.
 class CheckoutDialogContent extends ConsumerStatefulWidget {
   const CheckoutDialogContent({super.key, required this.identity});
@@ -113,7 +122,8 @@ class _CheckoutDialogContentState extends ConsumerState<CheckoutDialogContent> {
             selected: _selected,
             autofocus: true,
             allowCommitHash: true,
-            emptyMessage: 'Nothing to check out.',
+            hintText: '可搜尋 branch / tag / commit',
+            emptyMessage: '沒有可以切換的項目。',
             onSelected: (GbmRefPickerEntry entry) => setState(() {
               _selected = entry.name;
               _selectedIsRemote = entry.kind == GbmRefKind.remoteBranch;
@@ -122,7 +132,7 @@ class _CheckoutDialogContentState extends ConsumerState<CheckoutDialogContent> {
           if (_selectedIsRemote && _selected != null) ...<Widget>[
             const SizedBox(height: GbmSpacing.space2),
             Text(
-              'Creates local branch "${_localNameFor(_selected!)}" tracking $_selected.',
+              '建立本地分支「${_localNameFor(_selected!)}」，追蹤 $_selected。',
               style: TextStyle(
                 fontSize: GbmTypography.textXs,
                 color: colors.textSecondary,
@@ -137,14 +147,14 @@ class _CheckoutDialogContentState extends ConsumerState<CheckoutDialogContent> {
               contentPadding: EdgeInsets.zero,
               controlAffinity: ListTileControlAffinity.leading,
               title: Text(
-                'Stash uncommitted changes first',
+                '先 stash 未提交的變更',
                 style: TextStyle(
                   fontSize: GbmTypography.textSm,
                   color: colors.textPrimary,
                 ),
               ),
               subtitle: Text(
-                '${session.workingCopyStatus.pendingChangeCount} file(s) have uncommitted changes.',
+                '${session.workingCopyStatus.pendingChangeCount} 個檔案有未提交的變更。',
                 style: TextStyle(
                   fontSize: GbmTypography.textXs,
                   color: colors.textTertiary,

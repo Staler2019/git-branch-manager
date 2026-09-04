@@ -89,6 +89,39 @@ historical the moment they are written.
   truncation and both scripts append.
 - **Evidence**: ledger: 更新流程的三個缺陷
 
+## [DRIFT-checkout-dialog-mock-delta] Checkout dialog draws neither `DLGS`'s 目前 row nor its two radios
+
+- **Rule**: `DLGS`'s Checkout mock has a read-only `ro` row (目前 branch + pending-change
+  count) and a `radio-on`/`radio` pair (帶著變更切過去 / 先 stash，切完不自動還原).
+  `checkout_dialog.dart` has neither — one "stash uncommitted changes first" checkbox
+  stands in for the radio pair, and there is no 目前 row at all.
+- **Consequence**: this is a presentation delta against the mock, not a missing
+  capability — pending changes are already visible one screen over in the Working Copy
+  tab, and the checkbox already satisfies P06's own prose ("working tree 有變更時提供
+  stash 後切換的選項"). Recorded per [SPEC-mockup-is-not-prose]'s ruling that the prose
+  wins over the picture, but written down rather than silently decided, since a mock this
+  concrete is still worth a ruling if the user wants the closer match.
+- **Do**: if this is ever closed, it is a UI-structure change and goes through G1's design
+  gate (spec-auditor + a ruling before implementation), not a copy-only edit.
+- **Evidence**: [ledger: G1d](../ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md)
+
+## [DRIFT-rebase-onto-missing-capi-flags] Rebase onto is missing two `DLGS` checkboxes and a warn banner, and the checkboxes are capi-shaped
+
+- **Rule**: `DLGS`'s Rebase onto mock has `chk-on`「保留 merge commit（--rebase-merges）」,
+  `chk`「自動 squash 標記過的 fixup commit」, and a `warn` for an already-pushed branch
+  needing a force push after rebase. `rebase_onto_dialog.dart` has none of the three.
+- **Consequence**: the two checkboxes cannot be added to the dialog alone —
+  `startRebase(target, stashFirst:)` (`RepoSessionController`) carries no flags for either,
+  and `gbm_rebase_start`'s capi signature has no parameters to carry them either. This
+  joins [DRIFT-absent-for-no-capi]'s list rather than being a copy-only gap. The warn
+  banner is a smaller, presentation-level gap — nothing here reads whether the branch has
+  an upstream that would need a force push after rebase — but is left with the other two
+  since a partial fix (banner only) would draw an incomplete rendering of the mock.
+- **Do**: closing this needs a capi change (`gbm_rebase_start` gaining
+  `rebaseMerges`/`autosquash` flags) before any Dart-side dialog work, which makes it a
+  design-and-implementation round of its own, not part of a G1 copy pass.
+- **Evidence**: [ledger: G1d](../ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md)
+
 ## [DRIFT-open-issues] Open issues
 
 - **Open**: **#62** (TabRow overflow menu), **#68**–**#71**, **#76**, **#84**–**#89**

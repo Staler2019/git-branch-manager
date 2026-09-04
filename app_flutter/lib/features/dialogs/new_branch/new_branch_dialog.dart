@@ -227,7 +227,7 @@ class _NewBranchDialogContentState
                 if (canCreate) _submit();
               },
               decoration: InputDecoration(
-                labelText: 'Branch name',
+                labelText: '名稱',
                 errorText: error,
                 isDense: true,
                 border: const OutlineInputBorder(),
@@ -235,7 +235,7 @@ class _NewBranchDialogContentState
             ),
             const SizedBox(height: GbmSpacing.space3),
             Text(
-              'START POINT',
+              '從哪裡分出',
               style: TextStyle(
                 fontSize: GbmTypography.textXs,
                 fontWeight: GbmTypography.weightSemibold,
@@ -249,7 +249,7 @@ class _NewBranchDialogContentState
               selected: _startRef,
               allowCommitHash: true,
               maxListHeight: 200,
-              hintText: 'Search branches, tags and commits',
+              hintText: '可搜尋 branch / tag / commit',
               onSelected: (GbmRefPickerEntry entry) =>
                   setState(() => _startRef = entry.name),
             ),
@@ -260,7 +260,7 @@ class _NewBranchDialogContentState
               contentPadding: EdgeInsets.zero,
               controlAffinity: ListTileControlAffinity.leading,
               title: Text(
-                'Check out the new branch immediately',
+                '建立後直接 checkout',
                 style: TextStyle(
                   fontSize: GbmTypography.textSm,
                   color: colors.textPrimary,
@@ -279,14 +279,14 @@ class _NewBranchDialogContentState
                 contentPadding: EdgeInsets.zero,
                 controlAffinity: ListTileControlAffinity.leading,
                 title: Text(
-                  'Push and set as upstream',
+                  '同時 push 並設為 upstream',
                   style: TextStyle(
                     fontSize: GbmTypography.textSm,
                     color: colors.textPrimary,
                   ),
                 ),
                 subtitle: Text(
-                  'Publishes the branch to $soleRemote.',
+                  '會推送到 $soleRemote。',
                   style: TextStyle(
                     fontSize: GbmTypography.textXs,
                     color: colors.textTertiary,

@@ -22,6 +22,15 @@ import '../../../widgets/gbm_dialog_shell.dart';
 /// which edits a todo plan. This is the plain "replay my commits on top of
 /// that branch" flow spec page 04's Branch menu lists.
 ///
+/// **Two `DLGS` checkboxes have no implementation here, recorded rather than
+/// added in the G1d copy pass**: 保留 merge commit（--rebase-merges）and
+/// 自動 squash 標記過的 fixup commit. Neither is capi-shaped --
+/// `startRebase(target, stashFirst:)` carries no such flags -- so adding
+/// them to this dialog alone would draw controls with nothing to submit
+/// them to. Likewise the mock's "already pushed, force push needed" warn
+/// banner: nothing here reads whether the branch has an upstream that would
+/// need it. See [DRIFT-rebase-onto-missing-capi-flags].
+///
 /// Routed as `/repo/:repoId/dialogs/rebase-onto`.
 class RebaseOntoDialogContent extends ConsumerStatefulWidget {
   const RebaseOntoDialogContent({
@@ -123,7 +132,7 @@ class _RebaseOntoDialogContentState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
-            'Replay the commits of $currentBranch on top of:',
+            '重新安置 $currentBranch 到：',
             style: TextStyle(
               fontSize: GbmTypography.textSm,
               color: colors.textSecondary,
@@ -134,7 +143,7 @@ class _RebaseOntoDialogContentState
             initialValue: _target,
             isExpanded: true,
             decoration: const InputDecoration(
-              hintText: 'Branch to rebase onto',
+              hintText: '基於',
               isDense: true,
               border: OutlineInputBorder(),
             ),
@@ -143,9 +152,8 @@ class _RebaseOntoDialogContentState
           ),
           const SizedBox(height: GbmSpacing.space2),
           Text(
-            'Rebasing rewrites the commits of $currentBranch. If a commit '
-            'conflicts, the rebase stops on that step and the conflict banner '
-            'shows which step of how many it stopped at.',
+            'Rebase 會重寫 $currentBranch 的 commit。若某筆 commit 衝突，'
+            'rebase 會停在該步驟，衝突橫幅會顯示目前停在第幾步、共幾步。',
             style: TextStyle(
               fontSize: GbmTypography.textXs,
               color: colors.textTertiary,
@@ -160,14 +168,14 @@ class _RebaseOntoDialogContentState
               contentPadding: EdgeInsets.zero,
               controlAffinity: ListTileControlAffinity.leading,
               title: Text(
-                'Stash uncommitted changes first',
+                '先 stash 未提交的變更',
                 style: TextStyle(
                   fontSize: GbmTypography.textSm,
                   color: colors.textPrimary,
                 ),
               ),
               subtitle: Text(
-                '${session.workingCopyStatus.pendingChangeCount} file(s) have uncommitted changes.',
+                '${session.workingCopyStatus.pendingChangeCount} 個檔案有未提交的變更。',
                 style: TextStyle(
                   fontSize: GbmTypography.textXs,
                   color: colors.textTertiary,

@@ -21,6 +21,9 @@ import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/data/models/git_error.dart';
 import 'package:gbm_flutter/data/models/operation_choice.dart';
+import 'package:gbm_flutter/data/models/remote_info.dart';
+import 'package:gbm_flutter/data/models/working_copy_status.dart';
+import 'package:gbm_flutter/features/dialogs/checkout/checkout_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/checkout_recovery/checkout_recovery_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/cherry_pick/cherry_pick_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/clean_untracked/clean_untracked_dialog.dart';
@@ -30,7 +33,9 @@ import 'package:gbm_flutter/features/dialogs/delete_branch_recovery/delete_branc
 import 'package:gbm_flutter/features/dialogs/delete_remote_branch/delete_remote_branch_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/force_push/force_push_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/merge/merge_dialog.dart';
+import 'package:gbm_flutter/features/dialogs/new_branch/new_branch_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/prune_remote_branches/prune_remote_branches_dialog.dart';
+import 'package:gbm_flutter/features/dialogs/rebase_onto/rebase_onto_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/reset_branch/reset_branch_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/stash_changes/stash_changes_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/undo_last/undo_last_dialog.dart';
@@ -92,6 +97,70 @@ RepoSessionState _stateFor(String branchName) => RepoSessionState(
   ),
 );
 
+RefInfo _remoteRef(String shortName) => RefInfo(
+  fullName: 'refs/remotes/$shortName',
+  shortName: shortName,
+  kind: RefKind.remoteBranch,
+  target: 'a' * 40,
+  upstream: '',
+  ahead: 0,
+  behind: 0,
+  hasTrackingInfo: false,
+  isGone: false,
+  isHead: false,
+  isSymbolic: false,
+  worktreePath: '',
+);
+
+WorkingCopyEntry _wcEntry(String path) => WorkingCopyEntry(
+  path: path,
+  oldPath: '',
+  untracked: false,
+  staged: false,
+  indexStatus: FileChangeKind.modified,
+  hasUnstagedChange: true,
+  worktreeStatus: FileChangeKind.modified,
+  unstagedAdded: 0,
+  unstagedRemoved: 0,
+  stagedAdded: 0,
+  stagedRemoved: 0,
+  conflict: ConflictKind.none,
+  ancestorBlob: '',
+  oursBlob: '',
+  theirsBlob: '',
+  similarity: 0,
+  isSubmodule: false,
+  isConflicted: false,
+);
+
+// Checkout's own list excludes HEAD's branch entirely (checking it out is a
+// no-op), so `main` need not appear in `refs` at all -- only `head` has to
+// name it.
+final RepoSessionState _checkoutStateWithRemote = RepoSessionState(
+  isOpen: true,
+  refs: RefSnapshot(
+    head: const HeadInfo(
+      kind: HeadKind.branch,
+      branchName: 'main',
+      fullRef: 'refs/heads/main',
+      target: 'aaaa',
+    ),
+    refs: <RefInfo>[_remoteRef('origin/wip/askpass')],
+    refCountGuardTripped: false,
+    totalRefCount: 1,
+  ),
+);
+
+final RepoSessionState _newBranchStateWithRemote = _state.copyWith(
+  remotes: const <RemoteInfo>[
+    RemoteInfo(
+      name: 'origin',
+      fetchUrl: 'https://example.com/origin.git',
+      pushUrl: 'https://example.com/origin.git',
+    ),
+  ],
+);
+
 Future<void> _pump(
   WidgetTester tester,
   Widget dialog, {
@@ -99,13 +168,19 @@ Future<void> _pump(
   List<OperationChoice> checkoutChoices = const <OperationChoice>[],
   List<OperationChoice> deleteBranchChoices = const <OperationChoice>[],
   GitError? lastError,
+  RepoSessionState? overrideState,
+  List<WorkingCopyEntry> workingCopyEntries = const <WorkingCopyEntry>[],
 }) async {
   SharedPreferences.setMockInitialValues(<String, Object>{});
   final SharedPreferences prefs = await SharedPreferences.getInstance();
-  final RepoSessionState base = branchName == 'main'
-      ? _state
-      : _stateFor(branchName);
+  final RepoSessionState base =
+      overrideState ?? (branchName == 'main' ? _state : _stateFor(branchName));
   RepoSessionState seeded = base;
+  if (workingCopyEntries.isNotEmpty) {
+    seeded = seeded.copyWith(
+      workingCopyStatus: WorkingCopyStatus(entries: workingCopyEntries),
+    );
+  }
   if (checkoutChoices.isNotEmpty) {
     seeded = seeded.copyWith(checkoutChoices: checkoutChoices);
   }
@@ -201,6 +276,140 @@ void main() {
       );
       expect(tester.takeException(), isNull);
     });
+  });
+
+  group('Checkout', () {
+    testWidgets('title and primary button stay English', (tester) async {
+      await _pump(tester, const CheckoutDialogContent(identity: _identity));
+      // Title and primary button are the same literal string here, unlike
+      // every other dialog in this file -- two matches is the English-stays
+      // assertion, not a bug in the fixture.
+      expect(find.text('Checkout'), findsNWidgets(2));
+      expect(find.text('Cancel'), findsOneWidget);
+    });
+
+    testWidgets('the search hint and empty message are Chinese', (
+      tester,
+    ) async {
+      await _pump(tester, const CheckoutDialogContent(identity: _identity));
+      expect(find.text('可搜尋 branch / tag / commit'), findsOneWidget);
+      expect(find.text('Search branches, tags and commits'), findsNothing);
+    });
+
+    testWidgets('selecting a remote branch explains the local branch it '
+        'creates, in Chinese', (tester) async {
+      await _pump(
+        tester,
+        const CheckoutDialogContent(identity: _identity),
+        overrideState: _checkoutStateWithRemote,
+      );
+      await tester.tap(find.text('origin/wip/askpass'));
+      await tester.pump();
+      expect(
+        find.text('建立本地分支「wip/askpass」，追蹤 origin/wip/askpass。'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Creates local branch'), findsNothing);
+    });
+
+    testWidgets('the stash-first checkbox is Chinese', (tester) async {
+      await _pump(
+        tester,
+        const CheckoutDialogContent(identity: _identity),
+        workingCopyEntries: <WorkingCopyEntry>[_wcEntry('a.txt')],
+      );
+      expect(find.text('先 stash 未提交的變更'), findsOneWidget);
+      expect(find.text('1 個檔案有未提交的變更。'), findsOneWidget);
+      expect(find.textContaining('uncommitted changes first'), findsNothing);
+    });
+
+    testWidgets('does not overflow the shell', (tester) async {
+      await _pump(
+        tester,
+        const CheckoutDialogContent(identity: _identity),
+        workingCopyEntries: <WorkingCopyEntry>[
+          _wcEntry('a.txt'),
+          _wcEntry('b.txt'),
+        ],
+      );
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('Rebase onto', () {
+    testWidgets('title and primary button stay English', (tester) async {
+      await _pump(tester, const RebaseOntoDialogContent(identity: _identity));
+      _expectAll(<String>['Rebase', 'Cancel', 'Start rebase']);
+    });
+
+    testWidgets('the lead-in, the dropdown hint and the explanation are '
+        'Chinese', (tester) async {
+      await _pump(tester, const RebaseOntoDialogContent(identity: _identity));
+      expect(find.text('重新安置 main 到：'), findsOneWidget);
+      expect(find.text('基於'), findsOneWidget);
+      expect(find.textContaining('Rebase 會重寫 main 的 commit'), findsOneWidget);
+      expect(find.textContaining('Replay the commits'), findsNothing);
+      expect(find.text('Branch to rebase onto'), findsNothing);
+    });
+
+    testWidgets('the stash-first checkbox is Chinese', (tester) async {
+      await _pump(
+        tester,
+        const RebaseOntoDialogContent(identity: _identity),
+        workingCopyEntries: <WorkingCopyEntry>[_wcEntry('a.txt')],
+      );
+      expect(find.text('先 stash 未提交的變更'), findsOneWidget);
+      expect(find.text('1 個檔案有未提交的變更。'), findsOneWidget);
+      expect(find.textContaining('uncommitted changes first'), findsNothing);
+    });
+
+    testWidgets('does not overflow the shell', (tester) async {
+      await _pump(
+        tester,
+        const RebaseOntoDialogContent(identity: _identity),
+        workingCopyEntries: <WorkingCopyEntry>[
+          _wcEntry('a.txt'),
+          _wcEntry('b.txt'),
+        ],
+      );
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('New Branch', () {
+    testWidgets('title and primary button stay English', (tester) async {
+      await _pump(tester, const NewBranchDialogContent(identity: _identity));
+      _expectAll(<String>['New Branch', 'Cancel', 'Create branch']);
+    });
+
+    testWidgets('labels, the section header and the search hint are '
+        'Chinese', (tester) async {
+      await _pump(tester, const NewBranchDialogContent(identity: _identity));
+      _expectAll(<String>[
+        '名稱',
+        '從哪裡分出',
+        '可搜尋 branch / tag / commit',
+        '建立後直接 checkout',
+      ]);
+      expect(find.text('Branch name'), findsNothing);
+      expect(find.text('START POINT'), findsNothing);
+      expect(find.text('Search branches, tags and commits'), findsNothing);
+      expect(find.text('Check out the new branch immediately'), findsNothing);
+    });
+
+    testWidgets(
+      'the push-after-create option is Chinese with exactly one remote',
+      (tester) async {
+        await _pump(
+          tester,
+          const NewBranchDialogContent(identity: _identity),
+          overrideState: _newBranchStateWithRemote,
+        );
+        expect(find.text('同時 push 並設為 upstream'), findsOneWidget);
+        expect(find.text('會推送到 origin。'), findsOneWidget);
+        expect(find.text('Push and set as upstream'), findsNothing);
+      },
+    );
   });
 
   group('Cherry-pick Commits', () {

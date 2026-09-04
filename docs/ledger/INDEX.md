@@ -16,3 +16,4 @@ this file positionally.
 - 2026-09-01 — [claude/sidebar-stash-styling-date-3dvzmu](2026-09-01-claude-sidebar-stash-styling-date-3dvzmu.md) — 側邊欄 STASH 列改用 GbmRow 補上 hover/選取/⋯ 選單按鈕，並修掉 timestamp 少乘 1000 造成的「20676d ago」
 - 2026-09-02 — [feat/p19-panel-template-conformance](2026-09-02-feat-p19-panel-template-conformance.md) — P19 六條樣板規則從沒被逐條稽核過：十二個面板統一成四段式工具列（八個 danger 按鈕移出工具列）、補上 filter／清單標題／狀態列／面板內 banner、分頁各自記住捲動與 splitter，worktrees 補上待提交數與建立於
 - 2026-09-03 — [feat/p19-panel-template-conformance（第二輪）](2026-09-03-feat-p19-panel-template-conformance-review.md) — 使用者實際用過之後回報五件事，查證又掉出三個：Remove worktree 完全沒有確認、側邊欄的 New branch 繞過了 spec 的 dialog、一句過期註解替缺陷擋了子彈；Worktrees 成為常駐分頁
+- 2026-09-04 — [fix/prune-stale-comment-and-recovery-choice-copy](2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md) — 刪掉 Prune remote branches 描述成現在式的過期例外註解；OperationChoice 的 wire 精簡到只剩 kind+destructive，文案改 Dart 端依 kind 組，順手補上 Retry／Remove index.lock 兩個死按鈕（含新增 capi）

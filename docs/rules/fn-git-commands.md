@@ -257,3 +257,29 @@ Pin prefix `GIT-`. Format: [README.md](README.md).
   commit happened to rewrite that button anyway. [CULT-scrutinise-the-comment] runs
   comment → bug; this is the reverse direction, fixed bug → unfixed twin.
 - **Evidence**: [ledger: Worktree 面板的五個回報](../ledger/2026-09-03-feat-p19-panel-template-conformance-review.md)
+
+## [GIT-index-lock-server-revalidates] Removing a stale `.git/index.lock` re-checks staleness on the server, and never trusts the click that asked for it
+
+- **Rule**: `OperationRunner::removeStaleIndexLock()` re-reads `RepoState::read(paths_)` itself
+  and only removes `paths_.indexLockFile()` when `indexLockAgeSeconds` is still past
+  `kStaleLockSeconds` at the moment of the call. The Dart side's request (the user clicking
+  `RemoveLock` on a choice `preflight()` offered, possibly seconds or minutes earlier) is never
+  taken as proof the lock is still stale — a lock genuinely held by a concurrent git process must
+  never be deleted out from under it, and a `bool` crossing the FFI boundary saying "the button
+  was clicked" carries none of that guarantee.
+- **Rule**: this is the same "ask the command, never approximate it" discipline
+  [STATE-never-guess-what-git-would-say] states for a refresh gate, applied to a destructive
+  filesystem action instead of a decision not to run something.
+- **Do**: **the Dart caller never inspects whether removal succeeded before acting** —
+  `_removeStaleIndexLock()`'s doc comment states this is deliberate: both
+  `retryCheckoutWithChoice`/`retryDeleteBranchWithChoice`'s `removeLock` case call it and then
+  unconditionally resubmit the original request regardless of what it returned, letting that
+  resubmission's own `preflight()` re-arbitrate against whatever is really on disk — gone, it
+  proceeds; still fresh, it refuses again with a freshly re-offered (and now accurate) choice set.
+  One path, correct either way, instead of a second "remember the stale choices and hope" branch
+  that duplicates what `preflight()` already does for free.
+- **Consequence**: the capi entry point (`gbm_operation_remove_stale_index_lock`) and this
+  function were both new — before this round `RemoveLock` was a choice `preflight()` could offer
+  with **no way to act on it at all** ([ACT-recovery-choice-wire] records the sibling `Retry`
+  choice's identical dead-button shape and how both were wired in the same round).
+- **Evidence**: [ledger: OperationChoice wire 精簡](../ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md)

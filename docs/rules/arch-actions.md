@@ -93,3 +93,51 @@ conflict/clean distinction the twelve above do:
 Every id the switch doesn't cover returns `true` — read that as "the state
 machine does not forbid this," not "this is implemented" (see
 `_buildActionHandlers()`'s own null entries for ids with no backing feature).
+
+## [ACT-recovery-choice-wire] `OperationChoice`'s wire carries `kind`+`destructive` only; every string is composed on read
+
+- **Rule**: `OperationChoice` (`OperationRunner.h`) has exactly two fields,
+  `Kind kind` and `bool destructive`. `JsonCodec.cpp`'s `operationChoiceJson()`
+  sends only those two keys. Neither a button label nor its explanation ever
+  reaches the wire — `recovery_choice_copy.dart`'s
+  `recoveryChoiceLabel(OperationChoiceKind)` /
+  `recoveryChoiceExplanation(OperationChoiceKind, {required forDeleteBranch})`
+  compose both, in Dart, from `kind` alone.
+- **Consequence**: a `label`/`explanation` pair used to be composed once in
+  C++ and painted verbatim — which meant core's English (`"Stash changes and
+  switch"`) and the spec's own quoted button text (`DLGS`'s 「Checkout
+  blocked」: `Stash and checkout` / `Discard and checkout` / `Cancel`) had
+  drifted apart, and the explanation was asked to be Chinese regardless of
+  what core could ever send. There was no layer where "paint the wire's own
+  words" was actually true, so the design was retired rather than patched.
+- **Rule**: **a `kind` with no Dart reader gets no `OperationChoice` at all** —
+  not a stripped-down one. `_handleOperationOutcome`'s switch
+  (`repo_session_repository.dart`) has case arms for
+  `PendingOperationKind.checkout`/`.deleteBranch` only; every other kind's
+  `choices` were never read by anything under `lib/`
+  ([CULT-orphan-wiring]). `MergeOps.cpp`, `RebaseOps.cpp`,
+  `CherryPickOps.cpp`, `RevertOps.cpp` and `RemoteOps.cpp`'s pull path all
+  push zero choices on a `DirtyWorkTree` refusal now — `outcome.summary`/
+  `outcome.error` still carry the failure through the ordinary `lastError`
+  path, so nothing the user could see is lost. `RemoteOps.cpp`'s deletion
+  leaves `DLGS`'s "Pull blocked" entry with no backing dialog at all; see
+  [DRIFT-no-pull-dialog] for that gap.
+- **Rule**: `OperationRunner::preflight()`'s sequencer-busy `Abort` choice
+  (`OperationRunner.cpp`) is the one exception kept on a path with no visible
+  button for it — it is the *sole* choice on that refusal, and it is what
+  makes `choices` non-empty at all, which is what `WorkspaceScreen` reads to
+  auto-push the checkout/delete-branch recovery dialog
+  ([STATE-credential-recovery]). Deleting it would silently stop that dialog
+  from opening for a sequencer-busy refusal. `CheckoutOp.cpp`'s and
+  `BranchOps.cpp`'s own `Abort` entries were deleted instead, because both
+  recovery dialogs already filter `kind != OperationChoiceKind.abort` out of
+  *both* their button row and their body list, and both
+  `retryCheckoutWithChoice`/`retryDeleteBranchWithChoice` dispatch an empty
+  `break` for it — an `Abort` choice on those two paths could never be seen
+  or acted on regardless of what string it carried.
+- **Do**: when adding a new recovery-dialog-visible `OperationChoiceKind`,
+  wire it in exactly two places — the C++ side that decides *whether* to
+  offer it, and `recovery_choice_copy.dart`'s two functions that decide
+  *what it says*. Never add a third place that composes a string and sends
+  it across the FFI boundary; that is the design this pin retired.
+- **Evidence**: [ledger: OperationChoice wire 精簡](../ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md)

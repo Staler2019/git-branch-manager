@@ -190,53 +190,64 @@ void main() {
     // debugRecordCheckout/debugHandleOperationOutcome) with a payload shaped
     // exactly like OperationRunner::preflight()'s index.lock refusal --
     // retry + removeLock choices, no stashAndRetry/forceDiscard, plus a
-    // `summary` (preflight failures carry no formal GitError, so
-    // _errorFromOutcomePayload falls back to it) -- and checks both fields
-    // land. If a future change ever set one without the other, every
+    // full `error` map (OperationRunner.cpp:69-72 sets outcome.error to a
+    // real GitError on this path -- this was wrongly written here as "no
+    // formal GitError, falls back to summary" and corrected in place per
+    // CLAUDE.md's standing rule 4: a `summary`-only payload would have
+    // exercised _errorFromOutcomePayload's *fallback* branch instead of the
+    // one preflight's index.lock refusal actually takes) -- and checks both
+    // fields land. If a future change ever set one without the other, every
     // dialog-level widget test would stay green regardless, because none of
     // them drives this reducer.
-    test(
-      'a preflight-shaped ("retry"/"removeLock" choices, no summary-less '
-      'GitError) outcome populates checkoutChoices and lastError together',
-      () {
-        final fake = FakeRepoSessionController(
-          _identity,
-          const RepoSessionState(),
-        );
-        fake.debugRecordCheckout(target: 'feature');
+    test('a preflight-shaped ("retry"/"removeLock" choices, GitError.LockHeld) '
+        'outcome populates checkoutChoices and lastError together', () {
+      final fake = FakeRepoSessionController(
+        _identity,
+        const RepoSessionState(),
+      );
+      fake.debugRecordCheckout(target: 'feature');
 
-        fake.debugHandleOperationOutcome(<String, dynamic>{
-          'succeeded': false,
-          'kind': 'checkout',
-          'summary':
+      fake.debugHandleOperationOutcome(<String, dynamic>{
+        'succeeded': false,
+        'kind': 'checkout',
+        'summary':
+            'Another Git process appears to be running in this '
+            'repository',
+        'error': <String, dynamic>{
+          'code': 4, // GitError::Code::LockHeld's ordinal
+          'codeName': 'LockHeld',
+          'message':
               'Another Git process appears to be running in this '
               'repository',
-          'choices': <Map<String, dynamic>>[
-            <String, dynamic>{
-              'kind': OperationChoiceKind.retry.index,
-              'destructive': false,
-            },
-            <String, dynamic>{
-              'kind': OperationChoiceKind.removeLock.index,
-              'destructive': true,
-            },
-          ],
-        });
+          'detail': 'Lock file: .git/index.lock',
+          'argv': <String>[],
+          'exitCode': -1,
+        },
+        'choices': <Map<String, dynamic>>[
+          <String, dynamic>{
+            'kind': OperationChoiceKind.retry.index,
+            'destructive': false,
+          },
+          <String, dynamic>{
+            'kind': OperationChoiceKind.removeLock.index,
+            'destructive': true,
+          },
+        ],
+      });
 
-        expect(fake.state.checkoutChoices, hasLength(2));
-        expect(
-          fake.state.checkoutChoices.map((c) => c.kind),
-          containsAll(<OperationChoiceKind>[
-            OperationChoiceKind.retry,
-            OperationChoiceKind.removeLock,
-          ]),
-        );
-        expect(
-          fake.state.lastError?.message,
-          'Another Git process appears to be running in this repository',
-        );
-      },
-    );
+      expect(fake.state.checkoutChoices, hasLength(2));
+      expect(
+        fake.state.checkoutChoices.map((c) => c.kind),
+        containsAll(<OperationChoiceKind>[
+          OperationChoiceKind.retry,
+          OperationChoiceKind.removeLock,
+        ]),
+      );
+      expect(
+        fake.state.lastError?.message,
+        'Another Git process appears to be running in this repository',
+      );
+    });
   });
 
   group(

@@ -39,11 +39,15 @@ GBM_API void gbm_rebase_interactive_start(GbmSessionHandle session,
 GBM_API void gbm_rebase_start(GbmSessionHandle session,
                               const char* upstream,
                               const char* onto,
-                              int32_t stashFirst) {
+                              int32_t stashFirst,
+                              int32_t rebaseMerges,
+                              int32_t autosquash) {
     RebaseRequest request;
     request.upstream = upstream != nullptr ? upstream : "";
     request.onto = onto != nullptr ? onto : "";
     request.stashFirst = stashFirst != 0;
+    request.rebaseMerges = rebaseMerges != 0;
+    request.autosquash = autosquash != 0;
     toSession(session)->startRebase(std::move(request));
 }
 

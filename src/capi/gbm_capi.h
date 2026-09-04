@@ -1082,10 +1082,17 @@ GBM_API void gbm_rebase_interactive_start(GbmSessionHandle session,
 
 /// Plain, non-interactive `git rebase`: replays every commit unchanged.
 /// Same event/refresh contract as gbm_rebase_interactive_start().
+/// `rebaseMerges` is `--rebase-merges` (preserves a merge commit inside
+/// upstream..HEAD instead of flattening it); `autosquash` is `--autosquash`
+/// (folds a fixup!/squash!/amend! commit into its target). Both work on this
+/// plain, non-interactive call with no `-i` of our own -- see
+/// RebaseOps.cpp's measurement comment.
 GBM_API void gbm_rebase_start(GbmSessionHandle session,
                               const char* upstream,
                               const char* onto,
-                              int32_t stashFirst);
+                              int32_t stashFirst,
+                              int32_t rebaseMerges,
+                              int32_t autosquash);
 
 GBM_API void gbm_rebase_continue(GbmSessionHandle session);
 GBM_API void gbm_rebase_skip(GbmSessionHandle session);

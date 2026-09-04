@@ -145,7 +145,7 @@ TEST_F(RebaseApiTest, RequestRebasePlanListsCommitsOldestFirst) {
 }
 
 TEST_F(RebaseApiTest, PlainRebaseReplaysFeatureCommitsOntoMain) {
-    gbm_rebase_start(session_, "main", "", /*stashFirst=*/0);
+    gbm_rebase_start(session_, "main", "", /*stashFirst=*/0, /*rebaseMerges=*/0, /*autosquash=*/0);
     ASSERT_TRUE(waitForOperationFinished());
 
     // feature no longer contains "Commit unique to main" as an unmerged
@@ -155,6 +155,47 @@ TEST_F(RebaseApiTest, PlainRebaseReplaysFeatureCommitsOntoMain) {
 
     std::ifstream file(repo_ / "feature.txt");
     ASSERT_TRUE(file.good());
+}
+
+// Proves the wire, not the git behaviour -- RealRepoTest.RebaseAutosquash*
+// already measures what `--autosquash` itself does
+// ([DRIFT-rebase-onto-missing-capi-flags]). This is the one tier that can
+// see whether `gbm_rebase_start`'s fifth parameter actually reaches
+// RebaseRequest.autosquash: lookupFunction on the Dart side matches by
+// symbol name only, never by signature ([TEST-ffi-matches-symbol-only]), so
+// nothing before this boundary would catch a dropped or mis-ordered param.
+TEST_F(RebaseApiTest, PlainRebaseWithAutosquashFoldsAFixupCommit) {
+    std::ofstream(repo_ / "feature.txt") << "feature fixed\n";
+    ASSERT_EQ(runGit({"add", "feature.txt"}), 0);
+    ASSERT_EQ(runGit({"commit", "--quiet", "-m", "fixup! Feature commit"}), 0);
+
+    gbm_rebase_start(session_, "main", "", /*stashFirst=*/0, /*rebaseMerges=*/0, /*autosquash=*/1);
+    ASSERT_TRUE(waitForOperationFinished());
+
+    // The fixup commit must be folded rather than replayed as its own commit:
+    // exactly one commit ahead of main, not two.
+    const auto count = GitCli::capture(repo_, {"rev-list", "--count", "main..feature"});
+    EXPECT_EQ(count.firstLine(), "1")
+        << "the fixup! commit must be folded into Feature commit, not replayed";
+}
+
+// Same boundary-only purpose as the autosquash test above, for
+// RebaseRequest.rebaseMerges.
+TEST_F(RebaseApiTest, PlainRebaseWithRebaseMergesPreservesAMergeCommit) {
+    ASSERT_EQ(runGit({"checkout", "--quiet", "-b", "side", "feature"}), 0);
+    std::ofstream(repo_ / "side.txt") << "side\n";
+    ASSERT_EQ(runGit({"add", "side.txt"}), 0);
+    ASSERT_EQ(runGit({"commit", "--quiet", "-m", "Side commit"}), 0);
+    ASSERT_EQ(runGit({"checkout", "--quiet", "feature"}), 0);
+    ASSERT_EQ(runGit({"merge", "--quiet", "--no-ff", "side", "-m", "Merge side into feature"}), 0);
+
+    gbm_rebase_start(session_, "main", "", /*stashFirst=*/0, /*rebaseMerges=*/1, /*autosquash=*/0);
+    ASSERT_TRUE(waitForOperationFinished());
+
+    const auto merges =
+        GitCli::capture(repo_, {"rev-list", "--count", "--merges", "main..feature"});
+    EXPECT_EQ(merges.firstLine(), "1")
+        << "--rebase-merges must preserve the merge commit, not flatten it";
 }
 
 }  // namespace

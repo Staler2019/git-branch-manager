@@ -161,6 +161,45 @@ historical the moment they are written.
 - **Evidence**: [ledger: G1d](../ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md);
   closed in the same round's follow-up commits.
 
+## [DRIFT-restore-before-this-state-missing] "Restore file to before this state" has no dialog and no menu entry
+
+- **Rule**: `DLGS`'s array has *two* Restore-file entries (`spec_logic.js`), and only the
+  first is built. Quoted in full since the earlier G1f plan flagged its own spec-auditor
+  read as truncated at 250 characters:
+  - **"Restore file to this state"** (built, `restore_file_dialog.dart`): `danger: true,
+    primary: 'Restore file'`, `ro`「檔案」`v: 'lib/graph/lane_allocator.dart'`, `ro`
+    「還原成」`v: 'a1b2c3d · 2026-08-14 11:20 · Fix lane allocator overflow'`, `warn`
+    「此檔目前有未提交的 42 行變更，會被覆蓋且無法復原。」, `chk`「還原前先 stash 目前的
+    變更」, `note`「與下一張成對：本張取 commit 本身的內容（a1b2c3d 之後）。」
+  - **"Restore file to before this state"** (absent): same shell, `ro`「檔案」same value,
+    `ro`「還原成」`v: '4b8f01c（a1b2c3d 的前一筆）· 2026-08-14 09:02'`, `hint`「等於抵消
+    a1b2c3d 對這一檔做的改動，不碰其他檔案」, a *third* `ro`「將抵消的改動」
+    `v: '+18 −7（可展開看 diff）'`, the same `warn` and `chk` as above, `note`「入口在
+    commit 明細的檔案右鍵，與上一張相鄰並列，標題是兩張唯一的區別 — 所以「還原成」那一
+    行必須寫出實際 hash 與日期，不能只寫「前一版」。merge commit 或首筆 commit 沒有單一
+    父節點時此項 disabled。不建 revert commit，只改工作區。」 `DIALOGS`'s shorter note for
+    the same name: 「還原成父 commit 的內容，等於抵消該 commit 對這一檔的改動。不建
+    revert commit；merge 或首筆 commit 時 disabled。」 The 05-K submenu (`spec_logic.js`'s
+    context-menu data) lists both as sibling items.
+- **Note**: **not a fresh discovery** — `gbm_context_menus.dart`'s own doc comment on
+  `_historyCommitFile` already names the missing submenu item as a pre-existing, deliberate
+  gap predating Tier 4, left alone because that catalog is the context-menu parity test's
+  acceptance baseline. This pin adds the full `DLGS` field-level citation, which was not
+  previously recorded anywhere under `docs/rules/`.
+- **Consequence**: even the *built* half is short two things from its own `DLGS` entry —
+  the `chk`「還原前先 stash 目前的變更」checkbox (a stash-then-restore sequencing decision,
+  not addressed by `restorePaths()` alone) and the `warn`'s exact wording, which names a
+  real line count the dialog has no data for (it only computes a bool, `_hasUncommittedChanges`).
+- **Do**: closing this needs (a) a new `RestoreFileBeforeDialogContent` plus route plus
+  05-K submenu item, (b) a parent-oid lookup with the disabled-on-merge-or-root case the
+  note calls for, (c) an expandable-diff affordance for the third `ro` row, and (d) a
+  stash-first checkbox wired to whatever sequencing `restorePaths`/`stashChanges` support —
+  none of which is a text translation, so none of it belongs in a G1 copy-only pass. This
+  joins [DRIFT-checkout-dialog-mock-delta] and [DRIFT-rebase-onto-missing-capi-flags] in
+  shape (a mock the app only partially draws) but, unlike those two, was **not** among the
+  「兩個落差」the user named for closure this round — it stays open pending a ruling.
+- **Evidence**: [ledger: G1f](../ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md).
+
 ## [DRIFT-open-issues] Open issues
 
 - **Open**: **#62** (TabRow overflow menu), **#68**–**#71**, **#76**, **#84**–**#89**

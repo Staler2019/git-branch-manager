@@ -19,9 +19,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
+import 'package:gbm_flutter/data/models/commit_meta.dart';
 import 'package:gbm_flutter/data/models/git_error.dart';
 import 'package:gbm_flutter/data/models/operation_choice.dart';
 import 'package:gbm_flutter/data/models/remote_info.dart';
+import 'package:gbm_flutter/data/models/signature.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/features/dialogs/checkout/checkout_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/checkout_recovery/checkout_recovery_dialog.dart';
@@ -33,12 +35,15 @@ import 'package:gbm_flutter/features/dialogs/delete_branch/delete_branch_dialog.
 import 'package:gbm_flutter/features/dialogs/delete_branch_recovery/delete_branch_recovery_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/delete_branches/delete_branches_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/delete_remote_branch/delete_remote_branch_dialog.dart';
+import 'package:gbm_flutter/features/dialogs/discard_changes/discard_changes_dialog.dart';
+import 'package:gbm_flutter/features/dialogs/discard_changes/discard_changes_request.dart';
 import 'package:gbm_flutter/features/dialogs/force_push/force_push_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/merge/merge_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/new_branch/new_branch_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/prune_remote_branches/prune_remote_branches_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/rebase_onto/rebase_onto_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/reset_branch/reset_branch_dialog.dart';
+import 'package:gbm_flutter/features/dialogs/restore_file/restore_file_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/stash_changes/stash_changes_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/undo_last/undo_last_dialog.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
@@ -253,6 +258,34 @@ final RepoSessionState _deleteBranchesState = RepoSessionState(
     refCountGuardTripped: false,
     totalRefCount: 3,
   ),
+);
+
+const String _restoreFileOid = 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2';
+
+final RepoSessionState _restoreFileState = RepoSessionState(
+  isOpen: true,
+  commitMetaCache: <String, CommitMeta>{
+    _restoreFileOid: const CommitMeta(
+      oid: _restoreFileOid,
+      tree: '',
+      parents: <String>[],
+      author: Signature(
+        name: 'Test',
+        email: 'test@example.invalid',
+        when: 0,
+        tzOffsetMinutes: 0,
+      ),
+      committer: Signature(
+        name: 'Test',
+        email: 'test@example.invalid',
+        when: 0,
+        tzOffsetMinutes: 0,
+      ),
+      subject: 'Fix lane allocator overflow',
+      body: '',
+      signedCommit: false,
+    ),
+  },
 );
 
 Future<void> _pump(
@@ -1094,6 +1127,218 @@ void main() {
         findsNothing,
         reason: '「(optional)」 moved into the hint, it did not stay',
       );
+    });
+  });
+
+  group('Discard Changes', () {
+    testWidgets('title and Cancel stay English', (tester) async {
+      await _pump(
+        tester,
+        DiscardChangesDialogContent(
+          identity: _identity,
+          request: const DiscardChangesRequest.wholeFiles(<String>['a.txt']),
+        ),
+        workingCopyEntries: <WorkingCopyEntry>[_wcEntry('a.txt')],
+      );
+      expect(find.text('Discard Changes'), findsOneWidget);
+      expect(find.text('Cancel'), findsOneWidget);
+    });
+
+    testWidgets('the list lead-in is Chinese and quoted from DLGS, and the '
+        'primary button names the single file rather than a count', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        DiscardChangesDialogContent(
+          identity: _identity,
+          request: const DiscardChangesRequest.wholeFiles(<String>['a.txt']),
+        ),
+        workingCopyEntries: <WorkingCopyEntry>[_wcEntry('a.txt')],
+      );
+      expect(find.text('丟掉這些變更：'), findsOneWidget);
+      expect(
+        find.textContaining('uncommitted changes in these files'),
+        findsNothing,
+      );
+      // Closes DLGS's note: 主按鈕寫出實際數量；兩個檔案以下改成寫檔名.
+      expect(find.text('Discard a.txt'), findsOneWidget);
+      expect(find.text('Discard changes'), findsNothing);
+    });
+
+    testWidgets('the primary button joins two filenames rather than '
+        'showing a count', (tester) async {
+      await _pump(
+        tester,
+        DiscardChangesDialogContent(
+          identity: _identity,
+          request: const DiscardChangesRequest.wholeFiles(<String>[
+            'a.txt',
+            'b/c.txt',
+          ]),
+        ),
+        workingCopyEntries: <WorkingCopyEntry>[
+          _wcEntry('a.txt'),
+          _wcEntry('b/c.txt'),
+        ],
+      );
+      expect(find.text('Discard a.txt, c.txt'), findsOneWidget);
+      expect(find.text('Discard 2 files'), findsNothing);
+    });
+
+    testWidgets('the warn text is Chinese and quoted verbatim from DLGS', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        DiscardChangesDialogContent(
+          identity: _identity,
+          request: const DiscardChangesRequest.wholeFiles(<String>['a.txt']),
+        ),
+        workingCopyEntries: <WorkingCopyEntry>[_wcEntry('a.txt')],
+      );
+      expect(find.text('這些變更不進 stash、也不在 reflog，丟掉就沒了。'), findsOneWidget);
+      expect(find.textContaining('This cannot be undone'), findsNothing);
+    });
+
+    testWidgets('does not overflow the shell', (tester) async {
+      final WorkingCopyEntry untrackedEntry = WorkingCopyEntry(
+        path: 'new.txt',
+        oldPath: '',
+        untracked: true,
+        staged: false,
+        indexStatus: FileChangeKind.added,
+        hasUnstagedChange: true,
+        worktreeStatus: FileChangeKind.added,
+        unstagedAdded: 0,
+        unstagedRemoved: 0,
+        stagedAdded: 0,
+        stagedRemoved: 0,
+        conflict: ConflictKind.none,
+        ancestorBlob: '',
+        oursBlob: '',
+        theirsBlob: '',
+        similarity: 0,
+        isSubmodule: false,
+        isConflicted: false,
+      );
+      await _pump(
+        tester,
+        DiscardChangesDialogContent(
+          identity: _identity,
+          request: const DiscardChangesRequest.wholeFiles(<String>[
+            'a.txt',
+            'b/c.txt',
+            'new.txt',
+          ]),
+        ),
+        workingCopyEntries: <WorkingCopyEntry>[
+          _wcEntry('a.txt'),
+          _wcEntry('b/c.txt'),
+          untrackedEntry,
+        ],
+      );
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('Restore File', () {
+    testWidgets('title and buttons stay English', (tester) async {
+      await _pump(
+        tester,
+        const RestoreFileDialogContent(
+          identity: _identity,
+          path: 'lib/graph/lane_allocator.dart',
+          oid: _restoreFileOid,
+        ),
+        overrideState: _restoreFileState,
+      );
+      _expectAll(<String>['Restore File', 'Cancel', 'Restore and stage']);
+      expect(find.text('Restore'), findsOneWidget);
+    });
+
+    testWidgets('the two ro labels are Chinese and quoted from DLGS', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        const RestoreFileDialogContent(
+          identity: _identity,
+          path: 'lib/graph/lane_allocator.dart',
+          oid: _restoreFileOid,
+        ),
+        overrideState: _restoreFileState,
+      );
+      expect(find.text('檔案'), findsOneWidget);
+      expect(find.text('還原成'), findsOneWidget);
+      expect(find.text('RESTORE FROM'), findsNothing);
+    });
+
+    testWidgets('the working-copy line is Chinese and matches the boolean '
+        'this dialog actually has, on a clean file', (tester) async {
+      await _pump(
+        tester,
+        const RestoreFileDialogContent(
+          identity: _identity,
+          path: 'lib/graph/lane_allocator.dart',
+          oid: _restoreFileOid,
+        ),
+        overrideState: _restoreFileState,
+      );
+      expect(find.text('工作區內這個檔案的版本將被取代。'), findsOneWidget);
+      expect(find.textContaining('The working copy version'), findsNothing);
+    });
+
+    testWidgets('the working-copy line is Chinese once the file is dirty', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        const RestoreFileDialogContent(
+          identity: _identity,
+          path: 'lib/graph/lane_allocator.dart',
+          oid: _restoreFileOid,
+        ),
+        overrideState: _restoreFileState,
+        workingCopyEntries: <WorkingCopyEntry>[
+          _wcEntry('lib/graph/lane_allocator.dart'),
+        ],
+      );
+      expect(find.text('此檔在工作區有未提交的變更，會被覆蓋且無法復原。'), findsOneWidget);
+      expect(find.textContaining('uncommitted changes'), findsNothing);
+    });
+
+    testWidgets('the closing note is Chinese', (tester) async {
+      await _pump(
+        tester,
+        const RestoreFileDialogContent(
+          identity: _identity,
+          path: 'lib/graph/lane_allocator.dart',
+          oid: _restoreFileOid,
+        ),
+        overrideState: _restoreFileState,
+      );
+      expect(
+        find.text('不會建立新的 commit。還原後的檔案會像一般工作區變更一樣，之後仍可以再 discard。'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('No commit is created'), findsNothing);
+    });
+
+    testWidgets('does not overflow the shell', (tester) async {
+      await _pump(
+        tester,
+        const RestoreFileDialogContent(
+          identity: _identity,
+          path: 'lib/graph/lane_allocator.dart',
+          oid: _restoreFileOid,
+        ),
+        overrideState: _restoreFileState,
+        workingCopyEntries: <WorkingCopyEntry>[
+          _wcEntry('lib/graph/lane_allocator.dart'),
+        ],
+      );
+      expect(tester.takeException(), isNull);
     });
   });
 }

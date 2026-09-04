@@ -18,6 +18,7 @@ import '../../../theme/theme_mode_provider.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
+import '../../../widgets/gbm_input_decoration.dart';
 import '../../../widgets/theme_switcher_buttons.dart';
 import '../../update/auto_update_check.dart';
 
@@ -268,16 +269,17 @@ class _NumberFieldState extends State<_NumberField> {
 
   @override
   Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
     return SizedBox(
       width: 200,
+      height: GbmSpacing.inputHeight,
       child: TextField(
         controller: _controller,
         keyboardType: TextInputType.number,
-        decoration: InputDecoration(
+        decoration: gbmInputDecoration(
+          colors: colors,
           labelText: widget.label,
           suffixText: widget.suffix.isEmpty ? null : widget.suffix,
-          isDense: true,
-          border: const OutlineInputBorder(),
         ),
         // Only a parseable positive value is committed -- a half-typed field
         // must not momentarily persist 0 and change behaviour mid-keystroke.
@@ -526,18 +528,20 @@ class _RepositorySourcesSectionState
         Row(
           children: <Widget>[
             Expanded(
-              child: TextField(
-                controller: _pathController,
-                style: TextStyle(
-                  fontSize: GbmTypography.textSm,
-                  color: colors.textPrimary,
+              child: SizedBox(
+                height: GbmSpacing.inputHeight,
+                child: TextField(
+                  controller: _pathController,
+                  style: TextStyle(
+                    fontSize: GbmTypography.textSm,
+                    color: colors.textPrimary,
+                  ),
+                  decoration: gbmInputDecoration(
+                    colors: colors,
+                    hintText: '要掃描的資料夾，例如 /home/you/code',
+                  ),
+                  onSubmitted: (_) => _addAndScan(),
                 ),
-                decoration: const InputDecoration(
-                  hintText: '要掃描的資料夾，例如 /home/you/code',
-                  isDense: true,
-                  border: OutlineInputBorder(),
-                ),
-                onSubmitted: (_) => _addAndScan(),
               ),
             ),
             const SizedBox(width: GbmSpacing.space2),
@@ -917,15 +921,18 @@ class _GitignorePathFieldState extends State<_GitignorePathField> {
 
   @override
   Widget build(BuildContext context) {
-    return TextField(
-      controller: _controller,
-      onChanged: widget.onChanged,
-      style: const TextStyle(fontFamily: GbmTypography.fontMono),
-      decoration: const InputDecoration(
-        labelText: '全域 gitignore 檔案路徑',
-        hintText: '~/.config/git/ignore',
-        isDense: true,
-        border: OutlineInputBorder(),
+    final GbmColors colors = context.gbmColors;
+    return SizedBox(
+      height: GbmSpacing.inputHeight,
+      child: TextField(
+        controller: _controller,
+        onChanged: widget.onChanged,
+        style: const TextStyle(fontFamily: GbmTypography.fontMono),
+        decoration: gbmInputDecoration(
+          colors: colors,
+          labelText: '全域 gitignore 檔案路徑',
+          hintText: '~/.config/git/ignore',
+        ),
       ),
     );
   }

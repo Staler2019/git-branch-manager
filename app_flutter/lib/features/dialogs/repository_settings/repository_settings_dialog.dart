@@ -12,6 +12,7 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
+import '../../../widgets/gbm_input_decoration.dart';
 import '../../workspace/workspace_screen.dart' show repoIdForRoute;
 
 /// Repository → Settings…
@@ -413,23 +414,27 @@ class _IdentityTab extends StatelessWidget {
           ),
         ),
         const SizedBox(height: GbmSpacing.space2),
-        TextField(
-          controller: nameController,
-          onChanged: (_) => onEdited(),
-          decoration: const InputDecoration(
-            labelText: '名稱（僅限此 repository）',
-            isDense: true,
-            border: OutlineInputBorder(),
+        SizedBox(
+          height: GbmSpacing.inputHeight,
+          child: TextField(
+            controller: nameController,
+            onChanged: (_) => onEdited(),
+            decoration: gbmInputDecoration(
+              colors: colors,
+              labelText: '名稱（僅限此 repository）',
+            ),
           ),
         ),
         const SizedBox(height: GbmSpacing.space2),
-        TextField(
-          controller: emailController,
-          onChanged: (_) => onEdited(),
-          decoration: const InputDecoration(
-            labelText: 'Email（僅限此 repository）',
-            isDense: true,
-            border: OutlineInputBorder(),
+        SizedBox(
+          height: GbmSpacing.inputHeight,
+          child: TextField(
+            controller: emailController,
+            onChanged: (_) => onEdited(),
+            decoration: gbmInputDecoration(
+              colors: colors,
+              labelText: 'Email（僅限此 repository）',
+            ),
           ),
         ),
         const SizedBox(height: GbmSpacing.space2),

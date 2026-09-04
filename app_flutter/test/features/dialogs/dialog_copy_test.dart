@@ -1813,6 +1813,33 @@ void main() {
       expect(find.text('Name (this repository only)'), findsNothing);
     });
 
+    testWidgets(
+      'the Identity tab\'s name and email fields are 30px tall with a r6 '
+      'border (G4)',
+      (tester) async {
+        await _pump(
+          tester,
+          const RepositorySettingsDialogContent(identity: _identity),
+        );
+        await tester.tap(find.text('Identity'));
+        await tester.pumpAndSettle();
+
+        for (final Finder finder in <Finder>[
+          find.byType(TextField).at(0),
+          find.byType(TextField).at(1),
+        ]) {
+          expect(tester.getSize(finder).height, GbmSpacing.inputHeight);
+          final TextField field = tester.widget<TextField>(finder);
+          final OutlineInputBorder border =
+              field.decoration!.border! as OutlineInputBorder;
+          expect(
+            border.borderRadius,
+            BorderRadius.circular(GbmSpacing.radiusMd),
+          );
+        }
+      },
+    );
+
     testWidgets('the Performance tab is Chinese, with commit-graph kept '
         'untranslated as a git term', (tester) async {
       await _pump(
@@ -1869,6 +1896,23 @@ void main() {
       expect(find.text('Check for updates at startup'), findsNothing);
     });
 
+    testWidgets(
+      'the auto-fetch interval field (_NumberField) is 30px tall with a '
+      'r6 border (G4)',
+      (tester) async {
+        await _pumpPreferences(tester);
+        await tester.tap(find.text('在背景 fetch 目前開啟的 repository'));
+        await tester.pumpAndSettle();
+
+        final Finder finder = find.byType(TextField);
+        expect(tester.getSize(finder).height, GbmSpacing.inputHeight);
+        final TextField field = tester.widget<TextField>(finder);
+        final OutlineInputBorder border =
+            field.decoration!.border! as OutlineInputBorder;
+        expect(border.borderRadius, BorderRadius.circular(GbmSpacing.radiusMd));
+      },
+    );
+
     testWidgets('the Repository sources section is Chinese, old English gone', (
       tester,
     ) async {
@@ -1893,6 +1937,20 @@ void main() {
       expect(find.text('Nothing recorded yet.'), findsNothing);
     });
 
+    testWidgets('the base-folder path field is 30px tall with a r6 border '
+        '(G4)', (tester) async {
+      await _pumpPreferences(tester);
+      await tester.tap(find.text('Repository sources'));
+      await tester.pumpAndSettle();
+
+      final Finder finder = find.byType(TextField);
+      expect(tester.getSize(finder).height, GbmSpacing.inputHeight);
+      final TextField field = tester.widget<TextField>(finder);
+      final OutlineInputBorder border =
+          field.decoration!.border! as OutlineInputBorder;
+      expect(border.borderRadius, BorderRadius.circular(GbmSpacing.radiusMd));
+    });
+
     testWidgets('the Git section is Chinese, old English gone', (tester) async {
       await _pumpPreferences(tester);
       await tester.tap(find.text('Git'));
@@ -1908,6 +1966,24 @@ void main() {
       expect(find.text('GLOBAL GITIGNORE'), findsNothing);
       expect(find.text('COMMIT MESSAGES'), findsNothing);
     });
+
+    testWidgets(
+      'the global gitignore path field is 30px tall with a r6 border (G4)',
+      (tester) async {
+        await _pumpPreferences(tester);
+        await tester.tap(find.text('Git'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('使用全域 gitignore 檔案'));
+        await tester.pumpAndSettle();
+
+        final Finder finder = find.byType(TextField);
+        expect(tester.getSize(finder).height, GbmSpacing.inputHeight);
+        final TextField field = tester.widget<TextField>(finder);
+        final OutlineInputBorder border =
+            field.decoration!.border! as OutlineInputBorder;
+        expect(border.borderRadius, BorderRadius.circular(GbmSpacing.radiusMd));
+      },
+    );
 
     testWidgets(
       'the Appearance section is Chinese, old English gone -- theme names '

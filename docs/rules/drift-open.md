@@ -141,8 +141,23 @@ historical the moment they are written.
   symbol name only, never by signature, so a dropped or mis-ordered parameter compiles and
   analyzes clean on both sides and only breaks at runtime. `RebaseApiTest.cpp`'s
   `PlainRebaseWithAutosquashFoldsAFixupCommit`/`PlainRebaseWithRebaseMergesPreservesAMergeCommit`
-  are the one tier that actually crosses that boundary; `GitIntegrationTest.cpp`'s
+  prove the *C++* side — `gbm_rebase_start` really does thread both flags into
+  `RebaseRequest` and into `git rebase`'s argv — and `GitIntegrationTest.cpp`'s
   `RealRepoTest` cases of the same names test the git behaviour itself, one layer down.
+  **Corrected**: an earlier version of this line claimed the capi test "is the one tier
+  that actually crosses that boundary" — wrong, per [TEST-ffi-matches-symbol-only]'s own
+  wording ("only a device-tier test crosses that seam"). `RebaseApiTest.cpp` calls
+  `gbm_rebase_start` directly from C++; it never goes through `dart:ffi`'s
+  `RebaseStartDart` typedef or `lookupFunction`, so it cannot see a dropped or
+  mis-ordered parameter on *that* side.
+- **Note**: **the `dart:ffi` seam itself is unverified.** `integration_test/` has no file
+  that reaches rebase at all (grepped for `startRebase`/`rebaseStart`/`RebaseStartDart` and
+  for `rebase`/`Rebase`, both empty) — [TEST-device-tier-not-in-ci] applies, and this is
+  additionally a case with **no existing device test to extend**, not just one that needs
+  rerunning. Recorded per [SPEC-absent-not-faked] rather than left implied by the corrected
+  sentence above: nothing today would catch `gbm_bindings.dart`'s `RebaseStartDart`
+  typedef silently drifting from `gbm_capi.h`'s six-parameter signature. Writing that
+  device test is unscoped work, not part of this pin's closure.
 - **Evidence**: [ledger: G1d](../ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md);
   closed in the same round's follow-up commits.
 

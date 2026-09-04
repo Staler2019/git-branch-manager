@@ -4,8 +4,9 @@
 「G1c」）之後。使用者這輪一次交了三件事，裁定順序是**任務一 → 任務三 → 任務二**：
 任務一（Prune remote branches 過期註解）最小，先做掉；任務三（救援選項字串）
 理順了「文案到底該放哪一層」，任務二（G1 剩餘對話框）要等這個地基乾淨才做，避免
-在一個已知要重寫的欄位上再疊 17 個對話框的文案。任務二這輪尚未開始，本檔案先記
-任務一跟任務三；任務二完成後在本檔案續寫，不另開新檔（同一分支＝同一輪）。
+在一個已知要重寫的欄位上再疊 17 個對話框的文案。三項任務均已完成，含使用者另外
+點名的「兩個落差也修掉」（Checkout mock delta、Rebase onto capi 旗標）；本檔案記
+完整敘事，同一分支＝同一輪，不另開新檔。
 
 ## 任務一：Prune remote branches 的過期例外註解
 
@@ -215,11 +216,218 @@ autosquash 旗標，屬於 `[DRIFT-absent-for-no-capi]` 那一類；Checkout 那
 綠燈；`dart format`／`flutter analyze --no-pub` 都是 0；
 `scripts/check-rule-pins.py`：170 條規則、63 個交叉引用，懸空 0。
 
-### 尚未開始：G1e–G1k
+### 兩個裁決落差關閉：Checkout 的「目前」列/radio、Rebase onto 的 capi 旗標
 
-`delete_branch`+`delete_branches`（G1e）、`discard_changes`+`restore_file`
-（G1f）、`rename_branch`（G1g）、`repository_settings`（G1h）、
-`preferences`（G1i，`Shortcuts` 分頁明確排除，需要補一條 drift-open.md
-記錄尚未寫）、`about`+`update`+`manage_base_folders`（G1j）、
-`lock_worktree`/`remove_worktree` 殘留英文收尾（G1k）。完成後續寫本檔案，
-不另開新檔。
+G1d 那輪把 Checkout 跟 Rebase onto 對照 DLGS mock 的結構性落差記成
+`[DRIFT-checkout-dialog-mock-delta]`／`[DRIFT-rebase-onto-missing-capi-flags]`
+兩條 pin，先文案轉中文、結構不動。使用者原話「兩個落差也修掉」是這輪最早
+收到的指示之一，兩條在 G1e 前後被個別關閉——不是同一個 commit，順序是
+Checkout 先關（`f4da321`，在 G1e 之前），Rebase onto 後關（跨四個 commit，
+G1e 之後）：
+
+- **Checkout**（`f4da321`）：補上 DLGS mock 的唯讀「目前」列（目前分支＋
+  未提交變更數）跟 radio-on/radio 雙選（帶著變更切過去／先 stash），逐字
+  引用 DLGS 條目；radio 對映既有的 `_stashFirst` bool，不需要動
+  capi/controller。mock 的 warn 欄位（兩邊都改到的檔案會阻止 checkout）
+  刻意不畫——這從未被這條 pin 記成落差的一部分，checkoutChoices／
+  checkout-recovery 對話框已經在處理這個情境。Pin 原地改寫成
+  「— 已關閉」，不是刪掉重開。
+- **Rebase onto**：這條需要 capi 先加欄位，分四個 commit 由下而上接通：
+  1. `e99e64b`（core）：`RebaseRequest` 加 `rebaseMerges`/`autosquash`
+     兩個旗標，`RebaseOps.cpp` 轉成 `--rebase-merges`/`--autosquash`。
+     `--autosquash` 能否在非互動模式下運作先在 scratch repo 量過（git
+     2.55.0）：`git rebase --autosquash <upstream>`（沒有 `-i`）直接
+     fold fixup commit、exit 0，跟 git 官方文件「uses the --interactive
+     machinery internally, but can be run without an explicit
+     --interactive」一致。四個新 `RealRepoTest`（兩個測開啟時的行為，
+     兩個測預設關閉時不變），2 個 mutation 各窄紅 1 個測試。
+  2. `81c9aa7`（capi）：`gbm_rebase_start` 新增第 4、5 個參數送這兩個
+     旗標過邊界。新增兩個 capi 層測試
+     （`PlainRebaseWithAutosquashFoldsAFixupCommit`／
+     `PlainRebaseWithRebaseMergesPreservesAMergeCommit`）——
+     `[TEST-ffi-matches-symbol-only]` 記著只有這一層能抓到「第 5 個參數
+     被漏掉或排錯」，跟 core 層測的是 `--autosquash` 本身的 git 行為不同。
+  3. `f44e09d`（flutter）：FFI typedef 補兩個 `Int32`，
+     `RepoSessionController.startRebase()` 補兩個具名 bool 轉發給
+     bindings，`FakeRepoSessionController` 補一個會記錄進
+     `commandLog` 的 override（原本的 null-session guard 會靜默吞掉
+     沒 override 的呼叫，測試分不出「關閉了」跟「接到空氣」）。對話框
+     依 DLGS 補 `chk-on`「保留 merge commit（--rebase-merges）」預設
+     勾選、`chk`「自動 squash 標記過的 fixup commit」預設不勾、以及
+     「此分支已 push」警告（讀 `remoteCounterpartOf()`，跟
+     `delete_branch_dialog.dart` 同一個單一來源，不重新從
+     `hasTrackingInfo`/`upstream` 推導）。內容變多後跟 Checkout／New
+     branch 一樣包一層 `SingleChildScrollView`。新增
+     `rebase_onto_dialog_test.dart` 驗證 Start rebase 實際 dispatch 的
+     值跟畫面勾選狀態一致；兩處 mutation-check（dispatch 寫死值、
+     `hasRemoteCounterpart` 寫死 false）各 1 個 mutation、各窄紅 1 個
+     測試。
+  4. `d94b700`（docs）：pin 原地改寫成「— 已關閉」，記錄 capi→FFI→Dart
+     controller→UI 整條鏈，`scripts/check-rule-pins.py`：170 條規則、
+     65 個交叉引用，懸空 0。
+
+`ddda853` 是這段中間跑全套 `flutter test` 才發現的收尾：G1d／G1e 各自
+改動過的三個對話框（`new_branch_dialog.dart` 姓名欄位、
+`delete_branch_dialog.dart`／`delete_branches_dialog.dart` 的勾選框），
+它們各自的專屬行為測試檔案（不是 `dialog_copy_test.dart`）從未更新，
+一直斷言已經被改掉的英文字串——10 個測試全部集中在這三個檔案，只改測試
+裡的期望字串，不改被測程式碼。這是本輪第二次因為「先看某個測試檔案綠燈
+就以為完工」而漏掉別的測試檔案的教訓，跟後面 G1f/g/h 每批都堅持跑
+**全套** `flutter test`（不只是被改動對話框自己的測試）直接相關。
+
+### 任務二：G1e（`delete_branch` / `delete_branches`，`4475621`）
+
+依計畫引用表轉中文：Delete branch 的確認句、有無 upstream 的說明、
+「同時刪除遠端」勾選框（標題與副標題）、分支選擇器的提示與空狀態訊息；
+Delete branches 的「本地分支」／「遠端分支」段落標題、每行未推送 commit
+數的說明、兩個勾選框。標題與主按鈕維持英文。`dialog_copy_test.dart` 新增
+兩組共 10 則測試，Delete branch 用 `overrideState` 補一個有遠端對應
+（同名 unambiguous match，不靠 upstream config）的分支測「同時刪除」勾選
+框；Delete branches 另補一個帶 upstream/ahead 的分支測「N 個未推送的
+commit」與遠端段落。5 個字串逐一 mutation-check，各自窄紅。
+
+### 任務二：G1f（`discard_changes` / `restore_file`，`a71bdbd`）
+
+`discard_changes_dialog.dart`：新增 `_dangerLabel(int, List<String>)`
+實作 DLGS 的「主按鈕寫出實際數量；兩個檔案以下改成寫檔名」——1 個檔案寫
+檔名、2 個檔案用 `, ` 接兩個檔名（這個接法本身不是 spec 逐字值，是這個
+對話框自己的讀法，記在文件註解裡）、3 個以上才寫數量；intro 文案、
+未追蹤檔案提示、不可復原警告轉中文；包一層 `SingleChildScrollView`。
+`restore_file_dialog.dart`：補上 DLGS `ro` 列原本完全沒有標籤文字的兩個
+label（「檔案」／「還原成」）；warn 文案改寫成貼合這個對話框真正擁有的
+布林能力（`_hasUncommittedChanges`），不是照抄 mock 裡一個這個對話框
+量不到的行數；同樣包一層 `SingleChildScrollView`。
+
+**核對 DLGS 全文時發現 spec 其實有兩張「Restore file」對話框**——
+「Restore file to this state」（已實作，就是這個檔案）跟「Restore file
+to before this state」（完全沒做，需要新對話框/路由/05-K 子選單/
+parent-oid 查詢/可展開 diff/`還原前先 stash` 勾選框）。這不是任務二列的
+17 個對話框裡任何一個的範圍，也不是使用者點名要關的「兩個落差」之一，
+所以新增 `[DRIFT-restore-before-this-state-missing]` 記錄它，明確寫
+「stays open pending a ruling」，不是本輪不做的沉默省略。
+
+11 則新測試（5 Discard Changes + 6 Restore File）；`discard_changes_dialog_test.dart`
+兩則因按鈕文案改變而跟著改的既有斷言（tap target 從 `'Discard 2 files'`／
+`'Discard changes'` 改成新的檔名式標籤）。
+
+**就地更正**（`81a8d0a`）：上一個 commit（`d94b700`）關閉
+`[DRIFT-rebase-onto-missing-capi-flags]` 時寫「`RebaseApiTest.cpp` 是唯一
+真的跨過 dart:ffi 邊界的那一層」——重讀 `[TEST-ffi-matches-symbol-only]`
+自己的措辭（「only a device-tier test crosses that seam」）確認這句話
+是錯的：`RebaseApiTest.cpp` 直接從 C++ 呼叫 `gbm_rebase_start`，從未經過
+Dart 的 `lookupFunction`，看不到那一側的參數缺漏。四個 grep pattern 確認
+`integration_test/` 完全沒有碰 rebase 的檔案，所以 ffi 那道邊界本身其實
+從未被驗證過——就地改寫，補一條 Note 記這個未驗證的缺口，不是刪掉重寫。
+
+### 任務二：G1g（`rename_branch`，`4cf4170`）
+
+`DLGS` 沒有這個對話框的條目，引用來源是 `DIALOGS` 陣列的 note 跟 P13-A
+全尺寸 mock。`branch_name_validation.dart`（New Branch／Rename Branch
+共用的驗證函式）三則錯誤訊息轉中文；對話框本身：兩個 `ro` 標籤（目前
+名稱／新名稱）、欄位 hint、可用性提示、遠端連帶處理整段（label + 兩個
+radio 選項的說明文字，逐字引用 P13-A：「push 新名稱，再刪除
+$remote/$remoteBranch」／「新分支的 upstream 會清空」）、兩種情境的警告
+文字、mid-conflict 拒絕訊息（RENAMEVALID 第 5 列）全部轉中文。
+`rename_branch_dialog_test.dart` 7 處既有英文斷言改對應中文；
+`integration_test/rename_branch_flow_test.dart` 有一處裝置層 grep 才
+抓到的殘留英文引用（`'只改本地，保留遠端舊分支'` 那顆 radio 的文案），
+一併修掉。
+
+### 任務二：G1h（`repository_settings`，`f7cd89f`）
+
+四個分頁（General／Remotes／Identity／Performance）的 section header
+與內文轉中文；四個分頁名稱本身維持英文——`DIALOGS` 的 note 原文就是用
+這四個英文字直接嵌在中文句子裡（「四個分頁：General / Remotes /
+Identity / Performance。」），照抄這個既定用法而非另譯。
+`COMMIT GRAPH`／`COMMIT-GRAPH` 刻意保留英文，理由跟 `GIT 身份` 一樣：
+這是 git 內部物件的專有名稱，不是一般英文詞組。這個對話框先前完全沒有
+測試覆蓋，`dialog_copy_test.dart` 新增 6 則涵蓋四個分頁。
+
+### 任務二：G1i（`preferences`，`0128eea`）
+
+六個分頁中五個（Shortcuts 除外）逐段轉中文：section header、
+`_SettingSwitch` 的 title/subtitle、`_NumberField` 的 label/suffix、
+空狀態文字、tooltip、狀態列文字。六個分頁名稱（`PREFNAV` 已核對與 app
+現狀相符）、Close 按鈕、其餘所有按鈕（Add folder…／Rescan now／Clear
+list／Check for updates now／Stop skipping／瀏覽…）維持英文。三個主題
+名稱（Dark technical／Light IDE／Neutral professional）刻意維持
+英文——跟 `theme_switcher_buttons.dart` 的 tooltip 是同一組字面值，那個
+檔案不在 G1 的 30 個對話框範圍內，只翻這裡會讓同一組名稱一半中文一半
+英文。
+
+「自動 FETCH」段落的文案照 `[DRIFT-auto-fetch-unwired]` 的事實寫，不照抄
+spec P11 item 9 那段描述成品行為的 prose，也不照抄舊英文（同樣把功能講得
+像已經在動）：改寫成「設定會存，但還沒有計時器真的去執行 fetch」的誠實
+語氣——這是 CLAUDE.md 誠實回報的標準規則在文案上的套用，不只是翻譯。
+`auto_update_check.dart` 的 `lastAutoCheckLabel()` 一併轉中文（Preferences
+直接渲染它的輸出）。CODE 分頁改名「程式碼」後，
+`docs/rules/arch-structure.md` 的 `[STRUCT-soft-wrap-preference]` 原本
+引用「Preferences → Appearance → CODE」這個字面路徑，跟著就地更新註明。
+
+新增 `[DRIFT-shortcuts-copy-excluded]`：`keyboard_shortcuts_dialog.dart`
+跟 Preferences 的 Shortcuts 分頁沒有自己的字面字串，全部從 `gbmMenus`
+衍生，翻譯等於翻譯整個選單列（含 macOS 原生選單），是個獨立的裁決，
+不屬於 G1 範圍——`dialog_copy_test.dart` 直接斷言這個分頁「維持英文」是
+刻意的。
+
+`dialog_copy_test.dart` 新增 'Preferences' group 7 則測試。Mutation-check
+兩個實作檔案：`preferences_dialog.dart` 1 個 mutation 窄紅 1 個測試；
+`auto_update_check.dart` 1 個 mutation 窄紅 3 個測試（兩個直接呼叫
+`lastAutoCheckLabel` 的單元測試 + 一個間接渲染它的 widget 測試，三個都
+直接斷言被改動的字串，合理的一對多）。
+
+### 任務二：G1j（`about` / `update` / `manage_base_folders`，`5ac38c4`）
+
+三個對話框都沒有 `DLGS`/`DIALOGS` 可逐字引用，文案自組、語氣比照已核對
+過的其他對話框。`about_dialog.dart`：tagline、版本列、技術說明段落轉
+中文，`C++ core`／`gbm_capi FFI`／`Flutter UI`／`Riverpod`／`go_router`
+等技術詞維持英文。`update_dialog.dart`：`_headline()` 十個狀態、
+`_progressLabel()` 三種進度文案全部轉中文。`manage_base_folders_dialog.dart`：
+空狀態文字、離線 tooltip、Remove tooltip 轉中文——跟
+`preferences_dialog.dart` 的 `_BaseFolderRow` 是各自獨立的私有類別，兩邊
+原本的英文離線提示措辭本來就不完全一樣，維持各自措辭。`update_dialog.dart`
+刻意不在 `dialog_copy_test.dart` 重複建置覆蓋——它需要複製
+`UpdateController` 的假物件跟一整套 provider override，而
+`update_dialog_test.dart` 本身已經是 25 個測試、逐狀態斷言精確文案的
+專用檔案，這輪已經更新過且全數綠燈；在別處重建同一套機制只是重複驗證。
+
+Mutation-check 三個實作檔案：`about_dialog.dart`／`manage_base_folders_dialog.dart`
+各 1 個 mutation 窄紅（分別 2 個、1 個測試）；`update_dialog.dart` 第一次
+mutation（句尾加一個字元）完全沒紅——`textContaining('Development
+build')` 只檢查子字串存在，句尾修改不影響比對，這是斷言太鬆而不是程式碼
+沒有測試，換一個真正落在比對範圍內的 mutation（改動「開發版本」四字
+本身）後窄紅 1 個測試。
+
+### 任務二：G1k（`lock_worktree` / `remove_worktree` 殘留收尾，`2126194`）
+
+這兩個檔案本來就已經 80% 中文化，只收尾各自殘留的兩處英文片段：
+「This worktree is no longer in the list.」→「這個 worktree 已經不在
+清單裡了。」（用字比照同檔案已有的 `worktreeLockWarning()` 句型）；
+`Text.rich` 開頭的 `'Worktree  '`（雙空白代替冒號的標籤）改小寫
+`'worktree  '`，跟同一個對話框其餘 Chinese prose 裡「worktree」一律
+小寫、不譯的既有慣例對齊，而不是發明一個新的中文詞彙——這個字沒有既有
+翻譯可查，貿然選一個詞有跟其他地方再度用語不一致的風險。`add_worktree_dialog.dart`
+依計畫只需要交叉核對：grep 過殘留的英文字面值只剩按鈕、hint 範例值、
+以及 `HEAD` 這個 git 符號 ref 名稱本身，三者都正確維持英文。兩處
+mutation-check 各 1 個 mutation、各窄紅 1 個測試。
+
+至此 G1（30 個對話框逐元素中文化）批次 G1a–G1k 全部完成，兩個裁決落差
+（Checkout mock delta、Rebase onto capi 旗標）也已關閉。
+
+### 三項任務全部完成：收尾驗證
+
+- `flutter analyze --no-pub`：0 issue（G1k 收尾後重跑仍 0）。
+- `flutter test`：G1k 收尾後 2760 通過，0 失敗。
+- `python3 scripts/check-rule-pins.py`：172 條規則、70 個交叉引用，
+  懸空 0（G1i 新增 `[DRIFT-shortcuts-copy-excluded]` 之後跑過）。
+- 核心／capi 測試套件：任務三動到 core/capi，已在任務三自身的驗證段落
+  記過（C++ 498/496+2 skip、capi 158/158）；G1 系列（G1d–G1k）只動
+  Dart 層文案與少數測試檔案，沒有再次觸碰 core/capi 原始碼，所以沒有
+  在每一批之後重跑那兩個套件——這是一個判斷，不是遺漏：唯一動到
+  core/capi 的是 Rebase onto 那四個 commit（`e99e64b`／`81c9aa7`／
+  `f44e09d`／`d94b700`），它們各自的 commit 已經記錄了自己那次的 C++／
+  capi 測試結果（RealRepoTest、capi 層兩則新測試），G1 系列本身沒有
+  義務再重跑一次沒被自己改動過的層。
+- `integration_test/`：每一批各自 grep 過被改動的字面字串（`grep -F`
+  精確比對）與相關 `GbmActionId`／類別名稱，無殘留英文斷言、無裝置層
+  引用需要更新。

@@ -279,6 +279,21 @@ GBM_API void gbm_register_callback(GbmSessionHandle session,
 /// Returns 0 on success.
 GBM_API int32_t gbm_repo_state_json(GbmSessionHandle session);
 
+/// Deletes `.git/index.lock`, but only if it is still older than
+/// OperationRunner::kStaleLockSeconds *right now* -- the age offered in an
+/// earlier RemoveLock choice is never trusted, it is re-checked against
+/// whatever is on disk at the moment of this call. Synchronous, like
+/// gbm_repo_state_json: this runs directly rather than through the
+/// operation queue, because preflight() refuses every *queued* operation
+/// while the lock is held, so a lock-removal Operation would refuse itself
+/// before it ran.
+///
+/// Returns 1 when the lock is gone afterwards (removed by this call, or
+/// already gone -- nothing left to refuse), 0 when a lock is present and
+/// not yet stale. No event fires either way; the caller re-submits the
+/// original request and lets that submission's own preflight() re-arbitrate.
+GBM_API int32_t gbm_operation_remove_stale_index_lock(GbmSessionHandle session);
+
 // --- History / graph -----------------------------------------------------
 
 /// Requests a refs + history refresh. Runs on a shared background worker;
@@ -768,6 +783,22 @@ GBM_API void gbm_tag_push(GbmSessionHandle session, const char* remoteName, cons
 /// failure.
 GBM_API void gbm_worktree_refresh(GbmSessionHandle session);
 
+/// Re-lists the worktrees *and* measures each one's uncommitted change count,
+/// then republishes. Async: fires the same GBM_EVENT_WORKTREES_UPDATED, so a
+/// caller reads the result through gbm_worktrees_json() either way.
+///
+/// **Separate from gbm_worktree_refresh() on purpose, and it must stay that
+/// way.** This costs one `git status` process per eligible worktree, while
+/// the plain refresh is one `git worktree list`. The refresh runs on focus
+/// regain and on F5; this runs only while something is showing the counts.
+/// Bare and prunable worktrees are skipped without running anything and come
+/// back as `notApplicable`.
+///
+/// A count that could not be taken is reported as `failed`, never left as
+/// `unmeasured` -- a caller that re-requests "whatever has no count" would
+/// otherwise spin on it forever.
+GBM_API void gbm_worktree_request_pending_counts(GbmSessionHandle session);
+
 /// Populates the staging buffer with the most recently published worktree
 /// list as a JSON array. Returns 0 on success, or a negative GbmErrorCode if
 /// gbm_worktree_refresh() has not yet published one.
@@ -1051,10 +1082,17 @@ GBM_API void gbm_rebase_interactive_start(GbmSessionHandle session,
 
 /// Plain, non-interactive `git rebase`: replays every commit unchanged.
 /// Same event/refresh contract as gbm_rebase_interactive_start().
+/// `rebaseMerges` is `--rebase-merges` (preserves a merge commit inside
+/// upstream..HEAD instead of flattening it); `autosquash` is `--autosquash`
+/// (folds a fixup!/squash!/amend! commit into its target). Both work on this
+/// plain, non-interactive call with no `-i` of our own -- see
+/// RebaseOps.cpp's measurement comment.
 GBM_API void gbm_rebase_start(GbmSessionHandle session,
                               const char* upstream,
                               const char* onto,
-                              int32_t stashFirst);
+                              int32_t stashFirst,
+                              int32_t rebaseMerges,
+                              int32_t autosquash);
 
 GBM_API void gbm_rebase_continue(GbmSessionHandle session);
 GBM_API void gbm_rebase_skip(GbmSessionHandle session);

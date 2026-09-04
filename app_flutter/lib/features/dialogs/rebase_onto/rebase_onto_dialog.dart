@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../data/models/ref_snapshot.dart';
+import '../../../data/models/remote_counterpart.dart';
 import '../../../data/repositories/repo_identity.dart';
 import '../../../data/repositories/repo_session_repository.dart';
 import '../../../theme/gbm_theme.dart';
@@ -21,6 +22,20 @@ import '../../../widgets/gbm_dialog_shell.dart';
 /// Distinct from the interactive-rebase dialog (`interactive_rebase/`),
 /// which edits a todo plan. This is the plain "replay my commits on top of
 /// that branch" flow spec page 04's Branch menu lists.
+///
+/// **[DRIFT-rebase-onto-missing-capi-flags] is closed as of this dialog.**
+/// The mock's two checkboxes (chk-on 「保留 merge commit（--rebase-merges）」
+/// and chk 「自動 squash 標記過的 fixup commit」) and its "already pushed"
+/// warn banner are all drawn now. The checkboxes needed the capi change
+/// this pin called for: `RebaseRequest` gained `rebaseMerges`/`autosquash`
+/// fields, `gbm_rebase_start` two more `int32_t` parameters, and
+/// `startRebase()` two more named bools -- see RebaseOps.cpp's measurement
+/// comment for why both flags work on this plain, non-interactive call with
+/// no `-i` of our own. The warn banner reads whether the *current* branch
+/// has a remote counterpart via [remoteCounterpartOf] -- the same single
+/// source `delete_branch_dialog.dart`'s own doc comment names traps for:
+/// `hasTrackingInfo` is empty for a branch exactly in sync, and `upstream`
+/// alone misses a `git push origin HEAD` branch with no tracking config.
 ///
 /// Routed as `/repo/:repoId/dialogs/rebase-onto`.
 class RebaseOntoDialogContent extends ConsumerStatefulWidget {
@@ -50,6 +65,8 @@ class _RebaseOntoDialogContentState
     extends ConsumerState<RebaseOntoDialogContent> {
   String? _target;
   bool _stashFirst = false;
+  bool _rebaseMerges = true;
+  bool _autosquash = false;
 
   @override
   void initState() {
@@ -100,6 +117,22 @@ class _RebaseOntoDialogContentState
 
     final bool isDirty = session.workingCopyStatus.entries.isNotEmpty;
 
+    // DLGS's warn field applies only when the branch being rebased has
+    // already been pushed -- remoteCounterpartOf() is the single source
+    // that answers "does this local branch have a remote side", never
+    // re-derived from hasTrackingInfo or upstream alone (see this class's
+    // doc comment for why).
+    RefInfo? currentBranchRef;
+    for (final RefInfo b in session.refs.localBranches) {
+      if (b.shortName == currentBranch) currentBranchRef = b;
+    }
+    final bool hasRemoteCounterpart =
+        currentBranchRef != null &&
+        remoteCounterpartOf(
+          currentBranchRef,
+          session.refs.remoteBranches,
+        ).isNotEmpty;
+
     return GbmDialogShell(
       title: 'Rebase',
       actions: <Widget>[
@@ -113,71 +146,123 @@ class _RebaseOntoDialogContentState
               : () {
                   ref
                       .read(repoSessionProvider(widget.identity).notifier)
-                      .startRebase(_target!, stashFirst: _stashFirst);
+                      .startRebase(
+                        _target!,
+                        stashFirst: _stashFirst,
+                        rebaseMerges: _rebaseMerges,
+                        autosquash: _autosquash,
+                      );
                   context.pop();
                 },
         ),
       ],
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(
-            'Replay the commits of $currentBranch on top of:',
-            style: TextStyle(
-              fontSize: GbmTypography.textSm,
-              color: colors.textSecondary,
+      // Scrollable, like New branch's and Checkout's: the two new checkboxes
+      // plus the warn banner can exceed GbmDialogShell's 560px cap, and
+      // every child here is non-flex ([FLU-renderflex-non-flex-first]).
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(
+              '重新安置 $currentBranch 到：',
+              style: TextStyle(
+                fontSize: GbmTypography.textSm,
+                color: colors.textSecondary,
+              ),
             ),
-          ),
-          const SizedBox(height: GbmSpacing.space1),
-          DropdownButtonFormField<String>(
-            initialValue: _target,
-            isExpanded: true,
-            decoration: const InputDecoration(
-              hintText: 'Branch to rebase onto',
-              isDense: true,
-              border: OutlineInputBorder(),
+            const SizedBox(height: GbmSpacing.space1),
+            DropdownButtonFormField<String>(
+              initialValue: _target,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                hintText: '基於',
+                isDense: true,
+                border: OutlineInputBorder(),
+              ),
+              items: _candidateItems(candidates),
+              onChanged: (String? value) => setState(() => _target = value),
             ),
-            items: _candidateItems(candidates),
-            onChanged: (String? value) => setState(() => _target = value),
-          ),
-          const SizedBox(height: GbmSpacing.space2),
-          Text(
-            'Rebasing rewrites the commits of $currentBranch. If a commit '
-            'conflicts, the rebase stops on that step and the conflict banner '
-            'shows which step of how many it stopped at.',
-            style: TextStyle(
-              fontSize: GbmTypography.textXs,
-              color: colors.textTertiary,
-              height: GbmTypography.leadingNormal,
-            ),
-          ),
-          if (isDirty) ...<Widget>[
             const SizedBox(height: GbmSpacing.space2),
+            Text(
+              'Rebase 會重寫 $currentBranch 的 commit。若某筆 commit 衝突，'
+              'rebase 會停在該步驟，衝突橫幅會顯示目前停在第幾步、共幾步。',
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                color: colors.textTertiary,
+                height: GbmTypography.leadingNormal,
+              ),
+            ),
+            const SizedBox(height: GbmSpacing.space2),
+            // DLGS's chk-on/chk pair, quoted verbatim.
             CheckboxListTile(
-              value: _stashFirst,
+              value: _rebaseMerges,
               dense: true,
               contentPadding: EdgeInsets.zero,
               controlAffinity: ListTileControlAffinity.leading,
               title: Text(
-                'Stash uncommitted changes first',
+                '保留 merge commit（--rebase-merges）',
                 style: TextStyle(
                   fontSize: GbmTypography.textSm,
                   color: colors.textPrimary,
                 ),
               ),
-              subtitle: Text(
-                '${session.workingCopyStatus.pendingChangeCount} file(s) have uncommitted changes.',
+              onChanged: (bool? value) =>
+                  setState(() => _rebaseMerges = value ?? _rebaseMerges),
+            ),
+            CheckboxListTile(
+              value: _autosquash,
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              title: Text(
+                '自動 squash 標記過的 fixup commit',
                 style: TextStyle(
-                  fontSize: GbmTypography.textXs,
-                  color: colors.textTertiary,
+                  fontSize: GbmTypography.textSm,
+                  color: colors.textPrimary,
                 ),
               ),
               onChanged: (bool? value) =>
-                  setState(() => _stashFirst = value ?? false),
+                  setState(() => _autosquash = value ?? _autosquash),
             ),
+            if (hasRemoteCounterpart) ...<Widget>[
+              const SizedBox(height: GbmSpacing.space2),
+              Text(
+                '此分支已 push。rebase 後需 force push，共作者需重新對齊。',
+                style: TextStyle(
+                  fontSize: GbmTypography.textXs,
+                  color: colors.warning,
+                  height: GbmTypography.leadingNormal,
+                ),
+              ),
+            ],
+            if (isDirty) ...<Widget>[
+              const SizedBox(height: GbmSpacing.space2),
+              CheckboxListTile(
+                value: _stashFirst,
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                title: Text(
+                  '先 stash 未提交的變更',
+                  style: TextStyle(
+                    fontSize: GbmTypography.textSm,
+                    color: colors.textPrimary,
+                  ),
+                ),
+                subtitle: Text(
+                  '${session.workingCopyStatus.pendingChangeCount} 個檔案有未提交的變更。',
+                  style: TextStyle(
+                    fontSize: GbmTypography.textXs,
+                    color: colors.textTertiary,
+                  ),
+                ),
+                onChanged: (bool? value) =>
+                    setState(() => _stashFirst = value ?? false),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }

@@ -92,7 +92,8 @@ class _RenameBranchDialogContentState
           GbmButton(label: 'Close', onPressed: () => context.pop()),
         ],
         child: Text(
-          'Finish or abort the operation in progress before renaming a branch.',
+          // RENAMEVALID row 5，逐字引用。
+          '先完成或中止進行中的作業',
           style: TextStyle(
             fontSize: GbmTypography.textSm,
             color: colors.textPrimary,
@@ -116,8 +117,8 @@ class _RenameBranchDialogContentState
         ],
         child: Text(
           targetName.isEmpty
-              ? 'HEAD is detached — there is no branch to rename.'
-              : 'There is no local branch named "$targetName".',
+              ? 'HEAD 目前是 detached，沒有分支可以更名。'
+              : '沒有名為「$targetName」的本地分支。',
           style: TextStyle(
             fontSize: GbmTypography.textSm,
             color: colors.textPrimary,
@@ -193,7 +194,7 @@ class _RenameBranchDialogContentState
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            _Label(text: 'Current name'),
+            _Label(text: '目前名稱'),
             const SizedBox(height: GbmSpacing.space1),
             Row(
               children: <Widget>[
@@ -216,13 +217,13 @@ class _RenameBranchDialogContentState
               ],
             ),
             const SizedBox(height: GbmSpacing.space3),
-            _Label(text: 'New name'),
+            _Label(text: '新名稱'),
             const SizedBox(height: GbmSpacing.space1),
             TextField(
               controller: _nameController,
               autofocus: true,
               decoration: InputDecoration(
-                hintText: 'New branch name',
+                hintText: '新的分支名稱',
                 isDense: true,
                 border: const OutlineInputBorder(),
                 errorText: error,
@@ -253,7 +254,7 @@ class _RenameBranchDialogContentState
                   ),
                   const SizedBox(width: GbmSpacing.space1),
                   Text(
-                    'Available — no branch by that name.',
+                    '可以使用 — 沒有同名的分支。',
                     style: TextStyle(
                       fontSize: GbmTypography.textXs,
                       color: colors.success,
@@ -264,37 +265,40 @@ class _RenameBranchDialogContentState
             ],
             if (hasUpstream) ...<Widget>[
               const SizedBox(height: GbmSpacing.space3),
-              _Label(text: 'Remote handling'),
+              // P13-A mock 第 3 項標籤，逐字引用。
+              _Label(text: '遠端連帶處理'),
               RadioGroup<RenameRemoteMode>(
                 groupValue: _remoteMode,
                 onChanged: (RenameRemoteMode? mode) =>
                     setState(() => _remoteMode = mode ?? _remoteMode),
                 child: Column(
                   children: <Widget>[
+                    // P13-A mock 的兩個 radio 選項，逐字引用（説明欄的
+                    // $remote/$remoteBranch 沿用 mock 的
+                    // 「origin/feature/lane-allocator」格式）。
                     _RemoteOption(
                       mode: RenameRemoteMode.alsoRenameRemote,
-                      label: 'Rename the branch on $remote too',
-                      description:
-                          'Pushes the new name, then deletes $remoteBranch on $remote.',
+                      label: '一併更名遠端分支',
+                      description: 'push 新名稱，再刪除 $remote/$remoteBranch',
                     ),
                     _RemoteOption(
                       mode: RenameRemoteMode.localOnly,
-                      label: 'Rename locally, keep $remoteBranch on $remote',
-                      description:
-                          'The renamed branch will have no upstream — push it '
-                          'with -u when you want one.',
+                      label: '只改本地，保留遠端舊分支',
+                      description: '新分支的 upstream 會清空',
                     ),
                   ],
                 ),
               ),
               const SizedBox(height: GbmSpacing.space2),
               _Warning(
+                // renameRemote 時引用 P13-A mock 第 4 項警語；未勾選時是
+                // RENAMEVALID row 4 的 hint。兩者都附上 ahead 數字，比照
+                // delete-branch 對話框「永遠顯示實際數字」的既有作法。
                 text: renameRemote
-                    ? 'Renaming on the remote is a delete plus a push: everyone '
-                          "else's remote-tracking branch for $remoteBranch becomes "
-                          'gone. ${_aheadPhrase(branch)}'
-                    : 'The renamed branch will not have an upstream — you will '
-                          'need to push it with -u again. ${_aheadPhrase(branch)}',
+                    ? '遠端更名 = delete + push，其他人的 tracking branch 會變成 '
+                          'gone。${_aheadPhrase(branch)}'
+                    : '新分支不會有 upstream，之後需重新 push -u。'
+                          '${_aheadPhrase(branch)}',
               ),
             ],
           ],
@@ -307,8 +311,8 @@ class _RenameBranchDialogContentState
   /// exactly that -- spec page 02 item 11's "永遠顯示實際數字" applies here
   /// the same way it does in the delete-branch dialog.
   static String _aheadPhrase(RefInfo branch) => branch.ahead > 0
-      ? 'This branch has ${branch.ahead} commit(s) not yet pushed.'
-      : 'This branch has no unpushed commits.';
+      ? '此分支目前有 ${branch.ahead} 個未 push 的 commit。'
+      : '此分支目前沒有未 push 的 commit。';
 }
 
 class _Label extends StatelessWidget {

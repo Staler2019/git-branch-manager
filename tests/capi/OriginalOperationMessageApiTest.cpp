@@ -242,7 +242,7 @@ TEST_F(OriginalOperationMessageApiTest, CherryPickContinueWithMessageUsesTheEdit
 TEST_F(OriginalOperationMessageApiTest, RebaseContinueWithMessageUsesTheEditedMessage) {
     ASSERT_EQ(runGit({"checkout", "--quiet", "branchA"}), 0);
 
-    gbm_rebase_start(session_, "main", "", /*stashFirst=*/0);
+    gbm_rebase_start(session_, "main", "", /*stashFirst=*/0, /*rebaseMerges=*/0, /*autosquash=*/0);
     ASSERT_TRUE(waitForOperationFinished(log_));
 
     resolveConflictOnDisk();

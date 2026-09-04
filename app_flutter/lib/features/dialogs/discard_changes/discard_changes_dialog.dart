@@ -35,6 +35,12 @@ import 'discard_changes_request.dart';
 /// mode but could not be parsed into one ([DiscardChangesRequest.isMalformed])
 /// gets no destructive button at all -- see that class for why falling back
 /// to whole-file mode would be the wrong answer.
+///
+/// Whole-file mode's `DLGS` entry ("Discard changes") also notes: 「主按鈕寫出
+/// 實際數量；兩個檔案以下改成寫檔名」-- at 1-2 files the primary button names
+/// the file(s) rather than a count, which [_dangerLabel] implements. The
+/// 2-file join format is not itself specced; joining with ", " is this
+/// dialog's own reading of it, not a quoted value.
 class DiscardChangesDialogContent extends ConsumerWidget {
   const DiscardChangesDialogContent({
     super.key,
@@ -46,6 +52,22 @@ class DiscardChangesDialogContent extends ConsumerWidget {
   final DiscardChangesRequest request;
 
   List<String> get _paths => request.paths;
+
+  /// `DLGS`'s note for whole-file mode: the primary button writes the actual
+  /// count, except at 1-2 files where it names the file(s) instead.
+  String _dangerLabel(int lineCount, List<String> restorable) {
+    if (request.isLineMode) {
+      return lineCount == 1 ? 'Discard line' : 'Discard $lineCount lines';
+    }
+    switch (restorable.length) {
+      case 1:
+        return 'Discard ${restorable.single.split('/').last}';
+      case 2:
+        return 'Discard ${restorable.map((String p) => p.split('/').last).join(', ')}';
+      default:
+        return 'Discard ${restorable.length} files';
+    }
+  }
 
   /// Untracked files are not restorable from the index -- `git restore`
   /// leaves them alone. They are called out separately so the dialog does
@@ -89,12 +111,7 @@ class DiscardChangesDialogContent extends ConsumerWidget {
           GbmButton(label: 'Cancel', onPressed: () => context.pop()),
           const SizedBox(width: GbmSpacing.space2),
           GbmButton(
-            label: switch ((isLineMode, restorable.length)) {
-              (true, _) =>
-                lineCount == 1 ? 'Discard line' : 'Discard $lineCount lines',
-              (false, 1) => 'Discard changes',
-              (false, final int n) => 'Discard $n files',
-            },
+            label: _dangerLabel(lineCount, restorable),
             kind: GbmButtonKind.danger,
             onPressed: restorable.isEmpty
                 ? null
@@ -116,85 +133,90 @@ class DiscardChangesDialogContent extends ConsumerWidget {
           ),
         ],
       ],
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(
-            switch ((request.isMalformed, isLineMode)) {
-              // "reverted", not "removed": a discarded `-` line is one the
-              // working copy deleted, so discarding it puts the line back.
-              (false, true) =>
-                'These $lineCount line(s) will be reverted in the working '
-                    'copy of this file. The rest of the file, and the staged '
-                    'contents, are left alone:',
-              (false, false) =>
-                'The uncommitted changes in these files will be replaced '
-                    'with their staged contents:',
-              (true, _) =>
-                'This link asked to discard specific lines, but its line '
-                    'selection is incomplete, so it cannot be carried out. '
-                    'Nothing has been changed. Reopen the menu from the diff '
-                    'to try again. The request named:',
-            },
-            style: TextStyle(
-              fontSize: GbmTypography.textSm,
-              color: colors.textPrimary,
-              height: GbmTypography.leadingNormal,
-            ),
-          ),
-          const SizedBox(height: GbmSpacing.space2),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 200),
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  for (final String path in restorable)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: GbmSpacing.space1),
-                      child: Text(
-                        path,
-                        style: TextStyle(
-                          fontFamily: GbmTypography.fontMono,
-                          fontSize: GbmTypography.textXs,
-                          color: colors.textSecondary,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-          if (untracked.isNotEmpty) ...<Widget>[
-            const SizedBox(height: GbmSpacing.space2),
+      // Scrollable, like Rebase onto's and Checkout's: the untracked-files
+      // note plus the irreversibility warning can push this past
+      // GbmDialogShell's height cap, and every child here is non-flex
+      // ([FLU-renderflex-non-flex-first]).
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
             Text(
-              '${untracked.length} selected file(s) are untracked and will be '
-              'left alone — use Clean untracked files to remove those.',
-              style: TextStyle(
-                fontSize: GbmTypography.textXs,
-                color: colors.warning,
-                height: GbmTypography.leadingNormal,
-              ),
-            ),
-          ],
-          // Omitted when malformed -- nothing is about to happen, so the
-          // irreversibility warning would be describing an action the
-          // dialog is refusing to offer.
-          if (!request.isMalformed) ...<Widget>[
-            const SizedBox(height: GbmSpacing.space2),
-            Text(
-              'This cannot be undone. Discarded changes are not recoverable '
-              'from the reflog or the stash.',
+              switch ((request.isMalformed, isLineMode)) {
+                // "復原"，不是「移除」：discard 的 `-` 行是工作區刪掉的行，
+                // discard 之後這行會回來。
+                (false, true) =>
+                  '這 $lineCount 行將在此檔的工作區中復原。檔案其餘部分與已 '
+                      'stage 的內容不受影響：',
+                // DLGS 的 list 標籤，逐字引用。
+                (false, false) => '丟掉這些變更：',
+                (true, _) =>
+                  '這個連結要求丟掉指定的行，但所選的行不完整，無法執行。'
+                      '內容未被更動。請從 diff 重新開啟選單再試一次。'
+                      '原始請求指定的檔案：',
+              },
               style: TextStyle(
                 fontSize: GbmTypography.textSm,
-                fontWeight: GbmTypography.weightSemibold,
-                color: colors.danger,
+                color: colors.textPrimary,
                 height: GbmTypography.leadingNormal,
               ),
             ),
+            const SizedBox(height: GbmSpacing.space2),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 200),
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    for (final String path in restorable)
+                      Padding(
+                        padding: const EdgeInsets.only(
+                          bottom: GbmSpacing.space1,
+                        ),
+                        child: Text(
+                          path,
+                          style: TextStyle(
+                            fontFamily: GbmTypography.fontMono,
+                            fontSize: GbmTypography.textXs,
+                            color: colors.textSecondary,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            if (untracked.isNotEmpty) ...<Widget>[
+              const SizedBox(height: GbmSpacing.space2),
+              Text(
+                '${untracked.length} 個選取的檔案是未追蹤，將維持不變 — '
+                '如需移除請用 Clean untracked files。',
+                style: TextStyle(
+                  fontSize: GbmTypography.textXs,
+                  color: colors.warning,
+                  height: GbmTypography.leadingNormal,
+                ),
+              ),
+            ],
+            // Omitted when malformed -- nothing is about to happen, so the
+            // irreversibility warning would be describing an action the
+            // dialog is refusing to offer.
+            if (!request.isMalformed) ...<Widget>[
+              const SizedBox(height: GbmSpacing.space2),
+              Text(
+                // DLGS 的 warn 欄位，逐字引用。
+                '這些變更不進 stash、也不在 reflog，丟掉就沒了。',
+                style: TextStyle(
+                  fontSize: GbmTypography.textSm,
+                  fontWeight: GbmTypography.weightSemibold,
+                  color: colors.danger,
+                  height: GbmTypography.leadingNormal,
+                ),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }

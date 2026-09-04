@@ -136,7 +136,20 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
     if (widget.spec.defaultExtent != null) {
       // Extent mode: stored should be [extentPx] or null
       if (stored != null && stored.length == 1) {
-        _currentFlexes = stored;
+        // Clamp a stored extent up to the spec's current minimum. Raising a
+        // minExtent otherwise does nothing for the users it is for: a drag
+        // clamps to the minimum in force *at the time*, so a value persisted
+        // under the old, lower minimum survives every restart untouched.
+        //
+        // This belongs here and not in [_clampedFixedExtent], which runs on
+        // every build: clamping there would force a `collapsedByDefault`
+        // drawer back open to minExtent on every frame. The `> 0` guard is
+        // the same distinction -- an explicit collapse is a user decision,
+        // not a value below the minimum to be repaired, and 0 is the only
+        // sub-minimum value any other path can produce.
+        _currentFlexes = stored[0] > 0
+            ? <double>[math.max(stored[0], widget.spec.minExtent)]
+            : stored;
       } else {
         // collapsedByDefault: if no stored value and collapsedByDefault is true,
         // start with extent 0; otherwise use defaultExtent

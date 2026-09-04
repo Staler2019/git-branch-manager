@@ -32,21 +32,17 @@ import '../../support/fake_repo_session.dart';
 
 final RepoIdentity _identity = RepoIdentity.forWorkDir('/test/repo');
 
-Map<String, dynamic> _failedOutcome({
-  required String kind,
-  String label = 'Stash changes and switch',
-}) => <String, dynamic>{
-  'succeeded': false,
-  'kind': kind,
-  'choices': <Map<String, dynamic>>[
+Map<String, dynamic> _failedOutcome({required String kind}) =>
     <String, dynamic>{
-      'kind': OperationChoiceKind.stashAndRetry.index,
-      'label': label,
-      'explanation': 'explanation',
-      'destructive': false,
-    },
-  ],
-};
+      'succeeded': false,
+      'kind': kind,
+      'choices': <Map<String, dynamic>>[
+        <String, dynamic>{
+          'kind': OperationChoiceKind.stashAndRetry.index,
+          'destructive': false,
+        },
+      ],
+    };
 
 Map<String, dynamic> _succeededOutcome({required String kind}) =>
     <String, dynamic>{'succeeded': true, 'kind': kind};
@@ -140,8 +136,8 @@ void main() {
 
       expect(fake.state.checkoutChoices, hasLength(1));
       expect(
-        fake.state.checkoutChoices.single.label,
-        'Stash changes and switch',
+        fake.state.checkoutChoices.single.kind,
+        OperationChoiceKind.stashAndRetry,
       );
     });
 
@@ -152,12 +148,13 @@ void main() {
       );
       fake.debugRecordDeleteBranch(names: const <String>['gone']);
 
-      fake.debugHandleOperationOutcome(
-        _failedOutcome(kind: 'delete-branch', label: 'Force delete'),
-      );
+      fake.debugHandleOperationOutcome(_failedOutcome(kind: 'delete-branch'));
 
       expect(fake.state.deleteBranchChoices, hasLength(1));
-      expect(fake.state.deleteBranchChoices.single.label, 'Force delete');
+      expect(
+        fake.state.deleteBranchChoices.single.kind,
+        OperationChoiceKind.stashAndRetry,
+      );
     });
 
     test(
@@ -173,21 +170,84 @@ void main() {
         // deleteBranch's outcome arrives first even though checkout was
         // requested first -- exactly the interleaving that broke the old
         // two-boolean design.
-        fake.debugHandleOperationOutcome(
-          _failedOutcome(kind: 'delete-branch', label: 'Force delete'),
-        );
+        fake.debugHandleOperationOutcome(_failedOutcome(kind: 'delete-branch'));
         expect(fake.state.deleteBranchChoices, hasLength(1));
         expect(fake.state.checkoutChoices, isEmpty);
 
-        fake.debugHandleOperationOutcome(
-          _failedOutcome(kind: 'checkout', label: 'Stash changes and switch'),
-        );
+        fake.debugHandleOperationOutcome(_failedOutcome(kind: 'checkout'));
         expect(fake.state.checkoutChoices, hasLength(1));
         // deleteBranchChoices must still hold its own outcome, untouched by
         // the later checkout outcome.
         expect(fake.state.deleteBranchChoices, hasLength(1));
       },
     );
+
+    // Pins the coupling `dialog_copy_test.dart`'s "lock/sequencer refusal"
+    // widget test assumes without being able to see it: that test seeds
+    // checkoutChoices and lastError by hand, so it cannot tell whether the
+    // real reducer ever actually publishes both for one preflight-shaped
+    // failure. This drives the real _handleOperationOutcome (via
+    // debugRecordCheckout/debugHandleOperationOutcome) with a payload shaped
+    // exactly like OperationRunner::preflight()'s index.lock refusal --
+    // retry + removeLock choices, no stashAndRetry/forceDiscard, plus a
+    // full `error` map (OperationRunner.cpp:69-72 sets outcome.error to a
+    // real GitError on this path -- this was wrongly written here as "no
+    // formal GitError, falls back to summary" and corrected in place per
+    // CLAUDE.md's standing rule 4: a `summary`-only payload would have
+    // exercised _errorFromOutcomePayload's *fallback* branch instead of the
+    // one preflight's index.lock refusal actually takes) -- and checks both
+    // fields land. If a future change ever set one without the other, every
+    // dialog-level widget test would stay green regardless, because none of
+    // them drives this reducer.
+    test('a preflight-shaped ("retry"/"removeLock" choices, GitError.LockHeld) '
+        'outcome populates checkoutChoices and lastError together', () {
+      final fake = FakeRepoSessionController(
+        _identity,
+        const RepoSessionState(),
+      );
+      fake.debugRecordCheckout(target: 'feature');
+
+      fake.debugHandleOperationOutcome(<String, dynamic>{
+        'succeeded': false,
+        'kind': 'checkout',
+        'summary':
+            'Another Git process appears to be running in this '
+            'repository',
+        'error': <String, dynamic>{
+          'code': 4, // GitError::Code::LockHeld's ordinal
+          'codeName': 'LockHeld',
+          'message':
+              'Another Git process appears to be running in this '
+              'repository',
+          'detail': 'Lock file: .git/index.lock',
+          'argv': <String>[],
+          'exitCode': -1,
+        },
+        'choices': <Map<String, dynamic>>[
+          <String, dynamic>{
+            'kind': OperationChoiceKind.retry.index,
+            'destructive': false,
+          },
+          <String, dynamic>{
+            'kind': OperationChoiceKind.removeLock.index,
+            'destructive': true,
+          },
+        ],
+      });
+
+      expect(fake.state.checkoutChoices, hasLength(2));
+      expect(
+        fake.state.checkoutChoices.map((c) => c.kind),
+        containsAll(<OperationChoiceKind>[
+          OperationChoiceKind.retry,
+          OperationChoiceKind.removeLock,
+        ]),
+      );
+      expect(
+        fake.state.lastError?.message,
+        'Another Git process appears to be running in this repository',
+      );
+    });
   });
 
   group(
@@ -261,6 +321,92 @@ void main() {
           expect(controller.calls, isEmpty);
         },
       );
+
+      test("retryCheckoutWithChoice's retry case resubmits the request "
+          'unmodified -- no stashFirst/force flag', () {
+        final controller = _RecordingRepoSessionController(
+          _identity,
+          const RepoSessionState(),
+        );
+        controller.debugRecordCheckout(target: 'retry-target');
+        controller.debugHandleOperationOutcome(
+          _failedOutcome(kind: 'checkout'),
+        );
+
+        controller.retryCheckoutWithChoice(OperationChoiceKind.retry);
+
+        expect(controller.state.checkoutChoices, isEmpty);
+        expect(controller.calls, hasLength(1));
+        expect(controller.calls.single.name, 'checkout');
+        expect(controller.calls.single.args['target'], 'retry-target');
+        expect(controller.calls.single.args['force'], false);
+        expect(controller.calls.single.args['stashFirst'], false);
+      });
+
+      test("retryCheckoutWithChoice's removeLock case attempts lock removal "
+          '(a no-op here -- FakeGbmBindings never opens a real session, so '
+          "_removeStaleIndexLock()'s own null-session guard short-circuits "
+          "before reaching the binding) then resubmits unmodified, exactly "
+          'like the retry case above', () {
+        final controller = _RecordingRepoSessionController(
+          _identity,
+          const RepoSessionState(),
+        );
+        controller.debugRecordCheckout(target: 'retry-target');
+        controller.debugHandleOperationOutcome(
+          _failedOutcome(kind: 'checkout'),
+        );
+
+        controller.retryCheckoutWithChoice(OperationChoiceKind.removeLock);
+
+        expect(controller.state.checkoutChoices, isEmpty);
+        expect(controller.calls, hasLength(1));
+        expect(controller.calls.single.name, 'checkout');
+        expect(controller.calls.single.args['target'], 'retry-target');
+        expect(controller.calls.single.args['force'], false);
+        expect(controller.calls.single.args['stashFirst'], false);
+      });
+
+      test("retryDeleteBranchWithChoice's retry case resubmits the request "
+          'unmodified -- no force flag', () {
+        final controller = _RecordingRepoSessionController(
+          _identity,
+          const RepoSessionState(),
+        );
+        controller.debugRecordDeleteBranch(names: const <String>['gone']);
+        controller.debugHandleOperationOutcome(
+          _failedOutcome(kind: 'delete-branch'),
+        );
+
+        controller.retryDeleteBranchWithChoice(OperationChoiceKind.retry);
+
+        expect(controller.state.deleteBranchChoices, isEmpty);
+        expect(controller.calls, hasLength(1));
+        expect(controller.calls.single.name, 'deleteBranch');
+        expect(controller.calls.single.args['names'], <String>['gone']);
+        expect(controller.calls.single.args['force'], false);
+      });
+
+      test("retryDeleteBranchWithChoice's removeLock case attempts lock "
+          'removal then resubmits unmodified, exactly like the retry case '
+          'above', () {
+        final controller = _RecordingRepoSessionController(
+          _identity,
+          const RepoSessionState(),
+        );
+        controller.debugRecordDeleteBranch(names: const <String>['gone']);
+        controller.debugHandleOperationOutcome(
+          _failedOutcome(kind: 'delete-branch'),
+        );
+
+        controller.retryDeleteBranchWithChoice(OperationChoiceKind.removeLock);
+
+        expect(controller.state.deleteBranchChoices, isEmpty);
+        expect(controller.calls, hasLength(1));
+        expect(controller.calls.single.name, 'deleteBranch');
+        expect(controller.calls.single.args['names'], <String>['gone']);
+        expect(controller.calls.single.args['force'], false);
+      });
 
       test('a successful outcome clears the retained failed request', () {
         final controller = _RecordingRepoSessionController(

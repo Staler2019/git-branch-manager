@@ -93,8 +93,8 @@ class _ForcePushDialogContentState
         children: <Widget>[
           Text(
             upstream.isEmpty
-                ? '$branch has diverged from its upstream.'
-                : '$branch has diverged from $upstream.',
+                ? '$branch 已經和 upstream 分岔。'
+                : '$branch 已經和 $upstream 分岔。',
             style: TextStyle(
               fontSize: GbmTypography.textSm,
               color: colors.textPrimary,
@@ -103,8 +103,7 @@ class _ForcePushDialogContentState
           const SizedBox(height: GbmSpacing.space2),
           if (overwritten > 0)
             Text(
-              '$overwritten commit(s) currently on the remote will be '
-              'overwritten and will no longer be reachable there.',
+              '遠端目前有 $overwritten 個 commit 會被覆蓋，之後在那裡就找不到了。',
               style: TextStyle(
                 fontSize: GbmTypography.textSm,
                 color: colors.danger,
@@ -113,7 +112,7 @@ class _ForcePushDialogContentState
             )
           else
             Text(
-              'No remote commits will be overwritten.',
+              '不會覆蓋遠端的任何 commit。',
               style: TextStyle(
                 fontSize: GbmTypography.textSm,
                 color: colors.textSecondary,
@@ -121,7 +120,7 @@ class _ForcePushDialogContentState
             ),
           const SizedBox(height: GbmSpacing.space1),
           Text(
-            '$pushing local commit(s) will be pushed.',
+            '會推送 $pushing 個本地 commit。',
             style: TextStyle(
               fontSize: GbmTypography.textXs,
               color: colors.textSecondary,
@@ -129,9 +128,8 @@ class _ForcePushDialogContentState
           ),
           const SizedBox(height: GbmSpacing.space2),
           Text(
-            'Pushed with --force-with-lease: if the remote changed again '
-            'since these numbers were read, the push is refused rather than '
-            'overwriting work not listed here.',
+            '使用 --force-with-lease 推送：如果讀到這些數字之後遠端又有新變動，'
+            '這次推送會被拒絕，而不是覆蓋掉沒列在這裡的工作。',
             style: TextStyle(
               fontSize: GbmTypography.textXs,
               color: colors.textTertiary,
@@ -145,14 +143,14 @@ class _ForcePushDialogContentState
             contentPadding: EdgeInsets.zero,
             controlAffinity: ListTileControlAffinity.leading,
             title: Text(
-              'Do not ask again',
+              '不要再問',
               style: TextStyle(
                 fontSize: GbmTypography.textSm,
                 color: colors.textPrimary,
               ),
             ),
             subtitle: Text(
-              'Re-enable under Preferences → Advanced.',
+              '可在 Preferences → Advanced 重新開啟。',
               style: TextStyle(
                 fontSize: GbmTypography.textXs,
                 color: colors.textTertiary,

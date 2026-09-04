@@ -387,31 +387,16 @@ std::vector<const WorkingCopyEntry*> WorkingCopyStatus::conflicted() const {
 WorkingCopyStatusReader::WorkingCopyStatusReader(IProcessRunner& runner, RepoPaths paths)
     : runner_(runner), paths_(std::move(paths)) {}
 
-GitResult<WorkingCopyStatusPtr> WorkingCopyStatusReader::read(CancellationToken token) {
-    GBM_ASSERT_NOT_UI_THREAD();
-
-    // No --branch: ahead/behind and the current branch name are RefStore's job
-    // already, via %(upstream:track) in a single for-each-ref call. Asking for
-    // both here would mean two sources of truth for the same numbers.
-    std::vector<std::string> args{
-        "status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignore-submodules=none"};
-    GitCommand command(paths_.commandDir(), std::move(args));
-    command.timeout = std::chrono::seconds(120);
-
-    // Deliberately uncached -- see the class comment.
-    std::vector<std::string> records;
-    const LineSink sink = [&records](std::string_view record) {
-        records.emplace_back(record);
-        return true;
-    };
-
-    auto result =
-        runner_.streamSeparated(command, IProcessRunner::Separator::Nul, sink, nullptr, token);
-    if (!result) {
-        return fail(std::move(result).error());
-    }
-
-    auto status = std::make_shared<WorkingCopyStatus>();
+/// Parses `git status --porcelain=v2 -z` records into entries.
+///
+/// Extracted from `WorkingCopyStatusReader::read()` so the per-worktree
+/// pending-change count can reuse it instead of writing a second parser
+/// ([CULT-single-source-of-truth]). The subtlety worth reusing is that a
+/// rename ('2') spends **two** NUL records where every other kind spends one,
+/// so anything that counts records rather than parsing them is silently wrong
+/// from the first rename onwards.
+std::vector<WorkingCopyEntry> parsePorcelainV2Records(const std::vector<std::string>& records) {
+    std::vector<WorkingCopyEntry> entries;
     for (std::size_t i = 0; i < records.size();) {
         const std::string_view record = records[i];
         if (record.empty()) {
@@ -455,7 +440,7 @@ GitResult<WorkingCopyStatusPtr> WorkingCopyStatusReader::read(CancellationToken 
                     ++i;
                 }
             }
-            status->entries.push_back(std::move(entry));
+            entries.push_back(std::move(entry));
             ++i;
             continue;
         }
@@ -477,7 +462,7 @@ GitResult<WorkingCopyStatusPtr> WorkingCopyStatusReader::read(CancellationToken 
             entry.ancestorBlob = blobOrEmpty(fields[7]);
             entry.oursBlob = blobOrEmpty(fields[8]);
             entry.theirsBlob = blobOrEmpty(fields[9]);
-            status->entries.push_back(std::move(entry));
+            entries.push_back(std::move(entry));
             ++i;
             continue;
         }
@@ -487,7 +472,7 @@ GitResult<WorkingCopyStatusPtr> WorkingCopyStatusReader::read(CancellationToken 
             WorkingCopyEntry entry;
             entry.path = record.size() > 2 ? std::string(record.substr(2)) : std::string();
             entry.untracked = true;
-            status->entries.push_back(std::move(entry));
+            entries.push_back(std::move(entry));
             ++i;
             continue;
         }
@@ -496,6 +481,36 @@ GitResult<WorkingCopyStatusPtr> WorkingCopyStatusReader::read(CancellationToken 
         // anything else unrecognised: skip rather than guess.
         ++i;
     }
+
+    return entries;
+}
+
+GitResult<WorkingCopyStatusPtr> WorkingCopyStatusReader::read(CancellationToken token) {
+    GBM_ASSERT_NOT_UI_THREAD();
+
+    // No --branch: ahead/behind and the current branch name are RefStore's job
+    // already, via %(upstream:track) in a single for-each-ref call. Asking for
+    // both here would mean two sources of truth for the same numbers.
+    std::vector<std::string> args{
+        "status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignore-submodules=none"};
+    GitCommand command(paths_.commandDir(), std::move(args));
+    command.timeout = std::chrono::seconds(120);
+
+    // Deliberately uncached -- see the class comment.
+    std::vector<std::string> records;
+    const LineSink sink = [&records](std::string_view record) {
+        records.emplace_back(record);
+        return true;
+    };
+
+    auto result =
+        runner_.streamSeparated(command, IProcessRunner::Separator::Nul, sink, nullptr, token);
+    if (!result) {
+        return fail(std::move(result).error());
+    }
+
+    auto status = std::make_shared<WorkingCopyStatus>();
+    status->entries = parsePorcelainV2Records(records);
 
     // The line counts spec page 03's badges need. Both numstat passes run even
     // when one side is empty -- deciding from the status flags which pass to

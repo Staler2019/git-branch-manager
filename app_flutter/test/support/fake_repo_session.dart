@@ -289,6 +289,29 @@ class FakeRepoSessionController extends RepoSessionController {
     commandLog.add(const FakeCommand('continueRebase'));
   }
 
+  // Recorded, not left to the null-session guard: rebase_onto_dialog.dart's
+  // rebaseMerges/autosquash checkboxes dispatch through this, and an
+  // unoverridden method no-ops silently -- a test could not tell "closed
+  // [DRIFT-rebase-onto-missing-capi-flags]" from "wired to nothing".
+  @override
+  void startRebase(
+    String upstream, {
+    String onto = '',
+    bool stashFirst = false,
+    bool rebaseMerges = false,
+    bool autosquash = false,
+  }) {
+    commandLog.add(
+      FakeCommand('startRebase', <String, Object?>{
+        'upstream': upstream,
+        'onto': onto,
+        'stashFirst': stashFirst,
+        'rebaseMerges': rebaseMerges,
+        'autosquash': autosquash,
+      }),
+    );
+  }
+
   @override
   void abortRebase() {
     abortRebaseCalled = true;
@@ -391,6 +414,87 @@ class FakeRepoSessionController extends RepoSessionController {
     commandLog.add(const FakeCommand('refreshWorktrees'));
   }
 
+  /// Recorded for the same reason [createBranch] above is: unoverridden this
+  /// hits the real null-session guard and logs nothing, so the Add worktree
+  /// dialog's submit path -- three different git operations depending on
+  /// [branch]/[createBranch] -- would be untestable.
+  @override
+  void addWorktree(
+    String path, {
+    String branch = '',
+    bool createBranch = false,
+    String newBranchName = '',
+    bool detach = false,
+    bool force = false,
+  }) {
+    commandLog.add(
+      FakeCommand('addWorktree', <String, Object?>{
+        'path': path,
+        'branch': branch,
+        'createBranch': createBranch,
+        'newBranchName': newBranchName,
+        'detach': detach,
+        'force': force,
+      }),
+    );
+  }
+
+  /// Recorded because the panel's Remove button is otherwise untestable:
+  /// unoverridden this returns at the null-session guard and logs nothing,
+  /// so a test could not tell a dead button from a live one. The assertion
+  /// it replaced -- "the button widget still exists after tapping it" -- was
+  /// true whether or not the tap did anything.
+  @override
+  void removeWorktree(String path, {bool force = false}) {
+    commandLog.add(
+      FakeCommand('removeWorktree', <String, Object?>{
+        'path': path,
+        'force': force,
+      }),
+    );
+  }
+
+  /// Not part of refreshRepoStatus()'s membership -- recorded so that the
+  /// test asserting it is *absent* from the focus sweep is asserting
+  /// something. Unoverridden it would return at the null-session guard and
+  /// log nothing, which makes a 0-count assertion vacuously true forever.
+  @override
+  void requestWorktreePendingCounts() {
+    commandLog.add(const FakeCommand('requestWorktreePendingCounts'));
+  }
+
+  /// Recorded so a test asserting "the typed reason reached the dispatch"
+  /// is asserting something real. `lockWorktree` has taken a `reason` since
+  /// it was written; unoverridden it hits the null-session guard, logs
+  /// nothing, and an assertion on `args['reason']` would be vacuously true
+  /// for any string the dialog typed.
+  @override
+  void lockWorktree(String path, {String reason = ''}) {
+    commandLog.add(
+      FakeCommand('lockWorktree', <String, Object?>{
+        'path': path,
+        'reason': reason,
+      }),
+    );
+  }
+
+  @override
+  void unlockWorktree(String path) {
+    commandLog.add(
+      FakeCommand('unlockWorktree', <String, Object?>{'path': path}),
+    );
+  }
+
+  // Overridden for the reason [TEST-fake-seam-fails-loudly] gives from the
+  // other direction: a method the fake does not override hits the real
+  // controller's own `if (_session == nullptr) return;` and **no-ops
+  // silently**, so a test cannot tell a background prune that fired from one
+  // that never did.
+  @override
+  void pruneWorktrees() {
+    commandLog.add(const FakeCommand('pruneWorktrees'));
+  }
+
   @override
   void refreshRemotes() {
     commandLog.add(const FakeCommand('refreshRemotes'));
@@ -489,6 +593,31 @@ class FakeRepoSessionController extends RepoSessionController {
         'force': force,
         'isRemote': isRemote,
         'remoteName': remoteName,
+      }),
+    );
+  }
+
+  @override
+  void createBranch({
+    required String name,
+    String startPoint = '',
+    bool checkoutAfter = false,
+    bool setUpstream = false,
+    String upstream = '',
+  }) {
+    commandLog.add(
+      FakeCommand('createBranch', <String, Object?>{
+        'name': name,
+        // The start point is the whole of what the New branch dialog's
+        // 從哪裡分出 field decides, and it was invisible on screen for as
+        // long as this method was unoverridden -- an unoverridden one hits
+        // the real null-session guard and logs nothing, so a test could not
+        // tell a dispatched start point from a dropped one
+        // ([TEST-fake-seam-fails-loudly]).
+        'startPoint': startPoint,
+        'checkoutAfter': checkoutAfter,
+        'setUpstream': setUpstream,
+        'upstream': upstream,
       }),
     );
   }
@@ -862,6 +991,35 @@ class FakeRepoSessionController extends RepoSessionController {
   void resetBisect({String target = ''}) {
     commandLog.add(
       FakeCommand('resetBisect', <String, Object?>{'target': target}),
+    );
+  }
+
+  // Compare's two request paths. Without these the base class's
+  // `if (_session == nullptr) return;` swallows them silently
+  // ([TEST-fake-seam-fails-loudly]), so a test could not tell a Compare tab
+  // that never asked for its data from one that did -- which is exactly the
+  // defect `compare_page_tab_switch_test.dart` pins.
+  @override
+  void requestCompareRefs(
+    String leftRef,
+    String rightRef, {
+    bool threeDot = true,
+  }) {
+    commandLog.add(
+      FakeCommand('requestCompareRefs', <String, Object?>{
+        'leftRef': leftRef,
+        'rightRef': rightRef,
+        'threeDot': threeDot,
+      }),
+    );
+  }
+
+  @override
+  void requestCompareWithWorkingCopy(String ref) {
+    commandLog.add(
+      FakeCommand('requestCompareWithWorkingCopy', <String, Object?>{
+        'ref': ref,
+      }),
     );
   }
 

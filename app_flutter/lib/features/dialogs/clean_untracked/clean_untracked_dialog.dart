@@ -7,6 +7,7 @@ import '../../../data/repositories/repo_identity.dart';
 import '../../../data/repositories/repo_session_repository.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
+import '../../../widgets/gbm_banner.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
 
@@ -75,13 +76,18 @@ class _CleanUntrackedDialogContentState
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
+            // The spec states this warning and the app did not say it at all.
+            // 「不進回收筒」 is the part a user cannot infer from the button:
+            // this is `git clean`, so the files leave the disk outright.
+            const GbmWarningBanner(message: '這是 git clean，直接從磁碟刪檔，不進回收筒。'),
+            const SizedBox(height: GbmSpacing.space2),
             CheckboxListTile(
               value: _includeIgnored,
               dense: true,
               contentPadding: EdgeInsets.zero,
               controlAffinity: ListTileControlAffinity.leading,
               title: Text(
-                'Also remove ignored files',
+                '包含被 gitignore 忽略的檔案（-x）',
                 style: TextStyle(
                   fontSize: GbmTypography.textSm,
                   color: colors.textPrimary,
@@ -97,7 +103,7 @@ class _CleanUntrackedDialogContentState
               child: preview.isEmpty
                   ? Center(
                       child: Text(
-                        'Nothing to clean',
+                        '沒有可清除的檔案',
                         style: TextStyle(color: colors.textTertiary),
                       ),
                     )

@@ -79,7 +79,7 @@ class _ResetBranchDialogContentState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
-            'Reset to',
+            '重設到',
             style: TextStyle(
               fontSize: GbmTypography.textSm,
               color: colors.textSecondary,
@@ -89,7 +89,7 @@ class _ResetBranchDialogContentState
           TextField(
             controller: _targetController,
             decoration: const InputDecoration(
-              hintText: 'Branch, tag, or commit',
+              hintText: 'branch、tag 或 commit',
               isDense: true,
               border: OutlineInputBorder(),
             ),
@@ -102,21 +102,18 @@ class _ResetBranchDialogContentState
               children: <Widget>[
                 _ModeOption(
                   mode: ResetMode.soft,
-                  label: 'Soft',
-                  description:
-                      'Move HEAD only; keep the index and work tree as they are.',
+                  label: 'Soft — 保留檔案與 stage',
+                  description: '只移動 HEAD，index 與工作區都不動。',
                 ),
                 _ModeOption(
                   mode: ResetMode.mixed,
-                  label: 'Mixed',
-                  description:
-                      'Move HEAD and reset the index; keep the work tree.',
+                  label: 'Mixed — 保留檔案，取消 stage',
+                  description: '移動 HEAD 並重設 index，工作區不動。',
                 ),
                 _ModeOption(
                   mode: ResetMode.hard,
-                  label: 'Hard',
-                  description:
-                      'Move HEAD and overwrite the index and work tree -- discards uncommitted changes.',
+                  label: 'Hard — 丟掉檔案變更',
+                  description: '移動 HEAD 並覆蓋 index 與工作區，未提交的變更會消失。',
                 ),
               ],
             ),

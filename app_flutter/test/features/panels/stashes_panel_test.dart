@@ -13,7 +13,10 @@ import 'package:gbm_flutter/data/models/parsed_diff.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/data/models/stash_entry.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
+import 'package:flutter/material.dart';
 import 'package:gbm_flutter/features/panels/panel_file_diff_detail.dart';
+import 'package:gbm_flutter/features/panels/panel_filter_field.dart';
+import 'package:gbm_flutter/features/panels/panel_widgets.dart';
 import 'package:gbm_flutter/features/panels/stashes_panel.dart';
 
 import '../../support/fake_repo_session.dart';
@@ -72,19 +75,60 @@ Future<PumpedPanel> _pump(
 
 void main() {
   group('StashesPanel (spec P19 PANELSPEC)', () {
-    testWidgets('the toolbar carries PANELSPEC\'s four actions', (
+    // The same seven template facts every P19 panel states, through the
+    // shared assertion. `Drop` is the one PANELSPEC action that is NOT on
+    // the toolbar: rule 2 sends 破壞性動作 to the detail action row, and the
+    // boundary this repo draws is 「毀掉使用者拿不回來的東西」 -- `Pop`
+    // deletes the stash too, but only after applying it to the work tree,
+    // and the ref survives in the stash reflog, so it stays in maintenance.
+    testWidgets(
+      'the toolbar carries rule 2\'s segments, and no danger action',
+      (tester) async {
+        await _pump(tester);
+
+        expectPanelTemplate(
+          tester,
+          primary: const <String>['Create…'],
+          maintenance: const <String>['Apply', 'Pop'],
+          notOnToolbar: const <String>['Drop'],
+          listHeader: 'Stashes · 2',
+          statusBar: RegExp(r'^2 stashes$'),
+        );
+      },
+    );
+
+    testWidgets('Drop sits in the detail action row, against its right edge', (
+      tester,
+    ) async {
+      await _pump(tester, diff: _diffOfStash1);
+      await tester.tap(find.text('stash@{1}: debug logging'));
+      await tester.pumpAndSettle();
+
+      expectDangerPinnedRight(tester, 'Drop');
+    });
+
+    // 「接了卻不篩的 filter 是會說謊的控制項」 -- the predicate, the header
+    // count and the status line's 命中 clause together, the same way the
+    // reference panel states it.
+    testWidgets('the filter narrows the list, the header and the status line', (
       tester,
     ) async {
       await _pump(tester);
+      expect(find.byType(PanelListRow), findsNWidgets(2));
 
-      for (final String label in const <String>[
-        'Apply',
-        'Pop',
-        'Drop',
-        'Create…',
-      ]) {
-        expect(find.text(label), findsOneWidget, reason: label);
-      }
+      await tester.enterText(
+        find.descendant(
+          of: find.byType(PanelFilterField),
+          matching: find.byType(TextField),
+        ),
+        'debug',
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PanelListRow), findsOneWidget);
+      expect(find.text('stash@{1}: debug logging'), findsOneWidget);
+      expect(find.text('Stashes · 1'), findsOneWidget);
+      expect(find.text('2 stashes · 命中 1'), findsOneWidget);
     });
 
     testWidgets('the list shows stash number, message and time per row', (
@@ -130,14 +174,21 @@ void main() {
       expect(find.text('lib/main.dart'), findsOneWidget);
     });
 
-    testWidgets('Apply, Pop and Drop are disabled with nothing selected', (
+    // Drop is now *absent* rather than disabled with nothing selected, and
+    // that is rule 4 rather than a regression: the action row lives at the
+    // bottom of the detail column, and with no stash selected there is no
+    // detail to put it under. Stated as `findsNothing` rather than as a null
+    // `onPressed`, because those are different claims and only one of them
+    // is true now ([FLU-menu-enabled-is-visual-only] is about a *rendered*
+    // control that must say it is unavailable; this one is not rendered).
+    testWidgets('Apply and Pop are disabled with nothing selected', (
       tester,
     ) async {
       await _pump(tester);
 
       expect(panelButton(tester, 'Apply').onPressed, isNull);
       expect(panelButton(tester, 'Pop').onPressed, isNull);
-      expect(panelButton(tester, 'Drop').onPressed, isNull);
+      expect(find.text('Drop'), findsNothing);
       // Create… never depends on a selection -- it makes a new stash.
       expect(panelButton(tester, 'Create…').onPressed, isNotNull);
     });
@@ -158,8 +209,9 @@ void main() {
       );
       expect(drop.args['index'], 1);
       // Dropping shifts every higher index down, so the selection must
-      // clear rather than silently point at a different stash.
-      expect(panelButton(tester, 'Drop').onPressed, isNull);
+      // clear rather than silently point at a different stash -- and with
+      // the selection gone the whole detail action row goes with it.
+      expect(find.text('Drop'), findsNothing);
     });
 
     // The sidebar's 05-H "View diff" opens this panel with ?select=N, and
@@ -202,7 +254,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(panelButton(tester, 'Apply').onPressed, isNull);
-      expect(panelButton(tester, 'Drop').onPressed, isNull);
+      expect(find.text('Drop'), findsNothing);
     });
 
     testWidgets('an empty repository shows an empty-list message', (

@@ -85,7 +85,7 @@ class _CherryPickDialogContentState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
-            'Commit hashes (oldest first, space or newline separated)',
+            '套用這些 commit（依序）',
             style: TextStyle(
               fontSize: GbmTypography.textSm,
               color: colors.textSecondary,
@@ -96,7 +96,7 @@ class _CherryPickDialogContentState
             controller: _commitsController,
             maxLines: 3,
             decoration: const InputDecoration(
-              hintText: 'abc1234 def5678…',
+              hintText: '以空白或換行分隔，舊的在前',
               isDense: true,
               border: OutlineInputBorder(),
             ),
@@ -108,7 +108,7 @@ class _CherryPickDialogContentState
             contentPadding: EdgeInsets.zero,
             controlAffinity: ListTileControlAffinity.leading,
             title: Text(
-              'Do not commit (stage only)',
+              '不自動 commit（-n，套完停在工作區）',
               style: TextStyle(
                 fontSize: GbmTypography.textSm,
                 color: colors.textPrimary,
@@ -122,7 +122,7 @@ class _CherryPickDialogContentState
             contentPadding: EdgeInsets.zero,
             controlAffinity: ListTileControlAffinity.leading,
             title: Text(
-              'Stash uncommitted changes first',
+              '先 stash 未提交的變更',
               style: TextStyle(
                 fontSize: GbmTypography.textSm,
                 color: colors.textPrimary,

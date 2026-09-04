@@ -172,8 +172,9 @@ void main() {
     await pumpRealAppOn(tester, repoPath);
     await _openRenameDialog(tester, _branch);
 
-    // "只改本地，保留遠端舊分支" in spec P13; the app's UI copy is English.
-    await tester.tap(find.textContaining('Rename locally, keep'));
+    // Quoted verbatim from the P13-A mock; G1g made this the app's actual
+    // UI copy (docs/rules/drift-open.md's ledger evidence).
+    await tester.tap(find.textContaining('只改本地，保留遠端舊分支'));
     await tester.pumpAndSettle();
     await _submitRename(tester, 'lane-allocator-v2');
 

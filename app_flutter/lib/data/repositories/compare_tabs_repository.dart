@@ -15,8 +15,19 @@ import 'repo_identity.dart';
 /// [scrollOffset] is stored here rather than left to Flutter's own
 /// PageStorage mechanism because Compare tabs are plain GoRouter routes
 /// (`context.go`), not an always-mounted IndexedStack -- navigating to a
-/// different tab disposes the outgoing page, so anything not persisted
-/// outside the widget tree would reset to zero on every tab switch.
+/// different tab disposes the outgoing page.
+///
+/// **The stronger form of that reason was wrong and is corrected here**
+/// ([CULT-correct-the-record]): it used to say 「anything not persisted
+/// outside the widget tree would reset to zero」, which reads as
+/// 「PageStorage cannot work for a tab」. It can — the management panels do
+/// exactly that, by putting the bucket on `WorkspaceScreen`, which is the
+/// ShellRoute's shell and therefore *is* outside the disposed subtree. What
+/// survives of the reason is the narrower claim: a per-route bucket dies
+/// with its route, so the bucket has to be hoisted deliberately. This field
+/// remains the right choice here because it is also what `restore` reads on
+/// a tab reopened from the spec, which a bucket keyed on a fresh tab id
+/// would not carry.
 @immutable
 class CompareTabSpec {
   const CompareTabSpec({

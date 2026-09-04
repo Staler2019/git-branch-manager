@@ -18,10 +18,11 @@
 // WorkspaceScreen underneath -- with its own branch-filter TextField in
 // SidebarPanel and its own "Cancel"-adjacent labels -- stays mounted behind
 // them, and each recovery dialog's body independently repeats every
-// choice's label as plain text alongside the action-bar button carrying the
-// same label (CheckoutRecoveryDialogContent/DeleteBranchRecoveryDialogContent
-// both render `choice.label` twice: once as a GbmButton, once in the
-// choice-detail list) -- a bare `find.text(...)` is ambiguous either way.
+// non-abort choice's composed label (`recovery_choice_copy.dart`) as plain
+// text alongside the action-bar button carrying the same label
+// (CheckoutRecoveryDialogContent/DeleteBranchRecoveryDialogContent both draw
+// it twice: once as a GbmButton, once in the choice-detail list) -- a bare
+// `find.text(...)` is ambiguous either way.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/operation_choice.dart';
@@ -58,25 +59,16 @@ final List<RouteBase> _interruptDialogRoutes = <RouteBase>[
   ),
 ];
 
-// The real production label (repo_session_repository.dart) -- previously
-// shortened to 'Stash & checkout' to dodge a GbmDialogShell action-row
-// overflow bug (see gbm_dialog_shell_test.dart), now fixed via OverflowBar.
+// The wire carries only `kind`/`destructive` -- both recovery dialogs
+// compose their copy in Dart from `kind` (`recovery_choice_copy.dart`).
+// `_tapActionButton` calls below use those composed labels ("Stash and
+// checkout" / "Delete anyway").
 const List<OperationChoice> _checkoutChoices = <OperationChoice>[
-  OperationChoice(
-    kind: OperationChoiceKind.stashAndRetry,
-    label: 'Stash changes and checkout',
-    explanation: '',
-    destructive: false,
-  ),
+  OperationChoice(kind: OperationChoiceKind.stashAndRetry, destructive: false),
 ];
 
 const List<OperationChoice> _deleteBranchChoices = <OperationChoice>[
-  OperationChoice(
-    kind: OperationChoiceKind.forceDiscard,
-    label: 'Force delete',
-    explanation: 'This branch is not fully merged.',
-    destructive: true,
-  ),
+  OperationChoice(kind: OperationChoiceKind.forceDiscard, destructive: true),
 ];
 
 /// Taps the action-bar [GbmButton] carrying [label] -- not the matching
@@ -199,7 +191,7 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.byType(CheckoutRecoveryDialogContent), findsOneWidget);
 
-        await _tapActionButton(tester, 'Stash changes and checkout');
+        await _tapActionButton(tester, 'Stash and checkout');
 
         expect(
           pumped.controller.commandLog.any(
@@ -259,7 +251,7 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.byType(DeleteBranchRecoveryDialogContent), findsOneWidget);
 
-        await _tapActionButton(tester, 'Force delete');
+        await _tapActionButton(tester, 'Delete anyway');
 
         expect(
           pumped.controller.commandLog.any(

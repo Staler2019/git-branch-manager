@@ -30,12 +30,12 @@ const String kLastAutoUpdateCheckKey = 'update.lastAutoCheck';
 String lastAutoCheckLabel(String? raw) {
   final DateTime? at = raw == null ? null : DateTime.tryParse(raw);
   if (at == null) {
-    return 'Last automatic check: never.';
+    return '上次自動檢查：從未執行。';
   }
   final DateTime local = at.toLocal();
   String two(int value) => value.toString().padLeft(2, '0');
-  return 'Last automatic check: ${local.year}-${two(local.month)}-'
-      '${two(local.day)} ${two(local.hour)}:${two(local.minute)}.';
+  return '上次自動檢查：${local.year}-${two(local.month)}-'
+      '${two(local.day)} ${two(local.hour)}:${two(local.minute)}。';
 }
 
 /// How long a recorded attempt suppresses the next one.

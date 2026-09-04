@@ -161,25 +161,20 @@ class _UpdateDialogContentState extends ConsumerState<UpdateDialogContent> {
 
   String _headline(UpdateState state) {
     return switch (state.status) {
-      UpdateStatus.idle || UpdateStatus.checking => 'Checking for updates…',
-      UpdateStatus.developmentBuild =>
-        'Development build — updates are disabled.',
-      UpdateStatus.upToDate =>
-        'You are up to date (${state.release?.version}).',
-      UpdateStatus.available =>
-        'Version ${state.release?.version} is '
-            'available.',
-      UpdateStatus.downloading => 'Downloading ${state.release?.version}…',
-      UpdateStatus.verifying => 'Verifying the download…',
+      UpdateStatus.idle || UpdateStatus.checking => '正在檢查更新…',
+      UpdateStatus.developmentBuild => '開發版本——更新功能已停用。',
+      UpdateStatus.upToDate => '已經是最新版本（${state.release?.version}）。',
+      UpdateStatus.available => '有新版本 ${state.release?.version} 可用。',
+      UpdateStatus.downloading => '正在下載 ${state.release?.version}…',
+      UpdateStatus.verifying => '正在驗證下載內容…',
       // The swap runs in a detached script after this process has exited,
       // so nothing here can report it failing. Naming the transcript before
       // handing over is the only channel a failed update ever has.
       UpdateStatus.readyToInstall =>
-        'Version ${state.release?.version} is ready. The app will close and '
-            'reopen on the new version. If it does not come back, '
-            '${updateLogPath()} says why.',
-      UpdateStatus.installing => 'Installing…',
-      UpdateStatus.failed => 'The update did not complete.',
+        '版本 ${state.release?.version} 已經準備好。app 即將關閉並以新版本 '
+            '重新開啟。如果沒有回來，請看 ${updateLogPath()} 裡的說明。',
+      UpdateStatus.installing => '正在安裝…',
+      UpdateStatus.failed => '更新沒有完成。',
     };
   }
 
@@ -196,10 +191,10 @@ class _UpdateDialogContentState extends ConsumerState<UpdateDialogContent> {
 
   String _progressLabel(UpdateState state) {
     if (state.status == UpdateStatus.verifying) {
-      return 'Checking the download against $kChecksumManifestName.';
+      return '正在對照 $kChecksumManifestName 檢查下載內容。';
     }
-    if (state.totalBytes <= 0) return 'Starting…';
-    return '${_mb(state.downloadedBytes)} of ${_mb(state.totalBytes)} MB';
+    if (state.totalBytes <= 0) return '準備開始…';
+    return '已下載 ${_mb(state.downloadedBytes)} / ${_mb(state.totalBytes)} MB';
   }
 
   static String _mb(int bytes) => (bytes / (1024 * 1024)).toStringAsFixed(1);

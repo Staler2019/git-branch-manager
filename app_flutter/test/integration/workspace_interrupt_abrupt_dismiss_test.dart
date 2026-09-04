@@ -77,22 +77,16 @@ final List<RouteBase> _interruptDialogRoutes = <RouteBase>[
   ),
 ];
 
+// The wire carries only `kind`/`destructive` -- both recovery dialogs
+// compose their copy in Dart from `kind` (`recovery_choice_copy.dart`).
+// `_tapActionButton` calls below use those composed labels ("Stash and
+// checkout" / "Delete anyway").
 const List<OperationChoice> _checkoutChoices = <OperationChoice>[
-  OperationChoice(
-    kind: OperationChoiceKind.stashAndRetry,
-    label: 'Stash changes and checkout',
-    explanation: '',
-    destructive: false,
-  ),
+  OperationChoice(kind: OperationChoiceKind.stashAndRetry, destructive: false),
 ];
 
 const List<OperationChoice> _deleteBranchChoices = <OperationChoice>[
-  OperationChoice(
-    kind: OperationChoiceKind.forceDiscard,
-    label: 'Force delete',
-    explanation: 'This branch is not fully merged.',
-    destructive: true,
-  ),
+  OperationChoice(kind: OperationChoiceKind.forceDiscard, destructive: true),
 ];
 
 /// Closes the topmost dialog the way a user who never touched its buttons
@@ -316,7 +310,7 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        await _tapActionButton(tester, 'Stash changes and checkout');
+        await _tapActionButton(tester, 'Stash and checkout');
 
         expect(_countOf(pumped.controller, 'retryCheckoutWithChoice'), 1);
         expect(
@@ -426,7 +420,7 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        await _tapActionButton(tester, 'Force delete');
+        await _tapActionButton(tester, 'Delete anyway');
 
         expect(_countOf(pumped.controller, 'retryDeleteBranchWithChoice'), 1);
         expect(_countOf(pumped.controller, 'dismissDeleteBranchChoices'), 0);

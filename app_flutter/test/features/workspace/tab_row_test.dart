@@ -6,6 +6,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/repositories/compare_tabs_repository.dart';
+import 'package:gbm_flutter/data/repositories/panel_tabs_repository.dart';
 import 'package:gbm_flutter/features/workspace/widgets/tab_row.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
@@ -20,6 +21,8 @@ Future<GoRouter> _pump(
   String initialLocation = '',
   List<CompareTabSpec> compareTabs = const <CompareTabSpec>[],
   ValueChanged<String>? onCloseCompareTab,
+  List<PanelTabSpec> panelTabs = const <PanelTabSpec>[],
+  ValueChanged<String>? onClosePanelTab,
   bool conflictActive = false,
 }) async {
   final GoRouter router = GoRouter(
@@ -35,6 +38,8 @@ Future<GoRouter> _pump(
             pendingChangeCount: pendingChangeCount,
             compareTabs: compareTabs,
             onCloseCompareTab: onCloseCompareTab,
+            panelTabs: panelTabs,
+            onClosePanelTab: onClosePanelTab,
             conflictActive: conflictActive,
           ),
         ),
@@ -47,6 +52,8 @@ Future<GoRouter> _pump(
             pendingChangeCount: pendingChangeCount,
             compareTabs: compareTabs,
             onCloseCompareTab: onCloseCompareTab,
+            panelTabs: panelTabs,
+            onClosePanelTab: onClosePanelTab,
             conflictActive: conflictActive,
           ),
         ),
@@ -59,6 +66,8 @@ Future<GoRouter> _pump(
             pendingChangeCount: pendingChangeCount,
             compareTabs: compareTabs,
             onCloseCompareTab: onCloseCompareTab,
+            panelTabs: panelTabs,
+            onClosePanelTab: onClosePanelTab,
             conflictActive: conflictActive,
           ),
         ),
@@ -324,4 +333,91 @@ void main() {
       expect(find.byIcon(Icons.close), findsOneWidget);
     },
   );
+
+  // D7's 「無關閉鈕」. The ⨯ is dropped rather than drawn-and-disabled: a
+  // dead one invites the click it will not honour, and unlike
+  // [FLU-menu-enabled-is-visual-only]'s 隱藏會讓人以為功能不存在, here the
+  // function really does not exist.
+  group('a pinned panel tab', () {
+    testWidgets('has no close icon', (tester) async {
+      await _pump(
+        tester,
+        pendingChangeCount: 0,
+        panelTabs: const <PanelTabSpec>[
+          PanelTabSpec(id: 'worktrees-0', kind: GbmPanelKind.manageWorktrees),
+        ],
+        onClosePanelTab: (_) {},
+      );
+
+      expect(find.text('Worktrees'), findsOneWidget);
+      expect(find.byIcon(Icons.close), findsNothing);
+    });
+
+    // The other eleven are unchanged, and this is what says the rule is
+    // 「pinned」 rather than 「panel tabs lost their close button」 -- one
+    // fixture holding both kinds at once, so a blanket change cannot pass.
+    testWidgets('sits beside an ordinary panel tab that keeps its own', (
+      tester,
+    ) async {
+      String? closedId;
+      await _pump(
+        tester,
+        pendingChangeCount: 0,
+        panelTabs: const <PanelTabSpec>[
+          PanelTabSpec(id: 'worktrees-0', kind: GbmPanelKind.manageWorktrees),
+          PanelTabSpec(id: 'reflog-1', kind: GbmPanelKind.reflog),
+        ],
+        onClosePanelTab: (String id) => closedId = id,
+      );
+
+      expect(find.byIcon(Icons.close), findsOneWidget);
+      await tester.ensureVisible(find.byIcon(Icons.close));
+      await tester.tap(find.byIcon(Icons.close));
+      expect(
+        closedId,
+        'reflog-1',
+        reason: 'the one ⨯ on the strip belongs to the unpinned tab',
+      );
+    });
+
+    // 使用者裁定「這種可關閉 tab 應該都要在右側才對」: opening a Compare tab
+    // used to insert it *before* the panel tabs, shoving the pinned Worktrees
+    // tab rightwards. The partition is on `WorkspaceTab.closable` -- the same
+    // field the ⨯ already reads ([CULT-single-source-of-truth]) -- so a tab
+    // that cannot be closed can never be displaced by one that can.
+    //
+    // Asserted by geometry: a finder proves existence, never position
+    // ([FLU-finder-proves-existence-not-position]).
+    testWidgets('closable tabs sit right of every non-closable one', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        pendingChangeCount: 0,
+        compareTabs: const <CompareTabSpec>[
+          CompareTabSpec(id: 'compare-0', left: 'a', right: 'b'),
+        ],
+        panelTabs: const <PanelTabSpec>[
+          PanelTabSpec(id: 'worktrees-0', kind: GbmPanelKind.manageWorktrees),
+          PanelTabSpec(id: 'reflog-1', kind: GbmPanelKind.reflog),
+        ],
+      );
+
+      final double worktrees = tester.getRect(find.text('Worktrees')).left;
+      final double compare = tester.getRect(find.text('a vs b')).left;
+      final double reflog = tester.getRect(find.text('Reflog')).left;
+
+      expect(
+        worktrees,
+        lessThan(compare),
+        reason: 'the pinned tab is not closable, so Compare cannot displace it',
+      );
+      expect(
+        compare,
+        lessThan(reflog),
+        reason:
+            'among closable tabs the existing Compare-then-panel order holds',
+      );
+    });
+  });
 }

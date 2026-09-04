@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -7,6 +8,7 @@ import '../features/compare/compare_page.dart';
 import '../features/panels/panel_page.dart';
 import '../features/conflict_resolution/conflict_resolve_window.dart';
 import '../features/dialogs/about/about_dialog.dart';
+import '../features/dialogs/add_worktree/add_worktree_dialog.dart';
 import '../features/dialogs/update/update_dialog.dart';
 import '../features/dialogs/checkout/checkout_dialog.dart';
 import '../features/dialogs/checkout_recovery/checkout_recovery_dialog.dart';
@@ -22,12 +24,14 @@ import '../features/dialogs/discard_changes/discard_changes_dialog.dart';
 import '../features/dialogs/discard_changes/discard_changes_request.dart';
 import '../features/dialogs/force_push/force_push_dialog.dart';
 import '../features/dialogs/keyboard_shortcuts/keyboard_shortcuts_dialog.dart';
+import '../features/dialogs/lock_worktree/lock_worktree_dialog.dart';
 import '../features/dialogs/manage_base_folders/manage_base_folders_dialog.dart';
 import '../features/dialogs/merge/merge_dialog.dart';
 import '../features/dialogs/new_branch/new_branch_dialog.dart';
 import '../features/dialogs/preferences/preferences_dialog.dart';
 import '../features/dialogs/prune_remote_branches/prune_remote_branches_dialog.dart';
 import '../features/dialogs/rebase_onto/rebase_onto_dialog.dart';
+import '../features/dialogs/remove_worktree/remove_worktree_dialog.dart';
 import '../features/dialogs/rename_branch/rename_branch_dialog.dart';
 import '../features/dialogs/repository_settings/repository_settings_dialog.dart';
 import '../features/dialogs/reset_branch/reset_branch_dialog.dart';
@@ -126,18 +130,7 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
               return WorkingCopyView(identity: identity);
             },
           ),
-          GoRoute(
-            path: RoutePaths.compare,
-            builder: (context, state) {
-              final RepoIdentity identity = repoIdentityFromRouteParam(
-                state.pathParameters['repoId']!,
-              );
-              return ComparePage(
-                identity: identity,
-                tabId: state.pathParameters['tabId']!,
-              );
-            },
-          ),
+          GoRoute(path: RoutePaths.compare, builder: buildComparePageRoute),
           GoRoute(
             path: RoutePaths.panel,
             builder: (context, state) {
@@ -280,6 +273,35 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
             state.pathParameters['repoId']!,
           );
           return CheckoutDialogContent(identity: identity);
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.addWorktreeDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
+          return AddWorktreeDialogContent(identity: identity);
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.removeWorktreeDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
+          final String path = state.uri.queryParameters['path'] ?? '';
+          return RemoveWorktreeDialogContent(identity: identity, path: path);
+        },
+      ),
+      dialogRoute(
+        path: RoutePaths.lockWorktreeDialog,
+        builder: (context, state) {
+          final RepoIdentity identity = repoIdentityFromRouteParam(
+            state.pathParameters['repoId']!,
+          );
+          final String path = state.uri.queryParameters['path'] ?? '';
+          return LockWorktreeDialogContent(identity: identity, path: path);
         },
       ),
       dialogRoute(
@@ -429,3 +451,33 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
     ],
   );
 });
+
+/// Builds the `/compare/:tabId` page.
+///
+/// Exported rather than inlined so a test mounts exactly what production
+/// mounts: the [ValueKey] below *is* the fix, so a test that re-implemented
+/// this builder would only be testing itself.
+///
+/// Keyed by tabId so each Compare tab gets its own [State]. Every
+/// `/compare/:tabId` renders [ComparePage] at the same position in the tree,
+/// so without a key Flutter reuses one State across tabs: `initState` never
+/// runs again, so the microtask that requests the diff never fires for the
+/// second tab (the reported 「開到第二個視窗就會一直轉圈圈」), its
+/// `initialScrollOffset` seeding is skipped, and `_onScrollEnd` writes the
+/// wrong tab's offset back into the spec.
+///
+/// A key rather than `didUpdateWidget`: the key fixes that whole family at
+/// once, where the hook fixes only whichever member someone remembered.
+/// [PanelPage] needs none of this -- it is a `ConsumerWidget` with no State,
+/// and already carries a `PageStorageKey`.
+Widget buildComparePageRoute(BuildContext context, GoRouterState state) {
+  final RepoIdentity identity = repoIdentityFromRouteParam(
+    state.pathParameters['repoId']!,
+  );
+  final String tabId = state.pathParameters['tabId']!;
+  return ComparePage(
+    key: ValueKey<String>(tabId),
+    identity: identity,
+    tabId: tabId,
+  );
+}

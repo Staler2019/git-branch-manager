@@ -1,8 +1,14 @@
 #include "core/git/ops/WorktreeOps.h"
 
 #include "core/base/FsUtil.h"
+#include "core/git/GitCommand.h"
 #include "core/git/RefStore.h"
+#include "core/git/WorkingCopyStatus.h"
 
+#include <algorithm>
+#include <charconv>
+#include <optional>
+#include <system_error>
 #include <utility>
 
 namespace gbm {
@@ -31,6 +37,58 @@ std::vector<std::vector<std::string_view>> splitEntries(std::string_view text) {
         start = at + 1;
     }
     return entries;
+}
+
+/// One `<commonDir>/worktrees/<name>/` directory, keyed both ways: by file
+/// identity for a worktree still on disk, and by canonical path string for one
+/// whose directory is gone and therefore has no identity left to compare.
+struct AdminDirEntry {
+    std::filesystem::path adminDir;
+    std::optional<fsutil::FileId> id;
+    std::string key;
+};
+
+std::string_view trimmed(std::string_view text) {
+    while (!text.empty() && (text.back() == '\n' || text.back() == '\r' || text.back() == ' ')) {
+        text.remove_suffix(1);
+    }
+    return text;
+}
+
+/// The unix timestamp of one reflog entry, or nullopt if the line is not one.
+///
+/// **The timestamp is the second-to-last whitespace token, never a fixed field
+/// index.** A reflog entry is `<old> <new> <committer>\t<message>`, and
+/// `<committer>` is `Name <email> <unixtime> <tz>` where `Name` is a human name
+/// that may contain spaces: measured, `user.name = "Jia Jyun Van Der Berg"`
+/// puts the literal string `Van` at field 5. The tab is optional in the same
+/// breath -- the first line `git worktree add` writes carries no message and
+/// no tab at all, and that is the only line this function is ever asked about.
+std::optional<std::int64_t> reflogEntryTime(std::string_view line) {
+    const std::size_t tab = line.find('\t');
+    if (tab != std::string_view::npos) {
+        line = line.substr(0, tab);
+    }
+    line = trimmed(line);
+
+    const std::size_t tzAt = line.rfind(' ');
+    if (tzAt == std::string_view::npos) {
+        return std::nullopt;
+    }
+    const std::string_view head = line.substr(0, tzAt);
+    const std::size_t timeAt = head.rfind(' ');
+    if (timeAt == std::string_view::npos) {
+        return std::nullopt;
+    }
+
+    const std::string_view stamp = head.substr(timeAt + 1);
+    std::int64_t seconds = 0;
+    const auto* const end = stamp.data() + stamp.size();
+    const std::from_chars_result parsed = std::from_chars(stamp.data(), end, seconds);
+    if (parsed.ec != std::errc() || parsed.ptr != end || seconds <= 0) {
+        return std::nullopt;
+    }
+    return seconds;
 }
 
 WorktreeInfo parseEntry(const std::vector<std::string_view>& lines,
@@ -157,22 +215,31 @@ public:
             return outcome;
         }
 
-        GitError error = std::move(result).error();
-        outcome.summary = error.message;
-
-        const bool dirtyOrLocked = error.detail.find("is dirty") != std::string::npos ||
-                                   error.detail.find("locked working tree") != std::string::npos ||
-                                   error.detail.find("contains modified") != std::string::npos;
-        if (dirtyOrLocked && !request_.force) {
-            outcome.choices.push_back(
-                {OperationChoice::Kind::ForceDiscard,
-                 "Remove anyway",
-                 "Any uncommitted changes in this worktree are permanently lost.",
-                 true});
-            outcome.choices.push_back(
-                {OperationChoice::Kind::Abort, "Cancel", "Leave the worktree in place.", false});
-        }
-        outcome.error = std::move(error);
+        // No recovery choices, deliberately, and this is the one operation
+        // that offers none.
+        //
+        // They were here and nothing ever read them: worktree removal rides
+        // GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, whose Dart handler reads
+        // only succeeded/error, while the handler that does read `choices`
+        // hangs off operationFinished and has arms for checkout and
+        // deleteBranch only. That made them an orphaned *producer* -- the
+        // direction "who calls this" cannot find.
+        //
+        // They are not merely unread, they are unofferable. `--force` cannot
+        // get past a lock (measured: `remove` and `remove --force` fail
+        // identically, only `remove -f -f` succeeds) and
+        // RemoveWorktreeRequest::force is a bool, so the second one cannot be
+        // sent -- a "Remove anyway" button here would promise what the capi
+        // cannot do. And the dirty case no longer needs one: the Remove
+        // worktree dialog asks for --force before dispatching, so by the time
+        // an outcome comes back the user has already decided.
+        //
+        // Wiring them up instead would mean a PendingOperationKind arm, a
+        // second Dart handler, and a button for the lock case that does not
+        // work. Deleting is the honest disposition; see the rules file's
+        // orphan-wiring entry, corrected in the same commit.
+        outcome.error = std::move(result).error();
+        outcome.summary = outcome.error->message;
         return outcome;
     }
 
@@ -308,6 +375,117 @@ private:
 WorktreeStore::WorktreeStore(IProcessRunner& runner, RepoPaths paths)
     : runner_(runner), paths_(std::move(paths)) {}
 
+void attachPendingCounts(IProcessRunner& runner,
+                         std::vector<WorktreeInfo>& worktrees,
+                         CancellationToken token) {
+    for (WorktreeInfo& worktree : worktrees) {
+        if (worktree.isBare || worktree.isPrunable) {
+            worktree.pendingCountState = WorktreePendingCountState::NotApplicable;
+            continue;
+        }
+
+        // **No worktreeReadFlags() here, deliberately.** That function is
+        // scoped to `git diff` reads (GitCommand.h says so in its first
+        // sentence), and its own closing paragraph names `git status` as the
+        // command the flag must *not* reach -- fsmonitor exists to accelerate
+        // status, on precisely the machines whose owners opted into it. This
+        // is a status read, so it keeps fsmonitor, exactly as the session's
+        // own read does (WorkingCopyStatusReader::read, pinned by
+        // WorktreeReadFlagsTest's StatusReadItselfDoesNotPayForThem). Lock
+        // safety is already covered: ProcessRunner prepends globalFlags(),
+        // which carries --no-optional-locks on every invocation.
+        //
+        // --untracked-files=normal, not =all: -uall enumerates every file in
+        // an unbuilt output directory, and 「N 個未提交變更」 counts changes,
+        // for which a directory is one. This is the one place the panel's
+        // number can differ from what the Working Copy tab lists for the same
+        // worktree, and it is a ratified difference rather than an oversight.
+        //
+        // --ignore-submodules=none matches the session's own read for the
+        // opposite reason: it overrides whatever `diff.ignoreSubmodules` or
+        // `submodule.<name>.ignore` the user configured, so the count cannot
+        // silently omit a dirty submodule that the Working Copy tab shows.
+        GitCommand command(worktree.path,
+                           {"status",
+                            "--porcelain=v2",
+                            "-z",
+                            "--untracked-files=normal",
+                            "--ignore-submodules=none"});
+        command.timeout = std::chrono::seconds(30);
+
+        std::vector<std::string> records;
+        const LineSink sink = [&records](std::string_view record) {
+            records.emplace_back(record);
+            return true;
+        };
+        auto result =
+            runner.streamSeparated(command, IProcessRunner::Separator::Nul, sink, nullptr, token);
+        if (!result) {
+            // A failure is an answer, and it is recorded as one. Leaving it
+            // Unmeasured would make a caller that re-requests "whatever has no
+            // count" spin forever on this worktree.
+            worktree.pendingCountState = WorktreePendingCountState::Failed;
+            continue;
+        }
+
+        // Parsed, never counted: a rename spends two NUL records, so a record
+        // count is silently wrong from the first rename onwards.
+        worktree.pendingChanges =
+            static_cast<std::uint32_t>(parsePorcelainV2Records(records).size());
+        worktree.pendingCountState = WorktreePendingCountState::Measured;
+    }
+}
+
+void attachCreatedAt(const RepoPaths& paths, std::vector<WorktreeInfo>& worktrees) {
+    std::error_code ec;
+    const std::filesystem::path worktreesDir = paths.commonDir() / "worktrees";
+    if (!std::filesystem::is_directory(worktreesDir, ec)) {
+        return;  // No linked worktree has ever existed here.
+    }
+
+    std::vector<AdminDirEntry> index;
+    for (const auto& entry : std::filesystem::directory_iterator(worktreesDir, ec)) {
+        const std::optional<std::string> gitdir = fsutil::readSmallFile(entry.path() / "gitdir");
+        if (!gitdir) {
+            continue;
+        }
+        // The file holds `<workPath>/.git` plus a newline.
+        const std::filesystem::path pointer = fsutil::pathFromUtf8(trimmed(*gitdir));
+        if (pointer.empty()) {
+            continue;
+        }
+        const std::filesystem::path workPath = pointer.parent_path();
+        index.push_back({entry.path(), fsutil::fileIdOf(workPath), fsutil::canonicalKey(workPath)});
+    }
+
+    for (WorktreeInfo& worktree : worktrees) {
+        // File identity when the directory is still there, for the same reason
+        // parseEntry uses it: on macOS a path built through /var differs
+        // textually from git's realpath through /private/var while naming the
+        // same directory. A prunable worktree has no directory left to
+        // identify, and the string key is the only thing left to match on.
+        const std::optional<fsutil::FileId> id = fsutil::fileIdOf(worktree.path);
+        const std::string key = fsutil::canonicalKey(worktree.path);
+        const auto hit = std::find_if(index.begin(), index.end(), [&](const AdminDirEntry& admin) {
+            return id && admin.id ? *id == *admin.id : admin.key == key;
+        });
+        if (hit == index.end()) {
+            continue;  // The current worktree, whose administration is commonDir itself.
+        }
+
+        const std::optional<std::string> reflog =
+            fsutil::readSmallFile(hit->adminDir / "logs" / "HEAD");
+        if (!reflog) {
+            continue;  // core.logAllRefUpdates off, or a directory older than it.
+        }
+        const std::optional<std::int64_t> at =
+            reflogEntryTime(std::string_view(*reflog).substr(0, reflog->find('\n')));
+        if (at) {
+            worktree.createdAtUnix = *at;
+        }
+    }
+}
+
 GitResult<std::vector<WorktreeInfo>> WorktreeStore::list(CancellationToken token) {
     GitCommand command(paths_.commandDir(), {"worktree", "list", "--porcelain"});
     command.timeout = std::chrono::seconds(30);
@@ -323,6 +501,16 @@ GitResult<std::vector<WorktreeInfo>> WorktreeStore::list(CancellationToken token
             infos.push_back(parseEntry(entry, paths_.workDir()));
         }
     }
+    // Positional, and it has to be: nothing in the porcelain output *says*
+    // which worktree is the main one. Entry 0 is, from every vantage point.
+    // Kept here rather than inside parseEntry() because parseEntry sees one
+    // entry at a time and position is a property of the list.
+    if (!infos.empty()) {
+        infos.front().isPrimary = true;
+    }
+    // Part of the plain list, unlike attachPendingCounts: no process, no work
+    // tree read. See its declaration for why that difference decides this.
+    attachCreatedAt(paths_, infos);
     return infos;
 }
 

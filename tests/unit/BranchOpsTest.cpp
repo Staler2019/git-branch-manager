@@ -55,18 +55,21 @@ TEST(DeleteBranchOperation, ReportsSafeToDeleteWhenAnotherRemoteRefContainsIt) {
     EXPECT_NE(outcome.summary.find("not lose"), std::string::npos);
     // Never claims certainty it does not have.
     EXPECT_EQ(outcome.summary.find("Git reported an error"), std::string::npos);
+    // Must not still warn that deleting makes them "only reachable through
+    // the reflog", which directly contradicts "will not lose anything" --
+    // that wording belongs to the sibling NotFoundElsewhere case only.
+    EXPECT_EQ(outcome.summary.find("reflog"), std::string::npos);
 
-    // The "Delete anyway" choice must agree with the summary above it: once
-    // the probe found the commits elsewhere, the explanation is the same
-    // string as the summary (naming the concrete ref), not a separate,
-    // looser sentence that could drift out of sync with it -- and it must
-    // not still warn that deleting makes them "only reachable through the
-    // reflog", which directly contradicts "will not lose anything".
+    // The "Delete anyway" choice itself carries no text of its own anymore
+    // (OperationChoice is kind+destructive only; app_flutter's
+    // DeleteBranchRecoveryDialogContent draws outcome.summary above the
+    // choice list via lastError.message, and composes the button's own
+    // label from `kind`) -- so there is no longer a second string that
+    // could drift out of sync with the summary above. What is still real
+    // behaviour to pin: the choice is offered at all, and it is destructive.
     ASSERT_FALSE(outcome.choices.empty());
-    EXPECT_EQ(outcome.choices.front().explanation, outcome.summary);
-    EXPECT_NE(outcome.choices.front().explanation.find("origin/main"), std::string::npos);
-    EXPECT_NE(outcome.choices.front().explanation.find("will not lose"), std::string::npos);
-    EXPECT_EQ(outcome.choices.front().explanation.find("reflog"), std::string::npos);
+    EXPECT_EQ(outcome.choices.front().kind, OperationChoice::Kind::ForceDiscard);
+    EXPECT_TRUE(outcome.choices.front().destructive);
 }
 
 TEST(DeleteBranchOperation, SkipsOriginHeadAsTheReportedRemote) {
@@ -142,11 +145,11 @@ TEST(DeleteBranchOperation, PluralizesTheNotMergedSummaryForAMultiBranchDelete) 
     EXPECT_FALSE(outcome.succeeded);
     EXPECT_NE(outcome.summary.find("These branches"), std::string::npos);
     EXPECT_EQ(outcome.summary.find("This branch "), std::string::npos);
-    // The choice explanation must be pluralized the same way -- it is a
-    // separate string built independently of the summary.
+    // The choice itself carries no pluralized text of its own to check
+    // anymore (see the sibling test's comment on the same shape) -- just
+    // that a ForceDiscard choice is still offered for a multi-branch delete.
     ASSERT_FALSE(outcome.choices.empty());
-    EXPECT_NE(outcome.choices.front().explanation.find("These branches"), std::string::npos);
-    EXPECT_EQ(outcome.choices.front().explanation.find("This branch "), std::string::npos);
+    EXPECT_EQ(outcome.choices.front().kind, OperationChoice::Kind::ForceDiscard);
 }
 
 TEST(DeleteBranchOperation, KeepsExistingSummaryWhenTheProbeItselfFails) {

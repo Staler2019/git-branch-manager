@@ -45,7 +45,7 @@ class AboutDialogContent extends ConsumerWidget {
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
           Text(
-            'A fast Git client for very large repositories.',
+            '給超大型 repository 用的快速 Git 客戶端。',
             style: TextStyle(
               fontSize: GbmTypography.textBase,
               color: colors.textPrimary,
@@ -57,7 +57,7 @@ class AboutDialogContent extends ConsumerWidget {
           // it is the same reading the update check uses to refuse to
           // replace a developer build -- the two must not disagree.
           Text(
-            version == null ? 'Development build' : 'Version $version',
+            version == null ? '開發版本' : '版本 $version',
             style: TextStyle(
               fontSize: GbmTypography.textSm,
               color: colors.textSecondary,
@@ -65,8 +65,8 @@ class AboutDialogContent extends ConsumerWidget {
           ),
           const SizedBox(height: GbmSpacing.space3),
           Text(
-            'Flutter UI (Riverpod + go_router), talking to the existing C++ core '
-            'through the gbm_capi FFI bridge -- see docs/ARCHITECTURE.md.',
+            '透過 gbm_capi FFI 橋接，跟既有的 C++ core 溝通的 Flutter UI'
+            '（Riverpod + go_router）——詳見 docs/ARCHITECTURE.md。',
             style: TextStyle(
               fontSize: GbmTypography.textSm,
               color: colors.textSecondary,

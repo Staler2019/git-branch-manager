@@ -15,6 +15,7 @@ import 'package:gbm_flutter/data/models/base_folder_record.dart';
 import 'package:gbm_flutter/data/models/repo_record.dart';
 import 'package:gbm_flutter/data/repositories/app_preferences_repository.dart';
 import 'package:gbm_flutter/data/repositories/discovery_repository.dart';
+import 'package:gbm_flutter/data/services/file_save_picker.dart';
 import 'package:gbm_flutter/features/dialogs/preferences/preferences_dialog.dart';
 import 'package:gbm_flutter/features/update/auto_update_check.dart';
 import 'package:gbm_flutter/routing/dialog_route.dart';
@@ -70,12 +71,37 @@ class _RecordingDiscoveryController extends StateNotifier<DiscoveryState>
   }
 }
 
+/// Records what it was asked and returns a canned directory (or none, to
+/// stand in for the user cancelling the native picker).
+class _FakePicker implements FileSavePicker {
+  _FakePicker({this.directory});
+
+  final String? directory;
+  int pickDirectoryCalls = 0;
+
+  @override
+  Future<String?> pickDirectory() async {
+    pickDirectoryCalls++;
+    return directory;
+  }
+
+  @override
+  Future<List<String>> openFiles({
+    List<String> extensions = const <String>[],
+  }) => throw UnimplementedError();
+
+  @override
+  Future<String?> saveFile({required String suggestedName}) =>
+      throw UnimplementedError();
+}
+
 Future<({ProviderContainer container, _RecordingDiscoveryController discovery})>
 _pump(
   WidgetTester tester, {
   List<BaseFolderRecord> folders = const <BaseFolderRecord>[],
   Map<String, Object> initialPrefs = const <String, Object>{},
   String section = 'Repository sources',
+  FileSavePicker? picker,
 }) async {
   SharedPreferences.setMockInitialValues(initialPrefs);
   final SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -87,6 +113,7 @@ _pump(
     overrides: <Override>[
       sharedPreferencesProvider.overrideWithValue(prefs),
       discoveryProvider.overrideWith((ref) => discovery),
+      fileSavePickerProvider.overrideWithValue(picker ?? _FakePicker()),
     ],
   );
   addTearDown(container.dispose);
@@ -122,9 +149,9 @@ void main() {
         isFalse,
       );
 
-      await tester.ensureVisible(find.text('Soft wrap long lines'));
+      await tester.ensureVisible(find.text('長行自動換行'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Soft wrap long lines'));
+      await tester.tap(find.text('長行自動換行'));
       await tester.pumpAndSettle();
 
       expect(
@@ -151,7 +178,7 @@ void main() {
       final Checkbox box = tester.widget<Checkbox>(
         find.descendant(
           of: find.ancestor(
-            of: find.text('Soft wrap long lines'),
+            of: find.text('長行自動換行'),
             matching: find.byType(CheckboxListTile),
           ),
           matching: find.byType(Checkbox),
@@ -167,11 +194,11 @@ void main() {
     ) async {
       final result = await _pump(tester, section: 'General');
 
-      expect(find.text('Check for updates at startup'), findsOneWidget);
+      expect(find.text('啟動時檢查更新'), findsOneWidget);
 
-      await tester.ensureVisible(find.text('Check for updates at startup'));
+      await tester.ensureVisible(find.text('啟動時檢查更新'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Check for updates at startup'));
+      await tester.tap(find.text('啟動時檢查更新'));
       await tester.pumpAndSettle();
 
       expect(
@@ -189,7 +216,7 @@ void main() {
     ) async {
       await _pump(tester, section: 'General');
 
-      expect(find.text('Last automatic check: never.'), findsOneWidget);
+      expect(find.text('上次自動檢查：從未執行。'), findsOneWidget);
     });
 
     testWidgets('names when the last automatic check ran', (tester) async {
@@ -207,10 +234,7 @@ void main() {
         },
       );
 
-      expect(
-        find.text('Last automatic check: 2026-08-25 09:04.'),
-        findsOneWidget,
-      );
+      expect(find.text('上次自動檢查：2026-08-25 09:04。'), findsOneWidget);
     });
 
     // Routed, not a callback: Preferences opens with no repository at all,
@@ -322,7 +346,7 @@ void main() {
           ],
         );
 
-        expect(find.textContaining('4 skipped (depth limit)'), findsOneWidget);
+        expect(find.textContaining('略過 4 個（超過 depth 限制）'), findsOneWidget);
       },
     );
 
@@ -336,7 +360,7 @@ void main() {
         ],
       );
 
-      expect(find.textContaining('skipped'), findsNothing);
+      expect(find.textContaining('略過'), findsNothing);
     });
 
     testWidgets('a base folder that no longer exists on disk shows a warning', (
@@ -406,6 +430,40 @@ void main() {
         reason: 'removing one recorded entry must not clear the others',
       );
     });
+
+    testWidgets('browsing fills the "add folder" path field', (tester) async {
+      await _pump(tester, picker: _FakePicker(directory: '/picked/by/user'));
+
+      final Finder browse = find.text('瀏覽…');
+      await tester.ensureVisible(browse);
+      await tester.pumpAndSettle();
+      await tester.tap(browse);
+      await tester.pumpAndSettle();
+
+      final TextField pathField = tester.widget<TextField>(
+        find.byType(TextField).first,
+      );
+      expect(pathField.controller?.text, '/picked/by/user');
+    });
+
+    testWidgets('cancelling the native picker leaves the field untouched', (
+      tester,
+    ) async {
+      final _FakePicker picker = _FakePicker();
+      await _pump(tester, picker: picker);
+
+      final Finder browse = find.text('瀏覽…');
+      await tester.ensureVisible(browse);
+      await tester.pumpAndSettle();
+      await tester.tap(browse);
+      await tester.pumpAndSettle();
+
+      expect(picker.pickDirectoryCalls, 1);
+      final TextField pathField = tester.widget<TextField>(
+        find.byType(TextField).first,
+      );
+      expect(pathField.controller?.text, isEmpty);
+    });
   });
 
   group('PreferencesDialogContent - Git', () {
@@ -423,7 +481,7 @@ void main() {
         await tester.tap(find.text('Git'));
         await tester.pumpAndSettle();
 
-        expect(find.text('Imported from .gitconfig'), findsOneWidget);
+        expect(find.text('從 .gitconfig 匯入'), findsOneWidget);
       },
     );
 
@@ -438,7 +496,7 @@ void main() {
       await tester.tap(find.text('Git'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Imported from .gitconfig'), findsNothing);
+      expect(find.text('從 .gitconfig 匯入'), findsNothing);
     });
   });
 }

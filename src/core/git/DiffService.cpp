@@ -684,7 +684,21 @@ GitResult<DiffService::ParsedDiffPtr> DiffService::commitVsWorkingTree(const Obj
     // Deliberately uncached, like workingTreeDiff above: the work tree changes
     // under us, and any cache entry keyed just on the commit would go wrong
     // the moment the user edits a file.
-    std::vector<std::string> args{"diff"};
+    //
+    // worktreeReadFlags() for the same reason workingTreeDiff carries them:
+    // `git diff <commit>` with no --cached compares that commit against the
+    // **work tree**, and Session::requestCompareWithWorkingCopy posts it to
+    // the shared read pool -- the two halves of that rule's own condition.
+    // This was the one call site of that shape without the flags.
+    //
+    // Not claimed: that this caused the reported 「working copy 那邊比不出
+    // 來」. That report was not reproduced at any tier, and a probe here
+    // (unbounded poll for .git/index.lock, with `git status` as a positive
+    // control that the probe did catch) saw no lock from `git diff` at all.
+    // The flags go on because the rule's condition is met, not because a
+    // symptom was traced to their absence.
+    std::vector<std::string> args = GitCommand::worktreeReadFlags();
+    args.emplace_back("diff");
     for (auto& flag : diffFlags(options)) {
         args.push_back(std::move(flag));
     }

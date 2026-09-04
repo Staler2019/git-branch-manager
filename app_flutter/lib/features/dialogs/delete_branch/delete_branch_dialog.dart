@@ -189,7 +189,7 @@ class _DeleteBranchDialogContentState
               initialValue: _selected,
               isExpanded: true,
               decoration: const InputDecoration(
-                hintText: 'Branch to delete',
+                hintText: '要刪除的分支',
                 isDense: true,
                 border: OutlineInputBorder(),
               ),
@@ -215,7 +215,7 @@ class _DeleteBranchDialogContentState
                   color: colors.textPrimary,
                 ),
                 children: <InlineSpan>[
-                  const TextSpan(text: 'Delete the local branch '),
+                  const TextSpan(text: '刪除本地分支 '),
                   TextSpan(
                     text: branch.shortName,
                     style: const TextStyle(
@@ -223,7 +223,7 @@ class _DeleteBranchDialogContentState
                       fontWeight: GbmTypography.weightSemibold,
                     ),
                   ),
-                  const TextSpan(text: '?'),
+                  const TextSpan(text: '？'),
                 ],
               ),
             ),
@@ -235,8 +235,8 @@ class _DeleteBranchDialogContentState
             if (branch.hasTrackingInfo)
               Text(
                 branch.ahead > 0
-                    ? '${branch.ahead} commit(s) on this branch are not yet on ${branch.upstream}.'
-                    : 'Fully pushed to ${branch.upstream}.',
+                    ? '這個分支有 ${branch.ahead} 個 commit 還沒推到 ${branch.upstream}。'
+                    : '已完整推到 ${branch.upstream}。',
                 style: TextStyle(
                   fontSize: GbmTypography.textXs,
                   color: branch.ahead > 0
@@ -246,7 +246,7 @@ class _DeleteBranchDialogContentState
               )
             else
               Text(
-                'This branch has no upstream — it exists only on this machine.',
+                '這個分支沒有 upstream，只存在於這台機器上。',
                 style: TextStyle(
                   fontSize: GbmTypography.textXs,
                   color: colors.warning,
@@ -254,8 +254,7 @@ class _DeleteBranchDialogContentState
               ),
             const SizedBox(height: GbmSpacing.space1),
             Text(
-              'If the branch is not fully merged, git will refuse and offer a '
-              'force delete.',
+              '如果分支還沒完全合併，git 會拒絕，並提供強制刪除的選項。',
               style: TextStyle(
                 fontSize: GbmTypography.textXs,
                 color: colors.textTertiary,
@@ -275,7 +274,7 @@ class _DeleteBranchDialogContentState
                 contentPadding: EdgeInsets.zero,
                 controlAffinity: ListTileControlAffinity.leading,
                 title: Text(
-                  'Also delete $remoteBranch on $remote',
+                  '同時刪除 $remote 上的 $remoteBranch',
                   style: TextStyle(
                     fontSize: GbmTypography.textSm,
                     color: colors.textPrimary,
@@ -283,8 +282,8 @@ class _DeleteBranchDialogContentState
                 ),
                 subtitle: Text(
                   remoteAlreadyGone
-                      ? 'Already gone on $remote -- nothing left to delete.'
-                      : 'Other people only see this after they fetch.',
+                      ? '在 $remote 上已經不存在，沒有東西可以刪。'
+                      : '其他人要等到下次 fetch 才會看不到這個分支。',
                   style: TextStyle(
                     fontSize: GbmTypography.textXs,
                     color: colors.textTertiary,
@@ -298,9 +297,7 @@ class _DeleteBranchDialogContentState
             ],
           ] else
             Text(
-              candidates.isEmpty
-                  ? 'There is no other local branch to delete.'
-                  : 'Choose a branch to delete.',
+              candidates.isEmpty ? '沒有其他本地分支可以刪除。' : '選擇要刪除的分支。',
               style: TextStyle(
                 fontSize: GbmTypography.textSm,
                 color: colors.textTertiary,

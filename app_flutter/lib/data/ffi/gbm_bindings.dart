@@ -107,6 +107,9 @@ typedef RegisterCallbackDart =
 typedef _RepoStateJsonNative = Int32 Function(Pointer<Void> session);
 typedef RepoStateJsonDart = int Function(Pointer<Void> session);
 
+typedef _RemoveStaleIndexLockNative = Int32 Function(Pointer<Void> session);
+typedef RemoveStaleIndexLockDart = int Function(Pointer<Void> session);
+
 typedef _HistoryRefreshNative = Void Function(Pointer<Void> session);
 typedef HistoryRefreshDart = void Function(Pointer<Void> session);
 typedef _HistorySetFilterNative =
@@ -544,6 +547,9 @@ typedef TagPushDart =
 
 typedef _WorktreeRefreshNative = Void Function(Pointer<Void> session);
 typedef WorktreeRefreshDart = void Function(Pointer<Void> session);
+typedef _WorktreeRequestPendingCountsNative =
+    Void Function(Pointer<Void> session);
+typedef WorktreeRequestPendingCountsDart = void Function(Pointer<Void> session);
 
 typedef _WorktreesJsonNative = Int32 Function(Pointer<Void> session);
 typedef WorktreesJsonDart = int Function(Pointer<Void> session);
@@ -898,6 +904,8 @@ typedef _RebaseStartNative =
       Pointer<Utf8> upstream,
       Pointer<Utf8> onto,
       Int32 stashFirst,
+      Int32 rebaseMerges,
+      Int32 autosquash,
     );
 typedef RebaseStartDart =
     void Function(
@@ -905,6 +913,8 @@ typedef RebaseStartDart =
       Pointer<Utf8> upstream,
       Pointer<Utf8> onto,
       int stashFirst,
+      int rebaseMerges,
+      int autosquash,
     );
 
 typedef _RebaseContinueNative = Void Function(Pointer<Void> session);
@@ -1273,6 +1283,11 @@ class GbmBindings {
           .lookupFunction<_RepoStateJsonNative, RepoStateJsonDart>(
             'gbm_repo_state_json',
           ),
+      removeStaleIndexLock = library
+          .lookupFunction<
+            _RemoveStaleIndexLockNative,
+            RemoveStaleIndexLockDart
+          >('gbm_operation_remove_stale_index_lock'),
       historyRefresh = library
           .lookupFunction<_HistoryRefreshNative, HistoryRefreshDart>(
             'gbm_history_refresh',
@@ -1461,6 +1476,11 @@ class GbmBindings {
           .lookupFunction<_WorktreeRefreshNative, WorktreeRefreshDart>(
             'gbm_worktree_refresh',
           ),
+      worktreeRequestPendingCounts = library
+          .lookupFunction<
+            _WorktreeRequestPendingCountsNative,
+            WorktreeRequestPendingCountsDart
+          >('gbm_worktree_request_pending_counts'),
       worktreesJson = library
           .lookupFunction<_WorktreesJsonNative, WorktreesJsonDart>(
             'gbm_worktrees_json',
@@ -1807,6 +1827,7 @@ class GbmBindings {
   final SessionCloseDart sessionClose;
   final RegisterCallbackDart registerCallback;
   final RepoStateJsonDart repoStateJson;
+  final RemoveStaleIndexLockDart removeStaleIndexLock;
   final HistoryRefreshDart historyRefresh;
   final HistorySetFilterDart historySetFilter;
   final RefsJsonDart refsJson;
@@ -1862,6 +1883,7 @@ class GbmBindings {
   final TagDeleteDart tagDelete;
   final TagPushDart tagPush;
   final WorktreeRefreshDart worktreeRefresh;
+  final WorktreeRequestPendingCountsDart worktreeRequestPendingCounts;
   final WorktreesJsonDart worktreesJson;
   final WorktreeAddDart worktreeAdd;
   final WorktreeRemoveDart worktreeRemove;

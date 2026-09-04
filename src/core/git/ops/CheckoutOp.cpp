@@ -100,22 +100,17 @@ public:
         outcome.summary = error.message;
 
         // The common, entirely expected failure: switching would overwrite local
-        // modifications. Offer the three real answers rather than just reporting
-        // git's text.
+        // modifications. Offer the two real answers rather than just reporting
+        // git's text. No Abort entry: CheckoutRecoveryDialogContent
+        // (app_flutter) filters `abort` out of both its action-button row and
+        // its body list, and its retryCheckoutWithChoice dispatch is a no-op
+        // for it -- an Abort choice here would never be visible or acted on,
+        // and StashAndRetry/ForceDiscard alone already keep `choices`
+        // non-empty, which is what makes the dialog open at all.
         if (error.code == GitError::Code::DirtyWorkTree && !request_.force &&
             !request_.stashFirst) {
-            outcome.choices.push_back(
-                {OperationChoice::Kind::StashAndRetry,
-                 "Stash changes and switch",
-                 "Your changes are saved to a stash first, and can be restored afterwards.",
-                 false});
-            outcome.choices.push_back(
-                {OperationChoice::Kind::ForceDiscard,
-                 "Discard changes and switch",
-                 "Your uncommitted changes to the affected files are permanently lost.",
-                 true});
-            outcome.choices.push_back(
-                {OperationChoice::Kind::Abort, "Cancel", "Stay on the current branch.", false});
+            outcome.choices.push_back({OperationChoice::Kind::StashAndRetry, false});
+            outcome.choices.push_back({OperationChoice::Kind::ForceDiscard, true});
         }
 
         outcome.error = std::move(error);

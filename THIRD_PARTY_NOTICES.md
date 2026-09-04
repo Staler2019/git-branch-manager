@@ -81,7 +81,7 @@ Source: <https://github.com/JetBrains/JetBrainsMono> (v2.304 release,
 ## Lucide — ISC License
 
 Toolbar, sidebar, and file-status icons are drawn from **Lucide**, used under
-the **ISC License**. Fourteen SVGs are bundled as Flutter assets at
+the **ISC License**. Twenty-four SVGs are bundled as Flutter assets at
 `app_flutter/assets/icons/` and rendered by `LucideIcon`
 (`app_flutter/lib/widgets/lucide_icon.dart`) via the `flutter_svg` package,
 which recolors each one per the active theme at paint time (a `ColorFilter`

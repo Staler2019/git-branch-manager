@@ -111,10 +111,13 @@ void main() {
   });
 
   test('OperationOutcome.fromJson decodes recovery choices on failure', () {
+    // Wire form as of this round: only "kind"/"destructive" -- no
+    // "label"/"explanation" (recovery_choice_copy.dart composes those in
+    // Dart instead; see OperationChoice's own doc comment).
     final Map<String, dynamic> json = jsonDecode(
       '{"succeeded":false,"error":null,"summary":"","choices":['
-      '{"kind":0,"label":"Stash changes and checkout","explanation":"...","destructive":false},'
-      '{"kind":2,"label":"Cancel","explanation":"Do not check out.","destructive":false}'
+      '{"kind":0,"destructive":false},'
+      '{"kind":2,"destructive":false}'
       ']}',
     );
     final OperationOutcome outcome = OperationOutcome.fromJson(json);
@@ -315,13 +318,74 @@ void main() {
   test('WorktreeInfo.listFromJson decodes an array', () {
     final List<dynamic> json = jsonDecode(
       '[{"path":"/repo","headOid":"aa","branch":"main","isMain":true,"isBare":false,'
-      '"isDetached":false,"isLocked":false,"lockReason":"","isPrunable":false,"prunableReason":""}]',
+      '"isDetached":false,"isLocked":false,"lockReason":"","isPrunable":false,"prunableReason":"",'
+      '"isPrimary":true,'
+      '"pendingChanges":0,"pendingCountState":"unmeasured","createdAtUnix":0}]',
     );
     final List<WorktreeInfo> worktrees = WorktreeInfo.listFromJson(json);
 
     expect(worktrees, hasLength(1));
     expect(worktrees.single.isMain, isTrue);
     expect(worktrees.single.branch, 'main');
+  });
+
+  // The four wire spellings are JsonCodec.cpp's pendingCountStateName(), whose
+  // switch deliberately has no `default` arm so a new state is a compile error
+  // there. This map is the Dart half of that pairing -- a spelling that stops
+  // matching lands here, not in a widget drawing the wrong string.
+  test('WorktreeInfo decodes all four pendingCountState spellings', () {
+    WorktreePendingCountState decode(String wire) => WorktreeInfo.fromJson(
+      _worktreeJson(pendingCountState: wire),
+    ).pendingCountState;
+
+    expect(decode('unmeasured'), WorktreePendingCountState.unmeasured);
+    expect(decode('measured'), WorktreePendingCountState.measured);
+    expect(decode('notApplicable'), WorktreePendingCountState.notApplicable);
+    expect(decode('failed'), WorktreePendingCountState.failed);
+  });
+
+  // The assertion that pins the whole tri-state design: a measured zero is a
+  // real zero. A sentinel-valued model (`0` doubling as "not measured", which
+  // is what [GIT-zero-means-unmeasured] settles for elsewhere because it has
+  // no spare slot) answers `null` here and fails.
+  test('WorktreeInfo reports a measured zero as 0, not as absent', () {
+    final WorktreeInfo worktree = WorktreeInfo.fromJson(
+      _worktreeJson(pendingChanges: 0, pendingCountState: 'measured'),
+    );
+
+    expect(worktree.pendingChanges, 0);
+    expect(worktree.pendingCountState, WorktreePendingCountState.measured);
+  });
+
+  // ... and the other three states resolve the count away entirely, so no
+  // widget can read the wire's placeholder 0 as "clean".
+  test('WorktreeInfo hides the count unless it was measured', () {
+    for (final String wire in <String>[
+      'unmeasured',
+      'notApplicable',
+      'failed',
+    ]) {
+      final WorktreeInfo worktree = WorktreeInfo.fromJson(
+        _worktreeJson(pendingChanges: 7, pendingCountState: wire),
+      );
+
+      expect(worktree.pendingChanges, isNull, reason: wire);
+    }
+  });
+
+  test('WorktreeInfo decodes createdAtUnix 0 as an absent creation time', () {
+    expect(WorktreeInfo.fromJson(_worktreeJson()).createdAt, isNull);
+  });
+
+  test('WorktreeInfo decodes a real createdAtUnix as that instant', () {
+    final WorktreeInfo worktree = WorktreeInfo.fromJson(
+      _worktreeJson(createdAtUnix: 1780000000),
+    );
+
+    // Asserted as an epoch rather than a formatted string: the model builds a
+    // local-time DateTime, so a formatted assertion would pass or fail by the
+    // machine's timezone.
+    expect(worktree.createdAt?.millisecondsSinceEpoch, 1780000000 * 1000);
   });
 
   test('RemoteInfo.listFromJson decodes an array', () {
@@ -540,3 +604,28 @@ void main() {
     },
   );
 }
+
+/// One worktree object in exactly the shape `JsonCodec.cpp`'s
+/// `toJson(const WorktreeInfo&)` emits, with the three fields under test
+/// overridable. Written as a map rather than a JSON string so a renamed key
+/// is a compile error in the caller instead of a silently-missing field.
+Map<String, dynamic> _worktreeJson({
+  int pendingChanges = 0,
+  String pendingCountState = 'unmeasured',
+  int createdAtUnix = 0,
+}) => <String, dynamic>{
+  'path': '/repo',
+  'headOid': 'aa',
+  'branch': 'main',
+  'isMain': true,
+  'isBare': false,
+  'isDetached': false,
+  'isLocked': false,
+  'lockReason': '',
+  'isPrunable': false,
+  'prunableReason': '',
+  'isPrimary': true,
+  'pendingChanges': pendingChanges,
+  'pendingCountState': pendingCountState,
+  'createdAtUnix': createdAtUnix,
+};

@@ -12,6 +12,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/submodule_info.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
+import 'package:flutter/material.dart';
+import 'package:gbm_flutter/features/panels/panel_filter_field.dart';
+import 'package:gbm_flutter/features/panels/panel_widgets.dart';
 import 'package:gbm_flutter/features/panels/submodules_panel.dart';
 
 import '../../support/fake_repo_session.dart';
@@ -54,19 +57,80 @@ Future<void> _select(WidgetTester tester, String path) async {
 
 void main() {
   group('SubmodulesPanel (spec P19 PANELSPEC)', () {
-    testWidgets('the toolbar carries PANELSPEC\'s four actions', (
+    // PANELSPEC's four actions are all still here; what rule 2 decides is
+    // *which segment* each sits in. 主要建立動作 is `Add…` -- the only
+    // action that creates a submodule. `Init` is not a creation: it checks
+    // out a submodule the superproject already records, which is
+    // maintenance, and it is batch-shaped (`paths:`) exactly like Update and
+    // Sync. `Open` leaves the panel, so it is 跳出去的動作.
+    testWidgets(
+      'the toolbar carries rule 2\'s segments, and no danger action',
+      (tester) async {
+        await _pump(tester);
+
+        expectPanelTemplate(
+          tester,
+          primary: const <String>['Add…'],
+          maintenance: const <String>['Init', 'Update', 'Sync'],
+          external: const <String>['Open'],
+          notOnToolbar: const <String>['Deinit'],
+          listHeader: 'Submodules · 2',
+          statusBar: RegExp(r'^2 submodules$'),
+        );
+      },
+    );
+
+    testWidgets(
+      'Deinit sits in the detail action row, against its right edge',
+      (tester) async {
+        await _pump(tester);
+        await _select(tester, 'vendor/libgit');
+
+        expectDangerPinnedRight(tester, 'Deinit');
+      },
+    );
+
+    testWidgets('the filter narrows the list, the header and the status line', (
+      tester,
+    ) async {
+      await _pump(tester);
+      expect(find.byType(PanelListRow), findsNWidgets(2));
+
+      await tester.enterText(
+        find.descendant(
+          of: find.byType(PanelFilterField),
+          matching: find.byType(TextField),
+        ),
+        'docs',
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PanelListRow), findsOneWidget);
+      expect(find.text('Submodules · 1'), findsOneWidget);
+      expect(find.text('2 submodules · 命中 1'), findsOneWidget);
+    });
+
+    // The discriminating case for URL matching: 「libgit.git」 is in
+    // _vendored's URL and in neither path (the path is 「vendor/libgit」,
+    // without the .git). The test above cannot see this -- its query
+    // 「docs」 is in the path as well, so a path-only filter answers it
+    // correctly ([TEST-fixture-cannot-disagree]).
+    testWidgets('the filter matches a URL neither path contains', (
       tester,
     ) async {
       await _pump(tester);
 
-      for (final String label in const <String>[
-        'Init',
-        'Update',
-        'Sync',
-        'Open',
-      ]) {
-        expect(find.text(label), findsOneWidget, reason: label);
-      }
+      await tester.enterText(
+        find.descendant(
+          of: find.byType(PanelFilterField),
+          matching: find.byType(TextField),
+        ),
+        'libgit.git',
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PanelListRow), findsOneWidget);
+      expect(find.text('vendor/libgit'), findsWidgets);
     });
 
     // Not in PANELSPEC, kept on purpose: gbm_submodule_add/_deinit have no
@@ -78,6 +142,10 @@ void main() {
       await _pump(tester);
 
       expect(find.text('Add…'), findsOneWidget);
+      // Deinit is destructive, so rule 2 puts it in the detail action row;
+      // it exists only while a submodule is selected.
+      expect(find.text('Deinit'), findsNothing);
+      await _select(tester, 'vendor/libgit');
       expect(find.text('Deinit'), findsOneWidget);
     });
 

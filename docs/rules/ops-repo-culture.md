@@ -62,6 +62,33 @@ Set by the user, not derived from the code — they outrank convenience every ti
   `ParsedDiff.truncated` was serialized by `JsonCodec`, decoded by `ParsedDiff.fromJson`, and taken
   as a `DiffPage` constructor field — with no reader anywhere, so a diff refused for its size drew
   the same 「No changes」 as a file with nothing in it. Now wired; see [CPP-parse-refuses-over-cap].
+- **Consequence**: the tenth and eleventh were **parameters a feature was waiting on**, and each
+  was the whole of a reported gap: `FileSavePicker.pickDirectory()` existed with three callers
+  while two folder fields stayed plain text boxes, and `createBranch(setUpstream:)` /
+  `lockWorktree(reason:)` had taken their argument since they were written with **zero** call sites
+  passing one — so P17's checkbox was absent and the worktree detail pane's 「鎖定原因」 row was
+  permanently empty. All three are wired now.
+- **Consequence**: the twelfth ran the **other way — an orphaned producer**, and is now **closed by
+  deletion**, not by wiring. `RemoveWorktreeOperation` pushed two `OperationChoice`s on failure and
+  `JsonCodec` serialized them, but nothing read them: worktree removal rides
+  `workingCopyOperationFinished`, whose Dart handler reads only `succeeded`/`error`, while the
+  handler that *does* read `choices` hangs off `operationFinished` and has arms for
+  `checkout`/`deleteBranch` only — `PendingOperationKind` has no worktree arm at all.
+- **Rule**: **deletion rather than wiring, because one of the two choices was unofferable.**
+  `Remove anyway` is a `--force`, and [GIT-remove-locked-needs-two-forces] measures that `--force`
+  cannot get past a lock while the capi cannot send the second one — so wiring it up would have
+  built the lying control that rule already forbids. The dirty half stopped needing a recovery
+  choice when the Remove worktree dialog began asking for `--force` before dispatching.
+- **Do**: **an orphan's disposition is a fact about its two ends, not a default.** Eleven of these
+  were wired up because a consumer was waiting; this one was deleted because the producer's own
+  offer could not be honoured. Asking 「who reads this」 finds the orphan; asking 「could the reader
+  do what this promises」 is what decides which way it goes.
+- **Note**: the assertion that keeps it deleted is `RealRepoTest.ListsAddsLocksAndRemovesWorktrees`'
+  `EXPECT_TRUE(blocked.choices.empty())` — a producer with no reader reddens nothing when it is
+  re-added, so the record alone would not have held.
+- **Do**: **grep both directions.** Eight of the twelve were consumers with no producer or callers;
+  the ninth and twelfth were producers with no reader, and a producer-side orphan is invisible to
+  「who calls this」.
 
 ## [CULT-reference-impl-not-orphan] Not every uncalled function is an orphan
 

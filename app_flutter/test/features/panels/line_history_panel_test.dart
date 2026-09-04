@@ -10,6 +10,8 @@ import 'package:gbm_flutter/data/models/signature.dart';
 import 'package:gbm_flutter/data/repositories/history_repository.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/features/panels/line_history_panel.dart';
+import 'package:gbm_flutter/features/panels/panel_filter_field.dart';
+import 'package:gbm_flutter/features/panels/panel_widgets.dart';
 import 'package:gbm_flutter/features/panels/panel_diff_text.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
 import 'package:go_router/go_router.dart';
@@ -30,6 +32,27 @@ const LineHistoryChunk _step = LineHistoryChunk(
   subject: 'rewrite the guard',
   diffText: '@@ -10,3 +10,3 @@\n-old line\n+new line\n context',
 );
+
+/// A second step, so the filter tests have something to narrow *away*.
+/// Its oid shares no substring with [_step]'s and its subject shares no word,
+/// which is what lets one query separate them.
+const LineHistoryChunk _earlier = LineHistoryChunk(
+  oid: 'bbbbbbb',
+  author: _who,
+  subject: 'introduce the helper',
+  diffText: '@@ -10,1 +10,3 @@\n+helper\n',
+);
+
+Future<void> _filter(WidgetTester tester, String query) async {
+  await tester.enterText(
+    find.descendant(
+      of: find.byType(PanelFilterField),
+      matching: find.byType(TextField),
+    ),
+    query,
+  );
+  await tester.pumpAndSettle();
+}
 
 Future<PumpedPanel> _pump(
   WidgetTester tester, {
@@ -162,6 +185,99 @@ void main() {
       await _pump(tester, chunks: const <LineHistoryChunk>[]);
 
       expect(find.text('No commits touched these lines'), findsOneWidget);
+    });
+    testWidgets('the toolbar follows P19 rule 2\'s four segments', (
+      tester,
+    ) async {
+      await _pump(tester);
+
+      expectPanelTemplate(
+        tester,
+        // **No primary segment.** A line history creates nothing.
+        // `Widen range` changes what *this panel* shows, so it is
+        // maintenance; only `Go to commit` leaves for History.
+        maintenance: const <String>['Widen range'],
+        external: const <String>['Go to commit'],
+        listHeader: 'Commits · 1',
+        statusBar: RegExp(r'^1 commit$'),
+      );
+    });
+
+    // **The filter is live here, and the round's own plan said it would be
+    // disabled.** The plan grouped this panel with `blame` as 「左清單是檔案
+    // 內容」 — but a LineHistoryChunk carries `oid`, `author` and `subject`,
+    // and the row draws a subject over an author and a date. That is the
+    // same shape as `file-history`, not the same shape as blame's raw file
+    // lines, so there is plenty to filter and nothing an order could be
+    // wrong about ([CULT-scrutinise-the-comment]).
+    testWidgets('the filter narrows the list, the header and the status line', (
+      tester,
+    ) async {
+      await _pump(tester, chunks: const <LineHistoryChunk>[_step, _earlier]);
+      expect(find.byType(PanelListRow), findsNWidgets(2));
+
+      await _filter(tester, 'helper');
+
+      expect(find.byType(PanelListRow), findsOneWidget);
+      expect(find.text('introduce the helper'), findsOneWidget);
+      expect(find.text('Commits · 1'), findsOneWidget);
+      expect(find.text('2 commits · 命中 1'), findsOneWidget);
+    });
+
+    // The discriminating case, the same shape as reflog's and
+    // file-history's: a row draws the subject, the author and the date and
+    // never the oid, so 「bbbbbbb」 is in no rendered text
+    // ([TEST-fixture-cannot-disagree]).
+    testWidgets('a step is findable by an oid the row never draws', (
+      tester,
+    ) async {
+      await _pump(tester, chunks: const <LineHistoryChunk>[_step, _earlier]);
+
+      await _filter(tester, 'bbbbbbb');
+
+      expect(find.byType(PanelListRow), findsOneWidget);
+      expect(find.text('introduce the helper'), findsOneWidget);
+    });
+
+    // The selection is keyed on the *unfiltered* index. Keyed on the
+    // filtered one, narrowing the list silently moves the highlight onto a
+    // different commit -- and the detail, which indexes into the unfiltered
+    // list, would then disagree with the row that looks selected.
+    //
+    // Found by mutation: the panel's own comment claimed this and nothing
+    // asserted it, so `chunks.indexOf(visible[i])` -> `i` came back fully
+    // green -- the same shape as the fake-primary hole in `blame`.
+    testWidgets('a selected step stays selected when the filter hides others', (
+      tester,
+    ) async {
+      await _pump(tester, chunks: const <LineHistoryChunk>[_step, _earlier]);
+      await tester.tap(find.text('introduce the helper'));
+      await tester.pumpAndSettle();
+      expect(find.text('+helper'), findsOneWidget);
+
+      // Only the selected one survives, and it lands at filtered index 0
+      // while its real index is 1 -- which is what tells the two keyings
+      // apart.
+      await _filter(tester, 'helper');
+
+      expect(find.byType(PanelListRow), findsOneWidget);
+      expect(
+        tester.widget<PanelListRow>(find.byType(PanelListRow)).selected,
+        isTrue,
+        reason: 'the highlight must follow the commit, not the row number',
+      );
+      expect(find.text('+helper'), findsOneWidget);
+    });
+
+    testWidgets('a filter that hides everything says so, not "none touched"', (
+      tester,
+    ) async {
+      await _pump(tester);
+
+      await _filter(tester, 'zzz');
+
+      expect(find.text('No commit matches the filter'), findsOneWidget);
+      expect(find.text('No commits touched these lines'), findsNothing);
     });
   });
 }

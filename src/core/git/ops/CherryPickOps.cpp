@@ -69,15 +69,10 @@ public:
         GitError error = std::move(result).error();
         outcome.summary = error.message;
 
-        if (error.code == GitError::Code::DirtyWorkTree) {
-            outcome.choices.push_back(
-                {OperationChoice::Kind::StashAndRetry,
-                 "Stash changes and pick",
-                 "Your changes are saved to a stash first, and can be restored afterwards.",
-                 false});
-            outcome.choices.push_back(
-                {OperationChoice::Kind::Abort, "Cancel", "Do not cherry-pick.", false});
-        }
+        // A dirty-work-tree failure used to push StashAndRetry/Abort choices
+        // here -- see MergeOps.cpp's identical comment; the same
+        // [CULT-orphan-wiring] shape applies: no Dart reader for a
+        // "cherry-pick"-kind outcome's choices.
 
         // As with a conflicting merge, this is git stopping exactly where it
         // should: the conflict is recorded in the index and CHERRY_PICK_HEAD, and

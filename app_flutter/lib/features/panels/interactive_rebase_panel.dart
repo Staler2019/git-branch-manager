@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:gbm_flutter/data/repositories/panel_tabs_repository.dart';
+import 'package:gbm_flutter/features/panels/panel_storage_id.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/models/rebase_todo_entry.dart';
@@ -9,6 +11,9 @@ import '../../theme/tokens.dart';
 import '../../widgets/gbm_button.dart';
 import '../../widgets/gbm_row.dart';
 import 'gbm_panel_tab_shell.dart';
+import 'panel_filter_field.dart';
+import 'panel_status_line.dart';
+import 'panel_toolbar_spec.dart';
 import 'panel_widgets.dart';
 
 /// `interactive-rebase` as a tab (spec page 14 `IAMAP`), on page 19's
@@ -19,6 +24,18 @@ import 'panel_widgets.dart';
 /// - list: commit 序列（可拖曳排序）
 /// - detail: 每筆的動作（pick / squash / drop）與訊息編輯
 /// - toolbar: Start、Abort、Reset order
+///
+/// **Which segment each action lands in (P19 rule 2).** `Start` is the only
+/// action that begins anything, so it is primary. `Abort` and `Reset order`
+/// both put something back the way it was — maintenance. Nothing here opens
+/// an external tool, so there is no 「跳出去」 segment and no separator.
+///
+/// **Nothing moves to the detail action row.** `Abort` is the closest
+/// candidate and stays: rule 2 keeps 破壞性動作 off the toolbar, and aborting
+/// a rebase *restores the prior state* rather than destroying work. It is
+/// also this panel's only escape hatch, and the detail action row is only
+/// drawn once something is selected — putting the exit behind a selection is
+/// worse than leaving it where it is.
 ///
 /// **訊息編輯 is absent, by an existing design decision rather than a gap.**
 /// `RebaseTodoEntry.subject` is the todo line's comment, not an editable
@@ -100,41 +117,70 @@ class _InteractiveRebasePanelState
     final bool rebaseRunning = session.repoState?.isSequencerOperation ?? false;
 
     return GbmPanelTabShell(
-      storageId: 'panel.interactiveRebase',
+      storageId: panelStorageId(GbmPanelKind.interactiveRebase),
       detailIsEmpty: selected == null,
       emptyDetailMessage:
           'Select a commit to change what the rebase does '
           'with it',
-      toolbar: <Widget>[
-        // Starting needs a plan; a plan needs an upstream. Both come from
-        // the list column, so this is only about whether one is loaded.
-        GbmButton(
-          label: 'Start',
-          kind: GbmButtonKind.primary,
-          onPressed: todo.isEmpty || rebaseRunning
-              ? null
-              : () => _session.startInteractiveRebase(
-                  _upstreamController.text.trim(),
-                  todo,
-                ),
+      toolbar: PanelToolbarSpec(
+        primary: <Widget>[
+          // Starting needs a plan; a plan needs an upstream. Both come from
+          // the list column, so this is only about whether one is loaded.
+          GbmButton(
+            label: 'Start',
+            kind: GbmButtonKind.primary,
+            onPressed: todo.isEmpty || rebaseRunning
+                ? null
+                : () => _session.startInteractiveRebase(
+                    _upstreamController.text.trim(),
+                    todo,
+                  ),
+          ),
+        ],
+        maintenance: <Widget>[
+          // Only a rebase that is actually running can be aborted; offering
+          // it otherwise would fail with git's own confusing error.
+          //
+          // It stays on the toolbar under rule 2 because it restores the
+          // prior state rather than destroying work -- and it is the panel's
+          // only escape hatch, so moving it to the detail action row would
+          // hide the exit behind 「先選一個東西」. It keeps `danger` styling
+          // anyway: not 破壞性 in rule 2's sense is not the same as
+          // unremarkable.
+          GbmButton(
+            label: 'Abort',
+            kind: GbmButtonKind.danger,
+            onPressed: rebaseRunning ? _session.abortRebase : null,
+          ),
+          GbmButton(
+            label: 'Reset order',
+            kind: GbmButtonKind.ghost,
+            onPressed: _todo == null
+                ? null
+                : () => setState(() {
+                    _todo = List<RebaseTodoEntry>.of(_publishedPlan);
+                    _selectedOid = null;
+                  }),
+          ),
+        ],
+        // Rule 3 makes this list writable, and a filtered order is not the
+        // real order: dragging row 3 onto row 1 of a filtered view would
+        // reorder against commits the user cannot see. Disabled with a
+        // stated reason rather than hidden.
+        filter: const PanelFilterField(
+          query: '',
+          onChanged: null,
+          disabledReason: '重新排序要看得到完整順序，所以這裡不能篩選',
         ),
-        // Only a rebase that is actually running can be aborted; offering
-        // it otherwise would fail with git's own confusing error.
-        GbmButton(
-          label: 'Abort',
-          kind: GbmButtonKind.danger,
-          onPressed: rebaseRunning ? _session.abortRebase : null,
+      ),
+      listHeader: PanelListHeaderText(text: 'Commits · ${todo.length}'),
+      statusBar: PanelStatusBarText(
+        text: panelStatusLine(
+          total: todo.length,
+          shown: todo.length,
+          noun: 'commit',
         ),
-        GbmButton(
-          label: 'Reset order',
-          onPressed: _todo == null
-              ? null
-              : () => setState(() {
-                  _todo = List<RebaseTodoEntry>.of(_publishedPlan);
-                  _selectedOid = null;
-                }),
-        ),
-      ],
+      ),
       list: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[

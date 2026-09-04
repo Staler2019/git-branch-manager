@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:gbm_flutter/data/repositories/panel_tabs_repository.dart';
+import 'package:gbm_flutter/features/panels/panel_storage_id.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/models/submodule_info.dart';
@@ -8,6 +10,9 @@ import '../../data/services/desktop_launcher.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/gbm_button.dart';
 import 'gbm_panel_tab_shell.dart';
+import 'panel_filter_field.dart';
+import 'panel_status_line.dart';
+import 'panel_toolbar_spec.dart';
 import 'panel_widgets.dart';
 
 /// `manage-submodules` as a tab (spec page 14 `IAMAP`), on page 19's
@@ -28,6 +33,17 @@ import 'panel_widgets.dart';
 /// the same call Tier 6b made for the Cherry-pick button (#86) and for
 /// `Create tag…` / `Undo last operation…` (#84/#85).
 ///
+/// **Which of the six lands in which of rule 2's segments.** The rule names
+/// its first segment 主要建立動作, and `Add…` is the only action here that
+/// creates a submodule — so it is the primary one even though `PANELSPEC`
+/// does not list it. `Init` reads like a creation and is not: it checks out
+/// a submodule the superproject already records, and it is batch-shaped
+/// (`paths:`) exactly like `Update` and `Sync`, so all three are 批次維護
+/// 動作. `Open` leaves the panel, which is what 跳出去的動作 means.
+/// `Deinit` deletes a checked-out working tree, so it goes to the detail
+/// action row — the same 「拿不回來」 boundary that moves `Drop` and keeps
+/// `Pop` on the stashes panel.
+///
 /// **預期 commit is absent.** [SubmoduleInfo] carries `headOid` (the
 /// submodule's actual HEAD) but not the gitlink oid the superproject
 /// records, and no capi reports it. What survives is `state`, which already
@@ -46,6 +62,7 @@ class _SubmodulesPanelState extends ConsumerState<SubmodulesPanel> {
   /// By path rather than index: `git submodule` output order is not
   /// guaranteed stable across refreshes.
   String? _selectedPath;
+  String _query = '';
   bool _addExpanded = false;
   final TextEditingController _urlController = TextEditingController();
   final TextEditingController _pathController = TextEditingController();
@@ -75,6 +92,23 @@ class _SubmodulesPanelState extends ConsumerState<SubmodulesPanel> {
     SubmoduleState.conflicted => 'conflicted',
   };
 
+  /// The URL is matched as well as the path: a vendored dependency is often
+  /// remembered by where it came from rather than by where it was put.
+  bool _matchesQuery(SubmoduleInfo submodule) {
+    if (_query.trim().isEmpty) return true;
+    final String needle = _query.trim().toLowerCase();
+    return submodule.path.toLowerCase().contains(needle) ||
+        submodule.name.toLowerCase().contains(needle) ||
+        submodule.url.toLowerCase().contains(needle);
+  }
+
+  /// Rule 6's 「實際數量」. No 耗時 clause: the list arrives from one
+  /// `git submodule status` and nothing here is timed per row -- printing a
+  /// duration where nothing was measured decorates a count rather than
+  /// reporting one.
+  String _statusLine({required int total, required int shown}) =>
+      panelStatusLine(total: total, shown: shown, noun: 'submodule');
+
   @override
   Widget build(BuildContext context) {
     final List<SubmoduleInfo> submodules = ref.watch(
@@ -83,76 +117,107 @@ class _SubmodulesPanelState extends ConsumerState<SubmodulesPanel> {
     final SubmoduleInfo? selected = submodules
         .where((SubmoduleInfo s) => s.path == _selectedPath)
         .firstOrNull;
+    final List<SubmoduleInfo> visible = submodules
+        .where(_matchesQuery)
+        .toList();
 
     return GbmPanelTabShell(
-      storageId: 'panel.submodules',
+      storageId: panelStorageId(GbmPanelKind.manageSubmodules),
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a submodule to see its details',
-      toolbar: <Widget>[
-        // Init is a no-op on an already-initialized submodule, but offering
-        // it only for uninitialized ones would make the button flicker in
-        // and out; it is gated on selection alone, like Update and Sync.
-        GbmButton(
-          label: 'Init',
-          onPressed: selected == null
-              ? null
-              : () => _session.initSubmodules(paths: <String>[selected.path]),
+      toolbar: PanelToolbarSpec(
+        primary: <Widget>[
+          GbmButton(
+            label: _addExpanded ? 'Cancel add' : 'Add…',
+            kind: GbmButtonKind.primary,
+            onPressed: () => setState(() => _addExpanded = !_addExpanded),
+          ),
+        ],
+        maintenance: <Widget>[
+          // Init is a no-op on an already-initialized submodule, but
+          // offering it only for uninitialized ones would make the button
+          // flicker in and out; it is gated on selection alone, like Update
+          // and Sync.
+          GbmButton(
+            label: 'Init',
+            kind: GbmButtonKind.ghost,
+            onPressed: selected == null
+                ? null
+                : () => _session.initSubmodules(paths: <String>[selected.path]),
+          ),
+          GbmButton(
+            label: 'Update',
+            kind: GbmButtonKind.ghost,
+            onPressed: selected == null
+                ? null
+                : () => _session.updateSubmodules(
+                    paths: <String>[selected.path],
+                    init: true,
+                  ),
+          ),
+          GbmButton(
+            label: 'Sync',
+            kind: GbmButtonKind.ghost,
+            onPressed: selected == null
+                ? null
+                : () => _session.syncSubmodules(paths: <String>[selected.path]),
+          ),
+        ],
+        external: <Widget>[
+          // A submodule that was never initialized has no working tree to
+          // open -- the directory exists but is empty.
+          GbmButton(
+            label: 'Open',
+            kind: GbmButtonKind.ghost,
+            onPressed:
+                selected == null ||
+                    selected.state == SubmoduleState.notInitialized
+                ? null
+                : () => ref
+                      .read(desktopLauncherProvider)
+                      .openInFileManager(
+                        '${widget.identity.workDir}/${selected.path}',
+                      ),
+          ),
+        ],
+        filter: PanelFilterField(
+          query: _query,
+          onChanged: (String value) => setState(() => _query = value),
         ),
-        GbmButton(
-          label: 'Update',
-          onPressed: selected == null
-              ? null
-              : () => _session.updateSubmodules(
-                  paths: <String>[selected.path],
-                  init: true,
-                ),
-        ),
-        GbmButton(
-          label: 'Sync',
-          onPressed: selected == null
-              ? null
-              : () => _session.syncSubmodules(paths: <String>[selected.path]),
-        ),
-        // A submodule that was never initialized has no working tree to
-        // open -- the directory exists but is empty.
-        GbmButton(
-          label: 'Open',
-          onPressed:
-              selected == null ||
-                  selected.state == SubmoduleState.notInitialized
-              ? null
-              : () => ref
-                    .read(desktopLauncherProvider)
-                    .openInFileManager(
-                      '${widget.identity.workDir}/${selected.path}',
-                    ),
-        ),
-        GbmButton(
-          label: _addExpanded ? 'Cancel add' : 'Add…',
-          onPressed: () => setState(() => _addExpanded = !_addExpanded),
-        ),
-        GbmButton(
-          label: 'Deinit',
-          kind: GbmButtonKind.danger,
-          onPressed: selected == null
-              ? null
-              : () {
-                  _session.deinitSubmodules(paths: <String>[selected.path]);
-                  setState(() => _selectedPath = null);
-                },
-        ),
-      ],
+      ),
+      detailActions: PanelDetailActions(
+        dangerActions: <Widget>[
+          GbmButton(
+            label: 'Deinit',
+            kind: GbmButtonKind.danger,
+            onPressed: selected == null
+                ? null
+                : () {
+                    _session.deinitSubmodules(paths: <String>[selected.path]);
+                    setState(() => _selectedPath = null);
+                  },
+          ),
+        ],
+      ),
+      listHeader: PanelListHeaderText(text: 'Submodules · ${visible.length}'),
+      statusBar: PanelStatusBarText(
+        text: _statusLine(total: submodules.length, shown: visible.length),
+      ),
       list: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           if (_addExpanded) _buildAddForm(),
           Expanded(
-            child: submodules.isEmpty
-                ? const PanelEmptyList(message: 'No submodules')
+            child: visible.isEmpty
+                ? PanelEmptyList(
+                    message: submodules.isEmpty
+                        ? 'No submodules'
+                        : 'No submodule matches the filter',
+                  )
                 : ListView.builder(
-                    itemCount: submodules.length,
+                    itemCount: visible.length,
                     itemBuilder: (context, i) {
-                      final SubmoduleInfo s = submodules[i];
+                      final SubmoduleInfo s = visible[i];
                       return PanelListRow(
                         title: s.path,
                         // An uninitialized submodule's headOid is not a

@@ -115,6 +115,9 @@ only. Normalise with `fullRemoteRefName()` / `shortRemoteRefName()` at the bound
   refs it is listing out from under the user.
 - **Do**: an automatic prune's failure is kept out of `lastError` — nobody asked for it — but
   still reaches the operation log. Not notifying is not the same as not recording.
+- **See also**: [GIT-worktree-prune-has-no-expire] — 使用者裁定 extends this ruling to worktrees,
+  where there is no preview step and a **lock** plays the part 「a local branch claims it」 plays
+  here.
 - **Rule**: **P11 item 9's 「可選同時 prune」 switch is deleted, not merely unwired.** The
   behaviour above is describable by no wording of an on/off switch (off would not stop it; on
   would promise the full `--prune` the ruling does not do), so `AppPreferences.autoFetchPrune`

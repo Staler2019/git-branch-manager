@@ -250,6 +250,10 @@ RepoState Session::repoState() const {
     return RepoState::read(paths_);
 }
 
+bool Session::removeStaleIndexLock() {
+    return operations_->removeStaleIndexLock();
+}
+
 void Session::refreshHistory() {
     // Not "cancel whatever is running, then post mine". That is what this
     // used to do, and it terminated a perfectly healthy `git` process on
@@ -900,6 +904,26 @@ void Session::refreshWorktrees() {
             callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
             return;
         }
+        {
+            std::lock_guard<std::mutex> lock(auxMutex_);
+            worktrees_ = std::make_shared<const std::vector<WorktreeInfo>>(result.value());
+        }
+        callbacks_.emitEmpty(GBM_EVENT_WORKTREES_UPDATED);
+    });
+}
+
+void Session::requestWorktreePendingCounts() {
+    sharedReadPool().post([this]() {
+        GitResult<std::vector<WorktreeInfo>> result = worktreeStore_->list(CancellationToken{});
+        if (!result) {
+            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+            return;
+        }
+        // Re-listed rather than counted onto the published snapshot: that
+        // snapshot may be several operations old, and attaching counts to a
+        // path that has since been removed would publish a number for a row
+        // that no longer exists.
+        attachPendingCounts(*runner_, result.value(), CancellationToken{});
         {
             std::lock_guard<std::mutex> lock(auxMutex_);
             worktrees_ = std::make_shared<const std::vector<WorktreeInfo>>(result.value());

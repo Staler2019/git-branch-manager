@@ -87,3 +87,23 @@ Format: [README.md](README.md).
 
 - **Consequence**: `find.byType(ListTile)` → `GbmRow` breaks finders nothing else uses.
 - **Do**: a round touching shared row widgets has to rerun all device tests, one at a time.
+
+## [TEST-grep-misses-intent-driven-device-tests] Grepping `integration_test/` for the strings you changed cannot find a test that enters through an action id
+
+- **Rule**: [TEST-device-tier-not-in-ci] makes a round that touches an affordance own grepping
+  `integration_test/` for it. That is necessary and **not sufficient**: a device test may reach
+  the surface through `Actions.invoke(GbmActionIntent(...))` ([ACT-intent-layer] dispatch path 1,
+  used because a macOS `PlatformMenuBar` cannot be tapped) and then walk down through *fixture*
+  data — a temp directory's name, a number it wrote itself — naming neither the widget nor any
+  label the round edited.
+- **Consequence**: `worktree_pending_counts_test.dart` mounts `WorktreesPanel` for its whole
+  duration and matched **none** of six greps (`WorktreesPanel`, `Remove worktree`,
+  `removeWorktree`, `Lock…`, `'Worktrees'`, `panelTabs`), while one round changed its rows'
+  badges, gated its Remove button, relabelled its Lock button and made its entry point land on an
+  already-open tab. The write-up had already concluded 「裝置層不受影響」 off those six misses.
+- **Do**: grep the **`GbmActionId`** that opens the surface, and the panel's `GbmPanelKind`, as
+  well as its widget and labels. Those are what an intent-driven test must name, because it is the
+  one thing it cannot reach the surface without.
+- **Do**: a run is cheaper than the reasoning — this file was 1/1 in 4 seconds. Prefer running the
+  candidate to arguing it is unaffected.
+- **Evidence**: [ledger: worktree 五個回報](../ledger/2026-09-03-feat-p19-panel-template-conformance-review.md)

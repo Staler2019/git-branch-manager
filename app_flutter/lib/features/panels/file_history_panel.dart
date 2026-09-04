@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:gbm_flutter/data/repositories/panel_tabs_repository.dart';
+import 'package:gbm_flutter/features/panels/panel_storage_id.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -12,6 +14,9 @@ import '../../widgets/gbm_button.dart';
 import '../diff/diff_page.dart';
 import '../history_graph/widgets/graph_date_format.dart';
 import 'gbm_panel_tab_shell.dart';
+import 'panel_filter_field.dart';
+import 'panel_status_line.dart';
+import 'panel_toolbar_spec.dart';
 import 'panel_widgets.dart';
 
 /// `file-history` as a tab (spec page 14 `IAMAP`), on page 19's template.
@@ -22,6 +27,12 @@ import 'panel_widgets.dart';
 /// - list: 該檔的 commit 清單
 /// - detail: 逐版 diff（唯讀）
 /// - toolbar: 欄位選擇器、含重命名、Compare
+///
+/// **Which segment each action lands in (P19 rule 2), and why the primary
+/// segment is empty.** A file history creates nothing, so 主要建立動作 is
+/// empty and draws no placeholder. With 欄位選擇器 absent (below),
+/// `Renames followed` is the whole maintenance segment, and `Compare…` is
+/// 「跳出去」 — it opens a Compare tab and navigates to it.
 ///
 /// **「含重命名」 is not a toggle, and rendering it as one would be a lie.**
 /// `gbm_request_file_history` documents itself as "following renames the
@@ -52,6 +63,7 @@ class FileHistoryPanel extends ConsumerStatefulWidget {
 
 class _FileHistoryPanelState extends ConsumerState<FileHistoryPanel> {
   String? _selectedOid;
+  String _query = '';
 
   @override
   void initState() {
@@ -74,6 +86,20 @@ class _FileHistoryPanelState extends ConsumerState<FileHistoryPanel> {
   RepoSessionController get _session =>
       ref.read(repoSessionProvider(widget.identity).notifier);
 
+  /// Matches the subject, the author's name **and the oid**, though the row
+  /// draws only the first two.
+  ///
+  /// Same reasoning as the reflog panel: someone arriving with a hash from
+  /// `git log` output has nothing else to paste, and this row deliberately
+  /// leads with the subject rather than the oid.
+  bool _matchesQuery(FileHistoryEntry entry) {
+    if (_query.trim().isEmpty) return true;
+    final String needle = _query.trim().toLowerCase();
+    return entry.subject.toLowerCase().contains(needle) ||
+        entry.author.name.toLowerCase().contains(needle) ||
+        entry.oid.toLowerCase().contains(needle);
+  }
+
   void _select(FileHistoryEntry entry) {
     setState(() => _selectedOid = entry.oid);
     // The path this commit touched is the *renamed-from* path when this
@@ -92,48 +118,82 @@ class _FileHistoryPanelState extends ConsumerState<FileHistoryPanel> {
       repoSessionProvider(widget.identity),
     );
     final List<FileHistoryEntry> entries = session.lastFileHistory;
+    final List<FileHistoryEntry> visible = entries
+        .where(_matchesQuery)
+        .toList(growable: false);
     final FileHistoryEntry? selected = entries
         .where((FileHistoryEntry e) => e.oid == _selectedOid)
         .firstOrNull;
     final ParsedDiff? diff = session.selectedCommitFileDiff;
 
     return GbmPanelTabShell(
-      storageId: 'panel.fileHistory',
+      // P19 樣板規則 1's 「各自記憶…splitter」. Suffixed with the subject
+      // because this is one of the three kinds that can be open twice at
+      // once: on a bare `panel.<kind>` id, resizing one tab silently
+      // resizes the other. The nine singleton kinds keep their unsuffixed
+      // ids -- re-keying those would orphan every saved size to buy a
+      // distinction that cannot arise.
+      storageId: panelStorageId(GbmPanelKind.fileHistory, subject: widget.path),
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a commit to see how it changed this file',
-      toolbar: <Widget>[
-        const Tooltip(
-          message:
-              'File history always follows renames (git log --follow); '
-              'there is no way to turn it off',
-          child: GbmButton(label: 'Renames followed', onPressed: null),
+      toolbar: PanelToolbarSpec(
+        maintenance: <Widget>[
+          const Tooltip(
+            message:
+                'File history always follows renames (git log --follow); '
+                'there is no way to turn it off',
+            child: GbmButton(
+              label: 'Renames followed',
+              kind: GbmButtonKind.ghost,
+              onPressed: null,
+            ),
+          ),
+        ],
+        external: <Widget>[
+          // Compare needs a revision to compare *from*; the other side is
+          // filled in by the Compare page's own ref picker, the convention
+          // sidebar_panel.dart's _compareTag()/_compareStash() established.
+          GbmButton(
+            label: 'Compare…',
+            kind: GbmButtonKind.ghost,
+            onPressed: selected == null
+                ? null
+                : () {
+                    final String tabId = ref
+                        .read(compareTabsProvider(widget.identity).notifier)
+                        .open(left: selected.oid, right: null);
+                    context.go(
+                      RoutePaths.compareFor(
+                        Uri.encodeComponent(widget.identity.workDir),
+                        tabId,
+                      ),
+                    );
+                  },
+          ),
+        ],
+        filter: PanelFilterField(
+          query: _query,
+          onChanged: (String value) => setState(() => _query = value),
         ),
-        // Compare needs a revision to compare *from*; the other side is
-        // filled in by the Compare page's own ref picker, the convention
-        // sidebar_panel.dart's _compareTag()/_compareStash() established.
-        GbmButton(
-          label: 'Compare…',
-          onPressed: selected == null
-              ? null
-              : () {
-                  final String tabId = ref
-                      .read(compareTabsProvider(widget.identity).notifier)
-                      .open(left: selected.oid, right: null);
-                  context.go(
-                    RoutePaths.compareFor(
-                      Uri.encodeComponent(widget.identity.workDir),
-                      tabId,
-                    ),
-                  );
-                },
+      ),
+      listHeader: PanelListHeaderText(text: 'Commits · ${visible.length}'),
+      statusBar: PanelStatusBarText(
+        text: panelStatusLine(
+          total: entries.length,
+          shown: visible.length,
+          noun: 'commit',
         ),
-      ],
-      list: entries.isEmpty
-          ? const PanelEmptyList(message: 'No commits touched this file')
+      ),
+      list: visible.isEmpty
+          ? PanelEmptyList(
+              message: entries.isEmpty
+                  ? 'No commits touched this file'
+                  : 'No commit matches the filter',
+            )
           : ListView.builder(
-              itemCount: entries.length,
+              itemCount: visible.length,
               itemBuilder: (context, i) {
-                final FileHistoryEntry e = entries[i];
+                final FileHistoryEntry e = visible[i];
                 return PanelListRow(
                   title: e.subject,
                   subtitle: <String>[

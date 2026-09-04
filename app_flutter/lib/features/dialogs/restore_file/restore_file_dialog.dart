@@ -24,6 +24,28 @@ import '../../../widgets/gbm_dialog_shell.dart';
 /// result also lands in the index -- the confirmation text is identical.
 ///
 /// Routed as `/repo/:repoId/dialogs/restore-file?path=…&oid=…`.
+///
+/// **This dialog is only the `DLGS` "Restore file to this state" half.**
+/// The spec's other half, "Restore file to before this state" (restoring to
+/// the commit's *parent*, undoing just that commit's change to this file --
+/// full text below), has no dialog and no menu entry at all;
+/// `gbm_context_menus.dart`'s own doc comment on `_historyCommitFile`
+/// already flags the missing 05-K submenu item as a pre-existing, deliberate
+/// gap. Recorded as [DRIFT-restore-before-this-state-missing] rather than
+/// built here: G1 is a copy-only pass over what exists, and this is a new
+/// dialog plus a new context-menu entry, not a translation of one.
+///
+/// Even within this half, three fields from `DLGS`'s own entry are still
+/// absent -- also filed under the same pin rather than added blind:
+/// - the `chk`「還原前先 stash 目前的變更」checkbox (needs a stash-then-
+///   restore sequencing decision, not just a label);
+/// - the exact `warn` wording, which names a real line count
+///   ("此檔目前有未提交的 42 行變更…") this dialog has no data for -- it
+///   only knows [_hasUncommittedChanges] as a bool, so the Chinese text
+///   below is phrased to match that boolean, not copied from the mock's
+///   invented number (the same adaptation [DRIFT-auto-fetch-unwired]'s
+///   entry calls for elsewhere: phrase to the app's real capability, not
+///   the spec's as-if-working prose).
 class RestoreFileDialogContent extends ConsumerWidget {
   const RestoreFileDialogContent({
     super.key,
@@ -89,83 +111,101 @@ class RestoreFileDialogContent extends ConsumerWidget {
           onPressed: () => restore(alsoStage: false),
         ),
       ],
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(
-            path,
-            style: TextStyle(
-              fontFamily: GbmTypography.fontMono,
-              fontSize: GbmTypography.textSm,
-              color: colors.textPrimary,
-            ),
-          ),
-          const SizedBox(height: GbmSpacing.space2),
-          Text(
-            'RESTORE FROM',
-            style: TextStyle(
-              fontSize: GbmTypography.textXs,
-              fontWeight: GbmTypography.weightSemibold,
-              color: colors.textTertiary,
-              letterSpacing: 0.5,
-            ),
-          ),
-          const SizedBox(height: GbmSpacing.space1),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Text(
-                _shortOid,
-                style: TextStyle(
-                  fontFamily: GbmTypography.fontMono,
-                  fontSize: GbmTypography.textSm,
-                  color: colors.textSecondary,
-                ),
+      // Scrollable, like Rebase onto's and Checkout's: the two ro labels
+      // added above can push this past GbmDialogShell's height cap on a
+      // long subject line, and every child here is non-flex
+      // ([FLU-renderflex-non-flex-first]).
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            // DLGS 的 ro 標籤「檔案」，逐字引用。
+            Text(
+              '檔案',
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                fontWeight: GbmTypography.weightSemibold,
+                color: colors.textTertiary,
+                letterSpacing: 0.5,
               ),
-              const SizedBox(width: GbmSpacing.space2),
-              Expanded(
-                child: Text(
-                  // The subject is only known once commitMetaReady has
-                  // answered for this oid; the hash above always identifies
-                  // the commit, so an unresolved subject is left blank
-                  // rather than filled with a guess.
-                  meta?.subject ?? '',
+            ),
+            const SizedBox(height: GbmSpacing.space1),
+            Text(
+              path,
+              style: TextStyle(
+                fontFamily: GbmTypography.fontMono,
+                fontSize: GbmTypography.textSm,
+                color: colors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: GbmSpacing.space2),
+            // DLGS 的 ro 標籤「還原成」，逐字引用。
+            Text(
+              '還原成',
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                fontWeight: GbmTypography.weightSemibold,
+                color: colors.textTertiary,
+                letterSpacing: 0.5,
+              ),
+            ),
+            const SizedBox(height: GbmSpacing.space1),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  _shortOid,
                   style: TextStyle(
+                    fontFamily: GbmTypography.fontMono,
                     fontSize: GbmTypography.textSm,
                     color: colors.textSecondary,
                   ),
-                  overflow: TextOverflow.ellipsis,
                 ),
+                const SizedBox(width: GbmSpacing.space2),
+                Expanded(
+                  child: Text(
+                    // The subject is only known once commitMetaReady has
+                    // answered for this oid; the hash above always identifies
+                    // the commit, so an unresolved subject is left blank
+                    // rather than filled with a guess.
+                    meta?.subject ?? '',
+                    style: TextStyle(
+                      fontSize: GbmTypography.textSm,
+                      color: colors.textSecondary,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: GbmSpacing.space3),
+            Text(
+              // DLGS 的 warn 欄位要求寫出實際變更行數，但這個對話框只知道
+              // 「有沒有未提交變更」這個布林值，沒有行數可用 -- 依現有能力
+              // 改寫措辭，不照抄 mock 裡虛構的行數（見本檔案類別註解）。
+              dirty ? '此檔在工作區有未提交的變更，會被覆蓋且無法復原。' : '工作區內這個檔案的版本將被取代。',
+              style: TextStyle(
+                fontSize: GbmTypography.textSm,
+                fontWeight: dirty
+                    ? GbmTypography.weightSemibold
+                    : GbmTypography.weightRegular,
+                color: dirty ? colors.danger : colors.textSecondary,
+                height: GbmTypography.leadingNormal,
               ),
-            ],
-          ),
-          const SizedBox(height: GbmSpacing.space3),
-          Text(
-            dirty
-                ? 'This file has uncommitted changes in the working copy. '
-                      'They will be overwritten.'
-                : 'The working copy version of this file will be replaced.',
-            style: TextStyle(
-              fontSize: GbmTypography.textSm,
-              fontWeight: dirty
-                  ? GbmTypography.weightSemibold
-                  : GbmTypography.weightRegular,
-              color: dirty ? colors.danger : colors.textSecondary,
-              height: GbmTypography.leadingNormal,
             ),
-          ),
-          const SizedBox(height: GbmSpacing.space1),
-          Text(
-            'No commit is created. The restored file shows up as a normal '
-            'working-copy change and can still be discarded afterwards.',
-            style: TextStyle(
-              fontSize: GbmTypography.textXs,
-              color: colors.textTertiary,
-              height: GbmTypography.leadingNormal,
+            const SizedBox(height: GbmSpacing.space1),
+            Text(
+              '不會建立新的 commit。還原後的檔案會像一般工作區變更一樣，'
+              '之後仍可以再 discard。',
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                color: colors.textTertiary,
+                height: GbmTypography.leadingNormal,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

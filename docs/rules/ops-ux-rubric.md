@@ -27,3 +27,20 @@ code-verifiable floor, not a substitute for real usability testing before a
   [ledger: UX3 round 1](../ledger/2026-08-13-feat-flutter-design-restore.md), not here.
 - **Consequence**: a rules file states the bar a change is held to; "we scored 95 in round 1"
   only makes sense as what happened in round N, which CLAUDE.md's "Where a round's write-up goes" files as ledger material.
+
+## [UX-ellipsis-promises-a-dialog] An ellipsis-suffixed button promises a dialog, and an ellipsis with no dialog is a spec lie
+
+- **Rule**: `…` on a control means 「按下去會先問你」. The spec uses it that way throughout, and
+  P17/P18's shared shell adds what the dialog then owes: a destructive primary button is `danger`
+  and **must restate the specific object**.
+- **Consequence**: it is broken in **both directions**, and this repo shipped one of each at the
+  same time. `Add worktree…` expanded an inline form in the list column — a dialog was promised and
+  a form appeared in its place. `Remove worktree…` dispatched immediately — the ellipsis promised a
+  confirmation for an action that removes a working directory from disk, and there was none of any
+  kind.
+- **Do**: the check is mechanical and worth running over a whole surface at once — for every
+  control whose label ends in `…`, name the route it pushes. No route is a finding.
+- **Do**: the contrapositive is the other half of the rule and is what keeps it cheap. A control
+  that destroys nothing and needs no input gets **no** ellipsis and **no** dialog: `Unlock` sits
+  beside `Lock…` for exactly that reason.
+- **Evidence**: [ledger: Worktree 面板的五個回報](../ledger/2026-09-03-feat-p19-panel-template-conformance-review.md)

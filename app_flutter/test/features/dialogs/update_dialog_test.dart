@@ -261,7 +261,7 @@ void main() {
     ) async {
       await _pumpDialog(tester, const UpdateState.developmentBuild());
 
-      expect(find.textContaining('Development build'), findsOneWidget);
+      expect(find.textContaining('開發版本'), findsOneWidget);
       expect(find.text('Download and install'), findsNothing);
     });
 

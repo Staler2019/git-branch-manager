@@ -1277,13 +1277,89 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     if (_bindings.worktreesJson(_session) == 0) {
       final String json = readLastResultJson(_bindings);
       if (json.isNotEmpty) {
-        state = state.copyWith(
-          worktrees: WorktreeInfo.listFromJson(
-            jsonDecode(json) as List<dynamic>,
-          ),
+        publishWorktrees(
+          WorktreeInfo.listFromJson(jsonDecode(json) as List<dynamic>),
         );
       }
     }
+  }
+
+  /// Publishes [worktrees] and decides whether any of them should be pruned
+  /// in the background.
+  ///
+  /// Split out of [_readWorktrees] so a test drives the **real** decision
+  /// rather than a stand-in for it: everything above this line is the FFI
+  /// read, which the fake seam can never exercise, and everything below is
+  /// the reducer, which is what the auto-prune rule lives in.
+  @visibleForTesting
+  void publishWorktrees(List<WorktreeInfo> worktrees) {
+    state = state.copyWith(worktrees: worktrees);
+    _autoPruneWorktrees(worktrees);
+  }
+
+  /// Paths this session has already dispatched an automatic prune for.
+  ///
+  /// **This is the loop guard, and it is keyed on the path rather than on
+  /// current prunability for a reason.** A prune re-publishes the worktree
+  /// list, and anything the prune could not remove — a locked entry, or a
+  /// failure — is *still prunable* in that new snapshot. A gate reading
+  /// 「something is prunable」 therefore re-dispatches forever. A gate reading
+  /// 「some path has never been tried」 terminates on every branch, including
+  /// the failure one, which is the same lesson as writing `failed` into the
+  /// panel's `path@headOid` count cache ([GIT-worktree-status-is-per-path]).
+  final Set<String> _autoPrunedWorktreePaths = <String>{};
+
+  /// True while an automatic prune this class dispatched is unaccounted for,
+  /// so its failure can be kept out of [RepoSessionState.lastError].
+  ///
+  /// A count rather than a bool because two publishes naming different new
+  /// paths can each dispatch before either outcome arrives.
+  int _autoPruneWorktreesInFlight = 0;
+
+  /// [REF-fetch-auto-prunes] applied to worktrees: a refresh that discovers a
+  /// worktree whose directory is gone prunes it without telling anyone.
+  /// 使用者裁定 —— 「prune 是背景做掉，所以使用者不需要知道」, the same ruling
+  /// that governs remote-tracking refs after a fetch.
+  ///
+  /// **A locked worktree is never touched**, which is both git's own
+  /// behaviour (it refuses) and the right meaning: a lock is the user saying
+  /// 「keep this」 about a path that may only be temporarily absent, an
+  /// unmounted volume being the obvious case. That is the sole guard against
+  /// this method discarding a worktree that was coming back — `git worktree
+  /// prune` takes no `--expire`, unlike the one `git gc` runs.
+  void _autoPruneWorktrees(List<WorktreeInfo> worktrees) {
+    final List<String> fresh = <String>[
+      for (final WorktreeInfo w in worktrees)
+        if (w.isPrunable &&
+            !w.isLocked &&
+            !_autoPrunedWorktreePaths.contains(w.path))
+          w.path,
+    ];
+    if (fresh.isEmpty) return;
+    // Recorded *before* dispatching, so a re-entrant publish cannot queue a
+    // second prune for the same path.
+    _autoPrunedWorktreePaths.addAll(fresh);
+    _autoPruneWorktreesInFlight++;
+    pruneWorktrees();
+  }
+
+  /// True when [error] is a failed `git worktree prune` this class asked for
+  /// itself, in which case it must not reach [RepoSessionState.lastError] —
+  /// `workspace_screen.dart` renders that as a banner, and a background task
+  /// the user did not initiate has no business interrupting them (spec page
+  /// 10).
+  ///
+  /// Matched on [GitError.argv] rather than on `PendingOperationKind`,
+  /// because that enum has no arm for a worktree prune and the capi carries
+  /// no request identity — the same constraint, and the same workaround, as
+  /// [_isSuppressedAutoPrunePreviewError]. Consumes one in-flight marker, so
+  /// a *later* failure of the user's own `Prune` button still surfaces.
+  bool _isSuppressedAutoPruneWorktreesError(GitError error) {
+    if (_autoPruneWorktreesInFlight == 0) return false;
+    final List<String> argv = error.argv;
+    if (!argv.contains('worktree') || !argv.contains('prune')) return false;
+    _autoPruneWorktreesInFlight--;
+    return true;
   }
 
   void _readRemotes() {
@@ -1507,7 +1583,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     // Suppression means "do not write", not "write null": an unrelated
     // failure already on screen must survive a background prune failing
     // behind it -- the same rule the automatic preview's suppressor follows.
-    if (error != null) {
+    if (error != null && !_isSuppressedAutoPruneWorktreesError(error)) {
       state = state.copyWith(lastError: error);
     }
   }
@@ -1944,11 +2020,31 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     }
   }
 
+  /// Best-effort: see `gbm_operation_remove_stale_index_lock()`'s doc
+  /// comment in gbm_capi.h. The bool it returns is deliberately not
+  /// surfaced to either caller below -- both always resubmit the original
+  /// request afterwards regardless of what this returned, and let that
+  /// resubmission's own `preflight()` re-arbitrate against whatever is on
+  /// disk right now: gone -> proceeds; still fresh -> refuses again with a
+  /// freshly re-offered (and now accurate) choice set. One path, correct
+  /// either way, rather than a second "keep the stale choices around and
+  /// hope" branch that duplicates what preflight() already does for free.
+  void _removeStaleIndexLock() {
+    if (_session == nullptr) return;
+    _bindings.removeStaleIndexLock(_session);
+  }
+
   /// Resubmits the checkout request that produced the current
   /// [RepoSessionState.checkoutChoices] with the flag [kind] implies
-  /// (stash-and-retry -> `stashFirst`, force-discard -> `force`); any other
-  /// kind (Abort/Cancel) just dismisses the choices. A no-op if no failed
-  /// checkout is on record -- see [_lastFailedCheckoutRequest].
+  /// (stash-and-retry -> `stashFirst`, force-discard -> `force`; retry and
+  /// remove-lock both resubmit unmodified, the latter after attempting
+  /// [_removeStaleIndexLock] first); `abort` just dismisses the choices --
+  /// it means "cancel, stay put" on every path that produces it here (a
+  /// dirty-tree refusal's own Abort, or preflight's benign "don't retry"),
+  /// never "abort the in-progress sequencer operation" itself, which stays
+  /// the conflict banner's job ([ACT-availability]'s "the banner's
+  /// Abort/Skip/Continue/Resolve… stay the only way forward"). A no-op if
+  /// no failed checkout is on record -- see [_lastFailedCheckoutRequest].
   void retryCheckoutWithChoice(OperationChoiceKind kind) {
     final PendingCheckoutRequest? request = _lastFailedCheckoutRequest;
     _lastFailedCheckoutRequest = null;
@@ -1971,9 +2067,22 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
           newBranchName: request.newBranchName,
           force: true,
         );
-      case OperationChoiceKind.abort:
       case OperationChoiceKind.retry:
+        checkout(
+          target: request.target,
+          detach: request.detach,
+          createBranch: request.createBranch,
+          newBranchName: request.newBranchName,
+        );
       case OperationChoiceKind.removeLock:
+        _removeStaleIndexLock();
+        checkout(
+          target: request.target,
+          detach: request.detach,
+          createBranch: request.createBranch,
+          newBranchName: request.newBranchName,
+        );
+      case OperationChoiceKind.abort:
         break;
     }
   }
@@ -2097,9 +2206,12 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
 
   /// Resubmits the deleteBranch request that produced the current
   /// [RepoSessionState.deleteBranchChoices] with `force` set when [kind] is
-  /// [OperationChoiceKind.forceDiscard]; any other kind just dismisses the
-  /// choices. A no-op if no failed delete is on record -- see
-  /// [_lastFailedDeleteBranchRequest].
+  /// [OperationChoiceKind.forceDiscard]; retry and remove-lock both
+  /// resubmit unmodified (the latter after attempting
+  /// [_removeStaleIndexLock] first -- see [retryCheckoutWithChoice]'s doc
+  /// comment for why neither branches on the removal's own result); any
+  /// other kind just dismisses the choices. A no-op if no failed delete is
+  /// on record -- see [_lastFailedDeleteBranchRequest].
   void retryDeleteBranchWithChoice(OperationChoiceKind kind) {
     final PendingDeleteBranchRequest? request = _lastFailedDeleteBranchRequest;
     _lastFailedDeleteBranchRequest = null;
@@ -2113,10 +2225,21 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
           isRemote: request.isRemote,
           remoteName: request.remoteName,
         );
+      case OperationChoiceKind.retry:
+        deleteBranch(
+          names: request.names,
+          isRemote: request.isRemote,
+          remoteName: request.remoteName,
+        );
+      case OperationChoiceKind.removeLock:
+        _removeStaleIndexLock();
+        deleteBranch(
+          names: request.names,
+          isRemote: request.isRemote,
+          remoteName: request.remoteName,
+        );
       case OperationChoiceKind.stashAndRetry:
       case OperationChoiceKind.abort:
-      case OperationChoiceKind.retry:
-      case OperationChoiceKind.removeLock:
         break;
     }
   }
@@ -2639,6 +2762,23 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   void refreshWorktrees() {
     if (_session == nullptr) return;
     _bindings.worktreeRefresh(_session);
+  }
+
+  /// Measures 待提交數 for every worktree -- one `git status` per worktree,
+  /// then one WORKTREES_UPDATED carrying the whole list back.
+  ///
+  /// **`request*`, not `refresh*`, and the name is the point.**
+  /// [STATE-refresh-entry-point] makes membership of the focus-regain / F5
+  /// sweep a *rule* rather than a list: every zero-argument `refresh*` on
+  /// this controller is in it. This call is keyed to the worktrees panel
+  /// being open -- a selection that need not still exist when the window
+  /// comes back -- so it belongs to the excluded `request*` family, and
+  /// naming it that way makes the exclusion structural instead of a comment
+  /// the next round has to happen to read. `refreshWorktrees()` above is
+  /// untouched and stays in the sweep; it is the counts that are opt-in.
+  void requestWorktreePendingCounts() {
+    if (_session == nullptr) return;
+    _bindings.worktreeRequestPendingCounts(_session);
   }
 
   /// `git worktree add`. See gbm_worktree_add()'s doc comment: on success
@@ -3263,16 +3403,29 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
 
   /// Plain, non-interactive `git rebase`: replays every commit unchanged.
   /// Same event/refresh contract as [startInteractiveRebase].
+  ///
+  /// [rebaseMerges] is `--rebase-merges`, [autosquash] is `--autosquash` --
+  /// both work on this plain call with no `-i` of our own (see
+  /// RebaseOps.cpp's measurement comment for why).
   void startRebase(
     String upstream, {
     String onto = '',
     bool stashFirst = false,
+    bool rebaseMerges = false,
+    bool autosquash = false,
   }) {
     if (_session == nullptr) return;
     final Pointer<Utf8> upstreamPtr = upstream.toNativeUtf8();
     final Pointer<Utf8> ontoPtr = onto.toNativeUtf8();
     try {
-      _bindings.rebaseStart(_session, upstreamPtr, ontoPtr, stashFirst ? 1 : 0);
+      _bindings.rebaseStart(
+        _session,
+        upstreamPtr,
+        ontoPtr,
+        stashFirst ? 1 : 0,
+        rebaseMerges ? 1 : 0,
+        autosquash ? 1 : 0,
+      );
     } finally {
       malloc.free(upstreamPtr);
       malloc.free(ontoPtr);

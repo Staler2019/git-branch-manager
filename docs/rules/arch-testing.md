@@ -54,8 +54,8 @@ correctly, not that the real dispatch path ever produces that `null`.
 
 ## [TEST-fixture-cannot-disagree] A fixture that cannot disagree with the code proves nothing
 
-Ten recorded shapes, each of which passed identically before and after a real fix.
-One row per shape — when you find an eleventh, append a row.
+Twelve recorded shapes, each of which passed identically before and after a real fix.
+One row per shape — when you find a thirteenth, append a row.
 
 | # | Shape | Recorded case | Why it stayed green |
 |---|---|---|---|
@@ -69,12 +69,17 @@ One row per shape — when you find an eleventh, append a row.
 | 8 | the **assertion**, not the fixture, is too weak | «controls are to the right of the status text» is true under `WrapAlignment.spaceBetween` **and** `start` (conflict-banner round) | «controls' right edge equals the Wrap's right edge» is the same claim stated tightly enough to fail |
 | 9 | **cross-language**: hand-sets a field production never sets | every Dart test wrote `isSymbolic: true` by hand while `RefStore` never assigned it | **both languages stay green at once** — the C++ struct member did exist and was serialized |
 | 10 | *varies more than the subject*, so an unrelated path answers correctly | History's uncommitted-row fixture rebuilt its `GraphSnapshotView` on every call, so emitting a clean working copy also handed `repoGraphProvider` a new object (discard round) | the rebuild that repaints the row came from the graph, not the working copy — mutating the row's `ref.watch` to `ref.read` left the file **fully green** |
+| 11 | *cannot express* the failing condition at this tier at all | `.timeout()` around a synchronously-blocking `_closeSessions()` (Windows update round) | no fake-async widget test blocks a real event loop, so an empty fix goes green — see [FLU-timeout-cannot-bound-sync] |
+| 12 | the **environment** gains a permanent item, quietly widening an exact count | D7 seeded a pinned Worktrees tab, and `expect(tabs, hasLength(1))` had meant 「this menu item opened exactly one tab」 | the seed alone satisfies the count, so the assertion now passes for a menu item that opens **nothing** |
 
 - **Do**: count the bytes the fixture actually writes, not the bytes the test's name claims (6).
 - **Do**: **when a rule about how input is grouped changes, every fixture that encodes a gap,
   a count or an adjacency has to be re-read against the new rule** — nothing else will
   notice (7).
 - **Do**: a mutation that comes back green is as often a weak assertion as a missing one (8).
+- **Do**: when something becomes **always present**, every exact-count assertion about it turns
+  vague. Fix it by *filtering the constant out and re-counting the subject*, never by bumping 1 to
+  2 — the bumped number is satisfied by the constant alone (12).
 - **Do**: **hold everything but the subject identical across a transition** — hoist the
   untouched halves of a state fixture into shared instances, so the only thing that can
   drive the rebuild is the thing under test (10). Two fixtures pumped separately cannot see
@@ -94,6 +99,21 @@ One row per shape — when you find an eleventh, append a row.
   one round silently matched nothing after a formatter reflowed an argument list, and a
   `JsonCodec.cpp` anchor named only by its field matched **two** serializers (`DiffFile`'s and
   `ChangedFile`'s both emit `addedLines`). Anchor on a neighbouring line that is actually unique.
+- **Do**: **count the reds from the progress line's `-N`, and read that line with your own eyes —
+  not through a grep, a helper or a loop you wrote.** 「Is the red narrow」 is the *only* question a
+  mutation check asks, so the entire result is that one number. It was misread three times in one
+  round, three different ways: `grep -c` on the 「Failing tests:」 summary (**that list truncates at
+  4 entries** plus 「... and N more」) read 8 as 4; a `\+[0-9]+ -[0-9]+` pattern matched the wrong
+  line and read 3 as 1; and a `reds()` shell helper reported 1/1/1 for three mutations that were
+  really 7/2/1. Each wrapper looked right and each was cheaper to trust than to check.
+- **Note**: an anchor that matches nothing means **the mutation never applied**, so REDS=0 is not
+  evidence of a vacuous test. Redo it against the real text before drawing any conclusion.
+- **Do**: **write the two numbers down as two numbers** — how many mutations were run, and how
+  many tests each reddened. One mutation may legitimately redden several tests, so the totals
+  differ, and a write-up that reports the red total as the mutation count reads as a wider sweep
+  than actually happened. Three commit messages and one ledger section in a single round each
+  stated a count one-to-four higher than the items they went on to enumerate, all by this one
+  substitution; the table beside the sentence is what caught it.
 
 ## [TEST-count-dont-any] Count, don't `any`
 

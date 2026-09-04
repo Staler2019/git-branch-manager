@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:gbm_flutter/data/repositories/panel_tabs_repository.dart';
+import 'package:gbm_flutter/features/panels/panel_storage_id.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/models/bisect_status.dart';
@@ -9,6 +11,9 @@ import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/gbm_button.dart';
 import 'gbm_panel_tab_shell.dart';
+import 'panel_filter_field.dart';
+import 'panel_status_line.dart';
+import 'panel_toolbar_spec.dart';
 import 'panel_widgets.dart';
 
 /// `bisect` as a tab (spec page 14 `IAMAP`), on page 19's template. Reached
@@ -32,6 +37,30 @@ import 'panel_widgets.dart';
 /// - **自訂測試指令.** That is `git bisect run <cmd>`, and `gbm_capi.h` has
 ///   start/mark/skip/reset only. Absent, tracked on #76.
 ///
+/// **Which segment each action lands in (P19 rule 2), and why the primary
+/// segment is empty.** Rule 2's first segment is 主要建立動作, and the only
+/// action here that creates anything is `Start bisect` — which is not on the
+/// toolbar (see below). Good / Bad / Skip / Reset all act on a bisect that
+/// already exists, so they are all maintenance, and the primary segment is
+/// simply empty. That is the intended reading of the four-segment rule: the
+/// **order** is fixed, the **occupancy** is not, and an empty segment draws
+/// no placeholder — which is what stops a read-only panel growing a fake
+/// primary button.
+///
+/// `Reset` stays on the toolbar despite the danger styling: it ends the
+/// bisect and puts HEAD back where it started, restoring a prior state
+/// rather than destroying work, so rule 2's 破壞性 clause does not reach it.
+/// Same ruling as interactive-rebase's `Abort`.
+///
+/// **The filter is live while a bisect runs and disabled when one is not.**
+/// The list is a *record* of what has been marked — marking happens on the
+/// toolbar, not in the list — so it is not one of rule 3's writable lists
+/// and the 「篩過的順序不是真的順序」 objection that disables
+/// interactive-rebase's filter does not apply here. **This corrects
+/// [PanelFilterField]'s own doc comment**, which listed this panel with
+/// interactive-rebase's writable ones. With no bisect running the list is a
+/// start form instead, and there is nothing to filter.
+///
 /// **Start is not a toolbar button.** It only means anything when no bisect
 /// is running, and it needs two refs, so it lives in the not-running
 /// state's own form — the same call [LfsPanel] makes for `Install`.
@@ -47,6 +76,8 @@ class BisectPanel extends ConsumerStatefulWidget {
 class _BisectPanelState extends ConsumerState<BisectPanel> {
   final TextEditingController _badController = TextEditingController();
   final TextEditingController _goodController = TextEditingController();
+  String _query = '';
+  String? _selectedOid;
 
   @override
   void initState() {
@@ -64,44 +95,90 @@ class _BisectPanelState extends ConsumerState<BisectPanel> {
   RepoSessionController get _session =>
       ref.read(repoSessionProvider(widget.identity).notifier);
 
+  /// Selecting a step is also what asks for its subject, for the same reason
+  /// [WorktreesPanel] does: nothing else fills this cache for a commit the
+  /// History viewport never scrolled past, so the detail would show a bare
+  /// oid forever. Gated on the cache so re-selecting costs nothing.
+  void _select(String oid, Map<String, CommitMeta> metas) {
+    setState(() => _selectedOid = oid);
+    if (metas.containsKey(oid)) return;
+    _session.requestCommitMeta(<String>[oid]);
+  }
+
   @override
   Widget build(BuildContext context) {
     final RepoSessionState session = ref.watch(
       repoSessionProvider(widget.identity),
     );
     final BisectStatus status = session.bisectStatus;
+    final List<BisectStep> steps = bisectSteps(status, context.gbmColors);
+    final List<BisectStep> visible = steps
+        .where(
+          (BisectStep s) =>
+              _query.trim().isEmpty ||
+              s.oid.toLowerCase().contains(_query.trim().toLowerCase()) ||
+              s.mark.toLowerCase().contains(_query.trim().toLowerCase()),
+        )
+        .toList(growable: false);
+    final BisectStep? selected = visible
+        .where((BisectStep s) => s.oid == _selectedOid)
+        .firstOrNull;
 
     return GbmPanelTabShell(
-      storageId: 'panel.bisect',
+      storageId: panelStorageId(GbmPanelKind.bisect),
       detailIsEmpty: !status.active,
       emptyDetailMessage: 'No bisect in progress',
-      toolbar: <Widget>[
+      toolbar: PanelToolbarSpec(
         // Good/Bad/Skip all act on HEAD -- the commit git checked out for
         // this step -- so they need no selection, only a running bisect.
-        GbmButton(
-          label: 'Good',
-          onPressed: status.active
-              ? () => _session.markBisect(good: true)
+        maintenance: <Widget>[
+          GbmButton(
+            label: 'Good',
+            kind: GbmButtonKind.ghost,
+            onPressed: status.active
+                ? () => _session.markBisect(good: true)
+                : null,
+          ),
+          GbmButton(
+            label: 'Bad',
+            kind: GbmButtonKind.ghost,
+            onPressed: status.active
+                ? () => _session.markBisect(good: false)
+                : null,
+          ),
+          GbmButton(
+            label: 'Skip',
+            kind: GbmButtonKind.ghost,
+            onPressed: status.active ? () => _session.skipBisect() : null,
+          ),
+          GbmButton(
+            label: 'Reset',
+            kind: GbmButtonKind.danger,
+            onPressed: status.active ? () => _session.resetBisect() : null,
+          ),
+        ],
+        filter: PanelFilterField(
+          query: _query,
+          onChanged: status.active
+              ? (String value) => setState(() => _query = value)
               : null,
+          disabledReason: '還沒開始 bisect，沒有已標記的步驟可以篩選',
         ),
-        GbmButton(
-          label: 'Bad',
-          onPressed: status.active
-              ? () => _session.markBisect(good: false)
-              : null,
+      ),
+      listHeader: PanelListHeaderText(text: 'Marked steps · ${visible.length}'),
+      statusBar: PanelStatusBarText(
+        text: panelStatusLine(
+          total: steps.length,
+          shown: visible.length,
+          noun: 'step',
         ),
-        GbmButton(
-          label: 'Skip',
-          onPressed: status.active ? () => _session.skipBisect() : null,
-        ),
-        GbmButton(
-          label: 'Reset',
-          kind: GbmButtonKind.danger,
-          onPressed: status.active ? () => _session.resetBisect() : null,
-        ),
-      ],
+      ),
       list: status.active
-          ? _MarkedSteps(status: status)
+          ? _MarkedSteps(
+              steps: visible,
+              selectedOid: _selectedOid,
+              onSelect: (String oid) => _select(oid, session.commitMetaCache),
+            )
           : _StartForm(
               badController: _badController,
               goodController: _goodController,
@@ -118,67 +195,77 @@ class _BisectPanelState extends ConsumerState<BisectPanel> {
           ? const SizedBox.shrink()
           : _BisectDetail(
               status: status,
-              meta: session.commitMetaCache[status.currentOid],
+              selected: selected,
+              meta: session.commitMetaCache[selected?.oid ?? status.currentOid],
             ),
     );
   }
 }
 
-/// P19 list column: 已標記的 good / bad 步驟.
-class _MarkedSteps extends StatelessWidget {
-  const _MarkedSteps({required this.status});
+/// One row of the marked-steps list.
+///
+/// A named type rather than an inline record because the panel now needs the
+/// same list three times over -- to count, to filter, and to resolve the
+/// selection back to a mark -- and deriving it three ways is how the three
+/// disagree ([CULT-single-source-of-truth]).
+@immutable
+class BisectStep {
+  const BisectStep({
+    required this.oid,
+    required this.mark,
+    required this.color,
+  });
 
-  final BisectStatus status;
+  final String oid;
+  final String mark;
+  final Color color;
+}
+
+/// The marked steps in the order the panel lists them: the bad tip, then the
+/// good commits, then the skipped ones.
+List<BisectStep> bisectSteps(BisectStatus status, GbmColors colors) =>
+    <BisectStep>[
+      if (status.badOid.isNotEmpty)
+        BisectStep(oid: status.badOid, mark: 'bad', color: colors.danger),
+      for (final String oid in status.goodOids)
+        BisectStep(oid: oid, mark: 'good', color: colors.success),
+      for (final String oid in status.skippedOids)
+        BisectStep(oid: oid, mark: 'skipped', color: colors.textTertiary),
+    ];
+
+/// P19 list column: 已標記的 good / bad 步驟.
+///
+/// These rows were a bare `Padding` + `Row` until this round, so they had
+/// none of rule 3's shape and could not be selected at all -- this was the
+/// one panel of the twelve whose left list did not drive its right detail,
+/// which is P19's entire shape.
+class _MarkedSteps extends StatelessWidget {
+  const _MarkedSteps({
+    required this.steps,
+    required this.selectedOid,
+    required this.onSelect,
+  });
+
+  final List<BisectStep> steps;
+  final String? selectedOid;
+  final ValueChanged<String> onSelect;
 
   @override
   Widget build(BuildContext context) {
-    final GbmColors colors = context.gbmColors;
-    final List<({String oid, String mark, Color color})> rows =
-        <({String oid, String mark, Color color})>[
-          if (status.badOid.isNotEmpty)
-            (oid: status.badOid, mark: 'bad', color: colors.danger),
-          for (final String oid in status.goodOids)
-            (oid: oid, mark: 'good', color: colors.success),
-          for (final String oid in status.skippedOids)
-            (oid: oid, mark: 'skipped', color: colors.textTertiary),
-        ];
-
-    if (rows.isEmpty) {
+    if (steps.isEmpty) {
       return const PanelEmptyList(
         message: 'Nothing marked yet — test HEAD and mark it good or bad',
       );
     }
 
     return ListView.builder(
-      itemCount: rows.length,
-      itemBuilder: (context, i) => Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: GbmSpacing.space3,
-          vertical: GbmSpacing.space1,
-        ),
-        child: Row(
-          children: <Widget>[
-            Expanded(
-              child: Text(
-                rows[i].oid,
-                style: TextStyle(
-                  fontSize: GbmTypography.textSm,
-                  fontFamily: GbmTypography.fontMono,
-                  color: colors.textPrimary,
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            const SizedBox(width: GbmSpacing.space2),
-            Text(
-              rows[i].mark,
-              style: TextStyle(
-                fontSize: GbmTypography.textXs,
-                color: rows[i].color,
-              ),
-            ),
-          ],
-        ),
+      itemCount: steps.length,
+      itemBuilder: (context, i) => PanelListRow(
+        title: steps[i].oid,
+        subtitle: steps[i].mark,
+        subtitleColor: steps[i].color,
+        selected: steps[i].oid == selectedOid,
+        onTap: () => onSelect(steps[i].oid),
       ),
     );
   }
@@ -187,22 +274,36 @@ class _MarkedSteps extends StatelessWidget {
 /// P19 detail column: 目前待測 commit (剩餘步數 and 自訂測試指令 have no
 /// backing data -- see [BisectPanel]'s class doc).
 class _BisectDetail extends StatelessWidget {
-  const _BisectDetail({required this.status, required this.meta});
+  const _BisectDetail({
+    required this.status,
+    required this.selected,
+    required this.meta,
+  });
 
   final BisectStatus status;
+  final BisectStep? selected;
   final CommitMeta? meta;
 
   @override
   Widget build(BuildContext context) {
+    final BisectStep? step = selected;
     return PanelDetailColumn(
       children: <Widget>[
-        PanelDetailField(
-          label: 'Now testing',
-          value: status.currentOid.isEmpty
-              ? 'Waiting for a good and a bad commit'
-              : status.currentOid,
-          mono: true,
-        ),
+        // Per-item fields swap with the selection; the session-level ones
+        // below describe the bisect as a whole and survive it. Without a
+        // selection the item *is* HEAD, which is what the panel is for.
+        if (step == null)
+          PanelDetailField(
+            label: 'Now testing',
+            value: status.currentOid.isEmpty
+                ? 'Waiting for a good and a bad commit'
+                : status.currentOid,
+            mono: true,
+          )
+        else ...<Widget>[
+          PanelDetailField(label: 'Commit', value: step.oid, mono: true),
+          PanelDetailField(label: 'Marked', value: step.mark),
+        ],
         if (meta != null)
           PanelDetailField(label: 'Subject', value: meta!.subject),
         PanelDetailField(

@@ -31,7 +31,16 @@ This report is descriptive only — no fixes are applied here. See
 > "(260820 修訂)"; the nine new pages are **not** audited here, with two
 > exceptions closed since: **P14** (entry-point IA) by Tier 6b, and **P19**
 > (管理面板樣版) by Tier 6c, which implemented every `PANELSPEC` row it had
-> data for and recorded the rest on #76. Anything
+> data for and recorded the rest on #76. ~~**P19 is therefore closed.**~~
+> **Corrected (feat/p19-panel-template-conformance): P19 was never closed,
+> because `PANELSPEC` is not the whole page.** Tier 6c audited and
+> implemented the table; P19's **six 樣板規則**, which sit in prose outside
+> it, had never been read against the code at all — there was no Page 19
+> section in this file until the one below. Eight of the twelve panels
+> violated rule 2's 「破壞性動作不放工具列」, none of the twelve had rule 2's
+> filter or rule 6's status bar, and rules 3/4/5 were unmet app-wide. This
+> is [SPEC-audit-unit-is-not-the-page] exactly: the audit unit was the
+> table's rows, and the page's prose was outside it. Anything
 > below without that marker was judged against the original 12 pages and
 > may have drifted. See the Tier 0c PR for the rename rows, which are the
 > only ones this round implemented.
@@ -222,7 +231,7 @@ audit's plan flagged going in.
 |---|---|---|---|
 | Switch repository | 符合 | `repo_switcher_popover.dart` | Correctly a popover, not a modal dialog — matches spec's own note that this is deliberately lightweight, not one of the 33 modal dialog routes. |
 | Clone repository | 符合 (documented gap, iii) | — | Already recorded in CLAUDE.md: no `git init`/clone capi entry point exists; File → Clone repository… stays disabled by design. |
-| New branch | 符合 | `route_paths.dart: newBranchDialog` | Route exists. |
+| New branch | ~~符合~~ → **符合** (fixed, feat/p19-panel-template-conformance 第二輪) | `RoutePaths.newBranchDialog`, `features/dialogs/new_branch/`, `sidebar/widgets/branch_row_actions.dart` | **The old evidence was 「Route exists」, and that is exactly [SPEC-cell-names-capability]: the cell named a capability instead of asking whether the entry points reach it.** They did not. 05-B's `New branch from here…` called `promptText()` — a generic single-field 「Branch name」 box — so none of P17's four fields (名稱／從哪裡分出／建立後 checkout／同時 push 並設為 upstream) were reachable from the sidebar, and the start point the menu item's own name promises was invisible. Two further defects behind the same wall: the dialog's own start-point control was a three-way dropdown plus a free-text `TextField` with **no controller and no initialValue**, so a hash carried in from a commit row sat in `_startRef` while both boxes rendered empty (P17's field is a single 「從哪裡分出」 row — this deliberately overrules P06's dropdown wording, P17 being the 260820 revision); and `createBranch(setUpstream:, upstream:)` had taken both arguments since it was written with **zero** call sites passing them, which is P17's fourth checkbox absent by [CULT-orphan-wiring] rather than by decision. **Fixed**: 05-B pushes the real route with `startPoint`, the start point is a shared searchable `GbmRefPicker` (the same one Checkout uses), and the push-and-set-upstream checkbox is wired. |
 | **Rename branch** | **符合** (fixed, Tier 0c) | `RoutePaths.renameBranchDialog`, `features/dialogs/rename_branch/` | Built against **P13 section A**, the design added on 260820 — which is why this was deliberately deferred in Tier 0 rather than built blind (see issue #45's history). All three spec entry points now reach it: 05-B context menu (naming the clicked branch), Branch menu, and F2 (both falling back to HEAD). The classification was optimistic: `gbm_branch_rename` did exist, but P13's "遠端連帶處理" needed it extended with `renameRemote`/`remoteName`/`askpassDir` plus a `--unset-upstream` step, since `git branch -m` carries tracking config across. |
 | Delete branch | 符合 | `deleteBranchDialog` | — |
 | Checkout | 符合 | `checkoutDialog` | — |
@@ -567,6 +576,111 @@ back-end but no front-door. This corroborates 05-E's finding that
 "Compare with…" is missing from the commit context menu — fixing
 multi-select + wiring 05-E's `Compare with…` item likely closes both
 COMPARES 1 and COMPARES 3's entry-point gaps at once.
+
+---
+
+## Page 19 — 管理面板樣版 (6 樣板規則 × 12 panels, + `PANELSPEC` 12×4)
+
+**This section did not exist until feat/p19-panel-template-conformance**, and
+its absence is the finding. Tier 6c ported all twelve management dialogs to
+`/panel/:tabId` tabs and audited `PANELSPEC` — the page's *table*. P19's six
+樣板規則 are prose **outside** that table, so nothing ever read them against
+the code. That is [SPEC-audit-unit-is-not-the-page] one level up from
+[SPEC-cell-names-capability]: there the cell's evidence was the wrong thing;
+here there was no cell.
+
+The page names `manage-worktrees` as the 樣版實例 and says the other eleven
+「只換欄位不換造型」, so a rule broken in the shared shell is broken twelve
+times.
+
+### A. The six 樣板規則
+
+| # | Rule (spec's wording) | 稽核當下 | 本輪之後 | Evidence (as audited) |
+|---|---|---|---|---|
+| 1 | 各自記憶捲動位置與 splitter；`Ctrl/Cmd+W` 關閉 | **缺少** (i) | **符合** — `Ctrl/Cmd+W` (8dde9b1), per-tab `PageStorageKey` (2cd4d14), splitter ids from one `panelStorageId()` (7301ece). 「各自」 ruled **per-tab**, but keyed on tab *identity* not tab id ([FLU-storage-id-not-tab-id]) | `panel_page.dart` has no `Ctrl/Cmd+W` at all, while `compare_page.dart:202-208` does. Panels are GoRouter children, so a tab switch remounts them and scroll position and selection are both lost. `storageId` is per *kind* (`'panel.blame'`), so two Blame tabs share one splitter position — 「各自」 may mean per-tab. |
+| 2 | 工具列固定四段…**破壞性動作不放工具列** | **缺少** (i) | **符合** — all 12 on `PanelToolbarSpec`; 5 danger buttons moved to the detail action row, 3 `Abort`/`Reset` ratified as non-破壞性 (§B) | **8 of 12 panels put a `GbmButtonKind.danger` button in the toolbar**, one each: `stashes:117 Drop`, `remotes:124 Remove`, `submodules:136 Deinit`, `lfs:97 Untrack`, `worktrees:111 Remove`, `interactive_rebase:125 Abort`, `bisect:99 Reset`, `patches:300 Abort`. The four segments themselves are not modelled anywhere — `GbmPanelTabShell` takes a flat `List<Widget> toolbar`. |
+| 2 | 右端固定是 filter | **缺少** (i) | **符合 (10/12)** — 2 deliberately disabled with a tooltip: `blame` (the list is file content) and `interactive-rebase` (rule 3's writable list — a filtered order is not the real order) | **0 of 12.** `grep -ril filter lib/features/panels/*.dart` returns nothing. |
+| 3 | 左清單…欄寬可拖曳、下限 **220px** | **缺少** (i) | **符合** — c410924, with 63a8748 clamping values already stored below the new floor ([FLU-splitpane-stored-extent-ignores-min]) | `GbmLayout.splitterPanelList` is `minExtent: 180` (`tokens.dart:644`). |
+| 3 | 行高…此處 **36px**（因為兩行式） | **缺少** (i) | **符合** — 1761c7f; bisect converted to `PanelListRow` and made selectable (ce8e52f) | `PanelListRow` is `rowHeightComfortable + space3` = 34 + 12 = **46**. Also, 3 of 12 panels do not use `PanelListRow` at all (`bisect`, `blame`, `interactive_rebase`); bisect's rows are a bare `Padding`+`Row` and are **not selectable**. |
+| 3 | interactive-rebase 與 bisect 是唯二左清單可寫入的 | 符合 (rebase) / **缺少** (bisect) | 符合 (rebase, now with a real drop test) / bisect ruled **toolbar-marked**, list records only | `interactive_rebase_panel.dart:173` uses `ReorderableListView.builder`. bisect's list accepts no marking; whether the rule requires it is a reading question, not a clear gap. |
+| 4 | 右明細一律是 **78px 標籤 + 值** 的定義列表 | **缺少** (i) | **符合** — fa7cd40 | `PanelDetailField` stacks the label *above* the value in a `Column`; there is no 78px label column. |
+| 4 | 值可選取複製 | 符合 | 符合（未動） | `PanelDetailField` uses `SelectableText`, deliberately. |
+| 4 | 動作列在明細底部，danger 靠右 | **缺少** (i) | **符合** — b27c1ef, slot on the shell so the 5 diff-shaped details get it too | No such slot exists. `worktrees_panel.dart:241-247` puts its Lock button *among the fields*. Note 5 of 12 panels do not use `PanelDetailColumn` at all (`stashes`, `patches`, `lfs`, `file_history`, `line_history`) — their detail is diff-shaped — so the slot cannot live on `PanelDetailColumn`. |
+| 5 | 例外狀態用面板內 banner，不用 dialog、不用 toast | **缺少** (i) | **已符合，現在被釘住** — 076c926 added the slot; 898c909 pins it (source sweep + 3 behavioural) | `GbmPanelTabShell` has no banner slot. (`GbmWarningBanner` already exists in `lib/widgets/gbm_banner.dart` and is used elsewhere.) |
+| 6 | 狀態列一律寫實際數量與耗時 | **缺少** (i) | **符合** — 076c926 + `panelStatusLine()` (292d481). 耗時 only where something is measured per row | `GbmPanelTabShell` has no status bar. |
+
+Every gap is classification **(i)** — the backing data exists in every case
+but one (worktrees' 待提交數, which is (ii) and is the round's C++ work).
+
+**The 稽核當下 column is kept rather than overwritten**, because in this
+section the *finding* is the point: nine of eleven rows read 缺少 across all
+twelve panels at once, and that is the evidence for
+[SPEC-audit-unit-is-not-the-page] — not a status line to be tidied away once
+it is fixed. What the round changed is the 本輪之後 column.
+
+Two rows do not read a plain 符合, and both are ratified readings rather than
+residual gaps:
+
+- **filter, 10/12.** `blame` and `interactive-rebase` render the field
+  disabled with a tooltip rather than hiding it —
+  「隱藏會讓人以為功能不存在」 ([FLU-menu-enabled-is-visual-only]), and
+  `onChanged: null` is set alongside the grey so it is not merely visual. An
+  earlier draft also listed `bisect` and `line-history`; both were removed
+  after the source disagreed — `LineHistoryChunk` carries oid, author and
+  subject, so it is a named set and its filter is live.
+- **bisect's writable list.** Rule 3 names interactive-rebase and bisect as
+  the only two writable left lists. Whether 「標記 good/bad」 means the *list*
+  accepts marking, or the toolbar marks and the list records, is a reading
+  question the page does not settle. Ruled: toolbar marks. The two
+  uncontroversial gaps behind that reading were fixed anyway — bisect's rows
+  are `PanelListRow`s now, and they are selectable.
+
+### B. `PANELSPEC` — the spec's own internal contradiction, resolved in place
+
+`PANELSPEC`'s manage-worktrees 工具列 cell reads `Add、Prune、Open、Remove`.
+Rule 2, on the same page, reads 「破壞性動作不放工具列，只在明細區或右鍵」.
+**P19's own mockup draws `Remove worktree…` in the detail action row**, not
+the toolbar.
+
+**Resolution: rule 2 and the mockup win; `Remove` moves to the detail action
+row.** Two of the three sources agree, and the disagreeing one is the weaker
+kind of evidence: a four-word cell is a shorthand list of the panel's
+*actions*, whereas rule 2 is an explicit statement about *placement*. This
+is #76's 「取較具體的那條」 precedent, recorded here rather than settled in a
+code comment ([SPEC-correct-the-issue-in-place]).
+
+Read the same way, `PANELSPEC`'s other toolbar cells are action lists too, so
+each panel's destructive action moves to its detail action row without the
+cell counting as 缺少.
+
+**Placement was only half of it, and this section originally said nothing
+about the other half** (added in the round's second pass): `Remove
+worktree…` sat in the detail action row with the right style *and dispatched
+`removeWorktree()` straight off the press* — no confirmation of any kind for
+an action that removes a working directory from disk, despite the ellipsis
+and P17/P18's shared shell requiring a `danger` primary that restates the
+object. Now a real dialog ([UX-ellipsis-promises-a-dialog],
+[GIT-remove-locked-needs-two-forces]). `Lock` was the mirror case — it took a
+`reason` no caller ever passed — and is now `Lock…` with one.
+
+**Two toolbar entries are deliberately *not* treated as 破壞性**:
+`interactive-rebase`'s `Abort` and `bisect`'s `Reset`. Both restore a prior
+state rather than destroying work, and both are their panel's only escape
+hatch — moving them behind a list selection would hide the exit.
+`patches`' `Abort` (`:300`, beside `Skip` at `:296`) is the same shape: it
+aborts an in-progress import, not a patch. `stashes`' `Pop` likewise stays,
+on the boundary this round draws: 破壞性 means **destroys work the user
+cannot get back** — `Pop` moves the stash into the work tree and is
+recoverable via the reflog, `Drop` is not.
+
+### C. Detail fields still absent after this round
+
+Carried on **#76**, unchanged except where noted: remotes 最後 fetch,
+submodules 預期 commit, LFS 大小, bisect 剩餘步數 + 自訂測試指令,
+file-history 欄位選擇器. **worktrees 待提交數 is closed by this round**;
+建立於 (a mockup field, not a `PANELSPEC` one) is closed for linked
+worktrees only — see the round's ledger for the four cases git cannot
+answer.
 
 ---
 

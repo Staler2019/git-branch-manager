@@ -1070,6 +1070,54 @@ TEST_F(RealRepoTest, DetectsAHeldIndexLockAndNeverRemovesIt) {
     std::filesystem::remove(paths_.indexLockFile());
 }
 
+TEST_F(RealRepoTest, RemoveStaleIndexLockDeletesALockOlderThanTheStaleThreshold) {
+    commitFile("a.txt", "1\n", "c1");
+
+    {
+        std::ofstream lock(paths_.indexLockFile());
+        lock << "held";
+    }
+    setMtimeOffset(paths_.indexLockFile(),
+                   std::chrono::seconds(-(OperationRunner::kStaleLockSeconds + 1)));
+
+    OperationRunner operations(*runner_, paths_);
+    // Re-validated server-side, not trusted from the caller: the age check
+    // above is done again inside removeStaleIndexLock() itself, against
+    // whatever is on disk right now -- this test is what proves that
+    // re-check actually runs and actually deletes when it agrees.
+    EXPECT_TRUE(operations.removeStaleIndexLock());
+    EXPECT_FALSE(std::filesystem::exists(paths_.indexLockFile()));
+}
+
+TEST_F(RealRepoTest, RemoveStaleIndexLockRefusesALockYoungerThanTheStaleThreshold) {
+    commitFile("a.txt", "1\n", "c1");
+
+    // Stand in for another git process still running -- no mtime backdating,
+    // so this lock is as fresh as one created moments ago.
+    {
+        std::ofstream lock(paths_.indexLockFile());
+        lock << "held";
+    }
+
+    OperationRunner operations(*runner_, paths_);
+    EXPECT_FALSE(operations.removeStaleIndexLock())
+        << "a lock this new must be assumed live, the same threshold preflight() uses";
+    // Refused, not silently ignored: the lock is still exactly where it was.
+    EXPECT_TRUE(std::filesystem::exists(paths_.indexLockFile()));
+
+    std::filesystem::remove(paths_.indexLockFile());
+}
+
+TEST_F(RealRepoTest, RemoveStaleIndexLockSucceedsWhenThereIsNoLockToRemove) {
+    commitFile("a.txt", "1\n", "c1");
+
+    OperationRunner operations(*runner_, paths_);
+    // Already gone by the time the user clicks the button (the other
+    // process finished on its own) is success, not failure -- there is
+    // nothing left to refuse.
+    EXPECT_TRUE(operations.removeStaleIndexLock());
+}
+
 TEST_F(RealRepoTest, SwitchesBranches) {
     commitFile("a.txt", "1\n", "c1");
     ASSERT_TRUE(run({"branch", "target"}));
@@ -1093,7 +1141,12 @@ TEST_F(RealRepoTest, SwitchesBranches) {
 
 TEST_F(RealRepoTest, OffersRecoveryChoicesWhenSwitchingWouldLoseWork) {
     // The most common real-world checkout failure. The point of the test is that
-    // the user is offered the three genuine options rather than raw git output.
+    // the user is offered the two genuine recovery options (stash-and-retry,
+    // force-discard) rather than raw git output. No Abort choice is pushed
+    // for this case (CheckoutOp.cpp) -- CheckoutRecoveryDialogContent
+    // (app_flutter) already draws a hardcoded Cancel action-bar button for
+    // that, and filters an `abort` choice out of both its button row and
+    // body list, so one would never be visible.
     commitFile("a.txt", "base\n", "c1");
     ASSERT_TRUE(run({"switch", "--quiet", "-c", "other"}));
     commitFile("a.txt", "other branch content\n", "c2");
@@ -1377,14 +1430,16 @@ TEST_F(RealRepoTest, RefusesToDeleteAnUnmergedBranchWithoutConsent) {
     // again", not a claim that the branch was definitely never merged
     // anywhere, which is not something a local-only check can know.
     EXPECT_NE(outcome.summary.find("fetch"), std::string::npos);
+    // The summary (drawn above the choice list in
+    // DeleteBranchRecoveryDialogContent, via lastError.message -- the choice
+    // itself carries no text of its own anymore) has to say where the
+    // commits go, or "Delete anyway" is not an informed choice.
+    EXPECT_NE(outcome.summary.find("reflog"), std::string::npos);
     bool offersForce = false;
     for (const OperationChoice& choice : outcome.choices) {
         if (choice.kind == OperationChoice::Kind::ForceDiscard) {
             offersForce = true;
             EXPECT_TRUE(choice.destructive);
-            // The explanation has to say where the commits go, or "Delete anyway"
-            // is not an informed choice.
-            EXPECT_NE(choice.explanation.find("reflog"), std::string::npos);
         }
     }
     EXPECT_TRUE(offersForce);
@@ -3049,7 +3104,7 @@ TEST_F(RealRepoTest, WriteResolvedWithEmptyContentFailsInsteadOfTruncatingTheFil
         << "a rejected WriteResolved must not touch the working tree or the index";
 }
 
-TEST_F(RealRepoTest, MergeOffersStashAndRetryWhenTheWorkTreeIsDirty) {
+TEST_F(RealRepoTest, MergeReportsDirtyWorkTreeWithNoChoicesAndTheStashFirstRetryStillWorks) {
     commitFile("a.txt", "base\n", "c1");
     ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
     commitFile("a.txt", "feature change\n", "c2 on feature");
@@ -3068,12 +3123,17 @@ TEST_F(RealRepoTest, MergeOffersStashAndRetryWhenTheWorkTreeIsDirty) {
     ASSERT_FALSE(outcome.succeeded);
     ASSERT_TRUE(outcome.error.has_value());
     EXPECT_EQ(outcome.error->code, GitError::Code::DirtyWorkTree);
-    bool hasStash = false;
-    for (const OperationChoice& choice : outcome.choices) {
-        hasStash = hasStash || choice.kind == OperationChoice::Kind::StashAndRetry;
-    }
-    EXPECT_TRUE(hasStash);
+    // No StashAndRetry/Abort choices pushed here anymore -- nothing under
+    // app_flutter/lib ever read them for a "merge"-kind outcome
+    // ([CULT-orphan-wiring]; see MergeOps.cpp's comment at the same site).
+    // Asserted explicitly, not just left unasserted, so a future round
+    // cannot mistake the gap for an oversight and re-add them.
+    EXPECT_TRUE(outcome.choices.empty());
 
+    // MergeRequest::stashFirst itself is untouched by this round -- it is
+    // core-only behaviour with no Dart-side offer surfacing it at all (no
+    // merge recovery dialog exists), and it must keep working regardless of
+    // whether any choice ever advertised it.
     request.stashFirst = true;
     auto retried = submitAndWait(operations, makeMergeOperation(request));
     ASSERT_TRUE(retried.succeeded) << (retried.error ? retried.error->detail : "");
@@ -3489,6 +3549,18 @@ TEST_F(RealRepoTest, ListsAddsLocksAndRemovesWorktrees) {
     remove.path = linkedPath;
     auto blocked = submitAndWait(operations, makeRemoveWorktreeOperation(remove));
     EXPECT_FALSE(blocked.succeeded);
+
+    // ...and it must offer no recovery choice. `--force` cannot get past a
+    // lock -- measured, `remove` and `remove --force` fail identically and
+    // only `remove -f -f` succeeds -- and RemoveWorktreeRequest::force is a
+    // bool, so the second one cannot be sent at all. A "Remove anyway"
+    // choice here is a control that promises what the capi cannot do, which
+    // is the shape the deleted autoFetchPrune switch is recorded under.
+    //
+    // The dirty case does not need one either: the Remove worktree dialog
+    // asks for --force up front, so by the time an outcome comes back the
+    // decision has already been made.
+    EXPECT_TRUE(blocked.choices.empty()) << "a failed worktree removal must offer no force path";
 
     UnlockWorktreeRequest unlock;
     unlock.path = linkedPath;
@@ -4055,6 +4127,116 @@ TEST_F(RealRepoTest, PlainRebaseReplaysCommitsOntoANewBaseUnchanged) {
     EXPECT_EQ(subjects->out, "feature c2\nfeature c1")
         << "messages must be preserved exactly by a non-interactive rebase";
     EXPECT_TRUE(std::filesystem::exists(repo_ / "other.txt"));
+}
+
+// [DRIFT-rebase-onto-missing-capi-flags]: DLGS's Rebase onto mock offers
+// 「保留 merge commit（--rebase-merges）」 and 「自動 squash 標記過的 fixup
+// commit」 -- both require RebaseRequest to carry the flag through to a plain,
+// non-interactive `git rebase`. Measured first (scratch repo, git 2.55.0)
+// rather than assumed: `git rebase --autosquash <upstream>` with no `-i` at
+// all folds a `fixup!` commit and exits 0, and git's own docs
+// (https://git-scm.com/docs/git-rebase) confirm --autosquash "uses the
+// --interactive machinery internally, but it can be run without an explicit
+// --interactive" -- true since at least the 2.22.0 docs snapshot.
+TEST_F(RealRepoTest, RebaseAutosquashFoldsFixupCommitsWhenEnabled) {
+    commitFile("base.txt", "base\n", "base");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("a.txt", "1\n", "feature c1");
+    commitFile("b.txt", "2\n", "feature c2");
+    commitFile("a.txt", "1 fixed\n", "fixup! feature c1");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("other.txt", "unrelated\n", "main commit");
+    ASSERT_TRUE(run({"switch", "--quiet", "feature"}));
+
+    OperationRunner operations(*runner_, paths_);
+    RebaseRequest request;
+    request.upstream = "main";
+    request.autosquash = true;
+    auto outcome = submitAndWait(operations, makeRebaseOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    auto subjects = run({"log", "--format=%s"});
+    ASSERT_TRUE(subjects);
+    EXPECT_EQ(subjects->out, "feature c2\nfeature c1\nmain commit\nbase")
+        << "the fixup! commit must be folded into feature c1, not replayed on its own";
+}
+
+TEST_F(RealRepoTest, RebaseWithoutAutosquashReplaysFixupCommitsUnfolded) {
+    commitFile("base.txt", "base\n", "base");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("a.txt", "1\n", "feature c1");
+    commitFile("a.txt", "1 fixed\n", "fixup! feature c1");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("other.txt", "unrelated\n", "main commit");
+    ASSERT_TRUE(run({"switch", "--quiet", "feature"}));
+
+    OperationRunner operations(*runner_, paths_);
+    RebaseRequest request;
+    request.upstream = "main";
+    auto outcome = submitAndWait(operations, makeRebaseOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    auto subjects = run({"log", "--format=%s"});
+    ASSERT_TRUE(subjects);
+    EXPECT_EQ(subjects->out, "fixup! feature c1\nfeature c1\nmain commit\nbase")
+        << "the default request.autosquash = false must leave the fixup! commit unfolded";
+}
+
+// Measured (scratch repo, git 2.55.0): a merge commit rebased with the
+// default apply backend is flattened -- 0 merge commits survive. With
+// --rebase-merges the same rebase preserves it -- 1 merge commit survives.
+TEST_F(RealRepoTest, RebaseMergesPreservesAMergeCommitWhenEnabled) {
+    commitFile("base.txt", "base\n", "base");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("c1.txt", "1\n", "feature c1");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "side"}));
+    commitFile("c2.txt", "2\n", "side c2");
+    ASSERT_TRUE(run({"switch", "--quiet", "feature"}));
+    ASSERT_TRUE(run({"merge", "--quiet", "--no-ff", "side", "-m", "merge side into feature"}));
+    commitFile("c3.txt", "3\n", "feature c3");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("other.txt", "unrelated\n", "main commit");
+    ASSERT_TRUE(run({"switch", "--quiet", "feature"}));
+
+    auto beforeMerges = run({"rev-list", "--count", "--merges", "HEAD"});
+    ASSERT_TRUE(beforeMerges);
+    ASSERT_EQ(beforeMerges->out, "1");
+
+    OperationRunner operations(*runner_, paths_);
+    RebaseRequest request;
+    request.upstream = "main";
+    request.rebaseMerges = true;
+    auto outcome = submitAndWait(operations, makeRebaseOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    auto afterMerges = run({"rev-list", "--count", "--merges", "HEAD"});
+    ASSERT_TRUE(afterMerges);
+    EXPECT_EQ(afterMerges->out, "1")
+        << "--rebase-merges must preserve the merge commit rather than flattening it";
+}
+
+TEST_F(RealRepoTest, RebaseWithoutRebaseMergesFlattensAMergeCommit) {
+    commitFile("base.txt", "base\n", "base");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("c1.txt", "1\n", "feature c1");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "side"}));
+    commitFile("c2.txt", "2\n", "side c2");
+    ASSERT_TRUE(run({"switch", "--quiet", "feature"}));
+    ASSERT_TRUE(run({"merge", "--quiet", "--no-ff", "side", "-m", "merge side into feature"}));
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("other.txt", "unrelated\n", "main commit");
+    ASSERT_TRUE(run({"switch", "--quiet", "feature"}));
+
+    OperationRunner operations(*runner_, paths_);
+    RebaseRequest request;
+    request.upstream = "main";
+    auto outcome = submitAndWait(operations, makeRebaseOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    auto afterMerges = run({"rev-list", "--count", "--merges", "HEAD"});
+    ASSERT_TRUE(afterMerges);
+    EXPECT_EQ(afterMerges->out, "0")
+        << "the default request.rebaseMerges = false must flatten the merge commit, as before";
 }
 
 // --- M4: blame ---------------------------------------------------------------

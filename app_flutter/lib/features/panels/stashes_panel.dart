@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:gbm_flutter/data/repositories/panel_tabs_repository.dart';
+import 'package:gbm_flutter/features/panels/panel_storage_id.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -9,6 +11,9 @@ import '../../routing/route_paths.dart';
 import '../../widgets/gbm_button.dart';
 import '../history_graph/widgets/graph_date_format.dart';
 import 'gbm_panel_tab_shell.dart';
+import 'panel_filter_field.dart';
+import 'panel_status_line.dart';
+import 'panel_toolbar_spec.dart';
 import 'panel_file_diff_detail.dart';
 import 'panel_widgets.dart';
 
@@ -25,6 +30,19 @@ import 'panel_widgets.dart';
 /// is the safer arrangement as well as the specified one -- Drop is
 /// destructive and irreversible, and a per-row Drop sits one stray click
 /// away from the row you actually meant.
+///
+/// **Where the 破壞性 line falls between `Pop` and `Drop`.** Rule 2 keeps
+/// destructive actions off the toolbar, and PANELSPEC's toolbar cell lists
+/// all four actions -- so one of them has to move, and which one is a
+/// judgement this panel owns rather than a detail of the matrix.
+///
+/// 破壞性 here means *destroys work the user cannot get back*. `Pop` deletes
+/// the stash, but only after applying it to the work tree, and the commit it
+/// pointed at survives in the stash reflog (`git stash apply <sha>` can
+/// restore it), so nothing is lost -- it stays in the maintenance segment.
+/// `Drop` throws the changes away with nothing applied anywhere; it moves to
+/// the detail action row. The same boundary keeps `Abort` and `Reset` on the
+/// interactive-rebase and bisect toolbars: those restore a prior state.
 class StashesPanel extends ConsumerStatefulWidget {
   const StashesPanel({
     super.key,
@@ -47,6 +65,7 @@ class StashesPanel extends ConsumerStatefulWidget {
 
 class _StashesPanelState extends ConsumerState<StashesPanel> {
   int? _selectedIndex;
+  String _query = '';
 
   @override
   void initState() {
@@ -77,6 +96,26 @@ class _StashesPanelState extends ConsumerState<StashesPanel> {
     _session.requestStashDiff(index);
   }
 
+  bool _matchesQuery(StashEntry stash) {
+    if (_query.trim().isEmpty) return true;
+    final String needle = _query.trim().toLowerCase();
+    return stash.message.toLowerCase().contains(needle) ||
+        'stash@{${stash.index}}'.contains(needle);
+  }
+
+  /// Rule 6's 「實際數量與耗時」, with **no 耗時 clause** -- this panel runs
+  /// one `git stash list` and measures nothing per row, so a duration here
+  /// would be invented. Worktrees prints 掃描 N ms because it really does
+  /// time a per-worktree status pass; printing one where nothing was timed
+  /// is decorating a count, not reporting one.
+  String _statusLine({required int total, required int shown}) =>
+      panelStatusLine(
+        total: total,
+        shown: shown,
+        noun: 'stash',
+        nounPlural: 'stashes',
+      );
+
   @override
   Widget build(BuildContext context) {
     final RepoSessionState session = ref.watch(
@@ -91,65 +130,90 @@ class _StashesPanelState extends ConsumerState<StashesPanel> {
       (StashEntry s) => s.index == _selectedIndex,
     );
     final int? selected = hasSelection ? _selectedIndex : null;
+    final List<StashEntry> visible = stashes.where(_matchesQuery).toList();
 
     return GbmPanelTabShell(
-      storageId: 'panel.stashes',
+      storageId: panelStorageId(GbmPanelKind.manageStashes),
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a stash to see its changes',
-      toolbar: <Widget>[
-        GbmButton(
-          label: 'Apply',
-          onPressed: selected == null
-              ? null
-              : () => _session.applyStash(selected),
-        ),
-        GbmButton(
-          label: 'Pop',
-          onPressed: selected == null
-              ? null
-              : () {
-                  _session.applyStash(selected, pop: true);
-                  setState(() => _selectedIndex = null);
-                },
-        ),
-        GbmButton(
-          label: 'Drop',
-          kind: GbmButtonKind.danger,
-          onPressed: selected == null
-              ? null
-              : () {
-                  _session.dropStash(selected);
-                  setState(() => _selectedIndex = null);
-                },
-        ),
-        // Creating a stash is spec's own "Stash changes" dialog (P06
-        // DIALOGS, Branch -> Stash changes) -- it has options (message,
-        // include untracked, keep staged), so it is not a toolbar action
-        // that can just fire.
-        GbmButton(
-          label: 'Create…',
-          onPressed: () => context.push(
-            RoutePaths.stashChangesDialogFor(
-              Uri.encodeComponent(widget.identity.workDir),
+      toolbar: PanelToolbarSpec(
+        primary: <Widget>[
+          // 主要建立動作. Creating a stash is spec's own "Stash changes"
+          // dialog (P06 DIALOGS, Branch -> Stash changes) -- it has options
+          // (message, include untracked, keep staged), so it opens rather
+          // than firing. It is the only toolbar action independent of the
+          // selection, which is also what makes it the primary one.
+          GbmButton(
+            label: 'Create…',
+            kind: GbmButtonKind.primary,
+            onPressed: () => context.push(
+              RoutePaths.stashChangesDialogFor(
+                Uri.encodeComponent(widget.identity.workDir),
+              ),
             ),
           ),
+        ],
+        maintenance: <Widget>[
+          GbmButton(
+            label: 'Apply',
+            kind: GbmButtonKind.ghost,
+            onPressed: selected == null
+                ? null
+                : () => _session.applyStash(selected),
+          ),
+          GbmButton(
+            label: 'Pop',
+            kind: GbmButtonKind.ghost,
+            onPressed: selected == null
+                ? null
+                : () {
+                    _session.applyStash(selected, pop: true);
+                    setState(() => _selectedIndex = null);
+                  },
+          ),
+        ],
+        filter: PanelFilterField(
+          query: _query,
+          onChanged: (String value) => setState(() => _query = value),
         ),
-      ],
-      list: stashes.isEmpty
-          ? const PanelEmptyList(message: 'No stashes')
+      ),
+      detailActions: PanelDetailActions(
+        dangerActions: <Widget>[
+          GbmButton(
+            label: 'Drop',
+            kind: GbmButtonKind.danger,
+            onPressed: selected == null
+                ? null
+                : () {
+                    _session.dropStash(selected);
+                    setState(() => _selectedIndex = null);
+                  },
+          ),
+        ],
+      ),
+      listHeader: PanelListHeaderText(text: 'Stashes · ${visible.length}'),
+      statusBar: PanelStatusBarText(
+        text: _statusLine(total: stashes.length, shown: visible.length),
+      ),
+      list: visible.isEmpty
+          ? PanelEmptyList(
+              message: stashes.isEmpty
+                  ? 'No stashes'
+                  : 'No stash matches the filter',
+            )
           : ListView.builder(
-              itemCount: stashes.length,
+              itemCount: visible.length,
               // P19 list column: stash 編號 + 訊息 + 時間.
               itemBuilder: (context, i) => PanelListRow(
-                title: 'stash@{${stashes[i].index}}: ${stashes[i].message}',
+                title: 'stash@{${visible[i].index}}: ${visible[i].message}',
                 subtitle: formatGraphDate(
                   DateTime.fromMillisecondsSinceEpoch(
-                    stashes[i].timestamp * 1000,
+                    visible[i].timestamp * 1000,
                   ),
                   DateTime.now(),
                 ),
-                selected: stashes[i].index == selected,
-                onTap: () => _select(stashes[i].index),
+                selected: visible[i].index == selected,
+                onTap: () => _select(visible[i].index),
               ),
             ),
       detail: selected == null
@@ -159,7 +223,10 @@ class _StashesPanelState extends ConsumerState<StashesPanel> {
           // per-file header, so the file list is the wrapper's job.
           ? PanelFileDiffDetail(
               diff: diff.diff,
-              storageId: 'panel.stashes.detail',
+              storageId: panelStorageId(
+                GbmPanelKind.manageStashes,
+                slot: 'detail',
+              ),
             )
           : const Center(child: CircularProgressIndicator()),
     );

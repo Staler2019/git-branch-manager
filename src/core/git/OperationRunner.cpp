@@ -46,6 +46,19 @@ OperationRunner::Handle OperationRunner::submit(std::unique_ptr<Operation> opera
     return handle;
 }
 
+bool OperationRunner::removeStaleIndexLock() {
+    const RepoState current = RepoState::read(paths_);
+    if (!current.indexLocked) {
+        return true;
+    }
+    if (!current.indexLockAgeSeconds || *current.indexLockAgeSeconds <= kStaleLockSeconds) {
+        return false;
+    }
+    std::error_code ec;
+    std::filesystem::remove(paths_.indexLockFile(), ec);
+    return !ec;
+}
+
 std::optional<OperationOutcome> OperationRunner::preflight(const Operation& operation) {
     const RepoState current = RepoState::read(paths_);
 
@@ -57,19 +70,11 @@ std::optional<OperationOutcome> OperationRunner::preflight(const Operation& oper
                        outcome.summary,
                        "Lock file: " + paths_.indexLockFile().string());
         outcome.error = error;
-        outcome.choices.push_back({OperationChoice::Kind::Retry,
-                                   "Retry",
-                                   "Try again once the other process has finished.",
-                                   false});
+        outcome.choices.push_back({OperationChoice::Kind::Retry, false});
         // Removal is only ever offered for a demonstrably stale lock, and never
         // performed automatically: deleting a live lock corrupts the index.
         if (current.indexLockAgeSeconds && *current.indexLockAgeSeconds > kStaleLockSeconds) {
-            outcome.choices.push_back(
-                {OperationChoice::Kind::RemoveLock,
-                 "Remove index.lock",
-                 "The lock is more than 10 minutes old. Only remove it if you are certain no "
-                 "other Git process is running - deleting a live lock can corrupt the index.",
-                 true});
+            outcome.choices.push_back({OperationChoice::Kind::RemoveLock, true});
         }
         return outcome;
     }
@@ -81,10 +86,13 @@ std::optional<OperationOutcome> OperationRunner::preflight(const Operation& oper
         outcome.error = GitError(GitError::Code::Conflict,
                                  "Finish or abort the operation in progress first",
                                  current.describe());
-        outcome.choices.push_back({OperationChoice::Kind::Abort,
-                                   "Abort the operation in progress",
-                                   current.describe(),
-                                   true});
+        // The *sole* choice on this path -- unlike CheckoutOp.cpp/BranchOps.cpp's
+        // own Abort entries (deleted below), this one is load-bearing: it is
+        // what makes `choices` non-empty at all, which is what
+        // WorkspaceScreen reads to auto-push the checkout/delete-branch
+        // recovery dialog. Deleting it would silently stop that dialog from
+        // opening for a sequencer-busy refusal.
+        outcome.choices.push_back({OperationChoice::Kind::Abort, true});
         return outcome;
     }
 

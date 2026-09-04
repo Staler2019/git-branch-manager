@@ -9,16 +9,23 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
+import '../recovery_choice_copy.dart';
 
-/// The Dart analog of the recovery prompt `MainWindow::checkoutBranch()`
-/// shows when a checkout is refused on a dirty work tree (src/app/views/
-/// MainWindow.cpp's `OperationChoice` handling): "Stash changes and
-/// checkout" / "Discard changes and checkout" / Cancel, rather than a raw
-/// Git error. Routed as `/repo/:repoId/dialogs/checkout-recovery`, pushed
-/// automatically by `workspace_screen.dart` whenever
-/// [RepoSessionState.checkoutChoices] goes from empty to non-empty --
-/// mirrors [CredentialDialogContent]'s auto-open pattern, since this is
-/// also not something the user chose to open.
+/// The Dart analog of the recovery prompt shown when a checkout is refused,
+/// whether on a dirty work tree (`CheckoutOp.cpp`'s own `OperationChoice`s:
+/// "Stash and checkout" / "Discard and checkout" / Cancel) or by
+/// `OperationRunner::preflight()` (an index.lock or an in-progress
+/// sequencer operation, shared with every other submission -- see
+/// `OperationRunner.cpp`'s `workerLoop()`): "Retry" / "Remove index.lock" /
+/// Cancel. Button wording per `recovery_choice_copy.dart`, not read off the
+/// wire; the body's intro sentence switches between a fixed Chinese
+/// sentence (dirty-tree case) and core's own [RepoSessionState.lastError]
+/// message (preflight case), keyed on which choice kinds are present --
+/// see the `isDirtyWorkTreeRefusal` local below. Routed as
+/// `/repo/:repoId/dialogs/checkout-recovery`, pushed automatically by
+/// `workspace_screen.dart` whenever [RepoSessionState.checkoutChoices] goes
+/// from empty to non-empty -- mirrors [CredentialDialogContent]'s auto-open
+/// pattern, since this is also not something the user chose to open.
 class CheckoutRecoveryDialogContent extends ConsumerStatefulWidget {
   const CheckoutRecoveryDialogContent({super.key, required this.identity});
 
@@ -65,6 +72,30 @@ class _CheckoutRecoveryDialogContentState
         widget.identity,
       ).select((state) => state.checkoutChoices),
     );
+    // `checkoutChoices` is populated by two different refusals sharing one
+    // field (CheckoutOp.cpp's dirty-work-tree case, and OperationRunner's
+    // preflight() -- an index.lock or an in-progress sequencer operation --
+    // see [STATE-refresh-entry-point]'s "preflight runs before every
+    // submission" and OperationRunner.cpp's workerLoop()). Only the dirty
+    // case is what the hardcoded Chinese sentence below describes; a
+    // stashAndRetry/forceDiscard choice is CheckoutOp.cpp's own signature,
+    // present only on that path.
+    final bool isDirtyWorkTreeRefusal = choices.any(
+      (choice) =>
+          choice.kind == OperationChoiceKind.stashAndRetry ||
+          choice.kind == OperationChoiceKind.forceDiscard,
+    );
+    // For the other path, core's own message is what's accurate --
+    // "Another Git process appears to be running" / "Finish or abort the
+    // operation in progress first" -- the same field
+    // DeleteBranchRecoveryDialogContent already reads unconditionally.
+    final String? coreMessage = isDirtyWorkTreeRefusal
+        ? null
+        : ref.watch(
+            repoSessionProvider(
+              widget.identity,
+            ).select((state) => state.lastError?.message),
+          );
 
     return GbmDialogShell(
       title: 'Checkout Blocked',
@@ -84,7 +115,7 @@ class _CheckoutRecoveryDialogContentState
         )) ...<Widget>[
           const SizedBox(width: GbmSpacing.space2),
           GbmButton(
-            label: choice.label,
+            label: recoveryChoiceLabel(choice.kind, forDeleteBranch: false),
             kind: choice.destructive
                 ? GbmButtonKind.secondary
                 : GbmButtonKind.primary,
@@ -102,22 +133,38 @@ class _CheckoutRecoveryDialogContentState
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Text(
-            'This checkout needs uncommitted changes out of the way first.',
-            style: TextStyle(
-              fontSize: GbmTypography.textSm,
-              color: colors.textSecondary,
+          if (isDirtyWorkTreeRefusal) ...<Widget>[
+            Text(
+              '這次 checkout 得先把未提交的變更挪開。',
+              style: TextStyle(
+                fontSize: GbmTypography.textSm,
+                color: colors.textSecondary,
+              ),
             ),
-          ),
-          const SizedBox(height: GbmSpacing.space3),
-          for (final choice in choices)
+            const SizedBox(height: GbmSpacing.space3),
+          ] else if (coreMessage != null && coreMessage.isNotEmpty) ...<Widget>[
+            Text(
+              coreMessage,
+              style: TextStyle(
+                fontSize: GbmTypography.textSm,
+                color: colors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: GbmSpacing.space3),
+          ],
+          // Filtered the same way the button row above is -- `abort` has no
+          // button here (Cancel is the hardcoded one in `actions`), so
+          // drawing its label/explanation again in this list duplicated it.
+          for (final choice in choices.where(
+            (c) => c.kind != OperationChoiceKind.abort,
+          ))
             Padding(
               padding: const EdgeInsets.only(bottom: GbmSpacing.space2),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   Text(
-                    choice.label,
+                    recoveryChoiceLabel(choice.kind, forDeleteBranch: false),
                     style: TextStyle(
                       fontSize: GbmTypography.textSm,
                       fontWeight: GbmTypography.weightMedium,
@@ -126,14 +173,16 @@ class _CheckoutRecoveryDialogContentState
                           : colors.textPrimary,
                     ),
                   ),
-                  if (choice.explanation.isNotEmpty)
-                    Text(
-                      choice.explanation,
-                      style: TextStyle(
-                        fontSize: GbmTypography.textXs,
-                        color: colors.textTertiary,
-                      ),
+                  Text(
+                    recoveryChoiceExplanation(
+                      choice.kind,
+                      forDeleteBranch: false,
                     ),
+                    style: TextStyle(
+                      fontSize: GbmTypography.textXs,
+                      color: colors.textTertiary,
+                    ),
+                  ),
                 ],
               ),
             ),

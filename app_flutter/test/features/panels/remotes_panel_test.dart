@@ -14,6 +14,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
 import 'package:gbm_flutter/data/models/remote_info.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
+import 'package:gbm_flutter/features/panels/panel_filter_field.dart';
+import 'package:gbm_flutter/features/panels/panel_widgets.dart';
 import 'package:gbm_flutter/features/panels/remotes_panel.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
 import 'package:go_router/go_router.dart';
@@ -91,6 +93,23 @@ Future<PumpedPanel> _pump(
   ],
 );
 
+/// Types into the Add-remote dialog's field whose `labelText` is [label].
+///
+/// Scoped by label rather than by `find.byType(TextField).first`/`.last`,
+/// which is what these tests used until the toolbar grew a filter -- also a
+/// `TextField`, and one that sits *before* the dialog's fields in the tree,
+/// so `.first` silently started typing the remote name into the filter box
+/// ([TEST-design-system-swap-breaks-finders]). The Cancel test went on
+/// passing throughout, because "addRemote was not dispatched" is true when
+/// you fill in the wrong box too.
+Future<void> _fill(WidgetTester tester, String label, String value) async {
+  await tester.enterText(
+    find.ancestor(of: find.text(label), matching: find.byType(TextField)),
+    value,
+  );
+  await tester.pumpAndSettle();
+}
+
 Future<void> _select(WidgetTester tester, String name) async {
   await tester.tap(find.text(name));
   await tester.pumpAndSettle();
@@ -98,19 +117,71 @@ Future<void> _select(WidgetTester tester, String name) async {
 
 void main() {
   group('RemotesPanel (spec P19 PANELSPEC)', () {
-    testWidgets('the toolbar carries PANELSPEC\'s four actions', (
+    testWidgets(
+      'the toolbar carries rule 2\'s segments, and no danger action',
+      (tester) async {
+        await _pump(tester);
+
+        expectPanelTemplate(
+          tester,
+          primary: const <String>['Add…'],
+          maintenance: const <String>['Edit…', 'Prune'],
+          notOnToolbar: const <String>['Remove'],
+          listHeader: 'Remotes · 2',
+          statusBar: RegExp(r'^2 remotes$'),
+        );
+      },
+    );
+
+    testWidgets(
+      'Remove sits in the detail action row, against its right edge',
+      (tester) async {
+        await _pump(tester);
+        await _select(tester, 'fork');
+
+        expectDangerPinnedRight(tester, 'Remove');
+      },
+    );
+
+    testWidgets('the filter narrows the list, the header and the status line', (
+      tester,
+    ) async {
+      await _pump(tester);
+      expect(find.byType(PanelListRow), findsNWidgets(2));
+
+      await tester.enterText(
+        find.descendant(
+          of: find.byType(PanelFilterField),
+          matching: find.byType(TextField),
+        ),
+        'fork',
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PanelListRow), findsOneWidget);
+      expect(find.text('Remotes · 1'), findsOneWidget);
+      expect(find.text('2 remotes · 命中 1'), findsOneWidget);
+    });
+
+    // The URL is matched as well as the name, and this is the case that
+    // tells them apart: 「repo.git」 appears only in origin's URL, so a
+    // filter reading the name alone would drop it.
+    testWidgets('the filter matches a URL, not only the remote name', (
       tester,
     ) async {
       await _pump(tester);
 
-      for (final String label in const <String>[
-        'Add…',
-        'Edit…',
-        'Prune',
-        'Remove',
-      ]) {
-        expect(find.text(label), findsOneWidget, reason: label);
-      }
+      await tester.enterText(
+        find.descendant(
+          of: find.byType(PanelFilterField),
+          matching: find.byType(TextField),
+        ),
+        'repo.git',
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PanelListRow), findsOneWidget);
+      expect(find.text('origin'), findsOneWidget);
     });
 
     // Spec draws Edit; gbm_capi.h has no set-url entry point. Disabled and
@@ -193,7 +264,10 @@ void main() {
       await _pump(tester);
 
       expect(panelButton(tester, 'Prune').onPressed, isNull);
-      expect(panelButton(tester, 'Remove').onPressed, isNull);
+      // Absent rather than disabled: rule 4 puts the action row at the
+      // bottom of the *detail* column, and with nothing selected there is
+      // no detail to hang it under.
+      expect(find.text('Remove'), findsNothing);
       // Add… never needs a selection.
       expect(panelButton(tester, 'Add…').onPressed, isNotNull);
     });
@@ -233,11 +307,8 @@ void main() {
 
       await tester.tap(find.text('Add…'));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).first, 'upstream');
-      await tester.enterText(
-        find.byType(TextField).last,
-        'https://example.com/upstream.git',
-      );
+      await _fill(tester, 'Name', 'upstream');
+      await _fill(tester, 'URL', 'https://example.com/upstream.git');
       await tester.tap(find.text('Add'));
       await tester.pumpAndSettle();
 
@@ -253,7 +324,7 @@ void main() {
 
       await tester.tap(find.text('Add…'));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).first, 'upstream');
+      await _fill(tester, 'Name', 'upstream');
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
 
@@ -272,7 +343,7 @@ void main() {
 
       await tester.tap(find.text('Add…'));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).first, 'upstream');
+      await _fill(tester, 'Name', 'upstream');
       await tester.tap(find.text('Add'));
       await tester.pumpAndSettle();
 

@@ -51,6 +51,18 @@ struct RebaseRequest {
     std::string upstream;
     std::string onto;
     bool stashFirst = false;
+
+    /// `--rebase-merges`: preserves a merge commit inside `upstream..HEAD`
+    /// instead of the apply backend's default of flattening it. Measured
+    /// (see RebaseOps.cpp): without it a rebased merge commit vanishes
+    /// entirely; with it, it survives as an actual merge.
+    bool rebaseMerges = false;
+
+    /// `--autosquash`: folds a `fixup!`/`squash!`/`amend!` commit into the
+    /// commit it targets. Works on a plain, non-interactive `git rebase`
+    /// with no `-i` of our own -- git's `--interactive` machinery runs
+    /// underneath it regardless (see RebaseOps.cpp for the measurement).
+    bool autosquash = false;
 };
 
 /// `git rebase -i`, with the todo list supplied ourselves rather than through an

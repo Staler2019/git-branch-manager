@@ -106,4 +106,14 @@ void main() {
       },
     );
   });
+
+  // Not in spec page 09's SPLITTERS table -- that page predates P14/P19 and
+  // lists no panel splitter. The minimum is P19's own 樣板規則 3:
+  // 「左清單為單選，欄寬可拖曳、下限 220px」.
+  group('GbmLayout panel splitters (spec page 19 樣板規則)', () {
+    test('panel.list: 280px default, 220px min (P19 rule 3)', () {
+      expect(GbmLayout.splitterPanelList.defaultExtent, 280);
+      expect(GbmLayout.splitterPanelList.minExtent, 220);
+    });
+  });
 }

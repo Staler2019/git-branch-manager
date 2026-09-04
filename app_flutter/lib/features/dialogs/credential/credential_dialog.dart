@@ -127,7 +127,7 @@ class _CredentialDialogContentState
             decoration: InputDecoration(
               isDense: true,
               border: const OutlineInputBorder(),
-              labelText: obscure ? 'Password' : 'Username',
+              labelText: obscure ? 'Token / 密碼' : '帳號',
             ),
           ),
         ],

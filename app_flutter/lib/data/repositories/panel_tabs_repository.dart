@@ -70,6 +70,27 @@ enum GbmPanelKind {
       this == GbmPanelKind.blame ||
       this == GbmPanelKind.fileHistory ||
       this == GbmPanelKind.lineHistory;
+
+  /// Whether this panel is seeded into every repository's tab strip and
+  /// refuses to close (D7). **Only Worktrees**, by 使用者裁定 -- the other
+  /// eleven stay ordinary tabs, because eleven pinned ones would fill the
+  /// strip and **#62**'s TabRow overflow menu is still open.
+  ///
+  /// Doing it as a pinned *panel tab* rather than a third fixed tab is what
+  /// keeps the whole P19 round reusable unchanged -- the route, the panel
+  /// shell, [panelStorageId], the per-tab scroll memory -- with not one line
+  /// of the route tree touched. A fixed tab would need a second copy of
+  /// `PanelPage`.
+  ///
+  /// **No spec entry.** P14's `IAMAP` says manage-worktrees hangs off the tab
+  /// carrier; it says nothing about being permanent. Same category as
+  /// [STRUCT-soft-wrap-preference]: a user-requested addition, not a
+  /// conformance item.
+  ///
+  /// Never true for an [isPerSubject] kind, and the two are not independent:
+  /// seeding needs one canonical instance, and a per-subject panel is *about*
+  /// a file no seed can know.
+  bool get isPinned => this == GbmPanelKind.manageWorktrees;
 }
 
 /// One open management-panel tab. Immutable, like [CompareTabSpec] and
@@ -103,7 +124,24 @@ class PanelTabSpec {
 /// arrangement `compareTabsProvider` already uses, and this deliberately
 /// mirrors it rather than inventing a second tab mechanism.
 class PanelTabsNotifier extends StateNotifier<List<PanelTabSpec>> {
-  PanelTabsNotifier() : super(const <PanelTabSpec>[]);
+  /// Seeds every [GbmPanelKind.isPinned] panel (D7 -- Worktrees, and only
+  /// Worktrees).
+  ///
+  /// Through [open] rather than by pushing a spec onto the list, so the
+  /// seeded tab is indistinguishable from one the user opened: it takes an
+  /// id off the same counter, and `Tools > Worktrees…` lands on it through
+  /// the singleton dedupe that already exists rather than needing a second
+  /// code path.
+  ///
+  /// **This costs nothing at startup**: a tab is a strip entry, and
+  /// `PanelPage` only mounts once something navigates to it -- so
+  /// `refreshWorktrees()` and the per-worktree pending counts still wait for
+  /// the user to look.
+  PanelTabsNotifier() : super(const <PanelTabSpec>[]) {
+    for (final GbmPanelKind kind in GbmPanelKind.values) {
+      if (kind.isPinned) open(kind);
+    }
+  }
 
   int _nextId = 0;
 
@@ -129,8 +167,20 @@ class PanelTabsNotifier extends StateNotifier<List<PanelTabSpec>> {
     return id;
   }
 
+  /// Removes [id], unless it names a [GbmPanelKind.isPinned] tab -- D7's
+  /// 「常駐、無關閉鈕」.
+  ///
+  /// **This is the single source of truth for the refusal**
+  /// ([CULT-single-source-of-truth]), which is why the guard is here rather
+  /// than at either caller: `TabRow` draws no close button for a pinned tab
+  /// and `PanelPage`'s Ctrl/Cmd+W returns early on one, but a third caller
+  /// added later gets the refusal for free instead of having to remember it.
   void close(String id) {
-    state = state.where((PanelTabSpec tab) => tab.id != id).toList();
+    final PanelTabSpec? tab = state
+        .where((PanelTabSpec t) => t.id == id)
+        .firstOrNull;
+    if (tab == null || tab.kind.isPinned) return;
+    state = state.where((PanelTabSpec t) => t.id != id).toList();
   }
 }
 

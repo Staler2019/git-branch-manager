@@ -29,7 +29,7 @@ class ManageBaseFoldersDialogContent extends ConsumerWidget {
           ? Padding(
               padding: const EdgeInsets.symmetric(vertical: GbmSpacing.space4),
               child: Text(
-                'No base folders yet.',
+                '目前沒有基礎資料夾。',
                 style: TextStyle(color: colors.textTertiary),
               ),
             )
@@ -72,9 +72,7 @@ class _BaseFolderRow extends ConsumerWidget {
           ),
           if (isOffline) ...<Widget>[
             Tooltip(
-              message:
-                  'This folder is not reachable right now — its settings '
-                  'are kept.',
+              message: '這個資料夾目前無法連線——設定會保留。',
               child: Icon(
                 Icons.warning_amber_rounded,
                 size: 16,
@@ -95,7 +93,7 @@ class _BaseFolderRow extends ConsumerWidget {
           ),
           IconButton(
             icon: Icon(Icons.delete_outline, size: 18, color: colors.danger),
-            tooltip: 'Remove',
+            tooltip: '移除',
             onPressed: () => ref
                 .read(discoveryProvider.notifier)
                 .removeBaseFolder(folder.id),

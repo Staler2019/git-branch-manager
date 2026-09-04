@@ -61,6 +61,25 @@ abstract final class RoutePaths {
   static const String rebaseOntoDialog = '/repo/:repoId/dialogs/rebase-onto';
   static const String forcePushDialog = '/repo/:repoId/dialogs/force-push';
 
+  /// Not one of the 22 spec-listed repo-scoped dialogs -- the Worktrees
+  /// panel's own `Add worktree…` used to expand an inline form instead of
+  /// routing anywhere. A user-requested addition, like
+  /// [STRUCT-soft-wrap-preference], not a conformance item.
+  static const String addWorktreeDialog = '/repo/:repoId/dialogs/add-worktree';
+
+  /// D2's `Remove worktree…` -- the same panel dispatched straight to
+  /// `removeWorktree()` with no confirmation at all before this.
+  static const String removeWorktreeDialog =
+      '/repo/:repoId/dialogs/remove-worktree';
+
+  /// D3's `Lock…` -- `lockWorktree(path, {reason})` has taken a reason since
+  /// it was written and the detail pane already draws a 「鎖定原因」 row, but
+  /// no call site ever passed one, so it was always empty
+  /// ([CULT-orphan-wiring]). `Unlock` stays a direct dispatch with no dialog
+  /// -- it destroys nothing and needs no input.
+  static const String lockWorktreeDialog =
+      '/repo/:repoId/dialogs/lock-worktree';
+
   /// Multi-branch delete confirmation (spec page 13). Separate from
   /// [deleteBranchDialog], which is 05-B's single-branch flow with its own
   /// branch picker.
@@ -147,6 +166,27 @@ abstract final class RoutePaths {
       ).toString();
   static String checkoutDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/checkout';
+  static String addWorktreeDialogFor(String repoId) =>
+      '/repo/$repoId/dialogs/add-worktree';
+
+  /// A worktree path may itself contain `/`, so it travels as a query
+  /// parameter -- the same reason branch names do in
+  /// [deleteBranchDialogFor] below.
+  static String removeWorktreeDialogFor(
+    String repoId, {
+    required String path,
+  }) => Uri(
+    path: '/repo/$repoId/dialogs/remove-worktree',
+    queryParameters: <String, String>{'path': path},
+  ).toString();
+
+  /// Same reason as [removeWorktreeDialogFor] just above -- a worktree path
+  /// may contain `/`.
+  static String lockWorktreeDialogFor(String repoId, {required String path}) =>
+      Uri(
+        path: '/repo/$repoId/dialogs/lock-worktree',
+        queryParameters: <String, String>{'path': path},
+      ).toString();
 
   /// [branch] empty means "the current branch" -- the Branch menu and F2
   /// both leave it out; only the 05-B context menu names one.

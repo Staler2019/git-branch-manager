@@ -98,3 +98,43 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
 - **Rule**: only ratio mode survives the change; extent mode persists a raw pixel number and must
   be re-keyed.
 - **Note**: its fixed pane's end is the explicit `fixedPaneEnd`, not implied by the axis.
+
+## [FLU-splitpane-stored-extent-ignores-min] Raising a splitter's `minExtent` obliges you to clamp what was already stored
+
+- **Rule**: `GbmSplitPane.initState` adopts the persisted value verbatim, and the build-time
+  `_clampedFixedExtent()` clamps only the **upper** bound (`.clamp(0, maxFixed)`, deliberately —
+  what it protects is the filling side).
+- **Consequence**: a user who had dragged the pane to 190 stays at 190 forever after the floor
+  is raised to 220. The raise is invisible to everyone who has ever touched that splitter, which
+  is exactly the population it was raised for.
+- **Do**: clamp **in `initState`**, never in `_clampedFixedExtent()` — the latter runs every
+  frame and would force a `collapsedByDefault` drawer (`splitterMainLog`, stored value 0) open to
+  `minExtent` on the first frame. Guard the clamp on `stored[0] > 0` so an explicit collapse
+  survives.
+- **Do**: the test that catches clamping in the wrong place is 「stored 0 stays 0」, not the
+  190→220 case, which passes either way.
+- **See also**: [FLU-splitpane-axis-change] — the same obligation from the other direction; there
+  the stored number stops meaning anything, here it stops being reachable.
+- **Evidence**: [ledger: 十二個管理面板照 P19 樣板統一](../ledger/2026-09-02-feat-p19-panel-template-conformance.md)
+
+## [FLU-storage-id-not-tab-id] A per-tab persisted layout key is spelled from the tab's *identity*, never from its id
+
+- **Rule**: `panelStorageId()` (`features/panels/panel_storage_id.dart`) is the one place a
+  management panel's `panelLayout.*` key is composed, and its subject suffix is derived from
+  `GbmPanelKind.isPerSubject` — the same property `PanelTabsNotifier.open()` dedupes on. So 「can two
+  of these exist at once」 and 「does the key tell them apart」 are two faces of one fact instead of
+  two decisions someone has to keep in step.
+- **Do not** key it on the tab id, however literally 「各自記憶」 reads. A tab id is
+  `'${kind.slug}-${_nextId++}'` from an in-memory counter and `PanelTabsNotifier` persists nothing,
+  so keying on it loses every stored width across a restart **and collides** — this run's `blame-0`
+  is next run's different file inheriting a stranger's width.
+- **Consequence**: before this, thirteen ids were hand-written across twelve files with nothing
+  checking them for collisions, and two panels sharing one id share one splitter position silently.
+  A test named 「a singleton kind keeps its unsuffixed id」 made the nine look like a blessed
+  exception rather than the rule applied.
+- **Do**: spell the stem from the kind's existing `slug` rather than adding a second naming switch
+  beside it — a parallel `storageStem` preserves a few more stored widths and re-creates, in one
+  file, the drift being removed from twelve.
+- **Note**: re-keying orphans a stored value — a read-miss falling back to the default, never a
+  wrong number — which is [FLU-splitpane-axis-change]'s trade-off from a third direction.
+- **Evidence**: [ledger: 十二個管理面板照 P19 樣板統一](../ledger/2026-09-02-feat-p19-panel-template-conformance.md)

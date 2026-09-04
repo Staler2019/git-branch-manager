@@ -170,8 +170,8 @@ void main() {
         'read-only above (spec P13 A: 目前名稱 / 新名稱)', (tester) async {
       await _pumpDialog(tester, initialState: _sessionWith(branches));
 
-      expect(find.text('Current name'), findsOneWidget);
-      expect(find.text('New name'), findsOneWidget);
+      expect(find.text('目前名稱'), findsOneWidget);
+      expect(find.text('新名稱'), findsOneWidget);
       final TextField field = tester.widget<TextField>(find.byType(TextField));
       expect(field.controller!.text, 'feature/lane-allocator');
     });
@@ -219,7 +219,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('Available'), findsOneWidget);
+      expect(find.textContaining('可以使用'), findsOneWidget);
       expect(_renameEnabled(tester), isTrue);
     });
 
@@ -262,7 +262,7 @@ void main() {
         'feature/lane-allocator-v2',
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.textContaining('Rename locally'));
+      await tester.tap(find.textContaining('只改本地'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Rename'));
       await tester.pumpAndSettle();
@@ -282,7 +282,7 @@ void main() {
         ], head: 'local-only'),
       );
 
-      expect(find.text('Remote handling'), findsNothing);
+      expect(find.text('遠端連帶處理'), findsNothing);
 
       await tester.enterText(find.byType(TextField), 'renamed');
       await tester.pumpAndSettle();
@@ -316,7 +316,7 @@ void main() {
         ], head: 'synced'),
       );
 
-      expect(find.text('Remote handling'), findsOneWidget);
+      expect(find.text('遠端連帶處理'), findsOneWidget);
 
       await tester.enterText(find.byType(TextField), 'synced-v2');
       await tester.pumpAndSettle();
@@ -333,7 +333,7 @@ void main() {
     ) async {
       await _pumpDialog(tester, initialState: _sessionWith(branches));
 
-      expect(find.textContaining('2 commit(s) not yet pushed'), findsOneWidget);
+      expect(find.textContaining('有 2 個未 push 的 commit'), findsOneWidget);
     });
 
     testWidgets('renames the branch named by the route, not the current one', (

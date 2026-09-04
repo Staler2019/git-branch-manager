@@ -170,6 +170,11 @@ per-event-type interpretation — which of the 34 event types updates which
 - **Rule**: its membership is a rule, not a list — **every zero-argument `refresh*` on the
   controller** (twelve of them). The `request*` methods are all excluded because they are
   keyed to a user selection that need not exist when the window comes back.
+- **Do**: this cuts both ways — **a new zero-argument call that must stay out of the sweep is
+  named `request*`**, so the exclusion is structural. `requestWorktreePendingCounts()` is the
+  worked example: one `git status` per worktree, keyed to the worktrees panel being open, and
+  a rejected `refreshWorktrees(bool withStatus)` overload would have left the zero-argument
+  form in place for a later reader to mistake for a member.
 - **Rule**: both `WorkspaceScreen`'s `AppLifecycleListener.onResume` and
   `GbmActionId.viewRefresh` (F5 / `View → Refresh`) call it, so the two cannot drift into
   refreshing different things. F5 used to re-read only the history, leaving the Working Copy

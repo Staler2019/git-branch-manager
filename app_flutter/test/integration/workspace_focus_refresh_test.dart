@@ -254,4 +254,67 @@ void main() {
       reason: 'and nothing else in the sweep fetches either',
     );
   });
+
+  // [STATE-refresh-entry-point] says membership is a rule, not a list:
+  // *every* zero-argument `refresh*` on the controller is in the sweep, and
+  // the `request*` family is excluded because each is keyed to a user
+  // selection that need not still exist when the window comes back. The
+  // per-worktree pending-change count is keyed to "the worktrees panel is
+  // open", so it is a `request*`, and the naming is what makes the exclusion
+  // structural rather than a comment a later round has to notice.
+  //
+  // It costs one `git status` per worktree. Folding it into the sweep would
+  // put N git processes on the shared read pool every 2 seconds of
+  // alt-tabbing, for a panel that is usually not even on screen.
+  testWidgets('the focus sweep does not measure per-worktree pending counts', (
+    WidgetTester tester,
+  ) async {
+    final PumpedWorkspace pumped = await pumpWorkspace(
+      tester,
+      identity: identity,
+    );
+    await tester.pumpAndSettle();
+    pumped.controller.commandLog.clear();
+
+    await _leaveAndReturn(tester);
+
+    expect(
+      _count(pumped.controller.commandLog, 'requestWorktreePendingCounts'),
+      0,
+      reason:
+          'a request* call is keyed to an open panel, not to the window '
+          'regaining focus',
+    );
+    expect(
+      _count(pumped.controller.commandLog, 'refreshWorktrees'),
+      1,
+      reason:
+          'the plain worktree list is still swept -- it is the counts that '
+          'are not',
+    );
+  });
+
+  // ...and the guard above is only worth anything if the recorder is live.
+  // Unoverridden, requestWorktreePendingCounts() would hit the real
+  // `if (_session == nullptr) return;` and log nothing, which makes a
+  // 0-count assertion vacuously true forever ([TEST-fake-seam-fails-loudly]
+  // names this reverse risk). This is the test that reds if the override
+  // ever stops recording.
+  testWidgets('requesting the counts directly does dispatch, exactly once', (
+    WidgetTester tester,
+  ) async {
+    final PumpedWorkspace pumped = await pumpWorkspace(
+      tester,
+      identity: identity,
+    );
+    await tester.pumpAndSettle();
+    pumped.controller.commandLog.clear();
+
+    pumped.controller.requestWorktreePendingCounts();
+
+    expect(
+      _count(pumped.controller.commandLog, 'requestWorktreePendingCounts'),
+      1,
+    );
+  });
 }

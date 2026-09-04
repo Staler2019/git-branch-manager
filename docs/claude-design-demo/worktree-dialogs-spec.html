@@ -1,0 +1,966 @@
+<title>Worktree Dialogs Spec</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+
+<style>
+/* ============================================================
+   PAGE CHROME TOKENS  (--pg-*)
+   Deliberately namespaced away from the mockup tokens (--gbm-*)
+   so the document's cascade can never bleed into the specimens.
+   Light is the bare :root; dark is redefined in two guarded
+   places so the un-stamped "system" state resolves too.
+   ============================================================ */
+:root {
+  --pg-ground:      #f4f5f7;
+  --pg-surface:     #ffffff;
+  --pg-sunken:      #eceef1;
+  --pg-line:        #dcdfe4;
+  --pg-line-strong: #c3cad1;
+  --pg-ink:         #14181d;
+  --pg-ink-2:       #4f5966;
+  --pg-ink-3:       #6b7684;
+  --pg-accent:      #1857b8;
+  --pg-good:        #137a3f;
+  --pg-bad:         #b32c2c;
+  --pg-warn:        #a2620f;
+  --pg-shadow:      0 1px 2px rgba(11,13,16,.06), 0 8px 24px rgba(11,13,16,.07);
+
+  --step--1: .8125rem;
+  --step-0:  .9375rem;
+  --step-1:  1.125rem;
+  --step-2:  1.5rem;
+  --step-3:  2rem;
+  --step-4:  2.75rem;
+
+  --measure: 68ch;
+  --rail: 1px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --pg-ground:      #0b0e12;
+    --pg-surface:     #12161c;
+    --pg-sunken:      #0e1116;
+    --pg-line:        #232a33;
+    --pg-line-strong: #333c47;
+    --pg-ink:         #e7edf4;
+    --pg-ink-2:       #9aa4b1;
+    --pg-ink-3:       #6f7885;
+    --pg-accent:      #6fa8ff;
+    --pg-good:        #3fb950;
+    --pg-bad:         #ff6a63;
+    --pg-warn:        #d29922;
+    --pg-shadow:      0 1px 2px rgba(0,0,0,.5), 0 8px 28px rgba(0,0,0,.45);
+  }
+}
+:root[data-theme="dark"] {
+  --pg-ground:      #0b0e12;
+  --pg-surface:     #12161c;
+  --pg-sunken:      #0e1116;
+  --pg-line:        #232a33;
+  --pg-line-strong: #333c47;
+  --pg-ink:         #e7edf4;
+  --pg-ink-2:       #9aa4b1;
+  --pg-ink-3:       #6f7885;
+  --pg-accent:      #6fa8ff;
+  --pg-good:        #3fb950;
+  --pg-bad:         #ff6a63;
+  --pg-warn:        #d29922;
+  --pg-shadow:      0 1px 2px rgba(0,0,0,.5), 0 8px 28px rgba(0,0,0,.45);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  background: var(--pg-ground);
+  color: var(--pg-ink);
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: var(--step-0);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 clamp(1rem, 4vw, 3rem) 6rem; }
+
+/* ---------- masthead ---------- */
+.masthead {
+  display: flex; flex-direction: column; gap: 1rem;
+  padding: clamp(2.5rem, 6vw, 4.5rem) 0 2rem;
+  border-bottom: var(--rail) solid var(--pg-line);
+}
+.eyebrow {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; font-weight: 500;
+  letter-spacing: .14em; text-transform: uppercase;
+  color: var(--pg-ink-3);
+  display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; align-items: center;
+}
+h1 {
+  font-size: var(--step-4); font-weight: 700; line-height: 1.08;
+  letter-spacing: -.022em; text-wrap: balance; margin: 0;
+}
+.standfirst {
+  font-size: var(--step-1); line-height: 1.5; color: var(--pg-ink-2);
+  max-width: var(--measure); text-wrap: pretty;
+}
+.status-row { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .25rem; }
+.pill {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; letter-spacing: .04em;
+  padding: .3rem .6rem; border-radius: 3px;
+  border: var(--rail) solid var(--pg-line-strong);
+  color: var(--pg-ink-2); background: var(--pg-surface);
+  white-space: nowrap;
+}
+.pill.is-ratified { border-color: var(--pg-good); color: var(--pg-good); }
+.pill.is-open     { border-color: var(--pg-warn); color: var(--pg-warn); }
+
+/* ---------- sections ---------- */
+section { padding-top: 3.5rem; }
+.sec-head { display: flex; align-items: baseline; gap: .875rem; margin-bottom: .5rem; }
+.sec-num {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .75rem; font-weight: 700; color: var(--pg-accent);
+  letter-spacing: .04em; padding-top: .35em;
+}
+h2 { font-size: var(--step-2); font-weight: 650; letter-spacing: -.016em; margin: 0; text-wrap: balance; }
+h3 { font-size: var(--step-1); font-weight: 600; letter-spacing: -.01em; margin: 2.25rem 0 .5rem; }
+.lede { color: var(--pg-ink-2); max-width: var(--measure); margin-bottom: 1.5rem; text-wrap: pretty; }
+p { max-width: var(--measure); margin: 0 0 1rem; text-wrap: pretty; }
+p:last-child { margin-bottom: 0; }
+code {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .875em; background: var(--pg-sunken);
+  border: var(--rail) solid var(--pg-line);
+  padding: .08em .35em; border-radius: 3px;
+}
+.zh { font-family: "Inter", "PingFang TC", "Noto Sans TC", sans-serif; }
+
+/* ---------- verdict table ---------- */
+.tablewrap { overflow-x: auto; border: var(--rail) solid var(--pg-line); border-radius: 4px; background: var(--pg-surface); }
+table { border-collapse: collapse; width: 100%; font-size: var(--step--1); }
+th, td { text-align: left; padding: .7rem .9rem; border-bottom: var(--rail) solid var(--pg-line); vertical-align: top; }
+thead th {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--pg-ink-3); font-weight: 500; background: var(--pg-sunken);
+  position: sticky; top: 0;
+}
+tbody tr:last-child td { border-bottom: none; }
+td.num { font-family: "JetBrains Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; color: var(--pg-ink-3); white-space: nowrap; }
+td.was { font-family: "JetBrains Mono", "PingFang TC", ui-monospace, monospace; color: var(--pg-ink-2); }
+td.now { font-family: "JetBrains Mono", ui-monospace, monospace; color: var(--pg-ink); }
+.verdict { font-weight: 600; white-space: nowrap; }
+.verdict.no  { color: var(--pg-good); }
+.verdict.yes { color: var(--pg-bad); }
+
+/* ---------- specimen stage ---------- */
+.stage-controls {
+  display: flex; flex-wrap: wrap; gap: .75rem; align-items: center;
+  margin-bottom: 1.25rem; padding: .75rem .9rem;
+  background: var(--pg-surface); border: var(--rail) solid var(--pg-line); border-radius: 4px;
+}
+.stage-controls .label {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase; color: var(--pg-ink-3);
+}
+.themebtns { display: flex; gap: .25rem; flex-wrap: wrap; }
+.themebtn {
+  font: 500 .75rem/1 "Inter", sans-serif;
+  padding: .45rem .7rem; border-radius: 3px; cursor: pointer;
+  border: var(--rail) solid var(--pg-line-strong);
+  background: var(--pg-surface); color: var(--pg-ink-2);
+}
+.themebtn:hover { border-color: var(--pg-accent); color: var(--pg-ink); }
+.themebtn[aria-pressed="true"] { background: var(--pg-accent); border-color: var(--pg-accent); color: #fff; }
+.themebtn:focus-visible { outline: 2px solid var(--pg-accent); outline-offset: 2px; }
+
+.compare { display: grid; gap: 1.5rem; grid-template-columns: 1fr; align-items: start; }
+@media (min-width: 1060px) { .compare { grid-template-columns: 1fr 1fr; } }
+
+.specimen { display: flex; flex-direction: column; gap: .625rem; min-width: 0; }
+.specimen-head { display: flex; align-items: center; gap: .5rem; }
+.specimen-tag {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase;
+  padding: .2rem .5rem; border-radius: 3px; font-weight: 500;
+}
+.specimen-tag.before { color: var(--pg-bad);  border: var(--rail) solid var(--pg-bad); }
+.specimen-tag.after  { color: var(--pg-good); border: var(--rail) solid var(--pg-good); }
+.specimen-note { font-size: var(--step--1); color: var(--pg-ink-3); }
+.stage {
+  padding: 1.75rem 1rem; border-radius: 4px;
+  border: var(--rail) solid var(--pg-line);
+  background: var(--gbm-surface-app);
+  display: flex; justify-content: center;
+  overflow-x: auto;
+}
+
+/* ============================================================
+   MOCKUP TOKENS  (--gbm-*)  — verbatim from
+   docs/design/tokens-reference.md. Three themes, switchable,
+   because the dialog must hold in all three.
+   ============================================================ */
+.stage {   /* tokens live ONLY here: a .mock redeclaring them would override
+             what it inherits from the themed stage and pin every specimen
+             to light -- same specificity, and .mock sits deeper. */
+  --gbm-surface-app:#f7f8f9; --gbm-surface-sunken:#eef0f2; --gbm-surface-panel:#ffffff; --gbm-surface-panel-raised:#ffffff;
+  --gbm-surface-selected:#eaf1fe;
+  --gbm-border-subtle:#dfe3e7; --gbm-border-default:#c3cad1; --gbm-border-strong:#98a3ad;
+  --gbm-text-primary:#171b1f; --gbm-text-secondary:#4f5966; --gbm-text-tertiary:#6b7684; --gbm-text-on-accent:#ffffff;
+  --gbm-accent:#2f81f7; --gbm-warning:#c97a17;
+ 
+}
+[data-app-theme="dark-technical"] {
+  --gbm-surface-app:#0d1117; --gbm-surface-sunken:#010409; --gbm-surface-panel:#0d1117; --gbm-surface-panel-raised:#161b22;
+  --gbm-surface-selected:#0d2a4d;
+  --gbm-border-subtle:#21262d; --gbm-border-default:#30363d; --gbm-border-strong:#3d444d;
+  --gbm-text-primary:#e6edf3; --gbm-text-secondary:#9198a1; --gbm-text-tertiary:#6e7681; --gbm-text-on-accent:#ffffff;
+  --gbm-accent:#2f81f7; --gbm-warning:#d29922;
+ 
+}
+[data-app-theme="light-ide"] {
+  --gbm-surface-app:#ffffff; --gbm-surface-sunken:#f5f6f8; --gbm-surface-panel:#ffffff; --gbm-surface-panel-raised:#ffffff;
+  --gbm-surface-selected:#e4edfd;
+  --gbm-border-subtle:#eaecef; --gbm-border-default:#dcdfe4; --gbm-border-strong:#c6cad1;
+  --gbm-text-primary:#1c2128; --gbm-text-secondary:#57606a; --gbm-text-tertiary:#8b949e; --gbm-text-on-accent:#ffffff;
+  --gbm-accent:#2f81f7; --gbm-warning:#bf8700;
+ 
+}
+
+/* ============================================================
+   THE SPECIMEN.  Every declaration is quoted from one of three
+   spec sources, named in the comment beside it:
+     [KIT]  the .gbm-* component CSS  ("safe to reuse directly
+            in UI kit screens" -- its own comment)
+     [P6]   P6's shared-shell prose
+     [P17]  spec_logic.js dlgFields()/dlgGroup(), the field
+            vocabulary the eleven P17 dialogs are drawn from
+   Anything with no source is listed in section 03 as inferred.
+   ============================================================ */
+
+/* --- shell: .gbm-panel-raised [KIT] + P6's 480 --- */
+.gbm-dialog-shell {
+  width: 480px; max-width: 100%; flex: 0 0 auto;          /* [P6] 對話框最寬 480px */
+  background: var(--gbm-surface-panel-raised);             /* [P6] .gbm-panel-raised */
+  border: 1px solid var(--gbm-border-default);             /* [P6] mock's inline border */
+  border-radius: 10px;                                     /* [KIT] --radius-lg */
+  box-shadow: 0 4px 12px rgba(0,0,0,.28);                  /* [KIT] --shadow-md, per .gbm-panel-raised */
+  font-family: "Inter", sans-serif;
+  color: var(--gbm-text-primary);
+  overflow: hidden;
+}
+
+/* --- title bar: .mkbar [P17] -- raised ground + bottom rule --- */
+.mkbar {                                                   /* [P6] padding:12px 15px; border-bottom */
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 15px;
+  border-bottom: 1px solid var(--gbm-border-subtle);
+}
+.mkbar__title {
+  flex: 1 1 auto; min-width: 0;                            /* [P17] flex:1 */
+  font-size: 13px; font-weight: 600; line-height: 1.25;    /* [P6] font-size:13px; font-weight:600 */
+  color: var(--gbm-text-primary);
+}
+.kbd {                                                      /* [KIT] .kbd */
+  font-family: "JetBrains Mono", monospace; font-size: 10.5px;
+  color: var(--gbm-text-primary); background: var(--gbm-surface-sunken);
+  border: 1px solid var(--gbm-border-default); border-radius: 4px;
+  padding: 1px 5px; white-space: nowrap; flex: 0 0 auto;
+}
+
+/* --- content: [P6] 16px padding, 欄位垂直排列（單欄） --- */
+.dlg-body { padding: 14px 15px; display: flex; flex-direction: column; gap: 11px; }  /* [P6] */
+
+/* --- one field group: [P17] column, gap 4, label / control / hint --- */
+.fld { display: flex; flex-direction: column; gap: 4px; }  /* [P17] gap:4px */
+.fld__label { font-size: 11px; color: var(--gbm-text-secondary); line-height: 1.5; }  /* [P6] */
+.fld__ctl { display: flex; align-items: flex-start; gap: 8px; }                       /* [P17] gap:8px */
+.fld__hint { font-size: 11px; color: var(--gbm-text-tertiary); line-height: 1.6; }    /* [P17] hint */
+
+/* --- box kinds, all [P17] dlgFields() --- */
+.box {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; align-items: center; gap: 7px;
+  height: 30px; padding: 0 12px;                            /* [KIT] .gbm-input h30 pad 0/12 */
+  font-size: 12.5px;                                        /* [KIT] --text-sm */
+  border: 1px solid var(--gbm-border-default);              /* [P17] border-default */
+  border-radius: 6px;                                       /* [P17] --radius-md */
+  background: var(--gbm-surface-panel);
+  color: var(--gbm-text-primary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.box--focus { border-color: var(--gbm-accent); }                                        /* [P17] k:'focus' */
+.box--ro    { background: var(--gbm-surface-sunken); color: var(--gbm-text-secondary); }/* [P17] k:'ro' */
+.box--list  { background: var(--gbm-surface-sunken); height: auto; padding: 7px 9px;    /* [P17] k:'list' */
+              display: block; white-space: normal; }
+.box--mono  { font-family: "JetBrains Mono", monospace; font-size: 11.5px; }            /* [P17] mono:true */
+.box.is-disabled { opacity: .45; }
+.box .ph { color: var(--gbm-text-tertiary); }
+.box .ic { color: var(--gbm-text-tertiary); flex: 0 0 auto; display: flex; }
+.box .val { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* --- radio / checkbox marks: [P17] dlgFields() mark, at KIT's 15px --- */
+.opt { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; line-height: 1.5; }
+.opt__mark { width: 15px; height: 15px; flex-shrink: 0; margin-top: 2px; background: var(--gbm-surface-panel); }
+.opt--radio .opt__mark { border-radius: 999px; border: 1.5px solid var(--gbm-border-strong); }
+.opt--radio[data-on="1"] .opt__mark { border: 4px solid var(--gbm-accent); }   /* [P17] on = thick accent ring, not a dot */
+.opt--chk .opt__mark { border-radius: 3px; border: 1.5px solid var(--gbm-border-strong); }
+.opt--chk[data-on="1"] .opt__mark {
+  background: var(--gbm-accent); border-color: var(--gbm-accent);
+  display: grid; place-items: center;
+}
+.opt--chk[data-on="1"] .opt__mark::after {
+  content: ""; width: 8px; height: 4px; border-left: 2px solid #fff; border-bottom: 2px solid #fff;
+  transform: rotate(-45deg) translate(1px, -1px);
+}
+
+/* --- warn field: [P17] surface-sunken + 2px --warning left rail. NOT .gbm-banner-warning --- */
+.warn {
+  flex: 1 1 auto;
+  font-size: 12.5px; line-height: 1.65;
+  color: var(--gbm-text-secondary);
+  background: var(--gbm-surface-sunken);
+  border: 1px solid var(--gbm-border-subtle);
+  border-left: 2px solid var(--gbm-warning);
+  border-radius: 6px;
+  padding: 8px 9px;
+}
+/* --- note: [P17] k:'note', no box --- */
+.note { font-size: 11px; color: var(--gbm-text-tertiary); line-height: 1.7; }
+
+/* --- ref picker: search box + inline list. Row = .gbm-row [KIT] --- */
+.picker { display: flex; flex-direction: column; gap: 8px; }
+.picker__list {
+  max-height: 118px; overflow: hidden;
+  border: 1px solid var(--gbm-border-subtle); border-radius: 6px;
+  background: var(--gbm-surface-sunken); padding: 3px;      /* [P17] k:'list' background */
+}
+.gbm-row {
+  display: flex; align-items: center; gap: 8px;
+  height: 26px; padding: 0 9px; border-radius: 4px;         /* [KIT] --row-h-compact, --radius-sm */
+  font-size: 12.5px; color: var(--gbm-text-primary);
+}
+.gbm-row.selected { background: var(--gbm-surface-selected); }
+.gbm-row .ic { color: var(--gbm-text-tertiary); flex: 0 0 auto; display: flex; }
+.gbm-row .nm { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gbm-row .an { font-size: 11px; color: var(--gbm-text-tertiary); flex: 0 0 auto; }
+
+.row { display: flex; align-items: center; gap: 8px; }
+.row > .grow { flex: 1 1 auto; min-width: 0; }
+
+/* --- buttons: .gbm-btn + .gbm-btn-sm [KIT]; dlgGroup() uses -sm for BOTH --- */
+.gbm-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  height: 24px; padding: 0 8px; border-radius: 6px;         /* [KIT] .gbm-btn-sm h24 pad 0/8, --radius-md */
+  font-family: inherit; font-size: 11px; font-weight: 500;  /* [KIT] --text-xs */
+  white-space: nowrap; border: 1px solid transparent; cursor: pointer;
+  background: transparent; color: var(--gbm-text-secondary);
+}
+.gbm-btn--secondary {                                        /* [KIT] .gbm-btn-secondary */
+  background: var(--gbm-surface-panel-raised);
+  border-color: var(--gbm-border-default);
+  color: var(--gbm-text-primary);
+}
+.gbm-btn--primary {                                          /* [KIT] .gbm-btn-primary */
+  background: var(--gbm-accent); border-color: var(--gbm-accent);
+  color: var(--gbm-text-on-accent);
+}
+/* --- action row: [P17] border-top, padding-top 11, gap 7, right-aligned --- */
+.dlg-actions {                                             /* [P6] padding:11px 15px; border-top; gap:7px */
+  display: flex; justify-content: flex-end; gap: 7px;
+  padding: 11px 15px;
+  border-top: 1px solid var(--gbm-border-subtle);
+}
+
+.is-cjk { font-family: "Inter", "PingFang TC", "Noto Sans TC", sans-serif; }
+
+/* callouts */
+.callout {
+  border-left: 3px solid var(--pg-accent);
+  background: var(--pg-surface);
+  padding: 1rem 1.15rem; border-radius: 0 4px 4px 0;
+  margin: 1.5rem 0; max-width: var(--measure);
+}
+.callout.is-warn { border-left-color: var(--pg-warn); }
+.callout__title {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--pg-ink-3); margin-bottom: .4rem;
+}
+.callout p { margin-bottom: .5rem; }
+
+pre.count {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: var(--step--1); line-height: 1.6;
+  background: var(--pg-surface); border: var(--rail) solid var(--pg-line);
+  border-radius: 4px; padding: 1rem 1.15rem; overflow-x: auto; margin: 1.25rem 0;
+  color: var(--pg-ink-2);
+}
+pre.count b { color: var(--pg-ink); font-weight: 600; }
+
+ul.plain { max-width: var(--measure); padding-left: 1.15rem; margin: 0 0 1rem; }
+ul.plain li { margin-bottom: .4rem; }
+
+footer.colophon {
+  margin-top: 5rem; padding-top: 1.5rem;
+  border-top: var(--rail) solid var(--pg-line);
+  font-size: var(--step--1); color: var(--pg-ink-3);
+  display: flex; flex-wrap: wrap; gap: .5rem 2rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+    .strike { text-decoration: line-through; opacity: .55; font-weight: 600; }
+  </style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="eyebrow">
+      <span>docs/claude-design-demo</span>
+      <span>2026-09-04</span>
+      <span>fix/compare-tabs-and-worktree-dialog</span>
+    </div>
+    <h1>Worktree Dialogs</h1>
+    <p class="standfirst">
+      A redesign of <b>Add Worktree</b> and its three siblings, drawn at true size in the app's
+      own tokens. Written before any code changed, because the last version of this dialog was
+      built without one.
+    </p>
+    <div class="status-row">
+      <span class="pill is-ratified">使用者裁定 · dialog 照 spec 用中文</span>
+      <span class="pill is-ratified">使用者裁定 · 照 spec P17 樣式</span>
+      <span class="pill is-ratified">使用者裁定 · 加「來源」標籤</span>
+      <span class="pill is-ratified">使用者裁定 · ✕ 必修</span>
+      <span class="pill is-open">spec 通過才開工</span>
+    </div>
+  </header>
+
+  <!-- ============================ 1 ============================ -->
+  <section id="finding">
+    <div class="sec-head"><span class="sec-num">01</span><h2>What is actually wrong</h2></div>
+    <p class="lede">
+      The report was <span class="zh">「很明顯沒有符合 app 樣式規則」</span>. Four candidate violations
+      were checked against the twenty-five dialogs that predate this branch. Three did not survive
+      the source — recorded here so a later round does not &ldquo;fix&rdquo; them back.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr><th style="width:31%">Candidate violation</th><th style="width:14%">Verdict</th><th>Evidence in the repo</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Bare <code>OutlineInputBorder()</code> instead of a themed border</td>
+            <td class="verdict no">not a violation</td>
+            <td>It is the norm — <code>new_branch_dialog.dart:233</code> and <code>create_tag_dialog.dart:85,102,120</code> all use it bare. Only <code>compare_ref_picker.dart</code> is filled, and that is a toolbar picker, not a dialog field.</td>
+          </tr>
+          <tr>
+            <td>Hand-rolled section-label <code>Text</code> instead of a component</td>
+            <td class="verdict no">not a violation</td>
+            <td><code>new_branch_dialog.dart:237-245</code>'s <code>'START POINT'</code> uses a byte-identical style block. Ten dialogs label this way.</td>
+          </tr>
+          <tr>
+            <td>Material <code>Icons.</code> instead of <code>LucideIcon</code></td>
+            <td class="verdict no">not a violation</td>
+            <td><code>Icons.</code> appears 12&times; under <code>features/dialogs/</code>; <code>LucideIcon</code> 0&times;.</td>
+          </tr>
+          <tr>
+            <td>Title-case <code>'Add Worktree'</code> against its own <code>'Add worktree'</code> button</td>
+            <td class="verdict no">not a violation</td>
+            <td>Two conventions, both intact: shell titles are Title Case (New Branch, Create Tag, Force Push&hellip;), buttons are sentence case.</td>
+          </tr>
+          <tr>
+            <td><b>Language</b> — dialogs are English</td>
+            <td class="verdict yes">violation</td>
+            <td><b>Inverted from an earlier draft of this page.</b> The spec's own 26 dialogs draw field labels, options, hints and warnings in <b>Chinese</b> — so English labels are the deviation, not CJK ones. 使用者裁定: 改成中文. See section 03.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <pre class="count">app_flutter/lib/features/dialogs/ &mdash; user-facing literals, comments excluded
+
+  English  <b>147</b>   across all <b>30</b> dialogs
+  Chinese    <b>9</b>
+
+The spec draws the opposite. Section 03 has the per-element rule and
+what actually has to change under it.</pre>
+
+    <div class="callout is-warn">
+      <div class="callout__title">Scope, and where it stops</div>
+      <p>
+        The twelve management panels <em>do</em> ship CJK labels and were reviewed without objection,
+        so &ldquo;this app is English&rdquo; was never an inferable rule — it was put to the user rather
+        than assumed. The ruling is scoped to dialogs. <b>The panels are out of scope and this spec
+        does not touch them.</b>
+      </p>
+    </div>
+  </section>
+
+  <!-- ============================ 2 ============================ -->
+  <section id="dialog">
+    <div class="sec-head"><span class="sec-num">02</span><h2>Add Worktree, before and after</h2></div>
+    <p class="lede">
+      Rendered at the real <code>GbmDialogShell</code> width of 480&thinsp;px, in the app's own tokens.
+      Structure is unchanged — section&nbsp;01 established it was already conformant — apart from the
+      one added group label. What changes is the text.
+    </p>
+
+    <div class="stage-controls">
+      <span class="label">App theme</span>
+      <div class="themebtns" role="group" aria-label="Preview theme">
+        <button class="themebtn" type="button" data-theme-btn="neutral-professional" aria-pressed="false">neutral-professional</button>
+        <button class="themebtn" type="button" data-theme-btn="dark-technical" aria-pressed="true">dark-technical</button>
+        <button class="themebtn" type="button" data-theme-btn="light-ide" aria-pressed="false">light-ide</button>
+      </div>
+      <span class="specimen-note">All three must hold — the tokens are the contract, not one screenshot.</span>
+    </div>
+
+    <div class="compare">
+      <div class="specimen">
+        <div class="specimen-head">
+          <span class="specimen-tag before">Now</span>
+          <span class="specimen-note">✕ 不在 spec · radio 無群組標籤 · 標題不在 bar 裡</span>
+        </div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="gbm-dialog-shell">
+            <div class="mkbar">
+              <span class="mkbar__title">Add Worktree</span><button class="gbm-btn" type="button" aria-label="Close" style="padding:0;width:26px;height:26px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+            </div>
+            <div class="dlg-body">
+              <div class="fld">
+                <div class="opt opt--radio is-cjk" data-on="1"><span class="opt__mark"></span><span>checkout 既有分支</span></div>
+                <div class="opt opt--radio is-cjk" data-on="0"><span class="opt__mark"></span><span>建立新分支</span></div>
+              </div>
+
+              <div class="fld">
+                <div class="fld__label is-cjk">分支</div>
+                <div class="picker">
+                  <div class="box"><span class="ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span><span class="val ph is-cjk">搜尋分支、tag 或 commit</span></div>
+                  <div class="picker__list">
+                    <div class="gbm-row selected"><span class="ic"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg></span><span class="nm">main</span><span class="an is-cjk">目前分支</span></div>
+                    <div class="gbm-row"><span class="ic"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg></span><span class="nm">develop</span></div>
+                    <div class="gbm-row"><span class="ic"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg></span><span class="nm">release/1.4</span><span class="an is-cjk">已在 ../hotfix</span></div>
+                  </div>
+                </div>
+                
+              </div>
+
+              <div class="fld">
+                <div class="fld__label is-cjk">新分支名</div>
+                <div class="fld__ctl"><span class="box is-disabled"><span class="val ph">feature/x</span></span></div>
+              </div>
+
+              <div class="fld">
+                <div class="fld__label is-cjk">位置</div>
+                <div class="fld__ctl">
+                  <span class="box box--mono"><span class="val">~/code/worktrees/main</span></span>
+                  <button class="gbm-btn gbm-btn--secondary is-cjk" type="button" style="height:30px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>瀏覽…</button>
+                </div>
+              </div>
+
+              <div class="fld">
+                <div class="opt opt--chk is-cjk" data-on="1"><span class="opt__mark"></span><span>建立後切換到這個 worktree</span></div>
+              </div>
+
+              <div class="fld">
+                <div class="fld__ctl"><span class="warn is-cjk">~/code/worktrees/main 已存在且不是空的，git 會拒絕。</span></div>
+              </div>
+            </div>
+            <div class="dlg-actions">
+              <button class="gbm-btn gbm-btn--secondary" type="button">Cancel</button>
+              <button class="gbm-btn gbm-btn--primary" type="button">Add worktree</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="specimen">
+        <div class="specimen-head">
+          <span class="specimen-tag after">Proposed</span>
+          <span class="specimen-note">P17 欄位語彙 · 標題進 .mkbar · 無 ✕</span>
+        </div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="gbm-dialog-shell">
+            <div class="mkbar">
+              <span class="mkbar__title">Add Worktree</span>
+            </div>
+            <div class="dlg-body">
+              <div class="fld">
+                <div class="fld__label is-cjk">來源</div>
+                <div class="opt opt--radio is-cjk" data-on="1"><span class="opt__mark"></span><span>checkout 既有分支</span></div>
+                <div class="opt opt--radio is-cjk" data-on="0"><span class="opt__mark"></span><span>建立新分支</span></div>
+              </div>
+
+              <div class="fld">
+                <div class="fld__label is-cjk">分支</div>
+                <div class="picker">
+                  <div class="box box--focus"><span class="ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span><span class="val ph is-cjk">搜尋分支、tag 或 commit</span></div>
+                  <div class="picker__list">
+                    <div class="gbm-row selected"><span class="ic"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg></span><span class="nm">main</span><span class="an is-cjk">目前分支</span></div>
+                    <div class="gbm-row"><span class="ic"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg></span><span class="nm">develop</span></div>
+                    <div class="gbm-row"><span class="ic"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg></span><span class="nm">release/1.4</span><span class="an is-cjk">已在 ../hotfix</span></div>
+                  </div>
+                </div>
+                <div class="fld__hint is-cjk">可搜尋的混合清單：branch / tag / commit，以圖示區分</div>
+              </div>
+
+              <div class="fld">
+                <div class="fld__label is-cjk">新分支名稱</div>
+                <div class="fld__ctl"><span class="box is-disabled"><span class="val ph">feature/x</span></span></div>
+              </div>
+
+              <div class="fld">
+                <div class="fld__label is-cjk">目標路徑</div>
+                <div class="fld__ctl">
+                  <span class="box box--mono"><span class="val">~/code/worktrees/gbm/main</span></span>
+                  <button class="gbm-btn gbm-btn--secondary is-cjk" type="button" style="height:30px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>瀏覽…</button>
+                </div>
+              </div>
+
+              <div class="fld">
+                <div class="opt opt--chk is-cjk" data-on="1"><span class="opt__mark"></span><span>建立後切換到這個 worktree</span></div>
+              </div>
+
+              <div class="fld">
+                <div class="fld__ctl"><span class="warn is-cjk">~/code/worktrees/gbm/main 已存在且不是空的，git 會拒絕建立。</span></div>
+              </div>
+            </div>
+            <div class="dlg-actions">
+              <button class="gbm-btn gbm-btn--secondary" type="button">Cancel</button>
+              <button class="gbm-btn gbm-btn--primary" type="button">Add worktree</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h3>Every block, and where its numbers come from</h3>
+    <p>
+      Three earlier drafts of this page invented numbers. This one quotes them, and names the source
+      on each line. <b>[KIT]</b> = the <code>.gbm-*</code> component CSS, whose own comment says
+      &ldquo;Token-driven; safe to reuse directly in UI kit screens&rdquo;. <b>[P6]</b> = the shared-shell
+      prose. <b>[P17]</b> = <code>dlgFields()</code>/<code>dlgGroup()</code> in <code>spec_logic.js</code>,
+      the field vocabulary all twelve P17 dialogs are drawn from.
+    </p>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:15%">Block</th><th style="width:8%">Source</th><th style="width:39%">Spec</th><th>App today</th></tr></thead>
+      <tbody>
+        <tr><td>Shell</td><td class="num">KIT·P6</td><td><code>.gbm-panel-raised</code> — <code>--surface-panel-raised</code>, r<b>10</b>, <code>--shadow-md</code>, <code>1px --border-default</code>; 480 max</td><td>r10, 480, maxHeight 560 &check; — but ground is <code>surfaceOverlay</code> and there is no border</td></tr>
+        <tr><td>Title bar</td><td class="num">P6</td><td><code>padding:12px 15px</code> + <code>border-bottom</code>, <b>13px</b> semibold — ≈40px tall</td><td class="verdict yes"><code>textLg</code> <b>18</b>, padding 16/16/12/8, <b>no border-bottom</b>, plus a ✕</td></tr>
+        <tr><td>Content</td><td class="num">P6</td><td><code>padding:14px 15px; gap:11px</code>, 單欄堆疊</td><td><code>symmetric(horizontal: space4)</code> = 16, gaps hand-placed per dialog</td></tr>
+        <tr><td>Action row</td><td class="num">P6</td><td>own region — <code>padding:11px 15px</code>, <b><code>border-top</code></b>, gap 7</td><td class="verdict yes"><code>EdgeInsets.all(space4)</code>, <b>no border-top</b></td></tr>
+        <tr><td>Buttons</td><td class="num">KIT·P17</td><td><code>.gbm-btn-sm</code> h<b>24</b>, <code>--text-xs</code>, pad 0/8, r6 — <b>both</b></td><td class="verdict yes"><code>GbmButton</code> h30/24 r6 &check;, but dialogs pass the <b>default</b> (30)</td></tr>
+        <tr><td>Text box</td><td class="num">P17·KIT</td><td><code>.gbm-input</code> h<b>30</b>, r<b>6</b>, <code>--text-sm</code>, pad 0/12</td><td class="verdict yes"><code>TextField(isDense, OutlineInputBorder())</code> — taller than 30, Material's r4</td></tr>
+        <tr><td>&nbsp;· <code>focus</code></td><td class="num">P17</td><td>border <code>--accent</code></td><td class="verdict yes">does not exist</td></tr>
+        <tr><td>&nbsp;· <code>ro</code></td><td class="num">P17</td><td><code>--surface-sunken</code>, <code>--text-secondary</code></td><td class="verdict yes">does not exist</td></tr>
+        <tr><td>&nbsp;· <code>list</code></td><td class="num">P17</td><td><code>--surface-sunken</code>, pad 7/9</td><td class="verdict yes">does not exist</td></tr>
+        <tr><td>Field label</td><td class="num">P6</td><td>11px, <code>--text-secondary</code>, sentence case</td><td class="verdict yes"><code>textXs</code> semibold <code>textTertiary</code> ls.5, uppercase</td></tr>
+        <tr><td>Radio mark</td><td class="num">P17</td><td>off <code>1.5px --border-strong</code>; on = thick <code>--accent</code> <b>ring</b></td><td class="verdict yes">Material <code>RadioListTile</code> — a filled dot</td></tr>
+        <tr><td>Checkbox</td><td class="num">P17·KIT</td><td>15&times;15, r3, <code>1.5px --border-strong</code></td><td>Material <code>CheckboxListTile</code>, dense &check;</td></tr>
+        <tr><td><b>Warn field</b></td><td class="num">P17</td><td><code>--surface-sunken</code> + <code>1px --border-subtle</code> + <code>border-left:2px --warning</code> + r6, pad 8/9</td><td class="verdict yes"><code>GbmWarningBanner</code> — the <b>screen</b> banner (<code>--diff-del-bg</code>, full-bleed). Right component, wrong context</td></tr>
+        <tr><td>Note / hint</td><td class="num">P17</td><td><code>--text-tertiary</code>, no box, lh 1.7 / 1.6</td><td>ad hoc per dialog</td></tr>
+        <tr><td>List row</td><td class="num">KIT</td><td><code>.gbm-row</code> h<b>26</b>, r4</td><td><code>GbmRefPicker</code> uses <code>rowHeightCompact</code> 26 &check;</td></tr>
+      </tbody>
+    </table></div>
+    <p style="margin-top:1rem">
+      <b>Read the right-hand column carefully before changing any of it.</b> Six times in this
+      round the app turned out to be conformant and the drawing wrong — so a mismatch is more
+      likely to be a mistake in this page than a bug in the widget. The rows marked here were each
+      checked against the source, not assumed.
+    </p>
+
+    <h3>What I am still inferring — the honest list</h3>
+    <p>
+      You asked which blocks are guesswork. These six. Everything not on this list is quoted above.
+    </p>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:26%">Block</th><th>Why there is no spec value, and what I used instead</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><b>Add Worktree itself</b></td>
+          <td>P17/P18/P20/P21 specify <b>26 dialogs</b> and this is not one of them — Checkout, Merge, Rebase, New branch, Clone, Stash, Force push, Delete remote branch, Prune, Restore file &times;2, Discard, Reset, Cherry-pick, Create tag, Clean untracked, Undo last, Sign in, Checkout blocked, Deleted branch recovery, New repository, Open at revision, Save as, Pull, Set upstream, Pull blocked. So its <i>field list</i> comes from the shipped implementation; only the <i>shell and field vocabulary</i> are spec'd.</td>
+        </tr>
+        <tr>
+          <td><b>The <code>Source</code> label</b></td>
+          <td>No spec'd dialog labels a radio group — Checkout's two radios carry only their own text. This label is your ratified addition, not a spec item. Flagging it because a later audit would otherwise find it unsourced.</td>
+        </tr>
+        <tr>
+          <td><b>Radios placed first</b></td>
+          <td>Every spec'd dialog puts radios <i>after</i> the text fields (Checkout: target → current → radios → warn). Ours gate what the fields below mean, so they lead. A deliberate departure, not an oversight.</td>
+        </tr>
+        <tr>
+          <td><b>Ref picker internals</b></td>
+          <td>P17 has a <code>list</code> field kind (sunken box) and Checkout's hint names 「可搜尋的混合清單：branch / tag / commit，以圖示區分」 — so a searchable mixed list is specified, but its <i>row</i> rendering is not. Rows come from <code>GbmRefPicker</code> + <code>.gbm-row</code>.</td>
+        </tr>
+        <tr>
+          <td><b>Vertical rhythm</b></td>
+          <td>P17's card uses <code>gap:9</code> between fields, P6's mock <code>gap:11</code>, and neither is prose. I use <b>12</b> (<code>--space-3</code>) so it lands on the token scale rather than between two diagram values.</td>
+        </tr>
+        <tr>
+          <td><b>Diagram scale vs UI-kit scale</b></td>
+          <td>P17's inline styles are thumbnail-sized (10–11.5px text, 12px marks) while the <code>.gbm-*</code> classes are full size (30px input, 15px checkbox). They are the same control drawn twice. At 480px I follow the <b>classes</b>, because their own comment blesses them for real screens and the app already implements them. The P17 styles supply only what has no class: <code>focus</code>/<code>ro</code>/<code>list</code>/<code>warn</code>/<code>note</code> and the marks.</td>
+        </tr>
+      </tbody>
+    </table></div>
+
+    <div class="callout">
+      <div class="callout__title">Both now ratified</div>
+      <p>
+        <b>1. The ✕ close button goes.</b> Neither P6 nor P17 draws one; P17's right-hand title slot
+        holds a <b>keyboard-shortcut chip</b>, shown only when the dialog has a shortcut.
+        <code>GbmDialogShell</code> draws a ✕ on all 30 dialogs, so this is one change in the shared
+        shell. Add Worktree has no shortcut, so its slot stays empty. <span class="zh">使用者裁定：必修。</span>
+      </p>
+      <p>
+        <b>2. Dialogs follow the spec into Chinese.</b> <span class="zh">使用者裁定：「現在都是中文的，那就改成中文」。</span>
+        The earlier <span class="zh">「dialog 全英文」</span> ruling is superseded — recorded here rather
+        than quietly dropped, per this repo's rule about correcting the record in place.
+      </p>
+    </div>
+
+    <h3>Theme check</h3>
+    <p>
+      Every colour in the specimen resolves from a token, and all three palettes are defined
+      independently — so the three buttons above are a real test, not a tint. Two things this audit
+      caught:
+    </p>
+    <p>
+      <b>A defect, now fixed.</b> <code>--surface-sunken</code> was referenced by five rules
+      (the read-only field, the list field, the picker list, the warning, and the shortcut chip) and
+      <b>defined in none of the three palettes</b>. An undefined custom property makes the whole
+      declaration invalid at computed-value time, so those backgrounds were silently transparent in
+      every theme — which is precisely why the warning looked flat. It is now
+      <code>#eef0f2</code> / <code>#010409</code> / <code>#f5f6f8</code>, taken from
+      <code>tokens-reference.md</code>. Seven tokens that nothing referenced were removed at the same
+      time, so the block states only what it governs.
+    </p>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:16%">Theme</th><th>Title</th><th>Label</th><th>Hint</th><th>Field</th><th>Warning</th><th>Button</th></tr></thead>
+      <tbody>
+        <tr><td>neutral-professional</td><td class="num">17.31</td><td class="num">7.11</td><td class="num">4.62</td><td class="num">17.31</td><td class="num">6.22</td><td class="num verdict yes">3.75</td></tr>
+        <tr><td>dark-technical</td><td class="num">14.64</td><td class="num">5.94</td><td class="num verdict yes">3.77</td><td class="num">16.02</td><td class="num">7.05</td><td class="num verdict yes">3.75</td></tr>
+        <tr><td>light-ide</td><td class="num">16.18</td><td class="num">6.39</td><td class="num verdict yes">3.08</td><td class="num">16.18</td><td class="num">5.91</td><td class="num verdict yes">3.75</td></tr>
+      </tbody>
+    </table></div>
+    <p style="margin-top:1rem">
+      <b>Three pairs fall below WCAG AA</b> (4.5 for text this size). They are the spec's own token
+      pairs, not anything this page introduced: hint is <code>--text-tertiary</code> on the panel, and
+      the button is <code>--text-on-accent</code> on <code>--accent</code> — the same
+      <code>#ffffff</code> on <code>#2f81f7</code> every primary button in the app already uses.
+      <b>Reporting, not fixing</b>: changing them here would put this page out of step with
+      <code>tokens-reference.md</code>, which is the source of truth. Worth its own decision if you
+      want it addressed.
+    </p>
+
+    <h3>The shell now follows P6's full-size mock, not its prose</h3>
+    <p>
+      P6 states the shell twice and the two disagree: the prose says
+      <span class="zh">「標題列（18px semibold）+ 內容區（16px padding）」</span>, while the page's own
+      full-size dialog mock draws 13px and 14px. <span class="zh">使用者裁定：照 spec 用 13</span> — so
+      the <b>mock</b> is the source, and it is taken whole rather than cherry-picked, because a
+      geometry half from each is a third thing neither says.
+    </p>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:20%">Part</th><th style="width:44%">P6 mock, verbatim</th><th>Height</th></tr></thead>
+      <tbody>
+        <tr><td>Shell</td><td><code>.gbm-panel-raised</code> + <code>border:1px solid --border-default</code> + <code>overflow:hidden</code></td><td class="num">—</td></tr>
+        <tr><td><b>Title bar</b></td><td><code>padding:12px 15px; border-bottom:1px solid --border-subtle; font-size:13px; font-weight:600</code></td><td class="num"><b>≈40px</b><br><span class="specimen-note">12 + 16 + 12</span></td></tr>
+        <tr><td>Body</td><td><code>padding:14px 15px; display:flex; flex-direction:column; gap:11px</code></td><td class="num">—</td></tr>
+        <tr><td>Action row</td><td><code>padding:11px 15px; border-top:1px solid --border-subtle; justify-content:flex-end; gap:7px</code></td><td class="num">≈46px</td></tr>
+      </tbody>
+    </table></div>
+    <p style="margin-top:1rem">
+      Three consequences worth naming. The shell ground becomes
+      <code>--surface-panel-raised</code>, so the <code>--surface-panel</code> fields now read as
+      <b>sunken into</b> a raised panel rather than floating on the same tone — which is what
+      <code>.gbm-input</code>'s own background was always for. The action row moves <b>out</b> of the
+      body into its own padded region, which is why it now has real weight under the rule. And the
+      title bar needs no background of its own: the <code>border-bottom</code> is the whole separator,
+      exactly as P6 draws it.
+    </p>
+    <p>
+      <code>GbmDialogShell</code> currently implements the <i>prose</i> (<code>textLg</code> 18,
+      <code>space4</code> 16), so this is a real change to the shared shell, not just to this dialog —
+      it is <b>G6</b> and <b>G7</b> in the work list.
+    </p>
+
+  </section>
+
+  <!-- ============================ 3 ============================ -->
+  <!-- ============================ 3 ============================ -->
+  <section id="strings">
+    <div class="sec-head"><span class="sec-num">03</span><h2>Language, per element</h2></div>
+    <p class="lede">
+      <span class="zh">使用者裁定：「現在都是中文的，那就改成中文」。</span> The spec does not simply
+      &ldquo;use Chinese&rdquo; — it splits by element type, consistently, across all 26 dialogs it draws.
+      Counted from <code>DLGS</code> in <code>spec_logic.js</code>:
+    </p>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:24%">Element</th><th style="width:12%">English</th><th style="width:12%">Chinese</th><th>Rule</th></tr></thead>
+      <tbody>
+        <tr><td>Dialog title</td><td class="num"><b>26</b></td><td class="num">0</td><td><b>Always English.</b> <code>Checkout</code>, <code>New branch</code>, <code>Merge into current</code>, <code>Clone repository</code>&hellip;</td></tr>
+        <tr><td>Primary button</td><td class="num"><b>26</b></td><td class="num">0</td><td><b>Always English.</b> <code>Create branch</code>, <code>Stash 9 files</code>, <code>Prune 5 refs</code>, <code>Delete on origin</code>&hellip;</td></tr>
+        <tr><td>Field label</td><td class="num">3</td><td class="num"><b>47</b></td><td><b>Chinese</b>, except proper nouns — the three English ones are <code>URL</code> and <code>Remote</code>&times;2.</td></tr>
+        <tr><td>Option text</td><td class="num">40</td><td class="num"><b>81</b></td><td><b>Chinese.</b> The 40 English are <i>data</i> — <code>release/0.5</code>, <code>origin/main</code>, paths and hashes — not copy.</td></tr>
+        <tr><td>Hint</td><td class="num">0</td><td class="num"><b>13</b></td><td><b>Always Chinese.</b></td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="callout">
+      <div class="callout__title">What this makes cheap</div>
+      <p>
+        Titles and buttons are <b>already correct</b> — the app writes those in English and so does the
+        spec. So the change is confined to labels, options, hints, warnings and notes.
+      </p>
+      <p>
+        And for <b>26 of the 30 dialogs the spec supplies the exact wording</b>, so most of this is
+        transcription rather than translation. <code>new_branch</code>'s start-point label is
+        <span class="zh">「從哪裡分出」</span>, not a phrase anyone has to invent — which incidentally
+        settles the <code>START POINT</code> question from an earlier draft of this page.
+      </p>
+    </div>
+
+    <h3>Where the spec writes it for us</h3>
+    <p>
+      Checkout, Merge into current, Rebase onto, New branch, Clone repository, Stash changes,
+      Force push, Delete remote branch, Prune remote branches, Restore file &times;2, Discard changes,
+      Reset branch, Cherry-pick, Create tag, Clean untracked files, Undo last operation, Sign in to
+      origin, Checkout blocked, Deleted branch recovery, New repository, Open file at this revision,
+      Save this revision as, Pull, Set upstream, Pull blocked.
+    </p>
+    <p>
+      The four with no spec entry — <b>Add Worktree, Lock Worktree, Remove Worktree</b> and
+      <b>Preferences</b> — get copy composed in the same voice. That voice keeps git's own vocabulary
+      in English inline (<span class="zh">「先 stash，切完不自動還原」</span>,
+      <span class="zh">「建立後直接 checkout」</span>), so <code>checkout</code>, <code>stash</code>,
+      <code>worktree</code> and <code>--force</code> stay as they are.
+    </p>
+
+    <h3>Add Worktree's fields</h3>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:16%">Kind</th><th style="width:26%">Label</th><th>Value / option</th></tr></thead>
+      <tbody>
+        <tr><td class="num">label + radio</td><td class="was">來源</td><td class="was">checkout 既有分支 / 建立新分支</td></tr>
+        <tr><td class="num">focus + list</td><td class="was">分支</td><td class="was">搜尋分支、tag 或 commit<br><span class="specimen-note">hint: 可搜尋的混合清單：branch / tag / commit，以圖示區分</span></td></tr>
+        <tr><td class="num">text</td><td class="was">新分支名稱</td><td class="was"><code>feature/x</code> <span class="specimen-note">（未選「建立新分支」時 dimmed）</span></td></tr>
+        <tr><td class="num">text + button</td><td class="was">目標路徑</td><td class="was">mono 路徑 ・ 瀏覽…</td></tr>
+        <tr><td class="num">chk</td><td>—</td><td class="was">建立後切換到這個 worktree</td></tr>
+        <tr><td class="num">warn</td><td>—</td><td class="was">&lt;path&gt; 已存在且不是空的，git 會拒絕建立。</td></tr>
+      </tbody>
+    </table></div>
+    <p style="margin-top:1rem">
+      <span class="zh">「位置」→「目標路徑」</span> follows Clone repository's own label rather than
+      inventing a third word for the same idea.
+    </p>
+  </section>
+
+  <section id="states">
+    <div class="sec-head"><span class="sec-num">04</span><h2>States</h2></div>
+    <p class="lede">No state is added or removed. Listed so the implementation has something to check itself against.</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:26%">State</th><th style="width:28%">Trigger</th><th>Rendering</th></tr></thead>
+      <tbody>
+        <tr><td>New-branch field inactive</td><td><code>_source == checkoutExisting</code></td><td><b>Dimmed, not hidden</b> — matching Create tag's message field, and <code>[FLU-menu-enabled-is-visual-only]</code>'s <span class="zh">「隱藏會讓人以為功能不存在」</span></td></tr>
+        <tr><td>Name error</td><td>duplicate or invalid branch name</td><td><code>errorText</code> on the field; submit disabled</td></tr>
+        <tr><td>Path occupied</td><td>target exists and is non-empty</td><td><code>GbmWarningBanner</code> at the foot; submit disabled</td></tr>
+        <tr><td>Branch already checked out</td><td>branch occupies another worktree</td><td><code>Already in &lt;path&gt;</code> annotation in the picker row</td></tr>
+        <tr><td>Submit enabled</td><td><code>!pathTaken &amp;&amp; (picked != null ‖ valid new name)</code></td><td>logic unchanged; only strings move</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- ============================ 5 ============================ -->
+  <section id="unchanged">
+    <div class="sec-head"><span class="sec-num">05</span><h2>Explicitly not changing</h2></div>
+    <p class="lede">
+      A redesign is read as licence unless the licence has edges. These are the edges.
+    </p>
+    <ul class="plain">
+      <li><code>GbmDialogShell</code> width (480) and the title <code>'Add Worktree'</code>.</li>
+      <li>The radio / picker / text-field / checkbox structure and its order.</li>
+      <li><code>Icons.folder_open_outlined</code> on the Browse button.</li>
+      <li>Every <code>OutlineInputBorder()</code>, <code>isDense</code>, <code>contentPadding</code> and <code>GbmSpacing</code> value already in the file.</li>
+      <li>Submit-enablement logic, the path-occupancy check, and the browse handler.</li>
+      <li>The twelve management panels' CJK labels — out of scope, see section 01.</li>
+    </ul>
+  </section>
+
+  <!-- ============================ 6 ============================ -->
+  <!-- ============================ 6 ============================ -->
+  <section id="worklist">
+    <div class="sec-head"><span class="sec-num">06</span><h2>Work list</h2></div>
+    <p class="lede">
+      Three of these came out of reading P17 rather than out of the original report, and all three
+      are scheduled — <span class="zh">使用者裁定「1, 2 也排進工作清單要全改正確」</span>. Each is its own
+      commit so each can be reverted alone.
+    </p>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:5%">#</th><th style="width:26%">Item</th><th style="width:13%">Sites</th><th>What it is</th></tr></thead>
+      <tbody>
+        <tr><td class="num">G1</td><td>Dialog copy &rarr; Chinese, per element</td><td class="num">30 dialogs</td>
+            <td>Labels / options / hints / warnings / notes only. Titles and primary buttons already match the spec and are not touched. 26 dialogs take the spec's own wording verbatim.</td></tr>
+        <tr><td class="num">G2</td><td>Add the <span class="zh">「來源」</span> label</td><td class="num">1</td>
+            <td>The radios were the only unlabelled group. Pinned by a widget test.</td></tr>
+        <tr><td class="num">G3</td><td>Dialog field labels &rarr; P6 treatment</td><td class="num">3</td>
+            <td>11px, <code>--text-secondary</code>. The three <b>pane</b> headers stay uppercase — they are <code>.mklbl</code>, a different component.</td></tr>
+        <tr><td class="num">G4</td><td><code>.gbm-input</code> height 30</td><td class="num">43 sites<br>27 files</td>
+            <td>A shared <code>InputDecoration</code> helper carrying <code>contentPadding</code> + <code>radiusMd</code>, applied everywhere. Applied to four dialogs only, it would re-create the drift this repo keeps recording.</td></tr>
+        <tr><td class="num">G5</td><td><b>Remove the ✕ from <code>GbmDialogShell</code></b></td><td class="num">1 widget<br>30 dialogs</td>
+            <td>Not in P6 or P17. The slot becomes the <code>.kbd</code> shortcut chip where a dialog has a shortcut. <b>Esc already closes</b>, so nothing becomes unreachable — worth checking per dialog before the ✕ goes.</td></tr>
+        <tr><td class="num">G6</td><td>Title bar &rarr; <code>.mkbar</code></td><td class="num">1 widget</td>
+            <td><code>--surface-panel-raised</code> ground + <code>border-bottom</code>, plus the size question in section 02's note.</td></tr>
+        <tr><td class="num">G7</td><td>Action row &rarr; <code>border-top</code>, <code>.gbm-btn-sm</code></td><td class="num">1 widget</td>
+            <td>P17 and P6 both draw a top rule and size <b>both</b> buttons small. Currently neither.</td></tr>
+        <tr><td class="num">G8</td><td>Field kinds: <code>focus</code> / <code>ro</code> / <code>warn</code></td><td class="num">as used</td>
+            <td>The accent-bordered focus field, the sunken read-only field, and the sunken + 2px amber left rail warning. None of the three exists in the app today.</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="callout">
+      <div class="callout__title">Not in this spec</div>
+      <p>
+        The five behaviour fixes reported alongside the dialog — tab ordering, the second Compare
+        tab's spinner, working-copy compare, ref-picker swap, and the per-repo default worktree path —
+        are separate commits with their own tests. Only the <code>Location</code> default appears here,
+        because this dialog is what renders it.
+      </p>
+    </div>
+  </section>
+
+  <section id="acceptance">
+    <div class="sec-head"><span class="sec-num">07</span><h2>Acceptance</h2></div>
+    <ul class="plain">
+      <li><b class="strike">Re-running section 01's sweep returns 0 CJK literals under <code>features/dialogs/</code>.</b> <b>Corrected in place.</b> That sentence was written while the ruling was 「dialog 全英文」, and it survived the reversal to 「現在都是中文的，那就改成中文」 unchanged — so this page's own acceptance check demanded the opposite of its own section 03. A zero-CJK sweep is now a <em>failing</em> result for every element type except titles and primary buttons.</li>
+      <li>The sweep that replaces it is <b>per element, not per file</b>, because section 03's rule is: every <code>title:</code> and primary-button label under <code>features/dialogs/</code> is ASCII, and every field label, hint, warning and non-data option is not. One grep cannot express that, so it is two.</li>
+      <li>A widget test pins <code>來源</code>, <code>分支</code> and both radio labels, so the added group label cannot be quietly dropped later. <b class="strike">Source, Branch</b> — the English names were this page's earlier draft and are corrected here rather than left to be read as the target.</li>
+      <li>Existing <code>add_worktree</code> / <code>lock_worktree</code> / <code>remove_worktree</code> tests move to the new strings in the same commit. <b class="strike">A finder still matching a Chinese label means a string was missed.</b> Inverted by the same reversal: a finder still matching an <em>English</em> field label, hint or warning is the miss. A finder matching an English <em>title</em> or <em>primary button</em> is correct and must stay.</li>
+      <li><code>integration_test/</code> is grepped for every changed label <b>and</b> for the <code>GbmActionId</code> / <code>GbmPanelKind</code> that reach these surfaces — per <code>[TEST-grep-misses-intent-driven-device-tests]</code>, a device test can arrive through an intent without naming any label.</li>
+    </ul>
+  </section>
+
+  <footer class="colophon">
+    <span>Tokens: <code>docs/design/tokens-reference.md</code></span>
+    <span>Companion: none — an earlier Markdown draft was deleted rather than committed, so this page is the only spec</span>
+    <span>Faces: Inter · JetBrains Mono — the app's own <code>fontUi</code> / <code>fontMono</code></span>
+  </footer>
+</div>
+
+<script>
+(function () {
+  var btns = document.querySelectorAll('[data-theme-btn]');
+  var stages = document.querySelectorAll('[data-stage]');
+  btns.forEach(function (b) {
+    b.addEventListener('click', function () {
+      var t = b.getAttribute('data-theme-btn');
+      btns.forEach(function (o) { o.setAttribute('aria-pressed', String(o === b)); });
+      stages.forEach(function (s) { s.setAttribute('data-app-theme', t); });
+    });
+  });
+})();
+</script>

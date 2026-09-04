@@ -189,7 +189,10 @@ void main() {
         ),
       );
 
-      await tester.tap(find.text('Discard 2 files'));
+      // DLGS's note: at 1-2 files the primary button names the file(s)
+      // rather than a count -- see discard_changes_dialog.dart's doc
+      // comment and [_dangerLabel].
+      await tester.tap(find.text('Discard a.dart, c.dart'));
       await tester.pumpAndSettle();
 
       final FakeCommand command = controller.commandLog.single;
@@ -217,7 +220,9 @@ void main() {
         ),
       );
 
-      await tester.tap(find.text('Discard changes'));
+      // 'new.dart' is untracked and excluded from `restorable`, so only
+      // 'a.dart' remains and the button names it, not a generic count.
+      await tester.tap(find.text('Discard a.dart'));
       await tester.pumpAndSettle();
 
       expect(controller.commandLog.single.args['paths'], <String>['a.dart']);

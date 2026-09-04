@@ -376,7 +376,7 @@ void main() {
             _remote('origin', 'renamed-x'),
           ]);
 
-      expect(find.text('Also delete renamed-x on origin'), findsOneWidget);
+      expect(find.text('同時刪除 origin 上的 renamed-x'), findsOneWidget);
 
       await tester.tap(find.byType(CheckboxListTile));
       await tester.pumpAndSettle();

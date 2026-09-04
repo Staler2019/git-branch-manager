@@ -1,5 +1,7 @@
 // Pins GitCommand::worktreeReadFlags() onto the two background reads that
-// compare the work tree against the index.
+// compare the work tree against the index -- and, just as deliberately, off
+// every `git status`, which is the carve-out that function's own comment
+// closes with.
 //
 // These are argv assertions, not a race reproduction, and that is deliberate.
 // The regression they guard (see GitCommand::worktreeReadFlags()' own comment)
@@ -11,6 +13,7 @@
 // is the thing a later refactor would silently drop.
 #include "core/git/DiffService.h"
 #include "core/git/WorkingCopyStatus.h"
+#include "core/git/ops/WorktreeOps.h"
 #include "support/FakeProcessRunner.h"
 
 #include <algorithm>
@@ -106,6 +109,38 @@ TEST(WorktreeReadFlags, StatusReadItselfDoesNotPayForThem) {
     EXPECT_FALSE(carriesNoFsmonitor(soleInvocationWith(runner, {"status"}, {})));
 }
 
+// The per-worktree pending-change read (attachPendingCounts) is the newest
+// `git status` in the codebase, and the one most likely to be "fixed" into
+// carrying the flag: it runs in the background, it reads a work tree, and the
+// rule's title says background work-tree reads need the flag. The rule's
+// **Do-not** clause is the half that governs here, so this case is the mirror
+// of StatusReadItselfDoesNotPayForThem one file over.
+TEST(WorktreeReadFlags, PerWorktreePendingCountStatusDoesNotPayForThemEither) {
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response clean;
+    clean.exitCode = 0;
+    runner.whenArgsContain({"status", "--porcelain=v2"}, clean);
+
+    WorktreeInfo linked;
+    linked.path = "/repo/wt";
+    linked.branch = "feature";
+    std::vector<WorktreeInfo> worktrees{linked};
+    attachPendingCounts(runner, worktrees, CancellationToken{});
+    ASSERT_EQ(worktrees[0].pendingCountState, WorktreePendingCountState::Measured)
+        << "assert the flags of a read that ran, not of one that bailed out";
+
+    EXPECT_FALSE(carriesNoFsmonitor(soleInvocationWith(runner, {"status"}, {})))
+        << "fsmonitor exists to accelerate status, on the machines whose "
+           "owners opted into it -- GitCommand.h's closing paragraph";
+
+    // Not a second fsmonitor claim: the granularity choice lives on the same
+    // command and a refactor that rewrites the argv drops both at once. The
+    // helper's own "exactly one matching invocation" is the assertion.
+    soleInvocationWith(runner,
+                       {"status", "--untracked-files=normal", "--ignore-submodules=none"},
+                       {"--untracked-files=all"});
+}
+
 TEST(WorktreeReadFlags, UnstagedWorkingTreeDiffCarriesThem) {
     FakeProcessRunner runner;
     DiffService diffs(runner, testPaths());
@@ -122,6 +157,26 @@ TEST(WorktreeReadFlags, StagedWorkingTreeDiffDoesNotPayForThem) {
         diffs.workingTreeDiff(/*staged=*/true, {"f.txt"}, DiffOptions{}, CancellationToken{}));
 
     EXPECT_FALSE(carriesNoFsmonitor(soleInvocationWith(runner, {"diff", "--cached"}, {})));
+}
+
+// The Compare tab's 「ref vs Working Copy」 side. `git diff <commit>` with no
+// `--cached` compares that commit against the **work tree**, so it refreshes
+// the index and takes `.git/index.lock` exactly as the unstaged pass above
+// does, and Session::requestCompareWithWorkingCopy posts it to the shared read
+// pool -- both halves of the rule, and it carried neither flag.
+//
+// The two capi tests that exercise this path (CompareApiTest) run against a
+// real repository with fsmonitor off, which is every CI machine, so they were
+// green throughout. Only an argv assertion can see it.
+TEST(WorktreeReadFlags, CommitVsWorkingTreeCarriesThem) {
+    FakeProcessRunner runner;
+    DiffService diffs(runner, testPaths());
+    ASSERT_TRUE(
+        diffs.commitVsWorkingTree(ObjectId::fromHex("1111111111111111111111111111111111111111"),
+                                  DiffOptions{},
+                                  CancellationToken{}));
+
+    EXPECT_TRUE(carriesNoFsmonitor(soleInvocationWith(runner, {"diff"}, {"--cached"})));
 }
 
 }  // namespace

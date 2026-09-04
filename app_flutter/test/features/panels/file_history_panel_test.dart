@@ -16,6 +16,8 @@ import 'package:gbm_flutter/data/repositories/compare_tabs_repository.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/features/diff/diff_page.dart';
 import 'package:gbm_flutter/features/panels/file_history_panel.dart';
+import 'package:gbm_flutter/features/panels/panel_filter_field.dart';
+import 'package:gbm_flutter/features/panels/panel_widgets.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
 import 'package:go_router/go_router.dart';
 
@@ -86,6 +88,17 @@ Future<PumpedPanel> _pump(
     ),
   ],
 );
+
+Future<void> _filter(WidgetTester tester, String query) async {
+  await tester.enterText(
+    find.descendant(
+      of: find.byType(PanelFilterField),
+      matching: find.byType(TextField),
+    ),
+    query,
+  );
+  await tester.pumpAndSettle();
+}
 
 void main() {
   group('FileHistoryPanel (spec P19 PANELSPEC)', () {
@@ -211,6 +224,65 @@ void main() {
       await _pump(tester, entries: const <FileHistoryEntry>[]);
 
       expect(find.text('No commits touched this file'), findsOneWidget);
+    });
+    testWidgets('the toolbar follows P19 rule 2\'s four segments', (
+      tester,
+    ) async {
+      await _pump(tester);
+
+      expectPanelTemplate(
+        tester,
+        // **No primary segment.** A file history creates nothing; the
+        // 欄位選擇器 PANELSPEC names has no backing capi and is absent
+        // rather than faked (see the class doc), so 「Renames followed」 is
+        // the whole maintenance segment.
+        maintenance: const <String>['Renames followed'],
+        // Compare… opens a Compare tab and navigates to it, which is
+        // exactly PanelToolbarSpec's 「跳出去」.
+        external: const <String>['Compare…'],
+        listHeader: 'Commits · 2',
+        statusBar: RegExp(r'^2 commits$'),
+      );
+    });
+
+    testWidgets('the filter narrows the list, the header and the status line', (
+      tester,
+    ) async {
+      await _pump(tester);
+      expect(find.byType(PanelListRow), findsNWidgets(2));
+
+      await _filter(tester, 'rename it');
+
+      expect(find.byType(PanelListRow), findsOneWidget);
+      expect(find.text('Commits · 1'), findsOneWidget);
+      expect(find.text('2 commits · 命中 1'), findsOneWidget);
+    });
+
+    // The discriminating case. A row draws the subject, the author and the
+    // date -- never the oid -- so 「bbbbbbb」 appears in no rendered text,
+    // and it is the only kind of query that tells a subject-only filter
+    // apart from one that also reads the oid
+    // ([TEST-fixture-cannot-disagree]).
+    testWidgets('a commit is findable by an oid the row never draws', (
+      tester,
+    ) async {
+      await _pump(tester);
+
+      await _filter(tester, 'bbbbbbb');
+
+      expect(find.byType(PanelListRow), findsOneWidget);
+      expect(find.text('rename it'), findsOneWidget);
+    });
+
+    testWidgets('a filter that hides everything says so, not "none touched"', (
+      tester,
+    ) async {
+      await _pump(tester);
+
+      await _filter(tester, 'zzz');
+
+      expect(find.text('No commit matches the filter'), findsOneWidget);
+      expect(find.text('No commits touched this file'), findsNothing);
     });
   });
 }

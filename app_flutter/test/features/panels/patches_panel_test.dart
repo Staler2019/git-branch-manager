@@ -9,6 +9,7 @@
 // and its three sequencer calls have no spec'd entry point.
 import 'dart:io';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/commit_meta.dart';
@@ -19,6 +20,8 @@ import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/data/services/file_save_picker.dart';
 import 'package:gbm_flutter/features/panels/panel_diff_text.dart';
 import 'package:gbm_flutter/features/panels/patch_text_loader.dart';
+import 'package:gbm_flutter/features/panels/panel_filter_field.dart';
+import 'package:gbm_flutter/features/panels/panel_widgets.dart';
 import 'package:gbm_flutter/features/panels/patches_panel.dart';
 
 import '../../support/fake_repo_session.dart';
@@ -103,6 +106,35 @@ Future<PumpedPanel> _pump(
     ),
   ],
 );
+
+Future<void> _filter(WidgetTester tester, String query) async {
+  await tester.enterText(
+    find.descendant(
+      of: find.byType(PanelFilterField),
+      matching: find.byType(TextField),
+    ),
+    query,
+  );
+  await tester.pumpAndSettle();
+}
+
+/// Applies two `.patch` files whose **basenames share no word with the
+/// directory that holds one of them**, which is what lets the filter tests
+/// tell「比對檔名」from「比對整個路徑」apart.
+Future<PumpedPanel> _pumpTwoFiles(WidgetTester tester) async {
+  final PumpedPanel pumped = await _pump(
+    tester,
+    picker: _FakePicker(
+      files: const <String>[
+        '/tmp/vendor/0001-fix.patch',
+        '/tmp/0002-add.patch',
+      ],
+    ),
+  );
+  await tester.tap(find.text('Apply…'));
+  await tester.pumpAndSettle();
+  return pumped;
+}
 
 void main() {
   group('PatchesPanel (spec P19 PANELSPEC)', () {
@@ -252,6 +284,68 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.textContaining('Could not read this patch'), findsOneWidget);
+    });
+
+    testWidgets('the toolbar follows P19 rule 2\'s four segments', (
+      tester,
+    ) async {
+      await _pump(tester);
+
+      expectPanelTemplate(
+        tester,
+        primary: const <String>['Create from commits'],
+        maintenance: const <String>['Apply…', 'Import…'],
+        external: const <String>['Save as…'],
+        listHeader: 'Patches · 0',
+        statusBar: RegExp(r'^0 patches$'),
+      );
+    });
+
+    testWidgets('the filter narrows the list, the header and the status line', (
+      tester,
+    ) async {
+      await _pumpTwoFiles(tester);
+      expect(find.byType(PanelListRow), findsNWidgets(2));
+
+      await _filter(tester, '0002');
+
+      expect(find.byType(PanelListRow), findsOneWidget);
+      expect(find.text('0002-add.patch'), findsOneWidget);
+      expect(find.text('Patches · 1'), findsOneWidget);
+      expect(find.text('2 patches · 命中 1'), findsOneWidget);
+    });
+
+    // The discriminating case. A row's title is the *basename* and its
+    // subtitle is the full path, so 「vendor」 -- a directory segment that
+    // appears in neither basename -- is the only kind of query that tells a
+    // title-only filter apart from one that reads the whole row
+    // ([TEST-fixture-cannot-disagree]). Every query that hits a basename
+    // is answered identically by both.
+    testWidgets('a directory segment matches, not just the file name', (
+      tester,
+    ) async {
+      await _pumpTwoFiles(tester);
+
+      await _filter(tester, 'vendor');
+
+      expect(find.byType(PanelListRow), findsOneWidget);
+      expect(find.text('0001-fix.patch'), findsOneWidget);
+    });
+
+    // 「Select commits in History…」 would be a lie here -- there are two
+    // patches, the filter is hiding them.
+    testWidgets('a filter that hides everything says so, not "none queued"', (
+      tester,
+    ) async {
+      await _pumpTwoFiles(tester);
+
+      await _filter(tester, 'zzz');
+
+      expect(find.text('No patch matches the filter'), findsOneWidget);
+      expect(
+        find.text('Select commits in History, or apply a .patch file'),
+        findsNothing,
+      );
     });
 
     testWidgets('Import… runs git am on the picked files', (tester) async {

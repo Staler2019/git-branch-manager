@@ -59,6 +59,43 @@ void main() {
     expect(find.text('main'), findsOneWidget);
   });
 
+  // The reported defect: pressing Swap on the Compare toolbar exchanged the
+  // two refs and re-fetched, but both fields went on showing what they
+  // showed before. `Autocomplete.initialValue` is read once, when its State
+  // is built, so a later `value` never reaches the controller.
+  //
+  // The test above cannot see this and never could -- it seeds the value and
+  // then pumps, so the only build it exercises is the first one, which is
+  // the build a mount-time read gets right. Only changing `value` while the
+  // widget is already on screen tells the two apart.
+  testWidgets('a new value replaces the field text', (tester) async {
+    await _pump(tester, options: _options, value: 'main', onChanged: (_) {});
+    await _pump(
+      tester,
+      options: _options,
+      value: 'feature/foo',
+      onChanged: (_) {},
+    );
+    await tester.pump();
+
+    expect(find.text('feature/foo'), findsOneWidget);
+    expect(find.text('main'), findsNothing);
+  });
+
+  // Swap's other direction. `value: null` is Working Copy, and the label it
+  // falls back to is not the value -- so a picker that only copied
+  // `value` verbatim would blank the field instead of naming the side.
+  testWidgets('a new value of null shows the Working Copy label', (
+    tester,
+  ) async {
+    await _pump(tester, options: _options, value: 'main', onChanged: (_) {});
+    await _pump(tester, options: _options, value: null, onChanged: (_) {});
+    await tester.pump();
+
+    expect(find.text('Working Copy'), findsOneWidget);
+    expect(find.text('main'), findsNothing);
+  });
+
   testWidgets('shows "Working Copy" as field text when value is null', (
     tester,
   ) async {

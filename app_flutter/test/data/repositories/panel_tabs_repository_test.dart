@@ -1,6 +1,14 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/repositories/panel_tabs_repository.dart';
 
+/// The tabs a test actually opened, with D7's seeded pinned tab filtered
+/// out. Every assertion in the first group predates the seed and is about
+/// what `open`/`close` did to the *caller's* tabs -- filtering keeps each
+/// one pinning that, rather than silently becoming an assertion about how
+/// many tabs are seeded.
+List<PanelTabSpec> _opened(PanelTabsNotifier n) =>
+    n.state.where((PanelTabSpec t) => !t.kind.isPinned).toList();
+
 void main() {
   group('PanelTabsNotifier', () {
     late PanelTabsNotifier notifier;
@@ -9,12 +17,12 @@ void main() {
     tearDown(() => notifier.dispose());
 
     test('open adds a tab and returns its id', () {
-      final String id = notifier.open(GbmPanelKind.manageWorktrees);
+      final String id = notifier.open(GbmPanelKind.manageStashes);
 
-      expect(notifier.state, hasLength(1));
-      expect(notifier.state.single.id, id);
-      expect(notifier.state.single.kind, GbmPanelKind.manageWorktrees);
-      expect(notifier.state.single.subject, isNull);
+      expect(_opened(notifier), hasLength(1));
+      expect(_opened(notifier).single.id, id);
+      expect(_opened(notifier).single.kind, GbmPanelKind.manageStashes);
+      expect(_opened(notifier).single.subject, isNull);
     });
 
     // The behaviour that differs from compareTabsProvider on purpose: two
@@ -27,14 +35,14 @@ void main() {
       final String second = notifier.open(GbmPanelKind.manageStashes);
 
       expect(second, first);
-      expect(notifier.state, hasLength(1));
+      expect(_opened(notifier), hasLength(1));
     });
 
     test('different kinds open as separate tabs', () {
       notifier.open(GbmPanelKind.manageStashes);
       notifier.open(GbmPanelKind.bisect);
 
-      expect(notifier.state.map((PanelTabSpec t) => t.kind), <GbmPanelKind>[
+      expect(_opened(notifier).map((PanelTabSpec t) => t.kind), <GbmPanelKind>[
         GbmPanelKind.manageStashes,
         GbmPanelKind.bisect,
       ]);
@@ -56,7 +64,7 @@ void main() {
 
       expect(b, isNot(a));
       expect(aAgain, a);
-      expect(notifier.state, hasLength(2));
+      expect(_opened(notifier), hasLength(2));
     });
 
     // A repository-wide panel is a singleton regardless of what a caller
@@ -69,7 +77,7 @@ void main() {
       final String b = notifier.open(GbmPanelKind.manageRemotes);
 
       expect(b, a);
-      expect(notifier.state.single.subject, isNull);
+      expect(_opened(notifier).single.subject, isNull);
     });
 
     test('close removes only the named tab', () {
@@ -78,13 +86,66 @@ void main() {
 
       notifier.close(stashes);
 
-      expect(notifier.state.single.id, bisect);
+      expect(_opened(notifier).single.id, bisect);
     });
 
     test('closing an unknown id is a no-op', () {
       notifier.open(GbmPanelKind.reflog);
       notifier.close('not-a-real-id');
+      expect(_opened(notifier), hasLength(1));
+    });
+  });
+
+  // D7. The mechanism is a *seeded, close-refusing tab*, deliberately not a
+  // third fixed tab: doing it this way reuses the whole P19 round (route,
+  // panel shell, panelStorageId(), scroll memory) with no change to the
+  // route tree, where a fixed tab would need a second copy of PanelPage.
+  group('a pinned panel', () {
+    late PanelTabsNotifier notifier;
+
+    setUp(() => notifier = PanelTabsNotifier());
+    tearDown(() => notifier.dispose());
+
+    test('is already open before anything asks for it', () {
+      expect(notifier.state.map((PanelTabSpec t) => t.kind), <GbmPanelKind>[
+        GbmPanelKind.manageWorktrees,
+      ]);
+    });
+
+    // Tools > Worktrees… still works, and lands on the seeded tab rather
+    // than stacking a second one -- `open`'s existing singleton dedupe does
+    // this for free, which is why the seed goes through `open` rather than
+    // pushing a spec onto the list itself.
+    test('opening it again focuses the seeded tab', () {
+      final String id = notifier.open(GbmPanelKind.manageWorktrees);
+
+      expect(id, notifier.state.single.id);
       expect(notifier.state, hasLength(1));
+    });
+
+    test('close refuses it', () {
+      final String id = notifier.state.single.id;
+
+      notifier.close(id);
+
+      expect(
+        notifier.state.single.id,
+        id,
+        reason: 'a pinned tab survives an explicit close',
+      );
+    });
+
+    // The refusal is scoped to the pinned tab, not to closing in general --
+    // a guard that returned early for the wrong reason would make every
+    // panel unclosable and this is what tells the two apart.
+    test('close still removes an ordinary tab while a pinned one is open', () {
+      final String reflog = notifier.open(GbmPanelKind.reflog);
+
+      notifier.close(reflog);
+
+      expect(notifier.state.map((PanelTabSpec t) => t.kind), <GbmPanelKind>[
+        GbmPanelKind.manageWorktrees,
+      ]);
     });
   });
 
@@ -122,6 +183,26 @@ void main() {
           GbmPanelKind.lineHistory,
         },
       );
+    });
+
+    // 待裁定 4: only worktrees. Eleven pinned tabs would fill the strip,
+    // and #62's TabRow overflow menu is still open.
+    test('only Worktrees is pinned', () {
+      expect(
+        GbmPanelKind.values.where((GbmPanelKind k) => k.isPinned).toSet(),
+        <GbmPanelKind>{GbmPanelKind.manageWorktrees},
+      );
+    });
+
+    // The two properties are not independent: seeding needs one canonical
+    // instance to seed, and a per-subject panel is *about* a file that no
+    // seed can know. Asserted rather than left implicit, because the seed
+    // loop would otherwise open a Blame tab with a null subject -- which
+    // `_buildPanel` renders by asking git to blame the empty path.
+    test('a pinned panel is never per-subject', () {
+      for (final GbmPanelKind kind in GbmPanelKind.values) {
+        expect(kind.isPinned && kind.isPerSubject, isFalse, reason: kind.name);
+      }
     });
 
     test('labels are sentence case per spec page 14', () {

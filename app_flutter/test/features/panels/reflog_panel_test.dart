@@ -10,6 +10,8 @@ import 'package:gbm_flutter/data/models/commit_meta.dart';
 import 'package:gbm_flutter/data/models/reflog_entry.dart';
 import 'package:gbm_flutter/data/models/signature.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
+import 'package:gbm_flutter/features/panels/panel_filter_field.dart';
+import 'package:gbm_flutter/features/panels/panel_widgets.dart';
 import 'package:gbm_flutter/features/panels/reflog_panel.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
 import 'package:go_router/go_router.dart';
@@ -70,6 +72,29 @@ Future<PumpedPanel> _pump(
     ),
   ],
 );
+
+/// The ref-to-load field, told apart from the toolbar's filter by its own
+/// hint rather than by position.
+///
+/// It was a bare `find.byType(TextField)`, which became ambiguous the moment
+/// rule 2's filter slot was filled — the filter is a `TextField` too. A
+/// predicate on the decoration is used instead of a label finder because
+/// this field has only a hint, and a hint stops being rendered as soon as
+/// the field has text in it ([TEST-design-system-swap-breaks-finders]).
+final Finder _refField = find.byWidgetPredicate(
+  (Widget w) => w is TextField && w.decoration?.hintText == 'HEAD',
+);
+
+Future<void> _filter(WidgetTester tester, String query) async {
+  await tester.enterText(
+    find.descendant(
+      of: find.byType(PanelFilterField),
+      matching: find.byType(TextField),
+    ),
+    query,
+  );
+  await tester.pumpAndSettle();
+}
 
 void main() {
   group('ReflogPanel (spec P19 PANELSPEC)', () {
@@ -228,6 +253,68 @@ void main() {
       expect(copied, 'aaaaaaa1111');
     });
 
+    testWidgets('the toolbar follows P19 rule 2\'s four segments', (
+      tester,
+    ) async {
+      await _pump(tester);
+      await tester.tap(find.text('reset: moving to HEAD~1'));
+      await tester.pumpAndSettle();
+
+      expectPanelTemplate(
+        tester,
+        // `Restore branch…` is the only action here that creates anything.
+        primary: const <String>['Restore branch…'],
+        // Checking out a reflog entry acts on this repository, which is
+        // maintenance; only `Copy SHA` leaves the app at all.
+        maintenance: const <String>['Checkout'],
+        external: const <String>['Copy SHA'],
+        listHeader: 'Reflog · 2',
+        statusBar: RegExp(r'^2 entries$'),
+      );
+    });
+
+    testWidgets('the filter narrows the list, the header and the status line', (
+      tester,
+    ) async {
+      await _pump(tester);
+      expect(find.byType(PanelListRow), findsNWidgets(2));
+
+      await _filter(tester, 'reset');
+
+      expect(find.byType(PanelListRow), findsOneWidget);
+      expect(find.text('reset: moving to HEAD~1'), findsOneWidget);
+      expect(find.text('Reflog · 1'), findsOneWidget);
+      expect(find.text('2 entries · 命中 1'), findsOneWidget);
+    });
+
+    // The discriminating case. A row draws its *message* and its date, never
+    // its oid — so 「bbbbbbb」 is in no rendered text at all, and it is the
+    // only kind of query that tells a message-only filter apart from one
+    // that also reads the oid ([TEST-fixture-cannot-disagree]). Looking up
+    // a reflog entry by SHA is the case this exists for: a user who has the
+    // hash from `git reflog` output has nothing else to paste.
+    testWidgets('an entry is findable by an oid the row never draws', (
+      tester,
+    ) async {
+      await _pump(tester);
+
+      await _filter(tester, 'bbbbbbb');
+
+      expect(find.byType(PanelListRow), findsOneWidget);
+      expect(find.text('commit: add tab row'), findsOneWidget);
+    });
+
+    testWidgets('a filter that hides everything says so, not "no entries"', (
+      tester,
+    ) async {
+      await _pump(tester);
+
+      await _filter(tester, 'zzz');
+
+      expect(find.text('No reflog entry matches the filter'), findsOneWidget);
+      expect(find.text('No reflog entries'), findsNothing);
+    });
+
     // Loading another ref re-scopes the list, so a selection from the old
     // ref must not survive into the new one.
     testWidgets('loading a different ref requests it and clears selection', (
@@ -237,7 +324,7 @@ void main() {
       await tester.tap(find.text('reset: moving to HEAD~1'));
       await tester.pumpAndSettle();
 
-      await tester.enterText(find.byType(TextField), 'refs/heads/main');
+      await tester.enterText(_refField, 'refs/heads/main');
       await tester.tap(find.text('Load'));
       await tester.pumpAndSettle();
 

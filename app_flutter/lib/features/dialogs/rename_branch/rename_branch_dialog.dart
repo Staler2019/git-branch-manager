@@ -315,6 +315,11 @@ class _RenameBranchDialogContentState
       : '此分支目前沒有未 push 的 commit。';
 }
 
+/// P6 field-label treatment (worktree-dialogs-spec.html's G3): 11px /
+/// textSecondary / sentence case. Missed by G3's original sweep across the
+/// other three dialogs -- this class has no `letterSpacing`, so it did not
+/// match the grep that found those -- but it is the same shape (a label
+/// sitting directly above one control), so it gets the same fix.
 class _Label extends StatelessWidget {
   const _Label({required this.text});
 
@@ -326,7 +331,6 @@ class _Label extends StatelessWidget {
       text,
       style: TextStyle(
         fontSize: GbmTypography.textXs,
-        fontWeight: GbmTypography.weightSemibold,
         color: context.gbmColors.textSecondary,
       ),
     );

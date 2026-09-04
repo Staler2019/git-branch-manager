@@ -371,4 +371,30 @@ void main() {
       expect(controller.commandLog, isEmpty);
     });
   });
+
+  group('field label style (G3 correction)', () {
+    testWidgets(
+      // The private _Label widget was missed by G3's original sweep -- it
+      // has no letterSpacing, so it did not match the grep that found the
+      // other four sites. It IS a field label (sits above one control, not
+      // a group of rows), and it needs the same fix: drop weightSemibold.
+      // colors.textSecondary was already correct here.
+      '目前名稱／新名稱／遠端連帶處理 use the P6 field-label treatment, '
+      'not semibold',
+      (tester) async {
+        await _pumpDialog(tester, initialState: _sessionWith(branches));
+        final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+
+        for (final String label in <String>['目前名稱', '新名稱', '遠端連帶處理']) {
+          final Text text = tester.widget<Text>(find.text(label));
+          expect(text.style?.color, colors.textSecondary, reason: label);
+          expect(
+            text.style?.fontWeight,
+            isNot(GbmTypography.weightSemibold),
+            reason: label,
+          );
+        }
+      },
+    );
+  });
 }

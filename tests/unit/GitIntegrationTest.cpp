@@ -1070,6 +1070,54 @@ TEST_F(RealRepoTest, DetectsAHeldIndexLockAndNeverRemovesIt) {
     std::filesystem::remove(paths_.indexLockFile());
 }
 
+TEST_F(RealRepoTest, RemoveStaleIndexLockDeletesALockOlderThanTheStaleThreshold) {
+    commitFile("a.txt", "1\n", "c1");
+
+    {
+        std::ofstream lock(paths_.indexLockFile());
+        lock << "held";
+    }
+    setMtimeOffset(paths_.indexLockFile(),
+                   std::chrono::seconds(-(OperationRunner::kStaleLockSeconds + 1)));
+
+    OperationRunner operations(*runner_, paths_);
+    // Re-validated server-side, not trusted from the caller: the age check
+    // above is done again inside removeStaleIndexLock() itself, against
+    // whatever is on disk right now -- this test is what proves that
+    // re-check actually runs and actually deletes when it agrees.
+    EXPECT_TRUE(operations.removeStaleIndexLock());
+    EXPECT_FALSE(std::filesystem::exists(paths_.indexLockFile()));
+}
+
+TEST_F(RealRepoTest, RemoveStaleIndexLockRefusesALockYoungerThanTheStaleThreshold) {
+    commitFile("a.txt", "1\n", "c1");
+
+    // Stand in for another git process still running -- no mtime backdating,
+    // so this lock is as fresh as one created moments ago.
+    {
+        std::ofstream lock(paths_.indexLockFile());
+        lock << "held";
+    }
+
+    OperationRunner operations(*runner_, paths_);
+    EXPECT_FALSE(operations.removeStaleIndexLock())
+        << "a lock this new must be assumed live, the same threshold preflight() uses";
+    // Refused, not silently ignored: the lock is still exactly where it was.
+    EXPECT_TRUE(std::filesystem::exists(paths_.indexLockFile()));
+
+    std::filesystem::remove(paths_.indexLockFile());
+}
+
+TEST_F(RealRepoTest, RemoveStaleIndexLockSucceedsWhenThereIsNoLockToRemove) {
+    commitFile("a.txt", "1\n", "c1");
+
+    OperationRunner operations(*runner_, paths_);
+    // Already gone by the time the user clicks the button (the other
+    // process finished on its own) is success, not failure -- there is
+    // nothing left to refuse.
+    EXPECT_TRUE(operations.removeStaleIndexLock());
+}
+
 TEST_F(RealRepoTest, SwitchesBranches) {
     commitFile("a.txt", "1\n", "c1");
     ASSERT_TRUE(run({"branch", "target"}));

@@ -46,6 +46,19 @@ OperationRunner::Handle OperationRunner::submit(std::unique_ptr<Operation> opera
     return handle;
 }
 
+bool OperationRunner::removeStaleIndexLock() {
+    const RepoState current = RepoState::read(paths_);
+    if (!current.indexLocked) {
+        return true;
+    }
+    if (!current.indexLockAgeSeconds || *current.indexLockAgeSeconds <= kStaleLockSeconds) {
+        return false;
+    }
+    std::error_code ec;
+    std::filesystem::remove(paths_.indexLockFile(), ec);
+    return !ec;
+}
+
 std::optional<OperationOutcome> OperationRunner::preflight(const Operation& operation) {
     const RepoState current = RepoState::read(paths_);
 

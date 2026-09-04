@@ -72,3 +72,7 @@ GBM_API int32_t gbm_repo_state_json(GbmSessionHandle session) {
     setStagingBuffer(toJson(toSession(session)->repoState()));
     return 0;
 }
+
+GBM_API int32_t gbm_operation_remove_stale_index_lock(GbmSessionHandle session) {
+    return toSession(session)->removeStaleIndexLock() ? 1 : 0;
+}

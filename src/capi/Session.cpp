@@ -250,6 +250,10 @@ RepoState Session::repoState() const {
     return RepoState::read(paths_);
 }
 
+bool Session::removeStaleIndexLock() {
+    return operations_->removeStaleIndexLock();
+}
+
 void Session::refreshHistory() {
     // Not "cancel whatever is running, then post mine". That is what this
     // used to do, and it terminated a perfectly healthy `git` process on

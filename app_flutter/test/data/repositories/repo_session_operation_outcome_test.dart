@@ -262,6 +262,92 @@ void main() {
         },
       );
 
+      test("retryCheckoutWithChoice's retry case resubmits the request "
+          'unmodified -- no stashFirst/force flag', () {
+        final controller = _RecordingRepoSessionController(
+          _identity,
+          const RepoSessionState(),
+        );
+        controller.debugRecordCheckout(target: 'retry-target');
+        controller.debugHandleOperationOutcome(
+          _failedOutcome(kind: 'checkout'),
+        );
+
+        controller.retryCheckoutWithChoice(OperationChoiceKind.retry);
+
+        expect(controller.state.checkoutChoices, isEmpty);
+        expect(controller.calls, hasLength(1));
+        expect(controller.calls.single.name, 'checkout');
+        expect(controller.calls.single.args['target'], 'retry-target');
+        expect(controller.calls.single.args['force'], false);
+        expect(controller.calls.single.args['stashFirst'], false);
+      });
+
+      test("retryCheckoutWithChoice's removeLock case attempts lock removal "
+          '(a no-op here -- FakeGbmBindings never opens a real session, so '
+          "_removeStaleIndexLock()'s own null-session guard short-circuits "
+          "before reaching the binding) then resubmits unmodified, exactly "
+          'like the retry case above', () {
+        final controller = _RecordingRepoSessionController(
+          _identity,
+          const RepoSessionState(),
+        );
+        controller.debugRecordCheckout(target: 'retry-target');
+        controller.debugHandleOperationOutcome(
+          _failedOutcome(kind: 'checkout'),
+        );
+
+        controller.retryCheckoutWithChoice(OperationChoiceKind.removeLock);
+
+        expect(controller.state.checkoutChoices, isEmpty);
+        expect(controller.calls, hasLength(1));
+        expect(controller.calls.single.name, 'checkout');
+        expect(controller.calls.single.args['target'], 'retry-target');
+        expect(controller.calls.single.args['force'], false);
+        expect(controller.calls.single.args['stashFirst'], false);
+      });
+
+      test("retryDeleteBranchWithChoice's retry case resubmits the request "
+          'unmodified -- no force flag', () {
+        final controller = _RecordingRepoSessionController(
+          _identity,
+          const RepoSessionState(),
+        );
+        controller.debugRecordDeleteBranch(names: const <String>['gone']);
+        controller.debugHandleOperationOutcome(
+          _failedOutcome(kind: 'delete-branch'),
+        );
+
+        controller.retryDeleteBranchWithChoice(OperationChoiceKind.retry);
+
+        expect(controller.state.deleteBranchChoices, isEmpty);
+        expect(controller.calls, hasLength(1));
+        expect(controller.calls.single.name, 'deleteBranch');
+        expect(controller.calls.single.args['names'], <String>['gone']);
+        expect(controller.calls.single.args['force'], false);
+      });
+
+      test("retryDeleteBranchWithChoice's removeLock case attempts lock "
+          'removal then resubmits unmodified, exactly like the retry case '
+          'above', () {
+        final controller = _RecordingRepoSessionController(
+          _identity,
+          const RepoSessionState(),
+        );
+        controller.debugRecordDeleteBranch(names: const <String>['gone']);
+        controller.debugHandleOperationOutcome(
+          _failedOutcome(kind: 'delete-branch'),
+        );
+
+        controller.retryDeleteBranchWithChoice(OperationChoiceKind.removeLock);
+
+        expect(controller.state.deleteBranchChoices, isEmpty);
+        expect(controller.calls, hasLength(1));
+        expect(controller.calls.single.name, 'deleteBranch');
+        expect(controller.calls.single.args['names'], <String>['gone']);
+        expect(controller.calls.single.args['force'], false);
+      });
+
       test('a successful outcome clears the retained failed request', () {
         final controller = _RecordingRepoSessionController(
           _identity,

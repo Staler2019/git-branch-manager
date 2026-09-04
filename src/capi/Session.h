@@ -113,6 +113,12 @@ public:
 
     RepoState repoState() const;
 
+    /// Sync: see gbm_operation_remove_stale_index_lock()'s doc comment in
+    /// gbm_capi.h. Delegates straight to OperationRunner::removeStaleIndexLock()
+    /// -- the age re-check and kStaleLockSeconds threshold live there, next to
+    /// preflight()'s own use of the same constant, not duplicated here.
+    bool removeStaleIndexLock();
+
     /// Async: see gbm_history_refresh()'s doc comment in gbm_capi.h.
     void refreshHistory();
 

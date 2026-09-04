@@ -124,6 +124,23 @@ TEST_F(CapiSessionTest, RepoStateJsonReportsCleanRepository) {
     EXPECT_NE(json.find("\"isClean\":true"), std::string::npos);
 }
 
+TEST_F(CapiSessionTest, RemoveStaleIndexLockDeletesAnOldLockThroughTheCAbi) {
+    // The threshold arithmetic itself (stale vs. fresh, already-gone) is
+    // covered exhaustively at the unit tier
+    // (GitIntegrationTest.cpp's RealRepoTest.RemoveStaleIndexLock* trio) --
+    // this is the seam test, proving the C ABI call actually reaches
+    // OperationRunner::removeStaleIndexLock() rather than the wrong Session
+    // method or nothing at all.
+    const std::filesystem::path lockPath = repo_ / ".git" / "index.lock";
+    { std::ofstream(lockPath) << "held"; }
+    std::filesystem::last_write_time(
+        lockPath,
+        std::filesystem::file_time_type::clock::now() - std::chrono::seconds(700));
+
+    EXPECT_EQ(gbm_operation_remove_stale_index_lock(session_), 1);
+    EXPECT_FALSE(std::filesystem::exists(lockPath));
+}
+
 TEST_F(CapiSessionTest, HistoryRefreshPublishesACompleteGraphSnapshot) {
     gbm_history_refresh(session_);
 

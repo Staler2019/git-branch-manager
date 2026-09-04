@@ -19,6 +19,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
+import 'package:gbm_flutter/data/models/git_error.dart';
 import 'package:gbm_flutter/data/models/operation_choice.dart';
 import 'package:gbm_flutter/features/dialogs/checkout_recovery/checkout_recovery_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/cherry_pick/cherry_pick_dialog.dart';
@@ -97,6 +98,7 @@ Future<void> _pump(
   String branchName = 'main',
   List<OperationChoice> checkoutChoices = const <OperationChoice>[],
   List<OperationChoice> deleteBranchChoices = const <OperationChoice>[],
+  GitError? lastError,
 }) async {
   SharedPreferences.setMockInitialValues(<String, Object>{});
   final SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -109,6 +111,9 @@ Future<void> _pump(
   }
   if (deleteBranchChoices.isNotEmpty) {
     seeded = seeded.copyWith(deleteBranchChoices: deleteBranchChoices);
+  }
+  if (lastError != null) {
+    seeded = seeded.copyWith(lastError: lastError);
   }
   final FakeRepoSessionController controller = FakeRepoSessionController(
     _identity,
@@ -455,6 +460,55 @@ void main() {
         expect(find.text('Cancel'), findsOneWidget);
       },
     );
+
+    testWidgets('a lock/sequencer refusal (retry/removeLock choices, no '
+        'stashAndRetry/forceDiscard) shows core\'s own message instead of the '
+        "dirty-work-tree sentence", (tester) async {
+      // checkoutChoices populated this way -- Retry + RemoveLock, no
+      // stashAndRetry/forceDiscard -- is what OperationRunner::preflight()
+      // produces for an index.lock refusal, never CheckoutOp.cpp's own
+      // dirty-tree path. The dirty-tree sentence above ("這次 checkout 得先
+      // 把未提交的變更挪開。") would be actively wrong here: nothing about
+      // this refusal has anything to do with uncommitted changes.
+      await _pump(
+        tester,
+        const CheckoutRecoveryDialogContent(identity: _identity),
+        checkoutChoices: const <OperationChoice>[
+          OperationChoice(
+            kind: OperationChoiceKind.retry,
+            label: 'unused wire label',
+            explanation: 'unused wire explanation',
+            destructive: false,
+          ),
+          OperationChoice(
+            kind: OperationChoiceKind.removeLock,
+            label: 'unused wire label',
+            explanation: 'unused wire explanation',
+            destructive: true,
+          ),
+        ],
+        lastError: const GitError(
+          code: 0,
+          codeName: 'LockHeld',
+          message:
+              'Another Git process appears to be running in this '
+              'repository',
+          detail: '',
+          argv: <String>[],
+          exitCode: 1,
+        ),
+      );
+
+      expect(
+        find.text(
+          'Another Git process appears to be running in this repository',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('這次 checkout 得先把未提交的變更挪開。'), findsNothing);
+      expect(find.text('Retry'), findsWidgets);
+      expect(find.text('Remove index.lock'), findsWidgets);
+    });
   });
 
   group('Delete Blocked', () {

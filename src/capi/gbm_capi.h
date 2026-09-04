@@ -279,6 +279,21 @@ GBM_API void gbm_register_callback(GbmSessionHandle session,
 /// Returns 0 on success.
 GBM_API int32_t gbm_repo_state_json(GbmSessionHandle session);
 
+/// Deletes `.git/index.lock`, but only if it is still older than
+/// OperationRunner::kStaleLockSeconds *right now* -- the age offered in an
+/// earlier RemoveLock choice is never trusted, it is re-checked against
+/// whatever is on disk at the moment of this call. Synchronous, like
+/// gbm_repo_state_json: this runs directly rather than through the
+/// operation queue, because preflight() refuses every *queued* operation
+/// while the lock is held, so a lock-removal Operation would refuse itself
+/// before it ran.
+///
+/// Returns 1 when the lock is gone afterwards (removed by this call, or
+/// already gone -- nothing left to refuse), 0 when a lock is present and
+/// not yet stale. No event fires either way; the caller re-submits the
+/// original request and lets that submission's own preflight() re-arbitrate.
+GBM_API int32_t gbm_operation_remove_stale_index_lock(GbmSessionHandle session);
+
 // --- History / graph -----------------------------------------------------
 
 /// Requests a refs + history refresh. Runs on a shared background worker;

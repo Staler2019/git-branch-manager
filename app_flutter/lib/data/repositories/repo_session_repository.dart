@@ -2020,11 +2020,31 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     }
   }
 
+  /// Best-effort: see `gbm_operation_remove_stale_index_lock()`'s doc
+  /// comment in gbm_capi.h. The bool it returns is deliberately not
+  /// surfaced to either caller below -- both always resubmit the original
+  /// request afterwards regardless of what this returned, and let that
+  /// resubmission's own `preflight()` re-arbitrate against whatever is on
+  /// disk right now: gone -> proceeds; still fresh -> refuses again with a
+  /// freshly re-offered (and now accurate) choice set. One path, correct
+  /// either way, rather than a second "keep the stale choices around and
+  /// hope" branch that duplicates what preflight() already does for free.
+  void _removeStaleIndexLock() {
+    if (_session == nullptr) return;
+    _bindings.removeStaleIndexLock(_session);
+  }
+
   /// Resubmits the checkout request that produced the current
   /// [RepoSessionState.checkoutChoices] with the flag [kind] implies
-  /// (stash-and-retry -> `stashFirst`, force-discard -> `force`); any other
-  /// kind (Abort/Cancel) just dismisses the choices. A no-op if no failed
-  /// checkout is on record -- see [_lastFailedCheckoutRequest].
+  /// (stash-and-retry -> `stashFirst`, force-discard -> `force`; retry and
+  /// remove-lock both resubmit unmodified, the latter after attempting
+  /// [_removeStaleIndexLock] first); `abort` just dismisses the choices --
+  /// it means "cancel, stay put" on every path that produces it here (a
+  /// dirty-tree refusal's own Abort, or preflight's benign "don't retry"),
+  /// never "abort the in-progress sequencer operation" itself, which stays
+  /// the conflict banner's job ([ACT-availability]'s "the banner's
+  /// Abort/Skip/Continue/Resolve… stay the only way forward"). A no-op if
+  /// no failed checkout is on record -- see [_lastFailedCheckoutRequest].
   void retryCheckoutWithChoice(OperationChoiceKind kind) {
     final PendingCheckoutRequest? request = _lastFailedCheckoutRequest;
     _lastFailedCheckoutRequest = null;
@@ -2047,9 +2067,22 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
           newBranchName: request.newBranchName,
           force: true,
         );
-      case OperationChoiceKind.abort:
       case OperationChoiceKind.retry:
+        checkout(
+          target: request.target,
+          detach: request.detach,
+          createBranch: request.createBranch,
+          newBranchName: request.newBranchName,
+        );
       case OperationChoiceKind.removeLock:
+        _removeStaleIndexLock();
+        checkout(
+          target: request.target,
+          detach: request.detach,
+          createBranch: request.createBranch,
+          newBranchName: request.newBranchName,
+        );
+      case OperationChoiceKind.abort:
         break;
     }
   }
@@ -2173,9 +2206,12 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
 
   /// Resubmits the deleteBranch request that produced the current
   /// [RepoSessionState.deleteBranchChoices] with `force` set when [kind] is
-  /// [OperationChoiceKind.forceDiscard]; any other kind just dismisses the
-  /// choices. A no-op if no failed delete is on record -- see
-  /// [_lastFailedDeleteBranchRequest].
+  /// [OperationChoiceKind.forceDiscard]; retry and remove-lock both
+  /// resubmit unmodified (the latter after attempting
+  /// [_removeStaleIndexLock] first -- see [retryCheckoutWithChoice]'s doc
+  /// comment for why neither branches on the removal's own result); any
+  /// other kind just dismisses the choices. A no-op if no failed delete is
+  /// on record -- see [_lastFailedDeleteBranchRequest].
   void retryDeleteBranchWithChoice(OperationChoiceKind kind) {
     final PendingDeleteBranchRequest? request = _lastFailedDeleteBranchRequest;
     _lastFailedDeleteBranchRequest = null;
@@ -2189,10 +2225,21 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
           isRemote: request.isRemote,
           remoteName: request.remoteName,
         );
+      case OperationChoiceKind.retry:
+        deleteBranch(
+          names: request.names,
+          isRemote: request.isRemote,
+          remoteName: request.remoteName,
+        );
+      case OperationChoiceKind.removeLock:
+        _removeStaleIndexLock();
+        deleteBranch(
+          names: request.names,
+          isRemote: request.isRemote,
+          remoteName: request.remoteName,
+        );
       case OperationChoiceKind.stashAndRetry:
       case OperationChoiceKind.abort:
-      case OperationChoiceKind.retry:
-      case OperationChoiceKind.removeLock:
         break;
     }
   }

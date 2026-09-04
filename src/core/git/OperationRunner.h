@@ -111,6 +111,21 @@ public:
     /// Current on-disk state. Cheap; safe to call often.
     RepoState state() const;
 
+    /// Deletes `.git/index.lock`, but only after re-validating server-side
+    /// that it is still older than kStaleLockSeconds -- never trusts a
+    /// caller's "the user already confirmed this". Runs directly on the
+    /// calling thread rather than through submit(): preflight() refuses
+    /// every *queued* operation while indexLocked is true, so modelling
+    /// this as an Operation would make it refuse itself before it ever ran.
+    ///
+    /// Returns true when the lock is gone afterwards -- whether because this
+    /// call removed it or because it was already gone (the other process
+    /// finished on its own between the offer and the click; nothing left to
+    /// refuse). Returns false only when a lock is present and not yet stale,
+    /// the same threshold preflight() itself uses to decide whether to offer
+    /// removal in the first place.
+    bool removeStaleIndexLock();
+
     /// Records what an operation is about to change, so it can be offered as an
     /// undo afterwards. Returns the journal entry id.
     struct UndoEntry {

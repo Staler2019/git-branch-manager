@@ -68,7 +68,7 @@ class _LockWorktreeDialogContentState
           GbmButton(label: 'Cancel', onPressed: () => context.pop()),
         ],
         child: Text(
-          'This worktree is no longer in the list.',
+          '這個 worktree 已經不在清單裡了。',
           style: TextStyle(
             fontSize: GbmTypography.textSm,
             color: colors.textTertiary,
@@ -108,7 +108,7 @@ class _LockWorktreeDialogContentState
                 color: colors.textPrimary,
               ),
               children: <InlineSpan>[
-                const TextSpan(text: 'Worktree  '),
+                const TextSpan(text: 'worktree  '),
                 TextSpan(
                   text: '$name · ${worktree.path}',
                   style: const TextStyle(

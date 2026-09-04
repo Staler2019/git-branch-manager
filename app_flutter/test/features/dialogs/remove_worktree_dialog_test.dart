@@ -321,10 +321,7 @@ void main() {
       router.push('/dialog');
       await tester.pumpAndSettle();
 
-      expect(
-        find.text('This worktree is no longer in the list.'),
-        findsOneWidget,
-      );
+      expect(find.text('這個 worktree 已經不在清單裡了。'), findsOneWidget);
       expect(find.byType(GbmButton), findsOneWidget); // Cancel only.
     });
   });

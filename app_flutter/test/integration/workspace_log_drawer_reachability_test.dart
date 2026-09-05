@@ -81,6 +81,37 @@ void main() {
       );
     });
 
+    // 使用者回報:「log沒辦法隱藏，view>log那個沒有作用，沒有toggle的效果」--
+    // the action only ever called GbmSplitPaneController.open(), and the
+    // controller had no close() at all, so the drawer was a one-way door:
+    // once open, the only way back was dragging the divider.
+    testWidgets('pressing it again collapses the drawer', (tester) async {
+      await pumpWorkspace(
+        tester,
+        identity: _identity,
+        initialState: RepoSessionState(
+          isOpen: true,
+          operationLog: <OperationRecord>[_record('git status --porcelain')],
+        ),
+      );
+
+      await _pressCtrlShiftL(tester);
+      expect(
+        tester.getSize(find.byType(LogDrawer)).height,
+        greaterThanOrEqualTo(90),
+      );
+
+      await _pressCtrlShiftL(tester);
+      expect(tester.getSize(find.byType(LogDrawer)).height, 0);
+
+      // And it is a toggle, not a one-shot close: a third press reopens.
+      await _pressCtrlShiftL(tester);
+      expect(
+        tester.getSize(find.byType(LogDrawer)).height,
+        greaterThanOrEqualTo(90),
+      );
+    });
+
     // Asserts the seam only -- that session.operationLog is what the drawer
     // is handed. How the drawer renders/filters/exports those records is
     // covered at the widget tier by test/features/log_drawer/

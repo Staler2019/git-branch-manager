@@ -110,6 +110,21 @@ class GbmSplitPaneController {
   /// if it is currently collapsed/smaller than that. No-op in flex mode, if
   /// already open, or if not currently attached to a mounted [GbmSplitPane].
   void open() => _state?._openToMinimum();
+
+  /// Collapses an extent-mode pane 0 back to zero. No-op in flex mode, if
+  /// already collapsed, or if not attached.
+  void close() => _state?._collapse();
+
+  /// Whether extent-mode pane 0 currently has any extent. False when not
+  /// attached, so [toggle] on a detached controller opens rather than
+  /// silently doing nothing.
+  bool get isOpen => _state?._isExtentPaneOpen ?? false;
+
+  /// The pairing [open] alone could not express. `View → Log` is a view
+  /// toggle like `View → Status bar`, and it only ever called [open] --
+  /// so the drawer was a one-way door and the menu item did nothing on
+  /// every press after the first (使用者回報).
+  void toggle() => isOpen ? close() : open();
 }
 
 class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
@@ -199,10 +214,23 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
     super.dispose();
   }
 
+  /// See [GbmSplitPaneController.isOpen].
+  bool get _isExtentPaneOpen =>
+      widget.spec.defaultExtent != null && _currentFlexes[0] > 0;
+
   /// See [GbmSplitPaneController.open].
-  void _openToMinimum() {
+  void _openToMinimum() =>
+      _setExtent(math.max(_currentFlexes[0], widget.spec.minExtent));
+
+  /// See [GbmSplitPaneController.close]. Zero, not `minExtent` -- the
+  /// stored 0 is exactly what `collapsedByDefault` means, so a closed
+  /// drawer persists as one and comes back closed
+  /// ([FLU-splitpane-stored-extent-ignores-min] deliberately guards its own
+  /// clamp on `stored[0] > 0` for this).
+  void _collapse() => _setExtent(0);
+
+  void _setExtent(double target) {
     if (widget.spec.defaultExtent == null) return;
-    final double target = math.max(_currentFlexes[0], widget.spec.minExtent);
     if (target == _currentFlexes[0]) return;
     setState(() => _currentFlexes[0] = target);
     widget.onFlexChanged?.call(_currentFlexes);

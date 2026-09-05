@@ -527,8 +527,11 @@ footer.colophon {
       <span class="pill is-ratified">使用者裁定 · tree 葉節點這輪一起修</span>
       <span class="pill is-ratified">使用者裁定 · scope 卡片照建議（§06）</span>
       <span class="pill is-ratified">使用者裁定 · 對齊單位是 scope，不是行號（U1）</span>
-      <span class="pill is-open">待裁定 · unified 合成單一清單（§10）</span>
-      <span class="pill is-open">待裁定 · 未追蹤 unstage 的終態（§11）</span>
+      <span class="pill is-ratified">使用者裁定 · unified 合成單一清單（§10）</span>
+      <span class="pill is-ratified">使用者裁定 · U2–U8 照建議</span>
+      <span class="pill is-ratified">使用者裁定 · U9 維持現狀</span>
+      <span class="pill is-ratified">使用者裁定 · 本輪只改 unified 內，U8 除外</span>
+      <span class="pill is-ratified">使用者裁定 · 未追蹤 unstage 要回到 Untracked（§11）</span>
     </div>
   </header>
 
@@ -1626,7 +1629,7 @@ footer.colophon {
       上面那一節把推導過程攤開來，因為一個翻過盤的建議對你的價值高過一個從沒翻過的。
     </p>
     <div class="tablewrap"><table>
-      <thead><tr><th style="width:5%">#</th><th style="width:26%">題目</th><th>建議，以及為什麼</th></tr></thead>
+      <thead><tr><th style="width:5%">#</th><th style="width:26%">題目</th><th>裁定，以及為什麼</th></tr></thead>
       <tbody>
         <tr><td class="num">U1</td><td><b>一份清單依什麼排序</b> —— <span class="pill is-ratified" style="white-space:nowrap">使用者裁定</span></td>
             <td>
@@ -1652,24 +1655,80 @@ footer.colophon {
               &nbsp;<s>(b) 在 index 尺上逐行交錯。</s>
               &nbsp;<s>(c) 只畫 unstaged，照 block 2 的字面。</s> —— 三個都被上面那條裁定取代。
             </td></tr>
-        <tr><td class="num">U2</td><td>一張卡片怎麼說自己的方向</td>
+        <tr><td class="num">U2</td><td>一張卡片怎麼說自己的方向 —— <span class="pill is-ratified" style="white-space:nowrap">使用者裁定</span></td>
             <td><b>按鈕的動詞，加上早就已經規定好的左緣顏色</b> —— <span class="zh">Stage</span> 是 <code>--gbm-accent</code>、<span class="zh">Unstage</span> 是 <code>--gbm-success</code>（<code>.sc__card.staged</code>，§06）—— 再加上把舊欄標頭那顆 6px 圓點搬到卡片標頭上。不加文字標籤：<span class="zh">「Unstage 2 lines」</span>已經講完了，再多一個講同一件事的詞就是 <code>[UX-rubric]</code> 的 dimension&nbsp;D 要扣分的冗餘。</td></tr>
-        <tr><td class="num">U3</td><td>兩個欄標頭，以及它們的<span class="zh">「N 個 scope」</span>chip</td>
+        <tr><td class="num">U3</td><td>兩個欄標頭，以及它們的<span class="zh">「N 個 scope」</span>chip —— <span class="pill is-ratified" style="white-space:nowrap">使用者裁定</span></td>
             <td><b>在 <code>unified</code> 裡整個拿掉</b>；標題列上一顆 chip 寫<span class="zh">「2 未暫存 · 1 已暫存」</span>。在 <code>2 file</code> 模式裡它們一個字不動，因為在那裡它們仍然在標示一個欄。一個什麼都沒標到的標頭，比沒有標頭更糟。</td></tr>
-        <tr><td class="num">U4</td><td>相鄰的 hunk 來自不同 diff 時，hunk 標頭怎麼辦</td>
+        <tr><td class="num">U4</td><td>相鄰的 hunk 來自不同 diff 時，hunk 標頭怎麼辦 —— <span class="pill is-ratified" style="white-space:nowrap">使用者裁定</span></td>
             <td><b>維持一個 hunk 一個標頭，不動</b>。它本來就只是一個座標（<code>@@ -3,4 +3,4 @@</code>），方向由它底下的卡片帶。把它藏起來會失去唯一一個告訴你「你在檔案的哪裡」的地標。</td></tr>
-        <tr><td class="num">U5</td><td>一次性選取拖過兩個方向</td>
+        <tr><td class="num">U5</td><td>一次性選取拖過兩個方向 —— <span class="pill is-ratified" style="white-space:nowrap">使用者裁定</span></td>
             <td><b>取它碰到的第一張卡片的方向，另一個方向的卡片不納入這一次選取。</b>這不是要道歉的限制：git 沒有任何一個動作可以同時 stage 與 unstage，所以一顆提供這件事的按鈕就是 <code>[UX-ellipsis-promises-a-dialog]</code> 講的那種會說謊的控制項。被排除的卡片仍然保有自己的按鈕，仍然按得下去。</td></tr>
-        <tr><td class="num">U6</td><td><code>2 file</code> 模式</td>
-            <td><b>一行都不改。</b>左 unstaged、右 staged，自己的 splitter、自己的兩個欄標頭。它整個存在的意義就是兩份檔案並排，而且它是任何想要今天這個行為的人的逃生口。</td></tr>
-        <tr><td class="num">U7</td><td>同一行被改兩次 —— 一次 HEAD→index、一次 index→工作區</td>
+        <tr><td class="num">U6</td><td><code>2 file</code> 模式 —— <span class="pill is-ratified" style="white-space:nowrap">使用者裁定</span></td>
+            <td><b>版面與行為一行都不改。</b>左 unstaged、右 staged，自己的 splitter、自己的兩個欄標頭。它整個存在的意義就是兩份檔案並排，而且它是任何想要今天這個行為的人的逃生口。
+              <br><br>
+              <s><b>一行都不改。</b></s> —— 就地更正。這句話在裁定當下是對的，
+              <b>下一句補充把它縮小了</b>：<span class="zh">「u8 影響樣式應該要跟 2 file 模式相同，所以應該要一起動，這是唯一會影響到 2file 的」</span>。
+              所以 <code>2 file</code> 的<em>版面</em>與<em>行為</em>不動，
+              而 U8 的 Unstage 按鈕樣式<b>兩個模式一起改</b>。
+              照 <code>[CULT-correct-the-record]</code> 劃掉重寫，不是默默改掉 ——
+              因為原句已經被引用過一次，把它悄悄換掉會讓引用它的人讀到一個從沒存在過的裁定。</td></tr>
+        <tr><td class="num">U7</td><td>同一行被改兩次 —— 一次 HEAD→index、一次 index→工作區 —— <span class="pill is-ratified" style="white-space:nowrap">使用者裁定</span></td>
             <td><b>它出現兩次，一個方向一次，不去重。</b>那是對兩組不同內容做的兩個不同變更；把它們摺在一起會畫出一張卡片，而它的按鈕只做得到它宣稱的一半。<b>U1 的裁定已經把這題解掉了</b> —— <span class="zh">「unstage, stage 必定是不同 scope」</span> —— 所以這一列現在是一個推論，不是一個問題。</td></tr>
-        <tr><td class="num">U8</td><td>Unstage 按鈕自己的樣式 —— <b>這次稽核找到的一個不符</b></td>
-            <td><span class="zh">變體 B</span> 定義了<b>兩種</b>按鈕樣式：<code>variant-B-btn-stage</code>（accent 填滿）與 <code>variant-B-btn-unstage</code>（<code>surface-panel-raised</code> 底、<code>border-strong</code> 邊、<code>text-primary</code> 字）。app 只實作了 accent 那個 —— <code>.sc__btn</code> —— 所以今天兩側每一顆按鈕畫出來都一模一樣，只有動詞不同。<b>建議採用</b>，而且它在合併清單裡比在兩欄裡更重要：兩顆樣式一模一樣、相隔幾公分、做的事相反的按鈕，正是分組救不了的那件事。<code>docs/</code> 底下沒有任何地方記過這個落差。</td></tr>
-        <tr><td class="num">U9</td><td>模式切換器本身</td>
-            <td>demo 的標題列寫的是<span class="zh">檢視方式</span>，後面接一個 segmented control，兩顆按鈕各帶一個 11px 的 SVG 圖示（<code>2 file</code> 是兩個矩形，<code>unified</code> 是一個外框裡兩條線）。app 這兩樣都沒畫。<b>建議這一輪不動它</b> —— 它是一個獨立的、純外觀的落差，落在一個已經能用的控制項上，把它捲進來會讓一輪「pane 裡面裝什麼」的工作變成要處理圖示資產。在這裡提出來而不是默默延後，是因為這是<em>你</em>的裁定，不是我的。</td></tr>
+        <tr><td class="num">U8</td><td>Unstage 按鈕自己的樣式 —— <b>這次稽核找到的一個不符</b> —— <span class="pill is-ratified" style="white-space:nowrap">使用者裁定</span></td>
+            <td><span class="zh">變體 B</span> 定義了<b>兩種</b>按鈕樣式：<code>variant-B-btn-stage</code>（accent 填滿）與 <code>variant-B-btn-unstage</code>（<code>surface-panel-raised</code> 底、<code>border-strong</code> 邊、<code>text-primary</code> 字）。app 只實作了 accent 那個 —— <code>.sc__btn</code> —— 所以今天兩側每一顆按鈕畫出來都一模一樣，只有動詞不同。<b>建議採用</b>，而且它在合併清單裡比在兩欄裡更重要：兩顆樣式一模一樣、相隔幾公分、做的事相反的按鈕，正是分組救不了的那件事。<code>docs/</code> 底下沒有任何地方記過這個落差。
+              <br><br>
+              <b>裁定：採用，而且兩個模式一起改。</b><span class="zh">「u8 影響樣式應該要跟 2 file 模式相同，所以應該要一起動，這是唯一會影響到 2file 的」</span>。
+              這是本輪唯一越過 <code>unified</code> 邊界的一項，其他每一項都留在 pane 裡面。
+              <br><br>
+              <b>它讓實作變簡單，不是變複雜。</b>樣式跟著<em>卡片自己的方向</em>走，
+              而 <code>_ScopeCard.staged</code>（<code>scoped_diff_view.dart:957</code>）
+              本來就是逐卡片的參數 —— 所以這是一個純粹的
+              <code>staged ? unstage 樣式 : stage 樣式</code>，不需要再把「我現在是哪個模式」
+              傳一路下去。<b>反過來做才會出事</b>：合併之後的 <code>unified</code>
+              在一個只有 staged 變更的檔案上只會拿到<em>一個</em>來源，
+              跟 <code>2 file</code> 的右欄形狀一模一樣，
+              所以任何「數來源個數來猜模式」的寫法都會在那個檔案上畫錯按鈕，
+              而每一個兩來源的 fixture 都會是綠的（<code>[TEST-fixture-cannot-disagree]</code>）。
+              兩個模式一致，這個陷阱根本不存在。</td></tr>
+        <tr><td class="num">U9</td><td>模式切換器本身 —— <span class="pill is-ratified" style="white-space:nowrap">使用者裁定</span></td>
+            <td>demo 的標題列寫的是<span class="zh">檢視方式</span>，後面接一個 segmented control，兩顆按鈕各帶一個 11px 的 SVG 圖示（<code>2 file</code> 是兩個矩形，<code>unified</code> 是一個外框裡兩條線）。app 這兩樣都沒畫。<b>裁定：不動它，照既有模式維持。</b><span class="zh">「u9 不應動，照既有模式維持」</span> —— 它是一個獨立的、純外觀的落差，落在一個已經能用的控制項上，把它捲進來會讓一輪「pane 裡面裝什麼」的工作變成要處理圖示資產。<b>這是一句「維持現狀」的裁定，不是一句「以後再說」</b>：檢視方式標籤與那兩個 11px SVG 圖示照現況留著，不列進本輪工作清單，也不留成待辦。</td></tr>
       </tbody>
     </table></div>
+
+    <div class="callout">
+      <div class="callout__title">已裁定 —— 九題全部</div>
+      <ul class="plain" style="margin-bottom:0">
+        <li><b>U1</b> —— 對齊單位是 <b>git 判斷出的區域變更</b>，不是行號；
+          <span class="zh">「unstage, stage 必定是不同 scope」</span>。上一節有完整推導。</li>
+        <li><b>U2–U8</b> —— <span class="zh">「其他照建議」</span>。</li>
+        <li><b>U9</b> —— <span class="zh">「u9 不應動，照既有模式維持」</span>。維持現狀，不是延後。</li>
+        <li><b>範圍</b> —— <span class="zh">「這次只改 unified 內」</span>，
+          <b>唯一的例外是 U8</b>：<span class="zh">「u8 影響樣式應該要跟 2 file 模式相同，
+          所以應該要一起動，這是唯一會影響到 2file 的」</span>。</li>
+      </ul>
+    </div>
+
+    <h3>範圍那條線畫在哪裡</h3>
+    <p>
+      把兩句合起來，本輪能碰的東西剛好是這樣 ——
+      ASCII 畫出來比一段散文清楚，因為要記的是<em>邊界</em>不是<em>清單</em>：
+    </p>
+    <pre>
+  Working Copy diff pane
+  ├── 標題列（模式切換器）        ← U9：不動。標籤與圖示照現況
+  ├── 2 file 模式
+  │   ├── 版面（左右兩欄、splitter、兩個欄標頭）   ← U6：不動
+  │   ├── 行為（哪一欄放哪一份 diff）              ← U6：不動
+  │   └── 卡片上那顆按鈕的<b>樣式</b>              ← U8：<b>改</b>（本輪唯一越界的一項）
+  └── unified 模式
+      └── 全部                                     ← U1–U5、U7、U8 都在這裡面</pre>
+    <p>
+      這條線是<b>使用者畫的，不是我推導的</b>，兩句原話都逐字引在上面那張表裡。
+      會值得畫成圖，是因為它不是「一個模式全改、一個模式全不改」那種好記的形狀 ——
+      U8 從中間穿過去，而穿過去的理由是<b>一致性</b>：
+      同一顆按鈕在兩個模式裡長得不一樣，本身就是一個新的缺陷，
+      修掉 <code>unified</code> 卻留下 <code>2 file</code> 只是把 U8 這個不符換一個地方擺。
+    </p>
 
     <h3>有一個不對稱必須寫明，不能讓人自己發現</h3>
     <p>
@@ -1810,7 +1869,9 @@ footer.colophon {
         <tr><td class="num">X2</td><td><span class="pill is-open">open</span></td><td><code>ScopedDiffView</code> 改成吃一串來源</td><td class="num">2</td>
             <td><b>純重構，不動任何一個像素。</b><code>file</code>/<code>staged</code>/<code>onStageScope</code>/<code>onDiscardScope</code> 收成一串 <code>ScopedDiffSource</code>；<code>_wellChildren</code> 改成走 來源 → hunks → segments。<code>_ScopeCard</code>/<code>_GapBlock</code> 不用改 —— 它們本來就各自收 <code>staged</code>。列的 <code>GlobalKey</code> 要改用 <code>(source, hunk, line)</code> 當 key，否則兩個來源的同號列會撞在一起，那在結構上就是 <code>[FLU-selectionarea-gives-a-string]</code> 的陷阱 1。驗收條件是既有測試一個字都不改、全部維持綠。</td></tr>
         <tr><td class="num">X3</td><td><span class="pill is-open">open</span></td><td><code>unified</code> 變成一份合併清單</td><td class="num">1 + 測試</td>
-            <td>依 U1–U9 的裁定。區域排序（U1，已裁定）、逐卡片的左緣與圓點、標題列的計數 chip、一次性選取的方向規則，以及 —— 如果 U8 採納 —— Unstage 方向的第二種 <code>GbmButton</code> 樣式，那是共用 widget 的改動，不是 <code>scoped_diff_view.dart</code> 的。<code>2 file</code> 一個字不動（U6）。</td></tr>
+            <td>依 U1–U9 的裁定，九題全部已定。區域排序（U1）、逐卡片的左緣與圓點、標題列的計數 chip、一次性選取的方向規則。<code>2 file</code> 的版面與行為一個字不動（U6），模式切換器不動（U9）。<b>Unstage 按鈕樣式獨立成 X5</b>，因為它是本輪唯一跨到 <code>2 file</code> 的改動，混在這個 commit 裡就沒辦法單獨 revert。</td></tr>
+        <tr><td class="num">X5</td><td><span class="pill is-open">open</span></td><td>Unstage 按鈕的第二種樣式（U8）</td><td class="num">2</td>
+            <td><b>本輪唯一跨到 <code>2 file</code> 的一項</b>，所以自己一個 commit，可以單獨 revert。<code>variant-B-btn-unstage</code>：<code>surface-panel-raised</code> 底、<code>border-strong</code> 邊、<code>text-primary</code> 字，對上 stage 方向那顆 accent 填滿的。條件是<b>卡片自己的 <code>staged</code></b>，不是模式 —— <code>_ScopeCard</code> 已經逐張帶著這個值，所以兩個模式自然一致，不必把模式傳下去。<b>放在 X3 之後</b>，這樣 <code>2 file</code> 的既有測試是在版面改動已經全綠之後才被碰到，紅了就一定是這個 commit。測試斷言按鈕的<b>顏色 token</b>，不是它存在 —— 一個只找得到 <code>Unstage 2 lines</code> 的斷言，在兩顆按鈕長得一模一樣的今天也是綠的（<code>[FLU-hand-rolled-inkwell-hover]</code> 那句<span class="zh">「用 identity 斷言 token」</span>）。</td></tr>
         <tr><td class="num">X4</td><td><span class="pill is-open">open</span></td><td>記錄</td><td class="num">4</td>
             <td><code>[STRUCT-two-column-switches]</code> 的 Working Copy 那一列寫著<span class="zh">「左 ↔ 右 means unstaged ↔ staged」</span>，這對 <code>unified</code> 不再成立；<code>[STRUCT-working-copy]</code> 的 diff 段落同理。X1 的發現是 <code>GIT-</code> pin 等級的材料，該放在 <code>[GIT-new-file-patch-needs-dev-null]</code> 旁邊，它那句<span class="zh">「不要改 unstage 方向」</span>是<em>對的</em>，現在多了一條量出來的邊界。新的 ledger 檔，加上它在 <code>INDEX.md</code> 的那一行。</td></tr>
       </tbody>
@@ -1824,7 +1885,8 @@ footer.colophon {
       <li>在 <code>unified</code> 下，掛載的 <code>ScopedDiffView</code> 剛好<b>一</b>個，而且同一份清單裡同時找得到 <code>Stage …</code> 與 <code>Unstage …</code> 兩種按鈕。</li>
       <li>交錯順序由一個 fixture 釘住：它的 staged hunk 的 <code>newStart</code> 落在兩個 unstaged hunk 的 <code>oldStart</code> <b>之間</b> —— 一個數字剛好重合的 fixture 分不出「排序過」與「接在後面」（<code>[TEST-fixture-cannot-disagree]</code>）。</li>
       <li>一次跨過 staged 卡片與 unstaged 卡片的拖曳，只把先碰到的那個方向放進一次性 scope，斷言在產生出來的按鈕自己的標籤上。</li>
-      <li><code>2 file</code> 模式既有的 dx 斷言在測試一個字都不改的情況下仍然過。</li>
+      <li><code>2 file</code> 模式既有的<b>版面</b>斷言在測試一個字都不改的情況下仍然過（X3 之後）。</li>
+      <li>Unstage 按鈕在 <b><code>2 file</code> 與 <code>unified</code> 兩個模式裡拿到同一組顏色 token</b>，而且跟 Stage 那顆<b>不同</b> —— 兩個模式各一條斷言，因為 U8 的整個理由就是一致性，只驗一個模式等於沒驗。</li>
       <li><code>flutter analyze</code> 歸零、<code>dart format</code> 乾淨、<code>ctest</code> 綠，<code>stage_lines_flow_test.dart</code> 在裝置上整份重跑，並且先在父 commit 上跑一次對照組。</li>
     </ul>
   </section>

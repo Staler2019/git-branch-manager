@@ -523,7 +523,7 @@ footer.colophon {
       <span class="pill is-ratified">使用者裁定 · 左欄固定寬（方案 A）</span>
       <span class="pill is-ratified">使用者裁定 · drop hint 用 C1</span>
       <span class="pill is-ratified">使用者裁定 · tree 葉節點這輪一起修</span>
-      <span class="pill is-open">scope 卡片樣式待裁定（§06）</span>
+      <span class="pill is-ratified">使用者裁定 · scope 卡片照建議（§06）</span>
     </div>
   </header>
 
@@ -1299,8 +1299,8 @@ footer.colophon {
       </p>
     </div>
 
-    <div class="callout is-ask">
-      <div class="callout__title">Needs a ruling — six of them, and a default for each</div>
+    <div class="callout">
+      <div class="callout__title">Ruled — <span class="zh">「照建議」</span>, all six</div>
       <ul class="plain" style="margin-bottom:0">
         <li><b>S3 dashed lines</b> — <em>recommend adopting</em>. The dash is not decoration: it is
           what separates <span class="zh">臨時選取</span>'s <span class="zh">一次性</span> block
@@ -1338,10 +1338,14 @@ footer.colophon {
       </ul>
     </div>
     <p style="margin-top:1.25rem">
-      Taking every recommendation above is <b>W11–W13</b> in section 08, three commits. Rejecting
-      any of them removes lines from those commits and adds nothing;
-      <code>scoped_diff_view.dart</code> is not touched at all until this section is ruled on, so
-      the rest of the round can proceed in the meantime.
+      <b>Every recommendation above was taken</b>, which lands as <b>W11–W13</b> in section 08.
+      Two of the six are <em>keep what ships</em> and cost nothing: S6's badges and S7's
+      <code>(N changed)</code> stay, and both stop being implementer's judgement and become
+      ratified. One is a partial adoption and worth restating so it is not read as a full one:
+      <b>S4 takes the head's bottom border and the muted head's sunken ground, and not its 30px
+      height</b> — the head is a <code>Wrap</code> that must be free to take a second line now that
+      it lives in a right-hand column. Everything else in S3, S5 and S8–S11 is adopted as the
+      design has it.
     </p>
   </section>
 
@@ -1391,9 +1395,9 @@ footer.colophon {
   <section id="worklist">
     <div class="sec-head"><span class="sec-num">08</span><h2>Work list</h2></div>
     <p class="lede">
-      Each is its own commit so each can be reverted alone. <b>W1–W10 are unblocked</b> — sections
-      02, 03 and 05 are all ruled. <b>W11–W13 wait on section 06</b>, and nothing else waits on
-      them: they touch one file no other item does.
+      Each is its own commit so each can be reverted alone. <b>Nothing is blocked</b> — sections
+      02, 03, 05 and 06 are all ruled. W11–W13 touch one file no other item does, so they can land
+      before, after or between the rest.
     </p>
     <div class="tablewrap"><table>
       <thead><tr><th style="width:6%">#</th><th style="width:28%">Item</th><th style="width:10%">Sites</th><th>What it is</th></tr></thead>
@@ -1417,11 +1421,11 @@ footer.colophon {
         <tr><td class="num">W10</td><td>Tree-mode leaf text</td><td class="num">1 + test</td>
             <td>Strip the parent folder's <code>displayPath</code> prefix from the leaf, keeping any collapsed segment. List mode untouched. Pre-existing defect, brought into scope by the user; not caused by the relayout.</td></tr>
         <tr><td class="num">W11</td><td>Scope card: the lines the design draws and the code does not</td><td class="num">1 + tests</td>
-            <td><b>Blocked on §06.</b> S3's three dashed rules, S4's head border and muted ground, S9's hunk rule, S10's margin. All of it inside <code>scoped_diff_view.dart</code>; no logic, no <code>selection_touch.dart</code>, no <code>diff_scopes.dart</code>.</td></tr>
+            <td>S3's three dashed rules, S4's head border and muted ground, S9's hunk rule, S10's margin. All of it inside <code>scoped_diff_view.dart</code>; no logic, no <code>selection_touch.dart</code>, no <code>diff_scopes.dart</code>.</td></tr>
         <tr><td class="num">W12</td><td><span class="zh">一次性</span> chip and the column-head chip</td><td class="num">1–2 + tests</td>
-            <td><b>Blocked on §06.</b> S8 needs a warning-outlined pill <code>GbmBadge</code> cannot draw at any of its three kinds — so either a fourth kind or a local widget, and that choice is part of the ruling's cost. S5's scope-count chip is a plain container.</td></tr>
+            <td>S8 needs a warning-outlined pill <code>GbmBadge</code> cannot draw at any of its three kinds — so either a fourth kind or a local widget, and that choice is part of the ruling's cost. S5's scope-count chip is a plain container.</td></tr>
         <tr><td class="num">W13</td><td>Scope card hover</td><td class="num">1 + test</td>
-            <td><b>Blocked on §06.</b> S11. Assert the token by identity — <code>[FLU-hand-rolled-inkwell-hover]</code>: a hover test that only checks for no exception proves nothing, and <code>ThemeData.hoverColor</code> is invisible on a real display.</td></tr>
+            <td>S11. Assert the token by identity — <code>[FLU-hand-rolled-inkwell-hover]</code>: a hover test that only checks for no exception proves nothing, and <code>ThemeData.hoverColor</code> is invisible on a real display.</td></tr>
         <tr><td class="num">W9</td><td>Correct the records in §07</td><td class="num">5</td>
             <td>In place, struck and rewritten — not silently re-numbered. Five now, not four: <code>[STRUCT-working-copy]</code>'s <span class="zh">「fixed slot at the top」</span> was already wrong before this round started (§06).</td></tr>
       </tbody>
@@ -1448,7 +1452,7 @@ footer.colophon {
       <li>Pumping the diff pane with no interaction shows <b>one</b> column. Tapping <code>2 file</code> shows two, left unstaged and right staged — the existing dx assertion, kept, now behind a tap.</li>
       <li>Dragging a row from Unstaged <b>downward</b> onto Staged stages it, and upward unstages — with the empty-column placeholder still inside the <code>DragTarget</code>'s builder, so a first-ever file can still be dropped on.</li>
       <li>Tree mode's leaf row paints <b>the segment below its parent folder</b>, not the full path — asserted by pumping the board in tree mode and reading what was painted, the same way the defect was found. List mode still paints the full path, asserted in the same test so a fix that hits both fails.</li>
-      <li><b>If §06 is ruled:</b> each adopted property asserted by identity, never by absence of exception — the border's <code>BorderSide.style</code>, the chip's colour against <code>colors.warning</code>, the hover tint against its token. A card-hover test that only checks the tree still builds is the failure <code>[FLU-hand-rolled-inkwell-hover]</code> records.</li>
+      <li>Each property §06 adopted asserted by identity, never by absence of exception — the border's <code>BorderSide.style</code>, the chip's colour against <code>colors.warning</code>, the hover tint against its token. A card-hover test that only checks the tree still builds is the failure <code>[FLU-hand-rolled-inkwell-hover]</code> records.</li>
       <li><code>flutter analyze</code> at zero and <code>dart format</code> clean; the five device-tier candidates run one at a time, each with a control run on the parent commit.</li>
     </ul>
   </section>

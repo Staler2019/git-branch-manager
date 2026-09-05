@@ -199,6 +199,58 @@ void main() {
       expect(unstaged.bottom, lessThanOrEqualTo(staged.top));
     });
 
+    // Stacking put a floor under a column's *height* where there had only
+    // ever been one under its width, and the column is
+    // `Column[ header(26, non-flex), Expanded(list), dropHint(non-flex) ]`.
+    // RenderFlex lays its non-flex children out first and divides only what
+    // is left, so the Expanded list cannot rescue an overflow the header and
+    // the hint cause between them -- which is the whole reason
+    // `splitterWcStack.minExtent` is 96 rather than the 78px of exact
+    // constants underneath it.
+    testWidgets('a column at its height floor does not overflow', (
+      tester,
+    ) async {
+      // Each pane gets half of what is left after the divider. 5 is
+      // split_pane.dart's own `_kDividerWidth`, which is private -- if it
+      // ever changes this test starts squeezing the panes below their floor
+      // and GbmSplitPane's clamp overflows instead, which is a different and
+      // equally visible red rather than a silent pass.
+      //
+      // This test was green the moment it was written, because the floor it
+      // checks was set in the same round. What makes it non-vacuous is the
+      // bisection: lowering `splitterWcStack.minExtent` reddens it at 85 and
+      // passes at 86, and at 78 -- the exact-constant part of the floor --
+      // RenderFlex reports "overflowed by 8.0 pixels on the bottom". So 86
+      // is the real floor and the shipped 96 has 10px of headroom.
+      final double boardHeight = GbmLayout.splitterWcStack.minExtent * 2 + 5;
+
+      await pumpGbmWidget(
+        tester,
+        child: SizedBox(
+          width: GbmLayout.splitterWcFiles.minExtent,
+          height: boardHeight,
+          child: WorkingCopyBoard(
+            unstagedEntries: unstagedEntries,
+            stagedEntries: stagedEntries,
+            onStageRequested: _ignorePaths,
+            onUnstageRequested: _ignorePaths,
+          ),
+        ),
+      );
+
+      expect(tester.takeException(), isNull);
+
+      // Not enough on its own: an Expanded satisfies "no overflow" while
+      // collapsing its child to zero height, and RenderFlex only reports
+      // main-axis overflow anyway. So assert the two non-flex children are
+      // still really drawn, with height.
+      expect(tester.getRect(find.text('Unstaged · 2')).height, greaterThan(0));
+      expect(
+        tester.getRect(find.textContaining('= stage')).height,
+        greaterThan(0),
+      );
+    });
+
     // Nothing anywhere asserted that a drop actually stages: the widget
     // tests only checked that a `Draggable` exists, and the device-tier
     // commit flow was still tapping a checkbox that 變體 B deleted. With

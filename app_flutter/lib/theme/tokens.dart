@@ -663,6 +663,14 @@ abstract final class GbmLayout {
   /// the hint's single 11px text line, whose height is a `TextPainter` fact
   /// with no `height:` on the style, so it cannot be written as a constant.
   ///
+  /// **The remainder was then measured rather than left as ~. Bisected
+  /// against `working_copy_board_test.dart`'s own overflow guard: 85 red,
+  /// 86 green, and 78 overflows by exactly 8.0px.** So the true floor is
+  /// 86 and this constant carries 10px of headroom. The measurement is in
+  /// test-font terms; that font is *wider* per glyph than the real one, so
+  /// the hint is likelier to wrap in the test than on screen, which is the
+  /// safe direction for a height floor.
+  ///
   /// One asymmetry is deliberate and worth knowing before anyone "fixes" it:
   /// the drop hint exists **only in the Unstaged column** (`if (!fromStaged)`
   /// in `working_copy_board.dart`), while `GbmSplitPane`'s `minExtent` is a

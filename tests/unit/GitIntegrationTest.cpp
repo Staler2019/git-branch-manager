@@ -5065,5 +5065,65 @@ TEST_F(RealRepoTest, MergeBaseOfUnrelatedHistoriesIsRecordedAsBenign) {
     EXPECT_TRUE(record->benignExit);
 }
 
+// The second producer of a non-zero exit that is not a failure, and the only
+// one the runner knows about by itself: a LineSink returning false kills the
+// child, so execute() returns *success* while recordOperation() has already
+// written whatever code the kill left behind. Its live producer is
+// HistoryProvider's row cap, which fires only on a repository big enough to
+// reach it -- which is why this went unnoticed.
+//
+// sinkStopped shares benignExit with the caller-declared codes because it
+// shares the meaning: both say "this invocation did what was needed". It reads
+// like `cancelled` and means the opposite -- cancelled is work that was
+// abandoned, this is work that finished early on purpose.
+
+TEST_F(RealRepoTest, ASinkThatStopsEarlyIsRecordedAsBenign) {
+    // The output has to exceed the pipe buffer, or the child writes everything
+    // and exits 0 before the sink's first refusal can kill it -- and then this
+    // test would be asserting the ordinary success path under a misleading
+    // name. ~50k lines is comfortably past it on every platform.
+    std::string big;
+    for (int i = 0; i < 50000; ++i) {
+        big += "line " + std::to_string(i) + "\n";
+    }
+    commitFile("big.txt", big, "big");
+
+    RecordSpy spy;
+    GitCommand command(repo_, {"show", "HEAD:big.txt"});
+    command.timeout = std::chrono::seconds(120);
+    int lines = 0;
+    auto result = runner_->stream(
+        command, [&lines](std::string_view) { ++lines; return false; }, nullptr,
+        CancellationToken{});
+
+    EXPECT_TRUE(result) << "a sink stopping early is success, not failure";
+    EXPECT_EQ(lines, 1);
+
+    const auto record = spy.lastEndingWith({"show", "HEAD:big.txt"});
+    ASSERT_TRUE(record.has_value());
+    ASSERT_NE(record->exitCode, 0) << "the child finished before the sink could stop it";
+    EXPECT_FALSE(record->cancelled) << "nobody cancelled this; it finished early on purpose";
+    EXPECT_TRUE(record->benignExit);
+}
+
+TEST_F(RealRepoTest, ASinkThatReadsEverythingIsNotRecordedAsBenign) {
+    // The control. Without it the case above passes for a runner that marks
+    // every stream benign.
+    commitFile("small.txt", "a\nb\nc\n", "small");
+
+    RecordSpy spy;
+    GitCommand command(repo_, {"show", "HEAD:small.txt"});
+    command.timeout = std::chrono::seconds(120);
+    auto result = runner_->stream(
+        command, [](std::string_view) { return true; }, nullptr, CancellationToken{});
+
+    EXPECT_TRUE(result);
+
+    const auto record = spy.lastEndingWith({"show", "HEAD:small.txt"});
+    ASSERT_TRUE(record.has_value());
+    ASSERT_EQ(record->exitCode, 0);
+    EXPECT_FALSE(record->benignExit);
+}
+
 }  // namespace
 }  // namespace gbm

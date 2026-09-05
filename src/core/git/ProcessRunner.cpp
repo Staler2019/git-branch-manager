@@ -815,8 +815,14 @@ private:
         // eventually replaced or destroyed.
         cancelReg.reset();
 
-        recordOperation(
-            command, argv, result.err, result.exitCode, started, result.cancelled, result.timedOut);
+        recordOperation(command,
+                        argv,
+                        result.err,
+                        result.exitCode,
+                        started,
+                        result.cancelled,
+                        result.timedOut,
+                        sinkStopped);
 
         if (result.cancelled) {
             return cancelled();
@@ -859,7 +865,8 @@ private:
                                 int exitCode,
                                 Clock::time_point started,
                                 bool wasCancelled,
-                                bool wasTimeout) {
+                                bool wasTimeout,
+                                bool sinkStopped = false) {
         OperationRecord record;
         record.when = std::chrono::system_clock::now();
         record.repoDir = command.repoDir.string();
@@ -870,15 +877,23 @@ private:
         record.stderrText = stderrText;
         record.cancelled = wasCancelled;
         record.timedOut = wasTimeout;
+        // Two producers, one meaning: both say this invocation did what was
+        // needed. `sinkStopped` is the one the runner knows by itself -- a
+        // LineSink returning false kills the child, so execute() returns
+        // success while the code left behind by the kill is non-zero, and
+        // without this the operation log called a successful command an error.
+        // It reads like `wasCancelled` and means the opposite: cancelled is
+        // work that was abandoned, this is work that finished early on purpose.
+        //
         // Deliberately unguarded by wasCancelled/wasTimeout, and deliberately
         // not narrowed to a non-zero code: the Dart side tests cancelled and
         // timedOut *before* it looks at this flag, and a zero exit is already
         // info there, so neither guard could change how any row reads. Both
         // would be branches no tier can redden, which is the same objection
-        // this round's own design section raises against a `bool
-        // tolerateFailure`. The spawn-failure path above records -1, which no
-        // caller can declare benign.
-        record.benignExit = command.isBenignExitCode(record.exitCode);
+        // this round's own design raises against a `bool tolerateFailure`. The
+        // spawn-failure path above records -1, which no caller can declare
+        // benign and which no sink can have stopped.
+        record.benignExit = sinkStopped || command.isBenignExitCode(record.exitCode);
         Log::instance().recordOperation(record);
     }
 

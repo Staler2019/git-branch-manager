@@ -414,3 +414,83 @@ picker 清單底色改成 `surfacePanel` → `-1`；picker 搜尋框外殼 30 �
 對話框自己的底 `(22,27,34)` = #161B22 = `surface-panel-raised`，本來就對，spec 也是
 這個——所以「底色不對」指的是**欄位沒有底色**，不是殼的底色錯。這點值得寫下來：
 回報說「底色不對」的時候，錯的可能是缺一層，而不是那一層畫錯。
+
+## 追加三：選了 origin/… 就建不出 worktree
+
+使用者回報，附上完整指令與 git 的回話：
+
+> i can select origin worktree, but cannot create worktree from it.
+> `… worktree add -b feat/worktree-dialogs-shell-redesign …/origin-feat-worktree-dialogs-shell-redesign origin/feat/worktree-dialogs-shell-redesign`
+> exit255
+> `fatal: a branch named 'feat/worktree-dialogs-shell-redesign' already exists`
+
+### 先量，再改
+
+scratch repo、git 2.55，三種情況分別跑兩種指令：
+
+| 本地 `feat/x` | `add -b feat/x <p> origin/feat/x` | `add <p> feat/x` |
+|---|---|---|
+| 不存在 | 建出追蹤分支，exit 0 | 不適用 |
+| 存在、沒被佔用 | `fatal: a branch named 'feat/x' already exists` | exit 0 |
+| 存在、已被 checkout | 同樣 fatal | `fatal: 'feat/x' is already used by worktree at …` |
+
+第一次量的時候把「存在」跟「已被 checkout」混在一起了（前一個 case 建出來的 worktree
+就佔著那個分支），三列裡有兩列其實是同一列。**重量一次**，讓「存在但沒被佔用」是真的
+沒被佔用，才看得出中間那一列的 `add <p> feat/x` 是 exit 0——也就是修法。
+
+### 兩個缺陷，不是一個
+
+1. **`_submit` 對每個遠端選擇都送 `-b`。** 所以上表中間那一列是硬失敗，而那是最常見
+   的情況：一個你本地已經有、只是從清單的遠端那半邊點下去的分支。
+2. **`_entries` 完全沒有 gate 遠端列。** 本地 `feat/…` 那一列會變灰、標「已在
+   git-branch-manager」，旁邊的 `origin/feat/…` 卻是可選的——同一個分支，兩種畫法。
+   使用者踩到的是這一列，所以他看到的錯誤訊息還講錯了問題（說分支已存在，實際上是
+   已經被別的 worktree 佔著）。
+
+只修 1 的話，第三列會從「講錯問題的 fatal」變成「講對問題的 fatal」，還是 fatal；
+只修 2 的話，第二列照樣壞。兩個都要。
+
+順帶第三件：**預設路徑用的是遠端全名**，所以提議
+`…/worktrees/gbm/origin-feat-x`，但那個 worktree 的分支其實叫 `feat/x`。使用者貼的
+指令列裡就有。路徑現在跟著「真正會被 checkout 出來的那個分支」走。
+
+### 雙胞胎
+
+照 [GIT-primary-not-current-worktree] 的「修完一個就去 grep 它的雙胞胎」，
+`checkout_dialog.dart` 有一模一樣的 `createBranch: _selectedIsRemote`，量過同樣是
+`fatal: a branch named … already exists`。連帶那行文案「建立本地分支「X」，追蹤 Y。」
+也承諾了不會發生的事——現在只在真的會建立時才畫。
+
+**這條規則上次是反方向用的**（修好一個、去找還沒修的同款）；這次是同一條的正向：一個
+回報進來，先問「還有誰是這個形狀」，而不是只修被指到的那一個。
+
+### 一句被記了一半的註解
+
+原本 `_submit` 的註解寫「`git worktree add <path> origin/feat/x` 會自己建追蹤分支
+(measured)」。重量之後：**那只在本地還沒有 `feat/x` 時成立**，一旦有了，同一道指令改成
+**detach**。註解記的是量到的那一半，讀起來像通則——[CULT-scrutinise-the-comment] 的
+標準形狀，已在原處改掉。
+
+### fixture 本來說不出自己要測的事
+
+Add Worktree 的 fixture 只有一列遠端 `origin/release/0.5`，而它**有**本地對應分支
+`release/0.5`；偏偏那則測試叫「checking out a remote-**only** branch creates a tracking
+local」，斷言 `createBranch: true`。也就是說：**測試的名字描述的情況，fixture 表達不
+出來，而且斷言釘住的正是缺陷本身**。`-b`-always 能活到現在，這則測試是主要原因。
+
+兩邊的 fixture 都補到能分辨三種情況（Add Worktree 三列遠端、Checkout 兩列），每一列
+對應上表的一行。
+
+「已在 gbm-lfs」那則舊測試的 `findsOneWidget` 也失效了——遠端列現在合法地帶同一個字串。
+照 [TEST-fixture-cannot-disagree] 第 12 列，改成只看它要的那一列，不是把 1 改成 2
+（把 1 改成 2 的話，光是遠端那列就滿足了，本地那列不畫也會綠）。
+
+### 驗證
+
+`flutter analyze --no-pub` 0 issue；`flutter test` 2849 全綠；`dart format` 0 changed。
+Mutation-check **5 次**，reddened **6 則**（1 / 1 / 1 / 2 / 1）：`localExists` 常數化
+→ `-1`；遠端列的 `taken` 常數化 → `-1`；路徑保留遠端前綴 → `-1`；checkout 的
+`_createsLocalBranch` 回 true → `-2`；checkout 的 `target` 送遠端名 → `-1`。
+
+新增一條 pin：[GIT-remote-pick-b-only-when-absent]，把上表連同「遠端列的佔用等同它本地
+對應分支的佔用」一起記下來。

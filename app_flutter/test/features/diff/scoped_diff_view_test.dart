@@ -1643,6 +1643,41 @@ void main() {
       expect(tester.getRect(find.text('bravo')).top, lessThan(staged));
       expect(tester.getRect(find.text('delta')).top, greaterThan(staged));
     });
+
+    // 使用者裁定 B: 「合併模式下把另一側已經當成變更畫出來的 context 列隱藏
+    // 掉」. The unstaged diff carries `document` as context because it is
+    // what its two insertions sit around -- but in a merged list the staged
+    // card *is* that line, one row below, so drawing it twice states the
+    // same index line twice in one list.
+    testWidgets('the line the other side stages is not drawn twice', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester);
+
+      expect(find.text('document'), findsOneWidget);
+      // And it is the staged card's row that survives, not the context one:
+      // the surviving row sits inside the card whose button unstages.
+      expect(
+        find.descendant(
+          of: find.ancestor(
+            of: find.widgetWithText(GbmButton, 'Unstage 1 line'),
+            matching: find.byKey(const ValueKey<String>('scope-card-2')),
+          ),
+          matching: find.text('document'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('nothing else is dropped', (WidgetTester tester) async {
+      await pump(tester);
+
+      // The suppression is narrow: only a context row whose index line the
+      // other source changes. Every real change on both sides still draws.
+      for (final String text in <String>['alpha', 'bravo', 'delta', 'echo']) {
+        expect(find.text(text), findsOneWidget, reason: text);
+      }
+    });
   });
 }
 

@@ -392,19 +392,46 @@ final class DiffScopeSegment extends DiffSegment {
   List<int> get lineIndices => scope.lineIndices;
 }
 
-/// Interleaves [scopes] with the context runs between them, covering every
-/// line of [hunk] exactly once and in order.
-List<DiffSegment> hunkSegments(DiffHunk hunk, List<DiffScope> scopes) {
+/// Interleaves [scopes] with the context runs between them, in order.
+///
+/// Every line of [hunk] is covered exactly once, **except** those named by
+/// [hiddenLines]: those are dropped, and a context run is split where one
+/// falls rather than being drawn across it.
+///
+/// [hiddenLines] exists for the merged `unified` list, where two diffs of
+/// one file are drawn together. A context line there may be a line the
+/// *other* diff draws as a change of its own -- 使用者裁定 B:「合併模式下把
+/// 另一側已經當成變更畫出來的 context 列隱藏掉」-- and drawing it in both
+/// states the same index line twice in one list. Nothing is lost: the two
+/// rows answer the same [IndexPosition], so the surviving one is painted
+/// exactly where the dropped one would have been.
+///
+/// It only ever reaches context: every changed line belongs to some scope,
+/// so a hidden line that is a change is not in any gap run to begin with.
+List<DiffSegment> hunkSegments(
+  DiffHunk hunk,
+  List<DiffScope> scopes, {
+  Set<int> hiddenLines = const <int>{},
+}) {
   final List<DiffSegment> segments = <DiffSegment>[];
   int cursor = 0;
 
   void gapUpTo(int end) {
-    if (end <= cursor) return;
-    segments.add(
-      DiffGapSegment(
-        List<int>.unmodifiable(<int>[for (int i = cursor; i < end; i++) i]),
-      ),
-    );
+    List<int> run = <int>[];
+    void flush() {
+      if (run.isEmpty) return;
+      segments.add(DiffGapSegment(List<int>.unmodifiable(run)));
+      run = <int>[];
+    }
+
+    for (int i = cursor; i < end; i++) {
+      if (hiddenLines.contains(i)) {
+        flush();
+      } else {
+        run.add(i);
+      }
+    }
+    flush();
   }
 
   for (final DiffScope scope in scopes) {

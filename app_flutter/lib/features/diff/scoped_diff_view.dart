@@ -860,6 +860,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     // Every drawable block of every source, decorated with where it sits on
     // the index -- the ruler the two diffs share ([indexPositionOf]).
     final List<_Block> blocks = <_Block>[];
+    final List<Set<int>> barriers = _barriersBySource();
 
     for (
       int sourceIndex = 0;
@@ -875,6 +876,14 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
         for (final DiffSegment segment in hunkSegments(
           hunk,
           byHunk[hunkIndex] ?? const <DiffScope>[],
+          // 使用者裁定 B: a context row whose index line the *other* source
+          // draws as a change of its own is dropped here rather than drawn
+          // twice. Empty for a single source, so `2 file` mode is untouched.
+          hiddenLines: barrierLineIndices(
+            hunk,
+            staged: source.staged,
+            indexLines: barriers[sourceIndex],
+          ),
         )) {
           blocks.add((
             sourceIndex: sourceIndex,

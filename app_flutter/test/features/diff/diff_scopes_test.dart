@@ -242,6 +242,15 @@ void main() {
       return hunkSegments(hunk, splitHunkIntoScopes(hunk));
     }
 
+    List<DiffSegment> segmentsHiding(String sketch, Set<int> hidden) {
+      final DiffHunk hunk = _hunk(sketch);
+      return hunkSegments(
+        hunk,
+        splitHunkIntoScopes(hunk, barriers: hidden),
+        hiddenLines: hidden,
+      );
+    }
+
     test('every line of the hunk is drawn exactly once, in order', () {
       // The property the rendering loop depends on: it walks segments and
       // paints their lines, so a line in neither segment kind vanishes from
@@ -294,6 +303,32 @@ void main() {
         'scope[1, 2, 3, 4]',
         'gap[5]',
       ]);
+    });
+    // 使用者裁定 B. A hidden line is not merely skipped: the context run it
+    // sits in has to *break* there, or the two halves would be drawn as one
+    // contiguous block and the merged list would order both by the first
+    // half's position.
+    test('a hidden line splits the gap it sits in and is not drawn', () {
+      expect(shape(segmentsHiding('++.++', const <int>{2})), <String>[
+        'scope[0, 1]',
+        'scope[3, 4]',
+      ]);
+    });
+
+    test('a hidden line inside a longer context run breaks it in two', () {
+      expect(shape(segmentsHiding('+....+', const <int>{3})), <String>[
+        'scope[0]',
+        'gap[1, 2]',
+        'gap[4]',
+        'scope[5]',
+      ]);
+    });
+
+    test('hiding nothing leaves every line covered exactly once', () {
+      expect(
+        shape(segmentsHiding('+....+', const <int>{})),
+        shape(segmentsOf('+....+')),
+      );
     });
   });
 

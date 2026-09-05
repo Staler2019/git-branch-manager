@@ -221,9 +221,18 @@ class _NewBranchDialogContentState
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
+            Text(
+              '名稱',
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                color: colors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: GbmSpacing.space1),
             SizedBox(
               height: GbmSpacing.inputHeight,
               child: TextField(
+                key: const Key('new-branch-name-field'),
                 controller: _nameController,
                 autofocus: true,
                 onChanged: (_) => setState(() {}),
@@ -232,7 +241,6 @@ class _NewBranchDialogContentState
                 },
                 decoration: gbmInputDecoration(
                   colors: colors,
-                  labelText: '名稱',
                   errorText: error,
                 ),
               ),

@@ -38,26 +38,33 @@ void main() {
       expect(focused.borderSide.color, colors.accent);
     });
 
-    test(
-      'passes labelText/hintText/errorText/suffixText/prefixIcon through',
-      () {
-        const Icon icon = Icon(Icons.search);
-        final InputDecoration decoration = gbmInputDecoration(
-          colors: colors,
-          labelText: 'label',
-          hintText: 'hint',
-          errorText: 'error',
-          suffixText: 'suffix',
-          prefixIcon: icon,
-        );
+    test('passes hintText/errorText/suffixText/prefixIcon through', () {
+      const Icon icon = Icon(Icons.search);
+      final InputDecoration decoration = gbmInputDecoration(
+        colors: colors,
+        hintText: 'hint',
+        errorText: 'error',
+        suffixText: 'suffix',
+        prefixIcon: icon,
+      );
 
-        expect(decoration.labelText, 'label');
-        expect(decoration.hintText, 'hint');
-        expect(decoration.errorText, 'error');
-        expect(decoration.suffixText, 'suffix');
-        expect(decoration.prefixIcon, icon);
-      },
-    );
+      expect(decoration.hintText, 'hint');
+      expect(decoration.errorText, 'error');
+      expect(decoration.suffixText, 'suffix');
+      expect(decoration.prefixIcon, icon);
+    });
+
+    // Regression: labelText's floating label does not fit inside the fixed
+    // 30px SizedBox every single-line dialog field wraps this decoration in
+    // -- measured (scratch probe, not committed): with labelText set, the
+    // label's own rect starts at y=14.9 while the SizedBox starts at
+    // y=20, i.e. the label paints outside the box it is meant to sit in and
+    // overlaps the value text's leading ~6px. Removing labelText was the
+    // fix; this pins the removal so it cannot silently come back.
+    test('has no labelText parameter -- see the function doc comment', () {
+      final InputDecoration decoration = gbmInputDecoration(colors: colors);
+      expect(decoration.labelText, isNull);
+    });
   });
 
   group('gbmMultilineInputDecoration', () {

@@ -419,9 +419,21 @@ class _AddWorktreeDialogContentState
                   setState(() => _picked = entry),
             ),
             const SizedBox(height: GbmSpacing.space3),
+            // P6 field-label treatment (spec's G3), same as '分支'/'來源'
+            // above -- see gbm_input_decoration.dart's doc comment for why
+            // this is an external Text and not InputDecoration.labelText.
+            Text(
+              '新分支名',
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                color: colors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: GbmSpacing.space1),
             SizedBox(
               height: GbmSpacing.inputHeight,
               child: TextField(
+                key: const Key('add-worktree-new-branch-name-field'),
                 controller: _newBranchNameController,
                 // Dimmed, not hidden, while unused -- 比照 Create tag 的
                 // 「訊息」欄, and generally [FLU-menu-enabled-is-visual-only]'s
@@ -430,13 +442,20 @@ class _AddWorktreeDialogContentState
                 onChanged: (_) => setState(() {}),
                 decoration: gbmInputDecoration(
                   colors: colors,
-                  labelText: '新分支名',
                   hintText: 'feature/x',
                   errorText: nameError,
                 ),
               ),
             ),
             const SizedBox(height: GbmSpacing.space3),
+            Text(
+              '位置',
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                color: colors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: GbmSpacing.space1),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -444,13 +463,11 @@ class _AddWorktreeDialogContentState
                   child: SizedBox(
                     height: GbmSpacing.inputHeight,
                     child: TextField(
+                      key: const Key('add-worktree-path-field'),
                       controller: _pathController,
                       onChanged: (_) =>
                           setState(() => _pathManuallyEdited = true),
-                      decoration: gbmInputDecoration(
-                        colors: colors,
-                        labelText: '位置',
-                      ),
+                      decoration: gbmInputDecoration(colors: colors),
                     ),
                   ),
                 ),

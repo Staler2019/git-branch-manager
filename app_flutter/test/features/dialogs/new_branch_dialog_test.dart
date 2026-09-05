@@ -153,7 +153,7 @@ String? _highlighted(WidgetTester tester) {
 }
 
 Future<void> _name(WidgetTester tester, String value) async {
-  await tester.enterText(find.widgetWithText(TextField, '名稱'), value);
+  await tester.enterText(find.byKey(const Key('new-branch-name-field')), value);
   await tester.pumpAndSettle();
 }
 
@@ -424,12 +424,33 @@ void main() {
     testWidgets('名稱 is 30px tall with a r6 border', (tester) async {
       await _pump(tester);
 
-      final Finder finder = find.widgetWithText(TextField, '名稱');
+      final Finder finder = find.byKey(const Key('new-branch-name-field'));
       expect(tester.getSize(finder).height, GbmSpacing.inputHeight);
       final TextField field = tester.widget<TextField>(finder);
       final OutlineInputBorder border =
           field.decoration!.border! as OutlineInputBorder;
       expect(border.borderRadius, BorderRadius.circular(GbmSpacing.radiusMd));
+    });
+
+    // Regression: gbmInputDecoration() used to take labelText, and
+    // Material's floating label does not fit inside this fixed 30px box --
+    // measured (scratch probe, not committed) the label painting from
+    // y=14.9 against the box's own y=20, overlapping the value text's
+    // leading ~6px. '名稱' moved to an external Text above the field (same
+    // P6 treatment as '從哪裡分出' below); this pins that the field itself
+    // carries no labelText and that the external label sits fully above
+    // the field's own box, never inside or overlapping it.
+    testWidgets('名稱 has no floating label -- the label sits externally, above '
+        'the field, not overlapping it', (tester) async {
+      await _pump(tester);
+
+      final Finder fieldFinder = find.byKey(const Key('new-branch-name-field'));
+      final TextField field = tester.widget<TextField>(fieldFinder);
+      expect(field.decoration?.labelText, isNull);
+
+      final Rect labelRect = tester.getRect(find.text('名稱'));
+      final Rect fieldRect = tester.getRect(fieldFinder);
+      expect(labelRect.bottom, lessThanOrEqualTo(fieldRect.top));
     });
   });
 
@@ -447,5 +468,14 @@ void main() {
         expect(label.style?.letterSpacing, isNot(0.5));
       },
     );
+
+    testWidgets('名稱 uses the same P6 field-label treatment', (tester) async {
+      await _pump(tester);
+      final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+
+      final Text label = tester.widget<Text>(find.text('名稱'));
+      expect(label.style?.color, colors.textSecondary);
+      expect(label.style?.fontSize, GbmTypography.textXs);
+    });
   });
 }

@@ -254,10 +254,18 @@ Future<void> _pick(WidgetTester tester, String name) =>
     _ensureAndTap(tester, find.text(name));
 
 Future<void> _typeNewBranchName(WidgetTester tester, String value) =>
-    _ensureAndEnterText(tester, find.widgetWithText(TextField, '新分支名'), value);
+    _ensureAndEnterText(
+      tester,
+      find.byKey(const Key('add-worktree-new-branch-name-field')),
+      value,
+    );
 
 Future<void> _typePath(WidgetTester tester, String value) =>
-    _ensureAndEnterText(tester, find.widgetWithText(TextField, '位置'), value);
+    _ensureAndEnterText(
+      tester,
+      find.byKey(const Key('add-worktree-path-field')),
+      value,
+    );
 
 Future<void> _submit(WidgetTester tester) =>
     _ensureAndTap(tester, find.widgetWithText(GbmButton, 'Add worktree'));
@@ -272,7 +280,7 @@ void main() {
       // The new-branch-name field is disabled by default -- dimmed, not
       // hidden, per [FLU-menu-enabled-is-visual-only].
       final TextField nameField = tester.widget<TextField>(
-        find.widgetWithText(TextField, '新分支名'),
+        find.byKey(const Key('add-worktree-new-branch-name-field')),
       );
       expect(nameField.enabled, isFalse);
     });
@@ -284,7 +292,7 @@ void main() {
       await _pickCreateNew(tester);
 
       final TextField nameField = tester.widget<TextField>(
-        find.widgetWithText(TextField, '新分支名'),
+        find.byKey(const Key('add-worktree-new-branch-name-field')),
       );
       expect(nameField.enabled, isTrue);
     });
@@ -356,7 +364,7 @@ void main() {
       await _pick(tester, 'release/0.5');
 
       final TextField pathField = tester.widget<TextField>(
-        find.widgetWithText(TextField, '位置'),
+        find.byKey(const Key('add-worktree-path-field')),
       );
       expect(
         pathField.controller?.text,
@@ -388,7 +396,7 @@ void main() {
       await _pick(tester, 'release/0.5');
 
       final TextField pathField = tester.widget<TextField>(
-        find.widgetWithText(TextField, '位置'),
+        find.byKey(const Key('add-worktree-path-field')),
       );
       expect(
         pathField.controller?.text,
@@ -404,11 +412,11 @@ void main() {
       await _typeNewBranchName(tester, 'ignored-name');
 
       final TextField pathField = tester.widget<TextField>(
-        find.widgetWithText(TextField, '位置'),
+        find.byKey(const Key('add-worktree-path-field')),
       );
       expect(pathField.controller?.text, '/somewhere/else');
       final TextField nameField = tester.widget<TextField>(
-        find.widgetWithText(TextField, '新分支名'),
+        find.byKey(const Key('add-worktree-new-branch-name-field')),
       );
       expect(nameField.controller?.text, 'ignored-name');
     });
@@ -421,7 +429,7 @@ void main() {
       await _ensureAndTap(tester, find.widgetWithText(GbmButton, '瀏覽…'));
 
       final TextField pathField = tester.widget<TextField>(
-        find.widgetWithText(TextField, '位置'),
+        find.byKey(const Key('add-worktree-path-field')),
       );
       expect(pathField.controller?.text, '/picked/by/user');
     });
@@ -433,7 +441,7 @@ void main() {
       await _pick(tester, 'feature/lfs');
 
       final TextField pathField = tester.widget<TextField>(
-        find.widgetWithText(TextField, '位置'),
+        find.byKey(const Key('add-worktree-path-field')),
       );
       expect(pathField.controller?.text, '/picked/by/user');
     });
@@ -445,7 +453,7 @@ void main() {
       await _pump(tester, picker: picker);
       await _pick(tester, 'release/0.5');
       final String before = tester
-          .widget<TextField>(find.widgetWithText(TextField, '位置'))
+          .widget<TextField>(find.byKey(const Key('add-worktree-path-field')))
           .controller!
           .text;
 
@@ -453,7 +461,7 @@ void main() {
 
       expect(picker.pickDirectoryCalls, 1);
       final TextField pathField = tester.widget<TextField>(
-        find.widgetWithText(TextField, '位置'),
+        find.byKey(const Key('add-worktree-path-field')),
       );
       expect(pathField.controller?.text, before);
     });
@@ -637,16 +645,23 @@ void main() {
     ) async {
       await _pump(tester);
 
-      for (final String label in <String>['新分支名', '位置']) {
-        final Finder finder = find.widgetWithText(TextField, label);
-        expect(tester.getSize(finder).height, GbmSpacing.inputHeight);
+      for (final MapEntry<String, Key> entry in <String, Key>{
+        '新分支名': const Key('add-worktree-new-branch-name-field'),
+        '位置': const Key('add-worktree-path-field'),
+      }.entries) {
+        final Finder finder = find.byKey(entry.value);
+        expect(
+          tester.getSize(finder).height,
+          GbmSpacing.inputHeight,
+          reason: entry.key,
+        );
         final TextField field = tester.widget<TextField>(finder);
         final OutlineInputBorder border =
             field.decoration!.border! as OutlineInputBorder;
         expect(
           border.borderRadius,
           BorderRadius.circular(GbmSpacing.radiusMd),
-          reason: label,
+          reason: entry.key,
         );
       }
     });
@@ -665,6 +680,36 @@ void main() {
         expect(tester.takeException(), isNull);
       },
     );
+
+    // Regression: gbmInputDecoration() used to take labelText, and
+    // Material's floating label does not fit inside this fixed 30px box --
+    // measured (scratch probe, not committed) the label painting from
+    // y=14.9 against the box's own y=20, overlapping the value's leading
+    // ~6px. This is the field the user actually reported as "位置 沒有預設
+    // 了" -- the value was there all along, just visually garbled by the
+    // overlapping label. Both fields now carry no labelText at all, with
+    // their label an external Text sitting fully above the field's box.
+    testWidgets('新分支名 and 位置 have no floating label -- both labels sit '
+        'externally, above their field, not overlapping it', (tester) async {
+      await _pump(tester);
+
+      for (final MapEntry<String, Key> entry in <String, Key>{
+        '新分支名': const Key('add-worktree-new-branch-name-field'),
+        '位置': const Key('add-worktree-path-field'),
+      }.entries) {
+        final Finder fieldFinder = find.byKey(entry.value);
+        final TextField field = tester.widget<TextField>(fieldFinder);
+        expect(field.decoration?.labelText, isNull, reason: entry.key);
+
+        final Rect labelRect = tester.getRect(find.text(entry.key));
+        final Rect fieldRect = tester.getRect(fieldFinder);
+        expect(
+          labelRect.bottom,
+          lessThanOrEqualTo(fieldRect.top),
+          reason: entry.key,
+        );
+      }
+    });
   });
 
   group('field label style (G3)', () {
@@ -686,5 +731,18 @@ void main() {
         expect(label.style?.letterSpacing, isNot(0.5));
       },
     );
+
+    testWidgets('新分支名 and 位置 use the same P6 field-label treatment', (
+      tester,
+    ) async {
+      await _pump(tester);
+      final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+
+      for (final String text in <String>['新分支名', '位置']) {
+        final Text label = tester.widget<Text>(find.text(text));
+        expect(label.style?.color, colors.textSecondary, reason: text);
+        expect(label.style?.fontSize, GbmTypography.textXs, reason: text);
+      }
+    });
   });
 }

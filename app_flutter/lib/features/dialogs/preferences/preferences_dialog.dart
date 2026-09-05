@@ -272,24 +272,38 @@ class _NumberFieldState extends State<_NumberField> {
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
-    return SizedBox(
-      width: 200,
-      height: GbmSpacing.inputHeight,
-      child: TextField(
-        controller: _controller,
-        keyboardType: TextInputType.number,
-        decoration: gbmInputDecoration(
-          colors: colors,
-          labelText: widget.label,
-          suffixText: widget.suffix.isEmpty ? null : widget.suffix,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          widget.label,
+          style: TextStyle(
+            fontSize: GbmTypography.textXs,
+            color: colors.textSecondary,
+          ),
         ),
-        // Only a parseable positive value is committed -- a half-typed field
-        // must not momentarily persist 0 and change behaviour mid-keystroke.
-        onChanged: (String text) {
-          final int? parsed = int.tryParse(text.trim());
-          if (parsed != null && parsed > 0) widget.onChanged(parsed);
-        },
-      ),
+        const SizedBox(height: GbmSpacing.space1),
+        SizedBox(
+          width: 200,
+          height: GbmSpacing.inputHeight,
+          child: TextField(
+            controller: _controller,
+            keyboardType: TextInputType.number,
+            decoration: gbmInputDecoration(
+              colors: colors,
+              suffixText: widget.suffix.isEmpty ? null : widget.suffix,
+            ),
+            // Only a parseable positive value is committed -- a half-typed
+            // field must not momentarily persist 0 and change behaviour
+            // mid-keystroke.
+            onChanged: (String text) {
+              final int? parsed = int.tryParse(text.trim());
+              if (parsed != null && parsed > 0) widget.onChanged(parsed);
+            },
+          ),
+        ),
+      ],
     );
   }
 }
@@ -924,18 +938,32 @@ class _GitignorePathFieldState extends State<_GitignorePathField> {
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
-    return SizedBox(
-      height: GbmSpacing.inputHeight,
-      child: TextField(
-        controller: _controller,
-        onChanged: widget.onChanged,
-        style: const TextStyle(fontFamily: GbmTypography.fontMono),
-        decoration: gbmInputDecoration(
-          colors: colors,
-          labelText: '全域 gitignore 檔案路徑',
-          hintText: '~/.config/git/ignore',
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          '全域 gitignore 檔案路徑',
+          style: TextStyle(
+            fontSize: GbmTypography.textXs,
+            color: colors.textSecondary,
+          ),
         ),
-      ),
+        const SizedBox(height: GbmSpacing.space1),
+        SizedBox(
+          height: GbmSpacing.inputHeight,
+          child: TextField(
+            key: const Key('preferences-gitignore-path-field'),
+            controller: _controller,
+            onChanged: widget.onChanged,
+            style: const TextStyle(fontFamily: GbmTypography.fontMono),
+            decoration: gbmInputDecoration(
+              colors: colors,
+              hintText: '~/.config/git/ignore',
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

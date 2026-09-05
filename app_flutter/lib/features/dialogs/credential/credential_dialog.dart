@@ -113,9 +113,18 @@ class _CredentialDialogContentState
             ),
           ),
           const SizedBox(height: GbmSpacing.space2),
+          Text(
+            obscure ? 'Token / 密碼' : '帳號',
+            style: TextStyle(
+              fontSize: GbmTypography.textXs,
+              color: colors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: GbmSpacing.space1),
           SizedBox(
             height: GbmSpacing.inputHeight,
             child: TextField(
+              key: const Key('credential-secret-field'),
               controller: _secretController,
               obscureText: obscure,
               autofocus: true,
@@ -126,10 +135,7 @@ class _CredentialDialogContentState
                     .provideCredential(_secretController.text);
                 context.pop();
               },
-              decoration: gbmInputDecoration(
-                colors: colors,
-                labelText: obscure ? 'Token / 密碼' : '帳號',
-              ),
+              decoration: gbmInputDecoration(colors: colors),
             ),
           ),
         ],

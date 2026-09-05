@@ -120,14 +120,22 @@ class _LockWorktreeDialogContentState
             ),
           ),
           const SizedBox(height: GbmSpacing.space3),
+          Text(
+            '原因',
+            style: TextStyle(
+              fontSize: GbmTypography.textXs,
+              color: colors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: GbmSpacing.space1),
           SizedBox(
             height: GbmSpacing.inputHeight,
             child: TextField(
+              key: const Key('lock-worktree-reason-field'),
               controller: _reasonController,
               autofocus: true,
               decoration: gbmInputDecoration(
                 colors: colors,
-                labelText: '原因',
                 hintText: '外接碟，平常不掛載',
               ),
             ),

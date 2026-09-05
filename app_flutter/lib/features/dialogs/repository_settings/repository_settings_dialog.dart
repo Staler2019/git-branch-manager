@@ -416,27 +416,39 @@ class _IdentityTab extends StatelessWidget {
           ),
         ),
         const SizedBox(height: GbmSpacing.space2),
+        Text(
+          '名稱（僅限此 repository）',
+          style: TextStyle(
+            fontSize: GbmTypography.textXs,
+            color: colors.textSecondary,
+          ),
+        ),
+        const SizedBox(height: GbmSpacing.space1),
         SizedBox(
           height: GbmSpacing.inputHeight,
           child: TextField(
+            key: const Key('repository-settings-identity-name-field'),
             controller: nameController,
             onChanged: (_) => onEdited(),
-            decoration: gbmInputDecoration(
-              colors: colors,
-              labelText: '名稱（僅限此 repository）',
-            ),
+            decoration: gbmInputDecoration(colors: colors),
           ),
         ),
         const SizedBox(height: GbmSpacing.space2),
+        Text(
+          'Email（僅限此 repository）',
+          style: TextStyle(
+            fontSize: GbmTypography.textXs,
+            color: colors.textSecondary,
+          ),
+        ),
+        const SizedBox(height: GbmSpacing.space1),
         SizedBox(
           height: GbmSpacing.inputHeight,
           child: TextField(
+            key: const Key('repository-settings-identity-email-field'),
             controller: emailController,
             onChanged: (_) => onEdited(),
-            decoration: gbmInputDecoration(
-              colors: colors,
-              labelText: 'Email（僅限此 repository）',
-            ),
+            decoration: gbmInputDecoration(colors: colors),
           ),
         ),
         const SizedBox(height: GbmSpacing.space2),

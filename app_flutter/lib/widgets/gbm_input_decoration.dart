@@ -16,9 +16,18 @@ import '../theme/tokens.dart';
 /// Material's default radius (4) and no focus treatment at all. This is the
 /// one shared definition; a new dialog reaches for it instead of writing a
 /// fifth copy.
+///
+/// Deliberately has **no** `labelText` parameter. Material's floating label
+/// needs room above the input line that a fixed 30px `SizedBox` does not
+/// have -- measured: with `labelText` set, the label paints from y=14.9
+/// while the `SizedBox` itself starts at y=20, so the label renders outside
+/// its own box and overlaps the value text's first ~6px. A dialog field's
+/// label is the P6 external `Text` above the box (`add_worktree_dialog.dart`'s
+/// '位置'/'分支'/'來源', spec's `fld__label` -- see the spec's own "Proposed"
+/// markup at worktree-dialogs-spec.html:613/618, which draws exactly this
+/// shape for '新分支名稱'/'目標路徑'), never `InputDecoration.labelText`.
 InputDecoration gbmInputDecoration({
   required GbmColors colors,
-  String? labelText,
   String? hintText,
   String? errorText,
   String? suffixText,
@@ -28,7 +37,6 @@ InputDecoration gbmInputDecoration({
     borderRadius: BorderRadius.circular(GbmSpacing.radiusMd),
   );
   return InputDecoration(
-    labelText: labelText,
     hintText: hintText,
     errorText: errorText,
     suffixText: suffixText,
@@ -50,17 +58,16 @@ InputDecoration gbmInputDecoration({
 /// cherry-pick's commit-message-shaped boxes): same padding/radius/focus
 /// treatment, but no fixed-height contract -- a multiline box has to grow
 /// with its content, which [gbmInputDecoration]'s `SizedBox`-wrapping
-/// convention would clip.
+/// convention would clip. No `labelText` here either, for the reason
+/// documented on [gbmInputDecoration] -- none of its three callers used it.
 InputDecoration gbmMultilineInputDecoration({
   required GbmColors colors,
-  String? labelText,
   String? hintText,
 }) {
   final OutlineInputBorder border = OutlineInputBorder(
     borderRadius: BorderRadius.circular(GbmSpacing.radiusMd),
   );
   return InputDecoration(
-    labelText: labelText,
     hintText: hintText,
     isDense: true,
     contentPadding: const EdgeInsets.symmetric(

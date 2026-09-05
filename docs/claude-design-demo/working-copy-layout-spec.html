@@ -513,9 +513,8 @@ footer.colophon {
     </div>
     <h1>Working Copy Layout</h1>
     <p class="standfirst">
-      The two file lists stop sitting side by side and stack down the left; the diff takes the
-      whole right. Written before any code changes, because this one overturns two rows of the
-      spec's own <code>SPLITTERS</code> table and that should be a decision, not a diff.
+      兩個檔案清單不再左右並排，改成堆疊在左側；diff 拿走整個右半邊。這一頁寫在動任何程式碼之前，
+      因為它推翻了 spec 自己 <code>SPLITTERS</code> 表裡的兩列 —— 那應該是一個決定，不是一份 diff。
     </p>
     <div class="status-row">
       <span class="pill is-ratified">使用者裁定 · 檔案清單改左側垂直</span>
@@ -535,50 +534,46 @@ footer.colophon {
 
   <!-- ============================ 1 ============================ -->
   <section id="why">
-    <div class="sec-head"><span class="sec-num">01</span><h2>The complaint, and what actually causes it</h2></div>
+    <div class="sec-head"><span class="sec-num">01</span><h2>抱怨是什麼，真正的成因又是什麼</h2></div>
     <p class="lede">
-      <span class="zh">「目前左右不好看檔案內容」</span> — the file content is the thing that needs
-      width, and today it is the only thing that never gets any.
+      <span class="zh">「目前左右不好看檔案內容」</span> —— 檔案內容才是需要寬度的那個東西，
+      而今天它是唯一永遠拿不到寬度的東西。
     </p>
     <p>
-      The Working Copy is split top/bottom: file lists above, diff below. The file lists are then
-      split left/right into Unstaged and Staged. So the diff gets <b>54% of the height and 100% of
-      a width it did not need to share</b> — while two columns of file paths, which are short,
-      get the full width above it. Then the diff pane splits itself left/right again for
-      <code>2 file</code> mode, and the code that actually has to be read ends up in a box roughly
-      a quarter of the window.
+      Working Copy 是上下切的：檔案清單在上、diff 在下。檔案清單接著又左右切成 Unstaged 與 Staged。
+      所以 diff 拿到的是<b>高度的 54%，加上一個它根本不需要分給別人的 100% 寬度</b>——
+      而兩欄本來就很短的檔案路徑，在它上面佔滿整個寬度。接著 diff 面板為了 <code>2 file</code>
+      模式再左右切一次，真正需要被讀的程式碼最後被塞進大約視窗四分之一寬的盒子裡。
     </p>
     <p>
-      Rotating both dividers fixes it without adding a single pane: file paths are short and stack
-      happily; a diff is tall and narrow-hostile. The stack gives the diff a full-height column and
-      every pixel the window gains from then on.
+      把兩條分隔線各轉 90° 就解決了，而且不用多加任何一個 pane：檔案路徑短，堆疊起來完全沒問題；
+      diff 是又高又怕窄的東西。堆疊之後 diff 拿到一整欄的高度，以及視窗從此之後長出來的每一個像素。
     </p>
     <div class="callout is-warn">
-      <div class="callout__title">Not a conformance fix</div>
+      <div class="callout__title">這不是 conformance 修正</div>
       <p>
-        Everything on this page is a <b>deviation the user asked for</b>, in the same standing as the
-        Working Copy's removed checkboxes. Section 06 quotes exactly what it overrules, so a later
-        audit reads it as ratified rather than as drift to be repaired.
+        這一頁上的每一件事都是<b>使用者要求的偏離</b>，與 Working Copy 拿掉 checkbox 同一個位階。
+        第 06 節逐字引用了它推翻的東西，所以之後的稽核會把它讀成「已裁定」，而不是「待修的 drift」。
       </p>
     </div>
   </section>
 
   <!-- ============================ 2 ============================ -->
   <section id="beforeafter">
-    <div class="sec-head"><span class="sec-num">02</span><h2>Before and after</h2></div>
+    <div class="sec-head"><span class="sec-num">02</span><h2>改之前與改之後</h2></div>
     <p class="lede">
-      Drawn in the app's own tokens at true vertical size — 26px rows, 11px labels, the real
-      diff colours. Widths are compressed to fit this page; section 03 is where width is decided.
+      用 app 自己的 token、以真實的垂直尺寸畫的 —— 26px 的列、11px 的標籤、真正的 diff 顏色。
+      寬度為了塞進這一頁而壓縮過；寬度要怎麼決定在第 03 節。
     </p>
 
     <div class="stage-controls">
-      <span class="label">App theme</span>
+      <span class="label">App 主題</span>
       <div class="themebtns" role="group" aria-label="Preview theme">
         <button class="themebtn" type="button" data-theme-btn="neutral-professional" aria-pressed="false">neutral-professional</button>
         <button class="themebtn" type="button" data-theme-btn="dark-technical" aria-pressed="true">dark-technical</button>
         <button class="themebtn" type="button" data-theme-btn="light-ide" aria-pressed="false">light-ide</button>
       </div>
-      <span class="specimen-note">All three must hold — the tokens are the contract, not one screenshot.</span>
+      <span class="specimen-note">三個主題都必須成立 —— 契約是 token，不是某一張截圖。</span>
     </div>
 
     <div class="compare">
@@ -586,8 +581,8 @@ footer.colophon {
       <!-- BEFORE -->
       <div class="specimen">
         <div class="specimen-head">
-          <span class="specimen-tag before">Today</span>
-          <span class="specimen-note"><code>wc.diff</code> vertical 46/54 · <code>wc.columns</code> horizontal 1:1</span>
+          <span class="specimen-tag before">今天</span>
+          <span class="specimen-note"><code>wc.diff</code> 垂直 46/54 · <code>wc.columns</code> 水平 1:1</span>
         </div>
         <div class="stage" data-stage data-app-theme="dark-technical">
           <div class="wc">
@@ -641,8 +636,8 @@ footer.colophon {
           </div>
         </div>
         <p class="specimen-note">
-          The code sits in a box a quarter of the window wide, and every line is cut mid-identifier.
-          Above it, two columns of short paths hold the full width.
+          程式碼被塞在視窗四分之一寬的盒子裡，每一行都從識別字中間被切斷。
+          它上面是兩欄很短的路徑，佔滿整個寬度。
         </p>
       </div>
 
@@ -650,7 +645,7 @@ footer.colophon {
       <div class="specimen">
         <div class="specimen-head">
           <span class="specimen-tag after">Proposed</span>
-          <span class="specimen-note">files column left · diff right · commit box untouched</span>
+          <span class="specimen-note">檔案欄在左 · diff 在右 · commit box 不動</span>
         </div>
         <div class="stage" data-stage data-app-theme="dark-technical">
           <div class="wc">
@@ -702,34 +697,32 @@ footer.colophon {
           </div>
         </div>
         <p class="specimen-note">
-          Same three regions, same commit box, same everything below the divider. What changed is
-          which way each of the two dividers runs — and the diff now shows whole lines.
-          <b>Superseded in part by §10:</b> <s>the two labelled halves drawn above</s> — the
-          <code>unified</code> pane becomes <b>one list</b> with the direction on each card.
-          The stacking was my drawing, not a requirement; §10 carries the correction.
+          一樣的三個區塊、一樣的 commit box、分隔線以下一樣的東西。改的是兩條分隔線各自往哪個方向走
+          —— 而 diff 現在畫得出完整的一行。
+          <b>其中一半被 §10 推翻：</b><s>上面畫的那兩個有標題的半邊</s> ——
+          <code>unified</code> 面板會變成<b>一份清單</b>，方向掛在每一張卡片上。
+          堆疊那件事是我畫的，不是需求；更正寫在 §10。
         </p>
       </div>
 
     </div>
 
-    <h3>Tree mode survives — and gets a problem it already had, but worse</h3>
+    <h3>Tree 模式留著 —— 而且它原本就有的一個問題會變得更嚴重</h3>
     <p>
-      The list/tree switch stays exactly where it is, on the Unstaged header, still driving the
-      app-wide <code>fileListViewModeProvider</code> that History, Compare and the conflict window
-      share. Nothing about it changes. But the narrow column makes an existing defect impossible
-      to live with, so it has to be decided now rather than discovered later.
+      list/tree 切換鈕位置完全不動，還在 Unstaged 的標題列上，一樣驅動 History、Compare 與衝突視窗
+      共用的那個 app 層級 <code>fileListViewModeProvider</code>。它本身什麼都沒變。但窄欄會讓一個既有
+      的缺陷變得無法忍受，所以那件事必須現在裁定，而不是之後才被發現。
     </p>
     <p>
-      <b>Tree mode draws short names on folder rows and full paths on file rows.</b> Verified by
-      pumping the real <code>WorkingCopyBoard</code> in tree mode and dumping every
-      <code>Text</code> it painted — not read off the source:
+      <b>Tree 模式在資料夾列畫短名字，在檔案列畫完整路徑。</b>這是把真的 <code>WorkingCopyBoard</code>
+      在 tree 模式下 pump 起來、把它畫出來的每一個 <code>Text</code> 倒出來驗證的 —— 不是從原始碼讀來的：
     </p>
 
     <div class="compare">
       <div class="specimen">
         <div class="specimen-head">
           <span class="specimen-tag before">Today, at 260px</span>
-          <span class="specimen-note">measured output</span>
+          <span class="specimen-note">實際量到的輸出</span>
         </div>
         <div class="stage" data-stage data-app-theme="dark-technical">
           <div class="wc" style="width:260px">
@@ -745,18 +738,17 @@ footer.colophon {
           </div>
         </div>
         <p class="specimen-note">
-          Every leaf repeats what the folder row above it already said, then gets indented on top
-          of that — so the one thing you are looking for, the file name, is the part that gets
-          clipped. Note the folder row says <code>lib</code> while the leaf says
-          <code>lib/graph/…</code>: the <code>graph/</code> segment appears in neither place as a
-          folder, because <code>FileTree</code> collapses single-child folders.
+          每一個葉節點都把它上面那一列資料夾已經講過的話再講一次，然後還被縮排 ——
+          所以你真正在找的那個東西（檔名）正好是被切掉的那一段。注意資料夾列寫的是 <code>lib</code>
+          而葉節點寫的是 <code>lib/graph/…</code>：<code>graph/</code> 這一段在兩個地方都沒有以資料夾
+          的身分出現過，因為 <code>FileTree</code> 會把只有一個子項的資料夾摺起來。
         </p>
       </div>
 
       <div class="specimen">
         <div class="specimen-head">
           <span class="specimen-tag after">Proposed</span>
-          <span class="specimen-note">leaf shows its path below its parent</span>
+          <span class="specimen-note">葉節點只畫它相對於父節點的那一段</span>
         </div>
         <div class="stage" data-stage data-app-theme="dark-technical">
           <div class="wc" style="width:260px">
@@ -772,61 +764,57 @@ footer.colophon {
           </div>
         </div>
         <p class="specimen-note">
-          The leaf drops the prefix its parent folder already carries, and keeps the collapsed
-          <code>graph/</code> — which is the only place that segment can appear at all. The file
-          name now fits, and both line-count badges fit beside it.
+          葉節點丟掉父資料夾已經寫過的前綴，但保留被摺起來的 <code>graph/</code> ——
+          那是這一段唯一可能出現的地方。檔名現在放得下了，兩個行數 badge 也擠得進它旁邊。
         </p>
       </div>
     </div>
 
     <div class="callout">
-      <div class="callout__title">Ruled — <span class="zh">「tree 一起修」</span></div>
+      <div class="callout__title">已裁定 —— <span class="zh">「tree 一起修」</span></div>
       <p>
-        This is <b>not</b> caused by the relayout; it is true in the current app today, at any
-        width — so fixing it was scope this round did not originally ask for. The user brought it
-        into scope explicitly. It ships as <b>W10</b>, its own revertible commit.
+        這<b>不是</b>改版面造成的；它在今天的 app 上、在任何寬度下都成立 ——
+        所以修它本來不在這一輪的範圍內。是使用者明確把它拉進來的。它以 <b>W10</b> 出貨，
+        自己一個可以單獨 revert 的 commit。
       </p>
       <p style="margin-bottom:0">
-        <b>List mode is unaffected</b> — a flat list has no parent folder to strip, so the full
-        path stays there, which is correct.
+        <b>List 模式不受影響</b> —— 平鋪清單沒有父資料夾可以扣掉，所以完整路徑留在那裡，那是對的。
       </p>
     </div>
 
-    <h3>What deliberately did not move</h3>
+    <h3>刻意沒有動的東西</h3>
     <ul class="plain">
-      <li>The <b>commit box</b> — still the bottom strip, full width, same 200px, same fields and
-        same 132px button column. <span class="zh">「位置不變」</span> read literally.</li>
-      <li>The <b>conflicted section</b>, when there is one, still pins above everything.</li>
-      <li><b>Dragging is still how a file changes side</b>; there is still no checkbox. Only the
-        direction changed, from sideways to downward.</li>
-      <li>The <code>2 file</code> / <code>unified</code> switch, and the divider inside
-        <code>2 file</code> mode. Only which one is <em>preselected</em> changes.</li>
-      <li>The <b>list / tree switch</b> — same place (the Unstaged header, once for the pair),
-        same app-wide preference shared with History, Compare and the conflict window. Only the
-        leaf row's <em>text</em> is in question, and only in tree mode.</li>
+      <li><b>commit box</b> —— 還是最下面那一條、滿寬、一樣 200px、一樣的欄位、一樣 132px 的按鈕欄。
+        <span class="zh">「位置不變」</span>照字面實作。</li>
+      <li><b>衝突區塊</b>，有的時候一樣釘在所有東西上面。</li>
+      <li><b>檔案換邊還是用拖的</b>；一樣沒有 checkbox。只有方向從往旁邊變成往下。</li>
+      <li><code>2 file</code> / <code>unified</code> 切換鈕，以及 <code>2 file</code> 模式裡面
+        那條分隔線。只有<em>預選</em>哪一個變了。</li>
+      <li><b>list / tree 切換鈕</b> —— 一樣的位置（Unstaged 的標題列，兩欄共用一個），
+        一樣是與 History、Compare、衝突視窗共享的 app 層級偏好。有疑問的只有葉節點那一列的
+        <em>文字</em>，而且只在 tree 模式下。</li>
     </ul>
   </section>
 
   <!-- ============================ 3 ============================ -->
   <section id="width">
-    <div class="sec-head"><span class="sec-num">03</span><h2>The one open question: what the left column's width does</h2></div>
+    <div class="sec-head"><span class="sec-num">03</span><h2>唯一一個待決的問題：左欄的寬度怎麼走</h2></div>
     <p class="lede">
-      Both options are draggable and both remember where you left them. They differ in one thing
-      only — what happens to the <em>extra</em> width when the window grows.
+      兩個方案都可以拖，也都記得你把它放在哪裡。它們只差一件事 ——
+      視窗變大時，<em>多出來</em>的寬度歸誰。
     </p>
     <p>
-      <b>The numbers below are not window widths.</b> The Working Copy is the trailing pane of
-      <code>splitterMainSidebar</code>, so it never sees the whole window: a 1280 window hands it
-      <code>1280 − 250 (sidebar) − 1 (divider) = <b>1029</b></code>, and 1920 hands it
-      <b>1669</b>. Every figure is that number, split. An earlier draft of this page computed
-      from the raw window width and overstated both diff panes by ~250px.
+      <b>下面的數字不是視窗寬度。</b>Working Copy 是 <code>splitterMainSidebar</code> 的後面那個 pane，
+      所以它從來看不到整個視窗：1280 的視窗給它
+      <code>1280 − 250（側邊欄）− 1（分隔線）= <b>1029</b></code>，1920 給它 <b>1669</b>。
+      每一個數字都是這個數字再切開。這一頁早先的草稿是從原始視窗寬度算的，兩個 diff pane 都多估了約 250px。
     </p>
 
     <div class="compare">
       <div class="specimen">
         <div class="specimen-head">
           <span class="specimen-tag optA">Option A</span>
-          <span class="specimen-note">fixed width · <code>GbmSplitterSpec.extent</code></span>
+          <span class="specimen-note">固定寬 · <code>GbmSplitterSpec.extent</code></span>
         </div>
         <div class="propgrid">
           <div>
@@ -851,17 +839,17 @@ footer.colophon {
           </div>
         </div>
         <p class="specimen-note">
-          Every pixel the window gains goes to the diff. Same behaviour as the sidebar
-          (<code>splitterMainSidebar</code>, extent 250 / min 180) and History's Changed files
-          (<code>splitterMainFiles</code>, extent 186 / min 140) — the two other file lists in
-          this app, both extent-mode.
+          視窗長出來的每一個像素都給 diff。行為與側邊欄
+          （<code>splitterMainSidebar</code>，extent 250 / min 180）和 History 的 Changed files
+          （<code>splitterMainFiles</code>，extent 186 / min 140）一致 ——
+          這個 app 裡另外兩個檔案清單，兩個都是 extent 模式。
         </p>
       </div>
 
       <div class="specimen">
         <div class="specimen-head">
           <span class="specimen-tag optB">Option B</span>
-          <span class="specimen-note">proportional · <code>GbmSplitterSpec.flex</code></span>
+          <span class="specimen-note">比例寬 · <code>GbmSplitterSpec.flex</code></span>
         </div>
         <div class="propgrid">
           <div>
@@ -894,25 +882,24 @@ footer.colophon {
     </div>
 
     <div class="callout">
-      <div class="callout__title">Ruled — <span class="zh">方案 A</span>, fixed width</div>
+      <div class="callout__title">已裁定 —— <span class="zh">方案 A</span>，固定寬</div>
       <p>
-        <code>GbmSplitterSpec.extent</code>, with <code>GbmFixedPaneEnd.leading</code>. Every pixel
-        the window gains goes to the diff: at 1920 that is <b>1408</b> for code against B's 1168 —
-        240px, about 20 more columns.
+        <code>GbmSplitterSpec.extent</code>，搭配 <code>GbmFixedPaneEnd.leading</code>。
+        視窗長出來的每一個像素都給 diff：在 1920 下程式碼拿到 <b>1408</b>，方案 B 是 1168 ——
+        差 240px，大約多 20 個字元。
       </p>
       <p style="margin-bottom:0">
-        <b>The two numbers still have no source</b> (section 04): <code>defaultExtent 260</code>
-        and <code>minExtent 180</code> are this page's proposal, carried forward because the ruling
-        picked the mode and did not name figures. They are the ones implemented unless you say
-        otherwise; <code>splitterMainSidebar</code>'s own 250 / 180 is the nearest precedent.
+        <b>那兩個數字仍然沒有出處</b>（第 04 節）：<code>defaultExtent 260</code> 與
+        <code>minExtent 180</code> 是這一頁的提案，之所以沿用是因為裁定選的是「模式」，沒有指定數字。
+        除非你另有指示，實作的就是這兩個；最接近的先例是 <code>splitterMainSidebar</code> 自己的 250 / 180。
       </p>
     </div>
 
-    <h3>How narrow the column may get, either way</h3>
+    <h3>不管選哪個方案，這一欄可以多窄</h3>
     <p>
-      Both options need a floor, and the floor is a real arithmetic question because the Unstaged
-      pane carries the drop hint and the Staged pane does not — while <code>GbmSplitPane</code>
-      applies <b>one shared <code>minExtent</code> to both panes</b>.
+      兩個方案都需要一個下限，而這個下限是一個真的算術問題：Unstaged 那個 pane 帶著 drop hint，
+      Staged 那個沒有 —— 但 <code>GbmSplitPane</code> 是<b>兩個 pane 共用同一個
+      <code>minExtent</code></b>。
     </p>
     <div class="ruler">
       <div class="stage" data-stage data-app-theme="dark-technical" style="padding:1rem">
@@ -925,24 +912,24 @@ footer.colophon {
         </div>
       </div>
       <div class="ruler__ticks">
-        <span style="height:26px">26 &nbsp;header &nbsp;<code>rowHeightCompact</code></span>
-        <span style="height:26px">26 &nbsp;one file row</span>
-        <span style="height:35px">18 + line &nbsp;hint box: 8+1 top · 11px text · 1+8 bottom</span>
-        <span style="height:8px">8 &nbsp;hint bottom margin &nbsp;<code>space2</code></span>
-        <span style="margin-top:.5rem"><b>78 + one 11px line ≈ 95</b></span>
+        <span style="height:26px">26 &nbsp;標題列 &nbsp;<code>rowHeightCompact</code></span>
+        <span style="height:26px">26 &nbsp;一列檔案</span>
+        <span style="height:35px">18 + 一行 &nbsp;hint 盒：上 8+1 · 11px 文字 · 下 1+8</span>
+        <span style="height:8px">8 &nbsp;hint 下外距 &nbsp;<code>space2</code></span>
+        <span style="margin-top:.5rem"><b>78 + 一行 11px ≈ 95</b></span>
       </div>
     </div>
     <p style="margin-top:1rem">
-      The exact-constant part is <b>78px</b> — header 26, one row 26, and 26 of hint chrome
-      (8 outer margin + 8+1 top + 1+8 bottom). The gap to ~96 is the hint's own 11px text line,
-      whose height is a <code>TextPainter</code> fact and not a token, so <b>96 is a measured
-      proposal, not a derived constant</b>. Staged, having no hint, really only needs 52.
+      能用具名常數算死的部分是 <b>78px</b> —— 標題列 26、一列 26、hint 的框佔 26
+      （外距 8 + 上 8+1 + 下 1+8）。到 ~96 之間的差額是 hint 自己那一行 11px 文字，
+      它的行高是 <code>TextPainter</code> 的事實而不是一個 token，所以
+      <b>96 是量出來的提案，不是推導出來的常數</b>。Staged 沒有 hint，其實只需要 52。
     </p>
   </section>
 
   <!-- ============================ 4 ============================ -->
   <section id="sources">
-    <div class="sec-head"><span class="sec-num">04</span><h2>Every number, and where it comes from</h2></div>
+    <div class="sec-head"><span class="sec-num">04</span><h2>每一個數字，以及它從哪裡來</h2></div>
     <p class="lede">
       Audited against the spec HTML before this page was drawn. Two values check out, three
       contradict a stated row, and four have no source anywhere — those four are the ones you are

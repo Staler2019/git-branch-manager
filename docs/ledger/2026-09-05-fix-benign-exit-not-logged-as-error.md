@@ -810,6 +810,30 @@ prod_notimeout = 26501us   prod_timeout = 26429us   watchdog delta = -72us (reso
 **job object 那個數字不受影響**：兩條 raw 手臂跑同一個 child、同一條路徑，而 A/A null
 校準的正是那個比較。
 
+### 修完之後才看出來：修的是實例，不是那一類
+
+上面那個修法給了 `prod_*` 自己的尺，於是 watchdog 那一對不會再報出「resolved 的負數」。
+但**同一個不可能的宣稱在 job object 那一對還印得出來**——判斷式是
+`llabs(delta) <= resolution`，取了絕對值，所以一個吵的夜裡 `jobDelta = -50`、
+`resolution = 18` 會走進 measured 那一支：
+
+```
+verdict=measured job_overhead_us=-50 overhead_fraction_of_git=-0.002
+```
+
+而 `perf-nightly.yml` 的 Step Summary 會無人看管地把它推上去，`fraction <= gate` 那道
+gate 也會通過——負數當然小於任何門檻。**上一段自己寫下的物理理由（「watchdog 不可能讓
+spawn 變快」）對 job object 一字不改地成立**，只是當時只拿它去解釋眼前那一個讀數，沒有
+拿它去改判斷式。
+
+改法是把絕對值拿掉，讓判斷式**有號**：`delta > resolution` 才算量到成本；`delta` 落在
+解析度以下——**包含所有負值**——一律是 below-noise，只印上界。一個顯著的負值不是「成本
+是負的」的證據，是「解析度被低估了」的證據，而那正是 −72 µs 那次讀數的真相。
+
+記在這裡是因為這個順序本身是這一輪的主題：**先有一個具體的錯誤讀數，才看得出判斷式錯
+在哪；而修好眼前那一個之後，還要再問一次「同一個形狀還在哪裡」。** 兩對手臂現在共用一
+條規則。
+
 ### 這一輪真正學到的
 
 使用者的裁定是「measurement as a cause to fix it」。實際發生的事比字面更強一點：

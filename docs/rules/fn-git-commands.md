@@ -9,10 +9,28 @@ Pin prefix `GIT-`. Format: [README.md](README.md).
 - **Consequence**: a single exit-code check reports total failure for work that is mostly
   done, and a force retry then resends the already-deleted names, which fail as 「not found」
   and report total failure a second time. That is the whole of the user's three-line error log.
+- **Consequence**: **the second half is refreshing, and it went unwritten here for as long as
+  this pin existed.** A partial delete is a *failed* outcome sitting on top of a repository
+  that really moved, and `Session::submitOperation` refreshed refs on `succeeded` alone — so
+  the sidebar went on drawing branches git had already removed until the next F5 or window
+  focus. Single-branch delete is all-or-nothing, so only the multi-select path (the sidebar's
+  own Delete button) could ever show it, which is exactly how it was reported.
 - **Do**: `DeleteBranchOperation` probes `git for-each-ref` before (send only what still
   exists) and after a failure (say what really went).
+- **Do**: **that same after-probe is the evidence for the refresh**, via
+  `OperationOutcome::mutatedRefs` (`!deleted.empty()`). Evidence, not assumption: an empty
+  `deleted` means either nothing went *or* the probe could not tell, and neither is grounds
+  for claiming the repository changed — [STATE-never-guess-what-git-would-say] applied to a
+  refresh decision. The flag is **deliberately not serialized**; the decision is taken inside
+  Session's completion callback before `toJson(outcome)`, and a wire field with no Dart reader
+  is [CULT-orphan-wiring].
+- **Note**: the remote half (`git push <remote> --delete a b c`) partially succeeds the same
+  way and has **no** before/after probe, so `mutatedRefs` is never set on that path —
+  使用者裁定 this round is local-only. Adding one costs a network round trip, which is why it
+  is a decision rather than an omission.
 - **Do not** parse per-name stderr — those strings are gettext-localised, so they may inform
   a *message* but never a correctness decision.
+- **Evidence**: [ledger: 部分成功的刪除不刷新](../ledger/2026-09-05-fix-partial-branch-delete-no-refresh.md)
 
 ## [GIT-diff-tree-ignores-first-parent] `git diff-tree` silently ignores `--first-parent`
 

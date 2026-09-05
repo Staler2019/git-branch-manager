@@ -1396,8 +1396,11 @@ footer.colophon {
     <div class="sec-head"><span class="sec-num">08</span><h2>Work list</h2></div>
     <p class="lede">
       Each is its own commit so each can be reverted alone. <b>Nothing is blocked</b> — sections
-      02, 03, 05 and 06 are all ruled. W11–W13 touch one file no other item does, so they can land
-      before, after or between the rest.
+      02, 03, 05 and 06 are all ruled. The order is W1–W7, then W10, then W11–W13, then W8, then
+      W9: <b>the device tier goes last</b>, because W11–W13 restyle the very surface
+      <code>stage_lines_flow_test</code> drives, and a device green taken before them attests a
+      tree that then changes — the same reason <code>[TEST-device-runs-one-file]</code> forbids
+      editing <code>lib/</code> while a device run is in flight.
     </p>
     <div class="tablewrap"><table>
       <thead><tr><th style="width:6%">#</th><th style="width:28%">Item</th><th style="width:10%">Sites</th><th>What it is</th></tr></thead>

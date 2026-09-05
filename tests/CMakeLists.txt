@@ -139,6 +139,7 @@ if(GBM_BUILD_CAPI)
         capi/BlameApiTest.cpp
         capi/BranchApiTest.cpp
         capi/CallbackRegistryTest.cpp
+        capi/CancelOperationApiTest.cpp
         capi/CherryPickRevertApiTest.cpp
         capi/CommitFilesApiTest.cpp
         capi/CommitMetaApiTest.cpp

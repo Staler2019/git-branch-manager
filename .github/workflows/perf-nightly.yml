@@ -140,6 +140,18 @@ jobs:
       - name: Install Ninja and a pinned CMake
         uses: lukka/get-cmake@latest
 
+      # Not optional, and not merely matching ci.yml for tidiness: without it
+      # CMake finds MinGW's g++ first on the runner's PATH and builds the whole
+      # thing with a toolchain we do not ship. The subject here is the per-spawn
+      # cost of a Win32 job object *in the shipped binary*, so a number taken
+      # from a different C++ runtime and a different CRT would be measuring
+      # something nobody runs. The first attempt at this job had no such step
+      # and did exactly that -- it failed on a latent missing <cstring> that
+      # MSVC happens to tolerate, which is the only reason the wrong toolchain
+      # was noticed at all rather than quietly producing a plausible number.
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+
       - name: Report the git version
         run: git --version
 
@@ -155,8 +167,15 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
+          # -V, not just --output-on-failure: the measurement is written to
+          # stderr by a test that *passes*, and ctest swallows a passing test's
+          # output. Without this the publish step below finds no
+          # `job-object-ab:` line on a perfectly good run and reports "the run
+          # failed before measuring". (The Linux job avoids this only because
+          # the `perf` preset sets verbosity: verbose; this one bypasses the
+          # preset to skip building a 100k-commit fixture, so it must ask.)
           ctest --test-dir build/core-only -L perf -R windows_job_object_spawn_cost \
-            --output-on-failure 2>&1 | tee spawn.log
+            -V --output-on-failure 2>&1 | tee spawn.log
 
       - name: Publish measurements
         if: always()

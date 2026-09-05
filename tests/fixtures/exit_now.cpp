@@ -12,9 +12,26 @@
 // spawn counted as a sample would show up as the job-object arm being free or
 // even cheaper than no job at all. Checking the payload is what makes that
 // impossible to mistake for a result.
+//
+// **stdout is put into binary mode on Windows**, and that is load-bearing
+// rather than tidiness. The Windows CRT opens stdout in *text* mode, which
+// translates the `\n` below into `\r\n` on the way into the pipe -- so the
+// measuring side, which compares the raw `ReadFile` bytes against `"ok\n"`,
+// would fail its own payload assertion on every single sample and the tool
+// would report `a spawn failed mid-loop` on iteration 1. Fixing it here keeps
+// the assertion exact; loosening the comparison to accept either ending would
+// have thrown away the one check that tells a failed spawn from a fast one.
 #include <cstdio>
 
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#endif
+
 int main() {
+#ifdef _WIN32
+    ::_setmode(::_fileno(stdout), _O_BINARY);
+#endif
     std::fputs("ok\n", stdout);
     return 0;
 }

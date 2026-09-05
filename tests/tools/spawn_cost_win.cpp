@@ -64,7 +64,7 @@
 
 #include "core/git/GitCommand.h"
 #include "core/git/GitExecutable.h"
-#include "core/git/ProcessRunner.h"
+#include "core/git/IProcessRunner.h"
 
 #include <windows.h>
 
@@ -330,33 +330,68 @@ int main(int argc, char** argv) {
     const double recoveryError =
         static_cast<double>(std::llabs(recoveredUs - kInjectedDelayUs)) / kInjectedDelayUs;
 
-    // A real git spawn, in the same interleave, so the overhead can be stated
-    // as a fraction of something a user actually waits for.
+    // A real git spawn through the real ProcessRunner, so the overhead above
+    // can be stated as a fraction of something a user actually waits for --
+    // and, in the same loop, the *second* A/B this tool owes.
+    //
+    // The two `prod_*` arms differ in one field: `prod_timeout` sets a
+    // deadline, so `WindowsChild::pump()` starts a watchdog thread and
+    // duplicates a thread handle for it; `prod_notimeout` leaves both
+    // deadlines at 0, which is the branch that starts no thread at all
+    // ([CPP-windows-terminate-hangs-join]). Their difference is therefore the
+    // watchdog's per-spawn cost with the job object held constant -- both arms
+    // create one, because production always does.
+    //
+    // This separation is the whole point: the ledger's third Windows run
+    // carried the job object *and* the watchdog at once and reported 1.02x for
+    // the pair, so neither was ever attributed. Two arms differing in one
+    // field is what makes an attribution possible.
     long long gitUs = 0;
+    long long gitTimeoutUs = 0;
     {
         auto installation = gbm::GitExecutable::detect();
         if (installation && !installation->executable.empty()) {
             auto runner = gbm::makeProcessRunner(installation->executable);
-            std::vector<long long> gitSamples;
-            for (int i = 0; i < kWarmupIterations + iterations; ++i) {
+
+            const auto timeOneGit = [&](bool withDeadline) -> long long {
                 gbm::GitCommand command;
                 command.args = {"--version"};
-                command.timeout = std::chrono::seconds(30);
+                // 30s vs 0: the only difference between the two arms.
+                command.timeout = withDeadline ? std::chrono::milliseconds(30000)
+                                               : std::chrono::milliseconds(0);
+                command.idleTimeout = std::chrono::milliseconds(0);
                 const long long start = qpcNow();
                 const auto result = runner->run(command);
                 const long long elapsed = qpcNow() - start;
                 check(static_cast<bool>(result),
                       "`git --version` failed while measuring the denominator");
+                return elapsed;
+            };
+
+            std::vector<long long> noTimeoutSamples;
+            std::vector<long long> timeoutSamples;
+            for (int i = 0; i < kWarmupIterations + iterations; ++i) {
+                // Same alternation as the raw arms, for the same reason.
+                const bool deadlineFirst = (i % 2) == 1;
+                const long long first = timeOneGit(deadlineFirst);
+                const long long second = timeOneGit(!deadlineFirst);
                 if (gFailures != 0) {
                     return 1;
                 }
                 if (i >= kWarmupIterations) {
-                    gitSamples.push_back(elapsed);
+                    timeoutSamples.push_back(deadlineFirst ? first : second);
+                    noTimeoutSamples.push_back(deadlineFirst ? second : first);
                 }
             }
-            gitUs = ticksToMicros(medianOf(gitSamples), frequency);
+            gitUs = ticksToMicros(medianOf(noTimeoutSamples), frequency);
+            gitTimeoutUs = ticksToMicros(medianOf(timeoutSamples), frequency);
         }
     }
+
+    // Reported against the same resolution the job-object delta is judged by:
+    // this arm pair is measured with the same instrument, on the same run.
+    const long long watchdogDeltaUs = gitTimeoutUs - gitUs;
+    const bool watchdogResolved = gitUs > 0 && std::llabs(watchdogDeltaUs) > resolutionUs;
 
     const char* verdict = "measured";
     if (static_cast<long long>(rawJob.samples.size()) < kMinSamplesForVerdict) {
@@ -375,7 +410,9 @@ int main(int argc, char** argv) {
                  "  raw_job   median   = %lldus\n"
                  "  A/A null  median   = %lldus  -> resolution %lldus\n"
                  "  injected %lldus     -> recovered %lldus (error %.0f%%)\n"
-                 "  git --version      = %lldus\n"
+                 "  prod_notimeout     = %lldus  (git --version, no watchdog)\n"
+                 "  prod_timeout       = %lldus  (git --version, watchdog armed)\n"
+                 "  watchdog delta     = %lldus  (%s)\n"
                  "  parent already in a job: %s\n",
                  iterations,
                  kWarmupIterations,
@@ -387,7 +424,22 @@ int main(int argc, char** argv) {
                  recoveredUs,
                  recoveryError * 100.0,
                  gitUs,
+                 gitTimeoutUs,
+                 watchdogDeltaUs,
+                 watchdogResolved ? "resolved" : "below this run's resolution",
                  parentInJob ? "yes" : "no");
+
+    // The watchdog arm gets the same treatment as the job-object arm rather
+    // than a looser one: a point estimate only when the run could resolve it,
+    // an upper bound otherwise. Two arms measured by one instrument must not
+    // be held to two standards.
+    char watchdogField[128];
+    std::snprintf(watchdogField,
+                  sizeof(watchdogField),
+                  watchdogResolved ? "watchdog_delta_us=%lld"
+                                   : "watchdog_delta_upper_bound_us=%lld",
+                  watchdogResolved ? watchdogDeltaUs
+                                   : std::max<long long>(std::llabs(watchdogDeltaUs), resolutionUs));
 
     // One machine-readable line for the nightly Step Summary. Below the
     // instrument's resolution it carries an upper bound and **no point
@@ -397,12 +449,13 @@ int main(int argc, char** argv) {
             gitUs > 0 ? static_cast<double>(jobDeltaUs) / static_cast<double>(gitUs) : 0.0;
         std::fprintf(stderr,
                      "job-object-ab: verdict=measured job_overhead_us=%lld resolution_us=%lld "
-                     "git_spawn_us=%lld overhead_fraction_of_git=%.4f parent_in_job=%d "
+                     "git_spawn_us=%lld overhead_fraction_of_git=%.4f %s parent_in_job=%d "
                      "iterations=%d\n",
                      jobDeltaUs,
                      resolutionUs,
                      gitUs,
                      fraction,
+                     watchdogField,
                      parentInJob ? 1 : 0,
                      iterations);
 
@@ -416,11 +469,12 @@ int main(int argc, char** argv) {
     } else {
         std::fprintf(stderr,
                      "job-object-ab: verdict=%s job_overhead_upper_bound_us=%lld "
-                     "resolution_us=%lld git_spawn_us=%lld parent_in_job=%d iterations=%d\n",
+                     "resolution_us=%lld git_spawn_us=%lld %s parent_in_job=%d iterations=%d\n",
                      verdict,
                      std::max<long long>(std::llabs(jobDeltaUs), resolutionUs),
                      resolutionUs,
                      gitUs,
+                     watchdogField,
                      parentInJob ? 1 : 0,
                      iterations);
         // Deliberately not a failure. "This machine cannot resolve it" is a

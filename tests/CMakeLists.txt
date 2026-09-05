@@ -161,7 +161,11 @@ set_tests_properties(windows_job_object_spawn_cost PROPERTIES
     # Every other thing ctest could run in parallel is noise on a measurement
     # whose whole subject is microseconds.
     RUN_SERIAL TRUE
-    ENVIRONMENT "GBM_EXIT_NOW_EXE=$<TARGET_FILE:gbm_exit_now>;GIT_OPTIONAL_LOCKS=0")
+    # GBM_MAX_JOB_OVERHEAD_FRACTION is a cache variable and the tool reads it
+    # with getenv(), so it only reaches the tool if it is forwarded here. Left
+    # out, it would be a knob that is present, documented and ignored -- the
+    # shape [REF-fetch-auto-prunes] deleted a whole setting over.
+    ENVIRONMENT "GBM_EXIT_NOW_EXE=$<TARGET_FILE:gbm_exit_now>;GIT_OPTIONAL_LOCKS=0;GBM_MAX_JOB_OVERHEAD_FRACTION=${GBM_MAX_JOB_OVERHEAD_FRACTION}")
 
 # --- capi (FFI) tests -------------------------------------------------------
 # Gated on GBM_BUILD_CAPI so it builds under the capi-only preset.

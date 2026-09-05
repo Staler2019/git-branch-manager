@@ -56,6 +56,7 @@ class OperationRecord extends GbmLogEntry {
     required this.stderrText,
     required this.cancelled,
     required this.timedOut,
+    this.benignExit = false,
   });
 
   factory OperationRecord.fromJson(Map<String, dynamic> json) {
@@ -69,6 +70,7 @@ class OperationRecord extends GbmLogEntry {
       stderrText: json['stderrText'] as String,
       cancelled: json['cancelled'] as bool,
       timedOut: json['timedOut'] as bool,
+      benignExit: json['benignExit'] as bool,
     );
   }
 
@@ -84,7 +86,33 @@ class OperationRecord extends GbmLogEntry {
   final bool cancelled;
   final bool timedOut;
 
-  bool get failed => exitCode != 0 || cancelled || timedOut;
+  /// True when the caller declared [exitCode] a normal *answer* for this
+  /// command rather than a refusal — see `GitCommand::benignExitCodes` in
+  /// `src/core/git/GitCommand.h`, which is where the declaration is made and
+  /// the only place that knows what question was asked.
+  ///
+  /// The reported case: `git config --local --get user.name` exits 1 when the
+  /// key is unset, so every refresh wrote two red `ERROR` rows for reading an
+  /// identity that simply is not configured. Spec page 10's `LOGRULES`
+  /// reserves error for an action that was actually *refused*; a `--get` on an
+  /// unset key answered.
+  ///
+  /// Defaulted rather than `required`, unlike every other field here.
+  /// [fromJson] is the only production construction site — everything else is
+  /// a test fixture, where `false` ("an ordinary invocation") is exactly what
+  /// an omitted value should mean. The strictness that matters is on the wire,
+  /// and it is kept: [fromJson] reads `as bool` with no fallback, so a payload
+  /// missing the key is a loud `TypeError` rather than a silent `false`. The
+  /// C++ side always serializes it and nothing here is persisted or replayed,
+  /// so there is no legitimate "old payload" to be lenient towards.
+  final bool benignExit;
+
+  /// Whether this invocation did not do what was asked.
+  ///
+  /// A declared answer is not a failure — that is the whole point of
+  /// [benignExit] — but a cancellation or a timeout stays one whatever the
+  /// caller declared, because neither is an answer to anything.
+  bool get failed => (exitCode != 0 && !benignExit) || cancelled || timedOut;
 
   /// The single source of truth for how severely this record should read --
   /// the drawer's filter, its row styling, and the plain-text export all go
@@ -99,10 +127,19 @@ class OperationRecord extends GbmLogEntry {
   /// whenever a newer refresh is posted, and the abandoned one is not an
   /// error -- it is work that was replaced. Spec's `LOGRULES` reserves
   /// error for an action that was actually refused (`git push … exit 1`).
+  ///
+  /// [timedOut] is tested before [benignExit] for the same reason [cancelled]
+  /// is tested before both: a command killed for taking too long never
+  /// finished saying whatever it was going to say, so a declared answer code
+  /// left behind by the kill is not an answer. The C++ side sets [benignExit]
+  /// purely from the declared code list and deliberately does not guard it on
+  /// these two flags — this ordering is what makes that safe, and it is the
+  /// only place the precedence lives.
   @override
   OperationLogLevel get level {
     if (cancelled) return OperationLogLevel.warning;
-    if (timedOut || exitCode != 0) return OperationLogLevel.error;
+    if (timedOut) return OperationLogLevel.error;
+    if (exitCode != 0 && !benignExit) return OperationLogLevel.error;
     return OperationLogLevel.info;
   }
 

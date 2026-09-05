@@ -83,3 +83,107 @@ Pin prefix `CI-`. Format: [README.md](README.md).
 - **Do**: regenerate with `GBM_UPDATE_GOLDEN=1 flutter test test/data/services/update_script_golden_test.dart`.
   The golden is compared as **bytes**, because the BOM is half of what it pins.
 - **Evidence**: [ledger: Install and restart 卡在 Installing…](../ledger/2026-09-01-claude-windows-app-update-install-irloo0.md)
+
+## [CI-no-ctest-timeout] `enable_testing()` without `include(CTest)` means there is **no** per-test timeout at all
+
+- **Rule**: the documented 1500-second default is the **CTest module's** `DART_TESTING_TIMEOUT`,
+  written into `DartConfiguration.tcl` — and the root `CMakeLists.txt` calls `enable_testing()`
+  only, so that file is never generated and ctest applies no deadline of any kind. The two
+  `gtest_discover_tests` calls set `DISCOVERY_TIMEOUT`, which bounds *discovery*, not a test.
+- **Consequence**: a test that fails **by hanging** runs to GitHub's 6-hour job cap. Measured:
+  one Windows `capi (FFI)` job sat 81 minutes on a single test against a 9–11 minute baseline,
+  and stopped only because a human cancelled it — which is also the only way its log became
+  readable, since GitHub refuses to serve logs for an in-progress job.
+- **Consequence**: it costs more than the one job. `flutter-ci` is `needs: capi-build`
+  ([CI-two-workflows]), so it did not run **once** on that branch while a Windows job could not
+  finish.
+- **Do**: both layers, because they answer different questions. `tbase.execution.timeout` in
+  `CMakePresets.json` names the culprit (`***Timeout`, with the test's name, and the remaining
+  tests still run under `stopOnFailure: false`); `timeout-minutes` on every `ci.yml` job caps
+  the bill. A job-level timeout **cancels** the job, and `if: failure()` does not fire on a
+  cancellation — so the `Upload test logs` step is unreachable by that path and only the ctest
+  timeout leaves evidence behind.
+- **Do**: put it on `tbase`, not on `gtest_discover_tests(PROPERTIES TIMEOUT n)`. All five test
+  presets inherit `tbase`, including any added later; the gtest form covers only the two gtest
+  executables and misses every `add_test()` fixture test. An explicit `TIMEOUT` property still
+  wins over `--timeout`, so `graph_matches_git_on_generated_history` and
+  `commit_graph_speedup_ratio` keep their `TIMEOUT 600` untouched.
+- **Do not** reach for `include(CTest)` to get the default back: it pulls in `BUILD_TESTING`
+  (which then fights `GBM_BUILD_TESTS`) and the CDash submit targets, and 1500 seconds is far
+  too long to be the instrument here.
+- **Evidence**: [ledger: 追加，Windows CI 卡 81 分鐘](../ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
+
+## [CI-windows-toolchain-not-implied] `runs-on: windows-*` names an operating system, not a compiler — CMake picks one off `PATH`
+
+- **Rule**: the GitHub Windows images ship **both** MSVC and a MinGW `g++` on `PATH`, and with no
+  toolchain step CMake's compiler probe takes whichever it finds first. `ci.yml`'s capi job gets
+  MSVC only because it runs `ilammy/msvc-dev-cmd@v1`; a new Windows job that omits that step is
+  not "the same as the others", it is a different toolchain.
+- **Consequence**: for a *measurement* job this is worse than a red build. The subject of
+  `windows_job_object_spawn_cost` is the per-spawn cost of a Win32 job object **in the shipped
+  binary**; a number taken under a different CRT and a different C++ runtime measures something
+  nobody runs, and it arrives as a perfectly plausible microsecond figure with nothing anywhere
+  saying it is wrong.
+- **Consequence**: it was caught only by luck — the MinGW build failed on a latent missing
+  `<cstring>` in `FsUtil.cpp` that MSVC tolerates through transitive includes. Without that
+  coincidence the round would have published a fabricated number into
+  `docs/reports/windows-process-cost.md`, the document that exists to record the *previous*
+  fabricated number.
+- **Do**: before trusting any new performance job, establish that it builds **the thing you
+  ship** — read the compiler path out of the build log (`C:\mingw64\bin\c++.exe` vs `cl.exe`)
+  rather than inferring it from `runs-on`. This is [CPP-windows-terminate-hangs-join]'s control-group
+  lesson moved one step earlier: prove you are measuring the right thing before arguing about
+  how precisely you measured it.
+- **Evidence**: [ledger: 追加五](../ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
+
+## [CI-ctest-hides-passing-output] `ctest --output-on-failure` publishes nothing from a test that passes
+
+- **Rule**: a measurement written to stdout/stderr by a **passing** test is swallowed unless
+  `-V` (or a preset's `output.verbosity: verbose`) is in effect. `--output-on-failure` is, by
+  name, the opposite of what a measurement job needs.
+- **Consequence**: the failure mode is a **green job that produced no data** — the publish step
+  finds no `job-object-ab:` line and reports "the run failed before measuring" on a run where
+  nothing failed. That reads as a broken test rather than a missing flag.
+- **Rule**: **bypassing a preset forfeits its settings.** `perf-nightly.yml`'s Windows job uses a
+  bare `ctest --test-dir … -L perf -R …` rather than `--preset perf`, deliberately (the preset's
+  other member builds a 100k-commit fixture), and therefore does not inherit that preset's
+  `verbosity: verbose` the way the Linux job does.
+- **Do**: any ctest invocation whose *product* is text from a passing test takes `-V`. Where the
+  run is filtered out of a preset for cost reasons, re-state every setting that mattered.
+- **Evidence**: [ledger: 追加五](../ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
+
+## [CI-platform-guarded-block-uncompiled] Code inside `#ifdef _WIN32` is compiled by exactly one CI job, so its errors arrive one per round-trip
+
+- **Rule**: a local `cmake --build --target all` on macOS reports success having never parsed a
+  single line inside a `#ifdef _WIN32`. [CI-linux-only] says PR CI compiles Linux only for the
+  *Flutter runners*; this is the same hole one level down, inside a file that does build
+  everywhere.
+- **Consequence**: the compiler stops at the first error, so each fix buys exactly one more error
+  and each costs a full CI round-trip. `spawn_cost_win.cpp` shipped a nonexistent header
+  (`core/git/ProcessRunner.h`) and a one-argument `IProcessRunner::run()` — the second was
+  unreachable until the first was fixed, and neither was visible to a fully green local suite.
+- **Do**: after the second round-trip, stop and compile it locally against a stub. A
+  signature-only `windows.h` (~50 lines, never linked) plus a wrapper that includes the std
+  headers under the *real* platform **before** `#define _WIN32`, then `#include`s the `.cpp`,
+  type-checks the whole block with `c++ -fsyntax-only`. Ordering the define after the std
+  includes is what keeps libc++ out of the fake platform.
+- **Do**: **mutation-check the stub before believing a clean result** — a probe that never
+  reaches the guarded block reports exactly the same silence as one that reaches it and finds
+  nothing. Mutating a *Win32* call specifically (not just a cross-platform one) is what tells
+  the two apart.
+- **Note**: MSVC's `/W4 /WX` still catches things a stub cannot, C4774 (a non-literal `printf`
+  format string, e.g. from a ternary) among them. The stub narrows the round-trips; it does not
+  remove the need for one.
+- **Do**: **the probe type-checks the code, and says nothing about the build wiring** — its
+  `-I` flags are hand-fed, so they can differ from what the real target actually has. A new
+  sibling header (`tools/spawn_cost_verdict.h`) passed the probe under `-I tests` and then
+  failed MSVC with `C1083: Cannot open include file`, because `gbm_spawn_cost` links
+  `gbm_core` but not `gbm_test_support` — and the latter is what carries `tests/` as a
+  PUBLIC include dir. The local build was no help either: the `#include` sits *inside* the
+  `#ifdef _WIN32`, so a green macOS build never looked at it.
+- **Do**: verify an include path from **`compile_commands.json`**, not from a build that may
+  have skipped the guarded block — `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON`, then read the `-I`
+  list for that one object. It is platform-independent evidence, and deleting the
+  `target_include_directories` line makes `tests/` vanish from it, which is the mutation that
+  proves the line is load-bearing rather than decorative.
+- **Evidence**: [ledger: 追加五](../ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)

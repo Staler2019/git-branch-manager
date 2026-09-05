@@ -8,6 +8,7 @@ OperationRecord record({
   bool cancelled = false,
   bool timedOut = false,
   int exitCode = 0,
+  bool benignExit = false,
 }) {
   return OperationRecord(
     whenEpochMs: 0,
@@ -19,6 +20,7 @@ OperationRecord record({
     stderrText: '',
     cancelled: cancelled,
     timedOut: timedOut,
+    benignExit: benignExit,
   );
 }
 
@@ -66,6 +68,66 @@ void main() {
         OperationLogLevel.warning,
       );
     });
+
+    // The reported case: `git config --local --get user.name` exits 1 when the
+    // key is unset, so every refresh wrote two red ERROR rows for reading an
+    // identity that simply is not configured. LOGRULES reserves error for an
+    // action that was actually refused; a --get on an unset key answered.
+    test('a non-zero exit the caller declared an answer is info', () {
+      expect(
+        record(exitCode: 1, benignExit: true).level,
+        OperationLogLevel.info,
+      );
+    });
+
+    test('the same exit code without the declaration is still error', () {
+      // The control. Without it, the case above passes for a `level` that
+      // stopped reading exitCode at all.
+      expect(
+        record(exitCode: 1, benignExit: false).level,
+        OperationLogLevel.error,
+      );
+    });
+
+    test('a benign exit does not rescue a timeout', () {
+      // A timeout is not an answer to anything -- the command never finished
+      // saying whatever it was going to say, whatever code the kill left
+      // behind. C++ sets benignExit purely from the declared code list, so
+      // this combination really does arrive here and the ordering is what
+      // keeps it an error.
+      expect(
+        record(timedOut: true, exitCode: 1, benignExit: true).level,
+        OperationLogLevel.error,
+      );
+    });
+
+    test('a benign exit does not rescue a cancellation', () {
+      expect(
+        record(cancelled: true, exitCode: 1, benignExit: true).level,
+        OperationLogLevel.warning,
+      );
+    });
+  });
+
+  group('OperationRecord.failed', () {
+    test('a declared answer is not a failure', () {
+      expect(record(exitCode: 1, benignExit: true).failed, isFalse);
+    });
+
+    test('the same exit code without the declaration is a failure', () {
+      expect(record(exitCode: 1, benignExit: false).failed, isTrue);
+    });
+
+    test('cancelled and timedOut stay failures whatever the declaration', () {
+      expect(
+        record(cancelled: true, exitCode: 1, benignExit: true).failed,
+        isTrue,
+      );
+      expect(
+        record(timedOut: true, exitCode: 1, benignExit: true).failed,
+        isTrue,
+      );
+    });
   });
 
   group('OperationRecord.levelLabel', () {
@@ -73,22 +135,26 @@ void main() {
       for (final bool cancelled in <bool>[false, true]) {
         for (final bool timedOut in <bool>[false, true]) {
           for (final int exitCode in <int>[0, 1, 143]) {
-            final OperationRecord r = record(
-              cancelled: cancelled,
-              timedOut: timedOut,
-              exitCode: exitCode,
-            );
-            final String expected = switch (r.level) {
-              OperationLogLevel.info => 'INFO',
-              OperationLogLevel.warning => 'CANCELLED',
-              OperationLogLevel.error => timedOut ? 'TIMEOUT' : 'ERROR',
-            };
-            expect(
-              r.levelLabel,
-              expected,
-              reason:
-                  'cancelled=$cancelled timedOut=$timedOut exitCode=$exitCode',
-            );
+            for (final bool benignExit in <bool>[false, true]) {
+              final OperationRecord r = record(
+                cancelled: cancelled,
+                timedOut: timedOut,
+                exitCode: exitCode,
+                benignExit: benignExit,
+              );
+              final String expected = switch (r.level) {
+                OperationLogLevel.info => 'INFO',
+                OperationLogLevel.warning => 'CANCELLED',
+                OperationLogLevel.error => timedOut ? 'TIMEOUT' : 'ERROR',
+              };
+              expect(
+                r.levelLabel,
+                expected,
+                reason:
+                    'cancelled=$cancelled timedOut=$timedOut '
+                    'exitCode=$exitCode benignExit=$benignExit',
+              );
+            }
           }
         }
       }
@@ -112,12 +178,18 @@ void main() {
       for (final bool cancelled in <bool>[false, true]) {
         for (final bool timedOut in <bool>[false, true]) {
           for (final int exitCode in <int>[0, 1, 143]) {
-            final OperationLogLevel level = record(
-              cancelled: cancelled,
-              timedOut: timedOut,
-              exitCode: exitCode,
-            ).level;
-            expect(OperationLogLevel.values.where((l) => l == level).length, 1);
+            for (final bool benignExit in <bool>[false, true]) {
+              final OperationLogLevel level = record(
+                cancelled: cancelled,
+                timedOut: timedOut,
+                exitCode: exitCode,
+                benignExit: benignExit,
+              ).level;
+              expect(
+                OperationLogLevel.values.where((l) => l == level).length,
+                1,
+              );
+            }
           }
         }
       }

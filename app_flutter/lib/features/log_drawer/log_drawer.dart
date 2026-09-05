@@ -234,10 +234,16 @@ class _LogRow extends StatelessWidget {
   /// rejected exit are both errors but not the same thing. An app-level
   /// event has no process outcome to be finer about, so it falls back to the
   /// level.
+  ///
+  /// The failure arm reads [OperationRecord.failed] rather than `exitCode !=
+  /// 0`, which is the same predicate gating the `exit N` chip below. It used
+  /// to re-derive the condition, and that is precisely how a row could end up
+  /// labelled INFO next to a red error icon once a non-zero exit stopped
+  /// automatically meaning failure ([CULT-single-source-of-truth]).
   static IconData _iconFor(GbmLogEntry entry) => switch (entry) {
     OperationRecord(cancelled: true) => Icons.stop_circle,
     OperationRecord(timedOut: true) => Icons.schedule,
-    OperationRecord(:final int exitCode) when exitCode != 0 => Icons.error,
+    OperationRecord(failed: true) => Icons.error,
     OperationRecord() => Icons.check_circle,
     AppLogEntry(level: OperationLogLevel.info) => Icons.info_outline,
     AppLogEntry(level: OperationLogLevel.warning) => Icons.warning_amber,

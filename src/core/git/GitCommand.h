@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -27,7 +28,86 @@ struct GitCommand {
     /// slow, not broken, and killing it would be wrong.
     std::chrono::milliseconds timeout{0};
 
+    /// How long since the last *I/O progress* counts as hung. 0 means "do not
+    /// watch".
+    ///
+    /// `timeout` asks "how long has this run in total"; this asks "is it still
+    /// alive". For a fetch that is actively transferring, those two questions
+    /// have different answers, and that difference is the whole reason the ~24
+    /// commands above set `timeout = 0`: a 500 MB clone on a slow link is slow,
+    /// not broken, so a total-duration deadline would kill legitimate work.
+    /// Nothing arriving for minutes is a different claim, and a safe one.
+    ///
+    /// Progress means any of the three pipes moved: a stdout or stderr read, or
+    /// a stdin write. The stdin half matters -- a child steadily consuming a
+    /// patch we are feeding it is alive even before it answers.
+    ///
+    /// Set this only where `timeout` is 0. The commands that already carry a
+    /// finite total deadline cannot hang forever by construction, so adding an
+    /// idle deadline there would only add a way to kill a command that is
+    /// legitimately quiet inside its own budget.
+    std::chrono::milliseconds idleTimeout{0};
+
+    /// The hang ceiling for a command that declares `timeout = 0`.
+    ///
+    /// **Measured, and the measurement is why it is this large rather than
+    /// tight.** Two censuses on this repository, git 2.55, macOS:
+    ///
+    ///  - In-pump, over ~10k invocations across the whole test suite: the
+    ///    largest gap between any two bytes of progress was **148 ms**.
+    ///  - Against a 60k-commit / 240k-object repository, every command that
+    ///    sets `timeout = 0` wrote **zero bytes** to its pipe and so was silent
+    ///    for its entire run: `repack -adf` 3540 ms, `commit-graph write
+    ///    --reachable` 248 ms, `clone --quiet` 138 ms, `reset --hard` 74 ms,
+    ///    `rev-list --all` 63 ms.
+    ///
+    /// That second row is the constraint. git prints a progress meter only when
+    /// stderr is a terminal, and ours is always a pipe -- so for these commands
+    /// "time since the last output" and "time since it started" are the same
+    /// number, and this ceiling has to cover a whole legitimate run, not a gap
+    /// between progress messages. Ten minutes is ~170x the slowest silent run
+    /// measured and ~4000x the typical gap, which leaves room for a far larger
+    /// repository on far slower storage while still bounding a true hang.
+    ///
+    /// Passing `--progress` would make git talk to a pipe and let this be
+    /// tightened a great deal; it also changes what lands in `stderr` for error
+    /// classification and the operation log, so it is a separate decision and
+    /// deliberately not taken here.
+    static constexpr std::chrono::milliseconds kHangCeiling{std::chrono::minutes(10)};
+
     bool mergeStderrIntoStdout = false;
+
+    /// Exit codes that are a *normal answer* from this particular command, not
+    /// a refusal — declared by the caller, because only the caller knows which
+    /// question it asked.
+    ///
+    /// `git config --get <key>` exits 1 when the key is unset, `--unset` exits
+    /// 5 when it was never set, `diff --no-index` exits 1 when it finds the
+    /// differences it was asked to find, and `merge-base` exits 1 when two
+    /// histories are genuinely unrelated. None of those is a failure, and all
+    /// four call sites already read the code as data. What they could not do
+    /// until now is say so to the *operation log*, which records every
+    /// invocation with its exit code and had no way to distinguish "answered
+    /// no" from "refused" — so a healthy refresh wrote two red ERROR rows for
+    /// reading an identity that simply is not configured. Spec page 10's
+    /// LOGRULES reserves error for an action that was actually refused.
+    ///
+    /// A set of codes rather than a `bool tolerateFailure`, and the `--unset`
+    /// case is why: its normal answer is 5, so a flag meaning "any non-zero is
+    /// fine here" would also swallow the 128 that says the config file is
+    /// broken or this is not a repository. Each command names the codes it can
+    /// legitimately answer with, and every other code stays an error.
+    ///
+    /// This affects the *record* only. `run()`/`stream()` still return
+    /// `fail(...)` for a benign code, because the caller already handles it and
+    /// changing that would rewrite four working call sites for no gain.
+    std::vector<int> benignExitCodes;
+
+    /// True when `code` is one of the answers this command declared.
+    bool isBenignExitCode(int code) const {
+        return std::find(benignExitCodes.begin(), benignExitCodes.end(), code) !=
+               benignExitCodes.end();
+    }
 
     /// Windows: pass CREATE_NO_WINDOW. Without it a console window flashes on
     /// every single git call, which is unusable in a GUI.

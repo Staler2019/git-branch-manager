@@ -62,6 +62,7 @@ public:
         // the right way to stop it, same reasoning as CheckoutOperation's
         // network-op timeout of 0.
         command.timeout = std::chrono::milliseconds(0);
+        command.idleTimeout = GitCommand::kHangCeiling;
 
         auto result = runner.run(command, token);
         if (result) {

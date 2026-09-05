@@ -401,12 +401,34 @@ void main() {
   test('OperationRecord.fromJson decodes argv and exposes failed', () {
     final Map<String, dynamic> json = jsonDecode(
       '{"whenEpochMs":1000,"repoDir":"/repo","argv":["git","status"],"commandLine":"git status",'
-      '"exitCode":1,"durationMs":5,"stderrText":"error","cancelled":false,"timedOut":false}',
+      '"exitCode":1,"durationMs":5,"stderrText":"error","cancelled":false,"timedOut":false,'
+      '"benignExit":false}',
     );
     final OperationRecord record = OperationRecord.fromJson(json);
 
     expect(record.argv, <String>['git', 'status']);
     expect(record.failed, isTrue);
+  });
+
+  // A raw-JSON fixture is invisible to a grep for the constructor, so this one
+  // is the reason `benignExit` is decoded strictly (`as bool`) rather than with
+  // a `?? false` fallback: the C++ side always serializes the key, so a payload
+  // missing it means producer and consumer have drifted, and a loud TypeError
+  // at the seam is the right answer. There is no legitimate "old payload" case
+  // -- this is an in-process event stream, nothing is persisted or replayed.
+  test('OperationRecord.fromJson decodes a declared benign exit', () {
+    final Map<String, dynamic> json = jsonDecode(
+      '{"whenEpochMs":1000,"repoDir":"/repo",'
+      '"argv":["git","config","--local","--get","user.name"],'
+      '"commandLine":"git config --local --get user.name",'
+      '"exitCode":1,"durationMs":5,"stderrText":"","cancelled":false,"timedOut":false,'
+      '"benignExit":true}',
+    );
+    final OperationRecord record = OperationRecord.fromJson(json);
+
+    expect(record.benignExit, isTrue);
+    expect(record.exitCode, 1, reason: 'the code is carried, not swallowed');
+    expect(record.failed, isFalse);
   });
 
   test('BlameResult.fromJson decodes lines and the truncated flag', () {

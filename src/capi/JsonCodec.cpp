@@ -676,6 +676,8 @@ std::string toJson(const OperationRecord& record) {
     jsonAppendBool(out, record.cancelled);
     out += ",\"timedOut\":";
     jsonAppendBool(out, record.timedOut);
+    out += ",\"benignExit\":";
+    jsonAppendBool(out, record.benignExit);
     out += '}';
     return out;
 }

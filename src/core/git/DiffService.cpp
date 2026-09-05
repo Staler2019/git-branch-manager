@@ -633,6 +633,11 @@ GitResult<DiffService::ParsedDiffPtr> DiffService::untrackedFileDiff(const std::
 
     GitCommand command(paths_.commandDir(), std::move(args));
     command.timeout = std::chrono::seconds(180);
+    // Exit 1 here means "differences found", which is the answer this command
+    // was asked for -- see the note below. Declaring it keeps every untracked
+    // file's diff out of the operation log's error level; 128 (a path git will
+    // not read) still reads as one.
+    command.benignExitCodes = {1};
 
     // Not run(): `--no-index` implies `--exit-code`, so finding differences --
     // which is the whole point of asking -- exits 1, and run() discards stdout

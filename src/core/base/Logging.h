@@ -26,6 +26,17 @@ struct OperationRecord {
     std::string stderrText;
     bool cancelled = false;
     bool timedOut = false;
+    /// True when the caller declared `exitCode` a normal answer for this
+    /// command — see GitCommand::benignExitCodes. The log panel
+    /// renders such a row as INFO rather than ERROR; the exit code itself is
+    /// still carried, and the plain-text export still prints it, so nothing a
+    /// bug report needs is lost.
+    ///
+    /// Deliberately a fact about the invocation, not a level: the three
+    /// severity levels are composed on the Dart side out of this plus
+    /// `cancelled` and `timedOut`, so there is one place that decides how
+    /// severely a row reads.
+    bool benignExit = false;
 
     /// argv rendered for display, quoting only arguments that need it.
     std::string commandLine() const;

@@ -63,6 +63,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace gbm::capi {
@@ -118,6 +119,15 @@ public:
     /// -- the age re-check and kStaleLockSeconds threshold live there, next to
     /// preflight()'s own use of the same constant, not duplicated here.
     bool removeStaleIndexLock();
+
+    /// Cancels one outstanding operation by the id `submitOperation()` recorded,
+    /// or every one of them when `id` is 0. Returns how many were signalled.
+    ///
+    /// Cancelling is advisory and asynchronous: it trips the token the operation
+    /// carries, which `OperationRunner`'s worker checks before starting and which
+    /// `ProcessRunner` turns into a kill of the git process tree if one is
+    /// already running. An operation that has already finished is simply absent.
+    std::size_t cancelOperations(std::uint64_t id);
 
     /// Async: see gbm_history_refresh()'s doc comment in gbm_capi.h.
     void refreshHistory();
@@ -591,6 +601,20 @@ private:
     std::unique_ptr<RefStore> refStore_;
     std::unique_ptr<HistoryProvider> history_;
     std::unique_ptr<OperationRunner> operations_;
+
+    /// The cancellation sources of operations submitted but not yet finished.
+    ///
+    /// `OperationRunner::submit()` has always returned a `Handle` carrying one
+    /// of these, and every one of the ~40 `submitOperation()` call sites threw
+    /// it away -- so the ~28 commands that declare `timeout = 0` on the grounds
+    /// that "Cancel is the right control, not a timeout" were relying on a
+    /// control that did not exist ([CULT-orphan-wiring], producer side).
+    ///
+    /// Keeping them here is the half that makes `gbm_cancel_operation()`
+    /// possible. Entries are erased in the completion callback, so this holds
+    /// only what is genuinely outstanding.
+    std::mutex inFlightMutex_;
+    std::unordered_map<std::uint64_t, CancellationSource> inFlight_;
     std::unique_ptr<WorkingCopyStatusReader> workingCopyStatusReader_;
     std::unique_ptr<DiffService> diffs_;
     std::unique_ptr<StashStore> stashStore_;

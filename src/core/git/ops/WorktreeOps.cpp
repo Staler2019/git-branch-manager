@@ -174,6 +174,7 @@ public:
 
         GitCommand command(paths.commandDir(), std::move(args));
         command.timeout = std::chrono::milliseconds(0);
+        command.idleTimeout = GitCommand::kHangCeiling;
         auto result = runner.run(command, token);
         if (!result) {
             outcome.error = std::move(result).error();

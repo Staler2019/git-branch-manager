@@ -85,6 +85,7 @@ public:
         // A merge across a very large tree can legitimately take a while; give it
         // a working Cancel rather than a timeout.
         command.timeout = std::chrono::milliseconds(0);
+        command.idleTimeout = GitCommand::kHangCeiling;
 
         auto result = runner.run(command, token);
         if (result) {

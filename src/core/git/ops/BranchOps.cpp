@@ -321,6 +321,7 @@ private:
         GitCommand push(paths.commandDir(),
                         {"push", "--set-upstream", request_.remoteName, request_.to});
         push.timeout = std::chrono::milliseconds(0);
+        push.idleTimeout = GitCommand::kHangCeiling;
         askpass::wire(push, request_.askpassDir);
         auto pushed = runner.run(push, token);
         if (!pushed) {
@@ -334,6 +335,7 @@ private:
         GitCommand deleteOld(paths.commandDir(),
                              {"push", request_.remoteName, "--delete", request_.from});
         deleteOld.timeout = std::chrono::milliseconds(0);
+        deleteOld.idleTimeout = GitCommand::kHangCeiling;
         askpass::wire(deleteOld, request_.askpassDir);
         auto deleted = runner.run(deleteOld, token);
         if (!deleted) {

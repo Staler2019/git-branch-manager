@@ -294,6 +294,28 @@ GBM_API int32_t gbm_repo_state_json(GbmSessionHandle session);
 /// original request and lets that submission's own preflight() re-arbitrate.
 GBM_API int32_t gbm_operation_remove_stale_index_lock(GbmSessionHandle session);
 
+/// Trips the cancellation token of every in-flight operation whose id
+/// matches, or of all of them when `id` is 0. Returns how many were tripped.
+///
+/// This is the control the ~28 commands that deliberately run with **no**
+/// deadline are documented as relying on: a fetch of a 500 MB repository on a
+/// slow link is slow, not broken, so the user -- not a timer -- decides when
+/// it has gone on long enough. GitCommand::idleTimeout now bounds the
+/// pathological case (a `git` that has stopped saying anything at all), but
+/// an operation that is still making progress can only be stopped from here.
+///
+/// **No Dart or UI caller exists yet, by decision** (使用者裁定: 「開 capi
+/// cancellation token 然後先不接線」). That makes this a deliberate
+/// producer-side orphan in [CULT-orphan-wiring]'s sense -- recorded rather
+/// than implied, and tracked on its own issue. Do not delete it as dead
+/// wiring; the reader is scheduled, not missing.
+///
+/// Cancellation is cooperative and idempotent: a token already tripped, or an
+/// operation that finished between the caller reading an id and this call,
+/// costs nothing and is not counted. GBM_EVENT_OPERATION_FINISHED still fires
+/// for a cancelled operation, with succeeded=false.
+GBM_API int32_t gbm_cancel_operation(GbmSessionHandle session, uint64_t id);
+
 // --- History / graph -----------------------------------------------------
 
 /// Requests a refs + history refresh. Runs on a shared background worker;

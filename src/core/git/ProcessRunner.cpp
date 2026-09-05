@@ -209,11 +209,18 @@ public:
               const ProgressSink& onProgress,
               const std::string* stdinData,
               std::chrono::milliseconds timeout,
+              std::chrono::milliseconds idleTimeout,
               bool* timedOut,
               bool* sinkStopped) {
         std::vector<char> buffer(kReadBufferSize);
         std::size_t stdinOffset = 0;
         const auto deadline = Clock::now() + timeout;
+
+        // The idle deadline slides: every byte that moves in either direction
+        // resets it. `timeout` above asks how long this has run in total; this
+        // asks whether it is still alive, which is the only question that has a
+        // safe answer for a transfer whose legitimate duration is unbounded.
+        auto lastProgress = Clock::now();
 
         while (stdoutFd_ >= 0 || stderrFd_ >= 0 || stdinFd_ >= 0) {
             struct pollfd fds[3];
@@ -247,6 +254,17 @@ public:
                 }
                 waitMs = static_cast<int>(std::min<std::int64_t>(waitMs, remaining));
             }
+            if (idleTimeout.count() > 0) {
+                const auto idleRemaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                               lastProgress + idleTimeout - Clock::now())
+                                               .count();
+                if (idleRemaining <= 0) {
+                    *timedOut = true;
+                    terminate();
+                    break;
+                }
+                waitMs = static_cast<int>(std::min<std::int64_t>(waitMs, idleRemaining));
+            }
 
             const int ready = ::poll(fds, static_cast<nfds_t>(count), waitMs);
             if (ready < 0) {
@@ -265,6 +283,7 @@ public:
             if (stdoutIndex >= 0 && (fds[stdoutIndex].revents & (POLLIN | POLLHUP)) != 0) {
                 const ssize_t n = ::read(stdoutFd_, buffer.data(), buffer.size());
                 if (n > 0) {
+                    lastProgress = Clock::now();
                     if (!stdoutSplitter.feed(
                             std::string_view(buffer.data(), static_cast<std::size_t>(n)))) {
                         *sinkStopped = true;
@@ -280,6 +299,7 @@ public:
             if (stderrIndex >= 0 && (fds[stderrIndex].revents & (POLLIN | POLLHUP)) != 0) {
                 const ssize_t n = ::read(stderrFd_, buffer.data(), buffer.size());
                 if (n > 0) {
+                    lastProgress = Clock::now();
                     const std::string_view chunk(buffer.data(), static_cast<std::size_t>(n));
                     if (stderrText != nullptr) {
                         stderrText->append(chunk);
@@ -301,6 +321,9 @@ public:
                     const ssize_t n = ::write(
                         stdinFd_, stdinData->data() + stdinOffset, stdinData->size() - stdinOffset);
                     if (n > 0) {
+                        // A child steadily eating the patch we are feeding it is
+                        // alive, even before it answers a single byte.
+                        lastProgress = Clock::now();
                         stdinOffset += static_cast<std::size_t>(n);
                     } else if (n < 0 && errno != EINTR && errno != EAGAIN) {
                         ::close(stdinFd_);
@@ -493,7 +516,10 @@ public:
         si.hStdError = command.mergeStderrIntoStdout ? outWrite : errWrite;
         si.hStdInput = wantStdin ? inRead : ::GetStdHandle(STD_INPUT_HANDLE);
 
-        DWORD flags = CREATE_UNICODE_ENVIRONMENT;
+        // Suspended so the child is inside a job object before it runs: a
+        // helper it has already spawned cannot be pulled into the job
+        // afterwards, and the whole point of the job is to reach that helper.
+        DWORD flags = CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED;
         if (command.noWindow) {
             // Without this a console window flashes on every git invocation.
             flags |= CREATE_NO_WINDOW;
@@ -532,6 +558,30 @@ public:
                         "CreateProcessW failed with " + std::to_string(::GetLastError()));
         }
 
+        // `TerminateProcess` ends one process, never a tree, and a blocking
+        // `ReadFile` on a pipe returns only once *every* holder of the write
+        // end is gone. Git for Windows is resolved through the registry to
+        // `<InstallPath>\cmd\git.exe` (GitExecutable's `gitFromRegistry`), so a
+        // git that re-execs leaves the real worker holding those handles and
+        // `pump()`'s helper joins below never return. A job object is what makes
+        // `terminate()` reach the whole tree.
+        //
+        // Deliberately **no** `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`: the job
+        // handle is closed on the *successful* path too, and that flag would
+        // then kill anything git legitimately left running -- a `gpg-agent`
+        // started for a signed commit is the concrete case. The job widens
+        // `terminate()`; it is not a reaper for commands that succeeded.
+        job_ = ::CreateJobObjectW(nullptr, nullptr);
+        if (job_ != nullptr && ::AssignProcessToJobObject(job_, pi.hProcess) == 0) {
+            ::CloseHandle(job_);
+            job_ = nullptr;
+        }
+
+        // Every path from here on must resume. A child left suspended is a
+        // worse hang than the one this is fixing, so neither call above may
+        // fail the spawn: without a job, `terminate()` simply degrades to the
+        // single-process kill it always was.
+        ::ResumeThread(pi.hThread);
         ::CloseHandle(pi.hThread);
         process_ = pi.hProcess;
         stdoutHandle_ = outRead;
@@ -548,6 +598,7 @@ public:
               const ProgressSink& onProgress,
               const std::string* stdinData,
               std::chrono::milliseconds timeout,
+              std::chrono::milliseconds idleTimeout,
               bool* timedOut,
               bool* sinkStopped) {
         std::thread stderrThread;
@@ -564,6 +615,7 @@ public:
                         read == 0) {
                         return;
                     }
+                    lastProgress_.store(nowMs());
                     const std::string_view chunk(buffer.data(), read);
                     std::lock_guard<std::mutex> lock(stderrMutex_);
                     if (stderrText != nullptr) {
@@ -591,6 +643,7 @@ public:
                             written == 0) {
                             break;
                         }
+                        lastProgress_.store(nowMs());
                         offset += written;
                     }
                 }
@@ -599,11 +652,96 @@ public:
             });
         }
 
+        // The deadline watchdog.
+        //
+        // stdout is read on *this* thread with a synchronous `ReadFile`, and the
+        // loop below can only test its deadline *between* two reads -- so a
+        // child that writes nothing and never exits leaves this thread blocked
+        // in a read no deadline can reach, and `command.timeout` never fires at
+        // all. That is the same blocked-synchronous-read problem
+        // `cancelBlockedIoAndJoin` solves for the helper threads, and it is
+        // solved the same way. The only difference is that a thread cannot
+        // cancel its own blocked I/O, so the cancel has to arrive from a second
+        // thread rather than from after the loop.
+        //
+        // Armed only when a deadline exists: network commands contractually
+        // pass timeout 0 and rely on cancellation, so they pay for no thread.
+        // If either handle cannot be made, no watchdog is started and the
+        // behaviour degrades to what it was -- same fallback discipline as a
+        // spawn that could not get a job object.
+        HANDLE pumpDone = nullptr;
+        HANDLE pumpThread = nullptr;
+        std::thread deadlineThread;
+        lastProgress_.store(nowMs());
+        if (timeout.count() > 0 || idleTimeout.count() > 0) {
+            pumpDone = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
+            // `GetCurrentThread()` is a pseudo-handle meaning "whichever thread
+            // is asking", so it is useless to another thread and has to be
+            // duplicated into a real one.
+            if (::DuplicateHandle(::GetCurrentProcess(),
+                                  ::GetCurrentThread(),
+                                  ::GetCurrentProcess(),
+                                  &pumpThread,
+                                  0,
+                                  FALSE,
+                                  DUPLICATE_SAME_ACCESS) == 0) {
+                pumpThread = nullptr;
+            }
+            if (pumpDone != nullptr && pumpThread != nullptr) {
+                deadlineThread = std::thread([this, pumpDone, pumpThread, timeout, idleTimeout] {
+                    // Waits in slices rather than one long wait, because the idle
+                    // deadline moves: every byte the pump reads pushes it out. A
+                    // slice ends either at the total deadline or at the earliest
+                    // moment the idle one *could* expire, so a quiet child is
+                    // noticed within one slice and a busy one is never disturbed.
+                    //
+                    // The pump publishes progress by storing a timestamp, not by
+                    // signalling an event: a per-read `SetEvent` would put a
+                    // syscall in the hot read path, and bulk output is exactly
+                    // where that would be paid the most. Polling costs nothing
+                    // there -- this thread does the work instead.
+                    const auto started = nowMs();
+                    for (;;) {
+                        std::int64_t sliceMs = 50;
+                        if (timeout.count() > 0) {
+                            const std::int64_t left = timeout.count() - (nowMs() - started);
+                            if (left <= 0) {
+                                break;
+                            }
+                            sliceMs = std::min<std::int64_t>(sliceMs, left);
+                        }
+                        if (idleTimeout.count() > 0) {
+                            const std::int64_t left =
+                                idleTimeout.count() - (nowMs() - lastProgress_.load());
+                            if (left <= 0) {
+                                break;
+                            }
+                            sliceMs = std::min<std::int64_t>(sliceMs, left);
+                        }
+                        if (::WaitForSingleObject(
+                                pumpDone, static_cast<DWORD>(std::max<std::int64_t>(sliceMs, 1))) !=
+                            WAIT_TIMEOUT) {
+                            return;  // The pump finished first; nothing to do.
+                        }
+                    }
+                    timedOut_.store(true);
+                    terminate();
+                    // Retried for the reason cancelBlockedIoAndJoin retries
+                    // it: `CancelSynchronousIo` answers ERROR_NOT_FOUND when
+                    // the target is not inside an I/O call *yet*. Bounded by
+                    // the event, which the pump sets on its way out.
+                    while (::WaitForSingleObject(pumpDone, 50) == WAIT_TIMEOUT) {
+                        ::CancelSynchronousIo(pumpThread);
+                    }
+                });
+            }
+        }
+
         std::vector<char> buffer(kReadBufferSize);
         const auto deadline = Clock::now() + timeout;
         for (;;) {
             if (timeout.count() > 0 && Clock::now() > deadline) {
-                *timedOut = true;
+                timedOut_.store(true);
                 terminate();
                 break;
             }
@@ -616,6 +754,7 @@ public:
                 read == 0) {
                 break;
             }
+            lastProgress_.store(nowMs());
             if (!stdoutSplitter.feed(std::string_view(buffer.data(), read))) {
                 *sinkStopped = true;
                 terminate();
@@ -624,11 +763,35 @@ public:
         }
         stdoutSplitter.finish();
 
-        if (stderrThread.joinable()) {
-            stderrThread.join();
+        cancelBlockedIoAndJoin(stderrThread);
+        cancelBlockedIoAndJoin(stdinThread);
+
+        // Every exit from the loop above is a `break`, so this runs on all
+        // three of them -- EOF, a sink that stopped, and its own deadline check
+        // alike. The watchdog must not outlive this frame: it calls
+        // `terminate()` on this object and writes `timedOut_`, which is the
+        // use-after-free the `detach()` note on cancelBlockedIoAndJoin
+        // describes. Handles are closed only after the join, because the thread
+        // is still using both.
+        if (pumpDone != nullptr) {
+            ::SetEvent(pumpDone);
         }
-        if (stdinThread.joinable()) {
-            stdinThread.join();
+        if (deadlineThread.joinable()) {
+            deadlineThread.join();
+        }
+        if (pumpThread != nullptr) {
+            ::CloseHandle(pumpThread);
+        }
+        if (pumpDone != nullptr) {
+            ::CloseHandle(pumpDone);
+        }
+
+        // Published here rather than by either writer: the loop above and the
+        // watchdog can both conclude the deadline passed, and `timedOut` is a
+        // plain `bool*`. After the join there is exactly one thread left, so
+        // the caller's bool is never written by two at once.
+        if (timedOut_.load()) {
+            *timedOut = true;
         }
     }
 
@@ -643,6 +806,19 @@ public:
     }
 
     void terminate() {
+        // Ordered: the job first, because it is the half that reaches the
+        // descendants holding the pipe write ends the helper threads are
+        // blocked on. `TerminateProcess` stays as the fallback for a spawn that
+        // could not get a job, and is harmless on a process already gone.
+        //
+        // Reachable from three threads now -- the pump, the deadline watchdog,
+        // and an external cancel through the token -- and idempotent for all
+        // three: both kills are no-ops on a process already gone, and
+        // `terminated_` only ever goes false -> true.
+        terminated_.store(true);
+        if (job_ != nullptr) {
+            ::TerminateJobObject(job_, 1);
+        }
         if (process_ != nullptr) {
             ::TerminateProcess(process_, 1);
         }
@@ -688,18 +864,71 @@ private:
         return block;
     }
 
+    /// Waits for a helper thread, cancelling its blocked I/O once the child has
+    /// been killed. Plain `join()` is not enough there: a synchronous
+    /// `ReadFile`/`WriteFile` on a pipe is interruptible by nothing else, and
+    /// `command.timeout` cannot reach it either -- the pump tests its deadline
+    /// only *between* reads, and the joins are past the `break`. This is what
+    /// held one CI job for 81 minutes on the first test ever to make a
+    /// `LineSink` return false.
+    ///
+    /// The cancel is retried rather than issued once, because
+    /// `CancelSynchronousIo` answers `ERROR_NOT_FOUND` when the thread has not
+    /// entered its I/O call yet. It terminates by construction: the thread
+    /// returns on *any* read failure, so one landed cancel ends it, and a miss
+    /// means the thread is running and about to block again.
+    ///
+    /// The wait is polled rather than gated on `terminated_` up front, because
+    /// a cancel arrives from another thread and can land after such a check --
+    /// which is exactly the hang, back again. On the ordinary path the helper
+    /// has already hit EOF by the time this runs, so the first wait returns
+    /// immediately and nothing is cancelled.
+    void cancelBlockedIoAndJoin(std::thread& helper) {
+        if (!helper.joinable()) {
+            return;
+        }
+        const HANDLE handle = static_cast<HANDLE>(helper.native_handle());
+        for (;;) {
+            const DWORD waited = ::WaitForSingleObject(handle, 50);
+            // WAIT_FAILED means the handle is not waitable, so cancelling it is
+            // pointless too; fall through to the join rather than spin.
+            if (waited == WAIT_OBJECT_0 || waited == WAIT_FAILED) {
+                break;
+            }
+            if (terminated_.load()) {
+                ::CancelSynchronousIo(handle);
+            }
+        }
+        helper.join();
+    }
+
     void closeAll() {
         if (stdoutHandle_ != nullptr) ::CloseHandle(stdoutHandle_);
         if (stderrHandle_ != nullptr) ::CloseHandle(stderrHandle_);
         if (stdinHandle_ != nullptr) ::CloseHandle(stdinHandle_);
         if (process_ != nullptr) ::CloseHandle(process_);
-        stdoutHandle_ = stderrHandle_ = stdinHandle_ = process_ = nullptr;
+        if (job_ != nullptr) ::CloseHandle(job_);
+        stdoutHandle_ = stderrHandle_ = stdinHandle_ = process_ = job_ = nullptr;
     }
 
     HANDLE process_ = nullptr;
+    HANDLE job_ = nullptr;
     HANDLE stdoutHandle_ = nullptr;
     HANDLE stderrHandle_ = nullptr;
     HANDLE stdinHandle_ = nullptr;
+
+    /// Monotonic milliseconds, only ever compared with itself. A plain atomic
+    /// rather than a `time_point` so the readers can publish progress with one
+    /// relaxed store and no lock.
+    static std::int64_t nowMs() {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+                   Clock::now().time_since_epoch())
+            .count();
+    }
+
+    std::atomic_bool terminated_{false};
+    std::atomic_bool timedOut_{false};
+    std::atomic<std::int64_t> lastProgress_{0};
     std::mutex stderrMutex_;
 };
 
@@ -800,6 +1029,7 @@ private:
                     onProgress,
                     command.stdinData ? &*command.stdinData : nullptr,
                     command.timeout,
+                    command.idleTimeout,
                     &result.timedOut,
                     &sinkStopped);
 
@@ -815,8 +1045,14 @@ private:
         // eventually replaced or destroyed.
         cancelReg.reset();
 
-        recordOperation(
-            command, argv, result.err, result.exitCode, started, result.cancelled, result.timedOut);
+        recordOperation(command,
+                        argv,
+                        result.err,
+                        result.exitCode,
+                        started,
+                        result.cancelled,
+                        result.timedOut,
+                        sinkStopped);
 
         if (result.cancelled) {
             return cancelled();
@@ -859,7 +1095,8 @@ private:
                                 int exitCode,
                                 Clock::time_point started,
                                 bool wasCancelled,
-                                bool wasTimeout) {
+                                bool wasTimeout,
+                                bool sinkStopped = false) {
         OperationRecord record;
         record.when = std::chrono::system_clock::now();
         record.repoDir = command.repoDir.string();
@@ -870,6 +1107,23 @@ private:
         record.stderrText = stderrText;
         record.cancelled = wasCancelled;
         record.timedOut = wasTimeout;
+        // Two producers, one meaning: both say this invocation did what was
+        // needed. `sinkStopped` is the one the runner knows by itself -- a
+        // LineSink returning false kills the child, so execute() returns
+        // success while the code left behind by the kill is non-zero, and
+        // without this the operation log called a successful command an error.
+        // It reads like `wasCancelled` and means the opposite: cancelled is
+        // work that was abandoned, this is work that finished early on purpose.
+        //
+        // Deliberately unguarded by wasCancelled/wasTimeout, and deliberately
+        // not narrowed to a non-zero code: the Dart side tests cancelled and
+        // timedOut *before* it looks at this flag, and a zero exit is already
+        // info there, so neither guard could change how any row reads. Both
+        // would be branches no tier can redden, which is the same objection
+        // this round's own design raises against a `bool tolerateFailure`. The
+        // spawn-failure path above records -1, which no caller can declare
+        // benign and which no sink can have stopped.
+        record.benignExit = sinkStopped || command.isBenignExitCode(record.exitCode);
         Log::instance().recordOperation(record);
     }
 

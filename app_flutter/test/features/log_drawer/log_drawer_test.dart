@@ -386,6 +386,7 @@ void main() {
       int exitCode = 0,
       bool cancelled = false,
       bool timedOut = false,
+      bool benignExit = false,
     }) {
       return OperationRecord(
         whenEpochMs: 1692000000000,
@@ -397,6 +398,7 @@ void main() {
         stderrText: '',
         cancelled: cancelled,
         timedOut: timedOut,
+        benignExit: benignExit,
       );
     }
 
@@ -417,6 +419,63 @@ void main() {
     testWidgets('a rejected command reads ERROR', (tester) async {
       await pumpWith(tester, <OperationRecord>[recordWith(exitCode: 1)]);
       expect(find.text('ERROR'), findsOneWidget);
+    });
+
+    // The reported defect, at the surface that showed it: `git config --local
+    // --get user.name` exits 1 when the key is unset, and every refresh drew
+    // two of these in danger red.
+    testWidgets('a declared answer reads INFO and draws no exit chip', (
+      tester,
+    ) async {
+      await pumpWith(tester, <OperationRecord>[
+        recordWith(
+          commandLine: 'git config --local --get user.name',
+          exitCode: 1,
+          benignExit: true,
+        ),
+      ]);
+
+      expect(find.text('INFO'), findsOneWidget);
+      expect(find.text('ERROR'), findsNothing);
+      // The chip and the icon are asserted separately on purpose: they are
+      // two different reads of the same record, and an earlier draft fixed
+      // only the level -- which would have left the row saying INFO next to a
+      // red error icon.
+      expect(find.text('exit 1'), findsNothing);
+      expect(
+        find.byWidgetPredicate(
+          (Widget w) => w is Icon && w.icon == Icons.error,
+        ),
+        findsNothing,
+      );
+      expect(
+        find.byWidgetPredicate(
+          (Widget w) => w is Icon && w.icon == Icons.check_circle,
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the same row without the declaration still shouts', (
+      tester,
+    ) async {
+      // The control. Without it the case above passes for a drawer that
+      // stopped reading exitCode at all.
+      await pumpWith(tester, <OperationRecord>[
+        recordWith(
+          commandLine: 'git config --local --get user.name',
+          exitCode: 1,
+        ),
+      ]);
+
+      expect(find.text('ERROR'), findsOneWidget);
+      expect(find.text('exit 1'), findsOneWidget);
+      expect(
+        find.byWidgetPredicate(
+          (Widget w) => w is Icon && w.icon == Icons.error,
+        ),
+        findsOneWidget,
+      );
     });
 
     testWidgets('a timeout reads TIMEOUT', (tester) async {
@@ -546,6 +605,59 @@ void main() {
       expect(clipboardText, contains(goneMarked.message));
       expect(clipboardText, isNot(contains('exit ')));
       expect(clipboardText, isNot(contains('ms)')));
+    });
+
+    // The other half of "a benign row reads INFO": the screen stops shouting,
+    // and the support artifact keeps the number. `_formatRecord` prints the
+    // exit code for every OperationRecord regardless of level, and that is
+    // load-bearing rather than incidental -- someone reading a copied log to
+    // diagnose a bug needs to see that git answered 1, even though the row it
+    // came from was not worth a red icon.
+    testWidgets('the export still carries a benign exit code', (tester) async {
+      String? clipboardText;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (MethodCall methodCall) async {
+          if (methodCall.method == 'Clipboard.setData') {
+            clipboardText =
+                (methodCall.arguments as Map<Object?, Object?>)['text']
+                    as String?;
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+
+      await pumpEntries(tester, <GbmLogEntry>[
+        OperationRecord(
+          whenEpochMs: 1692000000000,
+          repoDir: '/path/to/repo',
+          argv: const <String>[
+            'git',
+            'config',
+            '--local',
+            '--get',
+            'user.name',
+          ],
+          commandLine: 'git config --local --get user.name',
+          exitCode: 1,
+          durationMs: 3,
+          stderrText: '',
+          cancelled: false,
+          timedOut: false,
+          benignExit: true,
+        ),
+      ]);
+      await tester.tap(find.text('Copy All'));
+      await tester.pump();
+
+      expect(clipboardText, contains('INFO'));
+      expect(clipboardText, contains('(exit 1, 3ms)'));
     });
   });
 }

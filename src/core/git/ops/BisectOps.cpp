@@ -58,6 +58,7 @@ public:
         // May check out the first candidate immediately when bad/good are
         // both given up front, exactly like an ordinary checkout.
         command.timeout = std::chrono::milliseconds(0);
+        command.idleTimeout = GitCommand::kHangCeiling;
 
         auto result = runner.run(command, token);
         if (!result) {
@@ -99,6 +100,7 @@ public:
         // Checks out the next candidate (or concludes and checks out the
         // result), so this is exactly as unbounded as an ordinary checkout.
         command.timeout = std::chrono::milliseconds(0);
+        command.idleTimeout = GitCommand::kHangCeiling;
 
         auto result = runner.run(command, token);
         if (!result) {
@@ -132,6 +134,7 @@ public:
 
         GitCommand command(paths.commandDir(), std::move(args));
         command.timeout = std::chrono::milliseconds(0);
+        command.idleTimeout = GitCommand::kHangCeiling;
 
         auto result = runner.run(command, token);
         if (!result) {
@@ -164,7 +167,8 @@ public:
         }
 
         GitCommand command(paths.commandDir(), std::move(args));
-        command.timeout = std::chrono::milliseconds(0);  // restores the work tree.
+        command.timeout = std::chrono::milliseconds(0);
+        command.idleTimeout = GitCommand::kHangCeiling;  // restores the work tree.
 
         auto result = runner.run(command, token);
         if (!result) {

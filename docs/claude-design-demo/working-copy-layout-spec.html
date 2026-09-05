@@ -644,7 +644,7 @@ footer.colophon {
       <!-- AFTER -->
       <div class="specimen">
         <div class="specimen-head">
-          <span class="specimen-tag after">Proposed</span>
+          <span class="specimen-tag after">提案</span>
           <span class="specimen-note">檔案欄在左 · diff 在右 · commit box 不動</span>
         </div>
         <div class="stage" data-stage data-app-theme="dark-technical">
@@ -721,7 +721,7 @@ footer.colophon {
     <div class="compare">
       <div class="specimen">
         <div class="specimen-head">
-          <span class="specimen-tag before">Today, at 260px</span>
+          <span class="specimen-tag before">今天，260px 時</span>
           <span class="specimen-note">實際量到的輸出</span>
         </div>
         <div class="stage" data-stage data-app-theme="dark-technical">
@@ -747,7 +747,7 @@ footer.colophon {
 
       <div class="specimen">
         <div class="specimen-head">
-          <span class="specimen-tag after">Proposed</span>
+          <span class="specimen-tag after">提案</span>
           <span class="specimen-note">葉節點只畫它相對於父節點的那一段</span>
         </div>
         <div class="stage" data-stage data-app-theme="dark-technical">
@@ -813,7 +813,7 @@ footer.colophon {
     <div class="compare">
       <div class="specimen">
         <div class="specimen-head">
-          <span class="specimen-tag optA">Option A</span>
+          <span class="specimen-tag optA">方案 A</span>
           <span class="specimen-note">固定寬 · <code>GbmSplitterSpec.extent</code></span>
         </div>
         <div class="propgrid">
@@ -848,7 +848,7 @@ footer.colophon {
 
       <div class="specimen">
         <div class="specimen-head">
-          <span class="specimen-tag optB">Option B</span>
+          <span class="specimen-tag optB">方案 B</span>
           <span class="specimen-note">比例寬 · <code>GbmSplitterSpec.flex</code></span>
         </div>
         <div class="propgrid">
@@ -874,9 +874,9 @@ footer.colophon {
           </div>
         </div>
         <p class="specimen-note">
-          The file column grows with the window too. Keeps <code>wc.diff</code>'s existing flex
-          behaviour and only re-proportions it — closer to what the spec's <code>SPLITTERS</code>
-          row describes, which is a ratio and not an extent.
+          檔案欄也會跟著視窗一起長。保留 <code>wc.diff</code> 既有的 flex 行為、
+          只重新分配比例 —— 比較接近 spec <code>SPLITTERS</code> 那一列講的東西，
+          因為它講的是比例，不是固定寬。
         </p>
       </div>
     </div>
@@ -1029,9 +1029,9 @@ footer.colophon {
         <tr><td class="num">C1</td><td class="zh"><b>拖曳檔案到下欄 = stage</b></td>
             <td><b>建議這個。</b>只改一個字 —— <span class="zh">右</span> → <span class="zh">下</span>。保留 spec 自己的句型、它的 <code>=</code>、它的<span class="zh">欄</span>字，所以在「還是真的」的前提下，偏離已經小到不能再小。</td></tr>
         <tr><td class="num">C2</td><td class="zh">拖曳檔案到下方 = stage</td>
-            <td><span class="zh">下方</span> reads slightly more natural than <span class="zh">下欄</span> for something stacked, but abandons the spec's noun. Marginally better Chinese, marginally further from the source.</td></tr>
+            <td>對堆疊起來的東西來說，<span class="zh">下方</span>讀起來比<span class="zh">下欄</span>稍微自然一點，但放棄了 spec 自己的名詞。中文好一點點，離來源遠一點點。</td></tr>
         <tr><td class="num">C3</td><td class="zh">往下拖 = stage · 往上拖 = unstage</td>
-            <td>Says both directions, which the current hint never did — the Staged pane has no hint of its own and unstaging is undiscoverable. Honest, and the biggest departure: new information, not a corrected word.</td></tr>
+            <td>兩個方向都講，這是現在的提示從來沒做過的 —— Staged 那一欄自己沒有提示，unstage 根本沒人找得到。誠實，也是偏離最大的一個：這是新資訊，不是改一個字。</td></tr>
       </tbody>
     </table></div>
     <div class="callout">
@@ -1576,7 +1576,7 @@ footer.colophon {
 
       <div class="specimen">
         <div class="specimen-head">
-          <span class="specimen-tag after">Proposed</span>
+          <span class="specimen-tag after">提案</span>
           <span class="specimen-note">一份清單，方向逐卡片帶</span>
         </div>
         <div class="stage" data-stage data-app-theme="dark-technical">
@@ -1719,9 +1719,9 @@ footer.colophon {
       <tbody>
         <tr><td><code>git diff --no-index -- /dev/null untracked.txt</code><br><span class="specimen-note"><code>DiffService.cpp:613–677</code></span></td><td class="num">1</td>
             <td>diff 本身，設計上就是如此 —— 依 <code>[GIT-no-index-sees-untracked]</code>，這裡的 exit 1 <em>就是</em>成功。標頭：<code>new file mode 100644</code> / <code>--- /dev/null</code>。</td></tr>
-        <tr><td><code>git apply --cached</code> &lt;that patch&gt;<br><span class="specimen-note"><code>StageOps.cpp:43–49</code>, header from <code>UnifiedDiffParser.cpp:82–88</code></span></td><td class="num">0</td>
+        <tr><td><code>git apply --cached</code> &lt;那份 patch&gt;<br><span class="specimen-note"><code>StageOps.cpp:43–49</code>，標頭來自 <code>UnifiedDiffParser.cpp:82–88</code></span></td><td class="num">0</td>
             <td><code>1 A. N... 000000 100644 100644 000…000 8b05eae untracked.txt</code><br>已 stage，blob <code>8b05eae</code>，三行。正確。</td></tr>
-        <tr><td><code>git apply --cached --reverse</code> &lt;rebuilt <code>a/&lt;path&gt;</code> patch&gt;<br><span class="specimen-note">the plain header of <code>UnifiedDiffParser.cpp:91–101</code></span></td><td class="num">0</td>
+        <tr><td><code>git apply --cached --reverse</code> &lt;重建的 <code>a/&lt;path&gt;</code> patch&gt;<br><span class="specimen-note"><code>UnifiedDiffParser.cpp:91–101</code> 的純標頭</span></td><td class="num">0</td>
             <td><code>1 <b>AM</b> N... 000000 100644 100644 000…000 <b>e69de29</b> untracked.txt</code><br><b>index 條目活下來了，裡面放的是空 blob。</b><code>git cat-file -s e69de29</code> → <code>0</code>。</td></tr>
       </tbody>
     </table></div>
@@ -1736,103 +1736,103 @@ footer.colophon {
     <div class="callout is-warn">
       <div class="callout__title">使用者實際看到的是什麼</div>
       <p style="margin:0">
-        The file is in <b>both</b> columns at once. Staged, because the index entry exists — and its
-        card is <b>empty</b>, because the staged diff is now <code>new file mode … index
-        0000000..e69de29</code> with no hunk at all. Unstaged, because <code>M</code> in the second
-        position means index ≠ work tree. Nothing on screen says the staged half is a leftover.
+        這個檔案同時出現在<b>兩</b>欄裡。在 Staged，是因為 index 條目還在 —— 而且它的卡片是
+        <b>空的</b>，因為 staged diff 現在是 <code>new file mode … index
+        0000000..e69de29</code>，一個 hunk 都沒有。在 Unstaged，是因為第二個位置的 <code>M</code>
+        代表 index ≠ 工作區。畫面上沒有任何東西告訴你 staged 那一半是殘留物。
       </p>
     </div>
 
-    <h3>The two candidate cures, measured</h3>
+    <h3>兩個候選修法，量過的</h3>
     <div class="tablewrap"><table>
-      <thead><tr><th style="width:30%">Command</th><th style="width:10%">exit</th><th>Result</th></tr></thead>
+      <thead><tr><th style="width:30%">指令</th><th style="width:10%">exit</th><th>結果</th></tr></thead>
       <tbody>
         <tr><td><code>git rm --cached -- untracked.txt</code></td><td class="num"><span class="verdict bad">1</span></td>
-            <td><b>Refused.</b> <code>error: the following file has staged content different from both the file and the HEAD … (use -f to force removal)</code>. The plan proposed this command; the measurement retired it. Reaching for <code>-f</code> to get past a refusal git raised on purpose is the shape <code>[GIT-remove-locked-needs-two-forces]</code> already records.</td></tr>
+            <td><b>拒絕。</b><code>error: the following file has staged content different from both the file and the HEAD … (use -f to force removal)</code>。計畫裡提的就是這個指令；量完就把它退掉了。用 <code>-f</code> 硬闖一個 git 刻意提出的拒絕，正是 <code>[GIT-remove-locked-needs-two-forces]</code> 已經記下的那種形狀。</td></tr>
         <tr><td><code>git restore --staged -- untracked.txt</code></td><td class="num"><span class="verdict ok">0</span></td>
-            <td><b>Back to <code>? untracked.txt</code></b>, work tree intact — and it lands there from <b>both</b> the <code>A.</code> state and the <code>AM</code> leftover state. <code>git reset -- &lt;path&gt;</code> behaves identically; <code>restore --staged</code> is preferred only because the app already runs exactly it.</td></tr>
+            <td><b>回到 <code>? untracked.txt</code></b>，工作區完好 —— 而且從 <code>A.</code> 狀態與 <code>AM</code> 殘留狀態<b>兩邊</b>都會落到這裡。<code>git reset -- &lt;path&gt;</code> 行為完全相同；之所以選 <code>restore --staged</code>，只是因為 app 本來就在跑的正是這一條。</td></tr>
       </tbody>
     </table></div>
 
     <div class="callout">
-      <div class="callout__title">the whole-file path is already correct — that is the fix</div>
+      <div class="callout__title">整檔那條路徑本來就是對的 —— 修法就是它</div>
       <p style="margin:0">
-        Dragging the file up from Staged runs <code>UnstageFilesOperation</code>
-        (<code>StageOps.cpp:93–135</code>), which is <code>git restore --staged --</code>, and it
-        returns an untracked file to <code>?</code> today. So the two paths do not disagree about
-        policy — one of them is simply not using the command that expresses it.
-        <b>Proposed rule: unstaging <em>every</em> changed line of a file whose staged
-        <code>DiffFile.kind</code> is <code>Added</code> is a whole-file unstage, and runs
-        <code>git restore --staged -- &lt;path&gt;</code> instead of a reverse patch.</b> One command,
-        one end state, <code>[CULT-single-source-of-truth]</code>.
+        把檔案從 Staged 往上拖跑的是 <code>UnstageFilesOperation</code>
+        （<code>StageOps.cpp:93–135</code>），也就是 <code>git restore --staged --</code>，
+        而它今天就會把未追蹤檔案還原成 <code>?</code>。所以這兩條路徑在政策上並沒有分歧 ——
+        只是其中一條沒有用那個把政策講出來的指令而已。
+        <b>提案的規則：unstage 掉一個 staged <code>DiffFile.kind</code> 是 <code>Added</code>
+        的檔案的<em>每一條</em>變更，就是一次整檔 unstage，跑
+        <code>git restore --staged -- &lt;path&gt;</code>，而不是反向 patch。</b>
+        一個指令、一個終態，<code>[CULT-single-source-of-truth]</code>。
       </p>
     </div>
 
-    <h3>Where the rule must stop, also measured</h3>
+    <h3>這條規則必須停在哪裡，也是量的</h3>
     <div class="tablewrap"><table>
-      <thead><tr><th style="width:34%">Case</th><th style="width:10%">Today</th><th>Why it must keep the reverse patch</th></tr></thead>
+      <thead><tr><th style="width:34%">情況</th><th style="width:10%">今天</th><th>為什麼它必須繼續用反向 patch</th></tr></thead>
       <tbody>
-        <tr><td><b>Partial</b> unstage of an added file — one of three lines</td><td class="num"><span class="verdict ok">correct</span></td>
-            <td>exit 0, <code>1 AM … 48d0939</code>, index holds <code>alpha</code>+<code>charlie</code>. Exactly right, and <code>restore --staged</code> here would throw away a stage the user meant to keep. The gate is <b><span class="zh">「每一條變更」</span>, never <span class="zh">「任何一次 unstage」</span></b>.</td></tr>
-        <tr><td><b>Tracked</b> file, stage every line then unstage every line</td><td class="num"><span class="verdict ok">correct</span></td>
-            <td>exit 0, lands at <code>1 .M</code> — not staged, no leftover. The entry is restored to its HEAD content instead of emptied, so there is nothing orphaned. This is why the gate is <code>kind == Added</code> and not <span class="zh">「全部行」</span> alone.</td></tr>
-        <tr><td>Unstage the remaining two lines after the partial above</td><td class="num"><span class="verdict none">n/a</span></td>
-            <td>That selection <em>is</em> every changed line of the then-current staged diff, so the rule fires and the entry goes. The rule is iterative by construction; it does not need to remember earlier presses.</td></tr>
+        <tr><td>新增檔案的<b>部分</b> unstage —— 三行裡的一行</td><td class="num"><span class="verdict ok">正確</span></td>
+            <td>exit 0、<code>1 AM … 48d0939</code>，index 裡放的是 <code>alpha</code>+<code>charlie</code>。完全正確，而在這裡用 <code>restore --staged</code> 會把使用者想留著的那一份 stage 丟掉。閘門是<b><span class="zh">「每一條變更」</span>，絕不是<span class="zh">「任何一次 unstage」</span></b>。</td></tr>
+        <tr><td><b>已追蹤</b>檔案，整份 stage 再整份 unstage</td><td class="num"><span class="verdict ok">正確</span></td>
+            <td>exit 0，落在 <code>1 .M</code> —— 沒有 stage、沒有殘留。條目被還原成它的 HEAD 內容，不是被清空，所以沒有東西變成孤兒。這就是為什麼閘門是 <code>kind == Added</code>，而不是只有<span class="zh">「全部行」</span>。</td></tr>
+        <tr><td>接著上面那次部分 unstage，再把剩下兩行 unstage 掉</td><td class="num"><span class="verdict none">n/a</span></td>
+            <td>那一次選取<em>就是</em>當下那份 staged diff 的每一條變更，所以規則會觸發、條目會消失。這條規則在結構上就是可迭代的；它不需要記得先前按過什麼。</td></tr>
       </tbody>
     </table></div>
 
-    <h3>Why no test caught it</h3>
+    <h3>為什麼沒有任何測試抓到它</h3>
     <p>
-      <code>GitIntegrationTest.cpp</code> has <code>StagesSelectedLinesOfAnUntrackedFile</code> and
-      <b>no unstaging counterpart</b>. That is <code>[TEST-fixture-cannot-disagree]</code> in its
-      plainest form: a fixture that only ever stages cannot observe what unstaging leaves behind.
-      <code>integration_test/stage_lines_flow_test.dart</code> is 7 tests deep on this exact surface
-      and none of them uses an untracked file. The new test asserts <b>porcelain's
-      <code>?</code></b> — what the user sees — rather than <span class="zh">「index 條目不見了」</span>,
-      which is the implementation talking to itself.
+      <code>GitIntegrationTest.cpp</code> 有 <code>StagesSelectedLinesOfAnUntrackedFile</code>，
+      <b>沒有 unstage 的對照</b>。這就是 <code>[TEST-fixture-cannot-disagree]</code>
+      最素的形式：一個只會 stage 的 fixture 看不到 unstage 留下了什麼。
+      <code>integration_test/stage_lines_flow_test.dart</code> 在這個面上有 7 個測試，
+      沒有一個用未追蹤檔案。新測試斷言的是 <b>porcelain 的 <code>?</code></b> ——
+      使用者看到的東西 —— 而不是<span class="zh">「index 條目不見了」</span>，
+      那是實作在自言自語。
     </p>
   </section>
 
   <!-- ============================ 12 ============================ -->
   <section id="round2-work">
-    <div class="sec-head"><span class="sec-num">12</span><h2>Second-round work list</h2></div>
+    <div class="sec-head"><span class="sec-num">12</span><h2>第二輪工作清單</h2></div>
     <p class="lede">
-      §08's table is round one's record and stays as it is. These are the rows this round adds, on a
-      branch cut from the first: <code>fix/working-copy-unified-single-view</code>. X1 is independent
-      of §10 and goes first — it is a C++ fix with its own test tier, and blocking it behind a UI
-      ruling would be a scope reduction nobody asked for.
+      §08 那張表是第一輪的記錄，維持原樣。這裡是這一輪追加的列，
+      分支從第一輪那條切出來：<code>fix/working-copy-unified-single-view</code>。
+      X1 與 §10 無關，先做 —— 它是一個有自己測試層的 C++ 修正，
+      把它卡在一個 UI 裁定後面會變成沒有人要求的縮減範圍。
     </p>
     <div class="tablewrap"><table>
-      <thead><tr><th style="width:5%">#</th><th style="width:11%">Status</th><th style="width:24%">Item</th><th style="width:8%">Sites</th><th>What it is</th></tr></thead>
+      <thead><tr><th style="width:5%">#</th><th style="width:11%">狀態</th><th style="width:24%">項目</th><th style="width:8%">改幾處</th><th>是什麼</th></tr></thead>
       <tbody>
-        <tr><td class="num">X1</td><td><span class="pill is-open">open</span></td><td>Untracked unstage lands back on <code>?</code></td><td class="num">1 + 2 tests</td>
-            <td>§11's rule inside <code>PartialStageOperation</code> (<code>StageOps.cpp:168–241</code>). Red first in <code>GitIntegrationTest.cpp</code> asserting porcelain <code>?</code>; then a device-tier case, because <code>stage_lines_flow_test.dart</code> has no untracked file in any of its seven. No capi change — the fix is entirely inside the operation, so <code>[TEST-ffi-matches-symbol-only]</code>'s seam is not crossed.</td></tr>
-        <tr><td class="num">X2</td><td><span class="pill is-open">open</span></td><td><code>ScopedDiffView</code> takes a list of sources</td><td class="num">2</td>
-            <td><b>Pure refactor, no pixel moves.</b> <code>file</code>/<code>staged</code>/<code>onStageScope</code>/<code>onDiscardScope</code> collapse into a <code>ScopedDiffSource</code> list; <code>_wellChildren</code> walks sources → hunks → segments. <code>_ScopeCard</code>/<code>_GapBlock</code> need no change — they already take <code>staged</code> each. Row <code>GlobalKey</code>s re-key on <code>(source, hunk, line)</code> or two sources' same-numbered rows collide, which is <code>[FLU-selectionarea-gives-a-string]</code> trap 1 by construction. Acceptance is that every existing test stays green untouched.</td></tr>
-        <tr><td class="num">X3</td><td><span class="pill is-open">open</span></td><td><code>unified</code> becomes one merged list</td><td class="num">1 + tests</td>
-            <td>U1–U9 as ruled. Region ordering (U1, already ruled), per-card rail and dot, title-bar count chip, the one-shot direction rule, and — if U8 is adopted — a second <code>GbmButton</code> treatment for the Unstage direction, which is a shared-widget change rather than a <code>scoped_diff_view.dart</code> one. <code>2 file</code> untouched (U6).</td></tr>
-        <tr><td class="num">X4</td><td><span class="pill is-open">open</span></td><td>Records</td><td class="num">4</td>
-            <td><code>[STRUCT-two-column-switches]</code>'s Working Copy row says <span class="zh">「左 ↔ 右 means unstaged ↔ staged」</span>, which stops being true of <code>unified</code>; <code>[STRUCT-working-copy]</code>'s diff paragraph likewise. X1's finding is <code>GIT-</code> pin material and belongs beside <code>[GIT-new-file-patch-needs-dev-null]</code>, whose <span class="zh">「不要改 unstage 方向」</span> sentence is <em>correct</em> and now has a measured boundary. New ledger file plus its <code>INDEX.md</code> line.</td></tr>
+        <tr><td class="num">X1</td><td><span class="pill is-open">open</span></td><td>未追蹤檔案 unstage 之後回到 <code>?</code></td><td class="num">1 + 2 測試</td>
+            <td>把 §11 的規則放進 <code>PartialStageOperation</code>（<code>StageOps.cpp:168–241</code>）。先在 <code>GitIntegrationTest.cpp</code> 寫紅，斷言 porcelain 的 <code>?</code>；然後補一個裝置層案例，因為 <code>stage_lines_flow_test.dart</code> 七個測試裡沒有一個用未追蹤檔案。不動 capi —— 修正完全在 operation 內部，所以不會跨過 <code>[TEST-ffi-matches-symbol-only]</code> 的那條縫。</td></tr>
+        <tr><td class="num">X2</td><td><span class="pill is-open">open</span></td><td><code>ScopedDiffView</code> 改成吃一串來源</td><td class="num">2</td>
+            <td><b>純重構，不動任何一個像素。</b><code>file</code>/<code>staged</code>/<code>onStageScope</code>/<code>onDiscardScope</code> 收成一串 <code>ScopedDiffSource</code>；<code>_wellChildren</code> 改成走 來源 → hunks → segments。<code>_ScopeCard</code>/<code>_GapBlock</code> 不用改 —— 它們本來就各自收 <code>staged</code>。列的 <code>GlobalKey</code> 要改用 <code>(source, hunk, line)</code> 當 key，否則兩個來源的同號列會撞在一起，那在結構上就是 <code>[FLU-selectionarea-gives-a-string]</code> 的陷阱 1。驗收條件是既有測試一個字都不改、全部維持綠。</td></tr>
+        <tr><td class="num">X3</td><td><span class="pill is-open">open</span></td><td><code>unified</code> 變成一份合併清單</td><td class="num">1 + 測試</td>
+            <td>依 U1–U9 的裁定。區域排序（U1，已裁定）、逐卡片的左緣與圓點、標題列的計數 chip、一次性選取的方向規則，以及 —— 如果 U8 採納 —— Unstage 方向的第二種 <code>GbmButton</code> 樣式，那是共用 widget 的改動，不是 <code>scoped_diff_view.dart</code> 的。<code>2 file</code> 一個字不動（U6）。</td></tr>
+        <tr><td class="num">X4</td><td><span class="pill is-open">open</span></td><td>記錄</td><td class="num">4</td>
+            <td><code>[STRUCT-two-column-switches]</code> 的 Working Copy 那一列寫著<span class="zh">「左 ↔ 右 means unstaged ↔ staged」</span>，這對 <code>unified</code> 不再成立；<code>[STRUCT-working-copy]</code> 的 diff 段落同理。X1 的發現是 <code>GIT-</code> pin 等級的材料，該放在 <code>[GIT-new-file-patch-needs-dev-null]</code> 旁邊，它那句<span class="zh">「不要改 unstage 方向」</span>是<em>對的</em>，現在多了一條量出來的邊界。新的 ledger 檔，加上它在 <code>INDEX.md</code> 的那一行。</td></tr>
       </tbody>
     </table></div>
 
-    <h3>Acceptance, second round</h3>
+    <h3>第二輪的驗收</h3>
     <ul class="plain">
-      <li>A real-repo test stages every line of an untracked file, unstages every line back, and asserts <b>porcelain reports <code>?</code></b> — not that some index entry vanished.</li>
-      <li>A second real-repo test unstages <b>one of three</b> lines and asserts the entry survives with the other two, so the fix cannot be a blanket <code>restore --staged</code> on any unstage.</li>
-      <li>A third asserts the <b>tracked</b> control still lands on <code>.M</code>, pinning the <code>kind == Added</code> gate rather than <span class="zh">「全部行」</span>.</li>
-      <li>In <code>unified</code>, exactly <b>one</b> <code>ScopedDiffView</code> is mounted, and one list contains both a <code>Stage …</code> and an <code>Unstage …</code> button.</li>
-      <li>The interleave is pinned by a fixture whose staged hunk's <code>newStart</code> falls <b>between</b> two unstaged hunks' <code>oldStart</code>s — a fixture where the numbers coincide cannot tell sorted from concatenated (<code>[TEST-fixture-cannot-disagree]</code>).</li>
-      <li>A drag crossing a staged card and an unstaged card puts only the first-touched direction into the one-shot scope, asserted on the resulting button's own label.</li>
-      <li><code>2 file</code> mode's existing dx assertion still passes with no change to the test.</li>
-      <li><code>flutter analyze</code> at zero, <code>dart format</code> clean, <code>ctest</code> green, <code>stage_lines_flow_test.dart</code> re-run whole on device with a control run on the parent commit first.</li>
+      <li>一個真 repo 測試把未追蹤檔案的每一行 stage、再每一行 unstage 回來，斷言 <b>porcelain 回報 <code>?</code></b> —— 不是斷言某個 index 條目不見了。</li>
+      <li>第二個真 repo 測試只 unstage <b>三行裡的一行</b>，斷言條目連同另外兩行活著，這樣修法就不可能變成「任何一次 unstage 都 <code>restore --staged</code>」。</li>
+      <li>第三個斷言<b>已追蹤</b>的對照組仍然落在 <code>.M</code>，把 <code>kind == Added</code> 這道閘門釘住，而不是釘<span class="zh">「全部行」</span>。</li>
+      <li>在 <code>unified</code> 下，掛載的 <code>ScopedDiffView</code> 剛好<b>一</b>個，而且同一份清單裡同時找得到 <code>Stage …</code> 與 <code>Unstage …</code> 兩種按鈕。</li>
+      <li>交錯順序由一個 fixture 釘住：它的 staged hunk 的 <code>newStart</code> 落在兩個 unstaged hunk 的 <code>oldStart</code> <b>之間</b> —— 一個數字剛好重合的 fixture 分不出「排序過」與「接在後面」（<code>[TEST-fixture-cannot-disagree]</code>）。</li>
+      <li>一次跨過 staged 卡片與 unstaged 卡片的拖曳，只把先碰到的那個方向放進一次性 scope，斷言在產生出來的按鈕自己的標籤上。</li>
+      <li><code>2 file</code> 模式既有的 dx 斷言在測試一個字都不改的情況下仍然過。</li>
+      <li><code>flutter analyze</code> 歸零、<code>dart format</code> 乾淨、<code>ctest</code> 綠，<code>stage_lines_flow_test.dart</code> 在裝置上整份重跑，並且先在父 commit 上跑一次對照組。</li>
     </ul>
   </section>
 
   <footer class="colophon">
     <span>Tokens: <code>app_flutter/lib/theme/tokens.dart</code></span>
-    <span>Skeleton: <code>worktree-dialogs-spec.html</code>, the sibling page in this folder</span>
-    <span>Faces: Inter · JetBrains Mono — the app's own <code>fontUi</code> / <code>fontMono</code></span>
+    <span>骨架：<code>worktree-dialogs-spec.html</code>，同一個資料夾裡的姊妹頁</span>
+    <span>字體：Inter · JetBrains Mono —— app 自己的 <code>fontUi</code> / <code>fontMono</code></span>
   </footer>
 </div>
 

@@ -653,25 +653,18 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   /// In a merged list this order is also what settles a drag's direction:
   /// [resolveTemporaryScope] takes the first *changed* row it finds here, so
   /// "which card did the selection reach first" is answered by the same list
-  /// the rows were laid out from rather than by a second traversal that
-  /// could disagree with it ([CULT-single-source-of-truth]).
-  List<String> _rowsInRenderOrder() {
-    final List<String> rows = <String>[];
-    for (
-      int sourceIndex = 0;
-      sourceIndex < widget.sources.length;
-      sourceIndex++
-    ) {
-      final DiffFile? file = widget.sources[sourceIndex].file;
-      if (file == null) continue;
-      for (int h = 0; h < file.hunks.length; h++) {
-        for (int i = 0; i < file.hunks[h].lines.length; i++) {
-          rows.add(selectionRowKey(sourceIndex, h, i));
-        }
-      }
-    }
-    return rows;
-  }
+  /// the rows were laid out from ([CULT-single-source-of-truth]).
+  ///
+  /// **That sentence was written before it was true.** This walked the
+  /// sources in order for one round while [_wellChildren] painted them
+  /// sorted, so the two disagreed exactly when the regions interleaved.
+  /// Both now read [_orderedBlocks]; the derivation below is deliberately
+  /// the only body here, so there is nothing left to drift.
+  List<String> _rowsInRenderOrder() => <String>[
+    for (final _Block block in _orderedBlocks(_scopesBySource()))
+      for (final int lineIndex in block.segment.lineIndices)
+        selectionRowKey(block.sourceIndex, block.hunkIndex, lineIndex),
+  ];
 
   /// `SCOPES` row 7's second input: 「Shift + ↑ ↓」.
   ///
@@ -769,71 +762,18 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     });
   }
 
-  /// Built imperatively rather than as one nested collection-for, because
-  /// the loop carries a running scope ordinal across hunks -- and now across
-  /// sources, so a merged list numbers its cards 1..N once rather than
-  /// restarting at each direction.
+  /// Every drawable block of every source, in the order they are painted.
   ///
-  /// **There is no temporary card here at all.** This list emits exactly
-  /// three kinds of child -- [_HunkHeading], [_GapBlock], [_ScopeCard] --
-  /// and a one-shot selection is rendered *inside* the cards it covers:
-  /// [_ScopeCard] wraps the covered run of its own rows in a
-  /// [_TemporaryBlock] in place, and the head plus its button go on the
-  /// first card the selection reaches (`showTemporaryHead` below). That is
-  /// the style demo's own structure -- `.variant-B-temp` is nested inside
-  /// `.variant-B-card`, which goes `.variant-B-card-muted` with its button
-  /// `.variant-B-btn-off` ([SPEC-demo-dom-is-the-spec]).
-  ///
-  /// **Corrected in place**: this comment used to say the temporary card
-  /// 「holds a fixed slot at the top and is a [SizedBox.shrink] when there
-  /// is no selection」, and justified it by the reparenting hazard -- an
-  /// inline insertion shifts every row below it, and the rows carry
-  /// [SelectionListener]s whose reports are what decided the card should
-  /// exist. Both halves outlived what they described. The slot shipped,
-  /// the user pointed at it, and it was replaced by the nested form; the
-  /// hazard is answered by the rows' own [GlobalKey]s, which make Flutter
-  /// *move* an element into its new parent rather than rebuild it. A
-  /// recorded hazard is a reason to solve the problem, not a licence to
-  /// change the design ([FLU-selectionarea-gives-a-string]).
-  List<Widget> _wellChildren(
-    List<Map<int, List<DiffScope>>> scopesBySource,
-    TemporaryScope? temporary,
-    Set<String> settledTouched,
-  ) {
-    // The one-shot scope belongs to exactly one source, so every card in
-    // every *other* source draws as an ordinary card -- not struck through,
-    // not tinted. That is U5 made visible: the excluded cards keep their own
-    // buttons and stay pressable.
-    final Map<int, List<int>> temporaryByHunk =
-        temporary?.byHunk ?? const <int, List<int>>{};
-    final int temporaryChanged = temporaryByHunk.values.fold<int>(
-      0,
-      (int sum, List<int> lines) => sum + lines.length,
-    );
-    // How many rows the drag framed *within the winning source*: the label's
-    // primary number is 匡選行數, and counting rows the scope excluded would
-    // promise to move lines the button will not touch.
-    final int temporarySpanned = temporary == null
-        ? 0
-        : settledTouched
-              .where(
-                (String row) => row.startsWith('${temporary.sourceIndex}:'),
-              )
-              .length;
-    final String temporaryLabel = temporary == null
-        ? ''
-        : scopeButtonLabel(
-            staged: widget.sources[temporary.sourceIndex].staged,
-            spanned: temporarySpanned,
-            changed: temporaryChanged,
-          );
-    // The head goes on the first card the selection reaches, and only that
-    // one: it is one scope and one press, however many cards it spans. The
-    // rows it reaches in later cards still carry the dashed body and the
-    // touched tint, so the extent stays visible without a second button
-    // claiming to be a second action.
-    bool temporaryHeadPlaced = false;
-
+  /// The one place that order is decided, because two things read it: the
+  /// widgets themselves, and [_rowsInRenderOrder], which is what
+  /// [resolveTemporaryScope] and `Shift + ↑ ↓` walk. They were two
+  /// traversals for one round -- a source-major one here and a sorted one in
+  /// [_wellChildren] -- and they disagreed the moment the regions
+  /// interleaved, which is exactly the case the sort exists for: a drag
+  /// reaching a staged card painted above an unstaged one resolved to
+  /// unstaged, against U5, and a Shift-range spanned rows in an order
+  /// nothing on screen was in ([SPEC-range-follows-paint-order]).
+  List<_Block> _orderedBlocks(List<Map<int, List<DiffScope>>> scopesBySource) {
     // Every drawable block of every source, decorated with where it sits on
     // the index -- the ruler the two diffs share ([indexPositionOf]).
     final List<_Block> blocks = <_Block>[];
@@ -901,6 +841,76 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
         ..clear()
         ..addAll(sorted);
     }
+
+    return blocks;
+  }
+
+  /// Built imperatively rather than as one nested collection-for, because
+  /// the loop carries a running scope ordinal across hunks -- and now across
+  /// sources, so a merged list numbers its cards 1..N once rather than
+  /// restarting at each direction.
+  ///
+  /// **There is no temporary card here at all.** This list emits exactly
+  /// three kinds of child -- [_HunkHeading], [_GapBlock], [_ScopeCard] --
+  /// and a one-shot selection is rendered *inside* the cards it covers:
+  /// [_ScopeCard] wraps the covered run of its own rows in a
+  /// [_TemporaryBlock] in place, and the head plus its button go on the
+  /// first card the selection reaches (`showTemporaryHead` below). That is
+  /// the style demo's own structure -- `.variant-B-temp` is nested inside
+  /// `.variant-B-card`, which goes `.variant-B-card-muted` with its button
+  /// `.variant-B-btn-off` ([SPEC-demo-dom-is-the-spec]).
+  ///
+  /// **Corrected in place**: this comment used to say the temporary card
+  /// 「holds a fixed slot at the top and is a [SizedBox.shrink] when there
+  /// is no selection」, and justified it by the reparenting hazard -- an
+  /// inline insertion shifts every row below it, and the rows carry
+  /// [SelectionListener]s whose reports are what decided the card should
+  /// exist. Both halves outlived what they described. The slot shipped,
+  /// the user pointed at it, and it was replaced by the nested form; the
+  /// hazard is answered by the rows' own [GlobalKey]s, which make Flutter
+  /// *move* an element into its new parent rather than rebuild it. A
+  /// recorded hazard is a reason to solve the problem, not a licence to
+  /// change the design ([FLU-selectionarea-gives-a-string]).
+  List<Widget> _wellChildren(
+    List<Map<int, List<DiffScope>>> scopesBySource,
+    TemporaryScope? temporary,
+    Set<String> settledTouched,
+  ) {
+    // The one-shot scope belongs to exactly one source, so every card in
+    // every *other* source draws as an ordinary card -- not struck through,
+    // not tinted. That is U5 made visible: the excluded cards keep their own
+    // buttons and stay pressable.
+    final Map<int, List<int>> temporaryByHunk =
+        temporary?.byHunk ?? const <int, List<int>>{};
+    final int temporaryChanged = temporaryByHunk.values.fold<int>(
+      0,
+      (int sum, List<int> lines) => sum + lines.length,
+    );
+    // How many rows the drag framed *within the winning source*: the label's
+    // primary number is 匡選行數, and counting rows the scope excluded would
+    // promise to move lines the button will not touch.
+    final int temporarySpanned = temporary == null
+        ? 0
+        : settledTouched
+              .where(
+                (String row) => row.startsWith('${temporary.sourceIndex}:'),
+              )
+              .length;
+    final String temporaryLabel = temporary == null
+        ? ''
+        : scopeButtonLabel(
+            staged: widget.sources[temporary.sourceIndex].staged,
+            spanned: temporarySpanned,
+            changed: temporaryChanged,
+          );
+    // The head goes on the first card the selection reaches, and only that
+    // one: it is one scope and one press, however many cards it spans. The
+    // rows it reaches in later cards still carry the dashed body and the
+    // touched tint, so the extent stays visible without a second button
+    // claiming to be a second action.
+    bool temporaryHeadPlaced = false;
+
+    final List<_Block> blocks = _orderedBlocks(scopesBySource);
 
     final List<Widget> children = <Widget>[];
     int ordinal = 1;

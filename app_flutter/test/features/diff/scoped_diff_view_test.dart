@@ -1327,6 +1327,163 @@ void main() {
       });
     });
   });
+
+  group('ScopedDiffView -- U5: the direction is the first card painted', () {
+    late List<({bool staged, int hunkIndex, List<int> lines})> staged;
+
+    setUp(() => staged = <({bool staged, int hunkIndex, List<int> lines})>[]);
+
+    /// One hunk, three added lines, sitting at [start] on the index side.
+    ///
+    /// Both line numbers are set to the same run because a source reads only
+    /// its own side ([indexPositionOf] takes `oldLine` for unstaged and
+    /// `newLine` for staged), and giving them different runs would only make
+    /// the fixture harder to read without changing what either side sees.
+    DiffFile sideFile({required String tag, required int start}) => DiffFile(
+      oldPath: 'lib/a.dart',
+      newPath: 'lib/a.dart',
+      kind: FileChangeKind.modified,
+      oldMode: '',
+      newMode: '',
+      oldBlob: '',
+      newBlob: '',
+      binary: false,
+      similarity: 0,
+      addedLines: 3,
+      removedLines: 0,
+      displayPath: 'lib/a.dart',
+      hunks: <DiffHunk>[
+        DiffHunk(
+          oldStart: start,
+          oldCount: 3,
+          newStart: start,
+          newCount: 3,
+          heading: '',
+          lines: <DiffLine>[
+            for (int i = 0; i < 3; i++)
+              DiffLine(
+                kind: DiffLineKind.added,
+                oldLine: start + i,
+                newLine: start + i,
+                text: '$tag l$i',
+              ),
+          ],
+        ),
+      ],
+    );
+
+    /// Staged at line 10, unstaged at line 100 -- so the region sort paints
+    /// the **staged** card first, and source order and painted order
+    /// disagree. A fixture with the unstaged side first cannot tell the two
+    /// apart ([TEST-fixture-cannot-disagree]).
+    Future<void> pump(WidgetTester tester) => pumpGbmWidget(
+      tester,
+      child: SizedBox(
+        width: 600,
+        child: ScopedDiffView(
+          softWrap: false,
+          sources: <ScopedDiffSource>[
+            ScopedDiffSource(
+              title: 'Unstaged',
+              file: sideFile(tag: 'un', start: 100),
+              staged: false,
+              onStageScope: (int h, List<int> l) =>
+                  staged.add((staged: false, hunkIndex: h, lines: l)),
+            ),
+            ScopedDiffSource(
+              title: 'Staged',
+              file: sideFile(tag: 'st', start: 10),
+              staged: true,
+              onStageScope: (int h, List<int> l) =>
+                  staged.add((staged: true, hunkIndex: h, lines: l)),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    Future<void> dragSelect(WidgetTester tester, String from, String to) async {
+      final Rect fromRect = tester.getRect(find.text(from));
+      final Rect toRect = tester.getRect(find.text(to));
+      final TestGesture gesture = await tester.startGesture(
+        Offset(fromRect.left + 1, fromRect.center.dy),
+        kind: PointerDeviceKind.mouse,
+      );
+      addTearDown(gesture.removePointer);
+      await tester.pump();
+      await gesture.moveTo(Offset(toRect.right - 1, toRect.center.dy));
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+      await tester.pump();
+    }
+
+    testWidgets('the staged card is painted above the unstaged one', (
+      tester,
+    ) async {
+      await pump(tester);
+
+      expect(
+        tester.getRect(find.text('st l0')).top,
+        lessThan(tester.getRect(find.text('un l0')).top),
+        reason:
+            'the fixture only discriminates while the region sort has put '
+            'source 1 first',
+      );
+
+      // 變更 N is numbered over the painted list, so the staged card is 1
+      // and the unstaged one is 2 -- the reverse of source order. This is
+      // the claim `hunkSegments`' deleted `firstOrdinal` used to make one
+      // level down; it could not survive there, because a number handed out
+      // while the blocks are still grouped by hunk is shuffled by the sort
+      // that follows ([CULT-nothing-silently-dropped]).
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey<String>('scope-card-1')),
+          matching: find.text('st l0'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey<String>('scope-card-2')),
+          matching: find.text('un l0'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a drag crossing both directions takes the direction of the '
+        'card it reached first', (tester) async {
+      await pump(tester);
+
+      await dragSelect(tester, 'st l0', 'un l2');
+
+      // The whole of U5, stated where the user reads it: 「取它碰到的第一張
+      // 卡片的方向」. The first card the drag reaches is the staged one, so
+      // the one-shot button unstages -- and the unstaged rows it also
+      // crossed are excluded rather than folded in, because git has no one
+      // action that stages and unstages at once.
+      expect(
+        temporaryLabel('Unstage 3 lines'),
+        findsOneWidget,
+        reason:
+            'source order would answer 「stage」 here; painted order is what '
+            'U5 names',
+      );
+      expect(
+        temporaryLabel('Stage 3 lines'),
+        findsNothing,
+        reason: 'one drag is one direction, and one press',
+      );
+
+      // The other direction's card is excluded, not consumed: it keeps its
+      // own button and stays pressable. Paired with the assertion above --
+      // no Stage label *inside* the one-shot card -- this one being outside
+      // it is what the two together say.
+      expect(find.text('Stage 3 lines'), findsOneWidget);
+    });
+  });
 }
 
 /// Holds the diff in state so a test can replace it without rebuilding the

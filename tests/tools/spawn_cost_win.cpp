@@ -410,7 +410,12 @@ int main(int argc, char** argv) {
     // a 26ms git process. The number is what exposed it.
     const long long watchdogDeltaUs = gitTimeoutUs - gitUs;
     const long long prodResolutionUs = std::max<long long>(std::llabs(gitUs - gitAaUs), 1);
-    const bool watchdogResolved = gitUs > 0 && std::llabs(watchdogDeltaUs) > prodResolutionUs;
+    //
+    // Signed, not `llabs`: a delta below +resolution is not a measurement, and
+    // one *below negative* resolution is evidence the resolution is understated
+    // rather than evidence of a negative cost. See the same rule applied to the
+    // job-object pair below -- neither arm may publish an impossible number.
+    const bool watchdogResolved = gitUs > 0 && watchdogDeltaUs > prodResolutionUs;
 
     const char* verdict = "measured";
     if (static_cast<long long>(rawJob.samples.size()) < kMinSamplesForVerdict) {
@@ -419,7 +424,15 @@ int main(int argc, char** argv) {
         // The instrument could not find a delay it was told the size of, so
         // nothing it says about a delay nobody told it about is usable.
         verdict = "instrument-unreliable";
-    } else if (std::llabs(jobDeltaUs) <= resolutionUs) {
+    } else if (jobDeltaUs <= resolutionUs) {
+        // Signed on purpose. Creating and assigning a job object cannot make a
+        // spawn *faster*, so a delta at or below the resolution -- negative
+        // ones very much included -- is noise, not a cost. Left as `llabs`,
+        // a noisy night publishes `verdict=measured job_overhead_us=-50`,
+        // an impossible claim that the Step Summary would promote unattended
+        // and that the `fraction <= gate` check would pass trivially. This is
+        // the watchdog pair's -72us reading generalised to both arms before it
+        // can happen a second time.
         verdict = "below-noise";
     }
 

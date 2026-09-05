@@ -327,6 +327,15 @@ four times the run's own resolution, and the injected-delay control recovered a
 delay it was told the size of to within 3%, so the instrument was working when
 it said so. The earlier 33% is wrong by two orders of magnitude.
 
+`parent_in_job=1` says the measuring process was *itself* already inside a job
+object, which is the normal state of a GitHub runner. Nesting a job under
+another job is a different kernel path from creating the first one, so a
+desktop machine — where the parent is usually in no job at all — need not pay
+the same 71µs. The tool prints the field rather than correcting for it: which
+path was measured is a fact about the run, and a correction would be a second
+model to keep honest. Read the number as "the cost on CI", and re-measure
+before quoting it for anywhere else.
+
 Read it as one run. The gate (`GBM_MAX_JOB_OVERHEAD_FRACTION`) stays at 0.0 —
 disabled — until the nightly has a trend, because picking a threshold off a
 single sample is the same shape of error this whole document exists to record.

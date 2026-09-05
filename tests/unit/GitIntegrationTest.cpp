@@ -5125,5 +5125,44 @@ TEST_F(RealRepoTest, ASinkThatReadsEverythingIsNotRecordedAsBenign) {
     EXPECT_FALSE(record->benignExit);
 }
 
+// `GitCommand::timeout` had no test at all before this one, on either platform:
+// every `.timeout` in the suite is a 30-120 second value chosen to *not* fire.
+// That is why the Windows half of it could be broken for as long as it has been.
+//
+// The subject is a child that writes nothing and never exits (see
+// `fixtures/hang_forever.cpp`). Windows reads stdout with a synchronous
+// `ReadFile` on this very thread and tests the deadline only *between* two
+// reads, so with the pipe permanently empty the deadline is never reached and
+// the call never returns. POSIX polls all three fds with a bounded wait, so it
+// has never had this defect.
+//
+// [TEST-fixture-cannot-disagree]: this test is therefore **always green on
+// macOS and Linux**, and only Windows CI can refute what it claims -- the same
+// asymmetry [CPP-windows-terminate-hangs-join] already records. Its red is a
+// hang rather than a failed assertion, which is what the ctest deadline from
+// [CI-no-ctest-timeout] turns into a named `***Timeout` instead of a job that
+// runs until somebody notices.
+TEST(ProcessRunnerTimeout, AChildThatNeverWritesIsStillTimedOut) {
+    auto runner = makeProcessRunner(std::filesystem::path(GBM_HANG_FOREVER_EXE));
+
+    RecordSpy spy;
+    GitCommand command({}, {"--gbm-hang-forever"});
+    command.timeout = std::chrono::milliseconds(500);
+
+    // Returning at all is most of the claim: the child cannot exit on its own,
+    // so the only way out of this call is the deadline firing.
+    auto result = runner->run(command, CancellationToken{});
+
+    ASSERT_FALSE(result) << "a timeout is a failure, not a silent empty result";
+    EXPECT_EQ(result.error().code, GitError::Code::Timeout);
+
+    const auto record = spy.lastEndingWith({"--gbm-hang-forever"});
+    ASSERT_TRUE(record.has_value());
+    EXPECT_TRUE(record->timedOut);
+    // The control on the assertion above: `cancelled` is the other way a record
+    // can be non-benign and non-zero, and nobody cancelled anything here.
+    EXPECT_FALSE(record->cancelled);
+}
+
 }  // namespace
 }  // namespace gbm

@@ -44,6 +44,21 @@ gtest_discover_tests(gbm_core_tests
     PROPERTIES LABELS "unit"
     DISCOVERY_TIMEOUT 60)
 
+# --- a child that never writes and never exits ------------------------------
+# Not a test: the subject of the `GitCommand::timeout` tests. See the file's own
+# comment for why neither git nor a system tool can play this part.
+add_executable(gbm_hang_forever fixtures/hang_forever.cpp)
+target_link_libraries(gbm_hang_forever PRIVATE gbm_warnings)
+find_package(Threads REQUIRED)
+target_link_libraries(gbm_hang_forever PRIVATE Threads::Threads)
+
+# A generator expression, so the test is handed the real path per config rather
+# than guessing at a build layout. `add_dependencies` is what makes the helper
+# exist before the test that spawns it runs.
+target_compile_definitions(gbm_core_tests
+    PRIVATE GBM_HANG_FOREVER_EXE="$<TARGET_FILE:gbm_hang_forever>")
+add_dependencies(gbm_core_tests gbm_hang_forever)
+
 # --- history fixture generator ---------------------------------------------
 # Not a test: it emits a `git fast-import` stream. Building 200k commits with
 # `git commit` would take hours and need a working tree; fast-import does it in

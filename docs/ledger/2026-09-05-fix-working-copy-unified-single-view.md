@@ -170,6 +170,33 @@ loading / refused / binary 逐來源就地畫一個 `_Notice`（帶自己的圓�
   unstage 根本不是標頭問題。
 - 新 pin `[FLU-merged-diff-keys-by-source]`。
 
+## 驗證
+
+裝置層 macOS，逐檔跑，跑前 `pkill` 並 `scripts/build_capi.sh`（X1 改了 C++，
+`[TEST-stale-dylib-is-silent]`）：
+
+| 檔案 | 結果 |
+|---|---|
+| `history_filter_test`（對照組，本輪沒碰） | 2/2，57s |
+| `stage_lines_flow_test` | **7/7**，1m48s |
+| `untracked_unstage_flow_test`（新） | **1/1**，24s |
+| `working_copy_line_counts_test` | 1/1，7s |
+| `context_menu_flows_test` | 5/5，41s |
+| `commit_flow_test` | 1/1，9s |
+
+其餘各層：`flutter analyze` 0，`dart format --set-exit-if-changed` 乾淨，
+`flutter test` **2875 綠**，`ctest` **667 綠 / 2 skipped**（150s），
+`scripts/check-rule-pins.py` 187 條規則、112 個交叉引用、懸空 0。
+
+五個受影響的檔案是照 `[TEST-grep-misses-intent-driven-device-tests]` 選的 —— grep
+`ScopedDiffView` / `WorkingCopyDiffMode` / `WorkingCopyBoard` / 按鈕標籤 / `unified` /
+`2 file`，不是只 grep 這輪改到的字串。`commit_flow_test` 上一輪結尾是紅的
+（`[TEST-geometric-drop-point-is-axis-bound]`），這輪綠不是本輪修的：父分支的
+`f43a025` 已經把那個落點改成往下了。
+
+「`Failed to foreground app; open returned 1`」六次都出現，六次後面都跟著計數 ——
+`[TEST-foreground-line-is-not-a-failure]`。
+
 ## 沒做的
 
 - U9（模式切換器的 `檢視方式` 標籤與兩個 11px SVG 圖示）—— 使用者裁定「不應動，照既有模

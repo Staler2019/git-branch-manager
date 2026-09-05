@@ -931,107 +931,103 @@ footer.colophon {
   <section id="sources">
     <div class="sec-head"><span class="sec-num">04</span><h2>每一個數字，以及它從哪裡來</h2></div>
     <p class="lede">
-      Audited against the spec HTML before this page was drawn. Two values check out, three
-      contradict a stated row, and four have no source anywhere — those four are the ones you are
-      being asked to rule on.
+      這一頁畫出來之前先對著 spec HTML 稽核過。兩個值對得上、三個與明文列牴觸、四個哪裡都找不到出處 ——
+      那四個就是要請你裁定的。
     </p>
     <div class="tablewrap"><table>
-      <thead><tr><th style="width:20%">Value</th><th style="width:13%">Proposed</th><th>Source</th><th style="width:13%">Verdict</th></tr></thead>
+      <thead><tr><th style="width:20%">值</th><th style="width:13%">提案</th><th>出處</th><th style="width:13%">判定</th></tr></thead>
       <tbody>
         <tr>
-          <td>Unstaged/Staged ratio</td><td class="num">1 : 1</td>
+          <td>Unstaged/Staged 比例</td><td class="num">1 : 1</td>
           <td>P09 <code>SPLITTERS</code>: <code>{ id: 'wc.columns', … def: '1 : 1', min: '200px' }</code></td>
           <td class="verdict ok">符合</td>
         </tr>
         <tr>
-          <td>Drop hint, current text</td><td class="num"><span class="zh">拖曳檔案到右欄 = stage</span></td>
-          <td>Spec P03's dashed panel, byte-identical: <code>…text-align:center"&gt;拖曳檔案到右欄 = stage&lt;/div&gt;</code></td>
+          <td>Drop hint 現有文字</td><td class="num"><span class="zh">拖曳檔案到右欄 = stage</span></td>
+          <td>Spec P03 的虛線框，逐位元組相同：<code>…text-align:center"&gt;拖曳檔案到右欄 = stage&lt;/div&gt;</code></td>
           <td class="verdict ok">符合</td>
         </tr>
         <tr>
-          <td><b>Unstaged↔Staged divider direction</b></td><td class="num">horizontal line<br>(stacked)</td>
-          <td>Same row says <code>dir: '垂直'</code> — a vertical line, i.e. side by side. Today's code agrees with the spec.</td>
+          <td><b>Unstaged↔Staged 分隔線方向</b></td><td class="num">水平線<br>（上下堆疊）</td>
+          <td>同一列寫 <code>dir: '垂直'</code> —— 一條垂直線，也就是左右並排。今天的程式碼與 spec 一致。</td>
           <td class="verdict bad">不符</td>
         </tr>
         <tr>
-          <td><b>Files↔diff divider direction</b></td><td class="num">vertical line<br>(side by side)</td>
-          <td>P09: <code>{ id: 'wc.diff', where: '檔案區 ↔ Diff', dir: '水平', def: '46 / 54', min: '150px' }</code> — a horizontal line, i.e. stacked. Today's code agrees.</td>
+          <td><b>檔案區↔diff 分隔線方向</b></td><td class="num">垂直線<br>（左右並排）</td>
+          <td>P09: <code>{ id: 'wc.diff', where: '檔案區 ↔ Diff', dir: '水平', def: '46 / 54', min: '150px' }</code>  —— 一條水平線，也就是上下堆疊。今天的程式碼與它一致。</td>
           <td class="verdict bad">不符</td>
         </tr>
         <tr>
-          <td>Stack <code>minExtent</code></td><td class="num">96</td>
-          <td>The same <code>wc.columns</code> row states <code>min: '200px'</code>. 200 was a <em>width</em> floor; as a height floor it would demand 400px for the pair. 78px is the exact-constant part of 96 (section 03).</td>
+          <td>堆疊的 <code>minExtent</code></td><td class="num">96</td>
+          <td>同一列 <code>wc.columns</code> 寫 <code>min: '200px'</code>。200 是<em>寬度</em>下限；當成高度下限的話，兩欄加起來要 400px。78px 是 96 裡面能用具名常數算死的部分（第 03 節）。</td>
           <td class="verdict bad">不符</td>
         </tr>
         <tr>
           <td>Option A <code>defaultExtent</code></td><td class="num">260</td>
-          <td>No spec row gives a pixel default for this divider — <code>wc.diff</code> is proportional. Repo extent-mode neighbours: 250, 186, 158, 280, 160. None is 260.</td>
+          <td>spec 沒有任何一列給這條分隔線像素預設值 —— <code>wc.diff</code> 是比例的。repo 裡其他 extent 模式的鄰居：250、186、158、280、160。沒有一個是 260。</td>
           <td class="verdict none">無出處</td>
         </tr>
         <tr>
           <td>Option A <code>minExtent</code></td><td class="num">180</td>
-          <td><code>wc.diff</code>'s row says <code>min: '150px'</code>. 180 happens to equal <code>sidebarMinWidth</code> — a different divider's number, not evidence for this one.</td>
+          <td><code>wc.diff</code> 那一列寫 <code>min: '150px'</code>。180 剛好等於 <code>sidebarMinWidth</code> —— 那是另一條分隔線的數字，不能當這一條的證據。</td>
           <td class="verdict none">無出處</td>
         </tr>
         <tr>
-          <td>Option B ratio</td><td class="num">30 / 70</td>
-          <td>Nothing. <code>wc.diff</code>'s <code>46 / 54</code> is the only ratio the spec gives, and it is for the stacked arrangement this replaces.</td>
+          <td>方案 B 的比例</td><td class="num">30 / 70</td>
+          <td>沒有。spec 給的唯一比例是 <code>wc.diff</code> 的 <code>46 / 54</code>，而那是給這次要換掉的上下堆疊排法用的。</td>
           <td class="verdict none">無出處</td>
         </tr>
         <tr>
-          <td>Tree indent / chevron / row text</td><td class="num">16 · 16 · 12.5</td>
-          <td><code>EdgeInsets.only(left: level * 16.0)</code> (<code>file_tree_list.dart</code>); <code>Icon(Icons.arrow_right, size: 16)</code> and <code>fontSize: GbmTypography.textSm</code> (<code>file_tree_folder_row.dart</code>). File rows are <code>textSm</code> too — <b>an earlier draft of this page drew them at <code>textXs</code></b> and was corrected against a live pump.</td>
+          <td>Tree 縮排 / 箭號 / 列文字</td><td class="num">16 · 16 · 12.5</td>
+          <td><code>EdgeInsets.only(left: level * 16.0)</code> (<code>file_tree_list.dart</code>); <code>Icon(Icons.arrow_right, size: 16)</code> and <code>fontSize: GbmTypography.textSm</code> (<code>file_tree_folder_row.dart</code>). 檔案列也是 <code>textSm</code> —— <b>這一頁早先的草稿把它畫成 <code>textXs</code></b>，是對著真的 pump 出來的結果更正的。</td>
           <td class="verdict ok">符合</td>
         </tr>
         <tr>
-          <td>Tree leaf text, today</td><td class="num">full path</td>
-          <td>Measured, not read: pumping <code>WorkingCopyBoard</code> in tree mode paints <code>lib</code>, then <code>lib/graph/lane_allocator.dart</code>, then <code>lib/theme/tokens.dart</code>. <code>_buildFileRow</code> renders <code>entry.path</code> in both modes, while <code>FileTreeFolderRow</code> renders <code>node.name</code>.</td>
+          <td>Tree 葉節點文字，今天</td><td class="num">完整路徑</td>
+          <td>量出來的，不是讀來的：把 <code>WorkingCopyBoard</code> 在 tree 模式 pump 起來，畫出來的是 <code>lib</code>，接著 <code>lib/graph/lane_allocator.dart</code>，接著 <code>lib/theme/tokens.dart</code>。<code>_buildFileRow</code> 在兩個模式都畫 <code>entry.path</code>，而 <code>FileTreeFolderRow</code> 畫的是 <code>node.name</code>。</td>
           <td class="verdict bad">defect</td>
         </tr>
         <tr>
-          <td>Specimen filler: <code>gap:6px</code>, <code>10px</code> captions, <code>.dl</code> 17px, gutter 22px, <code>.seg</code> padding</td>
-          <td class="num">tagged <code>[SPEC]</code></td>
-          <td>Nothing — chosen to make this drawing legible. Confined to the diff rows and the segmented control, none of which any decision on this page rests on. Everything the layout <em>does</em> rest on (26 / 11 / 8 / 12 / 6 / 30 / 132 / 200 / 1) is a real constant.</td>
+          <td>Specimen 填充用的值：<code>gap:6px</code>, <code>10px</code> captions, <code>.dl</code> 17px, gutter 22px, <code>.seg</code> padding</td>
+          <td class="num">標記為 <code>[SPEC]</code></td>
+          <td>沒有 —— 是為了讓這張圖看得懂而挑的。範圍限定在 diff 的行與切換控制項，這一頁的任何決定都不靠它們。版面<em>真正</em>靠的那些（26 / 11 / 8 / 12 / 6 / 30 / 132 / 200 / 1）全部是真的常數。</td>
           <td class="verdict none">無出處</td>
         </tr>
         <tr>
-          <td>Drop hint, replacement</td><td class="num">see section 05</td>
-          <td>The spec has exactly one wording for this panel and it names <span class="zh">右欄</span>. It does not contemplate a stacked layout, so <b>every</b> candidate is invented copy.</td>
+          <td>Drop hint 的替代文字</td><td class="num">見第 05 節</td>
+          <td>spec 對這個框只有一種寫法，而它寫的是<span class="zh">右欄</span>。它從來沒有設想過堆疊版面，所以<b>每一個</b>候選字都是憑空發明的文案。</td>
           <td class="verdict none">無出處</td>
         </tr>
       </tbody>
     </table></div>
 
-    <h3>Two drifts noticed in passing</h3>
+    <h3>順手發現的兩個 drift</h3>
     <p>
-      <b>Not fixed here.</b> The spec draws the drop hint as <code>padding:7px</code>,
-      <code>font-size:10px</code>, <code>margin:auto 10px 10px</code>; the code uses
-      <code>space2</code> (8), <code>textXs</code> (11) and <code>space2</code>. The mockups above
-      draw the <b>code's</b> numbers, since this page is about layout. Recorded so it is not
-      rediscovered as new; not in this round's scope.
+      <b>這裡沒有修。</b>spec 把 drop hint 畫成 <code>padding:7px</code>、
+      <code>font-size:10px</code>、<code>margin:auto 10px 10px</code>；程式碼用的是
+      <code>space2</code>（8）、<code>textXs</code>（11）與 <code>space2</code>。上面的 mockup 畫的是
+      <b>程式碼</b>的數字，因為這一頁講的是版面。記在這裡是為了下次不要當成新發現；不在這一輪範圍內。
     </p>
     <p>
-      <b>Fixed here.</b> The sibling page <code>worktree-dialogs-spec.html</code> declares
-      <code>light-ide</code>'s <code>--gbm-warning</code> as <code>#bf8700</code>. The real
-      <code>_lightIde.warning</code> is <code>#9a6700</code>. This page carries the corrected
-      value; the sibling's copy is corrected in place in its own commit alongside this page, since
-      a spec page whose tokens are not the app's tokens is worse than no spec page.
+      <b>這裡修掉了。</b>隔壁那一頁 <code>worktree-dialogs-spec.html</code> 把
+      <code>light-ide</code> 的 <code>--gbm-warning</code> 宣告成 <code>#bf8700</code>。真正的
+      <code>_lightIde.warning</code> 是 <code>#9a6700</code>。這一頁用的是更正過的值；
+      隔壁那一份在自己的 commit 裡就地更正 —— 一份 token 與 app 不符的 spec 頁，比沒有 spec 頁更糟。
     </p>
   </section>
 
   <!-- ============================ 5 ============================ -->
   <section id="copy">
-    <div class="sec-head"><span class="sec-num">05</span><h2>The drop hint has to change, and has nothing to quote</h2></div>
+    <div class="sec-head"><span class="sec-num">05</span><h2>Drop hint 非改不可，而且沒有東西可以引用</h2></div>
     <p class="lede">
-      <span class="zh">「拖曳檔案到右欄 = stage」</span> — once Staged is below rather than beside,
-      <span class="zh">右欄</span> is simply false. A hint pointing the wrong way is worse than no
-      hint: it is a control that lies.
+      <span class="zh">「拖曳檔案到右欄 = stage」</span> —— 一旦 Staged 變成在下面而不是在旁邊，
+      <span class="zh">右欄</span> 就是假的。一個指錯方向的提示比沒有提示更糟：那是一個會說謊的控制項。
     </p>
     <div class="tablewrap"><table>
-      <thead><tr><th style="width:8%">#</th><th style="width:34%">Candidate</th><th>Argument</th></tr></thead>
+      <thead><tr><th style="width:8%">#</th><th style="width:34%">候選</th><th>論點</th></tr></thead>
       <tbody>
         <tr><td class="num">C1</td><td class="zh"><b>拖曳檔案到下欄 = stage</b></td>
-            <td><b>Recommended.</b> One character changes — <span class="zh">右</span> → <span class="zh">下</span>. Keeps the spec's own sentence shape, its <code>=</code>, and its word <span class="zh">欄</span>, so the deviation is as small as a deviation can be while still being true.</td></tr>
+            <td><b>建議這個。</b>只改一個字 —— <span class="zh">右</span> → <span class="zh">下</span>。保留 spec 自己的句型、它的 <code>=</code>、它的<span class="zh">欄</span>字，所以在「還是真的」的前提下，偏離已經小到不能再小。</td></tr>
         <tr><td class="num">C2</td><td class="zh">拖曳檔案到下方 = stage</td>
             <td><span class="zh">下方</span> reads slightly more natural than <span class="zh">下欄</span> for something stacked, but abandons the spec's noun. Marginally better Chinese, marginally further from the source.</td></tr>
         <tr><td class="num">C3</td><td class="zh">往下拖 = stage · 往上拖 = unstage</td>
@@ -1039,44 +1035,41 @@ footer.colophon {
       </tbody>
     </table></div>
     <div class="callout">
-      <div class="callout__title">Ruled — <span class="zh">C1</span></div>
+      <div class="callout__title">已裁定 —— <span class="zh">C1</span></div>
       <p style="margin-bottom:0">
-        <span class="zh">「拖曳檔案到下欄 = stage」</span>. One character moves,
-        <span class="zh">右</span> → <span class="zh">下</span>; the sentence shape, the
-        <code>=</code> and the noun <span class="zh">欄</span> all stay the spec's. The mockups in
-        sections 02 and 03 already draw it. <b>The Staged pane still has no hint of its own</b> —
-        C3 was the candidate that would have added one, and it was not the one chosen, so
-        unstaging stays as discoverable (or not) as it is today.
+        <span class="zh">「拖曳檔案到下欄 = stage」</span>。動一個字，
+        <span class="zh">右</span> → <span class="zh">下</span>；句型、<code>=</code>
+        與<span class="zh">欄</span>這個名詞全部維持 spec 的。第 02、03 節的 mockup 已經照這樣畫了。
+        <b>Staged 那個 pane 仍然沒有自己的提示</b> —— 會補一個的是候選 C3，而它沒有被選上，
+        所以 unstage 的可發現性維持今天的樣子。
       </p>
     </div>
   </section>
 
   <!-- ============================ 6 ============================ -->
   <section id="scopes">
-    <div class="sec-head"><span class="sec-num">06</span><h2>The stage/unstage scope cards, which were never written down</h2></div>
+    <div class="sec-head"><span class="sec-num">06</span><h2>stage/unstage 的 scope 卡片，從來沒有被寫下來過</h2></div>
     <p class="lede">
-      <span class="zh">「這部分之前只有 code 修改，沒有設計在 spec 上」</span> — correct, and worse
-      than it sounds. The design exists and is yours; what does not exist is any page under
-      <code>docs/</code> that records it. The only trace in this repository is a set of CSS class
-      names in Dart doc comments.
+      <span class="zh">「這部分之前只有 code 修改，沒有設計在 spec 上」</span> —— 沒錯，而且比聽起來更糟。
+      設計是存在的，而且是你的；不存在的是 <code>docs/</code> 底下任何一頁記錄它。
+      這個 repo 裡唯一的痕跡，是 Dart 註解裡的一組 CSS class 名稱。
     </p>
     <p>
-      The source is <b>Diff Scope Studies</b>, <span class="zh">變體 B</span> —
-      <code>claude.ai/code/artifact/bd3d9fdf-18a4-473a-95b3-27aa34966361</code>. It is cited in
-      <code>docs/rules/ops-spec-reading.md</code> as <code>[SPEC-demo-dom-is-the-spec]</code>, with
-      the URL truncated to <code>bd3d9fdf-…</code>, so the rule that says <em>read the DOM</em>
-      could not be obeyed from the repo alone. Both its CSS and its DOM were fetched back for this
-      section. <b>Its token names map 1:1 onto the app's</b> — <code>--space-1..4</code> are
-      4/8/12/16, <code>--radius-sm/md</code> 4/6, <code>--text-xs/sm</code> 11/12.5,
-      <code>--row-h-compact</code> 26 — so every number below compares directly against a real
-      constant, with no conversion in between.
+      來源是 <b>Diff Scope Studies</b> 的 <span class="zh">變體 B</span> ——
+      <code>claude.ai/code/artifact/bd3d9fdf-18a4-473a-95b3-27aa34966361</code>。它在
+      <code>docs/rules/ops-spec-reading.md</code> 裡以 <code>[SPEC-demo-dom-is-the-spec]</code> 被引用，
+      但網址被截成 <code>bd3d9fdf-…</code>，所以那條「<em>要讀 DOM</em>」的規則光靠 repo 是遵守不了的。
+      這一節把它的 CSS 和 DOM 都抓回來了。<b>它的 token 名稱與 app 的一對一對應</b> ——
+      <code>--space-1..4</code> 是 4/8/12/16、<code>--radius-sm/md</code> 是 4/6、
+      <code>--text-xs/sm</code> 是 11/12.5、<code>--row-h-compact</code> 是 26 ——
+      所以下面每一個數字都可以直接跟真的常數比對，中間不需要換算。
     </p>
 
     <div class="compare">
       <div class="specimen">
         <div class="specimen-head">
-          <span class="specimen-tag after"><span class="zh">變體 B</span>, as designed</span>
-          <span class="specimen-note">quoted CSS + DOM</span>
+          <span class="specimen-tag after"><span class="zh">變體 B</span>，設計原樣</span>
+          <span class="specimen-note">引用它的 CSS 與 DOM</span>
         </div>
         <div class="stage" data-stage data-app-theme="dark-technical">
           <div style="width:100%; max-width:470px">
@@ -1132,15 +1125,15 @@ footer.colophon {
           </div>
         </div>
         <p class="specimen-note">
-          The one-shot block sits <b>inside</b> the card it overlaps, splitting its body, and the
-          card it supersedes goes grey-edged with its own button struck through and inert.
+          一次性區塊坐在它蓋到的那張卡片<b>裡面</b>，把卡片的內容切開；被它取代的那張卡片邊緣轉灰，
+          自己的按鈕被劃掉並失效。
         </p>
       </div>
 
       <div class="specimen">
         <div class="specimen-head">
-          <span class="specimen-tag before">What ships today</span>
-          <span class="specimen-note">read off <code>scoped_diff_view.dart</code></span>
+          <span class="specimen-tag before">今天出貨的樣子</span>
+          <span class="specimen-note">從 <code>scoped_diff_view.dart</code> 讀出來的</span>
         </div>
         <div class="stage" data-stage data-app-theme="dark-technical">
           <div class="is-built" style="width:100%; max-width:470px">
@@ -1196,152 +1189,137 @@ footer.colophon {
           </div>
         </div>
         <p class="specimen-note">
-          Every structural decision survived. What drifted is the surface: no rule beside the hunk
-          heading, no line under either head, solid where the design is dashed, badges where the
-          design has plain figures, a smaller and heavier column title, and a neutral
-          <span class="zh">一次性</span> chip where the design outlines it in
-          <code>--warning</code>.
+          每一個結構決定都活下來了。走樣的是表面：hunk 標頭旁邊沒有那條線、兩個標頭下面都沒有底線、
+          設計是虛線的地方變成實線、設計是純數字的地方變成 badge、欄標題變小變粗，
+          以及設計用 <code>--warning</code> 外框的<span class="zh">一次性</span> chip 變成中性色。
         </p>
       </div>
     </div>
     <p class="specimen-note" style="margin-top:1rem">
-      Both drawn at 470px for this page's two-up grid. The real pane is 768px wide at a 1280 window
-      (section 03) — nothing in this section is width-dependent, which is why the comparison can be
-      made at either.
+      兩張都畫在 470px，因為這一頁是兩欄並排。真正的 pane 在 1280 視窗下是 768px 寬（第 03 節）——
+      這一節沒有任何東西跟寬度有關，所以在哪個寬度比都可以。
     </p>
 
-    <h3>Every difference, and what kind of difference it is</h3>
+    <h3>每一個差異，以及它是哪一種差異</h3>
     <p>
-      Grouped by the decision they belong to rather than listed one per property, because they are
-      not fifteen independent choices — they are six.
+      照它們屬於哪一個決定分組，而不是一個屬性列一列，因為它們不是十五個獨立選擇 —— 是六個。
     </p>
     <div class="tablewrap"><table>
-      <thead><tr><th style="width:6%">#</th><th style="width:24%">What</th><th style="width:22%"><span class="zh">變體 B</span></th><th style="width:22%">Today</th><th style="width:14%">Kind</th></tr></thead>
+      <thead><tr><th style="width:6%">#</th><th style="width:24%">項目</th><th style="width:22%"><span class="zh">變體 B</span></th><th style="width:22%">今天</th><th style="width:14%">類別</th></tr></thead>
       <tbody>
-        <tr><td class="num">S1</td><td>Card: stripe, radius, shadow, fill; muted's grey edge and dropped shadow; <code>-btn-off</code>'s line-through and inertness; the well behind them</td>
-            <td colspan="2">Identical. The card is two nested <code>Container</code>s only because Flutter refuses a <code>borderRadius</code> on a border whose sides differ in colour (<code>[FLU-border-uniform-color-required]</code>).</td>
+        <tr><td class="num">S1</td><td>卡片：左緣、圓角、陰影、底色；muted 的灰邊與拿掉的陰影；<code>-btn-off</code> 的刪除線與失效；它們後面的那個 well</td>
+            <td colspan="2">一模一樣。卡片之所以是兩層巢狀 <code>Container</code>，只是因為 Flutter 不接受四邊顏色不同的 border 上加 <code>borderRadius</code>（<code>[FLU-border-uniform-color-required]</code>）。</td>
             <td class="verdict ok">符合</td></tr>
-        <tr><td class="num">S2</td><td><span class="zh">臨時選取</span>'s placement</td>
-            <td>nested <em>inside</em> the card, splitting its body</td>
-            <td>the same</td>
-            <td class="verdict ok">符合 · but see below</td></tr>
-        <tr><td class="num">S3</td><td><b>Dashed vs solid</b>, three places: the temp block's border, the line under its head, the gap's left rule</td>
+        <tr><td class="num">S2</td><td><span class="zh">臨時選取</span>的位置</td>
+            <td>巢狀在卡片<em>裡面</em>，把內容切開</td>
+            <td>一樣</td>
+            <td class="verdict ok">符合 · 但見下方</td></tr>
+        <tr><td class="num">S3</td><td><b>虛線 vs 實線</b>，三個地方：臨時區塊的外框、它標頭下面那條線、gap 的左側線</td>
             <td><code>1px dashed</code> accent · <code>1px dashed</code> accent · <code>1px dashed border-default</code></td>
-            <td>solid accent · none at all · <code>2px</code> solid <code>border-subtle</code> plus <code>Opacity(0.6)</code></td>
+            <td>實線 accent · 完全沒有 · <code>2px</code> 實線 <code>border-subtle</code> 加 <code>Opacity(0.6)</code></td>
             <td class="verdict none">待裁定</td></tr>
-        <tr><td class="num">S4</td><td><b>Card head's box</b></td>
-            <td>height <code>30</code>, padding <code>0 space2 0 space3</code>, <code>border-bottom 1px border-default</code>; muted's head goes <code>surface-sunken</code></td>
-            <td>no fixed height (3px vertical padding), symmetric <code>space2</code>, no bottom border; head is always <code>surfacePanelRaised</code></td>
+        <tr><td class="num">S4</td><td><b>卡片標頭的盒子</b></td>
+            <td>高 <code>30</code>、內距 <code>0 space2 0 space3</code>、<code>border-bottom 1px border-default</code>；muted 的標頭底色是 <code>surface-sunken</code></td>
+            <td>沒有固定高（上下 3px 內距）、左右對稱的 <code>space2</code>、沒有底線；標頭永遠是 <code>surfacePanelRaised</code></td>
             <td class="verdict none">待裁定</td></tr>
-        <tr><td class="num">S5</td><td><b>Column head</b></td>
-            <td>height <code>row-h-compact</code>, padding <code>0 space1</code>; dot <b>8×8</b>; title <code>text-sm</code> semibold <code>text-primary</code>; count is a <code>radius-full</code> chip on <code>panel-raised</code> with a <code>border-subtle</code> ring</td>
-            <td>padding <code>space2 / space1</code>, no fixed height; dot <b>6×6</b>; title <code>textXs</code> bold <code>textSecondary</code>; count is plain tertiary text</td>
+        <tr><td class="num">S5</td><td><b>欄標頭</b></td>
+            <td>高 <code>row-h-compact</code>、內距 <code>0 space1</code>；圓點 <b>8×8</b>；標題 <code>text-sm</code> semibold <code>text-primary</code>；計數是 <code>panel-raised</code> 底、<code>border-subtle</code> 外框的 <code>radius-full</code> chip</td>
+            <td>內距 <code>space2 / space1</code>、沒有固定高；圓點 <b>6×6</b>；標題 <code>textXs</code> bold <code>textSecondary</code>；計數是純 tertiary 文字</td>
             <td class="verdict none">待裁定</td></tr>
-        <tr><td class="num">S6</td><td><b><code>+N −M</code> in the card head</b></td>
-            <td>plain mono figures, <code>text-xs</code>, coloured <code>--diff-add-strong</code> / <code>--diff-del-strong</code> — <b>the pale background tints</b>, used here as a text colour</td>
-            <td><code>GbmBadge</code> pills, kind <code>added</code>/<code>removed</code>: <code>diffAddText</code> on <code>diffAddBg</code>, 10.5px</td>
-            <td class="verdict none">待裁定<br>(implementer's judgement, documented)</td></tr>
-        <tr><td class="num">S7</td><td><b>Button label</b></td>
+        <tr><td class="num">S6</td><td><b>卡片標頭裡的 <code>+N −M</code></b></td>
+            <td>純等寬數字、<code>text-xs</code>、著色為 <code>--diff-add-strong</code> / <code>--diff-del-strong</code> —— <b>那是淡背景色</b>，在這裡被當文字色用</td>
+            <td><code>GbmBadge</code> 藥丸，kind 是 <code>added</code>/<code>removed</code>：<code>diffAddBg</code> 底 <code>diffAddText</code> 字，10.5px</td>
+            <td class="verdict none">待裁定<br>（實作者判斷，已記錄）</td></tr>
+        <tr><td class="num">S7</td><td><b>按鈕文字</b></td>
             <td><code>Stage 3 lines</code></td>
-            <td><code>Stage 3 lines (2 changed)</code> when the span and the changed count differ</td>
-            <td class="verdict none">待裁定<br>(implementer's judgement, documented)</td></tr>
+            <td>匡選行數與實際變動行數不同時是 <code>Stage 3 lines (2 changed)</code></td>
+            <td class="verdict none">待裁定<br>（實作者判斷，已記錄）</td></tr>
         <tr><td class="num">S8</td><td><span class="zh">一次性</span> chip</td>
-            <td><code>radius-full</code>, transparent, <b>outlined and lettered in <code>--warning</code></b>, <code>text-xs</code> semibold</td>
-            <td><code>GbmBadge</code> at its default <code>neutral</code> kind: <code>surfaceSunken</code> ground, <code>textSecondary</code> letters, 10.5px mono</td>
+            <td><code>radius-full</code>、透明底、<b>外框與字都是 <code>--warning</code></b>、<code>text-xs</code> semibold</td>
+            <td><code>GbmBadge</code> 的預設 <code>neutral</code> kind：<code>surfaceSunken</code> 底、<code>textSecondary</code> 字、10.5px 等寬</td>
             <td class="verdict none">待裁定</td></tr>
-        <tr><td class="num">S9</td><td>Hunk heading</td>
-            <td>mono <code>text-xs</code> tertiary, followed by a <b>1px rule filling the rest of the row</b></td>
-            <td>the same type, no rule; a <code>GbmRow</code> of height 22 with an <code>onTap</code> — which the design does not draw and <code>SCOPES</code> row 6 requires</td>
-            <td class="verdict none">待裁定<br>(the rule only)</td></tr>
-        <tr><td class="num">S10</td><td>Card's vertical margin</td>
+        <tr><td class="num">S9</td><td>Hunk 標頭</td>
+            <td>等寬 <code>text-xs</code> tertiary，後面接一條<b>填滿整列剩餘寬度的 1px 線</b></td>
+            <td>字一樣、沒有那條線；是一個高 22 帶 <code>onTap</code> 的 <code>GbmRow</code> —— 設計沒畫這個，但 <code>SCOPES</code> 第 6 列要求它</td>
+            <td class="verdict none">待裁定<br>（只有那條線）</td></tr>
+        <tr><td class="num">S10</td><td>卡片的上下外距</td>
             <td><code>space2</code> (8)</td><td><code>space1</code> (4)</td>
             <td class="verdict none">待裁定</td></tr>
-        <tr><td class="num">S11</td><td>Card hover</td>
-            <td><code>border-strong</code>, <code>accent-hover</code> stripe, <code>shadow-md</code></td>
-            <td>no hover state</td>
+        <tr><td class="num">S11</td><td>卡片 hover</td>
+            <td><code>border-strong</code>、<code>accent-hover</code> 左緣、<code>shadow-md</code></td>
+            <td>完全沒有 hover</td>
             <td class="verdict none">待裁定</td></tr>
-        <tr><td class="num">S12</td><td>Per-card horizontal scroll (<code>.variant-B-scroll</code>, 6px thumb on hover)</td>
-            <td>each card body scrolls on its own</td>
-            <td><code>GbmCodeHScroll</code> + <code>GbmPinnedGutter</code>, one scroller per surface, under the app-wide soft-wrap preference</td>
+        <tr><td class="num">S12</td><td>每張卡片各自的水平捲軸（<code>.variant-B-scroll</code>，hover 時 6px 的滑塊）</td>
+            <td>每張卡片的內容各自捲</td>
+            <td><code>GbmCodeHScroll</code> + <code>GbmPinnedGutter</code>，一個介面一個捲軸，受 app 層級的 soft-wrap 偏好管</td>
             <td class="verdict ok">已被裁定取代<br><code>[STRUCT-soft-wrap-preference]</code></td></tr>
-        <tr><td class="num">S13</td><td>Button metrics: height 24 and <code>text-xs</code> match; padding <code>space3</code> vs <code>space2</code> and weight semibold vs medium do not</td>
-            <td colspan="2">Both mismatches are <code>GbmButton</code>'s own <code>sm</code> sizing, shared by every small button in the app. Changing them here is not a scope-card change.</td>
-            <td class="verdict ok">共用元件<br>out of scope</td></tr>
-        <tr><td class="num">S14</td><td>The code rows themselves — gutters, sign column, selection tint</td>
-            <td colspan="2"><code>DiffLineView</code>, shared with History, Compare, the panels and the conflict window. Same reasoning as S13.</td>
-            <td class="verdict ok">共用元件<br>out of scope</td></tr>
+        <tr><td class="num">S13</td><td>按鈕尺寸：高 24 與 <code>text-xs</code> 對得上；內距 <code>space3</code> vs <code>space2</code>、字重 semibold vs medium 對不上</td>
+            <td colspan="2">兩個不符都是 <code>GbmButton</code> 自己的 <code>sm</code> 尺寸，全 app 的小按鈕共用。在這裡改它不是改 scope 卡片。</td>
+            <td class="verdict ok">共用元件<br>不在範圍內</td></tr>
+        <tr><td class="num">S14</td><td>程式碼那幾行本身 —— 行號欄、正負號欄、選取底色</td>
+            <td colspan="2"><code>DiffLineView</code>，與 History、Compare、各面板、衝突視窗共用。理由同 S13。</td>
+            <td class="verdict ok">共用元件<br>不在範圍內</td></tr>
       </tbody>
     </table></div>
 
     <p>
-      <b>This section was audited before you saw it</b>, both columns at once: every
-      <span class="zh">變體 B</span> value against the artifact's own CSS and DOM, every
-      <em>Today</em> value against the Dart. 58 values, 52 clean, and <b>four corrections applied
-      to this page</b> — the dot's 8px (drawn at the code's 6 and passed off as the design's), the
-      <code>+N −M</code> colour token (a substitution I had made silently, which is how the S6
-      legibility problem came to light at all), a hunk-heading padding that contradicted its own
-      comment, and one 6px that matched nothing and is now deleted rather than tagged.
+      <b>這一節在你看到之前就稽核過了</b>，兩欄一起：每一個<span class="zh">變體 B</span>的值對著
+      artifact 自己的 CSS 與 DOM，每一個<em>今天</em>的值對著 Dart。58 個值、52 個乾淨，
+      <b>四個更正套進了這一頁</b> —— 圓點的 8px（原本畫成程式碼的 6，還冒充是設計的）、
+      <code>+N −M</code> 的色彩 token（我自己默默換掉的，S6 的可讀性問題就是因此才浮出來）、
+      一個與自己註解矛盾的 hunk 標頭內距，以及一個什麼都對不上的 6px —— 那個是刪掉，不是加標記。
     </p>
 
     <div class="callout is-warn">
-      <div class="callout__title">A rule this comparison proved stale</div>
+      <div class="callout__title">這次比對證明過期的一條規則</div>
       <p style="margin-bottom:0">
-        <code>[STRUCT-working-copy]</code> says the one-shot scope is
-        <span class="zh">「rendered in a fixed slot at the top」</span>. It is not, and has not been
-        since the round that nested it — the DOM above and
-        <code>scoped_diff_view.dart</code>'s own doc comment agree with each other and not with the
-        rule. Corrected in place as part of W9 rather than filed as work, because there is nothing
-        to build: the code is already right and only the record is wrong.
+        <code>[STRUCT-working-copy]</code> 寫一次性 scope 是
+        <span class="zh">「rendered in a fixed slot at the top」</span>。它不是，而且從把它巢狀化的那一輪
+        之後就不是了 —— 上面的 DOM 和 <code>scoped_diff_view.dart</code> 自己的註解彼此一致，
+        只跟那條規則不一致。這件事併進 W9 就地更正，不另外開工作項，因為沒有東西要蓋：
+        程式碼已經是對的，錯的只有紀錄。
       </p>
     </div>
 
     <div class="callout">
-      <div class="callout__title">Ruled — <span class="zh">「照建議」</span>, all six</div>
+      <div class="callout__title">已裁定 —— <span class="zh">「照建議」</span>，六題全部</div>
       <ul class="plain" style="margin-bottom:0">
-        <li><b>S3 dashed lines</b> — <em>recommend adopting</em>. The dash is not decoration: it is
-          what separates <span class="zh">臨時選取</span>'s <span class="zh">一次性</span> block
-          from the solid-edged cards that persist. Today both are solid and only the colour
-          differs.</li>
-        <li><b>S4 card head</b> — <em>recommend adopting the bottom border</em> (the head reads as
-          part of the code without it) <em>and the muted head's sunken ground</em>; the fixed 30px
-          height <em>recommend leaving as it is</em>, because the head is a <code>Wrap</code> that
-          is allowed to take a second line in a narrow pane, and a fixed height would clip it —
-          which matters more now that the pane is a right-hand column.</li>
-        <li><b>S5 column head</b> — <em>recommend adopting the chip and the 8px dot</em>, and
-          <em>leaving the title</em> at <code>textXs</code>/bold/secondary, which is what every
-          other pane header in this app uses; matching the design here would make this one header
-          unlike its neighbours.</li>
-        <li><b>S6 <code>+N −M</code></b> — <em>recommend keeping the badges</em>, and this is the
-          one place a difference is recommended <b>against</b> the design on its own merits rather
-          than on consistency. <span class="zh">變體 B</span> writes
-          <code>.variant-B-plus { color: var(--diff-add-strong) }</code>, and
-          <code>--diff-add-strong</code> is the <em>pale background tint</em> — <code>#bfe9cd</code>
-          light, <code>#173e24</code> dark. As a text colour on the head's own
-          <code>panel-raised</code> ground that is <code>#173e24</code> on <code>#161b22</code> in
-          the theme this app ships in: all but unreadable. The specimen above draws it as written,
-          which is why the left-hand figures look absent. Consistency points the same way — the two
-          file lists beside this pane draw the identical fact as a <code>GbmBadge</code>.</li>
-        <li><b>S7 <code>(N changed)</code></b> — <em>recommend keeping it</em>.
-          <span class="zh">匡選行數</span> and <span class="zh">實際變動行數</span> are different
-          numbers and the button moves the first; the design's shorter label is only unambiguous
-          when they are equal, which is exactly when the code omits the parenthetical anyway.</li>
-        <li><b>S8 <span class="zh">一次性</span> chip</b> — <em>recommend adopting the warning
-          outline</em>. It is the one thing on screen that says <span class="zh">「這個按下去就
-          沒了」</span>, and a neutral pill is the same shape as the count badges beside it.</li>
-        <li><b>S9 hunk rule · S10 margin · S11 hover</b> — <em>recommend adopting all three</em>;
-          each is one property, and hover is the one dimension-D signal the card currently has
-          none of.</li>
+        <li><b>S3 虛線</b> —— <em>建議採用</em>。虛線不是裝飾：它是把
+          <span class="zh">臨時選取</span>的<span class="zh">一次性</span>區塊，
+          跟會留著的實線邊卡片區分開來的東西。今天兩個都是實線，只有顏色不同。</li>
+        <li><b>S4 卡片標頭</b> —— <em>建議採用底線</em>（沒有它的話標頭會被讀成程式碼的一部分）
+          <em>與 muted 標頭的沉底色</em>；固定 30px 高度<em>建議維持現狀</em>，
+          因為標頭是一個 <code>Wrap</code>，在窄 pane 裡允許換第二行，固定高度會把它切掉 ——
+          而這件事在 pane 變成右側欄之後更重要。</li>
+        <li><b>S5 欄標頭</b> —— <em>建議採用 chip 與 8px 圓點</em>，
+          <em>標題維持</em> <code>textXs</code>/bold/secondary，那是這個 app 裡其他每一個 pane 標頭
+          用的規格；在這裡照設計走反而會讓這一個標頭跟它的鄰居長得不一樣。</li>
+        <li><b>S6 <code>+N −M</code></b> —— <em>建議保留 badge</em>，而這是唯一一處建議
+          <b>不照</b>設計走、而且理由是設計本身而不是一致性的地方。<span class="zh">變體 B</span> 寫的是
+          <code>.variant-B-plus { color: var(--diff-add-strong) }</code>，而
+          <code>--diff-add-strong</code> 是<em>淡背景色</em> —— light 是 <code>#bfe9cd</code>、
+          dark 是 <code>#173e24</code>。把它當文字色畫在標頭自己的 <code>panel-raised</code> 底上，
+          在這個 app 出貨的主題裡就是 <code>#161b22</code> 上面放 <code>#173e24</code>：幾乎讀不到。
+          上面那張 specimen 就是照它寫的畫的，所以左邊那些數字看起來像不見了。
+          一致性也指向同一邊 —— 這個 pane 旁邊的兩個檔案清單，畫同一件事用的就是 <code>GbmBadge</code>。</li>
+        <li><b>S7 <code>(N changed)</code></b> —— <em>建議保留</em>。
+          <span class="zh">匡選行數</span>與<span class="zh">實際變動行數</span>是兩個不同的數字，
+          而按鈕移動的是前者；設計那個比較短的寫法只有在兩者相等時才不會有歧義，
+          而那正好就是程式碼會省略括號的情況。</li>
+        <li><b>S8 <span class="zh">一次性</span> chip</b> —— <em>建議採用 warning 外框</em>。
+          它是畫面上唯一一個在講<span class="zh">「這個按下去就沒了」</span>的東西，
+          而中性色藥丸跟它旁邊的計數 badge 長得一模一樣。</li>
+        <li><b>S9 hunk 橫線 · S10 外距 · S11 hover</b> —— <em>三個都建議採用</em>；
+          每一個都只是一個屬性，而 hover 是卡片目前完全沒有的那個 dimension D 訊號。</li>
       </ul>
     </div>
     <p style="margin-top:1.25rem">
-      <b>Every recommendation above was taken</b>, which lands as <b>W11–W13</b> in section 08.
-      Two of the six are <em>keep what ships</em> and cost nothing: S6's badges and S7's
-      <code>(N changed)</code> stay, and both stop being implementer's judgement and become
-      ratified. One is a partial adoption and worth restating so it is not read as a full one:
-      <b>S4 takes the head's bottom border and the muted head's sunken ground, and not its 30px
-      height</b> — the head is a <code>Wrap</code> that must be free to take a second line now that
-      it lives in a right-hand column. Everything else in S3, S5 and S8–S11 is adopted as the
-      design has it.
+      <b>上面每一個建議都被採納了</b>，落在第 08 節的 <b>W11–W13</b>。六題裡有兩題是<em>維持現狀</em>、
+      成本為零：S6 的 badge 與 S7 的 <code>(N changed)</code> 留著，而且兩者從「實作者判斷」升格成
+      「已裁定」。有一題是部分採納，值得再講一次以免被讀成全部採納：
+      <b>S4 收下標頭的底線與 muted 標頭的沉底色，不收它的 30px 固定高度</b> ——
+      標頭是一個 <code>Wrap</code>，在它搬到右側欄之後必須能自由換第二行。
+      S3、S5 與 S8–S11 其餘的部分都照設計原樣採納。
     </p>
   </section>
 
@@ -1568,7 +1546,7 @@ footer.colophon {
     <div class="compare">
       <div class="specimen">
         <div class="specimen-head">
-          <span class="specimen-tag before">What ships today</span>
+          <span class="specimen-tag before">今天出貨的樣子</span>
           <span class="specimen-note">two views, one scroller</span>
         </div>
         <div class="stage" data-stage data-app-theme="dark-technical">

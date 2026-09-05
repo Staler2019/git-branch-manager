@@ -14,12 +14,21 @@ namespace {
 /// unset -- not a genuine failure, just "nothing here". Treated as an empty
 /// value rather than surfaced as an error, the same way every git GUI reads
 /// optional config.
+///
+/// Saying that here was not enough, and for a long time it was not said where
+/// it counted: the operation log records every invocation with its exit code,
+/// so a repository with no local identity wrote two red ERROR rows on every
+/// refresh -- for reading something that simply is not configured. `git push
+/// … exit 1` is what spec page 10's LOGRULES means by error; this is an
+/// answer. `benignExitCodes` is how the call site says so, and 1 only: 128
+/// (broken config file, not a repository) stays an error.
 std::string readConfigValue(IProcessRunner& runner,
                             const RepoPaths& paths,
                             std::vector<std::string> args,
                             CancellationToken token) {
     GitCommand command(paths.commandDir(), std::move(args));
     command.timeout = std::chrono::seconds(10);
+    command.benignExitCodes = {1};
     auto result = runner.run(command, token);
     if (!result) {
         return {};

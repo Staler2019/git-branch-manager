@@ -493,7 +493,10 @@ public:
         si.hStdError = command.mergeStderrIntoStdout ? outWrite : errWrite;
         si.hStdInput = wantStdin ? inRead : ::GetStdHandle(STD_INPUT_HANDLE);
 
-        DWORD flags = CREATE_UNICODE_ENVIRONMENT;
+        // Suspended so the child is inside a job object before it runs: a
+        // helper it has already spawned cannot be pulled into the job
+        // afterwards, and the whole point of the job is to reach that helper.
+        DWORD flags = CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED;
         if (command.noWindow) {
             // Without this a console window flashes on every git invocation.
             flags |= CREATE_NO_WINDOW;
@@ -532,6 +535,30 @@ public:
                         "CreateProcessW failed with " + std::to_string(::GetLastError()));
         }
 
+        // `TerminateProcess` ends one process, never a tree, and a blocking
+        // `ReadFile` on a pipe returns only once *every* holder of the write
+        // end is gone. Git for Windows is resolved through the registry to
+        // `<InstallPath>\cmd\git.exe` (GitExecutable's `gitFromRegistry`), so a
+        // git that re-execs leaves the real worker holding those handles and
+        // `pump()`'s helper joins below never return. A job object is what makes
+        // `terminate()` reach the whole tree.
+        //
+        // Deliberately **no** `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`: the job
+        // handle is closed on the *successful* path too, and that flag would
+        // then kill anything git legitimately left running -- a `gpg-agent`
+        // started for a signed commit is the concrete case. The job widens
+        // `terminate()`; it is not a reaper for commands that succeeded.
+        job_ = ::CreateJobObjectW(nullptr, nullptr);
+        if (job_ != nullptr && ::AssignProcessToJobObject(job_, pi.hProcess) == 0) {
+            ::CloseHandle(job_);
+            job_ = nullptr;
+        }
+
+        // Every path from here on must resume. A child left suspended is a
+        // worse hang than the one this is fixing, so neither call above may
+        // fail the spawn: without a job, `terminate()` simply degrades to the
+        // single-process kill it always was.
+        ::ResumeThread(pi.hThread);
         ::CloseHandle(pi.hThread);
         process_ = pi.hProcess;
         stdoutHandle_ = outRead;
@@ -624,12 +651,8 @@ public:
         }
         stdoutSplitter.finish();
 
-        if (stderrThread.joinable()) {
-            stderrThread.join();
-        }
-        if (stdinThread.joinable()) {
-            stdinThread.join();
-        }
+        cancelBlockedIoAndJoin(stderrThread);
+        cancelBlockedIoAndJoin(stdinThread);
     }
 
     int wait() {
@@ -643,6 +666,14 @@ public:
     }
 
     void terminate() {
+        // Ordered: the job first, because it is the half that reaches the
+        // descendants holding the pipe write ends the helper threads are
+        // blocked on. `TerminateProcess` stays as the fallback for a spawn that
+        // could not get a job, and is harmless on a process already gone.
+        terminated_.store(true);
+        if (job_ != nullptr) {
+            ::TerminateJobObject(job_, 1);
+        }
         if (process_ != nullptr) {
             ::TerminateProcess(process_, 1);
         }
@@ -688,18 +719,59 @@ private:
         return block;
     }
 
+    /// Waits for a helper thread, cancelling its blocked I/O once the child has
+    /// been killed. Plain `join()` is not enough there: a synchronous
+    /// `ReadFile`/`WriteFile` on a pipe is interruptible by nothing else, and
+    /// `command.timeout` cannot reach it either -- the pump tests its deadline
+    /// only *between* reads, and the joins are past the `break`. This is what
+    /// held one CI job for 81 minutes on the first test ever to make a
+    /// `LineSink` return false.
+    ///
+    /// The cancel is retried rather than issued once, because
+    /// `CancelSynchronousIo` answers `ERROR_NOT_FOUND` when the thread has not
+    /// entered its I/O call yet. It terminates by construction: the thread
+    /// returns on *any* read failure, so one landed cancel ends it, and a miss
+    /// means the thread is running and about to block again.
+    ///
+    /// The wait is polled rather than gated on `terminated_` up front, because
+    /// a cancel arrives from another thread and can land after such a check --
+    /// which is exactly the hang, back again. On the ordinary path the helper
+    /// has already hit EOF by the time this runs, so the first wait returns
+    /// immediately and nothing is cancelled.
+    void cancelBlockedIoAndJoin(std::thread& helper) {
+        if (!helper.joinable()) {
+            return;
+        }
+        const HANDLE handle = static_cast<HANDLE>(helper.native_handle());
+        for (;;) {
+            const DWORD waited = ::WaitForSingleObject(handle, 50);
+            // WAIT_FAILED means the handle is not waitable, so cancelling it is
+            // pointless too; fall through to the join rather than spin.
+            if (waited == WAIT_OBJECT_0 || waited == WAIT_FAILED) {
+                break;
+            }
+            if (terminated_.load()) {
+                ::CancelSynchronousIo(handle);
+            }
+        }
+        helper.join();
+    }
+
     void closeAll() {
         if (stdoutHandle_ != nullptr) ::CloseHandle(stdoutHandle_);
         if (stderrHandle_ != nullptr) ::CloseHandle(stderrHandle_);
         if (stdinHandle_ != nullptr) ::CloseHandle(stdinHandle_);
         if (process_ != nullptr) ::CloseHandle(process_);
-        stdoutHandle_ = stderrHandle_ = stdinHandle_ = process_ = nullptr;
+        if (job_ != nullptr) ::CloseHandle(job_);
+        stdoutHandle_ = stderrHandle_ = stdinHandle_ = process_ = job_ = nullptr;
     }
 
     HANDLE process_ = nullptr;
+    HANDLE job_ = nullptr;
     HANDLE stdoutHandle_ = nullptr;
     HANDLE stderrHandle_ = nullptr;
     HANDLE stdinHandle_ = nullptr;
+    std::atomic_bool terminated_{false};
     std::mutex stderrMutex_;
 };
 

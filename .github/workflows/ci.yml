@@ -14,6 +14,15 @@ jobs:
   sanitizers:
     name: Sanitizers (asan+ubsan)
     runs-on: ubuntu-22.04
+    # Every job carries one, and it is deliberately the same number for all of
+    # them. A Windows capi run hung for 81 minutes here on a test that never
+    # returned; with no job timeout it would have burned toward GitHub's 6-hour
+    # default, and `flutter-ci` (needs: capi-build) never ran at all. The slowest
+    # measured job is Windows at 9-11 minutes, so 25 is over double the real
+    # ceiling -- this guard is against the black hole, not against a slow run.
+    # Per-job tuning would mean threading a `timeout` through `matrix.include`
+    # for capi-build; not worth a second matrix dimension to save ten minutes.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,6 +41,7 @@ jobs:
   capi-build:
     name: capi (FFI) - ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -78,6 +88,7 @@ jobs:
     name: Flutter UI
     needs: capi-build
     runs-on: ubuntu-22.04
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
@@ -137,6 +148,7 @@ jobs:
     # GCC 11 and passes 100% of the time on GCC 13, which 24.04 ships by
     # default. Not an application bug; a toolchain one.
     runs-on: ubuntu-24.04
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:

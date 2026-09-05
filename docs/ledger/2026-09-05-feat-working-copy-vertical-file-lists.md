@@ -290,8 +290,13 @@ hover:   Expected: Color(0.0863, 0.1059, 0.1333)   Actual: <null>
 
 W5 用的是二分而不是突變（85 紅／86 綠／78 差 8.0px），W8 的紅是裝置層真的跑出來的。
 
-**測試與靜態檢查**：全套 `flutter test` 2866 passed / 1 skipped；`flutter analyze`
-No issues found；裝置層六檔 17/17。
+**測試與靜態檢查**：全套 `flutter test` 2867 passed / 1 skipped；`flutter analyze`
+No issues found；裝置層六檔 17/17。~~2866~~ 那個數字是 W14 之前的，就地更正：
+W9a 刪掉一個孤兒常數的斷言 −1，W14 補兩條 +2。
+
+W14 動了 `lib/`，所以受影響的兩個裝置層檔案重跑過一次——`conflict_flow` 1/1（11s，
+它正好會點 `Mark Resolved`，就是那三顆改過的按鈕之一）、`stage_lines_flow` 7/7
+（1m50s）。兩個都綠，17/17 的數字沒有變。
 
 W13 的 M3 突變第一次沒對上，因為 `dart format` 把那個運算式重排過——照
 [TEST-mutation-check-every-test] 的「anchor 匹配不到代表突變根本沒套用，REDS=0 不是

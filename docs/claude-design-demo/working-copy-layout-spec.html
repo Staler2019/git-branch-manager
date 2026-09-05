@@ -1675,9 +1675,19 @@ footer.colophon {
         <tr><td class="num">U7</td><td>同一行被改兩次 —— 一次 HEAD→index、一次 index→工作區 —— <span class="pill is-ratified" style="white-space:nowrap">使用者裁定</span></td>
             <td><b>它出現兩次，一個方向一次，不去重。</b>那是對兩組不同內容做的兩個不同變更；把它們摺在一起會畫出一張卡片，而它的按鈕只做得到它宣稱的一半。<b>U1 的裁定已經把這題解掉了</b> —— <span class="zh">「unstage, stage 必定是不同 scope」</span> —— 所以這一列現在是一個推論，不是一個問題。</td></tr>
         <tr><td class="num">U8</td><td>Unstage 按鈕自己的樣式 —— <b>這次稽核找到的一個不符</b> —— <span class="pill is-ratified" style="white-space:nowrap">使用者裁定</span></td>
-            <td><span class="zh">變體 B</span> 定義了<b>兩種</b>按鈕樣式：<code>variant-B-btn-stage</code>（accent 填滿）與 <code>variant-B-btn-unstage</code>（<code>surface-panel-raised</code> 底、<code>border-strong</code> 邊、<code>text-primary</code> 字）。app 只實作了 accent 那個 —— <code>.sc__btn</code> —— 所以今天兩側每一顆按鈕畫出來都一模一樣，只有動詞不同。<b>建議採用</b>，而且它在合併清單裡比在兩欄裡更重要：兩顆樣式一模一樣、相隔幾公分、做的事相反的按鈕，正是分組救不了的那件事。<code>docs/</code> 底下沒有任何地方記過這個落差。
+            <td><span class="zh">變體 B</span> 定義了<b>兩種</b>按鈕樣式：<code>variant-B-btn-stage</code>（accent 填滿）與 <code>variant-B-btn-unstage</code>（<code>surface-panel-raised</code> 底、<code>border-strong</code> 邊、<code>text-primary</code> 字）。<s>app 只實作了 accent 那個 —— <code>.sc__btn</code> —— 所以今天兩側每一顆按鈕畫出來都一模一樣，只有動詞不同。</s>
+              <b>這句是錯的，實作時量出來的，就地更正。</b>
+              <code>scoped_diff_view.dart</code> 從最早那個 scope 卡片 commit
+              （<code>7abb728</code>）就寫著
+              <code>kind: staged ? GbmButtonKind.secondary : GbmButtonKind.primary</code>，
+              而 <code>GbmButtonKind.secondary</code> 給的正是
+              <code>surface-panel-raised</code> 底與 <code>text-primary</code> 字。
+              三個屬性裡有兩個本來就對了。<b>真正差的只有邊框一個 token</b>：
+              app 用 <code>border-default</code>，<span class="zh">變體 B</span> 寫的是
+              <code>border-strong</code>。所以這不是「沒實作」，是「弱了一階」。<b>建議採用</b>，而且它在合併清單裡比在兩欄裡更重要：兩顆樣式一模一樣、相隔幾公分、做的事相反的按鈕，正是分組救不了的那件事。<code>docs/</code> 底下沒有任何地方記過這個落差。
               <br><br>
-              <b>裁定：採用，而且兩個模式一起改。</b><span class="zh">「u8 影響樣式應該要跟 2 file 模式相同，所以應該要一起動，這是唯一會影響到 2file 的」</span>。
+              <b>裁定：採用，而且兩個模式一起改。</b>（裁定是對著上面那個<em>錯的</em>描述下的 ——
+              真正要做的比當時寫的小得多，但方向一樣：讓 Unstage 按鈕在合併清單裡讀得出是自己的控制項。）<span class="zh">「u8 影響樣式應該要跟 2 file 模式相同，所以應該要一起動，這是唯一會影響到 2file 的」</span>。
               這是本輪唯一越過 <code>unified</code> 邊界的一項，其他每一項都留在 pane 裡面。
               <br><br>
               <b>它讓實作變簡單，不是變複雜。</b>樣式跟著<em>卡片自己的方向</em>走，
@@ -1871,7 +1881,7 @@ footer.colophon {
         <tr><td class="num">X3</td><td><span class="pill is-open">open</span></td><td><code>unified</code> 變成一份合併清單</td><td class="num">1 + 測試</td>
             <td>依 U1–U9 的裁定，九題全部已定。區域排序（U1）、逐卡片的左緣與圓點、標題列的計數 chip、一次性選取的方向規則。<code>2 file</code> 的版面與行為一個字不動（U6），模式切換器不動（U9）。<b>Unstage 按鈕樣式獨立成 X5</b>，因為它是本輪唯一跨到 <code>2 file</code> 的改動，混在這個 commit 裡就沒辦法單獨 revert。</td></tr>
         <tr><td class="num">X5</td><td><span class="pill is-open">open</span></td><td>Unstage 按鈕的第二種樣式（U8）</td><td class="num">2</td>
-            <td><b>本輪唯一跨到 <code>2 file</code> 的一項</b>，所以自己一個 commit，可以單獨 revert。<code>variant-B-btn-unstage</code>：<code>surface-panel-raised</code> 底、<code>border-strong</code> 邊、<code>text-primary</code> 字，對上 stage 方向那顆 accent 填滿的。條件是<b>卡片自己的 <code>staged</code></b>，不是模式 —— <code>_ScopeCard</code> 已經逐張帶著這個值，所以兩個模式自然一致，不必把模式傳下去。<b>放在 X3 之後</b>，這樣 <code>2 file</code> 的既有測試是在版面改動已經全綠之後才被碰到，紅了就一定是這個 commit。測試斷言按鈕的<b>顏色 token</b>，不是它存在 —— 一個只找得到 <code>Unstage 2 lines</code> 的斷言，在兩顆按鈕長得一模一樣的今天也是綠的（<code>[FLU-hand-rolled-inkwell-hover]</code> 那句<span class="zh">「用 identity 斷言 token」</span>）。</td></tr>
+            <td><b>本輪唯一跨到 <code>2 file</code> 的一項</b>，所以自己一個 commit，可以單獨 revert。<b>實作時量到落差比稽核當時寫的小</b>：<code>GbmButtonKind.secondary</code> 早就供了 <code>surface-panel-raised</code> 與 <code>text-primary</code>，只有邊框是 <code>border-default</code> 而非 <code>border-strong</code>。所以做的是給 <code>GbmButton</code> 一個 <code>borderColor</code> 覆寫、在這兩個呼叫點傳 <code>borderStrong</code> —— 直接改 <code>secondary</code> 這個 kind 會動到全 app 每一顆次要按鈕。條件是<b>卡片自己的 <code>staged</code></b>，不是模式 —— <code>_ScopeCard</code> 已經逐張帶著這個值，所以兩個模式自然一致，不必把模式傳下去。<b>放在 X3 之後</b>，這樣 <code>2 file</code> 的既有測試是在版面改動已經全綠之後才被碰到，紅了就一定是這個 commit。測試斷言按鈕的<b>顏色 token</b>，不是它存在 —— 一個只找得到 <code>Unstage 2 lines</code> 的斷言，在兩顆按鈕長得一模一樣的今天也是綠的（<code>[FLU-hand-rolled-inkwell-hover]</code> 那句<span class="zh">「用 identity 斷言 token」</span>）。</td></tr>
         <tr><td class="num">X4</td><td><span class="pill is-open">open</span></td><td>記錄</td><td class="num">4</td>
             <td><code>[STRUCT-two-column-switches]</code> 的 Working Copy 那一列寫著<span class="zh">「左 ↔ 右 means unstaged ↔ staged」</span>，這對 <code>unified</code> 不再成立；<code>[STRUCT-working-copy]</code> 的 diff 段落同理。X1 的發現是 <code>GIT-</code> pin 等級的材料，該放在 <code>[GIT-new-file-patch-needs-dev-null]</code> 旁邊，它那句<span class="zh">「不要改 unstage 方向」</span>是<em>對的</em>，現在多了一條量出來的邊界。新的 ledger 檔，加上它在 <code>INDEX.md</code> 的那一行。</td></tr>
       </tbody>

@@ -47,6 +47,7 @@ class GbmButton extends StatelessWidget {
     this.size,
     this.icon,
     this.lineThrough = false,
+    this.borderColor,
   });
 
   final String label;
@@ -67,6 +68,21 @@ class GbmButton extends StatelessWidget {
   /// same trap as `GbmMenuItem.enabled: false` with a real `onTap`.
   final bool lineThrough;
 
+  /// Overrides the ring colour [kind] would otherwise pick, for the one case
+  /// where the design asks a particular button to stand out from its own
+  /// family rather than from the other kinds.
+  ///
+  /// 變體 B's `.variant-B-btn-unstage` is exactly that: `secondary`'s ground
+  /// and label with a `border-strong` ring instead of `border-default`, so an
+  /// Unstage button reads as its own control beside a Stage button in the
+  /// same merged list. Changing [GbmButtonKind.secondary] itself would move
+  /// every secondary button in the app for one surface's sake; passing the
+  /// token at the call site keeps the blast radius at that call site.
+  ///
+  /// Null means 「whatever [kind] says」, which is what every other call site
+  /// wants. Ignored by a kind that draws no ring at all.
+  final Color? borderColor;
+
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
@@ -75,7 +91,7 @@ class GbmButton extends StatelessWidget {
       Color hoverBackground,
       Color pressedBackground,
       Color foreground,
-      Color? border,
+      Color? kindBorder,
     ) = switch (kind) {
       GbmButtonKind.primary => (
         colors.accent,
@@ -106,6 +122,12 @@ class GbmButton extends StatelessWidget {
         colors.borderDefault,
       ),
     };
+    // The call-site override applies only where the kind draws a ring at
+    // all: handing a border colour to `primary` (an accent fill with no ring
+    // by design) would add an outline nothing asked for.
+    final Color? border = kindBorder == null
+        ? null
+        : (borderColor ?? kindBorder);
     final Color hoverBorder = kind == GbmButtonKind.danger
         ? colors.danger
         : (border ?? Colors.transparent);

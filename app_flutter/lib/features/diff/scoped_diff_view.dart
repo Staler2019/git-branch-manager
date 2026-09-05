@@ -1682,6 +1682,13 @@ class _CardHead extends StatelessWidget {
             lineThrough: superseded,
             size: GbmButtonSize.sm,
             kind: staged ? GbmButtonKind.secondary : GbmButtonKind.primary,
+            // `.variant-B-btn-unstage`: secondary's ground and label with a
+            // `border-strong` ring rather than `border-default`. Two of the
+            // three tokens were already right and had been since the scope
+            // cards were written; the ring is the one that differed, and it
+            // is what lets a merged list's two directions tell each other
+            // apart before the eye reaches the verb (U8).
+            borderColor: staged ? colors.borderStrong : null,
           ),
         ],
       ),
@@ -1815,6 +1822,9 @@ class _TemporaryBlock extends StatelessWidget {
                       kind: staged
                           ? GbmButtonKind.secondary
                           : GbmButtonKind.primary,
+                      // Same control, same treatment: this block acts in the
+                      // same direction as the card it sits in.
+                      borderColor: staged ? colors.borderStrong : null,
                     ),
                   ],
                 ),

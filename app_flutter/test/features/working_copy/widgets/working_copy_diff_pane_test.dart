@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/parsed_diff.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/features/diff/scoped_diff_view.dart';
+import 'package:gbm_flutter/theme/tokens.dart';
 import 'package:gbm_flutter/features/working_copy/widgets/working_copy_diff_pane.dart';
 import 'package:gbm_flutter/widgets/split_pane.dart';
 
@@ -474,6 +475,63 @@ void main() {
       await tester.pump();
 
       expect(find.text('2 未暫存 · 1 已暫存'), findsNothing);
+    });
+
+    // U8, and it is the round's only change that crosses into `2 file`:
+    // 「u8 影響樣式應該要跟 2 file 模式相同，所以應該要一起動，這是唯一會影響
+    // 到 2file 的」. So both modes are asserted, not one -- the whole reason
+    // for the change is that the two agree.
+    //
+    // **The finding was smaller than it was first written up.** 變體 B's
+    // `.variant-B-btn-unstage` is `surface-panel-raised` ground,
+    // `border-strong` ring, `text-primary` label; `GbmButtonKind.secondary`
+    // already supplies the first and the third, and has since the scope cards
+    // were written. The one token that differed is the ring, which sat at
+    // `border-default`.
+    BorderSide? sideOf(WidgetTester tester, String label) {
+      final ButtonStyle? style = tester
+          .widget<TextButton>(
+            find.ancestor(
+              of: find.text(label),
+              matching: find.byType(TextButton),
+            ),
+          )
+          .style;
+      return style?.side?.resolve(<WidgetState>{});
+    }
+
+    testWidgets('the unstage button rings itself, in both modes', (
+      WidgetTester tester,
+    ) async {
+      await pump(
+        tester,
+        unstaged: _file('still editing', added: true),
+        staged: _file('already staged', added: true),
+      );
+
+      final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+
+      expect(
+        sideOf(tester, 'Unstage 1 line')?.color.toARGB32(),
+        colors.borderStrong.toARGB32(),
+        reason: 'unified: the unstage button carries variant-B-btn-unstage',
+      );
+      // The stage button is the accent fill, and has no ring at all -- which
+      // is what makes the two tell each other apart at a glance, the whole
+      // point of the change.
+      expect(sideOf(tester, 'Stage 1 line'), isNull);
+
+      await tester.tap(find.text('2 file'));
+      await tester.pump();
+
+      expect(
+        sideOf(tester, 'Unstage 1 line')?.color.toARGB32(),
+        colors.borderStrong.toARGB32(),
+        reason:
+            '2 file: the same button, so the same ring -- one button drawn '
+            'two ways by mode would be a fresh defect, not a fix',
+      );
+      expect(sideOf(tester, 'Stage 1 line'), isNull);
     });
 
     testWidgets('a half-staged rename names both of its paths', (

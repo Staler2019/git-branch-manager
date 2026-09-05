@@ -7,6 +7,7 @@ import '../../theme/tokens.dart';
 import '../../widgets/gbm_badge.dart';
 import '../../widgets/gbm_button.dart';
 import '../../widgets/gbm_dashed.dart';
+import '../../widgets/gbm_outlined_pill.dart';
 import '../../widgets/gbm_code_hscroll.dart';
 import '../../widgets/gbm_row.dart';
 import 'diff_scopes.dart';
@@ -716,9 +717,11 @@ class _ColumnHead extends StatelessWidget {
       ),
       child: Row(
         children: <Widget>[
+          // `.variant-B-dot { width: 8px; height: 8px }`. It shipped at 6.
           Container(
-            width: 6,
-            height: 6,
+            key: const ValueKey<String>('column-head-dot'),
+            width: 8,
+            height: 8,
             decoration: BoxDecoration(
               color: staged ? colors.success : colors.accent,
               shape: BoxShape.circle,
@@ -736,11 +739,26 @@ class _ColumnHead extends StatelessWidget {
               ),
             ),
           ),
-          Text(
-            '$scopeCount 個 scope',
-            style: TextStyle(
-              fontSize: GbmTypography.textXs,
+          // `.variant-B-chip`: a ringed pill on raised ground, not the bare
+          // tertiary text this shipped as. The title beside it deliberately
+          // keeps textXs/bold/secondary rather than the design's
+          // text-sm/semibold/primary -- every other pane header in this app
+          // uses the former, and matching the design on this one header
+          // would make it the odd one out among its neighbours.
+          // Flexible, because RenderFlex lays its non-flex children out
+          // first and divides only what is left -- so the Expanded title
+          // beside it cannot rescue an overflow the chip causes. It did:
+          // the chip is wider than the bare text it replaced (a ring plus
+          // 8px of padding each side) and the head overflowed by 11px at
+          // `splitterWcDiffSides.minExtent`. The pill's own text already
+          // ellipsises, so shrinking is a truncation rather than a clip.
+          Flexible(
+            child: GbmOutlinedPill(
+              label: '$scopeCount 個 scope',
               color: colors.textTertiary,
+              borderColor: colors.borderSubtle,
+              background: colors.surfacePanelRaised,
+              verticalPadding: 1,
             ),
           ),
         ],
@@ -1315,7 +1333,17 @@ class _TemporaryBlock extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(width: GbmSpacing.space2),
-                        const GbmBadge(label: '一次性'),
+                        // `.variant-B-once`: outlined and lettered in
+                        // --warning over a transparent ground. It shipped as
+                        // a GbmBadge at its default neutral kind, which is
+                        // the same shape as the +N/-N tallies in the card
+                        // head a few pixels above -- and this is the one
+                        // thing on screen that says 「這個按下去就沒了」.
+                        GbmOutlinedPill(
+                          label: '一次性',
+                          color: colors.warning,
+                          fontWeight: GbmTypography.weightSemibold,
+                        ),
                       ],
                     ),
                     GbmButton(

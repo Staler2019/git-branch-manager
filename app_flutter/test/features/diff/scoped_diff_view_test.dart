@@ -15,6 +15,7 @@ import 'package:gbm_flutter/theme/tokens.dart';
 import 'package:gbm_flutter/widgets/gbm_badge.dart';
 import 'package:gbm_flutter/widgets/gbm_button.dart';
 import 'package:gbm_flutter/widgets/gbm_dashed.dart';
+import 'package:gbm_flutter/widgets/gbm_outlined_pill.dart';
 
 import '../../support/pump_app.dart';
 
@@ -1160,6 +1161,85 @@ void main() {
           card.margin,
           const EdgeInsets.symmetric(vertical: GbmSpacing.space2),
         );
+      });
+
+      // `.variant-B-once { border: 1px solid var(--warning);
+      //                    border-radius: var(--radius-full);
+      //                    font-weight: var(--weight-semibold);
+      //                    color: var(--warning) }` -- transparent ground.
+      //
+      // S8. It shipped as a [GbmBadge] at its default neutral kind, which is
+      // the same shape as the +N/-N count pills sitting a few pixels away in
+      // the card head above. This is the one thing on screen that says
+      // 「這個按下去就沒了」, and it should not look like a tally.
+      testWidgets('the 一次性 pill is outlined in warning, not a neutral '
+          'badge', (WidgetTester tester) async {
+        await pump(tester, _file(<String>['.+-.']));
+        await clickThen(tester, 'h0 l1');
+        await shiftArrow(tester, LogicalKeyboardKey.arrowDown);
+
+        final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+        final Finder pill = find.ancestor(
+          of: find.text('一次性'),
+          matching: find.byType(GbmOutlinedPill),
+        );
+        expect(pill, findsOneWidget);
+
+        final GbmOutlinedPill widget = tester.widget<GbmOutlinedPill>(pill);
+        expect(widget.color.toARGB32(), colors.warning.toARGB32());
+        expect(widget.background, isNull, reason: 'transparent ground');
+        expect(widget.fontWeight, GbmTypography.weightSemibold);
+
+        // And it is no longer the neutral badge it used to be. Asserted
+        // because "an outlined pill exists" would still pass with a stray
+        // GbmBadge left beside it.
+        expect(
+          find.ancestor(of: find.text('一次性'), matching: find.byType(GbmBadge)),
+          findsNothing,
+        );
+      });
+
+      // `.variant-B-dot { width: 8px; height: 8px }` and
+      // `.variant-B-chip { padding: 1px var(--space-2);
+      //                    background: var(--surface-panel-raised);
+      //                    border: 1px solid var(--border-subtle);
+      //                    border-radius: var(--radius-full);
+      //                    color: var(--text-tertiary) }`.
+      //
+      // S5, partially: the chip and the 8px dot are adopted, the title's
+      // text-sm/semibold/primary is **not** -- every other pane header in
+      // this app is textXs/bold/secondary, and matching the design here
+      // would make this one header unlike its neighbours.
+      testWidgets('the column head draws an 8px dot and a ringed count chip', (
+        WidgetTester tester,
+      ) async {
+        await pump(tester, _file(<String>['.+-.']));
+        final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+
+        final Container dot = tester.widget<Container>(
+          find.byKey(const ValueKey<String>('column-head-dot')),
+        );
+        expect(dot.constraints?.maxWidth, 8);
+        expect(dot.constraints?.maxHeight, 8);
+
+        final GbmOutlinedPill chip = tester.widget<GbmOutlinedPill>(
+          find.ancestor(
+            of: find.textContaining('個 scope'),
+            matching: find.byType(GbmOutlinedPill),
+          ),
+        );
+        expect(chip.color.toARGB32(), colors.textTertiary.toARGB32());
+        expect(chip.borderColor?.toARGB32(), colors.borderSubtle.toARGB32());
+        expect(
+          chip.background?.toARGB32(),
+          colors.surfacePanelRaised.toARGB32(),
+        );
+
+        // The title deliberately keeps this app's own header treatment.
+        final Text title = tester.widget<Text>(find.text('Unstaged'));
+        expect(title.style?.fontSize, GbmTypography.textXs);
+        expect(title.style?.fontWeight, FontWeight.bold);
+        expect(title.style?.color?.toARGB32(), colors.textSecondary.toARGB32());
       });
     });
   });

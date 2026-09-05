@@ -649,7 +649,7 @@ mutation check，不是撰寫順序。
 | 每個樣本驗 `IsProcessInJob` | 沒真的 assign 就兩臂相同，會報出假的「免費」 |
 | 分母是同一交錯裡的 `git --version` | `windows-process-cost.md` 自己診斷過的錯：`cost(cmd.exe) ≈ cost(git.exe)` 不成立 |
 | 印 `parent_in_job=` | CI runner 常已在 job 裡，是不同的 kernel 路徑 |
-| `prod_*` 手臂 | 把 watchdog 執行緒的成本和 job object 分開——追加三那張表同時帶著兩者，從未分離過 |
+| `prod_*` 手臂 | 把 watchdog 執行緒的成本和 job object 分開——追加三那張表同時帶著兩者，從未分離過。**～～寫這張表的時候這兩條手臂並不存在～～**：檔頭註解、commit message 和這一列都宣稱了它，程式裡只有 `raw_*`／A-A／injected，分母迴圈還固定 `timeout=30s`。追加五補上了 `prod_notimeout`／`prod_timeout`，這一列現在才是真的 |
 
 production 一行沒動：job 手臂在工具裡重做 `WindowsChild::spawn()` 的序列，而這個複製品和
 production 的任何差異**同時存在於兩條手臂、在差值裡相消**——這正是輸出的是差值而不是任一條
@@ -665,3 +665,101 @@ production 的任何差異**同時存在於兩條手臂、在差值裡相消**�
 
 **這一輪還沒有數字。** 要等一次 `perf-nightly.yml` 的 workflow_dispatch 跑完，才會寫進
 `docs/reports/windows-process-cost.md`；在那之前不引用任何數字，也不回頭改追加三。
+
+---
+
+## 追加五：那支量測工具在 Windows 上一次都沒編過
+
+追加四推上去之後，兩個 workflow 同時紅。它們的病灶不同，但**同一個成因**：整支
+`spawn_cost_win.cpp` 的本體在 `#ifdef _WIN32` 裡面，而我在 macOS 上開發——本機
+`cmake --build --target all` 綠了 682/682，卻**一行 Windows 程式碼都沒有編譯過**。
+
+[TEST-fixture-cannot-disagree] 講的是測試無法反對程式碼；這一次是**建置**無法反對
+程式碼。能反駁它的只有 Windows CI，而它第一次跑就全部倒出來了。
+
+### 五個缺陷，外加一個既有的
+
+| # | 缺陷 | 只有哪裡看得到 |
+|---|---|---|
+| 1 | `#include "core/git/ProcessRunner.h"` ——**這個標頭不存在**（是 `IProcessRunner.h`） | MSVC，`fatal error C1083` |
+| 1b | `runner->run(command)` ——`IProcessRunner::run` 要**兩個**參數（少了 `CancellationToken`） | MSVC，`error C2660`，**修掉 1 之後才輪到它** |
+| 2 | `exit_now` 的 stdout 是 text mode，`"ok\n"` 進 pipe 變 `"ok\r\n"` | Windows CRT 才做這個翻譯 |
+| 3 | `prod_*` 手臂被宣稱三次、實作零次 | 讀程式碼就看得到，**而我沒讀** |
+| 4 | `GBM_MAX_JOB_OVERHEAD_FRACTION` 是 cache 變數，`ENVIRONMENT` 沒轉發 | 讀 CMake 就看得到，同上 |
+| 5 | perf job 沒設定 MSVC，CMake 在 PATH 上先找到 **MinGW** | 只有那顆 job |
+| — | `FsUtil.cpp` 少 `<cstring>`（**既有缺陷**，不是這輪引進的） | 只有非 MSVC 的編譯器 |
+
+### 第 5 個比前四個嚴重，而且它差一點沒被發現
+
+前四個都是「紅掉、修掉」。第 5 個不是：**就算它編得過，量到的也會是我們不出貨的
+那套工具鏈的數字。** 主題是 Win32 job object 在**出貨二進位**裡的 per-spawn 成本，
+拿 MinGW 的 CRT 和 libstdc++ 量出來的數字，量的是沒有人在跑的東西——而它會是一個
+看起來完全合理的微秒數，沒有任何一層會說它不對。
+
+它是**靠一個 MSVC 剛好容忍的 `<cstring>` 缺漏才暴露的**。少了那個巧合，這一輪會
+產出一個假數字，寫進 `windows-process-cost.md`，然後和「job object 慢 33%」並排
+躺在同一份文件裡——那份文件存在的理由，就是記錄上一個假數字。
+
+**教訓不是「記得加 msvc-dev-cmd」**，而是：一個新的量測 job，必須先證明它量的是
+**出貨的那個東西**。`runs-on: windows-*` 只說了作業系統，沒說編譯器；CMake 會在
+PATH 上挑一個，而它挑的那個未必是 CI 別處在用的那個。這和追加四那條「一個對照組
+要先證明它對你要排除的變因有反應」是同一件事往前挪一步：**先證明你量的是對的東西，
+再去談量得準不準。**
+
+### 兩個不是這輪引進、但被這輪照出來的
+
+- **`FsUtil.cpp` 的 `<cstring>`**：`std::memcpy` 一直靠傳遞性 include 進來。修掉而
+  不是靠「反正只用 MSVC」帶過——它壞的方式是編譯錯誤，不是靜靜地錯，所以成本很低。
+- **`onEvent` 的資料競爭**：`logCallback` 在鎖外讀 `std::function`，測試本體在自己
+  的執行緒上指派它。原本的 doc comment 寫「Set before anything is submitted」，這句
+  話沒錯，但把 submit 當成唯一的事件來源——**`gbm_session_open` 自己就會發事件**，
+  從 pool 執行緒。就地改寫那句註解，並改成 `setHook()`／`takeHook()`：複製出來、在
+  鎖外呼叫，因為在鎖內呼叫會把 `gbm_cancel_operation` 排進事件鎖裡，它引發的事件會
+  回頭進 `add()`，自己鎖自己。CI 的 TSan job 在**有這個競爭的時候是綠的**，所以它不
+  是被工具抓到的，而是被讀出來的。
+
+### 還有一個「通過的測試不會印東西」
+
+`ctest --output-on-failure` 會吞掉**通過**測試的輸出，而這支工具的量測結果是寫到
+stderr 的——測試本身是通過的。所以一次完全正常的跑會找不到 `job-object-ab:` 那一行，
+publish 步驟報告「the run failed before measuring」，**一顆綠的 job 產出零個數字**。
+Linux 那顆不會中，因為它走 `perf` preset，preset 裡有 `verbosity: verbose`；Windows
+這顆為了不順便建 100k commit 的 fixture 而繞過 preset，就得自己加 `-V`。
+
+繞過一個 preset，就繼承不到它的設定——這句話寫出來很顯然，而它的症狀是「綠色的 job
+沒有輸出」，看起來完全不像設定問題。
+
+### 一次一個錯誤的來回，以及怎麼停止它
+
+修掉 1 之後推上去，Windows 才報出 1b；修掉 1b 之前，**編譯器根本走不到那一行**。
+`#ifdef _WIN32` 的整塊——包含前一個 commit 寫的 `timeOneSpawn`、job object 的建立、
+`CreateProcessW` 那一串——**在任何機器上都沒有被編譯過一次**，所以錯誤只能一個一個
+被 CI 挖出來，每個來回大約十分鐘。
+
+三次來回之後，來回的成本已經明顯超過建一支工具的成本，就停下來建了：
+
+```
+scratchpad/winstub/windows.h   ~50 行，只有簽章，永遠不連結、不執行
+scratchpad/winprobe.cpp        先用真實平台 include 完 std 標頭，再 #define _WIN32，
+                               然後 #include 真正的 spawn_cost_win.cpp
+c++ -std=c++20 -fsyntax-only -I src -I tests -I scratchpad/winstub winprobe.cpp
+```
+
+先 include std 標頭**再**定義 `_WIN32` 是關鍵：libc++ 永遠在真實平台下編譯，假的
+`_WIN32` 只有我們自己的程式碼看得到。
+
+**而這支工具自己也要先證明它會紅**（[TEST-mutation-check-every-test]，套到一個量測/
+檢查工具上）。突變兩個，各紅一個錯誤：
+
+| 突變 | 錯誤數 |
+|---|---|
+| M1：把 `run(command, token)` 改回 CI 剛剛抓到的 `run(command)` | 1 |
+| M2：給 `::AssignProcessToJobObject` 多塞一個參數（只有 Win32 那半邊碰得到） | 1 |
+| 還原後 | 0 |
+
+M2 是重點：它證明這支 probe **真的走到了 Win32 那半邊**，而不是只檢查了跨平台的部分。
+沒有 M2，一個「乾淨」的結果和「根本沒編到那裡」是分不出來的。
+
+**這支 probe 這一輪沒有進 repo**，是刻意的：要進去就得有 CMake 目標和 CI 步驟，否則
+它就是 [CULT-orphan-wiring] 的下一個實例；而那是這一輪沒有被要求的新工作，範圍擴張
+和範圍縮減一樣都不該默默發生。配方記在這裡，下一輪要撿隨時可以撿。

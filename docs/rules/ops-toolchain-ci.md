@@ -112,3 +112,66 @@ Pin prefix `CI-`. Format: [README.md](README.md).
   (which then fights `GBM_BUILD_TESTS`) and the CDash submit targets, and 1500 seconds is far
   too long to be the instrument here.
 - **Evidence**: [ledger: 追加，Windows CI 卡 81 分鐘](../ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
+
+## [CI-windows-toolchain-not-implied] `runs-on: windows-*` names an operating system, not a compiler — CMake picks one off `PATH`
+
+- **Rule**: the GitHub Windows images ship **both** MSVC and a MinGW `g++` on `PATH`, and with no
+  toolchain step CMake's compiler probe takes whichever it finds first. `ci.yml`'s capi job gets
+  MSVC only because it runs `ilammy/msvc-dev-cmd@v1`; a new Windows job that omits that step is
+  not "the same as the others", it is a different toolchain.
+- **Consequence**: for a *measurement* job this is worse than a red build. The subject of
+  `windows_job_object_spawn_cost` is the per-spawn cost of a Win32 job object **in the shipped
+  binary**; a number taken under a different CRT and a different C++ runtime measures something
+  nobody runs, and it arrives as a perfectly plausible microsecond figure with nothing anywhere
+  saying it is wrong.
+- **Consequence**: it was caught only by luck — the MinGW build failed on a latent missing
+  `<cstring>` in `FsUtil.cpp` that MSVC tolerates through transitive includes. Without that
+  coincidence the round would have published a fabricated number into
+  `docs/reports/windows-process-cost.md`, the document that exists to record the *previous*
+  fabricated number.
+- **Do**: before trusting any new performance job, establish that it builds **the thing you
+  ship** — read the compiler path out of the build log (`C:\mingw64\bin\c++.exe` vs `cl.exe`)
+  rather than inferring it from `runs-on`. This is [CPP-windows-terminate-hangs-join]'s control-group
+  lesson moved one step earlier: prove you are measuring the right thing before arguing about
+  how precisely you measured it.
+- **Evidence**: [ledger: 追加五](../ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
+
+## [CI-ctest-hides-passing-output] `ctest --output-on-failure` publishes nothing from a test that passes
+
+- **Rule**: a measurement written to stdout/stderr by a **passing** test is swallowed unless
+  `-V` (or a preset's `output.verbosity: verbose`) is in effect. `--output-on-failure` is, by
+  name, the opposite of what a measurement job needs.
+- **Consequence**: the failure mode is a **green job that produced no data** — the publish step
+  finds no `job-object-ab:` line and reports "the run failed before measuring" on a run where
+  nothing failed. That reads as a broken test rather than a missing flag.
+- **Rule**: **bypassing a preset forfeits its settings.** `perf-nightly.yml`'s Windows job uses a
+  bare `ctest --test-dir … -L perf -R …` rather than `--preset perf`, deliberately (the preset's
+  other member builds a 100k-commit fixture), and therefore does not inherit that preset's
+  `verbosity: verbose` the way the Linux job does.
+- **Do**: any ctest invocation whose *product* is text from a passing test takes `-V`. Where the
+  run is filtered out of a preset for cost reasons, re-state every setting that mattered.
+- **Evidence**: [ledger: 追加五](../ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
+
+## [CI-platform-guarded-block-uncompiled] Code inside `#ifdef _WIN32` is compiled by exactly one CI job, so its errors arrive one per round-trip
+
+- **Rule**: a local `cmake --build --target all` on macOS reports success having never parsed a
+  single line inside a `#ifdef _WIN32`. [CI-linux-only] says PR CI compiles Linux only for the
+  *Flutter runners*; this is the same hole one level down, inside a file that does build
+  everywhere.
+- **Consequence**: the compiler stops at the first error, so each fix buys exactly one more error
+  and each costs a full CI round-trip. `spawn_cost_win.cpp` shipped a nonexistent header
+  (`core/git/ProcessRunner.h`) and a one-argument `IProcessRunner::run()` — the second was
+  unreachable until the first was fixed, and neither was visible to a fully green local suite.
+- **Do**: after the second round-trip, stop and compile it locally against a stub. A
+  signature-only `windows.h` (~50 lines, never linked) plus a wrapper that includes the std
+  headers under the *real* platform **before** `#define _WIN32`, then `#include`s the `.cpp`,
+  type-checks the whole block with `c++ -fsyntax-only`. Ordering the define after the std
+  includes is what keeps libc++ out of the fake platform.
+- **Do**: **mutation-check the stub before believing a clean result** — a probe that never
+  reaches the guarded block reports exactly the same silence as one that reaches it and finds
+  nothing. Mutating a *Win32* call specifically (not just a cross-platform one) is what tells
+  the two apart.
+- **Note**: MSVC's `/W4 /WX` still catches things a stub cannot, C4774 (a non-literal `printf`
+  format string, e.g. from a ternary) among them. The stub narrows the round-trips; it does not
+  remove the need for one.
+- **Evidence**: [ledger: 追加五](../ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)

@@ -185,8 +185,16 @@ Pin prefix `CPP-`. Format: [README.md](README.md).
   [TEST-fixture-cannot-disagree] 換到量測上的同一件事。
 - **Note**: **就地更正上一條 Note 的「沒有量到」**——量的工具現在有了，
   `tests/tools/spawn_cost_win.cpp`（`gbm_spawn_cost`），`perf-nightly.yml` 的
-  `windows-spawn-cost` 每晚跑。**數字仍然沒有**，要等一次 nightly；在那之前這條 Note 上面
-  那三個秒數仍然是這裡唯一的實證，而它們已經被自己證明不可引用。
+  `windows-spawn-cost` 每晚跑。**～～數字仍然沒有，要等一次 nightly～～ 數字有了**（就地更正）：
+  `windows-2022`／MSVC 14.44／51 輪，job object **每次 spawn 71µs，佔一次 `git --version`
+  的 0.27%**，解析度 18µs、注入 300µs 回收 291µs（誤差 3%）。**「慢 33%」因此差了兩個
+  數量級**。上面那三個秒數仍然不可引用。比值 gate 仍然關著——一個樣本不足以挑門檻。
+  全文與方法：`docs/reports/windows-process-cost.md`。
+- **Note**: **同一次跑的 watchdog 數字不可引用**，而且錯的是工具不是 runner：它印
+  `watchdog delta = -72us (resolved)`，而 watchdog 不可能讓 spawn 變快。那 18µs 是在 ~16ms 的
+  trivial child 上量的，卻拿去判 ~26ms 的 git 行程——**拿 A 的尺量 B**，和 33% 被更正的
+  理由是同一個，只是低一層。已改成給 `prod_*` 那一對自己的 A/A null 手臂；在那之後才有的
+  `prod_resolution_us` 才是判準。
 - **Do**: 那支工具的形狀就是上一條 Do 的實作，照抄即可：**A/A null 手臂**量出這一次執行的
   解析度（差值小於它就只印上界、絕不印點估計），**注入一個已知延遲**當作儀器自我檢查
   （回收不到 50% 以內就印 `verdict=instrument-unreliable`，那一次的數字不准引用），

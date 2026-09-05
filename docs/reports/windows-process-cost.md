@@ -292,3 +292,55 @@ skipping the index stat-cache refresh could in principle cost later `status`
 calls. Its run is the fastest of the six above (0.4002 s/test) — but that is
 z = −0.95, still inside the band, so the honest reading is "no regression
 detected", not "measurably faster".
+
+## Job object per-spawn cost, measured (2026-09-05)
+
+`[CPP-windows-terminate-hangs-join]`'s fix puts every spawned git process into a
+Win32 job object, so that `terminate()` kills the whole tree rather than one
+process. The round that shipped it claimed the job object cost **33%**, then
+corrected that in place to "not measured": the 33% came from three whole-suite
+CI runs with a control group (175 tests that never spawn anything, averaging
+34 ms each) that could not react to the variable being excluded — it moved 1.58×
+between two runs of its own.
+
+`tests/tools/spawn_cost_win.cpp` (`gbm_spawn_cost`, ctest label `perf`, run by
+`perf-nightly.yml`'s `windows-spawn-cost`) replaces that with an A/B inside one
+process on one machine. First run that produced a number, `windows-2022`, MSVC
+14.44, 51 iterations, 5 discarded warm-up:
+
+```
+job-object-ab: verdict=measured job_overhead_us=71 resolution_us=18
+               git_spawn_us=26501 overhead_fraction_of_git=0.0027
+               watchdog_delta_us=-72 parent_in_job=1 iterations=51
+```
+
+| Arm | Median |
+|---|---|
+| `raw_nojob` (trivial child, no job object) | 16031 µs |
+| `raw_job` (same child, job object created and assigned) | 16102 µs |
+| `raw_nojob_aa` (A/A null — the run's own resolution) | 16013 µs → **18 µs** |
+| injected 300 µs control | recovered 291 µs (**3% error**) |
+| `git --version` through the real `ProcessRunner` | 26501 µs |
+
+**The job object costs 71 µs per spawn, 0.27% of one `git --version`.** That is
+four times the run's own resolution, and the injected-delay control recovered a
+delay it was told the size of to within 3%, so the instrument was working when
+it said so. The earlier 33% is wrong by two orders of magnitude.
+
+Read it as one run. The gate (`GBM_MAX_JOB_OVERHEAD_FRACTION`) stays at 0.0 —
+disabled — until the nightly has a trend, because picking a threshold off a
+single sample is the same shape of error this whole document exists to record.
+
+### The watchdog number from that run is *not* usable, and why
+
+The same run printed `watchdog delta = -72us (resolved)`. A watchdog thread
+cannot make spawning faster, so that label was wrong — and the flaw was in the
+tool, not the runner. `resolution_us=18` was measured by an A/A arm on the
+**raw** path (a ~16 ms trivial child) and then used to judge the **prod** pair
+(a ~26 ms git process). Run-to-run spread scales with what is being run, so
+that is a ruler calibrated on A being used to measure B — the identical error,
+one level down, that the 33% claim was corrected for.
+
+Fixed by giving the `prod_*` pair its own A/A null arm; `prod_resolution_us` is
+now reported beside the delta and is what decides whether it is resolved. **No
+watchdog figure should be quoted from before that change.**

@@ -763,3 +763,59 @@ M2 是重點：它證明這支 probe **真的走到了 Win32 那半邊**，而�
 **這支 probe 這一輪沒有進 repo**，是刻意的：要進去就得有 CMake 目標和 CI 步驟，否則
 它就是 [CULT-orphan-wiring] 的下一個實例；而那是這一輪沒有被要求的新工作，範圍擴張
 和範圍縮減一樣都不該默默發生。配方記在這裡，下一輪要撿隨時可以撿。
+
+---
+
+## 追加六：數字終於出來了，而它做的第一件事是打自己的臉
+
+`perf-nightly` 第三次 dispatch，`windows-2022`／MSVC 14.44／51 輪、丟棄 5 輪暖身：
+
+```
+job-object-ab: verdict=measured job_overhead_us=71 resolution_us=18
+               git_spawn_us=26501 overhead_fraction_of_git=0.0027
+               watchdog_delta_us=-72 parent_in_job=1 iterations=51
+```
+
+| 手臂 | 中位數 |
+|---|---|
+| `raw_nojob`（trivial child，無 job object） | 16031 µs |
+| `raw_job`（同一個 child，建 job 並 assign） | 16102 µs |
+| `raw_nojob_aa`（A/A null——這次執行的解析度） | 16013 µs → **18 µs** |
+| 注入 300 µs 對照 | 回收 291 µs（**誤差 3%**） |
+| `git --version`（真的 `ProcessRunner`） | 26501 µs |
+
+**job object 每次 spawn 71 µs，佔一次 `git --version` 的 0.27%。** 是這次執行解析度的
+四倍，而且注入延遲的對照組把一個「已知答案」回收到 3% 以內——所以儀器在說這句話的
+時候是好的。追加三那個「慢 33%」因此**差了兩個數量級**。
+
+### 但同一行裡的 watchdog 數字是錯的，而錯的是工具
+
+```
+prod_notimeout = 26501us   prod_timeout = 26429us   watchdog delta = -72us (resolved)
+```
+
+**watchdog 不可能讓 spawn 變快。** −72 µs 是雜訊；問題在「resolved」這個標籤——它是拿
+`resolution_us=18` 判的，而那 18 µs 是在一個 ~16 ms 的 trivial child 上量出來的，這裡判的
+卻是 ~26 ms 的 git 行程。**跑多久的東西，跑間散布就多大。**
+
+這是**同一支工具裡，違反了它自己存在要立的那條規矩**：追加三的教訓是「一個對照組要先
+證明它對你要排除的變因有反應」，而這裡的 A/A null 手臂本身完全正確——錯在它被套用到
+它從來沒有校準過的那一對手臂上。拿 A 的尺量 B，和 33% 被更正的理由是同一個，只是低了
+一層，而且是我自己在同一輪裡犯的。
+
+修法：給 `prod_*` 那一對**自己的** A/A null 手臂（每輪多跑一次 `timeout=0`），
+`prod_resolution_us` 才是判準，並且印出來讓讀的人看得出是哪一把尺。代價是 prod 迴圈多
+50% 的 git spawn（≈4 秒），對一顆沒有人在等的 nightly job 不值得省。
+
+**job object 那個數字不受影響**：兩條 raw 手臂跑同一個 child、同一條路徑，而 A/A null
+校準的正是那個比較。
+
+### 這一輪真正學到的
+
+使用者的裁定是「measurement as a cause to fix it」。實際發生的事比字面更強一點：
+**量測不只驅動了修改，它驅動的第一個修改是修量測自己。** 一個看起來合理的數字
+（−72 µs）配一個看起來權威的標籤（resolved），如果沒有「watchdog 不可能讓東西變快」
+這個物理常識去對，就會直接寫進紀錄——就像 33% 那次一樣。
+
+**比值 gate 仍然關著。** 一個樣本不足以挑門檻，而在量測之前先挑門檻正是這整支工具存在
+要更正的那個順序。

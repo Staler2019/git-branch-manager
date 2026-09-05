@@ -494,3 +494,55 @@ Mutation-check **5 次**，reddened **6 則**（1 / 1 / 1 / 2 / 1）：`localExi
 
 新增一條 pin：[GIT-remote-pick-b-only-when-absent]，把上表連同「遠端列的佔用等同它本地
 對應分支的佔用」一起記下來。
+
+## 追加四：View → Log 沒有 toggle 效果
+
+> log沒辦法隱藏，view>log那個沒有作用，沒有toggle的效果
+
+`GbmActionId.viewLog` 只呼叫 `GbmSplitPaneController.open()`，而 `open()`
+（`_openToMinimum()`）在已經開著時直接 return——所以**第一次按之後每一次按都完全沒有
+反應**。往下一層看，controller 整個類別只有一個方法：
+
+```dart
+class GbmSplitPaneController {
+  void open() => _state?._openToMinimum();   // 就這樣
+}
+```
+
+抽屜是單向門。開了之後唯一的回頭路是去拖那條分隔線，而那條線在抽屜關著的時候貼在視窗
+最底部，本來就不好找——這就是為什麼使用者的描述是「沒辦法隱藏」而不是「按了沒反應」。
+
+補上 `close()` / `isOpen` / `toggle()`，`_openToMinimum()` 與 `_collapse()` 收斂成同一
+個 `_setExtent()`（兩邊都要 persist、都要 `onFlexChanged`，分開寫就是等著漏一個）。
+
+**關掉寫 0 而不是 minExtent**，因為 0 正是 `collapsedByDefault` 的意思，所以關起來的抽
+屜重開 app 還是關的。[FLU-splitpane-stored-extent-ignores-min] 那條規則的 initState
+clamp 特地 guard 在 `stored[0] > 0`，理由正是「使用者刻意收起來的抽屜不能被 clamp 撐
+開」——這次是同一個決定的另一端，寫進去的那個 0 要能活下來。Mutation 把 `_collapse()`
+改成收到 `minExtent` 會變紅，所以這不是註解裡的宣稱而已。
+
+### 兩個入口，兩種語意，不是不一致
+
+狀態列那顆 badge 維持 `open()`。它的意思是「給我看 log」，把正在讀的抽屜關掉是跟它自
+己的字面相反；選單那一列叫「Log」，跟旁邊的「Status bar」一樣是檢視開關。
+
+原本的註解寫「so the menu item and the status bar agree on what "open the log" means」
+——那句話在只有 `open()` 的世界裡是對的，但它把「兩個入口做同一件事」當成目標，而其實
+它們該做的是不同的事。已改寫。
+
+實務上 badge 還是一次性的：它只在 `hasUnreadLog` 時才畫，一開就清掉了，所以「連按兩下
+badge」這個情境根本到不了。我本來寫了一則測試釘它，發現前提不成立就刪掉，沒有為了讓
+測試跑得動而去 production code 加一個 key——**測不到的路徑不值得為它改介面**。
+
+`_lastSeenOperationLogIndex` 只在「要開」的那一半更新：關閉不揭露任何東西，不該把使用
+者沒看過的紀錄標記成已讀。
+
+### spec 沒有這一列
+
+P04 的 `MENUS` 檢視選單是 Toggle sidebar / History 與 Working copy / Commit detail /
+Status bar / Graph columns / File list as tree——**沒有 Log**。所以這是 app 自己加的項
+目，比照 [STRUCT-no-topbar] 記的 `View → Refresh`。行為對齊旁邊的 Status bar，而兩者
+都沒有打勾記號（`GbmMenuItemModel` 根本沒有那個欄位），所以這一輪沒有任何新的「要畫的
+值」，不需要 G1 的 spec-auditor。
+
+驗證：analyze 0；`flutter test` 2850 全綠；mutation 2 次、各 1 則變紅。

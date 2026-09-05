@@ -377,6 +377,23 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
   pane — so any such derivation draws the wrong thing on precisely that file while every
   two-source fixture stays green ([TEST-fixture-cannot-disagree]). Pass the fact down
   (`showColumnHeads`) from whoever owns the mode.
+- **Do**: **build the ordered blocks once and derive everything from that one list** —
+  `_orderedBlocks` feeds both the widgets and `_rowsInRenderOrder`. They were two traversals
+  for one round, a source-major one for the rows and a sorted one for the paint, and they
+  disagreed exactly when the regions interleaved — which is the only case the sort exists for.
+- **Consequence**: the two readers of that row list are what a drag's *direction* and a
+  Shift-range are resolved from, so the split silently inverted a ratified ruling: a drag
+  reaching a staged card painted above an unstaged one resolved to unstaged.
+- **Do**: the discriminating fixture puts the two sides at **different** index positions
+  (staged at 10, unstaged at 100), so the sort really does reverse them; equal positions leave
+  source order and painted order identical and green either way
+  ([TEST-fixture-cannot-disagree]). Pair it with a guard test asserting the reversal, or the
+  main test can pass because the sort never fired.
+- **Note**: scope numbering (`變更 N`) is assigned **after** the sort, by the widget builder —
+  `hunkSegments` cannot do it, because a number handed out while the blocks are still grouped
+  by hunk is shuffled by the sort. Its `firstOrdinal` parameter and `DiffScopeSegment.ordinal`
+  were deleted for that reason rather than rewired ([CULT-orphan-wiring]).
+- **Evidence**: [ledger: 沒寫出來的那條驗收](../ledger/2026-09-05-fix-working-copy-unified-single-view.md)
 - **Do**: a source that is **in flight or refused still says so** even when another source has
   rows. Writing the placeholder rule as 「only when nothing has content」 silently deletes
   「Diff too large to display」 the moment the other side has cards, which is the message

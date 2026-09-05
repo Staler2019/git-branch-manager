@@ -1894,9 +1894,24 @@ footer.colophon {
       <li>第三個斷言<b>已追蹤</b>的對照組仍然落在 <code>.M</code>，把 <code>kind == Added</code> 這道閘門釘住，而不是釘<span class="zh">「全部行」</span>。</li>
       <li>在 <code>unified</code> 下，掛載的 <code>ScopedDiffView</code> 剛好<b>一</b>個，而且同一份清單裡同時找得到 <code>Stage …</code> 與 <code>Unstage …</code> 兩種按鈕。</li>
       <li>交錯順序由一個 fixture 釘住：它的 staged hunk 的 <code>newStart</code> 落在兩個 unstaged hunk 的 <code>oldStart</code> <b>之間</b> —— 一個數字剛好重合的 fixture 分不出「排序過」與「接在後面」（<code>[TEST-fixture-cannot-disagree]</code>）。</li>
-      <li>一次跨過 staged 卡片與 unstaged 卡片的拖曳，只把先碰到的那個方向放進一次性 scope，斷言在產生出來的按鈕自己的標籤上。</li>
+      <li>一次跨過 staged 卡片與 unstaged 卡片的拖曳，只把先碰到的那個方向放進一次性 scope，斷言在產生出來的按鈕自己的標籤上。
+        <br><b>就地更正：</b>這一條是清單裡<b>唯一沒有在第一輪實作時寫出來的</b>，
+        而它正好蓋著一個真缺陷。X3 讓畫面依 index 區域排序，
+        <code>_rowsInRenderOrder</code> 卻還照 source 走 —— 於是
+        <code>resolveTemporaryScope</code> 取到的<span class="zh">「第一個碰到的」</span>
+        永遠是 unstaged，即使畫在上面的是 staged 卡片。U5 的裁定被實作成了它的反面，
+        而且 Shift+↑/↓ 跨的也是螢幕上不存在的順序
+        （<code>[SPEC-range-follows-paint-order]</code>）。補寫這條驗收就是那個紅；
+        修法是把區塊的建立與排序抽成一個 <code>_orderedBlocks</code>，兩邊都從它推導。
+        <b>沒有寫出來的驗收不是還沒驗，是沒有驗</b>——這一輪的教訓就這一句。</li>
       <li><code>2 file</code> 模式既有的<b>版面</b>斷言在測試一個字都不改的情況下仍然過（X3 之後）。</li>
       <li>Unstage 按鈕在 <b><code>2 file</code> 與 <code>unified</code> 兩個模式裡拿到同一組顏色 token</b>，而且跟 Stage 那顆<b>不同</b> —— 兩個模式各一條斷言，因為 U8 的整個理由就是一致性，只驗一個模式等於沒驗。</li>
+      <li>畫面順序只有<b>一個</b>來源：<code>_wellChildren</code> 畫的與
+        <code>_rowsInRenderOrder</code> 走的是同一份區塊清單。釘住它的 fixture 讓
+        staged 側落在 index 10、unstaged 側落在 100，排序因此把 staged 畫在<b>上面</b>
+        —— 兩側位置相同的 fixture 分不出 source 順序與畫面順序
+        （<code>[TEST-fixture-cannot-disagree]</code>），另加一條守門測試斷言畫面順序
+        真的是反過來的，否則主測試會因為錯的理由通過。</li>
       <li><code>flutter analyze</code> 歸零、<code>dart format</code> 乾淨、<code>ctest</code> 綠，<code>stage_lines_flow_test.dart</code> 在裝置上整份重跑，並且先在父 commit 上跑一次對照組。</li>
     </ul>
   </section>

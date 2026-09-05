@@ -523,3 +523,145 @@ Windows CI。
   證明不了任何事**。
 - 標準規則 5 說「效能用數字決定」——本輪照做了，然後**數字自己說了話，只是說的和第一次
   讀到的相反**。留著第一版並劃掉，因為下次會再犯的是那個推論方法。
+
+## 追加四：動作的逾時改成「閒置」，以及一個從來沒有人可以呼叫的取消
+
+使用者裁定：
+
+> for actions, i rely on cancellation token to set expiration, so when doing actions
+> please set timeout as a predictable time, and measurement as a cause to fix it. this time
+
+探索之後發現這個裁定比一開始理解的更有必要——**它所依賴的那個 cancellation 根本不存在。**
+
+### 三個查證過的事實
+
+**① 每一個 `GitCommand` 都明寫 `.timeout`，沒有一個吃預設值。** 這是刻意的契約：28 個
+動作寫 `timeout = 0`，註解講得很清楚（`GitCommand.h`「a fetch of a 500 MB repository on a
+slow link is slow, not broken」、`HistoryProvider.cpp`「Cancellation is the control the user
+actually needs」、`ResetOps.cpp`「Cancel is the right control, not a timeout」）。其餘約 100
+處是 5s 到 600s 不等。
+
+**② 那個 Cancel 從來沒接上。** 自己 grep 查證，不是只採信 agent：
+
+```
+OperationRunner::Handle { id, CancellationSource cancel }   ← submit() 回傳
+~40 個 submitOperation(...) 呼叫點                          ← 全部丟掉不接
+src/ 全域 .cancel() 只有兩處，都是 historyCancel_
+gbm_capi.h 只有 gbm_cancel_credential，沒有取消「操作」的入口
+```
+
+所以 fetch / pull / push / clone / merge / rebase / cherry-pick / revert / checkout /
+`reset --hard` / repack / LFS fetch / submodule update——**既沒有 deadline，也沒有搆得到的
+取消**。[CULT-orphan-wiring] 的生產者端孤兒，正是那條 rule 說要「grep both directions」
+才看得見的形狀：問「誰呼叫這個」找得到消費者端的孤兒，這一個要問的是「誰讀這個」。
+
+**③ 這個 repo 已經記過一次「CI 計時不可信」，而我這一輪又犯了同一個錯。** 追加三就是那個
+更正。所以量測方法這次由既有前例決定，不重新發明。
+
+### 使用者的兩個裁定
+
+問了兩題，都採納：
+
+1. **閒置逾時（沒有輸出才算死）**，而不是總時長天花板——這正面回答了 ① 的反對理由。
+2. **孤兒 cancel**：「紀錄成 issue，開 capi cancellation token 然後先不接線」。
+
+### 「measurement as a cause」：先量，再挑常數
+
+順序刻意讓量測走在挑數字之前，反過來就是這一輪已經犯過的錯。
+
+在 `ProcessRunner::execute()` 裡放一個臨時的普查（依 `command.args[0]` 分類，記錄每個指令
+量到的**最大閒置間隔**），跑完整套測試。兩個數字，而第二個推翻了第一個的用法：
+
+| 量到的 | 值 |
+|---|---|
+| 全套測試（約 10k 次呼叫）最大閒置間隔 | **148ms** |
+| `timeout = 0` 那一群指令對 pipe 吐出的位元組 | **0** |
+| 其中最慢的一次完全安靜的執行（`repack -adf`） | **3540ms** |
+
+第一個數字看起來允許一個緊得多的天花板，而它**不能**：148ms 是**有輸出的指令**量出來的，
+正好不是要設 `idleTimeout` 的那一群。**git 只有在 stderr 是 tty 的時候才畫進度條**，走 pipe
+的時候這 28 個指令一個位元組都不吐——所以對它們而言，閒置逾時退化成總時長上限。
+
+`kHangCeiling` 因此是 **10 分鐘**，而且是**當成總時長上限**挑的：最慢的一次安靜執行的
+約 170 倍。想要一個緊得多的天花板，正確的作法是讓 git 願意講話（`--progress` 在非 tty 時
+也輸出），但那會改變 stderr 的內容，而 `classifyGitStderr` 和操作紀錄都在讀它——所以那是
+另一個決定，不是這一個的延伸。寫在 `GitCommand.h` 的 doc comment 裡。
+
+普查途中兩個自己絆到的坑，都值得記：
+
+- **靜態解構順序**：`gCensusDumper` 在 `main` 之前建構，`censusMap()` 的 function-local
+  static 在第一次使用時才建構——所以 map 先被解構，dumper 讀到的是廢墟，輸出是空的。
+  兩個都刻意 leak 才拿到數字。
+- **第一支探針無聲地說謊**：它報 `repack -adf` 是 14ms，而 shell `time` 的實地真相是
+  3.819s。重寫成同時報 `rc` / `bytes` / `chunks`，讓「讀失敗」和「跑很快」不可能長得一樣。
+  這和「33%」是同一類錯誤，這次是因為那個數字實在太不可信才回頭驗。
+
+### 鑑別測試：只有「還在滴」那一顆分得出 idle 和 total
+
+`hang_forever.cpp` 加一個 `--drip N` 模式：每 200ms 印一行、印 N 行後轉靜默。
+
+- 不輸出也不結束的那一顆：閒置逾時必須砍掉它。
+- **`--drip` 那一顆才是鑑別測試**：斷言總耗時**超過** `N × 200ms`（證明產出期間沒被砍——
+  總時長上限會在這裡砍掉它）**且**最後仍逾時收場。沒有它，把 idle 實作成 total 會全綠
+  ([TEST-fixture-cannot-disagree])。
+
+兩個實作細節寫在 fixture 自己的註解裡：**每一行都要 flush**（stdout 對 pipe 是
+block-buffered，沒 flush 的 drip 會在結束時一次湧出，和靜默無從分辨），以及 **argv 要用掃描
+不能用索引**（`buildArgv()` 前面會放執行檔、`globalFlags()`、可選的 `-C <dir>`）。
+
+### 取消的入口：接一半，另一半開 issue
+
+`Session::submitOperation()` 現在把 `Handle` 存進 `inFlight_`，`gbm_cancel_operation`
+據此取消。**註冊的鎖刻意跨過 `submit()`**——callback 第一件事就是拿同一把 `inFlightMutex_`，
+所以很快做完的操作不可能搶在 insert 前面 erase 一個還不存在的 entry。用構造定序，而不是留
+一個要用推理去說服自己的窗口；而那個窗口測試逼不出來，推理就會是唯一的證據。
+
+三顆測試裡**只有一顆看得見 insert**（另外兩顆斷言 0，把註冊整個刪掉也是 0）。那一顆決定性
+而非賽跑，靠的是兩件事一起成立：worker 是序列的且自己呼叫 `onDone`，而
+`CallbackRegistry::emit` 是同步的。所以 callback 跑的時候 worker 卡在 #1 的完成裡、
+#2..#10 必然還在佇列上且已註冊，而 #1 已經被 erase——**9 是精確值，不是下界**。
+
+Mutation：**跑 3 個突變，紅掉 4 次**（刪 erase 紅 2 顆、刪 insert 紅 1 顆、只數不 cancel
+紅 1 顆），每一次都紅在該紅的那顆上。兩個數字分開寫，因為一個突變可以紅掉好幾顆
+([TEST-mutation-check-every-test])。
+
+**誠實揭露**：capi 那一顆的實作寫在測試前面，不是 red-green。能反駁的證據是上面那組
+mutation check，不是撰寫順序。
+
+**沒有涵蓋到的**：「取消一個正在跑的 git 會不會真的砍掉它」在 capi 層沒有自動化測試——這
+一層沒有跑得夠久、又不必跟斷言賽跑的操作。那個主張靠的是下一層既有的覆蓋，三者都在工作
+開始**之前**取消，所以是決定性的。寫在測試檔頂端，不是留白。
+
+### 上一輪那筆債：job object 的成本，這次真的去量
+
+追加三留下的是方法教訓而不是數字，這一輪把工具建起來：
+`tests/tools/spawn_cost_win.cpp`（`gbm_spawn_cost`）＋ `tests/fixtures/exit_now.cpp`，
+`perf-nightly.yml` 的 `windows-spawn-cost` 每晚跑一次。
+
+大部分的程式碼是對照組，而且每一條都對應追加三診斷出的一種說謊方式：
+
+| 機制 | 擋掉的錯誤 |
+|---|---|
+| **A/A null 手臂**（兩條相同手臂交錯跑） | 量出「這次執行分辨得出多小的差異」。差值小於它就只印上界，**永不印點估計**——「33%」的直接修法 |
+| **注入已知 300µs 延遲** | 儀器自我檢查。回收不到 50% 以內就印 `verdict=instrument-unreliable`，那次數字不准引用。**一個無法反對假設的對照組不是對照組** |
+| **交錯而非分區塊**，奇數輪反轉順序 | 這一秒讓機器慢的東西讓所有手臂一起慢；先跑的系統性優勢累積不起來 |
+| 每次 spawn 驗 exit code ＋ stdout 位元組 | 失敗的 spawn 很快，會看起來像「job 讓它變快」 |
+| 每個樣本驗 `IsProcessInJob` | 沒真的 assign 就兩臂相同，會報出假的「免費」 |
+| 分母是同一交錯裡的 `git --version` | `windows-process-cost.md` 自己診斷過的錯：`cost(cmd.exe) ≈ cost(git.exe)` 不成立 |
+| 印 `parent_in_job=` | CI runner 常已在 job 裡，是不同的 kernel 路徑 |
+| `prod_*` 手臂 | 把 watchdog 執行緒的成本和 job object 分開——追加三那張表同時帶著兩者，從未分離過 |
+
+production 一行沒動：job 手臂在工具裡重做 `WindowsChild::spawn()` 的序列，而這個複製品和
+production 的任何差異**同時存在於兩條手臂、在差值裡相消**——這正是輸出的是差值而不是任一條
+手臂絕對值的原因。計時的慣用法（奇數樣本、丟棄的暖身、median 而非 mean 或 best-of-N、一行
+機器可讀輸出）沿用 `tools/graph_check.cpp`，不在它旁邊再發明一套。
+
+**兩個檔案在每個平台都編譯**，非 Windows 印 `verdict=not-applicable` 回 0。Linux 的 nightly
+也建它並跑它——`perf` 是用 label 選測試的，不補這一步 Linux nightly 會找不到執行檔而紅，
+而補了之後 not-applicable 那條路是每晚被執行的，不是被假設還能編譯。
+
+比值 gate 先**關著**（`GBM_MAX_JOB_OVERHEAD_FRACTION` 預設 0.0）：**要 gate 的那個數字還沒
+收集到，而在量測之前先挑門檻，正是這整支工具存在要更正的那個順序。**
+
+**這一輪還沒有數字。** 要等一次 `perf-nightly.yml` 的 workflow_dispatch 跑完，才會寫進
+`docs/reports/windows-process-cost.md`；在那之前不引用任何數字，也不回頭改追加三。

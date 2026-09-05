@@ -183,7 +183,76 @@ Pin prefix `CPP-`. Format: [README.md](README.md).
   每個組態 n=1，runner 跑間變異比效應大；要量得同一顆 job 內 A/B。
 - **Do**: 一個對照組要先證明**它對你要排除的變因有反應**，否則它只是另一個數字——
   [TEST-fixture-cannot-disagree] 換到量測上的同一件事。
+- **Note**: **就地更正上一條 Note 的「沒有量到」**——量的工具現在有了，
+  `tests/tools/spawn_cost_win.cpp`（`gbm_spawn_cost`），`perf-nightly.yml` 的
+  `windows-spawn-cost` 每晚跑。**數字仍然沒有**，要等一次 nightly；在那之前這條 Note 上面
+  那三個秒數仍然是這裡唯一的實證，而它們已經被自己證明不可引用。
+- **Do**: 那支工具的形狀就是上一條 Do 的實作，照抄即可：**A/A null 手臂**量出這一次執行的
+  解析度（差值小於它就只印上界、絕不印點估計），**注入一個已知延遲**當作儀器自我檢查
+  （回收不到 50% 以內就印 `verdict=instrument-unreliable`，那一次的數字不准引用），
+  手臂**交錯**而非分區塊，每一個樣本都驗 exit code、stdout 位元組和 `IsProcessInJob`。
+  分母是同一個交錯裡的 `git --version`，不是那個 trivial child。
+- **Do**: 比值 gate 預設**關著**（`GBM_MAX_JOB_OVERHEAD_FRACTION` 0.0）。要 gate 的數字還沒
+  收集到，而在量測之前先挑門檻正是這支工具存在要更正的那個順序。
 - **Note**: 就算真的有成本也不省，兩個省法都要拿正確性換：共用一個 job 會讓 `TerminateJobObject`
   殺掉並行的其他 git；拿掉 `CREATE_SUSPENDED` 會把「孫子在 assign 之前就生出來」的競態放回去。
   Windows job 11m09s 對 25 分鐘上限，沒有人在等它。
 - **Evidence**: [ledger: 追加，Windows CI 卡 81 分鐘](../ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
+
+## [CPP-idle-not-total] 一個動作的逾時要問「還活著嗎」，不是「跑多久了」——而這兩題對 `timeout = 0` 的指令答案不同
+
+- **Rule**: `GitCommand` 有兩個獨立的欄位。`timeout` 是**總時長**上限；`idleTimeout` 是距離
+  上一次「有任何 I/O 進展」多久算卡死。~100 個有限 `timeout` 的呼叫點**不設** `idleTimeout`：
+  它們本來就不可能永遠卡住，加上去只會多一個誤殺「合法但安靜」指令的風險而換不到安全性。
+- **Rule**: 進展的定義是三個都算——stdout 讀到 `n > 0`、stderr 讀到 `n > 0`、**stdin 寫出
+  `n > 0`**。最後一個容易漏：一個正在吃我們 stdin 的子程序是活的，即使它還沒回答任何東西。
+- **Consequence**: 28 個 `timeout = 0` 的呼叫點（fetch / pull / push / clone / merge / rebase /
+  cherry-pick / revert / checkout / `reset --hard` / repack / LFS / submodule）原本**既沒有
+  deadline，也沒有搆得到的取消**——它們註解裡寫的那個控制到這一輪才存在
+  （[CULT-orphan-wiring]，見 `gbm_cancel_operation`）。
+- **Rule**: **`kHangCeiling` 是 10 分鐘，而它被當成總時長上限來挑，不是當成兩次進度訊息之間的
+  間隔。** 理由是量出來的：**git 只有在 stderr 是 tty 時才畫進度條**，所以走 pipe 的時候這 28 個
+  指令對 stderr 一個位元組都不吐——閒置逾時對它們就退化成總時長上限。實測最慢的一次完全安靜的
+  執行是 `repack -adf` 的 3540ms，10 分鐘是它的約 170 倍。
+- **Note**: 全套測試約 10k 次呼叫的普查裡，**最大的閒置間隔是 148ms**。那個數字看起來允許一個
+  緊得多的天花板，而它**不能**——它是有輸出的指令量出來的，正好不是設 `idleTimeout` 的那一群。
+  把它當成上限的依據，會是拿量到 A 的尺去裁 B。
+- **Do**: 想要一個緊得多的天花板，正確的作法是**讓 git 願意講話**（`--progress` 會在非 tty 時
+  也輸出），但那會改變 stderr 的內容，而 `classifyGitStderr` 和操作紀錄都在讀它——所以那是
+  另一個決定，不是這一個的延伸。
+- **Do**: POSIX 那半邊是把固定的 `deadline` 換成滑動的 `lastProgress`，既有 200ms 上限的
+  `poll()` 迴圈結構不動。Windows 那半邊是同一條 watchdog 執行緒換一個問法：反覆等一小段，
+  每次醒來比對 atomic 的 `lastProgress_`——**讀取熱路徑不增加任何 syscall**，因為 watchdog
+  自己輪詢 atomic 而不是靠 event 通知（[CPP-windows-terminate-hangs-join]）。
+- **Do**: **鑑別測試是「還在滴輸出」那一顆，不是「完全不講話」那一顆。** 只有後者的話，把 idle
+  實作成 total 會全綠。`hang_forever --drip N` 每 200ms 印一行、印 N 行後轉靜默，斷言總耗時
+  **超過** `N × 200ms`（證明產出期間沒被砍）**且**最後仍逾時收場。每一行都要 flush——stdout 對
+  pipe 是 block-buffered，沒 flush 的 drip 會在結束時一次湧出，和靜默無從分辨
+  ([TEST-fixture-cannot-disagree])。
+- **Evidence**: [ledger: 追加四，動作的逾時改成閒置](../ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
+
+## [CPP-cancel-is-registered-not-returned] `OperationRunner::submit()` 的 `Handle` 要被存起來，不是被丟掉
+
+- **Rule**: `Session::submitOperation()` 把 `Handle{id, cancel}` 存進 `inFlight_`，
+  完成 callback 自己 erase，`gbm_cancel_operation(session, id)` 據此取消（`id == 0` 是全部）。
+- **Consequence**: 在這之前 ~40 個呼叫點全部丟掉那個 `Handle`，全 `src/` 只有兩處 `.cancel()`
+  且都是 `historyCancel_`——所以 [CPP-idle-not-total] 那 28 個指令註解裡的「Cancellation is the
+  control the user actually needs」指的是一個搆不到的控制。[CULT-orphan-wiring] 的生產者端孤兒，
+  正是該 rule「grep both directions」才看得見的形狀。
+- **Rule**: **註冊的鎖刻意跨過 `submit()`**。callback 第一件事就是拿同一把 `inFlightMutex_`，
+  所以很快做完的操作不可能搶在 insert 前面 erase 一個還不存在的 entry——用構造定序，而不是留一個
+  要用推理說服自己的窗口，而那個窗口測試逼不出來，推理就會是唯一的證據。`submit()` 只 push 進
+  queue 加 notify、從不等 worker，所以跨著它拿第二把鎖不會 deadlock。
+- **Do**: 三顆測試裡**只有一顆看得見 insert**——另外兩顆斷言 0，把註冊整個刪掉也是 0。那一顆
+  決定性而非賽跑，靠的是兩件事一起成立：worker 是序列的且自己呼叫 `onDone`，而
+  `CallbackRegistry::emit` 是同步的。所以 callback 跑的時候 worker 卡在 #1 的完成裡、#2..#10
+  必然還在佇列上且已註冊，而 #1 已被 erase——**9 是精確值，不是下界**。
+- **Note**: **Dart / UI 刻意沒接**（使用者裁定：「開 capi cancellation token 然後先不接線」），
+  所以這是一個**新開的、被記錄的**孤兒，寫在 `gbm_capi.h` 的 doc comment 裡而不是留給下一次
+  orphan sweep 當死碼刪掉。[TEST-ffi-matches-symbol-only] 指出這條縫只有 device 層測得到。
+- **Note**: 「取消一個**正在跑**的 git 會不會真的砍掉它」在 capi 層**沒有**自動化測試——這一層
+  沒有跑得夠久又不必跟斷言賽跑的操作。那個主張靠的是下一層既有的覆蓋
+  （`ProcessRunnerTest` 的 `source.cancel()`、`CancelsAReadOnlyWalkPromptly`、
+  `CommitMetaStoreStopsIssuingRequestsOnceCancelled`），三者都在工作開始**之前**取消，
+  所以是決定性的。寫在測試檔頂端，不是留白（[SPEC-absent-not-faked]）。
+- **Evidence**: [ledger: 追加四，動作的逾時改成閒置](../ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)

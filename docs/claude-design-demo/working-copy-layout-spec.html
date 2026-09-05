@@ -1916,6 +1916,46 @@ footer.colophon {
     </ul>
   </section>
 
+  <section id="sec13">
+    <div class="sec-head"><span class="sec-num">13</span><h2>第三輪：未追蹤檔案中間那一行</h2></div>
+    <p class="lede">
+      §12 那張表是第二輪的記錄，維持原樣。這一輪是使用者拿實際檔案回報的一個
+      案例：五行的未追蹤檔案，把中間那一行 stage 起來，<b>應該是三個 scope，
+      畫出來只有兩個</b>。量出來一個回報底下是三個缺陷，而且修掉任何一個，
+      另外兩個都還在。
+    </p>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:5%">#</th><th style="width:11%">狀態</th><th style="width:24%">項目</th><th style="width:8%">改幾處</th><th>是什麼</th></tr></thead>
+      <tbody>
+        <tr><td class="num">C1</td><td><span class="pill is-ratified">done</span></td><td>index 座標改成兩段</td><td class="num">1 + 測試</td>
+            <td><code>IndexPosition</code> 從一個 <code>int</code> 變成 <code>({int line, int offset})</code>。<code>offset 0</code> 表示這一列<b>就是</b> index 的第 <code>line</code> 行，<code>offset 1</code> 表示它夾在第 <code>line</code> 行與下一行之間。一段式的座標讓未追蹤檔案的<b>每一列</b>都回報同一個數字，於是「照區域排序」退化成「照來源的先後」。這是三個缺陷裡最容易漏的一個——它要等另外兩個修好才看得見。</td></tr>
+        <tr><td class="num">C2</td><td><span class="pill is-ratified">done</span></td><td>gap 規則接受硬邊界</td><td class="num">1 + 測試</td>
+            <td><code>splitHunkIntoScopes</code> 多一個 <code>barriers</code>，被指名的未變更行不可以被吞進 scope。規則寫成<b>「不可以吞掉邊界」</b>而不是「碰到邊界就結束 scope」——它只作用在同一側兩個變更<em>中間</em>的未變更行，所以所有單一來源的 fixture 一個字都不用改。同一顆 commit 裡加上 <code>changedIndexLines</code>（誰是邊界）與 <code>barrierLineIndices</code>（翻成那個 hunk 自己的列號）。</td></tr>
+        <tr><td class="num">C3</td><td><span class="pill is-ratified">done</span></td><td><code>unified</code> 接上邊界</td><td class="num">1 + 測試</td>
+            <td>每一個來源拿到<b>其他</b>來源改到的 index 行當邊界，切出來就是 git 看到的三個區域：<code>Stage 2 lines</code> / <code>Unstage 1 line</code> / <code>Stage 2 lines</code>。<code>2 file</code> 只有一個來源，邊界集合是空的，所以這一項在那個模式裡結構上就是惰性的，不需要旗標。</td></tr>
+        <tr><td class="num">C4</td><td><span class="pill is-ratified">done</span></td><td>同一個 index 行不畫兩次（<b>裁定 B</b>）</td><td class="num">1 + 測試</td>
+            <td><span class="zh">「b」</span>——一側畫成未變更、另一側畫成變更的那一行，在合併清單裡<b>只畫一次</b>。<code>hunkSegments</code> 多一個 <code>hiddenLines</code>，而關鍵不是「跳過那一列」，是<b>把那一段未變更的跑馬燈從那裡切成兩段</b>；只跳過不切，上下兩段 context 會悄悄併成同一個區塊。</td></tr>
+        <tr><td class="num">C5</td><td><span class="pill is-ratified">done</span></td><td>標題列的計數也用同一組邊界</td><td class="num">3 + 測試</td>
+            <td><b>收尾時才發現的第四個缺陷。</b>「N 未暫存 · M 已暫存」有自己的 <code>DiffScopeCache</code>，呼叫時不帶方向也不帶邊界——所以在這個案例上，卡片是三張，標題列寫的是 <code>1 未暫存 · 1 已暫存</code>。修法不是在 pane 裡再算一次（那就是這個缺陷本身的形狀），而是把 <code>ScopedDiffView</code> 私有的 memo 抽成純層的 <code>DiffBarrierMemo</code>，兩邊共用（<code>[CULT-single-source-of-truth]</code>）。原本那段 doc comment 保證<span class="zh">「the chip cannot say a number the list disagrees with」</span>，就地劃掉改寫。</td></tr>
+        <tr><td class="num">C6</td><td><span class="pill is-ratified">done</span></td><td>記錄</td><td class="num">4</td>
+            <td>兩條新 pin：<code>[FLU-index-position-is-two-part]</code> 與 <code>[FLU-other-side-changes-are-barriers]</code>。<code>[FLU-merged-diff-keys-by-source]</code> 裡那句「fallback 是 hunk 自己的 start」就地更正成 <code>start - 1</code> 配 offset。<code>[STRUCT-working-copy]</code> 的切 scope 那一句補上邊界。ledger 追加一段。</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>第三輪的驗收</h3>
+    <ul class="plain">
+      <li>用實測出來的那份 diff 當 fixture，斷言畫出來是<b>三張卡</b>，按鈕依序是 <code>Stage 2 lines</code> / <code>Unstage 1 line</code> / <code>Stage 2 lines</code>——不是「至少三張」，是精確的三個標籤。</li>
+      <li>那張 staged 卡片<b>畫在兩張 unstaged 卡片中間</b>，用幾何斷言（拿它的按鈕矩形對上 <code>bravo</code> 與 <code>delta</code> 兩列），不是用 finder 數數量（<code>[FLU-finder-proves-existence-not-position]</code>）。</li>
+      <li><code>document</code> 這一列在整份清單裡<b>只出現一次</b>，而且落在第二張卡片裡面——裁定 B 的正面與位置各一條，只驗「只有一個」不足以說它畫在對的地方。</li>
+      <li><code>alpha</code>/<code>bravo</code>/<code>delta</code>/<code>echo</code> 每一列都還在——去重不可以順手吃掉別的東西。</li>
+      <li>標題列的兩個數字<b>跟卡片同一種切法</b>：同一份 fixture 上斷言 <code>2 未暫存 · 1 已暫存</code>。原本的 chip 測試兩個 hunk 相隔 50 個 index 行，任何一側的邊界都不會落進另一側的 gap 裡，所以它在整段缺陷期間都是綠的（<code>[TEST-fixture-cannot-disagree]</code>）。</li>
+      <li><code>DiffBarrierMemo</code> 命中時交回<b>同一個 <code>Set</code> 實例</b>，單一來源交回 <code>const &lt;int&gt;{}</code>——不是相等，是 identity：<code>DiffScopeCache</code> 用 <code>identical</code> 當 key，一個相等但新的集合會讓它每一幀重切。</li>
+      <li><code>changedIndexLines</code> 的 fixture 兩側必須是<b>不同</b>的數字。第一版寫成兩側都是 2，把函式改成「永遠讀舊的那一側」<b>全綠</b>——這一輪自己撞上的 <code>[TEST-fixture-cannot-disagree]</code>，而抓到它的是 mutation 檢查。</li>
+      <li><code>stage_lines_flow_test.dart</code> 與 <code>untracked_unstage_flow_test.dart</code> 在裝置上逐檔重跑，輸出<b>不接 <code>tail</code>、也不接只留進度列的 <code>grep</code></b>。</li>
+    </ul>
+  </section>
+
   <footer class="colophon">
     <span>Tokens: <code>app_flutter/lib/theme/tokens.dart</code></span>
     <span>骨架：<code>worktree-dialogs-spec.html</code>，同一個資料夾裡的姊妹頁</span>

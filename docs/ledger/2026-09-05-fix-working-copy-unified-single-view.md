@@ -328,6 +328,177 @@ source 順序（`[CULT-nothing-silently-dropped]`）。
 底下，`src/` 一個字都沒有碰（`git diff --name-only fb3e547..HEAD | grep '^src/'`
 是空的），所以 188 行那組 **667 綠 / 2 skipped** 仍然是當前 `src/` 的數字。
 
+## 追加二：未追蹤檔案把中間那一行 stage 起來，只畫了兩張卡
+
+使用者回報：
+
+> problem: for example my current untracked file, i stage the middle line
+> (document...) and it should split into 3 scope, but its only 2 scope
+
+先在暫存區開一個真的 repo 量，不是推論。五行的未追蹤檔案，把第三行
+`document` 單獨 stage 起來之後，兩份 diff 長這樣：
+
+```
+unstaged（index → worktree）        staged（HEAD → index）
+  + alpha      (old 0, new 1)         + document   (old 0, new 1)
+  + bravo      (old 0, new 2)
+  . document   (old 1, new 3)  ← 這一行就是 staged 那一行
+  + delta      (old 0, new 4)
+  + echo       (old 0, new 5)
+```
+
+然後用一顆丟棄式的 widget probe 確認畫出來的東西，而不是只讀程式碼：
+
+```
+BUTTONS(2): [Stage 5 lines (4 changed), Unstage 1 line]
+rows "document": 2
+每一列的 indexPosition 都是 1
+```
+
+**一個回報底下是三個缺陷**，而且修掉任何一個，另外兩個都還在：
+
+| # | 缺陷 | 症狀 |
+|---|---|---|
+| 1 | gap 規則把 staged 那一行當成普通的未變更行吞掉 | 四個 `+` 併成一張卡，`Stage 5 lines` |
+| 2 | 同一個 index 行兩側各畫一次 | `document` 出現兩列 |
+| 3 | `indexPositionOf` 把插入的列算成「前面那一行」 | 六列全部回報 1，排序沒有東西可排 |
+
+第 3 個最容易漏：它要等前兩個修好才看得見。把區域切對了，仍然沒有任何東西
+可以把它們排出先後 —— 未追蹤檔案的每一列都在同一個 index 位置上。
+
+### 設計問到使用者才動手
+
+G1：把三個缺陷、量到的證據、以及一個真的要裁定的問題寫出來給使用者看，才碰
+`lib/`。那個問題是：合併清單裡，一側畫成未變更、另一側畫成變更的那一行，要
+畫兩次（A）還是只畫一次（B）。**使用者裁定 B**，同一句話裡順便要求把
+`origin/main` merge 進來。
+
+### 座標從一段變成兩段
+
+`IndexPosition` 現在是 `({int line, int offset})`：`offset 0` 表示這一列
+**就是** index 的第 `line` 行，`offset 1` 表示它夾在第 `line` 行和下一行之間。
+hunk 第一個 index 行之前的列拿 `start - 1` 配 offset 1，所以空 hunk 的退路要
+減一。比較一律走 `compareIndexPositions`，不在呼叫端逐欄位比。
+
+**追蹤中的檔案看不見這件事**：它的 context 列有真的 index 行號，offset 永遠
+不必扛任何東西，一段式的座標在每一列上都答對（[TEST-fixture-cannot-disagree]）。
+
+### 硬邊界
+
+`splitHunkIntoScopes` 多一個 `barriers`：被指名的未變更行不可以被吞進 scope。
+規則寫成「不可以吞掉邊界」而**不是**「碰到邊界就結束 scope」—— 它只作用在同
+一側兩個變更**中間**的未變更行，落在 gap 以外的邊界什麼都不改，這是所有單一
+來源的 fixture 一個字都不用動的原因。
+
+邊界是誰，由 `changedIndexLines(otherFile, staged:)` 決定，再由
+`barrierLineIndices` 翻成那個 hunk 自己的列號。**加號那一半不算邊界**：
+unstaged 的新增行 old 側是 0，staged 的刪除行 new 側是 0，它們夾在 index 行
+**之間**，那個座標上沒有東西可以撞。
+
+### 裁定 B 的實作，和它唯一會紅的那個 mutation
+
+`hunkSegments` 多一個 `hiddenLines`，而關鍵不是「跳過那一列」，是
+**把那一段未變更的跑馬燈從那裡切成兩段**。只跳過不切，上下兩段 context 會
+悄悄併成同一個區塊；`a hidden line inside a longer context run breaks it in
+two` 就是為了這一個 mutation 存在的。
+
+### 標題列的數字說了另一個數（收尾時才發現）
+
+四顆 commit 之後補查 `working_copy_diff_pane.dart`，發現
+「N 未暫存 · M 已暫存」走的是**另一條**路徑：它有自己的 `DiffScopeCache`，
+呼叫 `scopesOf(file)` 時不帶方向也不帶邊界。所以在使用者回報的那個案例上，
+卡片是三張（兩張 Stage、一張 Unstage），標題列寫的是 **「1 未暫存 · 1 已暫存」**
+—— 修好的東西上面掛著一個沒修好的數字。
+
+那段 doc comment 自己寫著：
+
+> The title bar's own scope counts (U3) go through the same
+> `splitDiffFileIntoScopes` the cards do -- one function, two memos, so the
+> chip cannot say a number the list disagrees with.
+
+「同一個函式」是必要而不充分的：卡片這一輪改成帶邊界切，這個數字沒有，於是
+那句保證在卡片改掉的那一刻就失效了。就地劃掉改寫，不是另外補一段
+（[CULT-scrutinise-the-comment]）。
+
+修法不是在 pane 裡再算一次邊界 —— 那會是第二個推導法，也就是這個缺陷本身的
+形狀。`ScopedDiffView` 私有的 `_barrierMemo` 抽成純層的 `DiffBarrierMemo`
+（`93334d5`），兩邊共用同一個（`d70b5d6`）。抽出來的時候 key 多了一欄
+`DiffSide.staged`：同一個 `DiffFile` 換一個方向讀，回報的 index 行就不同，
+只比對檔案 identity 不是整把鑰匙。
+
+**原本的 chip 測試永遠看不見這件事**：它的兩個 hunk 相隔 50 個 index 行，
+任何一側的邊界都不會落進另一側的 gap 裡，沒有邊界的數字剛好是對的
+（[TEST-fixture-cannot-disagree]）。新測試用的是實測出來的那個案例本身。
+
+### fixture 自己不會反對的那一顆，是 mutation 抓到的
+
+`changedIndexLines` 的測試第一版寫成 `(added, 0, 2)` / `(removed, 2, 0)`，
+兩側都答 `{2}`。把函式改成「永遠讀舊的那一側」，**全綠**。改成
+`(added, 0, 5)` / `(removed, 9, 0)`（期望值 `{5}` / `{9}`）之後才紅 1 顆。
+這是這一輪自己撞上的 [TEST-fixture-cannot-disagree]，而抓到它的是 mutation
+檢查，不是覆蓋率。
+
+### 兩個誠實的失手
+
+- 有兩個 mutation **根本沒套用上去**：`python3 -c` 裡嵌多行字串噴了
+  `SyntaxError`，而那次的「綠」等於沒有意義。改用 `python3 - <<'PY'` heredoc
+  重跑，其中一個就紅了 1 顆。**REDS=0 先要證明 mutation 真的落地。**
+- C3 的排序測試第一版是紅的，但**紅錯理由**：`find.text('document')` 當時還
+  匹配到兩個 widget（正是 C4 要移除的那個重複），`getRect` 直接丟例外。改成
+  量 `find.widgetWithText(GbmButton, 'Unstage 1 line')` 對上兩列唯一的文字
+  （[FLU-finder-proves-existence-not-position]）。
+
+### merge origin/main
+
+同一句話裡的第二件事。`origin/main` 38 顆 commit（含 PR #138 的
+`e7d1e27`）merge 進來，只有一個尾端衝突：`docs/rules/drift-open.md` 兩邊都往
+檔尾 append 了一條新規則。兩條都留，main 的 `[DRIFT-cancel-capi-unwired]` 在
+前、HEAD 的 `[DRIFT-list-tree-mode-scope-undecided]` 在後 —— 這正是
+`docs/rules/README.md` 說「append 到同一個檔只會在尾端衝突，保留兩邊即可」的
+那個情況。merge 之後兩個工具鏈都先驗過才往上疊。
+
+### 這一段的數字
+
+| commit | 內容 | mutation 數 / 各紅幾顆 |
+|---|---|---|
+| `d4b7765` | index 座標改兩段 | 2 / 3、1 |
+| `9751084` | gap 規則接受硬邊界 | 3 / 2、1、1 |
+| `083998c` | 檔案層翻成 hunk 行號 | 3 / 1、1、1 |
+| `6c4f97f` | unified 接上邊界 | 3 / 2、1、1 |
+| `3ec2e82` | 裁定 B，不畫兩次 | 3 / 1、1、1 |
+| `93334d5` | memo 抽到純層 | 4 / 1、1、1、3 |
+| `d70b5d6` | 標題列的數字接上 | 2 / 1、1 |
+
+**mutation 跑了幾個、測試紅了幾顆，是兩個數字**，所以上表分開列
+（[TEST-mutation-check-every-test]）。
+
+| 檢查 | 結果 |
+|---|---|
+| `flutter analyze` | 0 issue |
+| `dart format --set-exit-if-changed .` | 534 檔，0 改動 |
+| `flutter test` | **2914 綠 / 1 skipped** |
+| `scripts/check-rule-pins.py` | 198 條規則、140 個交叉引用、懸空 0 |
+
+`ctest` 沒有重跑：這一段七顆 commit 動到的檔案全在 `app_flutter/` 與 `docs/`
+底下（`git diff --name-only 4b16f2e..HEAD | grep '^src/'` 是空的），所以
+`src/` 的數字仍是 merge 之後那次的 **687 綠 / 2 skipped**。
+
+裝置層兩個檔逐檔重跑（先 `pkill`），**輸出沒有接 `tail -1`，也沒有接只留進度
+列的 `grep`** —— 這是上一段自己寫下的教訓：
+
+| 檔 | 結果 |
+|---|---|
+| `stage_lines_flow_test.dart` | **7/7 綠，1m49s** |
+| `untracked_unstage_flow_test.dart` | **1/1 綠，23s** |
+
+這兩個檔是刻意挑的，不是掃到就跑：兩個檔裡的 finder 都直接數合併清單裡的卡片
+（`findsNWidgets(2)` 兩處、`find.text('Stage 3 lines')` 一處），而這一段改的正
+是「一份清單裡有幾張卡、每張叫什麼」。`_paneWith(staged:)` 在 `unified` 底下
+兩個 getter 解到**同一個** view，所以那些數量斷言數的就是卡片本身。
+
+`Failed to foreground app; open returned 1` 兩次都印了，兩次都全綠
+（[TEST-foreground-line-is-not-a-failure]）。
+
 ## 沒做的
 
 - U9（模式切換器的 `檢視方式` 標籤與兩個 11px SVG 圖示）—— 使用者裁定「不應動，照既有模

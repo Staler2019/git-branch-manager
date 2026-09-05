@@ -405,4 +405,62 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
   kind carrying both line numbers, so with added lines alone `indexPositionOf` falls back to the
   hunk's own start, which already reads the right side, and the whole loop can be mutated to
   read the wrong one with the test still green.
+- **Correction**: 「falls back to the hunk's own start」 was true of the one-part position this
+  pin was written against; it is now `start - 1` with `offset: 1`, and the fallback still reads
+  the right side. See [FLU-index-position-is-two-part] for why the extra part exists — the
+  one-part form made every inserted row of an untracked file report the *same* position, which
+  is a tie the sort cannot break rather than a wrong side.
 - **Evidence**: [ledger: unified 合成單一清單](../ledger/2026-09-05-fix-working-copy-unified-single-view.md)
+
+## [FLU-index-position-is-two-part] An index position is a line **and** an offset, or every inserted row collapses onto the line above it
+
+- **Rule**: `IndexPosition` is `({int line, int offset})`. `offset 0` means the row *is* index
+  line `line`; `offset 1` means it sits strictly between `line` and the next one. A row before a
+  hunk's first index line takes `start - 1` with offset 1, which is why the empty-hunk fallback
+  subtracts.
+- **Consequence**: an added line has no index coordinate of its own — the unstaged diff numbers it
+  only on the worktree side — so a one-part position had to answer with the last index line seen.
+  In an untracked file **every** row answers the same number, and 「order by region」 degenerates
+  into 「keep the order the sources happened to be in」. That is the third of the three defects
+  behind one report, and it is the one that survives fixing the other two: split the regions
+  correctly and there is still nothing to sort them by.
+- **Do**: compare with `compareIndexPositions`, never field by field at a call site. The tie-break
+  after both parts are equal is the caller's (unstaged first), and it is separate from this
+  ordering ([FLU-merged-diff-keys-by-source]).
+- **Do**: the discriminating fixture is an **untracked** file — a tracked one gives its context
+  rows real index numbers, so the offset never has to carry anything and a one-part position
+  answers correctly on every row ([TEST-fixture-cannot-disagree]).
+- **Evidence**: [ledger: 未追蹤檔案中間那一行](../ledger/2026-09-05-fix-working-copy-unified-single-view.md)
+
+## [FLU-other-side-changes-are-barriers] In a merged diff list, a line the *other* side changes is a hard barrier the gap rule may not swallow
+
+- **Rule**: `splitHunkIntoScopes` merges changes separated by ≤ `kDefaultScopeGap` unchanged
+  lines. In a merged list that rule is wrong on its own: an unchanged line of source A that
+  source B draws as a change of its own is a **region boundary git itself drew**, so a scope may
+  not span it. `changedIndexLines(otherFile, staged:)` names those index lines and
+  `barrierLineIndices(hunk, …)` translates them into that hunk's own row indices.
+- **Consequence**: the reported case is an untracked file whose middle line is staged. The
+  unstaged side reads `+ + . + +`, its single unchanged row *is* the staged change, and one
+  unchanged line is inside the gap — so git's three regions were drawn as **two** cards.
+- **Rule**: it is 「may not swallow a barrier」, never 「a barrier ends a scope」. The rule applies
+  only to unchanged lines strictly *between* two changes of the same source; a barrier outside a
+  gap changes nothing, which is what keeps every single-source fixture untouched.
+- **Rule**: 使用者裁定 B — a row whose index line the other source already draws as a change is
+  **hidden** in the merged list rather than drawn twice. `hunkSegments` takes `hiddenLines` and
+  *splits the gap run* around each one; skipping the line without splitting silently joins the
+  two context runs either side into one block, which is the mutation that discriminates.
+- **Do**: the barrier sets go through **one** `DiffBarrierMemo` in the pure layer, shared by the
+  cards and by anything that counts them. Two derivations of one fact is how the title bar's
+  「N 未暫存 · M 已暫存」 came to say 1 over two Stage cards
+  ([CULT-single-source-of-truth], [CULT-scrutinise-the-comment] — the doc comment claiming the
+  chip 「cannot say a number the list disagrees with」 stopped being true the moment the cards
+  gained barriers and nothing else did).
+- **Do**: memoise on the sides' `DiffFile` identity **and** their `staged` flags — the same file
+  read as the other direction reports different index lines. Hand back the *same* `Set`
+  instances on a hit, and `const <int>{}` for a lone side, or `DiffScopeCache`'s own `identical`
+  check misses and re-splits every frame.
+- **Do**: **a fixture whose two sides are far apart cannot see any of this** — no barrier of one
+  side falls inside a gap of the other, so the barrier-less answer is right. The title bar's
+  original test had its hunks 50 index lines apart and stayed green through the whole defect
+  ([TEST-fixture-cannot-disagree]).
+- **Evidence**: [ledger: 未追蹤檔案中間那一行](../ledger/2026-09-05-fix-working-copy-unified-single-view.md)

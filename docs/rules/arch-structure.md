@@ -237,7 +237,10 @@ untouched; the one thing that crosses into it is the Unstage button's
 `border-strong` ring, 使用者裁定 「這是唯一會影響到 2file 的」. It stages by
 **scope**, not by
 line-checkbox: `diff_scopes.dart` merges changes separated by ≤
-`kDefaultScopeGap` (2) unchanged lines, never crossing a hunk, and each scope
+`kDefaultScopeGap` (2) unchanged lines, never crossing a hunk — and, in the
+merged list, never crossing an unchanged line the *other* side changes
+([FLU-other-side-changes-are-barriers]); the title bar's own counts are split
+by those same barriers, because they are the list's number. Each scope
 card carries its own end-of-run button. An ordinary text selection is a
 **one-shot temporary scope**, rendered **nested inside the cards it covers**
 — the head and button on the first card the selection reaches, the rest

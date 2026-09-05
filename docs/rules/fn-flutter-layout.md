@@ -302,6 +302,9 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
   it erases the height the user dragged to, and the next open lands on `minExtent` instead of
   where they left off. `_openToMinimum` reads a `_reopenExtent` field for exactly this, because
   `_currentFlexes[0]` is the thing the collapse set to 0.
+- **Note**: `_collapse()` is no longer the only producer of that 0 — a drag past the bottom edge
+  is the second ([FLU-clamp-loses-drag-overshoot]). It rides the same guard, so this rule is
+  unchanged by it.
 - **Do**: `_resetToSpecDefault` clears `_reopenExtent` alongside the stored value, or a drawer
   reopened later in the same session comes back at the size the reset was meant to forget.
 - **Do**: **a test that pumps a virgin profile cannot see any of this** — the flag is correct
@@ -315,3 +318,38 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
   now covers only a **non-drawer** extent pane; its 「explicit collapse」 rationale was corrected
   in place by this round.
 - **Evidence**: [ledger: 追加五](../ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)
+
+## [FLU-clamp-loses-drag-overshoot] A per-step clamp destroys drag overshoot, so 「dragged past the edge」 needs its own accumulator
+
+- **Rule**: `_onDividerDelta` clamps every step to `minExtent` and writes the result back to
+  `_currentFlexes[0]`, so once the pane has bottomed out each further step recomputes from that
+  same clamped number. `_currentFlexes[0] + delta` therefore never falls far below `minExtent`
+  **however far the pointer travels** — it can only ever see one frame's delta, a handful of px.
+- **Consequence**: a threshold written against that expression is unreachable in practice and
+  looks like a tuning problem. The honest fix is a second number: `_dragRawExtent` accumulates
+  the *unclamped* travel, opened on `onDragStart` and cleared on **both** `onDragEnd` and
+  `onDragCancel` — a cancelled drag that leaves it non-null sends the next keyboard step down
+  the drag path, against a position the pointer left behind.
+- **Do**: clamp the accumulator too, per step, with a floor that depends on the gate (0 when the
+  pane may collapse, `minExtent` otherwise). Unclamped, dragging 300px below the bottom then
+  needs 300px of travel back up before the divider follows the pointer again; and for every pane
+  that *cannot* collapse the accumulator becomes byte-for-byte the old expression, so no existing
+  drag behaviour moves.
+- **Rule**: the collapse gate is `GbmSplitterSpec.collapsedByDefault`, and the reasoning is the
+  flag's own meaning — 「starts closed at every launch」 implies an affordance that reopens it
+  ([FLU-collapsed-drawer-stores-height]), so a drag-close is recoverable exactly there. A pane
+  without one dragged to 0 is hidden with no way back.
+- **Do**: **keyboard steps are excluded** (`_dragRawExtent == null`), deliberately: an arrow key
+  is a discrete nudge rather than a gesture aimed at the edge, and a drawer already has
+  `GbmSplitPaneController.toggle`. So the ask 「拖到底關閉」 is what was built, and no existing
+  keyboard behaviour changed.
+- **Do**: **the discriminating test drags in many small steps.** One large `moveBy` exceeds the
+  clamp gap by itself and goes green with no accumulator at all — the accumulator is precisely
+  what many-small-steps tests ([TEST-fixture-cannot-disagree], [TEST-draggable-is-not-a-drop]'s
+  gesture recipe).
+- **Note**: the height left behind is drag-speed dependent, and deliberately not engineered away.
+  A real drag passes through the clamp region, so the last persisted height is `minExtent`; a
+  single frame large enough to skip it leaves the previous height. Both are self-consistent, and
+  forcing one would need `_reopenExtent` cleared in memory while storage kept the old number —
+  which reads deterministic in-session and differs after a restart.
+- **Evidence**: [ledger: 追加六](../ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)

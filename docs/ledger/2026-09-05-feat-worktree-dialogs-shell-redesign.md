@@ -633,3 +633,107 @@ null，這條分支再也走不到，旗標形同不存在。
 
 驗證：analyze 0；`flutter test` 2851 全綠（+1）/1 skipped；`dart format` 0 changed；
 `check-rule-pins.py` 181 條規則、90 個交叉引用、懸空 0。
+
+## 追加六：log 拖到底關閉
+
+使用者回報:「log可以從視窗下方拖起，卻不能關閉。幫她加上拖到底關閉」。
+
+追加四給了 log 抽屜一個真的 toggle，追加五讓它不再預設打開。剩下的是手勢那一半：
+分隔線往上拖可以把抽屜拉開，往下拖卻只會停在 90px，關不掉。
+
+### 為什麼「門檻」不是一行就能加的
+
+第一個看起來對的寫法是在 `_onDividerDelta` 裡把 `_currentFlexes[0] + adjustedDelta`
+拿去跟一個門檻比。它不會動，而且不會動的理由不是門檻調得不對：
+
+```
+       clamp 之後才寫回 _currentFlexes[0]
+                 |
+  200 --20--> 180 --20--> 160 ... --20--> 90 --20--> 90 --20--> 90 --20--> 90
+                                           ^         ^^^^^^^^^^^^^^^^^^^^^^^^
+                                       觸底        指標還在往下走，但每一步都
+                                                   從同一個 90 重算，超出量被丟掉
+
+  raw:   90 - 20 = 70   90 - 20 = 70   90 - 20 = 70   ← 永遠是 70，不管拖多遠
+```
+
+一格 frame 的 delta 只有幾 px，而 clamp 是有損的：抽屜觸底之後，`_currentFlexes[0]`
+就固定是 `minExtent`，所以那個算式看得到的「原始位置」永遠只差一格 frame。指標往下
+走 300px 跟走 30px 對它來說一模一樣。
+
+所以要的是第二個數字：`_dragRawExtent`，在 pointer drag 期間累積**未 clamp**的位移。
+
+```
+  _currentFlexes[0]  200  180  160  140  120  100   90   90   90    0   ← 畫出來的
+  _dragRawExtent     200  180  160  140  120  100   80   60   40   20   ← 拖到哪裡
+                                                              ^^^^
+                                                        低於 minExtent/2 = 45 → 收合
+```
+
+`onDragStart` 開、`onDragEnd` **和 `onDragCancel`** 都關。cancel 也要關是因為留著
+非 null 的話，下一次鍵盤方向鍵會走到 drag 分支上，對著指標離開時留下的位置去算。
+
+累積值本身每一步也 clamp，只是下界看閘門：可收合時是 0，否則是 `minExtent`。兩件事
+同時成立：往下多拖 300px 不需要再往回拖 300px 才跟得上指標；而**不能收合的 pane，
+累積器逐字等於原本的算式**，所以既有的拖曳行為一格都沒動。
+
+### 閘門：只有 `collapsedByDefault` 的 pane 能被拖關
+
+理由是那個 flag 自己的意思。「每次啟動都關著」（追加五）就蘊含著「一定有把它打開的
+入口」——log 抽屜是 `View → Log` / Ctrl+Shift+L。沒有這種入口的 pane 被拖到 0 就是
+關掉之後回不來，所以它維持原本 floor 在 `minExtent`。
+
+鍵盤刻意不動（`_dragRawExtent == null` 就走原路徑）：方向鍵是離散的一格，不是朝著
+底邊去的手勢，而抽屜本來就有 toggle 可以關。使用者要的是「拖到底關閉」，做的就是這個。
+
+### 留下的高度是 minExtent，而且刻意不去「修正」它
+
+`_persistFlexes` 不寫這種 pane 的 0（[FLU-collapsed-drawer-stores-height]），拖著關
+只是那個 0 的第二個來源，規則本身不動。但拖的過程會經過 clamp 區，所以最後寫進去的
+高度是 90 而不是原本的 200——重開就是 90。真的有一格 frame 大到直接跨過整個 clamp 區
+的話，留的是 200。
+
+一度想過拖關時把 `_reopenExtent` 清成 null 讓它「確定性地」回到 minExtent。這反而更
+不一致：清的只有記憶體，storage 還是 200，所以同一個 session 內重開是 90、重啟之後
+重開是 200。現在這兩種結果各自自洽，如實記在這裡，不另外處理。
+
+### 測試
+
+三則，都在 `test/widgets/split_pane_test.dart` 的 `drag-to-close` group：
+
+| 測試 | 釘住的東西 |
+|---|---|
+| a collapsedByDefault drawer dragged past the bottom closes | 拖到底真的收成 0 |
+| closing by drag keeps a non-zero height to reopen to | 那個 0 沒有被寫進 storage（留下 `[90.0]`），而且還能再打開 |
+| a pane that is not a drawer still floors at minExtent | 閘門 |
+
+三則都用 12 次 20px 的 `moveBy`，不是一次 240px 的 `drag`。這是關鍵：**單一大步自己
+就超過 clamp 的落差，沒有累積器也會綠**——多次小步才是唯一測得到累積器的形狀
+（[TEST-fixture-cannot-disagree]、[TEST-draggable-is-not-a-drop] 的手勢配方）。
+
+既有的「vertical extent mode: drag-down shrinks pane-0」用的正是 `splitterMainLog`
+（唯一一個 `collapsedByDefault: true` 的 spec）：從 100 往下 30，raw 70 高於門檻 45，
+仍然 clamp 到 90，斷言 `lessThan(100)` 不受影響——依 [TEST-fixture-cannot-disagree]
+第 7 列「分組規則改了就要把所有編碼了間距／計數的 fixture 重讀一次」先核對過，不是
+等它變紅才發現。
+
+Mutation 3 次，紅的測試數分別是 1 / 2 / 2：
+
+| Mutation | 紅 |
+|---|---|
+| 拿掉閘門（`canCollapse = true`） | 1（非抽屜那則） |
+| 拿掉累積器（改回 `_currentFlexes[0] + delta`） | 2（兩則拖到底的） |
+| 拿掉門檻分支 | 2（同上） |
+
+### 沒有加 integration 層測試，以及理由
+
+widget 層跑的就是真的 `GbmSplitPane`、真的 `GbmLayout.splitterMainLog`、真的
+`fixedPaneEnd: trailing`——跟 workspace 用的是同一組 spec 與設定，機制那一半是滿的。
+剩下「workspace 真的把這個 spec 接到 log 抽屜上」已經由追加四／追加五的三則
+`workspace_log_drawer_reachability_test.dart` 釘住了。在 integration 層再寫一則會需要
+在多個 `GbmSplitPane` 之間用 `find.descendant` 去岔開同名的 `gbm-split-divider-0`，
+那個 finder 的脆弱程度高於它能加上的證據（[TEST-fixture-cannot-disagree] 第 5 列是
+同一種「兩個 subject 對斷言無法區分」的形狀）。如實記在這裡，不是漏做。
+
+驗證：analyze 0；`flutter test` 2854 全綠（+3）/1 skipped；`dart format` 2 files
+0 changed。

@@ -383,3 +383,96 @@ capi (FFI) - Windows   10:03:18Z -> 10:15:05Z   （11m47s）
 
 11m47s 距離 commit 1 的 25 分鐘上限還有一倍餘裕，所以這個代價目前沒有人在等它。
 記下來是為了：**日後 Windows job 若逼近上限，第一個該回來看的就是這一段，而不是重新猜一次。**
+
+## 追加二：stdout 那半邊的 timeout，使用者裁定順手做掉
+
+上一段把「不輸出也不結束的子程序仍然卡得住主執行緒」記成 known-remaining，等裁定。
+裁定是**順手一起做掉**，所以 pin 裡那條 Note 已就地改寫成規則
+（[CPP-windows-terminate-hangs-join]），沒有留一條 `DRIFT-`。
+
+### 先發現的是：`GitCommand::timeout` 兩個平台都沒有任何測試
+
+整套裡每一個 `.timeout` 都是 30~120 秒、刻意選成不會觸發的值（`GitCli.cpp:55`、
+`GitIntegrationTest.cpp` 十幾處）。所以逾時這條路從來沒有被執行過一次，Windows 那半邊
+壞多久都不會有人知道。**這不是「測試沒涵蓋到某個分支」，是整個功能沒有測試。**
+
+### 子程序不能用 git 演
+
+試過的都不行，理由各自不同：沒有 stdin pipe 時 child 立刻拿到 EOF，所以
+`cat-file --batch` 這類會直接結束而不是卡住；network-shaped 的又會把 port 和防火牆
+拉進單元測試。所以加了一個 5 行的 `gbm_hang_forever`——什麼都不寫、也不自己結束，
+路徑用 `$<TARGET_FILE:>` 在編譯期傳進去，不猜 build layout。
+
+**刻意一個 byte 都不寫**：只要寫一個 byte，Windows 的 read 就會回來，迴圈頂端的
+deadline 檢查就會觸發——那條路本來就是好的。缺陷只存在於 pipe 一直空著的時候。
+
+### 紅是「卡住」，不是斷言失敗
+
+```
+Start 333: ProcessRunnerTimeout.AChildThatNeverWritesIsStillTimedOut
+333/670 Test #333: ...  ***Timeout 300.01 sec
+99% tests passed, 1 tests failed out of 670
+	333 - ProcessRunnerTimeout.AChildThatNeverWritesIsStillTimedOut (Timeout) unit
+```
+
+run `33961514484` / job `101294085620`。**這是本輪 commit 2 那 300 秒第一次真的派上用場**：
+沒有它，這顆紅會是一個燒到六小時上限的 job，而不是一行指名的 `***Timeout`；
+`stopOnFailure: false` 讓其餘 669 個照樣跑完，整顆 job 20 分鐘結束。
+護欄先進去、病灶後修，這個順序在這裡自己證明了一次。
+
+Linux / macOS / TSan / asan-ubsan **四個 POSIX 側的 job 全綠**，因為 POSIX 用 `poll()`
+加 200ms 上限輪三個 fd，從來沒有這個洞——[TEST-fixture-cannot-disagree] 的形狀，
+這顆測試的主張只有 Windows CI 能反駁。
+
+### 修法是同一個機制換一個方向
+
+不是原本 Note 裡列的那兩個。**執行緒不能取消自己卡住的 I/O**，所以取消要從第二條
+執行緒送過來：
+
+```
+        pump thread                        deadline watchdog（只在 timeout > 0 時起）
+        ───────────                        ────────────────────────────────────────
+        ReadFile(stdout)  ← 永遠不回來      WaitForSingleObject(pumpDone, timeout)
+              ▲                                        │ WAIT_TIMEOUT
+              │                            timedOut_.store(true)
+              │                            terminate()            ← 砍整棵樹
+              └──────── CancelSynchronousIo(pumpThread) ←┘  重試到 event 亮
+        ReadFile 回 ERROR_OPERATION_ABORTED
+        break → SetEvent(pumpDone) → join → 發布 *timedOut
+```
+
+沒有採用的兩個，以及為什麼：**overlapped I/O** 要把匿名 pipe 換成具名 pipe（`CreatePipe`
+開不出 overlapped handle），改動面遠大於問題；**stdout 另開執行緒**會把 `LineSink` 搬到
+別的執行緒上跑，和 POSIX 不對稱，等於為了修 A 製造一個跨平台的行為差異。
+
+也考慮過 **`PeekNamedPipe` 輪詢**並且算過才放棄：每一段輸出空檔會多付一次 sleep 的延遲，
+而整套會 spawn 一萬次以上 git，5ms 的間隔就是 ~50 秒——和剛量到的 job object 代價同一個
+數量級。不是感覺慢，是乘出來的。
+
+### 三個細節，只有 CI 編得到，所以逐字複查過
+
+- `GetCurrentThread()` 是 pseudo-handle（意思是「問的人自己」），對別的執行緒沒有意義，
+  必須先 `DuplicateHandle` 成真 handle。
+- pump 的**每一條**離開路徑（EOF、sink 提早收工、自己的 deadline 檢查）都要 SetEvent
+  後 join，handle 在 join **之後**才關——watchdog 寫 `terminate()` 和一個 atomic，
+  活過這個 frame 就是 use-after-free，和 `cancelBlockedIoAndJoin` 那條 `detach()`
+  的 Do-not 同一個形狀。
+- `*timedOut` 由 pump 在 join 之後從 atomic 發布。迴圈和 watchdog **都**可能判定逾時，
+  而那是一個 `bool*`；讓兩邊各寫各的就是資料競爭。
+
+### 殘留，寫出來而不是暗示
+
+`timeout == 0` 的路徑（網路指令照合約都是 0）**完全沒有 watchdog**，靠的仍然是取消時砍
+整棵樹把 pipe 的寫入端關掉。這是刻意的：一條沒有 deadline 的指令沒有東西可以等。
+
+### Mutation
+
+| | 數 |
+|---|---|
+| 突變數 | 1（POSIX 的 `remaining <= 0` 改成 `false`） |
+| 紅掉的測試數 | 1 |
+
+同一個突變下其餘 509 個全綠（2 個 skip，本機沒裝 LFS），所以紅得很窄。兩個數字分開寫，
+依 [TEST-mutation-check-every-test]。突變的紅一樣是**卡住**（25 秒硬砍，exit 137），
+和 Windows 上的形狀相同——這也是為什麼這顆測試在本機能證明的事情有限，真正的證據在
+Windows CI。

@@ -158,9 +158,21 @@ Pin prefix `CPP-`. Format: [README.md](README.md).
 - **Note**: 這個洞比發現它的那一輪老得多。`ASinkThatStopsEarlyIsRecordedAsBenign` 是整個 repo
   第一個讓 `LineSink` 回傳 false 的測試，現有 cancellation 測試全部在開跑前就 cancel，所以
   `WindowsChild::terminate()` 在 CI 上從來沒被執行過一次。同一個洞也在 cancel 路徑上。
-- **Note**: **known-remaining，本輪沒有修**：一個「不輸出任何東西、也不結束」的子程序仍然會讓主
-  執行緒卡在 stdout 的 `ReadFile` 上，`command.timeout` 一樣驗不到。要修得把 stdout 換成
-  overlapped I/O 或另開執行緒。等使用者裁定是順手做掉還是開一條 `DRIFT-`。
+- **Rule**: **stdout 那一半用 deadline watchdog 補，不要動讀取路徑。** 一個「不寫任何東西、也不
+  結束」的子程序會讓 pump 卡在 stdout 的同步 `ReadFile` 上，而 deadline 只在兩次 read **之間**
+  驗，所以 `command.timeout` 在 Windows 上根本不會觸發。修法是同一個機制換一個方向：一條只在
+  `timeout > 0` 時才起的執行緒等 event 等到逾時，然後 `terminate()` 並對 pump 執行緒重試
+  `CancelSynchronousIo`——**執行緒不能取消自己卡住的 I/O**，這是唯一的差別。
+- **Do**: `GetCurrentThread()` 是 pseudo-handle，對別的執行緒沒有意義，要先 `DuplicateHandle`；
+  event 用 manual-reset，pump 的**每一條**離開路徑都要 `SetEvent` 後 join，handle 在 join 之後
+  才關。watchdog 寫 `terminate()` 和一個 atomic，活過這個 frame 就是 use-after-free。
+- **Do**: `*timedOut` 由 pump 在 join 之後從 atomic 發布，不要讓迴圈和 watchdog 各寫各的——那是
+  一個 `bool*` 上的資料競爭，而兩邊都可能判定逾時。
+- **Note**: **原本這條 Note 記的是「known-remaining，本輪沒有修，等使用者裁定」，已被使用者裁定
+  「順手一起做掉」推翻，就地改寫。** 當時列的兩個修法（overlapped I/O、stdout 另開執行緒）都沒有
+  採用：前者要把匿名 pipe 換成具名 pipe，後者會把 `LineSink` 搬到別的執行緒上跑，和 POSIX 不對稱。
+- **Note**: `timeout == 0` 的路徑（網路指令照合約都是 0）**完全沒有 watchdog**，靠的仍然是取消時
+  砍整棵樹把 pipe 的寫入端關掉。這是刻意的殘留，寫出來而不是暗示。
 - **Note**: macOS/Linux 上那個測試**永遠是綠的**，兩邊 pump 結構不同——這條 rule 只有 Windows CI
   能反駁（[TEST-fixture-cannot-disagree]）。
 - **Note**: job object 有**量到的代價**，落在每一次 spawn 上：同一棵樹的前 326 個測試，會 spawn git

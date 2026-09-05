@@ -108,11 +108,16 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
   is raised to 220. The raise is invisible to everyone who has ever touched that splitter, which
   is exactly the population it was raised for.
 - **Do**: clamp **in `initState`**, never in `_clampedFixedExtent()` — the latter runs every
-  frame and would force a `collapsedByDefault` drawer (`splitterMainLog`, stored value 0) open to
-  `minExtent` on the first frame. Guard the clamp on `stored[0] > 0` so an explicit collapse
-  survives.
+  frame and would force a `collapsedByDefault` drawer (`splitterMainLog`) open to `minExtent` on
+  the first frame. The clamp is guarded on `stored[0] > 0` so a stored 0 survives.
 - **Do**: the test that catches clamping in the wrong place is 「stored 0 stays 0」, not the
   190→220 case, which passes either way.
+- **Correction**: this pin previously read that guard as protecting 「an explicit collapse」 and
+  cited `splitterMainLog` as 「stored value 0」. **Neither is true any more**, and the second was
+  what made the drawer 使用者回報 as always-open: a `collapsedByDefault` pane now stores a
+  *height* and never an open/closed state, so it never writes 0 at all
+  ([FLU-collapsed-drawer-stores-height]). The guard survives only for a **non-drawer** extent
+  pane, where a 0 could in principle be stored and is not a sub-minimum value to be repaired.
 - **See also**: [FLU-splitpane-axis-change] — the same obligation from the other direction; there
   the stored number stops meaning anything, here it stops being reachable.
 - **Evidence**: [ledger: 十二個管理面板照 P19 樣板統一](../ledger/2026-09-02-feat-p19-panel-template-conformance.md)
@@ -281,3 +286,32 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
   `focusedBorder`), because a field's *resting* state is whichever one its screen leaves it in
   and Add Worktree's 位置 now rests **disabled**.
 - **Evidence**: [ledger: 追加二](../ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)
+
+## [FLU-collapsed-drawer-stores-height] A `collapsedByDefault` pane's storage holds its *height*, never its open/closed state
+
+- **Rule**: `GbmSplitterSpec.collapsedByDefault` means the pane starts collapsed on **every**
+  launch, not only on a virgin profile. So the persisted number is the height to *reopen to*,
+  and `_GbmSplitPaneState.initState` ignores it when deciding the starting state.
+- **Consequence**: it used to read `stored == null && collapsedByDefault`, which made the flag
+  hold exactly until the first time the pane was opened — an open persists a non-zero extent
+  through `_setExtent` → `_persistFlexes`, `stored` is never null again, and the branch is
+  unreachable for the rest of that profile's life. The log drawer was 使用者回報 as always
+  open, and the round that had just made `View → Log` a real toggle is what let everyone reach
+  it ([ACT-intent-layer] dispatch, `GbmActionId.viewLog`).
+- **Do**: uphold the other half in `_persistFlexes` — **never write such a pane's 0**. Writing
+  it erases the height the user dragged to, and the next open lands on `minExtent` instead of
+  where they left off. `_openToMinimum` reads a `_reopenExtent` field for exactly this, because
+  `_currentFlexes[0]` is the thing the collapse set to 0.
+- **Do**: `_resetToSpecDefault` clears `_reopenExtent` alongside the stored value, or a drawer
+  reopened later in the same session comes back at the size the reset was meant to forget.
+- **Do**: **a test that pumps a virgin profile cannot see any of this** — the flag is correct
+  there, which is why 「starts collapsed and the shortcut expands it」 stayed green throughout.
+  The discriminating fixture seeds the storage a *previous open* would have left
+  (`panelLayout.main.log: '[200.0]'`, via `pumpWorkspace`'s `initialPrefs`), which is
+  [TEST-fixture-cannot-disagree]'s 「cannot express the failing condition」 shape.
+- **Note**: no migration is needed for a profile already stuck open — the stored number stays,
+  startup ignores it, and the first toggle restores it.
+- **See also**: [FLU-splitpane-stored-extent-ignores-min], whose `stored[0] > 0` clamp guard
+  now covers only a **non-drawer** extent pane; its 「explicit collapse」 rationale was corrected
+  in place by this round.
+- **Evidence**: [ledger: 追加五](../ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)

@@ -515,11 +515,22 @@ class GbmSplitPaneController {
 補上 `close()` / `isOpen` / `toggle()`，`_openToMinimum()` 與 `_collapse()` 收斂成同一
 個 `_setExtent()`（兩邊都要 persist、都要 `onFlexChanged`，分開寫就是等著漏一個）。
 
-**關掉寫 0 而不是 minExtent**，因為 0 正是 `collapsedByDefault` 的意思，所以關起來的抽
-屜重開 app 還是關的。[FLU-splitpane-stored-extent-ignores-min] 那條規則的 initState
+~~**關掉寫 0 而不是 minExtent**，因為 0 正是 `collapsedByDefault` 的意思，所以關起來的
+抽屜重開 app 還是關的。[FLU-splitpane-stored-extent-ignores-min] 那條規則的 initState
 clamp 特地 guard 在 `stored[0] > 0`，理由正是「使用者刻意收起來的抽屜不能被 clamp 撐
-開」——這次是同一個決定的另一端，寫進去的那個 0 要能活下來。Mutation 把 `_collapse()`
-改成收到 `minExtent` 會變紅，所以這不是註解裡的宣稱而已。
+開」——這次是同一個決定的另一端，寫進去的那個 0 要能活下來。~~
+
+**訂正（追加五）**：上面那段的機制描述是錯的，而且錯的方向剛好讓這一輪自己變成使用者
+下一個回報的來源。「關起來的抽屜重開 app 還是關的」只在**存的值真的是 0** 時成立，而
+`collapsedByDefault` 當時的實作是 `stored == null && collapsedByDefault`——只要開過一
+次就存進了非零 extent，`stored` 再也不是 null，旗標整條分支就走不到了，所以真正會發生
+的是「**開過一次之後每次啟動都是開的**」。追加五把這個修掉：那個數字改成只代表高度，
+開/關狀態一律由旗標決定，收合時不再寫 0。`_collapse()` 仍然收到 0（不是 minExtent），
+這一半沒有變。細節見 [FLU-collapsed-drawer-stores-height]。
+
+`_collapse()` 收到 0 這一半有 mutation 釘著（改成 `minExtent` 會變紅），所以不是註解裡
+的宣稱而已；被訂正掉的是它後面那段對「重開 app 之後會怎樣」的推論，而那件事**當時沒有
+任何測試在看**——既有那則測試 pump 的是乾淨 profile，看不到差別。
 
 ### 兩個入口，兩種語意，不是不一致
 
@@ -546,3 +557,79 @@ Status bar / Graph columns / File list as tree——**沒有 Log**。所以這�
 值」，不需要 G1 的 spec-auditor。
 
 驗證：analyze 0；`flutter test` 2850 全綠；mutation 2 次、各 1 則變紅。
+
+## 追加五：log 不預設打開
+
+> log不預設打開，使用者toggle才開
+
+追加四把 `View → Log` 修成真的 toggle，使用者用了之後回報的下一件事。這兩件事是同一個
+機制的兩面，而且**是上一輪讓每個人都踩得到它**。
+
+### 旗標只在乾淨 profile 上生效
+
+```dart
+final double initialExtent =
+    (stored == null && widget.spec.collapsedByDefault) ? 0.0 : widget.spec.defaultExtent!;
+```
+
+`collapsedByDefault` 的條件裡多了一個 `stored == null`。但抽屜只要被打開過一次，
+`_setExtent()` 就會 `_persistFlexes()` 寫進一個非零 extent——從此 `stored` 永遠不是
+null，這條分支再也走不到，旗標形同不存在。
+
+也就是說旗標的實際語意是「**沒開過的人預設收合**」，而它的名字說的是「預設收合」。這兩
+句話在第一次開啟之前完全一致，之後永久分歧，中間沒有任何錯誤訊息。
+
+### 那個數字是高度，不是狀態
+
+裁定照字面實作：`collapsedByDefault` 的 pane **每一次啟動都是收合的，與存了什麼無關**。
+於是存的那個數字只剩一個意思——「重新打開時要回到多高」：
+
+| 位置 | 改動 |
+|---|---|
+| `initState` | `collapsedByDefault` 直接起始於 0；clamp 過的 stored extent 收進新的 `_reopenExtent` |
+| `_persistFlexes` | 這種 pane 的 **0 不寫入** |
+| `_openToMinimum` | 回到 `_reopenExtent`，不是 `minExtent` |
+| `_resetToSpecDefault` | 一併清掉 `_reopenExtent` |
+
+第二列是自己長出來的：既然啟動時忽略存的狀態，那把 0 寫進去就只有壞處——它會把使用者拖
+出來的高度洗掉，下次打開只能回到 minExtent(90)。第四列同理，View → Reset panel sizes
+已經清了 storage，記憶體裡那份不清就會在同一個 session 內把它救回來。
+
+非 drawer 的 extent pane 一行行為都沒變，包含「stored 0 維持 0」——那個 0 在那些 pane
+上仍然只可能來自 `_collapse()`（拖曳 clamp 在 `minExtent`），是刻意的收合。
+
+### 已經卡住的人不需要 migration
+
+存著 300 的 profile：數字原封不動留著、啟動時被忽略、第一次 toggle 就回到 300。修好的
+同時把他們拖過的高度也還了。
+
+### 乾淨 profile 的測試看不到這個缺陷
+
+既有那則「starts collapsed and the shortcut expands it」從頭到尾是綠的，而且**它是對
+的**——旗標在乾淨 profile 上本來就正常。能問出問題的 fixture 得先 seed「上次開過」留下
+的狀態，所以 `pumpWorkspace` 加了 `initialPrefs`，測試 seed
+`panelLayout.main.log: '[200.0]'`。這是 [TEST-fixture-cannot-disagree] 的
+「fixture 無法表達失敗條件」形狀，不是斷言太弱。
+
+新測試三個斷言各釘一件事，mutation 逐一驗過（3 次 mutation，各紅 1 則）：
+
+| Mutation | 預期 | 實測 |
+|---|---|---|
+| 拿掉 `collapsedByDefault` 啟動覆寫 | 啟動變 200 | 紅 1 則 |
+| 拿掉 `_reopenExtent` 還原 | 重開變 90 | 紅 1 則 |
+| 拿掉不寫 0 的 guard | storage 被洗成 0 | 紅 1 則 |
+
+第三個斷言讀的是 storage 本身（`container.read(panelLayoutRepositoryProvider).read('main.log')`）
+而不是畫面高度——「關閉之後高度還記得」在同一個 session 內從畫面上看不出來，重 pump 一次
+又會被 `setMockInitialValues` 洗掉。
+
+### 兩份被推翻的紀錄，就地訂正
+
+追加四那段「關掉寫 0，所以關起來的抽屜重開 app 還是關的」已就地劃掉並改寫（見上）。
+[FLU-splitpane-stored-extent-ignores-min] 的 `stored[0] > 0` guard 原本的理由寫的是
+「保護使用者刻意的收合」、並舉 `splitterMainLog` 為「stored value 0」的例子——兩句現在
+都不成立了，而且第二句正是這個缺陷的根源。已就地加上 **Correction**，並新增
+[FLU-collapsed-drawer-stores-height]。
+
+驗證：analyze 0；`flutter test` 2851 全綠（+1）/1 skipped；`dart format` 0 changed；
+`check-rule-pins.py` 181 條規則、90 個交叉引用、懸空 0。

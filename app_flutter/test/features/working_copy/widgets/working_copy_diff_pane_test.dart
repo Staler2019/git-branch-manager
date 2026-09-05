@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/parsed_diff.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
+import 'package:gbm_flutter/features/diff/scoped_diff_view.dart';
 import 'package:gbm_flutter/features/working_copy/widgets/working_copy_diff_pane.dart';
 import 'package:gbm_flutter/widgets/split_pane.dart';
 
@@ -40,6 +41,67 @@ DiffFile _file(String text, {required bool added}) => DiffFile(
         ),
       ],
     ),
+  ],
+);
+
+/// A file whose hunks each hold one added line, placed at a chosen position
+/// on the **index** side -- the coordinate the two working-copy diffs share.
+///
+/// [indexStarts] is where each hunk begins on that side, so a caller can put
+/// a staged region *between* two unstaged ones and see whether the merged
+/// list really ordered by region or merely concatenated the two sides.
+DiffFile _fileAt(
+  List<({int indexStart, String text})> hunks, {
+  required bool staged,
+}) => DiffFile(
+  oldPath: 'lib/a.dart',
+  newPath: 'lib/a.dart',
+  kind: FileChangeKind.modified,
+  oldMode: '',
+  newMode: '',
+  oldBlob: '',
+  newBlob: '',
+  binary: false,
+  similarity: 0,
+  addedLines: hunks.length,
+  removedLines: 0,
+  displayPath: 'lib/a.dart',
+  hunks: <DiffHunk>[
+    for (final ({int indexStart, String text}) hunk in hunks)
+      DiffHunk(
+        // The index side is `old` for the unstaged diff (index -> worktree)
+        // and `new` for the staged one (HEAD -> index). The *other* side is
+        // deliberately given a number that would produce the opposite order
+        // if it were ever read by mistake.
+        oldStart: staged ? 1000 - hunk.indexStart : hunk.indexStart,
+        oldCount: 1,
+        newStart: staged ? hunk.indexStart : 1000 - hunk.indexStart,
+        newCount: 1,
+        heading: '',
+        lines: <DiffLine>[
+          // A leading context line, and it is load-bearing rather than
+          // scenery. A context line carries *both* numbers, so it is the
+          // only kind that can tell "read the index side" apart from "read
+          // whichever side happens to be non-zero": with added lines alone
+          // the staged side's oldLine is 0 everywhere, indexPositionOf falls
+          // back to the hunk's own start, and that fallback already reads
+          // the right side -- so the whole loop could be mutated to read the
+          // wrong one and this test stayed green
+          // ([TEST-fixture-cannot-disagree]).
+          DiffLine(
+            kind: DiffLineKind.context,
+            oldLine: staged ? 1000 - hunk.indexStart : hunk.indexStart,
+            newLine: staged ? hunk.indexStart : 1000 - hunk.indexStart,
+            text: '${hunk.text}-context',
+          ),
+          DiffLine(
+            kind: DiffLineKind.added,
+            oldLine: staged ? 0 : hunk.indexStart + 1,
+            newLine: staged ? hunk.indexStart + 1 : 0,
+            text: hunk.text,
+          ),
+        ],
+      ),
   ],
 );
 
@@ -110,7 +172,17 @@ void main() {
     // 過去」-- the round that moved this pane to the right-hand half of the
     // window also made `unified` its default. `2 file` is untouched and one
     // click away; only the initial value moved.
-    testWidgets('the pane opens in unified mode, one column', (
+    // **Corrected in place.** This used to be titled 「one column」 and its
+    // comment said the `left` equality is 「what tells this apart from
+    // `2 file`」. Still true, and no longer the interesting half: `unified`
+    // is one merged list now, so *both* sides were always going to share a
+    // left edge. What it really pins is the **tie-break** -- this fixture's
+    // two hunks both start at index line 1, so region ordering cannot
+    // separate them and the unstaged side comes first by rule. A fixture
+    // whose numbers coincide cannot see ordering at all
+    // ([TEST-fixture-cannot-disagree]); the test below it supplies one that
+    // can.
+    testWidgets('unified opens by default, unstaged first at equal index', (
       WidgetTester tester,
     ) async {
       await pump(
@@ -188,7 +260,12 @@ void main() {
       expect(stageCalls[1].staged, isTrue);
     });
 
-    testWidgets('unified mode stacks the sides in one column', (
+    // Also corrected: 「stacks the sides」 described two views one above the
+    // other, which is the design this round overruled. The assertion below
+    // survives it unchanged because the two regions tie at index 1 -- same
+    // reason as the test above, and the same reason it is not evidence that
+    // the merge works.
+    testWidgets('switching back to unified keeps the equal-index order', (
       WidgetTester tester,
     ) async {
       await pump(
@@ -206,8 +283,8 @@ void main() {
         tester.getCenter(find.text('still editing')).dy,
         lessThan(tester.getCenter(find.text('already staged')).dy),
         reason:
-            'unified is one column, so the sides stack rather than sit '
-            'beside each other',
+            'both regions sit at index 1, so the tie-break puts the '
+            'unstaged one first',
       );
     });
 
@@ -268,6 +345,135 @@ void main() {
       await tester.pump();
 
       expect(find.byType(GbmSplitPane), findsNothing);
+    });
+
+    // U1: 「我要對齊的不是行號，是 git 判斷出的區域變更，每個區塊會是一個
+    // scope，然後 unstage, stage 必定是不同 scope」. One list, ordered by
+    // where each region sits on the index -- the ruler the two diffs share.
+    testWidgets('unified draws one merged list, not two stacked views', (
+      WidgetTester tester,
+    ) async {
+      await pump(
+        tester,
+        unstaged: _file('still editing', added: true),
+        staged: _file('already staged', added: true),
+      );
+
+      // One view, holding both directions. Two views stacked is exactly what
+      // this round overruled, and counting them is the only assertion that
+      // can tell the two designs apart -- both draw the same text.
+      expect(find.byType(ScopedDiffView), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(ScopedDiffView),
+          matching: find.text('Stage 1 line'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byType(ScopedDiffView),
+          matching: find.text('Unstage 1 line'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('unified orders cards by index region, not by side', (
+      WidgetTester tester,
+    ) async {
+      // The discriminating fixture: the staged region sits *between* the two
+      // unstaged ones. A fixture whose numbers coincide cannot see the
+      // difference -- concatenating the sides and ordering by region give the
+      // same answer there ([TEST-fixture-cannot-disagree]).
+      await pump(
+        tester,
+        unstaged: _fileAt(<({int indexStart, String text})>[
+          (indexStart: 1, text: 'first-unstaged'),
+          (indexStart: 100, text: 'last-unstaged'),
+        ], staged: false),
+        staged: _fileAt(<({int indexStart, String text})>[
+          (indexStart: 50, text: 'middle-staged'),
+        ], staged: true),
+      );
+
+      final double first = tester.getTopLeft(find.text('first-unstaged')).dy;
+      final double middle = tester.getTopLeft(find.text('middle-staged')).dy;
+      final double last = tester.getTopLeft(find.text('last-unstaged')).dy;
+
+      expect(
+        middle,
+        greaterThan(first),
+        reason: 'index 50 comes after index 1',
+      );
+      expect(
+        middle,
+        lessThan(last),
+        reason:
+            'index 50 comes before index 100 -- concatenating the sides '
+            'would have put the staged card last',
+      );
+    });
+
+    // U3: the two column heads go, because in a merged list they would be
+    // labelling a column that is not there. `2 file` keeps them, because
+    // there they are still labelling a column.
+    testWidgets('unified drops the column heads and 2 file keeps them', (
+      WidgetTester tester,
+    ) async {
+      await pump(
+        tester,
+        unstaged: _file('still editing', added: true),
+        staged: _file('already staged', added: true),
+      );
+
+      expect(
+        find.byKey(const ValueKey<String>('column-head-dot')),
+        findsNothing,
+      );
+      // U2: the dot did not disappear, it moved down a level. In a merged
+      // list the card is the only thing that can say which direction it acts
+      // in before the eye reaches the button at the far end of the row.
+      expect(
+        find.byKey(const ValueKey<String>('card-head-dot')),
+        findsNWidgets(2),
+      );
+
+      await tester.tap(find.text('2 file'));
+      await tester.pump();
+
+      expect(
+        find.byKey(const ValueKey<String>('column-head-dot')),
+        findsNWidgets(2),
+      );
+      // And it is a move, not an addition: with the heads back, a dot on
+      // every card would be the same fact twice, inches apart.
+      expect(find.byKey(const ValueKey<String>('card-head-dot')), findsNothing);
+    });
+
+    testWidgets('unified puts the two counts in the title bar instead', (
+      WidgetTester tester,
+    ) async {
+      await pump(
+        tester,
+        unstaged: _fileAt(<({int indexStart, String text})>[
+          (indexStart: 1, text: 'a'),
+          (indexStart: 100, text: 'b'),
+        ], staged: false),
+        staged: _fileAt(<({int indexStart, String text})>[
+          (indexStart: 50, text: 'c'),
+        ], staged: true),
+      );
+
+      expect(find.text('2 未暫存 · 1 已暫存'), findsOneWidget);
+
+      // And it is the merged list's replacement, not an addition: `2 file`
+      // still says it with its two heads, so saying it twice there would be
+      // [UX-rubric] dimension D's redundancy.
+      await tester.tap(find.text('2 file'));
+      await tester.pump();
+
+      expect(find.text('2 未暫存 · 1 已暫存'), findsNothing);
     });
 
     testWidgets('a half-staged rename names both of its paths', (

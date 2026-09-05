@@ -9,6 +9,7 @@ import '../../../widgets/code_line_metrics.dart';
 import '../../../widgets/gbm_code_hscroll.dart';
 import '../../../widgets/gbm_segmented_control.dart';
 import '../../../widgets/split_pane.dart';
+import '../../diff/diff_scopes.dart';
 import '../../diff/scoped_diff_view.dart';
 import '../../diff/widgets/diff_line.dart';
 import '../../diff/temporary_scope_provider.dart';
@@ -129,6 +130,19 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
   /// rather than one shared: the sides hold different files and a single
   /// memo would thrash between them on every rebuild, which is the one thing
   /// [CodeWidthMemo] exists to stop -- 5,000 lines cost 46ms to measure.
+  /// The title bar's own scope counts (U3) go through the same
+  /// [splitDiffFileIntoScopes] the cards do -- one function, two memos, so
+  /// the chip cannot say a number the list disagrees with. A cache each
+  /// because [DiffScopeCache] holds one entry and two files sharing one
+  /// would evict each other every build.
+  final DiffScopeCache _unstagedScopes = DiffScopeCache();
+  final DiffScopeCache _stagedScopes = DiffScopeCache();
+
+  static int _countScopes(DiffFile? file, DiffScopeCache cache) => cache
+      .scopesOf(file)
+      .values
+      .fold<int>(0, (int sum, List<DiffScope> scopes) => sum + scopes.length);
+
   final CodeWidthMemo _unstagedMemo = CodeWidthMemo();
   final CodeWidthMemo _stagedMemo = CodeWidthMemo();
 
@@ -152,6 +166,15 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
         _TitleBar(
           displayPath: widget.displayPath,
           mode: _mode,
+          // U3's replacement for the two column heads, and only where they
+          // were removed: in `2 file` the heads still say it, and saying it
+          // twice would be [UX-rubric] dimension D's redundancy.
+          scopeCounts: _mode == WorkingCopyDiffMode.unified
+              ? (
+                  unstaged: _countScopes(widget.unstagedFile, _unstagedScopes),
+                  staged: _countScopes(widget.stagedFile, _stagedScopes),
+                )
+              : null,
           onModeChanged: (WorkingCopyDiffMode mode) =>
               setState(() => _mode = mode),
         ),
@@ -187,14 +210,21 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
               ),
               verticalController: _unstagedScroll,
               backdrop: colors.surfaceSunken,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  _side(staged: false),
-                  Container(height: 1, color: colors.borderDefault),
-                  _side(staged: true),
+              // **One view holding both directions**, not two stacked.
+              // 「應該是單一 view 檢視 stage/unstage scope and button，而非
+              // 還是拆成上下檢視」 -- two views one above the other is what
+              // shipped, and it was two columns rotated rather than a merged
+              // list. The cards carry their own direction now (U2), the
+              // ordering is by index region (U1), and the column heads are
+              // gone because there is no column left for them to label (U3).
+              child: ScopedDiffView(
+                sources: <ScopedDiffSource>[
+                  _source(staged: false),
+                  _source(staged: true),
                 ],
+                showColumnHeads: false,
+                onTemporaryScopeChanged: widget.onTemporaryScopeChanged,
+                softWrap: widget.softWrap,
               ),
             ),
           },
@@ -234,11 +264,17 @@ class _TitleBar extends StatelessWidget {
   const _TitleBar({
     required this.displayPath,
     required this.mode,
+    required this.scopeCounts,
     required this.onModeChanged,
   });
 
   final String displayPath;
   final WorkingCopyDiffMode mode;
+
+  /// How many cards each direction has, or null when the two column heads
+  /// are still saying it themselves (`2 file`). U3.
+  final ({int unstaged, int staged})? scopeCounts;
+
   final ValueChanged<WorkingCopyDiffMode> onModeChanged;
 
   @override
@@ -269,6 +305,19 @@ class _TitleBar extends StatelessWidget {
             ),
           ),
           const Spacer(),
+          if (scopeCounts != null) ...<Widget>[
+            const SizedBox(width: GbmSpacing.space2),
+            // One line, both directions, in the same order the list draws
+            // them -- 「2 未暫存 · 1 已暫存」. Not a pill per side: two pills
+            // here would be the two column heads again, in a narrower place.
+            Text(
+              '${scopeCounts!.unstaged} 未暫存 · ${scopeCounts!.staged} 已暫存',
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                color: colors.textTertiary,
+              ),
+            ),
+          ],
           const SizedBox(width: GbmSpacing.space2),
           GbmSegmentedControl<WorkingCopyDiffMode>(
             value: mode,

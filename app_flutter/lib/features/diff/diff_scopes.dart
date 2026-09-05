@@ -197,6 +197,37 @@ DiffScope _scopeFrom(DiffHunk hunk, List<int> changedIndices) {
 /// Rendering reads this list straight through, so the "which lines are in a
 /// card and which are the code around it" decision stays in one pure place
 /// instead of being re-derived by a widget's build method.
+/// Where a hunk's line sits on the **index** side.
+///
+/// The two working-copy diffs share the index as a coordinate system: the
+/// unstaged diff is index -> worktree, so its *old* side is the index; the
+/// staged diff is HEAD -> index, so its *new* side is. That shared ruler is
+/// what lets `unified` mode order one merged list by region without a third
+/// git call, which is the whole of U1's ruling
+/// (「我要對齊的不是行號，是 git 判斷出的區域變更」).
+///
+/// A line with no index side -- an addition on the unstaged side, a deletion
+/// on the staged one -- reports the position of the last line that had one,
+/// because that is where it lands. Reading its literal `0` would sort every
+/// insertion to the top of the file.
+///
+/// Note this is a *position*, not an identity: two regions answering the same
+/// number are adjacent in the index, not the same change. Ordering by it
+/// asserts precedence only, which is exactly what 變體 B's own note forbids
+/// hard line alignment for.
+int indexPositionOf(DiffHunk hunk, int lineIndex, {required bool staged}) {
+  int position = staged ? hunk.newStart : hunk.oldStart;
+  final int last = lineIndex < hunk.lines.length
+      ? lineIndex
+      : hunk.lines.length - 1;
+  for (int i = 0; i <= last; i++) {
+    final DiffLine line = hunk.lines[i];
+    final int number = staged ? line.newLine : line.oldLine;
+    if (number > 0) position = number;
+  }
+  return position;
+}
+
 sealed class DiffSegment {
   const DiffSegment();
 

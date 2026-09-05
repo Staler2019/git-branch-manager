@@ -443,4 +443,76 @@ void main() {
       expect(calls, 2);
     });
   });
+
+  group('indexPositionOf', () {
+    // The unstaged diff is index -> worktree, so its *old* side is the index;
+    // the staged diff is HEAD -> index, so its *new* side is. That shared
+    // ruler is the whole reason one merged list can be ordered by region
+    // without a third git call (U1).
+    DiffHunk hunkAt({required int oldStart, required int newStart}) => DiffHunk(
+      oldStart: oldStart,
+      oldCount: 3,
+      newStart: newStart,
+      newCount: 3,
+      heading: '',
+      lines: <DiffLine>[
+        DiffLine(
+          kind: DiffLineKind.context,
+          oldLine: oldStart,
+          newLine: newStart,
+          text: 'ctx',
+        ),
+        DiffLine(
+          kind: DiffLineKind.added,
+          oldLine: 0,
+          newLine: newStart + 1,
+          text: 'new',
+        ),
+        DiffLine(
+          kind: DiffLineKind.removed,
+          oldLine: oldStart + 1,
+          newLine: 0,
+          text: 'gone',
+        ),
+      ],
+    );
+
+    test('reads the old side for an unstaged diff', () {
+      final DiffHunk hunk = hunkAt(oldStart: 10, newStart: 90);
+      expect(indexPositionOf(hunk, 0, staged: false), 10);
+      // An added line has no old side at all (oldLine == 0). Its index
+      // position is where it *lands*, i.e. still just after the last line
+      // that does have one -- reading the zero literally would sort every
+      // insertion to the top of the file.
+      expect(indexPositionOf(hunk, 1, staged: false), 10);
+      expect(indexPositionOf(hunk, 2, staged: false), 11);
+    });
+
+    test('reads the new side for a staged diff', () {
+      final DiffHunk hunk = hunkAt(oldStart: 10, newStart: 90);
+      expect(indexPositionOf(hunk, 0, staged: true), 90);
+      expect(indexPositionOf(hunk, 1, staged: true), 91);
+      // Mirror of the case above: a removed line has no new side.
+      expect(indexPositionOf(hunk, 2, staged: true), 91);
+    });
+
+    test('a hunk whose first line has no number falls back to the start', () {
+      // A pure insertion hunk -- `@@ -0,0 +1,2 @@` -- has no old side
+      // anywhere in it, so nothing in the loop can supply a position and the
+      // hunk's own start is the only answer there is.
+      final DiffHunk hunk = DiffHunk(
+        oldStart: 7,
+        oldCount: 0,
+        newStart: 1,
+        newCount: 2,
+        heading: '',
+        lines: <DiffLine>[
+          DiffLine(kind: DiffLineKind.added, oldLine: 0, newLine: 1, text: 'a'),
+          DiffLine(kind: DiffLineKind.added, oldLine: 0, newLine: 2, text: 'b'),
+        ],
+      );
+      expect(indexPositionOf(hunk, 0, staged: false), 7);
+      expect(indexPositionOf(hunk, 1, staged: false), 7);
+    });
+  });
 }

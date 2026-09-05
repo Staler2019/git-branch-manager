@@ -141,6 +141,16 @@ class ScopedDiffView extends StatefulWidget {
   State<ScopedDiffView> createState() => _ScopedDiffViewState();
 }
 
+/// One drawable block, decorated with which source and hunk it came from and
+/// where it sits on the index side -- everything the merged list needs to
+/// order it and then draw it.
+typedef _Block = ({
+  int sourceIndex,
+  int hunkIndex,
+  DiffSegment segment,
+  int position,
+});
+
 class _ScopedDiffViewState extends State<ScopedDiffView> {
   final GlobalKey<SelectionAreaState> _selectionAreaKey =
       GlobalKey<SelectionAreaState>();
@@ -395,6 +405,20 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
                 (int sum, List<DiffScope> scopes) => sum + scopes.length,
               ),
             ),
+        // A source that is in flight or refused says so **even when another
+        // source has rows**, and it says so in its own right rather than by
+        // suppressing the list. Losing that message is a real regression the
+        // merge introduced and two existing tests caught: with the staged
+        // side drawing cards, the unstaged side's 「Diff too large」 simply
+        // vanished, which is exactly the 「no message at all」
+        // [CPP-parse-refuses-over-cap] forbids.
+        //
+        // Unreachable with one source -- a single source cannot both have
+        // content and be the one with the notice -- so `2 file` mode is
+        // provably untouched by this (U6).
+        if (anyContent)
+          for (final ScopedDiffSource source in sources)
+            if (_noticeFor(source) case final Widget notice) notice,
         if (!anyContent)
           _emptyBody(colors)
         else
@@ -546,6 +570,49 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   /// pane's own count already says the other side is empty, and a
   /// 「Nothing staged」 line in the middle of a list of unstaged cards would
   /// read as a section that failed to load.
+  /// The 「in flight」/「refused」/「binary」 line for one source, drawn beside
+  /// the merged list rather than in place of it, or null when the source has
+  /// nothing to announce.
+  ///
+  /// Named with the source's own title, because with the column heads gone
+  /// (U3) nothing else on screen would say *which* direction was refused --
+  /// and a bare 「Diff too large to display」 over a list of staged cards
+  /// reads as a claim about the list.
+  Widget? _noticeFor(ScopedDiffSource source) {
+    if (source.hasContent) return null;
+    if (source.loading) {
+      return _Notice(
+        title: source.title,
+        staged: source.staged,
+        child: const SizedBox(
+          width: 16,
+          height: 16,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
+    if (source.truncated) {
+      return _Notice(
+        title: source.title,
+        staged: source.staged,
+        message: kDiffTooLargeLabel,
+      );
+    }
+    final DiffFile? file = source.file;
+    if (file != null && file.binary) {
+      return _Notice(
+        title: source.title,
+        staged: source.staged,
+        message: '${file.displayPath} (binary file)',
+      );
+    }
+    // Plain 「nothing on this side」 is deliberately silent here: the pane's
+    // own 「N 未暫存 · M 已暫存」 already says it, and a placeholder line in
+    // the middle of the other side's cards would read as a section that
+    // failed to load rather than one that is simply empty.
+    return null;
+  }
+
   Widget _emptyBody(GbmColors colors) {
     final List<ScopedDiffSource> sources = widget.sources;
     if (sources.isEmpty) return _placeholder(colors, 'No changes');
@@ -733,9 +800,6 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     TemporaryScope? temporary,
     Set<String> settledTouched,
   ) {
-    final List<Widget> children = <Widget>[];
-    int ordinal = 1;
-
     // The one-shot scope belongs to exactly one source, so every card in
     // every *other* source draws as an ordinary card -- not struck through,
     // not tinted. That is U5 made visible: the excluded cards keep their own
@@ -770,6 +834,10 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     // claiming to be a second action.
     bool temporaryHeadPlaced = false;
 
+    // Every drawable block of every source, decorated with where it sits on
+    // the index -- the ruler the two diffs share ([indexPositionOf]).
+    final List<_Block> blocks = <_Block>[];
+
     for (
       int sourceIndex = 0;
       sourceIndex < widget.sources.length;
@@ -779,80 +847,153 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
       final DiffFile? diffFile = source.file;
       if (diffFile == null || !source.hasContent) continue;
       final Map<int, List<DiffScope>> byHunk = scopesBySource[sourceIndex];
-      final bool isTemporarySource =
-          temporary != null && temporary.sourceIndex == sourceIndex;
-
       for (int hunkIndex = 0; hunkIndex < diffFile.hunks.length; hunkIndex++) {
         final DiffHunk hunk = diffFile.hunks[hunkIndex];
-        children.add(
-          _HunkHeading(
-            hunk: hunk,
-            hunkIndex: hunkIndex,
-            onTap: () => _selectHunk(sourceIndex, diffFile, hunkIndex),
-          ),
-        );
-
         for (final DiffSegment segment in hunkSegments(
           hunk,
           byHunk[hunkIndex] ?? const <DiffScope>[],
-          firstOrdinal: ordinal,
         )) {
-          switch (segment) {
-            case DiffGapSegment():
-              children.add(
-                _GapBlock(
-                  sourceIndex: sourceIndex,
-                  hunk: hunk,
-                  hunkIndex: hunkIndex,
-                  lineIndices: segment.lineIndices,
-                  staged: source.staged,
-                  tracker: _tracker,
-                  touched: settledTouched,
-                  softWrap: widget.softWrap,
-                ),
-              );
-            case DiffScopeSegment(:final DiffScope scope):
-              final bool superseded =
-                  isTemporarySource &&
-                  (temporaryByHunk[hunkIndex] ?? const <int>[]).any(
-                    scope.changedLineIndices.contains,
-                  );
-              final Set<int> temporaryLines = superseded
-                  ? (temporaryByHunk[hunkIndex] ?? const <int>[]).toSet()
-                  : const <int>{};
-              final bool showTemporaryHead = superseded && !temporaryHeadPlaced;
-              if (showTemporaryHead) temporaryHeadPlaced = true;
-              children.add(
-                _ScopeCard(
-                  sourceIndex: sourceIndex,
-                  hunk: hunk,
-                  scope: scope,
-                  ordinal: ordinal++,
-                  staged: source.staged,
-                  hunkIndex: hunkIndex,
-                  tracker: _tracker,
-                  touched: settledTouched,
-                  softWrap: widget.softWrap,
-                  temporaryLines: temporaryLines,
-                  showTemporaryHead: showTemporaryHead,
-                  temporaryLabel: temporaryLabel,
-                  temporaryHunkCount: temporaryByHunk.length,
-                  onSubmitTemporary: temporary == null
-                      ? _noTemporaryScope
-                      : () => _submitTemporary(temporary),
-                  superseded: superseded,
-                  onStage: () =>
-                      source.onStageScope(hunkIndex, scope.changedLineIndices),
-                  onDiscard: source.onDiscardScope == null
-                      ? null
-                      : () => source.onDiscardScope!(
-                          hunkIndex,
-                          scope.changedLineIndices,
-                        ),
-                ),
-              );
-          }
+          blocks.add((
+            sourceIndex: sourceIndex,
+            hunkIndex: hunkIndex,
+            segment: segment,
+            position: segment.lineIndices.isEmpty
+                ? (source.staged ? hunk.newStart : hunk.oldStart)
+                : indexPositionOf(
+                    hunk,
+                    segment.lineIndices.first,
+                    staged: source.staged,
+                  ),
+          ));
         }
+      }
+    }
+
+    // U1: 「我要對齊的不是行號，是 git 判斷出的區域變更」. Ordering
+    // *regions* asserts only that one region precedes another in the file,
+    // which is true in the index coordinates both diffs already carry. It is
+    // not the hard line alignment 變體 B's own note forbids -- that would
+    // claim two rows from two different diffs are the same line.
+    //
+    // Sorted, never merged: 「unstage, stage 必定是不同 scope」, so two
+    // regions at the same position stay two cards with two buttons.
+    //
+    // Decorated with the original index because [List.sort] is not stable
+    // and the tie-break has to be deterministic: at equal positions the
+    // unstaged side comes first, which is the reading order the two-column
+    // layout taught. Skipped entirely for a single source, so `2 file` mode
+    // provably cannot be reordered by this (U6).
+    if (widget.sources.length > 1) {
+      final List<int> order = <int>[for (int i = 0; i < blocks.length; i++) i];
+      order.sort((int a, int b) {
+        final int byPosition = blocks[a].position.compareTo(blocks[b].position);
+        if (byPosition != 0) return byPosition;
+        final int bySource = blocks[a].sourceIndex.compareTo(
+          blocks[b].sourceIndex,
+        );
+        if (bySource != 0) return bySource;
+        return a.compareTo(b);
+      });
+      final List<_Block> sorted = <_Block>[
+        for (final int i in order) blocks[i],
+      ];
+      blocks
+        ..clear()
+        ..addAll(sorted);
+    }
+
+    final List<Widget> children = <Widget>[];
+    int ordinal = 1;
+    // A heading whenever the list moves to a different hunk *or* a different
+    // source. In a merged list that is more headings than either side alone
+    // would draw, and each earns its place: `@@ -a,b +c,d @@` is the only
+    // thing on screen that says which diff's coordinates the rows below it
+    // are in (U4).
+    int? lastSourceIndex;
+    int? lastHunkIndex;
+
+    for (final _Block block in blocks) {
+      final ScopedDiffSource source = widget.sources[block.sourceIndex];
+      final DiffFile diffFile = source.file!;
+      final DiffHunk hunk = diffFile.hunks[block.hunkIndex];
+      final bool isTemporarySource =
+          temporary != null && temporary.sourceIndex == block.sourceIndex;
+
+      if (block.sourceIndex != lastSourceIndex ||
+          block.hunkIndex != lastHunkIndex) {
+        lastSourceIndex = block.sourceIndex;
+        lastHunkIndex = block.hunkIndex;
+        children.add(
+          _HunkHeading(
+            hunk: hunk,
+            hunkIndex: block.hunkIndex,
+            onTap: () =>
+                _selectHunk(block.sourceIndex, diffFile, block.hunkIndex),
+          ),
+        );
+      }
+
+      switch (block.segment) {
+        case DiffGapSegment():
+          children.add(
+            _GapBlock(
+              sourceIndex: block.sourceIndex,
+              hunk: hunk,
+              hunkIndex: block.hunkIndex,
+              lineIndices: block.segment.lineIndices,
+              staged: source.staged,
+              tracker: _tracker,
+              touched: settledTouched,
+              softWrap: widget.softWrap,
+            ),
+          );
+        case DiffScopeSegment(:final DiffScope scope):
+          final bool superseded =
+              isTemporarySource &&
+              (temporaryByHunk[block.hunkIndex] ?? const <int>[]).any(
+                scope.changedLineIndices.contains,
+              );
+          final Set<int> temporaryLines = superseded
+              ? (temporaryByHunk[block.hunkIndex] ?? const <int>[]).toSet()
+              : const <int>{};
+          final bool showTemporaryHead = superseded && !temporaryHeadPlaced;
+          if (showTemporaryHead) temporaryHeadPlaced = true;
+          children.add(
+            _ScopeCard(
+              sourceIndex: block.sourceIndex,
+              hunk: hunk,
+              scope: scope,
+              ordinal: ordinal++,
+              staged: source.staged,
+              // U2: in a merged list the card is the only thing that can say
+              // which direction it acts in, so the dot the column head used
+              // to carry moves onto the card head. With the heads still
+              // drawn it would be the same fact twice, inches apart.
+              showDirectionDot: !widget.showColumnHeads,
+              hunkIndex: block.hunkIndex,
+              tracker: _tracker,
+              touched: settledTouched,
+              softWrap: widget.softWrap,
+              temporaryLines: temporaryLines,
+              showTemporaryHead: showTemporaryHead,
+              temporaryLabel: temporaryLabel,
+              temporaryHunkCount: temporaryByHunk.length,
+              onSubmitTemporary: temporary == null
+                  ? _noTemporaryScope
+                  : () => _submitTemporary(temporary),
+              superseded: superseded,
+              onStage: () => source.onStageScope(
+                block.hunkIndex,
+                scope.changedLineIndices,
+              ),
+              onDiscard: source.onDiscardScope == null
+                  ? null
+                  : () => source.onDiscardScope!(
+                      block.hunkIndex,
+                      scope.changedLineIndices,
+                    ),
+            ),
+          );
       }
     }
     return children;
@@ -877,6 +1018,73 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
       ),
     ),
   );
+}
+
+/// One direction's 「in flight」 or 「refused」 line in a merged list.
+///
+/// Carries the same 8px dot and the same title the column head would have,
+/// because that is the only thing that says which of the two diffs the line
+/// is about once the heads are gone.
+class _Notice extends StatelessWidget {
+  const _Notice({
+    required this.title,
+    required this.staged,
+    this.message,
+    this.child,
+  });
+
+  final String title;
+  final bool staged;
+  final String? message;
+  final Widget? child;
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: GbmSpacing.space2,
+        vertical: GbmSpacing.space2,
+      ),
+      child: Row(
+        children: <Widget>[
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: staged ? colors.success : colors.accent,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: GbmSpacing.space2),
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: GbmTypography.textXs,
+              fontWeight: FontWeight.bold,
+              color: colors.textSecondary,
+            ),
+          ),
+          const SizedBox(width: GbmSpacing.space2),
+          ?child,
+          // Its own Text, not interpolated into the title, so a finder for
+          // the message alone still matches -- the wording is what the
+          // existing tests pin, and it is shared with `2 file` mode.
+          if (message != null)
+            Flexible(
+              child: Text(
+                message!,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: colors.textTertiary,
+                  fontSize: GbmTypography.textSm,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 /// `.variant-B-colhead`: a status dot, the side's name, and how many cards
@@ -1112,6 +1320,7 @@ class _GapBlock extends StatelessWidget {
 class _ScopeCard extends StatefulWidget {
   const _ScopeCard({
     required this.sourceIndex,
+    required this.showDirectionDot,
     required this.hunk,
     required this.scope,
     required this.ordinal,
@@ -1133,6 +1342,10 @@ class _ScopeCard extends StatefulWidget {
   /// Which of the view's sources this card came from -- see
   /// [_GapBlock.sourceIndex].
   final int sourceIndex;
+
+  /// Whether the head carries the direction dot the column head used to
+  /// (U2). True exactly when there is no column head above to carry it.
+  final bool showDirectionDot;
   final DiffHunk hunk;
   final DiffScope scope;
   final int ordinal;
@@ -1255,6 +1468,7 @@ class _ScopeCardState extends State<_ScopeCard> {
                   ordinal: widget.ordinal,
                   scope: widget.scope,
                   staged: widget.staged,
+                  showDirectionDot: widget.showDirectionDot,
                   label: scopeButtonLabel(
                     staged: widget.staged,
                     spanned: widget.scope.lineIndices.length,
@@ -1347,10 +1561,14 @@ class _CardHead extends StatelessWidget {
     required this.ordinal,
     required this.scope,
     required this.staged,
+    required this.showDirectionDot,
     required this.label,
     required this.superseded,
     required this.onStage,
   });
+
+  /// See [_ScopeCard.showDirectionDot].
+  final bool showDirectionDot;
 
   final int ordinal;
   final DiffScope scope;
@@ -1390,6 +1608,25 @@ class _CardHead extends StatelessWidget {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
+              // The same 8px `.variant-B-dot` the column head drew, in the
+              // same two colours, moved down one level (U2). It is the only
+              // thing in a merged list that names the direction *before* the
+              // eye reaches the button at the other end of the row, and the
+              // colour is the one the left edge of this very card already
+              // carries -- so the two agree by construction rather than by
+              // two call sites remembering the same rule.
+              if (showDirectionDot) ...<Widget>[
+                Container(
+                  key: const ValueKey<String>('card-head-dot'),
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: staged ? colors.success : colors.accent,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: GbmSpacing.space2),
+              ],
               // Flexible so a long tag ellipsises inside the run rather than
               // pushing the tally out of it.
               Flexible(

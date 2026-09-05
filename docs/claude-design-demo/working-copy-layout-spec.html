@@ -411,6 +411,8 @@ td.num { font-family: "JetBrains Mono", ui-monospace, monospace; font-variant-nu
   border: 1px solid var(--gbm-accent); background: var(--gbm-accent); color: var(--gbm-text-on-accent); }
 .sc__btn.off { background: var(--gbm-surface-sunken);                   /* [B] .variant-B-btn-off */
   border-color: var(--gbm-border-subtle); color: var(--gbm-text-tertiary); text-decoration: line-through; }
+.sc__btn.unstage { background: var(--gbm-surface-panel-raised);         /* [B] .variant-B-btn-unstage */
+  border-color: var(--gbm-border-strong); color: var(--gbm-text-primary); }
 .sc__temp { margin: 4px 0; background: var(--gbm-surface-panel);        /* [B] .variant-B-temp */
   border: 1px dashed var(--gbm-accent); border-radius: 4px; }
 .sc__temphead { display: flex; align-items: center; gap: 8px;           /* [B] .variant-B-temphead */
@@ -525,6 +527,8 @@ footer.colophon {
       <span class="pill is-ratified">使用者裁定 · drop hint 用 C1</span>
       <span class="pill is-ratified">使用者裁定 · tree 葉節點這輪一起修</span>
       <span class="pill is-ratified">使用者裁定 · scope 卡片照建議（§06）</span>
+      <span class="pill is-open">待裁定 · unified 合成單一清單（§10）</span>
+      <span class="pill is-open">待裁定 · 未追蹤 unstage 的終態（§11）</span>
     </div>
   </header>
 
@@ -699,6 +703,9 @@ footer.colophon {
         <p class="specimen-note">
           Same three regions, same commit box, same everything below the divider. What changed is
           which way each of the two dividers runs — and the diff now shows whole lines.
+          <b>Superseded in part by §10:</b> <s>the two labelled halves drawn above</s> — the
+          <code>unified</code> pane becomes <b>one list</b> with the direction on each card.
+          The stacking was my drawing, not a requirement; §10 carries the correction.
         </p>
       </div>
 
@@ -1461,6 +1468,377 @@ footer.colophon {
       <li>Tree mode's leaf row paints <b>the segment below its parent folder</b>, not the full path — asserted by pumping the board in tree mode and reading what was painted, the same way the defect was found. List mode still paints the full path, asserted in the same test so a fix that hits both fails.</li>
       <li>Each property §06 adopted asserted by identity, never by absence of exception — the border's <code>BorderSide.style</code>, the chip's colour against <code>colors.warning</code>, the hover tint against its token. A card-hover test that only checks the tree still builds is the failure <code>[FLU-hand-rolled-inkwell-hover]</code> records.</li>
       <li><code>flutter analyze</code> at zero and <code>dart format</code> clean; the five device-tier candidates run one at a time, each with a control run on the parent commit.</li>
+    </ul>
+  </section>
+
+
+  <!-- ============================ 10 ============================ -->
+  <section id="round2">
+    <div class="sec-head"><span class="sec-num">10</span><h2><code>unified</code> is still two views</h2></div>
+    <p class="lede">
+      <span class="zh">「unified 可能本來就做錯了，應該是單一 view 檢視 stage/unstage scope and
+      button，而非還是拆成上下檢視」</span> — reported after the layout round shipped, and it is
+      right. What this section overturns is <b>not</b> P03. It is <b>section 02 of this page</b>,
+      whose own <span class="zh">Proposed</span> mockup drew <code>unified</code> as two labelled
+      halves. That was my drawing, not a requirement, and it is struck below.
+    </p>
+
+    <div class="callout">
+      <div class="callout__title">corrected in place — section 02</div>
+      <p style="margin:0">
+        <s>The diff now shows whole lines: one scroller, an <span class="zh">Unstaged</span>
+        section above a <span class="zh">Staged</span> section.</s> &nbsp;→&nbsp; One scroller,
+        <b>one list</b>, each card carrying its own direction. The stacked-sections drawing at
+        <code>working-copy-layout-spec.html:676–686</code> is superseded by this section;
+        <code>[CULT-correct-the-record]</code> is why it is struck rather than quietly edited —
+        a later audit reading §02 alone would otherwise restore it.
+      </p>
+    </div>
+
+    <p>
+      What ships today is exactly what §02 drew (<code>working_copy_diff_pane.dart:183–199</code>):
+      one <code>GbmCodeScrollWell</code> over a <code>Column</code> of two whole
+      <code>ScopedDiffView</code>s with a 1px rule between them. The direction is a property of the
+      <em>view</em> — <code>ScopedDiffView.staged</code> (<code>:67</code>) reaches
+      <code>scopeButtonLabel(staged: widget.staged, …)</code> (<code>:1076</code>) and the one-shot
+      label (<code>:613</code>) unchanged, so every card in the top half says <span class="zh">Stage</span>
+      and every card in the bottom half says <span class="zh">Unstage</span>. So the mode is
+      「一個捲軸」, never 「一份清單」.
+    </p>
+    <p>
+      <b>The pieces below it are already per-card.</b> <code>_ScopeCard.staged</code>
+      (<code>:957</code>) and <code>_GapBlock.staged</code> (<code>:868</code>) are each their own
+      parameter; they are simply all fed one value from above. The CSS on this very page already
+      carries the distinction too — <code>.sc__card.staged</code> paints the left rail
+      <code>--gbm-success</code> against the unstaged card's <code>--gbm-accent</code> — and it is
+      drawn by nothing.
+    </p>
+    <p>
+      <b>Corrected:</b> <s>quoted from <span class="zh">變體 B</span> in §06</s>. §06 never draws or
+      discusses a staged card — all fourteen of its S-rows are about the unstaged column. The real
+      source is <span class="zh">變體 B</span>'s <b>block 1</b>, <span class="zh">2 file 模式</span>,
+      whose own DOM carries <code>variant-B-card-staged</code>, <code>variant-B-dot-staged</code> and
+      a <code>variant-B-btn-unstage</code> button reading <code>Unstage 2 lines</code>. Its note is
+      the ruling, verbatim:
+    </p>
+    <blockquote class="callout">
+      <div class="callout__title">變體 B, block 1's own note</div>
+      <p style="margin:0" class="zh">兩欄之間是一條實線分隔，不做行號對齊 —— 兩側是不同的 diff，硬對齊會製造「同一行」的錯覺。改用<b>顏色對應</b>呼應：Unstaged 卡片左緣是 accent，Staged 是 success，與欄標題的圓點同色。</p>
+    </blockquote>
+
+    <div class="callout is-ask">
+      <div class="callout__title">the design source draws a third thing, and it is neither</div>
+      <p style="margin:0 0 .6rem">
+        <span class="zh">變體 B</span> has <b>four</b> blocks, and block&nbsp;2 is literally called
+        <span class="zh">unified 模式</span>. Its DOM was re-fetched for this section. It holds
+        <b>one</b> <code>variant-B-colhead</code>, reading <span class="zh">Unstaged</span> — and
+        <b>no staged section at all</b>. Its note:
+      </p>
+      <p style="margin:0 0 .6rem" class="zh">單欄時卡片變寬，其餘結構完全不變 —— 標頭列、+/− 統計、按鈕位置都在同一個位置，切換模式不需要重新學一次。</p>
+      <p style="margin:0">
+        So <code>unified</code> in the design means <b>one column, widened</b> — same cards, same
+        heads, same button positions, nothing to relearn. <b>The stacked two-section pane that ships
+        today matches neither the demo nor the report.</b> It was invented, by the code and then by
+        §02 of this page, and this is the first time anyone has read block 2. Which of the three
+        readings wins is a ruling (U1 below), not something to average.
+      </p>
+    </div>
+
+    <div class="callout is-warn">
+      <div class="callout__title">if an interleave is ruled in, this is what makes it computable</div>
+      <p style="margin:0">
+        The two diffs look incomparable and are not: they <b>share the index as a coordinate
+        space</b>. The unstaged diff is index&nbsp;→&nbsp;work tree, so its <code>oldStart</code>
+        is an index line number; the staged diff is HEAD&nbsp;→&nbsp;index, so its
+        <code>newStart</code> is an index line number
+        (<code>parsed_diff.dart:68,70</code>). One ruler, both sides, <b>no new git call</b>.
+        The exception is an untracked file, whose unstaged diff is
+        <code>--no-index /dev/null → file</code> and has no index side at all — but an untracked
+        file has no staged side to interleave with until it is staged, so the case never arises.
+      </p>
+    </div>
+
+    <div class="compare">
+      <div class="specimen">
+        <div class="specimen-head">
+          <span class="specimen-tag before">What ships today</span>
+          <span class="specimen-note">two views, one scroller</span>
+        </div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="is-built" style="width:100%; max-width:470px; display:flex; flex-direction:column; height:340px">
+            <div class="dv">
+              <div class="dv__bar"><span class="grow">lib/graph/lane_allocator.dart</span><span class="seg"><span>2 file</span><span class="on">unified</span></span></div>
+              <div class="dv__body" style="padding:0 6px">
+                <div class="sc-col"><span class="sc-col__dot"></span><span class="sc-col__t">Unstaged</span><span class="sc__grow"></span><span class="sc-col__chip">2 個 scope</span></div>
+                <div class="sc">
+                  <div class="sc__hunk"><span>@@ -38,12 +38,14 @@</span><span class="sc__rule"></span></div>
+                  <div class="sc__card">
+                    <div class="sc__head"><span class="sc__tag">變更 1</span><span class="sc__stat"><span class="p">+2</span><span class="m">−1</span></span><span class="sc__grow"></span><span class="sc__btn">Stage 3 lines</span></div>
+                    <div><div class="dl del"><span class="g">40</span>-    if (lane.free) return lane…</div><div class="dl add"><span class="g">40</span>+    if (lane.free &amp;&amp; lane.seed…</div></div>
+                  </div>
+                  <div class="sc__card">
+                    <div class="sc__head"><span class="sc__tag">變更 2</span><span class="sc__stat"><span class="p">+1</span></span><span class="sc__grow"></span><span class="sc__btn">Stage 1 line</span></div>
+                    <div><div class="dl add"><span class="g">46</span>+    log('no free lane');</div></div>
+                  </div>
+                </div>
+                <div style="height:1px; background:var(--gbm-border-default); margin:6px -6px"></div>
+                <div class="sc-col"><span class="sc-col__dot staged"></span><span class="sc-col__t">Staged</span><span class="sc__grow"></span><span class="sc-col__chip">1 個 scope</span></div>
+                <div class="sc">
+                  <div class="sc__hunk"><span>@@ -3,4 +3,4 @@</span><span class="sc__rule"></span></div>
+                  <div class="sc__card staged">
+                    <div class="sc__head"><span class="sc__tag">變更 1</span><span class="sc__stat"><span class="p">+1</span><span class="m">−1</span></span><span class="sc__grow"></span><span class="sc__btn">Unstage 2 lines</span></div>
+                    <div><div class="dl del"><span class="g">3</span>-import 'dart:math' as m;</div><div class="dl add"><span class="g">3</span>+import 'dart:math' show min;</div></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="specimen-note">
+          Two column heads, two scope counts, a rule between them — the top half is one view and the
+          bottom half is another. The only thing <code>unified</code> unified was the scrollbar.
+        </p>
+      </div>
+
+      <div class="specimen">
+        <div class="specimen-head">
+          <span class="specimen-tag after">Proposed</span>
+          <span class="specimen-note">one list, direction per card</span>
+        </div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="is-built" style="width:100%; max-width:470px; display:flex; flex-direction:column; height:340px">
+            <div class="dv">
+              <div class="dv__bar"><span class="grow">lib/graph/lane_allocator.dart</span><span class="sc-col__chip" style="flex:0 0 auto">2 未暫存 · 1 已暫存</span><span class="seg"><span>2 file</span><span class="on">unified</span></span></div>
+              <div class="dv__body" style="padding:0 6px">
+                <div class="sc">
+                  <div class="sc__hunk"><span>@@ -38,12 +38,14 @@</span><span class="sc__rule"></span></div>
+                  <div class="sc__card">
+                    <div class="sc__head"><span class="sc-col__dot"></span><span class="sc__tag">變更 1</span><span class="sc__stat"><span class="p">+2</span><span class="m">−1</span></span><span class="sc__grow"></span><span class="sc__btn">Stage 3 lines</span></div>
+                    <div><div class="dl del"><span class="g">40</span>-    if (lane.free) return lane…</div><div class="dl add"><span class="g">40</span>+    if (lane.free &amp;&amp; lane.seed…</div></div>
+                  </div>
+                  <div class="sc__card">
+                    <div class="sc__head"><span class="sc-col__dot"></span><span class="sc__tag">變更 2</span><span class="sc__stat"><span class="p">+1</span></span><span class="sc__grow"></span><span class="sc__btn">Stage 1 line</span></div>
+                    <div><div class="dl add"><span class="g">46</span>+    log('no free lane');</div></div>
+                  </div>
+                  <div class="sc__hunk"><span>@@ -3,4 +3,4 @@</span><span class="sc__rule"></span></div>
+                  <div class="sc__card staged">
+                    <div class="sc__head"><span class="sc-col__dot staged"></span><span class="sc__tag">變更 3</span><span class="sc__stat"><span class="p">+1</span><span class="m">−1</span></span><span class="sc__grow"></span><span class="sc__btn unstage">Unstage 2 lines</span></div>
+                    <div><div class="dl del"><span class="g">3</span>-import 'dart:math' as m;</div><div class="dl add"><span class="g">3</span>+import 'dart:math' show min;</div></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="specimen-note">
+          One list, no column heads. Unstaged cards first, then staged — U1(a). The last card's rail is
+          <code>--gbm-success</code>, its dot matches, and its button is the demo's
+          <code>variant-B-btn-unstage</code> style, which the app does not draw today (U8). Everything
+          else is unchanged from what already ships.
+        </p>
+      </div>
+    </div>
+    <p class="specimen-note" style="margin-top:1rem">
+      Both specimens carry §06's <code>.is-built</code> overrides, and three of those describe the
+      surface <em>before</em> W11–W13 landed — the hunk rule, the card-head line and the dashed
+      edges all ship now. Read this pair for <b>structure</b>; the properties are §06's, already
+      ruled on, and are not being reopened here.
+    </p>
+
+    <h3>Nine things to rule on</h3>
+    <p>
+      Each with a recommendation, so <span class="zh">「照建議」</span> closes all nine the way it
+      closed §06. The plan named six. U4 is the seventh, because a merged list still has to draw
+      <em>something</em> where a hunk starts. U8 and U9 came out of the G1 audit re-reading the
+      demo's DOM, and U1's recommendation was <b>reversed</b> by the same read — the section above
+      shows the working, because a recommendation that flipped is worth more to you than one that
+      never did.
+    </p>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:5%">#</th><th style="width:26%">Question</th><th>Recommendation, and why</th></tr></thead>
+      <tbody>
+        <tr><td class="num">U1</td><td><b>What one list means</b> — three readings, and the design source backs the one I did not propose</td>
+            <td>
+              <b>(a) Grouped, no heads</b> — unstaged cards, then staged cards, one continuous list, no column heads, direction carried by each card's rail colour and button verb. <b>Recommended.</b><br>
+              <b>(b) Interleaved on the index ruler</b> — <code>oldStart</code> for unstaged, <code>newStart</code> for staged. I proposed this first; <span class="zh">變體 B</span> block 1's note argues against it in as many words — <span class="zh">「兩側是不同的 diff，硬對齊會製造「同一行」的錯覺。改用顏色對應」</span>. Putting two different diffs' hunks in one line-number sequence <em>is</em> a positional correspondence, which is the illusion that sentence exists to prevent. Reversing my own recommendation on the source's authority, not on taste.<br>
+              <b>(c) Unstaged only</b> — <span class="zh">變體 B</span> block 2 literally. Rejected as drawn: a file with a staged half would have nowhere to show it, and the Working Copy has to.<br>
+              <b>Why (a) still answers the report:</b> what the user asked for is one view with both directions' scopes and buttons in it. (a) delivers that; what it drops is the two section heads and the rule, which is exactly what made it read as <span class="zh">「拆成上下」</span>.
+            </td></tr>
+        <tr><td class="num">U2</td><td>How a card says which way it goes</td>
+            <td><b>The button verb, plus the left rail colour already specified</b> — <code>--gbm-accent</code> for <span class="zh">Stage</span>, <code>--gbm-success</code> for <span class="zh">Unstage</span> (<code>.sc__card.staged</code>, §06) — plus the 6px dot from the old column head moved onto the card head. No text label: <span class="zh">「Unstage 2 lines」</span> already says it, and a second word saying the same thing is the redundancy dimension&nbsp;D of <code>[UX-rubric]</code> penalises.</td></tr>
+        <tr><td class="num">U3</td><td>The two column heads and their <span class="zh">「N 個 scope」</span> chips</td>
+            <td><b>Gone from <code>unified</code></b>; one chip in the title bar reads <span class="zh">「2 未暫存 · 1 已暫存」</span>. They stay untouched in <code>2 file</code> mode, where they still label a column. A head that labels nothing is worse than no head.</td></tr>
+        <tr><td class="num">U4</td><td>Hunk headings, when adjacent hunks come from different diffs</td>
+            <td><b>Keep one heading per hunk, unchanged</b>. It is already only a coordinate (<code>@@ -3,4 +3,4 @@</code>) and the card under it carries the direction. Suppressing it would lose the one landmark that says where in the file you are.</td></tr>
+        <tr><td class="num">U5</td><td>A one-shot selection dragged across both directions</td>
+            <td><b>It takes the direction of the first card it touches, and cards of the other direction are excluded from it.</b> Not a limitation to apologise for: git has no single action that stages and unstages at once, so a button offering it would be <code>[UX-ellipsis-promises-a-dialog]</code>'s lying control. The excluded cards keep their own buttons and stay pressable.</td></tr>
+        <tr><td class="num">U6</td><td><code>2 file</code> mode</td>
+            <td><b>Not one line changed.</b> Left unstaged, right staged, its own splitter, its own two column heads. It is the mode whose whole point is two files side by side, and it is the escape hatch for anyone who wants today's behaviour back.</td></tr>
+        <tr><td class="num">U7</td><td>A line changed twice — once HEAD→index, once index→work tree</td>
+            <td><b>It appears twice, once in each direction, and is not deduplicated.</b> Those are two different changes to two different pairs of content; collapsing them would draw one card whose button could only do half of what it says.</td></tr>
+        <tr><td class="num">U8</td><td>The Unstage button's own style — <b>a conformance gap found by this audit</b></td>
+            <td><span class="zh">變體 B</span> defines <b>two</b> button styles: <code>variant-B-btn-stage</code> (accent fill) and <code>variant-B-btn-unstage</code> (<code>surface-panel-raised</code> ground, <code>border-strong</code> edge, <code>text-primary</code> label). The app implements only the accent one — <code>.sc__btn</code> — so every button on both sides is drawn identically today and only the verb differs. <b>Recommend adopting it</b>, and it matters more in a merged list than it did in two columns: two identically-styled buttons sitting inches apart doing opposite things is the one thing grouping cannot fix. Nothing under <code>docs/</code> had recorded this gap.</td></tr>
+        <tr><td class="num">U9</td><td>The mode switch itself</td>
+            <td>The demo's title bar reads <span class="zh">檢視方式</span> then a segmented control whose two buttons each carry an 11px SVG glyph (two rectangles for <code>2 file</code>, one framed block with two rules for <code>unified</code>). The app draws neither the label nor the glyphs. <b>Recommend leaving it alone this round</b> — it is a separate, purely cosmetic drift on a control that already works, and folding it in would put icon assets in a round about what the pane contains. Raised here rather than silently deferred, because it is <em>your</em> call and not mine.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>One asymmetry that has to be stated, not discovered</h3>
+    <p>
+      <code>onDiscardScope</code> exists on the unstaged side only
+      (<code>working_copy_diff_pane.dart:217</code>) — there is nothing about a staged line to throw
+      away. In a merged list that means <b>Discard appears on some cards and not others</b>, which
+      reads as a bug unless it is written down. It is the same fact the two column heads used to
+      carry implicitly; folding the heads away is what makes it need saying.
+    </p>
+
+    <h3>What this section draws with no source</h3>
+    <p>
+      G1's delta audit ran over the two specimens before you saw them: <b>16 values, 11 符合,
+      1 不符, 4 無出處</b>. The 不符 is corrected in place above. The four with no source are all
+      <em>proposals</em>, which is the honest reason they have none — they are the things U1–U9 ask
+      you to rule on, not values I found somewhere and copied:
+    </p>
+    <ul class="plain">
+      <li>The title-bar chip text <span class="zh">「2 未暫存 · 1 已暫存」</span>. Searched this page and all 21 spec pages for <span class="zh">未暫存</span>/<span class="zh">已暫存</span> — nothing. New copy (U3).</li>
+      <li>The 6px dot <b>placed inside a card head</b>. The dot itself is <code>variant-B-dot</code> and its size is <code>_ColumnHead</code>'s own <code>Container(width: 6, height: 6)</code>; putting it on a card is new (U2).</li>
+      <li>Hunk headings from two different diffs sitting adjacent with nothing between them (U1, U4).</li>
+      <li>The absence of the two column heads (U3).</li>
+    </ul>
+    <p>
+      Everything else traces: the rails and dots to <span class="zh">變體 B</span> block 1, the
+      button verbs to <code>scopeButtonLabel()</code>, the unstage button style to
+      <code>variant-B-btn-unstage</code>, and every cited line number was checked against the file.
+      <b>The 21-page spec says nothing about any of this</b> — <code>unified</code>,
+      <span class="zh">並排</span> and <code>2 file</code> do not appear in it at all, so this whole
+      surface is a user-requested addition in the sense <code>[STRUCT-soft-wrap-preference]</code>
+      records, not a conformance item.
+    </p>
+  </section>
+
+  <!-- ============================ 11 ============================ -->
+  <section id="untracked-roundtrip">
+    <div class="sec-head"><span class="sec-num">11</span><h2>Stage every line of an untracked file, unstage them all back, and it stays in Staged</h2></div>
+    <p class="lede">
+      <span class="zh">「untracked, use line stage all, and unstage all back, the file should not
+      leave in staged list」</span> — reproduced, and the cause is measured rather than reasoned.
+      Everything below is a real transcript from a scratch repository on <b>git 2.55.0</b>, not a
+      reading of the source.
+    </p>
+
+    <h3>What actually happens, step by step</h3>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:34%">Command the app runs</th><th style="width:10%">exit</th><th>What git then reports</th></tr></thead>
+      <tbody>
+        <tr><td><code>git diff --no-index -- /dev/null untracked.txt</code><br><span class="specimen-note"><code>DiffService.cpp:613–677</code></span></td><td class="num">1</td>
+            <td>The diff, as designed — exit 1 <em>is</em> the success case here, per <code>[GIT-no-index-sees-untracked]</code>. Header: <code>new file mode 100644</code> / <code>--- /dev/null</code>.</td></tr>
+        <tr><td><code>git apply --cached</code> &lt;that patch&gt;<br><span class="specimen-note"><code>StageOps.cpp:43–49</code>, header from <code>UnifiedDiffParser.cpp:82–88</code></span></td><td class="num">0</td>
+            <td><code>1 A. N... 000000 100644 100644 000…000 8b05eae untracked.txt</code><br>Staged, blob <code>8b05eae</code>, three lines. Correct.</td></tr>
+        <tr><td><code>git apply --cached --reverse</code> &lt;rebuilt <code>a/&lt;path&gt;</code> patch&gt;<br><span class="specimen-note">the plain header of <code>UnifiedDiffParser.cpp:91–101</code></span></td><td class="num">0</td>
+            <td><code>1 <b>AM</b> N... 000000 100644 100644 000…000 <b>e69de29</b> untracked.txt</code><br><b>The index entry survives, holding the empty blob.</b> <code>git cat-file -s e69de29</code> → <code>0</code>.</td></tr>
+      </tbody>
+    </table></div>
+    <p>
+      <code>e69de29bb2d1d6434b8b29ae775ad8c2e48c5391</code> is git's empty blob. The work tree is
+      untouched — <code>cat untracked.txt</code> still prints all three lines. And porcelain v2's
+      first character is <code>A</code>, which is all
+      <code>WorkingCopyStatus.cpp:427–429</code> reads (<code>x != '.'</code> → <code>entry.staged =
+      true</code>), so <code>WorkingCopyStatus::staged()</code> (<code>:347–355</code>) keeps
+      handing the file to the Staged column.
+    </p>
+    <div class="callout is-warn">
+      <div class="callout__title">what the user is looking at</div>
+      <p style="margin:0">
+        The file is in <b>both</b> columns at once. Staged, because the index entry exists — and its
+        card is <b>empty</b>, because the staged diff is now <code>new file mode … index
+        0000000..e69de29</code> with no hunk at all. Unstaged, because <code>M</code> in the second
+        position means index ≠ work tree. Nothing on screen says the staged half is a leftover.
+      </p>
+    </div>
+
+    <h3>The two candidate cures, measured</h3>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:30%">Command</th><th style="width:10%">exit</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td><code>git rm --cached -- untracked.txt</code></td><td class="num"><span class="verdict bad">1</span></td>
+            <td><b>Refused.</b> <code>error: the following file has staged content different from both the file and the HEAD … (use -f to force removal)</code>. The plan proposed this command; the measurement retired it. Reaching for <code>-f</code> to get past a refusal git raised on purpose is the shape <code>[GIT-remove-locked-needs-two-forces]</code> already records.</td></tr>
+        <tr><td><code>git restore --staged -- untracked.txt</code></td><td class="num"><span class="verdict ok">0</span></td>
+            <td><b>Back to <code>? untracked.txt</code></b>, work tree intact — and it lands there from <b>both</b> the <code>A.</code> state and the <code>AM</code> leftover state. <code>git reset -- &lt;path&gt;</code> behaves identically; <code>restore --staged</code> is preferred only because the app already runs exactly it.</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="callout">
+      <div class="callout__title">the whole-file path is already correct — that is the fix</div>
+      <p style="margin:0">
+        Dragging the file up from Staged runs <code>UnstageFilesOperation</code>
+        (<code>StageOps.cpp:93–135</code>), which is <code>git restore --staged --</code>, and it
+        returns an untracked file to <code>?</code> today. So the two paths do not disagree about
+        policy — one of them is simply not using the command that expresses it.
+        <b>Proposed rule: unstaging <em>every</em> changed line of a file whose staged
+        <code>DiffFile.kind</code> is <code>Added</code> is a whole-file unstage, and runs
+        <code>git restore --staged -- &lt;path&gt;</code> instead of a reverse patch.</b> One command,
+        one end state, <code>[CULT-single-source-of-truth]</code>.
+      </p>
+    </div>
+
+    <h3>Where the rule must stop, also measured</h3>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:34%">Case</th><th style="width:10%">Today</th><th>Why it must keep the reverse patch</th></tr></thead>
+      <tbody>
+        <tr><td><b>Partial</b> unstage of an added file — one of three lines</td><td class="num"><span class="verdict ok">correct</span></td>
+            <td>exit 0, <code>1 AM … 48d0939</code>, index holds <code>alpha</code>+<code>charlie</code>. Exactly right, and <code>restore --staged</code> here would throw away a stage the user meant to keep. The gate is <b><span class="zh">「每一條變更」</span>, never <span class="zh">「任何一次 unstage」</span></b>.</td></tr>
+        <tr><td><b>Tracked</b> file, stage every line then unstage every line</td><td class="num"><span class="verdict ok">correct</span></td>
+            <td>exit 0, lands at <code>1 .M</code> — not staged, no leftover. The entry is restored to its HEAD content instead of emptied, so there is nothing orphaned. This is why the gate is <code>kind == Added</code> and not <span class="zh">「全部行」</span> alone.</td></tr>
+        <tr><td>Unstage the remaining two lines after the partial above</td><td class="num"><span class="verdict none">n/a</span></td>
+            <td>That selection <em>is</em> every changed line of the then-current staged diff, so the rule fires and the entry goes. The rule is iterative by construction; it does not need to remember earlier presses.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>Why no test caught it</h3>
+    <p>
+      <code>GitIntegrationTest.cpp</code> has <code>StagesSelectedLinesOfAnUntrackedFile</code> and
+      <b>no unstaging counterpart</b>. That is <code>[TEST-fixture-cannot-disagree]</code> in its
+      plainest form: a fixture that only ever stages cannot observe what unstaging leaves behind.
+      <code>integration_test/stage_lines_flow_test.dart</code> is 7 tests deep on this exact surface
+      and none of them uses an untracked file. The new test asserts <b>porcelain's
+      <code>?</code></b> — what the user sees — rather than <span class="zh">「index 條目不見了」</span>,
+      which is the implementation talking to itself.
+    </p>
+  </section>
+
+  <!-- ============================ 12 ============================ -->
+  <section id="round2-work">
+    <div class="sec-head"><span class="sec-num">12</span><h2>Second-round work list</h2></div>
+    <p class="lede">
+      §08's table is round one's record and stays as it is. These are the rows this round adds, on a
+      branch cut from the first: <code>fix/working-copy-unified-single-view</code>. X1 is independent
+      of §10 and goes first — it is a C++ fix with its own test tier, and blocking it behind a UI
+      ruling would be a scope reduction nobody asked for.
+    </p>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:5%">#</th><th style="width:11%">Status</th><th style="width:24%">Item</th><th style="width:8%">Sites</th><th>What it is</th></tr></thead>
+      <tbody>
+        <tr><td class="num">X1</td><td><span class="pill is-open">open</span></td><td>Untracked unstage lands back on <code>?</code></td><td class="num">1 + 2 tests</td>
+            <td>§11's rule inside <code>PartialStageOperation</code> (<code>StageOps.cpp:168–241</code>). Red first in <code>GitIntegrationTest.cpp</code> asserting porcelain <code>?</code>; then a device-tier case, because <code>stage_lines_flow_test.dart</code> has no untracked file in any of its seven. No capi change — the fix is entirely inside the operation, so <code>[TEST-ffi-matches-symbol-only]</code>'s seam is not crossed.</td></tr>
+        <tr><td class="num">X2</td><td><span class="pill is-open">open</span></td><td><code>ScopedDiffView</code> takes a list of sources</td><td class="num">2</td>
+            <td><b>Pure refactor, no pixel moves.</b> <code>file</code>/<code>staged</code>/<code>onStageScope</code>/<code>onDiscardScope</code> collapse into a <code>ScopedDiffSource</code> list; <code>_wellChildren</code> walks sources → hunks → segments. <code>_ScopeCard</code>/<code>_GapBlock</code> need no change — they already take <code>staged</code> each. Row <code>GlobalKey</code>s re-key on <code>(source, hunk, line)</code> or two sources' same-numbered rows collide, which is <code>[FLU-selectionarea-gives-a-string]</code> trap 1 by construction. Acceptance is that every existing test stays green untouched.</td></tr>
+        <tr><td class="num">X3</td><td><span class="pill is-open">open</span></td><td><code>unified</code> becomes one merged list</td><td class="num">1 + tests</td>
+            <td>U1–U9 as ruled. Order, per-card rail and dot, title-bar count chip, the one-shot direction rule, and — if U8 is adopted — a second <code>GbmButton</code> treatment for the Unstage direction, which is a shared-widget change rather than a <code>scoped_diff_view.dart</code> one. <code>2 file</code> untouched (U6).</td></tr>
+        <tr><td class="num">X4</td><td><span class="pill is-open">open</span></td><td>Records</td><td class="num">4</td>
+            <td><code>[STRUCT-two-column-switches]</code>'s Working Copy row says <span class="zh">「左 ↔ 右 means unstaged ↔ staged」</span>, which stops being true of <code>unified</code>; <code>[STRUCT-working-copy]</code>'s diff paragraph likewise. X1's finding is <code>GIT-</code> pin material and belongs beside <code>[GIT-new-file-patch-needs-dev-null]</code>, whose <span class="zh">「不要改 unstage 方向」</span> sentence is <em>correct</em> and now has a measured boundary. New ledger file plus its <code>INDEX.md</code> line.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>Acceptance, second round</h3>
+    <ul class="plain">
+      <li>A real-repo test stages every line of an untracked file, unstages every line back, and asserts <b>porcelain reports <code>?</code></b> — not that some index entry vanished.</li>
+      <li>A second real-repo test unstages <b>one of three</b> lines and asserts the entry survives with the other two, so the fix cannot be a blanket <code>restore --staged</code> on any unstage.</li>
+      <li>A third asserts the <b>tracked</b> control still lands on <code>.M</code>, pinning the <code>kind == Added</code> gate rather than <span class="zh">「全部行」</span>.</li>
+      <li>In <code>unified</code>, exactly <b>one</b> <code>ScopedDiffView</code> is mounted, and one list contains both a <code>Stage …</code> and an <code>Unstage …</code> button.</li>
+      <li>The interleave is pinned by a fixture whose staged hunk's <code>newStart</code> falls <b>between</b> two unstaged hunks' <code>oldStart</code>s — a fixture where the numbers coincide cannot tell sorted from concatenated (<code>[TEST-fixture-cannot-disagree]</code>).</li>
+      <li>A drag crossing a staged card and an unstaged card puts only the first-touched direction into the one-shot scope, asserted on the resulting button's own label.</li>
+      <li><code>2 file</code> mode's existing dx assertion still passes with no change to the test.</li>
+      <li><code>flutter analyze</code> at zero, <code>dart format</code> clean, <code>ctest</code> green, <code>stage_lines_flow_test.dart</code> re-run whole on device with a control run on the parent commit first.</li>
     </ul>
   </section>
 

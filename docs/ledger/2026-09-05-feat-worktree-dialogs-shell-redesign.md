@@ -181,7 +181,12 @@ G8b 呼叫端遷移的一部分。
 
 ~~G2–G8 依計畫全數做完，沒有產生新的 `DRIFT-` 項目。~~ 這句話錯了，訂正如下：
 **G4b 自己就開了一個缺口，使用者事後回報「新增worktree的位置沒有預設了」**，見下一節。
-修掉之後才是真的沒有新開的缺口。
+~~修掉之後才是真的沒有新開的缺口。~~ **這句話又錯了一次**，而且錯在同一個地方：
+上一段訂正只涵蓋了 `labelText`，但 G4b 那個固定高度的 `SizedBox` 其實一次帶進
+**四個**缺陷，`labelText` 只是最先被看見的那一個。剩下三個要等真的把 app 跑起來
+截圖才看得到，記在本檔最後的〈追加二〉。訂正的教訓不是「再補一句」，是
+[CULT-correct-the-record] 的另一面——**一個原因造成的缺陷，修掉看得見的那個之後
+要回頭問還有沒有同源的**，而不是把第一個修好就當作整組結案。
 
 ## 追加：G4b 自己造成的迴歸——`labelText` 的浮動標籤放不進固定 30px 的框
 
@@ -269,3 +274,121 @@ TextStyle(fontSize: GbmTypography.textXs, color: colors.textSecondary))` 疊在
 但沒有實體視窗）。使用者實際在 `-d macos` 上點開 Add Worktree、選一個分支、肉眼
 確認路徑欄位不再被標籤蓋住——這一步沒有做，比照
 [STATE-refresh-entry-point]「未在真實硬體驗證」的記法，如實記下而不是假裝做過。
+
+~~**未驗證**~~ **訂正：已驗證，而且驗證本身找到了三個新缺陷。** 上面這段寫的時候
+是實話；後來補做了——`flutter run -d macos --release`、`cliclick` 點開 Add
+Worktree、`screencapture -R` 只截該視窗（不截全螢幕，遵守標準規則）。標籤確實不再
+蓋住路徑，這一半確認了。**但同一張截圖也讓使用者一眼看出另外三件事**，見〈追加二〉。
+
+這件事本身值得記：**「用 widget test 證明」跟「跑起來看」找到的不是同一類缺陷**。
+`flutter_test` 有真的 layout/paint pipeline，所以它能量到的東西是真的；問題是我
+那時候量錯了對象（量 widget 的 rect，不是畫出來的框），而**肉眼不會量錯對象**。
+
+
+## 追加二：實機截圖之後使用者回報的三件事
+
+使用者看完那張實機截圖，回了三句：
+
+> 那我沒選分支之前，應該把選位置那邊鎖起來，我剛剛一直以為可以直接選位置用了。
+> 另外隔壁的瀏覽button畫面與瀏覽textbox高度不同，所以spec你沒有照做
+> 而且dialog內的畫面底色也不對
+
+三件事，一件是裁定，兩件是缺陷。
+
+### 一、位置在選分支之前要鎖起來（裁定）
+
+位置的預設值來自 `_computeDefaultPath()`，而它在分支名為空時回傳 `null`——所以
+在選分支之前，那個欄位**只可能是空的**，卻長得可以用。使用者先伸手去按的是旁邊的
+「瀏覽…」，所以兩半用同一個條件一起鎖。
+
+條件就是 `_computeDefaultPath()` 自己 null 掉的那一個（`effectiveBranchName`
+非空），不是另外再推導一次（[CULT-single-source-of-truth]）。兩種模式的條件不同
+是重點：checkout 既有分支看 `_picked`，建立新分支看**打進去的名字**——後者在
+picker 預設停在 HEAD、`_picked` 已經非 null 但名字還沒打的時候仍然該鎖，那一則
+單獨寫了測試釘住，否則「有選到東西」跟「有名字可以組路徑」會被當成同一件事。
+
+Mutation：`pathEnabled` 常數化成 `true` → `-2`；只解開按鈕那一半 → `-1`。
+
+### 二、瀏覽 button 跟 textbox 不一樣高
+
+**這是本輪 G4b 自己造成的，而且跟 `labelText` 同源**：`SizedBox(height: 30)` 框住
+的是 widget，不是 Material 畫出來的框。
+
+`_RenderDecoration.performLayout` 把框畫在
+
+```
+containerHeight = min(max(contentHeight, minContainerHeight), maxContainerHeight)
+```
+
+`isDense: true` 把 `minContainerHeight` 設成**文字自己的高度**，而 `SizedBox` 只
+提供了 `maxContainerHeight`——所以 `min` 落在文字高度上，框比它的外殼矮。實機截圖
+量到 **23px 對按鈕的 30px**；widget test 的字型下是 24 對 30，同一個缺陷、不同
+數字。
+
+改成 `isDense: false` 之後那個下限變成 `kMinInteractiveDimension`(48)，`min` 就落
+在外殼的 30，**任何字型都一樣**——這是不必拿 `contentPadding` 去對字型算數的原因，
+也是這個 helper 的 doc comment 本來就拒絕做那件事的原因。代價是它從此**依賴外面
+那個 `SizedBox` 真的存在**：沒有上界的話同一條式子給的是 48。`gbm_ref_picker.dart`
+的搜尋框是全 app 唯一沒有包 `SizedBox` 的單行呼叫端，一併補上。
+
+**為什麼第一次探這個 bug 什麼都沒找到**：我量的是 `getRect(find.byType(TextField))`，
+回來是 30.0，跟按鈕一樣——因為那是 `SizedBox` 加上去的尺寸。框是
+`_RenderDecoration` 底下**另一個 child RenderBox**，tight 到它自己算出來的
+`containerHeight`。唯一能跟這個缺陷唱反調的斷言，是量那個 child 的那一種：
+
+```dart
+find.descendant(of: find.byType(InputDecorator), matching: find.byType(CustomPaint))
+```
+
+這就是 [TEST-fixture-cannot-disagree] 第 14 列再深一層——那一列講的是
+`controller.text` 是「模型」的代理，這裡是 widget 的 rect 是「畫出來的東西」的代理。
+兩者都真、都被測試、都跟使用者看到的東西不同一件事。
+
+### 三、底色不對
+
+兩處，都是同一句話的兩半：
+
+- **欄位框沒有底色**。spec `.box` 寫 `background: var(--gbm-surface-panel)`
+  (#0D1117)，實作沒有 `filled`，所以殼的 `surface-panel-raised`(#161B22) 直接透
+  上來——欄位讀起來跟對話框齊平，而不是陷進去。
+- **ref picker 的清單區也沒有底色**。spec `.box--list` 是
+  `background: var(--gbm-surface-sunken)`。
+
+順帶量到第三件沒人回報過的：**邊框是純黑**。裸 `OutlineInputBorder()` 帶的是裸
+`BorderSide()`，也就是 `Colors.black` 1px——不是 theme 的顏色。截圖裡量到
+`(0,0,0)`，而旁邊按鈕的邊是 `(48,54,61)` = `#30363D` = `border-default`。三個狀態
+現在各自明寫，因為欄位**會停在 disabled**（位置預設就是鎖的），把黑框留在那個狀態
+等於留在使用者第一眼看到的那一格。
+
+### 四、順著量到的第四個：有錯誤的欄位框只剩 10px
+
+沒人回報，是修高度時量出來的。`errorText` 是畫在框**下面**的 subtext，而
+`SizedBox(30)` 夾的是「框 + subtext」——所以一個有錯誤的欄位，框被壓到 **10px**。
+`add_worktree`（重複分支名）、`new_branch`、`rename_branch` 三處會遇到。
+
+訊息改成框下面的外部 `Text`（`gbmFieldError()`，spec 的 `.fld__hint` 形狀），
+helper 只收 `hasError` 換邊框色。**跟這輪稍早把 `labelText` 移到框外是同一個決定**
+——一個固定高度的框裝不下 Material 想放在它上面或下面的東西，兩次都是。
+
+`rename_branch_dialog_test.dart` 有三則斷言讀 `field.decoration!.errorText`，正是
+第 14 列的形狀（讀模型，不讀畫面），改成斷言畫出來的那一行——用顏色（`danger`）認
+而不是用文字認，否則別處剛好寫一樣的字也會過。
+
+### 驗證
+
+`flutter analyze --no-pub` 0 issue；`flutter test` 2843 則全綠（追加一是 2829，
+多出來的 14 則是這次的新斷言）；`dart format --set-exit-if-changed .` 0 changed；
+golden 21/21。
+
+Mutation-check 共 **5 次**，reddened **8 則**（4 / 1 / 1 / 1 / 1）：`isDense` 改回
+true → `-4`；單行 helper 的 `filled` 關掉 → `-1`；`resting` 改成黑色 → `-1`；
+picker 清單底色改成 `surfacePanel` → `-1`；picker 搜尋框外殼 30 改 48 → `-1`。
+
+**其中一次第一版是無效的**：`filled: true` 那個 anchor 在單行與多行兩個 helper 裡
+各出現一次，`count(old)==1` 的斷言擋下來了，回報的是 `matched 2x` 而不是一個假的
+全綠。這正是 [TEST-mutation-check-every-test] 要求先斷言出現次數的原因，如實記下
+——第一次跑出來的「All tests passed」不是證據，是沒改到。
+
+裝置層：`integration_test/` 底下只有 `worktree_pending_counts_test.dart` 命中
+（照 [TEST-grep-misses-intent-driven-device-tests] 用 `GbmActionId`、面板名稱、
+`GbmRefPicker`、`gbmInputDecoration` 一起 grep，不只 grep 改動到的字串）。

@@ -225,4 +225,59 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
 - **Do**: pin the fix with a rect assertion (`labelRect.bottom <= fieldRect.top`), never a
   bare `find.text(label)` — [FLU-finder-proves-existence-not-position] applies here exactly:
   existence of the label text proves nothing about whether it overlaps the value.
+- **See also**: this was the **first of three** defects that one fixed-height wrapper caused,
+  and fixing it alone left the other two shipping — [FLU-input-paints-its-own-box] (the
+  painted outline is shorter than the wrapper) and [FLU-fixed-height-box-excludes-subtext]
+  (an error message eats the box). One cause, three symptoms, found one at a time.
 - **Evidence**: [ledger: Worktree Dialogs G2–G8, 追加](../ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)
+
+## [FLU-input-paints-its-own-box] A `TextField`'s outline is painted by a *child* render box sized by `isDense`, not by the `SizedBox` around it
+
+- **Rule**: `_RenderDecoration` lays the border and fill out as a separate child, tight to
+  `containerHeight = min(max(contentHeight, minContainerHeight), maxContainerHeight)`.
+  `isDense: true` sets `minContainerHeight` to the **text's own height**; a wrapping
+  `SizedBox` only supplies `maxContainerHeight`. So the `min` lands on the text height and
+  the painted outline comes out **shorter than the widget it sits in**.
+- **Consequence**: measured on a real macOS screenshot, Add Worktree's 位置 box drew at
+  **23px beside a 30px `GbmButton`** while `getRect(find.byType(TextField))` reported 30.0
+  for both — the wrapper's number, not the painted one.
+- **Do**: `isDense: false` is the font-independent fix: the floor becomes
+  `kMinInteractiveDimension` (48), so the `min` lands on the wrapper's 30 exactly, whatever
+  the font. Tuning `contentPadding` against font metrics is the fix that looks right and
+  drifts between the test font and the real one.
+- **Do**: it now **depends on the wrapper existing** — with no upper bound the same
+  expression yields 48. `gbmInputDecoration`'s callers all wrap; the ref picker's search box
+  was the one that did not, and it had to gain one in the same change.
+- **Do**: a multiline field keeps `isDense: true`, because it has no fixed-height wrapper for
+  the `min` to clamp against and 48 would become a real floor.
+- **Do**: the assertion that can disagree measures the **painted** box —
+  `find.descendant(of: find.byType(InputDecorator), matching: find.byType(CustomPaint))` —
+  and compares it against the neighbour it must match, not against the shared constant
+  ([FLU-finder-proves-existence-not-position]).
+- **See also**: [FLU-floating-label-overflows-fixed-height] and
+  [FLU-fixed-height-box-excludes-subtext] are the same fixed-height wrapper's other two
+  casualties; all three arrived in one change and only the first was noticed.
+- **Evidence**: [ledger: 追加二](../ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)
+
+## [FLU-fixed-height-box-excludes-subtext] A fixed-height wrapper bounds the box *and* its subtext, so `errorText` eats the box
+
+- **Rule**: Material lays `errorText`/`helperText` out below the container, and both are
+  inside whatever height the caller imposed. Measured: a field wrapped in
+  `SizedBox(height: 30)` with an error painted its outline at **10px**.
+- **Consequence**: the field is at its least readable exactly when it is trying to explain
+  itself. Three dialogs shipped this (`add_worktree`, `new_branch`, `rename_branch`); nobody
+  reported it, because it needs a duplicate branch name to trigger.
+- **Do**: the message goes in an external `Text` under the box — the spec's own `.fld__hint`
+  shape — and the decoration takes a `hasError` flag that recolours the outline only. This is
+  [FLU-floating-label-overflows-fixed-height]'s decision applied to the other side of the box:
+  a fixed height fits neither what Material wants to draw above it nor below it.
+- **Do**: a test asserting `decoration.errorText` cannot see any of this — that is the model,
+  not the paint ([TEST-fixture-cannot-disagree] row 15). Assert the rendered line, and
+  identify it by its `danger` colour rather than by its text, so the finder cannot pass by
+  matching some other line that says the same thing.
+- **Rule**: **a bare `OutlineInputBorder()` is black.** Its default `BorderSide()` is
+  `Colors.black` width 1, not the theme's colour — measured `(0,0,0)` against the neighbouring
+  button's `#30363D`. Name every state (`border`, `enabledBorder`, `disabledBorder`,
+  `focusedBorder`), because a field's *resting* state is whichever one its screen leaves it in
+  and Add Worktree's 位置 now rests **disabled**.
+- **Evidence**: [ledger: 追加二](../ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)

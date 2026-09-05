@@ -1874,15 +1874,15 @@ footer.colophon {
     <div class="tablewrap"><table>
       <thead><tr><th style="width:5%">#</th><th style="width:11%">狀態</th><th style="width:24%">項目</th><th style="width:8%">改幾處</th><th>是什麼</th></tr></thead>
       <tbody>
-        <tr><td class="num">X1</td><td><span class="pill is-open">open</span></td><td>未追蹤檔案 unstage 之後回到 <code>?</code></td><td class="num">1 + 2 測試</td>
+        <tr><td class="num">X1</td><td><span class="pill is-ratified">done</span></td><td>未追蹤檔案 unstage 之後回到 <code>?</code></td><td class="num">1 + 2 測試</td>
             <td>把 §11 的規則放進 <code>PartialStageOperation</code>（<code>StageOps.cpp:168–241</code>）。先在 <code>GitIntegrationTest.cpp</code> 寫紅，斷言 porcelain 的 <code>?</code>；然後補一個裝置層案例，因為 <code>stage_lines_flow_test.dart</code> 七個測試裡沒有一個用未追蹤檔案。不動 capi —— 修正完全在 operation 內部，所以不會跨過 <code>[TEST-ffi-matches-symbol-only]</code> 的那條縫。</td></tr>
-        <tr><td class="num">X2</td><td><span class="pill is-open">open</span></td><td><code>ScopedDiffView</code> 改成吃一串來源</td><td class="num">2</td>
+        <tr><td class="num">X2</td><td><span class="pill is-ratified">done</span></td><td><code>ScopedDiffView</code> 改成吃一串來源</td><td class="num">2</td>
             <td><b>純重構，不動任何一個像素。</b><code>file</code>/<code>staged</code>/<code>onStageScope</code>/<code>onDiscardScope</code> 收成一串 <code>ScopedDiffSource</code>；<code>_wellChildren</code> 改成走 來源 → hunks → segments。<code>_ScopeCard</code>/<code>_GapBlock</code> 不用改 —— 它們本來就各自收 <code>staged</code>。列的 <code>GlobalKey</code> 要改用 <code>(source, hunk, line)</code> 當 key，否則兩個來源的同號列會撞在一起，那在結構上就是 <code>[FLU-selectionarea-gives-a-string]</code> 的陷阱 1。驗收條件是既有測試一個字都不改、全部維持綠。</td></tr>
-        <tr><td class="num">X3</td><td><span class="pill is-open">open</span></td><td><code>unified</code> 變成一份合併清單</td><td class="num">1 + 測試</td>
+        <tr><td class="num">X3</td><td><span class="pill is-ratified">done</span></td><td><code>unified</code> 變成一份合併清單</td><td class="num">1 + 測試</td>
             <td>依 U1–U9 的裁定，九題全部已定。區域排序（U1）、逐卡片的左緣與圓點、標題列的計數 chip、一次性選取的方向規則。<code>2 file</code> 的版面與行為一個字不動（U6），模式切換器不動（U9）。<b>Unstage 按鈕樣式獨立成 X5</b>，因為它是本輪唯一跨到 <code>2 file</code> 的改動，混在這個 commit 裡就沒辦法單獨 revert。</td></tr>
-        <tr><td class="num">X5</td><td><span class="pill is-open">open</span></td><td>Unstage 按鈕的第二種樣式（U8）</td><td class="num">2</td>
+        <tr><td class="num">X5</td><td><span class="pill is-ratified">done</span></td><td>Unstage 按鈕的第二種樣式（U8）</td><td class="num">2</td>
             <td><b>本輪唯一跨到 <code>2 file</code> 的一項</b>，所以自己一個 commit，可以單獨 revert。<b>實作時量到落差比稽核當時寫的小</b>：<code>GbmButtonKind.secondary</code> 早就供了 <code>surface-panel-raised</code> 與 <code>text-primary</code>，只有邊框是 <code>border-default</code> 而非 <code>border-strong</code>。所以做的是給 <code>GbmButton</code> 一個 <code>borderColor</code> 覆寫、在這兩個呼叫點傳 <code>borderStrong</code> —— 直接改 <code>secondary</code> 這個 kind 會動到全 app 每一顆次要按鈕。條件是<b>卡片自己的 <code>staged</code></b>，不是模式 —— <code>_ScopeCard</code> 已經逐張帶著這個值，所以兩個模式自然一致，不必把模式傳下去。<b>放在 X3 之後</b>，這樣 <code>2 file</code> 的既有測試是在版面改動已經全綠之後才被碰到，紅了就一定是這個 commit。測試斷言按鈕的<b>顏色 token</b>，不是它存在 —— 一個只找得到 <code>Unstage 2 lines</code> 的斷言，在兩顆按鈕長得一模一樣的今天也是綠的（<code>[FLU-hand-rolled-inkwell-hover]</code> 那句<span class="zh">「用 identity 斷言 token」</span>）。</td></tr>
-        <tr><td class="num">X4</td><td><span class="pill is-open">open</span></td><td>記錄</td><td class="num">4</td>
+        <tr><td class="num">X4</td><td><span class="pill is-ratified">done</span></td><td>記錄</td><td class="num">4</td>
             <td><code>[STRUCT-two-column-switches]</code> 的 Working Copy 那一列寫著<span class="zh">「左 ↔ 右 means unstaged ↔ staged」</span>，這對 <code>unified</code> 不再成立；<code>[STRUCT-working-copy]</code> 的 diff 段落同理。X1 的發現是 <code>GIT-</code> pin 等級的材料，該放在 <code>[GIT-new-file-patch-needs-dev-null]</code> 旁邊，它那句<span class="zh">「不要改 unstage 方向」</span>是<em>對的</em>，現在多了一條量出來的邊界。新的 ledger 檔，加上它在 <code>INDEX.md</code> 的那一行。</td></tr>
       </tbody>
     </table></div>

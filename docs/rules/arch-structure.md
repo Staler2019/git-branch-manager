@@ -227,7 +227,15 @@ is not there, and a hint pointing the wrong way is worse than none.
 To the right of the columns, the diff area has **two modes** (`2 file`:
 unstaged left / staged right, and `unified`, **which is the default** as of
 the same round — a right-hand pane split into two monospace columns would
-have reproduced the very complaint) and stages by **scope**, not by
+have reproduced the very complaint). ~~`unified` stacks the two sides in one
+column~~ — that shipped, and it was 「還是拆成上下檢視」: two columns rotated
+rather than merged. **It is now one list**, its cards ordered by where each
+region sits on the index (`indexPositionOf`), with the two column heads
+replaced by 「N 未暫存 · M 已暫存」 in the title bar and each card carrying
+its own direction — 使用者裁定 U1–U8. `2 file`'s layout and behaviour are
+untouched; the one thing that crosses into it is the Unstage button's
+`border-strong` ring, 使用者裁定 「這是唯一會影響到 2file 的」. It stages by
+**scope**, not by
 line-checkbox: `diff_scopes.dart` merges changes separated by ≤
 `kDefaultScopeGap` (2) unchanged lines, never crossing a hunk, and each scope
 card carries its own end-of-run button. An ordinary text selection is a
@@ -253,9 +261,21 @@ conflating them is the easy mistake:
 
 | Where | Enum / storage | Left ↔ right means |
 |---|---|---|
-| Working Copy diff pane | `WorkingCopyDiffMode` (`2 file` / `unified`), **widget state, not persisted**, default `unified` since feat/working-copy-vertical-file-lists | unstaged ↔ staged |
+| Working Copy diff pane, `2 file` | `WorkingCopyDiffMode.twoFile`, **widget state, not persisted** | unstaged ↔ staged |
+| Working Copy diff pane, `unified` | `WorkingCopyDiffMode.unified`, same storage, **the default** since feat/working-copy-vertical-file-lists | **nothing** — one merged list, ordered by index region; direction is per card |
 | History commit detail | `DiffViewMode` (`side by side` / `unified`), persisted app-wide under the flat key `diffViewMode`, default `unified` | 變更前 (old) ↔ 變更後 (new) |
 | Conflict window | no switch; always three panes | ours ↔ result ↔ theirs |
+
+`unified` is **one list, not two stacked columns**, since
+fix/working-copy-unified-single-view. It had shipped as two `ScopedDiffView`s
+one above the other — two columns rotated, which is 「還是拆成上下檢視」 and
+what the user rejected. So the row above is two rows now: in `2 file` a
+position still means a direction, and in `unified` it means only where the
+region sits in the file. The card's own left edge, dot and verb are what
+carry direction there ([SPEC-demo-dom-is-the-spec]'s `.variant-B-btn-stage` /
+`.variant-B-btn-unstage`), and `ScopedDiffView` takes a **list** of
+`ScopedDiffSource` for exactly this reason — one element in `2 file`, two in
+`unified` ([FLU-merged-diff-keys-by-source]).
 
 They deliberately **do not share a preference** — one setting flipping both
 would surprise the user in whichever view they were not looking at. History's

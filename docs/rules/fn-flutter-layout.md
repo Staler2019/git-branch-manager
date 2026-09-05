@@ -353,3 +353,39 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
   forcing one would need `_reopenExtent` cleared in memory while storage kept the old number —
   which reads deterministic in-session and differs after a restart.
 - **Evidence**: [ledger: 追加六](../ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)
+
+## [FLU-merged-diff-keys-by-source] A view drawing two diffs at once keys every positional row by its source, and settles direction from painted order
+
+- **Rule**: `ScopedDiffView` takes a **list** of `ScopedDiffSource` — one element in `2 file`
+  mode, two in `unified`. Direction, callbacks, empty wording and the in-flight/refused flags
+  are all per source; the view itself owns only the selection, the wrap flag and the scroll
+  context.
+- **Rule**: the row key is `'$sourceIndex:$hunkIndex:$lineIndex'`. The two working-copy diffs
+  carry the *same* hunk and line numbers, so a two-part key collides — and a collision here is
+  not a wrong answer but a framework assert, two `SelectionListener`s sharing one notifier
+  ([FLU-selectionarea-gives-a-string]'s trap 1).
+- **Rule**: ordering is by **region**, not by line — `indexPositionOf` reads the coordinate the
+  two diffs share (unstaged is index→worktree so its *old* side is the index; staged is
+  HEAD→index so its *new* side is). 使用者裁定: 「我要對齊的不是行號，是 git 判斷出的區域變更，
+  每個區塊會是一個 scope，然後 unstage, stage 必定是不同 scope」. Ordering regions asserts
+  precedence only, so 變體 B's own ban on hard line alignment survives it.
+- **Do**: sort **decorated with the original index** — `List.sort` is not stable, and the
+  tie-break (equal position → unstaged first) has to be deterministic or two builds paint two
+  orders.
+- **Do**: **never derive 「am I merged?」 from `sources.length`.** A unified view of a file with
+  only staged changes gets exactly one source, indistinguishable in shape from `2 file`'s right
+  pane — so any such derivation draws the wrong thing on precisely that file while every
+  two-source fixture stays green ([TEST-fixture-cannot-disagree]). Pass the fact down
+  (`showColumnHeads`) from whoever owns the mode.
+- **Do**: a source that is **in flight or refused still says so** even when another source has
+  rows. Writing the placeholder rule as 「only when nothing has content」 silently deletes
+  「Diff too large to display」 the moment the other side has cards, which is the message
+  [CPP-parse-refuses-over-cap] says every consumer owes the user. Only the plain 「nothing on
+  this side」 is suppressed, because the pane's own count already says it.
+- **Do**: **a fixture whose two sides sit at the same index position cannot see the ordering at
+  all** — concatenating and sorting give the same answer there. The discriminating one puts one
+  side's region *between* two of the other's, and it needs a **context** line: that is the only
+  kind carrying both line numbers, so with added lines alone `indexPositionOf` falls back to the
+  hunk's own start, which already reads the right side, and the whole loop can be mutated to
+  read the wrong one with the test still green.
+- **Evidence**: [ledger: unified 合成單一清單](../ledger/2026-09-05-fix-working-copy-unified-single-view.md)

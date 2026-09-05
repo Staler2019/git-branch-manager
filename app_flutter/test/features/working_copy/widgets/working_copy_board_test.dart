@@ -45,22 +45,30 @@ WorkingCopyEntry _entry({
   isConflicted: false,
 );
 
-/// The paths whose row currently renders selected, read straight off the
-/// [GbmRow]s -- set equality against this is the only assertion that can see
-/// a range spanning the wrong rows. `containsAll` cannot.
+/// The paths whose row currently renders selected, read off each [GbmRow]'s
+/// own key -- set equality against this is the only assertion that can see a
+/// range spanning the wrong rows. `containsAll` cannot.
+///
+/// The key, not the row's first `Text`. That is what this used to read, and
+/// it was a proxy that stopped being one the moment tree mode started
+/// labelling a leaf with only the segment its folder rows had not already
+/// written: the row for `lib/a.dart` now draws `a.dart`, which is
+/// indistinguishable from a root-level `a.dart`. `working_copy_board.dart`
+/// composes the key from `entry.path` itself, so it is the row's identity
+/// rather than a rendering of it.
 Set<String> _selectedPaths(WidgetTester tester) {
   final Set<String> paths = <String>{};
   for (final GbmRow row in tester.widgetList<GbmRow>(find.byType(GbmRow))) {
     if (!row.selected) continue;
-    // Read the first Text under the row rather than casting through the
-    // row's widget shape: a layout change should red the layout test, not
-    // every selection test at once.
-    final Text label = tester
-        .widgetList<Text>(
-          find.descendant(of: find.byWidget(row), matching: find.byType(Text)),
-        )
-        .first;
-    paths.add(label.data!);
+    final String key = (row.key! as ValueKey<String>).value;
+    // 'wc-file-{staged|unstaged}-{path}-selected'; every row collected here
+    // is selected, so the suffix is always present.
+    final String withoutSuffix = key.substring(
+      0,
+      key.length - '-selected'.length,
+    );
+    final int pathStart = withoutSuffix.indexOf('-', 'wc-file-'.length) + 1;
+    paths.add(withoutSuffix.substring(pathStart));
   }
   return paths;
 }
@@ -650,10 +658,14 @@ void main() {
       await tester.tap(find.byType(FileTreeFolderRow));
       await tester.pumpAndSettle();
 
-      await _tapWithModifier(tester, find.text('lib/a.dart'), null);
+      // The leaves are labelled `a.dart` / `b.dart` here, not `lib/a.dart`:
+      // the `lib` folder row above them already carries the prefix. The
+      // *assertion* is still on the full paths, because `_selectedPaths`
+      // reads each row's key rather than the text it draws.
+      await _tapWithModifier(tester, find.text('a.dart'), null);
       await _tapWithModifier(
         tester,
-        find.text('lib/b.dart'),
+        find.text('b.dart'),
         LogicalKeyboardKey.shiftLeft,
       );
 

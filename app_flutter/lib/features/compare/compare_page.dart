@@ -537,7 +537,14 @@ class _RefCompareFileList extends StatelessWidget {
                     controller: controller,
                     itemCount: files.length,
                     itemBuilder: (context, index) =>
-                        _buildFileRow(context, files[index]),
+                        // List mode's label is the whole path -- this branch
+                        // is the switcher's list arm, hand-rolled here only
+                        // so the scroll offset survives.
+                        _buildFileRow(
+                          context,
+                          files[index],
+                          files[index].displayPath,
+                        ),
                   ),
                 )
               // Tree mode has no scroll-offset persistence: FileTreeList
@@ -546,15 +553,16 @@ class _RefCompareFileList extends StatelessWidget {
                   mode: viewMode,
                   items: files,
                   pathOf: (DiffFile file) => file.displayPath,
-                  leafBuilder: (BuildContext context, DiffFile file) =>
-                      _buildFileRow(context, file),
+                  leafBuilder:
+                      (BuildContext context, DiffFile file, String label) =>
+                          _buildFileRow(context, file, label),
                 ),
         ),
       ],
     );
   }
 
-  Widget _buildFileRow(BuildContext context, DiffFile file) {
+  Widget _buildFileRow(BuildContext context, DiffFile file, String label) {
     final GbmColors colors = context.gbmColors;
     final bool isSelected = file.displayPath == selectedPath;
     // `GbmRow` at the same compact height as History's Changed files, for
@@ -569,8 +577,11 @@ class _RefCompareFileList extends StatelessWidget {
       child: Row(
         children: <Widget>[
           Expanded(
+            // `label`, not the path: in tree mode the folder rows above
+            // already carry the prefix. `FileListModeSwitcher` decides
+            // which it is; a row cannot see its own depth.
             child: Text(
-              file.displayPath,
+              label,
               style: TextStyle(
                 fontSize: GbmTypography.textSm,
                 color: colors.textPrimary,
@@ -690,7 +701,14 @@ class _WorkingCopyFileList extends StatelessWidget {
                     controller: controller,
                     itemCount: files.length,
                     itemBuilder: (context, index) =>
-                        _buildFileRow(context, files[index]),
+                        // List mode's label is the whole path -- this branch
+                        // is the switcher's list arm, hand-rolled here only
+                        // so the scroll offset survives.
+                        _buildFileRow(
+                          context,
+                          files[index],
+                          files[index].displayPath,
+                        ),
                   ),
                 )
               // Tree mode has no scroll-offset persistence: FileTreeList
@@ -699,15 +717,16 @@ class _WorkingCopyFileList extends StatelessWidget {
                   mode: viewMode,
                   items: files,
                   pathOf: (DiffFile file) => file.displayPath,
-                  leafBuilder: (BuildContext context, DiffFile file) =>
-                      _buildFileRow(context, file),
+                  leafBuilder:
+                      (BuildContext context, DiffFile file, String label) =>
+                          _buildFileRow(context, file, label),
                 ),
         ),
       ],
     );
   }
 
-  Widget _buildFileRow(BuildContext context, DiffFile file) {
+  Widget _buildFileRow(BuildContext context, DiffFile file, String label) {
     final GbmColors colors = context.gbmColors;
     final bool isSelected = file.displayPath == selectedPath;
     return GbmRow(
@@ -717,8 +736,11 @@ class _WorkingCopyFileList extends StatelessWidget {
       child: Row(
         children: <Widget>[
           Expanded(
+            // `label`, not the path: in tree mode the folder rows above
+            // already carry the prefix. `FileListModeSwitcher` decides
+            // which it is; a row cannot see its own depth.
             child: Text(
-              file.displayPath,
+              label,
               style: TextStyle(
                 fontSize: GbmTypography.textSm,
                 color: colors.textPrimary,

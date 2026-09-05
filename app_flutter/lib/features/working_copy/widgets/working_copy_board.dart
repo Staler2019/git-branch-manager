@@ -386,13 +386,15 @@ class _WorkingCopyBoardState extends State<WorkingCopyBoard> {
             mode: widget.mode,
             items: entries,
             pathOf: (WorkingCopyEntry entry) => entry.path,
-            leafBuilder: (BuildContext context, WorkingCopyEntry entry) =>
-                _buildFileRow(
-                  context,
-                  entry: entry,
-                  entries: entries,
-                  fromStaged: fromStaged,
-                ),
+            leafBuilder:
+                (BuildContext context, WorkingCopyEntry entry, String label) =>
+                    _buildFileRow(
+                      context,
+                      entry: entry,
+                      entries: entries,
+                      fromStaged: fromStaged,
+                      label: label,
+                    ),
             folderBuilder:
                 (
                   BuildContext context,
@@ -416,6 +418,7 @@ class _WorkingCopyBoardState extends State<WorkingCopyBoard> {
     required WorkingCopyEntry entry,
     required List<WorkingCopyEntry> entries,
     required bool fromStaged,
+    required String label,
   }) {
     final GbmColors colors = context.gbmColors;
     final Set<String> selectedPaths = _selectedPathsIn(entries);
@@ -441,8 +444,11 @@ class _WorkingCopyBoardState extends State<WorkingCopyBoard> {
       child: Row(
         children: <Widget>[
           Expanded(
+            // `label`, not `entry.path`: in tree mode the folder rows above
+            // already carry the prefix. `FileListModeSwitcher` decides which
+            // it is; the row does not, because a row cannot see its depth.
             child: Text(
-              entry.path,
+              label,
               style: TextStyle(
                 fontSize: GbmTypography.textSm,
                 color: colors.textPrimary,

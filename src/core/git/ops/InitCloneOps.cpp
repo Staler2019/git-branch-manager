@@ -37,6 +37,7 @@ GitResult<void> runCloneRepo(IProcessRunner& runner,
     GitCommand command;
     command.args = {"clone", "--quiet", request.url, request.destPath.string()};
     command.timeout = std::chrono::milliseconds(0);
+    command.idleTimeout = GitCommand::kHangCeiling;
     askpass::wire(command, request.askpassDir);
 
     auto result = runner.run(command, token);

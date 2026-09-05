@@ -181,6 +181,7 @@ GitResult<GraphSnapshotPtr> HistoryProvider::walk(const HistoryQuery& query,
     // No timeout: on a cold 500k-commit repository this legitimately takes
     // seconds. Cancellation is the control the user actually needs.
     command.timeout = std::chrono::milliseconds(0);
+    command.idleTimeout = GitCommand::kHangCeiling;
 
     GraphBuilder builder(GraphOptions{.trunkTip = query.trunkTip});
     std::size_t malformedLines = 0;

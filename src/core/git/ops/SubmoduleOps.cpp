@@ -46,7 +46,8 @@ public:
         }
 
         GitCommand command(paths.commandDir(), std::move(args));
-        command.timeout = std::chrono::milliseconds(0);  // clones a remote; can be slow.
+        command.timeout = std::chrono::milliseconds(0);
+        command.idleTimeout = GitCommand::kHangCeiling;  // clones a remote; can be slow.
         askpass::wire(command, request_.askpassDir);
 
         auto result = runner.run(command, token);
@@ -120,7 +121,8 @@ public:
         appendPathsArgs(args, request_.paths);
 
         GitCommand command(paths.commandDir(), std::move(args));
-        command.timeout = std::chrono::milliseconds(0);  // clones/fetches; can be slow.
+        command.timeout = std::chrono::milliseconds(0);
+        command.idleTimeout = GitCommand::kHangCeiling;  // clones/fetches; can be slow.
         askpass::wire(command, request_.askpassDir);
 
         auto result = runner.run(command, token);

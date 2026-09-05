@@ -86,6 +86,7 @@ public:
         // A checkout of a very large tree can legitimately take minutes; the user
         // gets a progress indication and a working Cancel instead of a timeout.
         command.timeout = std::chrono::milliseconds(0);
+        command.idleTimeout = GitCommand::kHangCeiling;
 
         auto result = runner.run(command, token);
         if (result) {

@@ -48,6 +48,33 @@ struct GitCommand {
     /// legitimately quiet inside its own budget.
     std::chrono::milliseconds idleTimeout{0};
 
+    /// The hang ceiling for a command that declares `timeout = 0`.
+    ///
+    /// **Measured, and the measurement is why it is this large rather than
+    /// tight.** Two censuses on this repository, git 2.55, macOS:
+    ///
+    ///  - In-pump, over ~10k invocations across the whole test suite: the
+    ///    largest gap between any two bytes of progress was **148 ms**.
+    ///  - Against a 60k-commit / 240k-object repository, every command that
+    ///    sets `timeout = 0` wrote **zero bytes** to its pipe and so was silent
+    ///    for its entire run: `repack -adf` 3540 ms, `commit-graph write
+    ///    --reachable` 248 ms, `clone --quiet` 138 ms, `reset --hard` 74 ms,
+    ///    `rev-list --all` 63 ms.
+    ///
+    /// That second row is the constraint. git prints a progress meter only when
+    /// stderr is a terminal, and ours is always a pipe -- so for these commands
+    /// "time since the last output" and "time since it started" are the same
+    /// number, and this ceiling has to cover a whole legitimate run, not a gap
+    /// between progress messages. Ten minutes is ~170x the slowest silent run
+    /// measured and ~4000x the typical gap, which leaves room for a far larger
+    /// repository on far slower storage while still bounding a true hang.
+    ///
+    /// Passing `--progress` would make git talk to a pipe and let this be
+    /// tightened a great deal; it also changes what lands in `stderr` for error
+    /// classification and the operation log, so it is a separate decision and
+    /// deliberately not taken here.
+    static constexpr std::chrono::milliseconds kHangCeiling{std::chrono::minutes(10)};
+
     bool mergeStderrIntoStdout = false;
 
     /// Exit codes that are a *normal answer* from this particular command, not

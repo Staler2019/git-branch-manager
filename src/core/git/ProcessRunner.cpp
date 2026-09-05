@@ -870,6 +870,15 @@ private:
         record.stderrText = stderrText;
         record.cancelled = wasCancelled;
         record.timedOut = wasTimeout;
+        // Deliberately unguarded by wasCancelled/wasTimeout, and deliberately
+        // not narrowed to a non-zero code: the Dart side tests cancelled and
+        // timedOut *before* it looks at this flag, and a zero exit is already
+        // info there, so neither guard could change how any row reads. Both
+        // would be branches no tier can redden, which is the same objection
+        // this round's own design section raises against a `bool
+        // tolerateFailure`. The spawn-failure path above records -1, which no
+        // caller can declare benign.
+        record.benignExit = command.isBenignExitCode(record.exitCode);
         Log::instance().recordOperation(record);
     }
 

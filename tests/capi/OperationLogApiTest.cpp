@@ -142,6 +142,14 @@ TEST_F(OperationLogApiTest, HistoryRefreshEmitsOperationLogRecordsForItsGitInvoc
         EXPECT_NE(record.find("\"repoDir\":\"" + jsonNeedle(repo_) + "\""), std::string::npos) << record;
         EXPECT_NE(record.find("\"argv\":["), std::string::npos) << record;
         EXPECT_NE(record.find("\"commandLine\":"), std::string::npos) << record;
+        // benignExit crosses the FFI as its own key rather than being inferred
+        // from argv on the Dart side -- only the caller knows which exit codes
+        // are answers for the question it asked (GitCommand::benignExitCodes).
+        // `false` for every record here is the assertion, not an accident: a
+        // history refresh declares no benign code, so a serializer that
+        // hardcoded `true` would be caught by this loop rather than by the
+        // Dart tests that only ever see decoded values.
+        EXPECT_NE(record.find("\"benignExit\":false"), std::string::npos) << record;
     }
     // At least one of them should be the `git` invocation that reads refs.
     const bool sawGitInvocation = std::any_of(records.begin(), records.end(), [](const std::string& record) {

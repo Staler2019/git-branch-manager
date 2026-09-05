@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -28,6 +29,38 @@ struct GitCommand {
     std::chrono::milliseconds timeout{0};
 
     bool mergeStderrIntoStdout = false;
+
+    /// Exit codes that are a *normal answer* from this particular command, not
+    /// a refusal — declared by the caller, because only the caller knows which
+    /// question it asked.
+    ///
+    /// `git config --get <key>` exits 1 when the key is unset, `--unset` exits
+    /// 5 when it was never set, `diff --no-index` exits 1 when it finds the
+    /// differences it was asked to find, and `merge-base` exits 1 when two
+    /// histories are genuinely unrelated. None of those is a failure, and all
+    /// four call sites already read the code as data. What they could not do
+    /// until now is say so to the *operation log*, which records every
+    /// invocation with its exit code and had no way to distinguish "answered
+    /// no" from "refused" — so a healthy refresh wrote two red ERROR rows for
+    /// reading an identity that simply is not configured. Spec page 10's
+    /// LOGRULES reserves error for an action that was actually refused.
+    ///
+    /// A set of codes rather than a `bool tolerateFailure`, and the `--unset`
+    /// case is why: its normal answer is 5, so a flag meaning "any non-zero is
+    /// fine here" would also swallow the 128 that says the config file is
+    /// broken or this is not a repository. Each command names the codes it can
+    /// legitimately answer with, and every other code stays an error.
+    ///
+    /// This affects the *record* only. `run()`/`stream()` still return
+    /// `fail(...)` for a benign code, because the caller already handles it and
+    /// changing that would rewrite four working call sites for no gain.
+    std::vector<int> benignExitCodes;
+
+    /// True when `code` is one of the answers this command declared.
+    bool isBenignExitCode(int code) const {
+        return std::find(benignExitCodes.begin(), benignExitCodes.end(), code) !=
+               benignExitCodes.end();
+    }
 
     /// Windows: pass CREATE_NO_WINDOW. Without it a console window flashes on
     /// every single git call, which is unusable in a GUI.

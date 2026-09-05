@@ -4880,5 +4880,123 @@ TEST_F(RealRepoTest, ImportAbortUnwindsCleanly) {
     EXPECT_EQ(head->out, beforeImport->out);
 }
 
+// --- Benign exit codes in the operation log ----------------------------------
+//
+// A git invocation whose non-zero exit is a *normal answer* rather than a
+// refusal. The caller declares which codes those are on the GitCommand, and
+// ProcessRunner::recordOperation() carries the verdict into the OperationRecord
+// so the operation-log panel can render it as INFO -- see the field's own doc
+// comment in core/base/Logging.h.
+//
+// Every case below arranges the condition out of *real* git state rather than
+// probing an invented key: the claim being tested is what git does for an unset
+// key, so a synthetic key that nobody would ever set would keep passing if git
+// ever changed that. Each case therefore asserts the exit code it arranged for
+// before asserting anything about benignExit -- otherwise a later edit to
+// SetUp(), which does configure user.name, would leave these green and vacuous.
+
+/// Captures whole OperationRecords, unlike CommandSpy above which counts the
+/// invocations carrying one flag. A sibling rather than a widening: CommandSpy
+/// has three users that all assert on count(), and there is no reason to
+/// disturb a working instrument.
+class RecordSpy {
+public:
+    RecordSpy() {
+        Log::instance().setOperationSink([this](const OperationRecord& record) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            records_.push_back(record);
+        });
+    }
+
+    ~RecordSpy() { Log::instance().setOperationSink(nullptr); }
+
+    RecordSpy(const RecordSpy&) = delete;
+    RecordSpy& operator=(const RecordSpy&) = delete;
+
+    /// The last record whose argv ends with `tail`, or nullopt. Matching on the
+    /// tail rather than the whole argv keeps the fixture out of the assertion:
+    /// globalFlags() and `-C <tempdir>` sit in front of every invocation.
+    std::optional<OperationRecord> lastEndingWith(const std::vector<std::string>& tail) const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (auto it = records_.rbegin(); it != records_.rend(); ++it) {
+            if (it->argv.size() < tail.size()) continue;
+            if (std::equal(tail.rbegin(), tail.rend(), it->argv.rbegin())) return *it;
+        }
+        return std::nullopt;
+    }
+
+private:
+    mutable std::mutex mutex_;
+    std::vector<OperationRecord> records_;
+};
+
+TEST_F(RealRepoTest, DeclaredBenignExitCodeIsRecordedAsBenign) {
+    // SetUp() configures user.name into --local scope, so the reported
+    // condition -- the key genuinely unset -- has to be arranged first.
+    ASSERT_TRUE(run({"config", "--local", "--unset", "user.name"}));
+
+    RecordSpy spy;
+    GitCommand command(repo_, {"config", "--local", "--get", "user.name"});
+    command.benignExitCodes = {1};
+    runner_->run(command, CancellationToken{});
+
+    const auto record = spy.lastEndingWith({"--get", "user.name"});
+    ASSERT_TRUE(record.has_value());
+    ASSERT_EQ(record->exitCode, 1) << "the arrangement no longer produces the unset-key exit";
+    EXPECT_TRUE(record->benignExit);
+}
+
+TEST_F(RealRepoTest, AnUndeclaredExitCodeIsNotRecordedAsBenign) {
+    // The control for the case above: without it, that one passes with
+    // benignExit hardwired true.
+    ASSERT_TRUE(run({"config", "--local", "--unset", "user.name"}));
+
+    RecordSpy spy;
+    GitCommand command(repo_, {"config", "--local", "--get", "user.name"});
+    runner_->run(command, CancellationToken{});
+
+    const auto record = spy.lastEndingWith({"--get", "user.name"});
+    ASSERT_TRUE(record.has_value());
+    ASSERT_EQ(record->exitCode, 1);
+    EXPECT_FALSE(record->benignExit);
+}
+
+TEST_F(RealRepoTest, BenignExitCodesAreMatchedPerCodeNotAsABoolean) {
+    // `git config --local --unset` on a key that was never set exits 5, so a
+    // caller may legitimately declare {5} while this command exits 1. Without
+    // this case an implementation reading `!benignExitCodes.empty()` passes
+    // everything above, and "a set of codes, not a flag" is an untested claim.
+    ASSERT_TRUE(run({"config", "--local", "--unset", "user.name"}));
+
+    RecordSpy spy;
+    GitCommand command(repo_, {"config", "--local", "--get", "user.name"});
+    command.benignExitCodes = {5};
+    runner_->run(command, CancellationToken{});
+
+    const auto record = spy.lastEndingWith({"--get", "user.name"});
+    ASSERT_TRUE(record.has_value());
+    ASSERT_EQ(record->exitCode, 1);
+    EXPECT_FALSE(record->benignExit);
+}
+
+TEST_F(RealRepoTest, ACleanExitIsNeverRecordedAsBenign) {
+    // user.email is deliberately left as SetUp() wrote it, which does two
+    // things at once: it pins that a successful command is not "benign" (the
+    // flag means "this non-zero code was an answer", not "this went fine"),
+    // and it shows the arrangement above really did unset one key rather than
+    // damaging the config file the other three cases read.
+    ASSERT_TRUE(run({"config", "--local", "--unset", "user.name"}));
+
+    RecordSpy spy;
+    GitCommand command(repo_, {"config", "--local", "--get", "user.email"});
+    command.benignExitCodes = {1};
+    runner_->run(command, CancellationToken{});
+
+    const auto record = spy.lastEndingWith({"--get", "user.email"});
+    ASSERT_TRUE(record.has_value());
+    ASSERT_EQ(record->exitCode, 0);
+    EXPECT_FALSE(record->benignExit);
+}
+
 }  // namespace
 }  // namespace gbm

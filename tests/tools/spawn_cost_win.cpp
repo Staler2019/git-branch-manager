@@ -349,6 +349,7 @@ int main(int argc, char** argv) {
     // field is what makes an attribution possible.
     long long gitUs = 0;
     long long gitTimeoutUs = 0;
+    long long gitAaUs = 0;
     {
         auto installation = gbm::GitExecutable::detect();
         if (installation && !installation->executable.empty()) {
@@ -371,28 +372,45 @@ int main(int argc, char** argv) {
 
             std::vector<long long> noTimeoutSamples;
             std::vector<long long> timeoutSamples;
+            std::vector<long long> noTimeoutAaSamples;
             for (int i = 0; i < kWarmupIterations + iterations; ++i) {
                 // Same alternation as the raw arms, for the same reason.
                 const bool deadlineFirst = (i % 2) == 1;
                 const long long first = timeOneGit(deadlineFirst);
                 const long long second = timeOneGit(!deadlineFirst);
+                // This pair's *own* A/A null arm. It is not optional and it is
+                // not a copy of the raw arms': a git spawn is ~26ms where the
+                // trivial child is ~16ms, and run-to-run spread scales with
+                // what is being run. Judging this pair's difference against a
+                // resolution calibrated on the other pair is the same error as
+                // calibrating a control group on a workload that cannot react
+                // to the variable you are excluding.
+                const long long aa = timeOneGit(false);
                 if (gFailures != 0) {
                     return 1;
                 }
                 if (i >= kWarmupIterations) {
                     timeoutSamples.push_back(deadlineFirst ? first : second);
                     noTimeoutSamples.push_back(deadlineFirst ? second : first);
+                    noTimeoutAaSamples.push_back(aa);
                 }
             }
             gitUs = ticksToMicros(medianOf(noTimeoutSamples), frequency);
             gitTimeoutUs = ticksToMicros(medianOf(timeoutSamples), frequency);
+            gitAaUs = ticksToMicros(medianOf(noTimeoutAaSamples), frequency);
         }
     }
 
-    // Reported against the same resolution the job-object delta is judged by:
-    // this arm pair is measured with the same instrument, on the same run.
+    // Judged against *this pair's* resolution, never the raw pair's.
+    //
+    // The first run that produced a number reported `watchdog delta = -72us
+    // (resolved)` against the raw arms' 18us -- a watchdog that made spawning
+    // faster, which is not a thing. The delta was real noise and the label was
+    // wrong, because 18us was measured on a 16ms trivial child and applied to
+    // a 26ms git process. The number is what exposed it.
     const long long watchdogDeltaUs = gitTimeoutUs - gitUs;
-    const bool watchdogResolved = gitUs > 0 && std::llabs(watchdogDeltaUs) > resolutionUs;
+    const long long prodResolutionUs = std::max<long long>(std::llabs(gitUs - gitAaUs), 1);
+    const bool watchdogResolved = gitUs > 0 && std::llabs(watchdogDeltaUs) > prodResolutionUs;
 
     const char* verdict = "measured";
     if (static_cast<long long>(rawJob.samples.size()) < kMinSamplesForVerdict) {
@@ -413,6 +431,7 @@ int main(int argc, char** argv) {
                  "  injected %lldus     -> recovered %lldus (error %.0f%%)\n"
                  "  prod_notimeout     = %lldus  (git --version, no watchdog)\n"
                  "  prod_timeout       = %lldus  (git --version, watchdog armed)\n"
+                 "  prod A/A null      = %lldus  -> prod resolution %lldus\n"
                  "  watchdog delta     = %lldus  (%s)\n"
                  "  parent already in a job: %s\n",
                  iterations,
@@ -426,6 +445,8 @@ int main(int argc, char** argv) {
                  recoveryError * 100.0,
                  gitUs,
                  gitTimeoutUs,
+                 gitAaUs,
+                 prodResolutionUs,
                  watchdogDeltaUs,
                  watchdogResolved ? "resolved" : "below this run's resolution",
                  parentInJob ? "yes" : "no");
@@ -440,11 +461,14 @@ int main(int argc, char** argv) {
     // is a /W4 warning, and this build is /WX.
     char watchdogField[128];
     if (watchdogResolved) {
-        std::snprintf(watchdogField, sizeof(watchdogField), "watchdog_delta_us=%lld",
-                      watchdogDeltaUs);
+        std::snprintf(watchdogField, sizeof(watchdogField),
+                      "watchdog_delta_us=%lld prod_resolution_us=%lld", watchdogDeltaUs,
+                      prodResolutionUs);
     } else {
-        std::snprintf(watchdogField, sizeof(watchdogField), "watchdog_delta_upper_bound_us=%lld",
-                      std::max<long long>(std::llabs(watchdogDeltaUs), resolutionUs));
+        std::snprintf(watchdogField, sizeof(watchdogField),
+                      "watchdog_delta_upper_bound_us=%lld prod_resolution_us=%lld",
+                      std::max<long long>(std::llabs(watchdogDeltaUs), prodResolutionUs),
+                      prodResolutionUs);
     }
 
     // One machine-readable line for the nightly Step Summary. Below the

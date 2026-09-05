@@ -28,6 +28,26 @@ struct GitCommand {
     /// slow, not broken, and killing it would be wrong.
     std::chrono::milliseconds timeout{0};
 
+    /// How long since the last *I/O progress* counts as hung. 0 means "do not
+    /// watch".
+    ///
+    /// `timeout` asks "how long has this run in total"; this asks "is it still
+    /// alive". For a fetch that is actively transferring, those two questions
+    /// have different answers, and that difference is the whole reason the ~24
+    /// commands above set `timeout = 0`: a 500 MB clone on a slow link is slow,
+    /// not broken, so a total-duration deadline would kill legitimate work.
+    /// Nothing arriving for minutes is a different claim, and a safe one.
+    ///
+    /// Progress means any of the three pipes moved: a stdout or stderr read, or
+    /// a stdin write. The stdin half matters -- a child steadily consuming a
+    /// patch we are feeding it is alive even before it answers.
+    ///
+    /// Set this only where `timeout` is 0. The commands that already carry a
+    /// finite total deadline cannot hang forever by construction, so adding an
+    /// idle deadline there would only add a way to kill a command that is
+    /// legitimately quiet inside its own budget.
+    std::chrono::milliseconds idleTimeout{0};
+
     bool mergeStderrIntoStdout = false;
 
     /// Exit codes that are a *normal answer* from this particular command, not

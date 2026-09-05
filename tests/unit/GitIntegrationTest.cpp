@@ -5164,5 +5164,67 @@ TEST(ProcessRunnerTimeout, AChildThatNeverWritesIsStillTimedOut) {
     EXPECT_FALSE(record->cancelled);
 }
 
+// The idle deadline: "nothing has arrived for N" rather than "this has run for
+// N". Same subject as the test above, but reached through `idleTimeout` with
+// `timeout` left at 0 -- which is the shape the ~24 network and sequencer
+// commands use, and the shape that had no deadline of any kind before this.
+TEST(ProcessRunnerTimeout, ASilentChildHitsTheIdleDeadline) {
+    auto runner = makeProcessRunner(std::filesystem::path(GBM_HANG_FOREVER_EXE));
+
+    RecordSpy spy;
+    GitCommand command({}, {"--gbm-hang-forever"});
+    command.timeout = std::chrono::milliseconds(0);  // no total deadline at all
+    command.idleTimeout = std::chrono::milliseconds(500);
+
+    auto result = runner->run(command, CancellationToken{});
+
+    ASSERT_FALSE(result) << "a child that never speaks must not run forever";
+    EXPECT_EQ(result.error().code, GitError::Code::Timeout);
+
+    const auto record = spy.lastEndingWith({"--gbm-hang-forever"});
+    ASSERT_TRUE(record.has_value());
+    EXPECT_TRUE(record->timedOut);
+    EXPECT_FALSE(record->cancelled);
+}
+
+// **The discriminating one.** Everything above is satisfied by implementing the
+// idle deadline as an ordinary total-duration deadline; this is not.
+//
+// The child drips a line every 200ms for kDripLines lines, then falls silent.
+// With a 500ms idle deadline and no total deadline, it must survive the whole
+// dripping phase -- a total-duration deadline of any value small enough to be
+// useful would cut it off partway -- and only then time out.
+//
+// Asserting the elapsed *floor* is what pins that: it is the half that a
+// total-duration implementation cannot satisfy.
+TEST(ProcessRunnerTimeout, AChildStillDrippingOutputOutlivesTheIdleDeadline) {
+    constexpr int kDripLines = 6;
+    constexpr auto kDripInterval = std::chrono::milliseconds(200);
+    constexpr auto kIdle = std::chrono::milliseconds(500);
+
+    auto runner = makeProcessRunner(std::filesystem::path(GBM_HANG_FOREVER_EXE));
+
+    GitCommand command({}, {"--gbm-hang-forever", "--drip", std::to_string(kDripLines)});
+    command.timeout = std::chrono::milliseconds(0);
+    command.idleTimeout = kIdle;
+
+    int lines = 0;
+    const auto started = std::chrono::steady_clock::now();
+    auto result = runner->stream(
+        command, [&lines](std::string_view) { ++lines; return true; }, nullptr,
+        CancellationToken{});
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+
+    ASSERT_FALSE(result) << "it still goes silent in the end, so it still times out";
+    EXPECT_EQ(result.error().code, GitError::Code::Timeout);
+
+    // The claim a total-duration deadline fails: it was NOT killed while it was
+    // still producing. Every drip is 200ms apart and every gap is under the
+    // 500ms idle deadline, so all of them must arrive.
+    EXPECT_EQ(lines, kDripLines) << "the idle deadline cut off a child that was still talking";
+    EXPECT_GE(elapsed, kDripInterval * kDripLines)
+        << "returned too early to have waited out the whole dripping phase";
+}
+
 }  // namespace
 }  // namespace gbm

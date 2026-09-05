@@ -603,13 +603,6 @@ abstract final class GbmLayout {
     minExtent: 140,
   );
 
-  /// Unstaged <-> Staged columns. **Superseded by [splitterWcStack]**; kept
-  /// only until its last caller moves. See that constant for the ruling.
-  static const GbmSplitterSpec splitterWcColumns = GbmSplitterSpec.flex(
-    flexRatio: <double>[1, 1],
-    minExtent: 200,
-  );
-
   /// Working Copy: the stacked file lists <-> the diff pane, **horizontal**.
   ///
   /// This replaces the deleted `splitterWcDiff`, and the change is a
@@ -650,7 +643,8 @@ abstract final class GbmLayout {
 
   /// Working Copy: Unstaged <-> Staged, **vertical**, Unstaged on top.
   ///
-  /// This replaces [splitterWcColumns], and is the other half of the same
+  /// This replaces the deleted `splitterWcColumns`, and is the other half
+  /// of the same
   /// ruled deviation. Page 09's `wc.columns` row reads `{ where: 'Unstaged
   /// ↔ Staged', dir: '垂直', def: '1 : 1', min: '200px' }` -- a vertical
   /// divider with the two lists side by side. 「改成左側垂直」 rotates it.

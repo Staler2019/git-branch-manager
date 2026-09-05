@@ -501,11 +501,18 @@ void main() {
     testWidgets('the card head keeps its button inside the card at a narrow '
         'width', (WidgetTester tester) async {
       // The bound is the card, not the pane: a button can sit inside a
-      // 420px pane while hanging off the 200px card it belongs to.
+      // 420px pane while hanging off the card it belongs to.
+      //
+      // The width is the *diff* pane's own floor. It used to be
+      // `splitterWcColumns.minExtent` -- a file-list column's floor, which
+      // was never this widget's neighbour and only ever stood in as "a
+      // narrow number from the same view". `splitterWcDiffSides` is the
+      // divider this view actually sits inside in `2 file` mode, and its
+      // 140 is narrower than the old 200, so the check got stricter.
       await pump(
         tester,
         file: _file(<String>['.+-.']),
-        width: GbmLayout.splitterWcColumns.minExtent,
+        width: GbmLayout.splitterWcDiffSides.minExtent,
       );
 
       final Rect button = tester.getRect(find.byType(GbmButton));

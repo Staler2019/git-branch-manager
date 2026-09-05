@@ -222,9 +222,14 @@ class _WorkingCopyBoardState extends State<WorkingCopyBoard> {
   @override
   Widget build(BuildContext context) {
     return GbmSplitPane(
-      axis: Axis.horizontal,
-      spec: GbmLayout.splitterWcColumns,
-      storageId: 'wc.columns',
+      // Vertical, and it used to be horizontal -- 「改成左側垂直，unstaged
+      // 一樣在上」. Page 09's SPLITTERS row for `wc.columns` says
+      // `dir: '垂直'` (the divider, not the stack), so this is a ruled
+      // deviation rather than a fix. Children order is the ruling's other
+      // half: Unstaged first means Unstaged on top.
+      axis: Axis.vertical,
+      spec: GbmLayout.splitterWcStack,
+      storageId: 'wc.stack',
       children: <Widget>[
         _buildColumn(
           context,

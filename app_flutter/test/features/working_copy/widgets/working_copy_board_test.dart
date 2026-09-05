@@ -168,6 +168,37 @@ void main() {
       expect(find.text('pubspec.yaml'), findsOneWidget);
     });
 
+    // 「把水平 unstaged-staged file list 改成左側垂直，unstaged 一樣在上」.
+    // Asserted on the two headers' rects against each other rather than
+    // against any constant -- a finder proves existence, not position, and
+    // the divider's own default is not what is being pinned here.
+    testWidgets('the two columns are stacked, Unstaged on top', (tester) async {
+      await pumpGbmWidget(
+        tester,
+        child: SizedBox(
+          width: 800,
+          height: 600,
+          child: WorkingCopyBoard(
+            unstagedEntries: unstagedEntries,
+            stagedEntries: stagedEntries,
+            onStageRequested: _ignorePaths,
+            onUnstageRequested: _ignorePaths,
+          ),
+        ),
+      );
+
+      final Rect unstaged = tester.getRect(find.text('Unstaged · 2'));
+      final Rect staged = tester.getRect(find.text('Staged · 1'));
+
+      // Stacked, not side by side: the two headers start at the same x.
+      // Side by side they would start at *different* x and the same y, so
+      // this pair of assertions is what tells the two arrangements apart --
+      // "Unstaged is above Staged" alone is vacuously true of a row whose
+      // two headers share a baseline only by rounding.
+      expect(unstaged.left, equals(staged.left));
+      expect(unstaged.bottom, lessThanOrEqualTo(staged.top));
+    });
+
     // Nothing anywhere asserted that a drop actually stages: the widget
     // tests only checked that a `Draggable` exists, and the device-tier
     // commit flow was still tapping a checkbox that 變體 B deleted. With
@@ -265,10 +296,17 @@ void main() {
       // Unstaged header only -- a second copy would be two controls for one
       // global setting.
       expect(find.byType(FileListModeToggleButton), findsOneWidget);
+      // Which column it belongs to is asserted against the *other* column's
+      // header, not against the board's own centre line. The centre-line
+      // form ("it is in the left half") was a proxy that only worked while
+      // the two columns sat side by side; once they were stacked both spanned
+      // the full width and the switch measured at x=771 on the Unstaged
+      // header -- correct, and failing an assertion that had stopped
+      // describing the claim.
       expect(
-        tester.getRect(find.byType(FileListModeToggleButton)).center.dx,
-        lessThan(tester.getRect(find.byType(WorkingCopyBoard)).center.dx),
-        reason: 'it belongs to the left (Unstaged) column',
+        tester.getRect(find.byType(FileListModeToggleButton)).bottom,
+        lessThanOrEqualTo(tester.getRect(find.text('Staged · 1')).top),
+        reason: 'it belongs to the Unstaged column, which is the upper one',
       );
     });
 
@@ -681,8 +719,15 @@ void main() {
       tester,
     ) async {
       // The default 800x600 test canvas hides width overflow: the real floor
-      // is GbmLayout.splitterWcColumns.minExtent per column, and the rows now
-      // carry two badges they did not before.
+      // is GbmLayout.splitterWcFiles.minExtent for the whole board, and the
+      // rows now carry two badges they did not before.
+      //
+      // It used to read `splitterWcColumns.minExtent * 2` -- two columns
+      // side by side, each with its own width floor. Stacked, both columns
+      // are as wide as the board, and the board is the fixed pane of the
+      // files-vs-diff divider, so its floor is that divider's `minExtent`
+      // and there is no `* 2`. The canvas is *narrower* than before (180
+      // against 400), which makes this a stricter test, not a looser one.
       const WorkingCopyEntry longPath = WorkingCopyEntry(
         path: 'lib/features/working_copy/widgets/working_copy_board.dart',
         oldPath: '',
@@ -704,7 +749,7 @@ void main() {
         isConflicted: false,
       );
 
-      final double boardWidth = GbmLayout.splitterWcColumns.minExtent * 2;
+      final double boardWidth = GbmLayout.splitterWcFiles.minExtent;
       await pumpGbmWidget(
         tester,
         child: SizedBox(

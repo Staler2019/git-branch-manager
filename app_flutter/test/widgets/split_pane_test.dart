@@ -85,7 +85,7 @@ void main() {
       await _pumpSplitPane(
         tester,
         axis: Axis.horizontal,
-        spec: GbmLayout.splitterWcColumns,
+        spec: GbmLayout.splitterWcStack,
         storageId: 'test.flex',
         childCount: 2,
       );
@@ -154,7 +154,7 @@ void main() {
       await _pumpSplitPane(
         tester,
         axis: Axis.horizontal,
-        spec: GbmLayout.splitterWcColumns,
+        spec: GbmLayout.splitterWcStack,
         storageId: 'test.drag.flex',
         childCount: 2,
         onFlexChanged: (flex) => capturedFlexes.add(flex.toList()),

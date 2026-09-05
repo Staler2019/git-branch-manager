@@ -78,14 +78,9 @@ void main() {
       expect(GbmLayout.splitterMainFiles.minExtent, 140);
     });
 
-    // wc.columns and wc.diff are on their way out -- both dividers are being
-    // rotated 90 degrees, a ruled deviation from this very table. Each is
-    // asserted here until the commit that removes its last caller. See the
-    // Working Copy group below for the replacements.
-    test('wc.columns: 1:1 flex ratio, 200px min', () {
-      expect(GbmLayout.splitterWcColumns.flexRatio, <double>[1, 1]);
-      expect(GbmLayout.splitterWcColumns.minExtent, 200);
-    });
+    // wc.columns and wc.diff are gone -- both dividers were rotated 90
+    // degrees, a ruled deviation from this very table. See the Working Copy
+    // group below for what replaced them.
 
     test('main.log: collapsed by default, 90px min', () {
       expect(GbmLayout.splitterMainLog.collapsedByDefault, isTrue);

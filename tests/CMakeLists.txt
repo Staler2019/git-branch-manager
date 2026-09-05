@@ -141,6 +141,11 @@ add_executable(gbm_exit_now fixtures/exit_now.cpp)
 target_link_libraries(gbm_exit_now PRIVATE gbm_warnings)
 
 add_executable(gbm_spawn_cost tools/spawn_cost_win.cpp)
+# `tools/spawn_cost_verdict.h` is a sibling header, and this target links
+# gbm_core but *not* gbm_test_support -- which is the one that carries
+# `tests/` as a PUBLIC include dir. The unit test reaches the header through
+# gbm_test_support; this tool has to be told separately.
+target_include_directories(gbm_spawn_cost PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(gbm_spawn_cost PRIVATE gbm_core gbm_warnings)
 add_dependencies(gbm_spawn_cost gbm_exit_now)
 

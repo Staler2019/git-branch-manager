@@ -174,4 +174,16 @@ Pin prefix `CI-`. Format: [README.md](README.md).
 - **Note**: MSVC's `/W4 /WX` still catches things a stub cannot, C4774 (a non-literal `printf`
   format string, e.g. from a ternary) among them. The stub narrows the round-trips; it does not
   remove the need for one.
+- **Do**: **the probe type-checks the code, and says nothing about the build wiring** — its
+  `-I` flags are hand-fed, so they can differ from what the real target actually has. A new
+  sibling header (`tools/spawn_cost_verdict.h`) passed the probe under `-I tests` and then
+  failed MSVC with `C1083: Cannot open include file`, because `gbm_spawn_cost` links
+  `gbm_core` but not `gbm_test_support` — and the latter is what carries `tests/` as a
+  PUBLIC include dir. The local build was no help either: the `#include` sits *inside* the
+  `#ifdef _WIN32`, so a green macOS build never looked at it.
+- **Do**: verify an include path from **`compile_commands.json`**, not from a build that may
+  have skipped the guarded block — `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON`, then read the `-I`
+  list for that one object. It is platform-independent evidence, and deleting the
+  `target_include_directories` line makes `tests/` vanish from it, which is the mutation that
+  proves the line is load-bearing rather than decorative.
 - **Evidence**: [ledger: 追加五](../ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
